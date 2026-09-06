@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -82,6 +83,14 @@ func TestPlanConfigIsValidForEveryListenerChoice(t *testing.T) {
 			// HTTP and the operator is told so.
 			wantCodes:   []string{"bind.public_no_tls"},
 			unwantCodes: []string{"external_url.insecure"},
+		},
+		{
+			name:   "cloudflare trusts its published ranges",
+			mutate: func(p *Plan) { ListenCloudflare.apply(p, 8080, "zoomies.example.com") },
+			// The same plain-HTTP story as any proxy, but the proxy question
+			// is answered already, so no untrusted-proxy finding.
+			wantCodes:   []string{"bind.public_no_tls"},
+			unwantCodes: []string{"proxy.untrusted", "proxy.bad_cidr", "external_url.insecure"},
 		},
 		{
 			name:        "self-signed says GitHub will refuse it",
@@ -162,6 +171,7 @@ func TestDefaultExternalURL(t *testing.T) {
 		{"tls files", ListenTLSFiles, "0.0.0.0:8443", config.TLSFiles, "zoomies.example.com", "https://zoomies.example.com:8443"},
 		{"tls on 443", ListenTLSFiles, "0.0.0.0:443", config.TLSFiles, "zoomies.example.com", "https://zoomies.example.com"},
 		{"behind a proxy", ListenProxy, "0.0.0.0:8080", config.TLSOff, "zoomies.example.com", "https://zoomies.example.com"},
+		{"behind cloudflare", ListenCloudflare, "0.0.0.0:8080", config.TLSOff, "zoomies.example.com", "https://zoomies.example.com"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -174,20 +184,44 @@ func TestDefaultExternalURL(t *testing.T) {
 
 func TestListenChoiceFor(t *testing.T) {
 	cases := []struct {
-		bind string
-		mode config.TLSMode
-		want ListenChoice
+		bind    string
+		mode    config.TLSMode
+		trusted []string
+		want    ListenChoice
 	}{
-		{"127.0.0.1:8080", config.TLSOff, ListenLoopback},
-		{"[::1]:8080", config.TLSOff, ListenLoopback},
-		{"0.0.0.0:8080", config.TLSOff, ListenProxy},
-		{"0.0.0.0:8443", config.TLSFiles, ListenTLSFiles},
-		{"0.0.0.0:8443", config.TLSSelfSigned, ListenSelfSigned},
+		{"127.0.0.1:8080", config.TLSOff, nil, ListenLoopback},
+		{"[::1]:8080", config.TLSOff, nil, ListenLoopback},
+		{"0.0.0.0:8080", config.TLSOff, nil, ListenProxy},
+		{"0.0.0.0:8080", config.TLSOff, []string{"cloudflare"}, ListenCloudflare},
+		{"0.0.0.0:8443", config.TLSFiles, nil, ListenTLSFiles},
+		{"0.0.0.0:8443", config.TLSSelfSigned, nil, ListenSelfSigned},
 	}
 	for _, tc := range cases {
-		if got := listenChoiceFor(tc.bind, tc.mode); got != tc.want {
-			t.Errorf("listenChoiceFor(%q, %q) = %q, want %q", tc.bind, tc.mode, got, tc.want)
+		if got := listenChoiceFor(tc.bind, tc.mode, tc.trusted); got != tc.want {
+			t.Errorf("listenChoiceFor(%q, %q, %v) = %q, want %q", tc.bind, tc.mode, tc.trusted, got, tc.want)
 		}
+	}
+}
+
+// The Cloudflare choice must answer the proxy question itself, or choosing it
+// quietly leaves every audit row recording Cloudflare.
+func TestCloudflareChoiceTrustsCloudflare(t *testing.T) {
+	p := testPlan(t)
+	ListenCloudflare.apply(&p, 8080, "zoomies.example.com")
+	if !slices.Contains(p.TrustedProxies, config.TrustedProxyCloudflare) {
+		t.Fatal("the Cloudflare choice did not trust the cloudflare token")
+	}
+	if p.Bind != "0.0.0.0:8080" || p.TLSMode != config.TLSOff {
+		t.Fatalf("bind %s TLS %s, want 0.0.0.0:8080 with TLS off", p.Bind, p.TLSMode)
+	}
+}
+
+func TestValidateCIDRListAcceptsTheCloudflareToken(t *testing.T) {
+	if err := validateCIDRList("cloudflare, 10.0.0.0/8"); err != nil {
+		t.Fatalf("the token and a CIDR must both pass: %v", err)
+	}
+	if err := validateCIDRList("the load balancer"); err == nil {
+		t.Fatal("a nonsense entry was accepted")
 	}
 }
 
@@ -207,8 +241,8 @@ func TestSuggestPool(t *testing.T) {
 			capacity: 4,
 			wantName: "zoomies-4vcpu-ubuntu-2404",
 			wantCmd: "zoomies pools create --name zoomies-4vcpu-ubuntu-2404 " +
-				"--labels zoomies-4vcpu-ubuntu-2404,linux,x64 --backend docker --max 4 " +
-				"--cpus 4 --os ubuntu --os-version 24.04 --arch amd64",
+				"--labels linux,x64,zoomies,zoomies-4vcpu-ubuntu-2404 --backend docker --max 4 " +
+				"--installation inst_x --cpus 4 --os ubuntu --os-version 24.04 --arch amd64",
 		},
 		{
 			name:     "arm64 is spelled out",
@@ -217,8 +251,8 @@ func TestSuggestPool(t *testing.T) {
 			capacity: 2,
 			wantName: "zoomies-4vcpu-debian-12-arm64",
 			wantCmd: "zoomies pools create --name zoomies-4vcpu-debian-12-arm64 " +
-				"--labels zoomies-4vcpu-debian-12-arm64,linux,arm64 --backend podman --max 2 " +
-				"--cpus 4 --os debian --os-version 12 --arch arm64",
+				"--labels arm64,linux,zoomies,zoomies-4vcpu-debian-12-arm64 --backend podman --max 2 " +
+				"--installation inst_x --cpus 4 --os debian --os-version 12 --arch arm64",
 		},
 		{
 			// The host is the environment, so there is no image and no
@@ -229,19 +263,20 @@ func TestSuggestPool(t *testing.T) {
 			capacity: 1,
 			wantName: "zoomies-4vcpu-ubuntu-2404-host",
 			wantCmd: "zoomies pools create --name zoomies-4vcpu-ubuntu-2404-host " +
-				"--labels zoomies-4vcpu-ubuntu-2404-host,linux,x64 --backend process --max 1 " +
-				"--cpus 4 --arch amd64",
+				"--labels linux,x64,zoomies,zoomies-4vcpu-ubuntu-2404-host --backend process --max 1 " +
+				"--installation inst_x --cpus 4 --arch amd64",
 		},
 		{
-			// A host that will not say what distribution it is gets the old
-			// architecture label rather than a name that is only the brand.
+			// A host that will not say which distribution it runs cannot
+			// promise one, so it falls back to the architecture label -- still
+			// branded, because that is the word a workflow has to write.
 			name:     "a host that says nothing falls back",
 			det:      Detection{OS: "linux", Arch: "amd64"},
 			backend:  store.BackendDocker,
 			capacity: 0,
-			wantName: "linux-x64",
-			wantCmd: "zoomies pools create --name linux-x64 --labels linux-x64 " +
-				"--backend docker --max 1 --cpus 1 --arch amd64",
+			wantName: "zoomies-linux-x64",
+			wantCmd: "zoomies pools create --name zoomies-linux-x64 --labels zoomies,zoomies-linux-x64 " +
+				"--backend docker --max 1 --installation inst_x --cpus 1 --arch amd64",
 		},
 	}
 	for _, tc := range cases {
@@ -250,8 +285,20 @@ func TestSuggestPool(t *testing.T) {
 			if got.Name != tc.wantName {
 				t.Errorf("Name = %q, want %q", got.Name, tc.wantName)
 			}
-			if cmd := got.Command(); cmd != tc.wantCmd {
+			// `pools create` refuses without --installation, so a suggestion
+			// that omitted it printed a line that could not run -- which was
+			// the only action the installer's closing summary gave the
+			// operator.
+			if cmd := got.Command("inst_x"); cmd != tc.wantCmd {
 				t.Errorf("Command() = %q\nwant       %q", cmd, tc.wantCmd)
+			}
+			if cmd := got.Command(""); !strings.Contains(cmd, "--installation ") {
+				t.Errorf("Command(\"\") = %q, want it to still carry --installation", cmd)
+			}
+			// The line the installer prints is the one a workflow copies, so
+			// it is the branded label on its own rather than a list to decode.
+			if runsOn := got.RunsOn(); runsOn != tc.wantName {
+				t.Errorf("RunsOn() = %q, want %q", runsOn, tc.wantName)
 			}
 		})
 	}
@@ -274,27 +321,6 @@ func TestTheSuggestedPoolFitsTheHostThatSuggestedIt(t *testing.T) {
 	}
 }
 
-func TestBackendChoicesPreferRootless(t *testing.T) {
-	det := Detection{
-		Docker: RuntimeInfo{Kind: store.BackendDocker, Available: true, Rootless: false, Endpoint: "unix:///var/run/docker.sock", Installed: true},
-		Podman: RuntimeInfo{Kind: store.BackendPodman, Available: true, Rootless: true, Endpoint: "unix:///run/user/1000/podman/podman.sock", Installed: true},
-	}
-	choices := backendChoices(det)
-	if len(choices) < 3 {
-		t.Fatalf("want rootless podman, root docker and process; got %d", len(choices))
-	}
-	if choices[0].Kind != store.BackendPodman || !choices[0].Rootless {
-		t.Fatalf("rootless must come first, got %+v", choices[0])
-	}
-	if choices[1].Kind != store.BackendDocker || choices[1].Warning == "" {
-		t.Fatalf("a root daemon must be offered with what it costs, got %+v", choices[1])
-	}
-	last := choices[len(choices)-1]
-	if last.Kind != store.BackendProcess || last.Warning == "" {
-		t.Fatalf("the process backend must be offered last, with its warning: %+v", last)
-	}
-}
-
 func TestBackendChoicesNameWhatToStart(t *testing.T) {
 	det := Detection{
 		Docker: RuntimeInfo{Kind: store.BackendDocker, Installed: true, Detail: "no socket at /var/run/docker.sock"},
@@ -312,8 +338,24 @@ func TestBackendChoicesNameWhatToStart(t *testing.T) {
 	if unavailable.Fix == "" {
 		t.Fatalf("the choice must say what to start: %+v", unavailable)
 	}
-	if choices[len(choices)-1].Kind != store.BackendProcess {
+	var hasProcess bool
+	for _, c := range choices {
+		if c.Kind == store.BackendProcess {
+			hasProcess = true
+		}
+	}
+	if !hasProcess {
 		t.Fatal("the process backend must still be offered when no runtime answered")
+	}
+	// The prompt and defaultPlan both take the first choice, so the first
+	// choice has to be one that can run a job. Offering a dead daemon at the
+	// top is how an unattended install ended up writing backend: docker on a
+	// host whose socket was unreachable.
+	if !choices[0].Available {
+		t.Fatalf("the first choice must be usable, got %+v", choices[0])
+	}
+	if choices[len(choices)-1].Available {
+		t.Fatalf("an unusable runtime belongs last, got %+v", choices[len(choices)-1])
 	}
 }
 

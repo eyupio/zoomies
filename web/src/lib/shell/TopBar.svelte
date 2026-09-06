@@ -5,6 +5,10 @@
   The connection state is never silent. A quiet dot when live; the word
   "Reconnecting" when not. An operator must never be looking at a frozen screen
   that claims to be live.
+
+  The problems bell is here for the same reason: whatever page an operator is
+  on, the count of things that need them is on screen, and the list is one click
+  away rather than only on the Overview.
 -->
 <script lang="ts">
   import { Keyboard, LogOut, Monitor, Moon, Search, Sun, User } from '@lucide/svelte';
@@ -14,8 +18,10 @@
   import { session } from '../state/session.svelte';
   import { theme } from '../state/theme.svelte';
   import { toasts } from '../state/toasts.svelte';
+  import ProblemsBell from '../problems/ProblemsBell.svelte';
   import DropdownMenu from '../components/DropdownMenu.svelte';
   import IconButton from '../components/IconButton.svelte';
+  import Logo from '../components/Logo.svelte';
   import type { MenuItem } from '../components/DropdownMenu.svelte';
 
   interface Props {
@@ -89,6 +95,15 @@
 </script>
 
 <header class="topbar">
+  <!--
+    On a phone the navigation is a bar along the bottom and its masthead is
+    gone, so this is the only place the product says its own name. It is a link
+    home for the same reason the masthead is.
+  -->
+  <a href="/" class="home" aria-label="Zoomies, go to the overview">
+    <Logo variant="mark" size={22} label="" />
+  </a>
+
   <div class="title">
     <p class="page">{router.title}</p>
   </div>
@@ -100,7 +115,15 @@
     </p>
     <output class="sr-only" aria-live="polite">Connection: {connectionText}</output>
 
-    <button type="button" class="palette-hint" onclick={onpalette}>
+    <ProblemsBell />
+
+    <!--
+      The label is on the button rather than only in it: below the sidebar
+      breakpoint the words are hidden, and below the phone breakpoint the key
+      cap goes too, so without this the button's accessible name would narrow
+      to "Ctrl K" and then to nothing at all.
+    -->
+    <button type="button" class="palette-hint" aria-label="Search or jump to" onclick={onpalette}>
       <Search size={13} aria-hidden="true" />
       <span>Search or jump to</span>
       <kbd>{modKey} K</kbd>
@@ -130,9 +153,19 @@
     gap: var(--z-space-4);
     height: var(--z-topbar-height);
     padding: 0 var(--z-space-6);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
     background: color-mix(in srgb, var(--z-bg) 88%, transparent);
     backdrop-filter: blur(8px);
+  }
+  /* Desktop has the masthead in the sidebar; two marks on one screen is one
+     too many. */
+  .home {
+    display: none;
+    flex: none;
+    align-items: center;
+    border-radius: var(--z-radius-md);
+    color: var(--z-text);
+    text-decoration: none;
   }
   .title {
     /*
@@ -141,6 +174,7 @@
       fit, whose controls are then too small to press. The title is the part
       that gives way, because the h1 below it says the same thing.
     */
+    flex: 1;
     min-width: 0;
   }
   .page {
@@ -209,7 +243,7 @@
     gap: var(--z-space-2);
     height: var(--z-space-6);
     padding: 0 var(--z-space-2);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
     color: var(--z-text-subtle);
@@ -222,8 +256,8 @@
     color: var(--z-text-muted);
   }
   kbd {
-    padding: 1px var(--z-space-1);
-    border: 1px solid var(--z-border);
+    padding: var(--z-nudge-1) var(--z-space-1);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     font-family: var(--z-font-mono);
@@ -235,8 +269,21 @@
     }
   }
   @media (max-width: 768px) {
+    /*
+      The whole hint goes on a phone. Hiding only its text left a `Ctrl K`
+      key cap on a device with no Ctrl and no K -- an instruction for a
+      keyboard that is not there. The palette is still reachable: the hint is
+      a button, and the search icon beside it opens it.
+    */
+    .palette-hint kbd {
+      display: none;
+    }
     .topbar {
+      gap: var(--z-space-3);
       padding: 0 var(--z-space-3);
+    }
+    .home {
+      display: inline-flex;
     }
     /*
       "Authentication disabled" -- or any long display name -- is 175px of a

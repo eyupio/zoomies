@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -204,6 +205,53 @@ func TestBuildRunnerConfigDockerModes(t *testing.T) {
 		want := "/run/user/1000/docker.sock:/var/run/docker.sock"
 		if !slices.Contains(cfg.HostConfig.Binds, want) {
 			t.Fatalf("binds = %v, want %q", cfg.HostConfig.Binds, want)
+		}
+	})
+
+	// Mounting the socket is only half of it. The runner is a non-root user
+	// inside the container and the socket is root:docker on the host, so a
+	// mount without the owning group is a socket the job cannot open -- and
+	// the error it gets ("permission denied while trying to connect to the
+	// Docker daemon socket") points at the host, where nothing is wrong.
+	t.Run("host socket carries its owning group", func(t *testing.T) {
+		spec := jitSpec()
+		spec.DockerMode = store.DockerHostSocket
+		cfg := buildRunnerConfig(spec, dockerFlavor(), containerOptions{
+			Now: time.Now(), HostSocket: "/var/run/docker.sock", SocketGID: 987,
+		})
+		if !slices.Contains(cfg.HostConfig.GroupAdd, "987") {
+			t.Fatalf("group_add = %v, want it to contain the socket's gid 987", cfg.HostConfig.GroupAdd)
+		}
+	})
+
+	// Root reaches the socket already; adding the group would only widen what a
+	// root container can do, for nothing.
+	t.Run("a root runner is not given the socket group", func(t *testing.T) {
+		spec := jitSpec()
+		spec.DockerMode = store.DockerHostSocket
+		spec.RunAsRoot = true
+		cfg := buildRunnerConfig(spec, dockerFlavor(), containerOptions{
+			Now: time.Now(), HostSocket: "/var/run/docker.sock", SocketGID: 987,
+		})
+		if len(cfg.HostConfig.GroupAdd) != 0 {
+			t.Fatalf("group_add = %v, want none", cfg.HostConfig.GroupAdd)
+		}
+	})
+
+	// A socket Zoomies could not stat is still mounted: the pool asked for it,
+	// and a world-writable or root-run case works anyway. Failing the create
+	// here would take away a mode that does work.
+	t.Run("an unreadable socket owner still mounts", func(t *testing.T) {
+		spec := jitSpec()
+		spec.DockerMode = store.DockerHostSocket
+		cfg := buildRunnerConfig(spec, dockerFlavor(), containerOptions{
+			Now: time.Now(), HostSocket: "/var/run/docker.sock",
+		})
+		if len(cfg.HostConfig.Binds) == 0 {
+			t.Fatal("the socket must still be mounted when its owner is unknown")
+		}
+		if len(cfg.HostConfig.GroupAdd) != 0 {
+			t.Fatalf("group_add = %v, want none", cfg.HostConfig.GroupAdd)
 		}
 	})
 
@@ -468,9 +516,13 @@ func TestDockerCreate(t *testing.T) {
 	})
 	b := dockerBackendFor(t, f, DockerOptions{})
 
-	h, err := b.Create(context.Background(), jitSpec())
+	result, err := b.CreateWithResult(context.Background(), jitSpec())
 	if err != nil {
 		t.Fatalf("create: %v", err)
+	}
+	h := result.Handle
+	if result.ImagePullDuration != nil {
+		t.Fatalf("cached image reported a pull duration: %v", *result.ImagePullDuration)
 	}
 	if h != "c1" {
 		t.Fatalf("handle = %q", h)
@@ -484,6 +536,79 @@ func TestDockerCreate(t *testing.T) {
 	// Idempotence: an existing container of the same name is removed first.
 	if f.request(http.MethodDelete, v+"/containers/zoomies-linux-x64-7f3a") == nil {
 		t.Fatal("create must replace an existing container of the same name")
+	}
+}
+
+func TestDockerCreateUsesPoolPullPolicyAndResolvedDigest(t *testing.T) {
+	const first = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const second = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	current, pulls, creates := first, 0, 0
+	var used []string
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"DELETE " + v + "/containers/{id}": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"message": "absent"})
+		},
+		"GET " + v + "/images/{ref...}": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, map[string]any{"Id": current, "RepoDigests": []string{"ghcr.io/acme/runner@" + current}})
+		},
+		"POST " + v + "/images/create": func(w http.ResponseWriter, r *http.Request) {
+			pulls++
+			if pulls > 1 {
+				current = second
+			}
+			_, _ = w.Write([]byte("{}\n"))
+		},
+		"POST " + v + "/containers/create": func(w http.ResponseWriter, r *http.Request) {
+			var req ContainerCreateRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			used = append(used, req.Image)
+			creates++
+			writeJSON(w, http.StatusCreated, map[string]any{"Id": fmt.Sprintf("c%d", creates)})
+		},
+		"POST " + v + "/containers/c1/start": func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) },
+		"POST " + v + "/containers/c2/start": func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) },
+	})
+	b := dockerBackendFor(t, f, DockerOptions{PullPolicy: PullNever})
+	spec := jitSpec()
+	spec.PullPolicy = store.PullAlways
+	firstResult, err := b.CreateWithResult(context.Background(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondResult, err := b.CreateWithResult(context.Background(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pulls != 2 || firstResult.ImagePullDuration == nil || secondResult.ImagePullDuration == nil {
+		t.Fatalf("always policy pulled %d times; durations %v, %v", pulls, firstResult.ImagePullDuration, secondResult.ImagePullDuration)
+	}
+	if firstResult.Digest != first || secondResult.Digest != second || !slices.Equal(used, []string{"ghcr.io/acme/runner@" + first, "ghcr.io/acme/runner@" + second}) {
+		t.Fatalf("results %q/%q and create refs %v do not track the moving tag by a reference the daemon resolves", firstResult.Digest, secondResult.Digest, used)
+	}
+}
+
+func TestDockerCreateIfNotPresentAndPinnedOnly(t *testing.T) {
+	const digest = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	pulls := 0
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"DELETE " + v + "/containers/{id}": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 404, map[string]string{"message": "absent"})
+		},
+		"GET " + v + "/images/{ref...}":      func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]string{"Id": digest}) },
+		"POST " + v + "/images/create":       func(w http.ResponseWriter, r *http.Request) { pulls++; _, _ = w.Write([]byte("{}\n")) },
+		"POST " + v + "/containers/create":   func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 201, map[string]string{"Id": "c1"}) },
+		"POST " + v + "/containers/c1/start": func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) },
+	})
+	b := dockerBackendFor(t, f, DockerOptions{PullPolicy: PullAlways})
+	spec := jitSpec()
+	spec.PullPolicy = store.PullIfNotPresent
+	result, err := b.CreateWithResult(context.Background(), spec)
+	if err != nil || result.Digest != digest || pulls != 0 || result.ImagePullDuration != nil {
+		t.Fatalf("if-not-present result=%+v pulls=%d err=%v", result, pulls, err)
+	}
+	spec.PullPolicy = store.PullPinnedOnly
+	if _, err := b.Create(context.Background(), spec); err == nil || !strings.Contains(err.Error(), "pinned-only") {
+		t.Fatalf("pinned-only accepted tag: %v", err)
 	}
 }
 
@@ -632,5 +757,18 @@ func TestDockerStatsNeverFailsAHeartbeat(t *testing.T) {
 	}
 	if got != (Stats{}) {
 		t.Fatalf("stats = %+v", got)
+	}
+}
+
+// With docker_mode: dind the builds run inside the sidecar, so a pool's limits
+// were worth nothing while only the runner carried them.
+func TestBuildDinDConfigCarriesThePoolsResourceLimits(t *testing.T) {
+	spec := jitSpec()
+	spec.DockerMode = store.DockerDinD
+	spec.Resources = store.Resources{CPUs: 2, MemoryMB: 4096, PidsLimit: 512}
+	cfg := buildDinDConfig(spec, dockerFlavor(), containerOptions{Now: time.Now(), DinDImage: DefaultDinDImage, Network: "zoomies"})
+	hc := cfg.HostConfig
+	if hc.NanoCPUs != 2e9 || hc.Memory != 4096*1024*1024 || hc.MemorySwap != hc.Memory || hc.PidsLimit == nil || *hc.PidsLimit != 512 {
+		t.Fatalf("the sidecar carries cpus=%d memory=%d swap=%d pids=%v; want the pool's limits", hc.NanoCPUs, hc.Memory, hc.MemorySwap, hc.PidsLimit)
 	}
 }

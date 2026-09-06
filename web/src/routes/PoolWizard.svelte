@@ -2,7 +2,7 @@
   Creating a pool.
 
   The wizard itself lives in $lib/pools so that editing an existing pool, on the
-  pool's own page, is the same five steps rather than a second form that drifts
+  pool's own page, is the same six steps rather than a second form that drifts
   away from this one.
 -->
 <script lang="ts">
@@ -27,7 +27,7 @@
 <PageHeader
   title="Create a pool"
   breadcrumb={[{ label: 'Pools', href: '/pools' }, { label: 'Create a pool' }]}
-  subtitle="Five steps: who the runners register with, what labels they answer to, how they run, how many there are, and what the controller makes of it."
+  subtitle="Six steps: who the runners register with, what labels they answer to, which hosts they land on, how they run, how many there are, and what the controller makes of it."
 />
 
 {#if canOperate}

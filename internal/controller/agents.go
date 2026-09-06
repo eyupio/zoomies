@@ -17,6 +17,7 @@ import (
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/events"
+	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
 )
@@ -91,6 +92,9 @@ type leasedTask struct {
 // per runner. A reconcile that decides "remove this failed runner" on every
 // pass therefore leaves one remove task, not one every ten seconds.
 func taskKey(t agent.Task) string {
+	if t.Kind == agent.TaskPrewarmImage {
+		return string(t.Kind) + ":" + t.PoolID + ":" + t.Image
+	}
 	if t.StreamID != "" {
 		return string(t.Kind) + "|stream:" + t.StreamID
 	}
@@ -164,16 +168,37 @@ func (q *taskQueue) take(n int, now time.Time) []agent.Task {
 	return out
 }
 
-// complete clears a task's lease once its result has arrived.
-func (q *taskQueue) complete(taskID string) {
+// complete clears a task's lease once its result has arrived, returning the
+// task if it was still on record -- it is not after a controller restart.
+func (q *taskQueue) complete(taskID string) (agent.Task, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	delete(q.inflight, taskID)
+	lt, ok := q.inflight[taskID]
+	if ok {
+		delete(q.inflight, taskID)
+		return lt.task, true
+	}
+	return agent.Task{}, false
+}
+
+// lifecycleTask reports whether a task's failure leaves its runner unusable.
+//
+// A create, stop or remove that fails does; a log relay that could not be
+// opened says nothing about the runner at all -- the container is where it
+// was, doing what it was doing. An unknown kind is treated as lifecycle,
+// which is the only safe reading of a failure whose task nobody can name.
+func lifecycleTask(kind agent.TaskKind) bool {
+	switch kind {
+	case agent.TaskStreamLogs, agent.TaskCancelLogs, agent.TaskPrewarmImage:
+		return false
+	}
+	return true
 }
 
 // sweep re-queues tasks whose lease has expired and drops the ones that have
-// been tried too often. It returns how many of each happened.
-func (q *taskQueue) sweep(now time.Time) (requeued, dropped int) {
+// been tried too often. It returns how many were re-queued and which were
+// dropped, because a dropped stop is a runner nothing will ever stop.
+func (q *taskQueue) sweep(now time.Time) (requeued int, dropped []agent.Task) {
 	q.mu.Lock()
 	for id, lt := range q.inflight {
 		if lt.expires.IsZero() || now.Before(lt.expires) {
@@ -181,7 +206,7 @@ func (q *taskQueue) sweep(now time.Time) (requeued, dropped int) {
 		}
 		delete(q.inflight, id)
 		if lt.attempts >= maxTaskAttempts {
-			dropped++
+			dropped = append(dropped, lt.task)
 			continue
 		}
 		q.pending = append(q.pending, lt)
@@ -218,6 +243,38 @@ func (c *Controller) enqueue(hostID string, t agent.Task) bool {
 	return c.queues.get(hostID).enqueue(t)
 }
 
+// PrewarmPool queues one idempotent image preparation task on every matching
+// healthy host. A failure is recorded per host and never affects scheduling.
+// ErrPrewarmUnsupported is returned for a pool whose backend has no image to
+// pull ahead of time. It is a refusal the caller can act on, kept apart from a
+// failure to list hosts so the API can answer the two differently.
+var ErrPrewarmUnsupported = errors.New("the process backend does not support image prewarming; its runners install the runner archive themselves")
+
+func (c *Controller) PrewarmPool(ctx context.Context, p *store.Pool) (int, error) {
+	hosts, err := c.st.ListHosts(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if p.Backend == store.BackendProcess {
+		return 0, ErrPrewarmUnsupported
+	}
+	// The image the runners will be created from, which for a pool that gives
+	// its jobs a daemon is not always the one the row names: pulling the other
+	// one would warm nothing.
+	image := c.RunnerImage(p)
+	n := 0
+	for _, h := range hosts {
+		if !scheduler.HostCanRun(h, p, c.Now()) {
+			continue
+		}
+		_ = c.st.SetPoolPrewarm(ctx, p.ID, h.ID, image, "pending", "", "")
+		if c.enqueue(h.ID, agent.Task{Kind: agent.TaskPrewarmImage, PoolID: p.ID, Backend: p.Backend, Image: image, PullPolicy: p.PullPolicy, IssuedAt: c.Now()}) {
+			n++
+		}
+	}
+	return n, nil
+}
+
 // ---------------------------------------------------------------------------
 // The agent-facing API
 // ---------------------------------------------------------------------------
@@ -230,13 +287,16 @@ func (c *Controller) Join(ctx context.Context, req agent.JoinRequest, ip string)
 }
 
 func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string, embedded bool) (*agent.JoinResponse, error) {
+	// Refusals the agent's operator can act on are auth.Invalid, so the API
+	// answers them with the reason; anything else below is this controller
+	// failing, which the API answers with a request ID and logs.
 	if req.ProtocolVersion != 0 && req.ProtocolVersion != agent.ProtocolVersion {
-		return nil, fmt.Errorf("this agent speaks protocol version %d and this controller speaks %d; "+
+		return nil, auth.Invalid("this agent speaks protocol version %d and this controller speaks %d; "+
 			"upgrade whichever is older so the two match", req.ProtocolVersion, agent.ProtocolVersion)
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		return nil, errors.New("the join request carried no host name; start the agent with --name or set agent.name, since it is how this host appears in the UI")
+		return nil, auth.Invalid("the join request carried no host name; start the agent with --name or set agent.name, since it is how this host appears in the UI")
 	}
 
 	// Reuse the row when a host of this name already exists, so re-joining a
@@ -245,6 +305,17 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 	existing, err := c.st.GetHostByName(ctx, name)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return nil, fmt.Errorf("looking up host %q: %w", name, err)
+	}
+	// Taking over an existing row is a privileged act: it destroys that host's
+	// runner records and inherits its ID, its labels and its cordon state. A
+	// join token alone must not be enough, or anyone an operator trusts to
+	// enrol one machine can seize any other machine by naming itself after it.
+	// The proof is the agent token the previous registration was issued, which
+	// a re-joining agent still holds; the embedded agent is exempt because the
+	// caller is this same process.
+	if existing != nil && !embedded && !c.provesHost(existing, req.PreviousToken) {
+		return nil, fmt.Errorf("a host named %q is already enrolled here. Re-join from the machine that holds its credentials, "+
+			"or, if that machine is gone, delete the host first (`zoomies hosts delete %s`) and join again", name, existing.ID)
 	}
 	hostID := store.NewID(store.PrefixHost)
 	if existing != nil {
@@ -271,12 +342,22 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 		capacity = 1
 	}
 
+	// The agent describes itself, but the operator who minted the join token
+	// decides what this host advertises: labels are what the scheduler matches
+	// a pool's host selector against, so an agent that could overwrite them
+	// could place itself in a pool it was never meant to serve -- and be handed
+	// that pool's runner registrations. Token labels therefore win.
 	labels := store.StringMap{}
-	maps.Copy(labels, tokenLabels)
-	for k, v := range req.Labels {
+	maps.Copy(labels, req.Labels)
+	for k, v := range tokenLabels {
+		if was, ok := labels[k]; ok && was != v {
+			c.log.Warn("a joining agent declared a label the join token pins; the token's value stands",
+				"host", name, "label", k, "declared", was, "token", v)
+		}
 		labels[k] = v
 	}
 
+	probed := hostBackends(req.Backends)
 	plaintext, hash := auth.NewAgentToken()
 	now := c.Now()
 	h := &store.Host{
@@ -285,7 +366,8 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 		Address:       firstNonEmpty(req.Address, ip),
 		Embedded:      embedded,
 		Capacity:      capacity,
-		Backends:      availableBackends(req.Backends),
+		Backends:      probed.Kinds(),
+		BackendInfo:   probed,
 		Labels:        labels,
 		OS:            req.OS,
 		Distro:        req.Distro,
@@ -309,8 +391,12 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 			c.log.Warn("a host joined again while runners were still recorded against it; those rows are being dropped",
 				"host", existing.ID, "name", name, "runners", len(stale))
 		}
-		if err := c.st.DeleteHost(ctx, existing.ID); err != nil {
+		dropped, err := c.st.DeleteHost(ctx, existing.ID)
+		if err != nil {
 			return nil, fmt.Errorf("replacing the previous registration of host %s: %w", name, err)
+		}
+		for _, id := range dropped {
+			c.publishRunnerDeleted(id)
 		}
 		h.Embedded = existing.Embedded || embedded
 		h.Cordoned = existing.Cordoned
@@ -341,6 +427,17 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 	}, nil
 }
 
+// provesHost reports whether a join request carries the agent token the named
+// host was last issued, which is what distinguishes a machine re-joining itself
+// from a stranger claiming its name.
+func (c *Controller) provesHost(h *store.Host, token string) bool {
+	token = strings.TrimSpace(token)
+	if token == "" || h.TokenHash == "" {
+		return false
+	}
+	return cryptox.ConstantTimeEqual(h.TokenHash, cryptox.HashToken(token))
+}
+
 // Heartbeat records that a host is alive, merges anything its agent observed,
 // and tells the agent whether the controller still recognises it.
 func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.HeartbeatRequest) (*agent.HeartbeatResponse, error) {
@@ -361,29 +458,44 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 
 	now := c.Now()
 	wasHealthy := h.Healthy(now)
-	capacity := req.Capacity
-	if capacity < 1 {
-		capacity = h.Capacity
-	}
-	if err := c.st.Heartbeat(ctx, hostID, capacity, now); err != nil {
+	// The heartbeat's capacity is deliberately not written. Capacity is set
+	// at join -- from the join token when it carries one, else from the
+	// agent -- and from then on the host row is what an operator edits: the
+	// Hosts API says "use 0 to stop this host taking new runners", and a
+	// heartbeat writing the agent's configured number back thirty seconds
+	// later would undo exactly that.
+	if err := c.st.Heartbeat(ctx, hostID, now); err != nil {
 		return nil, err
 	}
 
 	// Only write the row back when the agent is telling us something new: a
 	// heartbeat every 30 seconds per host is not worth an UPDATE each time.
-	kinds := availableBackends(req.Backends)
-	changed := (len(kinds) > 0 && !slices.Equal(kinds, h.Backends)) ||
+	//
+	// An agent re-probes its backends as it runs, so this is also how a host
+	// that started before its Docker daemon -- or before its user was in the
+	// docker group -- stops advertising nothing and becomes schedulable. That
+	// recovery is worth a log line and a scheduling pass: until it happens,
+	// every pool on that backend looks healthy and quietly starts no runner.
+	probed := hostBackends(req.Backends)
+	kinds := probed.Kinds()
+	backendsChanged := len(probed) > 0 && !slices.Equal(kinds, h.Backends)
+	changed := backendsChanged ||
+		(len(probed) > 0 && !slices.Equal(probed, h.BackendInfo)) ||
 		(req.Version != "" && req.Version != h.Version) ||
-		capacity != h.Capacity ||
 		// A host resized in place -- a VM given more cores, a container's
 		// cgroup limit raised -- has to stop describing itself as the machine
-		// it used to be, or its name and the Hosts page both go stale.
+		// it used to be, or its name and every pool sized from it go stale.
+		// This is a fact about the machine, not the operator's capacity
+		// setting, which stays theirs.
 		(req.CPUs > 0 && req.CPUs != h.CPUs) ||
 		(req.MemoryMB > 0 && req.MemoryMB != h.MemoryMB)
 	if changed {
-		h.Backends = firstNonEmptySlice(kinds, h.Backends)
+		was := h.Backends
+		if len(probed) > 0 {
+			h.Backends = kinds
+			h.BackendInfo = probed
+		}
 		h.Version = firstNonEmpty(req.Version, h.Version)
-		h.Capacity = capacity
 		if req.CPUs > 0 {
 			h.CPUs = req.CPUs
 		}
@@ -393,6 +505,14 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 		h.LastHeartbeat = now
 		if err := c.st.UpdateHost(ctx, h); err != nil {
 			c.log.Warn("could not record what a host reported about itself", "host", hostID, "error", err)
+		} else if backendsChanged {
+			c.log.Info("a host's backends changed", "host", hostID, "name", h.Name,
+				"was", strings.Join(was, ","), "now", strings.Join(h.Backends, ","),
+				"detail", unavailableDetail(probed))
+			c.publishHost(h)
+			// A host that has just gained a backend may be the one a stalled
+			// pool has been waiting for.
+			c.Nudge()
 		}
 	}
 
@@ -401,7 +521,6 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 	}
 
 	h.LastHeartbeat = now
-	h.Capacity = capacity
 	if !wasHealthy {
 		// The host was over its heartbeat window and has come back; the Hosts
 		// page should say so without waiting for the health sweep.
@@ -451,7 +570,18 @@ func (c *Controller) PollTasks(ctx context.Context, hostID string, wait time.Dur
 
 // ReportResult applies the outcome of one task and clears its lease.
 func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.TaskResult) error {
-	c.queues.get(hostID).complete(res.TaskID)
+	task, known := c.queues.get(hostID).complete(res.TaskID)
+	if known && task.Kind == agent.TaskPrewarmImage {
+		state := "succeeded"
+		if !res.OK {
+			state = "failed"
+		}
+		return c.st.SetPoolPrewarm(ctx, task.PoolID, hostID, task.Image, state, res.Digest, res.Error)
+	}
+	kind := res.Kind
+	if kind == "" && known {
+		kind = task.Kind
+	}
 	if res.RunnerID == "" {
 		return nil
 	}
@@ -474,12 +604,29 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 			c.log.Warn("could not record a runner's workload handle", "runner", r.ID, "error", err)
 		}
 	}
+	if kind == agent.TaskCreateRunner && res.OK && res.ContainerStartedAt != nil {
+		_ = c.st.SetRunnerStartup(ctx, r.ID, res.ImagePullDuration, res.ContainerStartedAt)
+		if p, err := c.st.GetPool(ctx, r.PoolID); err == nil {
+			observeDuration(c.metrics.createToContainer, p.Name, string(p.Backend), r.CreatedAt, *res.ContainerStartedAt)
+		}
+	}
+	if res.Digest != "" {
+		_ = c.st.SetRunnerImageDigest(ctx, r.ID, res.Digest)
+	}
 
 	state := res.State
 	message := res.Error
 	if !res.OK {
-		// A task that failed leaves the runner unusable; saying so on the
-		// Runners page is the whole point of reporting it.
+		if !lifecycleTask(kind) {
+			// The relay could not be opened, which the viewer has been told;
+			// the runner itself is untouched, and failing it here would have
+			// the next reconcile tear down a container that may be mid-job.
+			c.log.Info("a log task failed; the runner is left as it is",
+				"runner", r.ID, "task", res.TaskID, "kind", kind, "error", res.Error)
+			return nil
+		}
+		// A lifecycle task that failed leaves the runner unusable; saying so
+		// on the Runners page is the whole point of reporting it.
 		state = store.RunnerFailed
 		if message == "" {
 			message = "the agent could not complete task " + res.TaskID
@@ -553,7 +700,21 @@ func (c *Controller) applyRunnerState(ctx context.Context, r *store.Runner, stat
 		c.log.Warn("could not apply a runner state an agent reported", "runner", r.ID, "state", state, "error", err)
 		return
 	}
-	c.publishRunner(events.KindRunnerUpdated, updated)
+	if (state == store.RunnerIdle || state == store.RunnerBusy) && updated.RegisteredAt != nil {
+		if p, e := c.st.GetPool(ctx, r.PoolID); e == nil {
+			if r.ContainerStartedAt != nil {
+				observeDuration(c.metrics.containerToRegistered, p.Name, string(p.Backend), *r.ContainerStartedAt, *updated.RegisteredAt)
+			}
+			observeDuration(c.metrics.registeredToReady, p.Name, string(p.Backend), *updated.RegisteredAt, c.Now())
+		}
+	}
+	c.publishRunner(ctx, events.KindRunnerUpdated, updated)
+	if state == store.RunnerFailed {
+		// A clean exit under a job is the ordinary race between GitHub's
+		// completed delivery and the agent noticing the container has gone;
+		// a failure is not, and the job it was running needs to say so.
+		c.noteRunnerLost(ctx, r, sourceAgent, message)
+	}
 	if state.Terminal() {
 		// A runner that has gone frees host capacity, so the next placement
 		// decision should happen now rather than on the next tick.
@@ -565,8 +726,17 @@ func (c *Controller) applyRunnerState(ctx context.Context, r *store.Runner, stat
 // Host health
 // ---------------------------------------------------------------------------
 
+// hostLostAfter is how long a host may be silent before its runners are given
+// up on. store.HeartbeatTimeout is the earlier, softer judgement: the host is
+// unhealthy, so nothing new is placed on it. This is the later, harder one:
+// the runners already there are not coming back. It is longer than an agent
+// restart, a daemon upgrade or a network blip, and shorter than a pool pinned
+// at its maximum by dead runners can be left creating nothing.
+const hostLostAfter = 5 * time.Minute
+
 // checkHostHealth publishes a host event whenever a host's health flips, so
-// the UI shows an agent going quiet without anyone refreshing.
+// the UI shows an agent going quiet without anyone refreshing, and reclaims
+// the runners of a host that has been quiet for long enough to be gone.
 func (c *Controller) checkHostHealth(ctx context.Context) {
 	hosts, err := c.st.ListHosts(ctx)
 	if err != nil {
@@ -587,6 +757,49 @@ func (c *Controller) checkHostHealth(ctx context.Context) {
 				c.Nudge()
 			}
 		}
+		if !healthy && now.Sub(h.LastHeartbeat) > hostLostAfter {
+			c.reclaimLostRunners(ctx, h, now)
+		}
+	}
+}
+
+// reclaimLostRunners fails every runner still recorded as live on a host that
+// has been silent past hostLostAfter.
+//
+// Until they are failed those rows count as capacity: a pool at its maximum
+// with four runners on a dead host created nothing, for ever, while looking
+// perfectly healthy, because nothing sends a task to a host that is gone and
+// the rows never reached a terminal state on their own. Failing them lets the
+// next reconcile pass replace them, and marks the job a busy one was running as
+// the fleet's failure rather than the workflow's. The demo fleet's hosts are
+// left alone: some are silent on purpose, so the UI can be looked at with an
+// unhealthy host on it.
+func (c *Controller) reclaimLostRunners(ctx context.Context, h *store.Host, now time.Time) {
+	if IsDemoID(h.ID) {
+		return
+	}
+	runners, err := c.st.ListRunnersForHost(ctx, h.ID,
+		store.RunnerProvisioning, store.RunnerRegistering, store.RunnerIdle, store.RunnerBusy, store.RunnerDraining)
+	if err != nil || len(runners) == 0 {
+		return
+	}
+	silent := now.Sub(h.LastHeartbeat).Round(time.Second)
+	reason := fmt.Sprintf("host %s has not sent a heartbeat for %s, so this runner cannot be reached or stopped; it is presumed gone with the host",
+		h.Name, silent)
+	failed := 0
+	for _, r := range runners {
+		if err := c.failRunnerID(ctx, r.ID, reason); err != nil {
+			if !errors.Is(err, store.ErrNotFound) && !errors.Is(err, store.ErrInvalidTransition) {
+				c.log.Warn("could not fail a runner on a silent host", "runner", r.ID, "host", h.ID, "error", err)
+			}
+			continue
+		}
+		failed++
+	}
+	if failed > 0 {
+		c.log.Warn("gave up on the runners of a silent host; the next pass replaces them",
+			"host", h.ID, "name", h.Name, "runners", failed, "silent_for", silent)
+		c.Nudge()
 	}
 }
 
@@ -614,23 +827,48 @@ func (c *Controller) markHostSeen(id string, force bool) bool {
 }
 
 func (c *Controller) heartbeatInterval() time.Duration {
-	if d := c.cfg.Agent.HeartbeatInterval; d > 0 {
+	if d := c.cfg().Agent.HeartbeatInterval; d > 0 {
 		return d
 	}
 	return 30 * time.Second
 }
 
-// availableBackends reduces a probe to the backend kinds that actually
-// answered, which is what the scheduler matches a pool against.
-func availableBackends(infos []backend.Info) store.StringSlice {
-	var out store.StringSlice
+// hostBackends converts an agent's probe into the form the store keeps. The
+// whole probe is persisted, not just the kinds that answered: "this host has no
+// docker" and "this host has docker but the agent cannot read its socket" are
+// the same row to the scheduler and completely different to an operator.
+func hostBackends(infos []backend.Info) store.HostBackends {
+	if len(infos) == 0 {
+		return nil
+	}
+	out := make(store.HostBackends, 0, len(infos))
 	for _, i := range infos {
-		if i.Available {
-			out = append(out, string(i.Kind))
+		out = append(out, store.HostBackend{
+			Kind:         i.Kind,
+			Available:    i.Available,
+			Version:      i.Version,
+			Rootless:     i.Rootless,
+			Endpoint:     i.Endpoint,
+			Detail:       i.Detail,
+			SupportsDinD: i.SupportsDinD,
+		})
+	}
+	slices.SortFunc(out, func(a, b store.HostBackend) int {
+		return strings.Compare(string(a.Kind), string(b.Kind))
+	})
+	return out
+}
+
+// unavailableDetail summarises the backends a host reported it cannot use, for
+// the log line that records a change. It is empty when everything answered.
+func unavailableDetail(probed store.HostBackends) string {
+	var parts []string
+	for _, i := range probed {
+		if !i.Available {
+			parts = append(parts, string(i.Kind)+": "+firstNonEmpty(i.Detail, "unavailable"))
 		}
 	}
-	slices.Sort(out)
-	return out
+	return strings.Join(parts, "; ")
 }
 
 func firstNonEmpty(vals ...string) string {
@@ -640,13 +878,6 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
-}
-
-func firstNonEmptySlice(a, b store.StringSlice) store.StringSlice {
-	if len(a) > 0 {
-		return a
-	}
-	return b
 }
 
 // ---------------------------------------------------------------------------
@@ -703,7 +934,7 @@ func (t *embeddedTransport) OpenLogStream(ctx context.Context, streamID string) 
 	}
 	pr, pw := io.Pipe()
 	go func() {
-		err := t.c.AcceptLogStream(streamID, pr)
+		err := t.c.AcceptLogStream(t.host(), streamID, pr)
 		// Closing with the error makes the agent's next Write fail rather than
 		// block on a pipe nobody is draining.
 		_ = pr.CloseWithError(err)
@@ -727,7 +958,7 @@ func (t *embeddedTransport) Describe() string { return "embedded controller" }
 // their own controller would be ceremony without a threat model behind it.
 func (c *Controller) StartEmbeddedAgent(ctx context.Context, cfg *config.Config) error {
 	if cfg == nil {
-		cfg = c.cfg
+		cfg = c.cfg()
 	}
 	if c.backends == nil || len(c.backends.Kinds()) == 0 {
 		return errors.New("controller: no runner backends are registered, so the embedded agent has no way to start runners; " +
@@ -744,6 +975,7 @@ func (c *Controller) StartEmbeddedAgent(ctx context.Context, cfg *config.Config)
 		DefaultBackend:    store.BackendKind(cfg.Agent.Backend),
 		Transport:         tr,
 		HeartbeatInterval: cfg.Agent.HeartbeatInterval,
+		FinishedRetention: cfg.Agent.FinishedRetention,
 		Logger:            c.log,
 		Clock:             c.clock,
 	})
@@ -792,6 +1024,7 @@ func (c *Controller) adoptEmbeddedCredentials(ctx context.Context, a *agent.Agen
 		if h, herr := c.st.GetHost(ctx, creds.HostID); herr == nil &&
 			cryptox.ConstantTimeEqual(h.TokenHash, cryptox.HashToken(creds.AgentToken)) {
 			tr.SetCredentials(creds.HostID, creds.AgentToken)
+			c.renameEmbeddedHost(ctx, h, cfg.Agent.Name)
 			c.markHostSeen(creds.HostID, true)
 			return nil
 		}
@@ -805,6 +1038,34 @@ func (c *Controller) adoptEmbeddedCredentials(ctx context.Context, a *agent.Agen
 	// the same code path a remote agent takes, and one path is easier to trust
 	// than two.
 	return a.Join(ctx, plaintext)
+}
+
+// renameEmbeddedHost brings the host row's name in line with the agent's
+// configured one when the two have drifted apart.
+//
+// The name is recorded once, at join, and a container deployment joined under
+// whatever hostname Docker gave the first container -- a random twelve hex
+// digits -- before its compose file set one. The identity is the persisted
+// credential, not the name, so the row is kept and renamed rather than
+// re-joined; and it is only renamed when nothing else already answers to the
+// new name, since two hosts called the same thing would be worse than one
+// called 7096d9a9b798.
+func (c *Controller) renameEmbeddedHost(ctx context.Context, h *store.Host, name string) {
+	name = strings.TrimSpace(name)
+	if name == "" || h.Name == name {
+		return
+	}
+	if _, err := c.st.GetHostByName(ctx, name); !errors.Is(err, store.ErrNotFound) {
+		return
+	}
+	was := h.Name
+	h.Name = name
+	if err := c.st.UpdateHost(ctx, h); err != nil {
+		c.log.Warn("could not rename the embedded host", "host", h.ID, "was", was, "want", name, "error", err)
+		return
+	}
+	c.log.Info("renamed the embedded host to its configured name", "host", h.ID, "was", was, "now", name)
+	c.publishHost(h)
 }
 
 // EmbeddedAgent returns the in-process agent, or nil when this controller runs

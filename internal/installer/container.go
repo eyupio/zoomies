@@ -59,8 +59,10 @@ type ComposeFileSpec struct {
 	// agent needs in order to create runner containers.
 	MountSocket bool
 	SocketPath  string
-	// GroupAdd adds the host's docker group. A rootless socket needs no group,
-	// so the line is left out rather than written with a meaningless gid.
+	// GroupAdd adds the group that owns the host's socket -- the docker group
+	// for a root daemon, the user's own group for a rootless one. It is left out
+	// rather than written with a meaningless gid when the socket could not be
+	// read at all.
 	GroupAdd bool
 	// TLSCertFile and TLSKeyFile are mounted read-only at the same paths they
 	// have on the host, which is why the environment file can name them
@@ -166,6 +168,7 @@ func EnvSpecFor(p Plan) EnvSpec {
 		Backend:          string(p.Backend),
 		DockerHost:       p.DockerHost,
 		Capacity:         p.Capacity,
+		Network:          NetworkName,
 		WorkDir:          p.WorkDir,
 		DBPath:           p.DBPath,
 		StateDir:         ContainerStateDir,
@@ -300,7 +303,15 @@ func DockerRunArgs(s DockerRunSpec) []string {
 		s.Command = "controller"
 	}
 
-	args := []string{"run", "--detach", "--name", s.Container, "--restart", "unless-stopped"}
+	// No --health-cmd: the image declares its own HEALTHCHECK, in exec form,
+	// which a plain `docker run` inherits. Repeating it here would have to be
+	// the string form, and docker wraps that in /bin/sh -- which a distroless
+	// image does not have, so the check would fail on every probe.
+	//
+	// The hostname is the name the embedded agent registers the host under;
+	// without one it is the container's random ID, which then follows the host
+	// into every scheduler reason and problem message.
+	args := []string{"run", "--detach", "--name", s.Container, "--hostname", s.Container, "--restart", "unless-stopped"}
 	if s.EnvFile != "" {
 		args = append(args, "--env-file", s.EnvFile)
 	}
@@ -404,6 +415,7 @@ func (i *Installer) runContainer(ctx context.Context, p Plan) error {
 		i.ui.note("and must be entered again. Copy it with:  sudo grep ZOOMIES_ENCRYPTION_KEY " + envPath)
 	}
 	i.warnAboutRootlessSocket(p)
+	i.checkContainerSocketAccess(p)
 
 	// The record is written before anything is started, not after. A failed
 	// `up` can still have created a network, a volume or a container, and an
@@ -446,6 +458,99 @@ func (i *Installer) runContainer(ctx context.Context, p Plan) error {
 // warnAboutRootlessSocket names the one combination that looks right and is
 // not: the image runs as an unprivileged uid, which cannot use a socket that
 // belongs to the operator's own user.
+// ImageUID is the account the published image runs as. It is not an operator's
+// account and does not exist on the host, which is why a container is given a
+// group when it is created rather than joined to one afterwards.
+const ImageUID = 65532
+
+// containerSocketVerdict is what the image's account will be able to do with a
+// socket, decided from the socket and the gid the deployment would add.
+type containerSocketVerdict int
+
+const (
+	// socketUsable: the container will be able to open it.
+	socketUsable containerSocketVerdict = iota
+	// socketWrongGID: the group bits are right and the gid being added is not
+	// the one that owns the socket, which is a one-line fix in the env file.
+	socketWrongGID
+	// socketRootGroup: the socket belongs to group root. A container could only
+	// reach it by being given the root group, which Zoomies will not do.
+	socketRootGroup
+	// socketNoGroupBits: no gid can help; the mode itself is the refusal.
+	socketNoGroupBits
+)
+
+// judgeContainerSocket is the whole decision, kept apart from the printing so
+// every branch can be checked without a container runtime, a second group or
+// root.
+func judgeContainerSocket(facts socketFacts, dockerGID int) containerSocketVerdict {
+	// Exactly what the container will be: the image's uid, plus the one group
+	// the deployment adds -- and only when there is one to add.
+	acct := account{uid: ImageUID}
+	if dockerGID > 0 {
+		acct.groups = []int{dockerGID}
+	}
+	switch {
+	case canOpen(facts, acct):
+		return socketUsable
+	case facts.gid == 0:
+		return socketRootGroup
+	case joinable(facts, acct):
+		return socketWrongGID
+	default:
+		return socketNoGroupBits
+	}
+}
+
+// checkContainerSocketAccess proves, before the container is started, that the
+// image's account will be able to open the socket that is about to be mounted
+// into it.
+//
+// The container equivalent of the native install's group check, and the one
+// that matters more: there is no usermod to fall back on afterwards, because
+// the image's account does not exist on the host. A wrong or missing DOCKER_GID
+// produces a container that comes up healthy, reports every backend as
+// unavailable, and leaves its pools queueing forever.
+func (i *Installer) checkContainerSocketAccess(p Plan) {
+	socket := SocketPathOf(p.DockerHost)
+	if !p.runsRunners() || p.Backend == store.BackendProcess || socket == "" {
+		return
+	}
+	facts, ok := statSocket(socket)
+	if !ok {
+		i.ui.note("no socket at " + socket + " to check yet; the agent re-probes as it runs, so it will start taking work once the daemon is up.")
+		return
+	}
+
+	switch judgeContainerSocket(facts, p.DockerGID) {
+	case socketUsable:
+		if p.DockerGID > 0 {
+			i.ui.ok(fmt.Sprintf("the container joins group %d, which owns %s", p.DockerGID, socket))
+		} else {
+			i.ui.ok("the container can use " + socket)
+		}
+	case socketWrongGID:
+		i.ui.warn(fmt.Sprintf("the container would run as uid %d with no access to %s, so no runner could be created",
+			ImageUID, socket))
+		if p.Deployment == DeploymentCompose {
+			// Compose reads the gid from the env file at up time.
+			i.ui.note(fmt.Sprintf("set DOCKER_GID=%d in %s and bring the deployment up again -- that gid owns the socket on this host.",
+				facts.gid, EnvFileFor(p.Deployment)))
+			return
+		}
+		// A plain container carries the group in its own run command, so the
+		// env file is not where this one lives.
+		i.ui.note(fmt.Sprintf("recreate the container with --group-add %d, which is the gid that owns the socket on this host.", facts.gid))
+	case socketRootGroup:
+		i.ui.warn(socket + " belongs to group root, so the only gid that would reach it is 0")
+		i.ui.note("Zoomies will not put a container in the root group. Give the socket a group of its own -- `sudo groupadd docker`, then restart the daemon so it takes the group -- or run a rootless daemon and point ZOOMIES_DOCKER_HOST at its socket.")
+	case socketNoGroupBits:
+		i.ui.warn(fmt.Sprintf("%s is mode %04o, which grants nothing to its group, so no gid added to the container can open it",
+			socket, facts.mode.Perm()))
+		i.ui.note("run a rootless daemon and point ZOOMIES_DOCKER_HOST at its socket, or change the socket's own permissions.")
+	}
+}
+
 func (i *Installer) warnAboutRootlessSocket(p Plan) {
 	if !p.Rootless || !p.runsRunners() || p.Backend == store.BackendProcess {
 		return
@@ -598,26 +703,24 @@ func (i *Installer) containerSummary(p Plan, envPath string, reusedKey bool) {
 	file := filepath.Join(p.DeployDir, ComposeFileName)
 	i.ui.blank()
 	i.ui.step("Done")
-	i.ui.note("URL       " + p.ExternalURL)
-	i.ui.note("env       " + envPath + " (mode 0600 -- it holds the encryption key)")
+	// The helper owns the column, and it is not faint: the URL an operator must
+	// open and the file holding their encryption key were the dimmest lines on
+	// the screen that told them about both.
+	i.ui.field("URL", p.ExternalURL)
+	i.ui.field("env", envPath+" (mode 0600 -- it holds the encryption key)")
 	if p.Deployment == DeploymentCompose {
-		i.ui.note("compose   " + file)
+		i.ui.field("compose", file)
 	} else {
-		i.ui.note("container " + ContainerName + " from " + p.Image)
+		i.ui.field("container", ContainerName+" from "+p.Image)
 	}
-	i.ui.note("volume    " + VolumeName + " -- the database lives here, not in the container")
+	i.ui.field("volume", VolumeName+" -- the database lives here, not in the container")
 	i.ui.blank()
 
 	if !reusedKey {
-		i.ui.note("Open " + p.ExternalURL + " and create the first administrator.")
+		i.ui.warn("Back up " + envPath + " now: it holds this deployment's encryption key.")
+		i.ui.note("without it the stored GitHub App private key and every webhook secret are lost.")
 		i.ui.blank()
 	}
-
-	i.ui.note("The commands you will want:")
-	for _, line := range i.deploymentCommands(p) {
-		i.ui.note("  " + line)
-	}
-	i.ui.blank()
 
 	if p.PublishAddr == "127.0.0.1" {
 		i.ui.note("The container is published on loopback only, so reach it from your laptop with:")
@@ -625,10 +728,28 @@ func (i *Installer) containerSummary(p Plan, envPath string, reusedKey bool) {
 		i.ui.blank()
 	}
 
+	// A container keeps its database in a volume this process cannot reach, so
+	// none of the three things a native install does for the operator -- the
+	// administrator, the GitHub App, the first pool -- happened here. Naming
+	// them, in order, with the exact address of each, is the whole handover.
 	sug := SuggestPool(i.det, p.Backend, p.Capacity)
-	i.ui.note("Your first pool -- this host is " + i.det.Arch + " with the " + string(p.Backend) + " backend:")
-	i.ui.note("  " + sug.Command())
-	i.ui.note("then put  runs-on: [self-hosted, " + sug.Name + "]  in a workflow.")
+	// The same four steps, in the same order and with the same names, as the
+	// browser's own checklist and the first-run card it hands over from.
+	i.ui.step("Next -- four steps: three in the browser, then one in a workflow")
+	i.ui.field("  1.", "Create the first administrator")
+	i.ui.field("", p.ExternalURL)
+	i.ui.field("  2.", "Connect GitHub -- nothing can run until an App is installed")
+	i.ui.field("", p.ExternalURL+"/installations")
+	i.ui.field("  3.", "Create a pool -- suggested for this "+i.det.Arch+" host: "+sug.Name)
+	i.ui.field("", p.ExternalURL+"/pools/new")
+	i.ui.field("  4.", "Point a workflow at it")
+	i.ui.field("", "runs-on: "+sug.RunsOn())
+	i.ui.blank()
+
+	i.ui.note("The commands you will want:")
+	for _, line := range i.deploymentCommands(p) {
+		i.ui.note("  " + line)
+	}
 }
 
 // deploymentCommands lists the four things an operator does to a running

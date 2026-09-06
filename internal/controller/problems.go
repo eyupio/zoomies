@@ -3,12 +3,15 @@ package controller
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/version"
 )
 
 // Problem is one thing an operator should know about, in the shape the API's
@@ -16,7 +19,7 @@ import (
 //
 // It carries the same four sentences a config.Finding does -- what is true,
 // why it matters, and what to change -- because an operator reading the
-// problems panel should never have to go and look up what a code means.
+// problems drawer should never have to go and look up what a code means.
 type Problem struct {
 	// Code is a stable identifier such as "host.unhealthy", suitable for
 	// grouping or suppressing in an alerting rule.
@@ -31,13 +34,18 @@ type Problem struct {
 	// runner or installation it is about.
 	TargetKind string `json:"target_kind,omitempty"`
 	TargetID   string `json:"target_id,omitempty"`
+	// Alternatives are the choices the fix leaves open, when the fix is a
+	// choice: for a pool no host can run, the backends its hosts do offer. They
+	// are carried apart from the prose so the UI can put the change one click
+	// away rather than leaving an operator to find the pool's edit form.
+	Alternatives []string `json:"alternatives,omitempty"`
 	// Since is when the situation started, where that is knowable.
 	Since *time.Time `json:"since,omitempty"`
 }
 
 // problemWindow is how far back rejected webhook deliveries are counted. An
 // hour is long enough to catch a secret that was changed on one side only, and
-// short enough that yesterday's fixed problem is not still on the panel.
+// short enough that yesterday's fixed problem is not still on the list.
 const problemWindow = time.Hour
 
 // Problems aggregates everything currently wrong and every dangerous setting
@@ -50,8 +58,10 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 
 	// Configuration: every warning and error the validator produced. These are
 	// the settings that trade safety for convenience, and they are listed
-	// whether or not anything has gone wrong yet.
-	for _, f := range c.cfg.Validate() {
+	// whether or not anything has gone wrong yet. ForUI drops the handful that
+	// only the CLI says, because they are expected in a normal deployment and
+	// a list that is never clear stops being read.
+	for _, f := range c.cfg().Validate().ForUI() {
 		if f.Severity != config.SeverityError && f.Severity != config.SeverityWarning {
 			continue
 		}
@@ -65,17 +75,17 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listing pools: %w", err)
 	}
+	insts, err := c.st.ListInstallations(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing installations: %w", err)
+	}
+	installations := make(map[string]*store.Installation, len(insts))
+	for _, i := range insts {
+		installations[i.ID] = i
+	}
 	for _, p := range pools {
-		for _, d := range p.Dangerous() {
-			out = append(out, Problem{
-				Code:       "pool.dangerous",
-				Severity:   config.SeverityWarning,
-				Title:      fmt.Sprintf("pool %s: %s", p.Name, d),
-				Detail:     "this pool was configured to weaken the isolation between a workflow job and the host it runs on.",
-				Fix:        fmt.Sprintf("edit the %s pool if this was not deliberate.", p.Name),
-				TargetKind: "pool", TargetID: p.ID,
-			})
-		}
+		// The same sentences the pool's own page shows, from the same place.
+		out = append(out, PoolWarnings(p, installations[p.InstallationID])...)
 	}
 
 	if err := c.hostProblems(ctx, &out); err != nil {
@@ -90,11 +100,20 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	if err := c.jobProblems(ctx, &out); err != nil {
 		return nil, err
 	}
+	out = append(out, c.PoolCapacityProblems()...)
+	out = append(out, c.loopProblems()...)
+	out = append(out, c.updateProblems()...)
 	if err := c.runnerProblems(ctx, &out); err != nil {
 		return nil, err
 	}
+	if err := c.notProgressingProblems(ctx, &out); err != nil {
+		return nil, err
+	}
+	if err := c.capacityDeliveryProblems(ctx, &out); err != nil {
+		return nil, err
+	}
 
-	// Errors first, then warnings, then a stable order so the panel does not
+	// Errors first, then warnings, then a stable order so the list does not
 	// reshuffle itself between refreshes.
 	slices.SortStableFunc(out, func(a, b Problem) int {
 		if r := severityRank(a.Severity) - severityRank(b.Severity); r != 0 {
@@ -106,6 +125,21 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 		return strings.Compare(a.Title, b.Title)
 	})
 	return out, nil
+}
+
+func (c *Controller) capacityDeliveryProblems(ctx context.Context, out *[]Problem) error {
+	rows, err := c.st.ListCapacityDemandDeliveries(ctx)
+	if err != nil {
+		return fmt.Errorf("listing capacity-demand deliveries: %w", err)
+	}
+	for _, d := range rows {
+		if d.DeliveredAt != nil || d.LastError == "" {
+			continue
+		}
+		since := d.AttemptedAt
+		*out = append(*out, Problem{Code: "capacity_demand.delivery_failed", Severity: config.SeverityWarning, Title: "external capacity provisioner did not accept the latest event", Detail: fmt.Sprintf("%s after %d attempts (HTTP %d): %s", d.EventType, d.Attempts, d.StatusCode, d.LastError), Fix: "check capacity_demand.destination_url, receiver availability, and the shared signing secret; Zoomies will retry on reconciliation.", TargetKind: "pool", TargetID: d.PoolID, Since: since})
+	}
+	return nil
 }
 
 func severityRank(s config.Severity) int {
@@ -128,6 +162,14 @@ func (c *Controller) hostProblems(ctx context.Context, out *[]Problem) error {
 	if err != nil {
 		return fmt.Errorf("listing queued jobs: %w", err)
 	}
+	pools, err := c.st.ListPools(ctx)
+	if err != nil {
+		return fmt.Errorf("listing pools: %w", err)
+	}
+	poolByID := make(map[string]*store.Pool, len(pools))
+	for _, p := range pools {
+		poolByID[p.ID] = p
+	}
 	now := c.Now()
 
 	for _, h := range hosts {
@@ -140,8 +182,8 @@ func (c *Controller) hostProblems(ctx context.Context, out *[]Problem) error {
 				// Runners on a silent host are unaccounted for, which is worse
 				// than a spare host being down.
 				severity = config.SeverityError
-				detail = fmt.Sprintf("no heartbeat for %s, and %d runner(s) are recorded on it, so their state is unknown.",
-					now.Sub(h.LastHeartbeat).Round(time.Second), h.ActiveRunners)
+				detail = fmt.Sprintf("no heartbeat for %s, with %s recorded on it, so their state is unknown.",
+					now.Sub(h.LastHeartbeat).Round(time.Second), plural(h.ActiveRunners, "runner"))
 			}
 			*out = append(*out, Problem{
 				Code:       "host.unhealthy",
@@ -153,11 +195,24 @@ func (c *Controller) hostProblems(ctx context.Context, out *[]Problem) error {
 			})
 			continue
 		}
-		if h.Cordoned && len(queued) > 0 {
+		if !h.Cordoned {
+			continue
+		}
+		// Only the queued work this host could take counts against it: a
+		// cordoned arm64 host has nothing to do with a queue of jobs for a
+		// pool it never offered, and blaming it sends an operator to uncordon
+		// a machine that would change nothing.
+		couldRun := 0
+		for _, j := range queued {
+			if p := poolByID[j.PoolID]; p != nil && scheduler.HostOffers(h, p) && scheduler.HostSelects(h, p) {
+				couldRun++
+			}
+		}
+		if couldRun > 0 {
 			*out = append(*out, Problem{
 				Code:       "host.cordoned_with_work",
 				Severity:   config.SeverityWarning,
-				Title:      fmt.Sprintf("host %s is cordoned while %d job(s) are queued", h.Name, len(queued)),
+				Title:      fmt.Sprintf("host %s is cordoned with %s queued that it could run", h.Name, plural(couldRun, "job")),
 				Detail:     "a cordoned host keeps its runners but accepts no new ones, so its capacity is not available to the queue.",
 				Fix:        fmt.Sprintf("uncordon %s on the Hosts page if the maintenance it was cordoned for is over.", h.Name),
 				TargetKind: "host", TargetID: h.ID,
@@ -199,7 +254,7 @@ func (c *Controller) webhookProblems(ctx context.Context, out *[]Problem) error 
 			Code:     "webhook.rejected",
 			Severity: config.SeverityWarning,
 			Setting:  "github.webhook_path",
-			Title:    fmt.Sprintf("%d webhook deliveries were rejected in the last hour", rejected),
+			Title:    fmt.Sprintf("%s rejected in the last hour", pluralDeliveries(rejected)),
 			Detail:   "a rejected delivery is one whose signature did not verify. Either the App's webhook secret no longer matches the one Zoomies holds, or something other than GitHub is posting to this endpoint.",
 			Fix:      "compare the webhook secret on the GitHub App with the one on the Installations page, then use GitHub's Redeliver button.",
 			Since:    &since,
@@ -227,7 +282,7 @@ func (c *Controller) webhookProblems(ctx context.Context, out *[]Problem) error 
 				"instead of within a second of them being queued.", c.pollInterval()),
 			Fix: fmt.Sprintf("point the App's webhook at %s and check that GitHub can reach it.", c.webhookURLOrPath()),
 		}
-		if !c.cfg.GitHub.PollFallback {
+		if !c.cfg().GitHub.PollFallback {
 			// With no webhooks and no poller, nothing will ever start a runner.
 			p.Severity = config.SeverityError
 			p.Title = "no webhook has ever arrived and the fallback poller is off, so nothing is scaling"
@@ -242,7 +297,7 @@ func (c *Controller) webhookProblems(ctx context.Context, out *[]Problem) error 
 // controllerAddress is how an agent reaches this controller, phrased for a
 // message even when the external URL has not been set.
 func (c *Controller) controllerAddress() string {
-	if u := c.cfg.Server.ExternalURL; u != "" {
+	if u := c.cfg().Server.ExternalURL; u != "" {
 		return u
 	}
 	return "this controller (server.external_url is not set, so Zoomies cannot name the address)"
@@ -252,16 +307,129 @@ func (c *Controller) controllerAddress() string {
 // the external URL has not been configured -- which is itself one of the
 // findings above, so the fix stays actionable either way.
 func (c *Controller) webhookURLOrPath() string {
-	if u := c.cfg.WebhookURL(); u != "" {
+	if u := c.cfg().WebhookURL(); u != "" {
 		return u
 	}
-	return c.cfg.GitHub.WebhookPath + " (set server.external_url so Zoomies can tell you the full URL)"
+	return c.cfg().GitHub.WebhookPath + " (set server.external_url so Zoomies can tell you the full URL)"
+}
+
+// PoolCapacityProblems reports the pools the scheduler wanted to grow and could
+// not place anywhere. It is exported because the pool's own page shows it too:
+// "why is this pool not running anything?" is asked on the pool, not only on
+// the Overview.
+//
+// This is the failure that looks exactly like health: the pool is enabled, its
+// labels match the queue, every host is connected, and no runner is ever
+// created because none of those hosts offers the pool's backend or matches its
+// host selector. Nothing else in the product says so -- a scaling event is only
+// written when the size actually moved -- so a fleet in this state answers
+// "why is nothing running?" with silence unless it is reported here.
+func (c *Controller) PoolCapacityProblems() []Problem {
+	plan, at := c.getLastPlan()
+	if plan == nil || at.IsZero() {
+		return nil
+	}
+	var out []Problem
+	for _, pp := range plan.Pools {
+		if pp.QuotaDeferredJobs > 0 {
+			repositories := strings.Join(pp.QuotaDeferredRepositories, ", ")
+			out = append(out, Problem{
+				Code:     "pool.repository_scale_up_deferred",
+				Severity: config.SeverityWarning,
+				Title: fmt.Sprintf("pool %s deferred %s from scaling", pp.PoolName,
+					plural(pp.QuotaDeferredJobs, "job")),
+				Detail: fmt.Sprintf("The best-effort repository scale-up limit deferred runner creation for %s (%s). Compatible idle runners may still accept these jobs because GitHub controls assignment.",
+					plural(len(pp.QuotaDeferredRepositories), "repository"), repositories),
+				Fix:        "increase the pool repository scale-up limit or wait for that repository's active jobs to finish; use repository-specific pools and workflow labels if strict isolation is required",
+				TargetKind: "pool", TargetID: pp.PoolID,
+			})
+		}
+		if pp.Failing != "" {
+			// The scheduler is holding the pool back because its runners keep
+			// dying before they register. The failed runners themselves are
+			// listed under runners.failed with their messages; this entry is
+			// about the pool, and about the wait, which is otherwise invisible.
+			severity := config.SeverityWarning
+			if pp.QueuedMatched > 0 {
+				severity = config.SeverityError
+			}
+			out = append(out, Problem{
+				Code:     "pool.runners_failing",
+				Severity: severity,
+				Title:    fmt.Sprintf("pool %s's runners are failing to start", pp.PoolName),
+				Detail:   pp.Failing,
+				Fix: "the failed runners are on the Runners page with their reasons; the usual causes are an image " +
+					"that cannot be pulled, a host whose agent cannot reach GitHub, or a runner version that does " +
+					"not exist. The pool tries again on its own, less often with each failure.",
+				TargetKind: "pool", TargetID: pp.PoolID,
+			})
+		}
+		if pp.Blocked == "" {
+			continue
+		}
+		// Jobs already waiting make this an outage rather than a warning about
+		// a pool that is merely unable to reach its minimum -- unless the fleet
+		// is simply full, which is the system working and which the next
+		// finished job clears on its own.
+		severity := config.SeverityWarning
+		title := fmt.Sprintf("pool %s cannot start the runners it wants", pp.PoolName)
+		switch {
+		case pp.BlockedAtCapacity && pp.QueuedMatched > 0:
+			title = fmt.Sprintf("pool %s has %s waiting for a host with room",
+				pp.PoolName, plural(pp.QueuedMatched, "job"))
+		case pp.QueuedMatched > 0:
+			severity = config.SeverityError
+			title = fmt.Sprintf("pool %s has %s waiting and nowhere to run them",
+				pp.PoolName, plural(pp.QueuedMatched, "job"))
+		}
+		out = append(out, Problem{
+			Code:         "pool.no_capacity",
+			Severity:     severity,
+			Title:        title,
+			Detail:       pp.Blocked,
+			Fix:          pp.BlockedFix,
+			Alternatives: pp.BlockedAlternatives,
+			TargetKind:   "pool", TargetID: pp.PoolID,
+		})
+	}
+	return out
+}
+
+// plural writes "1 job" and "3 jobs". Titles are read as headings in the
+// problems drawer, so "job(s)" is not an option there.
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+// pluralDeliveries is plural for the one noun whose plural is not an s.
+func pluralDeliveries(n int) string {
+	if n == 1 {
+		return "1 webhook delivery"
+	}
+	return fmt.Sprintf("%d webhook deliveries", n)
 }
 
 func (c *Controller) jobProblems(ctx context.Context, out *[]Problem) error {
-	unmatched, err := c.unmatchedQueuedJobs(ctx)
+	if err := c.lostRunnerProblems(ctx, out); err != nil {
+		return err
+	}
+	all, err := c.unmatchedQueuedJobs(ctx)
 	if err != nil {
 		return err
+	}
+	now := c.Now()
+	var unmatched []*store.Job
+	for _, j := range all {
+		// A job on GitHub's own runners or a vendor's is theirs to run however
+		// long it queues, and a job unclaimed for seconds may be another
+		// provider's, about to start there. Neither is this fleet's problem.
+		if hostedJob(j.Labels) || now.Sub(j.QueuedAt) < unmatchedGrace {
+			continue
+		}
+		unmatched = append(unmatched, j)
 	}
 	if len(unmatched) == 0 {
 		return nil
@@ -271,11 +439,62 @@ func (c *Controller) jobProblems(ctx context.Context, out *[]Problem) error {
 	*out = append(*out, Problem{
 		Code:     "jobs.unmatched",
 		Severity: config.SeverityWarning,
-		Title:    fmt.Sprintf("%d queued job(s) match no enabled pool", len(unmatched)),
-		Detail: fmt.Sprintf("nothing will run them. The oldest is %s in %s, asking for [%s].",
-			example.JobName, example.Repo, labels),
-		Fix:        "create or enable a pool advertising those labels, or change the workflow's runs-on.",
+		Title:    fmt.Sprintf("no enabled pool here claims %s", plural(len(unmatched), "queued job")),
+		Detail: fmt.Sprintf("if they are meant for this fleet, nothing will run them. The oldest is %s in %s, asking for [%s], queued for %s. If another runner provider serves those labels, this is expected.",
+			example.JobName, example.Repo, labels, roundDuration(now.Sub(example.QueuedAt))),
+		Fix:        "create or enable a pool advertising those labels, or change the workflow's runs-on; if another provider takes these jobs, nothing needs doing.",
 		TargetKind: "job", TargetID: example.ID, Since: &example.QueuedAt,
+	})
+	return nil
+}
+
+// unmatchedGrace is how long a queued job no pool here claims is given before
+// it is reported. GitHub's own runners take a job within seconds and another
+// provider within its own scale-up delay, so a job still unclaimed after this
+// long is either meant for this fleet and mislabelled, or nobody's at all.
+const unmatchedGrace = 2 * time.Minute
+
+// lostRunnerProblems reports jobs whose runner stopped under them in the last
+// hour. GitHub records these as failures like any test failure, and a team
+// that sees "CI is flaky" when the fleet is killing their jobs will blame the
+// wrong thing; this is where the fleet owns up.
+func (c *Controller) lostRunnerProblems(ctx context.Context, out *[]Problem) error {
+	faulted, _, err := c.st.ListJobs(ctx, store.JobFilter{FaultedOnly: true},
+		store.Page{Limit: 100, Sort: "queued_at", Desc: true})
+	if err != nil {
+		return fmt.Errorf("listing jobs that lost their runner: %w", err)
+	}
+	since := c.Now().Add(-problemWindow)
+	recent := faulted[:0]
+	for _, j := range faulted {
+		// Filtered here rather than in SQL because the moment that matters
+		// is when the runner went, and the nearest stored stamp to that is
+		// the job's completion -- or, for a job GitHub still thinks is
+		// running, now.
+		if j.CompletedAt == nil || j.CompletedAt.After(since) {
+			recent = append(recent, j)
+		}
+	}
+	if len(recent) == 0 {
+		return nil
+	}
+	example := recent[0]
+	at := example.StartedAt
+	if at == nil {
+		at = &example.QueuedAt
+	}
+	title := fmt.Sprintf("%d jobs lost the runners they were running on in the last hour", len(recent))
+	if len(recent) == 1 {
+		title = "1 job lost the runner it was running on in the last hour"
+	}
+	*out = append(*out, Problem{
+		Code:     "jobs.runner_lost",
+		Severity: config.SeverityWarning,
+		Title:    title,
+		Detail: fmt.Sprintf("GitHub records these as ordinary failures. The most recent is %s in %s: %s.",
+			example.JobName, example.Repo, example.RunnerFault),
+		Fix:        "open the job for its timeline and the runner for its last output; a runner that dies mid-job has usually run out of memory or disk, or was removed with force. Re-run the workflow once the cause is fixed.",
+		TargetKind: "job", TargetID: example.ID, Since: at,
 	})
 	return nil
 }
@@ -297,10 +516,52 @@ func (c *Controller) unmatchedQueuedJobs(ctx context.Context) ([]*store.Job, err
 	return jobs, nil
 }
 
+// loopProblems reports every background loop that has panicked since the
+// process started. The loop was restarted, so the fleet is still being run;
+// the entry is here because a crash is a bug, and a bug that fixes itself
+// after a minute is one nobody would otherwise report.
+func (c *Controller) loopProblems() []Problem {
+	panics := c.LoopPanics()
+	names := slices.Sorted(maps.Keys(panics))
+	out := make([]Problem, 0, len(names))
+	for _, name := range names {
+		p := panics[name]
+		title := fmt.Sprintf("the %s loop crashed and was restarted", name)
+		if p.Count > 1 {
+			title = fmt.Sprintf("the %s loop has crashed %d times and was restarted each time", name, p.Count)
+		}
+		at := p.At
+		out = append(out, Problem{
+			Code:     "controller.loop_panicked",
+			Severity: config.SeverityError,
+			Title:    title,
+			Detail:   "the last panic said: " + p.Last,
+			Fix: "this is a bug in Zoomies. The stack is in the controller's log under \"controller loop panicked\"; " +
+				"please report it with that stack. Restarting the controller clears this entry.",
+			Since: &at,
+		})
+	}
+	return out
+}
+
 func (c *Controller) runnerProblems(ctx context.Context, out *[]Problem) error {
+	// The count comes from the store's aggregate, not from a page of rows: a
+	// page is capped, and "100 runners in the failed state" on a fleet with
+	// four hundred understates the day it is having.
+	counts, err := c.st.CountRunnersByPool(ctx)
+	if err != nil {
+		return fmt.Errorf("counting failed runners: %w", err)
+	}
+	total := 0
+	for _, pc := range counts {
+		total += pc.Failed
+	}
+	if total == 0 {
+		return nil
+	}
 	failed, _, err := c.st.ListRunners(ctx, store.RunnerFilter{
 		States: []store.RunnerState{store.RunnerFailed},
-	}, store.Page{Limit: 100})
+	}, store.Page{Limit: 1, Sort: "created_at", Desc: true})
 	if err != nil {
 		return fmt.Errorf("listing failed runners: %w", err)
 	}
@@ -311,10 +572,188 @@ func (c *Controller) runnerProblems(ctx context.Context, out *[]Problem) error {
 	*out = append(*out, Problem{
 		Code:       "runners.failed",
 		Severity:   config.SeverityWarning,
-		Title:      fmt.Sprintf("%d runner(s) are in the failed state", len(failed)),
+		Title:      fmt.Sprintf("%s in the failed state", plural(total, "runner")),
 		Detail:     fmt.Sprintf("the most recent is %s: %s", example.Name, example.Message),
 		Fix:        "look at the runner's logs on the Runners page; failed runners are cleaned up automatically but the cause is not.",
 		TargetKind: "runner", TargetID: example.ID, Since: &example.CreatedAt,
 	})
 	return nil
+}
+
+// notProgressingSample bounds the page of starting runners the diagnosis is
+// built from. They are read oldest first, and a runner is only a candidate
+// once it is old enough, so the page always holds the worst cases; a fleet
+// with more than this many stuck at once is told "at least".
+const notProgressingSample = 100
+
+// notProgressingAfter is how long a runner may sit in a starting state before
+// the fleet says so: half the provision timeout, which is the point at which
+// the scheduler will eventually fail it.
+//
+// It is deliberately not a setting of its own. An operator who raises
+// provision_timeout for a slow image pull has already said how long starting up
+// is allowed to take here, and a second number to keep in step with the first
+// is a second number to get wrong.
+func (c *Controller) notProgressingAfter() time.Duration {
+	timeout := c.cfg().Scheduler.ProvisionTimeout
+	if timeout <= 0 {
+		return 0
+	}
+	return timeout / 2
+}
+
+// notProgressingProblems reports runners that are neither coming up nor being
+// failed yet, and says which of the two shapes it is.
+//
+// The distinction is the whole point. Until the provision timeout expires the
+// fleet says nothing at all, so an operator watching a pool that creates
+// runners which never arrive has to read a runner timeline, the controller log
+// and `docker ps` on the host to learn what Zoomies already knows: whether the
+// agent ever reported the workload started. A runner still waiting for its
+// container is a backend or image problem on the host; one whose container
+// started and has not registered is the runner process failing to reach GitHub,
+// and they are not fixed in the same place.
+func (c *Controller) notProgressingProblems(ctx context.Context, out *[]Problem) error {
+	after := c.notProgressingAfter()
+	if after <= 0 {
+		// provision_timeout is off, so nothing is stuck by anyone's definition;
+		// saying otherwise would second-guess a deliberate setting.
+		return nil
+	}
+	starting, _, err := c.st.ListRunners(ctx, store.RunnerFilter{
+		States: []store.RunnerState{store.RunnerProvisioning, store.RunnerRegistering},
+	}, store.Page{Limit: notProgressingSample, Sort: "created_at"})
+	if err != nil {
+		return fmt.Errorf("listing runners that are starting up: %w", err)
+	}
+
+	now := c.Now()
+	var waitingForContainer, notRegistered int
+	var oldest *store.Runner
+	var since time.Time
+	hosts := map[string]bool{}
+	for _, r := range starting {
+		// The clock that matters starts when the workload did. A runner whose
+		// container came up ten seconds ago is registering normally even if the
+		// image took four minutes to pull, and failing to make that distinction
+		// would raise this on every cold start.
+		from := r.CreatedAt
+		if r.ContainerStartedAt != nil {
+			from = *r.ContainerStartedAt
+		}
+		if now.Sub(from) < after {
+			continue
+		}
+		if r.ContainerStartedAt == nil {
+			waitingForContainer++
+		} else {
+			notRegistered++
+		}
+		// Longest stuck by its own clock, which is not the same as first
+		// created: a runner that spent four minutes pulling an image and then
+		// registered ten seconds ago is younger here than an older one whose
+		// container came up first.
+		// A batch created in one pass shares a millisecond, and the fix below
+		// is written for whichever runner is named here, so a tie has to break
+		// the same way every time: the one still waiting for a container
+		// first, because that is the earlier failure, then the ID.
+		if oldest == nil || from.Before(since) || (from.Equal(since) && stuckBefore(r, oldest)) {
+			oldest, since = r, from
+		}
+		hosts[r.HostID] = true
+	}
+	stuck := waitingForContainer + notRegistered
+	if stuck == 0 {
+		return nil
+	}
+
+	count := plural(stuck, "runner")
+	if stuck == notProgressingSample {
+		count = "at least " + count
+	}
+	detail := fmt.Sprintf("the oldest is %s, %s in %s.", oldest.Name,
+		now.Sub(since).Round(time.Second), oldest.State)
+	// The fix follows the runner the detail names, not whichever bucket is
+	// larger. A detail that names a runner still waiting for its container and
+	// a fix that says to read that container's logs sends an operator looking
+	// for something that is not there.
+	fix := "the container is up but the runner has not registered: look at its logs on the Runners page. " +
+		"The usual causes are the host being unable to reach github.com and a JIT configuration GitHub has already consumed."
+	if oldest.ContainerStartedAt == nil {
+		fix = "no agent has reported the workload started: check the agent log on the host, and that the pool's image exists and can be pulled. " +
+			"A first pull of a large image can legitimately take minutes."
+	}
+	if waitingForContainer > 0 && notRegistered > 0 {
+		detail += fmt.Sprintf(" %s waiting for a container to start, %d with a container that started and has not registered.",
+			plural(waitingForContainer, "runner"), notRegistered)
+	}
+	if len(hosts) == 1 && oldest.HostID != "" {
+		if h, err := c.st.GetHost(ctx, oldest.HostID); err == nil {
+			detail += fmt.Sprintf(" All of them are on host %s.", h.Name)
+		}
+	}
+
+	*out = append(*out, Problem{
+		Code:     "runners.not_progressing",
+		Severity: config.SeverityWarning,
+		Title: fmt.Sprintf("%s stuck starting up for over %s",
+			count, after.Round(time.Second)),
+		Detail:     detail,
+		Fix:        fix,
+		TargetKind: "runner", TargetID: oldest.ID, Since: &since,
+	})
+	return nil
+}
+
+// stuckBefore orders two runners that have been stuck for the same time: a
+// runner with no container yet comes before one whose container started, and
+// equal shapes fall back to the ID so the choice is stable across passes.
+func stuckBefore(a, b *store.Runner) bool {
+	if (a.ContainerStartedAt == nil) != (b.ContainerStartedAt == nil) {
+		return a.ContainerStartedAt == nil
+	}
+	return a.ID < b.ID
+}
+
+// updateProblems reports that a newer release of Zoomies exists.
+//
+// It says nothing at all in the two cases where it would otherwise mislead: a
+// controller built from main, which is ahead of the newest release rather than
+// behind it, and a check that has not yet answered.
+//
+// The wording claims no ordering. GitHub's "latest release" excludes drafts and
+// prereleases, so it is the release an operator should be on, but comparing
+// "0.2-beta" with "0.10-beta" properly means a version parser this does not
+// have. Naming both and letting the operator read them is honest; guessing
+// which is newer is not.
+func (c *Controller) updateProblems() []Problem {
+	if c.cfg().Updates.CheckInterval <= 0 {
+		return nil
+	}
+	latest := c.latestRelease()
+	if latest == nil {
+		return nil
+	}
+	running, ok := releaseVersion(version.Version)
+	if !ok {
+		return nil
+	}
+	newest, ok := releaseVersion(latest.Tag)
+	if !ok || newest == running {
+		return nil
+	}
+	fix := "upgrade with the same method you installed by; the release notes are at " + latest.URL
+	if latest.URL == "" {
+		fix = "upgrade with the same method you installed by."
+	}
+	at := latest.At
+	return []Problem{{
+		Code:     "controller.update_available",
+		Severity: config.SeverityInfo,
+		Title:    fmt.Sprintf("the current release of Zoomies is %s; this controller is running %s", latest.Tag, running),
+		Detail: "nothing is wrong: runners, pools and jobs are unaffected by the controller's own version. " +
+			"This is here so an upgrade is a decision rather than a surprise.",
+		Fix:   fix,
+		Since: &at,
+	}}
 }

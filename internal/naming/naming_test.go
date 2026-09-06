@@ -163,31 +163,6 @@ func TestPoolAndHostNames(t *testing.T) {
 	}
 }
 
-func TestRunnerName(t *testing.T) {
-	cases := []struct{ pool, token, want string }{
-		{"zoomies-4vcpu-ubuntu-2404", "k3f9qz", "zoomies-4vcpu-ubuntu-2404-k3f9qz"},
-		{"gpu builders", "k3f9qz", "zoomies-gpu-builders-k3f9qz"},
-		{"", "k3f9qz", "zoomies-k3f9qz"},
-		{"zoomies", "k3f9qz", "zoomies-k3f9qz"},
-	}
-	for _, c := range cases {
-		if got := RunnerName(c.pool, c.token); got != c.want {
-			t.Errorf("RunnerName(%q, %q) = %q, want %q", c.pool, c.token, got, c.want)
-		}
-	}
-}
-
-func TestRunnerNameKeepsItsUniquenessSuffix(t *testing.T) {
-	long := strings.Repeat("pool", 30)
-	got := RunnerName(long, "k3f9qz")
-	if len(got) > MaxNameLength {
-		t.Fatalf("RunnerName is %d characters, over GitHub's %d: %q", len(got), MaxNameLength, got)
-	}
-	if !strings.HasSuffix(got, "-k3f9qz") {
-		t.Errorf("RunnerName truncated the token instead of the pool name: %q", got)
-	}
-}
-
 func TestLabels(t *testing.T) {
 	got := Labels(Spec{CPUs: 8, OS: OSUbuntu, Version: "24.04", Arch: ArchARM64})
 	want := []string{"zoomies-8vcpu-ubuntu-2404-arm64", "linux", "arm64"}

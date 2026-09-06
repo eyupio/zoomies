@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -83,6 +84,59 @@ func actionsOf(as []Action, kind ActionKind) []Action {
 		}
 	}
 	return out
+}
+
+func TestRepositoryScaleUpLimitDoesNotConsumeAnotherRepositoriesCapacity(t *testing.T) {
+	p := testPool("shared", "self-hosted")
+	p.RepositoryScaleUpLimit = 1
+	blocked := queued("blocked", time.Minute, "self-hosted")
+	other := queued("other", time.Minute, "self-hosted")
+	other.Repo = "acme/other"
+	s := snap([]*store.Pool{p}, nil, []*store.Job{blocked, other}, []*store.Host{testHost("host_a", 2, 0)})
+	s.ActiveByRepository = map[string]int{p.ID + "\x00acme/widgets": 1}
+	plan := Decide(s)
+	if got := len(actionsOf(plan.Actions, ActionCreate)); got != 1 {
+		t.Fatalf("creates = %d, want one for unblocked repository", got)
+	}
+	if plan.Pools[0].Blocked != "" {
+		t.Fatalf("blocked = %q, want admitted work to keep the pool unblocked", plan.Pools[0].Blocked)
+	}
+	if plan.Pools[0].QuotaDeferredJobs != 1 || !slices.Equal(plan.Pools[0].QuotaDeferredRepositories, []string{"acme/widgets"}) {
+		t.Fatalf("quota deferral = %+v", plan.Pools[0])
+	}
+}
+
+func TestRepositoryScaleUpLimitWithWarmIdleRunnerIsOnlyAThrottle(t *testing.T) {
+	p := testPool("shared", "self-hosted")
+	p.RepositoryScaleUpLimit = 1
+	idle := idleRunner("warm", p, time.Minute)
+	job := queued("deferred", time.Minute, "self-hosted")
+	s := snap([]*store.Pool{p}, []*store.Runner{idle}, []*store.Job{job}, []*store.Host{testHost("host_a", 2, 1)})
+	s.ActiveByRepository = map[string]int{p.ID + "\x00" + job.Repo: 1}
+
+	pp := only(t, Decide(s))
+	if pp.Blocked != "" || countOf(pp.Actions, ActionCreate) != 0 {
+		t.Fatalf("plan = %+v, want a deferral rather than pool blockage or creation", pp)
+	}
+	if pp.QuotaDeferredJobs != 1 || pp.Current != 1 || pp.Desired != 0 {
+		t.Fatalf("plan = %+v, want the not-yet-expired idle runner retained and the job reported deferred", pp)
+	}
+}
+
+func TestRepositoryScaleUpLimitPreservesMinimumForNonEphemeralPool(t *testing.T) {
+	p := testPool("durable", "self-hosted")
+	p.RepositoryScaleUpLimit, p.MinRunners, p.Ephemeral = 1, 2, false
+	job := queued("deferred", time.Minute, "self-hosted")
+	s := snap([]*store.Pool{p}, nil, []*store.Job{job}, []*store.Host{testHost("host_a", 4, 0)})
+	s.ActiveByRepository = map[string]int{p.ID + "\x00" + job.Repo: 1}
+
+	pp := only(t, Decide(s))
+	if pp.Desired != 2 || countOf(pp.Actions, ActionCreate) != 2 {
+		t.Fatalf("plan = %+v, want min_runners to create two durable warm runners", pp)
+	}
+	if pp.QuotaDeferredJobs != 1 || pp.Blocked != "" {
+		t.Fatalf("plan = %+v, want quota metadata separate from blocked", pp)
+	}
 }
 
 func countOf(as []Action, kind ActionKind) int { return len(actionsOf(as, kind)) }
@@ -234,7 +288,7 @@ func TestScaleUpRespectsMaxCreatesPerTick(t *testing.T) {
 	if pp.Desired != 5 {
 		t.Fatalf("desired = %d, want 5: the cap limits this tick, not the target", pp.Desired)
 	}
-	if want := "scaled linux-x64 0 -> 2: 5 jobs queued"; pp.Reason != want {
+	if want := "cannot scale linux-x64 2 -> 5: this tick's global limit of 2 new runners is exhausted; the next pass will continue"; pp.Reason != want {
 		t.Fatalf("reason = %q, want %q", pp.Reason, want)
 	}
 }
@@ -251,9 +305,49 @@ func TestMaxCreatesPerTickIsAFleetBudget(t *testing.T) {
 	if len(plan.Actions) != 1 || plan.Actions[0].PoolName != "aaa" {
 		t.Fatalf("the budget was not spent on the first pool by name: %+v", plan.Actions)
 	}
-	want := "cannot scale zzz 0 -> 1: this tick's limit of 1 new runner is used up; the next pass will continue"
+	want := "cannot scale zzz 0 -> 1: this tick's global limit of 1 new runner is exhausted; the next pass will continue"
 	if got := plan.Pools[1].Reason; got != want {
 		t.Fatalf("reason = %q, want %q", got, want)
+	}
+}
+
+func TestCreateBudgetIsRoundRobinAcrossUnequalShortfalls(t *testing.T) {
+	a, b, c := testPool("aaa", "aaa"), testPool("bbb", "bbb"), testPool("ccc", "ccc")
+	jobs := []*store.Job{queued("a1", time.Minute, "aaa"), queued("a2", time.Minute, "aaa"), queued("a3", time.Minute, "aaa"),
+		queued("b1", time.Minute, "bbb"), queued("c1", time.Minute, "ccc"), queued("c2", time.Minute, "ccc")}
+	s := snap([]*store.Pool{c, a, b}, nil, jobs, []*store.Host{testHost("host_a", 20, 0)})
+	s.Policy.MaxCreatesPerTick = 4
+
+	plan := Decide(s)
+	want := map[string]int{"aaa": 2, "bbb": 1, "ccc": 1}
+	for _, pp := range plan.Pools {
+		if got := countOf(pp.Actions, ActionCreate); got != want[pp.PoolName] {
+			t.Errorf("%s creates = %d, want %d", pp.PoolName, got, want[pp.PoolName])
+		}
+	}
+	if !strings.Contains(plan.Pools[2].Reason, "global limit") {
+		t.Fatalf("deferred pool reason = %q, want global budget", plan.Pools[2].Reason)
+	}
+}
+
+func TestCreateBudgetHonoursPriorityAndReportsCapacitySeparately(t *testing.T) {
+	highA, highB := testPool("high-a", "ha"), testPool("high-b", "hb")
+	low := testPool("low", "low")
+	highA.Priority, highB.Priority, low.Priority = 10, 10, 0
+	jobs := []*store.Job{queued("ha1", time.Minute, "ha"), queued("ha2", time.Minute, "ha"),
+		queued("hb1", time.Minute, "hb"), queued("hb2", time.Minute, "hb"), queued("low1", time.Minute, "low")}
+	s := snap([]*store.Pool{low, highB, highA}, nil, jobs, []*store.Host{testHost("host_a", 3, 0)})
+	s.Policy.MaxCreatesPerTick = 5
+
+	plan := Decide(s)
+	if countOf(plan.Pools[0].Actions, ActionCreate) != 2 || countOf(plan.Pools[1].Actions, ActionCreate) != 1 {
+		t.Fatalf("high-priority tier was not served round-robin: %+v", plan.Actions)
+	}
+	if plan.Pools[1].Blocked == "" || !strings.Contains(plan.Pools[1].Reason, "at capacity") {
+		t.Fatalf("capacity-deferred high pool = %+v, want host-capacity reason", plan.Pools[1])
+	}
+	if plan.Pools[2].Blocked == "" || !strings.Contains(plan.Pools[2].Reason, "at capacity") {
+		t.Fatalf("capacity-deferred low pool = %+v, want host-capacity reason", plan.Pools[2])
 	}
 }
 
@@ -295,6 +389,38 @@ func TestBusyRunnersDoNotAbsorbQueuedJobs(t *testing.T) {
 	}
 	if n := countOf(pp.Actions, ActionCreate); n != 2 {
 		t.Fatalf("got %d creates, want 2", n)
+	}
+}
+
+// A runner that has been told to stop will never pick up a job, so it cannot
+// stand in for the one a queued job needs. A drain that hangs used to starve
+// the pool while it looked healthy: one draining runner absorbed one queued
+// job's demand until the drain completed.
+func TestDrainingRunnersDoNotAbsorbQueuedJobs(t *testing.T) {
+	p := testPool("linux-x64", "linux")
+	runners := []*store.Runner{testRunner("r1", p, store.RunnerDraining, time.Minute)}
+	jobs := []*store.Job{queued("j1", time.Minute, "linux")}
+
+	pp := only(t, Decide(snap([]*store.Pool{p}, runners, jobs, []*store.Host{testHost("host_a", 8, 1)})))
+	if pp.Desired != 2 {
+		t.Fatalf("desired = %d, want 2 (1 draining + 1 queued)", pp.Desired)
+	}
+	if n := countOf(pp.Actions, ActionCreate); n != 1 {
+		t.Fatalf("got %d creates, want 1: a draining runner is not capacity for a queued job", n)
+	}
+}
+
+// The other half of the same rule: until the drain finishes the runner still
+// occupies a slot, so a pool at its maximum waits rather than overshooting.
+func TestDrainingRunnerStillCountsAgainstTheMaximum(t *testing.T) {
+	p := testPool("linux-x64", "linux")
+	p.MaxRunners = 1
+	runners := []*store.Runner{testRunner("r1", p, store.RunnerDraining, time.Minute)}
+	jobs := []*store.Job{queued("j1", time.Minute, "linux")}
+
+	pp := only(t, Decide(snap([]*store.Pool{p}, runners, jobs, []*store.Host{testHost("host_a", 8, 1)})))
+	if n := countOf(pp.Actions, ActionCreate); n != 0 {
+		t.Fatalf("got %d creates, want 0: the slot is not free until the drain finishes", n)
 	}
 }
 
@@ -419,8 +545,10 @@ func TestReap(t *testing.T) {
 			ActionFail, "stuck in registering for 10m, past the 5m provision timeout; check the host's agent log"},
 		{"provisioning inside the timeout is left alone",
 			testRunner("r1", p, store.RunnerProvisioning, 4*time.Minute), "", ""},
-		{"a failed runner is removed", testRunner("r1", p, store.RunnerFailed, time.Minute),
-			ActionRemove, "runner failed; removing it to free host capacity"},
+		{"a failed runner is removed once its failure has been readable for a while",
+			testRunner("r1", p, store.RunnerFailed, 11*time.Minute),
+			ActionRemove, "runner failed 11m ago; its failure has been on the Runners page long enough"},
+		{"a recently failed runner is left on the page", testRunner("r1", p, store.RunnerFailed, time.Minute), "", ""},
 		{"an old idle runner is retired", idleRunner("r1", p, 7*time.Hour),
 			ActionDrain, "runner reached the 6h maximum lifetime"},
 		{"an old busy runner keeps its job", testRunner("r1", p, store.RunnerBusy, 7*time.Hour), "", ""},
@@ -489,7 +617,7 @@ func TestRetiredRunnerIsReplaced(t *testing.T) {
 func TestFailedRunnerDoesNotHoldThePoolShort(t *testing.T) {
 	p := testPool("linux-x64", "linux")
 	p.MinRunners = 1
-	s := snap([]*store.Pool{p}, []*store.Runner{testRunner("dead", p, store.RunnerFailed, time.Minute)},
+	s := snap([]*store.Pool{p}, []*store.Runner{testRunner("dead", p, store.RunnerFailed, 11*time.Minute)},
 		nil, []*store.Host{testHost("host_a", 8, 1)})
 
 	pp := only(t, Decide(s))
@@ -499,6 +627,118 @@ func TestFailedRunnerDoesNotHoldThePoolShort(t *testing.T) {
 	if pp.Actions[0].Kind != ActionRemove {
 		t.Fatal("cleanup must come before the create that reuses the capacity")
 	}
+}
+
+// startFailed is a runner that died before it ever registered, failedFor ago:
+// the shape a bad image or an unreachable GitHub produces.
+func startFailed(id string, p *store.Pool, failedFor time.Duration, message string) *store.Runner {
+	r := testRunner(id, p, store.RunnerFailed, failedFor+2*time.Second)
+	at := ago(failedFor)
+	r.FinishedAt = &at
+	r.Message = message
+	return r
+}
+
+// A runner that died on creation used to be replaced in the same pass that
+// noticed, so a pool with a bad image created, failed and removed a runner
+// every second and spent two GitHub API calls each time. The pool now waits,
+// and the wait doubles with each failure still on the page.
+func TestAPoolWhoseRunnersDieOnStartBacksOff(t *testing.T) {
+	p := testPool("linux-x64", "linux")
+	p.MinRunners = 1
+	hosts := []*store.Host{testHost("host_a", 8, 0)}
+
+	t.Run("one fresh failure holds the pool for the base wait", func(t *testing.T) {
+		s := snap([]*store.Pool{p}, []*store.Runner{startFailed("r1", p, time.Second, "No such image: sha256:abc")}, nil, hosts)
+		pp := only(t, Decide(s))
+		if countOf(pp.Actions, ActionCreate) != 0 {
+			t.Fatalf("a create was planned a second after the last one failed: %+v", pp.Actions)
+		}
+		want := "the last runner failed to start, most recently 1s ago (No such image: sha256:abc); trying again in 9s"
+		if pp.Failing != want {
+			t.Fatalf("Failing = %q, want %q", pp.Failing, want)
+		}
+		if !strings.Contains(pp.Reason, want) || !strings.HasPrefix(pp.Reason, "cannot scale linux-x64 0 -> 1") {
+			t.Fatalf("the plan's reason does not say what went unserved and why: %q", pp.Reason)
+		}
+		if pp.Blocked != "" {
+			t.Fatalf("a held pool was reported as blocked: %q -- there is a host with room, the pool is merely waiting", pp.Blocked)
+		}
+	})
+
+	t.Run("the wait doubles with each failure", func(t *testing.T) {
+		runners := []*store.Runner{
+			startFailed("r1", p, 30*time.Second, "third"),
+			startFailed("r2", p, 50*time.Second, "second"),
+			startFailed("r3", p, 90*time.Second, "first"),
+		}
+		s := snap([]*store.Pool{p}, runners, nil, hosts)
+		pp := only(t, Decide(s))
+		// Three failures: 10s, 20s, 40s. The newest was 30s ago, so 10s to go.
+		want := "the last 3 runners failed to start, most recently 30s ago (third); trying again in 10s"
+		if pp.Failing != want {
+			t.Fatalf("Failing = %q, want %q", pp.Failing, want)
+		}
+		if countOf(pp.Actions, ActionCreate) != 0 {
+			t.Fatalf("created inside the wait: %+v", pp.Actions)
+		}
+	})
+
+	t.Run("once the wait is out the pool tries again", func(t *testing.T) {
+		runners := []*store.Runner{
+			startFailed("r1", p, 41*time.Second, "third"),
+			startFailed("r2", p, 60*time.Second, "second"),
+			startFailed("r3", p, 90*time.Second, "first"),
+		}
+		s := snap([]*store.Pool{p}, runners, nil, hosts)
+		pp := only(t, Decide(s))
+		if pp.Failing != "" {
+			t.Fatalf("still held after the 40s wait: %q", pp.Failing)
+		}
+		if countOf(pp.Actions, ActionCreate) != 1 {
+			t.Fatalf("want one create after the wait, got %+v", pp.Actions)
+		}
+	})
+
+	t.Run("the wait is capped", func(t *testing.T) {
+		var runners []*store.Runner
+		for i := range 12 {
+			runners = append(runners, startFailed(fmt.Sprintf("r%d", i), p, time.Duration(i+1)*20*time.Second, "boom"))
+		}
+		s := snap([]*store.Pool{p}, runners, nil, hosts)
+		pp := only(t, Decide(s))
+		if !strings.HasSuffix(pp.Failing, "trying again in 4m40s") {
+			t.Fatalf("twelve failures should wait the 5m cap, 20s in: %q", pp.Failing)
+		}
+	})
+
+	t.Run("a runner that ran and then failed is not a start failure", func(t *testing.T) {
+		r := startFailed("r1", p, time.Second, "exit 137 under a job")
+		registered := ago(time.Hour)
+		r.RegisteredAt = &registered
+		s := snap([]*store.Pool{p}, []*store.Runner{r}, nil, hosts)
+		pp := only(t, Decide(s))
+		if pp.Failing != "" || countOf(pp.Actions, ActionCreate) != 1 {
+			t.Fatalf("a runner lost under a job held the pool back: failing=%q actions=%+v", pp.Failing, pp.Actions)
+		}
+	})
+
+	t.Run("a failure that has left the page no longer counts", func(t *testing.T) {
+		s := snap([]*store.Pool{p}, []*store.Runner{startFailed("r1", p, 11*time.Minute, "old news")}, nil, hosts)
+		pp := only(t, Decide(s))
+		if pp.Failing != "" || countOf(pp.Actions, ActionCreate) != 1 || countOf(pp.Actions, ActionRemove) != 1 {
+			t.Fatalf("an old failure should be removed and ignored: failing=%q actions=%+v", pp.Failing, pp.Actions)
+		}
+	})
+
+	t.Run("a long message is cut to a hint", func(t *testing.T) {
+		long := strings.Repeat("the docker backend could not create the runner ", 8)
+		s := snap([]*store.Pool{p}, []*store.Runner{startFailed("r1", p, time.Second, long)}, nil, hosts)
+		pp := only(t, Decide(s))
+		if len(pp.Failing) > 260 || !strings.Contains(pp.Failing, "…") {
+			t.Fatalf("the hold sentence carries the whole message: %d chars", len(pp.Failing))
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -583,6 +823,12 @@ func TestHostSelection(t *testing.T) {
 				if !strings.Contains(pp.Reason, tc.wantWhy) {
 					t.Fatalf("reason = %q, want it to mention %q", pp.Reason, tc.wantWhy)
 				}
+				// A pool that wanted a runner and got nowhere to put it is
+				// reported as blocked, which is what the problems drawer shows:
+				// nothing else in the product says this happened.
+				if pp.Blocked == "" || pp.BlockedFix == "" {
+					t.Fatalf("plan = %+v, want it marked blocked with a fix", pp)
+				}
 				return
 			}
 			if len(creates) != 1 || creates[0].HostID != tc.wantHost {
@@ -605,7 +851,7 @@ func TestCreatesSpreadOverHostsAndRespectCapacity(t *testing.T) {
 	if want := []string{"host_a", "host_a", "host_b"}; !slices.Equal(got, want) {
 		t.Fatalf("placed on %v, want %v", got, want)
 	}
-	if want := "scaled linux-x64 0 -> 3: 5 jobs queued"; pp.Reason != want {
+	if want := "cannot scale linux-x64 3 -> 5: no host can take a new docker runner (2 at capacity); wait for a job to finish, raise a host's capacity, or add a host"; pp.Reason != want {
 		t.Fatalf("reason = %q, want %q: the sentence reports what was actually started", pp.Reason, want)
 	}
 }
@@ -682,7 +928,7 @@ func TestDisabledPoolIsStillReaped(t *testing.T) {
 	p := testPool("linux-x64", "linux")
 	p.Enabled = false
 	runners := []*store.Runner{
-		testRunner("dead", p, store.RunnerFailed, time.Minute),
+		testRunner("dead", p, store.RunnerFailed, 11*time.Minute),
 		testRunner("stuck", p, store.RunnerProvisioning, 10*time.Minute),
 	}
 	pp := only(t, Decide(snap([]*store.Pool{p}, runners, nil, []*store.Host{testHost("host_a", 8, 2)})))
@@ -767,7 +1013,7 @@ func busyFleet() Snapshot {
 		idleRunner("r_idle_new", general, time.Minute),
 		testRunner("r_busy", general, store.RunnerBusy, time.Hour),
 		testRunner("r_stuck", gpu, store.RunnerProvisioning, 20*time.Minute),
-		testRunner("r_dead", gpu, store.RunnerFailed, time.Minute),
+		testRunner("r_dead", gpu, store.RunnerFailed, 11*time.Minute),
 		idleRunner("r_retired", disabled, time.Hour),
 	}
 	jobs := []*store.Job{
@@ -985,6 +1231,327 @@ func TestTiesBreakOnIDNotInputOrder(t *testing.T) {
 		}
 		if !slices.Equal(order, []string{"j0", "j1", "j2"}) {
 			t.Fatalf("unmatched order = %v, want oldest first then by ID", order)
+		}
+	}
+}
+
+// "1 without the docker backend" sends an operator looking at the pool, when
+// what is wrong is on the host and the agent already said so. The probe's own
+// sentence is the fix, so it travels with the reason.
+func TestBlockedReasonCarriesTheHostsExplanation(t *testing.T) {
+	host := testHost("host_a", 8, 0)
+	host.Backends = store.StringSlice{"process"}
+	host.BackendInfo = store.HostBackends{{
+		Kind:   store.BackendDocker,
+		Detail: "/var/run/docker.sock is not readable by this agent",
+	}}
+
+	s := snap([]*store.Pool{testPool("linux-x64", "linux")}, nil,
+		[]*store.Job{queued("j1", time.Minute, "linux")}, []*store.Host{host})
+	pp := only(t, Decide(s))
+
+	if len(actionsOf(pp.Actions, ActionCreate)) != 0 {
+		t.Fatalf("created a runner on a host with no docker: %+v", pp.Actions)
+	}
+	if !strings.Contains(pp.Blocked, "is not readable by this agent") {
+		t.Fatalf("blocked = %q, want the agent's own explanation", pp.Blocked)
+	}
+	if !strings.Contains(pp.Blocked, host.Name) {
+		t.Fatalf("blocked = %q, want it to name the host", pp.Blocked)
+	}
+}
+
+// A scale-up that only ran out of this tick's create budget is not blocked:
+// the next pass makes the runner, and an operator has nothing to do about it.
+func TestBudgetShortfallIsNotReportedAsBlocked(t *testing.T) {
+	p := testPool("linux-x64", "linux")
+	s := snap([]*store.Pool{p}, nil,
+		[]*store.Job{queued("j1", time.Minute, "linux"), queued("j2", time.Minute, "linux")},
+		[]*store.Host{testHost("host_a", 8, 0)})
+	s.Policy.MaxCreatesPerTick = 1
+
+	pp := only(t, Decide(s))
+	if len(actionsOf(pp.Actions, ActionCreate)) != 1 {
+		t.Fatalf("creates = %+v, want the one the budget allows", pp.Actions)
+	}
+	if pp.Blocked != "" {
+		t.Fatalf("blocked = %q, want nothing for a shortfall the next tick clears", pp.Blocked)
+	}
+}
+
+// "point this pool at a backend they already offer" is not something an
+// operator can act on until Zoomies says which backend that is.
+func TestBlockedOnBackendNamesWhatTheHostsDoOffer(t *testing.T) {
+	host := testHost("host_a", 8, 0)
+	host.Backends = store.StringSlice{"podman"}
+	host.BackendInfo = store.HostBackends{{
+		Kind:   store.BackendDocker,
+		Detail: "permission denied on /var/run/docker.sock",
+	}}
+
+	pp := only(t, Decide(snap([]*store.Pool{testPool("linux-x64", "linux")}, nil,
+		[]*store.Job{queued("j1", time.Minute, "linux")}, []*store.Host{host})))
+
+	if !slices.Equal(pp.BlockedAlternatives, []string{"podman"}) {
+		t.Fatalf("alternatives = %v, want the backend the host offers", pp.BlockedAlternatives)
+	}
+	if !strings.Contains(pp.BlockedFix, "point this pool at podman, which 1 host already offers") {
+		t.Fatalf("fix = %q, want it to name podman and the count", pp.BlockedFix)
+	}
+}
+
+func TestBlockedOnBackendListsEveryAlternativeInOrder(t *testing.T) {
+	a := testHost("host_a", 8, 0)
+	a.Backends = store.StringSlice{"podman", "process"}
+	b := testHost("host_b", 8, 0)
+	b.Backends = store.StringSlice{"process"}
+
+	pp := only(t, Decide(snap([]*store.Pool{testPool("linux-x64", "linux")}, nil,
+		[]*store.Job{queued("j1", time.Minute, "linux")}, []*store.Host{a, b})))
+
+	if !slices.Equal(pp.BlockedAlternatives, []string{"podman", "process"}) {
+		t.Fatalf("alternatives = %v, want podman before process", pp.BlockedAlternatives)
+	}
+	if !strings.Contains(pp.BlockedFix, "podman (1 host), process (2 hosts)") {
+		t.Fatalf("fix = %q, want each alternative with the hosts that offer it", pp.BlockedFix)
+	}
+}
+
+// A fleet with nothing else to offer must not be told to switch to something.
+func TestBlockedOnBackendSaysSoWhenThereIsNoAlternative(t *testing.T) {
+	host := testHost("host_a", 8, 0)
+	host.Backends = nil
+
+	pp := only(t, Decide(snap([]*store.Pool{testPool("linux-x64", "linux")}, nil,
+		[]*store.Job{queued("j1", time.Minute, "linux")}, []*store.Host{host})))
+
+	if len(pp.BlockedAlternatives) != 0 {
+		t.Fatalf("alternatives = %v, want none", pp.BlockedAlternatives)
+	}
+	if strings.Contains(pp.BlockedFix, "point this pool at") {
+		t.Fatalf("fix = %q, want no offer of a backend nothing has", pp.BlockedFix)
+	}
+	if !strings.Contains(pp.BlockedFix, "no other backend to switch this pool to") {
+		t.Fatalf("fix = %q, want it to say the daemon is the only way out", pp.BlockedFix)
+	}
+}
+
+// A host that only has room for nothing is not an alternative: switching the
+// pool's backend would leave it exactly as stuck.
+func TestBlockedAlternativesIgnoreHostsWithNoRoom(t *testing.T) {
+	full := testHost("host_full", 1, 1)
+	full.Backends = store.StringSlice{"podman"}
+	mismatched := testHost("host_a", 8, 0)
+	mismatched.Backends = store.StringSlice{"process"}
+
+	pp := only(t, Decide(snap([]*store.Pool{testPool("linux-x64", "linux")}, nil,
+		[]*store.Job{queued("j1", time.Minute, "linux")}, []*store.Host{full, mismatched})))
+
+	if slices.Contains(pp.BlockedAlternatives, "podman") {
+		t.Fatalf("alternatives = %v, want nothing from a host with no capacity", pp.BlockedAlternatives)
+	}
+}
+
+// A pool the fleet is merely too busy for is not solved by a different backend,
+// so it is never offered one.
+func TestAtCapacityCarriesNoAlternatives(t *testing.T) {
+	host := testHost("host_a", 1, 1)
+	host.Backends = store.StringSlice{"docker", "podman"}
+
+	pp := only(t, Decide(snap([]*store.Pool{testPool("linux-x64", "linux")}, nil,
+		[]*store.Job{queued("j1", time.Minute, "linux")}, []*store.Host{host})))
+
+	if !pp.BlockedAtCapacity {
+		t.Fatalf("plan = %+v, want a full fleet reported as full", pp)
+	}
+	if len(pp.BlockedAlternatives) != 0 {
+		t.Fatalf("alternatives = %v, want none for a fleet that is only busy", pp.BlockedAlternatives)
+	}
+}
+
+// With a repository limit of one and three jobs from the same repository the
+// reason used to read "3 jobs queued" on a scale-up to a single runner, which
+// an operator reads as a shortfall. It counts the jobs the pool is scaling for
+// and says where the rest went.
+func TestTheScaleUpReasonCountsTheJobsItIsScalingForAndNamesTheDeferred(t *testing.T) {
+	p := testPool("shared", "self-hosted")
+	p.RepositoryScaleUpLimit = 1
+	jobs := []*store.Job{
+		queued("one", time.Minute, "self-hosted"),
+		queued("two", time.Minute, "self-hosted"),
+		queued("three", time.Minute, "self-hosted"),
+	}
+	s := snap([]*store.Pool{p}, nil, jobs, []*store.Host{testHost("host_a", 4, 0)})
+
+	pp := only(t, Decide(s))
+	if pp.Desired != 1 || countOf(pp.Actions, ActionCreate) != 1 {
+		t.Fatalf("plan = %+v, want one runner for the one admitted job", pp)
+	}
+	want := "scaled shared 0 -> 1: 1 job queued (2 jobs deferred by the repository limit for acme/widgets)"
+	if pp.Reason != want {
+		t.Fatalf("reason = %q\nwant     %q", pp.Reason, want)
+	}
+	if pp.Actions[0].Reason != "1 job queued (2 jobs deferred by the repository limit for acme/widgets)" {
+		t.Fatalf("action reason = %q", pp.Actions[0].Reason)
+	}
+}
+
+// HostCanRun is the placement rule, and the one the wizard, the capacity
+// signal and prewarming ask, so a host the scheduler would place on and a
+// host they count are the same host.
+func TestHostCanRunIsTheOnePlacementRule(t *testing.T) {
+	p := testPool("gpu", "gpu")
+	p.HostSelector = store.StringMap{"zone": "a"}
+	fits := testHost("host_a", 2, 0)
+	fits.Labels = store.StringMap{"zone": "a"}
+
+	cases := []struct {
+		name string
+		mut  func(h *store.Host)
+		want bool
+	}{
+		{"a healthy, uncordoned host with the backend and the labels", func(*store.Host) {}, true},
+		{"cordoned", func(h *store.Host) { h.Cordoned = true }, false},
+		{"silent", func(h *store.Host) { h.LastHeartbeat = now.Add(-time.Hour) }, false},
+		{"without the backend", func(h *store.Host) { h.Backends = store.StringSlice{"process"} }, false},
+		{"in the wrong zone", func(h *store.Host) { h.Labels = store.StringMap{"zone": "b"} }, false},
+		{"full, which is the scheduler's own accounting and not this rule's", func(h *store.Host) { h.ActiveRunners = h.Capacity }, true},
+	}
+	for _, tc := range cases {
+		h := *fits
+		tc.mut(&h)
+		if got := HostCanRun(&h, p, now); got != tc.want {
+			t.Errorf("%s: HostCanRun = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// A runner made from an image the pool no longer names is replaced, and only
+// when it is not doing anything: the change that matters most is a pool that
+// gained a Docker daemon and with it a different image, whose warm runners
+// would otherwise take the next Docker job onto an image with no client.
+func TestARunnerOnAnImageThePoolNoLongerNamesIsReplaced(t *testing.T) {
+	p := testPool("linux-x64", "linux")
+	p.Image = "ghcr.io/eyupio/zoomies-runner-docker:latest"
+	stale := func(id string, state store.RunnerState) *store.Runner {
+		r := testRunner(id, p, state, time.Minute)
+		if state == store.RunnerIdle {
+			since := ago(time.Minute)
+			r.LastIdleAt = &since
+		}
+		r.Image = "ghcr.io/eyupio/zoomies-runner:latest"
+		return r
+	}
+	current := idleRunner("r1", p, time.Minute)
+	current.Image = p.Image
+	unrecorded := idleRunner("r1", p, time.Minute)
+
+	const reason = "pool image is now ghcr.io/eyupio/zoomies-runner-docker:latest; this runner was made from ghcr.io/eyupio/zoomies-runner:latest"
+	tests := []struct {
+		name       string
+		runner     *store.Runner
+		wantReason string
+	}{
+		{"an idle runner on the old image is drained", stale("r1", store.RunnerIdle), reason},
+		{"one still registering is drained before it can take a job", stale("r1", store.RunnerRegistering), reason},
+		{"a busy one keeps its job", stale("r1", store.RunnerBusy), ""},
+		{"one already draining is left to drain", stale("r1", store.RunnerDraining), ""},
+		{"a runner on the pool's image is left alone", current, ""},
+		{"a runner row that never recorded an image is left alone", unrecorded, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := snap([]*store.Pool{p}, []*store.Runner{tc.runner}, nil, []*store.Host{testHost("host_a", 8, 1)})
+			pp := only(t, Decide(s))
+			var drains []Action
+			for _, a := range pp.Actions {
+				if a.Kind == ActionDrain {
+					drains = append(drains, a)
+				}
+			}
+			if tc.wantReason == "" {
+				if len(drains) != 0 {
+					t.Fatalf("expected no drain, got %+v", drains)
+				}
+				return
+			}
+			if len(drains) != 1 || drains[0].RunnerID != "r1" || drains[0].Reason != tc.wantReason {
+				t.Fatalf("drains = %+v, want one of r1 with reason %q", drains, tc.wantReason)
+			}
+		})
+	}
+
+	// A pool with no image of its own runs the instance default, which its
+	// runner rows record and it does not; that difference is not staleness.
+	p.Image = ""
+	s := snap([]*store.Pool{p}, []*store.Runner{stale("r1", store.RunnerIdle)}, nil, []*store.Host{testHost("host_a", 8, 1)})
+	for _, a := range only(t, Decide(s)).Actions {
+		if a.Kind == ActionDrain {
+			t.Fatalf("a pool on the default image drained %+v", a)
+		}
+	}
+}
+
+// A pool may select on the OS and architecture the agent reports, so an
+// operator can keep arm64 work on arm64 boxes across a fleet nobody has
+// labelled. An operator's own label still wins, which is what keeps a fleet
+// that already labelled `arch` by hand meaning what it chose.
+func TestHostSelectsMatchesReportedOSAndArch(t *testing.T) {
+	arm := testHost("host_arm", 2, 0)
+	arm.OS, arm.Arch = "linux", "arm64"
+	win := testHost("host_win", 2, 0)
+	win.OS, win.Arch = "windows", "amd64"
+	// The one host whose operator disagrees with its agent.
+	lied := testHost("host_lied", 2, 0)
+	lied.OS, lied.Arch = "linux", "amd64"
+	lied.Labels = store.StringMap{"arch": "legacy"}
+
+	cases := []struct {
+		name     string
+		selector store.StringMap
+		host     *store.Host
+		want     bool
+	}{
+		{"unlabelled arm64 host, selector asks for arm64", store.StringMap{"arch": "arm64"}, arm, true},
+		{"unlabelled arm64 host, selector asks for amd64", store.StringMap{"arch": "amd64"}, arm, false},
+		{"windows host by os", store.StringMap{"os": "windows"}, win, true},
+		{"linux selector does not take the windows host", store.StringMap{"os": "linux"}, win, false},
+		{"os and arch together", store.StringMap{"os": "linux", "arch": "arm64"}, arm, true},
+		{"os matches but arch does not", store.StringMap{"os": "linux", "arch": "amd64"}, arm, false},
+		{"an explicit label beats the reported arch", store.StringMap{"arch": "legacy"}, lied, true},
+		{"and the reported arch no longer answers once a label claims the key", store.StringMap{"arch": "amd64"}, lied, false},
+		{"an empty selector still means any host", nil, arm, true},
+		{"a key nothing answers for matches nothing", store.StringMap{"zone": "eu"}, arm, false},
+	}
+	for _, tc := range cases {
+		p := testPool("p", "p")
+		p.HostSelector = tc.selector
+		if got := HostSelects(tc.host, p); got != tc.want {
+			t.Errorf("%s: HostSelects = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// Selecting on a reported fact has to reach placement, not just the predicate:
+// this is the case an operator actually types, and the pool has to land on the
+// arm64 box and leave the amd64 one alone.
+func TestPlacementHonoursAReportedArchSelector(t *testing.T) {
+	arm := testHost("host_arm", 4, 0)
+	arm.OS, arm.Arch = "linux", "arm64"
+	amd := testHost("host_amd", 4, 0)
+	amd.OS, amd.Arch = "linux", "amd64"
+
+	p := testPool("arm-pool", "arm-pool")
+	p.HostSelector = store.StringMap{"arch": "arm64"}
+
+	hs := newHostSet([]*store.Host{arm, amd}, now)
+	got := hs.place(p, 3)
+	if len(got) != 3 {
+		t.Fatalf("placed %d runners, want 3: %v", len(got), got)
+	}
+	for _, id := range got {
+		if id != "host_arm" {
+			t.Errorf("placed on %s, want only host_arm", id)
 		}
 	}
 }

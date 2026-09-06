@@ -118,7 +118,7 @@
     display: flex;
     align-items: center;
     gap: var(--z-space-1);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
     overflow-x: auto;
   }
   .tab {
@@ -127,7 +127,7 @@
     gap: var(--z-space-2);
     padding: var(--z-space-2) var(--z-space-3);
     border: 0;
-    border-bottom: 2px solid transparent;
+    border-bottom: var(--z-border-width-thick) solid transparent;
     background: transparent;
     color: var(--z-text-muted);
     font-family: inherit;
@@ -156,10 +156,10 @@
     font-size: var(--z-text-2xs);
     font-variant-numeric: tabular-nums;
   }
+  /* The panel is in the tab order, so it keeps the shared focus ring: a
+     keyboard user tabbing out of the tab list must be able to see where they
+     landed. Mouse focus is already ringless through :focus-visible. */
   [role='tabpanel'] {
     padding-top: var(--z-space-4);
-  }
-  [role='tabpanel']:focus {
-    outline: none;
   }
 </style>

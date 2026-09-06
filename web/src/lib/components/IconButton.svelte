@@ -77,7 +77,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid transparent;
+    border: var(--z-border-width) solid transparent;
     border-radius: var(--z-radius-md);
     background: transparent;
     color: var(--z-text-muted);

@@ -60,7 +60,12 @@ const (
 )
 
 // DefaultRunnerVersion is used when neither the pool nor the agent pins one.
-const DefaultRunnerVersion = "2.328.0"
+//
+// It is the same release deploy/Dockerfile.runner and the Makefile pin, and
+// the digests in runner_digests.go are its digests: bump all of them together
+// (.github/workflows/runner-version.yml does), or the process backend will
+// refuse to install the version it defaults to.
+const DefaultRunnerVersion = "2.337.0"
 
 // defaultRunnerDownloadURL is where actions/runner releases live.
 const defaultRunnerDownloadURL = "https://github.com/actions/runner/releases/download"
@@ -70,15 +75,6 @@ const configureTimeout = 3 * time.Minute
 
 // tailPoll is how often a followed log file is re-read. See followReader.
 const tailPoll = 250 * time.Millisecond
-
-// knownRunnerSHA256 holds digests Zoomies ships for the runner releases it has
-// been tested against, keyed "<version>/<asset file name>".
-//
-// It is deliberately empty in the source tree rather than filled with digests
-// that would go stale: an operator who pins a version supplies its digest with
-// ProcessOptions.RunnerSHA256, and a release of Zoomies that pins a default
-// runner version adds the entry here at the same time.
-var knownRunnerSHA256 = map[string]string{}
 
 // ProcessOptions configures the process backend.
 type ProcessOptions struct {
@@ -189,6 +185,10 @@ func (b *ProcessBackend) Probe(ctx context.Context) Info {
 		info.Detail = err.Error()
 		return info
 	}
+	if !HasShell() {
+		info.Detail = noShellDetail
+		return info
+	}
 	if err := checkICU(); err != nil {
 		info.Detail = err.Error()
 		return info
@@ -214,6 +214,24 @@ func (b *ProcessBackend) checkWritable() error {
 	_ = f.Close()
 	_ = os.Remove(name)
 	return nil
+}
+
+// noShellDetail is why the process backend is unavailable on a host with no
+// shell, in the words the Hosts page shows.
+const noShellDetail = "no shell is installed (sh is not in PATH), so nothing actions/runner starts could run here; " +
+	"the published Zoomies image is built without one on purpose -- from a container, use the docker or podman backend, " +
+	"and use the process backend only on a host with a shell, tar and libicu"
+
+// HasShell reports whether this host has a shell, which the runner's config.sh
+// and every `run:` step need.
+//
+// It is checked before ICU because it decides what kind of host this is. The
+// published Zoomies image is distroless -- no shell at all, on purpose -- so an
+// agent running in it can never use this backend, and telling that operator to
+// apt-get install libicu, into an image with no apt, sends them the wrong way.
+func HasShell() bool {
+	_, err := exec.LookPath("sh")
+	return err == nil
 }
 
 // checkICU looks for the ICU libraries the runner's .NET runtime needs.
@@ -242,11 +260,17 @@ func checkICU() error {
 
 // Create lays out one runner directory, registers it and starts it.
 func (b *ProcessBackend) Create(ctx context.Context, spec Spec) (Handle, error) {
+	r, err := b.CreateWithResult(ctx, spec)
+	return r.Handle, err
+}
+
+func (b *ProcessBackend) CreateWithResult(ctx context.Context, spec Spec) (CreateResult, error) {
+	started := time.Now()
 	if err := spec.Validate(); err != nil {
-		return "", err
+		return CreateResult{}, err
 	}
 	if spec.DockerMode == store.DockerDinD {
-		return "", fmt.Errorf("backend: pool %q asks for docker-in-docker, which the process backend cannot provide; move the pool to the docker backend", spec.PoolName)
+		return CreateResult{}, fmt.Errorf("backend: pool %q asks for docker-in-docker, which the process backend cannot provide; move the pool to the docker backend", spec.PoolName)
 	}
 
 	version := strings.TrimPrefix(strings.TrimSpace(spec.RunnerVersion), "v")
@@ -255,43 +279,46 @@ func (b *ProcessBackend) Create(ctx context.Context, spec Spec) (Handle, error) 
 	}
 	tools, err := b.ensureRelease(ctx, version)
 	if err != nil {
-		return "", err
+		return CreateResult{}, err
 	}
 
 	dir := b.runnerDir(spec.Name)
 	if err := b.wipe(ctx, dir); err != nil {
-		return "", err
+		return CreateResult{}, err
 	}
 	if err := os.MkdirAll(filepath.Join(dir, runnerWorkDir), 0o750); err != nil {
-		return "", fmt.Errorf("backend: creating the runner directory %s: %w", dir, err)
+		return CreateResult{}, fmt.Errorf("backend: creating the runner directory %s: %w", dir, err)
 	}
 	// Each runner needs its own copy of the tree, because the runner keeps its
 	// credentials and its state next to the binary. Files are hard-linked where
 	// the filesystem allows it, so the copy costs inodes rather than gigabytes.
 	if err := cloneTree(tools, dir); err != nil {
 		_ = os.RemoveAll(dir)
-		return "", fmt.Errorf("backend: laying out the runner in %s: %w", dir, err)
+		return CreateResult{}, fmt.Errorf("backend: laying out the runner in %s: %w", dir, err)
 	}
 
 	env := b.childEnv(spec, dir)
 	args := []string{"run"}
 	if jit := spec.Credentials.JITConfig; jit != "" {
-		// The JIT config goes on the command line because that is the interface
-		// the runner offers. It is single-use and expires in minutes, which is
-		// what makes a value visible in ps acceptable here; a registration token
-		// is not, and neither is anything else Zoomies holds.
-		args = append(args, "--jitconfig", jit)
+		// In the environment rather than on the command line. The runner reads
+		// ACTIONS_RUNNER_INPUT_<ARG> as a fallback for every --arg, which is
+		// how the container backends already hand it over, and it is the
+		// difference between a credential in /proc/<pid>/cmdline, which every
+		// local user can read, and one in /proc/<pid>/environ, which only this
+		// account and root can. Short-lived and single-use is a reason to
+		// worry less, not a reason to publish it.
+		env = append(env, EnvUpstreamJITConfig+"="+jit)
 	} else if err := b.configure(ctx, dir, spec, env); err != nil {
 		_ = os.RemoveAll(dir)
-		return "", err
+		return CreateResult{}, err
 	}
 
 	if err := b.start(dir, args, env, spec, version); err != nil {
 		_ = os.RemoveAll(dir)
-		return "", err
+		return CreateResult{}, err
 	}
 	b.log.Info("runner process started", "runner", spec.Name, "pool", spec.PoolName, "dir", dir, "runner_version", version)
-	return Handle(dir), nil
+	return CreateResult{Handle: Handle(dir), CreateDuration: time.Since(started)}, nil
 }
 
 // configure runs config.sh for the registration-token path, which is how a
@@ -355,6 +382,7 @@ func (b *ProcessBackend) start(dir string, args, env []string, spec Spec, versio
 	cmd.Env = env
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
+	detachRunner(cmd)
 	if err := cmd.Start(); err != nil {
 		_ = logFile.Close()
 		return fmt.Errorf("backend: starting the runner in %s: %w", dir, err)
@@ -567,7 +595,13 @@ func (b *ProcessBackend) Stop(ctx context.Context, h Handle, timeout time.Durati
 	if err != nil {
 		return nil
 	}
-	if err := proc.Signal(os.Interrupt); err != nil && !errors.Is(err, os.ErrProcessDone) {
+	if runtime.GOOS == "windows" {
+		// Windows does not support sending os.Interrupt to arbitrary processes.
+		return b.kill(proc, dir)
+	}
+	// The whole group, not the listener alone: the job runs in a worker the
+	// listener spawned, and it is the worker that has to be told to stop.
+	if err := signalRunner(proc, syscall.SIGINT); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		b.log.Warn("could not interrupt the runner; killing it", "dir", dir, "pid", pid, "error", err)
 		return b.kill(proc, dir)
 	}
@@ -580,8 +614,12 @@ func (b *ProcessBackend) Stop(ctx context.Context, h Handle, timeout time.Durati
 }
 
 func (b *ProcessBackend) kill(proc *os.Process, dir string) error {
-	if err := proc.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return fmt.Errorf("backend: killing the runner process %d in %s: %w", proc.Pid, dir, err)
+	if err := signalRunner(proc, syscall.SIGKILL); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		// The group could not be signalled; the leader alone is better than
+		// nothing, and is all Windows can do anyway.
+		if err := proc.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			return fmt.Errorf("backend: killing the runner process %d in %s: %w", proc.Pid, dir, err)
+		}
 	}
 	return nil
 }
@@ -826,6 +864,12 @@ func extractTarGz(archive, dest string) error {
 		if err != nil {
 			return err
 		}
+		// A symlink extracted earlier must not become a path component now:
+		// "lib -> /etc" followed by "lib/cron.d/x" is the second half of the
+		// classic escape, and safeJoin sees only the text of the name.
+		if err := noSymlinkParents(dest, target); err != nil {
+			return err
+		}
 
 		switch hdr.Typeflag {
 		case tar.TypeDir:
@@ -848,6 +892,13 @@ func extractTarGz(archive, dest string) error {
 				return err
 			}
 		case tar.TypeSymlink:
+			// filepath.Join cleans "/etc" to "etc" under the entry's directory,
+			// which is why an absolute target used to pass the check below;
+			// it is refused outright, since nothing in a runner release links
+			// to an absolute path.
+			if filepath.IsAbs(hdr.Linkname) || strings.HasPrefix(hdr.Linkname, `\`) {
+				return fmt.Errorf("archive entry %q links to the absolute path %q", hdr.Name, hdr.Linkname)
+			}
 			if _, err := safeJoin(dest, filepath.Join(filepath.Dir(hdr.Name), hdr.Linkname)); err != nil {
 				return fmt.Errorf("archive entry %q links outside the archive", hdr.Name)
 			}
@@ -860,6 +911,35 @@ func extractTarGz(archive, dest string) error {
 			}
 		}
 	}
+}
+
+// noSymlinkParents refuses to write through a symlink: every directory between
+// root and target that already exists must be a real directory. The archive is
+// extracted into a fresh directory, so the only way one of them is a symlink is
+// that an earlier entry of the same archive made it so.
+func noSymlinkParents(root, target string) error {
+	rel, err := filepath.Rel(root, filepath.Dir(target))
+	if err != nil {
+		return err
+	}
+	dir := root
+	for _, part := range strings.Split(rel, string(os.PathSeparator)) {
+		if part == "." || part == "" {
+			continue
+		}
+		dir = filepath.Join(dir, part)
+		info, err := os.Lstat(dir)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("archive entry %q would be written through the symlink %q", target, dir)
+		}
+	}
+	return nil
 }
 
 // safeJoin resolves name under root, rejecting anything that escapes it. A

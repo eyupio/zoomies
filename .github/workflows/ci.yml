@@ -20,10 +20,10 @@ env:
 jobs:
   go:
     name: Go
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -55,25 +55,25 @@ jobs:
 
   staticcheck:
     name: staticcheck
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
       - run: make build-nogui
-      - uses: dominikh/staticcheck-action@v1
+      - uses: dominikh/staticcheck-action@9716614d4101e79b4340dd97b10e54d68234e431 # v1.4.1
         with:
           version: latest
           install-go: false
 
   ui:
     name: UI
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -96,7 +96,7 @@ jobs:
       # budget documented in docs/ui-guidelines.md.
       - run: npm run build
         working-directory: web
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: webdist
           path: internal/api/webdist
@@ -104,20 +104,20 @@ jobs:
 
   playwright:
     name: Playwright
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     needs: [ui]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: webdist
           path: internal/api/webdist
@@ -128,7 +128,7 @@ jobs:
         working-directory: web
       - run: npm run test:e2e
         working-directory: web
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
           name: playwright-report
@@ -137,7 +137,7 @@ jobs:
 
   build-matrix:
     name: Cross-compile
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     needs: [ui]
     strategy:
       fail-fast: false
@@ -148,12 +148,12 @@ jobs:
           - { goos: darwin, goarch: amd64 }
           - { goos: darwin, goarch: arm64 }
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: webdist
           path: internal/api/webdist
@@ -167,7 +167,7 @@ jobs:
     name: install.sh
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: POSIX shell syntax
         run: |
           # dash is the strictest POSIX sh most users will have; install.sh must
@@ -176,10 +176,13 @@ jobs:
           dash -n install.sh
           shellcheck -s sh install.sh
           shellcheck deploy/runner-entrypoint.sh
-          # The runner image's package step runs under whatever /bin/sh the
-          # base image has, which on Debian and Alpine is not bash.
-          dash -n deploy/runner-packages.sh
-          shellcheck -s sh deploy/runner-packages.sh
+          # The runner image's own scripts run under whatever /bin/sh the base
+          # image has, which on Debian is not bash.
+          for f in deploy/runner-packages.sh deploy/runner-toolchain.sh \
+                   deploy/runner-gh.sh deploy/runner-docker-cli.sh; do
+            dash -n "$f"
+            shellcheck -s sh "$f"
+          done
 
   images:
     name: Images
@@ -188,20 +191,21 @@ jobs:
     permissions:
       contents: read
       packages: write
-    # The runner-images job below repeats none of these decisions; it reads
-    # them from here, so a change to what publishes only has to be made once.
+    env:
+      CONTROLLER_IMAGE: ghcr.io/eyupio/zoomies
+      RUNNER_IMAGE: ghcr.io/eyupio/zoomies-runner
+      RUNNER_DOCKER_IMAGE: ghcr.io/eyupio/zoomies-runner-docker
+    # The runner-images job below repeats none of these decisions; it reads them
+    # from here, so a change to what publishes only has to be made once.
     outputs:
       publish: ${{ steps.publish.outputs.value }}
       platforms: ${{ steps.platforms.outputs.list }}
       runner: ${{ steps.changed.outputs.runner }}
       sha: ${{ steps.tags.outputs.sha }}
-    env:
-      CONTROLLER_IMAGE: ghcr.io/eyupio/zoomies
-      RUNNER_IMAGE: ghcr.io/eyupio/zoomies-runner
     steps:
       # Full history: the "what changed" step below diffs against a base commit
       # that a shallow clone does not contain.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { fetch-depth: 0 }
 
       # Whether this run publishes anything. Only main does. A pull request --
@@ -219,20 +223,15 @@ jobs:
             echo "value=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # main publishes :latest, :main and :sha-<commit>.
-      #
-      # :latest tracks main only because Zoomies has no release yet: the tag
-      # everything defaults to has to exist, and release.yml cannot create it
-      # until a v* tag is pushed. Once the first release is cut, DROP :latest
-      # from this job -- otherwise the next merge to main overwrites the
-      # release's :latest with an untagged build, which is precisely the thing
-      # :latest is supposed to protect people from.
+      # main publishes :latest, :main and :sha-<commit>. :latest tracks main
+      # rather than the newest release, so a pool that names no tag runs
+      # ahead of the releases; pin a vX.Y.Z tag to stay on one release instead.
       - id: tags
         name: Work out the tags
         run: echo "sha=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
       - if: steps.publish.outputs.value == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -256,10 +255,10 @@ jobs:
 
       # QEMU is only needed for the architecture this machine is not.
       - if: steps.platforms.outputs.list != 'linux/amd64'
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
 
       - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v1
+        uses: useblacksmith/setup-docker-builder@a5256a73e30f09e37e3eceb8ca36043d17621d24 # v2.1.0
 
       # Which images actually need building. The runner image is by far the
       # most expensive thing in this workflow -- it apt-installs a desktop's
@@ -282,10 +281,13 @@ jobs:
           # Skipping the build is only safe while :main already points at an
           # image built from these files. On the first publish it points at
           # nothing at all, and "unchanged" would leave it that way.
-          if [ "$PUBLISH" = "true" ] &&
-             ! docker buildx imagetools inspect "$RUNNER_IMAGE:latest" >/dev/null 2>&1; then
-            echo "$RUNNER_IMAGE:latest is not in the registry yet; building it." >> "$GITHUB_STEP_SUMMARY"
-            build_it
+          if [ "$PUBLISH" = "true" ]; then
+            for image in "$RUNNER_IMAGE" "$RUNNER_DOCKER_IMAGE"; do
+              if ! docker buildx imagetools inspect "$image:main" >/dev/null 2>&1; then
+                echo "$image:main is not in the registry yet; building it." >> "$GITHUB_STEP_SUMMARY"
+                build_it
+              fi
+            done
           fi
 
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
@@ -299,14 +301,14 @@ jobs:
           fi
 
           if git diff --name-only "$BASE" HEAD |
-             grep -qE '^deploy/(Dockerfile\.runner|runner-entrypoint\.sh|runner-packages\.sh)$'; then
+             grep -qE '^deploy/(Dockerfile\.runner|runner-entrypoint\.sh|runner-[a-z-]+\.sh)$'; then
             echo "runner=true" >> "$GITHUB_OUTPUT"
           else
             echo "runner=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build the controller image
-        uses: useblacksmith/build-push-action@v2
+        uses: useblacksmith/build-push-action@9b0579bbec7a6cad2f171596c57e7ac1e7658850 # v2.3.0
         with:
           context: .
           file: deploy/Dockerfile
@@ -323,6 +325,7 @@ jobs:
             ${{ env.CONTROLLER_IMAGE }}:latest
             ${{ env.CONTROLLER_IMAGE }}:main
             ${{ env.CONTROLLER_IMAGE }}:${{ steps.tags.outputs.sha }}
+
 
       - name: Say what happened
         env:
@@ -343,24 +346,24 @@ jobs:
               echo
               echo "- \`$CONTROLLER_IMAGE:latest\`, \`:main\`, \`:$SHA_TAG\`"
               if [ "$RUNNER_BUILT" = "true" ]; then
-                echo "- \`$RUNNER_IMAGE\`: one tag per operating system, see the runner-images job"
+                echo "- \`$RUNNER_IMAGE:latest\`, \`:main\`, \`:$SHA_TAG\`"
+                echo "- \`$RUNNER_DOCKER_IMAGE:latest\`, \`:main\`, \`:$SHA_TAG\`"
               else
-                echo "- \`$RUNNER_IMAGE\` is unchanged, and still current."
+                echo "- \`$RUNNER_IMAGE:latest\` and \`$RUNNER_DOCKER_IMAGE:latest\` are unchanged, and still current."
               fi
-              echo
-              echo "Drop \`:latest\` from this job once the first release is tagged."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # One build per operating system in internal/naming's catalogue.
+  # One build per operating system in internal/naming's catalogue, each
+  # building both of deploy/Dockerfile.runner's targets.
   #
   # It is a separate job from `images` because it is the expensive half -- five
-  # variants, each downloading the ~200 MB actions/runner tarball -- and only
-  # runs when something that goes into the image changed. A pull request builds
-  # amd64 only and publishes nothing; main builds both architectures and
-  # publishes every variant.
+  # variants, each downloading the ~200 MB actions/runner archive and a build
+  # toolchain -- and only runs when something that goes into the image changed.
+  # A pull request builds amd64 only and publishes nothing; main builds both
+  # architectures and publishes every variant.
   #
-  # TestReleaseMatrixCoversTheCatalogue keeps this list and internal/naming's
+  # TestWorkflowMatricesCoverTheCatalogue keeps this list and internal/naming's
   # catalogue in step, so a new operating system cannot be half-added.
   runner-images:
     name: Runner image (${{ matrix.tag }})
@@ -372,30 +375,31 @@ jobs:
       packages: write
     env:
       RUNNER_IMAGE: ghcr.io/eyupio/zoomies-runner
+      RUNNER_DOCKER_IMAGE: ghcr.io/eyupio/zoomies-runner-docker
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { tag: ubuntu-2404, base: "ubuntu:24.04",              family: apt, os: ubuntu, version: "24.04", default: true }
-          - { tag: ubuntu-2204, base: "ubuntu:22.04",              family: apt, os: ubuntu, version: "22.04" }
-          - { tag: debian-12,   base: "debian:12-slim",            family: apt, os: debian, version: "12" }
-          - { tag: fedora-42,   base: "fedora:42",                 family: dnf, os: fedora, version: "42" }
-          - { tag: rocky-9,     base: "rockylinux/rockylinux:9",   family: dnf, os: rocky,  version: "9" }
+          - { tag: ubuntu-2404, base: "ubuntu:24.04",            family: apt, os: ubuntu, version: "24.04", default: true }
+          - { tag: ubuntu-2204, base: "ubuntu:22.04",            family: apt, os: ubuntu, version: "22.04" }
+          - { tag: debian-12,   base: "debian:12-slim",          family: apt, os: debian, version: "12" }
+          - { tag: fedora-42,   base: "fedora:42",               family: dnf, os: fedora, version: "42" }
+          - { tag: rocky-9,     base: "rockylinux/rockylinux:9", family: dnf, os: rocky,  version: "9" }
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - if: needs.images.outputs.publish == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
       - if: needs.images.outputs.platforms != 'linux/amd64'
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
 
       - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v1
+        uses: useblacksmith/setup-docker-builder@a5256a73e30f09e37e3eceb8ca36043d17621d24 # v2.1.0
 
       # Only the default variant carries the unqualified tags. Anything else
       # would mean a pool that named no operating system got whichever variant
@@ -408,23 +412,27 @@ jobs:
           SHA_TAG: ${{ needs.images.outputs.sha }}
         run: |
           set -eu
-          {
-            echo "list<<EOF"
-            echo "$RUNNER_IMAGE:$TAG"
-            echo "$RUNNER_IMAGE:$TAG-main"
-            echo "$RUNNER_IMAGE:$TAG-$SHA_TAG"
-            if [ "$IS_DEFAULT" = "true" ]; then
-              echo "$RUNNER_IMAGE:latest"
-              echo "$RUNNER_IMAGE:main"
-              echo "$RUNNER_IMAGE:$SHA_TAG"
-            fi
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          for image in "$RUNNER_IMAGE" "$RUNNER_DOCKER_IMAGE"; do
+            key="${image##*/}"
+            {
+              echo "$key<<EOF"
+              echo "$image:$TAG"
+              echo "$image:$TAG-main"
+              echo "$image:$TAG-$SHA_TAG"
+              if [ "$IS_DEFAULT" = "true" ]; then
+                echo "$image:latest"
+                echo "$image:main"
+                echo "$image:$SHA_TAG"
+              fi
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          done
 
-      - uses: useblacksmith/build-push-action@v2
+      - uses: useblacksmith/build-push-action@9b0579bbec7a6cad2f171596c57e7ac1e7658850 # v2.3.0
         with:
           context: .
           file: deploy/Dockerfile.runner
+          target: runner
           platforms: ${{ needs.images.outputs.platforms }}
           push: ${{ needs.images.outputs.publish }}
           build-args: |
@@ -432,4 +440,21 @@ jobs:
             OS_FAMILY=${{ matrix.family }}
             OS_ID=${{ matrix.os }}
             OS_VERSION=${{ matrix.version }}
-          tags: ${{ steps.tags.outputs.list }}
+          tags: ${{ steps.tags.outputs.zoomies-runner }}
+
+      # The variant with a Docker CLI, for pools whose docker_mode gives jobs a
+      # daemon. Everything below the client is a layer the step above just
+      # built, so this costs one package install rather than another image.
+      - uses: useblacksmith/build-push-action@9b0579bbec7a6cad2f171596c57e7ac1e7658850 # v2.3.0
+        with:
+          context: .
+          file: deploy/Dockerfile.runner
+          target: runner-docker
+          platforms: ${{ needs.images.outputs.platforms }}
+          push: ${{ needs.images.outputs.publish }}
+          build-args: |
+            BASE=${{ matrix.base }}
+            OS_FAMILY=${{ matrix.family }}
+            OS_ID=${{ matrix.os }}
+            OS_VERSION=${{ matrix.version }}
+          tags: ${{ steps.tags.outputs.zoomies-runner-docker }}

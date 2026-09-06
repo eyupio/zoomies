@@ -32,6 +32,11 @@ type fakeBackend struct {
 	logs        func() io.ReadCloser
 	inflight    int
 	maxInflight int
+	// unavailable makes Probe answer as a daemon that is not there, which is
+	// what a host looks like before its Docker is up. probes counts how often
+	// the agent has asked.
+	unavailable bool
+	probes      int
 }
 
 func newFakeBackend(kind store.BackendKind) *fakeBackend {
@@ -41,7 +46,29 @@ func newFakeBackend(kind store.BackendKind) *fakeBackend {
 func (f *fakeBackend) Kind() store.BackendKind { return f.kind }
 
 func (f *fakeBackend) Probe(context.Context) backend.Info {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.probes++
+	if f.unavailable {
+		return backend.Info{
+			Kind:   f.kind,
+			Detail: "cannot connect to the daemon: no such file or directory",
+		}
+	}
 	return backend.Info{Kind: f.kind, Available: true, Version: "fake", Endpoint: "memory"}
+}
+
+// setUnavailable flips what the next probe will find.
+func (f *fakeBackend) setUnavailable(v bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.unavailable = v
+}
+
+func (f *fakeBackend) probeCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.probes
 }
 
 func (f *fakeBackend) Create(ctx context.Context, spec backend.Spec) (backend.Handle, error) {
@@ -80,6 +107,11 @@ func (f *fakeBackend) Create(ctx context.Context, spec backend.Spec) (backend.Ha
 		return "", err
 	}
 	return handle, nil
+}
+
+func (f *fakeBackend) CreateWithResult(ctx context.Context, spec backend.Spec) (backend.CreateResult, error) {
+	h, err := f.Create(ctx, spec)
+	return backend.CreateResult{Handle: h, Digest: "sha256:resolved"}, err
 }
 
 func (f *fakeBackend) Status(_ context.Context, h backend.Handle) (backend.Status, error) {
@@ -183,6 +215,7 @@ type fakeTransport struct {
 	joinErr   error
 	beatResp  *HeartbeatResponse
 	beatErr   error
+	reportErr error
 	pollErr   error
 	streams   map[string]*fakeStream
 	openErr   error
@@ -262,6 +295,12 @@ func (f *fakeTransport) ReportResult(_ context.Context, res TaskResult) error {
 }
 
 func (f *fakeTransport) ReportRunners(_ context.Context, reports []RunnerReport) error {
+	f.mu.Lock()
+	err := f.reportErr
+	f.mu.Unlock()
+	if err != nil {
+		return err
+	}
 	select {
 	case f.reports <- reports:
 	default:

@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -243,10 +242,21 @@ func (c *Controller) ProbeInstallation(ctx context.Context, installationID strin
 	if serr := c.st.SetInstallationHealth(ctx, inst.ID, msg); serr != nil {
 		c.log.Error("could not record installation health", "installation", inst.ID, "error", serr)
 	}
+	// The probe is the only place the App's slug is learned for an installation
+	// that was added by hand, and every link to the App on GitHub is built from
+	// it -- including the settings page where its avatar is uploaded, which is
+	// the one setup step a manifest cannot do.
+	if info != nil && info.Slug != "" && info.Slug != inst.AppSlug {
+		if serr := c.st.SetInstallationAppSlug(ctx, inst.ID, info.Slug); serr != nil {
+			c.log.Error("could not record the App's slug", "installation", inst.ID, "error", serr)
+		} else {
+			inst.AppSlug = info.Slug
+		}
+	}
 	inst.LastError = msg
 	now := c.Now()
 	inst.LastCheckedAt = &now
-	c.publish(events.KindInstallation, "installation:"+inst.ID, inst)
+	c.publishInstallation(ctx, inst)
 
 	if err != nil {
 		return nil, err

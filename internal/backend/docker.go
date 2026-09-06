@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -81,6 +82,10 @@ const (
 // RunnerWorkMount is where a per-runner host scratch directory is bind-mounted
 // inside the container.
 const RunnerWorkMount = "/home/runner/_work"
+
+// RunnerCacheMount is disposable performance cache space, not persistent
+// workflow storage. Operators may evict its contents at any time.
+const RunnerCacheMount = "/opt/zoomies-cache"
 
 // DefaultDinDImage is the sidecar image used for docker-in-docker pools.
 const DefaultDinDImage = "docker:27-dind"
@@ -236,6 +241,10 @@ func newContainerBackend(opts DockerOptions, fl flavor, detect func() []string, 
 // Kind identifies the implementation.
 func (b *DockerBackend) Kind() store.BackendKind { return b.fl.kind }
 
+// SocketPath is the unix socket this backend talks to, or "" for a TCP
+// endpoint.
+func (b *DockerBackend) SocketPath() string { return b.api.SocketPath() }
+
 // Probe reports what this daemon can do, never failing: an agent on a host with
 // no Docker must still start and say so.
 func (b *DockerBackend) Probe(ctx context.Context) Info {
@@ -303,6 +312,12 @@ type containerOptions struct {
 	NetworkMode string
 	// HostSocket is a host daemon socket to bind-mount, for host-socket pools.
 	HostSocket string
+	// SocketGID owns that socket. The runner is uid 1001 inside the container
+	// and the socket is typically root:docker on the host, so without the gid
+	// as a supplementary group the mount is there and unopenable -- "permission
+	// denied while trying to connect to the Docker daemon socket", which reads
+	// like a host misconfiguration and is not one.
+	SocketGID int
 	// DockerHost is the value of DOCKER_HOST inside the runner.
 	DockerHost string
 	// WorkDirMount is a host directory to bind at RunnerWorkMount.
@@ -318,6 +333,10 @@ type containerOptions struct {
 func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRequest {
 	labels := spec.Labels(o.Now)
 	labels[LabelRole] = roleRunner
+	if source, err := cacheSource(spec); err == nil && source != "" {
+		labels[LabelCacheVolume] = source
+		labels[LabelCacheSizeLimit] = fmt.Sprint(spec.Cache.SizeLimit)
+	}
 	if o.WorkDirOwned && o.WorkDirMount != "" {
 		labels[LabelWorkDir] = o.WorkDirMount
 	}
@@ -338,7 +357,8 @@ func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreate
 		HostConfig: &HostConfig{
 			// AutoRemove would delete the container the instant it exits, taking
 			// its exit code and its logs with it -- and those are the two things
-			// a failed job investigation needs.
+			// a failed job investigation needs. The agent removes it itself once
+			// the exit has been reported and agent.finished_retention has passed.
 			AutoRemove:    false,
 			RestartPolicy: RestartPolicy{Name: "no"},
 			SecurityOpt:   slices.Clone(fl.securityOpt),
@@ -371,10 +391,23 @@ func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreate
 	}
 
 	if o.HostSocket != "" {
-		hc.Binds = append(hc.Binds, o.HostSocket+":/var/run/docker.sock"+fl.mountSuffix)
+		// No relabel suffix here. ":z" relabels the *source*, and the source
+		// is the host's own Docker or Podman socket; Podman's documentation
+		// warns against relabelling system files, and a socket the daemon
+		// itself can no longer open is every container on the host failing.
+		// The work and cache directories below are Zoomies' own to label.
+		hc.Binds = append(hc.Binds, o.HostSocket+":/var/run/docker.sock")
+		// Root already reaches the socket, and adding a group to a root
+		// container only widens what it can do for no gain.
+		if o.SocketGID > 0 && !spec.RunAsRoot {
+			hc.GroupAdd = append(hc.GroupAdd, strconv.Itoa(o.SocketGID))
+		}
 	}
 	if o.WorkDirMount != "" {
 		hc.Binds = append(hc.Binds, o.WorkDirMount+":"+RunnerWorkMount+fl.mountSuffix)
+	}
+	if source, err := cacheSource(spec); err == nil && source != "" {
+		hc.Binds = append(hc.Binds, source+":"+RunnerCacheMount+fl.mountSuffix)
 	}
 	if o.Network != "" && o.NetworkMode == "" {
 		hc.NetworkMode = o.Network
@@ -452,6 +485,21 @@ func buildDinDConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRe
 			NetworkMode:   o.Network,
 		},
 	}
+	// With docker_mode: dind the builds themselves run inside this sidecar,
+	// not the runner, so a pool's memory, CPU and pids limits are worth nothing
+	// unless they bind the sidecar too.
+	hc := cfg.HostConfig
+	if spec.Resources.CPUs > 0 {
+		hc.NanoCPUs = int64(spec.Resources.CPUs * 1e9)
+	}
+	if spec.Resources.MemoryMB > 0 {
+		hc.Memory = spec.Resources.MemoryMB * 1024 * 1024
+		hc.MemorySwap = hc.Memory
+	}
+	if spec.Resources.PidsLimit > 0 {
+		limit := spec.Resources.PidsLimit
+		hc.PidsLimit = &limit
+	}
 	if o.Network != "" {
 		cfg.NetworkingConfig = &NetworkingConfig{
 			EndpointsConfig: map[string]*EndpointSettings{
@@ -465,52 +513,73 @@ func buildDinDConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRe
 // Create materialises one runner. It replaces any container of the same name,
 // so that a redelivered task converges instead of failing.
 func (b *DockerBackend) Create(ctx context.Context, spec Spec) (Handle, error) {
+	r, err := b.CreateWithResult(ctx, spec)
+	return r.Handle, err
+}
+
+func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (CreateResult, error) {
 	if err := spec.Validate(); err != nil {
-		return "", err
+		return CreateResult{}, err
+	}
+	if _, err := cacheSource(spec); err != nil {
+		return CreateResult{}, err
 	}
 	if strings.TrimSpace(spec.Image) == "" {
-		return "", fmt.Errorf("backend: pool %q has no image; set the pool's image to a runner image before creating runners", spec.PoolName)
+		return CreateResult{}, fmt.Errorf("backend: pool %q has no image; set the pool's image to a runner image before creating runners", spec.PoolName)
 	}
 	if spec.DockerMode == store.DockerDinD && !b.fl.supportsDinD {
-		return "", fmt.Errorf("backend: the %s backend cannot run docker-in-docker", b.fl.kind)
+		return CreateResult{}, fmt.Errorf("backend: the %s backend cannot run docker-in-docker", b.fl.kind)
 	}
 
 	name := containerName(spec.Name)
 	if err := b.removeByName(ctx, name); err != nil {
-		return "", err
+		return CreateResult{}, err
 	}
 	if err := b.removeByName(ctx, dindName(name)); err != nil {
-		return "", err
+		return CreateResult{}, err
 	}
 
-	if err := b.ensureImage(ctx, spec.Image); err != nil {
-		return "", err
+	createRef, digest, pulled, pullDuration, err := b.prepareImage(ctx, spec.Image, spec.PullPolicy)
+	if err != nil {
+		return CreateResult{}, err
 	}
+	_ = pulled // pullDuration deliberately carries whether a pull occurred.
+	// Create from exactly the immutable image we just resolved, by a reference
+	// the daemon can look up. This prevents a moving tag from changing between
+	// preparation and the create request.
+	spec.Image = createRef
+	createStarted := time.Now()
 
 	opts := containerOptions{Now: time.Now(), DinDImage: b.dind}
 	network := firstNonEmpty(strings.TrimSpace(spec.Network), b.network)
 	if network != "" {
 		if err := b.ensureNetwork(ctx, network); err != nil {
-			return "", err
+			return CreateResult{}, err
 		}
 		opts.Network = network
 	}
 
 	workDir, owned, err := b.ensureWorkDir(spec)
 	if err != nil {
-		return "", err
+		return CreateResult{}, err
 	}
 	opts.WorkDirMount, opts.WorkDirOwned = workDir, owned
+
+	// The cache is idle exactly now, between the runner that last used it and
+	// the one about to, so this is the only safe moment to evict from it.
+	if dir, ok := cacheDirectory(spec); ok {
+		pruneCache(dir, spec.Cache.SizeLimit, b.log)
+	}
 
 	var dindID string
 	switch spec.DockerMode {
 	case store.DockerDinD:
-		if err := b.ensureImage(ctx, b.dind); err != nil {
-			return "", err
+		if _, err := b.ensureImage(ctx, b.dind); err != nil {
+			return CreateResult{}, err
 		}
 		dindID, err = b.startDinD(ctx, spec, opts)
 		if err != nil {
-			return "", err
+			return CreateResult{}, err
 		}
 		// The runner lives in the sidecar's network namespace, so it has no
 		// network attachment of its own.
@@ -520,9 +589,15 @@ func (b *DockerBackend) Create(ctx context.Context, spec Spec) (Handle, error) {
 	case store.DockerHostSocket:
 		sock := b.api.SocketPath()
 		if sock == "" {
-			return "", fmt.Errorf("backend: pool %q asks for the host docker socket, but %s is a TCP endpoint with no socket to mount; use docker mode dind or none", spec.PoolName, b.api.Endpoint())
+			return CreateResult{}, fmt.Errorf("backend: pool %q asks for the host docker socket, but %s is a TCP endpoint with no socket to mount; use docker mode dind or none", spec.PoolName, b.api.Endpoint())
 		}
 		opts.HostSocket = sock
+		// A socket whose owner we cannot read still gets mounted rather than
+		// failing the create: the pool asked for it, and a runner that is root,
+		// or a socket that is world-writable, needs no group to open it.
+		if _, gid, ok := statOwner(sock); ok {
+			opts.SocketGID = gid
+		}
 		// Logged on every create, not once: this is the setting that turns any
 		// workflow on this pool into root on this host, and it should be visible
 		// in the log of every runner it applies to.
@@ -534,18 +609,66 @@ func (b *DockerBackend) Create(ctx context.Context, spec Spec) (Handle, error) {
 	id, err := b.api.ContainerCreate(ctx, name, cfg)
 	if err != nil {
 		b.cleanupFailedCreate(ctx, dindID, workDir, owned)
-		return "", fmt.Errorf("backend: creating container %s: %w", name, err)
+		return CreateResult{}, fmt.Errorf("backend: creating container %s: %w", name, err)
 	}
 	if err := b.api.ContainerStart(ctx, id); err != nil {
 		_ = b.api.ContainerRemove(ctx, id, true)
 		b.cleanupFailedCreate(ctx, dindID, workDir, owned)
-		return "", fmt.Errorf("backend: starting container %s: %w", name, err)
+		return CreateResult{}, fmt.Errorf("backend: starting container %s: %w", name, err)
 	}
 
 	b.log.Info("runner container started",
 		"runner", spec.Name, "pool", spec.PoolName, "image", spec.Image,
 		"container", shortID(id), "docker_mode", string(spec.DockerMode))
-	return Handle(id), nil
+	return CreateResult{Handle: Handle(id), Digest: digest, ImagePullDuration: pullDuration, CreateDuration: time.Since(createStarted)}, nil
+}
+
+// prepareImage applies the task's pool policy, then resolves the image before
+// container creation. Empty policy is the wire-compatible legacy case.
+func (b *DockerBackend) prepareImage(ctx context.Context, image string, policy store.PullPolicy) (createRef, digest string, pulled bool, pullDuration *time.Duration, err error) {
+	pull := false
+	switch policy {
+	case store.PullAlways:
+		pull = true
+	case store.PullIfNotPresent, store.PullPinnedOnly:
+		present, err := b.api.ImageInspect(ctx, image)
+		if err != nil {
+			return "", "", false, nil, fmt.Errorf("backend: looking for image %s: %w", image, err)
+		}
+		pull = !present
+	case "":
+		if b.pull == PullAlways {
+			pull = true
+		} else {
+			present, err := b.api.ImageInspect(ctx, image)
+			if err != nil {
+				return "", "", false, nil, fmt.Errorf("backend: looking for image %s: %w", image, err)
+			}
+			if !present && b.pull == PullNever {
+				return "", "", false, nil, fmt.Errorf("backend: image %s is not on this host and the pull policy is %q; pull it here first (docker pull %s) or set the pull policy to if-missing", image, b.pull, image)
+			}
+			pull = !present
+		}
+	default:
+		return "", "", false, nil, fmt.Errorf("backend: %q is not a pool pull policy", policy)
+	}
+	var duration *time.Duration
+	if pull {
+		started := time.Now()
+		if err := b.api.ImagePull(ctx, image, b.auth); err != nil {
+			return "", "", false, nil, fmt.Errorf("backend: pulling %s: %w", image, err)
+		}
+		d := time.Since(started)
+		duration = &d
+	}
+	createRef, digest, err = b.api.ImageIdentity(ctx, image)
+	if err != nil {
+		return "", "", pull, duration, fmt.Errorf("backend: resolving image %s digest: %w", image, err)
+	}
+	if digest == "" {
+		return "", "", pull, duration, fmt.Errorf("backend: image %s has no immutable digest", image)
+	}
+	return createRef, digest, pull, duration, nil
 }
 
 // startDinD creates and starts the sidecar, waiting until the daemon reports it
@@ -592,28 +715,36 @@ func (b *DockerBackend) cleanupFailedCreate(ctx context.Context, dindID, workDir
 }
 
 // ensureImage applies the pull policy.
-func (b *DockerBackend) ensureImage(ctx context.Context, image string) error {
+func (b *DockerBackend) ensureImage(ctx context.Context, image string) (bool, error) {
 	if b.pull == PullAlways {
 		if err := b.api.ImagePull(ctx, image, b.auth); err != nil {
-			return fmt.Errorf("backend: pulling %s: %w", image, err)
+			return false, fmt.Errorf("backend: pulling %s: %w", image, err)
 		}
-		return nil
+		return true, nil
 	}
 
 	present, err := b.api.ImageInspect(ctx, image)
 	if err != nil {
-		return fmt.Errorf("backend: looking for image %s: %w", image, err)
+		return false, fmt.Errorf("backend: looking for image %s: %w", image, err)
 	}
 	if present {
-		return nil
+		return false, nil
 	}
 	if b.pull == PullNever {
-		return fmt.Errorf("backend: image %s is not on this host and the pull policy is %q; pull it here first (docker pull %s) or set the pull policy to if-missing", image, b.pull, image)
+		return false, fmt.Errorf("backend: image %s is not on this host and the pull policy is %q; pull it here first (docker pull %s) or set the pull policy to if-missing", image, b.pull, image)
 	}
 	if err := b.api.ImagePull(ctx, image, b.auth); err != nil {
-		return fmt.Errorf("backend: pulling %s: %w", image, err)
+		return false, fmt.Errorf("backend: pulling %s: %w", image, err)
 	}
-	return nil
+	return true, nil
+}
+
+func (b *DockerBackend) PrewarmImage(ctx context.Context, image string, policy store.PullPolicy) (string, error) {
+	if policy == store.PullPinnedOnly && !isDigestImageReference(image) {
+		return "", fmt.Errorf("backend: pinned-only requires an image digest")
+	}
+	_, digest, _, _, err := b.prepareImage(ctx, image, policy)
+	return digest, err
 }
 
 // ensureNetwork creates a user-defined network on demand. The daemon's built-in

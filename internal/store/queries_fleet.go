@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -147,13 +148,60 @@ func (s *Store) SetInstallationHealth(ctx context.Context, id string, errMsg str
 	return err
 }
 
+// SetInstallationAppSlug records the App's slug, which is learned from GitHub
+// rather than supplied.
+//
+// An installation added by hand carries an App ID and nothing else -- the slug
+// is not on the form, because an operator reading it off a settings page is one
+// more thing to mistype. The first credential probe knows it, and it is what
+// every link to the App on GitHub is built from, including the page where its
+// avatar is uploaded. The write is skipped when nothing changed so a probe on a
+// healthy installation does not bump updated_at every minute.
+func (s *Store) SetInstallationAppSlug(ctx context.Context, id, slug string) error {
+	_, err := s.exec(ctx, `UPDATE installations SET app_slug=?, updated_at=? WHERE id=? AND app_slug<>?`,
+		slug, ms(s.Now()), id, slug)
+	return err
+}
+
 // DeleteInstallation removes an installation and, by cascade, its pools.
-func (s *Store) DeleteInstallation(ctx context.Context, id string) error {
-	res, err := s.exec(ctx, `DELETE FROM installations WHERE id = ?`, id)
+// DeleteInstallation removes an installation, its pools and their runners, and
+// returns the IDs of the runner rows that went, so the caller can announce each
+// one: a row the schema cascades away silently is a row the Runners page keeps
+// showing until it is reloaded.
+func (s *Store) DeleteInstallation(ctx context.Context, id string) ([]string, error) {
+	var runners []string
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		var err error
+		runners, err = deletedIDs(ctx, tx,
+			`DELETE FROM runners WHERE pool_id IN (SELECT id FROM pools WHERE installation_id = ?) RETURNING id`, id)
+		if err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, `DELETE FROM installations WHERE id = ?`, id)
+		if err != nil {
+			return err
+		}
+		return affected(res, "installation", id)
+	})
+	return runners, err
+}
+
+// deletedIDs runs a DELETE ... RETURNING id and collects what went.
+func deletedIDs(ctx context.Context, tx *sql.Tx, query string, args ...any) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return affected(res, "installation", id)
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 // ---------------------------------------------------------------------------
@@ -161,19 +209,21 @@ func (s *Store) DeleteInstallation(ctx context.Context, id string) error {
 // ---------------------------------------------------------------------------
 
 const poolCols = `id, name, installation_id, labels, runner_group, backend, os, os_version,
-	arch, image, runner_version, min_runners, max_runners, idle_timeout_ms, ephemeral,
-	docker_mode, resources, host_selector, env, run_as_root, enabled, created_at, updated_at`
+	arch, image, pull_policy, runner_version, min_runners, max_runners, priority,
+	idle_timeout_ms, ephemeral, docker_mode, resources, cache, host_selector, env,
+	run_as_root, enabled, created_at, updated_at, repository_scale_up_limit,
+	cost_per_runner_hour`
 
 func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 	var p Pool
 	var idle, created, updated int64
 	var ephemeral, runAsRoot, enabled int
-	var resources string
+	var resources, cache string
 	err := sc.Scan(&p.ID, &p.Name, &p.InstallationID, &p.Labels, &p.RunnerGroup, &p.Backend,
 		&p.Platform.OS, &p.Platform.OSVersion, &p.Platform.Arch,
-		&p.Image, &p.RunnerVersion, &p.MinRunners, &p.MaxRunners, &idle, &ephemeral,
-		&p.DockerMode, &resources, &p.HostSelector, &p.Env, &runAsRoot, &enabled,
-		&created, &updated)
+		&p.Image, &p.PullPolicy, &p.RunnerVersion, &p.MinRunners, &p.MaxRunners, &p.Priority,
+		&idle, &ephemeral, &p.DockerMode, &resources, &cache, &p.HostSelector, &p.Env,
+		&runAsRoot, &enabled, &created, &updated, &p.RepositoryScaleUpLimit, &p.CostPerRunnerHour)
 	if err != nil {
 		return nil, err
 	}
@@ -183,29 +233,45 @@ func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 	if err := unmarshalJSON(resources, &p.Resources); err != nil {
 		return nil, fmt.Errorf("pool %s: decoding resources: %w", p.ID, err)
 	}
+	if err := unmarshalJSON(cache, &p.Cache); err != nil {
+		return nil, fmt.Errorf("pool %s: decoding cache: %w", p.ID, err)
+	}
 	return &p, nil
 }
 
-// CreatePool inserts a pool. Labels are normalised on the way in so that the
-// scheduler never has to think about case or whitespace.
+// CreatePool inserts a pool. The name is branded and the labels normalised on
+// the way in, here rather than only in the handler, so that no caller -- the
+// API, the installer, the seeder -- can put a pool in the database that GitHub
+// would show under a name saying nothing about which fleet it belongs to. The
+// scheduler then never has to think about case or whitespace either.
 func (s *Store) CreatePool(ctx context.Context, p *Pool) error {
 	if p.ID == "" {
 		p.ID = NewID(PrefixPool)
 	}
 	now := s.Now()
 	p.CreatedAt, p.UpdatedAt = now, now
+	p.Name = BrandedName(p.Name)
 	p.Labels = NormalizeLabels(p.Labels)
 	p.Platform = p.Platform.Normalized()
+	if p.PullPolicy == "" {
+		p.PullPolicy = PullIfNotPresent
+	}
 	res, err := marshalJSON(p.Resources)
 	if err != nil {
 		return err
 	}
-	_, err = s.exec(ctx, `INSERT INTO pools (`+poolCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	cache, err := marshalJSON(p.Cache)
+	if err != nil {
+		return err
+	}
+	_, err = s.exec(ctx, `INSERT INTO pools (`+poolCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		p.ID, p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend),
 		p.Platform.OS, p.Platform.OSVersion, p.Platform.Arch, p.Image,
-		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.IdleTimeout.Duration().Milliseconds(),
-		boolInt(p.Ephemeral), string(p.DockerMode), res, p.HostSelector, p.Env,
-		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.CreatedAt), ms(p.UpdatedAt))
+		string(p.PullPolicy),
+		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.Priority, p.IdleTimeout.Duration().Milliseconds(),
+		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
+		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.CreatedAt), ms(p.UpdatedAt),
+		p.RepositoryScaleUpLimit, p.CostPerRunnerHour)
 	return wrapWrite(err)
 }
 
@@ -247,24 +313,37 @@ func (s *Store) ListPools(ctx context.Context) ([]*Pool, error) {
 	return out, rows.Err()
 }
 
-// UpdatePool persists changes to a pool.
+// UpdatePool persists changes to a pool. The name is branded on the way in for
+// the reason CreatePool brands it, which also means a pool carried over from a
+// build that did not brand names gains the prefix the next time it is edited.
 func (s *Store) UpdatePool(ctx context.Context, p *Pool) error {
 	p.UpdatedAt = s.Now()
+	p.Name = BrandedName(p.Name)
 	p.Labels = NormalizeLabels(p.Labels)
 	p.Platform = p.Platform.Normalized()
+	if p.PullPolicy == "" {
+		p.PullPolicy = PullIfNotPresent
+	}
 	res, err := marshalJSON(p.Resources)
 	if err != nil {
 		return err
 	}
+	cache, err := marshalJSON(p.Cache)
+	if err != nil {
+		return err
+	}
 	r, err := s.exec(ctx, `UPDATE pools SET name=?, installation_id=?, labels=?, runner_group=?,
-		backend=?, os=?, os_version=?, arch=?, image=?, runner_version=?, min_runners=?,
-		max_runners=?, idle_timeout_ms=?, ephemeral=?, docker_mode=?, resources=?,
-		host_selector=?, env=?, run_as_root=?, enabled=?, updated_at=? WHERE id=?`,
+		backend=?, os=?, os_version=?, arch=?, image=?, pull_policy=?, runner_version=?,
+		min_runners=?, max_runners=?, priority=?, idle_timeout_ms=?, ephemeral=?,
+		docker_mode=?, resources=?, cache=?, host_selector=?, env=?, run_as_root=?,
+		enabled=?, updated_at=?, repository_scale_up_limit=?, cost_per_runner_hour=? WHERE id=?`,
 		p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend),
 		p.Platform.OS, p.Platform.OSVersion, p.Platform.Arch, p.Image,
-		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.IdleTimeout.Duration().Milliseconds(),
-		boolInt(p.Ephemeral), string(p.DockerMode), res, p.HostSelector, p.Env,
-		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.UpdatedAt), p.ID)
+		string(p.PullPolicy),
+		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.Priority, p.IdleTimeout.Duration().Milliseconds(),
+		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
+		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.UpdatedAt), p.RepositoryScaleUpLimit,
+		p.CostPerRunnerHour, p.ID)
 	if err != nil {
 		return wrapWrite(err)
 	}
@@ -272,12 +351,54 @@ func (s *Store) UpdatePool(ctx context.Context, p *Pool) error {
 }
 
 // DeletePool removes a pool and, by cascade, its runner rows.
-func (s *Store) DeletePool(ctx context.Context, id string) error {
-	res, err := s.exec(ctx, `DELETE FROM pools WHERE id = ?`, id)
+// DeletePool removes a pool and its runner rows, and returns the IDs of those
+// rows so each can be announced as deleted.
+func (s *Store) DeletePool(ctx context.Context, id string) ([]string, error) {
+	var runners []string
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		var err error
+		runners, err = deletedIDs(ctx, tx, `DELETE FROM runners WHERE pool_id = ? RETURNING id`, id)
+		if err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, `DELETE FROM pools WHERE id = ?`, id)
+		if err != nil {
+			return err
+		}
+		return affected(res, "pool", id)
+	})
+	return runners, err
+}
+
+func (s *Store) SetPoolPrewarm(ctx context.Context, poolID, hostID, image, state, digest, failure string) error {
+	_, err := s.exec(ctx, `INSERT INTO pool_prewarms(pool_id,host_id,image,state,digest,error,updated_at) VALUES(?,?,?,?,?,?,?)
+		ON CONFLICT(pool_id,host_id) DO UPDATE SET image=excluded.image,state=excluded.state,digest=excluded.digest,error=excluded.error,updated_at=excluded.updated_at`,
+		poolID, hostID, image, state, digest, failure, ms(s.Now()))
+	return err
+}
+
+func (s *Store) ListPoolPrewarms(ctx context.Context, poolID string) ([]PoolPrewarm, error) {
+	rows, err := s.read.QueryContext(ctx, `SELECT p.pool_id,p.host_id,h.name,p.image,p.state,p.digest,p.error,p.updated_at FROM pool_prewarms p JOIN hosts h ON h.id=p.host_id WHERE p.pool_id=? ORDER BY h.name`, poolID)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return affected(res, "pool", id)
+	defer rows.Close()
+	var out []PoolPrewarm
+	for rows.Next() {
+		var x PoolPrewarm
+		var updated int64
+		if err := rows.Scan(&x.PoolID, &x.HostID, &x.HostName, &x.Image, &x.State, &x.Digest, &x.Error, &updated); err != nil {
+			return nil, err
+		}
+		x.UpdatedAt = at(updated)
+		out = append(out, x)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) SetRunnerImageDigest(ctx context.Context, id, digest string) error {
+	_, err := s.exec(ctx, `UPDATE runners SET image_digest=? WHERE id=?`, digest, id)
+	return err
 }
 
 // PoolCounts is the per-state runner tally used by the scheduler and the UI's
@@ -349,17 +470,17 @@ func (s *Store) CountRunnersByPool(ctx context.Context) (map[string]PoolCounts, 
 // Hosts
 // ---------------------------------------------------------------------------
 
-const hostCols = `id, name, address, embedded, capacity, backends, labels, os, distro,
-	os_version, arch, cpus, memory_mb, version, cordoned, token_hash, last_heartbeat,
-	created_at`
+const hostCols = `id, name, address, embedded, capacity, backends, backend_info, labels,
+	os, distro, os_version, arch, cpus, memory_mb, version, cordoned, token_hash,
+	last_heartbeat, created_at`
 
 func scanHost(sc interface{ Scan(...any) error }) (*Host, error) {
 	var h Host
 	var embedded, cordoned int
 	var heartbeat, created int64
 	err := sc.Scan(&h.ID, &h.Name, &h.Address, &embedded, &h.Capacity, &h.Backends,
-		&h.Labels, &h.OS, &h.Distro, &h.OSVersion, &h.Arch, &h.CPUs, &h.MemoryMB,
-		&h.Version, &cordoned, &h.TokenHash, &heartbeat, &created)
+		&h.BackendInfo, &h.Labels, &h.OS, &h.Distro, &h.OSVersion, &h.Arch, &h.CPUs,
+		&h.MemoryMB, &h.Version, &cordoned, &h.TokenHash, &heartbeat, &created)
 	if err != nil {
 		return nil, err
 	}
@@ -377,9 +498,9 @@ func (s *Store) CreateHost(ctx context.Context, h *Host) error {
 	if h.LastHeartbeat.IsZero() {
 		h.LastHeartbeat = h.CreatedAt
 	}
-	_, err := s.exec(ctx, `INSERT INTO hosts (`+hostCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		h.ID, h.Name, h.Address, boolInt(h.Embedded), h.Capacity, h.Backends, h.Labels,
-		h.OS, h.Distro, h.OSVersion, h.Arch, h.CPUs, h.MemoryMB, h.Version,
+	_, err := s.exec(ctx, `INSERT INTO hosts (`+hostCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		h.ID, h.Name, h.Address, boolInt(h.Embedded), h.Capacity, h.Backends, h.BackendInfo,
+		h.Labels, h.OS, h.Distro, h.OSVersion, h.Arch, h.CPUs, h.MemoryMB, h.Version,
 		boolInt(h.Cordoned), h.TokenHash, ms(h.LastHeartbeat), ms(h.CreatedAt))
 	return wrapWrite(err)
 }
@@ -476,11 +597,12 @@ func (s *Store) FindHostByTokenHash(ctx context.Context, hash string) (*Host, er
 
 // UpdateHost persists agent-reported host facts.
 func (s *Store) UpdateHost(ctx context.Context, h *Host) error {
-	res, err := s.exec(ctx, `UPDATE hosts SET name=?, address=?, capacity=?, backends=?, labels=?,
-		os=?, distro=?, os_version=?, arch=?, cpus=?, memory_mb=?, version=?, cordoned=?,
-		last_heartbeat=? WHERE id=?`,
-		h.Name, h.Address, h.Capacity, h.Backends, h.Labels, h.OS, h.Distro, h.OSVersion,
-		h.Arch, h.CPUs, h.MemoryMB, h.Version, boolInt(h.Cordoned), ms(h.LastHeartbeat), h.ID)
+	res, err := s.exec(ctx, `UPDATE hosts SET name=?, address=?, capacity=?, backends=?,
+		backend_info=?, labels=?, os=?, distro=?, os_version=?, arch=?, cpus=?, memory_mb=?,
+		version=?, cordoned=?, last_heartbeat=? WHERE id=?`,
+		h.Name, h.Address, h.Capacity, h.Backends, h.BackendInfo, h.Labels, h.OS, h.Distro,
+		h.OSVersion, h.Arch, h.CPUs, h.MemoryMB, h.Version, boolInt(h.Cordoned),
+		ms(h.LastHeartbeat), h.ID)
 	if err != nil {
 		return wrapWrite(err)
 	}
@@ -488,9 +610,8 @@ func (s *Store) UpdateHost(ctx context.Context, h *Host) error {
 }
 
 // Heartbeat records that an agent is alive and refreshes its live capacity.
-func (s *Store) Heartbeat(ctx context.Context, id string, capacity int, now time.Time) error {
-	res, err := s.exec(ctx, `UPDATE hosts SET last_heartbeat=?, capacity=? WHERE id=?`,
-		ms(now), capacity, id)
+func (s *Store) Heartbeat(ctx context.Context, id string, now time.Time) error {
+	res, err := s.exec(ctx, `UPDATE hosts SET last_heartbeat=? WHERE id=?`, ms(now), id)
 	if err != nil {
 		return err
 	}
@@ -507,12 +628,23 @@ func (s *Store) SetHostCordoned(ctx context.Context, id string, cordoned bool) e
 }
 
 // DeleteHost removes a host and cascades to its runner rows.
-func (s *Store) DeleteHost(ctx context.Context, id string) error {
-	res, err := s.exec(ctx, `DELETE FROM hosts WHERE id = ?`, id)
-	if err != nil {
-		return err
-	}
-	return affected(res, "host", id)
+// DeleteHost removes a host and its runner rows, and returns the IDs of those
+// rows so each can be announced as deleted.
+func (s *Store) DeleteHost(ctx context.Context, id string) ([]string, error) {
+	var runners []string
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		var err error
+		runners, err = deletedIDs(ctx, tx, `DELETE FROM runners WHERE host_id = ? RETURNING id`, id)
+		if err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, `DELETE FROM hosts WHERE id = ?`, id)
+		if err != nil {
+			return err
+		}
+		return affected(res, "host", id)
+	})
+	return runners, err
 }
 
 // ---------------------------------------------------------------------------
@@ -520,24 +652,30 @@ func (s *Store) DeleteHost(ctx context.Context, id string) error {
 // ---------------------------------------------------------------------------
 
 const runnerCols = `id, pool_id, host_id, name, state, github_runner_id, container_id,
-	ephemeral, labels, image, runner_version, current_job_id, created_at, started_at,
-	last_idle_at, finished_at, message, jobs_handled, cpu_percent, memory_bytes`
+	ephemeral, labels, image, image_digest, runner_version, current_job_id, created_at, started_at,
+	last_idle_at, finished_at, message, jobs_handled, cpu_percent, memory_bytes,
+	image_pull_ms, container_started_at, registered_at`
 
 func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 	var r Runner
 	var ephemeral int
 	var created int64
-	var started, idle, finished sql.NullInt64
+	var started, idle, finished, pullMS, containerStarted, registered sql.NullInt64
 	err := sc.Scan(&r.ID, &r.PoolID, &r.HostID, &r.Name, &r.State, &r.GitHubRunnerID,
-		&r.ContainerID, &ephemeral, &r.Labels, &r.Image, &r.RunnerVersion, &r.CurrentJobID,
+		&r.ContainerID, &ephemeral, &r.Labels, &r.Image, &r.ImageDigest, &r.RunnerVersion, &r.CurrentJobID,
 		&created, &started, &idle, &finished, &r.Message, &r.JobsHandled,
-		&r.CPUPercent, &r.MemoryBytes)
+		&r.CPUPercent, &r.MemoryBytes, &pullMS, &containerStarted, &registered)
 	if err != nil {
 		return nil, err
 	}
 	r.Ephemeral = ephemeral == 1
 	r.CreatedAt = at(created)
 	r.StartedAt, r.LastIdleAt, r.FinishedAt = atp(started), atp(idle), atp(finished)
+	if pullMS.Valid {
+		d := time.Duration(pullMS.Int64) * time.Millisecond
+		r.ImagePullDuration = &d
+	}
+	r.ContainerStartedAt, r.RegisteredAt = atp(containerStarted), atp(registered)
 	return &r, nil
 }
 
@@ -551,12 +689,40 @@ func (s *Store) CreateRunner(ctx context.Context, r *Runner) error {
 	}
 	r.CreatedAt = s.Now()
 	_, err := s.exec(ctx, `INSERT INTO runners (`+runnerCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		r.ID, r.PoolID, r.HostID, r.Name, string(r.State), r.GitHubRunnerID, r.ContainerID,
-		boolInt(r.Ephemeral), r.Labels, r.Image, r.RunnerVersion, r.CurrentJobID,
+		boolInt(r.Ephemeral), r.Labels, r.Image, r.ImageDigest, r.RunnerVersion, r.CurrentJobID,
 		ms(r.CreatedAt), msp(r.StartedAt), msp(r.LastIdleAt), msp(r.FinishedAt),
-		r.Message, r.JobsHandled, r.CPUPercent, r.MemoryBytes)
+		r.Message, r.JobsHandled, r.CPUPercent, r.MemoryBytes, durationMS(r.ImagePullDuration),
+		msp(r.ContainerStartedAt), msp(r.RegisteredAt))
 	return wrapWrite(err)
+}
+
+func durationMS(d *time.Duration) any {
+	if d == nil {
+		return nil
+	}
+	return d.Milliseconds()
+}
+
+// SetRunnerStartup records backend timings without inventing an image pull for
+// backends that cannot report one.
+func (s *Store) SetRunnerStartup(ctx context.Context, id string, pull *time.Duration, started *time.Time) error {
+	_, err := s.exec(ctx, `UPDATE runners SET image_pull_ms=?, container_started_at=? WHERE id=?`, durationMS(pull), msp(started), id)
+	return err
+}
+
+// SetRunnerCreatedAt moves a runner's creation time.
+//
+// Creation time is otherwise immutable -- UpdateRunner deliberately does not
+// write the column, because a row whose age can be edited is a row whose age
+// cannot be reasoned about. The one caller is the demo seeder, whose fixtures
+// have no agent behind them and would otherwise age into a fleet reporting
+// problems it does not have. Whether an ID is a fixture is the seeder's
+// judgement, not this package's.
+func (s *Store) SetRunnerCreatedAt(ctx context.Context, id string, at time.Time) error {
+	_, err := s.exec(ctx, `UPDATE runners SET created_at=? WHERE id=?`, ms(at), id)
+	return err
 }
 
 // GetRunner returns one runner by ID.
@@ -657,8 +823,8 @@ func runnerWhere(f RunnerFilter) (string, []any) {
 		cond = append(cond, `host_id IN (`+strings.Join(ph, ",")+`)`)
 	}
 	if q := strings.TrimSpace(f.Search); q != "" {
-		cond = append(cond, `(name LIKE ? OR id LIKE ? OR container_id LIKE ?)`)
-		like := "%" + q + "%"
+		cond = append(cond, `(name LIKE ? ESCAPE '\' OR id LIKE ? ESCAPE '\' OR container_id LIKE ? ESCAPE '\')`)
+		like := likePattern(q)
 		args = append(args, like, like, like)
 	}
 	if len(cond) == 0 {
@@ -720,14 +886,21 @@ func (s *Store) ListRunnersForHost(ctx context.Context, hostID string, states ..
 
 // UpdateRunner persists a full runner row.
 func (s *Store) UpdateRunner(ctx context.Context, r *Runner) error {
+	// Every column the row has. The driver binds positionally and ignores a
+	// surplus argument, so an argument without a placeholder shifts every
+	// later column onto its neighbour's value and binds WHERE id to a number
+	// -- which updates nothing and reports the runner as not found. The
+	// round-trip test is what keeps the two lists the same length.
 	res, err := s.exec(ctx, `UPDATE runners SET pool_id=?, host_id=?, name=?, state=?,
-		github_runner_id=?, container_id=?, ephemeral=?, labels=?, image=?, runner_version=?,
-		current_job_id=?, started_at=?, last_idle_at=?, finished_at=?, message=?,
-		jobs_handled=?, cpu_percent=?, memory_bytes=? WHERE id=?`,
+		github_runner_id=?, container_id=?, ephemeral=?, labels=?, image=?, image_digest=?,
+		runner_version=?, current_job_id=?, started_at=?, last_idle_at=?, finished_at=?,
+		message=?, jobs_handled=?, cpu_percent=?, memory_bytes=?, image_pull_ms=?,
+		container_started_at=?, registered_at=? WHERE id=?`,
 		r.PoolID, r.HostID, r.Name, string(r.State), r.GitHubRunnerID, r.ContainerID,
-		boolInt(r.Ephemeral), r.Labels, r.Image, r.RunnerVersion, r.CurrentJobID,
+		boolInt(r.Ephemeral), r.Labels, r.Image, r.ImageDigest, r.RunnerVersion, r.CurrentJobID,
 		msp(r.StartedAt), msp(r.LastIdleAt), msp(r.FinishedAt), r.Message,
-		r.JobsHandled, r.CPUPercent, r.MemoryBytes, r.ID)
+		r.JobsHandled, r.CPUPercent, r.MemoryBytes, durationMS(r.ImagePullDuration),
+		msp(r.ContainerStartedAt), msp(r.RegisteredAt), r.ID)
 	if err != nil {
 		return wrapWrite(err)
 	}
@@ -760,34 +933,51 @@ func (s *Store) TransitionRunner(ctx context.Context, id string, to RunnerState,
 		if message != "" {
 			r.Message = message
 		}
+		// A transition to the state the runner is already in is legal and
+		// changes no timestamp. last_idle_at in particular is when the runner
+		// *became* idle, which is what the idle timeout counts from; an agent
+		// or a second caller reporting "still idle" used to move it forward and
+		// make the runner immortal.
 		switch to {
 		case RunnerIdle:
+			if r.RegisteredAt == nil {
+				t := now
+				r.RegisteredAt = &t
+			}
 			if r.StartedAt == nil {
 				t := now
 				r.StartedAt = &t
 			}
-			t := now
-			r.LastIdleAt = &t
+			if prev != RunnerIdle {
+				t := now
+				r.LastIdleAt = &t
+			}
 			// Leaving busy means a job just finished on this runner.
 			if prev == RunnerBusy {
 				r.JobsHandled++
 			}
 			r.CurrentJobID = ""
 		case RunnerBusy:
+			if r.RegisteredAt == nil {
+				t := now
+				r.RegisteredAt = &t
+			}
 			if r.StartedAt == nil {
 				t := now
 				r.StartedAt = &t
 			}
 			r.LastIdleAt = nil
 		case RunnerRemoved, RunnerFailed:
-			t := now
-			r.FinishedAt = &t
+			if prev != to {
+				t := now
+				r.FinishedAt = &t
+			}
 			r.CurrentJobID = ""
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE runners SET state=?, message=?, started_at=?,
-			last_idle_at=?, finished_at=?, jobs_handled=?, current_job_id=? WHERE id=?`,
+			last_idle_at=?, finished_at=?, jobs_handled=?, current_job_id=?, registered_at=? WHERE id=?`,
 			string(r.State), r.Message, msp(r.StartedAt), msp(r.LastIdleAt), msp(r.FinishedAt),
-			r.JobsHandled, r.CurrentJobID, r.ID)
+			r.JobsHandled, r.CurrentJobID, msp(r.RegisteredAt), r.ID)
 		if err != nil {
 			return err
 		}
@@ -832,15 +1022,49 @@ func (s *Store) DeleteRunner(ctx context.Context, id string) error {
 	return affected(res, "runner", id)
 }
 
-// PruneRunners deletes removed/failed runners older than the cutoff and
-// returns how many rows went.
-func (s *Store) PruneRunners(ctx context.Context, before time.Time) (int64, error) {
-	res, err := s.exec(ctx, `DELETE FROM runners WHERE state IN ('removed','failed')
-		AND COALESCE(finished_at, created_at) < ?`, ms(before))
+// StartupSamples returns, for every runner created since the cutoff, how long
+// its container took to start and how long it then took to register, in
+// milliseconds, each sorted so that a percentile is an index into it. A runner
+// still starting contributes nothing; one that started and never registered
+// contributes to the first slice only.
+//
+// The Overview used to work this out from a page of runner rows, and the list
+// query's limit quietly cut that page to the 500 newest runners, so the
+// percentiles described the last few hundred starts rather than the window.
+func (s *Store) StartupSamples(ctx context.Context, since time.Time) (startup, registration []int64, err error) {
+	rows, err := s.read.QueryContext(ctx, `SELECT container_started_at - created_at, registered_at - container_started_at
+		FROM runners WHERE created_at >= ? AND container_started_at IS NOT NULL AND container_started_at >= created_at`, ms(since))
 	if err != nil {
-		return 0, err
+		return nil, nil, err
 	}
-	return res.RowsAffected()
+	defer rows.Close()
+	for rows.Next() {
+		var start int64
+		var register sql.NullInt64
+		if err := rows.Scan(&start, &register); err != nil {
+			return nil, nil, err
+		}
+		startup = append(startup, start)
+		if register.Valid && register.Int64 >= 0 {
+			registration = append(registration, register.Int64)
+		}
+	}
+	slices.Sort(startup)
+	slices.Sort(registration)
+	return startup, registration, rows.Err()
+}
+
+// PruneRunners deletes removed/failed runners older than the cutoff and
+// returns the IDs of the rows that went, so each can be announced as deleted.
+func (s *Store) PruneRunners(ctx context.Context, before time.Time) ([]string, error) {
+	var ids []string
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		var err error
+		ids, err = deletedIDs(ctx, tx, `DELETE FROM runners WHERE state IN ('removed','failed')
+			AND COALESCE(finished_at, created_at) < ? RETURNING id`, ms(before))
+		return err
+	})
+	return ids, err
 }
 
 // affected turns "UPDATE matched nothing" into ErrNotFound.

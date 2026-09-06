@@ -4,175 +4,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/controller"
+	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
-// poolCounts is a pool's live runner tally, in the shape the OpenAPI document's
-// Pool.counts has.
-type poolCounts struct {
-	Provisioning int `json:"provisioning"`
-	Registering  int `json:"registering"`
-	Idle         int `json:"idle"`
-	Busy         int `json:"busy"`
-	Draining     int `json:"draining"`
-	Failed       int `json:"failed"`
-	Live         int `json:"live"`
-}
-
-// poolResponse is a pool plus what an operator needs to see next to it: which
-// installation it belongs to, how many runners it has in each state, how much
-// of itself it is using, and every dangerous setting it has in effect.
-type poolResponse struct {
-	ID                 string            `json:"id"`
-	Name               string            `json:"name"`
-	InstallationID     string            `json:"installation_id"`
-	InstallationTarget string            `json:"installation_target,omitempty"`
-	Labels             []string          `json:"labels"`
-	RunnerGroup        string            `json:"runner_group,omitempty"`
-	Backend            store.BackendKind `json:"backend"`
-	// Platform is the machine this pool's runners need. It picks the runner
-	// image and restricts which hosts the scheduler may place them on.
-	Platform store.Platform `json:"platform"`
-	Image    string         `json:"image"`
-	// EffectiveImage is the image runners will actually boot: Image when the
-	// pool names one, otherwise the variant its platform selects. A pool page
-	// that showed a blank image field and nothing else would leave an operator
-	// guessing at the single most important thing about their runners.
-	EffectiveImage string               `json:"effective_image"`
-	RunnerVersion  string               `json:"runner_version,omitempty"`
-	MinRunners     int                  `json:"min_runners"`
-	MaxRunners     int                  `json:"max_runners"`
-	IdleTimeout    store.Duration       `json:"idle_timeout"`
-	Ephemeral      bool                 `json:"ephemeral"`
-	DockerMode     store.DockerMode     `json:"docker_mode"`
-	Resources      store.Resources      `json:"resources"`
-	HostSelector   map[string]string    `json:"host_selector"`
-	Env            map[string]string    `json:"env"`
-	RunAsRoot      bool                 `json:"run_as_root"`
-	Enabled        bool                 `json:"enabled"`
-	CreatedAt      time.Time            `json:"created_at"`
-	UpdatedAt      time.Time            `json:"updated_at"`
-	Counts         poolCounts           `json:"counts"`
-	QueuedJobs     int                  `json:"queued_jobs"`
-	Utilisation    float64              `json:"utilisation"`
-	Warnings       []controller.Problem `json:"warnings,omitempty"`
-}
-
-// poolView is everything needed to render pools without one query per pool.
-type poolView struct {
-	counts  map[string]store.PoolCounts
-	targets map[string]string
-	queued  map[string]int
-	// defaultImage is what a pool that names neither an image nor a platform
-	// will boot, which the view needs to resolve EffectiveImage.
-	defaultImage string
-}
-
-// image is the image this pool's runners will actually boot.
-func (v *poolView) image(p *store.Pool) string {
-	return naming.ResolveRunnerImage(p.Image, p.Platform.OS, p.Platform.OSVersion, v.defaultImage)
-}
-
-// buildPoolView gathers the per-pool counts, installation targets and queue
-// depths in three queries rather than three per pool.
-func (s *Server) buildPoolView(ctx context.Context) (*poolView, error) {
-	counts, err := s.ctrl.Store().CountRunnersByPool(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("counting runners by pool: %w", err)
-	}
-	insts, err := s.ctrl.Store().ListInstallations(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("listing installations: %w", err)
-	}
-	targets := make(map[string]string, len(insts))
-	for _, i := range insts {
-		targets[i.ID] = i.Target
-	}
-	jobs, err := s.ctrl.Store().ListQueuedJobs(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("listing queued jobs: %w", err)
-	}
-	queued := map[string]int{}
-	for _, j := range jobs {
-		if j.PoolID != "" {
-			queued[j.PoolID]++
-		}
-	}
-	return &poolView{counts: counts, targets: targets, queued: queued,
-		defaultImage: s.cfg.GitHub.RunnerImage}, nil
-}
-
-func (v *poolView) response(p *store.Pool) poolResponse {
-	c := v.counts[p.ID]
-	out := poolResponse{
-		ID:                 p.ID,
-		Name:               p.Name,
-		InstallationID:     p.InstallationID,
-		InstallationTarget: v.targets[p.InstallationID],
-		Labels:             emptySlice(p.Labels),
-		RunnerGroup:        p.RunnerGroup,
-		Backend:            p.Backend,
-		Platform:           p.Platform,
-		Image:              p.Image,
-		EffectiveImage:     v.image(p),
-		RunnerVersion:      p.RunnerVersion,
-		MinRunners:         p.MinRunners,
-		MaxRunners:         p.MaxRunners,
-		IdleTimeout:        p.IdleTimeout,
-		Ephemeral:          p.Ephemeral,
-		DockerMode:         p.DockerMode,
-		Resources:          p.Resources,
-		HostSelector:       emptyMap(p.HostSelector),
-		Env:                emptyMap(p.Env),
-		RunAsRoot:          p.RunAsRoot,
-		Enabled:            p.Enabled,
-		CreatedAt:          p.CreatedAt,
-		UpdatedAt:          p.UpdatedAt,
-		Counts: poolCounts{
-			Provisioning: c.Provisioning, Registering: c.Registering,
-			Idle: c.Idle, Busy: c.Busy, Draining: c.Draining, Failed: c.Failed,
-			Live: c.Live(),
-		},
-		QueuedJobs:  v.queued[p.ID],
-		Utilisation: c.Utilisation(),
-		Warnings:    poolWarnings(p),
-	}
-	return out
-}
-
-// poolWarnings renders a pool's dangerous settings as problems.
-//
-// They are the same sentences the Overview's problems panel shows, because an
-// operator should not have to learn that "host-socket" on the pool page and
-// "any job on this pool can become root on the host" on the Overview are the
-// same fact.
-func poolWarnings(p *store.Pool) []controller.Problem {
-	dangers := p.Dangerous()
-	if len(dangers) == 0 {
-		return nil
-	}
-	out := make([]controller.Problem, 0, len(dangers))
-	for _, d := range dangers {
-		out = append(out, controller.Problem{
-			Code:       "pool.dangerous",
-			Severity:   config.SeverityWarning,
-			Title:      fmt.Sprintf("pool %s: %s", p.Name, d),
-			Detail:     "this pool was configured to weaken the isolation between a workflow job and the host it runs on.",
-			Fix:        fmt.Sprintf("edit the %s pool if this was not deliberate.", p.Name),
-			TargetKind: "pool",
-			TargetID:   p.ID,
-		})
-	}
-	return out
-}
+// poolResponse is the shape GET /pools returns, rendered by the controller so
+// the event stream's pool.* frames are the same JSON. See controller/views.go
+// for why the renderer lives there.
+type poolResponse = controller.PoolView
 
 // handleListPools answers GET /api/v1/pools.
 func (s *Server) handleListPools(w http.ResponseWriter, r *http.Request) {
@@ -181,14 +30,14 @@ func (s *Server) handleListPools(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, "listing pools", err)
 		return
 	}
-	view, err := s.buildPoolView(r.Context())
+	view, err := s.ctrl.PoolRenderer(r.Context())
 	if err != nil {
 		s.internal(w, r, "listing pools", err)
 		return
 	}
 	out := make([]poolResponse, 0, len(pools))
 	for _, p := range pools {
-		out = append(out, view.response(p))
+		out = append(out, view.View(p))
 	}
 	writeJSON(w, http.StatusOK, newList(out))
 }
@@ -200,12 +49,12 @@ func (s *Server) handleGetPool(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, "reading the pool", err)
 		return
 	}
-	view, err := s.buildPoolView(r.Context())
+	view, err := s.ctrl.PoolRenderer(r.Context())
 	if err != nil {
 		s.internal(w, r, "reading the pool", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, view.response(p))
+	writeJSON(w, http.StatusOK, view.View(p))
 }
 
 // ---------------------------------------------------------------------------
@@ -219,24 +68,29 @@ func (s *Server) handleGetPool(w http.ResponseWriter, r *http.Request) {
 // min_runners to 0, which on a pool with warm runners is a fleet-wide change
 // nobody asked for.
 type poolInput struct {
-	Name           *string            `json:"name"`
-	InstallationID *string            `json:"installation_id"`
-	Labels         *[]string          `json:"labels"`
-	RunnerGroup    *string            `json:"runner_group"`
-	Backend        *string            `json:"backend"`
-	Platform       *store.Platform    `json:"platform"`
-	Image          *string            `json:"image"`
-	RunnerVersion  *string            `json:"runner_version"`
-	MinRunners     *int               `json:"min_runners"`
-	MaxRunners     *int               `json:"max_runners"`
-	IdleTimeout    *string            `json:"idle_timeout"`
-	Ephemeral      *bool              `json:"ephemeral"`
-	DockerMode     *string            `json:"docker_mode"`
-	Resources      *store.Resources   `json:"resources"`
-	HostSelector   *map[string]string `json:"host_selector"`
-	Env            *map[string]string `json:"env"`
-	RunAsRoot      *bool              `json:"run_as_root"`
-	Enabled        *bool              `json:"enabled"`
+	Name                   *string            `json:"name"`
+	InstallationID         *string            `json:"installation_id"`
+	Labels                 *[]string          `json:"labels"`
+	RunnerGroup            *string            `json:"runner_group"`
+	Backend                *string            `json:"backend"`
+	Platform               *store.Platform    `json:"platform"`
+	Image                  *string            `json:"image"`
+	PullPolicy             *string            `json:"pull_policy"`
+	RunnerVersion          *string            `json:"runner_version"`
+	MinRunners             *int               `json:"min_runners"`
+	MaxRunners             *int               `json:"max_runners"`
+	RepositoryScaleUpLimit *int               `json:"repository_scale_up_limit"`
+	CostPerRunnerHour      *float64           `json:"cost_per_runner_hour"`
+	Priority               *int               `json:"priority"`
+	IdleTimeout            *string            `json:"idle_timeout"`
+	Ephemeral              *bool              `json:"ephemeral"`
+	DockerMode             *string            `json:"docker_mode"`
+	Resources              *store.Resources   `json:"resources"`
+	Cache                  *store.CacheConfig `json:"cache"`
+	HostSelector           *map[string]string `json:"host_selector"`
+	Env                    *map[string]string `json:"env"`
+	RunAsRoot              *bool              `json:"run_as_root"`
+	Enabled                *bool              `json:"enabled"`
 }
 
 // defaultPool is a new pool before the request is applied: the defaults the
@@ -250,11 +104,13 @@ func (s *Server) defaultPool() *store.Pool {
 		// here would freeze every pool on whatever the default was the day it
 		// was created.
 		Image:       "",
+		PullPolicy:  store.PullIfNotPresent,
 		MinRunners:  0,
 		MaxRunners:  4,
 		IdleTimeout: store.Duration(5 * time.Minute),
 		Ephemeral:   true,
 		DockerMode:  store.DockerNone,
+		Cache:       store.CacheConfig{Scope: store.CacheScopePool},
 		Enabled:     true,
 	}
 }
@@ -268,13 +124,21 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 	add := func(field, msg string) { errs = append(errs, fieldError{field, msg}) }
 
 	if in.Name != nil {
-		p.Name = strings.TrimSpace(*in.Name)
+		// Branded here as well as in the store, so that the uniqueness check
+		// below and the error messages that quote the name are talking about
+		// the name the pool will actually have.
+		p.Name = store.BrandedName(*in.Name)
 	}
 	if in.InstallationID != nil {
 		p.InstallationID = strings.TrimSpace(*in.InstallationID)
 	}
 	if in.Labels != nil {
-		p.Labels = store.NormalizeLabels(*in.Labels)
+		// Every pool answers to the brand as well as to whatever it was given,
+		// so that "runs-on: zoomies" reaches this fleet without naming one of
+		// its pools. That is the label the migration wizard writes into a
+		// repository that has not yet been assigned to a pool, and a pool that
+		// quietly dropped it would take no work from those repositories.
+		p.Labels = store.BrandLabels(*in.Labels)
 	}
 	if in.RunnerGroup != nil {
 		p.RunnerGroup = strings.TrimSpace(*in.RunnerGroup)
@@ -295,6 +159,9 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 	if in.Image != nil {
 		p.Image = strings.TrimSpace(*in.Image)
 	}
+	if in.PullPolicy != nil {
+		p.PullPolicy = store.PullPolicy(strings.ToLower(strings.TrimSpace(*in.PullPolicy)))
+	}
 	if in.RunnerVersion != nil {
 		p.RunnerVersion = strings.TrimSpace(*in.RunnerVersion)
 	}
@@ -303,6 +170,15 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 	}
 	if in.MaxRunners != nil {
 		p.MaxRunners = *in.MaxRunners
+	}
+	if in.RepositoryScaleUpLimit != nil {
+		p.RepositoryScaleUpLimit = *in.RepositoryScaleUpLimit
+	}
+	if in.CostPerRunnerHour != nil {
+		p.CostPerRunnerHour = in.CostPerRunnerHour
+	}
+	if in.Priority != nil {
+		p.Priority = *in.Priority
 	}
 	if in.IdleTimeout != nil {
 		raw := strings.TrimSpace(*in.IdleTimeout)
@@ -330,6 +206,10 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 	if in.Resources != nil {
 		p.Resources = *in.Resources
 	}
+	if in.Cache != nil {
+		p.Cache = *in.Cache
+		p.Cache.Source = strings.TrimSpace(p.Cache.Source)
+	}
 	if in.HostSelector != nil {
 		p.HostSelector = store.StringMap(*in.HostSelector)
 	}
@@ -342,6 +222,14 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 	if in.Enabled != nil {
 		p.Enabled = *in.Enabled
 	}
+	// The image the pool will actually run. A pool that gives its jobs a daemon
+	// cannot use the stock image, which has no client for it, so the stock
+	// image is swapped for its Docker variant here, as the request is folded
+	// in, rather than left for the operator to remember: the response, the
+	// audit row and the pool's page then all show the image that runs, and the
+	// wizard's dry run agrees with the create it precedes. What is and is not
+	// swapped is config.RunnerImageFor's to say.
+	p.Image = config.RunnerImageFor(p.Image, p.DockerMode.GivesDaemon())
 	return errs
 }
 
@@ -449,7 +337,8 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	case len(p.Labels) == 0:
 		add("labels", "a pool needs at least one label your workflows can ask for")
 	case !hasDistinctiveLabel(p.Labels):
-		add("labels", "a pool needs at least one label your workflows can ask for: these are the labels every runner advertises anyway, so nothing would ever select this pool in particular")
+		add("labels", fmt.Sprintf("a pool needs at least one label of its own: %q is on every Zoomies pool and the rest are labels every runner advertises anyway, so nothing would ever select this pool in particular. Try %q.",
+			store.BrandLabel, store.BrandedLabel(p.Name)))
 	}
 	for _, l := range p.Labels {
 		if strings.ContainsAny(l, " ,") {
@@ -467,10 +356,30 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	if p.Backend == store.BackendProcess && p.DockerMode != store.DockerNone && p.DockerMode != "" {
 		add("docker_mode", "the process backend runs jobs directly on the host, so it cannot give them a Docker daemon of their own; use the docker or podman backend, or set docker_mode to none")
 	}
+	// An empty image is only a problem when nothing else can supply one: a
+	// pool that names its platform gets the variant that platform selects, and
+	// one that names neither gets the instance default.
+	if p.Image == "" && p.Platform.OS == "" && p.Backend != store.BackendProcess &&
+		strings.TrimSpace(s.cfg().GitHub.RunnerImage) == "" {
+		add("image", "a container backend needs a runner image; leave it blank only for the process backend, "+
+			"or name an operating system and let its published image be used")
+	}
+	if !p.PullPolicy.Valid() {
+		add("pull_policy", "use if-not-present, always, or pinned-only")
+	}
+	if p.PullPolicy == store.PullPinnedOnly && !digestReference(p.Image) {
+		add("image", "pinned-only requires an immutable digest reference such as image@sha256:…; mutable tags are rejected")
+	}
 	errs = append(errs, validatePlatform(p)...)
 
 	if p.MinRunners < 0 {
 		add("min_runners", "the minimum cannot be negative")
+	}
+	if p.RepositoryScaleUpLimit < 0 {
+		add("repository_scale_up_limit", "must be zero or greater")
+	}
+	if p.CostPerRunnerHour != nil && *p.CostPerRunnerHour < 0 {
+		add("cost_per_runner_hour", "must be zero or greater")
 	}
 	if p.MaxRunners < 1 {
 		add("max_runners", "a pool that may have no runners can never run a job; set at least 1")
@@ -494,6 +403,42 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	if p.Resources.PidsLimit < 0 {
 		add("resources.pids_limit", "a process limit cannot be negative; use 0 for no limit")
 	}
+	if p.Cache.Enabled {
+		if !p.Cache.Scope.Valid() {
+			add("cache.scope", "use pool or repository")
+		}
+		if p.Cache.SizeLimit < 0 {
+			add("cache.size_limit", "the cache size limit cannot be negative; use 0 for no limit")
+		}
+		if strings.Contains(p.Cache.Source, "..") {
+			add("cache.source", "path traversal is not allowed")
+		}
+		// A size limit is kept by evicting entries from a directory on the
+		// host. There is no directory to measure behind a named volume, so
+		// accepting the number there would promise an enforcement that does
+		// not exist -- which is worse than refusing it.
+		if p.Cache.SizeLimit > 0 && !filepath.IsAbs(strings.TrimSpace(p.Cache.Source)) {
+			add("cache.size_limit", "a size limit is enforced by evicting from a host directory, so set the cache source to an absolute host path, or leave the limit at 0")
+		}
+		if p.Cache.Scope == store.CacheScopeRepository {
+			repo := strings.TrimSpace(p.Cache.Repository)
+			inst, err := s.ctrl.Store().GetInstallation(ctx, p.InstallationID)
+			switch {
+			case err != nil:
+				// The installation itself is already reported as invalid.
+			case inst.TargetType == store.TargetRepo:
+				if repo != "" && !strings.EqualFold(repo, inst.Target) {
+					add("cache.repository", "this pool's installation is scoped to "+inst.Target+", so its repository cache can only be for that repository; leave it empty")
+				}
+			case repo == "":
+				add("cache.repository", "this pool's installation covers all of "+inst.Target+", so a repository cache has to name the repository it is for, as "+inst.Target+"/name")
+			case !validRepositoryPath(repo):
+				add("cache.repository", "name the repository as owner/name, for example "+inst.Target+"/widgets")
+			case !strings.EqualFold(strings.SplitN(repo, "/", 2)[0], inst.Target):
+				add("cache.repository", "this pool's installation covers "+inst.Target+", so its cache repository has to be under that owner")
+			}
+		}
+	}
 	for k := range p.Env {
 		if strings.TrimSpace(k) == "" {
 			add("env", "an environment variable needs a name")
@@ -509,59 +454,42 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	return errs
 }
 
+// validRepositoryPath accepts exactly "owner/name" with both halves present and
+// nothing that could climb out of a cache directory built from it.
+func validRepositoryPath(repo string) bool {
+	owner, name, ok := strings.Cut(repo, "/")
+	if !ok || owner == "" || name == "" || strings.Contains(name, "/") {
+		return false
+	}
+	return owner != "." && owner != ".." && name != "." && name != ".."
+}
+
+func digestReference(ref string) bool {
+	parts := strings.Split(ref, "@sha256:")
+	if len(parts) != 2 || parts[0] == "" || len(parts[1]) != 64 {
+		return false
+	}
+	for _, c := range parts[1] {
+		if !strings.ContainsRune("0123456789abcdefABCDEF", c) {
+			return false
+		}
+	}
+	return true
+}
+
 // hasDistinctiveLabel reports whether a pool advertises anything beyond the
 // labels every actions/runner binary advertises anyway. A pool of only implicit
 // labels would match every job in the organisation, which is never what an
 // operator meant.
 func hasDistinctiveLabel(labels []string) bool {
 	return slices.ContainsFunc(labels, func(l string) bool {
-		return !store.ImplicitLabels[store.NormalizeLabel(l)]
+		l = store.NormalizeLabel(l)
+		// The brand is on every pool, so it distinguishes this one from the
+		// others no better than "self-hosted" does. A fleet reached only by
+		// "runs-on: zoomies" is a fleet where no workflow can say which pool
+		// it meant.
+		return !store.ImplicitLabels[l] && l != store.BrandLabel
 	})
-}
-
-// matchingHosts counts the hosts that could actually run this pool.
-//
-// Zero is worth saying out loud before a pool is created: a pool whose selector
-// matches nothing looks completely healthy and never starts a runner.
-func (s *Server) matchingHosts(ctx context.Context, p *store.Pool) (int, error) {
-	hosts, err := s.ctrl.Store().ListHosts(ctx)
-	if err != nil {
-		return 0, err
-	}
-	now := s.ctrl.Now()
-	n := 0
-	for _, h := range hosts {
-		if !h.Healthy(now) || h.Cordoned {
-			continue
-		}
-		if !slices.Contains(h.Backends, string(p.Backend)) {
-			continue
-		}
-		// The same platform rule the scheduler applies. Leaving it out here
-		// would have the wizard's review step promise hosts the scheduler will
-		// then refuse to place on -- the exact surprise this count exists to
-		// prevent.
-		if !p.Platform.Matches(h.Platform()) {
-			continue
-		}
-		if !selectorMatches(p.HostSelector, h.Labels) {
-			continue
-		}
-		n++
-	}
-	return n, nil
-}
-
-// selectorMatches is the scheduler's host-selector rule, which is deliberately
-// simple: every key and value in the selector must be present on the host, and
-// an empty selector matches everything.
-func selectorMatches(selector, labels store.StringMap) bool {
-	for k, v := range selector {
-		if labels[k] != v {
-			return false
-		}
-	}
-	return true
 }
 
 // handleCreatePool answers POST /api/v1/pools.
@@ -584,16 +512,18 @@ func (s *Server) handleCreatePool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.auth.Auditor().Created(r.Context(), Identity(r.Context()), "pool", p.ID, p)
+	s.ctrl.PublishPool(r.Context(), events.KindPoolCreated, p)
 	// A new pool with a minimum above zero has runners to create; a new pool
 	// with none may still claim jobs that are queued right now.
 	s.ctrl.Nudge()
+	_, _ = s.ctrl.PrewarmPool(r.Context(), p)
 
-	view, err := s.buildPoolView(r.Context())
+	view, err := s.ctrl.PoolRenderer(r.Context())
 	if err != nil {
 		s.internal(w, r, "reading the pool back", err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, view.response(p))
+	writeJSON(w, http.StatusCreated, view.View(p))
 }
 
 // validatePoolResponse is the wizard's review step: the errors that would stop
@@ -604,9 +534,20 @@ type validatePoolResponse struct {
 	Errors        []fieldError         `json:"errors"`
 	Warnings      []controller.Problem `json:"warnings"`
 	MatchingHosts int                  `json:"matching_hosts"`
+	// Image is the image the pool would actually run, which is not always the
+	// one the request named: a pool that gives its jobs a daemon runs the
+	// stock image's Docker variant, and the review step should show that
+	// rather than promise a pool the server will not make.
+	Image string `json:"image"`
 }
 
 // handleValidatePool answers POST /api/v1/pools/validate. It creates nothing.
+//
+// `?id=` names the pool this is a dry run of an edit to, and it matters: without
+// it the name check compares against every pool including that one, so opening
+// a pool, changing its image and pressing on was refused with "a pool called
+// zoomies-linux-x64 already exists" -- about itself. The form could not be
+// saved at all without also renaming the pool.
 func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 	var in poolInput
 	if !decode(w, r, &in) {
@@ -614,31 +555,45 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 	}
 	p := s.defaultPool()
 	errs := in.apply(p)
-	errs = append(errs, s.validatePool(r.Context(), p, "")...)
+	errs = append(errs, s.validatePool(r.Context(), p, r.URL.Query().Get("id"))...)
 
-	hosts, err := s.matchingHosts(r.Context(), p)
+	fit, err := s.ctrl.HostFit(r.Context(), p)
 	if err != nil {
 		s.internal(w, r, "counting the hosts that could run this pool", err)
 		return
 	}
-	warnings := poolWarnings(p)
-	if hosts == 0 {
-		// Naming the platform when the pool asks for one is what turns "add a
-		// host" into an instruction an operator can follow.
-		detail := fmt.Sprintf("no healthy, uncordoned host offers the %s backend and matches this pool's host selector, "+
+	// The installation is part of what a warning is about; when it does not
+	// exist, validatePool has already said so in the errors.
+	var inst *store.Installation
+	if i, err := s.ctrl.Store().GetInstallation(r.Context(), p.InstallationID); err == nil {
+		inst = i
+	}
+	warnings := controller.PoolWarnings(p, inst)
+	if fit.Count == 0 {
+		why := fmt.Sprintf("no healthy, uncordoned host offers the %s backend and matches this pool's host selector, "+
 			"so every runner it asks for would wait for a host that does not exist.", p.Backend)
 		fix := "add a host with that backend, uncordon one, or relax the host selector."
-		if platform := p.Platform.Describe(); platform != "" {
-			detail = fmt.Sprintf("no healthy, uncordoned host is running %s with the %s backend, "+
+		if platform := p.Platform.Describe(); fit.PlatformMismatch > 0 && platform != "" {
+			// A host that is simply not the machine this pool asked for cannot
+			// be fixed by making a backend usable on it, so naming the machine
+			// is the only instruction worth giving.
+			why = fmt.Sprintf("no healthy, uncordoned host is running %s with the %s backend, "+
 				"so every runner this pool asks for would wait for a host that does not exist.", platform, p.Backend)
 			fix = fmt.Sprintf("add a %s host, or change this pool's platform to one your fleet already has.", platform)
+		} else if detail := fit.Detail; detail != "" {
+			// A host is there and its agent already said what is wrong with it,
+			// which is a much shorter route to a working pool than adding a
+			// machine.
+			why += " " + detail
+			fix = fmt.Sprintf("make the %s backend usable on that host%s.", p.Backend, switchTo(fit.Alternatives))
 		}
 		warnings = append(warnings, controller.Problem{
-			Code:     "pool.no_matching_hosts",
-			Severity: config.SeverityWarning,
-			Title:    "no host can run this pool as configured",
-			Detail:   detail,
-			Fix:      fix,
+			Code:         "pool.no_matching_hosts",
+			Severity:     config.SeverityWarning,
+			Title:        "no host can run this pool as configured",
+			Detail:       why,
+			Fix:          fix,
+			Alternatives: fit.Alternatives,
 		})
 	}
 	if errs == nil {
@@ -651,8 +606,24 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 		Valid:         len(errs) == 0,
 		Errors:        errs,
 		Warnings:      warnings,
-		MatchingHosts: hosts,
+		MatchingHosts: fit.Count,
+		Image:         p.Image,
 	})
+}
+
+// switchTo names the backends a pool could move to instead, or says plainly
+// that there are none. It is the wizard's half of the sentence the scheduler
+// writes for a pool that already exists, kept in the same words on purpose:
+// the warning before creation and the problem after it are the same fact.
+func switchTo(alternatives []string) string {
+	switch len(alternatives) {
+	case 0:
+		return "; your hosts offer no other backend either"
+	case 1:
+		return ", or point this pool at " + alternatives[0] + ", which they already offer"
+	default:
+		return ", or point this pool at a backend they already offer: " + strings.Join(alternatives, ", ")
+	}
 }
 
 // handleUpdatePool answers PATCH /api/v1/pools/{id}.
@@ -683,16 +654,54 @@ func (s *Server) handleUpdatePool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.auth.Auditor().Updated(r.Context(), Identity(r.Context()), "pool", id, &before, &updated)
+	s.ctrl.PublishPool(r.Context(), events.KindPoolUpdated, &updated)
 	// The pool's shape decides how many runners should exist, so the scheduler
 	// should look again rather than wait out its interval.
 	s.ctrl.Nudge()
+	// A daemon that comes or goes can change the image the runners are made
+	// from without changing the row -- a pool on the controller's default
+	// image has nothing in its own image field to differ -- so it counts as
+	// an image change here too.
+	if before.Image != updated.Image || before.DockerMode.GivesDaemon() != updated.DockerMode.GivesDaemon() ||
+		before.PullPolicy != updated.PullPolicy || before.Backend != updated.Backend || !maps.Equal(before.HostSelector, updated.HostSelector) {
+		_, _ = s.ctrl.PrewarmPool(r.Context(), &updated)
+	}
 
-	view, verr := s.buildPoolView(r.Context())
+	view, verr := s.ctrl.PoolRenderer(r.Context())
 	if verr != nil {
 		s.internal(w, r, "reading the pool back", verr)
 		return
 	}
-	writeJSON(w, http.StatusOK, view.response(&updated))
+	writeJSON(w, http.StatusOK, view.View(&updated))
+}
+
+func (s *Server) handlePrewarmPool(w http.ResponseWriter, r *http.Request) {
+	p, err := s.ctrl.Store().GetPool(r.Context(), chiURLParam(r, "id"))
+	if err != nil {
+		s.fail(w, r, "reading the pool", err)
+		return
+	}
+	n, err := s.ctrl.PrewarmPool(r.Context(), p)
+	if err != nil {
+		if errors.Is(err, controller.ErrPrewarmUnsupported) {
+			unprocessable(w, err.Error(), nil)
+			return
+		}
+		s.fail(w, r, "queueing the image pull", err)
+		return
+	}
+	states, err := s.ctrl.Store().ListPoolPrewarms(r.Context(), p.ID)
+	if err != nil {
+		s.internal(w, r, "reading prewarm state", err)
+		return
+	}
+	// Every mutating operator route writes a row, and this one pulls an image
+	// onto every host that matches the pool: minutes of network on somebody
+	// else's machines, and the one action of the set that left no trace.
+	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "pool.prewarm", "pool", p.ID, map[string]any{
+		"image": s.ctrl.RunnerImage(p), "hosts": n,
+	})
+	writeJSON(w, http.StatusAccepted, map[string]any{"queued": n, "hosts": states})
 }
 
 // deletePoolResponse says how much of the fleet the deletion took with it.
@@ -728,12 +737,7 @@ func (s *Server) handleDeletePool(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		var rerr error
-		switch {
-		case force || !drain:
-			_, rerr = s.ctrl.RemoveRunner(r.Context(), run.ID, "pool "+p.Name+" was deleted", true)
-		default:
-			_, rerr = s.ctrl.DrainRunner(r.Context(), run.ID, "pool "+p.Name+" was deleted")
-		}
+		_, rerr = s.ctrl.RemoveRunner(r.Context(), run.ID, "pool "+p.Name+" was deleted", force || !drain)
 		if rerr != nil {
 			// One runner that cannot be told to stop must not leave the pool
 			// half-deleted; the row goes either way and the reaper cleans up.
@@ -744,7 +748,7 @@ func (s *Server) handleDeletePool(w http.ResponseWriter, r *http.Request) {
 		affected++
 	}
 
-	if err := s.ctrl.Store().DeletePool(r.Context(), id); err != nil {
+	if err := s.ctrl.DeletePool(r.Context(), id); err != nil {
 		s.fail(w, r, "deleting the pool", err)
 		return
 	}
@@ -785,15 +789,16 @@ func (s *Server) setPoolEnabled(w http.ResponseWriter, r *http.Request, enabled 
 		s.auth.Auditor().Act(r.Context(), Identity(r.Context()), action, "pool", id, map[string]any{
 			"name": p.Name, "enabled": enabled, "was": before.Enabled,
 		})
+		s.ctrl.PublishPool(r.Context(), events.KindPoolUpdated, p)
 		s.ctrl.Nudge()
 	}
 
-	view, verr := s.buildPoolView(r.Context())
+	view, verr := s.ctrl.PoolRenderer(r.Context())
 	if verr != nil {
 		s.internal(w, r, "reading the pool back", verr)
 		return
 	}
-	writeJSON(w, http.StatusOK, view.response(p))
+	writeJSON(w, http.StatusOK, view.View(p))
 }
 
 // emptySlice and emptyMap keep a JSON response from carrying null where the UI

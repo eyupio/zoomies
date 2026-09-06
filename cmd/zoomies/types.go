@@ -39,9 +39,11 @@ type poolItem struct {
 	Platform           platformItem      `json:"platform"`
 	Image              string            `json:"image"`
 	EffectiveImage     string            `json:"effective_image"`
+	PullPolicy         string            `json:"pull_policy"`
 	RunnerVersion      string            `json:"runner_version"`
 	MinRunners         int               `json:"min_runners"`
 	MaxRunners         int               `json:"max_runners"`
+	Priority           int               `json:"priority"`
 	IdleTimeout        string            `json:"idle_timeout"`
 	Ephemeral          bool              `json:"ephemeral"`
 	DockerMode         string            `json:"docker_mode"`
@@ -135,11 +137,34 @@ type jobItem struct {
 	RunnerName  string     `json:"runner_name"`
 	HTMLURL     string     `json:"html_url"`
 	Matched     bool       `json:"matched"`
+	HeadBranch  string     `json:"head_branch"`
+	HeadSHA     string     `json:"head_sha"`
+	RunAttempt  int        `json:"run_attempt"`
+	Steps       []jobStep  `json:"steps"`
+	FailedStep  *jobStep   `json:"failed_step"`
+	RunnerFault string     `json:"runner_fault"`
 	QueuedAt    time.Time  `json:"queued_at"`
 	StartedAt   *time.Time `json:"started_at"`
 	CompletedAt *time.Time `json:"completed_at"`
 	QueueWaitMS int64      `json:"queue_wait_ms"`
 	DurationMS  int64      `json:"duration_ms"`
+}
+
+type jobStep struct {
+	Number      int        `json:"number"`
+	Name        string     `json:"name"`
+	Status      string     `json:"status"`
+	Conclusion  string     `json:"conclusion"`
+	StartedAt   *time.Time `json:"started_at"`
+	CompletedAt *time.Time `json:"completed_at"`
+}
+
+type jobEventItem struct {
+	Kind       string    `json:"kind"`
+	Source     string    `json:"source"`
+	Message    string    `json:"message"`
+	RunnerName string    `json:"runner_name"`
+	At         time.Time `json:"at"`
 }
 
 type backendInfo struct {
@@ -288,7 +313,10 @@ type statsResponse struct {
 	QueuedJobs   int    `json:"queued_jobs"`
 	RunningJobs  int    `json:"running_jobs"`
 	Completed    int    `json:"completed"`
+	Succeeded    int    `json:"succeeded"`
 	Failed       int    `json:"failed"`
+	Cancelled    int    `json:"cancelled"`
+	Unknown      int    `json:"unknown"`
 	MedianWaitMS int64  `json:"median_wait_ms"`
 	P95WaitMS    int64  `json:"p95_wait_ms"`
 	Runners      struct {

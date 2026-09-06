@@ -136,7 +136,7 @@
     justify-content: center;
     width: var(--z-space-5);
     height: var(--z-space-5);
-    border: 1px solid var(--z-border-strong);
+    border: var(--z-border-width) solid var(--z-border-strong);
     border-radius: var(--z-radius-full);
     background: var(--z-surface);
     font-size: var(--z-text-xs);
@@ -155,8 +155,8 @@
   .step-text {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    padding-top: 2px;
+    gap: var(--z-nudge-2);
+    padding-top: var(--z-nudge-2);
   }
   .step-title {
     font-size: var(--z-text-sm);
@@ -173,7 +173,7 @@
   .panel {
     grid-area: panel;
     padding: var(--z-space-6);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }

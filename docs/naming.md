@@ -1,20 +1,25 @@
 # Naming and platforms
 
-Zoomies names pools, hosts and runners with one grammar, and the name says what
-the thing is:
+Zoomies has a grammar for the two names an operator reads and writes, and the
+name says what the thing is:
 
 ```
 zoomies-4vcpu-ubuntu-2404              a pool
 zoomies-16vcpu-32gb-ubuntu-2404-tuck   the host running it
-zoomies-4vcpu-ubuntu-2404-k3f9qz       one of its runners, as GitHub sees it
 ```
 
-The reason is narrow and practical. `runs-on: [self-hosted, linux-x64]` tells a
-workflow author nothing about how much machine they are asking for, and tells
-whoever is reading a slow build even less. A name that carries the size and the
-platform answers both at a glance, in the one string that ends up in workflow
-files, in issue reports, and in GitHub's own runner list -- where Zoomies has no
-UI of its own to explain itself.
+The reason is narrow and practical. `runs-on: linux-x64` tells a workflow author
+nothing about how much machine they are asking for, and tells whoever is reading
+a slow build even less. A name that carries the size and the platform answers
+both at a glance, and a pool's name is copied into every workflow file that uses
+it, so it is read far more often than it is written.
+
+**Runner names are not in this grammar.** `store.NewRunnerName` mints them as
+the brand plus eight random characters, and deliberately says nothing else:
+GitHub shows a runner name in the runner list, the job header and every log's
+"Set up job" step, in columns narrow enough that a longer name loses the brand
+to truncation. Which pool a runner belongs to is on its labels and one click
+away in Zoomies.
 
 ## The grammar
 
@@ -29,7 +34,7 @@ zoomies-<vcpu>vcpu[-<memory>gb]-<os>-<version>[-<arch>][-<suffix>]
 | `<memory>gb` | `32gb` | Only when there is a memory limit to state. Host names carry it; pool names carry it only when the pool caps memory. |
 | `<os>-<version>` | `ubuntu-2404` | The distribution and its release, with the dots removed. `ubuntu-2404`, `debian-12`, `fedora-42`, `rocky-9`. |
 | `<arch>` | `arm64` | Omitted for `amd64`, which is the default. Spelled out for everything else. |
-| `<suffix>` | `tuck`, `k3f9qz` | A host's machine name, or a runner's uniqueness token. Pools have none: a pool *is* its shape. |
+| `<suffix>` | `tuck` | A host's machine name. Pools have none: a pool *is* its shape. |
 
 Every part after the prefix is optional and left out when it is not known. A
 host that will not say what distribution it runs gets a name without one, rather
@@ -40,8 +45,14 @@ has always called its pool `linux-x64` keeps working exactly as it did. The
 grammar is what Zoomies suggests, what `zoomies init` prints, and what an
 unnamed host is given -- not a rule it enforces.
 
-The name is capped at 64 characters, because GitHub rejects a runner name longer
-than that and a runner that cannot register is one that never starts.
+The name is capped at 64 characters, because a pool's name is what its labels
+are built from and GitHub rejects a runner name longer than that.
+
+Every pool name carries the brand whether or not it is in the grammar: a name
+saved as `gpu` is stored as `zoomies-gpu`. That is
+[`internal/store/brand.go`](https://github.com/eyupio/zoomies/blob/main/internal/store/brand.go),
+and it is about the label a workflow in somebody else's repository has to write,
+not about the grammar here.
 
 ## Platforms
 
@@ -89,15 +100,25 @@ and the tag is the same `<os>-<version>` that appears in a pool name.
 | `rocky-9` | `rockylinux/rockylinux:9` | amd64, arm64 |
 
 `:latest` points at `ubuntu-2404`, which is what a pool that names no platform
-gets. Each release also publishes an immutable `<tag>-<version>` for pinning.
+gets. Each release also publishes `<tag>-<version>` for pinning one operating
+system without pinning the controller.
 
-All five are built from the same `deploy/Dockerfile.runner`. It takes the base
-image and the package family (`apt` or `dnf`) as build arguments and installs
-the tools nearly every workflow assumes exist; actions/runner's own .NET
+Every variant is published twice: as `zoomies-runner` and as
+`zoomies-runner-docker`, the same image plus a Docker CLI, which a pool is
+switched to when its `docker_mode` gives jobs a daemon. Both are targets of one
+`deploy/Dockerfile.runner`.
+
+That file takes the base image and the package family (`apt` or `dnf`) as build
+arguments; everything a distribution names differently lives in one
+`deploy/runner-*.sh` script per concern -- the baseline tools, the build
+toolchain, the GitHub CLI, the Docker client. actions/runner's own .NET
 dependencies are left to the tarball's `installdependencies.sh`, which already
-knows every distribution's package names for them. Adding an operating system is
-a row in `internal/naming`'s catalogue, a row in the Makefile, and a matrix
-entry in each workflow -- and a Go test fails if those three ever disagree.
+knows every distribution's package names for them; naming them by hand is what
+made this image Ubuntu 24.04 and nothing else.
+
+Adding an operating system is a row in `internal/naming`'s catalogue, a row in
+the Makefile, and a matrix entry in each workflow -- and a Go test fails if
+those three ever disagree.
 
 There is no Alpine variant. actions/runner ships glibc binaries and .NET
 dependencies that musl does not satisfy, so an Alpine image would build and then
@@ -139,22 +160,26 @@ up, dividing the machine among the runners it will hold:
 
 ```sh
 zoomies pools create --name zoomies-4vcpu-ubuntu-2404 \
-  --labels zoomies-4vcpu-ubuntu-2404,linux,x64 --backend docker --max 4 \
-  --cpus 4 --os ubuntu --os-version 24.04 --arch amd64
+  --labels linux,x64,zoomies,zoomies-4vcpu-ubuntu-2404 --backend docker --max 4 \
+  --installation ins_... --cpus 4 --os ubuntu --os-version 24.04 --arch amd64
 ```
 
-The pool advertises its canonical name as a label, plus the kernel and
-architecture labels actions/runner advertises anyway. Declaring those two is
-what makes the scheduler refuse an x64 job on an arm64 pool.
+The pool advertises its canonical name as a label, the `zoomies` brand label
+every pool answers to, and the kernel and architecture labels actions/runner
+advertises anyway. Declaring the last two is what makes the scheduler refuse an
+x64 job on an arm64 pool.
+
+The **Pools** page's own wizard names a new pool from the kennel instead --
+`zoomies-biscuit-docker-linux`, with a dice to roll another -- and offers the
+operating system as a separate field. Either name is legal; the platform is
+what picks the image and restricts placement, not the name.
 
 **Hosts.** An agent that joins without `--name` is named for what it is:
 `zoomies-16vcpu-32gb-ubuntu-2404-build01`. The size is what the agent may
 actually use, which is the cgroup's share when the agent runs in a container --
 so the controller in a two-core container does not claim the host's sixty-four.
 
-**Runners.** A runner's name is its pool's name plus a short random token, which
-is what makes a runner in GitHub's own list traceable back to the pool that
-created it. A pool an operator named something of their own still produces
-`zoomies-`-prefixed runners, because that prefix is how the uninstaller and the
+**Runners.** `zoomies-` and eight random characters, and nothing else, for the
+reason at the top of this page. That prefix is also how the uninstaller and the
 agent's orphan sweep know which registrations and containers are Zoomies' to
-reap.
+reap, so it must not appear in front of anything else.

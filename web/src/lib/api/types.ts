@@ -35,7 +35,7 @@ export const RUNNER_STATES: readonly RunnerState[] = [
 ];
 
 /** Every job state. */
-export const JOB_STATES: readonly JobState[] = ['queued', 'in_progress', 'completed'];
+export const JOB_STATES: readonly JobState[] = ['waiting', 'queued', 'in_progress', 'completed'];
 
 /** The roles, weakest first. `atLeast` below compares by this order. */
 export const ROLES: readonly Role[] = ['viewer', 'operator', 'admin'];
@@ -66,9 +66,23 @@ export type Runner = Schemas['Runner'];
 export type RunnerDetail = Schemas['RunnerDetail'];
 export type TimelineEntry = Schemas['TimelineEntry'];
 export type Job = Schemas['Job'];
+export type JobStep = Schemas['JobStep'];
+export type JobEvent = Schemas['JobEvent'];
+export type JobEventKind = Schemas['JobEventKind'];
 export type BackendInfo = Schemas['BackendInfo'];
 export type Host = Schemas['Host'];
 export type JoinToken = Schemas['JoinToken'];
+export type MigrationPlan = Schemas['MigrationPlan'];
+export type MigrationRepo = Schemas['MigrationRepo'];
+export type MigrationWorkflow = Schemas['MigrationWorkflow'];
+export type MigrationRewrite = Schemas['MigrationRewrite'];
+export type MigrationSkip = Schemas['MigrationSkip'];
+export type MigrationPoolOption = Schemas['MigrationPoolOption'];
+export type MigrationOutcome = Schemas['MigrationOutcome'];
+export type MigrationResult = Schemas['MigrationResult'];
+export type Usage = Schemas['UsageResponse'];
+export type UsageRow = Usage['items'][number];
+export type UsageGrouping = Usage['group_by'];
 export type AuditEvent = Schemas['AuditEvent'];
 export type User = Schemas['User'];
 export type Identity = Schemas['Identity'];
@@ -142,30 +156,18 @@ export interface EventPayloads {
   'host.deleted': Deleted;
   scaling: ScalingEvent;
   'installation.updated': Installation;
+  'installation.deleted': Deleted;
   'problems.updated': { ok: boolean; items: Problem[] };
   stats: Stats;
   audit: AuditEvent;
   'webhook.delivery': WebhookDelivery;
   heartbeat: unknown;
+  /**
+   * The first frame on a reconnection whose gap the server could not replay:
+   * its buffer had moved on, or the controller restarted. The cache is stale
+   * and should be fetched again.
+   */
+  resync: { reason?: string };
 }
 
 export type EventKind = keyof EventPayloads;
-
-export const EVENT_KINDS: readonly EventKind[] = [
-  'runner.created',
-  'runner.updated',
-  'runner.deleted',
-  'pool.created',
-  'pool.updated',
-  'pool.deleted',
-  'job.updated',
-  'host.updated',
-  'host.deleted',
-  'scaling',
-  'installation.updated',
-  'problems.updated',
-  'stats',
-  'audit',
-  'webhook.delivery',
-  'heartbeat',
-];

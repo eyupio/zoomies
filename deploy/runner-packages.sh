@@ -1,46 +1,41 @@
 #!/bin/sh
 #
-# Install the runner image's baseline tools for one package-manager family.
+# The runner image's baseline: the tools essentially every workflow assumes
+# exist, and a UTF-8 locale.
 #
-# It exists so deploy/Dockerfile.runner has one RUN instruction instead of a
-# chain of shell conditionals, and so the package names for each family live
-# somewhere a person can read them. It installs only what nearly every workflow
-# assumes exists; actions/runner's own .NET dependencies are installed by the
-# runner tarball's ./bin/installdependencies.sh, which already knows every
-# distribution's names for them.
+# It exists so deploy/Dockerfile.runner has one instruction instead of a chain
+# of shell conditionals, and so each package family's names live somewhere a
+# person can read them side by side. actions/runner's own .NET dependencies are
+# NOT here: the runner tarball's ./bin/installdependencies.sh installs those,
+# and it already knows every distribution's names for them. Listing them here by
+# hand -- libicu74, liblttng-ust1t64, libssl3t64 -- is what made this image
+# Ubuntu 24.04 and nothing else.
 #
-#   usage: runner-packages.sh <apt|dnf> [extra packages...]
+#   usage: runner-packages.sh <apt|dnf>
 #
 set -eu
 
-family="${1:?usage: runner-packages.sh <apt|dnf> [extra packages...]}"
-shift || true
-extra="$*"
+family="${1:?usage: runner-packages.sh <apt|dnf>}"
 
 case "${family}" in
   apt)
     export DEBIAN_FRONTEND=noninteractive
     apt-get update
-    # shellcheck disable=SC2086  # extra is a deliberately word-split package list
     apt-get install -y --no-install-recommends \
       ca-certificates curl git jq unzip zip tar gzip xz-utils \
-      sudo tzdata locales openssh-client rsync ${extra}
+      sudo gosu tzdata locales openssh-client rsync
     rm -rf /var/lib/apt/lists/*
-    # A runner without a UTF-8 locale mangles any log line a job prints that is
-    # not ASCII, which is a confusing thing to debug from a workflow.
+    # A runner without a UTF-8 locale mangles any non-ASCII line a job prints,
+    # which is a confusing thing to debug from a workflow log.
     localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8
     ;;
   dnf)
-    pkg="dnf"
-    command -v dnf >/dev/null 2>&1 || pkg="microdnf"
-    # --allowerasing because the RHEL 9 family's base images ship curl-minimal,
-    # which conflicts with the full curl these images need: without it dnf
-    # refuses the whole transaction rather than swapping the two.
-    # shellcheck disable=SC2086
-    "${pkg}" install -y --allowerasing \
+    # gosu has no RPM: shadow-utils' runuser does the same job, and the
+    # entrypoint uses neither -- it is here only for a workflow that expects it.
+    dnf install -y --allowerasing --setopt=install_weak_deps=False \
       ca-certificates curl git jq unzip zip tar gzip xz \
-      sudo shadow-utils glibc-langpack-en openssh-clients rsync ${extra}
-    "${pkg}" clean all
+      sudo shadow-utils tzdata glibc-langpack-en openssh-clients rsync
+    dnf clean all
     rm -rf /var/cache/dnf
     ;;
   *)

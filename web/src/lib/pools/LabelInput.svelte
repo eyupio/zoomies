@@ -1,24 +1,3 @@
-<script module lang="ts">
-  /**
-   * The labels GitHub attaches to every self-hosted runner by itself. Adding
-   * one of these to a pool is not an error, but it is never what the operator
-   * meant: it makes the pool look more specific than it is.
-   */
-  export const IMPLICIT_LABELS: readonly string[] = [
-    'self-hosted',
-    'linux',
-    'windows',
-    'macos',
-    'x64',
-    'arm64',
-    'arm',
-  ];
-
-  export function isImplicit(label: string): boolean {
-    return IMPLICIT_LABELS.includes(label.trim().toLowerCase());
-  }
-</script>
-
 <!--
   A chip input for runner labels.
 
@@ -28,6 +7,9 @@
 -->
 <script lang="ts">
   import { X } from '@lucide/svelte';
+  // The label vocabulary lives in $lib/brand, the browser's copy of
+  // internal/store/brand.go.
+  import { isImplicit } from '$lib/brand';
 
   interface Props {
     value?: string[];
@@ -145,12 +127,21 @@
     gap: var(--z-space-2);
     min-height: var(--z-space-8);
     padding: var(--z-space-1) var(--z-space-2);
-    border: 1px solid var(--z-border-strong);
+    border: var(--z-border-width) solid var(--z-border-strong);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface);
   }
+  /*
+    A real ring, not a colour change. The border went grey to blue on focus,
+    which is invisible to anyone who cannot tell the two apart -- and is
+    exactly the change an invalid field has already made for a different
+    reason, so focus and error were the same picture. The ring is drawn as a
+    box-shadow because the chips scroll inside this box and an outline on the
+    container would be clipped.
+  */
   .box:focus-within {
-    border-color: var(--z-accent);
+    border-color: var(--z-focus-colour);
+    box-shadow: var(--z-focus-ring);
   }
   .box.invalid {
     border-color: var(--z-danger);
@@ -172,7 +163,7 @@
     align-items: center;
     gap: var(--z-space-1);
     padding: 0 var(--z-space-1) 0 var(--z-space-2);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     font-family: var(--z-font-mono);
@@ -211,11 +202,28 @@
     font-family: var(--z-font-mono);
     font-size: var(--z-text-base);
   }
+  /* The container above carries the ring for the whole control, so the field
+     inside it must not draw a second one. */
   input:focus {
     outline: none;
   }
   input::placeholder {
     font-family: var(--z-font-sans);
     color: var(--z-text-subtle);
+  }
+  /*
+    16px on a phone, and only on a phone.
+
+    The base control size is right for a dense operator UI on a desktop -- but
+    mobile Safari zooms the whole viewport whenever a focused control's
+    font-size is under 16px, and the viewport meta deliberately does not set
+    maximum-scale. So every field tap jumped the 360px page to roughly 410px
+    effective width and ran the card off both edges, once per field. Height
+    comes from the space scale, so nothing reflows; only the glyphs grow.
+  */
+  @media (max-width: 768px) {
+    input {
+      font-size: var(--z-control-font-touch);
+    }
   }
 </style>

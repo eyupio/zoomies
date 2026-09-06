@@ -170,6 +170,12 @@
       selectionBackground: resolve('--z-accent-subtle'),
       selectionForeground: foreground,
       selectionInactiveBackground: resolve('--z-neutral-subtle'),
+      // xterm draws its own scrollbar rather than the browser's, so the theme's
+      // thumb has to be handed over; left alone it is a fifth of the foreground,
+      // the same faint sliver the rest of the UI has stopped drawing.
+      scrollbarSliderBackground: resolve('--z-scrollbar-thumb'),
+      scrollbarSliderHoverBackground: resolve('--z-scrollbar-thumb-hover'),
+      scrollbarSliderActiveBackground: resolve('--z-scrollbar-thumb-active'),
     };
     for (const [name, token] of Object.entries(ANSI)) {
       const colour = resolve(token);
@@ -673,7 +679,7 @@
     min-width: 0;
     min-height: 0;
     height: 100%;
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
     overflow: hidden;
@@ -687,7 +693,7 @@
     flex-wrap: wrap;
     gap: var(--z-space-3);
     padding: var(--z-space-2) var(--z-space-3);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   .meter {
     display: flex;
@@ -773,8 +779,8 @@
   }
   .probe {
     position: absolute;
-    width: 1px;
-    height: 1px;
+    width: var(--z-border-width);
+    height: var(--z-border-width);
     overflow: hidden;
     pointer-events: none;
   }
@@ -798,7 +804,7 @@
     gap: var(--z-space-2);
     height: var(--z-space-8);
     padding: 0 var(--z-space-4);
-    border: 1px solid var(--z-accent-border);
+    border: var(--z-border-width) solid var(--z-accent-border);
     border-radius: var(--z-radius-full);
     background: var(--z-accent-subtle);
     color: var(--z-accent);
@@ -820,7 +826,7 @@
     gap: var(--z-space-2);
     margin: 0;
     padding: var(--z-space-3);
-    border-top: 1px solid var(--z-border);
+    border-top: var(--z-border-width) solid var(--z-border);
     font-size: var(--z-text-xs);
     color: var(--z-text-muted);
   }

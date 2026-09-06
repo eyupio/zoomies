@@ -6,10 +6,12 @@
   quiet line rather than an empty box or a green celebration.
 -->
 <script lang="ts">
+  import type { Snippet } from 'svelte';
   import { ShieldCheck } from '@lucide/svelte';
   import type { Problem } from '$lib/api/types';
   import { severityStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
+  import RemedyText from '$lib/components/RemedyText.svelte';
 
   interface Props {
     warnings?: readonly Problem[];
@@ -17,6 +19,12 @@
     okMessage?: string;
     /** Render without the surrounding card, for use inside another panel. */
     bare?: boolean;
+    /**
+     * Rendered under each warning, for the ones whose fix Zoomies can carry out
+     * itself. It is given the warning, and decides for itself whether it has
+     * anything to offer for that one.
+     */
+    action?: Snippet<[Problem]>;
     class?: string;
   }
 
@@ -24,6 +32,7 @@
     warnings = [],
     okMessage = 'Nothing dangerous is switched on for this pool.',
     bare = false,
+    action,
     class: className = '',
   }: Props = $props();
 </script>
@@ -43,13 +52,18 @@
             <Badge {status} size="sm" />
             <p class="title">{warning.title}</p>
           </div>
-          {#if warning.detail}<p class="detail">{warning.detail}</p>{/if}
+          {#if warning.detail}
+            <p class="detail"><RemedyText text={warning.detail} /></p>
+          {/if}
           {#if warning.fix}
-            <p class="fix"><span class="fix-label">Fix</span>{warning.fix}</p>
+            <p class="fix">
+              <span class="fix-label">Fix</span><RemedyText text={warning.fix} />
+            </p>
           {/if}
           {#if warning.setting}
             <p class="setting"><code>{warning.setting}</code></p>
           {/if}
+          {#if action}{@render action(warning)}{/if}
         </li>
       {/each}
     </ul>
@@ -58,7 +72,7 @@
 
 <style>
   .warnings:not(.bare) {
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
     padding: var(--z-space-5);
@@ -81,7 +95,7 @@
   }
   li {
     padding-left: var(--z-space-3);
-    border-left: 2px solid var(--z-pending-border);
+    border-left: var(--z-border-width-thick) solid var(--z-pending-border);
   }
   .head {
     display: flex;
@@ -109,7 +123,7 @@
     font-size: var(--z-text-2xs);
     font-weight: var(--z-weight-medium);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     color: var(--z-idle);
   }
   .setting {

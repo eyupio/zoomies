@@ -40,6 +40,12 @@ type JoinRequest struct {
 	Version  string            `json:"version"`
 	Labels   map[string]string `json:"labels,omitempty"`
 	Backends []backend.Info    `json:"backends"`
+	// PreviousToken is the agent token this host was issued the last time it
+	// joined, sent when the credentials file still holds one. It is what lets
+	// a rebuilt machine reclaim its own row: without it the controller refuses
+	// to replace an existing host of the same name, because a join token on its
+	// own must not be enough to take over somebody else's machine.
+	PreviousToken string `json:"previous_token,omitempty"`
 }
 
 // JoinResponse hands back the host's identity and its long-lived agent token.
@@ -55,14 +61,17 @@ type JoinResponse struct {
 // HeartbeatRequest is sent on every interval. It carries the agent's own view
 // of its runners so the controller can detect drift without polling.
 type HeartbeatRequest struct {
-	ProtocolVersion int    `json:"protocol_version"`
-	Capacity        int    `json:"capacity"`
-	Version         string `json:"version"`
-	// CPUs and MemoryMB are re-sent on every beat so that a host resized in
-	// place -- a VM given more cores, a container's limit raised -- stops
-	// describing itself as the machine it used to be.
+	ProtocolVersion int `json:"protocol_version"`
+	// Capacity is the agent's configured value, sent for the log and for
+	// older controllers. The controller does not write it: capacity is set
+	// at join and belongs to the operator after that.
+	Capacity int `json:"capacity"`
+	// CPUs and MemoryMB are facts about the machine rather than the operator's
+	// choice, so unlike Capacity the controller does record them: a host
+	// resized in place must stop describing itself as the machine it used to be.
 	CPUs     int            `json:"cpus,omitempty"`
 	MemoryMB int64          `json:"memory_mb,omitempty"`
+	Version  string         `json:"version"`
 	Backends []backend.Info `json:"backends,omitempty"`
 	Runners  []RunnerReport `json:"runners,omitempty"`
 }
@@ -109,7 +118,8 @@ const (
 	// TaskStreamLogs opens an outbound log relay for a UI viewer.
 	TaskStreamLogs TaskKind = "stream_logs"
 	// TaskCancelLogs closes one.
-	TaskCancelLogs TaskKind = "cancel_logs"
+	TaskCancelLogs   TaskKind = "cancel_logs"
+	TaskPrewarmImage TaskKind = "prewarm_image"
 )
 
 // Task is one unit of work handed to an agent. Tasks are idempotent: the
@@ -125,7 +135,10 @@ type Task struct {
 	// the agent transport requires TLS in any non-loopback deployment.
 	Spec *backend.Spec `json:"spec,omitempty"`
 	// Backend selects which registered backend handles this task.
-	Backend store.BackendKind `json:"backend,omitempty"`
+	Backend    store.BackendKind `json:"backend,omitempty"`
+	PoolID     string            `json:"pool_id,omitempty"`
+	Image      string            `json:"image,omitempty"`
+	PullPolicy store.PullPolicy  `json:"pull_policy,omitempty"`
 	// StopTimeout bounds a graceful stop.
 	StopTimeout time.Duration `json:"stop_timeout,omitempty"`
 	// StreamID identifies a log relay for TaskStreamLogs and TaskCancelLogs.
@@ -137,11 +150,23 @@ type Task struct {
 
 // TaskResult reports the outcome of a task back to the controller.
 type TaskResult struct {
-	TaskID   string         `json:"task_id"`
+	TaskID string `json:"task_id"`
+	// Kind is the kind of the task this answers. The controller uses it to
+	// tell a lifecycle task that failed -- which leaves the runner unusable --
+	// from a log relay that could not be opened, which leaves it exactly as it
+	// was. An agent from before this field is read from the controller's own
+	// record of the task instead.
+	Kind     TaskKind       `json:"kind,omitempty"`
 	RunnerID string         `json:"runner_id,omitempty"`
 	OK       bool           `json:"ok"`
 	Error    string         `json:"error,omitempty"`
 	Handle   backend.Handle `json:"handle,omitempty"`
+	// ImagePullDuration is nil when the backend cannot distinguish pulling
+	// from creation. ContainerStartedAt is the end of workload creation.
+	ImagePullDuration  *time.Duration `json:"image_pull_duration,omitempty"`
+	CreateDuration     time.Duration  `json:"create_duration,omitempty"`
+	ContainerStartedAt *time.Time     `json:"container_started_at,omitempty"`
+	Digest             string         `json:"digest,omitempty"`
 	// State is the runner state the agent believes the runner reached.
 	State       store.RunnerState `json:"state,omitempty"`
 	CompletedAt time.Time         `json:"completed_at"`

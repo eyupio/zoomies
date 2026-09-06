@@ -77,7 +77,7 @@
     gap: var(--z-space-1);
     height: var(--z-space-5);
     padding: 0 var(--z-space-1) 0 var(--z-space-2);
-    border: 1px solid var(--z-accent-border);
+    border: var(--z-border-width) solid var(--z-accent-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-accent-subtle);
     font-size: var(--z-text-xs);

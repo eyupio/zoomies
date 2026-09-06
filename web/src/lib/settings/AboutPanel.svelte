@@ -12,25 +12,42 @@
   import type { Settings } from '$lib/api/types';
   import { formatNumber, pluralise } from '$lib/format';
   import { session } from '$lib/state/session.svelte';
+  import { API_SURFACE_URL, CONFIGURATION_URL, DOCS_URL, REPO_URL, SECURITY_URL } from '$lib/links';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import LoadingBoundary from '$lib/components/LoadingBoundary.svelte';
+  import Logo from '$lib/components/Logo.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
 
+  /*
+    These point at the site rather than at Markdown files in the repository:
+    the site renders the same files, and it is the address worth passing on to
+    whoever asks what this thing is.
+  */
   const DOCS: { label: string; description: string; href: string }[] = [
     {
-      label: 'README',
-      description: 'What Zoomies is and how to run it.',
-      href: 'https://github.com/eyupio/zoomies#readme',
+      label: 'Documentation',
+      description: 'What Zoomies is, how to run it, and how to look after it.',
+      href: DOCS_URL,
     },
     {
       label: 'Configuration',
       description: 'Every setting, what it does and what it defaults to.',
-      href: 'https://github.com/eyupio/zoomies/blob/main/docs/configuration.md',
+      href: CONFIGURATION_URL,
+    },
+    {
+      label: 'Security',
+      description: 'What each setting costs, and what the safe defaults protect.',
+      href: SECURITY_URL,
     },
     {
       label: 'API surface',
       description: 'Every endpoint this UI and the CLI are built on.',
-      href: 'https://github.com/eyupio/zoomies/blob/main/docs/api-surface.md',
+      href: API_SURFACE_URL,
+    },
+    {
+      label: 'Source on GitHub',
+      description: 'Zoomies is AGPL-3.0 licensed. Read it before you run it.',
+      href: REPO_URL,
     },
     {
       label: 'This instance’s OpenAPI document',
@@ -69,6 +86,19 @@
     <h2>About</h2>
     <p>This controller, and where to read more.</p>
   </header>
+
+  <!--
+    The one place in the product that is allowed to be about the product rather
+    than about the fleet, so the lock-up gets the room the brand guide asks for
+    instead of the favicon-scale paw used by the smallest UI placements.
+  -->
+  <div class="identity">
+    <Logo variant="mark" size={48} label="" />
+    <div>
+      <p class="name">Zoomies</p>
+      <p class="descriptor">Self-hosted Git runners</p>
+    </div>
+  </div>
 
   <div class="body">
     <LoadingBoundary {loading} {error} onretry={() => (reload += 1)}>
@@ -135,13 +165,13 @@
 
 <style>
   .panel {
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }
   header {
     padding: var(--z-space-4) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   h2 {
     margin: 0;
@@ -154,6 +184,30 @@
     margin: var(--z-space-1) 0 0;
     font-size: var(--z-text-xs);
     color: var(--z-text-muted);
+  }
+  .identity {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-4);
+    padding: var(--z-space-5);
+    border-bottom: var(--z-border-width) solid var(--z-border);
+    background: var(--z-surface-sunken);
+  }
+  .name {
+    margin: 0;
+    font-size: var(--z-text-lg);
+    line-height: var(--z-leading-lg);
+    font-weight: var(--z-weight-bold);
+    letter-spacing: var(--z-tracking-tight);
+    color: var(--z-text);
+  }
+  .descriptor {
+    margin: var(--z-space-1) 0 0;
+    font-size: var(--z-text-2xs);
+    font-weight: var(--z-weight-medium);
+    letter-spacing: var(--z-tracking-wider);
+    text-transform: uppercase;
+    color: var(--z-text-subtle);
   }
   .body {
     display: flex;
@@ -184,7 +238,7 @@
     margin: 0 0 var(--z-space-3);
     font-size: var(--z-text-2xs);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     font-weight: var(--z-weight-medium);
     color: var(--z-text-muted);
   }
@@ -201,7 +255,7 @@
     align-items: center;
     gap: var(--z-space-3);
     padding: var(--z-space-3);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     color: var(--z-text);
     text-decoration: none;

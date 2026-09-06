@@ -1,23 +1,28 @@
-// Package naming owns the one grammar Zoomies uses for the names an operator
-// reads: pools, hosts and the runners GitHub shows in its own UI.
+// Package naming owns the grammar Zoomies uses for the two names an operator
+// reads and writes: a pool's, and a host's.
 //
 // The problem it solves is that "linux-x64" tells you almost nothing. When a
-// job is slow, when a bill is too big, or when a runner picked up work it had
-// no business picking up, the questions are always the same: how much machine
-// was that, which operating system, which architecture. A name that answers
-// them turns three page loads into a glance, and it does so in the one place
-// that is copied into workflow files, pasted into issues and read in GitHub's
-// own runner list, where Zoomies has no UI of its own.
+// job is slow, when a bill is too big, or when a job landed somewhere it had no
+// business landing, the questions are always the same: how much machine was
+// that, which operating system, which architecture. A name that answers them
+// turns three page loads into a glance -- and a pool's name is copied into
+// every workflow file that uses it, so it is read far more often than it is
+// written.
 //
 // The grammar is:
 //
 //	zoomies-<cpu>vcpu[-<memory>gb]-<os>-<version>[-<arch>][-<suffix>]
 //
-// so a pool is "zoomies-4vcpu-ubuntu-2404", a host running it is
-// "zoomies-16vcpu-ubuntu-2404-tuck" and a runner on that host is
-// "zoomies-4vcpu-ubuntu-2404-k3f9qz". Every part after the prefix is optional
+// so a pool is "zoomies-4vcpu-ubuntu-2404" and a host running it is
+// "zoomies-16vcpu-ubuntu-2404-tuck". Every part after the prefix is optional
 // and omitted when it is not known, because a half-described host is still
 // better named than one called "ip-10-0-4-17".
+//
+// Runner names are deliberately not in this grammar. store.NewRunnerName mints
+// them as the brand plus random characters, because GitHub shows a runner name
+// in columns narrow enough that anything longer loses the brand to truncation
+// -- and which pool a runner belongs to is on its labels anyway. See
+// internal/store/brand.go.
 //
 // Two conventions keep names short enough to read:
 //
@@ -43,9 +48,9 @@ import (
 const Prefix = "zoomies"
 
 // MaxNameLength is the longest name this package will emit. GitHub rejects a
-// runner name over 64 characters, and a name that cannot be registered is a
-// runner that never starts, so the limit is enforced here rather than
-// discovered at registration time.
+// runner name over 64 characters, and a pool's name is what a runner's labels
+// are built from, so the limit is enforced here rather than discovered when a
+// registration is refused.
 const MaxNameLength = 64
 
 // Spec is a name in structured form: what the thing is made of, in the order

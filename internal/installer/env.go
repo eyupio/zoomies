@@ -59,6 +59,11 @@ type EnvSpec struct {
 	Backend    string
 	DockerHost string
 	Capacity   int
+	// Network is the container network runner containers are attached to:
+	// the one the deployment declares. Left unset, the agent would put them
+	// on the daemon's default bridge, whatever the compose file's comment
+	// promises.
+	Network string
 
 	WorkDir string
 	DBPath  string
@@ -275,6 +280,8 @@ func RenderEnv(spec EnvSpec) (string, error) {
 		"The socket runner containers are created on. This is Zoomies' own access to the runtime -- it is NOT pool.docker_mode=host-socket, which would hand the socket to your jobs.")
 	w.set("ZOOMIES_AGENT_CAPACITY", strconv.Itoa(s.Capacity),
 		"The most runners this host may hold at once. A pool's max_runners can be lower than this, never higher.")
+	w.set("ZOOMIES_AGENT_NETWORK", s.Network,
+		"The container network runner containers are attached to -- the one this deployment declares -- so they stay off the daemon's default bridge.")
 	w.set("ZOOMIES_WORK_DIR", s.WorkDir,
 		"Scratch space for runner work directories. It is inside the volume, so it survives the container being replaced.")
 
@@ -329,9 +336,9 @@ func dockerGIDValue(gid int) string {
 
 func dockerGIDComment(gid int) string {
 	if gid <= 0 {
-		return "The gid of the host's docker group. This host has no docker group, so the container is given no extra group; if the embedded agent cannot reach the socket, set this to the gid that owns it."
+		return "The gid that owns the container socket. It could not be read on this host, so the container is given no extra group; if the embedded agent cannot reach the socket, set this to the gid that owns it (ls -l on the socket says which)."
 	}
-	return "The gid of the host's docker group, read from this host. The image runs as uid 65532, which must be in this group to use the socket."
+	return "The gid that owns the container socket, read from the socket itself on this host -- which is not always the group called docker. The image runs as uid 65532, which must be in this group to use the socket."
 }
 
 // envWriter builds the file. It collects the first error rather than returning

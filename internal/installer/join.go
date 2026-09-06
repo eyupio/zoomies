@@ -45,6 +45,10 @@ type JoinOptions struct {
 	ClientCertFile     string
 	ClientKeyFile      string
 	InsecureSkipVerify bool
+	// AllowInsecureHTTP permits a plain http:// controller URL that is not on
+	// loopback. The transport refuses one otherwise, because the agent token
+	// and every runner's registration credentials would cross in the clear.
+	AllowInsecureHTTP bool
 
 	ConfigDir  string
 	StateDir   string
@@ -106,9 +110,9 @@ func Join(ctx context.Context, opts JoinOptions) error {
 		det = *opts.detection
 	} else {
 		det = Detect(ctx, Options{ConfigDir: opts.ConfigDir, StateDir: opts.StateDir, InstalledBinary: opts.BinaryPath, NonInteractive: opts.NonInteractive})
-		u.step("Looking around")
-		for _, line := range det.Lines() {
-			u.note(line)
+		u.step("Checking this host")
+		for _, f := range det.Fields() {
+			u.field(f.Key, f.Value)
 		}
 		u.blank()
 	}
@@ -186,6 +190,7 @@ func Join(ctx context.Context, opts JoinOptions) error {
 		ClientCertFile:     opts.ClientCertFile,
 		ClientKeyFile:      opts.ClientKeyFile,
 		InsecureSkipVerify: opts.InsecureSkipVerify,
+		AllowInsecureHTTP:  opts.AllowInsecureHTTP,
 		Logger:             log,
 	})
 	if err != nil {
@@ -312,8 +317,8 @@ func Join(ctx context.Context, opts JoinOptions) error {
 
 	u.blank()
 	u.step("Done")
-	u.note("host      " + name + " (" + a.HostID() + ")")
-	u.note("logs      " + mgr.LogCommand())
+	u.field("host", name+" ("+a.HostID()+")")
+	u.field("logs", mgr.LogCommand())
 	u.note("It should be on the Hosts page of " + opts.ControllerURL + " within a heartbeat.")
 	return nil
 }

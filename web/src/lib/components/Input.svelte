@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
   import type { LucideIcon } from '@lucide/svelte';
   import type { HTMLInputAttributes } from 'svelte/elements';
 
@@ -14,6 +15,18 @@
     invalid?: boolean;
     describedBy?: string;
     autocomplete?: HTMLInputAttributes['autocomplete'];
+    /**
+     * A numeric field that must still hand back what was pasted.
+     * `type="number"` makes the browser report an empty string for anything it
+     * cannot parse, so an operator pasting a URL that contains the number sees
+     * the field stay blank with no explanation. text + inputmode keeps the
+     * phone keypad without the silent discard.
+     */
+    inputmode?: HTMLInputAttributes['inputmode'];
+    /** Read by password managers when they generate one. */
+    minlength?: number;
+    autocapitalize?: HTMLInputAttributes['autocapitalize'];
+    spellcheck?: boolean;
     ariaLabel?: string;
     /** IDs, labels and durations are monospaced. */
     mono?: boolean;
@@ -27,6 +40,12 @@
     onchange?: (event: Event) => void;
     onblur?: (event: FocusEvent) => void;
     onkeydown?: (event: KeyboardEvent) => void;
+    /**
+     * A control rendered inside the field's right-hand edge -- a password
+     * reveal, a unit, a clear button. The input reserves room for it so the
+     * value never runs underneath.
+     */
+    trailing?: Snippet;
     class?: string;
   }
 
@@ -42,6 +61,10 @@
     invalid = false,
     describedBy,
     autocomplete,
+    inputmode,
+    minlength,
+    autocapitalize,
+    spellcheck,
     ariaLabel,
     mono = false,
     size = 'md',
@@ -54,6 +77,7 @@
     onchange,
     onblur,
     onkeydown,
+    trailing,
     class: className = '',
   }: Props = $props();
 
@@ -72,7 +96,11 @@
   }
 </script>
 
-<div class="wrap {size} {className}" class:has-icon={Boolean(Icon)}>
+<div
+  class="wrap {size} {className}"
+  class:has-icon={Boolean(Icon)}
+  class:has-trailing={Boolean(trailing)}
+>
   {#if Icon}
     <span class="icon" aria-hidden="true"><Icon size={14} /></span>
   {/if}
@@ -87,6 +115,10 @@
     {readonly}
     {required}
     {autocomplete}
+    {inputmode}
+    {minlength}
+    {autocapitalize}
+    {spellcheck}
     {min}
     {max}
     {step}
@@ -99,6 +131,9 @@
     {onblur}
     {onkeydown}
   />
+  {#if trailing}
+    <span class="trailing">{@render trailing()}</span>
+  {/if}
 </div>
 
 <style>
@@ -120,7 +155,7 @@
     font-size: var(--z-text-base);
     color: var(--z-text);
     background: var(--z-surface);
-    border: 1px solid var(--z-border-strong);
+    border: var(--z-border-width) solid var(--z-border-strong);
     border-radius: var(--z-radius-sm);
     transition:
       border-color var(--z-motion-fast) var(--z-ease),
@@ -140,6 +175,18 @@
   }
   .has-icon.sm input {
     padding-left: var(--z-space-6);
+  }
+  .trailing {
+    position: absolute;
+    right: var(--z-space-1);
+    display: inline-flex;
+    align-items: center;
+  }
+  .has-trailing.md input {
+    padding-right: var(--z-space-8);
+  }
+  .has-trailing.sm input {
+    padding-right: var(--z-space-6);
   }
   input.mono {
     font-family: var(--z-font-mono);
@@ -161,5 +208,24 @@
   }
   input[type='search']::-webkit-search-cancel-button {
     appearance: none;
+  }
+
+  /*
+    16px on a phone, and only on a phone.
+
+    The base control size is 14px, which is right for a dense operator UI on a
+    desktop -- but mobile Safari zooms the whole viewport whenever a focused
+    control's font-size is under 16px, and the viewport meta deliberately does
+    not set maximum-scale. So every field tap on the first-run screens jumped
+    the 360px page to roughly 410px effective width and ran the card off both
+    edges, once per field. Height comes from the space scale, so nothing
+    reflows; only the glyphs grow.
+  */
+  @media (max-width: 768px) {
+    .sm input,
+    .md input,
+    input.mono {
+      font-size: var(--z-control-font-touch);
+    }
   }
 </style>

@@ -22,40 +22,6 @@ func HostName(spec Spec, machine string) string {
 	return spec.WithSuffix(shortMachine(machine)).String()
 }
 
-// RunnerName builds the name one runner registers with GitHub.
-//
-// The name has to be unique within a target and stable in meaning across
-// controller restarts, so it is the pool's name plus a short random token.
-// Deriving it from the pool name rather than from the pool's shape is what
-// makes a runner in GitHub's own list traceable back to the pool that created
-// it, including for a pool an operator named something of their own.
-func RunnerName(poolName string, token string) string {
-	base := Base(poolName)
-	suffix := Slug(token)
-	if suffix == "" {
-		return truncate(base)
-	}
-	// Truncate the base, not the token: a name that lost its uniqueness suffix
-	// would collide, and GitHub rejects the second runner to use it.
-	if room := MaxNameLength - len(suffix) - 1; len(base) > room {
-		base = strings.TrimRight(base[:max(room, 0)], "-")
-	}
-	return strings.Trim(base+"-"+suffix, "-")
-}
-
-// Base brands an arbitrary pool name for use as the stem of a runner name,
-// without ever doubling the prefix a canonical pool name already carries.
-func Base(poolName string) string {
-	s := Slug(poolName)
-	switch {
-	case s == "":
-		return Prefix
-	case s == Prefix || strings.HasPrefix(s, Prefix+"-"):
-		return s
-	}
-	return Prefix + "-" + s
-}
-
 // Labels are the labels a pool of this shape advertises.
 //
 // The canonical name comes first: it is the one a workflow author writes, and

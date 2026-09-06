@@ -67,7 +67,7 @@
   dt {
     flex: none;
     display: flex;
-    gap: 2px;
+    gap: var(--z-nudge-2);
     min-width: 74px;
   }
   dd {
@@ -76,9 +76,9 @@
     color: var(--z-text-muted);
   }
   kbd {
-    padding: 1px var(--z-space-1);
-    border: 1px solid var(--z-border);
-    border-bottom-width: 2px;
+    padding: var(--z-nudge-1) var(--z-space-1);
+    border: var(--z-border-width) solid var(--z-border);
+    border-bottom-width: var(--z-border-width-thick);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     font-family: var(--z-font-mono);

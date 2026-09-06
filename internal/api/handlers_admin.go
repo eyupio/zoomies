@@ -79,9 +79,9 @@ type createUserRequest struct {
 // handleCreateUser adds an account.
 //
 // The password may be omitted for an account that will sign in through the
-// identity provider; the auth service refuses one that has neither a password
-// nor an OIDC subject, which is what stops an account being created that nobody
-// can ever use.
+// identity provider: the first single sign-on with that username links it.
+// That is only allowed while SSO is on, which is what stops an account being
+// created that nobody can ever use.
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	var req createUserRequest
 	if !decode(w, r, &req) {
@@ -117,16 +117,20 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		Email:       req.Email,
 		DisplayName: req.DisplayName,
 		Role:        role,
+		SSOOnly:     req.Password == "",
 		// Somebody else chose this password, so its owner picks their own at
 		// first sign-in.
 		MustChangePassword: req.Password != "",
 	})
 	if err != nil {
-		if errors.Is(err, store.ErrConflict) || strings.Contains(err.Error(), "already exists") {
+		switch {
+		case errors.Is(err, store.ErrConflict):
 			conflict(w, err.Error())
-			return
+		case errors.Is(err, auth.ErrInvalidInput):
+			unprocessable(w, err.Error(), nil)
+		default:
+			s.fail(w, r, "creating the account", err)
 		}
-		unprocessable(w, err.Error(), nil)
 		return
 	}
 
@@ -344,7 +348,11 @@ func (s *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 		Scopes: req.Scopes, ExpiresAt: expiresAt,
 	})
 	if err != nil {
-		unprocessable(w, err.Error(), nil)
+		if errors.Is(err, auth.ErrInvalidInput) {
+			unprocessable(w, err.Error(), nil)
+			return
+		}
+		s.fail(w, r, "creating the token", err)
 		return
 	}
 	// The audit row records that a credential was minted, never the credential.
@@ -414,9 +422,11 @@ var runtimeWritable = map[string]string{
 	"scheduler.max_creates_per_tick": "how many runners may be created in one pass",
 	"retention.jobs":                 "how long job history is kept",
 	"retention.runners":              "how long finished runners are kept",
-	"retention.audit":                "how long the audit log is kept",
+	"retention.audit":                "how long scaling history is kept; audit rows themselves are never deleted",
 	"retention.samples":              "how long the Overview's samples are kept",
 	"retention.webhooks":             "how long webhook deliveries are kept",
+	"images.refresh_interval":        "how often every pool's image is prewarmed again, so a moving tag reaches the hosts",
+	"updates.check_interval":         "how often github.com is asked which release of Zoomies is current; 0 never asks",
 }
 
 // restartRequiredKeys lists the settings that exist and cannot be changed here.
@@ -434,10 +444,12 @@ var restartRequiredKeys = sync.OnceValue(func() []string {
 		"github.runner_image", "github.runner_version",
 		"agent.embedded", "agent.name", "agent.capacity", "agent.backend", "agent.docker_host",
 		"agent.work_dir", "agent.labels", "agent.network", "agent.heartbeat_interval",
+		"agent.finished_retention",
 		"log.format",
 		"oidc.enabled", "oidc.issuer", "oidc.client_id", "oidc.client_secret",
 		"oidc.redirect_url", "oidc.scopes", "oidc.username_claim", "oidc.groups_claim",
 		"oidc.admin_groups", "oidc.operator_groups", "oidc.allow_signup",
+		"oidc.link_by_username",
 		"metrics.enabled", "metrics.path", "metrics.public",
 	}
 	slices.Sort(keys)
@@ -452,7 +464,7 @@ var restartRequiredKeys = sync.OnceValue(func() []string {
 // blanked so much as absent, except where their presence is itself the useful
 // fact -- whether an encryption key is configured, for instance.
 func (s *Server) settingsConfig() map[string]any {
-	c := s.cfg
+	c := s.cfg()
 	return map[string]any{
 		"server": map[string]any{
 			"bind":            c.Server.Bind,
@@ -500,6 +512,7 @@ func (s *Server) settingsConfig() map[string]any {
 			"labels":             c.Agent.Labels,
 			"network":            c.Agent.Network,
 			"heartbeat_interval": c.Agent.HeartbeatInterval.String(),
+			"finished_retention": c.Agent.FinishedRetention.String(),
 		},
 		"scheduler": map[string]any{
 			"interval":             c.Scheduler.Interval.String(),
@@ -510,16 +523,17 @@ func (s *Server) settingsConfig() map[string]any {
 		},
 		"log": map[string]any{"level": c.Log.Level, "format": c.Log.Format},
 		"oidc": map[string]any{
-			"enabled":         c.OIDC.Enabled,
-			"issuer":          c.OIDC.Issuer,
-			"client_id":       c.OIDC.ClientID,
-			"redirect_url":    s.oidcRedirectURL(),
-			"scopes":          emptySlice(c.OIDC.Scopes),
-			"username_claim":  c.OIDC.UsernameClaim,
-			"groups_claim":    c.OIDC.GroupsClaim,
-			"admin_groups":    emptySlice(c.OIDC.AdminGroups),
-			"operator_groups": emptySlice(c.OIDC.OperatorGroups),
-			"allow_signup":    c.OIDC.AllowSignup,
+			"enabled":          c.OIDC.Enabled,
+			"issuer":           c.OIDC.Issuer,
+			"client_id":        c.OIDC.ClientID,
+			"redirect_url":     s.oidcRedirectURL(),
+			"scopes":           emptySlice(c.OIDC.Scopes),
+			"username_claim":   c.OIDC.UsernameClaim,
+			"groups_claim":     c.OIDC.GroupsClaim,
+			"admin_groups":     emptySlice(c.OIDC.AdminGroups),
+			"operator_groups":  emptySlice(c.OIDC.OperatorGroups),
+			"allow_signup":     c.OIDC.AllowSignup,
+			"link_by_username": c.OIDC.LinkByUsername,
 		},
 		"metrics": map[string]any{
 			"enabled": c.Metrics.Enabled,
@@ -533,6 +547,12 @@ func (s *Server) settingsConfig() map[string]any {
 			"samples":  c.Retention.Samples.String(),
 			"webhooks": c.Retention.Webhooks.String(),
 		},
+		"images": map[string]any{
+			"refresh_interval": c.Images.RefreshInterval.String(),
+		},
+		"updates": map[string]any{
+			"check_interval": c.Updates.CheckInterval.String(),
+		},
 	}
 }
 
@@ -540,15 +560,15 @@ func (s *Server) oidcRedirectURL() string {
 	if s.oidc.Enabled() {
 		return s.oidc.RedirectURL()
 	}
-	return s.cfg.OIDC.RedirectURL
+	return s.cfg().OIDC.RedirectURL
 }
 
 // handleGetSettings answers GET /api/v1/settings.
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, settingsResponse{
 		Config:              s.settingsConfig(),
-		Findings:            s.cfg.Validate(),
-		ConfigPath:          s.cfg.Path(),
+		Findings:            s.cfg().Validate().ForUI(),
+		ConfigPath:          s.cfg().Path(),
 		RestartRequiredKeys: restartRequiredKeys(),
 		Version:             version.Short(),
 		DatabasePath:        s.ctrl.Store().Path(),
@@ -563,13 +583,13 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 // value at the next restart. config_path in the response names the file to
 // edit, and the refusal for everything else says so in as many words.
 //
-// The writes go into the configuration the controller's loops are reading, so
-// they are serialised here against each other. Each one is a single machine
-// word -- a duration, an int, a short string header -- which a concurrent
-// reader observes either before or after, never half-written, on the 64-bit
-// platforms Zoomies is built for. The alternative would be a lock inside
-// config.Config that every reader in the program has to remember to take, for a
-// setting an operator changes once a month.
+// "Takes effect" is meant literally. The controller keeps its configuration as
+// a snapshot it replaces whole (config.Live), so the loops reading it see
+// either the old settings or the new and never a half-written mix, and when
+// the snapshot changes it retunes what was built from the old one: the
+// scheduler's and poller's timers and the log level's gate. A setting accepted
+// here is in force by the time the response is written, which is the promise
+// the settings page makes.
 func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	var raw map[string]any
 	if !decode(w, r, &raw) {
@@ -578,13 +598,12 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	flat := map[string]any{}
 	flatten("", raw, flat)
 
-	s.settingsMu.Lock()
-	defer s.settingsMu.Unlock()
-
+	// Every key is checked before any is written. A request is one change:
+	// applying the keys that parsed and then answering 422 for the one that
+	// did not would leave the controller running settings the operator was
+	// told were refused, with no audit row to say so.
 	var fields []fieldError
-	applied := map[string]any{}
-	before := map[string]any{}
-
+	staged := map[string]func(*config.Config) any{}
 	for key, value := range flat {
 		if _, ok := runtimeWritable[key]; !ok {
 			if slices.Contains(restartRequiredKeys(), key) {
@@ -595,7 +614,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			fields = append(fields, fieldError{key, fmt.Sprintf("%q is not a setting this API knows about", key)})
 			continue
 		}
-		prev, err := s.applySetting(key, value)
+		apply, err := s.stageSetting(key, value)
 		if err != nil {
 			// The description says what the setting is for, which is what makes
 			// "5 munutes is not a duration" into a sentence an operator can act
@@ -603,38 +622,43 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			fields = append(fields, fieldError{key, fmt.Sprintf("%s (%s): %s", key, runtimeWritable[key], err)})
 			continue
 		}
-		before[key], applied[key] = prev, value
+		staged[key] = apply
 	}
 
 	if len(fields) > 0 {
 		unprocessable(w, "these settings could not be changed", fields)
 		return
 	}
-	if len(applied) > 0 {
+
+	applied := map[string]any{}
+	before := map[string]any{}
+	if len(staged) > 0 {
+		// One update for the whole request, so two keys sent together land
+		// in the same snapshot and a reader never sees one without the other.
+		s.ctrl.UpdateConfig(func(c *config.Config) {
+			for key, apply := range staged {
+				before[key], applied[key] = apply(c), flat[key]
+			}
+		})
 		s.auth.Auditor().Updated(r.Context(), Identity(r.Context()), "settings", "settings", before, applied)
-		// The scheduler tunables change what the next pass decides.
-		s.ctrl.Nudge()
 	}
 	s.handleGetSettings(w, r)
 }
 
 func (s *Server) configFileName() string {
-	if p := s.cfg.Path(); p != "" {
+	if p := s.cfg().Path(); p != "" {
 		return p
 	}
 	return "zoomies.yaml"
 }
 
-// applySetting writes one setting into the live configuration, returning what
-// it was.
-//
-// The loops that read these values do so on every pass, so a change is in
-// effect immediately -- with two exceptions worth knowing about: the scheduler
-// and poller tickers were built with their interval at startup, so a new
-// interval takes effect at the next restart, and the log level applies to
-// loggers built after it changes. Both are still accepted here because the
-// stored value is what the settings page shows and what a restart will use.
-func (s *Server) applySetting(key string, value any) (any, error) {
+// stageSetting checks one setting and returns the function that writes it into
+// a configuration snapshot, returning what the value was. Checking and writing
+// are separate so that a request can be refused as a whole before any part of
+// it has taken effect, and the write takes the snapshot as an argument because
+// the controller hands out a fresh copy to write into (config.Live) rather
+// than letting anything write the one its loops are reading.
+func (s *Server) stageSetting(key string, value any) (func(*config.Config) any, error) {
 	switch key {
 	case "log.level":
 		v, err := stringValue(value)
@@ -645,20 +669,22 @@ func (s *Server) applySetting(key string, value any) (any, error) {
 		if !slices.Contains([]string{"debug", "info", "warn", "error"}, v) {
 			return nil, fmt.Errorf("%q is not a log level; use debug, info, warn or error", v)
 		}
-		prev := s.cfg.Log.Level
-		s.cfg.Log.Level = v
-		return prev, nil
+		return func(c *config.Config) any {
+			prev := c.Log.Level
+			c.Log.Level = v
+			return prev
+		}, nil
 
 	case "github.poll_interval":
-		return applyDuration(value, &s.cfg.GitHub.PollInterval, time.Second)
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.GitHub.PollInterval }, time.Second)
 	case "scheduler.interval":
-		return applyDuration(value, &s.cfg.Scheduler.Interval, time.Second)
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Scheduler.Interval }, time.Second)
 	case "scheduler.scale_up_delay":
-		return applyDuration(value, &s.cfg.Scheduler.ScaleUpDelay, 0)
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Scheduler.ScaleUpDelay }, 0)
 	case "scheduler.max_runner_lifetime":
-		return applyDuration(value, &s.cfg.Scheduler.MaxRunnerLifetime, 0)
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Scheduler.MaxRunnerLifetime }, 0)
 	case "scheduler.provision_timeout":
-		return applyDuration(value, &s.cfg.Scheduler.ProvisionTimeout, 0)
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Scheduler.ProvisionTimeout }, 0)
 	case "scheduler.max_creates_per_tick":
 		n, err := intValue(value)
 		if err != nil {
@@ -667,28 +693,36 @@ func (s *Server) applySetting(key string, value any) (any, error) {
 		if n < 0 {
 			return nil, errors.New("this cannot be negative; use 0 for no cap")
 		}
-		prev := s.cfg.Scheduler.MaxCreatesPerTick
-		s.cfg.Scheduler.MaxCreatesPerTick = n
-		return prev, nil
+		return func(c *config.Config) any {
+			prev := c.Scheduler.MaxCreatesPerTick
+			c.Scheduler.MaxCreatesPerTick = n
+			return prev
+		}, nil
 
 	case "retention.jobs":
-		return applyDuration(value, &s.cfg.Retention.Jobs, 0)
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Retention.Jobs }, 0)
 	case "retention.runners":
-		return applyDuration(value, &s.cfg.Retention.Runners, 0)
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Retention.Runners }, 0)
 	case "retention.audit":
-		return applyDuration(value, &s.cfg.Retention.Audit, 0)
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Retention.Audit }, 0)
 	case "retention.samples":
-		return applyDuration(value, &s.cfg.Retention.Samples, 0)
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Retention.Samples }, 0)
 	case "retention.webhooks":
-		return applyDuration(value, &s.cfg.Retention.Webhooks, 0)
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Retention.Webhooks }, 0)
+
+	case "images.refresh_interval":
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Images.RefreshInterval }, 0)
+	case "updates.check_interval":
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Updates.CheckInterval }, 0)
 	}
 	return nil, fmt.Errorf("%q is not a setting this API knows about", key)
 }
 
-// applyDuration parses a Go duration and writes it, refusing anything below
-// minimum -- a poll interval of one millisecond is a denial of service against
-// GitHub, not a configuration choice.
-func applyDuration(value any, into *time.Duration, minimum time.Duration) (any, error) {
+// stageDuration parses a Go duration, refusing anything below minimum -- a
+// poll interval of one millisecond is a denial of service against GitHub, not
+// a configuration choice -- and returns the write. field picks the duration
+// out of whichever snapshot the write is given.
+func stageDuration(value any, field func(*config.Config) *time.Duration, minimum time.Duration) (func(*config.Config) any, error) {
 	raw, err := stringValue(value)
 	if err != nil {
 		return nil, err
@@ -703,9 +737,12 @@ func applyDuration(value any, into *time.Duration, minimum time.Duration) (any, 
 	if minimum > 0 && d > 0 && d < minimum {
 		return nil, fmt.Errorf("%s is too short; the smallest useful value is %s", d, minimum)
 	}
-	prev := into.String()
-	*into = d
-	return prev, nil
+	return func(c *config.Config) any {
+		into := field(c)
+		prev := into.String()
+		*into = d
+		return prev
+	}, nil
 }
 
 func stringValue(v any) (string, error) {

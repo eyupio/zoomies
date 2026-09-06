@@ -158,7 +158,7 @@
     min-width: 240px;
     max-width: 340px;
     padding: var(--z-space-3);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface-raised);
     box-shadow: var(--z-shadow-md);
@@ -181,7 +181,7 @@
   .foot {
     display: flex;
     justify-content: flex-end;
-    border-top: 1px solid var(--z-border);
+    border-top: var(--z-border-width) solid var(--z-border);
     padding-top: var(--z-space-2);
   }
 </style>
