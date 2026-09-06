@@ -1,3 +1,10 @@
+---
+description: >-
+  How a pool decides what runners to make and a host decides whether it can
+  make them: labels, selectors, capacity, and why a pool sometimes has nowhere
+  to run.
+---
+
 # Hosts and pools
 
 The [quick start](quickstart.md) leaves you with one host and one pool, which is
@@ -206,7 +213,7 @@ Read the counts, because they name the fix:
 
 The distinction the reasons keep is between a fleet that is merely **full**,
 which clears itself, and one that is **misconfigured**, which never will.
-[The quick start's troubleshooting section](quickstart.md#a-job-that-sits-in-the-queue)
+[Troubleshooting](troubleshooting.md#a-job-that-sits-in-the-queue)
 walks the same tree from a queued job's point of view.
 
 ### When runners keep failing to start

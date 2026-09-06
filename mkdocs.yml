@@ -148,6 +148,9 @@ nav:
       - Hosts and pools: hosts-and-pools.md
       - Migrating repositories: migration.md
       - Security: security.md
+      - Troubleshooting: troubleshooting.md
+      - Upgrading: upgrading.md
+      - Backup and restore: backup-and-restore.md
       - API: api-surface.md
       - Capacity-demand receiver: capacity-demand-receiver.md
   - FAQ: faq.md
