@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -248,6 +249,11 @@ func (c *Controller) seedHosts(ctx context.Context, now time.Time) ([]*store.Hos
 // with room to spare.
 const demoHeartbeatInterval = 30 * time.Second
 
+// demoStartingAge is how far into starting up the demo's two unfinished runners
+// are held: long enough that the grid shows a plausible age rather than zero,
+// and far short of the point at which a fleet would call them stuck.
+const demoStartingAge = 20 * time.Second
+
 // demoHeartbeatLoop keeps the demo fleet's hosts alive.
 //
 // A seeded host has no agent behind it, so its heartbeat is a timestamp written
@@ -268,7 +274,55 @@ func (c *Controller) demoHeartbeatLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			c.beatDemoHosts(ctx)
+			c.freshenDemoRunners(ctx)
 		}
+	}
+}
+
+// freshenDemoRunners keeps the seeded runners that are still starting up from
+// ageing into runners that are stuck.
+//
+// The fixture holds one runner in `provisioning` and one in `registering` so
+// that both states appear in the grid and in the screenshots. On a real fleet
+// those states last seconds, and `runners.not_progressing` says so once one has
+// lasted half the provision timeout -- so a demo instance left open would start
+// reporting a fault in a fleet that has no agent to have one. It is the same
+// lie as a heartbeat written once: correct at the instant it was seeded and
+// wrong a few minutes later.
+//
+// Only the seed's own rows are touched, and only while they are still starting.
+func (c *Controller) freshenDemoRunners(ctx context.Context) {
+	runners, _, err := c.st.ListRunners(ctx, store.RunnerFilter{
+		States: []store.RunnerState{store.RunnerProvisioning, store.RunnerRegistering},
+	}, store.Page{Limit: 100})
+	if err != nil {
+		c.log.Warn("demo refresh could not list runners that are starting up", "error", err)
+		return
+	}
+	now := c.Now()
+	for _, r := range runners {
+		if !IsDemoID(r.ID) {
+			continue
+		}
+		// A registering runner's clock runs from its container; a provisioning
+		// one has no container yet, so its age is all it has.
+		fresh := now.Add(-demoStartingAge)
+		var err error
+		if r.ContainerStartedAt != nil {
+			err = c.st.SetRunnerStartup(ctx, r.ID, r.ImagePullDuration, &fresh)
+			r.ContainerStartedAt = &fresh
+		} else {
+			err = c.st.SetRunnerCreatedAt(ctx, r.ID, fresh)
+			r.CreatedAt = fresh
+		}
+		if err != nil {
+			c.log.Warn("demo refresh failed", "runner", r.ID, "error", err)
+			continue
+		}
+		// A page already open holds the row it was sent, so without this the
+		// age on screen keeps climbing and then jumps back on a reload. The
+		// host beat publishes for the same reason.
+		c.publishRunner(ctx, events.KindRunnerUpdated, r)
 	}
 }
 

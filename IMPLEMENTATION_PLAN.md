@@ -62,20 +62,36 @@ one list.
   read off its Runners page now that the message stays there.
 - [ ] **N02** [bug] Every runner on the dev instance sits in `registering` and never
   comes up — `internal/controller/agents.go` — seen on `zoomies-linux-64` on 6 September
-  (screenshot). The instance was still on a build from before Wave 2 at the time -- its
-  Jobs page showed copy that PR #63 replaced -- so the first step is to deploy `main` and
-  look again; if it persists, this is the trail. The controller moves a runner out
-  of `registering` on one signal only: an agent report with no asserted state and a
-  running phase (`applyReports`), which the agent sends once it first observes the
-  workload running (`agent/reconcile.go`). Runners that never get there are ones whose
-  reports still carry a state, or that the observe loop never reaches -- adopted after
-  the restart the deploy caused, or created through the idempotent create path (E07).
-  `provision_timeout` (5 min) should fail them and the pool then backs off; if they sit
-  longer, the reconcile loop is not reaching them either. To read off the instance: the
-  runner's timeline (`GET /runners/{id}/timeline`) for how long it has been registering,
-  the controller log for "a runner state an agent reported out of order" or "a host
-  reported on a runner it does not own", and `docker ps` on the host for whether the
-  containers are running at all.
+  (screenshot), on a build from before Wave 2: its Jobs page showed copy that PR #63
+  replaced. **Not reproducible in `main`, and the handoff was traced end to end after
+  Wave 4d without finding a defect.** What was checked, so nobody checks it twice:
+
+  * The one signal is sound. `agent.observe` reports a live workload with no asserted
+    state and the backend's phase; `controller.applyReports` upgrades `registering` to
+    `idle` on exactly that. Both halves have tests
+    (`TestReconcileSamplesStatsForRunningWorkloads`, and `mustReportRunning` through the
+    job lifecycle specs).
+  * The container labels line up: `Spec.Labels` stamps the runner ID, `docker.Create`
+    adds the role label, and `List` filters on both -- so a running container is seen,
+    tracked and observed rather than mistaken for an orphan.
+  * The backstop works. `scheduler.reap` runs before the enabled check, so
+    `provision_timeout` fails a stuck runner even in a disabled pool, and the message
+    names the state and the age.
+  * A restart cannot leave rows behind: an embedded agent re-joins under the same host
+    name, and `join` deletes the previous host row, cascading its runners away.
+
+  Three fixes that landed since the screenshot each remove one candidate cause: A03
+  (reclaiming a host that stopped heartbeating), E07 (the idempotent create path that
+  used to rebuild a runner mid-job), and N01 (the start-failure backoff, which keeps a
+  failed runner and its reason on the page for ten minutes).
+
+  The remaining step is unchanged: deploy `main` and look again. What has changed is
+  what an operator sees if it recurs. `runners.not_progressing` now says it, at half
+  the provision timeout, and splits the two shapes so the next look starts from an
+  answer rather than three sources: a runner still waiting for a container is the agent
+  or the image, and one whose container started without registering is the runner
+  process failing to reach GitHub. Whichever it is on that instance is the diagnosis
+  this entry was missing.
 - [x] **N03** [bug] The Jobs page called every queued job no pool claims a job that
   will never run, in red, and the problems drawer said nothing would run them; the
   installation's webhooks cover jobs on GitHub's own runners, on a hosted-runner vendor

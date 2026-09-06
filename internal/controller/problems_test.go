@@ -491,3 +491,138 @@ func TestTheFailedRunnerCountIsNotAPage(t *testing.T) {
 	}
 	t.Fatalf("problems = %v, want runners.failed", ps)
 }
+
+// findProblem returns the problem with a code, or fails saying what was there.
+func findProblem(t *testing.T, h *harness, code string) Problem {
+	t.Helper()
+	ps, err := h.c.Problems(h.ctx)
+	if err != nil {
+		t.Fatalf("Problems: %v", err)
+	}
+	for _, p := range ps {
+		if p.Code == code {
+			return p
+		}
+	}
+	t.Fatalf("problems = %v, want %s", codesOf(ps), code)
+	return Problem{}
+}
+
+// A runner that is still starting up normally must not raise anything. This is
+// the expensive half of the behaviour to get wrong: a warning that appears
+// every time a pool creates a runner is a warning nobody reads by the end of
+// the week.
+func TestARunnerThatIsStillComingUpIsNotAProblem(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	h.runnerRow(pool, host, store.RunnerRegistering)
+
+	if got := h.problemCodes(); contains(got, "runners.not_progressing") {
+		t.Fatalf("problems = %v, want nothing about a runner that was created a moment ago", got)
+	}
+}
+
+// The distinction this problem exists to make: a container that started and a
+// runner that has not registered is the runner process failing to reach GitHub,
+// and the fix says to read that runner's own logs.
+func TestARunnerWhoseContainerStartedButNeverRegisteredNamesItsOwnLogs(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+
+	started := time.Now()
+	r := h.runnerRow(pool, host, store.RunnerRegistering)
+	if err := h.st.SetRunnerStartup(h.ctx, r.ID, nil, &started); err != nil {
+		t.Fatalf("SetRunnerStartup: %v", err)
+	}
+	// Past half the provision timeout, but not yet past the timeout itself:
+	// the whole point is to say something while there is still time to look.
+	h.c.clock = func() time.Time { return started.Add(3 * time.Minute) }
+
+	p := findProblem(t, h, "runners.not_progressing")
+	if !strings.Contains(p.Fix, "has not registered") || !strings.Contains(p.Fix, "github.com") {
+		t.Fatalf("fix = %q, want the runner-side causes", p.Fix)
+	}
+	if !strings.Contains(p.Detail, r.Name) {
+		t.Fatalf("detail = %q, want the runner named", p.Detail)
+	}
+	if p.TargetID != r.ID || p.TargetKind != "runner" {
+		t.Fatalf("target = %s/%s, want the runner itself", p.TargetKind, p.TargetID)
+	}
+}
+
+// The other shape, and the reason one code is not enough on its own: nothing
+// has reported a workload at all, which is a problem on the host rather than
+// inside the runner.
+func TestARunnerWithNoContainerYetPointsAtTheHost(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerProvisioning)
+
+	h.c.clock = func() time.Time { return r.CreatedAt.Add(3 * time.Minute) }
+
+	p := findProblem(t, h, "runners.not_progressing")
+	if !strings.Contains(p.Fix, "agent log") || !strings.Contains(p.Fix, "image") {
+		t.Fatalf("fix = %q, want the host-side causes", p.Fix)
+	}
+	if !strings.Contains(p.Detail, host.Name) {
+		t.Fatalf("detail = %q, want the host named when they are all on one", p.Detail)
+	}
+}
+
+// The threshold is half the provision timeout rather than a number of its own,
+// so an operator who allows longer for a slow image pull is not then told their
+// runners are stuck while they are still within the time they allowed.
+func TestTheStuckThresholdFollowsTheProvisionTimeout(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerRegistering)
+	h.c.clock = func() time.Time { return r.CreatedAt.Add(3 * time.Minute) }
+
+	if got := h.problemCodes(); !contains(got, "runners.not_progressing") {
+		t.Fatalf("problems = %v, want the default 5m timeout to have raised it by 3m", got)
+	}
+
+	h.cfg.Scheduler.ProvisionTimeout = 20 * time.Minute
+	if got := h.problemCodes(); contains(got, "runners.not_progressing") {
+		t.Fatalf("problems = %v, want silence three minutes into a twenty-minute allowance", got)
+	}
+
+	// Off means off: a fleet that has switched the timeout off has said that
+	// runners may take as long as they take.
+	h.cfg.Scheduler.ProvisionTimeout = 0
+	h.c.clock = func() time.Time { return r.CreatedAt.Add(24 * time.Hour) }
+	if got := h.problemCodes(); contains(got, "runners.not_progressing") {
+		t.Fatalf("problems = %v, want nothing when provision_timeout is off", got)
+	}
+}
+
+// The detail names one runner and the fix tells you what to do about it, so on
+// a mixed fleet the two must describe the same runner. They used to be chosen
+// separately -- the example was the oldest, the fix was whichever shape there
+// were more of -- so an even split named a runner with no container and then
+// told the operator to go and read that container's logs.
+func TestTheFixDescribesTheRunnerTheDetailNames(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+
+	// Oldest first and still waiting for a container, then a younger one whose
+	// container started: one of each, so no bucket is the larger.
+	waiting := h.runnerRow(pool, host, store.RunnerProvisioning)
+	started := h.runnerRow(pool, host, store.RunnerRegistering)
+	at := time.Now()
+	if err := h.st.SetRunnerStartup(h.ctx, started.ID, nil, &at); err != nil {
+		t.Fatalf("SetRunnerStartup: %v", err)
+	}
+	h.c.clock = func() time.Time { return waiting.CreatedAt.Add(3 * time.Minute) }
+
+	p := findProblem(t, h, "runners.not_progressing")
+	if !strings.Contains(p.Detail, waiting.Name) {
+		t.Fatalf("detail = %q, want the oldest runner %s", p.Detail, waiting.Name)
+	}
+	if !strings.Contains(p.Fix, "agent log") {
+		t.Fatalf("fix = %q, want the host-side fix that matches a runner with no container", p.Fix)
+	}
+	if !strings.Contains(p.Detail, "1 runner waiting for a container") {
+		t.Fatalf("detail = %q, want both counts named", p.Detail)
+	}
+}
