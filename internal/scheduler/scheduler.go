@@ -507,6 +507,16 @@ func (t *tick) reap(p *store.Pool, runners []*store.Runner) (actions []Action, r
 			retires = append(retires, t.action(ActionDrain, p, r, fmt.Sprintf(
 				"runner reached the %s maximum lifetime",
 				formatDuration(t.policy.MaxRunnerLifetime))))
+		case staleImage(p, r) && r.State != store.RunnerBusy && r.State != store.RunnerDraining:
+			// The pool's page says one image and this runner was made from
+			// another. A warm runner kept from before the change would take
+			// the next job onto the old image -- for a pool that just gained
+			// a Docker daemon, onto an image with no client for it -- while
+			// every page says the pool is fixed. It is replaced instead; the
+			// scale-up rules below make a new one from the right image in the
+			// same tick when the pool still wants it.
+			retires = append(retires, t.action(ActionDrain, p, r, fmt.Sprintf(
+				"pool image is now %s; this runner was made from %s", p.Image, r.Image)))
 		default:
 			remaining = append(remaining, r)
 		}
@@ -517,6 +527,14 @@ func (t *tick) reap(p *store.Pool, runners []*store.Runner) (actions []Action, r
 	actions = append(actions, fails...)
 	actions = append(actions, retires...)
 	return actions, remaining
+}
+
+// staleImage reports whether a runner was made from an image other than the
+// one its pool now names. A pool with no image of its own runs the instance
+// default, which the runner row records and the pool row does not, so those
+// are never compared.
+func staleImage(p *store.Pool, r *store.Runner) bool {
+	return p.Image != "" && r.Image != "" && r.Image != p.Image
 }
 
 // disable drains a disabled pool to zero. Its busy runners are left alone, so

@@ -1425,3 +1425,69 @@ func TestHostCanRunIsTheOnePlacementRule(t *testing.T) {
 		}
 	}
 }
+
+// A runner made from an image the pool no longer names is replaced, and only
+// when it is not doing anything: the change that matters most is a pool that
+// gained a Docker daemon and with it a different image, whose warm runners
+// would otherwise take the next Docker job onto an image with no client.
+func TestARunnerOnAnImageThePoolNoLongerNamesIsReplaced(t *testing.T) {
+	p := testPool("linux-x64", "linux")
+	p.Image = "ghcr.io/eyupio/zoomies-runner-docker:latest"
+	stale := func(id string, state store.RunnerState) *store.Runner {
+		r := testRunner(id, p, state, time.Minute)
+		if state == store.RunnerIdle {
+			since := ago(time.Minute)
+			r.LastIdleAt = &since
+		}
+		r.Image = "ghcr.io/eyupio/zoomies-runner:latest"
+		return r
+	}
+	current := idleRunner("r1", p, time.Minute)
+	current.Image = p.Image
+	unrecorded := idleRunner("r1", p, time.Minute)
+
+	const reason = "pool image is now ghcr.io/eyupio/zoomies-runner-docker:latest; this runner was made from ghcr.io/eyupio/zoomies-runner:latest"
+	tests := []struct {
+		name       string
+		runner     *store.Runner
+		wantReason string
+	}{
+		{"an idle runner on the old image is drained", stale("r1", store.RunnerIdle), reason},
+		{"one still registering is drained before it can take a job", stale("r1", store.RunnerRegistering), reason},
+		{"a busy one keeps its job", stale("r1", store.RunnerBusy), ""},
+		{"one already draining is left to drain", stale("r1", store.RunnerDraining), ""},
+		{"a runner on the pool's image is left alone", current, ""},
+		{"a runner row that never recorded an image is left alone", unrecorded, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := snap([]*store.Pool{p}, []*store.Runner{tc.runner}, nil, []*store.Host{testHost("host_a", 8, 1)})
+			pp := only(t, Decide(s))
+			var drains []Action
+			for _, a := range pp.Actions {
+				if a.Kind == ActionDrain {
+					drains = append(drains, a)
+				}
+			}
+			if tc.wantReason == "" {
+				if len(drains) != 0 {
+					t.Fatalf("expected no drain, got %+v", drains)
+				}
+				return
+			}
+			if len(drains) != 1 || drains[0].RunnerID != "r1" || drains[0].Reason != tc.wantReason {
+				t.Fatalf("drains = %+v, want one of r1 with reason %q", drains, tc.wantReason)
+			}
+		})
+	}
+
+	// A pool with no image of its own runs the instance default, which its
+	// runner rows record and it does not; that difference is not staleness.
+	p.Image = ""
+	s := snap([]*store.Pool{p}, []*store.Runner{stale("r1", store.RunnerIdle)}, nil, []*store.Host{testHost("host_a", 8, 1)})
+	for _, a := range only(t, Decide(s)).Actions {
+		if a.Kind == ActionDrain {
+			t.Fatalf("a pool on the default image drained %+v", a)
+		}
+	}
+}
