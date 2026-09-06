@@ -2313,7 +2313,6 @@ components:
         host_id: { type: string }
         host_name: { type: string }
         state: { $ref: "#/components/schemas/RunnerState" }
-        stage: { type: string, description: More precise startup stage when observed., enum: [image_pulling, container_started, registered] }
         github_runner_id: { type: integer, format: int64 }
         container_id: { type: string }
         ephemeral: { type: boolean }
@@ -2346,6 +2345,12 @@ components:
       type: object
       properties:
         state: { $ref: "#/components/schemas/RunnerState" }
+        stage:
+          type: string
+          description: >-
+            A finer point within the state, when one was observed: the image was pulled,
+            the container started, the runner registered with GitHub.
+          enum: [image_pulling, container_started, registered]
         at: { type: string, format: date-time }
         duration_ms: { type: integer, format: int64, description: How long the runner stayed in this state. }
         message: { type: string }

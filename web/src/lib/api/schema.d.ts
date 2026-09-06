@@ -1736,11 +1736,6 @@ export interface components {
             host_id?: string;
             host_name?: string;
             state?: components["schemas"]["RunnerState"];
-            /**
-             * @description More precise startup stage when observed.
-             * @enum {string}
-             */
-            stage?: "image_pulling" | "container_started" | "registered";
             /** Format: int64 */
             github_runner_id?: number;
             container_id?: string;
@@ -1776,6 +1771,11 @@ export interface components {
         };
         TimelineEntry: {
             state?: components["schemas"]["RunnerState"];
+            /**
+             * @description A finer point within the state, when one was observed: the image was pulled, the container started, the runner registered with GitHub.
+             * @enum {string}
+             */
+            stage?: "image_pulling" | "container_started" | "registered";
             /** Format: date-time */
             at?: string;
             /**
