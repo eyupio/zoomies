@@ -21,13 +21,14 @@ const (
 
 // backgroundLoop runs the periodic work: the fleet sampler behind the
 // Overview's sparklines, retention pruning, credential expiry, the image
-// refresh that keeps a moving tag current on the hosts, and the sweep that
-// re-offers tasks whose agent never answered.
+// refresh that keeps a moving tag current on the hosts, the release check
+// behind the update notice, and the sweep that re-offers tasks whose agent
+// never answered.
 func (c *Controller) backgroundLoop(ctx context.Context) {
 	ticker := time.NewTicker(housekeepingTick)
 	defer ticker.Stop()
 
-	var lastSample, lastPrune, lastImageRefresh time.Time
+	var lastSample, lastPrune, lastImageRefresh, lastUpdateCheck time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -59,6 +60,10 @@ func (c *Controller) backgroundLoop(ctx context.Context) {
 		if d := c.cfg().Images.RefreshInterval; d > 0 && now.Sub(lastImageRefresh) >= d {
 			lastImageRefresh = now
 			c.refreshPoolImages(ctx)
+		}
+		if d := c.cfg().Updates.CheckInterval; d > 0 && now.Sub(lastUpdateCheck) >= d {
+			lastUpdateCheck = now
+			c.checkForRelease(ctx)
 		}
 	}
 }

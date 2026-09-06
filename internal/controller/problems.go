@@ -11,6 +11,7 @@ import (
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/version"
 )
 
 // Problem is one thing an operator should know about, in the shape the API's
@@ -101,6 +102,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	}
 	out = append(out, c.PoolCapacityProblems()...)
 	out = append(out, c.loopProblems()...)
+	out = append(out, c.updateProblems()...)
 	if err := c.runnerProblems(ctx, &out); err != nil {
 		return nil, err
 	}
@@ -711,4 +713,47 @@ func stuckBefore(a, b *store.Runner) bool {
 		return a.ContainerStartedAt == nil
 	}
 	return a.ID < b.ID
+}
+
+// updateProblems reports that a newer release of Zoomies exists.
+//
+// It says nothing at all in the two cases where it would otherwise mislead: a
+// controller built from main, which is ahead of the newest release rather than
+// behind it, and a check that has not yet answered.
+//
+// The wording claims no ordering. GitHub's "latest release" excludes drafts and
+// prereleases, so it is the release an operator should be on, but comparing
+// "0.2-beta" with "0.10-beta" properly means a version parser this does not
+// have. Naming both and letting the operator read them is honest; guessing
+// which is newer is not.
+func (c *Controller) updateProblems() []Problem {
+	if c.cfg().Updates.CheckInterval <= 0 {
+		return nil
+	}
+	latest := c.latestRelease()
+	if latest == nil {
+		return nil
+	}
+	running, ok := releaseVersion(version.Version)
+	if !ok {
+		return nil
+	}
+	newest, ok := releaseVersion(latest.Tag)
+	if !ok || newest == running {
+		return nil
+	}
+	fix := "upgrade with the same method you installed by; the release notes are at " + latest.URL
+	if latest.URL == "" {
+		fix = "upgrade with the same method you installed by."
+	}
+	at := latest.At
+	return []Problem{{
+		Code:     "controller.update_available",
+		Severity: config.SeverityInfo,
+		Title:    fmt.Sprintf("the current release of Zoomies is %s; this controller is running %s", latest.Tag, running),
+		Detail: "nothing is wrong: runners, pools and jobs are unaffected by the controller's own version. " +
+			"This is here so an upgrade is a decision rather than a surprise.",
+		Fix:   fix,
+		Since: &at,
+	}}
 }
