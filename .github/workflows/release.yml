@@ -25,7 +25,14 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - run: make dist VERSION=${GITHUB_REF_NAME#v}
+      # The tag is v1.2.3 and the version a binary reports is 1.2.3. Both jobs
+      # work it out the same way, because a release whose native install says
+      # 1.2.3 and whose image says v1.2.3 is one release with two names --
+      # in `zoomies version`, in /meta, in the User-Agent GitHub sees and in
+      # the zoomies_build_info metric.
+      - id: release
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - run: make dist VERSION=${{ steps.release.outputs.version }}
       # install.sh verifies the checksum of what it downloads, so this file is
       # part of the security story, not just a convenience.
       - uses: softprops/action-gh-release@v2
@@ -51,6 +58,10 @@ jobs:
           # GitHub reserves the GITHUB_ prefix for secret names, so referring to
           # it this way keeps the workflow clear of that namespace entirely.
           password: ${{ github.token }}
+      - id: release
+        run: |
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
       - uses: useblacksmith/build-push-action@v2
         with:
           context: .
@@ -59,8 +70,9 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            VERSION=${{ github.ref_name }}
+            VERSION=${{ steps.release.outputs.version }}
             COMMIT=${{ github.sha }}
+            DATE=${{ steps.release.outputs.date }}
           tags: |
             ghcr.io/eyupio/zoomies:${{ github.ref_name }}
             ghcr.io/eyupio/zoomies:latest

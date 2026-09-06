@@ -7,7 +7,9 @@ SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 .DEFAULT_GOAL := help
 
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+# Without the leading v: the tag is v1.2.3, the version the binary reports is
+# 1.2.3, and the release workflow stamps the images the same way.
+VERSION ?= $(patsubst v%,%,$(shell git describe --tags --always --dirty 2>/dev/null || echo dev))
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
@@ -128,7 +130,7 @@ dev: build-nogui ## Run a controller with auth off, for local UI development
 .PHONY: image
 image: ## Build the controller/agent image
 	docker build -f deploy/Dockerfile --target controller \
-		--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) \
+		--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --build-arg DATE=$(DATE) \
 		-t ghcr.io/eyupio/zoomies:$(VERSION) -t ghcr.io/eyupio/zoomies:latest .
 
 .PHONY: image-runner

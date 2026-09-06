@@ -21,15 +21,21 @@ COPY . .
 # The UI build output is embedded by internal/api; it must be present before the
 # Go build so that //go:embed finds it.
 COPY --from=ui /src/internal/api/webdist ./internal/api/webdist
+# VERSION is the release without its leading v, the same string `make dist`
+# stamps into the binaries: one release must not report two versions depending
+# on how it was installed. DATE is passed because -trimpath and a build context
+# with no .git leave Go nothing to infer one from.
 ARG VERSION=dev
 ARG COMMIT=""
+ARG DATE=""
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath \
       -ldflags "-s -w \
         -X github.com/eyupio/zoomies/internal/version.Version=${VERSION} \
-        -X github.com/eyupio/zoomies/internal/version.Commit=${COMMIT}" \
+        -X github.com/eyupio/zoomies/internal/version.Commit=${COMMIT} \
+        -X github.com/eyupio/zoomies/internal/version.Date=${DATE}" \
       -o /out/zoomies ./cmd/zoomies
 
 # An empty state directory to copy into the runtime stages. distroless has no
