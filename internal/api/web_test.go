@@ -220,6 +220,16 @@ func TestHealthAndReadiness(t *testing.T) {
 			t.Errorf("%s did not report ok: %s", path, truncate(resp.body))
 		}
 	}
+
+	// Readiness says which migrations the database carries, because that is
+	// the only schema version there is and a bug report needs to quote it.
+	ready := h.do(request{method: http.MethodGet, path: "/readyz"}).json(t)
+	schema, _ := ready["schema"].(map[string]any)
+	latest, _ := schema["latest"].(string)
+	applied, _ := schema["applied"].(float64)
+	if !strings.HasSuffix(latest, ".sql") || applied < 1 {
+		t.Fatalf("readiness did not name the schema: %v", ready)
+	}
 }
 
 // TestOpenAPIIsServed checks that a client can fetch the contract for the build

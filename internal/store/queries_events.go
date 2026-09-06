@@ -456,14 +456,23 @@ func (s *Store) JobDistinct(ctx context.Context, column string, limit int) ([]st
 
 // JobStats summarises a time window for the Overview cards.
 type JobStats struct {
-	Queued        int           `json:"queued"`
-	Running       int           `json:"running"`
-	CompletedLast int           `json:"completed"`
-	Failed        int           `json:"failed"`
-	MedianWait    time.Duration `json:"-"`
-	P95Wait       time.Duration `json:"-"`
-	MedianWaitMS  int64         `json:"median_wait_ms"`
-	P95WaitMS     int64         `json:"p95_wait_ms"`
+	Queued        int `json:"queued"`
+	Running       int `json:"running"`
+	CompletedLast int `json:"completed"`
+	// The four ways a completed job ended, which add up to CompletedLast.
+	// Succeeded is a success GitHub reported with no fault of the fleet's;
+	// Failed is FailedConclusions or a runner fault; Cancelled is a person or
+	// a rule stopping it; Unknown is everything else, including a job GitHub
+	// stopped reporting and one with no conclusion at all, because a rate
+	// that counted those as successes would be a rate nobody should trust.
+	Succeeded    int           `json:"succeeded"`
+	Failed       int           `json:"failed"`
+	Cancelled    int           `json:"cancelled"`
+	Unknown      int           `json:"unknown"`
+	MedianWait   time.Duration `json:"-"`
+	P95Wait      time.Duration `json:"-"`
+	MedianWaitMS int64         `json:"median_wait_ms"`
+	P95WaitMS    int64         `json:"p95_wait_ms"`
 }
 
 // StatsSince computes queue and outcome statistics over a rolling window.
@@ -485,11 +494,17 @@ func (s *Store) StatsSince(ctx context.Context, since time.Time) (JobStats, erro
 		(SELECT COUNT(*) FROM jobs WHERE state='queued'),
 		(SELECT COUNT(*) FROM jobs WHERE state='in_progress'),
 		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND completed_at >= ?),
-		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND `+failedJobSQL()+` AND completed_at >= ?)`,
-		ms(since), ms(since)).Scan(&st.Queued, &st.Running, &st.CompletedLast, &st.Failed)
+		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND `+failedJobSQL()+` AND completed_at >= ?),
+		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND conclusion = 'success' AND runner_fault = '' AND completed_at >= ?),
+		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND conclusion IN ('cancelled','skipped') AND runner_fault = '' AND completed_at >= ?)`,
+		ms(since), ms(since), ms(since), ms(since)).Scan(&st.Queued, &st.Running, &st.CompletedLast, &st.Failed, &st.Succeeded, &st.Cancelled)
 	if err != nil {
 		return st, err
 	}
+	// The residual is neither a success, a failure nor a cancellation: stale,
+	// empty, neutral, action_required. It is counted rather than dropped so
+	// the four always add up to the completed total.
+	st.Unknown = st.CompletedLast - st.Failed - st.Succeeded - st.Cancelled
 	waits, err := s.queueWaits(ctx, since)
 	if err != nil {
 		return st, err

@@ -2032,8 +2032,11 @@ components:
         window: { type: string, description: The window these counts cover, echoed back., examples: ["1h"] }
         queued_jobs: { type: integer }
         running_jobs: { type: integer }
-        completed: { type: integer, description: Within the requested window. }
-        failed: { type: integer }
+        completed: { type: integer, description: Within the requested window. The sum of the four below. }
+        succeeded: { type: integer, description: GitHub reported success and the fleet had no fault in it. }
+        failed: { type: integer, description: A failing conclusion, or a runner that stopped under the job. }
+        cancelled: { type: integer, description: Cancelled or skipped, with no fault of the fleet's. }
+        unknown: { type: integer, description: None of the above, including a job GitHub stopped reporting. Never counted as a success. }
         median_wait_ms: { type: integer, format: int64 }
         p95_wait_ms: { type: integer, format: int64 }
         p50_startup_ms: { type: integer, format: int64, description: Median runner creation-to-container-start latency. }
@@ -2613,8 +2616,10 @@ components:
       type: string
       description: >-
         What happened. `runner_lost` is the one entry GitHub cannot produce: the runner
-        stopped under the job, and GitHub will report an ordinary failure.
-      enum: [queued, claimed, unmatched, started, completed, runner_lost]
+        stopped under the job, and GitHub will report an ordinary failure. `waiting` and
+        `approved` bracket a deployment review: the time between them is GitHub's, and
+        the queue wait starts at `approved`.
+      enum: [queued, waiting, approved, claimed, unmatched, started, completed, runner_lost]
 
     JobEvent:
       type: object

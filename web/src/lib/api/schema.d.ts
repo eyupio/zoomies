@@ -1410,9 +1410,16 @@ export interface components {
             window?: string;
             queued_jobs?: number;
             running_jobs?: number;
-            /** @description Within the requested window. */
+            /** @description Within the requested window. The sum of the four below. */
             completed?: number;
+            /** @description GitHub reported success and the fleet had no fault in it. */
+            succeeded?: number;
+            /** @description A failing conclusion */
             failed?: number;
+            /** @description Cancelled or skipped */
+            cancelled?: number;
+            /** @description None of the above */
+            unknown?: number;
             /** Format: int64 */
             median_wait_ms?: number;
             /** Format: int64 */
@@ -2011,10 +2018,10 @@ export interface components {
             completed_at?: string | null;
         };
         /**
-         * @description What happened. `runner_lost` is the one entry GitHub cannot produce: the runner stopped under the job, and GitHub will report an ordinary failure.
+         * @description What happened. `runner_lost` is the one entry GitHub cannot produce: the runner stopped under the job, and GitHub will report an ordinary failure. `waiting` and `approved` bracket a deployment review: the time between them is GitHub's, and the queue wait starts at `approved`.
          * @enum {string}
          */
-        JobEventKind: "queued" | "claimed" | "unmatched" | "started" | "completed" | "runner_lost";
+        JobEventKind: "queued" | "waiting" | "approved" | "claimed" | "unmatched" | "started" | "completed" | "runner_lost";
         JobEvent: {
             id?: string;
             job_id?: string;

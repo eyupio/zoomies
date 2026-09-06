@@ -314,6 +314,15 @@ export function stepStatus(step: { status?: string; conclusion?: string }): Stat
 
 const JOB_EVENTS: Record<JobEventKind, StatusMeta> = {
   queued: JOB_QUEUED,
+  waiting: JOB_WAITING,
+  approved: meta(
+    'approved',
+    'Approved',
+    'pending',
+    'dashed',
+    Clock,
+    'The deployment review passed. The queue wait starts here.',
+  ),
   claimed: meta('claimed', 'Claimed', 'idle', 'hollow', Circle),
   unmatched: UNMATCHED,
   started: JOB_RUNNING,

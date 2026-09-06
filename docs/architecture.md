@@ -294,8 +294,13 @@ for the threat model and each individual toggle.
 
 * Not a Kubernetes operator. [ARC](https://github.com/actions/actions-runner-controller)
   already exists and is the right answer if you have a cluster.
-* Not a cloud provisioner. There is no EC2 or GCE backend in v1. The
-  `backend.Backend` interface is narrow enough -- create, inspect, log, remove --
-  that one could be added without the agent learning anything new.
+* Not a cloud provisioner. Zoomies never creates or deletes a machine. The
+  `backend.Backend` interface — create, inspect, log, remove — is the shape of
+  a runner on a host the agent already has, so a backend that put each job in
+  its own VM could be added behind it without the agent learning anything new;
+  renting the host itself is a different contract, on the controller's side,
+  and the nearest thing to it today is the
+  [capacity-demand receiver](capacity-demand-receiver.md), which asks an
+  external autoscaler for hosts and leaves the deleting to it.
 * Not multi-tenant across unrelated organisations. One Zoomies is one team's
   fleet.

@@ -114,6 +114,27 @@
   const shown = $derived(jobs.slice(0, SHOWN));
   const failedThisHour = $derived(fleet.stats?.failed ?? 0);
 
+  /**
+   * How the window's completed jobs ended, four ways. A rate from completed
+   * and failed alone would count a job GitHub stopped reporting as a success;
+   * the split is what the readiness record is computed from, so it is shown
+   * with the same words.
+   */
+  const outcomesThisHour = $derived.by(() => {
+    const s = fleet.stats;
+    if (!s || !(s.completed ?? 0)) return '';
+    const parts = [
+      [s.succeeded ?? 0, 'succeeded'],
+      [s.failed ?? 0, 'failed'],
+      [s.cancelled ?? 0, 'cancelled'],
+      [s.unknown ?? 0, 'unknown'],
+    ] as const;
+    return parts
+      .filter(([n]) => n > 0)
+      .map(([n, word]) => `${formatNumber(n)} ${word}`)
+      .join(', ');
+  });
+
   /** The one phrase there is room for: the step, or the fleet's fault. */
   function why(job: Job): string {
     if (job.runner_fault) return 'the runner stopped under it';
@@ -125,9 +146,10 @@
 
 <Panel
   title="Recent outcomes"
-  description={others
+  description={(others
     ? 'How the last jobs ended, wherever they ran, newest first.'
-    : "How this fleet's last jobs ended, newest first."}
+    : "How this fleet's last jobs ended, newest first.") +
+    (outcomesThisHour ? ` This hour: ${outcomesThisHour}.` : '')}
   class={className}
   flush
 >

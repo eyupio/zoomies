@@ -708,6 +708,13 @@ type JobEventKind string
 const (
 	// JobEventQueued: GitHub announced the job and it is waiting for a runner.
 	JobEventQueued JobEventKind = "queued"
+	// JobEventWaiting: GitHub is holding the job for a deployment review, so
+	// nothing here can start it yet. The time it spends here is GitHub's, and
+	// the timeline says so rather than folding it into the queue wait.
+	JobEventWaiting JobEventKind = "waiting"
+	// JobEventApproved: the review passed and the job joined the queue. This
+	// is the moment the queue wait starts for a job that was held.
+	JobEventApproved JobEventKind = "approved"
 	// JobEventClaimed: an enabled pool answers the job's labels.
 	JobEventClaimed JobEventKind = "claimed"
 	// JobEventUnmatched: no enabled pool does, so nothing here will start it.
