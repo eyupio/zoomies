@@ -91,7 +91,7 @@ before it say which stage owns a regression.
 
 | Metric | The stage |
 | --- | --- |
-| `zoomies_runner_queued_to_create_seconds` | Job queued → runner row created. Scheduler latency, and nothing else. |
+| `zoomies_runner_queued_to_create_seconds` | Job queued → runner row created. A proxy for scheduler latency: it starts at GitHub's own queued time, so it includes webhook delivery and any configured scale-up delay, and the runner is attributed to the oldest queued job in the pool rather than the job it will run. |
 | `zoomies_runner_create_to_container_started_seconds` | Runner created → container started. Where image pulls show up. |
 | `zoomies_runner_container_started_to_registered_seconds` | Container started → registered with GitHub. |
 | `zoomies_runner_registered_to_ready_seconds` | Registered → idle or busy. |
