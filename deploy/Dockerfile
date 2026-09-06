@@ -4,7 +4,7 @@
 # is pure Go) so the runtime image can be distroless.
 
 # ---- UI ---------------------------------------------------------------------
-FROM node:22-alpine AS ui
+FROM node:26-alpine AS ui
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json* ./
 # No `|| npm install` fallback: that turns a lockfile CI would reject into an
@@ -14,7 +14,7 @@ COPY web/ ./
 RUN npm run build
 
 # ---- Go ---------------------------------------------------------------------
-FROM golang:1.26-alpine AS build
+FROM golang:1.27-alpine AS build
 WORKDIR /src
 RUN apk add --no-cache git ca-certificates
 COPY go.mod go.sum ./

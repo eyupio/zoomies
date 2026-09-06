@@ -458,3 +458,61 @@ func TestReconcileRetriesAFinishedWorkloadItCouldNotRemove(t *testing.T) {
 		t.Fatalf("still tracking a runner whose workload was removed: %+v", got)
 	}
 }
+
+// A backend that cannot be listed says nothing about the runners on it. The
+// missing-workload pass used to treat "not listed" like "not seen", so a
+// transient daemon error a minute into a runner's life declared it gone, the
+// controller marked its job lost, and once the daemon answered again the live
+// container was reaped as an orphan.
+func TestAListingFailureDoesNotDeclareTrackedRunnersGone(t *testing.T) {
+	a, _, be, clock := newAgent(t, 2)
+	a.polled.Store(true)
+	track(a, "runner-1", "wl-1", true)
+	be.setWorkloads(running("wl-1", "runner-1"))
+	clock.advance(missingGrace + time.Second)
+
+	be.mu.Lock()
+	be.listErr = backend.ErrUnavailable
+	be.mu.Unlock()
+	reports, err := a.ReconcileOnce(context.Background())
+	if err == nil {
+		t.Fatal("a backend that cannot be listed was reported as a clean reconcile")
+	}
+	for _, r := range reports {
+		if r.State == store.RunnerRemoved || r.State == store.RunnerFailed {
+			t.Fatalf("declared a runner gone while its backend could not be listed: %+v", r)
+		}
+	}
+	if got := a.Runners(); len(got) != 1 {
+		t.Fatalf("tracked runners = %+v, want the one the listing failure said nothing about", got)
+	}
+
+	// The daemon answers again and the container is still there: the runner
+	// is observed as before, and nothing has to be undone.
+	be.mu.Lock()
+	be.listErr = nil
+	be.mu.Unlock()
+	reports, err = a.ReconcileOnce(context.Background())
+	if err != nil {
+		t.Fatalf("ReconcileOnce: %v", err)
+	}
+	for _, r := range reports {
+		if r.State == store.RunnerRemoved || r.State == store.RunnerFailed {
+			t.Fatalf("a runner that survived a listing failure was reported gone: %+v", r)
+		}
+	}
+	if got := a.Runners(); len(got) != 1 {
+		t.Fatalf("tracked runners = %+v, want one", got)
+	}
+
+	// A workload that really has disappeared is still declared gone once the
+	// backend can be listed: the change narrows the rule, it does not blunt it.
+	be.setWorkloads()
+	reports, err = a.ReconcileOnce(context.Background())
+	if err != nil {
+		t.Fatalf("ReconcileOnce: %v", err)
+	}
+	if len(reports) != 1 || reports[0].State != store.RunnerRemoved {
+		t.Fatalf("reports = %+v, want one removed", reports)
+	}
+}

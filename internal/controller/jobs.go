@@ -50,7 +50,14 @@ func (c *Controller) recordJobChange(ctx context.Context, j *store.Job, change s
 		}
 	}
 
-	if change.Created {
+	if change.Created && j.State == store.JobWaiting {
+		// Held by GitHub for a deployment review. The time it spends here is
+		// GitHub's, not the queue's, so the first line says so rather than
+		// calling the job queued; the claim line waits for the approval,
+		// which is when it becomes true.
+		add(store.JobEventWaiting, fmt.Sprintf("GitHub announced %s in %s, asking for [%s], and is holding it for a deployment review; nothing here can start it until it is approved",
+			jobTitle(j), j.Repo, strings.Join(j.Labels, ", ")))
+	} else if change.Created {
 		add(store.JobEventQueued, fmt.Sprintf("GitHub queued %s in %s, asking for [%s]",
 			jobTitle(j), j.Repo, strings.Join(j.Labels, ", ")))
 		// Whether a pool answers the labels matters while the job is waiting.
@@ -59,6 +66,11 @@ func (c *Controller) recordJobChange(ctx context.Context, j *store.Job, change s
 		if j.State == store.JobQueued {
 			add(c.claimKind(j), c.claimMessage(ctx, j))
 		}
+	} else if change.StateChanged && change.PreviousState == store.JobWaiting && j.State == store.JobQueued {
+		// The approval arrives as an ordinary queued delivery. This is when
+		// the queue wait starts, and when whether a pool claims it matters.
+		add(store.JobEventApproved, "GitHub approved it, and it is queued for a runner from now")
+		add(c.claimKind(j), c.claimMessage(ctx, j))
 	} else if change.Claimed && j.State == store.JobQueued {
 		add(store.JobEventClaimed, c.claimMessage(ctx, j))
 	}

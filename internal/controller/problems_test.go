@@ -609,7 +609,11 @@ func TestTheFixDescribesTheRunnerTheDetailNames(t *testing.T) {
 	// container started: one of each, so no bucket is the larger.
 	waiting := h.runnerRow(pool, host, store.RunnerProvisioning)
 	started := h.runnerRow(pool, host, store.RunnerRegistering)
-	at := time.Now()
+	// The younger one's clock starts a second after the older one's, not at
+	// the wall clock: the two rows are written within a millisecond of each
+	// other, and a container stamped with the same millisecond as the other
+	// runner's creation is not younger by anyone's clock.
+	at := waiting.CreatedAt.Add(time.Second)
 	if err := h.st.SetRunnerStartup(h.ctx, started.ID, nil, &at); err != nil {
 		t.Fatalf("SetRunnerStartup: %v", err)
 	}
@@ -624,5 +628,33 @@ func TestTheFixDescribesTheRunnerTheDetailNames(t *testing.T) {
 	}
 	if !strings.Contains(p.Detail, "1 runner waiting for a container") {
 		t.Fatalf("detail = %q, want both counts named", p.Detail)
+	}
+}
+
+// Runners created in one scheduler pass share a millisecond, and the problem
+// used to pick whichever the store returned first, so the same fleet could be
+// described two ways on two passes. A tie names the runner with no container,
+// whichever order the rows come back in.
+func TestAStuckTieNamesTheRunnerWithNoContainer(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+
+	started := h.runnerRow(pool, host, store.RunnerRegistering)
+	waiting := h.runnerRow(pool, host, store.RunnerProvisioning)
+	// The container came up at the exact moment the other runner was created.
+	at := waiting.CreatedAt
+	if err := h.st.SetRunnerStartup(h.ctx, started.ID, nil, &at); err != nil {
+		t.Fatalf("SetRunnerStartup: %v", err)
+	}
+	h.c.clock = func() time.Time { return waiting.CreatedAt.Add(3 * time.Minute) }
+
+	for i := 0; i < 5; i++ {
+		p := findProblem(t, h, "runners.not_progressing")
+		if !strings.Contains(p.Detail, waiting.Name) {
+			t.Fatalf("pass %d: detail = %q, want the runner with no container, %s", i, p.Detail, waiting.Name)
+		}
+		if !strings.Contains(p.Fix, "agent log") {
+			t.Fatalf("pass %d: fix = %q, want the host-side fix", i, p.Fix)
+		}
 	}
 }

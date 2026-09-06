@@ -109,6 +109,12 @@ has a CI job that diffs them:
   budget.
 * `go mod tidy` must leave `go.mod`/`go.sum` unchanged, and `gofmt -l` must be
   empty.
+* `govulncheck ./...` must find nothing reachable. It runs in its own workflow,
+  on every change and weekly against `main`, so a module found vulnerable after
+  it merged still gets reported.
+* Every `uses:` in `.github/workflows` is pinned to a commit with its release
+  in a comment. Dependabot moves the two together; a new action gets the same
+  treatment.
 * `mkdocs build --strict` — a docs link that points nowhere fails the build. The
   site workflow also checks that `sitemap.xml` and `llms.txt` came out of it,
   both generated (by `overrides/sitemap.xml` and `hooks/seo.py`) rather than

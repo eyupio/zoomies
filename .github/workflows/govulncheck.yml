@@ -1,0 +1,39 @@
+name: govulncheck
+
+# A module that was clean when it was merged can be found vulnerable later,
+# and nothing in CI would run again to say so. This scans the Go modules on
+# every change and once a week against main, and it lives outside ci.yml so
+# the weekly run is this one job rather than the whole pipeline. govulncheck
+# reports a vulnerability only when the code can reach it, which is what makes
+# it quiet enough to block a pull request on.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "37 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.26"
+
+jobs:
+  govulncheck:
+    name: govulncheck
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # go:embed needs the directory to exist even when the UI is not built.
+      - run: make build-nogui
+
+      # The scanner is a dependency too, so it is pinned like the actions are.
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...

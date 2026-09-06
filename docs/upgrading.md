@@ -15,9 +15,15 @@ go back in.
 
 ## What happens to work in flight
 
-A controller restart does not touch a running job. The runner is a container on
-a host, the job is executing inside it, and neither is talking to the controller
-while that happens — GitHub is. What a restart interrupts is the *reporting*:
+A controller restart does not touch a running job on a host with its own agent.
+The runner is a container on that host, the job is executing inside it, and
+neither is talking to the controller while that happens — GitHub is. On a
+single-VM install the agent runs inside the controller, and a restart brings
+that agent back with no memory of the runners it left: reading the code says it
+treats them as workloads nobody claimed and removes them about two minutes
+after it starts. Until that is fixed (it is the first item of the roadmap's
+reconciliation package), drain the embedded host before restarting the
+controller on a single-VM install, or restart it while nothing is running. What a restart interrupts is the *reporting*:
 webhook deliveries during the gap are missed, and the fallback poller catches up
 when the controller returns, which is one of the reasons to leave it on.
 
@@ -40,10 +46,18 @@ The controller and its agents are separate binaries on separate machines, and
 they do not have to match.
 
 * **An older agent against a newer controller** is the normal state during a
-  rolling upgrade, and it works: an agent that does not understand a task kind
-  ignores it, and the controller's API is additive.
-* **A newer agent against an older controller** works for the same reason, and
-  is worth avoiding only because it is not the direction anyone tests.
+  rolling upgrade, and it works for the task kinds the agent knows. An agent
+  that is handed a task kind it does not understand reports that task as
+  failed, with a message saying to upgrade it, and the controller marks the
+  runner the task concerned as failed. Today every task kind is one every
+  agent knows, so this has not bitten anyone; a release that adds a runner
+  task kind will say so in its notes, and the controller will stop counting
+  an unknown kind as a lifecycle failure before that happens. The protocol
+  version is checked when an agent joins, and a mismatch is refused with a
+  message naming the version to upgrade to.
+* **A newer agent against an older controller** works because the controller's
+  API is additive, and is worth avoiding only because it is not the direction
+  anyone tests.
 * **Upgrade the controller first.** It is the piece that owns the schema and the
   API, and an agent has nothing to migrate.
 

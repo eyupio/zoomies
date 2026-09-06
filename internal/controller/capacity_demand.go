@@ -21,12 +21,22 @@ import (
 const (
 	capacityDemandEvent = "capacity_demand"
 	scaleDownEvent      = "scale_down_opportunity"
+
+	// capacityDemandSchemaVersion is what a receiver checks before it reads
+	// the rest. Adding a field never raises it; a change a receiver written
+	// for the current shape would misread does.
+	capacityDemandSchemaVersion = 1
 )
 
 // CapacityDemandEvent is the stable wire contract consumed by provisioners.
 // RequiredRunnerSlots is positive for demand and negative for removable idle
-// capacity, so receivers can also treat it as a signed capacity delta.
+// capacity. It is a reading, not an increment: the pool should have
+// CurrentCapacity+RequiredRunnerSlots slots, and a receiver that adds
+// RequiredRunnerSlots to whatever it already asked for adds the same shortfall
+// again on every re-delivery, because each attempt after the cooldown carries
+// a fresh EventID for what may be the same unmet demand.
 type CapacityDemandEvent struct {
+	SchemaVersion         int               `json:"schema_version"`
 	EventID               string            `json:"event_id"`
 	Type                  string            `json:"type"`
 	Timestamp             time.Time         `json:"timestamp"`
@@ -125,7 +135,7 @@ func (c *Controller) deliverCapacityEvent(ctx context.Context, p *store.Pool, ca
 		return
 	}
 
-	e := CapacityDemandEvent{EventID: store.NewSecret(12), Type: eventType, Timestamp: now, PoolID: p.ID, HostSelector: p.HostSelector, Backend: p.Backend, RequiredRunnerSlots: slots, CurrentCapacity: capacity, QueuedJobCount: queued, OldestQueueAgeSeconds: oldest}
+	e := CapacityDemandEvent{SchemaVersion: capacityDemandSchemaVersion, EventID: store.NewSecret(12), Type: eventType, Timestamp: now, PoolID: p.ID, HostSelector: p.HostSelector, Backend: p.Backend, RequiredRunnerSlots: slots, CurrentCapacity: capacity, QueuedJobCount: queued, OldestQueueAgeSeconds: oldest}
 	body, _ := json.Marshal(e)
 	d := &store.CapacityDemandDelivery{PoolID: p.ID, EventType: eventType, EventID: e.EventID, Payload: string(body), ObservedSince: now, AttemptedAt: &now}
 	// The attempt is recorded before the request is made, not after: it is

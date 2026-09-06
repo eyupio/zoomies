@@ -17,12 +17,18 @@ const defaultStatsWindow = 24 * time.Hour
 // Stats is the Overview payload: what the queue is doing, what the fleet is
 // doing, and how long jobs are waiting.
 type Stats struct {
-	// Window is the period Completed, Failed and the wait percentiles cover.
+	// Window is the period the completed counts and the wait percentiles
+	// cover. Completed is Succeeded + Failed + Cancelled + Unknown; a rate
+	// computed from Completed and Failed alone would count a job GitHub
+	// stopped reporting as a success, which is why the split is here.
 	Window            string `json:"window"`
 	QueuedJobs        int    `json:"queued_jobs"`
 	RunningJobs       int    `json:"running_jobs"`
 	Completed         int    `json:"completed"`
+	Succeeded         int    `json:"succeeded"`
 	Failed            int    `json:"failed"`
+	Cancelled         int    `json:"cancelled"`
+	Unknown           int    `json:"unknown"`
 	MedianWaitMS      int64  `json:"median_wait_ms"`
 	P95WaitMS         int64  `json:"p95_wait_ms"`
 	P50StartupMS      int64  `json:"p50_startup_ms"`
@@ -85,7 +91,10 @@ func (c *Controller) Stats(ctx context.Context, window time.Duration) (*Stats, e
 		QueuedJobs:   js.Queued,
 		RunningJobs:  js.Running,
 		Completed:    js.CompletedLast,
+		Succeeded:    js.Succeeded,
 		Failed:       js.Failed,
+		Cancelled:    js.Cancelled,
+		Unknown:      js.Unknown,
 		MedianWaitMS: js.MedianWaitMS,
 		P95WaitMS:    js.P95WaitMS,
 	}

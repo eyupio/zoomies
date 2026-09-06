@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -48,6 +49,19 @@ func TestCapacityDemandSignatureCooldownAndDuplicateTicks(t *testing.T) {
 	want := "sha256=" + hex.EncodeToString(mac.Sum(nil))
 	if !hmac.Equal([]byte(signatures[0]), []byte(want)) {
 		t.Fatalf("signature = %q, want %q", signatures[0], want)
+	}
+	// The receiver page tells its reader to check the schema version first and
+	// to read current_capacity + required_runner_slots as the capacity the pool
+	// should have, so those three fields are the contract this test holds.
+	var got CapacityDemandEvent
+	if err := json.Unmarshal(bodies[0], &got); err != nil {
+		t.Fatalf("payload %s: %v", bodies[0], err)
+	}
+	if got.SchemaVersion != 1 || got.EventID == "" || got.Type != capacityDemandEvent {
+		t.Fatalf("payload = %+v, want schema_version 1, an event id and type %q", got, capacityDemandEvent)
+	}
+	if got.CurrentCapacity+got.RequiredRunnerSlots != 6 {
+		t.Fatalf("current_capacity %d + required_runner_slots %d = %d, want the 6 slots the pool should have", got.CurrentCapacity, got.RequiredRunnerSlots, got.CurrentCapacity+got.RequiredRunnerSlots)
 	}
 }
 

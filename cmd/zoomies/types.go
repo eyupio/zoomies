@@ -274,7 +274,10 @@ type statsResponse struct {
 	QueuedJobs   int    `json:"queued_jobs"`
 	RunningJobs  int    `json:"running_jobs"`
 	Completed    int    `json:"completed"`
+	Succeeded    int    `json:"succeeded"`
 	Failed       int    `json:"failed"`
+	Cancelled    int    `json:"cancelled"`
+	Unknown      int    `json:"unknown"`
 	MedianWaitMS int64  `json:"median_wait_ms"`
 	P95WaitMS    int64  `json:"p95_wait_ms"`
 	Runners      struct {

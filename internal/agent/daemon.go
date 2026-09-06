@@ -37,13 +37,15 @@ const (
 	defaultReconcileInterval = 30 * time.Second
 	// reportTimeout bounds a result, report or heartbeat POST.
 	reportTimeout = 30 * time.Second
-	// createTimeout has to cover a cold image pull on a slow link, which is
-	// minutes, not seconds.
-	createTimeout = 15 * time.Minute
-	// stopMargin is added to a task's stop timeout so the backend gets to run
+	// CreateTimeout has to cover a cold image pull on a slow link, which is
+	// minutes, not seconds. It, StopMargin and RemoveTimeout are exported for
+	// one reader: the controller's test that every task lease outlasts the
+	// work the agent gives itself for that task.
+	CreateTimeout = 15 * time.Minute
+	// StopMargin is added to a task's stop timeout so the backend gets to run
 	// its own kill path before the context expires.
-	stopMargin    = 30 * time.Second
-	removeTimeout = 2 * time.Minute
+	StopMargin    = 30 * time.Second
+	RemoveTimeout = 2 * time.Minute
 	// resolveTimeout bounds the backend listings used to find a runner the
 	// agent has no record of.
 	resolveTimeout = 30 * time.Second
@@ -897,7 +899,7 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 
 	// Tasks are given a context that shutdown does not cancel: a create that is
 	// half done is worse than one that finishes and is reported.
-	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), createTimeout)
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), CreateTimeout)
 	defer cancel()
 
 	start := a.now()
@@ -968,7 +970,7 @@ func (a *Agent) handleStop(ctx context.Context, task Task, release func()) {
 	}
 	a.markStopping(task.RunnerID)
 
-	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout+stopMargin)
+	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout+StopMargin)
 	defer cancel()
 
 	if err := b.Stop(sctx, handle, timeout); err != nil && !errors.Is(err, backend.ErrNotFound) {
@@ -1009,7 +1011,7 @@ func (a *Agent) handleRemove(ctx context.Context, task Task, release func()) {
 		return
 	}
 
-	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), removeTimeout)
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), RemoveTimeout)
 	defer cancel()
 
 	if err := b.Remove(rctx, handle); err != nil && !errors.Is(err, backend.ErrNotFound) {

@@ -1,0 +1,63 @@
+# What keeps the pins current. Every action in the workflows is pinned to a
+# commit with its release in a comment, and Dependabot moves both together;
+# the Go modules, the UI's npm packages and the base images under deploy/ are
+# the other three things this repository builds from. One grouped pull request
+# per ecosystem per week is one review rather than a dozen, and a week is
+# short enough that a security fix is never far behind its advisory.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    groups:
+      go:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    ignore:
+      # openapi-typescript currently only supports TypeScript 5.x, so a major
+      # bump would leave every npm install path red until that peer range moves.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+    groups:
+      npm:
+        patterns: ["*"]
+    ignore:
+      # openapi-typescript declares a peer dependency on the TypeScript 5
+      # line, so a major TypeScript bump fails `npm ci` in the UI job and the
+      # image build until openapi-typescript moves. The 7.0.2 bump did exactly
+      # that; the minor and patch updates still arrive.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: docker
+    directory: /deploy
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    groups:
+      images:
+        patterns: ["*"]
