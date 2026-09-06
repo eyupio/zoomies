@@ -20,8 +20,10 @@ import (
 //
 // They are embedded rather than read from disk because the installer must work
 // from a single downloaded binary on a host that has never seen this
-// repository. deploy/zoomies.service is the same unit; this copy is the one
-// that ships.
+// repository, and they are the only copy: deploy/ used to carry a static pair
+// of units beside them, which drifted -- no SupplementaryGroups, no
+// conditional CAP_NET_BIND_SERVICE, no `systemctl edit` guidance -- and which
+// nothing installed, documented or tested.
 //
 //go:embed templates/*.tmpl
 var templateFS embed.FS
