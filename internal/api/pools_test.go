@@ -510,3 +510,34 @@ func TestPoolResponsesCarryTheRepositoryLimitAndTheCostRate(t *testing.T) {
 			again["repository_scale_up_limit"], again["cost_per_runner_hour"])
 	}
 }
+
+// Prewarming pulls an image onto every host that matches the pool: minutes of
+// somebody else's network and disk, started by one request. It was the only
+// mutating operator route that wrote no audit row, against the security page's
+// promise that every one of them does.
+func TestPrewarmingAPoolIsAudited(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	h.host("vm-1")
+	token := h.token("ops", store.RoleOperator)
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/pools/" + pool.ID + "/prewarm", token: token})
+	resp.mustStatus(t, http.StatusAccepted, "prewarm")
+
+	rows, _, err := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{"pool.prewarm"}}, store.Page{Limit: 10})
+	if err != nil {
+		t.Fatalf("ListAudit: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("audit rows = %d, want the prewarm recorded once", len(rows))
+	}
+	if rows[0].TargetID != pool.ID || rows[0].TargetKind != "pool" {
+		t.Fatalf("audit row = %+v, want it to name the pool", rows[0])
+	}
+	// The image is what was pulled, and the row is the only record of which
+	// one, since the pool's image can change afterwards.
+	if !strings.Contains(rows[0].After, pool.Image) {
+		t.Fatalf("audit detail = %q, want the image %q", rows[0].After, pool.Image)
+	}
+}

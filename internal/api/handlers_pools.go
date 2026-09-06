@@ -568,6 +568,12 @@ func (s *Server) handlePrewarmPool(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, "reading prewarm state", err)
 		return
 	}
+	// Every mutating operator route writes a row, and this one pulls an image
+	// onto every host that matches the pool: minutes of network on somebody
+	// else's machines, and the one action of the set that left no trace.
+	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "pool.prewarm", "pool", p.ID, map[string]any{
+		"image": p.Image, "hosts": n,
+	})
 	writeJSON(w, http.StatusAccepted, map[string]any{"queued": n, "hosts": states})
 }
 
