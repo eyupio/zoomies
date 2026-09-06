@@ -283,3 +283,36 @@ func TestTheRootWarningIsAboutTheProcessThatRunsRunners(t *testing.T) {
 		t.Fatal("agent.root did not fire for a standalone root agent")
 	}
 }
+
+// disable_auth on bind: localhost:8080 was refused as a public bind while the
+// same word in external_url counted as local, because BindsPublicly assumed
+// any name resolves off-host. localhost and the names under .localhost never
+// do; RFC 6761 reserves them for this machine.
+func TestALocalhostBindIsNotPublic(t *testing.T) {
+	for bind, public := range map[string]bool{
+		"localhost:8080":           false,
+		"LOCALHOST:8080":           false,
+		"dev.localhost:8080":       false,
+		"127.0.0.1:8080":           false,
+		"[::1]:8080":               false,
+		"0.0.0.0:8080":             true,
+		":8080":                    true,
+		"[::]:8080":                true,
+		"10.0.0.5:8080":            true,
+		"zoomies.example.com:8080": true,
+	} {
+		c := Default()
+		c.Server.Bind = bind
+		if got := c.BindsPublicly(); got != public {
+			t.Errorf("BindsPublicly(%q) = %v, want %v", bind, got, public)
+		}
+	}
+	c := Default()
+	c.Server.ExternalURL = "http://dev.localhost:8080"
+	if !c.ExternalURLIsLocal() {
+		t.Fatal("a .localhost external URL did not count as local")
+	}
+	if hasCode(c.Validate(), "external_url.insecure") {
+		t.Fatal("plaintext to this machine drew the insecure external URL warning")
+	}
+}

@@ -40,12 +40,6 @@ const HostLostAfter = 90 * time.Second
 // does not.
 const MaxQuietHeartbeatInterval = HostLostAfter / 2
 
-// isLoopbackHost reports whether a URL's hostname can only ever be this
-// machine, which is when a plaintext scheme costs nothing.
-func isLoopbackHost(host string) bool {
-	return host == "localhost" || host == "127.0.0.1" || host == "::1"
-}
-
 // euid is os.Geteuid, replaceable so a test can ask what a root process would
 // be told without being one.
 var euid = os.Geteuid
@@ -260,7 +254,7 @@ func (c *Config) Validate() Findings {
 			})
 			continue
 		}
-		if u, err := url.Parse(o); err == nil && u.Scheme == "http" && !isLoopbackHost(u.Hostname()) && c.servesTLS() {
+		if u, err := url.Parse(o); err == nil && u.Scheme == "http" && !loopbackHost(u.Hostname()) && c.servesTLS() {
 			add(Finding{
 				Code: "origins.insecure", Severity: SeverityWarning, Setting: "server.allowed_origins",
 				Title: fmt.Sprintf("%s is allowed to act on this controller over plaintext", o),
@@ -323,7 +317,9 @@ func (c *Config) Validate() Findings {
 			Fix:   "include the scheme, e.g. https://zoomies.example.com.",
 		})
 	} else if u, err := url.Parse(c.Server.ExternalURL); err == nil && u.Scheme == "http" {
-		if !isLoopbackHost(u.Hostname()) {
+		// Plaintext to this machine costs nothing; ExternalURLIsLocal is the
+		// same question the join command and the webhook probe ask.
+		if !c.ExternalURLIsLocal() {
 			add(Finding{
 				Code: "external_url.insecure", Severity: SeverityWarning, Setting: "server.external_url",
 				Title:  "external URL uses http://",
@@ -454,7 +450,7 @@ func (c *Config) Validate() Findings {
 				Fix:   "set oidc.redirect_url, or set server.external_url and it will be derived.",
 			})
 		}
-		if u, err := url.Parse(c.OIDC.Issuer); err == nil && u.Scheme == "http" && !isLoopbackHost(u.Hostname()) {
+		if u, err := url.Parse(c.OIDC.Issuer); err == nil && u.Scheme == "http" && !loopbackHost(u.Hostname()) {
 			add(Finding{
 				Code: "oidc.insecure_issuer", Severity: SeverityWarning, Setting: "oidc.issuer",
 				Title:  "single sign-on talks to its identity provider in the clear",

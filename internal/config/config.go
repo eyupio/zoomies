@@ -519,12 +519,24 @@ func (c *Config) BindsPublicly() bool {
 	case "", "0.0.0.0", "::", "[::]", "*":
 		return true
 	}
-	ip := net.ParseIP(strings.Trim(host, "[]"))
-	if ip == nil {
-		// A hostname; assume it resolves off-host.
+	// Any other name is assumed to resolve off-host, except the ones that
+	// never can.
+	return !loopbackHost(host)
+}
+
+// loopbackHost reports whether a host name or address can only ever be this
+// machine: a loopback IP, localhost, or a name under .localhost, which RFC 6761
+// reserves for exactly that. It is the one answer to the question the bind
+// address, the external URL, the allowed origins and the OIDC issuer all ask,
+// so that "localhost" cannot count as local in one of them and public in
+// another, as it once did between external_url and bind.
+func loopbackHost(host string) bool {
+	host = strings.ToLower(strings.Trim(host, "[]"))
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
 		return true
 	}
-	return !ip.IsLoopback()
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // ExternalURLValid reports whether the external URL parses as an absolute URL.
@@ -554,12 +566,7 @@ func (c *Config) ExternalURLIsLocal() bool {
 	if err != nil || u.Host == "" {
 		return false
 	}
-	host := u.Hostname()
-	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	return loopbackHost(u.Hostname())
 }
 
 // applyEnv overlays ZOOMIES_* environment variables.
