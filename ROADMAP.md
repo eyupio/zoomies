@@ -1,8 +1,9 @@
 # Zoomies follow-on roadmap
 
-Version 2.0 · 6 September 2026 · derived from the owner's
+Version 2.1 · 6 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
-after reconciling it against `main` at `6d12a72`.
+after reconciling it against `main` at `6d12a72`, then updated for the
+closed N02 incident and the deferred host-stewardship slice.
 
 This is the working plan for the next programme: make Zoomies a dependable,
 secure and easy-to-operate self-hosted GitHub Actions runner platform, and
@@ -12,9 +13,10 @@ finished record of the code review, and this document starts where it ends.
 
 ## 1. Where it starts
 
-The improvement plan is complete. Waves 1 to 4d are merged; the two open items
-are a brand decision (D16) and a dev-instance symptom that `main` does not
-reproduce (N02). The baseline was tested here and in CI on the same commit,
+The improvement plan is complete. Waves 1 to 4d are merged; the only retained
+open item is the brand decision (D16). N02, the dev-instance symptom in which
+runners stayed in `registering`, is fixed and no longer gates this programme.
+The baseline was tested here and in CI on the same commit,
 and the result is recorded in
 [roadmap/validation/baseline-6d12a72.md](roadmap/validation/baseline-6d12a72.md):
 16 Go packages green under race detection, the UI lint, type check and build
@@ -121,10 +123,10 @@ ratified.
     designate the disposable organisation, App, repository and the tunnel
     for the webhook run. *Recommend: both.*
 12. **Owner actions now.** Deploy `main` on a fresh Ubuntu 24.04 LTS host
-    with `install.sh --deployment native`, which both records the reference
-    versions and lets N02 be looked at; recruit the second operator, who can
-    run against the drill tier's injected failure before credentials exist.
-    *Recommend: now.*
+    with `install.sh --deployment native`, record the reference versions and
+    begin the controlled reference deployment; recruit the second operator,
+    who can run against the drill tier's injected failure before credentials
+    exist. *Recommend: now.*
 
 ### Per package
 
@@ -208,6 +210,19 @@ ratified.
     table is introduced for it. Both are recorded before ZF-402 starts, not
     now. *Recommend: decide then, with the destination policy as the
     compensating control.*
+
+25. **Host stewardship and bounded housekeeping.** Add a deferred Phase 4
+    slice, **ZF-404b**, after the original maintenance and ownership controls.
+    An imported or shared host remains non-invasive by default: no automatic
+    OS package upgrades, firewall changes, reboots or broad Docker pruning.
+    A deliberately opted-in, dedicated runner host may receive health and
+    update reporting, planned maintenance windows, agent upgrades and
+    retention/quota-driven cleanup of Zoomies-owned workspaces, runners,
+    images and caches only. Every cleanup previews its scope, leaves
+    non-Zoomies artefacts alone, is observable and is recoverable where
+    practical. This profile does not authorise unrelated-customer workloads;
+    that remains a Phase 7 isolation question. *Recommend: adopt before
+    Phase 4 design begins.*
 
 ## 4. Delivery rules
 
@@ -331,9 +346,9 @@ the code slice is merged with tests.
 
 **Needs from the owner:** a fresh Ubuntu 24.04 LTS amd64 host with `main`
 deployed by `install.sh --deployment native`, so the exact OS and runtime
-versions can be recorded and N02 looked at again. Size M. Session: Claude
-Fable 5.1 at `high` (this session); Claude Sonnet 5 at `high` for the code
-slice. Decisions: 1, 2, 3, 6, 7, 12.
+versions can be recorded. Size M. Session: Claude Fable 5.1 at `high` (this
+session); Claude Sonnet 5 at `high` for the code slice. Decisions: 1, 2, 3,
+6, 7, 12.
 
 ### ZF-003: supply-chain hygiene and three corrections
 
@@ -474,9 +489,9 @@ What is missing, in order of consequence:
   the drill tier's first drill is to demonstrate it. The page is hedged in
   this pull request. This is the one
   genuine defect in the package and the one that decides whether rolling
-  upgrades are real. N02 (runners stuck in `registering` on the dev instance,
-  not reproducible on `main`) is the create-to-register boundary of this
-  package and is its scenario zero; it needs `main` deployed to look at.
+  upgrades are real. The former N02 `registering` symptom is fixed; the
+  create-to-register boundary remains covered by this package's restart and
+  drill scenarios, not by a separate release gate.
 * No lock or lease refuses a second controller on the same database or state
   directory. SQLite's busy timeout serialises writes; it does not stop a
   second scheduler minting credentials and reclaiming hosts.
@@ -1206,10 +1221,10 @@ outcomes with the contract's denominators, computes exact percentiles for
 each interval (labelled as proxies until the platform timestamps land),
 exports daily because the runner retention default equals the observation
 window, counts lost jobs from the timeline and cross-scope refusals from the
-audit log, and emits the readiness tables in Markdown; the seven days, the 200 attempts
-with their bursts, the deployment of `main` that also closes N02, and the
-second operator are the owner's, and the record says "pending" with the
-exact action until they happen.
+audit log, and emits the readiness tables in Markdown; the seven days, the 200
+attempts with their bursts, the reference deployment of `main`, and the
+second operator are the owner's, and the record says "pending" with the exact
+action until they happen.
 
 **Accept when:** ZF-301a's categories are the only way a run reports; the
 drill tier is green on a pull request; ZF-301c's scenarios each have a run
@@ -1281,7 +1296,10 @@ the row and cascades the old row's runners away, untested. ZF-104 records
 the first; ZF-102 tests the second.
 
 What that leaves for the first assignment is exactly what the source roadmap
-says: Phases 0 to 3.
+says: Phases 0 to 3. Phase 4 additionally carries the deliberately deferred
+ZF-404b host-stewardship slice from decision 25: use it to define safe,
+opt-in maintenance for dedicated runner hosts without making imported or shared
+machines invasive by default.
 
 ## 10. The first sequence
 
@@ -1318,7 +1336,7 @@ record and ZF-303.
 
 | Needed for | What | When |
 | --- | --- | --- |
-| ZF-002, N02 | A fresh Ubuntu 24.04 LTS amd64 host with `main` deployed natively; its versions recorded in `roadmap/validation/` | Now |
+| ZF-002 | A fresh Ubuntu 24.04 LTS amd64 host with `main` deployed natively; its versions recorded in `roadmap/validation/` | Now |
 | ZF-301c, Gate F | A disposable organisation, a GitHub App installed on it with one organisation and one repository target, a repository carrying the scenario workflows, secrets in a protected environment, a tunnel or public host for the webhook run | Before Assignment B |
 | ZF-204 | Immutable releases enabled; `v0.1-alpha` marked as a prerelease; the pre-release tag at the end of Assignment A | End of Assignment A |
 | ZF-303 | A second operator for one setup-and-diagnose session | Any time; the drill tier provides the injected failure |
@@ -1363,3 +1381,12 @@ replaces the source roadmap's section 15.
 > this session; report failures with their output and skipped steps as
 > skipped. Do not add features, refactor or introduce abstractions beyond
 > what a package asks; report anything else you notice as a follow-up.
+
+
+## 13. Change record
+
+* **6 September 2026 — Version 2.1:** N02 is fixed and removed as a programme
+  gate. Added the deliberately deferred **ZF-404b** host-stewardship and
+  bounded-housekeeping slice; it is not authorised for implementation before
+  Gate F.
+
