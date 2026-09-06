@@ -702,6 +702,19 @@ func (s *Store) SetRunnerStartup(ctx context.Context, id string, pull *time.Dura
 	return err
 }
 
+// SetRunnerCreatedAt moves a runner's creation time.
+//
+// Creation time is otherwise immutable -- UpdateRunner deliberately does not
+// write the column, because a row whose age can be edited is a row whose age
+// cannot be reasoned about. The one caller is the demo seeder, whose fixtures
+// have no agent behind them and would otherwise age into a fleet reporting
+// problems it does not have. Whether an ID is a fixture is the seeder's
+// judgement, not this package's.
+func (s *Store) SetRunnerCreatedAt(ctx context.Context, id string, at time.Time) error {
+	_, err := s.exec(ctx, `UPDATE runners SET created_at=? WHERE id=?`, ms(at), id)
+	return err
+}
+
 // GetRunner returns one runner by ID.
 func (s *Store) GetRunner(ctx context.Context, id string) (*Runner, error) {
 	row := s.read.QueryRowContext(ctx, `SELECT `+runnerCols+` FROM runners WHERE id = ?`, id)

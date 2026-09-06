@@ -69,7 +69,7 @@ trusted workflows and a bad one for anything else; see
 
 ## A job that sits in the queue
 
-Two different faults look the same from GitHub, and the problems drawer tells
+Three different faults look the same from GitHub, and the problems drawer tells
 them apart:
 
 ```mermaid
@@ -80,6 +80,9 @@ flowchart TB
     h -->|"nothing offers its backend"| b["fix the socket on that host, or point the<br/>pool at a backend your hosts already offer"]
     h -->|"nothing matches its host selector"| sel["relax the selector,<br/>or label a host to match"]
     h -->|"every host that could is full"| full["not a fault: the next<br/>finished job starts this one"]
+    h -->|"a runner was created for it"| s{"did its container<br/>start?"}
+    s -->|"no"| hostside["the agent or the image:<br/>read the agent log on that host"]
+    s -->|"yes, and it never registered"| runnerside["the runner process:<br/>read that runner's own logs"]
 ```
 
 * **No pool claims the job.** Its `runs-on` labels match no enabled pool. Change
@@ -120,6 +123,30 @@ flowchart TB
   when there is nothing better to insist on -- no hosts yet, or no host offering
   anything -- which is how the first pool gets created before the first agent
   joins.
+
+* **A runner was created and never arrived.** The pool claimed the job, a host
+  took it, and the runner has been starting up ever since. `runners.not_progressing`
+  is raised once that has gone on for half the provision timeout -- while there
+  is still time to look, rather than only when the fleet gives up and fails
+  them -- and it splits the two shapes, because they are not fixed in the same
+  place:
+
+    * **No container has started.** Nothing has reported the workload running,
+      so the fault is between the agent and the backend: read the agent log on
+      that host, and check the pool's image exists and can be pulled. A first
+      pull of a large image can legitimately take minutes, which is why the
+      threshold follows `provision_timeout` -- raise that and this waits longer
+      too.
+    * **The container started and the runner never registered.** The workload
+      is up on the host and the runner process inside it has not reached
+      GitHub. Read that runner's own logs, from its page. The usual causes are
+      a host that cannot reach `github.com` and a JIT configuration GitHub has
+      already consumed.
+
+    Zoomies moves a runner out of `registering` on one signal: the agent
+    observing its workload running. So a runner that stays there is one whose
+    workload the agent is not seeing -- which is what the two branches above
+    are asking about.
 
 A host whose Docker daemon was not up when the agent started re-probes as it
 runs, so it starts taking work within a heartbeat of the daemon appearing. What

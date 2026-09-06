@@ -140,6 +140,7 @@ on a public address the same setting is an error.
 | `jobs.unmatched` | warning | Jobs are queued whose labels no enabled pool here claims. They may belong to another runner provider, or a pool may be missing a label. |
 | `jobs.runner_lost` | warning | A job's runner stopped under it, so the failure is the fleet's rather than the workflow's. |
 | `runners.failed` | warning | Runners are in the failed state with their reasons recorded. |
+| `runners.not_progressing` | warning | Runners have sat in `provisioning` or `registering` for over half the provision timeout, so the fleet says so while there is still time to look rather than only when it fails them. The entry splits the two shapes, because they are not fixed in the same place: a runner still waiting for a container is a backend or image problem on the host, and one whose container started without registering is the runner process failing to reach GitHub. |
 | `capacity_demand.delivery_failed` | warning | An external capacity provisioner did not accept the latest event, after its retries. |
 | `controller.loop_panicked` | error | A background loop panicked and was restarted. The fleet keeps running, but this is a bug: the stack is in the log, and it is worth reporting. |
 

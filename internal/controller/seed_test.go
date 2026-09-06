@@ -325,3 +325,55 @@ func TestDemoHeartbeatLeavesRealHostsAlone(t *testing.T) {
 		t.Fatal("a real host was marked alive by the demo heartbeat")
 	}
 }
+
+// The demo fleet holds one runner in provisioning and one in registering so
+// both states appear in the grid. On a real fleet those states last seconds, so
+// left alone the fixture ages into a fleet reporting runners that are stuck --
+// on every screenshot, and in the back half of a Playwright run but not the
+// front half, which is the worst kind of failure to chase.
+func TestTheDemoFleetDoesNotAgeIntoAFleetWithAProblem(t *testing.T) {
+	h := newHarness(t)
+	if err := h.c.SeedDemo(h.ctx); err != nil {
+		t.Fatalf("SeedDemo: %v", err)
+	}
+
+	// An hour into an instance somebody left open on a second monitor.
+	future := time.Now().Add(time.Hour)
+	h.c.clock = func() time.Time { return future }
+
+	if got := h.problemCodes(); !contains(got, "runners.not_progressing") {
+		t.Fatalf("problems = %v; an hour-old fixture should be stuck before the beat, or this test proves nothing", got)
+	}
+
+	h.c.freshenDemoRunners(h.ctx)
+
+	if got := h.problemCodes(); contains(got, "runners.not_progressing") {
+		t.Fatalf("problems = %v, want the demo's starting runners to read as freshly started", got)
+	}
+	// The states themselves survive: freshening a clock must not quietly
+	// finish the runners the fixture exists to show.
+	states := map[store.RunnerState]int{}
+	for _, r := range h.runners() {
+		states[r.State]++
+	}
+	if states[store.RunnerProvisioning] != 1 || states[store.RunnerRegistering] != 1 {
+		t.Fatalf("states = %v, want one provisioning and one registering runner still there", states)
+	}
+}
+
+// And it never touches a runner it did not seed: a real runner that is genuinely
+// stuck must not have its clock wound back by an instance someone set
+// ZOOMIES_SEED_DEMO on.
+func TestDemoRefreshLeavesRealRunnersAlone(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerRegistering)
+
+	future := r.CreatedAt.Add(time.Hour)
+	h.c.clock = func() time.Time { return future }
+	h.c.freshenDemoRunners(h.ctx)
+
+	if got := h.problemCodes(); !contains(got, "runners.not_progressing") {
+		t.Fatalf("problems = %v, want a real runner stuck for an hour to still be reported", got)
+	}
+}

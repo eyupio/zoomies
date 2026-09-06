@@ -104,6 +104,9 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	if err := c.runnerProblems(ctx, &out); err != nil {
 		return nil, err
 	}
+	if err := c.notProgressingProblems(ctx, &out); err != nil {
+		return nil, err
+	}
 	if err := c.capacityDeliveryProblems(ctx, &out); err != nil {
 		return nil, err
 	}
@@ -571,6 +574,127 @@ func (c *Controller) runnerProblems(ctx context.Context, out *[]Problem) error {
 		Detail:     fmt.Sprintf("the most recent is %s: %s", example.Name, example.Message),
 		Fix:        "look at the runner's logs on the Runners page; failed runners are cleaned up automatically but the cause is not.",
 		TargetKind: "runner", TargetID: example.ID, Since: &example.CreatedAt,
+	})
+	return nil
+}
+
+// notProgressingSample bounds the page of starting runners the diagnosis is
+// built from. They are read oldest first, and a runner is only a candidate
+// once it is old enough, so the page always holds the worst cases; a fleet
+// with more than this many stuck at once is told "at least".
+const notProgressingSample = 100
+
+// notProgressingAfter is how long a runner may sit in a starting state before
+// the fleet says so: half the provision timeout, which is the point at which
+// the scheduler will eventually fail it.
+//
+// It is deliberately not a setting of its own. An operator who raises
+// provision_timeout for a slow image pull has already said how long starting up
+// is allowed to take here, and a second number to keep in step with the first
+// is a second number to get wrong.
+func (c *Controller) notProgressingAfter() time.Duration {
+	timeout := c.cfg().Scheduler.ProvisionTimeout
+	if timeout <= 0 {
+		return 0
+	}
+	return timeout / 2
+}
+
+// notProgressingProblems reports runners that are neither coming up nor being
+// failed yet, and says which of the two shapes it is.
+//
+// The distinction is the whole point. Until the provision timeout expires the
+// fleet says nothing at all, so an operator watching a pool that creates
+// runners which never arrive has to read a runner timeline, the controller log
+// and `docker ps` on the host to learn what Zoomies already knows: whether the
+// agent ever reported the workload started. A runner still waiting for its
+// container is a backend or image problem on the host; one whose container
+// started and has not registered is the runner process failing to reach GitHub,
+// and they are not fixed in the same place.
+func (c *Controller) notProgressingProblems(ctx context.Context, out *[]Problem) error {
+	after := c.notProgressingAfter()
+	if after <= 0 {
+		// provision_timeout is off, so nothing is stuck by anyone's definition;
+		// saying otherwise would second-guess a deliberate setting.
+		return nil
+	}
+	starting, _, err := c.st.ListRunners(ctx, store.RunnerFilter{
+		States: []store.RunnerState{store.RunnerProvisioning, store.RunnerRegistering},
+	}, store.Page{Limit: notProgressingSample, Sort: "created_at"})
+	if err != nil {
+		return fmt.Errorf("listing runners that are starting up: %w", err)
+	}
+
+	now := c.Now()
+	var waitingForContainer, notRegistered int
+	var oldest *store.Runner
+	var since time.Time
+	hosts := map[string]bool{}
+	for _, r := range starting {
+		// The clock that matters starts when the workload did. A runner whose
+		// container came up ten seconds ago is registering normally even if the
+		// image took four minutes to pull, and failing to make that distinction
+		// would raise this on every cold start.
+		from := r.CreatedAt
+		if r.ContainerStartedAt != nil {
+			from = *r.ContainerStartedAt
+		}
+		if now.Sub(from) < after {
+			continue
+		}
+		if r.ContainerStartedAt == nil {
+			waitingForContainer++
+		} else {
+			notRegistered++
+		}
+		// Longest stuck by its own clock, which is not the same as first
+		// created: a runner that spent four minutes pulling an image and then
+		// registered ten seconds ago is younger here than an older one whose
+		// container came up first.
+		if oldest == nil || from.Before(since) {
+			oldest, since = r, from
+		}
+		hosts[r.HostID] = true
+	}
+	stuck := waitingForContainer + notRegistered
+	if stuck == 0 {
+		return nil
+	}
+
+	count := plural(stuck, "runner")
+	if stuck == notProgressingSample {
+		count = "at least " + count
+	}
+	detail := fmt.Sprintf("the oldest is %s, %s in %s.", oldest.Name,
+		now.Sub(since).Round(time.Second), oldest.State)
+	// The fix follows the runner the detail names, not whichever bucket is
+	// larger. A detail that names a runner still waiting for its container and
+	// a fix that says to read that container's logs sends an operator looking
+	// for something that is not there.
+	fix := "the container is up but the runner has not registered: look at its logs on the Runners page. " +
+		"The usual causes are the host being unable to reach github.com and a JIT configuration GitHub has already consumed."
+	if oldest.ContainerStartedAt == nil {
+		fix = "no agent has reported the workload started: check the agent log on the host, and that the pool's image exists and can be pulled. " +
+			"A first pull of a large image can legitimately take minutes."
+	}
+	if waitingForContainer > 0 && notRegistered > 0 {
+		detail += fmt.Sprintf(" %s waiting for a container to start, %d with a container that started and has not registered.",
+			plural(waitingForContainer, "runner"), notRegistered)
+	}
+	if len(hosts) == 1 && oldest.HostID != "" {
+		if h, err := c.st.GetHost(ctx, oldest.HostID); err == nil {
+			detail += fmt.Sprintf(" All of them are on host %s.", h.Name)
+		}
+	}
+
+	*out = append(*out, Problem{
+		Code:     "runners.not_progressing",
+		Severity: config.SeverityWarning,
+		Title: fmt.Sprintf("%s stuck starting up for over %s",
+			count, after.Round(time.Second)),
+		Detail:     detail,
+		Fix:        fix,
+		TargetKind: "runner", TargetID: oldest.ID, Since: &since,
 	})
 	return nil
 }
