@@ -177,12 +177,11 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.ctrl.Store().DeleteHost(r.Context(), id); err != nil {
+	if err := s.ctrl.DeleteHost(r.Context(), id); err != nil {
 		s.fail(w, r, "deleting the host", err)
 		return
 	}
 	s.auth.Auditor().Deleted(r.Context(), Identity(r.Context()), "host", id, h)
-	s.ctrl.PublishHostDeleted(id)
 	s.ctrl.Nudge()
 	noContent(w)
 }

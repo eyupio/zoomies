@@ -683,12 +683,11 @@ func (s *Server) handleDeletePool(w http.ResponseWriter, r *http.Request) {
 		affected++
 	}
 
-	if err := s.ctrl.Store().DeletePool(r.Context(), id); err != nil {
+	if err := s.ctrl.DeletePool(r.Context(), id); err != nil {
 		s.fail(w, r, "deleting the pool", err)
 		return
 	}
 	s.auth.Auditor().Deleted(r.Context(), Identity(r.Context()), "pool", id, p)
-	s.ctrl.PublishPoolDeleted(id)
 	s.ctrl.Nudge()
 	writeJSON(w, http.StatusOK, deletePoolResponse{RunnersAffected: affected})
 }

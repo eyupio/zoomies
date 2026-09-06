@@ -163,12 +163,44 @@ func (s *Store) SetInstallationAppSlug(ctx context.Context, id, slug string) err
 }
 
 // DeleteInstallation removes an installation and, by cascade, its pools.
-func (s *Store) DeleteInstallation(ctx context.Context, id string) error {
-	res, err := s.exec(ctx, `DELETE FROM installations WHERE id = ?`, id)
+// DeleteInstallation removes an installation, its pools and their runners, and
+// returns the IDs of the runner rows that went, so the caller can announce each
+// one: a row the schema cascades away silently is a row the Runners page keeps
+// showing until it is reloaded.
+func (s *Store) DeleteInstallation(ctx context.Context, id string) ([]string, error) {
+	var runners []string
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		var err error
+		runners, err = deletedIDs(ctx, tx,
+			`DELETE FROM runners WHERE pool_id IN (SELECT id FROM pools WHERE installation_id = ?) RETURNING id`, id)
+		if err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, `DELETE FROM installations WHERE id = ?`, id)
+		if err != nil {
+			return err
+		}
+		return affected(res, "installation", id)
+	})
+	return runners, err
+}
+
+// deletedIDs runs a DELETE ... RETURNING id and collects what went.
+func deletedIDs(ctx context.Context, tx *sql.Tx, query string, args ...any) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return affected(res, "installation", id)
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 // ---------------------------------------------------------------------------
@@ -311,12 +343,23 @@ func (s *Store) UpdatePool(ctx context.Context, p *Pool) error {
 }
 
 // DeletePool removes a pool and, by cascade, its runner rows.
-func (s *Store) DeletePool(ctx context.Context, id string) error {
-	res, err := s.exec(ctx, `DELETE FROM pools WHERE id = ?`, id)
-	if err != nil {
-		return err
-	}
-	return affected(res, "pool", id)
+// DeletePool removes a pool and its runner rows, and returns the IDs of those
+// rows so each can be announced as deleted.
+func (s *Store) DeletePool(ctx context.Context, id string) ([]string, error) {
+	var runners []string
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		var err error
+		runners, err = deletedIDs(ctx, tx, `DELETE FROM runners WHERE pool_id = ? RETURNING id`, id)
+		if err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, `DELETE FROM pools WHERE id = ?`, id)
+		if err != nil {
+			return err
+		}
+		return affected(res, "pool", id)
+	})
+	return runners, err
 }
 
 func (s *Store) SetPoolPrewarm(ctx context.Context, poolID, hostID, image, state, digest, failure string) error {
@@ -574,12 +617,23 @@ func (s *Store) SetHostCordoned(ctx context.Context, id string, cordoned bool) e
 }
 
 // DeleteHost removes a host and cascades to its runner rows.
-func (s *Store) DeleteHost(ctx context.Context, id string) error {
-	res, err := s.exec(ctx, `DELETE FROM hosts WHERE id = ?`, id)
-	if err != nil {
-		return err
-	}
-	return affected(res, "host", id)
+// DeleteHost removes a host and its runner rows, and returns the IDs of those
+// rows so each can be announced as deleted.
+func (s *Store) DeleteHost(ctx context.Context, id string) ([]string, error) {
+	var runners []string
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		var err error
+		runners, err = deletedIDs(ctx, tx, `DELETE FROM runners WHERE host_id = ? RETURNING id`, id)
+		if err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, `DELETE FROM hosts WHERE id = ?`, id)
+		if err != nil {
+			return err
+		}
+		return affected(res, "host", id)
+	})
+	return runners, err
 }
 
 // ---------------------------------------------------------------------------
@@ -945,14 +999,16 @@ func (s *Store) DeleteRunner(ctx context.Context, id string) error {
 }
 
 // PruneRunners deletes removed/failed runners older than the cutoff and
-// returns how many rows went.
-func (s *Store) PruneRunners(ctx context.Context, before time.Time) (int64, error) {
-	res, err := s.exec(ctx, `DELETE FROM runners WHERE state IN ('removed','failed')
-		AND COALESCE(finished_at, created_at) < ?`, ms(before))
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
+// returns the IDs of the rows that went, so each can be announced as deleted.
+func (s *Store) PruneRunners(ctx context.Context, before time.Time) ([]string, error) {
+	var ids []string
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		var err error
+		ids, err = deletedIDs(ctx, tx, `DELETE FROM runners WHERE state IN ('removed','failed')
+			AND COALESCE(finished_at, created_at) < ? RETURNING id`, ms(before))
+		return err
+	})
+	return ids, err
 }
 
 // affected turns "UPDATE matched nothing" into ErrNotFound.

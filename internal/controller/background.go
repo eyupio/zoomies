@@ -128,7 +128,15 @@ func (c *Controller) prune(ctx context.Context) {
 	}
 	for _, j := range []job{
 		{"jobs", r.Jobs, c.st.PruneJobs},
-		{"runners", r.Runners, c.st.PruneRunners},
+		{"runners", r.Runners, func(ctx context.Context, before time.Time) (int64, error) {
+			// Each pruned row is announced, or the Runners page keeps showing
+			// runners that no longer exist until it is reloaded.
+			ids, err := c.st.PruneRunners(ctx, before)
+			for _, id := range ids {
+				c.publishRunnerDeleted(id)
+			}
+			return int64(len(ids)), err
+		}},
 		{"fleet samples", r.Samples, c.st.PruneSamples},
 		{"webhook deliveries", r.Webhooks, c.st.PruneDeliveries},
 		// Scaling history is decision history, so it follows the audit window.

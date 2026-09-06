@@ -371,8 +371,12 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 			c.log.Warn("a host joined again while runners were still recorded against it; those rows are being dropped",
 				"host", existing.ID, "name", name, "runners", len(stale))
 		}
-		if err := c.st.DeleteHost(ctx, existing.ID); err != nil {
+		dropped, err := c.st.DeleteHost(ctx, existing.ID)
+		if err != nil {
 			return nil, fmt.Errorf("replacing the previous registration of host %s: %w", name, err)
+		}
+		for _, id := range dropped {
+			c.publishRunnerDeleted(id)
 		}
 		h.Embedded = existing.Embedded || embedded
 		h.Cordoned = existing.Cordoned
