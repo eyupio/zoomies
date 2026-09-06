@@ -15,9 +15,13 @@ a route below.
 Conventions:
 
 * Base path `/api/v1`. JSON in, JSON out, UTF-8.
-* List endpoints take `limit` (default 50, max 500), `offset`, `sort`, `order`
-  (`asc`/`desc`) and return `{ "items": [...], "total": <int>, "limit": <int>,
-  "offset": <int> }`.
+* The three long lists, `/runners`, `/jobs` and `/audit`, take `limit` (default
+  50, max 500), `offset`, `sort` and `order` (`asc`/`desc`) and return
+  `{ "items": [...], "total": <int>, "limit": <int>, "offset": <int> }`. Every
+  other list returns `{ "items": [...] }` whole; `/scaling-events` and
+  `/webhook-deliveries` take a `limit` and return the newest that many.
+* Every API response carries `Cache-Control: no-store`; nothing under `/api/v1`
+  is meant to be cached by a browser or a proxy.
 * Errors return `{ "error": { "code": "...", "message": "...", "field": "...",
   "detail": "..." } }` with a message written for a human. Codes:
   `bad_request`, `unauthorized`, `forbidden`, `not_found`, `conflict`,
@@ -72,7 +76,7 @@ Conventions:
 | POST | `/api/v1/installations` | admin | `{app_id, installation_id, target, target_type, api_base_url, private_key, webhook_secret}`. The key is sealed before it touches the database. |
 | GET | `/api/v1/installations/{id}` | viewer | |
 | PATCH | `/api/v1/installations/{id}` | admin | |
-| DELETE | `/api/v1/installations/{id}` | admin | Cascades to pools; the response says how many. |
+| DELETE | `/api/v1/installations/{id}` | admin | Cascades to its pools, and removes their runners **now**, interrupting any job they are running: the runners have to be deregistered while the installation's credentials still exist, which is before the row goes. The response says how many pools and runners went. Drain the pools first (`DELETE /pools/{id}`) if the jobs matter. |
 | POST | `/api/v1/installations/{id}/verify` | operator | Probes credentials and permissions. On 403 the message names the missing permission. Records the App's slug, which is how a hand-added installation learns it. |
 | GET | `/api/v1/installations/{id}/runner-groups` | viewer | Populates the pool wizard. |
 | GET | `/api/v1/installations/{id}/rate-limit` | viewer | Remaining GitHub API quota. |
@@ -132,7 +136,7 @@ give each repository a cache without an installation per repository.
 
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
-| GET | `/api/v1/jobs` | viewer | Filters: `repo`, `workflow`, `pool_id`, `runner_id`, `state`, `conclusion`, `label`, `q`, `since`, `until`, `unmatched`, `managed`, `failed`. `managed=true` narrows the list to what this fleet has a hand in — a pool claims it, a runner here ran it, or it is queued and unclaimed — which is what the Jobs page asks for by default. `failed=true` keeps the jobs that went wrong on either side: a conclusion GitHub counts as a failure, or a runner that stopped under the job, including one GitHub still believes is running. Each item carries `queue_wait_ms`, `duration_ms`, the job's `steps` as GitHub last reported them, `failed_step` (the first step that did not succeed, or null), `head_branch`, `head_sha`, `run_attempt`, and `runner_fault` when the fleet's runner stopped before GitHub reported the job over. |
+| GET | `/api/v1/jobs` | viewer | Filters: `repo`, `workflow`, `pool_id`, `runner_id`, `state`, `conclusion`, `label`, `q`, `since`, `until`, `unmatched`, `managed`, `failed`. `managed=true` narrows the list to what this fleet has a hand in — a pool claims it, a runner here ran it, or it is queued and unclaimed — which is what the Jobs page asks for by default. `failed=true` keeps the jobs that went wrong on either side: a conclusion GitHub counts as a failure, or a runner that stopped under the job, including one GitHub still believes is running. Each item carries `matched`, `hosted` (every label names GitHub's own runners or a hosted-runner vendor's, so a job no pool claims is theirs to run rather than stuck), `queue_wait_ms`, `duration_ms`, the job's `steps` as GitHub last reported them, `failed_step` (the first step that did not succeed, or null), `head_branch`, `head_sha`, `run_attempt`, and `runner_fault` when the fleet's runner stopped before GitHub reported the job over. |
 | GET | `/api/v1/jobs/{id}` | viewer | |
 | GET | `/api/v1/jobs/{id}/events` | viewer | The job's timeline: what Zoomies observed and did about it, oldest first, each entry a sentence with its `kind` (`queued`, `claimed`, `unmatched`, `started`, `completed`, `runner_lost`) and `source` (`webhook`, `poller`, `agent`, `controller`). Written from what each delivery changed rather than from the delivery itself, so a redelivery adds nothing. `runner_lost` is the one entry GitHub cannot produce: the runner died under the job, and GitHub will report an ordinary failure. Every change to it is accompanied by a `job.updated` frame, which is when the UI refetches it. |
 | GET | `/api/v1/jobs/facets` | viewer | Distinct repos, workflows and conclusions, for the filter menus. |
@@ -182,7 +186,10 @@ for the whole report, so a client can drop the column rather than print zeroes.
 ### Agent routes
 
 Authenticated with the agent's own token, never a user session. An agent may
-only touch its own host's runners.
+only touch its own host's runners. They are in `api/openapi.yaml` too, marked
+`x-internal: true`, so the document is the whole surface it says it is; a
+client generator should skip them, and `internal/agent/protocol.go` owns the
+wire types.
 
 | Method | Path | Notes |
 | --- | --- | --- |

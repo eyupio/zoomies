@@ -63,7 +63,7 @@ func TestAgentJoinAndHeartbeat(t *testing.T) {
 
 	// A host deleted under a running agent must answer 404, not 500: the
 	// agent's transport reads that specific status as "you no longer exist".
-	if err := h.st.DeleteHost(h.ctx, hostID); err != nil {
+	if _, err := h.st.DeleteHost(h.ctx, hostID); err != nil {
 		t.Fatalf("DeleteHost: %v", err)
 	}
 	gone := h.do(request{method: http.MethodPost, path: "/api/v1/agent/heartbeat", token: token,

@@ -186,10 +186,15 @@ func (c *Controller) AcceptLogStream(streamID string, r io.Reader) error {
 			}
 		}
 		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
+			if !errors.Is(err, io.EOF) {
+				// The agent's connection dropped mid-stream -- the job ended
+				// and the container with it, or the network went. The output
+				// up to here was delivered, the viewer sees the stream end,
+				// and nothing needs a 500 in the log every time a job
+				// finishes under a watcher.
+				c.log.Debug("a log stream ended before its EOF", "stream", streamID, "runner", s.runnerID, "error", err)
 			}
-			return fmt.Errorf("log stream %s ended: %w", streamID, err)
+			break
 		}
 	}
 	return nil

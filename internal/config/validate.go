@@ -40,10 +40,15 @@ const HostLostAfter = 90 * time.Second
 // does not.
 const MaxQuietHeartbeatInterval = HostLostAfter / 2
 
-// isLoopbackHost reports whether a URL's hostname can only ever be this
-// machine, which is when a plaintext scheme costs nothing.
-func isLoopbackHost(host string) bool {
-	return host == "localhost" || host == "127.0.0.1" || host == "::1"
+// euid is os.Geteuid, replaceable so a test can ask what a root process would
+// be told without being one.
+var euid = os.Geteuid
+
+// runsAgent reports whether this process runs runners itself: as the embedded
+// agent inside a controller, or as a standalone agent joined to one. The
+// agent settings only mean something when it does.
+func (c *Config) runsAgent() bool {
+	return c.Agent.Embedded || c.Agent.ControllerURL != ""
 }
 
 // servesTLS reports whether browsers reach this controller over HTTPS, whether
@@ -249,7 +254,7 @@ func (c *Config) Validate() Findings {
 			})
 			continue
 		}
-		if u, err := url.Parse(o); err == nil && u.Scheme == "http" && !isLoopbackHost(u.Hostname()) && c.servesTLS() {
+		if u, err := url.Parse(o); err == nil && u.Scheme == "http" && !loopbackHost(u.Hostname()) && c.servesTLS() {
 			add(Finding{
 				Code: "origins.insecure", Severity: SeverityWarning, Setting: "server.allowed_origins",
 				Title: fmt.Sprintf("%s is allowed to act on this controller over plaintext", o),
@@ -312,7 +317,9 @@ func (c *Config) Validate() Findings {
 			Fix:   "include the scheme, e.g. https://zoomies.example.com.",
 		})
 	} else if u, err := url.Parse(c.Server.ExternalURL); err == nil && u.Scheme == "http" {
-		if !isLoopbackHost(u.Hostname()) {
+		// Plaintext to this machine costs nothing; ExternalURLIsLocal is the
+		// same question the join command and the webhook probe ask.
+		if !c.ExternalURLIsLocal() {
 			add(Finding{
 				Code: "external_url.insecure", Severity: SeverityWarning, Setting: "server.external_url",
 				Title:  "external URL uses http://",
@@ -443,7 +450,7 @@ func (c *Config) Validate() Findings {
 				Fix:   "set oidc.redirect_url, or set server.external_url and it will be derived.",
 			})
 		}
-		if u, err := url.Parse(c.OIDC.Issuer); err == nil && u.Scheme == "http" && !isLoopbackHost(u.Hostname()) {
+		if u, err := url.Parse(c.OIDC.Issuer); err == nil && u.Scheme == "http" && !loopbackHost(u.Hostname()) {
 			add(Finding{
 				Code: "oidc.insecure_issuer", Severity: SeverityWarning, Setting: "oidc.issuer",
 				Title:  "single sign-on talks to its identity provider in the clear",
@@ -470,7 +477,7 @@ func (c *Config) Validate() Findings {
 	}
 
 	// --- Agent and backends ----------------------------------------------
-	if c.Agent.Embedded || c.Agent.ControllerURL != "" {
+	if c.runsAgent() {
 		switch c.Agent.Backend {
 		case "docker", "podman", "process":
 		case "":
@@ -502,7 +509,7 @@ func (c *Config) Validate() Findings {
 				Fix: "use the docker or podman backend unless you specifically need host access.",
 			})
 		}
-		if os.Geteuid() == 0 && c.Agent.Backend == "process" {
+		if euid() == 0 && c.Agent.Backend == "process" {
 			add(Finding{
 				Code: "agent.process_root", Severity: SeverityWarning, Setting: "agent.backend",
 				Title:  "the process backend is running as root",
@@ -566,7 +573,7 @@ func (c *Config) Validate() Findings {
 			Fix:    fmt.Sprintf("keep agent.heartbeat_interval at %s or less.", MaxQuietHeartbeatInterval),
 		})
 	}
-	if !c.Agent.Embedded && c.Agent.ControllerURL == "" {
+	if !c.runsAgent() {
 		add(Finding{
 			Code: "agent.none", Severity: SeverityInfo, Setting: "agent.embedded",
 			Title:  "no embedded agent",
@@ -574,7 +581,11 @@ func (c *Config) Validate() Findings {
 			Fix:    "run `zoomies agent join <controller-url> --token <join-token>` on a host, or set agent.embedded to true.",
 		})
 	}
-	if os.Geteuid() == 0 && (c.Agent.Backend == "docker" || c.Agent.Backend == "podman") {
+	// The warning is about the process that runs runners. A controller with no
+	// agent in it runs none, so a container escape has nothing of its to land
+	// on, and a warning that fires there anyway is one operators learn to
+	// ignore everywhere.
+	if c.runsAgent() && euid() == 0 && (c.Agent.Backend == "docker" || c.Agent.Backend == "podman") {
 		add(Finding{
 			Code: "agent.root", Severity: SeverityWarning, Setting: "agent",
 			Title:  "the agent process is running as root",
@@ -600,8 +611,9 @@ func (c *Config) Validate() Findings {
 	if c.Scheduler.MaxRunnerLifetime > 0 && c.Scheduler.MaxRunnerLifetime < 10*time.Minute {
 		add(Finding{
 			Code: "scheduler.lifetime_short", Severity: SeverityWarning, Setting: "scheduler.max_runner_lifetime",
-			Title:  fmt.Sprintf("runners are force-drained after %s", c.Scheduler.MaxRunnerLifetime),
-			Detail: "jobs longer than that will never complete; the runner is drained while they run.",
+			Title:  fmt.Sprintf("idle runners are recycled after %s", c.Scheduler.MaxRunnerLifetime),
+			Detail: "a runner that old is drained the moment it is not busy, so a pool that keeps a minimum re-registers its runners that often and any warm cache goes with them. Running jobs are never interrupted by it.",
+			Fix:    "keep scheduler.max_runner_lifetime to hours, or clear it for no limit.",
 		})
 	}
 

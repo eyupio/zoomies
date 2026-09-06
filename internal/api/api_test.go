@@ -22,6 +22,7 @@ import (
 	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/go-chi/chi/v5"
 )
 
 // testKey is a fixed instance key. The API loads its own copy from the
@@ -726,9 +727,76 @@ func TestRouteTableCoversTheSpec(t *testing.T) {
 		t.Fatalf("openapiSpec: %v", err)
 	}
 	for _, op := range specOperations(t, spec) {
+		if op.internal {
+			// The agent routes carry a different credential class and are
+			// exercised by agents_test.go with agent tokens.
+			continue
+		}
 		key := op.method + " " + op.path
 		if !tested[key] {
 			t.Errorf("%s is in api/openapi.yaml but not in the route table", key)
+		}
+	}
+}
+
+// TestTheSpecCoversTheRouter is the other direction. The document's info block
+// says it is the whole surface, and until this test the check ran one way
+// only: everything in the spec had a route, while eight routes had no spec.
+func TestTheSpecCoversTheRouter(t *testing.T) {
+	h := newHarness(t)
+	spec, err := openapiSpec()
+	if err != nil {
+		t.Fatalf("openapiSpec: %v", err)
+	}
+	documented := map[string]bool{}
+	for _, op := range specOperations(t, spec) {
+		documented[op.method+" "+op.path] = true
+	}
+	routes, ok := h.api.handler.(chi.Routes)
+	if !ok {
+		t.Fatalf("the server's handler is a %T, not a chi router", h.api.handler)
+	}
+	err = chi.Walk(routes, func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		if !strings.HasPrefix(route, "/api/v1/") {
+			// Health, the spec itself, the webhook, metrics and the UI are
+			// not API operations; docs/api-surface.md describes them.
+			return nil
+		}
+		path := strings.TrimPrefix(route, "/api/v1")
+		if len(path) > 1 {
+			// chi reports the root of a Route group with a trailing slash.
+			path = strings.TrimSuffix(path, "/")
+		}
+		if !documented[method+" "+path] {
+			t.Errorf("%s %s is served but not in api/openapi.yaml", method, route)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("chi.Walk: %v", err)
+	}
+}
+
+// TestEveryOperationRecordsItsRole holds the info block to its word: each
+// operation names its minimum role, unless it is anonymous or an agent route.
+// Three operations shipped without one and nothing noticed.
+func TestEveryOperationRecordsItsRole(t *testing.T) {
+	spec, err := openapiSpec()
+	if err != nil {
+		t.Fatalf("openapiSpec: %v", err)
+	}
+	for _, op := range specOperations(t, spec) {
+		switch {
+		case op.internal:
+			if op.role != "" {
+				t.Errorf("%s %s is an agent route but names a user role %q", op.method, op.path, op.role)
+			}
+		case op.anonymous:
+			if op.role != "" {
+				t.Errorf("%s %s is anonymous but names a role %q", op.method, op.path, op.role)
+			}
+		case op.role == "":
+			t.Errorf("%s %s has no x-zoomies-role", op.method, op.path)
 		}
 	}
 }
@@ -751,10 +819,17 @@ func normalisePath(p string) string {
 	return strings.Join(parts, "/")
 }
 
-// specOperation is one method-and-path pair from the OpenAPI document.
+// specOperation is one method-and-path pair from the OpenAPI document, with
+// the three things the checks here ask of it.
 type specOperation struct {
 	method string
 	path   string
+	// internal marks an agent route: x-internal: true.
+	internal bool
+	// anonymous marks an operation with security: [].
+	anonymous bool
+	// role is the x-zoomies-role, or empty.
+	role string
 }
 
 // specOperations reads the paths out of the spec with a deliberately small
@@ -781,10 +856,24 @@ func specOperations(t *testing.T, spec []byte) []specOperation {
 			path = strings.TrimSuffix(strings.TrimSpace(line), ":")
 			continue
 		}
+		trimmed := strings.TrimSpace(line)
+		// An operation's own keys sit exactly six spaces in.
+		if path != "" && len(out) > 0 && strings.HasPrefix(line, "      ") && !strings.HasPrefix(line, "       ") {
+			op := &out[len(out)-1]
+			switch {
+			case trimmed == "x-internal: true":
+				op.internal = true
+			case trimmed == "security: []":
+				op.anonymous = true
+			case strings.HasPrefix(trimmed, "x-zoomies-role:"):
+				op.role = strings.TrimSpace(strings.TrimPrefix(trimmed, "x-zoomies-role:"))
+			}
+			continue
+		}
 		if path == "" || !strings.HasPrefix(line, "    ") || strings.HasPrefix(line, "     ") {
 			continue
 		}
-		method := strings.TrimSuffix(strings.TrimSpace(line), ":")
+		method := strings.TrimSuffix(trimmed, ":")
 		switch method {
 		case "get", "post", "patch", "delete", "put":
 			out = append(out, specOperation{method: strings.ToUpper(method), path: path})
@@ -794,4 +883,22 @@ func specOperations(t *testing.T, spec []byte) []specOperation {
 		t.Fatal("no operations found in the OpenAPI document; the parser above is wrong")
 	}
 	return out
+}
+
+// API responses are authenticated and change by the second; a proxy or a
+// browser cache that kept one would show a signed-out user the previous
+// user's fleet. Every route under /api/v1 says so.
+func TestAPIResponsesAreNeverCached(t *testing.T) {
+	h := newHarness(t)
+	token := h.token("cache", store.RoleViewer)
+	for _, rt := range []request{
+		{method: http.MethodGet, path: "/api/v1/meta"},
+		{method: http.MethodGet, path: "/api/v1/pools", token: token},
+		{method: http.MethodGet, path: "/api/v1/agent/tasks"},
+	} {
+		resp := h.do(rt)
+		if cc := resp.header.Get("Cache-Control"); cc != "no-store" {
+			t.Errorf("%s %s: Cache-Control = %q, want no-store", rt.method, rt.path, cc)
+		}
+	}
 }

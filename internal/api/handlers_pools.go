@@ -389,74 +389,6 @@ func hasDistinctiveLabel(labels []string) bool {
 	})
 }
 
-// hostFit is what the fleet says about a pool that does not exist yet: how many
-// hosts could run it, why the ones that cannot say they cannot, and which
-// backends they offer instead.
-type hostFit struct {
-	count  int
-	detail string
-	// alternatives are the backends offered by the hosts that match this pool
-	// in every way except its backend, in the order a pool would move to them.
-	// The wizard turns them into the second half of its warning, in the same
-	// words the scheduler uses once the pool is real.
-	alternatives []string
-}
-
-// matchingHosts counts the hosts that could actually run this pool, and returns
-// the first host's explanation of why it cannot when one is to be had.
-//
-// Zero is worth saying out loud before a pool is created: a pool whose selector
-// matches nothing looks completely healthy and never starts a runner. The
-// explanation matters as much as the count, because the usual cause is not a
-// missing machine but a daemon the agent on an existing one could not reach --
-// and the backends those same hosts do offer are the other way out.
-func (s *Server) matchingHosts(ctx context.Context, p *store.Pool) (hostFit, error) {
-	hosts, err := s.ctrl.Store().ListHosts(ctx)
-	if err != nil {
-		return hostFit{}, err
-	}
-	now := s.ctrl.Now()
-	fit := hostFit{}
-	offered := map[string]int{}
-	for _, h := range hosts {
-		if !h.Healthy(now) || h.Cordoned || !selectorMatches(p.HostSelector, h.Labels) {
-			continue
-		}
-		for _, kind := range h.Backends {
-			if kind != string(p.Backend) {
-				offered[kind]++
-			}
-		}
-		if !slices.Contains(h.Backends, string(p.Backend)) {
-			if fit.detail == "" {
-				if info, ok := h.BackendInfo.Find(p.Backend); ok && !info.Available && info.Detail != "" {
-					fit.detail = h.Name + " reports: " + info.Detail
-				}
-			}
-			continue
-		}
-		fit.count++
-	}
-	for _, kind := range []store.BackendKind{store.BackendDocker, store.BackendPodman, store.BackendProcess} {
-		if offered[string(kind)] > 0 {
-			fit.alternatives = append(fit.alternatives, string(kind))
-		}
-	}
-	return fit, nil
-}
-
-// selectorMatches is the scheduler's host-selector rule, which is deliberately
-// simple: every key and value in the selector must be present on the host, and
-// an empty selector matches everything.
-func selectorMatches(selector, labels store.StringMap) bool {
-	for k, v := range selector {
-		if labels[k] != v {
-			return false
-		}
-	}
-	return true
-}
-
 // handleCreatePool answers POST /api/v1/pools.
 func (s *Server) handleCreatePool(w http.ResponseWriter, r *http.Request) {
 	var in poolInput
@@ -511,7 +443,7 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 	errs := in.apply(p)
 	errs = append(errs, s.validatePool(r.Context(), p, "")...)
 
-	fit, err := s.matchingHosts(r.Context(), p)
+	fit, err := s.ctrl.HostFit(r.Context(), p)
 	if err != nil {
 		s.internal(w, r, "counting the hosts that could run this pool", err)
 		return
@@ -523,16 +455,16 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 		inst = i
 	}
 	warnings := controller.PoolWarnings(p, inst)
-	if fit.count == 0 {
+	if fit.Count == 0 {
 		why := fmt.Sprintf("no healthy, uncordoned host offers the %s backend and matches this pool's host selector, "+
 			"so every runner it asks for would wait for a host that does not exist.", p.Backend)
 		fix := "add a host with that backend, uncordon one, or relax the host selector."
-		if detail := fit.detail; detail != "" {
+		if detail := fit.Detail; detail != "" {
 			// A host is there and its agent already said what is wrong with it,
 			// which is a much shorter route to a working pool than adding a
 			// machine.
 			why += " " + detail
-			fix = fmt.Sprintf("make the %s backend usable on that host%s.", p.Backend, switchTo(fit.alternatives))
+			fix = fmt.Sprintf("make the %s backend usable on that host%s.", p.Backend, switchTo(fit.Alternatives))
 		}
 		warnings = append(warnings, controller.Problem{
 			Code:         "pool.no_matching_hosts",
@@ -540,7 +472,7 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 			Title:        "no host can run this pool as configured",
 			Detail:       why,
 			Fix:          fix,
-			Alternatives: fit.alternatives,
+			Alternatives: fit.Alternatives,
 		})
 	}
 	if errs == nil {
@@ -553,7 +485,7 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 		Valid:         len(errs) == 0,
 		Errors:        errs,
 		Warnings:      warnings,
-		MatchingHosts: fit.count,
+		MatchingHosts: fit.Count,
 	})
 }
 
@@ -683,12 +615,11 @@ func (s *Server) handleDeletePool(w http.ResponseWriter, r *http.Request) {
 		affected++
 	}
 
-	if err := s.ctrl.Store().DeletePool(r.Context(), id); err != nil {
+	if err := s.ctrl.DeletePool(r.Context(), id); err != nil {
 		s.fail(w, r, "deleting the pool", err)
 		return
 	}
 	s.auth.Auditor().Deleted(r.Context(), Identity(r.Context()), "pool", id, p)
-	s.ctrl.PublishPoolDeleted(id)
 	s.ctrl.Nudge()
 	writeJSON(w, http.StatusOK, deletePoolResponse{RunnersAffected: affected})
 }

@@ -107,10 +107,11 @@ test('the unmatched filter finds the job no pool claims and explains it', async 
   // And the explanation, which is the part an operator cannot infer.
   const note = page.getByRole('note');
   await expect(note).toBeVisible();
-  await expect(note).toContainText('1 queued job here has no pool to run it');
+  await expect(note).toContainText('1 queued job has no pool here');
   await expect(note).toContainText('No enabled pool here answers');
-  await expect(note).toContainText('it sits queued until the run is cancelled');
+  // Both readings are given: the fleet's own fault, or another provider's job.
   await expect(note).toContainText('typo in');
+  await expect(note).toContainText('another runner provider');
   await expect(note.getByRole('link', { name: 'Check the pools and their labels' })).toBeVisible();
 });
 
@@ -133,7 +134,7 @@ test('a job that already ran is never called unmatched, whatever its labels say'
   // And on the unfiltered page the banner counts the one job that is actually
   // waiting, not every job whose labels this fleet does not answer.
   await goto(page, '/jobs', 'Jobs');
-  await expect(page.getByRole('note')).toContainText('1 queued job here has no pool to run it');
+  await expect(page.getByRole('note')).toContainText('1 queued job has no pool here');
 });
 
 /*
@@ -160,7 +161,7 @@ test('other runners are hidden by default and one switch brings them back', asyn
   // A queued job nothing claims stays in the default view either way: nothing
   // ran it, so it is this fleet's problem to see.
   await goto(page, '/jobs', 'Jobs');
-  await expect(page.getByRole('note')).toContainText('1 queued job here has no pool to run it');
+  await expect(page.getByRole('note')).toContainText('1 queued job has no pool here');
 });
 
 /*

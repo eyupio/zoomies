@@ -297,7 +297,7 @@ them apart:
 ```mermaid
 flowchart TB
     j["a job sits in the queue"] --> p{"does an enabled pool<br/>claim its labels?"}
-    p -->|"no"| unm["unmatched: fix the workflow's<br/>labels, or the pool's"]
+    p -->|"no"| unm["unmatched: if the job is meant for this fleet,<br/>fix the workflow's labels or the pool's;<br/>another provider's job starts there"]
     p -->|"yes"| h{"can a host run that pool?"}
     h -->|"nothing offers its backend"| b["fix the socket on that host, or point the<br/>pool at a backend your hosts already offer"]
     h -->|"nothing matches its host selector"| sel["relax the selector,<br/>or label a host to match"]

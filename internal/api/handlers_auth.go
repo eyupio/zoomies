@@ -163,7 +163,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		})
 		switch {
 		case errors.Is(err, auth.ErrRateLimited):
-			rateLimited(w, err.Error(), 0)
+			rateLimited(w, err.Error(), s.auth.LoginRetryAfter(ip))
 		case errors.Is(err, auth.ErrInvalidCredentials),
 			errors.Is(err, auth.ErrAccountDisabled),
 			errors.Is(err, auth.ErrSSOOnly):

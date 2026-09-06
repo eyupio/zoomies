@@ -554,6 +554,67 @@ func (c *Controller) PublishPoolDeleted(id string) {
 	c.publish(events.KindPoolDeleted, "pool:"+id, deletedPayload{ID: id})
 }
 
+// publishRunnerDeleted announces that a runner row is gone. A runner that was
+// removed already left the page on its runner.updated frame; this is for the
+// rows that vanish without one -- pruned, or cascaded away with their pool,
+// host or installation -- which the Runners page otherwise kept until a reload.
+func (c *Controller) publishRunnerDeleted(id string) {
+	c.publish(events.KindRunnerDeleted, "runner:"+id, deletedPayload{ID: id})
+}
+
+// DeletePool removes a pool and announces everything that went with it: each
+// runner row, then the pool. The runners go first so a page that drops them
+// has nothing left to explain when the pool disappears.
+func (c *Controller) DeletePool(ctx context.Context, id string) error {
+	runners, err := c.st.DeletePool(ctx, id)
+	if err != nil {
+		return err
+	}
+	for _, r := range runners {
+		c.publishRunnerDeleted(r)
+	}
+	c.PublishPoolDeleted(id)
+	return nil
+}
+
+// DeleteHost removes a host and announces its runner rows and then the host.
+func (c *Controller) DeleteHost(ctx context.Context, id string) error {
+	runners, err := c.st.DeleteHost(ctx, id)
+	if err != nil {
+		return err
+	}
+	for _, r := range runners {
+		c.publishRunnerDeleted(r)
+	}
+	c.PublishHostDeleted(id)
+	return nil
+}
+
+// DeleteInstallation removes an installation with its pools and their runner
+// rows, forgets its GitHub client, and announces each thing that went in the
+// order a page wants them: runners, pools, then the installation.
+func (c *Controller) DeleteInstallation(ctx context.Context, id string) error {
+	pools, err := c.st.ListPools(ctx)
+	if err != nil {
+		return fmt.Errorf("listing the installation's pools: %w", err)
+	}
+	runners, err := c.st.DeleteInstallation(ctx, id)
+	if err != nil {
+		return err
+	}
+	c.Forget(id)
+	for _, r := range runners {
+		c.publishRunnerDeleted(r)
+	}
+	for _, p := range pools {
+		if p.InstallationID == id {
+			c.PublishPoolDeleted(p.ID)
+		}
+	}
+	c.PublishInstallationDeleted(id)
+	return nil
+}
+
 // PublishHost announces a host an operator changed: its capacity, its labels,
 // or whether it is cordoned.
 func (c *Controller) PublishHost(h *store.Host) { c.publishHost(h) }

@@ -325,19 +325,14 @@ func (s *Server) handleDeleteInstallation(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	if err := s.ctrl.Store().DeleteInstallation(r.Context(), id); err != nil {
+	// The controller announces everything that went, runners first, then the
+	// pools, then the installation, so a page that drops them in that order
+	// has nothing left to explain at each step.
+	if err := s.ctrl.DeleteInstallation(r.Context(), id); err != nil {
 		s.fail(w, r, "deleting the installation", err)
 		return
 	}
-	s.ctrl.Forget(id)
 	s.auth.Auditor().Deleted(r.Context(), Identity(r.Context()), "installation", id, inst)
-	// The pools went with the installation, so each is announced as gone
-	// before the installation is: a page that removes the pools first has
-	// nothing left to explain when the installation disappears.
-	for _, poolID := range deleted {
-		s.ctrl.PublishPoolDeleted(poolID)
-	}
-	s.ctrl.PublishInstallationDeleted(id)
 	s.ctrl.Nudge()
 	writeJSON(w, http.StatusOK, deleteInstallationResponse{PoolsDeleted: len(deleted), RunnersAffected: affected})
 }

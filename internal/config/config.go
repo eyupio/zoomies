@@ -9,7 +9,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"os"
@@ -206,8 +208,10 @@ type Scheduler struct {
 	// ScaleUpDelay makes the scheduler wait before reacting to a queued job,
 	// which damps churn when jobs arrive in bursts. Zero reacts immediately.
 	ScaleUpDelay time.Duration `yaml:"scale_up_delay"`
-	// MaxRunnerLifetime force-drains a runner that has lived this long, which
-	// catches runners wedged by a hung job.
+	// MaxRunnerLifetime drains a runner that has lived this long, the next
+	// time it is not busy. It bounds how long a persistent runner's state and
+	// credentials live; it never ends a job, so it is no answer to a hung
+	// one -- that is what a workflow's timeout-minutes is for.
 	MaxRunnerLifetime time.Duration `yaml:"max_runner_lifetime"`
 	// ProvisionTimeout fails a runner that never finishes registering.
 	ProvisionTimeout time.Duration `yaml:"provision_timeout"`
@@ -401,7 +405,8 @@ func Load(path string) (*Config, error) {
 		// names the line, instead of a setting that silently does nothing.
 		dec := yaml.NewDecoder(strings.NewReader(string(b)))
 		dec.KnownFields(true)
-		if err := dec.Decode(cfg); err != nil && err.Error() != "EOF" {
+		// An empty file is an empty configuration, not a parse error.
+		if err := dec.Decode(cfg); err != nil && !errors.Is(err, io.EOF) {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
 		cfg.path = path
@@ -440,8 +445,15 @@ func (c *Config) Save(path string) error {
 // normalize fills in values that depend on other values.
 func (c *Config) normalize() {
 	c.Log.Level = strings.ToLower(strings.TrimSpace(c.Log.Level))
+	if c.Log.Level == "warning" {
+		// slog's name for the level is warn; the file may say either.
+		c.Log.Level = "warn"
+	}
 	c.Log.Format = strings.ToLower(strings.TrimSpace(c.Log.Format))
 	c.Agent.Backend = strings.ToLower(strings.TrimSpace(c.Agent.Backend))
+	// The environment override was always lowercased; the file is now too, so
+	// "Self-Signed" in zoomies.yaml is the same mode as self-signed.
+	c.Server.TLS.Mode = TLSMode(strings.ToLower(strings.TrimSpace(string(c.Server.TLS.Mode))))
 	if c.Server.TLS.Mode == "" {
 		c.Server.TLS.Mode = TLSOff
 	}
@@ -519,12 +531,24 @@ func (c *Config) BindsPublicly() bool {
 	case "", "0.0.0.0", "::", "[::]", "*":
 		return true
 	}
-	ip := net.ParseIP(strings.Trim(host, "[]"))
-	if ip == nil {
-		// A hostname; assume it resolves off-host.
+	// Any other name is assumed to resolve off-host, except the ones that
+	// never can.
+	return !loopbackHost(host)
+}
+
+// loopbackHost reports whether a host name or address can only ever be this
+// machine: a loopback IP, localhost, or a name under .localhost, which RFC 6761
+// reserves for exactly that. It is the one answer to the question the bind
+// address, the external URL, the allowed origins and the OIDC issuer all ask,
+// so that "localhost" cannot count as local in one of them and public in
+// another, as it once did between external_url and bind.
+func loopbackHost(host string) bool {
+	host = strings.ToLower(strings.Trim(host, "[]"))
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
 		return true
 	}
-	return !ip.IsLoopback()
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // ExternalURLValid reports whether the external URL parses as an absolute URL.
@@ -554,12 +578,7 @@ func (c *Config) ExternalURLIsLocal() bool {
 	if err != nil || u.Host == "" {
 		return false
 	}
-	host := u.Hostname()
-	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	return loopbackHost(u.Hostname())
 }
 
 // applyEnv overlays ZOOMIES_* environment variables.

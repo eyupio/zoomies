@@ -11,7 +11,14 @@
 -->
 <script lang="ts">
   import { formatDuration, shortId } from '$lib/format';
-  import { jobFailed, jobStatus, RUNNER_LOST, stuckUnmatched, UNMATCHED } from '$lib/status';
+  import {
+    HOSTED,
+    jobFailed,
+    jobStatus,
+    RUNNER_LOST,
+    stuckUnmatched,
+    UNMATCHED,
+  } from '$lib/status';
   import type { Job } from '$lib/api/types';
   import Badge from '$lib/components/Badge.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
@@ -53,7 +60,9 @@
       <div class="badges">
         {#if status}<Badge {status} />{/if}
         {#if job.runner_fault}<Badge status={RUNNER_LOST} />{/if}
-        {#if unmatched}<Badge status={UNMATCHED} />{/if}
+        {#if unmatched}<Badge status={UNMATCHED} />{:else if job.hosted && !job.matched}<Badge
+            status={HOSTED}
+          />{/if}
       </div>
 
       {#if failed}
@@ -94,7 +103,11 @@
           {#if job.pool_id}
             <a href="/pools/{job.pool_id}">{job.pool_name || job.pool_id}</a>
           {:else}
-            <span class="muted">No pool claimed it</span>
+            <span class="muted"
+              >{job.hosted
+                ? "No pool here claimed it; its labels name GitHub's own runners or a vendor's"
+                : 'No pool claimed it'}</span
+            >
           {/if}
         </dd>
 

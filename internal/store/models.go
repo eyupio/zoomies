@@ -470,38 +470,33 @@ func (d Duration) String() string          { return time.Duration(d).String() }
 
 func (d Duration) MarshalJSON() ([]byte, error) { return json.Marshal(time.Duration(d).String()) }
 
+// durationNeedsUnit is the one answer both decoders give to a bare number. The
+// JSON side used to read 300 as nanoseconds and the YAML side as seconds, so
+// the same file meant different things depending on how it arrived; a unit is
+// unambiguous, and the OpenAPI schema has always said a duration is a string.
+const durationNeedsUnit = `a duration is written with its unit, like "30s", "5m" or "1h30m"`
+
 func (d *Duration) UnmarshalJSON(b []byte) error {
 	var s string
-	if err := json.Unmarshal(b, &s); err == nil {
-		p, err := time.ParseDuration(s)
-		if err != nil {
-			return fmt.Errorf("invalid duration %q: %w", s, err)
-		}
-		*d = Duration(p)
-		return nil
+	if err := json.Unmarshal(b, &s); err != nil {
+		return fmt.Errorf("%s", durationNeedsUnit)
 	}
-	var n int64
-	if err := json.Unmarshal(b, &n); err != nil {
-		return fmt.Errorf("duration must be a string like \"5m\" or a nanosecond count")
-	}
-	*d = Duration(n)
-	return nil
+	return d.parse(s)
 }
 
-// UnmarshalYAML lets zoomies.yaml write idle_timeout: 5m.
+// UnmarshalYAML lets a pool definition write idle_timeout: 5m.
 func (d *Duration) UnmarshalYAML(unmarshal func(any) error) error {
 	var s string
 	if err := unmarshal(&s); err != nil {
-		var n int64
-		if err2 := unmarshal(&n); err2 != nil {
-			return fmt.Errorf("duration must be a string like \"5m\"")
-		}
-		*d = Duration(time.Duration(n) * time.Second)
-		return nil
+		return fmt.Errorf("%s", durationNeedsUnit)
 	}
+	return d.parse(s)
+}
+
+func (d *Duration) parse(s string) error {
 	p, err := time.ParseDuration(s)
 	if err != nil {
-		return fmt.Errorf("invalid duration %q: %w", s, err)
+		return fmt.Errorf("invalid duration %q: %w; %s", s, err, durationNeedsUnit)
 	}
 	*d = Duration(p)
 	return nil
@@ -760,12 +755,35 @@ type JobChange struct {
 	RunnerLinked bool
 }
 
-// FailedStep returns the step a job stopped at, or nil when it did not fail
-// on a step it ran.
+// FailedConclusions are the GitHub conclusions that count a job as failed
+// wherever Zoomies says "failed": the Overview's count, the Jobs page's filter
+// and Job.Failed. cancelled and skipped are not here, because a person or a
+// condition on the job chose them; nor is stale, Zoomies' own word for a job
+// GitHub stopped talking about. The UI keeps the same list in status.ts.
+var FailedConclusions = []string{"failure", "timed_out", "startup_failure"}
+
+// IsFailedConclusion reports whether a conclusion is one of FailedConclusions.
+func IsFailedConclusion(conclusion string) bool {
+	return slices.Contains(FailedConclusions, conclusion)
+}
+
+// Failed reports whether a job went wrong on either side: GitHub concluded it
+// did, or a runner of this fleet stopped under it, which GitHub may still be
+// waiting to hear about. It is the Go spelling of the SQL predicate the store's
+// queries use, so a count and a listing cannot disagree.
+func (j *Job) Failed() bool {
+	return IsFailedConclusion(j.Conclusion) || j.RunnerFault != ""
+}
+
+// FailedStep returns the step a job stopped at: the first step that did not
+// succeed, on a job that has completed. Nil when every step succeeded or was
+// skipped, or while the job is still running.
 //
-// GitHub's conclusion says that a job failed; the steps say where. The first
-// step that did not succeed is the one whose output the operator wants, because
-// every step after it is skipped or cancelled as a consequence.
+// It says where, not whether. Whether a job counts as failed is Failed's call,
+// made from the job's own conclusion; this is set for a cancelled job too,
+// because its completion message says which step the cancel landed in. The
+// first step that did not succeed is the one whose output the operator wants,
+// because every step after it is skipped or cancelled as a consequence.
 func (j *Job) FailedStep() *JobStep {
 	if j.State != JobCompleted {
 		return nil
@@ -773,9 +791,10 @@ func (j *Job) FailedStep() *JobStep {
 	for i := range j.Steps {
 		st := &j.Steps[i]
 		switch st.Conclusion {
-		case "failure", "timed_out", "cancelled", "startup_failure", "action_required":
-			return st
+		case "", "success", "skipped", "neutral":
+			continue
 		}
+		return st
 	}
 	return nil
 }

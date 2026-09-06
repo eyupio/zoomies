@@ -211,6 +211,12 @@ type Subscription struct {
 	// will never be sent, and the SSE handler tells it so with a resync
 	// frame before anything else.
 	Complete bool
+	// done is closed by Close, so the goroutine Subscribe starts to watch the
+	// context ends with the subscription. Without it a subscription closed by
+	// hand under a context that never ends -- the SSE handler closes its own
+	// before the request's context is cancelled -- left one goroutine waiting
+	// per connection for the life of the process.
+	done chan struct{}
 	// once makes Close idempotent AND race-free. Both matter: Subscribe spawns
 	// a goroutine that closes the subscription when the context ends, so an
 	// explicit Close from the handler and that goroutine routinely run at the
@@ -232,6 +238,9 @@ func (s *Subscription) Close() {
 			close(sub.ch)
 		}
 		s.bus.mu.Unlock()
+		if s.done != nil {
+			close(s.done)
+		}
 	})
 }
 
@@ -301,11 +310,14 @@ func (b *Bus) Subscribe(ctx context.Context, opts SubscribeOptions) *Subscriptio
 	}
 	b.mu.Unlock()
 
-	s := &Subscription{C: ch, bus: b, id: sub.id, Complete: complete}
+	s := &Subscription{C: ch, bus: b, id: sub.id, Complete: complete, done: make(chan struct{})}
 	if ctx != nil {
 		go func() {
-			<-ctx.Done()
-			s.Close()
+			select {
+			case <-ctx.Done():
+				s.Close()
+			case <-s.done:
+			}
 		}()
 	}
 	return s

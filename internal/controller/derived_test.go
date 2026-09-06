@@ -3,9 +3,11 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -190,5 +192,81 @@ func TestHostEventsCarryTheHealthTheCardShows(t *testing.T) {
 	}
 	if _, ok := got["backend_info"].([]any); !ok {
 		t.Errorf("host.updated backend_info = %v, want a list", got["backend_info"])
+	}
+}
+
+// A runner row that goes with its pool, host or installation, or is pruned, used
+// to go without a frame, so the Runners page kept showing runners that no
+// longer existed until it was reloaded. Each is announced now, before the thing
+// that took it.
+func TestRunnerRowsThatVanishAreAnnounced(t *testing.T) {
+	h := newHarness(t)
+	inst, pool, host := h.fleet()
+	var ids []string
+	for _, name := range []string{"one", "two"} {
+		r := &store.Runner{PoolID: pool.ID, HostID: host.ID, Name: name, State: store.RunnerIdle}
+		if err := h.st.CreateRunner(h.ctx, r); err != nil {
+			t.Fatalf("CreateRunner: %v", err)
+		}
+		ids = append(ids, r.ID)
+	}
+	sub := h.listen(events.KindRunnerDeleted, events.KindPoolDeleted, events.KindInstallationDeleted)
+
+	if err := h.c.DeletePool(h.ctx, pool.ID); err != nil {
+		t.Fatalf("DeletePool: %v", err)
+	}
+	var got []string
+	for range ids {
+		got = append(got, nextOfKind(t, sub, events.KindRunnerDeleted)["id"].(string))
+	}
+	slices.Sort(got)
+	slices.Sort(ids)
+	if !slices.Equal(got, ids) {
+		t.Fatalf("runner.deleted for %v, want %v", got, ids)
+	}
+	if gone := nextOfKind(t, sub, events.KindPoolDeleted); gone["id"] != pool.ID {
+		t.Fatalf("pool.deleted = %v, want %s after its runners", gone, pool.ID)
+	}
+
+	// The installation route goes through its pools.
+	other := h.pool(inst, "other")
+	r := &store.Runner{PoolID: other.ID, HostID: host.ID, Name: "three", State: store.RunnerFailed}
+	if err := h.st.CreateRunner(h.ctx, r); err != nil {
+		t.Fatalf("CreateRunner: %v", err)
+	}
+	if err := h.c.DeleteInstallation(h.ctx, inst.ID); err != nil {
+		t.Fatalf("DeleteInstallation: %v", err)
+	}
+	if e := nextOfKind(t, sub, events.KindRunnerDeleted); e["id"] != r.ID {
+		t.Fatalf("runner.deleted = %v, want %s", e, r.ID)
+	}
+	if e := nextOfKind(t, sub, events.KindPoolDeleted); e["id"] != other.ID {
+		t.Fatalf("pool.deleted = %v, want %s", e, other.ID)
+	}
+	if e := nextOfKind(t, sub, events.KindInstallationDeleted); e["id"] != inst.ID {
+		t.Fatalf("installation.deleted = %v, want %s", e, inst.ID)
+	}
+}
+
+// The prune is the quiet one: hourly, and a row it deletes is one the page
+// may well be showing under "include removed".
+func TestPrunedRunnersAreAnnounced(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	old := &store.Runner{PoolID: pool.ID, HostID: host.ID, Name: "old", State: store.RunnerRemoved}
+	if err := h.st.CreateRunner(h.ctx, old); err != nil {
+		t.Fatalf("CreateRunner: %v", err)
+	}
+	finished := time.Now().Add(-48 * time.Hour)
+	old.FinishedAt = &finished
+	if err := h.st.UpdateRunner(h.ctx, old); err != nil {
+		t.Fatalf("UpdateRunner: %v", err)
+	}
+	h.c.UpdateConfig(func(c *config.Config) { c.Retention.Runners = 24 * time.Hour })
+
+	sub := h.listen(events.KindRunnerDeleted)
+	h.c.prune(h.ctx)
+	if e := nextOfKind(t, sub, events.KindRunnerDeleted); e["id"] != old.ID {
+		t.Fatalf("runner.deleted = %v, want the pruned runner %s", e, old.ID)
 	}
 }

@@ -254,3 +254,96 @@ func TestOnlyTheEverythingRangeDrawsTheProxyWarning(t *testing.T) {
 		t.Fatal("an unparseable proxy entry was accepted")
 	}
 }
+
+// agent.root is about the process that runs runners. A controller with no
+// embedded agent runs none, so a container escape has nothing of its to land
+// on; the warning used to fire there anyway, on every root controller in front
+// of a fleet of remote agents, and taught operators to ignore it.
+func TestTheRootWarningIsAboutTheProcessThatRunsRunners(t *testing.T) {
+	old := euid
+	euid = func() int { return 0 }
+	t.Cleanup(func() { euid = old })
+
+	c := Default()
+	c.Agent.Embedded = false
+	c.Agent.ControllerURL = ""
+	c.Agent.Backend = "docker"
+	if hasCode(c.Validate(), "agent.root") {
+		t.Fatal("agent.root fired for a controller that runs no agent")
+	}
+
+	c.Agent.Embedded = true
+	if !hasCode(c.Validate(), "agent.root") {
+		t.Fatal("agent.root did not fire for a root agent using docker")
+	}
+
+	c.Agent.Embedded = false
+	c.Agent.ControllerURL = "https://zoomies.example.com"
+	if !hasCode(c.Validate(), "agent.root") {
+		t.Fatal("agent.root did not fire for a standalone root agent")
+	}
+}
+
+// disable_auth on bind: localhost:8080 was refused as a public bind while the
+// same word in external_url counted as local, because BindsPublicly assumed
+// any name resolves off-host. localhost and the names under .localhost never
+// do; RFC 6761 reserves them for this machine.
+func TestALocalhostBindIsNotPublic(t *testing.T) {
+	for bind, public := range map[string]bool{
+		"localhost:8080":           false,
+		"LOCALHOST:8080":           false,
+		"dev.localhost:8080":       false,
+		"127.0.0.1:8080":           false,
+		"[::1]:8080":               false,
+		"0.0.0.0:8080":             true,
+		":8080":                    true,
+		"[::]:8080":                true,
+		"10.0.0.5:8080":            true,
+		"zoomies.example.com:8080": true,
+	} {
+		c := Default()
+		c.Server.Bind = bind
+		if got := c.BindsPublicly(); got != public {
+			t.Errorf("BindsPublicly(%q) = %v, want %v", bind, got, public)
+		}
+	}
+	c := Default()
+	c.Server.ExternalURL = "http://dev.localhost:8080"
+	if !c.ExternalURLIsLocal() {
+		t.Fatal("a .localhost external URL did not count as local")
+	}
+	if hasCode(c.Validate(), "external_url.insecure") {
+		t.Fatal("plaintext to this machine drew the insecure external URL warning")
+	}
+}
+
+// The file is read as forgivingly as the environment: tls.mode was lowercased
+// from ZOOMIES_TLS_MODE but not from zoomies.yaml, "warning" was a level the
+// logger understood and the validator refused, and an empty file was told
+// apart from a broken one by the text of the error.
+func TestTheFileIsReadAsForgivinglyAsTheEnvironment(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "zoomies.yaml")
+	if err := os.WriteFile(path, []byte("server:\n  tls:\n    mode: Self-Signed\nlog:\n  level: Warning\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.Server.TLS.Mode != TLSSelfSigned {
+		t.Fatalf("tls.mode = %q, want %q", c.Server.TLS.Mode, TLSSelfSigned)
+	}
+	if c.Log.Level != "warn" {
+		t.Fatalf("log.level = %q, want warn", c.Log.Level)
+	}
+	if hasCode(c.Validate(), "log.level") {
+		t.Fatal("a warning level the logger understands was refused")
+	}
+
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err != nil {
+		t.Fatalf("an empty file did not load as an empty configuration: %v", err)
+	}
+}

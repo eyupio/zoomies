@@ -106,23 +106,15 @@ func (c *Controller) Stats(ctx context.Context, window time.Duration) (*Stats, e
 	for _, j := range queued {
 		queuedByPool[j.PoolID]++
 	}
-	runners, _, err := c.st.ListRunners(ctx, store.RunnerFilter{IncludeRemoved: true}, store.Page{Limit: 10000})
-	if err == nil {
-		var startup, registration []int64
-		for _, r := range runners {
-			if r.CreatedAt.Before(since) {
-				continue
-			}
-			if r.ContainerStartedAt != nil && !r.ContainerStartedAt.Before(r.CreatedAt) {
-				startup = append(startup, r.ContainerStartedAt.Sub(r.CreatedAt).Milliseconds())
-			}
-			if r.ContainerStartedAt != nil && r.RegisteredAt != nil && !r.RegisteredAt.Before(*r.ContainerStartedAt) {
-				registration = append(registration, r.RegisteredAt.Sub(*r.ContainerStartedAt).Milliseconds())
-			}
-		}
-		out.P50StartupMS, out.P95StartupMS = percentile(startup, .50), percentile(startup, .95)
-		out.P50RegistrationMS, out.P95RegistrationMS = percentile(registration, .50), percentile(registration, .95)
+	// The samples come from a query over the window rather than a page of
+	// runner rows: the page was capped at 500, so the percentiles described
+	// the newest few hundred starts and called it a day.
+	startup, registration, err := c.st.StartupSamples(ctx, since)
+	if err != nil {
+		return nil, fmt.Errorf("sampling runner start-up times: %w", err)
 	}
+	out.P50StartupMS, out.P95StartupMS = percentile(startup, .50), percentile(startup, .95)
+	out.P50RegistrationMS, out.P95RegistrationMS = percentile(registration, .50), percentile(registration, .95)
 
 	out.Pools = make([]PoolStats, 0, len(pools))
 	for _, p := range pools {

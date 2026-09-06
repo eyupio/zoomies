@@ -1368,3 +1368,60 @@ func TestAtCapacityCarriesNoAlternatives(t *testing.T) {
 		t.Fatalf("alternatives = %v, want none for a fleet that is only busy", pp.BlockedAlternatives)
 	}
 }
+
+// With a repository limit of one and three jobs from the same repository the
+// reason used to read "3 jobs queued" on a scale-up to a single runner, which
+// an operator reads as a shortfall. It counts the jobs the pool is scaling for
+// and says where the rest went.
+func TestTheScaleUpReasonCountsTheJobsItIsScalingForAndNamesTheDeferred(t *testing.T) {
+	p := testPool("shared", "self-hosted")
+	p.RepositoryScaleUpLimit = 1
+	jobs := []*store.Job{
+		queued("one", time.Minute, "self-hosted"),
+		queued("two", time.Minute, "self-hosted"),
+		queued("three", time.Minute, "self-hosted"),
+	}
+	s := snap([]*store.Pool{p}, nil, jobs, []*store.Host{testHost("host_a", 4, 0)})
+
+	pp := only(t, Decide(s))
+	if pp.Desired != 1 || countOf(pp.Actions, ActionCreate) != 1 {
+		t.Fatalf("plan = %+v, want one runner for the one admitted job", pp)
+	}
+	want := "scaled shared 0 -> 1: 1 job queued (2 jobs deferred by the repository limit for acme/widgets)"
+	if pp.Reason != want {
+		t.Fatalf("reason = %q\nwant     %q", pp.Reason, want)
+	}
+	if pp.Actions[0].Reason != "1 job queued (2 jobs deferred by the repository limit for acme/widgets)" {
+		t.Fatalf("action reason = %q", pp.Actions[0].Reason)
+	}
+}
+
+// HostCanRun is the placement rule, and the one the wizard, the capacity
+// signal and prewarming ask, so a host the scheduler would place on and a
+// host they count are the same host.
+func TestHostCanRunIsTheOnePlacementRule(t *testing.T) {
+	p := testPool("gpu", "gpu")
+	p.HostSelector = store.StringMap{"zone": "a"}
+	fits := testHost("host_a", 2, 0)
+	fits.Labels = store.StringMap{"zone": "a"}
+
+	cases := []struct {
+		name string
+		mut  func(h *store.Host)
+		want bool
+	}{
+		{"a healthy, uncordoned host with the backend and the labels", func(*store.Host) {}, true},
+		{"cordoned", func(h *store.Host) { h.Cordoned = true }, false},
+		{"silent", func(h *store.Host) { h.LastHeartbeat = now.Add(-time.Hour) }, false},
+		{"without the backend", func(h *store.Host) { h.Backends = store.StringSlice{"process"} }, false},
+		{"in the wrong zone", func(h *store.Host) { h.Labels = store.StringMap{"zone": "b"} }, false},
+		{"full, which is the scheduler's own accounting and not this rule's", func(h *store.Host) { h.ActiveRunners = h.Capacity }, true},
+	}
+	for _, tc := range cases {
+		h := *fits
+		tc.mut(&h)
+		if got := HostCanRun(&h, p, now); got != tc.want {
+			t.Errorf("%s: HostCanRun = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

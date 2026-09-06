@@ -69,8 +69,10 @@ type Policy struct {
 	// ScaleUpDelay is how long a job must have been queued before it counts as
 	// demand, which damps churn when jobs arrive in bursts.
 	ScaleUpDelay time.Duration
-	// MaxRunnerLifetime drains a runner that has lived this long, which catches
-	// runners wedged by a hung job.
+	// MaxRunnerLifetime drains a runner that has lived this long, the next
+	// time it is not busy. It bounds how long a persistent runner's state and
+	// credentials live; reap never drains a busy runner, so it is no answer to
+	// a hung job.
 	MaxRunnerLifetime time.Duration
 	// ProvisionTimeout fails a runner that never finished registering.
 	ProvisionTimeout time.Duration
@@ -128,6 +130,11 @@ type PoolPlan struct {
 	// QuotaDeferredRepositories names the repositories represented by those
 	// deferred jobs, in stable order.
 	QuotaDeferredRepositories []string `json:"quota_deferred_repositories,omitempty"`
+	// eligible is the number of queued jobs that drove Desired: past the
+	// scale-up delay and admitted by the repository limit. The scale-up reason
+	// is written from it, so it names the jobs the pool is scaling for rather
+	// than every job on the queue.
+	eligible int
 	// Reason is the sentence shown in the UI, e.g.
 	// "scaled linux-x64 2 -> 4: 3 jobs queued > 30s". It is empty when the
 	// pool's size did not change.
@@ -289,6 +296,7 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 	// what keeps the pool under its maximum, but it will never take a job, so
 	// it must not stand in for the runner a queued job is waiting on.
 	plan.Desired = clamp(max(p.MinRunners, busy+draining+eligible), p.MinRunners, p.MaxRunners)
+	plan.eligible = eligible
 	plan.Failing = t.holdAfterStartFailures(runners)
 
 	switch {
@@ -448,18 +456,20 @@ func (t *tick) grant(p *store.Pool, plan *PoolPlan, runners []*store.Runner, que
 		plan.BlockedAtCapacity, plan.BlockedAlternatives = b.atCapacity, b.alternatives
 		return false
 	}
-	busy, eligible := 0, 0
+	busy := 0
 	for _, r := range runners {
 		if r.State == store.RunnerBusy {
 			busy++
 		}
 	}
-	for _, r := range queued {
-		if t.now.Sub(r.QueuedAt) >= t.policy.ScaleUpDelay {
-			eligible++
-		}
+	// The reason counts the jobs the pool is scaling for. Counting the queue
+	// here instead used to say "3 jobs queued" for a pool the repository
+	// limit let scale for one of them, which reads as a shortfall.
+	reason := upReason(p, busy, plan.eligible, t.policy.ScaleUpDelay)
+	if plan.QuotaDeferredJobs > 0 {
+		reason += fmt.Sprintf(" (%s deferred by the repository limit for %s)",
+			plural(plan.QuotaDeferredJobs, "job"), strings.Join(plan.QuotaDeferredRepositories, ", "))
 	}
-	reason := upReason(p, busy, eligible, t.policy.ScaleUpDelay)
 	plan.Actions = append(plan.Actions, Action{Kind: ActionCreate, PoolID: p.ID, PoolName: p.Name, HostID: hosts[0], Reason: reason})
 	t.budget--
 	plan.Reason = scaled(p.Name, plan.Current, plan.Current+creates(plan.Actions), reason)
@@ -622,8 +632,36 @@ func (hs *hostSet) pick(p *store.Pool) *store.Host {
 }
 
 func (hs *hostSet) eligible(h *store.Host, p *store.Pool) bool {
-	return hs.free[h.ID] > 0 && h.Healthy(hs.now) && !h.Cordoned &&
-		slices.Contains(h.Backends, string(p.Backend)) && selects(p.HostSelector, h.Labels)
+	return hs.free[h.ID] > 0 && HostCanRun(h, p, hs.now)
+}
+
+// HostCanRun is the placement rule, in one place: a host may take a runner for
+// a pool when it is available, offers the pool's backend and satisfies the
+// pool's host selector. The wizard's "matching hosts" count, the capacity-demand
+// signal and image prewarming all ask this same question, and each used to
+// answer it with a copy of its own that a new rule here would have left
+// behind. Room on the host is the scheduler's own accounting and is checked
+// separately.
+func HostCanRun(h *store.Host, p *store.Pool, now time.Time) bool {
+	return HostAvailable(h, now) && HostOffers(h, p) && HostSelects(h, p)
+}
+
+// HostAvailable reports whether a host may take new runners at all: its agent
+// is heartbeating and an operator has not cordoned it.
+func HostAvailable(h *store.Host, now time.Time) bool {
+	return h.Healthy(now) && !h.Cordoned
+}
+
+// HostOffers reports whether a host's agent offers the pool's backend.
+func HostOffers(h *store.Host, p *store.Pool) bool {
+	return slices.Contains(h.Backends, string(p.Backend))
+}
+
+// HostSelects reports whether a host's labels satisfy the pool's host
+// selector: every key and value of the selector is present on the host, and
+// an empty selector means "any host".
+func HostSelects(h *store.Host, p *store.Pool) bool {
+	return selects(p.HostSelector, h.Labels)
 }
 
 // selects reports whether every key and value of the selector is present on the

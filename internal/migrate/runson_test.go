@@ -1,6 +1,7 @@
 package migrate
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -345,5 +346,50 @@ func TestIsManagedLabelSeparatesRentedFromOurs(t *testing.T) {
 		if IsManagedLabel(l) {
 			t.Errorf("IsManagedLabel(%q) = true, want false", l)
 		}
+	}
+}
+
+// A block-sequence item can carry a comment of its own. The label offered to
+// the wizard is the label, not "ubuntu-latest # pinned"; and since the mapping
+// replaces the item the comment was about, the rewrite leaves such a job alone
+// and says why rather than collapsing the list over the comment. A comment or
+// blank line between two items is the same case, and used to be worse: the
+// items above it were collapsed and the ones below left dangling.
+func TestCommentsInsideARunsOnListAreKeptByLeavingTheJobAlone(t *testing.T) {
+	withItemComment := "jobs:\n  build:\n    runs-on:\n      - ubuntu-latest # pinned\n    steps: []\n"
+	withCommentLine := "jobs:\n  build:\n    runs-on:\n      - ubuntu-latest\n      # and nothing else\n      - foo\n    steps: []\n"
+	withBlankLine := "jobs:\n  build:\n    runs-on:\n      - ubuntu-latest\n\n      - foo\n    steps: []\n"
+
+	if got := HostedLabelsIn(withItemComment); !slices.Equal(got, []string{"ubuntu-latest"}) {
+		t.Fatalf("HostedLabelsIn = %q, want the label without its comment", got)
+	}
+	if got := HostedLabelsIn(withCommentLine); !slices.Equal(got, []string{"ubuntu-latest"}) {
+		t.Fatalf("HostedLabelsIn over a comment line = %q", got)
+	}
+
+	for name, in := range map[string]string{"item comment": withItemComment, "comment line": withCommentLine, "blank line": withBlankLine} {
+		t.Run(name, func(t *testing.T) {
+			got := File(in, zoomies)
+			if got.Content != in {
+				t.Fatalf("content changed:\n%q\nwant it left alone\n%q", got.Content, in)
+			}
+			if len(got.Rewrites) != 0 || len(got.Skips) != 1 {
+				t.Fatalf("rewrites = %+v, skips = %+v; want one skip and no rewrite", got.Rewrites, got.Skips)
+			}
+			if !strings.Contains(got.Skips[0].Reason, "collapsing the list would delete") || got.Skips[0].Job != "build" {
+				t.Fatalf("skip = %+v, want it to name the comment and the job", got.Skips[0])
+			}
+		})
+	}
+
+	// A comment line after the list belongs to what follows, and the list is
+	// still rewritten.
+	after := "jobs:\n  build:\n    runs-on:\n      - ubuntu-latest\n    # steps follow\n    steps: []\n"
+	got := File(after, zoomies)
+	if want := "jobs:\n  build:\n    runs-on: zoomies-linux-x64\n    # steps follow\n    steps: []\n"; got.Content != want {
+		t.Fatalf("content =\n%q\nwant\n%q", got.Content, want)
+	}
+	if label, comment := splitItemComment(`"a # b" # c`); label != `"a # b"` || comment != "# c" {
+		t.Fatalf("splitItemComment = %q, %q; a # inside quotes is part of the label", label, comment)
 	}
 }

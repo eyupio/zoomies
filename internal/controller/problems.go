@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -156,6 +157,14 @@ func (c *Controller) hostProblems(ctx context.Context, out *[]Problem) error {
 	if err != nil {
 		return fmt.Errorf("listing queued jobs: %w", err)
 	}
+	pools, err := c.st.ListPools(ctx)
+	if err != nil {
+		return fmt.Errorf("listing pools: %w", err)
+	}
+	poolByID := make(map[string]*store.Pool, len(pools))
+	for _, p := range pools {
+		poolByID[p.ID] = p
+	}
 	now := c.Now()
 
 	for _, h := range hosts {
@@ -181,11 +190,24 @@ func (c *Controller) hostProblems(ctx context.Context, out *[]Problem) error {
 			})
 			continue
 		}
-		if h.Cordoned && len(queued) > 0 {
+		if !h.Cordoned {
+			continue
+		}
+		// Only the queued work this host could take counts against it: a
+		// cordoned arm64 host has nothing to do with a queue of jobs for a
+		// pool it never offered, and blaming it sends an operator to uncordon
+		// a machine that would change nothing.
+		couldRun := 0
+		for _, j := range queued {
+			if p := poolByID[j.PoolID]; p != nil && scheduler.HostOffers(h, p) && scheduler.HostSelects(h, p) {
+				couldRun++
+			}
+		}
+		if couldRun > 0 {
 			*out = append(*out, Problem{
 				Code:       "host.cordoned_with_work",
 				Severity:   config.SeverityWarning,
-				Title:      fmt.Sprintf("host %s is cordoned with %s queued", h.Name, plural(len(queued), "job")),
+				Title:      fmt.Sprintf("host %s is cordoned with %s queued that it could run", h.Name, plural(couldRun, "job")),
 				Detail:     "a cordoned host keeps its runners but accepts no new ones, so its capacity is not available to the queue.",
 				Fix:        fmt.Sprintf("uncordon %s on the Hosts page if the maintenance it was cordoned for is over.", h.Name),
 				TargetKind: "host", TargetID: h.ID,
@@ -389,9 +411,20 @@ func (c *Controller) jobProblems(ctx context.Context, out *[]Problem) error {
 	if err := c.lostRunnerProblems(ctx, out); err != nil {
 		return err
 	}
-	unmatched, err := c.unmatchedQueuedJobs(ctx)
+	all, err := c.unmatchedQueuedJobs(ctx)
 	if err != nil {
 		return err
+	}
+	now := c.Now()
+	var unmatched []*store.Job
+	for _, j := range all {
+		// A job on GitHub's own runners or a vendor's is theirs to run however
+		// long it queues, and a job unclaimed for seconds may be another
+		// provider's, about to start there. Neither is this fleet's problem.
+		if hostedJob(j.Labels) || now.Sub(j.QueuedAt) < unmatchedGrace {
+			continue
+		}
+		unmatched = append(unmatched, j)
 	}
 	if len(unmatched) == 0 {
 		return nil
@@ -401,14 +434,20 @@ func (c *Controller) jobProblems(ctx context.Context, out *[]Problem) error {
 	*out = append(*out, Problem{
 		Code:     "jobs.unmatched",
 		Severity: config.SeverityWarning,
-		Title:    fmt.Sprintf("no enabled pool matches %s", plural(len(unmatched), "queued job")),
-		Detail: fmt.Sprintf("nothing will run them. The oldest is %s in %s, asking for [%s].",
-			example.JobName, example.Repo, labels),
-		Fix:        "create or enable a pool advertising those labels, or change the workflow's runs-on.",
+		Title:    fmt.Sprintf("no enabled pool here claims %s", plural(len(unmatched), "queued job")),
+		Detail: fmt.Sprintf("if they are meant for this fleet, nothing will run them. The oldest is %s in %s, asking for [%s], queued for %s. If another runner provider serves those labels, this is expected.",
+			example.JobName, example.Repo, labels, roundDuration(now.Sub(example.QueuedAt))),
+		Fix:        "create or enable a pool advertising those labels, or change the workflow's runs-on; if another provider takes these jobs, nothing needs doing.",
 		TargetKind: "job", TargetID: example.ID, Since: &example.QueuedAt,
 	})
 	return nil
 }
+
+// unmatchedGrace is how long a queued job no pool here claims is given before
+// it is reported. GitHub's own runners take a job within seconds and another
+// provider within its own scale-up delay, so a job still unclaimed after this
+// long is either meant for this fleet and mislabelled, or nobody's at all.
+const unmatchedGrace = 2 * time.Minute
 
 // lostRunnerProblems reports jobs whose runner stopped under them in the last
 // hour. GitHub records these as failures like any test failure, and a team
@@ -501,9 +540,23 @@ func (c *Controller) loopProblems() []Problem {
 }
 
 func (c *Controller) runnerProblems(ctx context.Context, out *[]Problem) error {
+	// The count comes from the store's aggregate, not from a page of rows: a
+	// page is capped, and "100 runners in the failed state" on a fleet with
+	// four hundred understates the day it is having.
+	counts, err := c.st.CountRunnersByPool(ctx)
+	if err != nil {
+		return fmt.Errorf("counting failed runners: %w", err)
+	}
+	total := 0
+	for _, pc := range counts {
+		total += pc.Failed
+	}
+	if total == 0 {
+		return nil
+	}
 	failed, _, err := c.st.ListRunners(ctx, store.RunnerFilter{
 		States: []store.RunnerState{store.RunnerFailed},
-	}, store.Page{Limit: 100})
+	}, store.Page{Limit: 1, Sort: "created_at", Desc: true})
 	if err != nil {
 		return fmt.Errorf("listing failed runners: %w", err)
 	}
@@ -514,7 +567,7 @@ func (c *Controller) runnerProblems(ctx context.Context, out *[]Problem) error {
 	*out = append(*out, Problem{
 		Code:       "runners.failed",
 		Severity:   config.SeverityWarning,
-		Title:      fmt.Sprintf("%s in the failed state", plural(len(failed), "runner")),
+		Title:      fmt.Sprintf("%s in the failed state", plural(total, "runner")),
 		Detail:     fmt.Sprintf("the most recent is %s: %s", example.Name, example.Message),
 		Fix:        "look at the runner's logs on the Runners page; failed runners are cleaned up automatically but the cause is not.",
 		TargetKind: "runner", TargetID: example.ID, Since: &example.CreatedAt,

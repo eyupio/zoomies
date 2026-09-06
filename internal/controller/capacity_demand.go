@@ -81,19 +81,11 @@ func (c *Controller) capacityPoolAllowed(p *store.Pool) bool {
 func eligibleCapacity(p *store.Pool, hosts []*store.Host, now time.Time) int {
 	n := 0
 	for _, h := range hosts {
-		if h.Healthy(now) && !h.Cordoned && slices.Contains(h.Backends, string(p.Backend)) && selectorMatches(p.HostSelector, h.Labels) {
+		if scheduler.HostCanRun(h, p, now) {
 			n += h.Capacity
 		}
 	}
 	return n
-}
-func selectorMatches(want, got store.StringMap) bool {
-	for k, v := range want {
-		if got[k] != v {
-			return false
-		}
-	}
-	return true
 }
 func oldestPoolQueue(p *store.Pool, pools []*store.Pool, jobs []*store.Job, now time.Time) int64 {
 	var oldest time.Duration

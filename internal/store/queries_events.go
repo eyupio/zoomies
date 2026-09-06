@@ -367,10 +367,11 @@ func jobWhere(f JobFilter) (string, []any) {
 		cond = append(cond, `state IN (`+strings.Join(ph, ",")+`)`)
 	}
 	// Labels are stored as a JSON array; a LIKE on the quoted label is exact
-	// enough because NormalizeLabels guarantees no embedded quotes.
+	// because NormalizeLabels guarantees no embedded quotes and likeEscape
+	// keeps an underscore in the label meaning an underscore.
 	for _, l := range NormalizeLabels(f.Labels) {
-		cond = append(cond, `labels LIKE ?`)
-		args = append(args, `%"`+l+`"%`)
+		cond = append(cond, `labels LIKE ? ESCAPE '\'`)
+		args = append(args, `%"`+likeEscape(l)+`"%`)
 	}
 	if f.Since != nil {
 		cond = append(cond, `queued_at >= ?`)
@@ -393,11 +394,11 @@ func jobWhere(f JobFilter) (string, []any) {
 	if f.FaultedOnly {
 		cond = append(cond, `runner_fault != ''`)
 	} else if f.FailedOnly {
-		cond = append(cond, `(conclusion IN ('failure','timed_out','startup_failure') OR runner_fault != '')`)
+		cond = append(cond, failedJobSQL())
 	}
 	if q := strings.TrimSpace(f.Search); q != "" {
-		cond = append(cond, `(repo LIKE ? OR workflow LIKE ? OR job_name LIKE ? OR runner_name LIKE ?)`)
-		like := "%" + q + "%"
+		cond = append(cond, `(repo LIKE ? ESCAPE '\' OR workflow LIKE ? ESCAPE '\' OR job_name LIKE ? ESCAPE '\' OR runner_name LIKE ? ESCAPE '\')`)
+		like := likePattern(q)
 		args = append(args, like, like, like, like)
 	}
 	if len(cond) == 0 {
@@ -466,13 +467,25 @@ type JobStats struct {
 }
 
 // StatsSince computes queue and outcome statistics over a rolling window.
+// failedJobSQL is the SQL spelling of Job.Failed, built from the same list, so
+// the Overview's failed count and the Jobs page's failed filter cannot drift
+// apart again: one used to count "failure" alone while the other added the
+// timeouts and the runner faults, and the tile said 1 where the page showed 3.
+func failedJobSQL() string {
+	quoted := make([]string, len(FailedConclusions))
+	for i, c := range FailedConclusions {
+		quoted[i] = "'" + c + "'"
+	}
+	return `(conclusion IN (` + strings.Join(quoted, ",") + `) OR runner_fault != '')`
+}
+
 func (s *Store) StatsSince(ctx context.Context, since time.Time) (JobStats, error) {
 	var st JobStats
 	err := s.read.QueryRowContext(ctx, `SELECT
 		(SELECT COUNT(*) FROM jobs WHERE state='queued'),
 		(SELECT COUNT(*) FROM jobs WHERE state='in_progress'),
 		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND completed_at >= ?),
-		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND conclusion='failure' AND completed_at >= ?)`,
+		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND `+failedJobSQL()+` AND completed_at >= ?)`,
 		ms(since), ms(since)).Scan(&st.Queued, &st.Running, &st.CompletedLast, &st.Failed)
 	if err != nil {
 		return st, err
@@ -616,8 +629,8 @@ func (s *Store) ListAudit(ctx context.Context, f AuditFilter, p Page) ([]*AuditE
 		args = append(args, ms(*f.Until))
 	}
 	if q := strings.TrimSpace(f.Search); q != "" {
-		cond = append(cond, `(actor_name LIKE ? OR action LIKE ? OR target_id LIKE ?)`)
-		like := "%" + q + "%"
+		cond = append(cond, `(actor_name LIKE ? ESCAPE '\' OR action LIKE ? ESCAPE '\' OR target_id LIKE ? ESCAPE '\')`)
+		like := likePattern(q)
 		args = append(args, like, like, like)
 	}
 	where := ""
