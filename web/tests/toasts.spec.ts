@@ -23,11 +23,13 @@ const successToasts = (page: Page) => page.locator('.toast[data-tone="success"]'
 /** Tick one pool and press one of the bulk buttons. */
 async function bulkAction(page: Page, label: 'Enable' | 'Disable'): Promise<void> {
   const row = dataRows(grid(page, 'Pools')).filter({ hasText: FIXTURE.linuxPool });
-  await row.getByRole('checkbox', { name: 'Select this row' }).check();
+  const checkbox = row.getByRole('checkbox', { name: 'Select this row' });
+  await checkbox.check();
   await page
     .getByRole('group', { name: /Actions for the selected/ })
     .getByRole('button', { name: label })
     .click();
+  await expect(checkbox).not.toBeChecked();
 }
 
 /**
