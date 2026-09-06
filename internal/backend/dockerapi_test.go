@@ -479,7 +479,15 @@ func TestAPIClientImages(t *testing.T) {
 	pulls := 0
 	f := newFakeEngine(t, map[string]http.HandlerFunc{
 		"GET " + v + "/images/runner:1/json": func(w http.ResponseWriter, r *http.Request) {
-			writeJSON(w, http.StatusOK, map[string]string{"Id": "sha256:abc"})
+			writeJSON(w, http.StatusOK, map[string]any{
+				"Id":          "sha256:abc",
+				"RepoDigests": []string{"ghcr.io/acme/runner@sha256:def"},
+			})
+		},
+		// An image built on this host, never pulled, so the daemon has no
+		// registry digest to report.
+		"GET " + v + "/images/local:1/json": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, map[string]any{"Id": "sha256:local", "RepoDigests": []string{}})
 		},
 		"GET " + v + "/images/absent:1/json": func(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"message": "No such image: absent:1"})
@@ -514,6 +522,36 @@ func TestAPIClientImages(t *testing.T) {
 		ok, err := c.ImageInspect(ctx, "absent:1")
 		if err != nil || ok {
 			t.Fatalf("got %v %v", ok, err)
+		}
+	})
+
+	t.Run("identity prefers the registry digest", func(t *testing.T) {
+		info, ok, err := c.ImageIdentity(ctx, "runner:1")
+		if err != nil || !ok {
+			t.Fatalf("got %v %v %v", info, ok, err)
+		}
+		if info.ID != "sha256:abc" {
+			t.Fatalf("id = %q", info.ID)
+		}
+		if got := info.Digest(); got != "ghcr.io/acme/runner@sha256:def" {
+			t.Fatalf("digest = %q, want the repo digest", got)
+		}
+	})
+
+	t.Run("identity falls back to the image id", func(t *testing.T) {
+		info, ok, err := c.ImageIdentity(ctx, "local:1")
+		if err != nil || !ok {
+			t.Fatalf("got %v %v %v", info, ok, err)
+		}
+		if got := info.Digest(); got != "sha256:local" {
+			t.Fatalf("digest = %q, want the image id", got)
+		}
+	})
+
+	t.Run("identity of an absent image is not an error", func(t *testing.T) {
+		info, ok, err := c.ImageIdentity(ctx, "absent:1")
+		if err != nil || ok || info.Digest() != "" {
+			t.Fatalf("got %v %v %v", info, ok, err)
 		}
 	})
 

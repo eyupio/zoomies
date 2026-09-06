@@ -443,6 +443,30 @@ type StatsSample struct {
 	MemoryLimit int64
 }
 
+// ImageInfo is the part of an image inspection Zoomies has a use for: enough to
+// say whether the image a moving tag points at is still the one this host
+// pulled. Everything else the daemon reports about an image is irrelevant here.
+type ImageInfo struct {
+	// ID is the local content digest of the image configuration. It changes
+	// whenever the tag is repointed at a different build, which makes it the
+	// cheap "did this move?" signal even for a registry that was never asked.
+	ID string `json:"Id"`
+	// RepoDigests carry the registry manifest digests the image was pulled
+	// under. A locally built image has none, which is why ID is the fallback.
+	RepoDigests []string `json:"RepoDigests"`
+}
+
+// Digest identifies an image in the most specific way this host can. The
+// registry manifest digest is preferred, because it is the same string the
+// registry and every other host would use for the same image; the local
+// configuration ID is the fallback for an image that was never pulled.
+func (i ImageInfo) Digest() string {
+	if len(i.RepoDigests) > 0 && i.RepoDigests[0] != "" {
+		return i.RepoDigests[0]
+	}
+	return i.ID
+}
+
 // ---------------------------------------------------------------------------
 // Calls
 // ---------------------------------------------------------------------------
@@ -516,14 +540,24 @@ func (c *APIClient) ImagePull(ctx context.Context, ref, auth string) error {
 
 // ImageInspect reports whether an image is present locally.
 func (c *APIClient) ImageInspect(ctx context.Context, ref string) (bool, error) {
-	err := c.do(ctx, http.MethodGet, "/images/"+ref+"/json", nil, nil, nil)
+	_, present, err := c.ImageIdentity(ctx, ref)
+	return present, err
+}
+
+// ImageIdentity reports which image a reference currently resolves to on this
+// host, so a caller can tell whether a pull moved a tag. An absent image is not
+// an error -- the boolean says whether it was there at all -- because "not here
+// yet" is the normal state before the first pull.
+func (c *APIClient) ImageIdentity(ctx context.Context, ref string) (ImageInfo, bool, error) {
+	var out ImageInfo
+	err := c.do(ctx, http.MethodGet, "/images/"+ref+"/json", nil, nil, &out)
 	switch {
 	case err == nil:
-		return true, nil
+		return out, true, nil
 	case errors.Is(err, ErrNotFound):
-		return false, nil
+		return ImageInfo{}, false, nil
 	default:
-		return false, err
+		return ImageInfo{}, false, err
 	}
 }
 
