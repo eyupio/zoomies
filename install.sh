@@ -565,7 +565,9 @@ restart_hint() {
                 printf 'launchctl kickstart -k gui/%s/%s' "$(id -u)" "$unit"
             fi
             ;;
-        openrc)  printf 'sudo rc-service %s restart' "$unit" ;;
+        # No OpenRC service is written -- `zoomies init` deploys with compose on
+        # these hosts and says why -- so what restarts is the container.
+        openrc)  printf '%s restart' "${COMPOSE_CMD:-docker compose}" ;;
         *)       printf 'restart the zoomies process' ;;
     esac
 }
@@ -975,7 +977,8 @@ if [ -n "$INSTALLED_TAG" ] && [ "$INSTALLED_TAG" != "$WANTED_TAG" ] &&
    printf '1\n' | sort -V >/dev/null 2>&1 &&
    [ "$(printf '%s\n%s\n' "$INSTALLED_TAG" "$WANTED_TAG" | sort -V | tail -1)" = "$INSTALLED_TAG" ]; then
     warn "$VERSION is older than the installed $EXISTING_VERSION, so this is a downgrade."
-    hint "Back up $PREFIX/../zoomies.db first: an older build may not read a schema a newer one wrote."
+    hint "Back up the database first -- /var/lib/zoomies/zoomies.db on a native install, the zoomies-data volume on a container one." \
+         "An older build may not read a schema a newer one wrote."
 fi
 
 if [ "$NON_INTERACTIVE" -eq 0 ] && [ "$ASSUME_YES" -eq 0 ] && have_tty; then
