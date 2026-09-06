@@ -44,7 +44,7 @@ evidence.
 | ZF-102 | Make runner and agent reconciliation convergent | mixed (mechanics exist; adoption on restart, a controller lock and the log-relay host check do not) | `not_started` | ZF-002; N02 needs `main` deployed | | Size M; ready now |
 | ZF-103 | Reserve host resources and enforce bounded admission | extension (slot model complete; no host resource reporting) | `not_started` | ZF-102 | | Size L; 103a before Gate F, 103b after |
 | ZF-104 | Verify control-plane access and secret boundaries | mixed (matrix and most tests exist; log relay unscoped to host; streams never re-check credentials) | `not_started` | ZF-101, ZF-102 | | Size M |
-| ZF-105 | Bound cleanup, retention and external failure handling | mixed (local cleanup exists; failure invisible; one listing-failure defect) | `not_started` | ZF-102, except the first pull request | | Size M; first pull request ready now |
+| ZF-105 | Bound cleanup, retention and external failure handling | mixed (local cleanup exists; failure invisible; one listing-failure defect) | `in_progress` | ZF-102, except the first pull request | first slice: Claude Fable 5.1, `high`, one session, 1 review round | Size M; the listing-failure defect is fixed in its own pull request with a test that reproduces it on the old code |
 
 ## Phase 2: operable and usable
 
@@ -74,6 +74,9 @@ evidence.
 ## Log
 
 Newest first. One line per event that changed a row.
+
+* 2026-09-06: ZF-105's first slice, the listing-failure defect in the agent
+  reconciler, fixed with a test; the package is `in_progress`.
 
 * 2026-09-06: every Phase 1 to 3 package classified from the package-by-package
   review (12 mappers, 12 adversarial verifiers, one document critic); ZF-003

@@ -59,17 +59,26 @@ func (a *Agent) ReconcileOnce(ctx context.Context) ([]RunnerReport, error) {
 	var errs []error
 	seen := make(map[string]bool)
 
+	// A backend that could not be listed says nothing about the runners on
+	// it. Treating "not listed" like "not seen" would let a transient daemon
+	// error a minute into a runner's life declare it gone, have the controller
+	// mark its job lost, and then reap the live container as an orphan once
+	// the daemon answered again.
+	unlisted := make(map[store.BackendKind]bool)
+
 	kinds := a.opts.Backends.Kinds()
 	slices.Sort(kinds)
 	for _, kind := range kinds {
 		b, err := a.opts.Backends.Get(kind)
 		if err != nil {
 			errs = append(errs, err)
+			unlisted[kind] = true
 			continue
 		}
 		workloads, err := b.List(ctx)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("agent: listing %s workloads on this host: %w", kind, err))
+			unlisted[kind] = true
 			continue
 		}
 
@@ -93,7 +102,7 @@ func (a *Agent) ReconcileOnce(ctx context.Context) ([]RunnerReport, error) {
 	// behind the agent's back -- by an operator with docker rm, or by a daemon
 	// restart with cleanup.
 	for _, r := range a.trackedRunners() {
-		if seen[r.runnerID] {
+		if seen[r.runnerID] || unlisted[r.kind] {
 			continue
 		}
 		if now.Sub(r.createdAt) < missingGrace {
