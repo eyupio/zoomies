@@ -48,7 +48,12 @@ test('the list shows both pools and names the risk the arm64 one carries', async
   await expect(linux).toHaveCount(1);
   await expect(arm).toHaveCount(1);
 
-  // The badge counts the risks; colour is never the only carrier.
+  // The badge counts the risks; colour is never the only carrier. Two, and it
+  // stays two: the count is of dangerous *settings*, not of everything the
+  // controller currently has to say about the pool. This pool also has a job
+  // it cannot place, and that condition arrives some minutes into a run --
+  // which is how a badge that counted it made this assertion depend on how
+  // long the suite had been going.
   await expect(arm.getByText('2 risks')).toBeVisible();
   // And the specific risks are in the row's text at all times -- in the
   // tooltip for a mouse, and in the always-present description for everyone

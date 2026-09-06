@@ -29,7 +29,7 @@
   import Duration from '$lib/components/Duration.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
-  import StatusDot from '$lib/components/StatusDot.svelte';
+  import StateCell from '$lib/components/StateCell.svelte';
   import { endOfDay, startOfDay } from '$lib/jobs/DateRange.svelte';
   import GitHubLink from '$lib/jobs/GitHubLink.svelte';
   import JobDrawer from '$lib/jobs/JobDrawer.svelte';
@@ -275,7 +275,7 @@
 
 {#snippet stateCell(job: Job)}
   <span class="state">
-    <StatusDot status={jobStatus(job.state, job.conclusion)} showLabel />
+    <StateCell status={jobStatus(job.state, job.conclusion)} />
     {#if job.runner_fault}
       <Badge status={RUNNER_LOST} size="sm" title={RUNNER_LOST.hint} />
     {/if}

@@ -652,7 +652,13 @@
     flex-direction: column;
     gap: var(--z-space-5);
   }
-  .step:focus {
+  /*
+    The step is focused programmatically when the wizard advances, so that a
+    screen reader lands on the new content. That is not a keyboard tab, so
+    :focus-visible is the right test: it draws no ring for the move the wizard
+    made, and still draws one if somebody tabs here themselves.
+  */
+  .step:focus:not(:focus-visible) {
     outline: none;
   }
   .blocking {

@@ -246,15 +246,17 @@
   .tiles {
     display: grid;
     gap: var(--z-space-4);
-    /* Two up on a tablet, four up once there is room for four. Never three
-       with an orphan. */
+    /* Six tiles, so the column count is a divisor of six at every width: three
+       up with room, two on a tablet, one on a phone. Four columns left the
+       second row two-thirds empty, which is what the shipped screenshot
+       showed. */
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   /* The sidebar breakpoint from the other side: a media query cannot say
      "above 1180" without naming the next pixel. */
   @media (min-width: 1181px) {
     .tiles {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
   }
   @media (max-width: 768px) {

@@ -254,3 +254,74 @@ func TestSeedDemoStillRecognisesItsOwnFixtures(t *testing.T) {
 		t.Fatalf("second SeedDemo refused its own fixtures: %v", err)
 	}
 }
+
+// The demo fleet has to stay alive for as long as somebody is looking at it.
+//
+// A seeded host has no agent behind it, so its heartbeat is written once. Ninety
+// seconds later store.HeartbeatTimeout has passed, every demo host is unhealthy
+// and every demo pool reports that it has nowhere to run -- the fleet goes dark
+// while the page is open. It also made the Playwright suite's answers depend on
+// how long the suite had been running.
+func TestDemoHostsKeepBeating(t *testing.T) {
+	h := newHarness(t)
+
+	if err := h.c.SeedDemo(h.ctx); err != nil {
+		t.Fatalf("SeedDemo: %v", err)
+	}
+
+	// Far enough past the timeout that nothing is healthy any more.
+	future := time.Now().Add(store.HeartbeatTimeout * 3)
+	h.c.clock = func() time.Time { return future }
+
+	hosts, err := h.st.ListHosts(h.ctx)
+	if err != nil {
+		t.Fatalf("ListHosts: %v", err)
+	}
+	for _, host := range hosts {
+		if host.Healthy(future) {
+			t.Fatalf("host %s was still healthy before the beat; the fixture proves nothing", host.ID)
+		}
+	}
+
+	h.c.beatDemoHosts(h.ctx)
+
+	hosts, err = h.st.ListHosts(h.ctx)
+	if err != nil {
+		t.Fatalf("ListHosts: %v", err)
+	}
+	if len(hosts) == 0 {
+		t.Fatal("no hosts to check")
+	}
+	for _, host := range hosts {
+		if !host.Healthy(future) {
+			t.Errorf("demo host %s is unhealthy after a beat", host.ID)
+		}
+	}
+}
+
+// And it never touches a host it did not create: an operator who set
+// ZOOMIES_SEED_DEMO on an instance that has since grown a real agent must not
+// have that agent's silence covered up.
+func TestDemoHeartbeatLeavesRealHostsAlone(t *testing.T) {
+	h := newHarness(t)
+
+	real := &store.Host{
+		ID:            "hst_realone",
+		Name:          "a-real-host",
+		Capacity:      2,
+		LastHeartbeat: time.Now().Add(-store.HeartbeatTimeout * 2),
+	}
+	if err := h.st.CreateHost(h.ctx, real); err != nil {
+		t.Fatalf("CreateHost: %v", err)
+	}
+
+	h.c.beatDemoHosts(h.ctx)
+
+	got, err := h.st.GetHost(h.ctx, real.ID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if got.Healthy(time.Now()) {
+		t.Fatal("a real host was marked alive by the demo heartbeat")
+	}
+}

@@ -96,7 +96,7 @@
         {/if}
 
         <dt>Labels</dt>
-        <dd><JobLabels labels={job.labels} max={0} /></dd>
+        <dd><JobLabels labels={job.labels} max={0} wrap /></dd>
 
         <dt>Pool</dt>
         <dd>

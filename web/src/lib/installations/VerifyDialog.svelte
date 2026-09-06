@@ -126,12 +126,21 @@
           </p>
           {#if settingsURL}
             <p class="fix-actions">
-              <Button variant="primary" size="sm" href={settingsURL} iconAfter={ExternalLink}>
+              <Button
+                variant="primary"
+                size="sm"
+                href={settingsURL}
+                newTab
+                iconAfter={ExternalLink}
+              >
                 Open the App's settings
               </Button>
               {#if installationsURL}
-                <a href={installationsURL} rel="noreferrer">Accept the change on the installation</a
-                >
+                <a href={installationsURL} target="_blank" rel="noopener noreferrer">
+                  Accept the change on the installation<span class="sr-only">
+                    (opens in a new tab)</span
+                  >
+                </a>
               {/if}
             </p>
           {/if}

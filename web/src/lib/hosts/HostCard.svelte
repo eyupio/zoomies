@@ -120,6 +120,7 @@
     <UtilisationBar
       busy={active}
       live={capacity}
+      tone="capacity"
       label="Runner slots in use on {host.name || host.id}"
       showText={false}
     />

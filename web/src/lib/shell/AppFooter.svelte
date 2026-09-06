@@ -36,16 +36,19 @@
       {/if}
     </span>
     <span class="right">
-      <!-- The only link out of the product. An operator in their first fifteen
-           minutes who wants to know what a runner group is, or what the
-           host-socket option costs them, had to leave and guess a URL. It is a
-           hyperlink, not a fetch, so an air-gapped install is unaffected. -->
-      <a class="docs" href={QUICKSTART_URL} rel="noreferrer">Docs</a>
-      <!-- Opens in a new tab: it leaves the dashboard for another site, and an
-           operator watching a fleet should not lose the page they were on. -->
+      <!-- Both of these leave the product, so both open in a new tab: an
+           operator watching a fleet should not lose the page they were on to
+           go and read what a runner group is. They are hyperlinks, not
+           fetches, so an air-gapped install is unaffected -- the link simply
+           does not resolve, which is the same as it being absent. -->
+      <a class="docs" href={QUICKSTART_URL} target="_blank" rel="noopener noreferrer">
+        Docs<span class="sr-only"> (opens in a new tab)</span>
+      </a>
       <span class="credit">
         Developed by
-        <a href={DEVELOPER_URL} target="_blank" rel="noopener noreferrer">{DEVELOPER_NAME}</a>
+        <a href={DEVELOPER_URL} target="_blank" rel="noopener noreferrer">
+          {DEVELOPER_NAME}<span class="sr-only"> (opens in a new tab)</span>
+        </a>
       </span>
       <span class="descriptor">Self-hosted Git runners</span>
     </span>

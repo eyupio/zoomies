@@ -250,8 +250,15 @@
       justify-content: space-around;
       width: 100%;
     }
+    /*
+      Centred, both ways. The entries are fixed-height columns whose only
+      visible content is an icon, so without this the icon sat against the top
+      edge of the highlight pill and the rest of the pill was empty space
+      below it.
+    */
     a {
       flex-direction: column;
+      justify-content: center;
       gap: var(--z-nudge-2);
       height: var(--z-space-12);
       padding: 0 var(--z-space-1);
@@ -269,9 +276,9 @@
     .label {
       position: absolute;
       width: var(--z-nudge-1);
-      height: var(--z-border-width);
+      height: var(--z-nudge-1);
       padding: 0;
-      margin: -1px;
+      margin: calc(-1 * var(--z-nudge-1));
       overflow: hidden;
       clip-path: inset(50%);
       white-space: nowrap;

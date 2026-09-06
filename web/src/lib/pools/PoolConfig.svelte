@@ -36,7 +36,7 @@
 <dl class="config {className}">
   <div class="pair">
     <dt>Labels</dt>
-    <dd><PoolLabels labels={pool.labels ?? []} max={12} /></dd>
+    <dd><PoolLabels labels={pool.labels ?? []} max={12} wrap /></dd>
   </div>
 
   <div class="pair">

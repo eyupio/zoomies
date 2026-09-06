@@ -28,31 +28,41 @@ async function bulkAction(page: Page, label: 'Enable' | 'Disable'): Promise<void
 test('a refusal is not pushed off the screen by the successes that follow it', async ({ page }) => {
   await goto(page, '/pools', 'Pools');
 
-  // One refusal, from the controller's point of view: the request is made and
-  // comes back 500, which is the path an operator meets when a pool's host has
-  // gone away underneath it.
-  await page.route('**/api/v1/pools/*/disable', (route) =>
-    route.fulfill({
-      status: 500,
-      contentType: 'application/json',
-      body: JSON.stringify({ code: 'internal', message: 'The pool could not be reached.' }),
-    }),
-  );
-  await bulkAction(page, 'Disable');
-  await expect(errorToasts(page)).toHaveCount(1);
-  await page.unroute('**/api/v1/pools/*/disable');
+  try {
+    // One refusal, from the controller's point of view: the request is made and
+    // comes back 500, which is the path an operator meets when a pool's host has
+    // gone away underneath it.
+    await page.route('**/api/v1/pools/*/disable', (route) =>
+      route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 'internal', message: 'The pool could not be reached.' }),
+      }),
+    );
+    await bulkAction(page, 'Disable');
+    await expect(errorToasts(page)).toHaveCount(1);
+    await page.unroute('**/api/v1/pools/*/disable');
 
-  // Four things that went fine. The queue shows four at a time, so under the
-  // old rule -- evict the oldest, whatever it is -- the fourth success pushed
-  // the refusal off the screen before anybody had read it.
-  for (const label of ['Enable', 'Disable', 'Enable', 'Disable'] as const) {
-    await bulkAction(page, label);
+    // Four things that went fine. The queue shows four at a time, so under the
+    // old rule -- evict the oldest, whatever it is -- the fourth success pushed
+    // the refusal off the screen before anybody had read it.
+    for (const label of ['Disable', 'Enable', 'Disable', 'Enable'] as const) {
+      await bulkAction(page, label);
+    }
+    await expect(successToasts(page).first()).toBeVisible();
+    await expect(errorToasts(page)).toHaveCount(1);
+    await expect(errorToasts(page)).toContainText('could not be disabled');
+
+    // And it goes when it is dismissed, not before.
+    await errorToasts(page).getByRole('button', { name: 'Dismiss' }).click();
+    await expect(errorToasts(page)).toHaveCount(0);
+  } finally {
+    // Put the fleet back. The suite shares one controller, so a pool left
+    // disabled here is a pool that cannot place a runner in somebody else's
+    // spec -- which is a failure a long way from its cause.
+    const pools = await page.request.get('/api/v1/pools');
+    for (const pool of ((await pools.json()).items ?? []) as { id?: string }[]) {
+      if (pool.id) await page.request.post(`/api/v1/pools/${pool.id}/enable`);
+    }
   }
-  await expect(successToasts(page).first()).toBeVisible();
-  await expect(errorToasts(page)).toHaveCount(1);
-  await expect(errorToasts(page)).toContainText('could not be disabled');
-
-  // And it goes when it is dismissed, not before.
-  await errorToasts(page).getByRole('button', { name: 'Dismiss' }).click();
-  await expect(errorToasts(page)).toHaveCount(0);
 });

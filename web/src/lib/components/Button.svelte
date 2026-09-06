@@ -26,6 +26,14 @@
     loading?: boolean;
     /** Renders an anchor styled as a button. Use for navigation, not for actions. */
     href?: string;
+    /**
+     * Open the link in a new tab. Only meaningful with `href`, and the rule
+     * for when to use it is simple: a link that leaves the product takes it,
+     * and a link within the product does not. `rel` follows automatically,
+     * and the accessible name gains "(opens in a new tab)", because a tab
+     * appearing under somebody who cannot see it happen is disorienting.
+     */
+    newTab?: boolean;
     full?: boolean;
     icon?: LucideIcon;
     iconAfter?: LucideIcon;
@@ -47,6 +55,7 @@
     disabled = false,
     loading = false,
     href,
+    newTab = false,
     full = false,
     icon: Icon,
     iconAfter: IconAfter,
@@ -81,11 +90,14 @@
     {title}
     class="btn {variant} {size} {className}"
     class:full
+    target={newTab ? '_blank' : undefined}
+    rel={newTab ? 'noopener noreferrer' : undefined}
     aria-label={ariaLabel}
     aria-disabled={disabled ? 'true' : undefined}
     data-loading={loading ? '' : undefined}
   >
     {@render body()}
+    {#if newTab}<span class="sr-only"> (opens in a new tab)</span>{/if}
   </a>
 {:else}
   <!--

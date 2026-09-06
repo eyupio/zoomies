@@ -117,7 +117,13 @@
 
     <ProblemsBell />
 
-    <button type="button" class="palette-hint" onclick={onpalette}>
+    <!--
+      The label is on the button rather than only in it: below the sidebar
+      breakpoint the words are hidden, and below the phone breakpoint the key
+      cap goes too, so without this the button's accessible name would narrow
+      to "Ctrl K" and then to nothing at all.
+    -->
+    <button type="button" class="palette-hint" aria-label="Search or jump to" onclick={onpalette}>
       <Search size={13} aria-hidden="true" />
       <span>Search or jump to</span>
       <kbd>{modKey} K</kbd>
@@ -263,6 +269,15 @@
     }
   }
   @media (max-width: 768px) {
+    /*
+      The whole hint goes on a phone. Hiding only its text left a `Ctrl K`
+      key cap on a device with no Ctrl and no K -- an instruction for a
+      keyboard that is not there. The palette is still reachable: the hint is
+      a button, and the search icon beside it opens it.
+    */
+    .palette-hint kbd {
+      display: none;
+    }
     .topbar {
       gap: var(--z-space-3);
       padding: 0 var(--z-space-3);

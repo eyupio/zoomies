@@ -39,7 +39,7 @@
   import Select from '$lib/components/Select.svelte';
   import Switch from '$lib/components/Switch.svelte';
   import RunnerConfirm from '$lib/runners/RunnerConfirm.svelte';
-  import RunnerStateCell from '$lib/runners/RunnerStateCell.svelte';
+  import StateCell from '$lib/components/StateCell.svelte';
   import RunnerStateFilter from '$lib/runners/RunnerStateFilter.svelte';
 
   const canOperate = $derived(session.can('operator'));
@@ -360,12 +360,14 @@
 
 {#snippet stateCell(runner: Runner)}
   <!-- The cached runner first: an SSE update lands here before the grid's next fetch. -->
-  <RunnerStateCell status={runnerStatus(fleet.runner(runner.id)?.state ?? runner.state)} />
+  <StateCell status={runnerStatus(fleet.runner(runner.id)?.state ?? runner.state)} />
 {/snippet}
 
 {#snippet nameCell(runner: Runner)}
   <div class="name-cell">
-    <a class="name mono" href="/runners/{runner.id}">{runner.name ?? 'unnamed'}</a>
+    <a class="name mono" href="/runners/{runner.id}" title={runner.name ?? undefined}>
+      {runner.name ?? 'unnamed'}
+    </a>
     <span class="copy" role="presentation" onclick={stopRowClick}>
       <CopyButton value={runner.name ?? ''} label="Copy the runner name" size="sm" />
     </span>
@@ -374,7 +376,12 @@
 
 {#snippet poolCell(runner: Runner)}
   {#if runner.pool_id}
-    <a class="link" href="/pools/{runner.pool_id}" onclick={stopRowClick}>
+    <a
+      class="link"
+      href="/pools/{runner.pool_id}"
+      title={runner.pool_name ?? runner.pool_id}
+      onclick={stopRowClick}
+    >
       {runner.pool_name ?? runner.pool_id}
     </a>
   {:else}
@@ -536,7 +543,21 @@
   .copy {
     display: inline-flex;
   }
+  /*
+    One line, always. Pool and host names are hyphenated, and an inline link
+    with no rule about wrapping breaks at every hyphen: the shipped screenshot
+    has `zoomies-demo-linux-arm64` set as three lines in a cell, which makes
+    every row in the grid that tall. `display: block` is what lets the ellipsis
+    happen at all -- overflow on an inline box does not clip -- and the cell
+    carries the full value in a title, so the part that was cut is still
+    reachable without the copy button.
+  */
   .link {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     color: var(--z-accent);
     text-decoration: none;
   }

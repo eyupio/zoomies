@@ -12,10 +12,16 @@
     labels?: readonly string[];
     /** How many to render before counting the rest. 0 shows them all. */
     max?: number;
+    /**
+     * Let the chips wrap onto more lines. Off in a grid, where three long
+     * labels wrapped one per line made every row in the table that tall; on
+     * wherever the full set is being shown deliberately.
+     */
+    wrap?: boolean;
     class?: string;
   }
 
-  let { labels = [], max = 3, class: className = '' }: Props = $props();
+  let { labels = [], max = 3, wrap = false, class: className = '' }: Props = $props();
 
   const shown = $derived(max > 0 ? labels.slice(0, max) : [...labels]);
   const rest = $derived(Math.max(0, labels.length - shown.length));
@@ -25,7 +31,7 @@
 {#if labels.length === 0}
   <span class="none">No labels</span>
 {:else}
-  <span class="labels {className}" title={all}>
+  <span class="labels {className}" class:wrap title={all}>
     {#each shown as label (label)}
       <span class="label mono">{label}</span>
     {/each}
@@ -53,6 +59,19 @@
     font-size: var(--z-text-2xs);
     line-height: var(--z-leading-2xs);
     white-space: nowrap;
+  }
+  /* One line unless asked otherwise, and the counter is never the thing that
+     gets pushed out: it is the only sign that there is more to see. */
+  .labels:not(.wrap) {
+    flex-wrap: nowrap;
+    overflow: hidden;
+  }
+  .labels:not(.wrap) .label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .labels:not(.wrap) .more {
+    flex: none;
   }
   .more {
     color: var(--z-text-subtle);

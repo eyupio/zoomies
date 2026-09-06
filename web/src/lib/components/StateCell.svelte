@@ -1,5 +1,10 @@
 <!--
-  A runner's state, wherever it appears in a row.
+  A state, wherever it appears in a grid row: a runner's, a job's, a pool's.
+
+  One shape for all three. They used to differ -- runners got this, jobs got a
+  bare dot and a label, pools got a badge -- so the same question ("what is
+  going on with this thing?") was answered three ways on three pages that an
+  operator moves between constantly.
 
   The whole point of this component is what happens when the state changes
   underneath somebody who is reading the table: the shape and the colour cross-
@@ -26,7 +31,7 @@
 </script>
 
 <script lang="ts">
-  import StatusDot from '$lib/components/StatusDot.svelte';
+  import StatusDot from './StatusDot.svelte';
   import type { StatusMeta } from '$lib/status';
 
   interface Props {

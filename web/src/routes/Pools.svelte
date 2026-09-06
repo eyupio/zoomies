@@ -6,7 +6,7 @@
   dangerous switched on -- is answerable without opening a row.
 -->
 <script lang="ts">
-  import { Pause, Pencil, Play, Plug, Plus, Search, Trash2 } from '@lucide/svelte';
+  import { Pencil, Plug, Plus, Power, PowerOff, Search, Trash2 } from '@lucide/svelte';
   import {
     deletePool,
     disablePool,
@@ -22,7 +22,7 @@
   import { fleet } from '$lib/state/fleet.svelte';
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
-  import Badge from '$lib/components/Badge.svelte';
+  import StateCell from '$lib/components/StateCell.svelte';
   import Button from '$lib/components/Button.svelte';
   import Checkbox from '$lib/components/Checkbox.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
@@ -210,13 +210,13 @@
           {
             id: 'enable',
             label: 'Enable',
-            icon: Play,
+            icon: Power,
             run: (ids) => bulkSetEnabled(ids, true),
           },
           {
             id: 'disable',
             label: 'Disable',
-            icon: Pause,
+            icon: PowerOff,
             run: (ids) => bulkSetEnabled(ids, false),
           },
         ]
@@ -230,13 +230,13 @@
         ? {
             id: 'disable',
             label: 'Disable',
-            icon: Pause,
+            icon: PowerOff,
             onSelect: () => setEnabled(pool, false),
           }
         : {
             id: 'enable',
             label: 'Enable',
-            icon: Play,
+            icon: Power,
             onSelect: () => setEnabled(pool, true),
           },
       {
@@ -386,7 +386,9 @@
 </script>
 
 {#snippet nameCell(pool: Pool)}
-  <a class="pool-name" href="/pools/{pool.id}">{pool.name ?? 'unnamed'}</a>
+  <a class="pool-name" href="/pools/{pool.id}" title={pool.name ?? undefined}>
+    {pool.name ?? 'unnamed'}
+  </a>
 {/snippet}
 
 {#snippet riskCell(pool: Pool)}
@@ -416,7 +418,7 @@
 {/snippet}
 
 {#snippet statusCell(pool: Pool)}
-  <Badge status={poolStatus(pool)} size="sm" />
+  <StateCell status={poolStatus(pool)} />
 {/snippet}
 
 {#snippet actionsCell(pool: Pool)}
@@ -541,7 +543,14 @@
   .status-filter {
     width: 10rem;
   }
+  /* Pool names are hyphenated, so without this they set one segment per line
+     and the whole row grows to fit. The full name is in the title. */
   .pool-name {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     color: var(--z-accent);
     font-weight: var(--z-weight-medium);
     text-decoration: none;

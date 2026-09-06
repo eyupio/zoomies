@@ -244,6 +244,54 @@ func (c *Controller) seedHosts(ctx context.Context, now time.Time) ([]*store.Hos
 	return out, nil
 }
 
+// demoHeartbeatInterval keeps the seeded hosts inside store.HeartbeatTimeout
+// with room to spare.
+const demoHeartbeatInterval = 30 * time.Second
+
+// demoHeartbeatLoop keeps the demo fleet's hosts alive.
+//
+// A seeded host has no agent behind it, so its heartbeat is a timestamp written
+// once and never touched again -- and ninety seconds later every host in the
+// demo fleet is unhealthy, every pool "has nowhere to run", and the fleet an
+// operator opened the UI to look at has gone dark while they were reading it.
+// The same ninety seconds is why a long Playwright run saw a different Pools
+// page from a short one.
+//
+// This runs only when the demo seed was requested, and only for hosts the seed
+// created, so nothing it does can reach a real fleet.
+func (c *Controller) demoHeartbeatLoop(ctx context.Context) {
+	ticker := time.NewTicker(demoHeartbeatInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			c.beatDemoHosts(ctx)
+		}
+	}
+}
+
+func (c *Controller) beatDemoHosts(ctx context.Context) {
+	hosts, err := c.st.ListHosts(ctx)
+	if err != nil {
+		c.log.Warn("demo heartbeat could not list hosts", "error", err)
+		return
+	}
+	now := c.Now()
+	for _, h := range hosts {
+		if !IsDemoID(h.ID) {
+			continue
+		}
+		if err := c.st.Heartbeat(ctx, h.ID, now); err != nil {
+			c.log.Warn("demo heartbeat failed", "host", h.ID, "error", err)
+			continue
+		}
+		h.LastHeartbeat = now
+		c.PublishHost(h)
+	}
+}
+
 func (c *Controller) seedPools(ctx context.Context) (*store.Pool, *store.Pool, error) {
 	linux := &store.Pool{
 		ID:             demoPoolLinuxID,

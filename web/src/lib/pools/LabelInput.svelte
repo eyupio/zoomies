@@ -131,8 +131,17 @@
     border-radius: var(--z-radius-sm);
     background: var(--z-surface);
   }
+  /*
+    A real ring, not a colour change. The border went grey to blue on focus,
+    which is invisible to anyone who cannot tell the two apart -- and is
+    exactly the change an invalid field has already made for a different
+    reason, so focus and error were the same picture. The ring is drawn as a
+    box-shadow because the chips scroll inside this box and an outline on the
+    container would be clipped.
+  */
   .box:focus-within {
-    border-color: var(--z-accent);
+    border-color: var(--z-focus-colour);
+    box-shadow: var(--z-focus-ring);
   }
   .box.invalid {
     border-color: var(--z-danger);
@@ -193,6 +202,8 @@
     font-family: var(--z-font-mono);
     font-size: var(--z-text-base);
   }
+  /* The container above carries the ring for the whole control, so the field
+     inside it must not draw a second one. */
   input:focus {
     outline: none;
   }

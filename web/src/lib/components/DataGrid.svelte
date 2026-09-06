@@ -609,11 +609,18 @@
                 </td>
               {/if}
               {#each visibleColumns as column (column.id)}
+                {@const plain = column.cell ? '' : (column.value?.(row.original) ?? '')}
                 <td class:end={column.align === 'end'}>
                   {#if column.cell}
                     {@render column.cell(row.original)}
                   {:else}
-                    {column.value ? column.value(row.original) : ''}
+                    <!--
+                      One line and an ellipsis, with the whole value in a title.
+                      A column has a width, and a hyphenated name with nothing
+                      stopping it wraps one segment per line -- which makes
+                      every row in the grid as tall as the longest name in it.
+                    -->
+                    <span class="plain" title={plain || undefined}>{plain}</span>
                   {/if}
                 </td>
               {/each}
@@ -757,6 +764,12 @@
     border-bottom: var(--z-border-width) solid var(--z-border);
     color: var(--z-text);
     vertical-align: middle;
+  }
+  .plain {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   tbody tr:last-child td {
     border-bottom: 0;

@@ -6,7 +6,7 @@
   expects it to.
 -->
 <script lang="ts">
-  import { Download, Pause, Pencil, Play, Trash2 } from '@lucide/svelte';
+  import { Download, Pencil, Power, PowerOff, Trash2 } from '@lucide/svelte';
   import {
     deletePool,
     disablePool,
@@ -246,9 +246,9 @@
   {#if pool && canOperate && !editing}
     <Button icon={Download} onclick={prewarm}>Prewarm image</Button>
     {#if pool.enabled === false}
-      <Button icon={Play} onclick={() => setEnabled(true)}>Enable</Button>
+      <Button icon={Power} onclick={() => setEnabled(true)}>Enable</Button>
     {:else}
-      <Button icon={Pause} onclick={() => setEnabled(false)}>Disable</Button>
+      <Button icon={PowerOff} onclick={() => setEnabled(false)}>Disable</Button>
     {/if}
     <Button variant="primary" icon={Pencil} onclick={startEditing}>Edit</Button>
     <Button variant="danger" icon={Trash2} onclick={() => (deleteOpen = true)}>Delete</Button>

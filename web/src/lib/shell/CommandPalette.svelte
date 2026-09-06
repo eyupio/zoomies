@@ -465,6 +465,12 @@
   .palette:focus {
     outline: none;
   }
+  /*
+    The search row carries the ring for the input inside it, because the input
+    is borderless by design and an outline on it would be drawn inside the
+    palette's rounded top corners. --z-focus-gap is overridden because this sits
+    on a raised surface, not on the page ground.
+  */
   .search {
     display: flex;
     align-items: center;
@@ -472,6 +478,11 @@
     padding: var(--z-space-3) var(--z-space-4);
     border-bottom: var(--z-border-width) solid var(--z-border);
     color: var(--z-text-subtle);
+  }
+  .search:focus-within {
+    --z-focus-gap: var(--z-surface-raised);
+    box-shadow: var(--z-focus-ring);
+    border-radius: var(--z-radius-lg) var(--z-radius-lg) 0 0;
   }
   input {
     flex: 1;

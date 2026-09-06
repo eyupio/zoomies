@@ -244,7 +244,18 @@ async function capture(browser, scheme, pngDir) {
   const dir = mkdtempSync(join(tmpdir(), 'zoomies-screenshots-'));
   const child = await bootController(dir);
   const baseURL = `http://127.0.0.1:${PORT}`;
-  const common = { baseURL, colorScheme: scheme, reducedMotion: 'reduce' };
+  // en-GB, and a fixed one. Native date inputs render in the browser's locale,
+  // and a runner with none set takes the machine's -- so the shipped
+  // documentation showed `mm/dd/yyyy` placeholders to a project whose prose is
+  // British throughout. The timezone is pinned for the same reason: a
+  // screenshot of "3 minutes ago" should not depend on where CI is.
+  const common = {
+    baseURL,
+    colorScheme: scheme,
+    reducedMotion: 'reduce',
+    locale: 'en-GB',
+    timezoneId: 'Europe/London',
+  };
   try {
     const desktop = await browser.newContext({
       ...common,

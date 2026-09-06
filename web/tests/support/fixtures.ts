@@ -230,14 +230,13 @@ export async function readTheme(
   }));
 }
 
-/**
- * The top bar's command-palette hint.
- *
- * Below 1180px the words are hidden and only the shortcut is left, so the
- * accessible name shrinks from "Search or jump to Ctrl K" to "Ctrl K".
- */
+/** The top bar's command-palette hint. */
 export function paletteOpener(page: Page): Locator {
-  return page.getByRole('button', { name: /(Ctrl|⌘)\s*K/ });
+  // By its own label, not by the key cap inside it. The cap is hidden on a
+  // phone -- it names a key that is not there -- and the words beside it are
+  // hidden below the sidebar breakpoint, so the button carries the name itself
+  // and it is the same at every width.
+  return page.getByRole('button', { name: 'Search or jump to' });
 }
 
 /** The top bar's theme control. Its label says where a press will take you. */

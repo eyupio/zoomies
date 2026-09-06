@@ -211,12 +211,19 @@ pre,
 }
 
 /* Visually hidden but available to assistive technology. */
+/*
+ * Visible to a screen reader, invisible to everyone else.
+ *
+ * The one-pixel box and the negative margin that cancels it are the standard
+ * recipe, and the reason it is not `display: none` or `visibility: hidden` is
+ * that both of those take the text out of the accessibility tree as well.
+ */
 .sr-only {
   position: absolute;
-  width: var(--z-border-width);
-  height: var(--z-border-width);
+  width: var(--z-nudge-1);
+  height: var(--z-nudge-1);
   padding: 0;
-  margin: -1px;
+  margin: calc(-1 * var(--z-nudge-1));
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
