@@ -139,7 +139,9 @@ type Security struct {
 	// derived from the external URL when unset.
 	CookieSecure *bool `yaml:"cookie_secure"`
 	// DisableAuth removes all authentication. It exists for local development
-	// only and is refused unless the listener is on loopback.
+	// only and is refused wherever the controller looks reachable -- see
+	// LikelyReachable, which counts an external URL or a trusted proxy as
+	// reachable even on a loopback bind.
 	DisableAuth bool `yaml:"disable_auth"`
 	// RateLimitLogins caps password attempts per source address per minute.
 	RateLimitLogins int `yaml:"rate_limit_logins"`
@@ -189,8 +191,13 @@ type Agent struct {
 	ClientCertFile string `yaml:"client_cert_file"`
 	ClientKeyFile  string `yaml:"client_key_file"`
 	// InsecureSkipVerify disables controller certificate verification.
-	InsecureSkipVerify bool          `yaml:"insecure_skip_verify"`
-	HeartbeatInterval  time.Duration `yaml:"heartbeat_interval"`
+	InsecureSkipVerify bool `yaml:"insecure_skip_verify"`
+	// AllowInsecureHTTP permits an http:// controller URL that is not on
+	// loopback. Off by default: the agent token and the runner registration
+	// credentials in every create task would otherwise cross the network in
+	// the clear.
+	AllowInsecureHTTP bool          `yaml:"allow_insecure_http"`
+	HeartbeatInterval time.Duration `yaml:"heartbeat_interval"`
 	// Network is an optional pre-existing container network to attach runners to.
 	Network string `yaml:"network"`
 	// RunnerSHA256 is the expected digest of the actions/runner archive the
@@ -271,7 +278,8 @@ type OIDC struct {
 	// username alone links only to an account created for SSO -- one with no
 	// password -- because with an identity provider whose users can influence
 	// their own username claim, a sign-in as "admin" would otherwise inherit
-	// the local admin's role.
+	// the local admin's role. Turn it on for the one migration where that is
+	// the intention, then turn it off again.
 	LinkByUsername bool `yaml:"link_by_username"`
 }
 
@@ -598,6 +606,21 @@ func (c *Config) CookieSecureValue() bool {
 	return c.Security.CookieSecure != nil && *c.Security.CookieSecure
 }
 
+// LikelyReachable reports whether anything other than this machine can reach
+// the controller.
+//
+// It is deliberately broader than BindsPublicly. A loopback bind is only
+// private when nothing forwards to it, and the deployment this project
+// recommends -- loopback plus a reverse proxy -- is precisely the case where
+// the bind address says "private" and the truth is "the internet". An external
+// URL or a configured trusted proxy is the operator telling us, in the
+// configuration itself, that something in front does forward to this listener.
+func (c *Config) LikelyReachable() bool {
+	return c.BindsPublicly() ||
+		strings.TrimSpace(c.Server.ExternalURL) != "" ||
+		len(c.Server.TrustedProxies) > 0
+}
+
 // BindsPublicly reports whether the listener accepts connections from off-host.
 func (c *Config) BindsPublicly() bool {
 	host, _, err := net.SplitHostPort(c.Server.Bind)
@@ -769,6 +792,7 @@ func (c *Config) applyEnv() error {
 	str("ZOOMIES_AGENT_CLIENT_CERT_FILE", &c.Agent.ClientCertFile)
 	str("ZOOMIES_AGENT_CLIENT_KEY_FILE", &c.Agent.ClientKeyFile)
 	boolean("ZOOMIES_AGENT_INSECURE_SKIP_VERIFY", &c.Agent.InsecureSkipVerify)
+	boolean("ZOOMIES_AGENT_ALLOW_INSECURE_HTTP", &c.Agent.AllowInsecureHTTP)
 	dur("ZOOMIES_HEARTBEAT_INTERVAL", &c.Agent.HeartbeatInterval)
 	str("ZOOMIES_AGENT_NETWORK", &c.Agent.Network)
 	dur("ZOOMIES_AGENT_FINISHED_RETENTION", &c.Agent.FinishedRetention)

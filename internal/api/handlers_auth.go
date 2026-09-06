@@ -55,14 +55,22 @@ type bootstrapRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 	Email    string `json:"email"`
+	// SetupToken is printed in the controller's log while no account exists.
+	SetupToken string `json:"setup_token"`
 }
 
 // handleBootstrap creates the first administrator.
 //
 // It is unauthenticated because on a fresh install there is nobody to
-// authenticate as. What makes that safe is the refusal below: the auth service
-// checks under a mutex that no account exists at all, so this endpoint closes
-// permanently the moment the first one is created.
+// authenticate as, and it closes permanently once any account exists -- the
+// auth service checks that under a mutex.
+//
+// "No account exists yet" is not by itself a safe condition, though: it is one
+// a stranger can satisfy too, and on a controller published to the internet the
+// first person to load this page would otherwise become its administrator. So
+// the request also has to carry the setup token this process printed at
+// startup, which proves the caller can read the controller's log. Whoever
+// deployed it can; a passer-by cannot.
 func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	var req bootstrapRequest
 	if !decode(w, r, &req) {
@@ -76,6 +84,9 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	if err := auth.CheckPassword(req.Password); err != nil {
 		fields = append(fields, fieldError{"password", err.Error()})
 	}
+	if strings.TrimSpace(req.SetupToken) == "" {
+		fields = append(fields, fieldError{"setup_token", "paste the setup token from the controller's log; it is on a line beginning \"setup token\""})
+	}
 	if len(fields) > 0 {
 		unprocessable(w, "the first administrator could not be created", fields)
 		return
@@ -88,11 +99,15 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	u, err := s.auth.CreateFirstAdmin(r.Context(), req.Username, req.Password)
+	u, err := s.auth.CreateFirstAdminWithSetupToken(r.Context(), req.Username, req.Password, req.SetupToken)
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrAlreadyBootstrapped):
 			conflict(w, err.Error())
+		case errors.Is(err, auth.ErrBadSetupToken):
+			// Worth a line of its own: a burst of these is somebody guessing.
+			s.logger(r).Warn("a bootstrap attempt carried the wrong setup token", "ip", ClientIP(r.Context()))
+			unprocessable(w, err.Error(), []fieldError{{"setup_token", err.Error()}})
 		case errors.Is(err, auth.ErrInvalidInput):
 			unprocessable(w, err.Error(), nil)
 		default:
@@ -157,10 +172,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	u, token, err := s.auth.Login(r.Context(), req.Username, req.Password, ip, r.UserAgent())
 	if err != nil {
-		attempted := &auth.Identity{Kind: auth.KindUser, Name: strings.TrimSpace(req.Username), IP: ip}
-		s.auth.Auditor().Auth(r.Context(), attempted, "auth.login_failed", map[string]any{
-			"username": strings.TrimSpace(req.Username), "reason": err.Error(),
-		})
+		// The auth service writes the audit row, because what may be recorded
+		// about a username nobody recognises is its decision, not this layer's.
+		s.auth.AuditLoginFailure(r.Context(), req.Username, ip, err)
 		switch {
 		case errors.Is(err, auth.ErrRateLimited):
 			rateLimited(w, err.Error(), s.auth.LoginRetryAfter(ip))
@@ -311,6 +325,13 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 // handleOIDCStart sends the browser to the identity provider.
+//
+// The state is remembered twice: once by the provider, which holds the nonce
+// that goes with it, and once in a cookie on this browser. The cookie is what
+// ties the handshake to the person who began it -- without it, a state minted
+// by an attacker's own sign-in is one this controller would happily accept from
+// anybody's browser, which is a login CSRF: the victim ends up signed in as the
+// attacker, and everything they then do happens in the attacker's account.
 func (s *Server) handleOIDCStart(w http.ResponseWriter, r *http.Request) {
 	if !s.oidc.Enabled() {
 		s.ssoUnavailable(w)

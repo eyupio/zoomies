@@ -32,11 +32,13 @@
   let password = $state('');
   let confirm = $state('');
   let email = $state('');
-  let touched = $state({ username: false, password: false, confirm: false });
+  let setupToken = $state('');
+  let touched = $state({ username: false, password: false, confirm: false, setupToken: false });
   let submitting = $state(false);
   let failure = $state<ApiError | null>(null);
   let revealed = $state(false);
   let capsLock = $state(false);
+  let setupTokenInput = $state<HTMLInputElement | null>(null);
   let usernameInput = $state<HTMLInputElement | null>(null);
   let passwordInput = $state<HTMLInputElement | null>(null);
   let confirmInput = $state<HTMLInputElement | null>(null);
@@ -45,9 +47,9 @@
   // cursor always belongs in the first one.
   let placed = false;
   $effect(() => {
-    if (placed || !usernameInput) return;
+    if (placed || !setupTokenInput) return;
     placed = true;
-    usernameInput.focus();
+    setupTokenInput.focus();
   });
 
   /** Choosing a password with caps lock on is a password you cannot type again. */
@@ -55,6 +57,12 @@
     if (typeof event.getModifierState !== 'function') return;
     capsLock = event.getModifierState('CapsLock');
   }
+
+  const setupTokenError = $derived(
+    touched.setupToken && setupToken.trim() === ''
+      ? 'Paste the setup token from the controller log.'
+      : undefined,
+  );
 
   const usernameError = $derived(
     touched.username && username.trim() === ''
@@ -79,7 +87,10 @@
   const fieldErrors = $derived(failure?.fieldErrors() ?? {});
 
   const valid = $derived(
-    username.trim().length > 0 && password.length >= MIN_LENGTH && confirm === password,
+    setupToken.trim().length > 0 &&
+      username.trim().length > 0 &&
+      password.length >= MIN_LENGTH &&
+      confirm === password,
   );
 
   /**
@@ -106,6 +117,7 @@
    * error spoken and nothing moved.
    */
   function firstInvalid(): HTMLInputElement | null {
+    if (setupToken.trim() === '') return setupTokenInput;
     if (username.trim() === '') return usernameInput;
     if (password.length < MIN_LENGTH) return passwordInput;
     if (confirm !== password) return confirmInput;
@@ -114,7 +126,7 @@
 
   async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
-    touched = { username: true, password: true, confirm: true };
+    touched = { username: true, password: true, confirm: true, setupToken: true };
     if (!valid) {
       // After a tick, so the field carries its error before focus lands on it
       // and the screen reader reads the two together. The old code queried the
@@ -129,6 +141,7 @@
       const identity = await session.completeBootstrap({
         username: username.trim(),
         password,
+        setup_token: setupToken.trim(),
         ...(email.trim() ? { email: email.trim() } : {}),
       });
       // The account exists; whether the session started with it is a separate
@@ -172,7 +185,8 @@
   <h1>Create the first administrator</h1>
   <p class="lede">
     Nobody has an account on this controller yet. This form creates the first one, with the admin
-    role, and stops being available the moment it exists.
+    role, and stops being available the moment it exists. The setup token is how it knows you are
+    the one who deployed this controller.
   </p>
   <p class="next">Then: connect a GitHub App, create a pool, and point a workflow at it.</p>
 
@@ -195,6 +209,30 @@
   <form onsubmit={submit} novalidate>
     <!-- Every field carries a hint, so the message row is occupied before an
          error needs it and the form does not move as one appears. -->
+    <Field
+      label="Setup token"
+      hint="From the controller's log: docker compose logs zoomies | grep 'setup token'"
+      error={setupTokenError ?? fieldErrors.setup_token}
+      required
+    >
+      {#snippet children({ id, describedBy, invalid })}
+        <Input
+          bind:value={setupToken}
+          bind:element={setupTokenInput}
+          {id}
+          {describedBy}
+          {invalid}
+          name="setup-token"
+          autocomplete="off"
+          autocapitalize="none"
+          spellcheck={false}
+          mono
+          disabled={submitting}
+          onblur={() => (touched = { ...touched, setupToken: true })}
+        />
+      {/snippet}
+    </Field>
+
     <Field
       label="Username"
       hint="You will sign in with this."

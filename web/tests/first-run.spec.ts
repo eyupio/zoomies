@@ -12,7 +12,10 @@
  * the last of them creates the administrator the rest sign in with.
  */
 import { test, expect } from '@playwright/test';
-import { browserOverride } from './support/fixtures';
+// The bootstrap route asks for the token the controller printed at startup, so
+// a test creating the first administrator fetches it the way an operator reads
+// `docker compose logs`. The fixture captures the line into a file.
+import { browserOverride, setupToken } from './support/fixtures';
 
 const ADMIN = { username: 'ada', password: 'correct horse battery staple' };
 
@@ -37,19 +40,30 @@ test('the first screen says what it is, where it sits, and what follows', async 
   // this account finishes setup or begins it.
   await expect(page.getByText('Step 1 of 4')).toBeVisible();
   await expect(page.getByText(/connect a GitHub App|connect GitHub/i)).toBeVisible();
-  // The cursor starts where there is something to type.
-  await expect(page.locator('input[name="username"]')).toBeFocused();
+  // The form asks for the token before anything else, and says where to find
+  // it: an operator who has not read the log cannot finish this form, so being
+  // told that first is the difference between a hint and a dead end.
+  await expect(page.getByText(/setup token/i).first()).toBeVisible();
+  await expect(page.getByText(/docker compose logs/i).first()).toBeVisible();
+  // The cursor starts at the one field they have to go and fetch.
+  await expect(page.locator('input[name="setup-token"]')).toBeFocused();
 });
 
 test('submitting an empty form moves focus to the field that is missing', async ({ page }) => {
   await page.goto('/');
-  await expect(page.locator('input[name="username"]')).toBeFocused();
+  await expect(page.locator('input[name="setup-token"]')).toBeFocused();
 
   // Pressing Enter on an empty form used to do nothing visible at all: the
   // focus jump queried the DOM for aria-invalid before Svelte had rendered it,
   // so it matched nothing and focus stayed on the button.
   await page.keyboard.press('Enter');
 
+  await expect(page.getByText('Paste the setup token from the controller log.')).toBeVisible();
+  await expect(page.locator('input[name="setup-token"]')).toBeFocused();
+
+  // With that filled in, the next missing field is the one focus moves to.
+  await page.fill('input[name="setup-token"]', setupToken());
+  await page.keyboard.press('Enter');
   await expect(page.getByText('Choose a username for the administrator.')).toBeVisible();
   await expect(page.locator('input[name="username"]')).toBeFocused();
 });
@@ -59,13 +73,17 @@ test('an error replaces the hint rather than pushing the button out from under t
 }) => {
   await page.goto('/');
   const submit = page.getByRole('button', { name: 'Create the administrator' });
+
+  // Measured after the focus, not before it: the card is taller than the
+  // viewport, so focusing a field part-way down scrolls the page, and that
+  // scroll is not what this test is about. What it is about is the next line.
+  await page.locator('input[name="username"]').focus();
   const before = await submit.boundingBox();
 
   // Blurring an empty required field shows its error. When that error was
   // rendered *alongside* the hint it added a row, the button moved 26px down
   // between mousedown and mouseup, and the click was delivered to whatever
   // took its place -- a submit button that visibly did nothing.
-  await page.locator('input[name="username"]').focus();
   await page.locator('input[name="username"]').blur();
   await expect(page.getByText('Choose a username for the administrator.')).toBeVisible();
 
@@ -74,6 +92,7 @@ test('an error replaces the hint rather than pushing the button out from under t
 
 test('a short password is refused with the counter still visible', async ({ page }) => {
   await page.goto('/');
+  await page.fill('input[name="setup-token"]', setupToken());
   await page.fill('input[name="username"]', ADMIN.username);
   await page.fill('input[name="password"]', 'short');
   await page.getByRole('button', { name: 'Create the administrator' }).click();
@@ -84,8 +103,24 @@ test('a short password is refused with the counter still visible', async ({ page
   await expect(page.locator('input[name="password"]')).toBeFocused();
 });
 
+test('a wrong setup token is refused, and nobody is created', async ({ page }) => {
+  await page.goto('/');
+  await page.fill('input[name="setup-token"]', 'zoo-not-the-setup-token');
+  await page.fill('input[name="username"]', ADMIN.username);
+  await page.fill('input[name="password"]', ADMIN.password);
+  await page.fill('input[name="confirm-password"]', ADMIN.password);
+  await page.getByRole('button', { name: 'Create the administrator' }).click();
+
+  // The refusal lands on the field it is about and says where the real one is.
+  await expect(page.getByText(/is not this controller's setup token/i).first()).toBeVisible();
+  // Still on the first-run form: the route has not closed, so the operator who
+  // does have the token can still use it. The test after this one does.
+  await expect(page.getByRole('heading', { name: 'Create the first administrator' })).toBeVisible();
+});
+
 test('creating the administrator lands somewhere that names the next step', async ({ page }) => {
   await page.goto('/');
+  await page.fill('input[name="setup-token"]', setupToken());
   await page.fill('input[name="username"]', ADMIN.username);
   await page.fill('input[name="password"]', ADMIN.password);
   await page.fill('input[name="confirm-password"]', ADMIN.password);

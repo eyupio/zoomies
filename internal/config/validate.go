@@ -399,19 +399,42 @@ func (c *Config) Validate() Findings {
 
 	// --- Authentication ---------------------------------------------------
 	if c.Security.DisableAuth {
+		// The bind address alone is not the question. The deployment this
+		// project recommends is a loopback bind behind a reverse proxy, and in
+		// exactly that shape "127.0.0.1" would wave through a controller the
+		// whole internet can reach. An external URL or a trusted proxy is the
+		// operator saying, in the configuration itself, that something in front
+		// forwards to this listener.
+		reachable := c.LikelyReachable()
 		sev := SeverityError
 		fix := "remove security.disable_auth."
-		if !public {
+		why := " The listener is not on loopback, so this is refused."
+		switch {
+		case !reachable:
 			sev = SeverityWarning
 			fix = "acceptable for local development only; never set this on a host others can reach."
+			why = ""
+		case !public:
+			why = " This controller is behind a proxy or has an external URL, so it is not only reachable from this host, and this is refused."
 		}
 		add(Finding{
 			Code: "auth.disabled", Severity: sev, Setting: "security.disable_auth",
 			Title: "authentication is disabled",
 			Detail: "every request is treated as an administrator: anyone who can reach the " +
-				"listener can create pools, read the audit log and drain the fleet." +
-				map[bool]string{true: " The listener is not on loopback, so this is refused.", false: ""}[public],
+				"listener can create pools, read the audit log and drain the fleet." + why,
 			Fix: fix,
+		})
+	}
+	// A session cookie without Secure is one a single plaintext request to the
+	// same host hands to anyone watching. Zoomies cannot see that a proxy in
+	// front terminates TLS, so it says so rather than guessing.
+	if !c.CookieSecureValue() && public {
+		add(Finding{
+			Code: "auth.cookie_insecure", Severity: SeverityWarning, Setting: "security.cookie_secure",
+			Title:  "session cookies are sent without the Secure attribute",
+			Detail: "any plain-HTTP request to this host will carry a live session cookie, in the clear.",
+			Fix: "set server.external_url to your https address (which turns this on by itself), " +
+				"or set security.cookie_secure to true if TLS is terminated in front of this controller.",
 		})
 	}
 	if c.Security.RateLimitLogins <= 0 {

@@ -76,7 +76,8 @@ on a public address the same setting is an error.
 
 | Code | Severity | Setting | What to do |
 | --- | --- | --- | --- |
-| `auth.disabled` | **error on a public bind, warning on loopback** | `security.disable_auth` | Every request is treated as an administrator. Acceptable for local development; never on a host others can reach. |
+| `auth.disabled` | **error wherever the controller is reachable, warning on loopback with nothing in front** | `security.disable_auth` | Every request is treated as an administrator. Acceptable for local development; never on a host others can reach. An external URL or a trusted proxy counts as reachable, because a loopback bind behind a proxy is not private. |
+| `auth.cookie_insecure` | warning | `security.cookie_secure` | Session cookies go out without `Secure`, so one plain-HTTP request to this host hands over a live session. Set an https `server.external_url`, or `security.cookie_secure` if TLS is terminated in front. |
 | `auth.no_login_limit` | warning | `security.rate_limit_logins` | Password guessing is not rate limited. |
 | `auth.session_ttl` | error | `security.session_ttl` | Must be positive. |
 | `auth.session_ttl_long` | warning | `security.session_ttl` | A stolen session cookie stays useful for this long. |

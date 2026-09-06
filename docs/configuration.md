@@ -86,7 +86,8 @@ security:
   session_ttl: 168h                         # ZOOMIES_SESSION_TTL
   cookie_secure: null                       # ZOOMIES_COOKIE_SECURE (derived when unset)
   disable_auth: false                       # ZOOMIES_DISABLE_AUTH
-  rate_limit_logins: 10                     # ZOOMIES_RATE_LIMIT_LOGINS (per IP per minute); 0 disables it and is warned about
+  rate_limit_logins: 10                     # ZOOMIES_RATE_LIMIT_LOGINS (per address per minute, and 5x that per account
+                                            #   over 15m); 0 disables it and is warned about
 
 github:
   api_base_url: https://api.github.com   # ZOOMIES_GITHUB_API_BASE_URL
@@ -121,6 +122,7 @@ agent:
   client_cert_file: ""          # ZOOMIES_AGENT_CLIENT_CERT_FILE
   client_key_file: ""           # ZOOMIES_AGENT_CLIENT_KEY_FILE
   insecure_skip_verify: false   # ZOOMIES_AGENT_INSECURE_SKIP_VERIFY
+  allow_insecure_http: false    # ZOOMIES_AGENT_ALLOW_INSECURE_HTTP -- plain http:// off-host
 
 scheduler:
   interval: 10s                 # ZOOMIES_SCHEDULER_INTERVAL
@@ -191,6 +193,23 @@ warning — which is correct behaviour if a reverse proxy terminates TLS, and a
 problem otherwise. When you do run behind a proxy, also set
 `server.trusted_proxies` so audit entries and login rate limiting see the real
 client address instead of your proxy's.
+
+### The setup token
+
+While the instance has no accounts, the controller prints a **setup token** at
+startup — on the banner and on a log line beginning `setup token` — and the
+first-run page asks for it. It is what stops a controller you have just deployed
+from being claimed by whoever loads the page first; an empty database is not, by
+itself, proof that you are its owner.
+
+```sh
+docker compose logs zoomies | grep 'setup token'
+```
+
+It is minted per process and held only in memory, so restarting the controller
+prints a new one, and the line stops appearing for good once an account exists.
+`zoomies init` and the installer create the first administrator on the console
+and never need it.
 
 ### `server.allow_indexing`
 
@@ -404,6 +423,30 @@ agent:
 # in the pool
 host_selector: { gpu: "true" }
 ```
+
+A join token can carry labels too, and those win. Labels decide which pools'
+work a host is offered — and therefore which pools' runner registrations it is
+handed — so what the operator minting the token pinned is not something the
+machine being enrolled can talk its way out of. Keys the token says nothing
+about are still the agent's to declare.
+
+### Re-joining a host
+
+Joining with the name of a host that already exists replaces it: the row keeps
+its ID, and the previous registration's runner records go with it. That needs
+the agent token the previous registration was issued, which the agent sends from
+its credentials file automatically. A rebuilt machine with its state directory
+intact therefore re-joins with no ceremony.
+
+If the credentials really are gone, delete the host first:
+
+```sh
+zoomies hosts delete host_xxxxxxxx
+zoomies agent join https://zoomies.example.com --token <join-token>
+```
+
+A join token on its own is deliberately not enough — otherwise anyone trusted to
+enrol one machine could seize any other machine by naming itself after it.
 
 An empty selector matches any host, so once a specialised machine joins, give
 the general pools a selector of their own — otherwise they are eligible for the

@@ -143,8 +143,14 @@ paths:
       summary: Create the first administrator
       description: |
         Available only while no user exists. Once any account has been created
-        this returns 409 forever. That check is the entire security of this
-        route, which is why it is unauthenticated.
+        this returns 409 forever.
+
+        It also requires the setup token the controller prints in its log at
+        startup while the instance has no accounts. "No account exists yet" is a
+        condition a stranger can satisfy too, so on its own it would hand a
+        freshly deployed controller to whoever loaded the page first; the token
+        is proof that the caller can read the controller's log. It is minted per
+        process, so restarting the controller prints a new one.
       security: []
       requestBody:
         required: true
@@ -152,11 +158,14 @@ paths:
           application/json:
             schema:
               type: object
-              required: [username, password]
+              required: [username, password, setup_token]
               properties:
                 username: { type: string, minLength: 1, maxLength: 64, examples: [admin] }
                 password: { type: string, minLength: 12, format: password }
                 email: { type: string, format: email }
+                setup_token:
+                  type: string
+                  description: The setup token from the controller's log, on a line beginning "setup token".
       responses:
         "201":
           description: Created, and the session cookie is set

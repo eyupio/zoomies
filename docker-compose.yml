@@ -6,7 +6,13 @@
 #        DOCKER_GID              stat -c '%g' /var/run/docker.sock
 #   2. mkdir -p data && sudo chown 65532:65532 data
 #   3. docker compose up -d
-#   4. open ZOOMIES_EXTERNAL_URL and create the first admin
+#   4. docker compose logs zoomies | grep 'setup token'
+#   5. open ZOOMIES_EXTERNAL_URL, paste that token, and create the first admin
+#
+# Step 4 is the gate on step 5. This origin is reachable the moment the
+# container starts, and an empty database is not proof of ownership: the setup
+# token, which only somebody who can read this container's log has, is. It
+# changes on every restart and stops being printed once an account exists.
 #
 # Compose refuses to start with any of the three missing, on purpose: each one
 # left to a default produces a container that is healthy and useless. A wrong

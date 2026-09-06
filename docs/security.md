@@ -74,6 +74,8 @@ on its own runners, and cannot read pools, jobs, users or the audit log.
 | A malicious job steals the runner registration credential and registers its own runner | JIT configurations are single-use and expire; there is no reusable PAT on the host |
 | Someone forges a webhook to make Zoomies create runners | HMAC-SHA256 signature verification on every delivery, constant-time comparison |
 | Someone reaches the controller's API | Authentication required by default; the listener binds to loopback unless told otherwise |
+| Someone reaches a freshly deployed controller before its owner does | The first-run endpoint needs the setup token printed in the controller's log, not merely an empty database |
+| A host enrolled with a join token tries to become a different host, or to advertise labels that win it another pool's work | Taking over an existing host by name needs that host's own agent token; join-token labels win over the agent's |
 | A stolen browser session | Sessions are hashed at rest, `HttpOnly` + `SameSite=Lax` + `Secure` (when the external URL is https), and expire |
 | A stolen API token | Tokens are stored as SHA-256 hashes, scoped by role, optionally expiring, individually revocable |
 | Someone reads the database file or a backup | GitHub App private keys, webhook secrets and OIDC client secrets are AES-256-GCM sealed with a key held outside the database |
@@ -142,12 +144,29 @@ re-encryption in v1.
 ### Identities
 
 * **Local users** — argon2id passwords. The first admin is created by
-  `zoomies init` or by the one-time bootstrap endpoint, which refuses to run once
-  any user exists.
-* **OIDC users** — optional. Linked by `sub`. Group claims map to roles.
+  `zoomies init` on the console, or by the one-time bootstrap endpoint, which
+  refuses to run once any user exists **and** requires the setup token the
+  controller prints in its log while the instance is empty. "No account exists
+  yet" is a condition a stranger can satisfy too, so on its own it would hand a
+  freshly deployed controller to whoever loaded the page first; the token is
+  proof that the caller can read the controller's log. It is minted per process,
+  so a restart prints a new one, and the line stops appearing once an account
+  exists.
+* **OIDC users** — optional. Linked by `sub`, and by username only for an
+  account that has no local password: adopting one that does would let whoever
+  holds that username at the identity provider take over the local account, so
+  it takes `oidc.link_by_username`. An `email` claim is used as a username only
+  when the provider says `email_verified`.
 * **API tokens** — `zoo_<prefix>_<secret>`, sent as `Authorization: Bearer`.
   Carry a role and optionally a narrower scope list.
-* **Agents** — a separate credential class that can only reach `/api/v1/agent/*`.
+* **Agents** — a separate credential class that can only reach `/api/v1/agent/*`,
+  and only for their own host: an agent may report on its own runners and write
+  into its own log relay, and gets the same "no such stream" answer for anybody
+  else's. A join token enrols a machine; it does not let that machine take over
+  an existing host by claiming its name, which needs the agent token the
+  previous registration was issued. Labels pinned by the join token win over
+  labels the agent declares for itself, because host labels are what decide
+  which pools' work — and which pools' runner registrations — a host is offered.
 
 ### Roles
 
@@ -189,9 +208,23 @@ something you want to see.
 terminated by Zoomies. Default lifetime seven days. Changing a password
 invalidates every other session for that user.
 
-Login is rate limited per source address (default 10/minute). An unknown
-username runs the argon2 KDF anyway, so response timing does not enumerate
-accounts.
+Login is rate limited per source address (default 10/minute) and, more loosely,
+per account, so a pool of addresses does not buy an unbounded budget against one
+person. An unknown username runs the argon2 KDF anyway, so response timing does
+not enumerate accounts either. Nor does the answer: "this account is disabled"
+is only said to somebody who has already given the right password, and an
+SSO-only account — which has no password to prove anything with — is refused
+exactly as an unknown username is. The reason is in the log and the audit trail
+for whoever is diagnosing it.
+
+A failed sign-in records the submitted username only when it names an account
+that exists. An unrecognised one is stored as a short fingerprint instead: a
+password typed into the username field is a common slip, and the audit log is
+readable by every viewer on the instance.
+
+Single sign-on binds its `state` to the browser that started the handshake with
+a short-lived cookie, so a callback obtained by an attacker signing in as
+themselves cannot be replayed into somebody else's browser.
 
 ---
 
@@ -355,9 +388,34 @@ issuer for local development is not warned about.
 
 Every request is treated as an administrator.
 
-Zoomies **refuses to start** with this set unless the listener is on loopback.
-On loopback it is a warning, because it is genuinely useful for local
-development.
+Zoomies **refuses to start** with this set unless the controller looks
+unreachable from anywhere but this machine — which means a loopback bind *and*
+no `server.external_url` *and* no `server.trusted_proxies`. A loopback bind on
+its own is not enough: loopback behind a reverse proxy is the deployment this
+documentation recommends, and it is reachable by the whole internet. With
+nothing in front of it, this is a warning, because it is genuinely useful for
+local development.
+
+### `server.allowed_origins: "*"`
+
+The cross-origin check is off. Any site a signed-in operator visits can make
+state-changing calls to this controller with their session; the `SameSite=Lax`
+cookie still refuses most of them, but it becomes the only thing left. List the
+origins you actually serve the UI from instead.
+
+### `agent.allow_insecure_http: true`
+
+The agent talks to a remote controller over plain HTTP. Its token and the JIT
+runner configuration in every create task — a live registration credential for
+your runner group — cross the network in the clear. Without this, a plaintext
+controller URL that is not on loopback is refused outright.
+
+### `oidc.link_by_username: true`
+
+A successful SSO login adopts an existing account that still has a local
+password. Whoever controls a username at your identity provider then controls
+the local account of the same name, `admin` included. Turn it on for the one
+migration where that is what you mean, then turn it off again.
 
 ### `metrics.public: true`
 
@@ -404,6 +462,11 @@ containers to run. Pin the CA with `agent.ca_file` instead.
 
 ## 7. Hardening a production install
 
+1. Create the first administrator before anyone else can. If you deployed with
+   the compose file rather than the installer, the controller is listening the
+   moment it starts: read the setup token out of its log
+   (`docker compose logs zoomies`) and finish the first-run page. Keep the
+   origin firewalled to your proxy as well, as the compose file's comments say.
 1. Run the controller as a dedicated unprivileged user
    (`zoomies init` creates one).
 2. Use a **rootless** Docker or Podman socket. The installer detects and prefers

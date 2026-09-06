@@ -13,6 +13,7 @@
  *    grid's body rows -- and each of those is commented at the point of use.
  *    The tests cannot add `data-testid`: the Svelte source is not theirs.
  */
+import { readFileSync } from 'node:fs';
 import { expect, type Locator, type Page } from '@playwright/test';
 
 /**
@@ -23,6 +24,23 @@ import { expect, type Locator, type Page } from '@playwright/test';
  * chromium`), leaves `PLAYWRIGHT_CHROMIUM` unset, and therefore gets `{}` --
  * no override at all. Every spec applies it with `test.use(browserOverride)`.
  */
+/**
+ * Where the first-run fixture leaves the setup token it saw the controller
+ * print.
+ *
+ * The bootstrap route asks for that token: an empty database is not proof that
+ * whoever is filling the first-run form deployed this controller, and being
+ * able to read its log is. A test is in the same position as the operator, so
+ * it fetches the token the same way -- out of the output. The path is defined
+ * here and handed to the fixture on its command line, so the two cannot drift.
+ */
+export const SETUP_TOKEN_FILE = 'test-results/firstrun-setup-token';
+
+/** The token the running first-run controller printed. */
+export function setupToken(): string {
+  return readFileSync(SETUP_TOKEN_FILE, 'utf8').trim();
+}
+
 export const browserOverride = process.env.PLAYWRIGHT_CHROMIUM
   ? { launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM } }
   : {};

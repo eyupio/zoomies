@@ -133,6 +133,7 @@ class Session {
   async completeBootstrap(input: {
     username: string;
     password: string;
+    setup_token: string;
     email?: string;
   }): Promise<Identity> {
     this.#identity = await bootstrapRequest(input);

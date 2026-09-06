@@ -130,11 +130,17 @@ func TestCreateUserWithoutPasswordWhenSSOIsOn(t *testing.T) {
 		t.Error("an account with no password has none to change")
 	}
 
-	// It cannot be signed in to with a password, and the refusal says why.
+	// It cannot be signed in to with a password, and the refusal gives nothing
+	// away: an account with no password has nothing that could prove it is
+	// yours, so saying "this one uses SSO" would just enumerate the ones that
+	// do. The reason is in the controller's log and the audit trail instead.
 	login := h.do(request{method: http.MethodPost, path: "/api/v1/auth/login",
 		body: map[string]any{"username": "alex", "password": testPassword}})
 	login.mustStatus(t, http.StatusUnauthorized, "password login to an SSO-only account")
-	if !strings.Contains(string(login.body), "single sign-on") {
-		t.Errorf("the refusal does not point at single sign-on: %s", login.body)
+	unknown := h.do(request{method: http.MethodPost, path: "/api/v1/auth/login",
+		body: map[string]any{"username": "nobody-at-all", "password": testPassword}})
+	if login.errorMessage(t) != unknown.errorMessage(t) {
+		t.Errorf("the refusals differ, which enumerates SSO accounts:\n sso:     %s\n unknown: %s",
+			login.errorMessage(t), unknown.errorMessage(t))
 	}
 }

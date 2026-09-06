@@ -138,7 +138,15 @@ cp .env.example .env
 $EDITOR .env          # ZOOMIES_EXTERNAL_URL, ZOOMIES_ENCRYPTION_KEY, DOCKER_GID
 mkdir -p data && sudo chown 65532:65532 data   # the container runs as 65532
 docker compose up -d
+docker compose logs zoomies | grep 'setup token'
 ```
+
+Then open the controller, paste that token, and create the first administrator.
+The token is what proves the instance is yours: the origin is reachable the
+moment the container starts, and an empty database is a thing a stranger can
+find too. It changes on every restart and stops being printed once an account
+exists. (The installer above creates the administrator on the console, so it
+never needs one.)
 
 Three values are required, and compose will not start without them:
 

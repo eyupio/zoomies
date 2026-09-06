@@ -183,17 +183,37 @@ func TestClaimsFrom(t *testing.T) {
 		t.Errorf("role = %q; want admin", c.Role)
 	}
 
-	// Providers that send no preferred_username fall back to the email rather
-	// than failing a login nobody can debug.
-	c, err = p.claimsFrom("sub-2", map[string]any{"email": "bob@example.com", "groups": "admins"})
+	// Providers that send no preferred_username fall back to a *verified* email
+	// rather than failing a login nobody can debug.
+	c, err = p.claimsFrom("sub-2", map[string]any{
+		"email": "bob@example.com", "email_verified": true, "groups": "admins",
+	})
 	if err != nil {
 		t.Fatalf("claimsFrom: %v", err)
 	}
 	if c.Username != "bob@example.com" {
-		t.Errorf("username = %q; want the email as a fallback", c.Username)
+		t.Errorf("username = %q; want the verified email as a fallback", c.Username)
 	}
 	if c.Role != store.RoleAdmin {
 		t.Errorf("a groups claim sent as a single string was ignored: %+v", c)
+	}
+
+	// An unverified address is a value the person typed, and accounts are
+	// matched by username -- so it must not become one. The subject does.
+	c, err = p.claimsFrom("sub-3", map[string]any{"email": "root@example.com"})
+	if err != nil {
+		t.Fatalf("claimsFrom: %v", err)
+	}
+	if c.Username != "sub-3" {
+		t.Errorf("username = %q; an unverified email must not be used as the username", c.Username)
+	}
+	// Providers that render the flag as a string still count as verified.
+	c, err = p.claimsFrom("sub-4", map[string]any{"email": "carol@example.com", "email_verified": "true"})
+	if err != nil {
+		t.Fatalf("claimsFrom: %v", err)
+	}
+	if c.Username != "carol@example.com" {
+		t.Errorf("username = %q; email_verified sent as a string should still count", c.Username)
 	}
 
 	if _, err := p.claimsFrom("", map[string]any{"email": "x@example.com"}); err == nil {

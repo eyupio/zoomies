@@ -31,6 +31,12 @@ type JoinRequest struct {
 	Version         string            `json:"version"`
 	Labels          map[string]string `json:"labels,omitempty"`
 	Backends        []backend.Info    `json:"backends"`
+	// PreviousToken is the agent token this host was issued the last time it
+	// joined, sent when the credentials file still holds one. It is what lets
+	// a rebuilt machine reclaim its own row: without it the controller refuses
+	// to replace an existing host of the same name, because a join token on its
+	// own must not be enough to take over somebody else's machine.
+	PreviousToken string `json:"previous_token,omitempty"`
 }
 
 // JoinResponse hands back the host's identity and its long-lived agent token.

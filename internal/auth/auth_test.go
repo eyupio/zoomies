@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -170,6 +171,10 @@ func TestLoginUnknownUserLooksLikeAWrongPassword(t *testing.T) {
 	}
 }
 
+// Why an account cannot be signed into is only disclosed to somebody who has
+// proved the account is theirs. Before that, every answer is the same one an
+// unknown username gets, or the state of every account on the instance is
+// readable by anyone who can reach the login form.
 func TestLoginRefusesDisabledAndSSOOnlyAccounts(t *testing.T) {
 	s, st, _ := newService(t)
 	addUser(t, st, "disabled", store.RoleViewer, func(u *store.User) { u.Disabled = true })
@@ -178,15 +183,57 @@ func TestLoginRefusesDisabledAndSSOOnlyAccounts(t *testing.T) {
 		u.OIDCSubject = "sub-1"
 	})
 
+	// The right password proves the account is yours, so now you may be told.
 	if _, _, err := s.Login(t.Context(), "disabled", testPassword, "10.0.0.1", ""); !errors.Is(err, ErrAccountDisabled) {
-		t.Errorf("disabled account login = %v; want ErrAccountDisabled", err)
+		t.Errorf("disabled account login with the right password = %v; want ErrAccountDisabled", err)
 	}
-	_, _, err := s.Login(t.Context(), "sso", testPassword, "10.0.0.1", "")
-	if !errors.Is(err, ErrSSOOnly) {
-		t.Fatalf("OIDC-only account login = %v; want ErrSSOOnly", err)
+	// The wrong one proves nothing, and must not reveal that the account exists.
+	if _, _, err := s.Login(t.Context(), "disabled", "wrong-password-entirely", "10.0.0.2", ""); !errors.Is(err, ErrInvalidCredentials) {
+		t.Errorf("disabled account login with a wrong password = %v; want ErrInvalidCredentials", err)
 	}
-	if !strings.Contains(err.Error(), "single sign-on") {
-		t.Errorf("the SSO-only message should point at SSO: %q", err)
+	// An SSO-only account has no password, so nothing can ever prove ownership
+	// of it here: it is indistinguishable from a username that does not exist.
+	unknown := errorFrom(s.Login(t.Context(), "nobody-at-all", testPassword, "10.0.0.3", ""))
+	ssoOnly := errorFrom(s.Login(t.Context(), "sso", testPassword, "10.0.0.4", ""))
+	if !errors.Is(ssoOnly, ErrInvalidCredentials) {
+		t.Fatalf("OIDC-only account login = %v; want ErrInvalidCredentials", ssoOnly)
+	}
+	if ssoOnly.Error() != unknown.Error() {
+		t.Errorf("messages differ, which enumerates SSO accounts:\n sso:     %v\n unknown: %v", ssoOnly, unknown)
+	}
+}
+
+// errorFrom drops Login's first two results, so a test that only cares about
+// the refusal reads as one line.
+func errorFrom(_ *store.User, _ string, err error) error { return err }
+
+// An attacker with a pool of addresses must not get an unbounded budget against
+// one account, so attempts are counted per username as well as per address.
+func TestLoginRateLimitPerAccount(t *testing.T) {
+	cfg := config.Default()
+	cfg.Security.RateLimitLogins = 2
+	s, st, _ := newServiceWith(t, cfg)
+	addUser(t, st, "alice", store.RoleAdmin, nil)
+
+	// A fresh address every time, so the per-address limiter never fires.
+	limit := cfg.Security.RateLimitLogins * accountLimitFactor
+	for i := range limit {
+		ip := fmt.Sprintf("10.1.0.%d", i+1)
+		if _, _, err := s.Login(t.Context(), "alice", "wrong", ip, ""); !errors.Is(err, ErrInvalidCredentials) {
+			t.Fatalf("attempt %d from %s = %v; want ErrInvalidCredentials", i+1, ip, err)
+		}
+	}
+	if _, _, err := s.Login(t.Context(), "alice", "wrong", "10.1.9.9", ""); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("attempt %d from a fresh address = %v; want ErrRateLimited", limit+1, err)
+	}
+	// Another account is unaffected: one person's counter is not everyone's.
+	addUser(t, st, "bob", store.RoleViewer, nil)
+	if _, _, err := s.Login(t.Context(), "bob", "wrong", "10.1.9.9", ""); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("a different account = %v; want the per-account limit to be per account", err)
+	}
+	// Case and padding must not buy a fresh budget.
+	if _, _, err := s.Login(t.Context(), "  ALICE ", "wrong", "10.1.9.8", ""); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("a differently-cased username = %v; want the same account's limit", err)
 	}
 }
 
@@ -522,8 +569,12 @@ func TestCreateUserValidation(t *testing.T) {
 	} else if sso.PasswordHash != "" || sso.OIDCSubject != "" {
 		t.Fatalf("SSO-only user = %+v, want no password hash and no subject yet", sso)
 	}
-	if _, _, err := s.Login(ctx, "sso-only", testPassword, "10.0.0.1", "test"); !errors.Is(err, ErrSSOOnly) {
-		t.Fatalf("Login(sso-only) = %v, want ErrSSOOnly", err)
+	// A password sign-in against it is refused exactly as an unknown username
+	// is: the account has no password, so nothing offered here can prove it is
+	// yours, and saying "this one uses SSO" would enumerate the accounts that
+	// do. TestLoginRefusesDisabledAndSSOOnlyAccounts covers that in full.
+	if _, _, err := s.Login(ctx, "sso-only", testPassword, "10.0.0.1", "test"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("Login(sso-only) = %v, want ErrInvalidCredentials", err)
 	}
 	if _, err := s.CreateUser(ctx, NewUser{Username: "nopass"}); err == nil {
 		t.Error("an account with neither a password nor an OIDC subject was accepted")

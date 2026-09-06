@@ -45,6 +45,10 @@ type JoinOptions struct {
 	ClientCertFile     string
 	ClientKeyFile      string
 	InsecureSkipVerify bool
+	// AllowInsecureHTTP permits a plain http:// controller URL that is not on
+	// loopback. The transport refuses one otherwise, because the agent token
+	// and every runner's registration credentials would cross in the clear.
+	AllowInsecureHTTP bool
 
 	ConfigDir  string
 	StateDir   string
@@ -183,6 +187,7 @@ func Join(ctx context.Context, opts JoinOptions) error {
 		ClientCertFile:     opts.ClientCertFile,
 		ClientKeyFile:      opts.ClientKeyFile,
 		InsecureSkipVerify: opts.InsecureSkipVerify,
+		AllowInsecureHTTP:  opts.AllowInsecureHTTP,
 		Logger:             log,
 	})
 	if err != nil {
