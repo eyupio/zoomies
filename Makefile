@@ -99,7 +99,7 @@ screenshots: build ## Recapture docs/screenshots from the real UI (needs Pillow:
 .PHONY: lint
 lint: ## Vet, format check, and staticcheck when available
 	$(GO) vet ./...
-	@out=$$(gofmt -l . | grep -v '^web/' || true); \
+	@out=$$(gofmt -l $$(git ls-files '*.go')); \
 	 if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
 	@if command -v staticcheck >/dev/null 2>&1; then staticcheck ./...; \
 	 else echo "  staticcheck not installed, skipping"; fi
@@ -152,7 +152,7 @@ images-multiarch: ## Build both images for amd64 and arm64 (needs buildx)
 ##@ Housekeeping
 
 .PHONY: openapi
-openapi: build-nogui ## Regenerate the TypeScript client from api/openapi.yaml
+openapi: ## Regenerate the TypeScript client from api/openapi.yaml
 	cd $(UI_DIR) && $(NPM) run generate:api
 
 .PHONY: clean
