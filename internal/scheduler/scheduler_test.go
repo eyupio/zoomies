@@ -1368,3 +1368,30 @@ func TestAtCapacityCarriesNoAlternatives(t *testing.T) {
 		t.Fatalf("alternatives = %v, want none for a fleet that is only busy", pp.BlockedAlternatives)
 	}
 }
+
+// With a repository limit of one and three jobs from the same repository the
+// reason used to read "3 jobs queued" on a scale-up to a single runner, which
+// an operator reads as a shortfall. It counts the jobs the pool is scaling for
+// and says where the rest went.
+func TestTheScaleUpReasonCountsTheJobsItIsScalingForAndNamesTheDeferred(t *testing.T) {
+	p := testPool("shared", "self-hosted")
+	p.RepositoryScaleUpLimit = 1
+	jobs := []*store.Job{
+		queued("one", time.Minute, "self-hosted"),
+		queued("two", time.Minute, "self-hosted"),
+		queued("three", time.Minute, "self-hosted"),
+	}
+	s := snap([]*store.Pool{p}, nil, jobs, []*store.Host{testHost("host_a", 4, 0)})
+
+	pp := only(t, Decide(s))
+	if pp.Desired != 1 || countOf(pp.Actions, ActionCreate) != 1 {
+		t.Fatalf("plan = %+v, want one runner for the one admitted job", pp)
+	}
+	want := "scaled shared 0 -> 1: 1 job queued (2 jobs deferred by the repository limit for acme/widgets)"
+	if pp.Reason != want {
+		t.Fatalf("reason = %q\nwant     %q", pp.Reason, want)
+	}
+	if pp.Actions[0].Reason != "1 job queued (2 jobs deferred by the repository limit for acme/widgets)" {
+		t.Fatalf("action reason = %q", pp.Actions[0].Reason)
+	}
+}

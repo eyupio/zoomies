@@ -130,6 +130,11 @@ type PoolPlan struct {
 	// QuotaDeferredRepositories names the repositories represented by those
 	// deferred jobs, in stable order.
 	QuotaDeferredRepositories []string `json:"quota_deferred_repositories,omitempty"`
+	// eligible is the number of queued jobs that drove Desired: past the
+	// scale-up delay and admitted by the repository limit. The scale-up reason
+	// is written from it, so it names the jobs the pool is scaling for rather
+	// than every job on the queue.
+	eligible int
 	// Reason is the sentence shown in the UI, e.g.
 	// "scaled linux-x64 2 -> 4: 3 jobs queued > 30s". It is empty when the
 	// pool's size did not change.
@@ -291,6 +296,7 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 	// what keeps the pool under its maximum, but it will never take a job, so
 	// it must not stand in for the runner a queued job is waiting on.
 	plan.Desired = clamp(max(p.MinRunners, busy+draining+eligible), p.MinRunners, p.MaxRunners)
+	plan.eligible = eligible
 	plan.Failing = t.holdAfterStartFailures(runners)
 
 	switch {
@@ -450,18 +456,20 @@ func (t *tick) grant(p *store.Pool, plan *PoolPlan, runners []*store.Runner, que
 		plan.BlockedAtCapacity, plan.BlockedAlternatives = b.atCapacity, b.alternatives
 		return false
 	}
-	busy, eligible := 0, 0
+	busy := 0
 	for _, r := range runners {
 		if r.State == store.RunnerBusy {
 			busy++
 		}
 	}
-	for _, r := range queued {
-		if t.now.Sub(r.QueuedAt) >= t.policy.ScaleUpDelay {
-			eligible++
-		}
+	// The reason counts the jobs the pool is scaling for. Counting the queue
+	// here instead used to say "3 jobs queued" for a pool the repository
+	// limit let scale for one of them, which reads as a shortfall.
+	reason := upReason(p, busy, plan.eligible, t.policy.ScaleUpDelay)
+	if plan.QuotaDeferredJobs > 0 {
+		reason += fmt.Sprintf(" (%s deferred by the repository limit for %s)",
+			plural(plan.QuotaDeferredJobs, "job"), strings.Join(plan.QuotaDeferredRepositories, ", "))
 	}
-	reason := upReason(p, busy, eligible, t.policy.ScaleUpDelay)
 	plan.Actions = append(plan.Actions, Action{Kind: ActionCreate, PoolID: p.ID, PoolName: p.Name, HostID: hosts[0], Reason: reason})
 	t.budget--
 	plan.Reason = scaled(p.Name, plan.Current, plan.Current+creates(plan.Actions), reason)
