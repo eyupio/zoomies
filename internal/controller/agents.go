@@ -17,6 +17,7 @@ import (
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/events"
+	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
 )
@@ -259,7 +260,7 @@ func (c *Controller) PrewarmPool(ctx context.Context, p *store.Pool) (int, error
 	}
 	n := 0
 	for _, h := range hosts {
-		if !h.Healthy(c.Now()) || h.Cordoned || !slices.Contains(h.Backends, string(p.Backend)) || !matchesSelector(p.HostSelector, h.Labels) {
+		if !scheduler.HostCanRun(h, p, c.Now()) {
 			continue
 		}
 		_ = c.st.SetPoolPrewarm(ctx, p.ID, h.ID, p.Image, "pending", "", "")
@@ -268,15 +269,6 @@ func (c *Controller) PrewarmPool(ctx context.Context, p *store.Pool) (int, error
 		}
 	}
 	return n, nil
-}
-
-func matchesSelector(want, got store.StringMap) bool {
-	for k, v := range want {
-		if got[k] != v {
-			return false
-		}
-	}
-	return true
 }
 
 // ---------------------------------------------------------------------------

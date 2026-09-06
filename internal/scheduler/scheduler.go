@@ -632,8 +632,36 @@ func (hs *hostSet) pick(p *store.Pool) *store.Host {
 }
 
 func (hs *hostSet) eligible(h *store.Host, p *store.Pool) bool {
-	return hs.free[h.ID] > 0 && h.Healthy(hs.now) && !h.Cordoned &&
-		slices.Contains(h.Backends, string(p.Backend)) && selects(p.HostSelector, h.Labels)
+	return hs.free[h.ID] > 0 && HostCanRun(h, p, hs.now)
+}
+
+// HostCanRun is the placement rule, in one place: a host may take a runner for
+// a pool when it is available, offers the pool's backend and satisfies the
+// pool's host selector. The wizard's "matching hosts" count, the capacity-demand
+// signal and image prewarming all ask this same question, and each used to
+// answer it with a copy of its own that a new rule here would have left
+// behind. Room on the host is the scheduler's own accounting and is checked
+// separately.
+func HostCanRun(h *store.Host, p *store.Pool, now time.Time) bool {
+	return HostAvailable(h, now) && HostOffers(h, p) && HostSelects(h, p)
+}
+
+// HostAvailable reports whether a host may take new runners at all: its agent
+// is heartbeating and an operator has not cordoned it.
+func HostAvailable(h *store.Host, now time.Time) bool {
+	return h.Healthy(now) && !h.Cordoned
+}
+
+// HostOffers reports whether a host's agent offers the pool's backend.
+func HostOffers(h *store.Host, p *store.Pool) bool {
+	return slices.Contains(h.Backends, string(p.Backend))
+}
+
+// HostSelects reports whether a host's labels satisfy the pool's host
+// selector: every key and value of the selector is present on the host, and
+// an empty selector means "any host".
+func HostSelects(h *store.Host, p *store.Pool) bool {
+	return selects(p.HostSelector, h.Labels)
 }
 
 // selects reports whether every key and value of the selector is present on the
