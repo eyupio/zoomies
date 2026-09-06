@@ -41,6 +41,16 @@ VERSION="${ZOOMIES_VERSION:-latest}"
 REPO="${ZOOMIES_REPO:-eyupio/zoomies}"
 PREFIX="${ZOOMIES_PREFIX:-/usr/local/bin}"
 BASE_URL="${ZOOMIES_BASE_URL:-https://github.com/${REPO}/releases}"
+# A redirect is somebody else's choice of protocol, and what this script
+# downloads is executed on the host. Redirects are pinned to https so a 302
+# can never turn the download into a plaintext one; the first request is
+# pinned too unless an operator pointed ZOOMIES_BASE_URL at a plain-http
+# mirror of their own, in which case pinning it would break their mirror
+# rather than protect it.
+CURL_PROTO="--proto-redir =https"
+case "$BASE_URL" in
+    https://*) CURL_PROTO="--proto =https --proto-redir =https" ;;
+esac
 
 MODE=""
 DEPLOYMENT=""
@@ -186,6 +196,18 @@ needs_value() {
     # needs_value <flag> <args-remaining> <what it takes>
     [ "$2" -ge 2 ] || die "$1 needs a value: $3."
 }
+
+# ---------------------------------------------------------------------------
+# Everything below runs inside main, which is called on the last line
+#
+# `curl | sh` feeds this script to a shell as it arrives, and a transfer that
+# is cut short leaves the shell holding a prefix of it -- one that has parsed
+# and would happily run. Half this script is not a smaller install, it is an
+# install that stops in the middle of writing to /usr/local/bin. Inside a
+# function nothing runs until the closing brace has been read, so a truncated
+# download is a syntax error rather than a partial installation.
+# ---------------------------------------------------------------------------
+main() {
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -584,7 +606,8 @@ FETCH_ERROR=""
 fetch() {
     FETCH_ERROR=""
     if have curl; then
-        FETCH_ERROR=$(curl -fsSL --retry 3 --retry-delay 1 -o "$2" "$1" 2>&1) && return 0
+        # shellcheck disable=SC2086 # CURL_PROTO is two flags, deliberately split
+        FETCH_ERROR=$(curl -fsSL $CURL_PROTO --retry 3 --retry-delay 1 -o "$2" "$1" 2>&1) && return 0
     elif have wget; then
         FETCH_ERROR=$(wget -qO "$2" "$1" 2>&1) && return 0
     else
@@ -596,7 +619,8 @@ fetch() {
 
 fetch_stdout() {
     if have curl; then
-        curl -fsSL --retry 3 --retry-delay 1 "$1"
+        # shellcheck disable=SC2086 # as above
+        curl -fsSL $CURL_PROTO --retry 3 --retry-delay 1 "$1"
     else
         wget -qO- "$1"
     fi
@@ -620,7 +644,8 @@ resolve_version() {
     # The redirect target of /releases/latest names the tag without needing the
     # API, which keeps this working for unauthenticated users behind a rate limit.
     if have curl; then
-        url=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$BASE_URL/latest" 2>/dev/null || printf '')
+        # shellcheck disable=SC2086 # as above
+        url=$(curl -fsSLI $CURL_PROTO -o /dev/null -w '%{url_effective}' "$BASE_URL/latest" 2>/dev/null || printf '')
     else
         url=$(wget -qS --max-redirect=5 -O /dev/null "$BASE_URL/latest" 2>&1 |
               awk '/^  Location: /{print $2}' | tail -1)
@@ -1072,3 +1097,6 @@ if [ "$NON_INTERACTIVE" -eq 0 ] && [ ! -t 0 ] && have_tty; then
 fi
 # shellcheck disable=SC2086
 exec $ELEVATE_INIT "$PREFIX/zoomies" "$@"
+}
+
+main "$@"
