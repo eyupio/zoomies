@@ -36,6 +36,7 @@ type Config struct {
 	OIDC           OIDC           `yaml:"oidc"`
 	Metrics        Metrics        `yaml:"metrics"`
 	Retention      Retention      `yaml:"retention"`
+	Images         Images         `yaml:"images"`
 	CapacityDemand CapacityDemand `yaml:"capacity_demand"`
 
 	// path records where this config was read from, for error messages.
@@ -45,6 +46,22 @@ type Config struct {
 	// warning about a key in the config file has to look at where the key came
 	// from, not at whether one is present.
 	keyInFile bool `yaml:"-"`
+}
+
+// Images controls how the fleet keeps the images its pools run up to date.
+type Images struct {
+	// RefreshInterval is how often every pool's image is prewarmed again on
+	// the hosts that can run it. Prewarming otherwise happens only when a pool
+	// is created, edited or prewarmed by hand, so a pool that names a moving
+	// tag -- which the default ghcr.io/eyupio/zoomies-runner:latest is -- keeps
+	// running whatever its hosts first pulled, however many times the tag has
+	// moved since.
+	//
+	// The work is idempotent and off every job's critical path: it costs a
+	// registry round trip per pool per host, and a pull only when the tag has
+	// actually moved. Zero switches it off, which is what an air-gapped fleet
+	// or one that pins every pool to a digest wants.
+	RefreshInterval time.Duration `yaml:"refresh_interval"`
 }
 
 // CapacityDemand publishes signed requests for host capacity to an external
@@ -332,6 +349,9 @@ func Default() *Config {
 			Samples:  7 * 24 * time.Hour,
 			Webhooks: 7 * 24 * time.Hour,
 		},
+		// Hourly is soon enough that a host picks up a rebuilt image the same
+		// working day, and rare enough that the registry never notices.
+		Images:         Images{RefreshInterval: time.Hour},
 		CapacityDemand: CapacityDemand{Cooldown: 10 * time.Minute, Timeout: 10 * time.Second},
 	}
 }
@@ -795,6 +815,8 @@ func (c *Config) applyEnv() error {
 	dur("ZOOMIES_RETENTION_AUDIT", &c.Retention.Audit)
 	dur("ZOOMIES_RETENTION_SAMPLES", &c.Retention.Samples)
 	dur("ZOOMIES_RETENTION_WEBHOOKS", &c.Retention.Webhooks)
+
+	dur("ZOOMIES_IMAGE_REFRESH_INTERVAL", &c.Images.RefreshInterval)
 	str("ZOOMIES_CAPACITY_DEMAND_URL", &c.CapacityDemand.DestinationURL)
 	str("ZOOMIES_CAPACITY_DEMAND_SIGNING_SECRET", &c.CapacityDemand.SigningSecret)
 	dur("ZOOMIES_CAPACITY_DEMAND_COOLDOWN", &c.CapacityDemand.Cooldown)

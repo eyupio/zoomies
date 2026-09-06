@@ -617,6 +617,31 @@ func (c *Config) Validate() Findings {
 		})
 	}
 
+	// --- Runner images ----------------------------------------------------
+	if c.Images.RefreshInterval < 0 {
+		add(Finding{
+			Code: "images.refresh_negative", Severity: SeverityError, Setting: "images.refresh_interval",
+			Title: "images.refresh_interval cannot be negative",
+			Fix:   `use a duration like "1h", or 0 to leave images alone.`,
+		})
+	}
+	if c.Images.RefreshInterval > 0 && c.Images.RefreshInterval < 5*time.Minute {
+		add(Finding{
+			Code: "images.refresh_too_fast", Severity: SeverityWarning, Setting: "images.refresh_interval",
+			Title:  fmt.Sprintf("every pool's image is checked every %s", c.Images.RefreshInterval),
+			Detail: "each pass is a registry round trip for every pool on every host that can run it, and an image changes no more often than it is built.",
+			Fix:    `use "15m" or more; the default hour is soon enough for a tag that moves on a merge.`,
+		})
+	}
+	if c.Images.RefreshInterval == 0 {
+		add(Finding{
+			Code: "images.refresh_off", Severity: SeverityInfo, Setting: "images.refresh_interval",
+			Title:  "runner images are never refreshed",
+			Detail: "a pool that names a moving tag keeps whatever its hosts pulled the first time; prewarming still runs when a pool is created or edited.",
+			Fix:    `set images.refresh_interval to "1h" unless this fleet is air-gapped or pins every pool to a digest.`,
+		})
+	}
+
 	// --- External capacity provisioner -----------------------------------
 	if c.CapacityDemand.DestinationURL != "" {
 		u, err := url.Parse(c.CapacityDemand.DestinationURL)

@@ -165,6 +165,9 @@ retention:
   audit: 8760h                  # ZOOMIES_RETENTION_AUDIT     (365 days of scaling history; audit rows are never pruned)
   samples: 168h                 # ZOOMIES_RETENTION_SAMPLES
   webhooks: 168h                # ZOOMIES_RETENTION_WEBHOOKS
+
+images:
+  refresh_interval: 1h          # ZOOMIES_IMAGE_REFRESH_INTERVAL  -- 0 switches it off
 ```
 
 ---
@@ -455,6 +458,43 @@ keeps a minimum re-registers its runners this often. It never interrupts a
 running job: a job that hangs keeps its runner busy, and ending that is what the
 workflow's `timeout-minutes` is for. A runner that never finished registering is
 `provision_timeout`'s to fail, not this setting's.
+
+### `images.refresh_interval` — keeping a moving tag current
+
+```yaml
+images:
+  refresh_interval: 1h
+```
+
+Every pool's image is prepared on a host by *prewarming* it, and prewarming is
+otherwise triggered by exactly three things: creating a pool, editing one, and
+`POST /pools/{id}/prewarm`. None of those happen on their own, so a pool that
+names a tag which moves — and the default
+`ghcr.io/eyupio/zoomies-runner:latest` moves on every merge to `main` — would
+reach a host once, at the first job it ever ran, and keep that image for as long
+as the host lived.
+
+This setting is what re-runs the prewarm. Every interval, each pool's image is
+prewarmed again on every healthy host that can run the pool, which pulls only
+when the tag has actually moved.
+
+It is deliberately not the same thing as a pool's **pull policy**:
+
+| | Decides | Costs |
+| --- | --- | --- |
+| `pull_policy` (per pool) | what happens **when a runner is created** | a registry round trip in front of the job, which is the queue wait ephemeral runners exist to avoid |
+| `images.refresh_interval` | how often the fleet **catches up in the background** | bandwidth, on nobody's critical path |
+
+So the pairing that gets both a fast start and a current image is the default
+one: `if-not-present` on the pool, and an hourly refresh here.
+
+Runners that already exist are never touched, and neither is the image any of
+them was created from — a container keeps the image it started with until it is
+replaced. What changes is the image the *next* runner is created from.
+
+Set it to `0` to switch it off. That is the right answer for an air-gapped
+fleet, or one that pins every pool to a digest, and Zoomies says so once at
+startup rather than leaving you to wonder.
 
 ---
 

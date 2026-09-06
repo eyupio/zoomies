@@ -111,6 +111,9 @@ on a public address the same setting is an error.
 | `scheduler.interval` | error | `scheduler.interval` | Must be positive. |
 | `scheduler.burst` | error | `scheduler.max_creates_per_tick` | Must be at least 1. |
 | `scheduler.lifetime_short` | warning | `scheduler.max_runner_lifetime` | Idle runners are recycled sooner than a long job takes, so work may be interrupted. |
+| `images.refresh_negative` | error | `images.refresh_interval` | Must not be negative. Use a duration, or 0 to leave images alone. |
+| `images.refresh_too_fast` | warning | `images.refresh_interval` | Every pool's image is checked on every host far more often than an image is built. |
+| `images.refresh_off` | info | `images.refresh_interval` | Nothing refreshes runner images, so a pool naming a moving tag keeps whatever its hosts pulled first. Expected on an air-gapped fleet, or one that pins every pool to a digest. |
 | `capacity_demand.url` | error | `capacity_demand.destination_url` | Not an absolute HTTP URL. |
 | `capacity_demand.secret` | error | `capacity_demand.signing_secret` | Empty, so deliveries could not be signed and a receiver could not tell them from anyone else's. |
 | `capacity_demand.cooldown` | error | `capacity_demand.cooldown` | Must be positive. |
