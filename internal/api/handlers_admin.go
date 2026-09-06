@@ -425,6 +425,7 @@ var runtimeWritable = map[string]string{
 	"retention.audit":                "how long scaling history is kept; audit rows themselves are never deleted",
 	"retention.samples":              "how long the Overview's samples are kept",
 	"retention.webhooks":             "how long webhook deliveries are kept",
+	"images.refresh_interval":        "how often every pool's image is prewarmed again, so a moving tag reaches the hosts",
 }
 
 // restartRequiredKeys lists the settings that exist and cannot be changed here.
@@ -542,6 +543,9 @@ func (s *Server) settingsConfig() map[string]any {
 			"audit":    c.Retention.Audit.String(),
 			"samples":  c.Retention.Samples.String(),
 			"webhooks": c.Retention.Webhooks.String(),
+		},
+		"images": map[string]any{
+			"refresh_interval": c.Images.RefreshInterval.String(),
 		},
 	}
 }
@@ -699,6 +703,9 @@ func (s *Server) stageSetting(key string, value any) (func(*config.Config) any, 
 		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Retention.Samples }, 0)
 	case "retention.webhooks":
 		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Retention.Webhooks }, 0)
+
+	case "images.refresh_interval":
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Images.RefreshInterval }, 0)
 	}
 	return nil, fmt.Errorf("%q is not a setting this API knows about", key)
 }
