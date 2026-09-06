@@ -108,7 +108,7 @@
     width: var(--z-nav-width);
     height: 100vh;
     padding: var(--z-space-3);
-    border-right: 1px solid var(--z-border);
+    border-right: var(--z-border-width) solid var(--z-border);
     background: var(--z-surface);
     z-index: var(--z-layer-nav);
     transition: width var(--z-motion-base) var(--z-ease);
@@ -125,7 +125,7 @@
   .brand {
     padding: var(--z-space-2) var(--z-space-2) var(--z-space-3);
     margin-bottom: var(--z-space-3);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   .collapsed .brand {
     display: flex;
@@ -159,7 +159,7 @@
     font-size: var(--z-text-2xs);
     line-height: 1.4;
     font-weight: var(--z-weight-medium);
-    letter-spacing: 0.08em;
+    letter-spacing: var(--z-tracking-wider);
     text-transform: uppercase;
     color: var(--z-text-subtle);
   }
@@ -167,7 +167,7 @@
     flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--z-nudge-2);
     margin: 0;
     padding: 0;
     list-style: none;
@@ -239,7 +239,7 @@
       padding: var(--z-space-1) var(--z-space-1)
         calc(var(--z-space-1) + env(safe-area-inset-bottom, 0px));
       border-right: 0;
-      border-top: 1px solid var(--z-border);
+      border-top: var(--z-border-width) solid var(--z-border);
     }
     .brand,
     .foot {
@@ -250,9 +250,16 @@
       justify-content: space-around;
       width: 100%;
     }
+    /*
+      Centred, both ways. The entries are fixed-height columns whose only
+      visible content is an icon, so without this the icon sat against the top
+      edge of the highlight pill and the rest of the pill was empty space
+      below it.
+    */
     a {
       flex-direction: column;
-      gap: 2px;
+      justify-content: center;
+      gap: var(--z-nudge-2);
       height: var(--z-space-12);
       padding: 0 var(--z-space-1);
     }
@@ -268,10 +275,10 @@
     */
     .label {
       position: absolute;
-      width: 1px;
-      height: 1px;
+      width: var(--z-nudge-1);
+      height: var(--z-nudge-1);
       padding: 0;
-      margin: -1px;
+      margin: calc(-1 * var(--z-nudge-1));
       overflow: hidden;
       clip-path: inset(50%);
       white-space: nowrap;

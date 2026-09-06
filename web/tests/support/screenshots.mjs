@@ -22,6 +22,7 @@
 // needs a Python environment to build.
 
 import { spawn, spawnSync } from 'node:child_process';
+import { controllerEnv } from './controller.mjs';
 import { createHmac, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -135,12 +136,7 @@ async function bootController(dir) {
     stdio: ['ignore', 'ignore', 'inherit'],
     env: {
       ...process.env,
-      ZOOMIES_BIND: `127.0.0.1:${PORT}`,
-      ZOOMIES_DB_PATH: join(dir, 'zoomies.db'),
-      ZOOMIES_STATE_DIR: dir,
-      ZOOMIES_CONFIG_DIR: dir,
-      ZOOMIES_WORK_DIR: join(dir, 'work'),
-      ZOOMIES_AGENT_EMBEDDED: 'false',
+      ...controllerEnv(dir, PORT),
       // Configured the way a finished install is, so the problems drawer
       // shows the fleet's problems and not this harness's: an external URL
       // (loopback, so the session cookie is not marked Secure and a plain-http
@@ -148,8 +144,6 @@ async function bootController(dir) {
       // installation, so nothing reaches for GitHub.
       ZOOMIES_EXTERNAL_URL: `http://127.0.0.1:${PORT}`,
       ZOOMIES_POLL_FALLBACK: 'true',
-      ZOOMIES_LOG_FORMAT: 'text',
-      ZOOMIES_LOG_LEVEL: 'warn',
       ZOOMIES_SEED_DEMO: 'true',
     },
   });
@@ -250,7 +244,18 @@ async function capture(browser, scheme, pngDir) {
   const dir = mkdtempSync(join(tmpdir(), 'zoomies-screenshots-'));
   const child = await bootController(dir);
   const baseURL = `http://127.0.0.1:${PORT}`;
-  const common = { baseURL, colorScheme: scheme, reducedMotion: 'reduce' };
+  // en-GB, and a fixed one. Native date inputs render in the browser's locale,
+  // and a runner with none set takes the machine's -- so the shipped
+  // documentation showed `mm/dd/yyyy` placeholders to a project whose prose is
+  // British throughout. The timezone is pinned for the same reason: a
+  // screenshot of "3 minutes ago" should not depend on where CI is.
+  const common = {
+    baseURL,
+    colorScheme: scheme,
+    reducedMotion: 'reduce',
+    locale: 'en-GB',
+    timezoneId: 'Europe/London',
+  };
   try {
     const desktop = await browser.newContext({
       ...common,

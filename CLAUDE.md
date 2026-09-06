@@ -135,10 +135,15 @@ runners, no Docker socket in jobs, no root.
 `web/` is Svelte 5 (runes), Tailwind v4, Vite, TypeScript, built straight into
 `internal/api/webdist` and embedded.
 
-* **Never write a raw hex, px or ms value in a component.** All design tokens
-  live in `web/src/lib/styles/tokens.css` and are consumed by Tailwind through
-  `@theme`. [docs/ui-guidelines.md](docs/ui-guidelines.md) is the contract, and
-  UI changes should keep it true.
+* **Never write a raw colour in a component, and never write a raw value that
+  already has a token.** All design tokens live in
+  `web/src/lib/styles/tokens.css`. A colour written by hand only works in one
+  theme, so that half is absolute; the rest is a rule about repetition, and a
+  value that appears twice belongs in the token file. Media query widths, a
+  one-off measure in a component's own layout, and the log viewer's xterm
+  bridge are the documented exceptions.
+  [docs/ui-guidelines.md](docs/ui-guidelines.md) is the contract, and UI
+  changes should keep it true.
 * Status colours are a fixed mapping (idle, busy, pending, draining, danger,
   neutral). Operators learn them; do not reuse them for anything else.
 * No state-management library (runes are it), no client-side router

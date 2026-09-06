@@ -226,7 +226,7 @@
           />{/snippet}
       </Field>
       <p class="hint">
-        Leave this empty when the pool's installation is scoped to a single repository -- it already
+        Leave this empty when the pool's installation is scoped to a single repository — it already
         says which one. An organisation-wide installation does not, so name the repository this
         pool's cache is for.
       </p>

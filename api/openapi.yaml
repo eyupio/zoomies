@@ -719,6 +719,15 @@ paths:
         step calls this, so the warnings an operator sees before confirming are
         the same ones the server would raise afterwards.
       x-zoomies-role: operator
+      parameters:
+        - name: id
+          in: query
+          required: false
+          schema: { type: string }
+          description: |
+            The pool this would be an edit to. Its own name is then not treated
+            as a clash -- without this, editing anything about a pool is refused
+            because a pool with that name already exists, namely itself.
       requestBody:
         required: true
         content:

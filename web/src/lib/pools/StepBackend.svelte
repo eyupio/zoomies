@@ -239,8 +239,8 @@
   .unrunnable {
     margin-top: var(--z-space-4);
     padding: var(--z-space-4);
-    border: 1px solid var(--z-danger-border, var(--z-border));
-    border-left: 3px solid var(--z-danger);
+    border: var(--z-border-width) solid var(--z-danger-border, var(--z-border));
+    border-left: var(--z-border-width-rail) solid var(--z-danger);
     border-radius: var(--z-radius-md);
     background: var(--z-danger-subtle);
   }
@@ -274,7 +274,7 @@
   }
   .danger {
     padding: var(--z-space-4);
-    border: 2px solid var(--z-danger-border);
+    border: var(--z-border-width-thick) solid var(--z-danger-border);
     border-radius: var(--z-radius-md);
     background: var(--z-danger-subtle);
   }

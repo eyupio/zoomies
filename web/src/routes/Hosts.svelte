@@ -172,6 +172,11 @@
 
   {#if canAdmin}
     <section class="panel" aria-labelledby="join-tokens-heading">
+      <!--
+        No button of its own. "Add a host" is already the page's primary
+        action, in the header, and two of the same button on one screen is a
+        question about which one is the real one rather than a convenience.
+      -->
       <header>
         <div>
           <h2 id="join-tokens-heading">Join tokens</h2>
@@ -180,7 +185,6 @@
             were minted and never used.
           </p>
         </div>
-        <Button variant="secondary" icon={Plus} href="/hosts/new">Add a host</Button>
       </header>
       <div class="panel-body">
         <LoadingBoundary
@@ -223,12 +227,12 @@
     flex-direction: column;
     gap: var(--z-space-3);
     padding: var(--z-space-5);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }
   .panel {
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }
@@ -238,7 +242,7 @@
     justify-content: space-between;
     gap: var(--z-space-4);
     padding: var(--z-space-4) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   h2 {
     margin: 0;

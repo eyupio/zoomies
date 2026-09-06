@@ -82,7 +82,7 @@
     font-size: var(--z-text-base);
     color: var(--z-text);
     background: var(--z-surface);
-    border: 1px solid var(--z-border-strong);
+    border: var(--z-border-width) solid var(--z-border-strong);
     border-radius: var(--z-radius-sm);
     cursor: pointer;
   }
@@ -122,8 +122,9 @@
     reflows; only the glyphs grow.
   */
   @media (max-width: 768px) {
-    select {
-      font-size: var(--z-text-lg);
+    .sm select,
+    .md select {
+      font-size: var(--z-control-font-touch);
     }
   }
 </style>

@@ -176,12 +176,12 @@
   }
   .hosts {
     padding: var(--z-space-3) var(--z-space-4);
-    border: 1px solid var(--z-idle-border);
+    border: var(--z-border-width) solid var(--z-idle-border);
     border-radius: var(--z-radius-md);
     background: var(--z-idle-subtle);
   }
   .hosts.none {
-    border: 2px solid var(--z-danger-border);
+    border: var(--z-border-width-thick) solid var(--z-danger-border);
     background: var(--z-danger-subtle);
   }
   .hosts-title {
@@ -215,7 +215,7 @@
   }
   .errors {
     padding: var(--z-space-3) var(--z-space-4);
-    border: 1px solid var(--z-danger-border);
+    border: var(--z-border-width) solid var(--z-danger-border);
     border-radius: var(--z-radius-md);
     background: var(--z-danger-subtle);
   }

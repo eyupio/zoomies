@@ -38,10 +38,36 @@ export interface ToastInput {
 }
 
 const DEFAULT_TIMEOUT = 5000;
-/** Beyond this the stack becomes a wall; the oldest go. */
+/** Beyond this the stack becomes a wall; the oldest self-dismissing one goes. */
 const MAX_VISIBLE = 4;
+/**
+ * The ceiling when every toast on screen is one that stays until it is read.
+ * Higher than MAX_VISIBLE, because an unread error is the one thing this queue
+ * exists to protect; finite, because a failing loop must not bury the page it
+ * is failing on.
+ */
+const MAX_STICKY = 8;
 
 let nextId = 1;
+
+/**
+ * Make room for one more.
+ *
+ * Eviction takes the oldest toast that was going to leave on its own anyway.
+ * It used to take the oldest of any kind, so an operator who drained five
+ * runners and had one refused watched the four successes push the refusal off
+ * the screen before they could read it -- the exact opposite of what
+ * "successes dismiss themselves, errors do not" is for.
+ */
+function evict(items: Toast[]): Toast[] {
+  const kept = [...items];
+  while (kept.length > MAX_VISIBLE) {
+    const oldestTemporary = kept.findIndex((t) => t.timeout > 0);
+    if (oldestTemporary === -1) break;
+    kept.splice(oldestTemporary, 1);
+  }
+  return kept.length > MAX_STICKY ? kept.slice(-MAX_STICKY) : kept;
+}
 
 class Toasts {
   #items = $state<Toast[]>([]);
@@ -70,7 +96,7 @@ class Toasts {
       action: input.action,
       timeout: input.timeout ?? (tone === 'error' ? 0 : DEFAULT_TIMEOUT),
     };
-    this.#items = [...this.#items, toast].slice(-MAX_VISIBLE);
+    this.#items = evict([...this.#items, toast]);
     if (toast.timeout > 0) {
       setTimeout(() => this.dismiss(toast.id), toast.timeout);
     }

@@ -1,9 +1,13 @@
 <!--
-  One section of the Overview.
+  A titled section: a heading, an optional line of context, an optional action
+  opposite it, and a body.
 
-  Every panel on this page is the same object: a heading, an optional line of
-  context, an optional action on the right, and a body. Keeping that in one
-  place is what stops a dashboard of five different card designs.
+  The Overview is five of these and a runner's page is another five, and for a
+  while they were two components with the same markup and diverging CSS -- one
+  had learnt to wrap its header, the other to let its body fill a bounded
+  height, and neither knew what the other had learnt. Keeping the shape of a
+  section in one place is what stops a dashboard of five different card
+  designs.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
@@ -22,6 +26,11 @@
      * outside has bounded that height; in normal flow it changes nothing.
      */
     scroll?: boolean;
+    /**
+     * Let the panel itself shrink inside a bounded parent, so a column of
+     * panels divides the height between them rather than overflowing it.
+     */
+    fill?: boolean;
     class?: string;
     children: Snippet;
   }
@@ -32,6 +41,7 @@
     actions,
     flush = false,
     scroll = false,
+    fill = false,
     class: className = '',
     children,
   }: Props = $props();
@@ -39,7 +49,7 @@
   const headingId = $props.id();
 </script>
 
-<section class="panel {className}" aria-labelledby={headingId}>
+<section class="panel {className}" class:fill aria-labelledby={headingId}>
   <header>
     <div class="titles">
       <h2 id={headingId}>{title}</h2>
@@ -55,9 +65,13 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
+  }
+  .panel.fill {
+    /* A flex child will not shrink below its content unless told it may. */
+    min-height: 0;
   }
   header {
     display: flex;
@@ -68,7 +82,7 @@
     justify-content: space-between;
     gap: var(--z-space-2) var(--z-space-4);
     padding: var(--z-space-4) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   .titles {
     min-width: 0;
@@ -96,6 +110,9 @@
     flex: 1;
     min-width: 0;
     padding: var(--z-space-5);
+  }
+  .panel.fill .body {
+    min-height: 0;
   }
   .body.flush {
     padding: 0;

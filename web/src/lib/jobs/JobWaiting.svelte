@@ -86,7 +86,7 @@
     flex-direction: column;
     gap: var(--z-space-2);
     padding: var(--z-space-3);
-    border: 1px solid var(--z-pending-border);
+    border: var(--z-border-width) solid var(--z-pending-border);
     border-radius: var(--z-radius-md);
     background: var(--z-pending-subtle);
   }
@@ -126,7 +126,7 @@
     font-size: var(--z-text-2xs);
     font-weight: var(--z-weight-medium);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     color: var(--z-text-subtle);
   }
   dd {

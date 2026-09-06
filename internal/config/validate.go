@@ -392,7 +392,7 @@ func (c *Config) Validate() Findings {
 		add(Finding{
 			Code: "crypto.key_in_config", Severity: SeverityWarning, Setting: "security.encryption_key",
 			Title:  "the encryption key is written in the config file",
-			Detail: "anything that can read " + c.path + " -- backups, configuration management, a support bundle -- can decrypt every stored secret.",
+			Detail: "anything that can read " + c.path + " — backups, configuration management, a support bundle — can decrypt every stored secret.",
 			Fix:    "move it to security.encryption_key_file (mode 0600) or the ZOOMIES_ENCRYPTION_KEY environment variable.",
 		})
 	}

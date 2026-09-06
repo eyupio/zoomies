@@ -155,7 +155,7 @@
     font-size: var(--z-text-base);
     color: var(--z-text);
     background: var(--z-surface);
-    border: 1px solid var(--z-border-strong);
+    border: var(--z-border-width) solid var(--z-border-strong);
     border-radius: var(--z-radius-sm);
     transition:
       border-color var(--z-motion-fast) var(--z-ease),
@@ -222,8 +222,10 @@
     reflows; only the glyphs grow.
   */
   @media (max-width: 768px) {
-    input {
-      font-size: var(--z-text-lg);
+    .sm input,
+    .md input,
+    input.mono {
+      font-size: var(--z-control-font-touch);
     }
   }
 </style>

@@ -36,7 +36,7 @@
 <dl class="config {className}">
   <div class="pair">
     <dt>Labels</dt>
-    <dd><PoolLabels labels={pool.labels ?? []} max={12} /></dd>
+    <dd><PoolLabels labels={pool.labels ?? []} max={12} wrap /></dd>
   </div>
 
   <div class="pair">
@@ -191,7 +191,7 @@
   }
   code {
     padding: 0 var(--z-space-2);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     font-size: var(--z-text-xs);

@@ -269,8 +269,16 @@ export const getPool = (id: string, signal?: AbortSignal) =>
 export const createPool = (body: Body<'createPool'>) =>
   api.post<Result<'createPool'>>('/pools', { body });
 
-export const validatePool = (body: Body<'validatePool'>, signal?: AbortSignal) =>
-  api.post<Result<'validatePool'>>('/pools/validate', { body, signal });
+/**
+ * Dry-run a pool definition. Pass the pool's id when this is an edit, so the
+ * server does not report the pool's own name as a name that is taken.
+ */
+export const validatePool = (body: Body<'validatePool'>, id?: string, signal?: AbortSignal) =>
+  api.post<Result<'validatePool'>>('/pools/validate', {
+    body,
+    query: id ? { id } : undefined,
+    signal,
+  });
 
 export const updatePool = (id: string, body: Body<'updatePool'>) =>
   api.patch<Result<'updatePool'>>(`/pools/${enc(id)}`, { body });
@@ -438,6 +446,20 @@ export const createToken = (body: Body<'createToken'>) =>
   api.post<Result<'createToken'>>('/tokens', { body });
 
 export const revokeToken = (id: string) => api.del<Result<'revokeToken'>>(`/tokens/${enc(id)}`);
+
+/* -- usage ---------------------------------------------------------------- */
+
+export const getUsage = (query: Query<'getUsage'>, signal?: AbortSignal) =>
+  api.get<Result<'getUsage'>>('/usage', { query, signal });
+
+/**
+ * Where the browser goes for the CSV. A full navigation rather than a fetch,
+ * because the point is the browser's own download, not a string in memory.
+ */
+export const usageCsvUrl = (query: Query<'getUsage'>) =>
+  `${BASE}/usage.csv${toQuery(query as QueryInput)}`;
+
+/* -- settings ------------------------------------------------------------- */
 
 export const getSettings = (signal?: AbortSignal) =>
   api.get<Result<'getSettings'>>('/settings', { signal });

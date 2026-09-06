@@ -21,8 +21,34 @@ from here rather than inventing values.
 All tokens live in exactly one place: `web/src/lib/styles/tokens.css`, declared
 as CSS custom properties on `:root` and overridden under `[data-theme="dark"]`.
 Tailwind v4 consumes them through `@theme` so utility classes and hand-written
-CSS resolve to the same values. **Never write a raw hex, px or ms value in a
-component.**
+CSS resolve to the same values: colours, sizes, radii, shadows, weights,
+tracking and the easing curve are mapped by name, and the whole spacing scale
+is derived from the same 4px step by arithmetic rather than by a mapping that
+could drift.
+
+**Never write a raw colour, and never write a raw value that already has a
+token.** Colour is absolute: a hex or `rgb()` in a component is a bug, because a
+colour written by hand is a colour that only works in one theme. Everything
+else is a rule about repetition — a value that appears twice is a decision being
+made twice, and it belongs here where it can be made once. A hairline border,
+the tracking on an uppercase label, the width of a dialog and the height of a
+switch thumb were all raw in several dozen files before they were tokens.
+
+Three things are still raw, and each is raw for a reason worth knowing:
+
+* **Media query widths.** `@media (max-width: var(--z-bp-md))` is not valid CSS
+  — a media query is evaluated before custom properties exist — so the two
+  thresholds are written out. `--z-bp-md` and `--z-bp-lg` are declared anyway,
+  so the number has one home and JavaScript can read it rather than repeat it.
+* **A one-off content measure.** The width a filter row stops growing at, the
+  column count a card grid wraps at: these are that component's own layout,
+  answer to nothing else, and naming them would only add a lookup. The moment a
+  second component wants the same measure it becomes a token.
+* **One hex, in the log viewer.** xterm.js takes its theme as JavaScript values
+  and insists on `#rrggbb`, so the bridge in `LogViewer.svelte` resolves every
+  token through a probe element and converts the result. The single literal
+  there is the fallback for a colour that failed to parse, which is a
+  last-resort value rather than a design decision.
 
 ### 1.1 Colour
 
@@ -45,6 +71,13 @@ Fixed by the identity, available as `--z-brand-*` and unchanged between themes.
 | `--z-brand-mid-grey` | `#666A73` |
 | `--z-brand-runner-blue` | `#2F80ED` |
 | `--z-brand-fast-cyan` | `#22D3EE` |
+| `--z-brand-paw-black` | `#000000` |
+
+Two of these are the record rather than a value a rule reads. Mid Grey is the
+brand's light-theme secondary text, but `--z-text-muted` darkens it to `#5B6069`
+for the same reason the accent is darkened below: at 13px on white the brand
+value is 5.4:1, and text an operator reads all day should be past 7:1. Paw Black
+is the favicon artwork, which is a PNG rather than a colour any rule sets.
 
 #### Neutrals
 
@@ -74,7 +107,7 @@ even the timestamps clear AA.
 | `--z-accent-contrast` | `#FFFFFF` | `#08131F` | Text on an accent fill |
 
 5.13:1 and 9.16:1 against their backgrounds; the text on an accent fill is
-5.5:1 light and 8.7:1 dark. Full-strength Runner Blue (`--z-brand-blue`) is
+5.5:1 light and 8.7:1 dark. Full-strength Runner Blue (`--z-brand-runner-blue`) is
 available for illustrative fills, where the bar is 3:1.
 
 #### Status
@@ -135,14 +168,24 @@ Both declare a full system fallback stack so the first paint is never blank.
 
 | Token | Size / line-height | Weight | Use |
 | --- | --- | --- | --- |
-| `--z-text-2xs` | 11px / 16px | 500 | Table micro-labels, badge text |
-| `--z-text-xs` | 12px / 18px | 450 | Metadata, timestamps |
-| `--z-text-sm` | 13px / 20px | 450 | **Default table and body text** |
-| `--z-text-base` | 14px / 22px | 450 | Form controls, prose |
-| `--z-text-lg` | 16px / 24px | 550 | Card titles |
-| `--z-text-xl` | 20px / 28px | 600 | Page titles |
-| `--z-text-2xl` | 28px / 34px | 640 | Overview metrics |
-| `--z-text-3xl` | 36px / 42px | 660 | Hero numbers |
+| `--z-text-2xs` | 11px / 16px | `--z-weight-medium` | Table micro-labels, badge text |
+| `--z-text-xs` | 12px / 18px | `--z-weight-normal` | Metadata, timestamps |
+| `--z-text-sm` | 13px / 20px | `--z-weight-normal` | **Default table and body text** |
+| `--z-text-base` | 14px / 22px | `--z-weight-normal` | Form controls, prose |
+| `--z-text-lg` | 16px / 24px | `--z-weight-semibold` | Card titles |
+| `--z-text-xl` | 20px / 28px | `--z-weight-semibold` | Page titles |
+| `--z-text-2xl` | 28px / 34px | `--z-weight-bold` | Overview metrics |
+| `--z-text-3xl` | 36px / 42px | `--z-weight-bold` | Hero numbers |
+
+Four weights exist and the table names them rather than numbers, because the
+numbers are Inter Variable's axis positions and are not round: `--z-weight-normal`
+450, `--z-weight-medium` 500, `--z-weight-semibold` 550, `--z-weight-bold` 640.
+
+Tracking is set for uppercase and for display sizes, and left alone in between:
+`--z-tracking-wide` (0.04em) for the uppercase micro-labels above table headers
+and drawer sections, `--z-tracking-wider` (0.08em) for the widely spaced brand
+lockups in the footer, nav and About panel, and `--z-tracking-tight` (-0.01em)
+for headings at `--z-text-2xl` and above, which set too loose at their default.
 
 The base size is 13px, not 16px. This is a dense operational tool; 13px Inter at
 450 weight on the warm background stays comfortably legible while fitting a
@@ -181,23 +224,60 @@ Page gutters are `--z-space-6`, card padding `--z-space-5`, table cell padding
 `--z-space-3` vertical / `--z-space-4` horizontal, form field gap
 `--z-space-4`.
 
-### 1.4 Radii
+### 1.4 Radii, borders and geometry
 
 `--z-radius-sm` 4 (badges, inputs) · `--z-radius-md` 8 (buttons, cards) ·
 `--z-radius-lg` 12 (dialogs, panels) · `--z-radius-full` 9999 (dots, pills).
 
+Borders come in three weights and the choice between them is meaning, not
+taste. `--z-border-width` (1px) is the hairline that separates things belonging
+to the same list. `--z-border-width-thick` (2px) marks the one that is selected,
+focused or wrong. `--z-border-width-rail` (3px) is the flag down the left edge
+of a problem, a disabled pool or a failed step — thicker because it is a signal
+rather than a boundary.
+
+Below the 4px spacing grid there are three optical nudges, `--z-nudge-1` to
+`--z-nudge-3`. They exist because a checkbox aligned to the grid sits visibly
+low against a 13px line. Anything that *can* sit on the spacing scale does.
+
+The drawn controls have their own sizes, for the same reason: `--z-control-box`
+(15px, the checkbox and radio box), `--z-control-thumb` (14px, the switch), and
+`--z-control-icon` (14px, the icon inside a button). Field and button *heights*
+are on the spacing scale and stay there.
+
+Dialogs and drawers are cut to their content's comfortable measure rather than
+to the viewport, so each has three widths and they are the three shapes we
+actually put in one — a confirmation, a form, a table:
+`--z-width-dialog-sm|md|lg` (400/560/820) and `--z-width-drawer-sm|md|lg`
+(360/520/760).
+
 ### 1.5 Elevation
 
-Shadows are warm-tinted and very restrained; in dark mode elevation is carried
-mostly by surface colour, not shadow.
+Shadows are cool-tinted, to match the near-black spine, and very restrained; in
+dark mode elevation is carried mostly by surface colour, not shadow.
 
 | Token | Light | Dark |
 | --- | --- | --- |
-| `--z-shadow-sm` | `0 1px 2px rgb(41 34 24 / .06)` | `0 1px 2px rgb(0 0 0 / .5)` |
-| `--z-shadow-md` | `0 4px 12px -2px rgb(41 34 24 / .10)` | `0 4px 12px -2px rgb(0 0 0 / .6)` |
-| `--z-shadow-lg` | `0 16px 40px -8px rgb(41 34 24 / .16)` | `0 16px 40px -8px rgb(0 0 0 / .7)` |
+| `--z-shadow-sm` | `0 1px 2px rgb(8 12 20 / .06)` | `0 1px 2px rgb(0 0 0 / .5)` |
+| `--z-shadow-md` | `0 4px 12px -2px rgb(8 12 20 / .10)` | `0 4px 12px -2px rgb(0 0 0 / .6)` |
+| `--z-shadow-lg` | `0 16px 40px -8px rgb(8 12 20 / .16)` | `0 16px 40px -8px rgb(0 0 0 / .7)` |
 
-### 1.6 Motion
+### 1.6 Focus
+
+One look, two mechanisms. `app.css` draws the global ring with `outline`, from
+`--z-focus-width`, `--z-focus-colour` and `--z-focus-offset`; that is what
+almost everything gets, on `:focus-visible` only, so a mouse click draws no ring
+and a keyboard tab does. `--z-focus-ring` is the same ring as a `box-shadow`,
+for the controls whose outline a scrolling or clipping parent would cut off. A
+consumer on a raised surface overrides `--z-focus-gap` so the ring's inner gap
+matches what it is drawn on.
+
+The ring is never removed. Removing it and replacing it with a colour change
+does not count: a border that goes from grey to blue is invisible to anyone who
+cannot see the difference, and is exactly the change a focused *and* invalid
+field cannot make.
+
+### 1.7 Motion
 
 | Token | Value | Use |
 | --- | --- | --- |
@@ -210,7 +290,7 @@ State changes animate the *colour and the dot*, never layout — a table that
 reflows while you are reading it is worse than one that does not animate at all.
 Everything inside `@media (prefers-reduced-motion: reduce)` collapses to `1ms`.
 
-### 1.7 Theme
+### 1.8 Theme
 
 Three states: `light`, `dark`, `system`. `system` is the default and sets no
 attribute, so `prefers-color-scheme` decides. An explicit choice writes
@@ -218,7 +298,7 @@ attribute, so `prefers-color-scheme` decides. An explicit choice writes
 The choice is applied by a tiny inline script before first paint so there is no
 flash.
 
-### 1.8 Scrollbars
+### 1.9 Scrollbars
 
 The scrollbar is the one control the browser draws for us, and the one that is
 easiest to leave too faint to find. It is styled so that it belongs to the theme
@@ -275,7 +355,11 @@ fixed, because muscle memory is the point:
 5. **Usage** — runner-hours and job activity by pool, repository or workflow
 6. **Hosts** — where runners can go
 7. **Installations** — GitHub App connections
-8. **Migrate** — move repositories off GitHub's runners onto this fleet
+8. **Migrate repositories** — move repositories off GitHub's runners onto this
+   fleet. The navigation shortens it to *Migrate*, because a nav label has to
+   fit beside an icon in a 232px column; every other place that names the page
+   — its heading, the palette, the shortcut sheet, the browser title — uses the
+   full name.
 9. **Audit** — who did what
 10. **Settings** — users, tokens, appearance, danger zone
 
@@ -285,10 +369,16 @@ The navigation is headed by the mark, the wordmark and the descriptor, and every
 page ends in a hairline footer carrying the mark, the name, the running version,
 a link to the docs and the credit *Developed by EyUp.io* — so a signed-in
 screenshot says which product and which build it came from, and who makes it,
-without anyone having to open Settings. The credit opens in a new tab: it is the
-one link in the shell that leaves the product. On a phone the navigation moves to
-the bottom edge and loses its masthead, so the mark appears in the top bar
-instead.
+without anyone having to open Settings. On a phone the navigation moves to the
+bottom edge and loses its masthead, so the mark appears in the top bar instead.
+
+**A link that leaves the product opens in a new tab; a link within it does
+not.** An operator watching a fleet should not lose the page they were on to go
+and read what a runner group is. Both footer links leave, so both take a new
+tab, as does every link to GitHub or to the documentation from a dialog —
+`Button` has a `newTab` prop for the ones that are buttons. Each of them adds
+"(opens in a new tab)" to its accessible name, because a tab appearing under
+somebody who cannot see it happen is disorienting rather than helpful.
 
 A **command palette** on `Cmd/Ctrl+K` jumps to any page, any pool, any runner by
 ID or name, and runs quick actions (drain a runner, cordon a host, create a
@@ -459,8 +549,18 @@ action inline:
   how many of them exist."* + **Create a pool**
 * Runners: *"No runners right now. That is normal when nothing is queued —
   runners are created on demand."*
-* Jobs: *"No jobs recorded yet. Zoomies records a job the first time GitHub
-  tells it about one."* + a link to check webhook delivery.
+* Jobs: *"No jobs have run on this fleet. This view shows jobs a pool claims or
+  a runner here ran."* + **Include other runners**
+
+**An empty grid that is empty because of a filter says so instead**, naming the
+filter rather than the noun: "No pools match those filters", "No runners match
+these filters". The two are different facts and an operator acts on them
+differently — one is a fleet with nothing in it, the other is a search with
+nothing in it. The Jobs page carries this furthest, because an empty grid there
+means three different things: with other runners included it is "no jobs
+recorded yet", which points at webhook delivery; without them it is "no jobs
+have run on this fleet", which offers to widen the view; and under the unmatched
+filter it is "no unmatched jobs", which is good news and says so.
 
 ### Keyboard
 
@@ -475,12 +575,24 @@ inside the innermost open overlay, and everything outside it is `inert`.
 
 ### Responsive
 
-Three breakpoints only: `< 768px` (phone — the navigation becomes a bar along
-the bottom edge, metric tiles stack, a grid scrolls inside its own frame rather
-than widening the page, and every control stays usable: the Playwright suite's
-mobile project runs the whole suite at this width, drains and wizard included),
-`768–1180px` (tablet — the nav starts collapsed to icons unless the operator has
-chosen otherwise), `> 1180px` (full).
+Two thresholds, `--z-bp-md` (768px) and `--z-bp-lg` (1180px), and so three
+ranges:
+
+* `< 768px` — **phone.** The navigation becomes a bar along the bottom edge,
+  metric tiles stack, a grid scrolls inside its own frame rather than widening
+  the page, text controls step up to `--z-control-font-touch` so iOS does not
+  zoom, and every control stays usable: the Playwright suite's mobile project
+  runs the whole suite at this width, drains and wizard included.
+* `768–1180px` — **tablet.** The nav starts collapsed to icons unless the
+  operator has chosen otherwise.
+* `> 1180px` — **full.**
+
+A third threshold is not a judgement call to be made per component. Four
+components had one each — 560, 640 and 720 — and every one of them was a "stack
+this on a phone" rule written to a width somebody eyeballed. They are all 768px
+now. A media query cannot say "above 1180" without naming the next pixel, so the
+one `min-width: 1181px` in `FleetMetrics.svelte` is the same threshold from the
+other side and carries a comment saying so.
 
 ---
 

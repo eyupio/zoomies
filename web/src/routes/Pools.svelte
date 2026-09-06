@@ -6,7 +6,7 @@
   dangerous switched on -- is answerable without opening a row.
 -->
 <script lang="ts">
-  import { Pause, Pencil, Play, Plug, Plus, Search, Trash2 } from '@lucide/svelte';
+  import { Pencil, Plug, Plus, Power, PowerOff, Search, Trash2 } from '@lucide/svelte';
   import {
     deletePool,
     disablePool,
@@ -22,7 +22,7 @@
   import { fleet } from '$lib/state/fleet.svelte';
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
-  import Badge from '$lib/components/Badge.svelte';
+  import StateCell from '$lib/components/StateCell.svelte';
   import Button from '$lib/components/Button.svelte';
   import Checkbox from '$lib/components/Checkbox.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
@@ -44,6 +44,7 @@
   import PoolLabels from '$lib/pools/PoolLabels.svelte';
   import PoolRiskBadge from '$lib/pools/PoolRiskBadge.svelte';
   import { backendLabel, dockerModeLabel } from '$lib/pools/PoolVocabulary.svelte';
+  import { deletionConsequences } from '$lib/pools/consequences';
 
   const canOperate = $derived(session.can('operator'));
 
@@ -209,14 +210,29 @@
           {
             id: 'enable',
             label: 'Enable',
-            icon: Play,
+            icon: Power,
             run: (ids) => bulkSetEnabled(ids, true),
           },
           {
             id: 'disable',
             label: 'Disable',
-            icon: Pause,
+            icon: PowerOff,
             run: (ids) => bulkSetEnabled(ids, false),
+          },
+          {
+            // Editing is the third thing an operator wants from a ticked row,
+            // and it was only on the row's own menu -- so having ticked a pool
+            // to disable it, changing its image meant untick, find the row
+            // again, open the menu. One at a time, because there is nothing
+            // sensible to show for five pools at once.
+            id: 'edit',
+            label: 'Edit',
+            icon: Pencil,
+            single: true,
+            run: (ids) => {
+              const id = ids[0];
+              if (id) navigate(`/pools/${id}?edit=1`);
+            },
           },
         ]
       : [],
@@ -229,13 +245,13 @@
         ? {
             id: 'disable',
             label: 'Disable',
-            icon: Pause,
+            icon: PowerOff,
             onSelect: () => setEnabled(pool, false),
           }
         : {
             id: 'enable',
             label: 'Enable',
-            icon: Play,
+            icon: Power,
             onSelect: () => setEnabled(pool, true),
           },
       {
@@ -267,28 +283,9 @@
     deleteOpen = true;
   }
 
-  const doomedConsequences = $derived.by(() => {
-    const pool = doomed;
-    if (!pool) return [];
-    const live = pool.counts?.live ?? 0;
-    const busy = pool.counts?.busy ?? 0;
-    const lines = [
-      live === 0
-        ? 'It has no runners right now, so nothing is interrupted.'
-        : forceDelete
-          ? `${pluralise(live, 'runner')} will be destroyed immediately.`
-          : `${pluralise(live, 'runner')} will be drained, then removed.`,
-    ];
-    if (busy > 0) {
-      lines.push(
-        forceDelete
-          ? `${pluralise(busy, 'job')} running right now will be interrupted.`
-          : `${pluralise(busy, 'job')} running right now will be allowed to finish first.`,
-      );
-    }
-    lines.push('The runners are deregistered from GitHub either way.');
-    return lines;
-  });
+  const doomedConsequences = $derived(
+    doomed ? deletionConsequences(doomed.counts ?? {}, forceDelete) : [],
+  );
 
   async function confirmDelete(): Promise<void> {
     const pool = doomed;
@@ -346,7 +343,7 @@
         header: 'Runners',
         sortable: true,
         width: '13rem',
-        value: (row) => String(row.counts?.live ?? 0),
+        value: (row) => formatNumber(row.counts?.live ?? 0),
         cell: runnersCell,
       },
       {
@@ -404,7 +401,9 @@
 </script>
 
 {#snippet nameCell(pool: Pool)}
-  <a class="pool-name" href="/pools/{pool.id}">{pool.name ?? 'unnamed'}</a>
+  <a class="pool-name" href="/pools/{pool.id}" title={pool.name ?? undefined}>
+    {pool.name ?? 'unnamed'}
+  </a>
 {/snippet}
 
 {#snippet riskCell(pool: Pool)}
@@ -434,7 +433,7 @@
 {/snippet}
 
 {#snippet statusCell(pool: Pool)}
-  <Badge status={poolStatus(pool)} size="sm" />
+  <StateCell status={poolStatus(pool)} />
 {/snippet}
 
 {#snippet actionsCell(pool: Pool)}
@@ -559,7 +558,14 @@
   .status-filter {
     width: 10rem;
   }
+  /* Pool names are hyphenated, so without this they set one segment per line
+     and the whole row grows to fit. The full name is in the title. */
   .pool-name {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     color: var(--z-accent);
     font-weight: var(--z-weight-medium);
     text-decoration: none;

@@ -176,6 +176,17 @@ let navigationToken = 0;
 /** Bumped on every completed navigation, so pages can key off a fresh mount. */
 let navigationCount = 0;
 
+/**
+ * Route components already fetched, so a revisit is synchronous.
+ *
+ * A dynamic import of a module the browser has already parsed still resolves on
+ * a later microtask, so returning to a page visited a moment ago cleared the
+ * component and set `loading` for one frame -- long enough to paint the
+ * skeleton and replace it again. Between two pages an operator is flipping
+ * between, that is a flicker on every keystroke of `g j`, `g r`, `g j`.
+ */
+const loaded = new Map<RouteDef, Component<Record<string, never>>>();
+
 function changed(): void {
   invalidate?.();
 }
@@ -191,8 +202,9 @@ async function apply(): Promise<void> {
   currentTitle = found.route.title;
   loadError = null;
 
-  if (found.route.component) {
-    currentComponent = found.route.component;
+  const ready = found.route.component ?? loaded.get(found.route);
+  if (ready) {
+    currentComponent = ready;
     loading = false;
   } else if (!sameRoute || currentComponent === null) {
     loading = true;
@@ -202,6 +214,7 @@ async function apply(): Promise<void> {
       const module = await found.route.load?.();
       if (token !== navigationToken) return;
       currentComponent = module?.default ?? null;
+      if (currentComponent) loaded.set(found.route, currentComponent);
     } catch (cause) {
       if (token !== navigationToken) return;
       loadError =

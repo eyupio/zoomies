@@ -39,6 +39,7 @@
   import Input from '$lib/components/Input.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Select from '$lib/components/Select.svelte';
+  import { isLoopbackURL } from '$lib/addresses';
   import BackendList from './BackendList.svelte';
   import LabelMapEditor from './LabelMapEditor.svelte';
 
@@ -66,27 +67,6 @@
   /* -- describe -------------------------------------------------------------- */
 
   /**
-   * Whether an address only the controller's own machine can reach.
-   *
-   * The same rule as ExternalURLIsLocal in internal/config: localhost, any
-   * name under .localhost, and the loopback ranges. A command carrying one of
-   * these tells the new machine to join itself.
-   */
-  function isLocalAddress(raw: string): boolean {
-    try {
-      const host = new URL(raw).hostname.replace(/^\[|\]$/g, '');
-      return (
-        host === 'localhost' ||
-        host.endsWith('.localhost') ||
-        host.startsWith('127.') ||
-        host === '::1'
-      );
-    } catch {
-      return false;
-    }
-  }
-
-  /**
    * Where the new host should be told to find this controller.
    *
    * server.external_url is right when it is set and is not loopback; the
@@ -97,7 +77,7 @@
    */
   function suggestedControllerURL(): string {
     const configured = (session.meta?.external_url ?? '').replace(/\/+$/, '');
-    if (configured && !isLocalAddress(configured)) return configured;
+    if (configured && !isLoopbackURL(configured)) return configured;
     return location.origin;
   }
 
@@ -122,7 +102,7 @@
     }
     return '';
   });
-  const controllerLocal = $derived(!controllerError && isLocalAddress(controllerURL));
+  const controllerLocal = $derived(!controllerError && isLoopbackURL(controllerURL));
 
   const capacityNumber = $derived(capacity.trim() === '' ? 0 : Number(capacity));
   const capacityError = $derived(
@@ -660,7 +640,7 @@
     justify-content: center;
     width: var(--z-space-5);
     height: var(--z-space-5);
-    border: 1px solid var(--z-border-strong);
+    border: var(--z-border-width) solid var(--z-border-strong);
     border-radius: var(--z-radius-full);
     background: var(--z-surface);
     font-size: var(--z-text-xs);
@@ -690,7 +670,7 @@
     flex-direction: column;
     gap: var(--z-space-5);
     padding: var(--z-space-6);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }
@@ -703,8 +683,8 @@
     overflow-wrap: anywhere;
   }
   h2:focus-visible {
-    outline: 2px solid var(--z-accent);
-    outline-offset: 2px;
+    outline: var(--z-focus-width) solid var(--z-focus-colour);
+    outline-offset: var(--z-focus-offset);
     border-radius: var(--z-radius-sm);
   }
   .lede {
@@ -727,7 +707,7 @@
     justify-content: flex-end;
     gap: var(--z-space-3);
     padding-top: var(--z-space-4);
-    border-top: 1px solid var(--z-border);
+    border-top: var(--z-border-width) solid var(--z-border);
   }
 
   .suggest {
@@ -756,7 +736,7 @@
     flex-direction: column;
     gap: var(--z-space-3);
     padding: var(--z-space-4);
-    border: 1px solid var(--z-pending-border);
+    border: var(--z-border-width) solid var(--z-pending-border);
     border-radius: var(--z-radius-md);
     background: var(--z-pending-subtle);
   }
@@ -768,7 +748,7 @@
   .command pre {
     margin: 0;
     padding: var(--z-space-3);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface);
     color: var(--z-text);
@@ -812,7 +792,7 @@
   }
   .token-line code {
     padding: 0 var(--z-space-1);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     font-size: var(--z-text-xs);
@@ -825,7 +805,7 @@
     align-items: flex-start;
     gap: var(--z-space-3);
     padding: var(--z-space-4);
-    border: 1px solid var(--z-pending-border);
+    border: var(--z-border-width) solid var(--z-pending-border);
     border-radius: var(--z-radius-md);
     background: var(--z-pending-subtle);
   }
@@ -886,7 +866,7 @@
     margin: 0 0 var(--z-space-1);
     font-size: var(--z-text-2xs);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     color: var(--z-text-muted);
     font-weight: var(--z-weight-medium);
   }
@@ -908,7 +888,7 @@
   }
   .labels li {
     padding: 0 var(--z-space-1);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     color: var(--z-text-muted);
@@ -922,7 +902,7 @@
     align-items: flex-start;
     gap: var(--z-space-3);
     padding: var(--z-space-4);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface-sunken);
   }

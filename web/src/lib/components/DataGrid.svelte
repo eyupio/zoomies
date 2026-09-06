@@ -37,6 +37,14 @@
     icon?: LucideIcon;
     danger?: boolean;
     /**
+     * This action opens something rather than doing something to a set, so it
+     * only makes sense for one row. It is offered whatever is selected, and
+     * disabled with a reason while more than one row is ticked -- an operator
+     * who ticked a row to act on it should not have to work out that the
+     * button they want is on a menu somewhere else.
+     */
+    single?: boolean;
+    /**
      * Act on the selected ids. Once it settles the selection is cleared, so
      * the same rows cannot be acted on twice by accident; resolve `false` to
      * keep it -- a confirmation the operator cancelled, say.
@@ -475,10 +483,13 @@
       <div class="bulk" role="group" aria-label="Actions for the selected {noun}">
         <span class="bulk-count tabular">{selected.length} selected</span>
         {#each bulkActions as action (action.id)}
+          {@const tooMany = action.single === true && selected.length > 1}
           <Button
             size="sm"
             variant={action.danger ? 'danger' : 'secondary'}
             icon={action.icon}
+            disabled={tooMany}
+            title={tooMany ? `${action.label} works on one ${noun} at a time` : undefined}
             onclick={() => void runBulk(action)}
           >
             {action.label}
@@ -514,9 +525,16 @@
   </div>
 
   <div class="scroll">
+    <!--
+      aria-rowcount is the server's total, not this page's length, so every row
+      has to say which of that total it is. Without aria-rowindex a screen
+      reader announces "row 3 of 1,284" for the third row of page nine, and the
+      count it was given becomes noise. The header is row 1, so the data starts
+      at offset + 2.
+    -->
     <table role="grid" aria-label={label} aria-rowcount={total} onkeydown={onBodyKeydown}>
       <thead>
-        <tr>
+        <tr aria-rowindex={1}>
           {#if selectable}
             <th class="pick" scope="col">
               <Checkbox
@@ -555,8 +573,10 @@
       <tbody bind:this={body}>
         {#if !settled}
           {#each Array.from({ length: 8 }, (_, i) => i) as line (line)}
-            <tr class="skeleton-row">
-              {#if selectable}<td class="pick"><Skeleton width="15px" height="15px" /></td>{/if}
+            <tr class="skeleton-row" aria-rowindex={offset + line + 2}>
+              {#if selectable}<td class="pick"
+                  ><Skeleton width="var(--z-control-box)" height="var(--z-control-box)" /></td
+                >{/if}
               {#each visibleColumns as column (column.id)}
                 <td><Skeleton width={column.align === 'end' ? '3rem' : '70%'} height="0.9rem" /></td
                 >
@@ -567,6 +587,7 @@
           {#each modelRows as row, index (row.id)}
             <tr
               data-row={index}
+              aria-rowindex={offset + index + 2}
               tabindex={index === focused || (focused === -1 && index === 0) ? 0 : -1}
               class:selected={isSelected(row.id)}
               class:clickable={Boolean(onopen)}
@@ -599,11 +620,18 @@
                 </td>
               {/if}
               {#each visibleColumns as column (column.id)}
+                {@const plain = column.cell ? '' : (column.value?.(row.original) ?? '')}
                 <td class:end={column.align === 'end'}>
                   {#if column.cell}
                     {@render column.cell(row.original)}
                   {:else}
-                    {column.value ? column.value(row.original) : ''}
+                    <!--
+                      One line and an ellipsis, with the whole value in a title.
+                      A column has a width, and a hyphenated name with nothing
+                      stopping it wraps one segment per line -- which makes
+                      every row in the grid as tall as the longest name in it.
+                    -->
+                    <span class="plain" title={plain || undefined}>{plain}</span>
                   {/if}
                 </td>
               {/each}
@@ -632,7 +660,7 @@
   .grid {
     display: flex;
     flex-direction: column;
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
     min-width: 0;
@@ -643,7 +671,7 @@
     justify-content: space-between;
     gap: var(--z-space-3);
     padding: var(--z-space-2) var(--z-space-3);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
     min-height: var(--z-space-10);
   }
   .bulk {
@@ -672,7 +700,7 @@
     gap: var(--z-space-2);
     min-width: 190px;
     padding: var(--z-space-3);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface-raised);
     box-shadow: var(--z-shadow-md);
@@ -702,14 +730,14 @@
     top: 0;
     z-index: var(--z-layer-sticky);
     padding: var(--z-space-2) var(--z-space-4);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
     background: var(--z-surface-sunken);
     color: var(--z-text-muted);
     font-size: var(--z-text-2xs);
     font-weight: var(--z-weight-medium);
     text-align: left;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     white-space: nowrap;
   }
   th.end,
@@ -740,13 +768,19 @@
   }
   .arrow {
     display: inline-block;
-    min-width: 8px;
+    min-width: var(--z-space-2);
   }
   tbody td {
     padding: var(--z-space-3) var(--z-space-4);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
     color: var(--z-text);
     vertical-align: middle;
+  }
+  .plain {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   tbody tr:last-child td {
     border-bottom: 0;
@@ -761,8 +795,8 @@
     background: var(--z-accent-subtle);
   }
   tbody tr:focus-visible {
-    outline: 2px solid var(--z-accent);
-    outline-offset: -2px;
+    outline: var(--z-focus-width) solid var(--z-focus-colour);
+    outline-offset: calc(-1 * var(--z-focus-offset));
   }
   .skeleton-row td {
     padding: var(--z-space-3) var(--z-space-4);

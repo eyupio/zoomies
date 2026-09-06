@@ -434,6 +434,12 @@ type validatePoolResponse struct {
 }
 
 // handleValidatePool answers POST /api/v1/pools/validate. It creates nothing.
+//
+// `?id=` names the pool this is a dry run of an edit to, and it matters: without
+// it the name check compares against every pool including that one, so opening
+// a pool, changing its image and pressing on was refused with "a pool called
+// zoomies-linux-x64 already exists" -- about itself. The form could not be
+// saved at all without also renaming the pool.
 func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 	var in poolInput
 	if !decode(w, r, &in) {
@@ -441,7 +447,7 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 	}
 	p := s.defaultPool()
 	errs := in.apply(p)
-	errs = append(errs, s.validatePool(r.Context(), p, "")...)
+	errs = append(errs, s.validatePool(r.Context(), p, r.URL.Query().Get("id"))...)
 
 	fit, err := s.ctrl.HostFit(r.Context(), p)
 	if err != nil {

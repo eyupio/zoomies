@@ -16,7 +16,7 @@
 -->
 <script lang="ts">
   import { getJobFacets, listJobs } from '$lib/api/client';
-  import type { Job, JobState } from '$lib/api/types';
+  import { JOB_STATES, type Job, type JobState } from '$lib/api/types';
   import { events } from '$lib/api/sse';
   import { formatDuration } from '$lib/format';
   import { router } from '$lib/router';
@@ -29,7 +29,7 @@
   import Duration from '$lib/components/Duration.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
-  import StatusDot from '$lib/components/StatusDot.svelte';
+  import StateCell from '$lib/components/StateCell.svelte';
   import { endOfDay, startOfDay } from '$lib/jobs/DateRange.svelte';
   import GitHubLink from '$lib/jobs/GitHubLink.svelte';
   import JobDrawer from '$lib/jobs/JobDrawer.svelte';
@@ -50,7 +50,12 @@
     pool_id: router.paramList('pool_id'),
     label: router.paramList('label'),
     conclusion: router.paramList('conclusion'),
-    state: router.paramList('state') as JobState[],
+    // Validated rather than asserted: `?state=` is whatever was in the address
+    // bar, and a cast sends the typo straight to the server as a filter that
+    // matches nothing, so the page comes back empty with no explanation.
+    state: router
+      .paramList('state')
+      .filter((value): value is JobState => (JOB_STATES as readonly string[]).includes(value)),
     since: router.param('since'),
     until: router.param('until'),
     unmatched: router.param('unmatched') === 'true',
@@ -270,7 +275,7 @@
 
 {#snippet stateCell(job: Job)}
   <span class="state">
-    <StatusDot status={jobStatus(job.state, job.conclusion)} showLabel />
+    <StateCell status={jobStatus(job.state, job.conclusion)} />
     {#if job.runner_fault}
       <Badge status={RUNNER_LOST} size="sm" title={RUNNER_LOST.hint} />
     {/if}

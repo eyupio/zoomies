@@ -498,7 +498,7 @@
     const controller = new AbortController();
     validating = true;
     const timer = setTimeout(() => {
-      validatePool(payload, controller.signal)
+      validatePool(payload, pool?.id, controller.signal)
         .then((result) => {
           verdict = result;
           validateError = null;
@@ -652,12 +652,18 @@
     flex-direction: column;
     gap: var(--z-space-5);
   }
-  .step:focus {
+  /*
+    The step is focused programmatically when the wizard advances, so that a
+    screen reader lands on the new content. That is not a keyboard tab, so
+    :focus-visible is the right test: it draws no ring for the move the wizard
+    made, and still draws one if somebody tabs here themselves.
+  */
+  .step:focus:not(:focus-visible) {
     outline: none;
   }
   .blocking {
     padding: var(--z-space-3) var(--z-space-4);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface-sunken);
   }

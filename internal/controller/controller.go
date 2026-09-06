@@ -281,6 +281,9 @@ func (c *Controller) Start(ctx context.Context) error {
 	c.spawn("poller", loopCtx, c.pollLoop)
 	c.spawn("installations", loopCtx, c.probeLoop)
 	c.spawn("background", loopCtx, c.backgroundLoop)
+	if seedRequested() {
+		c.spawn("demo-heartbeat", loopCtx, c.demoHeartbeatLoop)
+	}
 
 	c.log.Info("controller started",
 		"interval", c.schedulerInterval(),

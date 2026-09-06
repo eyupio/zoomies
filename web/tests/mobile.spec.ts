@@ -176,3 +176,40 @@ test('the Settings tables stay inside the screen once they have rows', async ({ 
     if (userId) await page.request.delete(`/api/v1/users/${userId}`);
   }
 });
+
+test('every text control is at least 16px, so tapping one does not zoom the page', async ({
+  page,
+}) => {
+  // The rule the guidelines give in section 1.2, checked where it applies.
+  // Mobile Safari zooms the whole viewport whenever a focused control's text
+  // is under 16px, and the viewport meta deliberately sets no maximum-scale --
+  // so a field a pixel under the line jumps a 360px page to roughly 410px of
+  // effective width and runs the card off both edges, once per tap. Three
+  // controls were written outside the primitives and missed it entirely: the
+  // page-size select, the date range, and the pool wizard's label field.
+  const PAGES = [
+    { path: '/runners', heading: 'Runners' },
+    { path: '/jobs', heading: 'Jobs' },
+    { path: '/usage', heading: 'Usage' },
+    { path: '/audit', heading: 'Audit' },
+    { path: '/pools/new', heading: 'Create a pool' },
+  ] as const;
+
+  for (const { path, heading } of PAGES) {
+    await goto(page, path, heading);
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+
+    const small = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('input, select, textarea'))
+        .filter((el) => {
+          const type = el.getAttribute('type');
+          // A checkbox, radio or switch has no text of its own to zoom to.
+          if (type === 'checkbox' || type === 'radio' || type === 'hidden') return false;
+          if (!(el as HTMLElement).offsetParent && el.getClientRects().length === 0) return false;
+          return Number.parseFloat(getComputedStyle(el).fontSize) < 16;
+        })
+        .map((el) => `${el.tagName.toLowerCase()}[${el.getAttribute('aria-label') ?? el.id}]`),
+    );
+    expect(small, `${path}: every text control is 16px or more on a phone`).toEqual([]);
+  }
+});

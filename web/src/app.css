@@ -92,6 +92,19 @@
   --shadow-md: var(--z-shadow-md);
   --shadow-lg: var(--z-shadow-lg);
 
+  --font-weight-normal: var(--z-weight-normal);
+  --font-weight-medium: var(--z-weight-medium);
+  --font-weight-semibold: var(--z-weight-semibold);
+  --font-weight-bold: var(--z-weight-bold);
+
+  --tracking-tight: var(--z-tracking-tight);
+  --tracking-wide: var(--z-tracking-wide);
+  --tracking-wider: var(--z-tracking-wider);
+
+  --ease-out: var(--z-ease);
+
+  /* Tailwind derives its whole spacing scale from this one step, so `p-3` is
+     `--z-space-3` by arithmetic rather than by a mapping that could drift. */
   --spacing: 0.25rem;
 }
 
@@ -145,8 +158,8 @@ pre,
  * a permanent focus ring acceptable to designers and keyboard users at once.
  */
 :focus-visible {
-  outline: 2px solid var(--z-accent);
-  outline-offset: 2px;
+  outline: var(--z-focus-width) solid var(--z-focus-colour);
+  outline-offset: var(--z-focus-offset);
   border-radius: var(--z-radius-sm);
 }
 :focus:not(:focus-visible) {
@@ -211,12 +224,19 @@ pre,
 }
 
 /* Visually hidden but available to assistive technology. */
+/*
+ * Visible to a screen reader, invisible to everyone else.
+ *
+ * The one-pixel box and the negative margin that cancels it are the standard
+ * recipe, and the reason it is not `display: none` or `visibility: hidden` is
+ * that both of those take the text out of the accessibility tree as well.
+ */
 .sr-only {
   position: absolute;
-  width: 1px;
-  height: 1px;
+  width: var(--z-nudge-1);
+  height: var(--z-nudge-1);
   padding: 0;
-  margin: -1px;
+  margin: calc(-1 * var(--z-nudge-1));
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;

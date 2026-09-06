@@ -14,7 +14,7 @@
   import EmptyState from '$lib/components/EmptyState.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
-  import Panel from './Panel.svelte';
+  import Panel from '$lib/components/Panel.svelte';
 
   interface Props {
     loading?: boolean;
@@ -135,7 +135,7 @@
     align-items: flex-start;
     gap: var(--z-space-3);
     padding: var(--z-space-3) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   .item:last-child {
     border-bottom: 0;

@@ -96,7 +96,7 @@
         {/if}
 
         <dt>Labels</dt>
-        <dd><JobLabels labels={job.labels} max={0} /></dd>
+        <dd><JobLabels labels={job.labels} max={0} wrap /></dd>
 
         <dt>Pool</dt>
         <dd>
@@ -230,7 +230,7 @@
     line-height: var(--z-leading-xs);
     font-weight: var(--z-weight-semibold);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     color: var(--z-text-subtle);
   }
 </style>

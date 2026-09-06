@@ -203,7 +203,7 @@
 
 <style>
   .panel {
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }
@@ -214,7 +214,7 @@
     justify-content: space-between;
     gap: var(--z-space-4);
     padding: var(--z-space-4) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   h2 {
     margin: 0;
@@ -239,7 +239,7 @@
   .note {
     margin: 0;
     padding: var(--z-space-3);
-    border: 1px solid var(--z-pending-border);
+    border: var(--z-border-width) solid var(--z-pending-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-pending-subtle);
     font-size: var(--z-text-base);
@@ -251,7 +251,7 @@
     flex-direction: column;
     gap: var(--z-space-2);
     padding: var(--z-space-4);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
   }
@@ -301,7 +301,7 @@
     align-items: baseline;
     gap: var(--z-space-3);
     padding: var(--z-space-2) 0;
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   .deliveries li:last-child {
     border-bottom: 0;

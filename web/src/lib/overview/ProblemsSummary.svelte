@@ -88,8 +88,8 @@
     gap: var(--z-space-2);
     min-height: var(--z-space-6);
     padding: var(--z-space-2) var(--z-space-3);
-    border: 1px solid var(--z-border);
-    border-left-width: 3px;
+    border: var(--z-border-width) solid var(--z-border);
+    border-left-width: var(--z-border-width-rail);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }

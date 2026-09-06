@@ -78,6 +78,9 @@ export type MigrationSkip = Schemas['MigrationSkip'];
 export type MigrationPoolOption = Schemas['MigrationPoolOption'];
 export type MigrationOutcome = Schemas['MigrationOutcome'];
 export type MigrationResult = Schemas['MigrationResult'];
+export type Usage = Schemas['UsageResponse'];
+export type UsageRow = Usage['items'][number];
+export type UsageGrouping = Usage['group_by'];
 export type AuditEvent = Schemas['AuditEvent'];
 export type User = Schemas['User'];
 export type Identity = Schemas['Identity'];
@@ -166,23 +169,3 @@ export interface EventPayloads {
 }
 
 export type EventKind = keyof EventPayloads;
-
-export const EVENT_KINDS: readonly EventKind[] = [
-  'runner.created',
-  'runner.updated',
-  'runner.deleted',
-  'pool.created',
-  'pool.updated',
-  'pool.deleted',
-  'job.updated',
-  'host.updated',
-  'host.deleted',
-  'scaling',
-  'installation.updated',
-  'problems.updated',
-  'stats',
-  'audit',
-  'webhook.delivery',
-  'heartbeat',
-  'resync',
-];

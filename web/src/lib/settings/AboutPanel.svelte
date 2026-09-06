@@ -165,13 +165,13 @@
 
 <style>
   .panel {
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }
   header {
     padding: var(--z-space-4) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   h2 {
     margin: 0;
@@ -190,7 +190,7 @@
     align-items: center;
     gap: var(--z-space-4);
     padding: var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
     background: var(--z-surface-sunken);
   }
   .name {
@@ -198,14 +198,14 @@
     font-size: var(--z-text-lg);
     line-height: var(--z-leading-lg);
     font-weight: var(--z-weight-bold);
-    letter-spacing: -0.01em;
+    letter-spacing: var(--z-tracking-tight);
     color: var(--z-text);
   }
   .descriptor {
     margin: var(--z-space-1) 0 0;
     font-size: var(--z-text-2xs);
     font-weight: var(--z-weight-medium);
-    letter-spacing: 0.08em;
+    letter-spacing: var(--z-tracking-wider);
     text-transform: uppercase;
     color: var(--z-text-subtle);
   }
@@ -238,7 +238,7 @@
     margin: 0 0 var(--z-space-3);
     font-size: var(--z-text-2xs);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     font-weight: var(--z-weight-medium);
     color: var(--z-text-muted);
   }
@@ -255,7 +255,7 @@
     align-items: center;
     gap: var(--z-space-3);
     padding: var(--z-space-3);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     color: var(--z-text);
     text-decoration: none;
