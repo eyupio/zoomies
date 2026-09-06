@@ -62,7 +62,9 @@ one list.
   read off its Runners page now that the message stays there.
 - [ ] **N02** [bug] Every runner on the dev instance sits in `registering` and never
   comes up — `internal/controller/agents.go` — seen on `zoomies-linux-64` on 6 September
-  (screenshot), after the crash-loop fix was deployed. The controller moves a runner out
+  (screenshot). The instance was still on a build from before Wave 2 at the time -- its
+  Jobs page showed copy that PR #63 replaced -- so the first step is to deploy `main` and
+  look again; if it persists, this is the trail. The controller moves a runner out
   of `registering` on one signal only: an agent report with no asserted state and a
   running phase (`applyReports`), which the agent sends once it first observes the
   workload running (`agent/reconcile.go`). Runners that never get there are ones whose
@@ -74,6 +76,14 @@ one list.
   the controller log for "a runner state an agent reported out of order" or "a host
   reported on a runner it does not own", and `docker ps` on the host for whether the
   containers are running at all.
+- [x] **N03** [bug] The Jobs page called every queued job no pool claims a job that
+  will never run, in red, and the problems drawer said nothing would run them; the
+  installation's webhooks cover jobs on GitHub's own runners, on a hosted-runner vendor
+  and on any other self-hosted provider in the organisation, so next to another provider
+  that was every job — `web/src/lib/jobs/UnmatchedNote.svelte` — done, jobs whose labels
+  all name GitHub's or a vendor's runners are `hosted` in the view and badged neutrally,
+  a queued job no pool here claims is reported only after two minutes, and the note, the
+  problem and the log line give both readings (screenshot, 6 September).
 
 ## Wave 4: polish, gaps and nits
 
@@ -90,14 +100,14 @@ one list.
 
 ### API and controller
 
-- [ ] **A16** [polish] Eight routes are registered but absent from the OpenAPI document that claims to be the whole surface — `internal/api/router.go:94-95`
-- [ ] **A17** [polish] `runner.deleted` is documented and handled by the UI but never published — `internal/events/bus.go:27`
-- [ ] **A18** [polish] `stage` is on `Runner` in the spec and on `TimelineEntry` in the code — `api/openapi.yaml:2302-2330`
-- [ ] **A19** [polish] `DELETE /installations/{id}` force-kills running jobs without saying so — `internal/api/handlers_installations.go`
-- [ ] **A20** [polish] Stats percentiles come from a silently truncated 500-row sample, computed twice per interval — `internal/controller/stats.go:109`
-- [ ] **A21** [polish] The login 429 never carries `Retry-After` — `internal/api/errors.go:151-158`
-- [ ] **A22** [polish] The host placement rule is copied four times, and 600 lines of GitHub orchestration sit in the transport package — `internal/scheduler/scheduler.go:507`
-- [ ] **A23** [nit] Small API and controller inconsistencies — `internal/api/handlers_agents.go:163`
+- [x] **A16** [polish] Eight routes are registered but absent from the OpenAPI document that claims to be the whole surface — `internal/api/router.go:94-95` — done, the OIDC and agent routes are in the spec (agent ones x-internal with their own security scheme), the three roles are recorded, and the test walks the router as well as the spec
+- [x] **A17** [polish] `runner.deleted` is documented and handled by the UI but never published — `internal/events/bus.go:27` — done, the store deletes return the runner rows they took, DELETE ... RETURNING, and the controller announces each before the pool, host or installation
+- [x] **A18** [polish] `stage` is on `Runner` in the spec and on `TimelineEntry` in the code — `api/openapi.yaml:2302-2330` — done, stage moved to TimelineEntry
+- [x] **A19** [polish] `DELETE /installations/{id}` force-kills running jobs without saying so — `internal/api/handlers_installations.go` — done, documented in the spec, the API page and the dialog, with the pool drain as the way to keep the jobs
+- [x] **A20** [polish] Stats percentiles come from a silently truncated 500-row sample, computed twice per interval — `internal/controller/stats.go:109` — done, StartupSamples queries the window; the page, its fake limit and the loop are gone
+- [x] **A21** [polish] The login 429 never carries `Retry-After` — `internal/api/errors.go:151-158` — done, the auth service exposes the limiter window and the handler sends it; the spec documents the header
+- [x] **A22** [polish] The host placement rule is copied four times, and 600 lines of GitHub orchestration sit in the transport package — `internal/scheduler/scheduler.go:507` — done, scheduler.HostCanRun and its parts are the rule; HostFit and the migration service live in the controller
+- [x] **A23** [nit] Small API and controller inconsistencies — `internal/api/handlers_agents.go:163` — done, all seven: quiet log cuts, 400 for malformed deliveries, scoped cordon warning, aggregate failed count, demo addresses, list shapes documented, Cache-Control: no-store
 
 ### Backends, agent, auth, installer, CLI and deploy
 
