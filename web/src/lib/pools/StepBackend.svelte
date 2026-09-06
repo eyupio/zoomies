@@ -6,15 +6,23 @@
   cannot be left selected without a deliberate confirmation.
 -->
 <script lang="ts">
-  import { ShieldAlert } from '@lucide/svelte';
+  import { ServerOff, ShieldAlert } from '@lucide/svelte';
   import type { BackendKind, DockerMode } from '$lib/api/types';
   import { pluralise } from '$lib/format';
+  import Button from '$lib/components/Button.svelte';
+  import RemedyText from '$lib/components/RemedyText.svelte';
   import Checkbox from '$lib/components/Checkbox.svelte';
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
   import RadioGroup from '$lib/components/RadioGroup.svelte';
-  import { BACKENDS, DOCKER_MODES } from './PoolVocabulary.svelte';
-  import type { BackendOffer, PoolDraft } from './PoolWizardForm.svelte';
+  import {
+    BACKENDS,
+    DOCKER_MODES,
+    backendLabel,
+    backendUnavailable,
+  } from './PoolVocabulary.svelte';
+  import type { BackendOffer } from './PoolVocabulary.svelte';
+  import type { PoolDraft } from './PoolWizardForm.svelte';
 
   interface Props {
     draft: PoolDraft;
@@ -23,6 +31,8 @@
     offers: readonly BackendOffer[];
     /** False until the fleet cache has landed, so we do not cry wolf about hosts. */
     hostsKnown: boolean;
+    /** True when the pool is kept to some of the fleet, so the counts are of those. */
+    restricted?: boolean;
     socketConfirmed?: boolean;
   }
 
@@ -32,6 +42,7 @@
     touch,
     offers,
     hostsKnown,
+    restricted = false,
     socketConfirmed = $bindable(false),
   }: Props = $props();
 
@@ -43,12 +54,16 @@
     if (!hostsKnown) return '';
     const found = offer(kind);
     if (!found) return '';
+    // "matching" rather than "connected" once the pool is kept to some of the
+    // fleet: the count is of the hosts it may actually land on.
+    const noun = restricted ? 'matching host' : 'connected host';
     if (found.hosts === 0) {
+      const none = `No ${noun} offers it`;
       return found.detail
-        ? `No connected host offers it: ${found.detail}`
-        : 'No connected host offers it, so this pool would never place a runner.';
+        ? `${none}: ${found.detail}`
+        : `${none}, so this pool would never place a runner.`;
     }
-    return `Offered by ${pluralise(found.hosts, 'connected host')}.`;
+    return `Offered by ${pluralise(found.hosts, noun)}.`;
   }
 
   const backendOptions = $derived(
@@ -61,6 +76,13 @@
 
   const dindHosts = $derived(offer(draft.backend)?.dindHosts ?? 0);
 
+  // Why this pool could not run as chosen, in the same sentence that stops the
+  // wizard advancing, plus the backends it could move to.
+  const unavailable = $derived(backendUnavailable(draft.backend, offers, hostsKnown, restricted));
+  const runnable = $derived(
+    offers.filter((entry) => entry.kind !== draft.backend && entry.hosts > 0),
+  );
+
   const dockerOptions = $derived(
     DOCKER_MODES.map((choice) => {
       let description = choice.consequence;
@@ -72,6 +94,48 @@
   );
 
   const usesImage = $derived(draft.backend !== 'process');
+
+  // A pool's docker_mode gives its jobs a daemon; the image has to bring the
+  // client. The stock runner image carries none on purpose, so a pool that
+  // asks for a daemon while on it under a moving tag is switched to the stock
+  // image's Docker variant -- the same image plus a client, under the same
+  // tag -- as it is saved. Say so on the step that decides it, so the image
+  // the pool's page shows afterwards is not a surprise; the review step shows
+  // the image the server answers with, which covers an empty field as well.
+  //
+  // What is not switched is said too, each for its own reason. A pinned tag
+  // is a deliberate choice of one build, and the variant exists only for the
+  // tags published since it was added, so it stays and the line says which
+  // tag to pin instead. A digest names one exact image. An image that merely
+  // looks like the stock one -- a mirror, or one built on it -- may or may not
+  // carry a client, and the server cannot know. An image of somebody's own
+  // gets no line at all: nagging about it would teach them to ignore this
+  // line.
+  const DOCKER_IMAGE = 'ghcr.io/eyupio/zoomies-runner-docker';
+  const STOCK_MOVING = /^ghcr\.io\/eyupio\/zoomies-runner(:(latest|main))?$/;
+  const STOCK_PINNED = /^ghcr\.io\/eyupio\/zoomies-runner:[^@]+$/;
+  const STOCK_DIGEST = /^ghcr\.io\/eyupio\/zoomies-runner(:[^@]+)?@/;
+  const LOOKALIKE_IMAGE = /(^|\/)zoomies-runner(:|$)/;
+
+  const imageNotice = $derived.by((): string | undefined => {
+    if (!usesImage || (draft.docker_mode ?? 'none') === 'none') return undefined;
+    const image = draft.image?.trim() ?? '';
+    if (image === '') return undefined;
+    const tag = image.includes(':') ? image.slice(image.indexOf(':')) : '';
+    if (STOCK_MOVING.test(image)) {
+      return `The stock runner image has no Docker client, so this pool will run ${DOCKER_IMAGE}${tag} instead. Saving the pool records that image.`;
+    }
+    if (STOCK_PINNED.test(image)) {
+      return `A pinned tag is kept as it is, and the stock runner image has no Docker client. Pin ${DOCKER_IMAGE}${tag} instead; the variant is published beside every runner tag since it was added.`;
+    }
+    if (STOCK_DIGEST.test(image)) {
+      return `A digest names one exact image, and this one has no Docker client. Pin a digest of ${DOCKER_IMAGE} instead.`;
+    }
+    if (LOOKALIKE_IMAGE.test(image)) {
+      return 'This looks like the stock runner image, which has no Docker client, and it is not one Zoomies switches for you. Jobs that run docker fail on it even with a daemon attached, unless docker is installed in it.';
+    }
+    return undefined;
+  });
 
   function chooseBackend(value: string): void {
     draft.backend = value as BackendKind;
@@ -95,11 +159,35 @@
   onchange={chooseBackend}
 />
 
+{#if unavailable}
+  <!--
+    A pool no host can run is the failure that looks like health: it is enabled,
+    its labels match, and it never makes a runner. The wizard will not create
+    one while the fleet has something else to offer, so this says what is wrong
+    and changes it in one click rather than leaving the operator to guess.
+  -->
+  <div class="unrunnable" role="group" aria-labelledby="backend-unrunnable">
+    <p class="unrunnable-title" id="backend-unrunnable">
+      <ServerOff size={16} aria-hidden="true" />
+      No {restricted ? 'matching' : 'connected'} host can run a {backendLabel(draft.backend)} pool
+    </p>
+    <p class="unrunnable-body"><RemedyText text={unavailable} /></p>
+    <div class="unrunnable-actions">
+      {#each runnable as entry (entry.kind)}
+        <Button size="sm" onclick={() => chooseBackend(entry.kind)}>
+          Use {backendLabel(entry.kind)} ({pluralise(entry.hosts, 'host')})
+        </Button>
+      {/each}
+    </div>
+  </div>
+{/if}
+
 {#if usesImage}
   <Field
     label="Image"
     error={errors['image']}
     hint="The container image runners are built from. Leave it empty to use the controller's default."
+    notice={imageNotice}
   >
     {#snippet children({ id, describedBy, invalid })}
       <Input
@@ -176,6 +264,37 @@
 />
 
 <style>
+  .unrunnable {
+    margin-top: var(--z-space-4);
+    padding: var(--z-space-4);
+    border: var(--z-border-width) solid var(--z-danger-border, var(--z-border));
+    border-left: var(--z-border-width-rail) solid var(--z-danger);
+    border-radius: var(--z-radius-md);
+    background: var(--z-danger-subtle);
+  }
+  .unrunnable-title {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-2);
+    margin: 0;
+    font-size: var(--z-text-base);
+    font-weight: var(--z-weight-semibold);
+    color: var(--z-text);
+  }
+  .unrunnable-body {
+    margin: var(--z-space-2) 0 0;
+    max-width: 70ch;
+    font-size: var(--z-text-sm);
+    line-height: var(--z-leading-sm);
+    color: var(--z-text-muted);
+  }
+  .unrunnable-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--z-space-2);
+    margin-top: var(--z-space-3);
+  }
+
   .docker {
     display: flex;
     flex-direction: column;
@@ -183,7 +302,7 @@
   }
   .danger {
     padding: var(--z-space-4);
-    border: 2px solid var(--z-danger-border);
+    border: var(--z-border-width-thick) solid var(--z-danger-border);
     border-radius: var(--z-radius-md);
     background: var(--z-danger-subtle);
   }

@@ -34,7 +34,7 @@
   .relative {
     color: inherit;
     white-space: nowrap;
-    border-bottom: 1px dotted var(--z-border-strong);
+    border-bottom: var(--z-border-width) dotted var(--z-border-strong);
     cursor: help;
   }
   .relative.plain {

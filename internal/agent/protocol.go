@@ -46,11 +46,14 @@ type JoinResponse struct {
 // HeartbeatRequest is sent on every interval. It carries the agent's own view
 // of its runners so the controller can detect drift without polling.
 type HeartbeatRequest struct {
-	ProtocolVersion int            `json:"protocol_version"`
-	Capacity        int            `json:"capacity"`
-	Version         string         `json:"version"`
-	Backends        []backend.Info `json:"backends,omitempty"`
-	Runners         []RunnerReport `json:"runners,omitempty"`
+	ProtocolVersion int `json:"protocol_version"`
+	// Capacity is the agent's configured value, sent for the log and for
+	// older controllers. The controller does not write it: capacity is set
+	// at join and belongs to the operator after that.
+	Capacity int            `json:"capacity"`
+	Version  string         `json:"version"`
+	Backends []backend.Info `json:"backends,omitempty"`
+	Runners  []RunnerReport `json:"runners,omitempty"`
 }
 
 // HeartbeatResponse tells the agent whether the controller still recognises it.
@@ -95,7 +98,8 @@ const (
 	// TaskStreamLogs opens an outbound log relay for a UI viewer.
 	TaskStreamLogs TaskKind = "stream_logs"
 	// TaskCancelLogs closes one.
-	TaskCancelLogs TaskKind = "cancel_logs"
+	TaskCancelLogs   TaskKind = "cancel_logs"
+	TaskPrewarmImage TaskKind = "prewarm_image"
 )
 
 // Task is one unit of work handed to an agent. Tasks are idempotent: the
@@ -111,7 +115,10 @@ type Task struct {
 	// the agent transport requires TLS in any non-loopback deployment.
 	Spec *backend.Spec `json:"spec,omitempty"`
 	// Backend selects which registered backend handles this task.
-	Backend store.BackendKind `json:"backend,omitempty"`
+	Backend    store.BackendKind `json:"backend,omitempty"`
+	PoolID     string            `json:"pool_id,omitempty"`
+	Image      string            `json:"image,omitempty"`
+	PullPolicy store.PullPolicy  `json:"pull_policy,omitempty"`
 	// StopTimeout bounds a graceful stop.
 	StopTimeout time.Duration `json:"stop_timeout,omitempty"`
 	// StreamID identifies a log relay for TaskStreamLogs and TaskCancelLogs.
@@ -123,11 +130,23 @@ type Task struct {
 
 // TaskResult reports the outcome of a task back to the controller.
 type TaskResult struct {
-	TaskID   string         `json:"task_id"`
+	TaskID string `json:"task_id"`
+	// Kind is the kind of the task this answers. The controller uses it to
+	// tell a lifecycle task that failed -- which leaves the runner unusable --
+	// from a log relay that could not be opened, which leaves it exactly as it
+	// was. An agent from before this field is read from the controller's own
+	// record of the task instead.
+	Kind     TaskKind       `json:"kind,omitempty"`
 	RunnerID string         `json:"runner_id,omitempty"`
 	OK       bool           `json:"ok"`
 	Error    string         `json:"error,omitempty"`
 	Handle   backend.Handle `json:"handle,omitempty"`
+	// ImagePullDuration is nil when the backend cannot distinguish pulling
+	// from creation. ContainerStartedAt is the end of workload creation.
+	ImagePullDuration  *time.Duration `json:"image_pull_duration,omitempty"`
+	CreateDuration     time.Duration  `json:"create_duration,omitempty"`
+	ContainerStartedAt *time.Time     `json:"container_started_at,omitempty"`
+	Digest             string         `json:"digest,omitempty"`
 	// State is the runner state the agent believes the runner reached.
 	State       store.RunnerState `json:"state,omitempty"`
 	CompletedAt time.Time         `json:"completed_at"`

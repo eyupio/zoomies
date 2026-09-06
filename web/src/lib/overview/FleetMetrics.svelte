@@ -13,7 +13,7 @@
   import { events } from '$lib/api/sse';
   import type { Stats } from '$lib/api/types';
   import { fleet } from '$lib/state/fleet.svelte';
-  import { formatDuration, formatNumber, toMillis } from '$lib/format';
+  import { formatDuration, formatNumber, pluralise, toMillis } from '$lib/format';
   import MetricTile from '$lib/components/MetricTile.svelte';
 
   interface Props {
@@ -135,8 +135,27 @@
   const live = $derived(liveRunners(stats));
   // Undefined rather than zero when the controller has nothing to say: a
   // median of "0ms" is a claim, and "--" is the truth.
+  /**
+   * Where the capacity actually is.
+   *
+   * Four tiles about work and none about capacity leaves the operator's real
+   * question -- "has this thing got anywhere to run a job yet?" -- unanswerable
+   * without a trip to Hosts, and it is the number that explains a queue that is
+   * not moving. `/stats` already carries it and the page already fetches it.
+   */
+  const capacityHint = $derived.by(() => {
+    const hosts = stats?.hosts;
+    if (!hosts) return undefined;
+    if ((hosts.total ?? 0) === 0) return 'No hosts connected';
+    return `${hosts.used ?? 0} of ${hosts.capacity ?? 0} slots on ${pluralise(hosts.healthy ?? 0, 'healthy host')}`;
+  });
+
   const medianWait = $derived(stats?.median_wait_ms);
   const p95Wait = $derived(stats?.p95_wait_ms);
+  const p50Startup = $derived(stats?.p50_startup_ms);
+  const p95Startup = $derived(stats?.p95_startup_ms);
+  const p50Registration = $derived(stats?.p50_registration_ms);
+  const p95Registration = $derived(stats?.p95_registration_ms);
 
   /** A series is only worth drawing, or comparing against, once it has a shape. */
   function trend(values: readonly number[]): readonly number[] | undefined {
@@ -183,6 +202,7 @@
   <MetricTile
     label="Live runners"
     value={formatNumber(live)}
+    hint={capacityHint}
     href="/runners"
     tone="idle"
     delta={delta(liveSeries, live)}
@@ -202,22 +222,44 @@
     hint={p95Wait === undefined ? undefined : `p95 ${formatDuration(p95Wait)}`}
     {loading}
   />
+  <MetricTile
+    label="Runner startup p50"
+    value={formatDuration(p50Startup)}
+    hint={p95Startup === undefined ? undefined : `p95 ${formatDuration(p95Startup)}`}
+    href="/runners"
+    tone="pending"
+    goodWhen="down"
+    {loading}
+  />
+  <MetricTile
+    label="Registration p50"
+    value={formatDuration(p50Registration)}
+    hint={p95Registration === undefined ? undefined : `p95 ${formatDuration(p95Registration)}`}
+    href="/runners"
+    tone="pending"
+    goodWhen="down"
+    {loading}
+  />
 </div>
 
 <style>
   .tiles {
     display: grid;
     gap: var(--z-space-4);
-    /* Two up on a tablet, four up once there is room for four. Never three
-       with an orphan. */
+    /* Six tiles, so the column count is a divisor of six at every width: three
+       up with room, two on a tablet, one on a phone. Four columns left the
+       second row two-thirds empty, which is what the shipped screenshot
+       showed. */
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  /* The sidebar breakpoint from the other side: a media query cannot say
+     "above 1180" without naming the next pixel. */
   @media (min-width: 1181px) {
     .tiles {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
   }
-  @media (max-width: 640px) {
+  @media (max-width: 768px) {
     .tiles {
       grid-template-columns: minmax(0, 1fr);
     }

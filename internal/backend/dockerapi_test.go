@@ -430,6 +430,13 @@ func TestAPIClientLogs(t *testing.T) {
 		"GET " + v + "/containers/tty/logs": func(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte("raw output\n"))
 		},
+		"GET " + v + "/containers/legacy/json": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, ContainerInspect{ID: "legacy", Config: &ContainerConfig{Tty: false}, State: &ContainerState{Running: true}})
+		},
+		"GET " + v + "/containers/legacy/logs": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/vnd.docker.raw-stream")
+			_, _ = w.Write(framed.Bytes())
+		},
 	})
 	c := f.client(t)
 	ctx := context.Background()
@@ -467,6 +474,24 @@ func TestAPIClientLogs(t *testing.T) {
 		}
 	})
 
+	// Every daemon before API 1.42 labels a framed stream "raw-stream", and so
+	// does Podman's compatibility endpoint. Taking that at its word left the
+	// 8-byte frame headers in the log an operator downloaded.
+	t.Run("a raw-stream label does not override a container without a TTY", func(t *testing.T) {
+		rc, err := c.ContainerLogs(ctx, "legacy", LogQuery{})
+		if err != nil {
+			t.Fatalf("logs: %v", err)
+		}
+		defer rc.Close()
+		got, err := io.ReadAll(rc)
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		if string(got) != "job started\nnpm WARN\n" {
+			t.Fatalf("got %q, want the demultiplexed output", got)
+		}
+	})
+
 	t.Run("logs for a container that is gone", func(t *testing.T) {
 		_, err := c.ContainerLogs(ctx, "nope", LogQuery{})
 		if !errors.Is(err, ErrNotFound) {
@@ -479,15 +504,7 @@ func TestAPIClientImages(t *testing.T) {
 	pulls := 0
 	f := newFakeEngine(t, map[string]http.HandlerFunc{
 		"GET " + v + "/images/runner:1/json": func(w http.ResponseWriter, r *http.Request) {
-			writeJSON(w, http.StatusOK, map[string]any{
-				"Id":          "sha256:abc",
-				"RepoDigests": []string{"ghcr.io/acme/runner@sha256:def"},
-			})
-		},
-		// An image built on this host, never pulled, so the daemon has no
-		// registry digest to report.
-		"GET " + v + "/images/local:1/json": func(w http.ResponseWriter, r *http.Request) {
-			writeJSON(w, http.StatusOK, map[string]any{"Id": "sha256:local", "RepoDigests": []string{}})
+			writeJSON(w, http.StatusOK, map[string]string{"Id": "sha256:abc"})
 		},
 		"GET " + v + "/images/absent:1/json": func(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"message": "No such image: absent:1"})
@@ -522,36 +539,6 @@ func TestAPIClientImages(t *testing.T) {
 		ok, err := c.ImageInspect(ctx, "absent:1")
 		if err != nil || ok {
 			t.Fatalf("got %v %v", ok, err)
-		}
-	})
-
-	t.Run("identity prefers the registry digest", func(t *testing.T) {
-		info, ok, err := c.ImageIdentity(ctx, "runner:1")
-		if err != nil || !ok {
-			t.Fatalf("got %v %v %v", info, ok, err)
-		}
-		if info.ID != "sha256:abc" {
-			t.Fatalf("id = %q", info.ID)
-		}
-		if got := info.Digest(); got != "ghcr.io/acme/runner@sha256:def" {
-			t.Fatalf("digest = %q, want the repo digest", got)
-		}
-	})
-
-	t.Run("identity falls back to the image id", func(t *testing.T) {
-		info, ok, err := c.ImageIdentity(ctx, "local:1")
-		if err != nil || !ok {
-			t.Fatalf("got %v %v %v", info, ok, err)
-		}
-		if got := info.Digest(); got != "sha256:local" {
-			t.Fatalf("digest = %q, want the image id", got)
-		}
-	})
-
-	t.Run("identity of an absent image is not an error", func(t *testing.T) {
-		info, ok, err := c.ImageIdentity(ctx, "absent:1")
-		if err != nil || ok || info.Digest() != "" {
-			t.Fatalf("got %v %v %v", info, ok, err)
 		}
 	})
 

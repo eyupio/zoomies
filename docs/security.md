@@ -1,9 +1,16 @@
+---
+description: >-
+  What Zoomies protects, what it does not, and what each dangerous setting
+  costs: ephemeral runners, the Docker socket, disabled authentication, and
+  the warnings they raise.
+---
+
 # Zoomies security
 
 This document says what Zoomies protects, what it does not, and what every
 dangerous setting actually costs you. Nothing here is hypothetical — each toggle
 below is a real setting, and each one produces a named warning at startup and in
-the UI's problems panel when it is on.
+the UI's problems drawer when it is on.
 
 ---
 
@@ -24,6 +31,39 @@ blast radius of each execution as small as it can reasonably be:
 * capabilities dropped to a build-shaped minimum, `no-new-privileges` set.
 
 ## 2. Threat model
+
+Three places, and every credential that crosses between them:
+
+```mermaid
+flowchart TB
+    subgraph net["the network"]
+        gh["GitHub"]
+        ops["operators, the CLI, Prometheus"]
+    end
+
+    subgraph ch["the controller host"]
+        ctrl["zoomies controller"]
+        db[("SQLite -- App keys, webhook and OIDC<br/>secrets sealed with a key kept outside it")]
+    end
+
+    subgraph rh["a runner host -- the blast radius of one job"]
+        ag["zoomies agent"]
+        run["runner container<br/>non-root, capabilities dropped,<br/>no docker.sock unless you asked for one"]
+    end
+
+    ops -->|"session cookie or zoo_ token, over TLS"| ctrl
+    gh -->|"webhook, HMAC-SHA256, constant-time"| ctrl
+    ctrl -->|"App JWT, installation token"| gh
+    ctrl <--> db
+    ag -->|"agent token -- reaches /api/v1/agent/* and nothing else"| ctrl
+    ag -->|"a single-use JIT config, in the environment"| run
+    run -->|"registers once, then runs your workflow"| gh
+```
+
+The runner container is the only place untrusted code runs, and the credential
+it is given registers one runner and then expires. The host's own credential
+reaches `/api/v1/agent/*` and nothing else: an agent can claim tasks and report
+on its own runners, and cannot read pools, jobs, users or the audit log.
 
 ### In scope
 
@@ -48,11 +88,17 @@ blast radius of each execution as small as it can reasonably be:
 * **Multi-tenancy between untrusted organisations.** One Zoomies instance is one
   team's fleet. Pools are not a security boundary between tenants.
 * **Compromise of the GitHub App itself.** If the App's private key leaks, the
-  attacker can register runners against your org. Rotate it in GitHub and
-  re-enter it in Zoomies.
-* **Denial of service.** There is no per-repository quota in v1. A repository
-  that queues thousands of jobs will pin your pools at their maximum, which is
-  what `max_runners` is for.
+  attacker can register runners against your org, and — because the App is
+  created with the [migration wizard's](migration.md) permissions — commit to a
+  branch and open a pull request on the repositories it is installed on. It
+  cannot merge one. Rotate the key in GitHub and re-enter it in Zoomies; a fleet
+  that will never migrate anything can drop those three permissions on the App's
+  **Permissions & events** page.
+* **Denial of service.** `repository_scale_up_limit` can best-effort throttle
+  new runner creation attributed to one repository, but it is not a security
+  boundary or strict concurrency quota: GitHub can assign that repository's
+  jobs to compatible idle runners. Use `max_runners` as the pool-wide backstop;
+  strict separation requires repository-specific pools and workflow labels.
 
 ---
 
@@ -117,6 +163,26 @@ endpoint cannot be added without deciding who may call it.
 
 The API refuses to remove or demote the last enabled admin.
 
+### How one request is authorised
+
+```mermaid
+flowchart LR
+    req["a request"] --> who{"which credential?"}
+    who -->|"session cookie"| csrf["Origin and Sec-Fetch-Site<br/>must be same-origin"]
+    who -->|"Bearer zoo_ token"| scope["role, plus any scopes<br/>the token was narrowed to"]
+    who -->|"agent token"| only["/api/v1/agent/* only"]
+    who -->|"none"| pub["the handful of<br/>unauthenticated routes"]
+    csrf --> rbac{"the minimum role<br/>for this action"}
+    scope --> rbac
+    rbac -->|"met"| h["the handler runs, and a mutating<br/>one writes an audit row"]
+    rbac -->|"not met"| deny["403 naming the role you are missing"]
+```
+
+The action-to-role table is `internal/auth/rbac.go`. A mutating handler that
+succeeds writes an audit row naming the actor, the target and a redacted
+before/after; a refused login writes one too, because a burst of those is
+something you want to see.
+
 ### Sessions
 
 `HttpOnly`, `SameSite=Lax`, `Secure` when the external URL is https or TLS is
@@ -151,9 +217,18 @@ If your controller is not reachable from GitHub, turn on `github.poll_fallback`
 
 ## 6. The dangerous toggles
 
-Each of these is off by default, each produces a startup warning and a UI
-problems-panel entry when on, and each is listed here with what it actually
-costs.
+Each of these is off by default and is named when it is on, and each is listed
+here with what it actually costs. The instance-wide settings are warned about at
+startup and shown in the UI's problems drawer -- except `server.bind` without
+TLS, which is printed at startup and by `zoomies config check` but kept off the
+drawer, because it is true of every fleet behind a TLS-terminating proxy and a
+count that is always amber is a count nobody reads. The per-pool settings are
+not startup matters at all: they are shown on the pool's own page and in the
+drawer for as long as the pool has them.
+
+This section is about what each dangerous setting *costs*.
+[Problem codes](problem-codes.md) is the other half: every code Zoomies can
+raise, dangerous or not, with its severity and what to do about it.
 
 ### `pool.docker_mode: host-socket`
 
@@ -166,6 +241,11 @@ other container on the host — including other runners and Zoomies itself.
 Use it only when every repository that can reach this pool is as trusted as the
 host. Prefer `dind`.
 
+The runner is not root in its container, so Zoomies also adds the group that
+owns the socket to it. That is what makes the mount usable, and it is worth
+knowing that it is the whole of the access control here: nothing else stands
+between a job and that daemon.
+
 ### `pool.docker_mode: dind`
 
 Runs a privileged `docker:dind` sidecar per runner, sharing a network namespace.
@@ -176,6 +256,11 @@ escape *from the sidecar* reaches the host. This is a real improvement on
 `host-socket` and still not a security boundary you should bet a production
 host on.
 
+Either mode gives the job a daemon; the client comes from the image, and a pool
+on the stock runner image is switched to its Docker variant as it asks for one.
+An image of your own has to carry the client itself. See [Jobs that build
+container images](configuration.md#jobs-that-build-container-images).
+
 ### `pool.ephemeral: false`
 
 Runners persist across jobs.
@@ -184,6 +269,21 @@ Job N+1 inherits everything job N left behind: cloned source, build caches,
 environment variables, credentials written to disk, background processes. This
 is the single largest isolation regression available in the product. It exists
 because some workloads genuinely need a warm cache.
+
+### `pool.cache.scope: repository` under an organisation installation
+
+The pool names the repository its cache is for, but its runners register to
+the organisation, and GitHub gives a runner any queued job whose `runs-on`
+matches its labels. A job from another repository that asks for this pool's
+labels lands on one of its runners and reads and writes the cache — the
+sharing the scope exists to prevent, held off only by a discipline kept in
+other people's workflow files.
+
+Give such a pool a branded label that only that repository's workflows use.
+Zoomies warns about the combination on the pool's page and in the problems
+panel, because the cache's privacy depends on something it cannot see. A
+repository-targeted installation registers runners that only that
+repository's jobs can reach, so there the cache is as private as it looks.
 
 ### `pool.run_as_root: true`
 
@@ -206,7 +306,50 @@ setup all cross the network in cleartext.
 This is legitimate *behind a TLS-terminating reverse proxy* — which is why it is
 a warning rather than an error. If that is your setup, also set
 `server.trusted_proxies` so audit entries record the real client address rather
-than your proxy's.
+than your proxy's. The word `cloudflare` stands for Cloudflare's published
+ranges when Cloudflare is the proxy.
+
+### `server.allowed_origins: ["*"]`
+
+Switches the origin check off. Browser requests that change state are normally
+accepted only from this controller's own origin (or an origin listed here), so
+that a page on some other site an operator happens to visit cannot use their
+session cookie to create pools, drain runners or mint tokens. `"*"` accepts any
+origin, which is exactly that cross-site request forgery. List the origins that
+actually host the UI instead. An `http://` origin on an `https://` controller
+is warned about for a related reason: a plaintext page can be rewritten in
+transit, and whatever rewrites it inherits the permission the entry grants.
+
+### `server.trusted_proxies: [0.0.0.0/0]`
+
+Believes `X-Forwarded-For` from every address. It is what makes a header-based
+setup "just work", and what it costs is that any client can choose the address
+the audit log records for it and defeat login rate limiting by rotating the one
+it claims. List your proxy's own range, or the word `cloudflare`.
+
+### `security.rate_limit_logins: 0`
+
+Turns the sign-in rate limit off, so a password can be guessed from one address
+as fast as the controller answers. The default of ten attempts per address per
+minute is generous for a person and hopeless for a dictionary.
+
+### `oidc.link_by_username: true`
+
+Lets the first single sign-on login by a username take over an existing local
+account of that name, password and role included. Off, a username alone links
+only to an account created for SSO — one with no password — so an identity
+provider whose users can influence their own username claim cannot hand someone
+the local `admin` account. Turn it on for the migration from local passwords to
+SSO, when every account is known and the provider is trusted to spell names
+correctly, and turn it off again afterwards; or link the accounts by hand and
+leave it off.
+
+### `oidc.issuer: http://…`
+
+Discovery, the token exchange and the client secret all travel to the identity
+provider over plaintext HTTP, where anything on the path can read or replace
+them and sign in as anyone. Use the issuer's `https://` address; a loopback
+issuer for local development is not warned about.
 
 ### `security.disable_auth: true`
 
@@ -218,8 +361,38 @@ development.
 
 ### `metrics.public: true`
 
-`/metrics` served without authentication. Repository names, workflow names and
-pool names appear in metric labels. Prefer giving Prometheus a viewer API token.
+`/metrics` served without authentication. No repository or workflow name is a
+label — the code stopped putting them there — but pool names, backend kinds,
+runner and host states, the id of each GitHub App installation a call was made
+for, and the build's version and commit are, and together they tell a stranger
+what you run and how busy it is. Prefer giving Prometheus a viewer API token.
+
+### `server.allow_indexing: true`
+
+`robots.txt` invites search engines into the interface, advertises
+`/sitemap.xml`, and the page's own directive changes from `noindex, nofollow` to
+`index, follow`.
+
+Nothing behind authentication becomes readable — the API still refuses a request
+without a session — but the sign-in page, this controller's address and the fact
+that it is a Zoomies fleet all become public knowledge, findable by anyone
+searching for exactly that. Leave it off unless the instance is deliberately
+public.
+
+### `agent.allow_unverified_runner_download: true`
+
+**What it does.** Lets the process backend install an `actions/runner` archive
+whose SHA-256 Zoomies does not know.
+
+**What it costs.** The runner is downloaded and then executed on the host as the
+agent's user. Without a digest to check, anything between the host and the
+download source -- a mirror, a proxy, a compromised network -- can substitute its
+own archive, and the agent will run it. Zoomies ships the digests for the
+release it pins, so the setting is only ever needed for a release it does not
+know about.
+
+**Do this instead.** Pin the release with `github.runner_version` and put its
+digest, from the actions/runner release notes, in `agent.runner_sha256`.
 
 ### `agent.insecure_skip_verify: true`
 
@@ -249,6 +422,15 @@ containers to run. Pin the CA with `agent.ca_file` instead.
 
 ## 8. Reporting a vulnerability
 
-Open a private security advisory on the repository rather than a public issue.
-Please include the version (`zoomies version`), the configuration with secrets
-removed, and what an attacker gains.
+Open a [private security advisory][advisory] on the repository rather than a
+public issue. Please include the version (`zoomies version`), the configuration
+with secrets removed — `zoomies config print` produces it already blanked — and
+what an attacker gains.
+
+`SECURITY.md` in the repository root says the same thing, and is what GitHub
+reads to offer "Report a vulnerability" on the repository's own security tab.
+It also draws the line this document is the long form of: a dangerous setting
+behaving dangerously is not a vulnerability, and a way to reach one without
+setting it is.
+
+[advisory]: https://github.com/eyupio/zoomies/security/advisories/new

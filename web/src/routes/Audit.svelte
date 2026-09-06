@@ -19,6 +19,7 @@
   import { router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
   import Badge from '$lib/components/Badge.svelte';
+  import Button from '$lib/components/Button.svelte';
   import DataGrid from '$lib/components/DataGrid.svelte';
   import type { GridColumn, GridPage, GridQuery } from '$lib/components/DataGrid.svelte';
   import Drawer from '$lib/components/Drawer.svelte';
@@ -424,7 +425,13 @@
     emptyDescription={anyFilter
       ? 'Try a wider date range, or clear a filter.'
       : 'Zoomies writes a row here whenever somebody changes something: a pool, a runner, a user, a setting. Reading things is not recorded.'}
-  />
+  >
+    {#snippet emptyAction()}
+      {#if anyFilter}
+        <Button onclick={clearFilters}>Clear filters</Button>
+      {/if}
+    {/snippet}
+  </DataGrid>
 
   <p class="footnote">
     Open an event to see exactly what changed. Secrets were redacted when the row was written, so
@@ -542,7 +549,7 @@
   }
   .kind {
     padding: 0 var(--z-space-1);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     color: var(--z-text-muted);
@@ -591,7 +598,7 @@
     margin: 0 0 var(--z-space-2);
     font-size: var(--z-text-2xs);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     font-weight: var(--z-weight-medium);
     color: var(--z-text-muted);
   }
@@ -615,7 +622,7 @@
     flex-direction: column;
     gap: var(--z-space-1);
     padding: var(--z-space-2) var(--z-space-3);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
   }
@@ -643,7 +650,7 @@
   .raw {
     margin: var(--z-space-2) 0 0;
     padding: var(--z-space-3);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     font-size: var(--z-text-xs);

@@ -1,0 +1,303 @@
+package controller
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/eyupio/zoomies/internal/store"
+)
+
+// A job's timeline is the answer to "what happened to my job?", told in the
+// order it happened and in sentences an operator can read without knowing how
+// Zoomies works. The jobs row holds the current truth; the timeline holds how
+// it got there, and it is the only place a fault on the fleet's side -- a runner
+// that died under a job -- is written down next to the job it cost.
+//
+// Entries are written from what the store says changed, never from what a
+// delivery said. GitHub delivers at least once and out of order, so "a queued
+// delivery arrived" is not the same fact as "the job was queued".
+
+// Where a timeline entry came from.
+const (
+	sourceWebhook    = "webhook"
+	sourcePoller     = "poller"
+	sourceAgent      = "agent"
+	sourceController = "controller"
+)
+
+// recordJobChange writes the timeline entries a job change earned.
+//
+// runner is this fleet's row for the runner the delivery named, when there is
+// one; a job that started on a runner Zoomies did not start is recorded as such,
+// because "it ran somewhere else" is the whole explanation of why the fleet's
+// numbers do not include it.
+func (c *Controller) recordJobChange(ctx context.Context, j *store.Job, change store.JobChange, source string, runner *store.Runner) {
+	if j == nil {
+		return
+	}
+	at := c.Now()
+	add := func(kind store.JobEventKind, message string) {
+		e := &store.JobEvent{JobID: j.ID, Kind: kind, Source: source, Message: message, At: at}
+		if runner != nil && (kind == store.JobEventStarted || kind == store.JobEventCompleted) {
+			e.RunnerID, e.RunnerName = runner.ID, runner.Name
+		} else if kind == store.JobEventStarted || kind == store.JobEventCompleted {
+			e.RunnerID, e.RunnerName = j.RunnerID, j.RunnerName
+		}
+		if err := c.st.AppendJobEvent(ctx, e); err != nil {
+			c.log.Warn("could not record a job timeline entry", "job", j.ID, "kind", kind, "error", err)
+		}
+	}
+
+	if change.Created && j.State == store.JobWaiting {
+		// Held by GitHub for a deployment review. The time it spends here is
+		// GitHub's, not the queue's, so the first line says so rather than
+		// calling the job queued; the claim line waits for the approval,
+		// which is when it becomes true.
+		add(store.JobEventWaiting, fmt.Sprintf("GitHub announced %s in %s, asking for [%s], and is holding it for a deployment review; nothing here can start it until it is approved",
+			jobTitle(j), j.Repo, strings.Join(j.Labels, ", ")))
+	} else if change.Created {
+		add(store.JobEventQueued, fmt.Sprintf("GitHub queued %s in %s, asking for [%s]",
+			jobTitle(j), j.Repo, strings.Join(j.Labels, ", ")))
+		// Whether a pool answers the labels matters while the job is waiting.
+		// A job first seen already running was answered by whatever runs it,
+		// and the "started" line below says who that was.
+		if j.State == store.JobQueued {
+			add(c.claimKind(j), c.claimMessage(ctx, j))
+		}
+	} else if change.StateChanged && change.PreviousState == store.JobWaiting && j.State == store.JobQueued {
+		// The approval arrives as an ordinary queued delivery. This is when
+		// the queue wait starts, and when whether a pool claims it matters.
+		add(store.JobEventApproved, "GitHub approved it, and it is queued for a runner from now")
+		add(c.claimKind(j), c.claimMessage(ctx, j))
+	} else if change.Claimed && j.State == store.JobQueued {
+		add(store.JobEventClaimed, c.claimMessage(ctx, j))
+	}
+
+	if !change.StateChanged && !change.Created {
+		return
+	}
+	// A job whose first delivery is already in progress or complete skipped
+	// straight past "queued" here: the controller was down, or the webhook
+	// never arrived. Each state it reached still gets its line.
+	if j.State == store.JobInProgress || (j.State == store.JobCompleted && j.StartedAt != nil &&
+		(change.Created || change.PreviousState == store.JobQueued)) {
+		add(store.JobEventStarted, c.startMessage(ctx, j, runner))
+	}
+	if j.State == store.JobCompleted {
+		add(store.JobEventCompleted, completionMessage(j))
+	}
+}
+
+// claimKind is "claimed" or "unmatched", the two answers to "will anything
+// here run it?".
+func (c *Controller) claimKind(j *store.Job) store.JobEventKind {
+	if j.Matched {
+		return store.JobEventClaimed
+	}
+	return store.JobEventUnmatched
+}
+
+func (c *Controller) claimMessage(ctx context.Context, j *store.Job) string {
+	if !j.Matched {
+		return "no enabled pool claims these labels, so nothing in this fleet will start it"
+	}
+	name := j.PoolID
+	if p, err := c.st.GetPool(ctx, j.PoolID); err == nil {
+		name = p.Name
+	}
+	return fmt.Sprintf("pool %s claims it; the scheduler will start a runner if none is free", name)
+}
+
+func (c *Controller) startMessage(ctx context.Context, j *store.Job, runner *store.Runner) string {
+	if runner == nil && j.RunnerID != "" {
+		if r, err := c.st.GetRunner(ctx, j.RunnerID); err == nil {
+			runner = r
+		}
+	}
+	switch {
+	case runner != nil:
+		host := runner.HostID
+		if h, err := c.st.GetHost(ctx, runner.HostID); err == nil {
+			host = h.Name
+		}
+		return fmt.Sprintf("started on runner %s, on host %s, after %s in the queue",
+			runner.Name, host, roundDuration(j.QueueWait()))
+	case j.RunnerName != "":
+		return fmt.Sprintf("started on %s, a runner this fleet does not manage, after %s in the queue",
+			j.RunnerName, roundDuration(j.QueueWait()))
+	}
+	return fmt.Sprintf("started after %s in the queue", roundDuration(j.QueueWait()))
+}
+
+// completionMessage is the one line a finished job is summarised by: what
+// GitHub concluded, and where it went wrong when it did.
+func completionMessage(j *store.Job) string {
+	took := roundDuration(j.Duration())
+	switch j.Conclusion {
+	case "success":
+		return fmt.Sprintf("succeeded after %s", took)
+	case "cancelled":
+		if step := j.FailedStep(); step != nil {
+			return fmt.Sprintf("cancelled after %s, during step %d, %s", took, step.Number, step.Name)
+		}
+		return fmt.Sprintf("cancelled after %s", took)
+	case "skipped":
+		return "skipped: a condition on the job was false"
+	case "":
+		return fmt.Sprintf("finished after %s", took)
+	}
+	verb := "failed"
+	if j.Conclusion != "failure" {
+		verb = strings.ReplaceAll(j.Conclusion, "_", " ")
+	}
+	if step := j.FailedStep(); step != nil {
+		return fmt.Sprintf("%s at step %d, %s, after %s", verb, step.Number, step.Name, took)
+	}
+	if j.RunnerFault != "" {
+		return fmt.Sprintf("%s after %s; the runner had stopped under it", verb, took)
+	}
+	return fmt.Sprintf("%s after %s", verb, took)
+}
+
+// noteRunnerLost records that a runner stopped while it was still executing a
+// job. GitHub will report the job as failed in its own time, indistinguishable
+// from a test failure; this is what tells the operator the fleet did it.
+//
+// before is the runner as it was before the transition, because the store
+// clears CurrentJobID when a runner goes terminal and the job's identity would
+// otherwise be gone by the time anyone asked. source says who saw it go: the
+// agent, when the container died on its own; the controller, when an operator
+// removed a busy runner with force or the reconcile loop gave up on it.
+//
+// It is idempotent. The same exit can reach here more than once -- a runner
+// report and then the task result that carries it -- and only the report that
+// records the fault writes the timeline entry and counts the metric.
+func (c *Controller) noteRunnerLost(ctx context.Context, before *store.Runner, source, message string) {
+	if before == nil || before.CurrentJobID == "" {
+		return
+	}
+	j, err := c.st.GetJob(ctx, before.CurrentJobID)
+	if err != nil {
+		return
+	}
+	if j.State == store.JobCompleted {
+		// GitHub already closed the job; the runner exiting afterwards is the
+		// normal end of an ephemeral runner's life, whatever its exit code.
+		return
+	}
+	if message == "" {
+		message = "the runner stopped without saying why"
+	}
+	fault := fmt.Sprintf("runner %s stopped while this job was running: %s", before.Name, message)
+	updated, recorded, err := c.st.SetJobRunnerFault(ctx, j.ID, fault)
+	if err != nil {
+		c.log.Warn("could not record a lost runner on its job", "job", j.ID, "runner", before.ID, "error", err)
+		return
+	}
+	if !recorded {
+		return
+	}
+	if err := c.st.AppendJobEvent(ctx, &store.JobEvent{
+		JobID: j.ID, Kind: store.JobEventRunnerLost, Source: source,
+		Message:  fault + "; GitHub will report the job failed once the runner's absence is noticed",
+		RunnerID: before.ID, RunnerName: before.Name, At: c.Now(),
+	}); err != nil {
+		c.log.Warn("could not record a job timeline entry", "job", j.ID, "kind", store.JobEventRunnerLost, "error", err)
+	}
+	c.metrics.jobsRunnerLost.WithLabelValues(c.poolLabel(before.PoolID)).Inc()
+	c.log.Warn("a runner stopped while running a job", "job", j.ID, "runner", before.ID, "name", before.Name, "message", message)
+	c.publishJob(ctx, updated)
+}
+
+// JobEvents returns a job's timeline, oldest first.
+func (c *Controller) JobEvents(ctx context.Context, jobID string) ([]*store.JobEvent, error) {
+	if _, err := c.st.GetJob(ctx, jobID); err != nil {
+		return nil, err
+	}
+	return c.st.ListJobEvents(ctx, jobID)
+}
+
+func jobTitle(j *store.Job) string {
+	switch {
+	case j.Workflow != "" && j.JobName != "":
+		return j.Workflow + " / " + j.JobName
+	case j.JobName != "":
+		return j.JobName
+	case j.Workflow != "":
+		return j.Workflow
+	}
+	return fmt.Sprintf("job %d", j.GitHubJobID)
+}
+
+// roundDuration renders a duration the way a person would say it: "42s",
+// "3m 10s", "1h 05m". Sub-second precision is noise in a sentence.
+func roundDuration(d time.Duration) string {
+	if d <= 0 {
+		return "no time"
+	}
+	d = d.Round(time.Second)
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm %02ds", int(d.Minutes()), int(d.Seconds())%60)
+	}
+	return fmt.Sprintf("%dh %02dm", int(d.Hours()), int(d.Minutes())%60)
+}
+
+// staleQueuedAfter is how long a job may sit queued before the controller
+// stops believing GitHub still has it. GitHub itself cancels a job that no
+// runner has picked up within a day, and it is the completed delivery for a
+// job like that -- or one whose repository was deleted, or whose run was
+// cancelled while the poller was rate-limited -- that goes missing.
+const staleQueuedAfter = 24 * time.Hour
+
+// expireStaleQueuedJobs retires queued jobs older than staleQueuedAfter.
+//
+// A queued row is scheduler demand for as long as it exists: it keeps a pool's
+// desired count up, so a runner is created for it, idles out, and is created
+// again, for ever. Nothing else reconciles a row GitHub no longer lists, so
+// this marks it completed with the conclusion GitHub uses for the same thing,
+// "stale", and the timeline says why.
+func (c *Controller) expireStaleQueuedJobs(ctx context.Context, now time.Time) {
+	queued, err := c.st.ListQueuedJobs(ctx)
+	if err != nil {
+		c.log.Warn("could not list queued jobs to retire stale ones", "error", err)
+		return
+	}
+	retired := 0
+	for _, j := range queued {
+		age := now.Sub(j.QueuedAt)
+		if age < staleQueuedAfter {
+			continue
+		}
+		done := now
+		saved, change, err := c.st.ApplyJob(ctx, &store.Job{
+			GitHubJobID: j.GitHubJobID, State: store.JobCompleted, Conclusion: "stale", CompletedAt: &done,
+		})
+		if err != nil {
+			c.log.Warn("could not retire a stale queued job", "job", j.ID, "error", err)
+			continue
+		}
+		if !change.StateChanged {
+			continue
+		}
+		message := fmt.Sprintf("queued for %s with no word from GitHub that it started; GitHub gives up on a job after a day, so this one is presumed cancelled or lost and is no longer counted as demand",
+			age.Truncate(time.Minute))
+		if err := c.st.AppendJobEvent(ctx, &store.JobEvent{
+			JobID: saved.ID, Kind: store.JobEventCompleted, Source: sourceController, Message: message, At: now,
+		}); err != nil {
+			c.log.Warn("could not record a job timeline entry", "job", saved.ID, "kind", store.JobEventCompleted, "error", err)
+		}
+		c.log.Warn("retired a queued job GitHub never started", "job", saved.ID, "repo", saved.Repo, "queued_for", age.Truncate(time.Minute))
+		c.publishJob(ctx, saved)
+		retired++
+	}
+	if retired > 0 {
+		// Demand has dropped, and a runner created for the retired job may
+		// now be surplus.
+		c.Nudge()
+	}
+}

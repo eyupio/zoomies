@@ -2,6 +2,19 @@
   import type { Pool } from '$lib/api/types';
 
   /**
+   * The codes that name a *setting* somebody chose, rather than a condition
+   * the fleet is in.
+   *
+   * A pool's `warnings` carry both: the dangerous configuration, and whatever
+   * the scheduler currently cannot do -- "1 job waiting and nowhere to run
+   * them". Counting the second kind in a badge labelled "risks" sent an
+   * operator hunting for a third dangerous setting that was never there, and
+   * made the count change under them as the fleet moved. Operational
+   * conditions have the problems drawer, and the Queued column, already.
+   */
+  const RISK_CODES = new Set(['pool.dangerous', 'pool.cache_shared']);
+
+  /**
    * The dangerous settings a pool can carry, in our own words.
    *
    * The server's `warnings` are authoritative and are preferred whenever it
@@ -19,7 +32,7 @@
 
   /** True when this pool has a setting worth warning about. */
   export function poolHasRisk(pool: Pool): boolean {
-    if ((pool.warnings?.length ?? 0) > 0) return true;
+    if ((pool.warnings ?? []).some((w) => RISK_CODES.has(w.code ?? ''))) return true;
     if ((pool.docker_mode ?? 'none') !== 'none') return true;
     if (pool.ephemeral === false) return true;
     return pool.run_as_root === true;
@@ -28,6 +41,7 @@
   /** Every risk this pool carries, one sentence each, most severe first. */
   export function poolRisks(pool: Pool): string[] {
     const fromServer = (pool.warnings ?? [])
+      .filter((w) => RISK_CODES.has(w.code ?? ''))
       .map((w) => (w.detail ? `${w.title} ${w.detail}` : w.title))
       .filter((line): line is string => Boolean(line));
     if (fromServer.length > 0) return fromServer;

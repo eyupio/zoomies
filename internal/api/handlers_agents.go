@@ -26,28 +26,26 @@ func agentHost(r *http.Request) *store.Host {
 // short-lived, and the agent token it returns is shown exactly once.
 func (s *Server) handleAgentJoin(w http.ResponseWriter, r *http.Request) {
 	var req agent.JoinRequest
-	if !decode(w, r, &req) {
+	if !decodeLenient(w, r, &req) {
 		return
 	}
 	resp, err := s.ctrl.Join(r.Context(), req, ClientIP(r.Context()))
 	if err != nil {
 		// A refused join is almost always a spent or mistyped token, which is
-		// the agent operator's to fix rather than an internal failure.
-		s.logger(r).Warn("refused an agent join", "name", req.Name, "error", err)
-		unprocessable(w, err.Error(), nil)
+		// the agent operator's to fix and is told to them in as many words.
+		// Anything else -- the database not answering -- is this controller's
+		// failure, logged with a request ID and never quoted to an anonymous
+		// caller as though it were their mistake.
+		if errors.Is(err, auth.ErrInvalidInput) {
+			s.logger(r).Warn("refused an agent join", "name", req.Name, "error", err)
+			unprocessable(w, err.Error(), nil)
+			return
+		}
+		s.internal(w, r, "enrolling a host", err)
 		return
 	}
-	// The host is its own actor: the join is the moment it becomes one, and an
-	// audit row that says "system enrolled a host" answers a different question
-	// from the one an operator is asking.
-	joined := &auth.Identity{
-		Kind: auth.KindAgent, ID: resp.HostID, Name: req.Name,
-		Role: store.RoleViewer, IP: ClientIP(r.Context()),
-	}
-	s.auth.Auditor().Act(r.Context(), joined, "host.join", "host", resp.HostID, map[string]any{
-		"name": req.Name, "os": req.OS, "arch": req.Arch, "capacity": req.Capacity,
-		"version": req.Version, "ip": ClientIP(r.Context()),
-	})
+	// The controller's join already wrote the host.join audit row, with the
+	// host as its own actor; a second one here showed every enrolment twice.
 	s.ctrl.Nudge()
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -60,7 +58,7 @@ func (s *Server) handleAgentJoin(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	host := agentHost(r)
 	var req agent.HeartbeatRequest
-	if !decode(w, r, &req) {
+	if !decodeLenient(w, r, &req) {
 		return
 	}
 	resp, err := s.ctrl.Heartbeat(r.Context(), host.ID, req)
@@ -108,7 +106,7 @@ func (s *Server) handleAgentTasks(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAgentResult(w http.ResponseWriter, r *http.Request) {
 	host := agentHost(r)
 	var res agent.TaskResult
-	if !decode(w, r, &res) {
+	if !decodeLenient(w, r, &res) {
 		return
 	}
 	if err := s.ctrl.ReportResult(r.Context(), host.ID, res); err != nil {
@@ -126,7 +124,7 @@ func (s *Server) handleAgentResult(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAgentReport(w http.ResponseWriter, r *http.Request) {
 	host := agentHost(r)
 	var reports []agent.RunnerReport
-	if !decode(w, r, &reports) {
+	if !decodeLenient(w, r, &reports) {
 		return
 	}
 	if err := s.ctrl.ReportRunners(r.Context(), host.ID, reports); err != nil {

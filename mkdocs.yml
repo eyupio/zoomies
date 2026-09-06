@@ -13,7 +13,7 @@ site_description: >-
   runners by default, GitHub App auth, webhook-driven autoscaling, multi-host
   agents, a live web UI, and a one-line installer.
 site_author: Zoomies contributors
-copyright: Zoomies is MIT licensed.
+copyright: Zoomies is AGPL-3.0 licensed.
 
 repo_url: https://github.com/eyupio/zoomies
 repo_name: eyupio/zoomies
@@ -24,9 +24,14 @@ site_dir: site
 
 theme:
   name: material
+  # Sharing and structured metadata that Material does not emit by itself.
+  # overrides/main.html extends the theme rather than replacing anything. It is
+  # outside docs/ so the template is not also published as a page.
+  custom_dir: overrides
   language: en
   favicon: brand/favicon.ico
-  logo: brand/mark-white-transparent.png
+  # The header renders at favicon scale, where v2.1 reserves the paw/swish.
+  logo: brand/paw-swish-white.png
   icon:
     repo: fontawesome/brands/github
   font:
@@ -34,6 +39,7 @@ theme:
     code: JetBrains Mono
   features:
     - navigation.instant
+    - navigation.instant.progress
     - navigation.tracking
     - navigation.sections
     - navigation.top
@@ -41,6 +47,7 @@ theme:
     - toc.follow
     - search.suggest
     - search.highlight
+    - search.share
     - content.code.copy
     - content.code.annotate
     - content.action.edit
@@ -77,22 +84,54 @@ markdown_extensions:
       permalink: true
       permalink_title: Link to this section
   - pymdownx.details
+  # Material's icon sets, as `:material-webhook:` shortcodes. The home page's
+  # feature cards and comparison table use them; they render as inline SVG that
+  # inherits the text colour, so there is no icon image to theme or to go stale.
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - pymdownx.highlight:
       anchor_linenums: true
       line_spans: __span
       pygments_lang_class: true
   - pymdownx.inlinehilite
   - pymdownx.snippets
-  - pymdownx.superfences
+  # Diagrams are Mermaid, rendered in the browser and themed by Material to
+  # follow whichever palette the reader is in. A diagram is a fenced block in
+  # the same file as the prose it explains, so GitHub renders it too and there
+  # is no exported image to go stale.
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.tasklist:
       custom_checkbox: true
 
 plugins:
-  - search
+  # The built-in search index, told where a Zoomies identifier stops being one
+  # word: the default separator does not split on a dot or a hyphen, so
+  # `scheduler.scale_up_delay` and `zoomies-linux-x64` were each a single term
+  # nobody would type in full.
+  - search:
+      separator: '[\s\-,:!=\[\]()"/]+|(?!\b)(?=[A-Z][a-z])|\.(?!\d)|&[lg]t;'
+
+# Build-time SEO metadata: a real last-edited date per page for the sitemap and
+# the sharing tags, and llms.txt generated from the navigation. It is a hook
+# rather than a plugin so the docs build keeps to its pinned dependencies.
+hooks:
+  - hooks/seo.py
 
 extra:
+  # Who builds Zoomies. overrides/partials/copyright.html prints this in the
+  # footer of every page, beside the licence; the product's own footer says the
+  # same thing from web/src/lib/links.ts, so a fork renames it in two places
+  # rather than everywhere.
+  developer:
+    name: EyUp.io
+    url: https://eyup.io
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/eyupio/zoomies
@@ -102,15 +141,31 @@ extra:
 nav:
   - Home: index.md
   - Quick start: quickstart.md
+  - The UI: ui.md
   - Guide:
       - Architecture: architecture.md
       - Configuration: configuration.md
+      - Hosts and pools: hosts-and-pools.md
+      - Migrating repositories: migration.md
       - Security: security.md
+      - Troubleshooting: troubleshooting.md
+      - Upgrading: upgrading.md
+      - Backup and restore: backup-and-restore.md
       - API: api-surface.md
+      - Capacity-demand receiver: capacity-demand-receiver.md
+  - FAQ: faq.md
   - Reference:
+      - Command line: cli.md
+      - Problem codes: problem-codes.md
+      - Metrics: metrics.md
       - Dependencies: dependencies.md
       - UI guidelines: ui-guidelines.md
       - Brand: brand.md
+
+# The brand pack's own guide is published because docs/brand.md links to it, but
+# it is not a section of the site's navigation.
+not_in_nav: |
+  brand/BRANDING_GUIDE.md
 
 # A link in the docs that points nowhere is a broken promise, so a broken one
 # fails the build rather than shipping.
@@ -119,3 +174,6 @@ validation:
   links:
     absolute_links: ignore
     unrecognized_links: warn
+    # A heading that gets reworded silently breaks every deep link into it, and
+    # a link that lands at the top of a long page looks like it worked.
+    anchors: warn

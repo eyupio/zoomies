@@ -1,13 +1,24 @@
 <!--
-  One job, in full.
+  One job, in full, and live.
 
-  The grid shows what fits; this shows everything Zoomies recorded, including
-  the three timestamps the queue wait and the duration are derived from, so an
-  operator can see why a number is what it is rather than trusting it.
+  The grid shows what fits; this shows everything Zoomies recorded and what it
+  is doing about it now. Reading order is the operator's question order: what
+  went wrong (or what the fleet is doing while the job waits), then the facts,
+  then the steps, then the story of how it got here. The job it shows is
+  replaced on every `job.updated` frame for it by the page that owns the drawer,
+  and the timeline refetches itself on the same frames, so nothing in here is
+  older than the stream.
 -->
 <script lang="ts">
-  import { formatDuration } from '$lib/format';
-  import { jobStatus, UNMATCHED } from '$lib/status';
+  import { formatDuration, shortId } from '$lib/format';
+  import {
+    HOSTED,
+    jobFailed,
+    jobStatus,
+    RUNNER_LOST,
+    stuckUnmatched,
+    UNMATCHED,
+  } from '$lib/status';
   import type { Job } from '$lib/api/types';
   import Badge from '$lib/components/Badge.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
@@ -16,6 +27,10 @@
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import GitHubLink from './GitHubLink.svelte';
   import JobLabels from './JobLabels.svelte';
+  import JobOutcome from './JobOutcome.svelte';
+  import JobSteps from './JobSteps.svelte';
+  import JobTimeline from './JobTimeline.svelte';
+  import JobWaiting from './JobWaiting.svelte';
   import UnmatchedNote from './UnmatchedNote.svelte';
 
   interface Props {
@@ -27,9 +42,11 @@
   let { open = $bindable(false), job, onclose }: Props = $props();
 
   const status = $derived(job ? jobStatus(job.state, job.conclusion) : undefined);
-  const unmatched = $derived(job?.matched === false);
+  const unmatched = $derived(job ? stuckUnmatched(job) : false);
+  const failed = $derived(job ? jobFailed(job) : false);
   const running = $derived(job?.state === 'in_progress');
   const waiting = $derived(job?.state === 'queued' && !job?.started_at);
+  const steps = $derived(job?.steps ?? []);
 </script>
 
 <Drawer
@@ -42,11 +59,18 @@
     <div class="stack">
       <div class="badges">
         {#if status}<Badge {status} />{/if}
-        {#if unmatched}<Badge status={UNMATCHED} />{/if}
+        {#if job.runner_fault}<Badge status={RUNNER_LOST} />{/if}
+        {#if unmatched}<Badge status={UNMATCHED} />{:else if job.hosted && !job.matched}<Badge
+            status={HOSTED}
+          />{/if}
       </div>
 
-      {#if unmatched}
+      {#if failed}
+        <JobOutcome {job} />
+      {:else if unmatched}
         <UnmatchedNote labels={job.labels} compact />
+      {:else if waiting && job.pool_id}
+        <JobWaiting {job} />
       {/if}
 
       <dl class="facts">
@@ -56,15 +80,34 @@
         <dt>Workflow</dt>
         <dd>{job.workflow || '--'}</dd>
 
+        <dt>Branch</dt>
+        <dd>
+          {#if job.head_branch}
+            <span class="mono">{job.head_branch}</span>
+            {#if job.head_sha}<span class="muted mono"> @ {shortId(job.head_sha, 7)}</span>{/if}
+          {:else}
+            <span class="muted">Not reported</span>
+          {/if}
+        </dd>
+
+        {#if (job.run_attempt ?? 0) > 1}
+          <dt>Attempt</dt>
+          <dd>{job.run_attempt} <span class="muted">(the run was re-run)</span></dd>
+        {/if}
+
         <dt>Labels</dt>
-        <dd><JobLabels labels={job.labels} max={0} /></dd>
+        <dd><JobLabels labels={job.labels} max={0} wrap /></dd>
 
         <dt>Pool</dt>
         <dd>
           {#if job.pool_id}
             <a href="/pools/{job.pool_id}">{job.pool_name || job.pool_id}</a>
           {:else}
-            <span class="muted">No pool claimed it</span>
+            <span class="muted"
+              >{job.hosted
+                ? "No pool here claimed it; its labels name GitHub's own runners or a vendor's"
+                : 'No pool claimed it'}</span
+            >
           {/if}
         </dd>
 
@@ -72,6 +115,13 @@
         <dd>
           {#if job.runner_id}
             <a href="/runners/{job.runner_id}">{job.runner_name || job.runner_id}</a>
+            {#if running}
+              <span class="muted"> · </span>
+              <a href="/runners/{job.runner_id}">Follow its output</a>
+            {/if}
+          {:else if job.runner_name}
+            <span class="mono">{job.runner_name}</span>
+            <span class="muted"> (not managed by this fleet)</span>
           {:else}
             <span class="muted">Not started on a runner yet</span>
           {/if}
@@ -115,6 +165,20 @@
         <dt>Job ID</dt>
         <dd><CopyButton value={job.id ?? ''} label="Copy the job ID" showValue /></dd>
       </dl>
+
+      {#if steps.length > 0 || running}
+        <section class="section" aria-labelledby="job-steps-heading">
+          <h3 id="job-steps-heading">Steps</h3>
+          <JobSteps {steps} failedStep={job.failed_step ?? null} {running} />
+        </section>
+      {/if}
+
+      {#if job.id}
+        <section class="section" aria-labelledby="job-timeline-heading">
+          <h3 id="job-timeline-heading">Timeline</h3>
+          <JobTimeline jobId={job.id} conclusion={job.conclusion} />
+        </section>
+      {/if}
     </div>
   {/if}
 
@@ -154,5 +218,19 @@
   }
   a {
     color: var(--z-accent);
+  }
+  .section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-3);
+  }
+  h3 {
+    margin: 0;
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    font-weight: var(--z-weight-semibold);
+    text-transform: uppercase;
+    letter-spacing: var(--z-tracking-wide);
+    color: var(--z-text-subtle);
   }
 </style>

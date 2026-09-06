@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -27,6 +28,8 @@ const stubVersion = "9.9.9"
 // for the SIGINT that Stop sends and exits cleanly, the way the real runner
 // finishes its job and leaves.
 const stubListener = `#!/bin/sh
+echo "$@" > listener-args.txt
+printf '%s' "${ACTIONS_RUNNER_INPUT_JITCONFIG:-}" > listener-jitconfig.txt
 echo "listener started with $1"
 trap 'echo "interrupted"; exit 0' INT
 i=0
@@ -140,10 +143,14 @@ func TestProcessCreateLayout(t *testing.T) {
 	b, root := newStubProcessBackend(t)
 	ctx := context.Background()
 
-	h, err := b.Create(ctx, processSpec())
+	result, err := b.CreateWithResult(ctx, processSpec())
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
+	if result.ImagePullDuration != nil {
+		t.Fatalf("process backend invented an image pull duration: %v", *result.ImagePullDuration)
+	}
+	h := result.Handle
 	t.Cleanup(func() { _ = b.Remove(context.Background(), h) })
 
 	dir := string(h)
@@ -394,8 +401,28 @@ func TestProcessProbe(t *testing.T) {
 	}
 	// Availability depends on the host: on Linux without libicu the runner
 	// cannot start, and the detail has to say which of the two it is.
-	if !info.Available && !strings.Contains(info.Detail, "libicu") && !strings.Contains(info.Detail, "does not support") && !strings.Contains(info.Detail, "work directory") {
+	if !info.Available && !strings.Contains(info.Detail, "libicu") && !strings.Contains(info.Detail, "does not support") && !strings.Contains(info.Detail, "work directory") && !strings.Contains(info.Detail, "shell") {
 		t.Fatalf("unavailable for an unexplained reason: %q", info.Detail)
+	}
+}
+
+// The published image is distroless. An agent in it probing the process
+// backend used to be told to apt-get install libicu -- into an image with no
+// apt, no shell and no way to run the runner at all -- when the honest answer
+// is that this backend is not for containers.
+func TestProcessProbeWithoutAShellSaysSoBeforeAnythingElse(t *testing.T) {
+	b, _ := newStubProcessBackend(t)
+	t.Setenv("PATH", t.TempDir())
+
+	info := b.Probe(context.Background())
+	if info.Available {
+		t.Fatal("a host with no shell cannot run the runner")
+	}
+	if !strings.Contains(info.Detail, "no shell is installed") || !strings.Contains(info.Detail, "docker or podman backend") {
+		t.Fatalf("detail = %q, want the missing shell and the backend to use instead", info.Detail)
+	}
+	if strings.Contains(info.Detail, "apt-get") {
+		t.Fatalf("a package manager is no use in an image without one: %q", info.Detail)
 	}
 }
 
@@ -795,5 +822,96 @@ func TestProcessDownloadMissingVersion(t *testing.T) {
 	_, err = b.ensureRelease(context.Background(), "0.0.1")
 	if err == nil || !strings.Contains(err.Error(), "pinned runner version") {
 		t.Fatalf("got %v, want a message about the pinned version", err)
+	}
+}
+
+// The runner leads a process group of its own. Without that, interrupting the
+// listener orphaned the worker running the job, and a service manager stopping
+// the agent's unit took every runner in the cgroup down with it -- the
+// opposite of "restarting an agent must never kill a job".
+func TestProcessRunnerLeadsItsOwnProcessGroup(t *testing.T) {
+	requireUnix(t)
+	b, _ := newStubProcessBackend(t)
+	ctx := context.Background()
+
+	h, err := b.Create(ctx, processSpec())
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Remove(ctx, h) })
+	waitForPhase(t, b, h, PhaseRunning, 5*time.Second)
+
+	pid := readPID(string(h))
+	if pid <= 0 {
+		t.Fatal("no pid recorded")
+	}
+	pgid, err := syscall.Getpgid(pid)
+	if err != nil {
+		t.Fatalf("Getpgid: %v", err)
+	}
+	if pgid != pid {
+		t.Fatalf("the runner's process group is %d, want its own pid %d; it is sharing the agent's group", pgid, pid)
+	}
+}
+
+// The runner image verifies its download against digests written into the
+// Dockerfile, and the process backend against the generated table. They are
+// the same release, so they had better be the same numbers; the bump workflow
+// copies them from the table, and this is what catches a hand edit of one.
+func TestTheRunnerImagePinsTheSameDigestsAsTheProcessBackend(t *testing.T) {
+	dockerfile, err := os.ReadFile(filepath.Join("..", "..", "deploy", "Dockerfile.runner"))
+	if err != nil {
+		t.Fatalf("reading the runner Dockerfile: %v", err)
+	}
+	for arch, arg := range map[string]string{"x64": "RUNNER_SHA256_X64", "arm64": "RUNNER_SHA256_ARM64"} {
+		want := knownRunnerSHA256[DefaultRunnerVersion+"/actions-runner-linux-"+arch+"-"+DefaultRunnerVersion+".tar.gz"]
+		if want == "" {
+			t.Fatalf("the digest table has no linux-%s entry for %s", arch, DefaultRunnerVersion)
+		}
+		if !strings.Contains(string(dockerfile), "ARG "+arg+"="+want) {
+			t.Fatalf("deploy/Dockerfile.runner does not pin %s to the table's digest %s for %s", arg, want, DefaultRunnerVersion)
+		}
+	}
+	if !strings.Contains(string(dockerfile), "ARG RUNNER_VERSION="+DefaultRunnerVersion) {
+		t.Fatalf("deploy/Dockerfile.runner pins a different runner version from DefaultRunnerVersion %s", DefaultRunnerVersion)
+	}
+}
+
+// The JIT config is a credential. On the command line it is in
+// /proc/<pid>/cmdline, which every account on the host can read; the runner
+// takes it from the environment just as happily, and the container backends
+// already hand it over that way.
+func TestProcessKeepsTheJITConfigOffTheCommandLine(t *testing.T) {
+	requireUnix(t)
+	b, _ := newStubProcessBackend(t)
+	ctx := context.Background()
+
+	spec := processSpec()
+	h, err := b.Create(ctx, spec)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Remove(context.Background(), h) })
+
+	dir := string(h)
+	waitForLog(t, dir, "listener started", 5*time.Second)
+
+	args, err := os.ReadFile(filepath.Join(dir, "listener-args.txt"))
+	if err != nil {
+		t.Fatalf("reading the listener's arguments: %v", err)
+	}
+	if got := strings.TrimSpace(string(args)); got != "run" {
+		t.Fatalf("listener arguments = %q, want just \"run\"", got)
+	}
+	if strings.Contains(string(args), spec.Credentials.JITConfig) {
+		t.Fatal("the JIT config is on the command line, where ps can read it")
+	}
+
+	jit, err := os.ReadFile(filepath.Join(dir, "listener-jitconfig.txt"))
+	if err != nil {
+		t.Fatalf("reading the listener's environment: %v", err)
+	}
+	if string(jit) != spec.Credentials.JITConfig {
+		t.Fatalf("%s = %q, want the JIT config", EnvUpstreamJITConfig, jit)
 	}
 }

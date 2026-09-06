@@ -2,7 +2,6 @@
   import type {
     BackendKind,
     DockerMode,
-    Host,
     Installation,
     Pool,
     PoolCreate,
@@ -10,7 +9,14 @@
     RunnerGroup,
   } from '$lib/api/types';
   import { parseGoDuration } from '$lib/format';
-  import { STEP_FIELDS, WIZARD_STEPS, stepForField } from './PoolVocabulary.svelte';
+  import {
+    backendOffers,
+    backendUnavailable,
+    STEP_FIELDS,
+    WIZARD_STEPS,
+    stepForField,
+  } from './PoolVocabulary.svelte';
+  import type { BackendOffer } from './PoolVocabulary.svelte';
 
   /**
    * What the wizard is editing.
@@ -30,6 +36,7 @@
     runner_version: string;
     min_runners: string;
     max_runners: string;
+    priority: string;
     idle_timeout: string;
     ephemeral: boolean;
     docker_mode: DockerMode;
@@ -38,9 +45,22 @@
     cpus: string;
     memory_mb: string;
     disk_gb: string;
+    cache_enabled: boolean;
+    cache_scope: 'pool' | 'repository';
+    cache_size_limit: string;
+    cache_source: string;
+    cache_repository: string;
     /** Carried through untouched: the wizard does not edit it, and must not lose it. */
     pids_limit: string;
     host_selector: Record<string, string>;
+    /**
+     * The wizard's own state, not the pool's: whether the operator chose to
+     * keep this pool to some hosts. The selector cannot answer it, because
+     * "only hosts that match" with no rule typed yet is an empty map exactly
+     * like "any host" -- and reading the choice back off the selector is how
+     * a half-made rule reset itself on the way to the next step and back.
+     */
+    restrict_hosts: boolean;
     env: Record<string, string>;
   }
 
@@ -55,6 +75,7 @@
       runner_version: '',
       min_runners: '0',
       max_runners: '4',
+      priority: '0',
       idle_timeout: '5m',
       ephemeral: true,
       docker_mode: 'none',
@@ -63,8 +84,14 @@
       cpus: '',
       memory_mb: '',
       disk_gb: '',
+      cache_enabled: false,
+      cache_scope: 'pool',
+      cache_size_limit: '',
+      cache_source: '',
+      cache_repository: '',
       pids_limit: '',
       host_selector: {},
+      restrict_hosts: false,
       env: {},
     };
   }
@@ -87,6 +114,7 @@
       runner_version: pool.runner_version ?? '',
       min_runners: fromNumber(pool.min_runners),
       max_runners: fromNumber(pool.max_runners),
+      priority: fromNumber(pool.priority),
       idle_timeout: pool.idle_timeout ?? base.idle_timeout,
       ephemeral: pool.ephemeral !== false,
       docker_mode: pool.docker_mode ?? 'none',
@@ -95,8 +123,14 @@
       cpus: fromNumber(resources.cpus),
       memory_mb: fromNumber(resources.memory_mb),
       disk_gb: fromNumber(resources.disk_gb),
+      cache_enabled: pool.cache?.enabled === true,
+      cache_scope: pool.cache?.scope ?? 'pool',
+      cache_size_limit: fromNumber(pool.cache?.size_limit),
+      cache_source: pool.cache?.source ?? '',
+      cache_repository: pool.cache?.repository ?? '',
       pids_limit: fromNumber(resources.pids_limit),
       host_selector: { ...(pool.host_selector ?? {}) },
+      restrict_hosts: Object.keys(pool.host_selector ?? {}).length > 0,
       env: { ...(pool.env ?? {}) },
     };
   }
@@ -113,8 +147,16 @@
     return parsed !== undefined && Number.isInteger(parsed) ? parsed : undefined;
   }
 
-  /** The request body this draft produces. Empty optional fields are left out. */
-  export function toPoolBody(draft: PoolDraft): PoolCreate {
+  /**
+   * The request body this draft produces.
+   *
+   * On create, empty optional fields are left out and the server fills in its
+   * defaults. On edit they are sent as empty: a PATCH treats an absent key as
+   * "leave it as it is", so leaving them out would make clearing the image, a
+   * resource limit or the last host-selector entry a change the server never
+   * hears about -- while the toast says it was saved.
+   */
+  export function toPoolBody(draft: PoolDraft, options: { complete?: boolean } = {}): PoolCreate {
     const resources: Resources = {};
     const cpus = toNumber(draft.cpus);
     const memory = toInteger(draft.memory_mb);
@@ -126,24 +168,35 @@
     if (pids !== undefined) resources.pids_limit = pids;
 
     const body: PoolCreate = {
-      name: draft.name.trim(),
+      name: brandedName(draft.name),
       installation_id: draft.installation_id,
       labels: draft.labels.map((label) => label.trim()).filter(Boolean),
       backend: draft.backend,
       min_runners: toInteger(draft.min_runners) ?? 0,
       max_runners: toInteger(draft.max_runners) ?? 1,
+      priority: toInteger(draft.priority) ?? 0,
       idle_timeout: draft.idle_timeout.trim() || '5m',
       ephemeral: draft.ephemeral,
       docker_mode: draft.docker_mode,
       run_as_root: draft.run_as_root,
       enabled: draft.enabled,
+      cache: {
+        enabled: draft.cache_enabled,
+        scope: draft.cache_scope,
+        size_limit: toInteger(draft.cache_size_limit) ?? 0,
+        source: draft.cache_source.trim(),
+        repository: draft.cache_scope === 'repository' ? draft.cache_repository.trim() : '',
+      },
     };
-    if (draft.runner_group.trim()) body.runner_group = draft.runner_group.trim();
-    if (draft.image.trim()) body.image = draft.image.trim();
-    if (draft.runner_version.trim()) body.runner_version = draft.runner_version.trim();
-    if (Object.keys(resources).length > 0) body.resources = resources;
-    if (Object.keys(draft.host_selector).length > 0) body.host_selector = draft.host_selector;
-    if (Object.keys(draft.env).length > 0) body.env = draft.env;
+    const complete = options.complete === true;
+    if (complete || draft.runner_group.trim()) body.runner_group = draft.runner_group.trim();
+    if (complete || draft.image.trim()) body.image = draft.image.trim();
+    if (complete || draft.runner_version.trim()) body.runner_version = draft.runner_version.trim();
+    if (complete || Object.keys(resources).length > 0) body.resources = resources;
+    if (complete || Object.keys(draft.host_selector).length > 0) {
+      body.host_selector = draft.host_selector;
+    }
+    if (complete || Object.keys(draft.env).length > 0) body.env = draft.env;
     return body;
   }
 
@@ -154,7 +207,12 @@
    * the same things and more; these exist so the operator finds out while they
    * are still typing rather than at the end.
    */
-  export function draftErrors(draft: PoolDraft, socketConfirmed: boolean): Record<string, string> {
+  export function draftErrors(
+    draft: PoolDraft,
+    socketConfirmed: boolean,
+    offers: readonly BackendOffer[] = [],
+    hostsKnown = false,
+  ): Record<string, string> {
     const errors: Record<string, string> = {};
     const name = draft.name.trim();
     if (name === '') errors['name'] = 'Give the pool a name so it can be told apart in the fleet.';
@@ -171,10 +229,12 @@
 
     const min = toInteger(draft.min_runners);
     const max = toInteger(draft.max_runners);
+    const priority = toInteger(draft.priority);
     if (min === undefined || min < 0) errors['min_runners'] = 'Use a whole number, zero or more.';
     if (max === undefined || max < 1) errors['max_runners'] = 'Use a whole number, one or more.';
     else if (min !== undefined && max < min)
       errors['max_runners'] = `The maximum must be at least the minimum, which is ${min}.`;
+    if (priority === undefined) errors['priority'] = 'Use a whole number.';
 
     if (parseGoDuration(draft.idle_timeout) === null)
       errors['idle_timeout'] = 'Use a Go duration such as 5m, 90s or 1h30m.';
@@ -202,42 +262,20 @@
       errors['docker_mode'] =
         'Confirm that you understand what mounting the host socket gives every job on this pool.';
 
+    const unrunnable = backendUnavailable(
+      draft.backend,
+      offers,
+      hostsKnown,
+      Object.keys(draft.host_selector).length > 0,
+    );
+    if (unrunnable) errors['backend'] = unrunnable;
+
     return errors;
-  }
-
-  /** What the fleet can actually run right now, counted from the connected hosts. */
-  export interface BackendOffer {
-    kind: BackendKind;
-    /** Hosts where this backend is available. */
-    hosts: number;
-    /** Hosts where Docker in Docker is possible. */
-    dindHosts: number;
-    /** The first host's explanation of why it is unavailable, when there is one. */
-    detail?: string;
-  }
-
-  export function backendOffers(hosts: readonly Host[]): BackendOffer[] {
-    const kinds: BackendKind[] = ['docker', 'podman', 'process'];
-    return kinds.map((kind) => {
-      let available = 0;
-      let dind = 0;
-      let detail: string | undefined;
-      for (const host of hosts) {
-        const info = (host.backend_info ?? []).find((entry) => entry.kind === kind);
-        const listed = info?.available === true || (host.backends ?? []).includes(kind);
-        if (listed) available += 1;
-        if (listed && info?.supports_dind === true) dind += 1;
-        if (!listed && detail === undefined && info?.detail) detail = info.detail;
-      }
-      const offer: BackendOffer = { kind, hosts: available, dindHosts: dind };
-      if (detail !== undefined) offer.detail = detail;
-      return offer;
-    });
   }
 </script>
 
 <!--
-  Pool creation and pool editing, in the same five steps.
+  Pool creation and pool editing, in the same six steps.
 
   The draft is one object held here, so going back never loses what was typed;
   the steps are presentation only. Client-side rules run continuously and gate
@@ -256,11 +294,15 @@
     validatePool,
   } from '$lib/api/client';
   import type { Body, Result } from '$lib/api/types';
+  import { BRAND_LABEL, brandedLabel, brandedName } from '$lib/brand';
+  import { poolName, spinWord } from './names';
   import { fleet } from '$lib/state/fleet.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
   import Wizard from '$lib/components/Wizard.svelte';
   import StepTarget from './StepTarget.svelte';
   import StepLabels from './StepLabels.svelte';
+  import StepHosts from './StepHosts.svelte';
+  import { hostMatchesSelector } from './HostSelectorEditor.svelte';
   import StepBackend from './StepBackend.svelte';
   import StepScaling from './StepScaling.svelte';
   import StepReview from './StepReview.svelte';
@@ -284,12 +326,33 @@
   let touched = $state<Record<string, boolean>>({});
   let serverErrors = $state<Record<string, string>>({});
   let socketConfirmed = $state(untrack(() => pool?.docker_mode === 'host-socket'));
+
+  /*
+    Auto-naming, on creation only.
+
+    `autoName` is the last name the wizard produced. While the field still
+    holds it the name is the wizard's to keep current -- so choosing Podman on
+    the backend step renames the pool -- and the moment an operator types over
+    it the wizard stops touching it, because a field that rewrites itself under
+    someone's cursor is worse than no help at all. Editing an existing pool
+    never generates anything: its name is already in workflows.
+
+    `autoLabel` plays the same part for the labels, with one more state:
+    `null`, meaning the operator has taken the labels over. Removing the
+    suggested chip has to stick, and without that third state an empty list
+    looks exactly like a list nothing has been put in yet.
+  */
+  let kennelWord = $state(spinWord());
+  let autoName = $state('');
+  let autoLabel = $state<string | null>('');
   let submitting = $state(false);
   let panel = $state<HTMLDivElement | null>(null);
 
   let installations = $state<Installation[]>([]);
   let installationsLoading = $state(true);
   let installationsError = $state<unknown>(null);
+  /** Bumped by the error state's retry, which re-runs the fetch below. */
+  let installationsAttempt = $state(0);
 
   let groups = $state<RunnerGroup[]>([]);
   let groupsLoading = $state(false);
@@ -300,9 +363,17 @@
   let validateError = $state<unknown>(null);
 
   const reviewStep = WIZARD_STEPS.length - 1;
-  const clientErrors = $derived(draftErrors(draft, socketConfirmed));
+  // The backend step counts over the hosts this pool is allowed to land on, not
+  // the whole fleet: "offered by 3 hosts" is a lie if two of them are the amd64
+  // boxes an arm64 pool will never touch. Placement is chosen first for exactly
+  // this reason.
+  const selectedHosts = $derived(
+    fleet.hosts.filter((host) => hostMatchesSelector(host, draft.host_selector)),
+  );
+  const restrictedToHosts = $derived(Object.keys(draft.host_selector).length > 0);
+  const offers = $derived(backendOffers(selectedHosts));
+  const clientErrors = $derived(draftErrors(draft, socketConfirmed, offers, fleet.loaded));
   const body = $derived(toPoolBody(draft));
-  const offers = $derived(backendOffers(fleet.hosts));
 
   /** Client rules show once a field has been left; server rules show at once. */
   const errors = $derived.by(() => {
@@ -350,6 +421,7 @@
   /* -- what the fleet and GitHub can offer --------------------------------- */
 
   $effect(() => {
+    void installationsAttempt;
     const controller = new AbortController();
     installationsLoading = true;
     installationsError = null;
@@ -398,6 +470,51 @@
     return () => controller.abort();
   });
 
+  /* -- the name, and the label it implies ---------------------------------- */
+
+  // The infrastructure half of the name follows the backend and the fleet, so
+  // a name generated before any host had connected does not go on claiming the
+  // pool is x64 after an arm64 host joins.
+  $effect(() => {
+    if (editing) return;
+    const suggested = poolName(kennelWord, draft.backend, fleet.hosts);
+    untrack(() => {
+      if (draft.name !== '' && draft.name !== autoName) return;
+      draft.name = suggested;
+      autoName = suggested;
+    });
+  });
+
+  $effect(() => {
+    if (editing) return;
+    const suggested = brandedLabel(draft.name);
+    untrack(() => {
+      if (autoLabel === null) return;
+      const pristine =
+        autoLabel === '' ? draft.labels.length === 0 : draft.labels.join() === autoLabel;
+      if (!pristine) {
+        autoLabel = null;
+        return;
+      }
+      // A name that reduces to the brand alone says nothing the server does not
+      // already add on save, so there is nothing worth filling in yet.
+      if (suggested === BRAND_LABEL) return;
+      if (draft.labels.join() === suggested) return;
+      draft.labels = [suggested];
+      autoLabel = suggested;
+    });
+  });
+
+  /** Roll a new name from the kennel, whatever is in the field now. */
+  function spin(): void {
+    if (editing) return;
+    kennelWord = spinWord(kennelWord);
+    const next = poolName(kennelWord, draft.backend, fleet.hosts);
+    draft.name = next;
+    autoName = next;
+    touch('name');
+  }
+
   /* -- the server's verdict, before anything is created --------------------- */
 
   $effect(() => {
@@ -406,7 +523,7 @@
     const controller = new AbortController();
     validating = true;
     const timer = setTimeout(() => {
-      validatePool(payload, controller.signal)
+      validatePool(payload, pool?.id, controller.signal)
         .then((result) => {
           verdict = result;
           validateError = null;
@@ -461,7 +578,7 @@
     }
     submitting = true;
     try {
-      const payload = toPoolBody(draft);
+      const payload = toPoolBody(draft, { complete: editing });
       const saved =
         pool && pool.id
           ? await updatePool(pool.id, payload as Body<'updatePool'>)
@@ -506,12 +623,16 @@
           {installations}
           loading={installationsLoading}
           error={installationsError}
+          onretry={() => (installationsAttempt += 1)}
           {groups}
           {groupsLoading}
           {groupsError}
+          onspin={editing ? undefined : spin}
         />
       {:else if step.id === 'labels'}
         <StepLabels {draft} {errors} {touch} />
+      {:else if step.id === 'hosts'}
+        <StepHosts {draft} {touch} hosts={fleet.hosts} hostsKnown={fleet.loaded} />
       {:else if step.id === 'backend'}
         <StepBackend
           {draft}
@@ -519,6 +640,7 @@
           {touch}
           {offers}
           hostsKnown={fleet.loaded}
+          restricted={restrictedToHosts}
           bind:socketConfirmed
         />
       {:else if step.id === 'scaling'}
@@ -558,12 +680,18 @@
     flex-direction: column;
     gap: var(--z-space-5);
   }
-  .step:focus {
+  /*
+    The step is focused programmatically when the wizard advances, so that a
+    screen reader lands on the new content. That is not a keyboard tab, so
+    :focus-visible is the right test: it draws no ring for the move the wizard
+    made, and still draws one if somebody tabs here themselves.
+  */
+  .step:focus:not(:focus-visible) {
     outline: none;
   }
   .blocking {
     padding: var(--z-space-3) var(--z-space-4);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface-sunken);
   }

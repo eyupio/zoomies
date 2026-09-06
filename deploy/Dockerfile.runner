@@ -8,18 +8,41 @@
 # is a runner, and what a job needs beyond it belongs in the job's own container
 # or setup steps. A smaller image means a faster cold start, which is the whole
 # point of ephemeral runners.
+#
+# Two targets come out of this file:
+#
+#   runner         the image above, published as ghcr.io/eyupio/zoomies-runner
+#   runner-docker  that plus the Docker CLI, published as
+#                  ghcr.io/eyupio/zoomies-runner-docker
+#
+# The second exists because a pool's docker_mode gives a job a *daemon* and
+# nothing else. Without a client on PATH, `docker/setup-qemu-action` and every
+# other step that shells out to docker dies with "Unable to locate executable
+# file: docker", which says nothing about the daemon being right there. The
+# split keeps that cost off the pools that never build an image.
+#
+# `runner` is the last stage on purpose, so that a plain `docker build -f
+# deploy/Dockerfile.runner .` still produces the small image; the variant is
+# built with --target runner-docker.
 
 ARG RUNNER_VERSION=2.337.0
+# The SHA-256 GitHub publishes for each release archive, from the release
+# notes; internal/backend/runner_digests.go carries the same values for the
+# process backend, and the runner-version workflow moves all of them together.
+ARG RUNNER_SHA256_X64=70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613
+ARG RUNNER_SHA256_ARM64=9b1dc70626422526e3c94767cf024896beb15da5342a3f4819bf2feac13e0393
 ARG BASE=ubuntu:24.04
 
-FROM ${BASE}
+FROM ${BASE} AS runner-base
 ARG RUNNER_VERSION
+ARG RUNNER_SHA256_X64
+ARG RUNNER_SHA256_ARM64
 ARG TARGETARCH
 
 LABEL org.opencontainers.image.title="zoomies-runner" \
       org.opencontainers.image.description="GitHub Actions runner image for Zoomies" \
       org.opencontainers.image.source="https://github.com/eyupio/zoomies" \
-      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
       io.zoomies.runner-version="${RUNNER_VERSION}"
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -46,18 +69,26 @@ RUN set -eux; \
     echo "runner ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/runner; \
     chmod 0440 /etc/sudoers.d/runner
 
+# The archive is checked against the digest GitHub published before it is
+# unpacked: this image runs whatever is inside it, on every job, and a mirror
+# or a proxy between the build and github.com is a place to substitute it.
+# The dependency script is allowed to fail the build, too. It used to be
+# silenced, which shipped an image that was missing a library the runner dies
+# without on the first job rather than failing here, where the log says why.
 WORKDIR /home/runner
 RUN set -eux; \
     case "${TARGETARCH}" in \
-      amd64) RUNNER_ARCH=x64 ;; \
-      arm64) RUNNER_ARCH=arm64 ;; \
+      amd64) RUNNER_ARCH=x64; RUNNER_SHA256="${RUNNER_SHA256_X64}" ;; \
+      arm64) RUNNER_ARCH=arm64; RUNNER_SHA256="${RUNNER_SHA256_ARM64}" ;; \
       *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     curl -fsSL -o runner.tar.gz \
       "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-${RUNNER_ARCH}-${RUNNER_VERSION}.tar.gz"; \
+    echo "${RUNNER_SHA256}  runner.tar.gz" | sha256sum -c -; \
     tar xzf runner.tar.gz; \
     rm runner.tar.gz; \
-    ./bin/installdependencies.sh || true; \
+    ./bin/installdependencies.sh; \
+    rm -rf /var/lib/apt/lists/*; \
     mkdir -p /home/runner/_work; \
     chown -R runner:runner /home/runner
 
@@ -66,3 +97,47 @@ COPY --chmod=0755 deploy/runner-entrypoint.sh /usr/local/bin/entrypoint.sh
 USER runner
 ENV RUNNER_ALLOW_RUNASROOT=0
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+
+
+# --- runner-docker ------------------------------------------------------------
+#
+# The Docker CLI, buildx and compose, for pools whose docker_mode is dind or
+# host-socket. Only the client: the daemon is the pool's business, and this
+# image never starts one.
+#
+# From Docker's own apt repository rather than Ubuntu's docker.io package,
+# because that one drags in the daemon, containerd and runc -- a few hundred MB
+# of software this image must never run.
+FROM runner-base AS runner-docker
+USER root
+
+LABEL org.opencontainers.image.title="zoomies-runner-docker" \
+      org.opencontainers.image.description="GitHub Actions runner image for Zoomies, with the Docker CLI"
+
+RUN set -eux; \
+    install -m 0755 -d /etc/apt/keyrings; \
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+      -o /etc/apt/keyrings/docker.asc; \
+    chmod a+r /etc/apt/keyrings/docker.asc; \
+    arch="$(dpkg --print-architecture)"; \
+    codename="$(. /etc/os-release && echo "${VERSION_CODENAME}")"; \
+    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu %s stable\n' \
+      "$arch" "$codename" > /etc/apt/sources.list.d/docker.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        docker-ce-cli docker-buildx-plugin docker-compose-plugin; \
+    rm -rf /var/lib/apt/lists/*
+# Prove the client landed somewhere the runner will actually find it: a plugin
+# installed but unreachable is the same failure as no client at all, and it is
+# far cheaper to catch here than in somebody's workflow.
+RUN set -eux; \
+    docker --version; \
+    docker buildx version
+USER runner
+
+
+# --- runner -------------------------------------------------------------------
+#
+# The default target, and the small one. Last in the file so that a bare build
+# with no --target produces it.
+FROM runner-base AS runner

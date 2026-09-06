@@ -18,7 +18,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"net/http"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -66,19 +69,32 @@ type Options struct {
 	Logger   *slog.Logger
 	// Clock is injectable so tests can freeze time.
 	Clock func() time.Time
+	// HTTPClient delivers capacity-demand events. Tests may inject a transport.
+	HTTPClient *http.Client
+	// LogLevel is the gate the process logger is filtered at, when the caller
+	// built one that can move. UpdateConfig sets it from log.level, so that a
+	// level changed through PATCH /settings or SIGHUP is the level the process
+	// actually logs at, not merely the one the settings page shows.
+	LogLevel *slog.LevelVar
 }
 
 // Controller owns the control plane's moving parts and their lifecycles.
 type Controller struct {
-	st       *store.Store
-	cfg      *config.Config
-	key      *cryptox.Key
-	authsvc  *auth.Service
-	bus      *events.Bus
-	factory  github.Factory
-	backends *backend.Registry
-	log      *slog.Logger
-	clock    func() time.Time
+	st *store.Store
+	// live is the configuration as this process currently sees it. It is a
+	// snapshot behind an atomic pointer rather than a struct shared by
+	// reference, because PATCH /settings changes it while every loop in here
+	// is reading it; see config.Live. Read it through cfg().
+	live       *config.Live
+	logLevel   *slog.LevelVar
+	key        *cryptox.Key
+	authsvc    *auth.Service
+	bus        *events.Bus
+	factory    github.Factory
+	backends   *backend.Registry
+	log        *slog.Logger
+	clock      func() time.Time
+	httpClient *http.Client
 
 	metrics *metrics
 	clients *clientCache
@@ -94,6 +110,13 @@ type Controller struct {
 	reconcileMu sync.Mutex
 	// passes counts completed reconciles; tests assert on coalescing with it.
 	passes atomic.Uint64
+	// polls counts completed poller sweeps, for the same reason.
+	polls atomic.Uint64
+	// settingsChanged wakes the loops whose timers are built from the
+	// configuration, so that a new interval is in force from the moment it is
+	// accepted rather than from the next restart. Capacity 1, like nudges: it
+	// is a flag, and the loop re-reads every tunable when it wakes.
+	settingsChanged chan struct{}
 
 	// pollingOnly records that no webhook has ever arrived, which the Overview
 	// says out loud because a fleet scaling on the poller looks healthy until
@@ -107,6 +130,9 @@ type Controller struct {
 	// can report the queued jobs no pool claimed without deciding again.
 	lastPlan   *scheduler.Plan
 	lastPlanAt time.Time
+	// blocked remembers the reason each pool could not place a runner, so that
+	// a fleet that cannot scale says so once rather than every tick.
+	blocked map[string]string
 	// hostHealthy remembers each host's last known health so that only a flip
 	// publishes an event.
 	hostHealthy map[string]bool
@@ -118,11 +144,43 @@ type Controller struct {
 	// with a context the controller does not otherwise control.
 	embeddedCancel context.CancelFunc
 
+	// derivedMu guards the last published form of the stats and problems
+	// payloads, which the reconcile loop and the housekeeping loop both
+	// compare against.
+	derivedMu    sync.Mutex
+	lastStats    []byte
+	lastProblems []byte
+
 	startMu sync.Mutex
 	started bool
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
+	// deliveries tracks capacity-demand requests in flight, which run apart
+	// from the reconcile pass that decided them; Stop waits for them, and so
+	// do the tests.
+	deliveries sync.WaitGroup
+
+	// loopRestartDelay is how long a loop that panicked waits before it is
+	// started again. It doubles on each further panic up to loopRestartMax,
+	// and a test sets it short.
+	loopRestartDelay time.Duration
+	// loopPanics is what the problems drawer reports about a loop that has
+	// crashed: how often, and what the last panic said.
+	loopPanics map[string]loopPanic
 }
+
+// loopPanic is the record of one background loop's crashes.
+type loopPanic struct {
+	Count int
+	Last  string
+	At    time.Time
+}
+
+// loopRestartMax caps the wait between restarts of a loop that keeps
+// panicking; a minute is long enough not to flood the log and short enough
+// that a bug which clears itself -- a bad row that was since pruned -- does
+// not leave scaling stopped for the rest of the day.
+const loopRestartMax = time.Minute
 
 // New validates the options and builds a controller that is not yet running.
 func New(opts Options) (*Controller, error) {
@@ -164,18 +222,25 @@ func New(opts Options) (*Controller, error) {
 	}
 
 	c := &Controller{
-		st:          opts.Store,
-		cfg:         opts.Config,
-		key:         opts.Key,
-		authsvc:     authsvc,
-		bus:         bus,
-		factory:     factory,
-		backends:    opts.Backends,
-		log:         log,
-		clock:       clock,
-		nudges:      make(chan struct{}, 1),
-		hostHealthy: map[string]bool{},
-		resynced:    map[string]bool{},
+		st:               opts.Store,
+		live:             config.NewLive(opts.Config),
+		logLevel:         opts.LogLevel,
+		key:              opts.Key,
+		authsvc:          authsvc,
+		bus:              bus,
+		factory:          factory,
+		backends:         opts.Backends,
+		log:              log,
+		clock:            clock,
+		httpClient:       opts.HTTPClient,
+		nudges:           make(chan struct{}, 1),
+		settingsChanged:  make(chan struct{}, 1),
+		hostHealthy:      map[string]bool{},
+		loopRestartDelay: time.Second,
+		resynced:         map[string]bool{},
+	}
+	if c.httpClient == nil {
+		c.httpClient = &http.Client{}
 	}
 	c.metrics = newMetrics(c)
 	c.clients = newClientCache(c)
@@ -203,7 +268,7 @@ func (c *Controller) Start(ctx context.Context) error {
 
 	// Knowing up front whether a webhook has ever arrived means the Overview
 	// can answer "are we event-driven?" without waiting for the first poll.
-	if last, err := c.st.LastDeliveryAt(ctx); err == nil {
+	if last, err := c.st.LastAcceptedDeliveryAt(ctx); err == nil {
 		c.pollingOnly.Store(last.IsZero())
 	}
 
@@ -216,30 +281,83 @@ func (c *Controller) Start(ctx context.Context) error {
 	c.spawn("poller", loopCtx, c.pollLoop)
 	c.spawn("installations", loopCtx, c.probeLoop)
 	c.spawn("background", loopCtx, c.backgroundLoop)
+	if seedRequested() {
+		c.spawn("demo-heartbeat", loopCtx, c.demoHeartbeatLoop)
+	}
 
 	c.log.Info("controller started",
 		"interval", c.schedulerInterval(),
-		"webhook_path", c.cfg.GitHub.WebhookPath,
-		"poll_fallback", c.cfg.GitHub.PollFallback,
+		"webhook_path", c.cfg().GitHub.WebhookPath,
+		"poll_fallback", c.cfg().GitHub.PollFallback,
 		"version", version.Short())
 	return nil
 }
 
 // spawn runs one named loop until its context is cancelled, tracking it so
 // Stop can wait for it.
+//
+// A panic in one loop must not take the whole controller with it, but a loop
+// that has stopped is not something the process can be allowed to be quiet
+// about either: a scheduler that died on one bad snapshot used to leave
+// /readyz answering 200 and every job queued for good. The loop is started
+// again after a wait that doubles with each crash, and the crash is on the
+// problems drawer until the process restarts.
 func (c *Controller) spawn(name string, ctx context.Context, fn func(context.Context)) {
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-		defer func() {
-			// A panic in one loop must not take the whole controller with it:
-			// the fleet keeps running, and the operator gets a stack.
-			if r := recover(); r != nil {
-				c.log.Error("controller loop panicked", "loop", name, "panic", r)
+		delay := c.loopRestartDelay
+		for {
+			value, stack := runGuarded(ctx, fn)
+			if value == nil || ctx.Err() != nil {
+				return
 			}
-		}()
-		fn(ctx)
+			c.notePanic(name, value)
+			c.log.Error("controller loop panicked; it will be restarted",
+				"loop", name, "panic", value, "restart_in", delay, "stack", stack)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(delay):
+			}
+			delay = min(2*delay, loopRestartMax)
+		}
 	}()
+}
+
+// runGuarded runs fn and reports the value it panicked with, or nil when it
+// returned. The stack is captured at the panic, which is the only place it is
+// still there to capture.
+func runGuarded(ctx context.Context, fn func(context.Context)) (value any, stack string) {
+	defer func() {
+		if r := recover(); r != nil {
+			value, stack = r, string(debug.Stack())
+		}
+	}()
+	fn(ctx)
+	return nil, ""
+}
+
+// notePanic records a loop's crash for the problems drawer.
+func (c *Controller) notePanic(name string, value any) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.loopPanics == nil {
+		c.loopPanics = map[string]loopPanic{}
+	}
+	p := c.loopPanics[name]
+	p.Count++
+	p.Last = fmt.Sprint(value)
+	p.At = c.Now()
+	c.loopPanics[name] = p
+}
+
+// LoopPanics returns the crashes recorded against each background loop since
+// the process started, for the problems drawer.
+func (c *Controller) LoopPanics() map[string]loopPanic {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return maps.Clone(c.loopPanics)
 }
 
 // Stop shuts the loops down gracefully and flushes what is worth keeping.
@@ -265,6 +383,10 @@ func (c *Controller) Stop(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() {
 		c.wg.Wait()
+		// A capacity-demand request decided in the last pass finishes on its
+		// own bounded context; letting the process exit under it would lose
+		// the record of how it went.
+		c.deliveries.Wait()
 		close(done)
 	}()
 	select {
@@ -286,8 +408,38 @@ func (c *Controller) Stop(ctx context.Context) error {
 // Store returns the database handle the API reads through.
 func (c *Controller) Store() *store.Store { return c.st }
 
-// Config returns the configuration this controller was built with.
-func (c *Controller) Config() *config.Config { return c.cfg }
+// Config returns the configuration as it currently stands: what the controller
+// was built with, as changed since by UpdateConfig. It is a snapshot and must
+// not be written through; the next UpdateConfig would silently discard the
+// write, and until then every loop would be reading it unsynchronised.
+func (c *Controller) Config() *config.Config { return c.live.Load() }
+
+// cfg is Config for the controller's own code, kept short because it is read
+// on every pass.
+func (c *Controller) cfg() *config.Config { return c.live.Load() }
+
+// UpdateConfig changes the running configuration.
+//
+// fn is applied to a copy of the current snapshot, which then replaces it, so
+// a loop in the middle of a pass finishes on the values it started with and
+// the next pass sees the new ones. Anything built once from the configuration
+// -- the log level's gate, the scheduler's and poller's timers -- is retuned
+// here, which is what lets PATCH /settings promise that an accepted change is
+// in effect and not merely recorded.
+func (c *Controller) UpdateConfig(fn func(*config.Config)) *config.Config {
+	before, after := c.live.Update(fn)
+	if c.logLevel != nil && before.Log.Level != after.Log.Level {
+		c.logLevel.Set(config.ParseLogLevel(after.Log.Level))
+	}
+	select {
+	case c.settingsChanged <- struct{}{}:
+	default:
+	}
+	// The scheduler tunables change what the next pass decides, and a new
+	// interval takes effect once a pass has run and reset the timer.
+	c.Nudge()
+	return after
+}
 
 // Auth returns the authentication and audit service.
 func (c *Controller) Auth() *auth.Service { return c.authsvc }
@@ -320,7 +472,7 @@ func (c *Controller) PollingOnly() bool { return c.pollingOnly.Load() }
 // schedulerInterval is the reconcile period, with a floor so that a
 // misconfigured zero does not spin the loop.
 func (c *Controller) schedulerInterval() time.Duration {
-	if d := c.cfg.Scheduler.Interval; d > 0 {
+	if d := c.cfg().Scheduler.Interval; d > 0 {
 		return d
 	}
 	return 10 * time.Second
@@ -329,10 +481,10 @@ func (c *Controller) schedulerInterval() time.Duration {
 // policy converts the configured tunables into the scheduler's Policy.
 func (c *Controller) policy() scheduler.Policy {
 	return scheduler.Policy{
-		ScaleUpDelay:      c.cfg.Scheduler.ScaleUpDelay,
-		MaxRunnerLifetime: c.cfg.Scheduler.MaxRunnerLifetime,
-		ProvisionTimeout:  c.cfg.Scheduler.ProvisionTimeout,
-		MaxCreatesPerTick: c.cfg.Scheduler.MaxCreatesPerTick,
+		ScaleUpDelay:      c.cfg().Scheduler.ScaleUpDelay,
+		MaxRunnerLifetime: c.cfg().Scheduler.MaxRunnerLifetime,
+		ProvisionTimeout:  c.cfg().Scheduler.ProvisionTimeout,
+		MaxCreatesPerTick: c.cfg().Scheduler.MaxCreatesPerTick,
 	}
 }
 
@@ -345,20 +497,150 @@ func (c *Controller) publish(kind events.Kind, topic string, payload any) {
 }
 
 // publishRunner announces a runner change so the Runners page updates live.
-func (c *Controller) publishRunner(kind events.Kind, r *store.Runner) {
-	if r == nil {
+//
+// The frame carries the same JSON as GET /runners/{id}, not the store row: the
+// UI drops it straight into its cache, and a row without the pool and host
+// names would blank those columns until the next full fetch.
+func (c *Controller) publishRunner(ctx context.Context, kind events.Kind, r *store.Runner) {
+	if r == nil || c.bus == nil {
 		return
 	}
-	c.publish(kind, "runner:"+r.ID, r)
+	c.publish(kind, "runner:"+r.ID, c.runnerView(ctx, r))
 }
 
 // publishHost announces a host change, which is how the Hosts page shows an
-// agent going quiet without the operator refreshing.
+// agent going quiet without the operator refreshing. The frame is the API's
+// host shape, with `healthy` worked out, because that is the field the event
+// exists to change.
 func (c *Controller) publishHost(h *store.Host) {
-	if h == nil {
+	if h == nil || c.bus == nil {
 		return
 	}
-	c.publish(events.KindHostUpdated, "host:"+h.ID, h)
+	c.publish(events.KindHostUpdated, "host:"+h.ID, c.HostView(h))
+}
+
+// publishJob announces a job change in the shape GET /jobs/{id} returns.
+func (c *Controller) publishJob(ctx context.Context, j *store.Job) {
+	if j == nil || c.bus == nil {
+		return
+	}
+	c.publish(events.KindJobUpdated, "job:"+j.ID, c.jobView(ctx, j))
+}
+
+// publishInstallation announces an installation change in the shape
+// GET /installations/{id} returns.
+func (c *Controller) publishInstallation(ctx context.Context, inst *store.Installation) {
+	if inst == nil || c.bus == nil {
+		return
+	}
+	c.publish(events.KindInstallation, "installation:"+inst.ID, c.installationView(ctx, inst))
+}
+
+// PublishPool announces a pool an operator created or changed, in the shape
+// GET /pools/{id} returns. The API calls it after its own write: the operator
+// who made the change is looking at the response, but every other open
+// dashboard learns about it from here.
+func (c *Controller) PublishPool(ctx context.Context, kind events.Kind, p *store.Pool) {
+	if p == nil || c.bus == nil {
+		return
+	}
+	view, err := c.PoolRenderer(ctx)
+	if err != nil {
+		c.log.Warn("could not render a pool for the event stream", "pool", p.ID, "error", err)
+		return
+	}
+	c.publish(kind, "pool:"+p.ID, view.View(p))
+}
+
+// PublishPoolDeleted announces that a pool is gone.
+func (c *Controller) PublishPoolDeleted(id string) {
+	c.publish(events.KindPoolDeleted, "pool:"+id, deletedPayload{ID: id})
+}
+
+// publishRunnerDeleted announces that a runner row is gone. A runner that was
+// removed already left the page on its runner.updated frame; this is for the
+// rows that vanish without one -- pruned, or cascaded away with their pool,
+// host or installation -- which the Runners page otherwise kept until a reload.
+func (c *Controller) publishRunnerDeleted(id string) {
+	c.publish(events.KindRunnerDeleted, "runner:"+id, deletedPayload{ID: id})
+}
+
+// DeletePool removes a pool and announces everything that went with it: each
+// runner row, then the pool. The runners go first so a page that drops them
+// has nothing left to explain when the pool disappears.
+func (c *Controller) DeletePool(ctx context.Context, id string) error {
+	runners, err := c.st.DeletePool(ctx, id)
+	if err != nil {
+		return err
+	}
+	for _, r := range runners {
+		c.publishRunnerDeleted(r)
+	}
+	c.PublishPoolDeleted(id)
+	return nil
+}
+
+// DeleteHost removes a host and announces its runner rows and then the host.
+func (c *Controller) DeleteHost(ctx context.Context, id string) error {
+	runners, err := c.st.DeleteHost(ctx, id)
+	if err != nil {
+		return err
+	}
+	for _, r := range runners {
+		c.publishRunnerDeleted(r)
+	}
+	c.PublishHostDeleted(id)
+	return nil
+}
+
+// DeleteInstallation removes an installation with its pools and their runner
+// rows, forgets its GitHub client, and announces each thing that went in the
+// order a page wants them: runners, pools, then the installation.
+func (c *Controller) DeleteInstallation(ctx context.Context, id string) error {
+	pools, err := c.st.ListPools(ctx)
+	if err != nil {
+		return fmt.Errorf("listing the installation's pools: %w", err)
+	}
+	runners, err := c.st.DeleteInstallation(ctx, id)
+	if err != nil {
+		return err
+	}
+	c.Forget(id)
+	for _, r := range runners {
+		c.publishRunnerDeleted(r)
+	}
+	for _, p := range pools {
+		if p.InstallationID == id {
+			c.PublishPoolDeleted(p.ID)
+		}
+	}
+	c.PublishInstallationDeleted(id)
+	return nil
+}
+
+// PublishHost announces a host an operator changed: its capacity, its labels,
+// or whether it is cordoned.
+func (c *Controller) PublishHost(h *store.Host) { c.publishHost(h) }
+
+// PublishHostDeleted announces that a host is gone.
+func (c *Controller) PublishHostDeleted(id string) {
+	c.publish(events.KindHostDeleted, "host:"+id, deletedPayload{ID: id})
+}
+
+// PublishInstallation announces an installation an operator added or edited.
+func (c *Controller) PublishInstallation(ctx context.Context, inst *store.Installation) {
+	c.publishInstallation(ctx, inst)
+}
+
+// PublishInstallationDeleted announces that an installation is gone.
+func (c *Controller) PublishInstallationDeleted(id string) {
+	c.publish(events.KindInstallationDeleted, "installation:"+id, deletedPayload{ID: id})
+}
+
+// deletedPayload is what every *.deleted frame carries: the id, and nothing
+// else, because the resource no longer exists to render.
+type deletedPayload struct {
+	ID string `json:"id"`
 }
 
 // setLastPlan records the most recent decision for Problems to report on.
@@ -367,6 +649,34 @@ func (c *Controller) setLastPlan(p scheduler.Plan) {
 	defer c.mu.Unlock()
 	c.lastPlan = &p
 	c.lastPlanAt = c.Now()
+}
+
+// noteBlocked logs a pool that wanted runners and could not place any, and the
+// moment it recovers. Both are logged once per change: the reconcile loop runs
+// every few seconds, and a fleet that is one host short would otherwise fill
+// the log with the same sentence until somebody noticed it.
+func (c *Controller) noteBlocked(pp scheduler.PoolPlan) {
+	c.mu.Lock()
+	if c.blocked == nil {
+		c.blocked = map[string]string{}
+	}
+	was, had := c.blocked[pp.PoolID]
+	switch {
+	case pp.Blocked == "":
+		delete(c.blocked, pp.PoolID)
+	default:
+		c.blocked[pp.PoolID] = pp.Blocked
+	}
+	c.mu.Unlock()
+
+	switch {
+	case pp.Blocked != "" && pp.Blocked != was:
+		c.log.Warn("a pool cannot place the runners it wants",
+			"pool", pp.PoolName, "current", pp.Current, "desired", pp.Desired,
+			"queued", pp.QueuedMatched, "reason", pp.Blocked, "fix", pp.BlockedFix)
+	case pp.Blocked == "" && had:
+		c.log.Info("a pool can place runners again", "pool", pp.PoolName)
+	}
 }
 
 func (c *Controller) getLastPlan() (*scheduler.Plan, time.Time) {

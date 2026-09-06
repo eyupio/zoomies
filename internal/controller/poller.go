@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
@@ -24,7 +23,7 @@ const rateLimitBackoff = 15 * time.Minute
 // otherwise stop scaling silently, and a fleet that has quietly stopped
 // scaling looks exactly like a quiet fleet.
 func (c *Controller) pollLoop(ctx context.Context) {
-	if !c.cfg.GitHub.PollFallback {
+	if !c.cfg().GitHub.PollFallback {
 		c.log.Info("the fallback poller is off; scaling depends entirely on webhooks reaching this controller")
 		return
 	}
@@ -37,12 +36,21 @@ func (c *Controller) pollLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			c.pollOnce(ctx)
+			c.polls.Add(1)
+		case <-c.settingsChanged:
+			// github.poll_interval is a runtime setting. The timer was built
+			// from the old value, so it is rebuilt here rather than left to
+			// fire once more on the old interval.
+		}
+		if d := c.pollInterval(); d != interval {
+			interval = d
+			ticker.Reset(d)
 		}
 	}
 }
 
 func (c *Controller) pollInterval() time.Duration {
-	if d := c.cfg.GitHub.PollInterval; d > 0 {
+	if d := c.cfg().GitHub.PollInterval; d > 0 {
 		return d
 	}
 	return 30 * time.Second
@@ -61,7 +69,10 @@ func (c *Controller) pollOnce(ctx context.Context) {
 		return
 	}
 
-	last, err := c.st.LastDeliveryAt(ctx)
+	// Accepted deliveries only: one that was rejected recorded a job for
+	// nobody, and a run of them is the mistyped-secret case this poller is
+	// the safety net for.
+	last, err := c.st.LastAcceptedDeliveryAt(ctx)
 	if err != nil {
 		c.log.Error("could not tell when the last webhook arrived", "error", err)
 		return
@@ -154,15 +165,16 @@ func (c *Controller) ingestQueuedJobs(ctx context.Context, jobs []github.QueuedJ
 			job.PoolID = p.ID
 			job.Matched = true
 		}
-		saved, err := c.st.UpsertJob(ctx, job)
+		saved, change, err := c.st.ApplyJob(ctx, job)
 		if err != nil {
 			c.log.Warn("could not record a polled job", "github_job_id", q.ID, "error", err)
 			continue
 		}
+		c.recordJobChange(ctx, saved, change, sourcePoller, nil)
 		if saved.State == store.JobQueued {
 			changed++
 		}
-		c.publish(events.KindJobUpdated, "job:"+saved.ID, saved)
+		c.publishJob(ctx, saved)
 	}
 	return changed, nil
 }

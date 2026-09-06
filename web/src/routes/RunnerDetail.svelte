@@ -31,7 +31,7 @@
   import RunnerConfirm from '$lib/runners/RunnerConfirm.svelte';
   import RunnerFacts from '$lib/runners/RunnerFacts.svelte';
   import RunnerJob from '$lib/runners/RunnerJob.svelte';
-  import RunnerPanel from '$lib/runners/RunnerPanel.svelte';
+  import Panel from '$lib/components/Panel.svelte';
   import RunnerResources from '$lib/runners/RunnerResources.svelte';
   import RunnerTimeline from '$lib/runners/RunnerTimeline.svelte';
 
@@ -239,33 +239,33 @@
 {:else if runner}
   <div class="layout">
     <div class="column">
-      <RunnerPanel
+      <Panel
         title="Current job"
         description="What this runner is working on right now, and the run it belongs to."
       >
         <RunnerJob job={runner.current_job} idle={liveState === 'idle' || liveState === 'busy'} />
-      </RunnerPanel>
+      </Panel>
 
-      <RunnerPanel
+      <Panel
         title="Timeline"
         description="How long it spent in each state. This is a summary of the runner's life rather than an audit trail: a runner that went idle, busy and idle again shows only the most recent of those."
       >
         <RunnerTimeline entries={timeline} {running} />
-      </RunnerPanel>
+      </Panel>
     </div>
 
     <div class="column">
-      <RunnerPanel title="Details">
+      <Panel title="Details">
         <RunnerFacts {runner} />
-      </RunnerPanel>
+      </Panel>
 
-      <RunnerPanel title="Resource usage" description="As the host's agent last reported it.">
+      <Panel title="Resource usage" description="As the host's agent last reported it.">
         <RunnerResources
           cpuPercent={runner.cpu_percent}
           memoryBytes={runner.memory_bytes}
           limits={runner.pool?.resources}
         />
-      </RunnerPanel>
+      </Panel>
     </div>
   </div>
 
@@ -320,7 +320,7 @@
     gap: var(--z-space-2);
     margin: 0 0 var(--z-space-4);
     padding: var(--z-space-3) var(--z-space-4);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     font-size: var(--z-text-base);
     line-height: var(--z-leading-base);
@@ -375,7 +375,7 @@
     min-width: 0;
   }
   .unavailable {
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }

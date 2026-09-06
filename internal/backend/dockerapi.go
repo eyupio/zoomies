@@ -177,7 +177,9 @@ func (c *APIClient) unavailable(err error) error {
 	case errors.Is(err, syscall.ENOENT):
 		return fmt.Errorf("%w: no socket at %s; the daemon is not running or is listening elsewhere -- start it (systemctl --user start docker, or systemctl start docker) or set agent.docker_host: %w", ErrUnavailable, where, err)
 	case errors.Is(err, syscall.EACCES), errors.Is(err, syscall.EPERM):
-		return fmt.Errorf("%w: permission denied on %s; add your user to the docker group (sudo usermod -aG docker $USER, then log in again) or run a rootless daemon and point agent.docker_host at /run/user/$(id -u)/docker.sock: %w", ErrUnavailable, where, err)
+		// deniedDetail names this agent's own account and the group that owns
+		// the socket, which is what makes the usermod line copyable.
+		return fmt.Errorf("%w: %s: %w", ErrUnavailable, deniedDetail(realIdentity(), strings.TrimPrefix(where, "unix://")), err)
 	case errors.Is(err, syscall.ECONNREFUSED):
 		return fmt.Errorf("%w: nothing is listening on %s; the socket exists but the daemon is down -- start it with systemctl --user start docker (rootless) or systemctl start docker: %w", ErrUnavailable, where, err)
 	default:
@@ -443,30 +445,6 @@ type StatsSample struct {
 	MemoryLimit int64
 }
 
-// ImageInfo is the part of an image inspection Zoomies has a use for: enough to
-// say whether the image a moving tag points at is still the one this host
-// pulled. Everything else the daemon reports about an image is irrelevant here.
-type ImageInfo struct {
-	// ID is the local content digest of the image configuration. It changes
-	// whenever the tag is repointed at a different build, which makes it the
-	// cheap "did this move?" signal even for a registry that was never asked.
-	ID string `json:"Id"`
-	// RepoDigests carry the registry manifest digests the image was pulled
-	// under. A locally built image has none, which is why ID is the fallback.
-	RepoDigests []string `json:"RepoDigests"`
-}
-
-// Digest identifies an image in the most specific way this host can. The
-// registry manifest digest is preferred, because it is the same string the
-// registry and every other host would use for the same image; the local
-// configuration ID is the fallback for an image that was never pulled.
-func (i ImageInfo) Digest() string {
-	if len(i.RepoDigests) > 0 && i.RepoDigests[0] != "" {
-		return i.RepoDigests[0]
-	}
-	return i.ID
-}
-
 // ---------------------------------------------------------------------------
 // Calls
 // ---------------------------------------------------------------------------
@@ -540,25 +518,41 @@ func (c *APIClient) ImagePull(ctx context.Context, ref, auth string) error {
 
 // ImageInspect reports whether an image is present locally.
 func (c *APIClient) ImageInspect(ctx context.Context, ref string) (bool, error) {
-	_, present, err := c.ImageIdentity(ctx, ref)
-	return present, err
-}
-
-// ImageIdentity reports which image a reference currently resolves to on this
-// host, so a caller can tell whether a pull moved a tag. An absent image is not
-// an error -- the boolean says whether it was there at all -- because "not here
-// yet" is the normal state before the first pull.
-func (c *APIClient) ImageIdentity(ctx context.Context, ref string) (ImageInfo, bool, error) {
-	var out ImageInfo
-	err := c.do(ctx, http.MethodGet, "/images/"+ref+"/json", nil, nil, &out)
+	err := c.do(ctx, http.MethodGet, "/images/"+ref+"/json", nil, nil, nil)
 	switch {
 	case err == nil:
-		return out, true, nil
+		return true, nil
 	case errors.Is(err, ErrNotFound):
-		return ImageInfo{}, false, nil
+		return false, nil
 	default:
-		return ImageInfo{}, false, err
+		return false, err
 	}
+}
+
+// ImageIdentity resolves ref to the two immutable names an image has: the
+// reference to create containers from, and the digest to record.
+//
+// For a pulled image the registry's manifest digest is what the UI shows and
+// what "the same image as yesterday" means, but it is not a name the daemon
+// resolves on its own: classic Docker looks a bare sha256: up as an image ID,
+// which is the config digest, and answers "No such image". The repository
+// digest reference -- name@sha256:manifest -- is resolvable everywhere, and is
+// what containers are created from. An image the daemon built locally has no
+// repository digest, and its ID serves as both.
+func (c *APIClient) ImageIdentity(ctx context.Context, ref string) (createRef, digest string, err error) {
+	var out struct {
+		ID          string   `json:"Id"`
+		RepoDigests []string `json:"RepoDigests"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/images/"+ref+"/json", nil, nil, &out); err != nil {
+		return "", "", err
+	}
+	if len(out.RepoDigests) > 0 {
+		if i := strings.LastIndex(out.RepoDigests[0], "@"); i >= 0 {
+			return out.RepoDigests[0], out.RepoDigests[0][i+1:], nil
+		}
+	}
+	return out.ID, out.ID, nil
 }
 
 // ContainerCreate creates a container and returns its ID.
@@ -698,12 +692,14 @@ func (c *APIClient) ContainerLogs(ctx context.Context, id string, opts LogQuery)
 	if err != nil {
 		return nil, err
 	}
-	// Since API 1.42 the daemon states the framing outright; trust it over the
-	// inspect when it does.
-	switch resp.Header.Get("Content-Type") {
-	case "application/vnd.docker.raw-stream":
-		tty = true
-	case "application/vnd.docker.multiplexed-stream":
+	// Since API 1.42 the daemon distinguishes the two framings by content type,
+	// but only one of the values is worth anything. "multiplexed-stream" is
+	// only ever sent for a framed stream, so it can override the inspect.
+	// "raw-stream" cannot: it is what every daemon before 1.42 sends for both
+	// framings, and what Podman's compatibility endpoint sends for a framed
+	// stream today -- believing it left Docker's 8-byte frame headers in the
+	// middle of every line of a downloaded runner log.
+	if resp.Header.Get("Content-Type") == "application/vnd.docker.multiplexed-stream" {
 		tty = false
 	}
 	if tty {

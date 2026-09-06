@@ -1,0 +1,19 @@
+// The first-run fixture: authentication on, an empty database, no external URL.
+//
+// The monitoring harness (serve.mjs) runs with authentication off and a seeded
+// demo fleet, which is exactly right for the monitoring pages and exactly wrong
+// for the first-run ones: `session.boot()` short-circuits to `ready` on an
+// auth-disabled instance, so the bootstrap card and the sign-in card are
+// unreachable, and a seeded fleet is never an unconfigured one. Every defect
+// the first-run review found lived in that blind spot.
+//
+// This is the state a fresh `docker compose up` actually produces.
+
+import { serveController } from './controller.mjs';
+
+serveController({
+  port: process.argv[2] ?? '8098',
+  prefix: 'zoomies-firstrun-',
+  // Authentication stays ON: it is the whole point of this fixture.
+  env: {},
+});

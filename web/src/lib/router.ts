@@ -66,12 +66,25 @@ export const ROUTES: readonly RouteDef[] = [
     load: () => import('../routes/RunnerDetail.svelte'),
   },
   { name: 'jobs', path: '/jobs', title: 'Jobs', load: () => import('../routes/Jobs.svelte') },
+  { name: 'usage', path: '/usage', title: 'Usage', load: () => import('../routes/Usage.svelte') },
   { name: 'hosts', path: '/hosts', title: 'Hosts', load: () => import('../routes/Hosts.svelte') },
+  {
+    name: 'host-new',
+    path: '/hosts/new',
+    title: 'Add a host',
+    load: () => import('../routes/AddHost.svelte'),
+  },
   {
     name: 'installations',
     path: '/installations',
     title: 'Installations',
     load: () => import('../routes/Installations.svelte'),
+  },
+  {
+    name: 'migrate',
+    path: '/migrate',
+    title: 'Migrate repositories',
+    load: () => import('../routes/Migrate.svelte'),
   },
   { name: 'audit', path: '/audit', title: 'Audit', load: () => import('../routes/Audit.svelte') },
   {
@@ -79,6 +92,15 @@ export const ROUTES: readonly RouteDef[] = [
     path: '/settings',
     title: 'Settings',
     load: () => import('../routes/Settings.svelte'),
+  },
+  {
+    // GitHub's return address, named in every App manifest this controller
+    // builds. It hands what GitHub sent to the Installations page; it is not
+    // somewhere anybody navigates to on purpose.
+    name: 'github-setup',
+    path: '/settings/github/setup',
+    title: 'Connecting GitHub',
+    load: () => import('../routes/GithubSetup.svelte'),
   },
   {
     name: 'login',
@@ -97,6 +119,20 @@ const NOT_FOUND: RouteDef = {
 
 /* -- matching -------------------------------------------------------------- */
 
+/**
+ * A path segment as typed, or as it was if it is not valid percent-encoding.
+ * decodeURIComponent throws on a stray `%`, and a throw here would leave the
+ * app on its loading skeleton for good; an id that does not decode simply
+ * matches nothing, and the page says so.
+ */
+function decodeSegment(v: string): string {
+  try {
+    return decodeURIComponent(v);
+  } catch {
+    return v;
+  }
+}
+
 function match(pathname: string): { route: RouteDef; params: Record<string, string> } {
   const parts = pathname.replace(/\/+$/, '').split('/').filter(Boolean);
   for (const route of ROUTES) {
@@ -107,7 +143,7 @@ function match(pathname: string): { route: RouteDef; params: Record<string, stri
     for (let i = 0; i < pattern.length; i++) {
       const p = pattern[i] ?? '';
       const v = parts[i] ?? '';
-      if (p.startsWith(':')) params[p.slice(1)] = decodeURIComponent(v);
+      if (p.startsWith(':')) params[p.slice(1)] = decodeSegment(v);
       else if (p !== v) {
         ok = false;
         break;
@@ -140,6 +176,17 @@ let navigationToken = 0;
 /** Bumped on every completed navigation, so pages can key off a fresh mount. */
 let navigationCount = 0;
 
+/**
+ * Route components already fetched, so a revisit is synchronous.
+ *
+ * A dynamic import of a module the browser has already parsed still resolves on
+ * a later microtask, so returning to a page visited a moment ago cleared the
+ * component and set `loading` for one frame -- long enough to paint the
+ * skeleton and replace it again. Between two pages an operator is flipping
+ * between, that is a flicker on every keystroke of `g j`, `g r`, `g j`.
+ */
+const loaded = new Map<RouteDef, Component<Record<string, never>>>();
+
 function changed(): void {
   invalidate?.();
 }
@@ -155,8 +202,9 @@ async function apply(): Promise<void> {
   currentTitle = found.route.title;
   loadError = null;
 
-  if (found.route.component) {
-    currentComponent = found.route.component;
+  const ready = found.route.component ?? loaded.get(found.route);
+  if (ready) {
+    currentComponent = ready;
     loading = false;
   } else if (!sameRoute || currentComponent === null) {
     loading = true;
@@ -166,6 +214,7 @@ async function apply(): Promise<void> {
       const module = await found.route.load?.();
       if (token !== navigationToken) return;
       currentComponent = module?.default ?? null;
+      if (currentComponent) loaded.set(found.route, currentComponent);
     } catch (cause) {
       if (token !== navigationToken) return;
       loadError =
@@ -178,7 +227,24 @@ async function apply(): Promise<void> {
 
   navigationCount += 1;
   document.title = currentTitle === 'Overview' ? 'Zoomies' : `${currentTitle} · Zoomies`;
+  setCanonical();
   changed();
+}
+
+/**
+ * Point the page's canonical address at the route being shown.
+ *
+ * Every route is served the same HTML by the Go binary, so without this the
+ * whole app claims to be the root. The query string is deliberately dropped:
+ * grids keep their filters and paging there, and `/runners?state=busy&page=3`
+ * is the runners page, not a page of its own.
+ */
+function setCanonical(): void {
+  const href = location.origin + location.pathname;
+  const link = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+  if (link) link.href = href;
+  const og = document.querySelector<HTMLMetaElement>('meta[property="og:url"]');
+  if (og) og.content = href;
 }
 
 /* -- link interception ------------------------------------------------------ */
