@@ -16,7 +16,7 @@
 -->
 <script lang="ts">
   import { getJobFacets, listJobs } from '$lib/api/client';
-  import type { Job, JobState } from '$lib/api/types';
+  import { JOB_STATES, type Job, type JobState } from '$lib/api/types';
   import { events } from '$lib/api/sse';
   import { formatDuration } from '$lib/format';
   import { router } from '$lib/router';
@@ -50,7 +50,12 @@
     pool_id: router.paramList('pool_id'),
     label: router.paramList('label'),
     conclusion: router.paramList('conclusion'),
-    state: router.paramList('state') as JobState[],
+    // Validated rather than asserted: `?state=` is whatever was in the address
+    // bar, and a cast sends the typo straight to the server as a filter that
+    // matches nothing, so the page comes back empty with no explanation.
+    state: router
+      .paramList('state')
+      .filter((value): value is JobState => (JOB_STATES as readonly string[]).includes(value)),
     since: router.param('since'),
     until: router.param('until'),
     unmatched: router.param('unmatched') === 'true',

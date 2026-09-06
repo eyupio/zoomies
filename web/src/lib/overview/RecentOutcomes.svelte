@@ -28,7 +28,7 @@
   import Skeleton from '$lib/components/Skeleton.svelte';
   import StatusDot from '$lib/components/StatusDot.svelte';
   import Switch from '$lib/components/Switch.svelte';
-  import Panel from './Panel.svelte';
+  import Panel from '$lib/components/Panel.svelte';
 
   interface Props {
     class?: string;

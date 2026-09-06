@@ -37,6 +37,7 @@
   import RadioGroup from '$lib/components/RadioGroup.svelte';
   import Tabs from '$lib/components/Tabs.svelte';
   import Textarea from '$lib/components/Textarea.svelte';
+  import { isLoopbackURL } from '$lib/addresses';
 
   interface Props {
     open?: boolean;
@@ -480,15 +481,7 @@
    * it for ever, and the symptom weeks later is "scaling is slow". The terminal
    * installer refuses this; so does this.
    */
-  const localExternal = $derived.by(() => {
-    if (!externalURL) return false;
-    try {
-      const host = new URL(externalURL).hostname;
-      return host === 'localhost' || host === '127.0.0.1' || host === '::1';
-    } catch {
-      return false;
-    }
-  });
+  const localExternal = $derived(externalURL !== '' && isLoopbackURL(externalURL));
   const notReachable = $derived(externalURL === '' || localExternal);
 
   const targetError = $derived(

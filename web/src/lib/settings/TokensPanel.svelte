@@ -11,6 +11,7 @@
   import { ApiError, createToken, listTokens, revokeToken } from '$lib/api/client';
   import type { APIToken, Role } from '$lib/api/types';
   import { toasts } from '$lib/state/toasts.svelte';
+  import { ROLE_OPTIONS, roleLabel } from '$lib/roles';
   import { apiTokenStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
@@ -27,16 +28,6 @@
   import OneTimeSecret from './OneTimeSecret.svelte';
 
   type Minted = APIToken & { token?: string };
-
-  const ROLE_OPTIONS = [
-    { value: 'viewer', label: 'Viewer', description: 'Reads everything except secrets.' },
-    { value: 'operator', label: 'Operator', description: 'Acts on the fleet and manages pools.' },
-    {
-      value: 'admin',
-      label: 'Administrator',
-      description: 'Everything, including accounts and settings. Give this out sparingly.',
-    },
-  ];
 
   const EXPIRY_OPTIONS = [
     { value: '720h', label: '30 days' },
@@ -185,7 +176,7 @@
             <tr class:revoked={token.revoked}>
               <td class="name">{token.name}</td>
               <td class="mono">{token.prefix ?? '--'}</td>
-              <td>{ROLE_OPTIONS.find((r) => r.value === token.role)?.label ?? token.role}</td>
+              <td>{roleLabel(token.role)}</td>
               <td class="scopes mono">
                 {#if (token.scopes ?? []).length === 0}
                   <span class="muted">Whatever the role allows</span>

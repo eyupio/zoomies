@@ -298,7 +298,11 @@
   });
 
   $effect(() => {
-    // Reading `results` keeps the highlight inside the list as it narrows.
+    // Reading `results` keeps the highlight inside the list as it narrows --
+    // but only while the palette is on screen. Unguarded, this effect read the
+    // whole command list on every fleet change, and the list is derived from
+    // every pool, host and route in the product.
+    if (!open) return;
     if (active >= results.length) active = Math.max(0, results.length - 1);
   });
 
@@ -352,13 +356,13 @@
 
 {#if open}
   <div class="backdrop">
-    <button
-      type="button"
-      class="scrim"
-      tabindex="-1"
-      aria-hidden="true"
-      onclick={() => (open = false)}
-    ></button>
+    <!--
+      A plain element, as in Dialog: a <button> that is aria-hidden is a
+      focusable thing the accessibility tree has been told does not exist, and
+      the keyboard already has two ways out -- Escape, and tabbing inside the
+      trap to the palette's own controls.
+    -->
+    <div class="scrim" aria-hidden="true" onclick={() => (open = false)}></div>
     <div class="palette" role="dialog" aria-modal="true" aria-label="Command palette" use:trapFocus>
       <div class="search">
         <Search size={15} aria-hidden="true" />

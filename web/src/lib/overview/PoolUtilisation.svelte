@@ -19,7 +19,7 @@
   import EmptyState from '$lib/components/EmptyState.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import UtilisationBar from '$lib/components/UtilisationBar.svelte';
-  import Panel from './Panel.svelte';
+  import Panel from '$lib/components/Panel.svelte';
 
   interface Props {
     loading?: boolean;

@@ -44,6 +44,7 @@
   import PoolLabels from '$lib/pools/PoolLabels.svelte';
   import PoolRiskBadge from '$lib/pools/PoolRiskBadge.svelte';
   import { backendLabel, dockerModeLabel } from '$lib/pools/PoolVocabulary.svelte';
+  import { deletionConsequences } from '$lib/pools/consequences';
 
   const canOperate = $derived(session.can('operator'));
 
@@ -267,28 +268,9 @@
     deleteOpen = true;
   }
 
-  const doomedConsequences = $derived.by(() => {
-    const pool = doomed;
-    if (!pool) return [];
-    const live = pool.counts?.live ?? 0;
-    const busy = pool.counts?.busy ?? 0;
-    const lines = [
-      live === 0
-        ? 'It has no runners right now, so nothing is interrupted.'
-        : forceDelete
-          ? `${pluralise(live, 'runner')} will be destroyed immediately.`
-          : `${pluralise(live, 'runner')} will be drained, then removed.`,
-    ];
-    if (busy > 0) {
-      lines.push(
-        forceDelete
-          ? `${pluralise(busy, 'job')} running right now will be interrupted.`
-          : `${pluralise(busy, 'job')} running right now will be allowed to finish first.`,
-      );
-    }
-    lines.push('The runners are deregistered from GitHub either way.');
-    return lines;
-  });
+  const doomedConsequences = $derived(
+    doomed ? deletionConsequences(doomed.counts ?? {}, forceDelete) : [],
+  );
 
   async function confirmDelete(): Promise<void> {
     const pool = doomed;

@@ -514,9 +514,16 @@
   </div>
 
   <div class="scroll">
+    <!--
+      aria-rowcount is the server's total, not this page's length, so every row
+      has to say which of that total it is. Without aria-rowindex a screen
+      reader announces "row 3 of 1,284" for the third row of page nine, and the
+      count it was given becomes noise. The header is row 1, so the data starts
+      at offset + 2.
+    -->
     <table role="grid" aria-label={label} aria-rowcount={total} onkeydown={onBodyKeydown}>
       <thead>
-        <tr>
+        <tr aria-rowindex={1}>
           {#if selectable}
             <th class="pick" scope="col">
               <Checkbox
@@ -555,7 +562,7 @@
       <tbody bind:this={body}>
         {#if !settled}
           {#each Array.from({ length: 8 }, (_, i) => i) as line (line)}
-            <tr class="skeleton-row">
+            <tr class="skeleton-row" aria-rowindex={offset + line + 2}>
               {#if selectable}<td class="pick"
                   ><Skeleton width="var(--z-control-box)" height="var(--z-control-box)" /></td
                 >{/if}
@@ -569,6 +576,7 @@
           {#each modelRows as row, index (row.id)}
             <tr
               data-row={index}
+              aria-rowindex={offset + index + 2}
               tabindex={index === focused || (focused === -1 && index === 0) ? 0 : -1}
               class:selected={isSelected(row.id)}
               class:clickable={Boolean(onopen)}

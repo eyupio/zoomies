@@ -41,6 +41,7 @@
   import RunsOnPreview from '$lib/pools/RunsOnPreview.svelte';
   import PoolWizardForm from '$lib/pools/PoolWizardForm.svelte';
   import { backendLabel } from '$lib/pools/PoolVocabulary.svelte';
+  import { deletionConsequences } from '$lib/pools/consequences';
 
   const JOB_LIMIT = 10;
   const SCALING_LIMIT = 20;
@@ -193,26 +194,7 @@
   let deleteOpen = $state(false);
   let forceDelete = $state(false);
 
-  const consequences = $derived.by(() => {
-    const live = counts.live ?? 0;
-    const busy = counts.busy ?? 0;
-    const lines = [
-      live === 0
-        ? 'It has no runners right now, so nothing is interrupted.'
-        : forceDelete
-          ? `${pluralise(live, 'runner')} will be destroyed immediately.`
-          : `${pluralise(live, 'runner')} will be drained, then removed.`,
-    ];
-    if (busy > 0) {
-      lines.push(
-        forceDelete
-          ? `${pluralise(busy, 'job')} running right now will be interrupted.`
-          : `${pluralise(busy, 'job')} running right now will be allowed to finish first.`,
-      );
-    }
-    lines.push('The runners are deregistered from GitHub either way.');
-    return lines;
-  });
+  const consequences = $derived(deletionConsequences(counts, forceDelete));
 
   async function confirmDelete(): Promise<void> {
     if (!pool?.id) return;

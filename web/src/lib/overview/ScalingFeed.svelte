@@ -14,7 +14,7 @@
   import EmptyState from '$lib/components/EmptyState.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
-  import Panel from './Panel.svelte';
+  import Panel from '$lib/components/Panel.svelte';
 
   interface Props {
     loading?: boolean;

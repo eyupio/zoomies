@@ -27,7 +27,7 @@
   import ErrorState from '$lib/components/ErrorState.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import Switch from '$lib/components/Switch.svelte';
-  import Panel from './Panel.svelte';
+  import Panel from '$lib/components/Panel.svelte';
 
   interface Props {
     class?: string;

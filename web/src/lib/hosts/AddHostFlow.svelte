@@ -39,6 +39,7 @@
   import Input from '$lib/components/Input.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Select from '$lib/components/Select.svelte';
+  import { isLoopbackURL } from '$lib/addresses';
   import BackendList from './BackendList.svelte';
   import LabelMapEditor from './LabelMapEditor.svelte';
 
@@ -66,27 +67,6 @@
   /* -- describe -------------------------------------------------------------- */
 
   /**
-   * Whether an address only the controller's own machine can reach.
-   *
-   * The same rule as ExternalURLIsLocal in internal/config: localhost, any
-   * name under .localhost, and the loopback ranges. A command carrying one of
-   * these tells the new machine to join itself.
-   */
-  function isLocalAddress(raw: string): boolean {
-    try {
-      const host = new URL(raw).hostname.replace(/^\[|\]$/g, '');
-      return (
-        host === 'localhost' ||
-        host.endsWith('.localhost') ||
-        host.startsWith('127.') ||
-        host === '::1'
-      );
-    } catch {
-      return false;
-    }
-  }
-
-  /**
    * Where the new host should be told to find this controller.
    *
    * server.external_url is right when it is set and is not loopback; the
@@ -97,7 +77,7 @@
    */
   function suggestedControllerURL(): string {
     const configured = (session.meta?.external_url ?? '').replace(/\/+$/, '');
-    if (configured && !isLocalAddress(configured)) return configured;
+    if (configured && !isLoopbackURL(configured)) return configured;
     return location.origin;
   }
 
@@ -122,7 +102,7 @@
     }
     return '';
   });
-  const controllerLocal = $derived(!controllerError && isLocalAddress(controllerURL));
+  const controllerLocal = $derived(!controllerError && isLoopbackURL(controllerURL));
 
   const capacityNumber = $derived(capacity.trim() === '' ? 0 : Number(capacity));
   const capacityError = $derived(

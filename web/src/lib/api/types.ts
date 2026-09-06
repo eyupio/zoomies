@@ -166,23 +166,3 @@ export interface EventPayloads {
 }
 
 export type EventKind = keyof EventPayloads;
-
-export const EVENT_KINDS: readonly EventKind[] = [
-  'runner.created',
-  'runner.updated',
-  'runner.deleted',
-  'pool.created',
-  'pool.updated',
-  'pool.deleted',
-  'job.updated',
-  'host.updated',
-  'host.deleted',
-  'scaling',
-  'installation.updated',
-  'problems.updated',
-  'stats',
-  'audit',
-  'webhook.delivery',
-  'heartbeat',
-  'resync',
-];
