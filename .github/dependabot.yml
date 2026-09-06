@@ -43,6 +43,13 @@ updates:
     groups:
       npm:
         patterns: ["*"]
+    ignore:
+      # openapi-typescript declares a peer dependency on the TypeScript 5
+      # line, so a major TypeScript bump fails `npm ci` in the UI job and the
+      # image build until openapi-typescript moves. The 7.0.2 bump did exactly
+      # that; the minor and patch updates still arrive.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: docker
     directory: /deploy

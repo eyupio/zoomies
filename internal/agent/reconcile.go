@@ -242,7 +242,7 @@ func (a *Agent) cleanUp(ctx context.Context, b backend.Backend, r tracked, w bac
 	// Shutdown must not cut a removal in half; the backend converges on a
 	// retry, but a sidecar left behind by a cancelled context is a privileged
 	// container running for nobody until the next pass.
-	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), removeTimeout)
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), RemoveTimeout)
 	defer cancel()
 	if err := b.Remove(rctx, w.Handle); err != nil && !errors.Is(err, backend.ErrNotFound) {
 		a.log.Warn("could not remove a finished runner's workload; it is still taking up disk on this host and will be retried",
