@@ -1,71 +1,65 @@
 <!--
-  The persistent left navigation.
+  The persistent navigation: a left sidebar on a desktop, a bar along the
+  bottom edge on a phone.
 
   The order is fixed and matches docs/ui-guidelines.md, because muscle memory is
-  the whole point of a persistent nav. It collapses to icons and remembers that
-  it did; the `g` shortcut letter is shown beside each entry so the keyboard
-  route is discoverable rather than folklore.
+  the whole point of a persistent nav. On a desktop it collapses to icons and
+  remembers that it did; the `g` shortcut letter is shown beside each entry so
+  the keyboard route is discoverable rather than folklore.
+
+  A phone gets a different component rather than the same one squeezed. Ten
+  icon-only targets across a 412px screen were 40px apart and told apart only by
+  a glyph, so the bar carries the four sections a fleet is watched with, each
+  under its own word, and a "More" button opens the side menu holding all ten.
+  That is also why the collapsed state is a desktop idea only: a bar along the
+  bottom has nothing to collapse, and the pref leaking into it was what made the
+  bar 56px wide with every entry piled into the corner.
 -->
 <script lang="ts">
-  import {
-    Boxes,
-    GitPullRequestArrow,
-    HardDrive,
-    LayoutDashboard,
-    ListChecks,
-    PanelLeftClose,
-    PanelLeftOpen,
-    Plug,
-    ScrollText,
-    Server,
-    Settings,
-    ChartNoAxesCombined,
-  } from '@lucide/svelte';
-  import type { LucideIcon } from '@lucide/svelte';
+  import { Menu, PanelLeftClose, PanelLeftOpen } from '@lucide/svelte';
   import { router } from '../router';
   import { prefs } from '../state/prefs.svelte';
+  import { viewport } from '../state/viewport.svelte';
   import IconButton from '../components/IconButton.svelte';
   import Logo from '../components/Logo.svelte';
+  import { SECTIONS, isCurrentSection } from './sections';
 
-  interface NavItem {
-    path: string;
-    label: string;
-    icon: LucideIcon;
-    /** The second key of the `g` chord. */
-    key: string;
+  interface Props {
+    /** Whether the phone's side menu is open, for the More button's state. */
+    menuOpen?: boolean;
+    onmore?: () => void;
   }
 
-  const items: readonly NavItem[] = [
-    { path: '/', label: 'Overview', icon: LayoutDashboard, key: 'o' },
-    { path: '/pools', label: 'Pools', icon: Boxes, key: 'p' },
-    { path: '/runners', label: 'Runners', icon: Server, key: 'r' },
-    { path: '/jobs', label: 'Jobs', icon: ListChecks, key: 'j' },
-    { path: '/usage', label: 'Usage', icon: ChartNoAxesCombined, key: 'u' },
-    { path: '/hosts', label: 'Hosts', icon: HardDrive, key: 'h' },
-    { path: '/installations', label: 'Installations', icon: Plug, key: 'i' },
-    { path: '/migrate', label: 'Migrate', icon: GitPullRequestArrow, key: 'm' },
-    { path: '/audit', label: 'Audit', icon: ScrollText, key: 'a' },
-    { path: '/settings', label: 'Settings', icon: Settings, key: 's' },
-  ];
+  let { menuOpen = false, onmore }: Props = $props();
 
-  const collapsed = $derived(prefs.navCollapsed);
+  const phone = $derived(viewport.phone);
+  const collapsed = $derived(prefs.navCollapsed && !phone);
+  const items = $derived(phone ? SECTIONS.filter((item) => item.primary) : SECTIONS);
 
   function isCurrent(path: string): boolean {
-    const here = router.pathname;
-    return path === '/' ? here === '/' : here === path || here.startsWith(`${path}/`);
+    return isCurrentSection(path, router.pathname);
   }
+
+  /**
+   * Whether the page being looked at is one of the six the bar does not carry.
+   * The bar would otherwise show nothing marked at all on those pages, and a
+   * navigation that cannot say where you are is not doing its job.
+   */
+  const inMenu = $derived(phone && !items.some((item) => isCurrent(item.path)));
 </script>
 
-<nav class="nav" class:collapsed aria-label="Sections">
-  <div class="brand">
-    <a href="/" class="mark" aria-label="Zoomies, go to the overview">
-      <Logo variant="mark" size={32} label="" />
-      {#if !collapsed}<span class="brand-name">Zoomies</span>{/if}
-    </a>
-    {#if !collapsed}
-      <p class="descriptor">Self-hosted Git runners</p>
-    {/if}
-  </div>
+<nav class="nav" class:collapsed class:phone aria-label="Sections">
+  {#if !phone}
+    <div class="brand">
+      <a href="/" class="mark" aria-label="Zoomies, go to the overview">
+        <Logo variant="mark" size={32} label="" />
+        {#if !collapsed}<span class="brand-name">Zoomies</span>{/if}
+      </a>
+      {#if !collapsed}
+        <p class="descriptor">Self-hosted Git runners</p>
+      {/if}
+    </div>
+  {/if}
 
   <ul>
     {#each items as item (item.path)}
@@ -77,26 +71,48 @@
           class:current
           title={collapsed ? item.label : undefined}
         >
-          <item.icon size={16} aria-hidden="true" />
-          {#if !collapsed}
-            <span class="label">{item.label}</span>
-            <kbd aria-hidden="true">g {item.key}</kbd>
-          {:else}
+          <item.icon size={phone ? 18 : 16} aria-hidden="true" />
+          {#if collapsed}
             <span class="sr-only">{item.label}</span>
+          {:else}
+            <span class="label">{item.label}</span>
+            {#if !phone}<kbd aria-hidden="true">g {item.key}</kbd>{/if}
           {/if}
         </a>
       </li>
     {/each}
+
+    {#if phone}
+      <li>
+        <!--
+          A button, not a link: it opens the menu over this page rather than
+          going anywhere, and it says so to a screen reader.
+        -->
+        <button
+          type="button"
+          class="more"
+          class:current={menuOpen || inMenu}
+          aria-haspopup="dialog"
+          aria-expanded={menuOpen}
+          onclick={() => onmore?.()}
+        >
+          <Menu size={18} aria-hidden="true" />
+          <span class="label">More</span>
+        </button>
+      </li>
+    {/if}
   </ul>
 
-  <div class="foot">
-    <IconButton
-      icon={collapsed ? PanelLeftOpen : PanelLeftClose}
-      label={collapsed ? 'Expand the navigation' : 'Collapse the navigation'}
-      size="sm"
-      onclick={() => prefs.toggleNav()}
-    />
-  </div>
+  {#if !phone}
+    <div class="foot">
+      <IconButton
+        icon={collapsed ? PanelLeftOpen : PanelLeftClose}
+        label={collapsed ? 'Expand the navigation' : 'Collapse the navigation'}
+        size="sm"
+        onclick={() => prefs.toggleNav()}
+      />
+    </div>
+  {/if}
 </nav>
 
 <style>
@@ -172,17 +188,23 @@
     padding: 0;
     list-style: none;
   }
-  a {
+  a,
+  .more {
     display: flex;
     align-items: center;
     gap: var(--z-space-3);
+    width: 100%;
     height: var(--z-space-8);
     padding: 0 var(--z-space-2);
+    border: 0;
     border-radius: var(--z-radius-md);
+    background: none;
     color: var(--z-text-muted);
     text-decoration: none;
+    font-family: inherit;
     font-size: var(--z-text-sm);
     font-weight: var(--z-weight-medium);
+    cursor: pointer;
     transition:
       background-color var(--z-motion-fast) var(--z-ease),
       color var(--z-motion-fast) var(--z-ease);
@@ -191,11 +213,13 @@
     justify-content: center;
     padding: 0;
   }
-  a:hover {
+  a:hover,
+  .more:hover {
     background: var(--z-surface-hover);
     color: var(--z-text);
   }
-  a.current {
+  a.current,
+  .more.current {
     background: var(--z-accent-subtle);
     color: var(--z-accent);
   }
@@ -225,8 +249,15 @@
   .collapsed .foot {
     justify-content: center;
   }
+  /*
+    The phone bar. Every selector here names `.phone` as well, so that a rule
+    of the sidebar's that happens to be written against two classes cannot
+    outrank the layout it is meant to replace -- a media query adds no
+    specificity of its own, and that is exactly how `.nav.collapsed`'s 56px
+    used to win here.
+  */
   @media (max-width: 768px) {
-    .nav {
+    .nav.phone {
       position: fixed;
       inset-block: auto 0;
       inset-inline: 0;
@@ -241,48 +272,43 @@
       border-right: 0;
       border-top: var(--z-border-width) solid var(--z-border);
     }
-    .brand,
-    .foot {
-      display: none;
-    }
-    ul {
+    .phone ul {
       flex-direction: row;
-      justify-content: space-around;
+      gap: var(--z-nudge-2);
       width: 100%;
     }
     /*
-      Centred, both ways. The entries are fixed-height columns whose only
-      visible content is an icon, so without this the icon sat against the top
-      edge of the highlight pill and the rest of the pill was empty space
-      below it.
+      Equal shares of the width, and no more: the entries are what an operator
+      aims a thumb at, so they are the same size as each other whatever their
+      word is, and a long one ellipses rather than stealing room from its
+      neighbours.
     */
-    a {
+    .phone li {
+      flex: 1 1 0;
+      min-width: 0;
+    }
+    /*
+      Centred, both ways. Without this the icon sat against the top edge of the
+      highlight pill and the rest of the pill was empty space below it.
+    */
+    .phone a,
+    .phone .more {
       flex-direction: column;
       justify-content: center;
       gap: var(--z-nudge-2);
       height: var(--z-space-12);
-      padding: 0 var(--z-space-1);
-    }
-    kbd {
-      display: none;
+      padding: 0 var(--z-nudge-2);
     }
     /*
-      Eight labels do not fit across a phone, but `display: none` would take
-      each entry's accessible name with them and a screen reader would
-      announce eight links called "link". Hidden the way the collapsed desktop
-      nav hides its own labels instead: off the screen, still in the
-      accessibility tree.
+      The word under the icon, rather than the visually-hidden label the
+      collapsed sidebar uses. Five entries fit their names across a phone,
+      and a named target is one an operator can hit without learning a glyph.
     */
-    .label {
-      position: absolute;
-      width: var(--z-nudge-1);
-      height: var(--z-nudge-1);
-      padding: 0;
-      margin: calc(-1 * var(--z-nudge-1));
-      overflow: hidden;
-      clip-path: inset(50%);
-      white-space: nowrap;
-      border-width: 0;
+    .phone .label {
+      flex: none;
+      max-width: 100%;
+      font-size: var(--z-text-2xs);
+      line-height: 1;
     }
   }
 </style>

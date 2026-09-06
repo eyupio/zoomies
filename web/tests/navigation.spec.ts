@@ -13,9 +13,11 @@ import {
   browserOverride,
   chooseTheme,
   clearStoredPreferences,
+  expectCurrentSection,
   goto,
   nav,
   navEntry,
+  openSection,
   pageHeading,
   readTheme,
   reload,
@@ -34,17 +36,13 @@ test('every navigation entry routes to its page and is marked as current', async
   await goto(page, '/', 'Overview');
 
   for (const section of SECTIONS) {
-    const entry = navEntry(page, section.path);
-    await entry.click();
+    // Whichever way this width offers the section: the sidebar lists all ten,
+    // the phone's bar lists four and the side menu holds the rest.
+    await openSection(page, section.path);
 
     await expect(page).toHaveURL(new RegExp(`${section.path.replace(/\//g, '\\/')}$`));
     await expect(pageHeading(page, sectionHeading(section))).toBeVisible();
-    await expect(entry, `${section.label} is marked as the current page`).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
-    // Exactly one entry claims to be current, or the mark means nothing.
-    await expect(nav(page).locator('[aria-current="page"]')).toHaveCount(1);
+    await expectCurrentSection(page, section.path);
   }
 });
 
@@ -75,10 +73,10 @@ test('every page ends in a footer that says which product this is and who makes 
 
 test('the browser back button returns to the previous page', async ({ page }) => {
   await goto(page, '/', 'Overview');
-  await navEntry(page, '/runners').click();
+  await openSection(page, '/runners');
   await expect(pageHeading(page, 'Runners')).toBeVisible();
 
-  await navEntry(page, '/jobs').click();
+  await openSection(page, '/jobs');
   await expect(pageHeading(page, 'Jobs')).toBeVisible();
 
   await page.goBack();

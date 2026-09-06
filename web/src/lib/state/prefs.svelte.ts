@@ -69,10 +69,20 @@ function navChoiceFromStorage(): boolean | undefined {
   return raw === null ? undefined : raw === '1';
 }
 
-/** Whether the window is the tablet width the guidelines collapse the nav at. */
+/**
+ * Whether the window is the tablet width the guidelines collapse the nav at.
+ *
+ * Bounded at both ends. A phone has no sidebar to collapse -- it has a bar
+ * along the bottom edge -- so recording "collapsed" for one is recording an
+ * answer to a question that was never asked, and the same browser opened on a
+ * desktop then starts with a nav the operator never chose to shrink.
+ */
 function tabletWidth(): boolean {
   try {
-    return typeof matchMedia === 'function' && matchMedia('(max-width: 1180px)').matches;
+    return (
+      typeof matchMedia === 'function' &&
+      matchMedia('(min-width: 769px) and (max-width: 1180px)').matches
+    );
   } catch {
     return false;
   }

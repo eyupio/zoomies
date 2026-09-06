@@ -370,7 +370,9 @@ page ends in a hairline footer carrying the mark, the name, the running version,
 a link to the docs and the credit *Developed by EyUp.io* — so a signed-in
 screenshot says which product and which build it came from, and who makes it,
 without anyone having to open Settings. On a phone the navigation moves to the
-bottom edge and loses its masthead, so the mark appears in the top bar instead.
+bottom edge and loses its masthead, so the mark appears in the top bar instead —
+and again at the head of the side menu, which is the one place on a phone with
+room to say the name.
 
 **A link that leaves the product opens in a new tab; a link within it does
 not.** An operator watching a fleet should not lose the page they were on to go
@@ -460,6 +462,7 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 | `Tooltip` | on hover *and* focus; never the only place information lives |
 | `Dialog` | focus trap, restores focus on close, `Esc` closes, backdrop click closes only non-destructive dialogs |
 | `Drawer` | right-hand detail panel; same focus rules |
+| `NavMenu` | the phone's side menu: every section, named; slides from the left, same focus rules, closes when one is chosen |
 | `DropdownMenu` | roving tabindex, type-ahead |
 | `Tabs` | `aria-controls`/`aria-selected`, arrow-key navigation |
 | `Toast` | bottom-right, `aria-live="polite"` (`assertive` for errors), auto-dismiss except on error |
@@ -581,13 +584,26 @@ inside the innermost open overlay, and everything outside it is `inert`.
 Two thresholds, `--z-bp-md` (768px) and `--z-bp-lg` (1180px), and so three
 ranges:
 
-* `< 768px` — **phone.** The navigation becomes a bar along the bottom edge,
-  metric tiles stack, a grid scrolls inside its own frame rather than widening
-  the page, text controls step up to `--z-control-font-touch` so iOS does not
-  zoom, and every control stays usable: the Playwright suite's mobile project
-  runs the whole suite at this width, drains and wizard included.
+* `< 768px` — **phone.** The navigation becomes a bar along the bottom edge
+  carrying the four sections a fleet is watched with — Overview, Pools, Runners,
+  Jobs — each under its own word, plus a **More** button opening a side menu
+  that lists all ten. Ten icon-only targets across a 412px screen were 40px
+  apart and told apart only by a glyph, which is not a navigation an operator
+  can use one-handed at 3am. The menu is a modal overlay like any other: Escape
+  closes it, the page behind it is inert, and choosing a section closes it.
+  Collapsing is a *desktop* idea and the phone must never inherit it — a bar
+  along the bottom has nothing to collapse, and `.nav.collapsed` outranking the
+  phone's own rules is what once made that bar 56px wide with every entry piled
+  into the corner. Metric tiles stack, a grid scrolls inside its own frame
+  rather than widening the page, text controls step up to
+  `--z-control-font-touch` so iOS does not zoom, and every control stays usable:
+  the Playwright suite's mobile project runs the whole suite at this width,
+  drains and wizard included.
 * `768–1180px` — **tablet.** The nav starts collapsed to icons unless the
-  operator has chosen otherwise.
+  operator has chosen otherwise. That default is bounded at both ends, in
+  `prefs.svelte.ts` and in the inline script in `index.html` that applies it
+  before first paint: a phone is not a narrow desktop and has no sidebar to
+  collapse.
 * `> 1180px` — **full.**
 
 A third threshold is not a judgement call to be made per component. Four
