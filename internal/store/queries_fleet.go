@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -996,6 +997,38 @@ func (s *Store) DeleteRunner(ctx context.Context, id string) error {
 		return err
 	}
 	return affected(res, "runner", id)
+}
+
+// StartupSamples returns, for every runner created since the cutoff, how long
+// its container took to start and how long it then took to register, in
+// milliseconds, each sorted so that a percentile is an index into it. A runner
+// still starting contributes nothing; one that started and never registered
+// contributes to the first slice only.
+//
+// The Overview used to work this out from a page of runner rows, and the list
+// query's limit quietly cut that page to the 500 newest runners, so the
+// percentiles described the last few hundred starts rather than the window.
+func (s *Store) StartupSamples(ctx context.Context, since time.Time) (startup, registration []int64, err error) {
+	rows, err := s.read.QueryContext(ctx, `SELECT container_started_at - created_at, registered_at - container_started_at
+		FROM runners WHERE created_at >= ? AND container_started_at IS NOT NULL AND container_started_at >= created_at`, ms(since))
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var start int64
+		var register sql.NullInt64
+		if err := rows.Scan(&start, &register); err != nil {
+			return nil, nil, err
+		}
+		startup = append(startup, start)
+		if register.Valid && register.Int64 >= 0 {
+			registration = append(registration, register.Int64)
+		}
+	}
+	slices.Sort(startup)
+	slices.Sort(registration)
+	return startup, registration, rows.Err()
 }
 
 // PruneRunners deletes removed/failed runners older than the cutoff and
