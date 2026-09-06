@@ -745,8 +745,8 @@ func runnerWhere(f RunnerFilter) (string, []any) {
 		cond = append(cond, `host_id IN (`+strings.Join(ph, ",")+`)`)
 	}
 	if q := strings.TrimSpace(f.Search); q != "" {
-		cond = append(cond, `(name LIKE ? OR id LIKE ? OR container_id LIKE ?)`)
-		like := "%" + q + "%"
+		cond = append(cond, `(name LIKE ? ESCAPE '\' OR id LIKE ? ESCAPE '\' OR container_id LIKE ? ESCAPE '\')`)
+		like := likePattern(q)
 		args = append(args, like, like, like)
 	}
 	if len(cond) == 0 {

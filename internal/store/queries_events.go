@@ -367,10 +367,11 @@ func jobWhere(f JobFilter) (string, []any) {
 		cond = append(cond, `state IN (`+strings.Join(ph, ",")+`)`)
 	}
 	// Labels are stored as a JSON array; a LIKE on the quoted label is exact
-	// enough because NormalizeLabels guarantees no embedded quotes.
+	// because NormalizeLabels guarantees no embedded quotes and likeEscape
+	// keeps an underscore in the label meaning an underscore.
 	for _, l := range NormalizeLabels(f.Labels) {
-		cond = append(cond, `labels LIKE ?`)
-		args = append(args, `%"`+l+`"%`)
+		cond = append(cond, `labels LIKE ? ESCAPE '\'`)
+		args = append(args, `%"`+likeEscape(l)+`"%`)
 	}
 	if f.Since != nil {
 		cond = append(cond, `queued_at >= ?`)
@@ -396,8 +397,8 @@ func jobWhere(f JobFilter) (string, []any) {
 		cond = append(cond, failedJobSQL())
 	}
 	if q := strings.TrimSpace(f.Search); q != "" {
-		cond = append(cond, `(repo LIKE ? OR workflow LIKE ? OR job_name LIKE ? OR runner_name LIKE ?)`)
-		like := "%" + q + "%"
+		cond = append(cond, `(repo LIKE ? ESCAPE '\' OR workflow LIKE ? ESCAPE '\' OR job_name LIKE ? ESCAPE '\' OR runner_name LIKE ? ESCAPE '\')`)
+		like := likePattern(q)
 		args = append(args, like, like, like, like)
 	}
 	if len(cond) == 0 {
@@ -628,8 +629,8 @@ func (s *Store) ListAudit(ctx context.Context, f AuditFilter, p Page) ([]*AuditE
 		args = append(args, ms(*f.Until))
 	}
 	if q := strings.TrimSpace(f.Search); q != "" {
-		cond = append(cond, `(actor_name LIKE ? OR action LIKE ? OR target_id LIKE ?)`)
-		like := "%" + q + "%"
+		cond = append(cond, `(actor_name LIKE ? ESCAPE '\' OR action LIKE ? ESCAPE '\' OR target_id LIKE ? ESCAPE '\')`)
+		like := likePattern(q)
 		args = append(args, like, like, like)
 	}
 	where := ""
