@@ -353,3 +353,40 @@ func TestCompletionMessagesReadAsSentences(t *testing.T) {
 		t.Errorf("roundDuration(90m) = %q", got)
 	}
 }
+
+// A job GitHub holds for a deployment review spends that time on GitHub, not
+// in the queue. The timeline says so, and the approval is the moment the queue
+// wait and the claim start, so a redelivered approval must not repeat either.
+func TestAHeldJobsTimelineSaysWhoItWasWaitingFor(t *testing.T) {
+	h := newHarness(t)
+	_, pool, _ := h.fleet()
+	labels := []string{"self-hosted", "linux", "x64", "demo"}
+
+	h.deliverJob(jobEvent{Action: "waiting", JobID: 8201, Name: "deploy", Workflow: "Release", Labels: labels})
+	job, err := h.st.GetJobByGitHubID(h.ctx, 8201)
+	if err != nil {
+		t.Fatalf("GetJobByGitHubID: %v", err)
+	}
+	events := h.timeline(job.ID)
+	if got := kindsOfEvents(events); !slices.Equal(got, []store.JobEventKind{store.JobEventWaiting}) {
+		t.Fatalf("after waiting: %v, want one waiting entry and no queued one", got)
+	}
+	if !strings.Contains(events[0].Message, "deployment review") || !strings.Contains(events[0].Message, "Release / deploy") {
+		t.Fatalf("waiting entry does not say who is holding the job: %q", events[0].Message)
+	}
+
+	h.deliverJob(jobEvent{Action: "queued", JobID: 8201, Name: "deploy", Workflow: "Release", Labels: labels})
+	events = h.timeline(job.ID)
+	if got := kindsOfEvents(events); !slices.Equal(got, []store.JobEventKind{store.JobEventWaiting, store.JobEventApproved, store.JobEventClaimed}) {
+		t.Fatalf("after approval: %v, want waiting, approved, then the claim", got)
+	}
+	if !strings.Contains(events[1].Message, "approved") || !strings.Contains(events[2].Message, pool.Name) {
+		t.Fatalf("approval entries = %q, %q; want the approval said and the pool named", events[1].Message, events[2].Message)
+	}
+
+	// GitHub sends the approval again.
+	h.deliverJob(jobEvent{Action: "queued", JobID: 8201, Name: "deploy", Workflow: "Release", Labels: labels})
+	if got := h.timeline(job.ID); len(got) != 3 {
+		t.Fatalf("a redelivered approval added a timeline entry: %v", kindsOfEvents(got))
+	}
+}

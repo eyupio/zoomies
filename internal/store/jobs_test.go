@@ -420,3 +420,47 @@ func TestTheFailedStepIsWhereAJobStoppedWhateverItsConclusion(t *testing.T) {
 		t.Fatalf("a green job has a failed step: %+v", st)
 	}
 }
+
+// A success rate computed from completed and failed alone counts a job GitHub
+// stopped reporting as a success. The Overview's stats split the completed
+// count four ways instead, and the four have to add up.
+func TestStatsSplitCompletedJobsFourWays(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	started, done := now.Add(time.Second), now.Add(time.Minute)
+
+	for i, c := range []string{"success", "failure", "timed_out", "startup_failure", "cancelled", "skipped", "action_required", "neutral", "stale", ""} {
+		j := &Job{GitHubJobID: int64(300 + i), JobName: "job-" + c, State: JobCompleted, Conclusion: c, QueuedAt: now, StartedAt: &started, CompletedAt: &done}
+		if _, err := s.UpsertJob(ctx, j); err != nil {
+			t.Fatalf("seeding %q: %v", c, err)
+		}
+	}
+	// A success whose runner stopped under it is the fleet's failure, and a
+	// cancellation whose runner died is one too: the fault wins.
+	for id, c := range map[int64]string{400: "success", 401: "cancelled"} {
+		if _, err := s.UpsertJob(ctx, &Job{GitHubJobID: id, JobName: "faulted-" + c, State: JobCompleted, Conclusion: c, QueuedAt: now, StartedAt: &started, CompletedAt: &done}); err != nil {
+			t.Fatalf("seeding faulted %s: %v", c, err)
+		}
+		j, err := s.GetJobByGitHubID(ctx, id)
+		if err != nil {
+			t.Fatalf("GetJobByGitHubID: %v", err)
+		}
+		if _, _, err := s.SetJobRunnerFault(ctx, j.ID, "runner exited with code 137"); err != nil {
+			t.Fatalf("SetJobRunnerFault: %v", err)
+		}
+	}
+
+	stats, err := s.StatsSince(ctx, now.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("StatsSince: %v", err)
+	}
+	want := JobStats{CompletedLast: 12, Succeeded: 1, Failed: 5, Cancelled: 2, Unknown: 4}
+	got := JobStats{CompletedLast: stats.CompletedLast, Succeeded: stats.Succeeded, Failed: stats.Failed, Cancelled: stats.Cancelled, Unknown: stats.Unknown}
+	if got != want {
+		t.Fatalf("stats = %+v, want %+v", got, want)
+	}
+	if stats.Succeeded+stats.Failed+stats.Cancelled+stats.Unknown != stats.CompletedLast {
+		t.Fatalf("the four outcomes do not add up to the completed count: %+v", stats)
+	}
+}
