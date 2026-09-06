@@ -675,18 +675,17 @@ func HostOffers(h *store.Host, p *store.Pool) bool {
 	return slices.Contains(h.Backends, string(p.Backend))
 }
 
-// HostSelects reports whether a host's labels satisfy the pool's host
-// selector: every key and value of the selector is present on the host, and
-// an empty selector means "any host".
+// HostSelects reports whether a host satisfies the pool's host selector: every
+// key of the selector answers with the value the selector asks for, and an
+// empty selector means "any host".
+//
+// A host answers for its own labels and, for `os` and `arch`, for what its
+// agent reported about the machine -- see Host.SelectorValue. So a pool may ask
+// for arm64 or windows across a fleet nobody has labelled, which is the case
+// this indirection exists for.
 func HostSelects(h *store.Host, p *store.Pool) bool {
-	return selects(p.HostSelector, h.Labels)
-}
-
-// selects reports whether every key and value of the selector is present on the
-// host. An empty selector means "any host".
-func selects(selector, labels store.StringMap) bool {
-	for k, v := range selector {
-		if labels[k] != v {
+	for k, v := range p.HostSelector {
+		if h.SelectorValue(k) != v {
 			return false
 		}
 	}
@@ -737,7 +736,7 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 					detail = h.Name + " reports: " + info.Detail
 				}
 			}
-		case !selects(p.HostSelector, h.Labels):
+		case !HostSelects(h, p):
 			selector++
 		default:
 			full++
@@ -796,7 +795,7 @@ var backendOrder = []store.BackendKind{store.BackendDocker, store.BackendPodman,
 func (hs *hostSet) otherBackends(p *store.Pool) []string {
 	offered := map[string]int{}
 	for _, h := range hs.hosts {
-		if hs.free[h.ID] <= 0 || !h.Healthy(hs.now) || h.Cordoned || !selects(p.HostSelector, h.Labels) {
+		if hs.free[h.ID] <= 0 || !h.Healthy(hs.now) || h.Cordoned || !HostSelects(h, p) {
 			continue
 		}
 		for _, kind := range h.Backends {
@@ -839,7 +838,7 @@ func (hs *hostSet) offering(p *store.Pool, kind string) int {
 	n := 0
 	for _, h := range hs.hosts {
 		if hs.free[h.ID] > 0 && h.Healthy(hs.now) && !h.Cordoned &&
-			slices.Contains(h.Backends, kind) && selects(p.HostSelector, h.Labels) {
+			slices.Contains(h.Backends, kind) && HostSelects(h, p) {
 			n++
 		}
 	}

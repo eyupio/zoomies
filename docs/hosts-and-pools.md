@@ -73,7 +73,7 @@ connection runs that way round.
 | Capacity | `agent.capacity`, `--capacity`, or half the CPU count | A hard ceiling the scheduler respects, per host. |
 | Backends | Probed by the agent at startup, and again as sockets appear | A pool is only placed on a host that offers its backend. |
 | Labels | `agent.labels` or `--labels` | What a pool's `host_selector` matches against. |
-| OS, arch, version | The agent | Shown in **Hosts**, and how you tell an arm64 box from an x64 one. |
+| OS, arch, version | The agent | Shown in **Hosts**. A pool's `host_selector` can match `os` and `arch` directly, so keeping work on arm64 or on Windows needs no labelling at all. |
 | Health | A heartbeat every `agent.heartbeat_interval` | A host silent for 90 seconds — three times the default interval — is unhealthy, and takes no new runners until it checks in again. After five minutes of silence it is presumed gone: the runners still recorded on it are failed so the pool can replace them, and a job one of them was running is marked as lost by the fleet. |
 
 A host that offers no backend is connected, healthy and useless: nothing will
@@ -119,7 +119,9 @@ One pool is enough until the fleet has to answer two different questions. Add a
 second when a job needs something the first cannot give it:
 
 * **A different machine.** GPU boxes, arm64 builders, a host in another region.
-  Label the hosts, and give the pool a `host_selector` that requires the label.
+  Architecture and operating system need nothing set up — `arch=arm64` or
+  `os=windows` matches what the agent already reports. Anything else is a label
+  on the hosts and the same key in the pool's `host_selector`.
 * **A different runtime.** A pool whose jobs build images needs a
   `docker_mode`, which most pools should not have; asking for one switches the
   stock runner image to its Docker variant.
@@ -177,7 +179,7 @@ flowchart TD
     c -->|no| no
     c -->|yes| b{"offers the pool's<br/>backend?"}
     b -->|no| no
-    b -->|yes| s{"labels match the<br/>host selector?"}
+    b -->|yes| s{"matches the<br/>host selector?"}
     s -->|no| no
     s -->|yes| ok["eligible"]
     ok --> pick["the eligible host with<br/>the most room wins"]
@@ -257,8 +259,19 @@ this one, which is usually not what you want, so give the general pools a
 selector too (`class=general`) once a specialised host exists.
 
 **An arm64 builder.** Same shape with `arch=arm64`, and a pool whose image is an
-arm64 runner image. The label on the host is what makes the placement correct;
-`runs-on` naming the pool is what makes the workflow readable.
+arm64 runner image — but no `--labels` on the agent this time, because the
+architecture is something the agent already reports:
+
+```sh
+zoomies agent join https://zoomies.example.com --token zoojoin_...
+zoomies pools create --name zoomies-arm --labels zoomies-arm \
+  --installation ins_k3f9qz2m --host-selector arch=arm64 --max 4
+```
+
+`os` works the same way, so a Windows pool is `--host-selector os=windows`. Both
+are matched against what the agent reports, and a label of the same name on a
+host still wins — which is the escape hatch if you want a machine to answer for
+an architecture it does not have.
 
 **Separating a noisy repository.** Give it a pool with its own labels and its own
 `max_runners`. Note the limit of `repository_scale_up_limit` on a shared pool: it

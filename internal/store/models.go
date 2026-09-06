@@ -576,6 +576,35 @@ func (h *Host) Available(now time.Time) bool {
 	return h.Healthy(now) && !h.Cordoned && h.ActiveRunners < h.Capacity
 }
 
+// The selector keys every host answers for without an operator typing
+// anything. The agent reports the OS and architecture of the machine it runs
+// on, so a pool can ask for arm64 or windows without a fleet being hand
+// labelled first -- which is what "label every ARM box before you can select
+// one" used to cost.
+const (
+	LabelOS   = "os"
+	LabelArch = "arch"
+)
+
+// SelectorValue returns what this host answers for one host-selector key.
+//
+// An operator's own label wins over the reported fact, so a fleet that already
+// labels `arch` by hand keeps the meaning it chose -- including a deliberate
+// lie, like calling an amd64 box `arch=legacy` to keep pools off it. Only when
+// no label claims the key does the agent's report answer for it.
+func (h *Host) SelectorValue(key string) string {
+	if v, ok := h.Labels[key]; ok {
+		return v
+	}
+	switch key {
+	case LabelOS:
+		return h.OS
+	case LabelArch:
+		return h.Arch
+	}
+	return ""
+}
+
 // Free returns the number of additional runners this host can take.
 func (h *Host) Free() int {
 	if n := h.Capacity - h.ActiveRunners; n > 0 {
