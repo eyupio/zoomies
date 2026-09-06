@@ -190,9 +190,10 @@ func AgentIdentity(h *store.Host, ip string) *Identity {
 }
 
 // DevIdentity is what every request resolves to when security.disable_auth is
-// on. Config validation refuses that setting unless the listener is on
-// loopback, and it produces a startup warning, so this cannot be reached by
-// accident on a real deployment.
+// on. Config validation refuses that setting on anything that looks reachable
+// -- a non-loopback bind, an external URL, or a trusted proxy -- and produces a
+// startup warning on the loopback-with-nothing-in-front case that is left, so
+// this cannot be reached by accident on a real deployment.
 func DevIdentity(ip string) *Identity {
 	return &Identity{Kind: KindUser, ID: "dev", Name: "auth-disabled", Role: store.RoleAdmin, IP: ip}
 }

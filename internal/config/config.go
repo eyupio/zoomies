@@ -122,7 +122,9 @@ type Security struct {
 	// derived from the external URL when unset.
 	CookieSecure *bool `yaml:"cookie_secure"`
 	// DisableAuth removes all authentication. It exists for local development
-	// only and is refused unless the listener is on loopback.
+	// only and is refused wherever the controller looks reachable -- see
+	// LikelyReachable, which counts an external URL or a trusted proxy as
+	// reachable even on a loopback bind.
 	DisableAuth bool `yaml:"disable_auth"`
 	// RateLimitLogins caps password attempts per source address per minute.
 	RateLimitLogins int `yaml:"rate_limit_logins"`
