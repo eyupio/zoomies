@@ -54,10 +54,10 @@ func TestSeedDemoBuildsAFleet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListJobs: %v", err)
 	}
-	if total != 50 {
-		t.Fatalf("seeded %d jobs, want 50", total)
+	if total != 51 {
+		t.Fatalf("seeded %d jobs, want 51", total)
 	}
-	var completed, queued, running, unmatched int
+	var completed, queued, running, unmatched, elsewhere int
 	for _, j := range jobs {
 		switch j.State {
 		case store.JobCompleted:
@@ -70,6 +70,12 @@ func TestSeedDemoBuildsAFleet(t *testing.T) {
 		if !j.Matched {
 			unmatched++
 		}
+		// A job on a vendor's runner: no pool claimed it and no runner here
+		// ran it. The Overview's panels are built to tell these apart, so the
+		// fixture has to contain some -- one finished, one still running.
+		if !j.Matched && j.PoolID == "" && j.RunnerID == "" && j.State != store.JobQueued {
+			elsewhere++
+		}
 	}
 	if completed == 0 || queued == 0 || running == 0 {
 		t.Fatalf("job mix = %d completed, %d queued, %d running; the Overview needs all three",
@@ -77,6 +83,9 @@ func TestSeedDemoBuildsAFleet(t *testing.T) {
 	}
 	if unmatched == 0 {
 		t.Fatal("no seeded job is unmatched, so the problems drawer has nothing to show")
+	}
+	if elsewhere != 2 {
+		t.Fatalf("%d jobs ran somewhere other than this fleet, want 2 (one finished, one running)", elsewhere)
 	}
 
 	// The Overview's history and the audit page both need rows.

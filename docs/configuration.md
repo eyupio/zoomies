@@ -87,6 +87,7 @@ agent:
   runner_sha256: ""             # ZOOMIES_AGENT_RUNNER_SHA256 -- digest of the runner archive, when github.runner_version is pinned
   allow_unverified_runner_download: false   # ZOOMIES_AGENT_ALLOW_UNVERIFIED_RUNNER_DOWNLOAD -- warned about
   runner_download_url: ""       # ZOOMIES_AGENT_RUNNER_DOWNLOAD_URL -- an internal mirror of the actions/runner releases
+  registry_auth: ""             # ZOOMIES_REGISTRY_AUTH -- credentials for a private image registry
   # Standalone agents only:
   controller_url: ""            # ZOOMIES_CONTROLLER_URL
   join_token: ""                # ZOOMIES_JOIN_TOKEN
@@ -319,6 +320,21 @@ available across matching hosts.
 
 Default is half the CPU count, on the reasoning that a job usually wants more
 than one core and the host still has to breathe.
+
+### `agent.registry_auth`
+
+A base64 `X-Registry-Auth` value the container backends send when they pull an
+image: the JSON `{"username":"...","password":"..."}` that `docker login`
+writes, base64url-encoded. Empty means anonymous pulls, which is right for
+public images.
+
+Set it when a pool's image lives in a private registry. Without it such a pool
+cannot use `pull_policy: pinned-only` at all — the pull it needs is the one the
+registry refuses, and the runner never starts.
+
+It is a credential, so prefer `ZOOMIES_REGISTRY_AUTH` in the service's
+environment file to a value written into `zoomies.yaml`, which is world-
+readable on plenty of hosts.
 
 ### `agent.docker_host`
 

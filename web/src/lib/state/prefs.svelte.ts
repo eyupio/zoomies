@@ -47,6 +47,14 @@ interface StoredPrefs {
   navCollapsed?: boolean;
   grids?: Record<string, GridPrefs>;
   /**
+   * Whether the Overview's job panels also show jobs no runner of this fleet
+   * touched. GitHub reports every job in the repositories an installation
+   * covers, so on an organisation that also uses hosted or vendor runners the
+   * majority of them are somebody else's. Off by default, because a panel
+   * headed "what the fleet is running" should mean it.
+   */
+  otherRunners?: boolean;
+  /**
    * Notices this browser has been told to stop showing. They are stored as a
    * list of ids rather than a flag per notice so a notice that is retired
    * leaves nothing behind, and they live here rather than on the server
@@ -89,6 +97,7 @@ class Prefs {
   #navCollapsed = $state(false);
   #grids = $state<Record<string, GridPrefs>>({});
   #dismissed = $state<string[]>([]);
+  #otherRunners = $state(false);
 
   constructor() {
     const stored = load();
@@ -100,6 +109,7 @@ class Prefs {
     this.#navCollapsed = chosen ?? tabletWidth();
     this.#grids = stored.grids ?? {};
     this.#dismissed = stored.dismissed ?? [];
+    this.#otherRunners = stored.otherRunners ?? false;
     this.#applyNav();
   }
 
@@ -116,6 +126,20 @@ class Prefs {
 
   toggleNav(): void {
     this.navCollapsed = !this.#navCollapsed;
+  }
+
+  /**
+   * Whether the Overview's job panels include jobs this fleet had no hand in.
+   * One preference for both panels: an operator deciding what "the fleet" means
+   * on that page means it for the whole page.
+   */
+  get otherRunners(): boolean {
+    return this.#otherRunners;
+  }
+
+  set otherRunners(value: boolean) {
+    this.#otherRunners = value;
+    this.#persist();
   }
 
   /** Column ids this grid is hiding. */
@@ -170,6 +194,7 @@ class Prefs {
         navCollapsed: this.#navCollapsed,
         grids: this.#grids,
         dismissed: this.#dismissed,
+        otherRunners: this.#otherRunners,
       } satisfies StoredPrefs),
     );
   }

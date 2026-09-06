@@ -489,7 +489,7 @@ chosen otherwise), `> 1180px` (full).
 | Budget | Limit |
 | --- | --- |
 | App shell (JS + CSS, gzipped) | **< 200 KB** |
-| Route chunk | < 80 KB gzipped |
+| Route chunk | < 80 KB gzipped, with named exceptions |
 | First contentful paint on a warm cache | < 400 ms |
 | Interaction to next paint | < 200 ms |
 
@@ -505,8 +505,19 @@ How it is kept:
 * the SSE cache is a plain `Map`, not a reactive deep-proxy over thousands of
   rows.
 
-`npm run build` prints the gzipped shell size and **fails** if it exceeds the
-budget, so this stays true.
+`npm run build` prints every chunk's gzipped size and **fails** if the shell or
+any route is over its budget, so this stays true.
+
+The shell is the entry chunk, what it imports statically, and the CSS those
+bring with them — not every stylesheet in the build, which is what it used to
+count and why the printed number overstated the first paint.
+
+One route is over the 80 KB line and is named in `ROUTE_ALLOWANCES` in
+`web/vite.config.ts` with the size it is allowed: `xterm`, the terminal
+emulator behind live runner and job output, which loads only on the two pages
+that show it. A route that grows past the budget without an entry there fails
+the build; adding one is a decision to make in a pull request, not a number to
+nudge.
 
 ---
 

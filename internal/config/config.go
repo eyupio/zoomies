@@ -186,6 +186,12 @@ type Agent struct {
 	// archive whose digest it cannot check. Off by default and warned about:
 	// the alternative is executing whatever the network handed over.
 	AllowUnverifiedRunnerDownload bool `yaml:"allow_unverified_runner_download"`
+	// RegistryAuth is a base64 X-Registry-Auth value the container backends
+	// send when they pull. Without it a pool on a private registry cannot use
+	// pull_policy: pinned-only at all, because the pull it needs is the one
+	// the registry refuses. Best supplied as ZOOMIES_REGISTRY_AUTH rather than
+	// written into zoomies.yaml: it is a credential.
+	RegistryAuth string `yaml:"registry_auth"`
 	// RunnerDownloadURL replaces github.com/actions/runner/releases/download as
 	// the place the process backend fetches archives from, for hosts that
 	// mirror releases internally. The path below it is the same.
@@ -684,6 +690,7 @@ func (c *Config) applyEnv() error {
 		str("DOCKER_HOST", &c.Agent.DockerHost)
 	}
 	str("ZOOMIES_WORK_DIR", &c.Agent.WorkDir)
+	str("ZOOMIES_REGISTRY_AUTH", &c.Agent.RegistryAuth)
 	str("ZOOMIES_CONTROLLER_URL", &c.Agent.ControllerURL)
 	str("ZOOMIES_JOIN_TOKEN", &c.Agent.JoinToken)
 	str("ZOOMIES_AGENT_TOKEN", &c.Agent.AgentToken)

@@ -7,6 +7,10 @@
   frames -- and a job whose runner stopped under it is marked as the fleet's
   failure rather than the workflow's, because that is the distinction an
   operator on this page is paid to make.
+
+  Like the panel above it, this is this fleet's own work unless the switch says
+  otherwise, and it shares that switch: an operator deciding what "the fleet"
+  means on this page means it for the whole page.
 -->
 <script lang="ts">
   import { CircleCheck } from '@lucide/svelte';
@@ -14,14 +18,16 @@
   import { events } from '$lib/api/sse';
   import type { Job } from '$lib/api/types';
   import { fleet } from '$lib/state/fleet.svelte';
+  import { prefs } from '$lib/state/prefs.svelte';
   import { formatDuration, formatNumber, toMillis } from '$lib/format';
-  import { jobFailed, jobStatus, RUNNER_LOST } from '$lib/status';
+  import { ELSEWHERE, jobFailed, jobStatus, managedJob, ranHere, RUNNER_LOST } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import StatusDot from '$lib/components/StatusDot.svelte';
+  import Switch from '$lib/components/Switch.svelte';
   import Panel from './Panel.svelte';
 
   interface Props {
@@ -47,10 +53,24 @@
     return rows.sort((a, b) => finishedAt(b) - finishedAt(a));
   }
 
-  async function load(signal?: AbortSignal): Promise<void> {
+  /** Whether the panel is showing jobs this fleet had no hand in. */
+  const others = $derived(prefs.otherRunners);
+
+  /** What belongs on the page, in the mode it is in. */
+  function belongs(job: Job): boolean {
+    return others || managedJob(job);
+  }
+
+  async function load(all: boolean, signal?: AbortSignal): Promise<void> {
     try {
       const page = await listJobs(
-        { state: ['completed'], managed: true, limit: FETCH, sort: 'completed_at', order: 'desc' },
+        {
+          state: ['completed'],
+          managed: all ? undefined : true,
+          limit: FETCH,
+          sort: 'completed_at',
+          order: 'desc',
+        },
         signal,
       );
       jobs = order((page.items ?? []).filter((row) => Boolean(row.id)));
@@ -64,8 +84,9 @@
   }
 
   $effect(() => {
+    const all = others;
     const controller = new AbortController();
-    void load(controller.signal);
+    void load(all, controller.signal);
     return () => controller.abort();
   });
 
@@ -74,7 +95,7 @@
   let previous: string | null = null;
   $effect(() => {
     const status = fleet.connection;
-    if (previous !== null && previous !== 'live' && status === 'live') void load();
+    if (previous !== null && previous !== 'live' && status === 'live') void load(others);
     previous = status;
   });
 
@@ -82,9 +103,10 @@
     events.subscribe('job.updated', (job) => {
       if (!job.id) return;
       const next = jobs.filter((row) => row.id !== job.id);
-      // Only this fleet's own outcomes, as the default Jobs view: a job that
-      // ran on somebody else's runner is not news about this fleet.
-      if (job.state === 'completed' && (job.pool_id || job.runner_id)) next.push(job);
+      // The same rule the fetch asked the server for. This used to be a
+      // predicate of its own, missing the pool that claims a job's labels, so
+      // a live frame could add a row the reload then dropped.
+      if (job.state === 'completed' && belongs(job)) next.push(job);
       jobs = order(next).slice(0, FETCH);
     }),
   );
@@ -103,7 +125,9 @@
 
 <Panel
   title="Recent outcomes"
-  description="How the fleet's last jobs ended, newest first."
+  description={others
+    ? 'How the last jobs ended, wherever they ran, newest first.'
+    : "How this fleet's last jobs ended, newest first."}
   class={className}
   flush
 >
@@ -111,6 +135,7 @@
     {#if !loading && failedThisHour > 0}
       <Badge tone="danger" label="{formatNumber(failedThisHour)} failed this hour" dot={false} />
     {/if}
+    <Switch label="Other runners" checked={others} onchange={(on) => (prefs.otherRunners = on)} />
   {/snippet}
 
   {#if error}
@@ -119,7 +144,7 @@
         {error}
         compact
         title="The recent outcomes could not be loaded"
-        onretry={() => void load()}
+        onretry={() => void load(others)}
       />
     </div>
   {:else if loading}
@@ -138,7 +163,9 @@
       icon={CircleCheck}
       compact
       title="Nothing has finished yet"
-      description="A job appears here the moment GitHub reports it over, with how it ended."
+      description={others
+        ? 'A job appears here the moment GitHub reports it over, with how it ended.'
+        : 'A job appears here the moment GitHub reports it over. Turn on other runners to see the jobs this fleet had no hand in.'}
     />
   {:else}
     <ul class="rows">
@@ -160,6 +187,9 @@
               </a>
               {#if job.runner_fault}
                 <Badge status={RUNNER_LOST} size="sm" />
+              {/if}
+              {#if !ranHere(job)}
+                <Badge status={ELSEWHERE} size="sm" title={ELSEWHERE.hint} />
               {/if}
             </p>
             <p class="meta">

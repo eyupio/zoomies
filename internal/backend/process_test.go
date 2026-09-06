@@ -28,6 +28,8 @@ const stubVersion = "9.9.9"
 // for the SIGINT that Stop sends and exits cleanly, the way the real runner
 // finishes its job and leaves.
 const stubListener = `#!/bin/sh
+echo "$@" > listener-args.txt
+printf '%s' "${ACTIONS_RUNNER_INPUT_JITCONFIG:-}" > listener-jitconfig.txt
 echo "listener started with $1"
 trap 'echo "interrupted"; exit 0' INT
 i=0
@@ -872,5 +874,44 @@ func TestTheRunnerImagePinsTheSameDigestsAsTheProcessBackend(t *testing.T) {
 	}
 	if !strings.Contains(string(dockerfile), "ARG RUNNER_VERSION="+DefaultRunnerVersion) {
 		t.Fatalf("deploy/Dockerfile.runner pins a different runner version from DefaultRunnerVersion %s", DefaultRunnerVersion)
+	}
+}
+
+// The JIT config is a credential. On the command line it is in
+// /proc/<pid>/cmdline, which every account on the host can read; the runner
+// takes it from the environment just as happily, and the container backends
+// already hand it over that way.
+func TestProcessKeepsTheJITConfigOffTheCommandLine(t *testing.T) {
+	requireUnix(t)
+	b, _ := newStubProcessBackend(t)
+	ctx := context.Background()
+
+	spec := processSpec()
+	h, err := b.Create(ctx, spec)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Remove(context.Background(), h) })
+
+	dir := string(h)
+	waitForLog(t, dir, "listener started", 5*time.Second)
+
+	args, err := os.ReadFile(filepath.Join(dir, "listener-args.txt"))
+	if err != nil {
+		t.Fatalf("reading the listener's arguments: %v", err)
+	}
+	if got := strings.TrimSpace(string(args)); got != "run" {
+		t.Fatalf("listener arguments = %q, want just \"run\"", got)
+	}
+	if strings.Contains(string(args), spec.Credentials.JITConfig) {
+		t.Fatal("the JIT config is on the command line, where ps can read it")
+	}
+
+	jit, err := os.ReadFile(filepath.Join(dir, "listener-jitconfig.txt"))
+	if err != nil {
+		t.Fatalf("reading the listener's environment: %v", err)
+	}
+	if string(jit) != spec.Credentials.JITConfig {
+		t.Fatalf("%s = %q, want the JIT config", EnvUpstreamJITConfig, jit)
 	}
 }

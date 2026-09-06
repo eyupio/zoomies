@@ -2212,7 +2212,7 @@ func (i *Installer) stepAdmin(ctx context.Context, st *store.Store, cfg *config.
 		return fmt.Errorf("installer: checking for existing accounts: %w", err)
 	}
 	if !needs {
-		i.ui.note("an account already exists; leaving it alone. Reset a forgotten password with `zoomies users passwd`.")
+		i.ui.note("an account already exists; leaving it alone. Reset a forgotten password with `zoomies users passwd <user-id>`.")
 		return nil
 	}
 	if p.adminPassword == "" {

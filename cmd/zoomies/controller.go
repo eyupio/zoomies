@@ -281,9 +281,10 @@ func socketExists(path string) bool {
 func buildBackends(ctx context.Context, cfg *config.Config, log *slog.Logger) (*backend.Registry, error) {
 	var backends []backend.Backend
 	opts := backend.DockerOptions{
-		Network: cfg.Agent.Network,
-		WorkDir: cfg.Agent.WorkDir,
-		Logger:  log,
+		Network:      cfg.Agent.Network,
+		WorkDir:      cfg.Agent.WorkDir,
+		RegistryAuth: cfg.Agent.RegistryAuth,
+		Logger:       log,
 	}
 	// An explicit agent.docker_host belongs to the backend it was configured
 	// for; the other container backend keeps autodetecting its own socket.

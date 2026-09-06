@@ -30,6 +30,12 @@ var ErrRateLimited = errors.New("github: rate limited")
 // the App installation is missing a permission.
 var ErrForbidden = errors.New("github: forbidden")
 
+// ErrInvalid is GitHub refusing a request as invalid rather than unauthorised:
+// a runner name already taken, a label it will not accept. The detail carries
+// the field-by-field reason, which is the part worth reading -- the message on
+// a 422 is always "Validation Failed".
+var ErrInvalid = errors.New("github: refused as invalid")
+
 // JITRequest asks GitHub for a just-in-time runner configuration.
 type JITRequest struct {
 	// Name must be unique within the target. GitHub rejects reuse.

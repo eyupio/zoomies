@@ -293,3 +293,54 @@ test('recent outcomes name the failures and blame the right party', async ({ pag
   // Running jobs stay in their own panel beside it.
   await expect(page.getByRole('region', { name: 'Active jobs' })).toBeVisible();
 });
+
+/*
+ * Whose jobs these are.
+ *
+ * GitHub reports every job in the repositories an installation covers, so an
+ * organisation part-way through a migration -- or one that keeps a hosted or
+ * vendor runner for a couple of workflows -- has jobs on this page that no
+ * runner here has ever seen. The panels used to list them under "what the
+ * fleet is running", which is a claim about somebody else's machine.
+ */
+test("the job panels are this fleet's work, and say so when they are not", async ({ page }) => {
+  const active = page.getByRole('region', { name: 'Active jobs', exact: true });
+  const outcomes = page.getByRole('region', { name: 'Recent outcomes', exact: true });
+  await expect(active.getByRole('listitem').first()).toBeVisible();
+
+  // By default both panels are the fleet's own work: the fixture's two vendor
+  // jobs, one running and one finished, are not on the page at all.
+  await expect(active).toContainText('What this fleet is running at this moment.');
+  await expect(active).not.toContainText('blacksmith');
+  await expect(outcomes).not.toContainText('blacksmith');
+  await expect(active.getByText('Elsewhere')).toHaveCount(0);
+
+  // One switch, shared: flipping it on either panel widens both.
+  await active.getByRole('switch', { name: 'Other runners' }).click();
+
+  await expect(active).toContainText('wherever it is running');
+  const vendor = active.getByRole('listitem').filter({ hasText: 'blacksmith' });
+  await expect(vendor).toHaveCount(1);
+  // And it is marked, because the row above it is this fleet's and looks the
+  // same otherwise.
+  await expect(vendor.getByText('Elsewhere')).toBeVisible();
+  await expect(outcomes.getByRole('switch', { name: 'Other runners' })).toBeChecked();
+
+  // The choice is the operator's, and it survives a reload.
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
+  await expect(
+    page
+      .getByRole('region', { name: 'Active jobs', exact: true })
+      .getByRole('switch', { name: 'Other runners' }),
+  ).toBeChecked();
+
+  // Off again, and the page is the fleet's own once more.
+  await page
+    .getByRole('region', { name: 'Active jobs', exact: true })
+    .getByRole('switch', { name: 'Other runners' })
+    .click();
+  await expect(page.getByRole('region', { name: 'Active jobs', exact: true })).not.toContainText(
+    'blacksmith',
+  );
+});

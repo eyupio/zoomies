@@ -300,11 +300,14 @@ func (b *ProcessBackend) CreateWithResult(ctx context.Context, spec Spec) (Creat
 	env := b.childEnv(spec, dir)
 	args := []string{"run"}
 	if jit := spec.Credentials.JITConfig; jit != "" {
-		// The JIT config goes on the command line because that is the interface
-		// the runner offers. It is single-use and expires in minutes, which is
-		// what makes a value visible in ps acceptable here; a registration token
-		// is not, and neither is anything else Zoomies holds.
-		args = append(args, "--jitconfig", jit)
+		// In the environment rather than on the command line. The runner reads
+		// ACTIONS_RUNNER_INPUT_<ARG> as a fallback for every --arg, which is
+		// how the container backends already hand it over, and it is the
+		// difference between a credential in /proc/<pid>/cmdline, which every
+		// local user can read, and one in /proc/<pid>/environ, which only this
+		// account and root can. Short-lived and single-use is a reason to
+		// worry less, not a reason to publish it.
+		env = append(env, EnvUpstreamJITConfig+"="+jit)
 	} else if err := b.configure(ctx, dir, spec, env); err != nil {
 		_ = os.RemoveAll(dir)
 		return CreateResult{}, err

@@ -61,9 +61,12 @@
   }
   header {
     display: flex;
+    /* Wraps rather than squeezing: a panel whose actions carry a switch as
+       well as a count has more than a phone's width of header. */
+    flex-wrap: wrap;
     align-items: baseline;
     justify-content: space-between;
-    gap: var(--z-space-4);
+    gap: var(--z-space-2) var(--z-space-4);
     padding: var(--z-space-4) var(--z-space-5);
     border-bottom: 1px solid var(--z-border);
   }

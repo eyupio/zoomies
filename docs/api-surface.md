@@ -305,7 +305,7 @@ zoomies hosts list | cordon | uncordon | delete
 zoomies hosts join-token create
 zoomies installations list | verify
 zoomies audit list | tail
-zoomies users list | create | delete
+zoomies users list | create | passwd | delete
 zoomies tokens list | create | revoke
 zoomies status                # the Overview, in a terminal
 ```

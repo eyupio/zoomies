@@ -84,6 +84,13 @@ one list.
   all name GitHub's or a vendor's runners are `hosted` in the view and badged neutrally,
   a queued job no pool here claims is reported only after two minutes, and the note, the
   problem and the log line give both readings (screenshot, 6 September).
+- [x] **N04** [bug] The Overview's Active jobs panel asked for every running job and
+  headed the answer "what the fleet is running at this moment", so a job on another
+  provider's runner was presented as this fleet's; nothing marked it and nothing
+  filtered it — `web/src/lib/overview/ActiveJobs.svelte` — done, both job panels ask
+  the server for this fleet's own work and share one persisted switch that widens them,
+  every row no runner here ran is badged `Elsewhere`, and Recent outcomes' live frames
+  now use the same predicate as its fetch (screenshot, 6 September).
 
 ## Wave 4: polish, gaps and nits
 
@@ -111,16 +118,16 @@ one list.
 
 ### Backends, agent, auth, installer, CLI and deploy
 
-- [ ] **E20** [polish] Error text names commands that do not exist — `internal/auth/auth.go:84`
-- [ ] **E21** [polish] `POST /pools/{id}/prewarm` writes no audit row — `internal/api/handlers_pools.go:619-636`
-- [ ] **E22** [polish] Binary and image disagree on the version string, and the image has no build date — `.github/workflows/release.yml:28`
-- [ ] **E23** [polish] `classify` leaves GitHub 422s unmapped — `internal/github/app.go:698-714`
-- [ ] **E24** [polish] No `HEALTHCHECK` in `deploy/Dockerfile`, and none on the docker-run deployment — `deploy/Dockerfile`
-- [ ] **E25** [polish] `install.sh` hints name a wrong path and a service that is never installed — `install.sh:977`
-- [ ] **E26** [polish] The process backend puts the JIT config on the command line — `internal/backend/process.go:311`
-- [ ] **E27** [polish] `deploy/*.service` are static copies that have already drifted from the installer templates — `deploy/zoomies.service`
+- [x] **E20** [polish] Error text names commands that do not exist — `internal/auth/auth.go:84` — done, the join-token message names the real command, and `zoomies users passwd` now exists, reading the password from the terminal or stdin
+- [x] **E21** [polish] `POST /pools/{id}/prewarm` writes no audit row — `internal/api/handlers_pools.go:619-636` — done, pool.prewarm writes a row naming the pool and the image
+- [x] **E22** [polish] Binary and image disagree on the version string, and the image has no build date — `.github/workflows/release.yml:28` — done, both release jobs take the version from one expression, the Makefile strips the v, the image learns a build date, and each version field is filled in on its own
+- [x] **E23** [polish] `classify` leaves GitHub 422s unmapped — `internal/github/app.go:698-714` — done, a 422 is github.ErrInvalid carrying the field-by-field reason, answered by the API as a 422
+- [x] **E24** [polish] No `HEALTHCHECK` in `deploy/Dockerfile`, and none on the docker-run deployment — `deploy/Dockerfile` — done, the image declares the HEALTHCHECK, in exec form, which a docker run inherits
+- [x] **E25** [polish] `install.sh` hints name a wrong path and a service that is never installed — `install.sh:977` — done, the downgrade hint names the real database path and the OpenRC hint names the container
+- [x] **E26** [polish] The process backend puts the JIT config on the command line — `internal/backend/process.go:311` — done, the JIT config goes in ACTIONS_RUNNER_INPUT_JITCONFIG, not argv
+- [x] **E27** [polish] `deploy/*.service` are static copies that have already drifted from the installer templates — `deploy/zoomies.service` — done, deleted; the installer templates are the only copy
 - [x] **E29** [polish] The CLI's own examples use the wrong ID prefix and an unbranded label list — `cmd/zoomies/pools.go:95` — done, branded labels and ins_ IDs in the CLI examples
-- [ ] **E28** [nit] Small installer, agent and deploy nits — `install.sh:584`
+- [x] **E28** [nit] Small installer, agent and deploy nits — `install.sh:584` — done, poll backoff jitter, no gid guess in compose, runners.create removed, agent.registry_auth added, no npm install fallback, install.sh wrapped in main with its downloads pinned to https
 
 ### Web UI: behaviour and state
 
@@ -170,8 +177,8 @@ one list.
 
 ### Build, CI and release
 
-- [ ] **B02** [polish] The xterm route chunk exceeds the documented route budget, and the shell budget counts route CSS — `web/vite.config.ts:34`
-- [ ] **B03** [nit] Workflow and Makefile nits — `.github/workflows/release.yml:12-13`
+- [x] **B02** [polish] The xterm route chunk exceeds the documented route budget, and the shell budget counts route CSS — `web/vite.config.ts:34` — done, the shell counts only the entry and its static imports; routes are enforced with xterm named in ROUTE_ALLOWANCES
+- [x] **B03** [nit] Workflow and Makefile nits — `.github/workflows/release.yml:12-13` — done, release.yml uses its own env pins, make lint uses git ls-files, openapi drops its build dependency
 
 ## Decisions worth recording
 

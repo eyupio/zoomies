@@ -1,6 +1,8 @@
 package installer
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -437,4 +439,32 @@ func containsSuffix(list []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// `zoomies healthcheck` exists to be a container's HEALTHCHECK, and the
+// compose files use it. The image declared none, so a `docker run`
+// deployment -- the third of the three the installer offers -- had no health
+// state at all: a wedged controller kept a running container and nothing said
+// otherwise.
+func TestTheImageDeclaresTheHealthcheckADockerRunInherits(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", "deploy", "Dockerfile"))
+	if err != nil {
+		t.Fatalf("reading deploy/Dockerfile: %v", err)
+	}
+	text := string(body)
+	i := strings.Index(text, "HEALTHCHECK")
+	if i < 0 {
+		t.Fatal("the controller image declares no HEALTHCHECK")
+	}
+	instruction := text[i:]
+	if j := strings.Index(instruction, "\nENTRYPOINT"); j >= 0 {
+		instruction = instruction[:j]
+	}
+	// Exec form, or a distroless image cannot run it at all.
+	if !strings.Contains(instruction, `CMD ["/usr/local/bin/zoomies", "healthcheck"`) {
+		t.Fatalf("the HEALTHCHECK is not the exec form of `zoomies healthcheck`:\n%s", instruction)
+	}
+	if want := fmt.Sprintf("http://127.0.0.1:%d", ContainerPort); !strings.Contains(instruction, want) {
+		t.Errorf("the HEALTHCHECK does not probe %s:\n%s", want, instruction)
+	}
 }
