@@ -37,6 +37,33 @@ type metrics struct {
 	buildInfo                                                                                    *prometheus.GaugeVec
 }
 
+// UnmatchedPool is the `pool` label for work no pool here claims.
+//
+// A literal rather than an empty string, because Prometheus has no notion of an
+// absent label value and a blank one is indistinguishable from a bug. A real
+// pool named `unmatched` would merge with it; that is a price worth naming in
+// the docs rather than designing around.
+const UnmatchedPool = "unmatched"
+
+// poolLabel is the `pool` label value for a pool id, and it is the only place
+// that decides what one looks like.
+//
+// Names, not ids. Every other pool-labelled metric uses the name, and
+// zoomies_jobs_total used the id -- so a PromQL query joining a pool's job
+// count against its runner count on `pool` silently matched nothing, which is
+// the worst kind of wrong for a dashboard.
+func (c *Controller) poolLabel(id string) string {
+	if id == "" {
+		return UnmatchedPool
+	}
+	if p, err := c.st.GetPool(context.Background(), id); err == nil && p.Name != "" {
+		return p.Name
+	}
+	// A pool deleted between the job finishing and this call still has to be
+	// counted somewhere, and its id is the only name left.
+	return id
+}
+
 func newMetrics(c *Controller) *metrics {
 	m := &metrics{
 		reg: prometheus.NewRegistry(),
@@ -194,7 +221,7 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 		gauge(descJobsQueued, float64(queuedByPool[p.ID]), p.Name)
 	}
 	// Jobs no pool claimed still have to be visible somewhere.
-	gauge(descJobsQueued, float64(queuedByPool[""]), "unmatched")
+	gauge(descJobsQueued, float64(queuedByPool[""]), UnmatchedPool)
 
 	var healthy, unhealthy, cordoned, capacity, used int
 	now := f.c.Now()

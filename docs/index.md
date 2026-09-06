@@ -146,14 +146,8 @@ permissions Zoomies needs — and your first admin account.
 curl -fsSL https://zoomies.sh/install.sh | sh
 ```
 
-Prefer to read it first? That is the intended way, and the script is written to
-be read:
-
-```sh
-curl -fsSLO https://zoomies.sh/install.sh
-less install.sh
-sh install.sh
-```
+Piping a script into a shell deserves a second look, and this one is written to
+survive one — [download it, read it, then run it](quickstart.md#1-install).
 
 It can deploy three ways — the binary under systemd, a `docker compose` stack
 with a fully populated `.env`, or a single container — and it will only offer

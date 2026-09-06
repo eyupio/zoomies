@@ -440,9 +440,12 @@ restored one at a time or all at once.
 
 ## 3. Component inventory
 
-Every component lives in `web/src/lib/components/` and takes its values from
-tokens. Svelte 5 runes (`$state`, `$derived`, `$props`, `$effect`) throughout —
-no stores except for genuinely global state.
+The components below live in `web/src/lib/components/` and take their values
+from tokens. Everything else lives in a folder named for the thing it serves --
+`lib/pools/`, `lib/jobs/`, `lib/shell/` -- so a file's path says who owns it,
+and a component earns its way into `components/` when a second feature needs it
+rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
+`$props`, `$effect`) throughout — no stores except for genuinely global state.
 
 ### Primitives
 
@@ -477,8 +480,8 @@ no stores except for genuinely global state.
 | `FilterBar` | chips for active filters, each individually removable, plus a clear-all |
 | `PageHeader` | title, subtitle, breadcrumb, primary action |
 | `MetricTile` | number, label, delta, sparkline |
-| `LogViewer` | xterm.js with search, follow/pause, wrap toggle, download, and a line counter |
-| `Timeline` | runner state history with durations between transitions |
+| `LogViewer` | `lib/logs/`. xterm.js with search, follow/pause, wrap toggle, download, and a line counter |
+| `RunnerTimeline` | `lib/runners/`. One row per state with how long the runner stayed there, reconstructed from the four timestamps a runner row carries -- and it says so, rather than letting an operator read it as an audit trail |
 | `Wizard` | the pool creation flow: target → labels → backend → scaling → review |
 
 ### The log viewer
@@ -529,7 +532,7 @@ returns 409 the badge flips back and the toast explains. Background outcomes
 ### Forms
 
 Validation rules come from the same source as the API's, generated into
-`web/src/lib/api/schema.ts` from the OpenAPI document. Errors appear inline on
+`web/src/lib/api/schema.d.ts` from the OpenAPI document. Errors appear inline on
 blur and again on submit; the first invalid field receives focus. Defaults are
 filled in from the host's detected capabilities, so pool creation is mostly
 pressing *Next*.

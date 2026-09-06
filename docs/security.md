@@ -226,6 +226,10 @@ count that is always amber is a count nobody reads. The per-pool settings are
 not startup matters at all: they are shown on the pool's own page and in the
 drawer for as long as the pool has them.
 
+This section is about what each dangerous setting *costs*.
+[Problem codes](problem-codes.md) is the other half: every code Zoomies can
+raise, dangerous or not, with its severity and what to do about it.
+
 ### `pool.docker_mode: host-socket`
 
 Bind-mounts the host's `docker.sock` into every runner in the pool.
@@ -414,6 +418,15 @@ containers to run. Pin the CA with `agent.ca_file` instead.
 
 ## 8. Reporting a vulnerability
 
-Open a private security advisory on the repository rather than a public issue.
-Please include the version (`zoomies version`), the configuration with secrets
-removed, and what an attacker gains.
+Open a [private security advisory][advisory] on the repository rather than a
+public issue. Please include the version (`zoomies version`), the configuration
+with secrets removed — `zoomies config print` produces it already blanked — and
+what an attacker gains.
+
+`SECURITY.md` in the repository root says the same thing, and is what GitHub
+reads to offer "Report a vulnerability" on the repository's own security tab.
+It also draws the line this document is the long form of: a dangerous setting
+behaving dangerously is not a vulnerability, and a way to reach one without
+setting it is.
+
+[advisory]: https://github.com/eyupio/zoomies/security/advisories/new

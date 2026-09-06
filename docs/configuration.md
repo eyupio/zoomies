@@ -10,14 +10,33 @@ description: >-
 One file, `zoomies.yaml`, and every key can be overridden with a `ZOOMIES_*`
 environment variable. Environment wins over file; file wins over defaults.
 
-Zoomies looks for the file at, in order: `--config <path>`,
-`$ZOOMIES_CONFIG_DIR/zoomies.yaml`, `/etc/zoomies/zoomies.yaml` when running as
-root, otherwise `$XDG_CONFIG_HOME/zoomies/zoomies.yaml`. If no file exists and
-none was named explicitly, defaults plus environment are used — which is what
-makes the container image work with nothing but environment variables.
+If no file exists and none was named explicitly, defaults plus environment are
+used — which is what makes the container image work with nothing but
+environment variables.
 
 The parser is strict. A misspelled key is an error naming the line, not a
 setting that silently does nothing.
+
+### Where things live
+
+Two directories, and neither has one fixed answer: they depend on the operating
+system and on whether the process is running as root.
+
+| | Configuration | State |
+| --- | --- | --- |
+| Override | `ZOOMIES_CONFIG_DIR` | `ZOOMIES_STATE_DIR` |
+| Linux, as root | `/etc/zoomies` | `/var/lib/zoomies` |
+| Linux, as anyone else | `~/.config/zoomies` | `~/.config/zoomies` |
+| macOS | `~/Library/Application Support/zoomies` | same |
+
+The configuration directory holds `zoomies.yaml` and the encryption key; the
+state directory holds the database and the agents' work areas. Every default
+path below that begins `<config dir>` or `<state dir>` resolves through this
+table, and `zoomies config print` says what they came out as on this host.
+
+`ZOOMIES_STATE_DIR` is the one to reach for when the database belongs on a
+different disk from everything else — it moves the database and the work
+directories together, so the two do not have to be set separately.
 
 ```mermaid
 flowchart LR
@@ -26,8 +45,14 @@ flowchart LR
     e --> v{"config.Validate"}
     v -->|"an error"| stop["startup stops, and the message<br/>names what to change"]
     v -->|"a warning"| warn["startup continues -- printed here, and shown<br/>in the UI's problems drawer while it is true"]
+    v -->|"info"| note["startup continues -- a default worth knowing<br/>rather than anything wrong"]
     v -->|"nothing to say"| ok["running"]
 ```
+
+Every finding carries a code, and the code is the stable half: it is what you
+search for and alert on, while the sentence beside it is written for whoever is
+reading and may improve. [Problem codes](problem-codes.md) lists all of them —
+the validator's and the running controller's — with severities and what to do.
 
 ---
 
@@ -53,11 +78,11 @@ server:
   idle_timeout: 120s            # ZOOMIES_IDLE_TIMEOUT
 
 database:
-  path: /var/lib/zoomies/zoomies.db   # ZOOMIES_DB_PATH
+  path: <state dir>/zoomies.db  # ZOOMIES_DB_PATH -- see "Where things live" below
 
 security:
   encryption_key: ""                        # ZOOMIES_ENCRYPTION_KEY
-  encryption_key_file: /etc/zoomies/encryption.key   # ZOOMIES_ENCRYPTION_KEY_FILE
+  encryption_key_file: <config dir>/encryption.key   # ZOOMIES_ENCRYPTION_KEY_FILE
   session_ttl: 168h                         # ZOOMIES_SESSION_TTL
   cookie_secure: null                       # ZOOMIES_COOKIE_SECURE (derived when unset)
   disable_auth: false                       # ZOOMIES_DISABLE_AUTH
@@ -78,7 +103,7 @@ agent:
   capacity: <cpus / 2>          # ZOOMIES_AGENT_CAPACITY
   backend: docker               # ZOOMIES_AGENT_BACKEND  -- docker | podman | process
   docker_host: ""               # ZOOMIES_DOCKER_HOST / DOCKER_HOST -- "" autodetects
-  work_dir: /var/lib/zoomies/work   # ZOOMIES_WORK_DIR
+  work_dir: <state dir>/work    # ZOOMIES_WORK_DIR
   labels: {}                    # ZOOMIES_AGENT_LABELS   -- "gpu=true,zone=eu"
   network: ""                   # ZOOMIES_AGENT_NETWORK
   heartbeat_interval: 30s       # ZOOMIES_HEARTBEAT_INTERVAL -- a host is lost after 90s of silence; above 45s is warned about
@@ -121,9 +146,9 @@ oidc:
   client_id: ""                 # ZOOMIES_OIDC_CLIENT_ID
   client_secret: ""             # ZOOMIES_OIDC_CLIENT_SECRET
   redirect_url: ""              # ZOOMIES_OIDC_REDIRECT_URL (derived from external_url)
-  scopes: [openid, profile, email]
-  username_claim: preferred_username
-  groups_claim: groups
+  scopes: [openid, profile, email]  # ZOOMIES_OIDC_SCOPES
+  username_claim: preferred_username # ZOOMIES_OIDC_USERNAME_CLAIM
+  groups_claim: groups          # ZOOMIES_OIDC_GROUPS_CLAIM
   admin_groups: []              # ZOOMIES_OIDC_ADMIN_GROUPS
   operator_groups: []           # ZOOMIES_OIDC_OPERATOR_GROUPS
   allow_signup: false           # ZOOMIES_OIDC_ALLOW_SIGNUP
@@ -559,7 +584,7 @@ one of them is the common mistake:
 Miss the second and the daemon is there, reachable, and unused: the job fails at
 its first Docker step with
 
-```
+```text
 Error: Unable to locate executable file: docker.
 ```
 
@@ -597,7 +622,7 @@ panel. That is almost always a typo in `runs-on` or a label missing from a pool.
 
 Every start prints what it found:
 
-```
+```text
 $ zoomies controller
 level=INFO msg="configuration warning" code=bind.public_no_tls setting=server.bind
   title="listening on 0.0.0.0:8080 without TLS"

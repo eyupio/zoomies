@@ -297,7 +297,7 @@ client ever has to poll or ask the operator to reload:
 The CLI is a client of this API and nothing more. Every command below is one or
 two calls to a route above.
 
-```
+```text
 zoomies pools list | get | create | edit | delete | enable | disable | prewarm
 zoomies runners list | get | drain | delete | logs
 zoomies jobs list | get

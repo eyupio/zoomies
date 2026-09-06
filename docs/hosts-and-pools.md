@@ -1,3 +1,10 @@
+---
+description: >-
+  How a pool decides what runners to make and a host decides whether it can
+  make them: labels, selectors, capacity, and why a pool sometimes has nowhere
+  to run.
+---
+
 # Hosts and pools
 
 The [quick start](quickstart.md) leaves you with one host and one pool, which is
@@ -190,7 +197,7 @@ setting it to 20 across two hosts of capacity 4 buys nothing.
 The scheduler says why, in one sentence, and the same reason appears in
 **Scaling events**, the problems drawer and the CLI:
 
-```
+```text
 no host can take a new docker runner (1 cordoned, 2 at capacity)
 ```
 
@@ -206,7 +213,7 @@ Read the counts, because they name the fix:
 
 The distinction the reasons keep is between a fleet that is merely **full**,
 which clears itself, and one that is **misconfigured**, which never will.
-[The quick start's troubleshooting section](quickstart.md#a-job-that-sits-in-the-queue)
+[Troubleshooting](troubleshooting.md#a-job-that-sits-in-the-queue)
 walks the same tree from a queued job's point of view.
 
 ### When runners keep failing to start
@@ -216,7 +223,7 @@ host cannot reach GitHub, the runner version does not exist -- is not replaced
 in the same pass that notices. The pool waits ten seconds after the first such
 failure, and doubles the wait with each one after it, up to five minutes:
 
-```
+```text
 cannot scale linux-x64 0 -> 1: the last 3 runners failed to start, most recently
 30s ago (No such image: sha256:9f2c…); trying again in 10s
 ```

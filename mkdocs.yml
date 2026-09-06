@@ -148,9 +148,16 @@ nav:
       - Hosts and pools: hosts-and-pools.md
       - Migrating repositories: migration.md
       - Security: security.md
+      - Troubleshooting: troubleshooting.md
+      - Upgrading: upgrading.md
+      - Backup and restore: backup-and-restore.md
       - API: api-surface.md
+      - Capacity-demand receiver: capacity-demand-receiver.md
   - FAQ: faq.md
   - Reference:
+      - Command line: cli.md
+      - Problem codes: problem-codes.md
+      - Metrics: metrics.md
       - Dependencies: dependencies.md
       - UI guidelines: ui-guidelines.md
       - Brand: brand.md
@@ -167,3 +174,6 @@ validation:
   links:
     absolute_links: ignore
     unrecognized_links: warn
+    # A heading that gets reworded silently breaks every deep link into it, and
+    # a link that lands at the top of a long page looks like it worked.
+    anchors: warn

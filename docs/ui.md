@@ -27,11 +27,11 @@ queue wait with its p95 — then how long runners take to start and to register.
 Under them, each pool's busy runners against its live ones with the floor and
 ceiling marked, what is running this moment, how the last jobs ended, and the
 scheduler's decisions in its own words: *scaled zoomies-demo-linux-x64 4 → 5:
-1 job queued > 30s*. When something needs a person it is one line and a
+1 job queued*. When something needs a person it is one line and a
 *Review* button, never a list that pushes the fleet below the fold.
 
-![The Overview: four metric tiles with sparklines, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the recent scaling feed](screenshots/overview-dark.webp#only-dark){ .zoomies-shot }
-![The Overview: four metric tiles with sparklines, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the recent scaling feed](screenshots/overview-light.webp#only-light){ .zoomies-shot }
+![The Overview: four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words](screenshots/overview-dark.webp#only-dark){ .zoomies-shot }
+![The Overview: four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words](screenshots/overview-light.webp#only-light){ .zoomies-shot }
 
 ## The problems drawer
 
@@ -41,8 +41,8 @@ stopped under it, and every configuration setting that weakens the default
 posture — worst first, each saying what is true, why it matters and what to
 change, with a link to the page where you change it.
 
-![The problems drawer open over the Overview, listing a cordoned host with queued work and a job that lost its runner, each with the fix the controller suggests](screenshots/problems-dark.webp#only-dark){ .zoomies-shot }
-![The problems drawer open over the Overview, listing a cordoned host with queued work and a job that lost its runner, each with the fix the controller suggests](screenshots/problems-light.webp#only-light){ .zoomies-shot }
+![The problems drawer open over the Overview, each entry saying what is true, why it matters and what to change](screenshots/problems-dark.webp#only-dark){ .zoomies-shot }
+![The problems drawer open over the Overview, each entry saying what is true, why it matters and what to change](screenshots/problems-light.webp#only-light){ .zoomies-shot }
 
 ## The command palette
 
@@ -60,8 +60,8 @@ ceiling, idle timeout, whether its runners are ephemeral and whether jobs get a
 Docker daemon — and a risk badge on any pool that trades some of the default
 safety away, so the trade is visible from the list.
 
-![The Pools grid: two pools with their labels, backend, busy-against-live bars, queue depth, idle timeout, lifetime and Docker mode](screenshots/pools-dark.webp#only-dark){ .zoomies-shot }
-![The Pools grid: two pools with their labels, backend, busy-against-live bars, queue depth, idle timeout, lifetime and Docker mode](screenshots/pools-light.webp#only-light){ .zoomies-shot }
+![The Pools page: each pool's labels, target, backend, busy-against-live bar, queue depth, idle timeout, lifetime and Docker mode](screenshots/pools-dark.webp#only-dark){ .zoomies-shot }
+![The Pools page: each pool's labels, target, backend, busy-against-live bar, queue depth, idle timeout, lifetime and Docker mode](screenshots/pools-light.webp#only-light){ .zoomies-shot }
 
 A pool's own page shows its runners and recent jobs, the exact `runs-on:` line
 a workflow writes to land here, and its configuration with the warnings — if
@@ -95,8 +95,8 @@ state, dates — live in the URL, so a view can be pasted into a chat. A queued
 job that no enabled pool claims is called out at the top of the page, because
 it is almost always a typo in `runs-on`.
 
-![The Jobs grid with a warning that one queued job has no pool to run it](screenshots/jobs-dark.webp#only-dark){ .zoomies-shot }
-![The Jobs grid with a warning that one queued job has no pool to run it](screenshots/jobs-light.webp#only-light){ .zoomies-shot }
+![The Jobs page: the fleet's queued, running and finished jobs with their labels, pool, runner, queue wait and duration](screenshots/jobs-dark.webp#only-dark){ .zoomies-shot }
+![The Jobs page: the fleet's queued, running and finished jobs with their labels, pool, runner, queue wait and duration](screenshots/jobs-light.webp#only-light){ .zoomies-shot }
 
 Opening a job says where it went wrong first: the step that failed and how
 long it ran, with a link to that step's log on GitHub — or, when the runner
@@ -124,8 +124,8 @@ labels pools select it by. A cordoned host keeps its runners and takes no new
 ones. *Add a host* mints a join token and prints the one line to paste on the
 new machine.
 
-![The Hosts page: three host cards showing health, slots in use, detected backends with a fix for the missing one, and labels, above the join tokens panel](screenshots/hosts-dark.webp#only-dark){ .zoomies-shot }
-![The Hosts page: three host cards showing health, slots in use, detected backends with a fix for the missing one, and labels, above the join tokens panel](screenshots/hosts-light.webp#only-light){ .zoomies-shot }
+![The Hosts page: a card per host with its health, slots in use, detected backends and labels, above the join tokens panel](screenshots/hosts-dark.webp#only-dark){ .zoomies-shot }
+![The Hosts page: a card per host with its health, slots in use, detected backends and labels, above the join tokens panel](screenshots/hosts-light.webp#only-light){ .zoomies-shot }
 
 ## Installations
 
@@ -147,8 +147,8 @@ a `${{ matrix.os }}` expression, a runner that is already self-hosted — are
 listed with the reason, here and in the pull request body. [How it
 works](migration.md).
 
-![The migration wizard's review step: a unified diff changing runs-on from ubuntu-latest to the pool's label, and the jobs left alone with their reasons](screenshots/migrate-dark.webp#only-dark){ .zoomies-shot }
-![The migration wizard's review step: a unified diff changing runs-on from ubuntu-latest to the pool's label, and the jobs left alone with their reasons](screenshots/migrate-light.webp#only-light){ .zoomies-shot }
+![The migration wizard's review step: the exact diff for one repository, changing runs-on from ubuntu-latest to the pool's labels, and the jobs it will not touch](screenshots/migrate-dark.webp#only-dark){ .zoomies-shot }
+![The migration wizard's review step: the exact diff for one repository, changing runs-on from ubuntu-latest to the pool's labels, and the jobs it will not touch](screenshots/migrate-light.webp#only-light){ .zoomies-shot }
 
 ## Audit
 
@@ -175,8 +175,8 @@ Read-only monitoring from a phone is a stated requirement, so it is tested. The
 navigation moves to the bottom edge, the tiles stack, and everything still
 updates in place.
 
-![The Overview on a phone: the metric tiles stacked, the problems count in the top bar and the navigation along the bottom edge](screenshots/overview-phone-dark.webp#only-dark){ .zoomies-shot .zoomies-phone }
-![The Overview on a phone: the metric tiles stacked, the problems count in the top bar and the navigation along the bottom edge](screenshots/overview-phone-light.webp#only-light){ .zoomies-shot .zoomies-phone }
+![The Overview: four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words](screenshots/overview-phone-dark.webp#only-dark){ .zoomies-shot .zoomies-phone }
+![The Overview: four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words](screenshots/overview-phone-light.webp#only-light){ .zoomies-shot .zoomies-phone }
 
 The design system behind all of this — tokens, status colours, components and
 the accessibility checklist — is in [UI guidelines](ui-guidelines.md).

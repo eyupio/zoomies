@@ -82,7 +82,7 @@ sequenceDiagram
     C->>C: verify the HMAC, record the delivery
     C->>DB: upsert the job, never backwards
     C->>S: snapshot -- pools, runners, queued jobs, hosts
-    S-->>C: plan -- "create 1 in zoomies-linux-x64: 1 job queued > 30s"
+    S-->>C: plan -- "create 1 in zoomies-linux-x64: 1 job queued"
     C->>GH: ask for a single-use JIT configuration
     GH-->>C: JIT configuration
     C->>DB: runner row, state provisioning
@@ -183,6 +183,8 @@ stateDiagram-v2
     busy --> idle: job finished, and the pool is not ephemeral
     idle --> draining: idle timeout, scale-down, or an operator
     busy --> draining: finish this job, then stop
+    provisioning --> draining: cancelled before it started
+    registering --> draining: cancelled before it came online
     provisioning --> failed: the agent could not start it
     registering --> failed: it never came online
     draining --> removed: the container is gone
@@ -202,10 +204,12 @@ stateDiagram-v2
   page to decide how long to wait before creating another
   ([how the wait works](hosts-and-pools.md#when-runners-keep-failing-to-start)).
 
-Any live state can also go straight to `failed` or `removed`: a host that
-vanishes takes its runners with it, and the drawing leaves those edges out to
-stay readable. The allow-list itself is `validRunnerTransitions` in
-`internal/store/models.go`.
+Every live state can also go straight to `failed` or `removed`: a host that
+vanishes takes its runners with it, and the drawing leaves those two edges out
+of each state to stay readable. Everything else it draws, including the two
+ways a runner can be told to stop before it ever comes online — a pool
+disabled or deleted underneath it, or an operator draining the host. The
+allow-list itself is `validRunnerTransitions` in `internal/store/models.go`.
 
 Transitions are validated in `store.TransitionRunner`, not in the caller. An
 agent cannot report a nonsensical state and corrupt the fleet's accounting.

@@ -1,3 +1,10 @@
+---
+description: >-
+  How to write the service on the other end of `capacity_demand`: the signed
+  JSON Zoomies posts when a pool is blocked for want of a host, its retries,
+  and how deliveries are deduplicated.
+---
+
 # Capacity-demand receiver
 
 Zoomies can ask an external autoscaling system for host capacity without owning
@@ -7,10 +14,26 @@ pool IDs or names.
 
 The controller posts JSON for `capacity_demand` when queued work is blocked by
 full eligible hosts, and `scale_down_opportunity` only after excess idle host
-capacity remains continuously visible for the cooldown. Successful events are
-deduplicated for the cooldown and delivery state is stored in SQLite, including
-across restarts. A scale-down event is advisory: the receiver must apply its
-own safety policy before removing a VM.
+capacity remains continuously visible for the cooldown. Delivery state is
+stored in SQLite, so it survives a restart. A scale-down event is advisory: the
+receiver must apply its own safety policy before removing a VM.
+
+Two behaviours matter to whoever writes the receiver, and neither is what you
+would guess:
+
+* **The cooldown keys on the attempt, not the outcome.** Once Zoomies has tried
+  to deliver an event for a pool and event type, it will not try again until the
+  cooldown has passed — whether the first attempt was accepted, refused or
+  never answered. This is deliberate: it is the circuit breaker that stops an
+  unavailable receiver turning every reconcile pass into a request storm. It
+  also means a receiver that returns 500 does not get an immediate retry from
+  the next pass.
+* **Each delivery retries up to three times on its own**, with backoff, inside
+  that one attempt. A receiver must therefore be idempotent on `event_id`: the
+  same event can arrive more than once, and the second arrival is not a new
+  demand. When all three fail, the failure is recorded, raised as the
+  `capacity_demand.delivery_failed` problem, and left until the cooldown
+  expires.
 
 ```json
 {

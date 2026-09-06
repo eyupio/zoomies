@@ -117,6 +117,31 @@ const SHOTS = [
   },
   { name: 'audit', path: '/audit', heading: 'Audit' },
   { name: 'settings', path: '/settings', heading: 'Settings' },
+  // The two wizards. The docs discuss both at length and photographed
+  // neither, so the only way to know what "the labels step previews the
+  // runs-on line" looks like was to install Zoomies and find out.
+  {
+    name: 'pool-wizard',
+    path: '/pools/new',
+    heading: 'Create a pool',
+    async prepare(page) {
+      // The labels step, which is the one worth showing: it previews the
+      // runs-on line the labels produce.
+      await page.getByRole('button', { name: 'Next' }).click();
+      await page.getByRole('textbox', { name: 'Labels' }).waitFor();
+    },
+  },
+  {
+    name: 'add-host',
+    path: '/hosts/new',
+    heading: 'Add a host',
+  },
+  // Sign-in is deliberately not here. This runner bootstraps an administrator
+  // so that every other page has a session, and a signed-in browser cannot
+  // photograph the sign-in card. Capturing it would need the first-run fixture
+  // and a second controller, which is more machinery than one screenshot of a
+  // form with two fields is worth.
+  //
   // Read-only monitoring on a phone is a stated requirement, so it is shown.
   { name: 'overview-phone', path: '/', heading: 'Overview', device: devices['Pixel 7'] },
 ];

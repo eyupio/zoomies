@@ -240,7 +240,7 @@ func (c *Controller) handleWorkflowJob(ctx context.Context, body []byte) error {
 	}
 	c.recordJobChange(ctx, saved, change, sourceWebhook, runner)
 	if saved.StartedAt != nil {
-		poolName, backendName := "unmatched", "unknown"
+		poolName, backendName := UnmatchedPool, "unknown"
 		if p, e := c.st.GetPool(ctx, saved.PoolID); e == nil {
 			poolName, backendName = p.Name, string(p.Backend)
 		}
@@ -286,10 +286,7 @@ func (c *Controller) handleWorkflowJob(ctx context.Context, body []byte) error {
 // observeJobCompletion feeds the histograms the Overview's percentiles and the
 // Prometheus endpoint are built from.
 func (c *Controller) observeJobCompletion(j *store.Job) {
-	pool := j.PoolID
-	if pool == "" {
-		pool = "unmatched"
-	}
+	pool := c.poolLabel(j.PoolID)
 	conclusion := j.Conclusion
 	if conclusion == "" {
 		conclusion = "unknown"
