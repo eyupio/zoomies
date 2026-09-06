@@ -16,4 +16,7 @@ serveController({
   prefix: 'zoomies-firstrun-',
   // Authentication stays ON: it is the whole point of this fixture.
   env: {},
+  // Where to leave the setup token for the spec. playwright.config.ts passes
+  // it, from the one definition in tests/support/fixtures.ts.
+  tokenFile: process.argv[3],
 });

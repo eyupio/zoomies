@@ -185,12 +185,8 @@
   <h1>Create the first administrator</h1>
   <p class="lede">
     Nobody has an account on this controller yet. This form creates the first one, with the admin
-    role, and stops being available the moment it exists.
-  </p>
-  <p class="lede">
-    It also asks for the setup token this controller printed when it started, so that only whoever
-    deployed it can claim it. Find it in the controller's log, on a line beginning
-    <code>setup token</code> &mdash; with Docker Compose, <code>docker compose logs zoomies</code>.
+    role, and stops being available the moment it exists. The setup token is how it knows you are
+    the one who deployed this controller.
   </p>
   <p class="next">Then: connect a GitHub App, create a pool, and point a workflow at it.</p>
 
@@ -215,7 +211,7 @@
          error needs it and the form does not move as one appears. -->
     <Field
       label="Setup token"
-      hint="Printed in the controller's log at startup. It changes on every restart."
+      hint="From the controller's log: docker compose logs zoomies | grep 'setup token'"
       error={setupTokenError ?? fieldErrors.setup_token}
       required
     >
@@ -414,13 +410,6 @@
     font-size: var(--z-text-2xs);
     color: var(--z-text-subtle);
     text-align: center;
-  }
-  .lede code {
-    padding: 0 var(--z-space-1);
-    border-radius: var(--z-radius-sm);
-    background: var(--z-surface-sunken);
-    font-family: var(--z-font-mono);
-    font-size: var(--z-text-xs);
   }
   .lede {
     margin: var(--z-space-2) 0 var(--z-space-2);

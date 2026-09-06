@@ -9,9 +9,9 @@
 // copies had already drifted in how they shut down.
 
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 /**
  * The settings every fixture shares, given the directory it runs out of.
@@ -44,8 +44,13 @@ export function controllerEnv(dir, port) {
  * @param {string} options.port          Loopback port to bind.
  * @param {string} options.prefix        Temporary directory prefix, for readable `ls /tmp`.
  * @param {Record<string, string>} options.env  Settings this fixture differs by.
+ * @param {string} [options.tokenFile]   Where to write the setup token the
+ *   controller prints while it has no accounts. The first-run fixture needs it:
+ *   the bootstrap route asks for the token as proof that whoever is creating
+ *   the first administrator can read the controller's log, and a test is in the
+ *   same position as the operator -- it has to go and get it.
  */
-export function serveController({ port, prefix, env }) {
+export function serveController({ port, prefix, env, tokenFile }) {
   const root = resolve(import.meta.dirname, '..', '..', '..');
   const binary = join(root, 'zoomies');
 
@@ -67,9 +72,25 @@ export function serveController({ port, prefix, env }) {
   };
 
   const child = spawn(binary, ['controller'], {
-    stdio: 'inherit',
+    // stdout is piped only when somebody is watching for the setup token, and
+    // is echoed on either way: a fixture that swallowed the controller's own
+    // output would make a failed boot impossible to read in CI.
+    stdio: tokenFile ? ['inherit', 'pipe', 'inherit'] : 'inherit',
     env: { ...process.env, ...controllerEnv(dir, port), ...env },
   });
+
+  if (tokenFile) {
+    let seen = false;
+    child.stdout.on('data', (chunk) => {
+      process.stdout.write(chunk);
+      if (seen) return;
+      const match = /setup token\s+(\S+)/.exec(String(chunk));
+      if (!match) return;
+      seen = true;
+      mkdirSync(dirname(tokenFile), { recursive: true });
+      writeFileSync(tokenFile, match[1]);
+    });
+  }
 
   // Ask it to stop, then wait: the exit handler below does the removal. Pulling
   // the SQLite directory out from under a controller still checkpointing its

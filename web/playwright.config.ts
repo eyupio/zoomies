@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { SETUP_TOKEN_FILE } from './tests/support/fixtures';
 
 /**
  * Playwright drives the real binary, not a mock server: the tests boot
@@ -56,7 +57,7 @@ export default defineConfig({
       stderr: 'pipe',
     },
     {
-      command: `node tests/support/serve-firstrun.mjs ${FIRST_RUN_PORT}`,
+      command: `node tests/support/serve-firstrun.mjs ${FIRST_RUN_PORT} ${SETUP_TOKEN_FILE}`,
       url: `http://127.0.0.1:${FIRST_RUN_PORT}/healthz`,
       // Never reused: the bootstrap route closes for ever once an account
       // exists, so this suite needs a database nobody has touched.
