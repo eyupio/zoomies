@@ -1325,6 +1325,11 @@ export interface components {
          *     `none` is the default and the only one that is not a warning.
          *     `dind` gives a private, privileged sidecar daemon.
          *     `host-socket` hands the job the host's daemon, and with it root on the host.
+         *     Either of those switches a pool on the stock `ghcr.io/eyupio/zoomies-runner`
+         *     image under a moving tag (none, `latest` or `main`) to
+         *     `ghcr.io/eyupio/zoomies-runner-docker` under the same tag as it is saved,
+         *     because the stock image has no client for the daemon. A pinned tag, a
+         *     digest, or an image of your own is left as given.
          * @enum {string}
          */
         DockerMode: "none" | "dind" | "host-socket";
@@ -3196,6 +3201,8 @@ export interface operations {
                         warnings?: components["schemas"]["Problem"][];
                         /** @description How many hosts could actually run this pool. Zero is worth saying out loud before the pool is created. */
                         matching_hosts?: number;
+                        /** @description The image the pool would actually run, which for a pool that gives its jobs a daemon is the stock image's Docker variant rather than the image the request named. */
+                        image?: string;
                     };
                 };
             };

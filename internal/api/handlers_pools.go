@@ -206,6 +206,14 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 	if in.Enabled != nil {
 		p.Enabled = *in.Enabled
 	}
+	// The image the pool will actually run. A pool that gives its jobs a daemon
+	// cannot use the stock image, which has no client for it, so the stock
+	// image is swapped for its Docker variant here, as the request is folded
+	// in, rather than left for the operator to remember: the response, the
+	// audit row and the pool's page then all show the image that runs, and the
+	// wizard's dry run agrees with the create it precedes. What is and is not
+	// swapped is config.RunnerImageFor's to say.
+	p.Image = config.RunnerImageFor(p.Image, p.DockerMode.GivesDaemon())
 	return errs
 }
 
@@ -431,6 +439,11 @@ type validatePoolResponse struct {
 	Errors        []fieldError         `json:"errors"`
 	Warnings      []controller.Problem `json:"warnings"`
 	MatchingHosts int                  `json:"matching_hosts"`
+	// Image is the image the pool would actually run, which is not always the
+	// one the request named: a pool that gives its jobs a daemon runs the
+	// stock image's Docker variant, and the review step should show that
+	// rather than promise a pool the server will not make.
+	Image string `json:"image"`
 }
 
 // handleValidatePool answers POST /api/v1/pools/validate. It creates nothing.
@@ -492,6 +505,7 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 		Errors:        errs,
 		Warnings:      warnings,
 		MatchingHosts: fit.Count,
+		Image:         p.Image,
 	})
 }
 
@@ -542,7 +556,12 @@ func (s *Server) handleUpdatePool(w http.ResponseWriter, r *http.Request) {
 	// The pool's shape decides how many runners should exist, so the scheduler
 	// should look again rather than wait out its interval.
 	s.ctrl.Nudge()
-	if before.Image != updated.Image || before.PullPolicy != updated.PullPolicy || before.Backend != updated.Backend || !maps.Equal(before.HostSelector, updated.HostSelector) {
+	// A daemon that comes or goes can change the image the runners are made
+	// from without changing the row -- a pool on the controller's default
+	// image has nothing in its own image field to differ -- so it counts as
+	// an image change here too.
+	if before.Image != updated.Image || before.DockerMode.GivesDaemon() != updated.DockerMode.GivesDaemon() ||
+		before.PullPolicy != updated.PullPolicy || before.Backend != updated.Backend || !maps.Equal(before.HostSelector, updated.HostSelector) {
 		_, _ = s.ctrl.PrewarmPool(r.Context(), &updated)
 	}
 
@@ -578,7 +597,7 @@ func (s *Server) handlePrewarmPool(w http.ResponseWriter, r *http.Request) {
 	// onto every host that matches the pool: minutes of network on somebody
 	// else's machines, and the one action of the set that left no trace.
 	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "pool.prewarm", "pool", p.ID, map[string]any{
-		"image": p.Image, "hosts": n,
+		"image": s.ctrl.RunnerImage(p), "hosts": n,
 	})
 	writeJSON(w, http.StatusAccepted, map[string]any{"queued": n, "hosts": states})
 }

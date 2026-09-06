@@ -43,7 +43,8 @@
     {
       value: 'none',
       label: 'None',
-      consequence: 'Jobs cannot use Docker. The safe default.',
+      consequence:
+        'Jobs get no Docker daemon, so a docker step, a container: or a services: block fails on this pool. The safe default.',
     },
     {
       value: 'dind',

@@ -76,6 +76,18 @@ ledger keyed by file name. Two rules the code enforces and a test holds:
 They run in one transaction each, in lexical order, and a failure stops startup
 with the name of the file that failed. Nothing is applied twice.
 
+One migration changes rows rather than shape. `0010_docker_pools_get_a_client`
+moves a pool whose `docker_mode` is not `none` from the stock runner image
+under a moving tag (`latest`, `main`, or none) to
+`ghcr.io/eyupio/zoomies-runner-docker` under the same tag, because the stock
+image has no client for the daemon that mode gives it; the API makes the same
+change to every pool saved from then on. A pool pinned to a `sha-<commit>` or
+`vX.Y.Z` tag is not touched, since the variant is published only beside the
+tags made after it was added — pin the variant's tag yourself. Neither is a
+pool on a digest or on an image of its own. Idle runners made from the old
+image are drained and replaced on the first scheduler pass. See [Jobs that
+build container images](configuration.md#jobs-that-build-container-images).
+
 ## There is no downgrade
 
 **Migrations are one-way.** There are no down migrations, and there is no

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/agent"
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -429,5 +430,80 @@ func TestRemovingATokenRegisteredRunnerDeletesItsRegistrationByName(t *testing.T
 	}
 	if !slices.Equal(names, []string{"somebody-elses-runner"}) {
 		t.Fatalf("registrations after removal = %v, want only the runner that was never ours", names)
+	}
+}
+
+// A pool that gives its jobs a daemon runs the stock image's Docker variant,
+// whatever the row says: the API writes the swap into new pools, but a pool
+// saved before it did still names the stock image, and a runner made from
+// that image has a daemon it cannot reach. The row is left alone here -- the
+// migration that rewrites it is the store's -- and the runner gets the image
+// that works.
+func TestAPoolThatGivesJobsADaemonRunsTheDockerImage(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "builders")
+	pool.DockerMode = store.DockerDinD
+	pool.Image = "ghcr.io/eyupio/zoomies-runner:main"
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	host := h.host("vm-1")
+
+	h.deliverJob(jobEvent{Action: "queued", JobID: 11, Labels: []string{"self-hosted", "linux", "x64", "demo"}})
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	const want = "ghcr.io/eyupio/zoomies-runner-docker:main"
+	r := h.onlyRunner()
+	if r.Image != want {
+		t.Fatalf("runner image = %q, want %q: a daemon with no client is the failure this exists to prevent", r.Image, want)
+	}
+	task := h.taskOfKind(host.ID, agent.TaskCreateRunner)
+	if task.Spec == nil || task.Spec.Image != want {
+		t.Fatalf("create task image = %+v, want %q", task.Spec, want)
+	}
+
+	// Warming the pool pulls the image the runners will use, not the one the
+	// row names: pulling the other one warms nothing.
+	if _, err := h.c.PrewarmPool(h.ctx, pool); err != nil {
+		t.Fatalf("PrewarmPool: %v", err)
+	}
+	prewarm := h.taskOfKind(host.ID, agent.TaskPrewarmImage)
+	if prewarm.Image != want {
+		t.Fatalf("prewarm image = %q, want %q", prewarm.Image, want)
+	}
+}
+
+// The one place that sees a pool with no image of its own is the controller,
+// which falls back to github.runner_image; at its stock default that fallback
+// needs the same swap, or a daemon pool made by hand would get the image with
+// no client.
+func TestAPoolOnTheDefaultImageGetsTheDockerVariantWhenItAsksForADaemon(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "builders")
+	pool.DockerMode = store.DockerHostSocket
+	pool.Image = ""
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	host := h.host("vm-1")
+
+	h.deliverJob(jobEvent{Action: "queued", JobID: 12, Labels: []string{"self-hosted", "linux", "x64", "demo"}})
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	want := config.RunnerImageFor(config.DefaultRunnerImage, true)
+	if want == config.DefaultRunnerImage {
+		t.Fatal("the default image is not swapped at all; this test has nothing to check")
+	}
+	if r := h.onlyRunner(); r.Image != want {
+		t.Fatalf("runner image = %q, want the default's Docker variant %q", r.Image, want)
+	}
+	if task := h.taskOfKind(host.ID, agent.TaskCreateRunner); task.Spec == nil || task.Spec.Image != want {
+		t.Fatalf("create task image = %+v, want %q", task.Spec, want)
 	}
 }

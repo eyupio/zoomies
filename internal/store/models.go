@@ -88,6 +88,12 @@ func (d DockerMode) Valid() bool {
 // a workflow job and the host it runs on.
 func (d DockerMode) Dangerous() bool { return d == DockerHostSocket }
 
+// GivesDaemon reports whether jobs on a pool with this mode get a Docker
+// daemon at all. It is the question the pool's image has to answer as well: a
+// daemon is worth nothing to a job whose image has no client to reach it with,
+// so the image a pool runs is decided by this rather than by the mode's name.
+func (d DockerMode) GivesDaemon() bool { return d == DockerDinD || d == DockerHostSocket }
+
 // RunnerState is the runner lifecycle state machine:
 //
 //	provisioning -> registering -> idle -> busy -> draining -> removed

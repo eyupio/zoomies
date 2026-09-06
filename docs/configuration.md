@@ -240,9 +240,10 @@ github:
 
 Three images are published to GHCR — `ghcr.io/eyupio/zoomies` (the controller),
 `ghcr.io/eyupio/zoomies-runner` (the runner) and
-`ghcr.io/eyupio/zoomies-runner-docker` (the runner plus a Docker CLI, for pools
-that build container images — see [Jobs that build container
-images](#jobs-that-build-container-images)) — each under four kinds of tag:
+`ghcr.io/eyupio/zoomies-runner-docker` (the runner plus a Docker CLI, which a
+pool is switched to when its `docker_mode` gives jobs a daemon — see [Jobs that
+build container images](#jobs-that-build-container-images)) — each under four
+kinds of tag:
 
 | Tag | Points at | Published by |
 | --- | --- | --- |
@@ -469,7 +470,7 @@ the CLI or the API. These are their fields:
 | `labels` | What `runs-on` must ask for. Normalised to lowercase, and always includes `zoomies`, which Zoomies adds to every pool. |
 | `runner_group` | Optional GitHub runner group. |
 | `backend` | `docker`, `podman` or `process`. |
-| `image` | Runner image for the container backends. |
+| `image` | Runner image for the container backends. Changing it replaces the pool's idle runners: one made from the old image is drained and a new one takes its place, and a busy one finishes its job first. |
 | `pull_policy` | `if-not-present` (the default), `always`, or `pinned-only`, which refuses to run anything but the digest the pool names. |
 | `runner_version` | Pin an `actions/runner` release instead of tracking the latest. |
 | `min_runners` | Kept warm even with nothing queued. `0` is usually right. |
@@ -478,7 +479,7 @@ the CLI or the API. These are their fields:
 | `priority` | Higher-priority pools are given creation capacity first when the fleet cannot satisfy every pool at once. Pools at the same priority share it fairly. |
 | `idle_timeout` | How long an idle runner waits before being drained. |
 | `ephemeral` | One job per runner. Leave it on. |
-| `docker_mode` | `none`, `dind`, or `host-socket`. Needs an image with a Docker client — see [below](#jobs-that-build-container-images) and [security.md](security.md). |
+| `docker_mode` | `none`, `dind`, or `host-socket`. Anything but `none` switches a pool on the stock runner image, under a moving tag, to its Docker variant — see [below](#jobs-that-build-container-images) and [security.md](security.md). |
 | `resources` | `cpus`, `memory_mb`, `disk_gb`, `pids_limit` per runner. `disk_gb` is advisory, and enforced only where the backend can. |
 | `cache` | A disposable accelerator directory mounted at `/opt/zoomies-cache`, scoped `pool` or `repository`, with an enforced `size_limit`. It is not workflow storage and may be evicted — see [below](#the-pool-cache). |
 | `cost_per_runner_hour` | An optional rate you supply, used only to estimate what the fleet costs. Zoomies never embeds prices of its own. |
@@ -568,35 +569,56 @@ a form that controlled nothing — so it is refused rather than accepted.
 
 A job that runs `docker`, `docker buildx` or `docker compose` — which includes
 `docker/setup-qemu-action`, `docker/setup-buildx-action` and
-`docker/build-push-action` — needs two things from its pool, and setting only
-one of them is the common mistake:
+`docker/build-push-action`, and any job with a `container:` or a `services:`
+block — needs a Docker daemon, and its pool decides whether it gets one. Set the
+pool's `docker_mode` to `dind` or `host-socket`; the default, `none`, gives the
+job no daemon at all, and its first Docker step fails. Both alternatives weaken
+the pool's isolation and both are warned about at startup;
+[security.md](security.md#6-the-dangerous-toggles) says what each costs, and
+`dind` is the one to prefer.
 
-1. **A daemon.** Set the pool's `docker_mode` to `dind` or `host-socket`. The
-   default, `none`, gives the job no daemon at all. Both alternatives weaken the
-   pool's isolation and both are warned about at startup;
-   [security.md](security.md#6-the-dangerous-toggles) says what each costs, and
-   `dind` is the one to prefer.
-2. **A client.** Set the pool's `image` to
-   `ghcr.io/eyupio/zoomies-runner-docker:latest`. The default runner image
-   deliberately carries no Docker CLI, because most pools never build an image
-   and a client on every runner is cold-start time spent for nothing.
+That is the one setting. A daemon is worth nothing to a job whose image has no
+client to reach it with, and the stock runner image deliberately carries none —
+most pools never build an image, and a client on every runner is cold-start
+time spent for nothing — so a pool that asks for a daemon while on
+`ghcr.io/eyupio/zoomies-runner` under a moving tag (`latest`, `main`, or no tag
+at all) is switched to `ghcr.io/eyupio/zoomies-runner-docker` under the same
+tag as it is saved. The response, the audit row and the pool's page all show
+the image that runs; the wizard says so on the step that decides it and shows
+it on the review step; and a pool saved before this rule existed is moved by a
+migration the first time a controller that has it starts. Idle runners made
+from the old image are replaced, so a warm pool does not keep handing Docker
+jobs to runners that cannot run them. The switch is not reversed when the
+daemon goes away again: the variant runs everything the stock image does.
 
-Miss the second and the daemon is there, reachable, and unused: the job fails at
-its first Docker step with
+Three kinds of image are left exactly as you set them. A pinned tag
+(`sha-<commit>` or `vX.Y.Z`) is a deliberate choice of one build, and the
+variant exists only beside the tags published since it was added, so a pinned
+pool is not moved onto a tag the registry may not have; pin the variant's tag
+yourself — `ghcr.io/eyupio/zoomies-runner-docker:sha-<commit>` — and the wizard
+says so. A digest reference (`…@sha256:…`) names one exact image and cannot be
+moved to another; pin a digest of the variant instead. An image of your own — a
+mirror of the stock image under another registry included — is yours to equip,
+and only has to put `docker` on the runner's `PATH`. A runner that starts with a
+daemon it has no client for says so in its own log, at the top, before any job
+runs; the job itself fails at its first Docker step with
 
 ```text
 Error: Unable to locate executable file: docker.
 ```
 
-which names the missing binary and not the reason. A runner that starts with a
-daemon it has no client for says so in its own log, at the top, before the job
-runs.
+which names the missing binary and not the reason.
 
 `ghcr.io/eyupio/zoomies-runner-docker` is the stock runner image plus
 `docker-ce-cli`, `docker-buildx-plugin` and `docker-compose-plugin` — the client
-only. It never runs a daemon of its own; that is what `docker_mode` is for. An
-image of your own works just as well, and only has to put `docker` on the
-runner's `PATH`.
+only. It never runs a daemon of its own; that is what `docker_mode` is for.
+
+Whichever image a pool runs is pulled under its `pull_policy`, and the default,
+`if-not-present`, fetches a tag only when the host does not already have it. A
+pool on `latest` therefore keeps the build it first pulled until you either set
+`pull_policy: always` — a registry round trip on every runner created, with
+the layers still cached, so the cost is a manifest check and not a download —
+or pull the new build on each host yourself.
 
 On a `host-socket` pool Zoomies also adds the group that owns the host's
 `docker.sock` to the runner container, because the runner is not root inside it

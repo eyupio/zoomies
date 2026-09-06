@@ -89,22 +89,45 @@
   const usesImage = $derived(draft.backend !== 'process');
 
   // A pool's docker_mode gives its jobs a daemon; the image has to bring the
-  // client. The stock runner image carries none on purpose, so choosing a
-  // Docker mode and leaving the image alone is the one combination that looks
-  // complete here and fails in the job, with an error ("Unable to locate
-  // executable file: docker") that names the missing binary rather than the
-  // reason. Say it while the operator is still on the step that caused it.
+  // client. The stock runner image carries none on purpose, so a pool that
+  // asks for a daemon while on it under a moving tag is switched to the stock
+  // image's Docker variant -- the same image plus a client, under the same
+  // tag -- as it is saved. Say so on the step that decides it, so the image
+  // the pool's page shows afterwards is not a surprise; the review step shows
+  // the image the server answers with, which covers an empty field as well.
   //
-  // Only for an image we recognise as the stock one: an image of somebody's
-  // own may well have a client, and nagging about it would teach them to
-  // ignore this line.
-  const DOCKER_IMAGE = 'ghcr.io/eyupio/zoomies-runner-docker:latest';
+  // What is not switched is said too, each for its own reason. A pinned tag
+  // is a deliberate choice of one build, and the variant exists only for the
+  // tags published since it was added, so it stays and the line says which
+  // tag to pin instead. A digest names one exact image. An image that merely
+  // looks like the stock one -- a mirror, or one built on it -- may or may not
+  // carry a client, and the server cannot know. An image of somebody's own
+  // gets no line at all: nagging about it would teach them to ignore this
+  // line.
+  const DOCKER_IMAGE = 'ghcr.io/eyupio/zoomies-runner-docker';
+  const STOCK_MOVING = /^ghcr\.io\/eyupio\/zoomies-runner(:(latest|main))?$/;
+  const STOCK_PINNED = /^ghcr\.io\/eyupio\/zoomies-runner:[^@]+$/;
+  const STOCK_DIGEST = /^ghcr\.io\/eyupio\/zoomies-runner(:[^@]+)?@/;
+  const LOOKALIKE_IMAGE = /(^|\/)zoomies-runner(:|$)/;
 
-  const needsDockerClient = $derived.by(() => {
-    if (!usesImage || (draft.docker_mode ?? 'none') === 'none') return false;
+  const imageNotice = $derived.by((): string | undefined => {
+    if (!usesImage || (draft.docker_mode ?? 'none') === 'none') return undefined;
     const image = draft.image?.trim() ?? '';
-    if (image === '') return true;
-    return /(^|\/)zoomies-runner(:|$)/.test(image);
+    if (image === '') return undefined;
+    const tag = image.includes(':') ? image.slice(image.indexOf(':')) : '';
+    if (STOCK_MOVING.test(image)) {
+      return `The stock runner image has no Docker client, so this pool will run ${DOCKER_IMAGE}${tag} instead. Saving the pool records that image.`;
+    }
+    if (STOCK_PINNED.test(image)) {
+      return `A pinned tag is kept as it is, and the stock runner image has no Docker client. Pin ${DOCKER_IMAGE}${tag} instead; the variant is published beside every runner tag since it was added.`;
+    }
+    if (STOCK_DIGEST.test(image)) {
+      return `A digest names one exact image, and this one has no Docker client. Pin a digest of ${DOCKER_IMAGE} instead.`;
+    }
+    if (LOOKALIKE_IMAGE.test(image)) {
+      return 'This looks like the stock runner image, which has no Docker client, and it is not one Zoomies switches for you. Jobs that run docker fail on it even with a daemon attached, unless docker is installed in it.';
+    }
+    return undefined;
   });
 
   function chooseBackend(value: string): void {
@@ -157,9 +180,7 @@
     label="Image"
     error={errors['image']}
     hint="The container image runners are built from. Leave it empty to use the controller's default."
-    notice={needsDockerClient
-      ? `This image has no Docker client, so jobs that run docker will fail even with a daemon attached. Use ${DOCKER_IMAGE}, or an image of your own with docker installed.`
-      : undefined}
+    notice={imageNotice}
   >
     {#snippet children({ id, describedBy, invalid })}
       <Input
