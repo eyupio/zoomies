@@ -85,13 +85,13 @@ one list.
   used to rebuild a runner mid-job), and N01 (the start-failure backoff, which keeps a
   failed runner and its reason on the page for ten minutes).
 
-  So the remaining step is unchanged but the trail is not: deploy `main` and look again.
-  If it recurs there, the fleet cannot currently explain it -- an operator has to
-  cross-reference the runner timeline, grep the controller log for two phrases and run
-  `docker ps` on the host. That is the thing worth building next, and it is a feature
-  rather than a review fix: a problem code for runners that have not progressed, raised
-  from what the controller already knows (whether an agent has reported on the runner at
-  all, and whether its host is still heartbeating).
+  The remaining step is unchanged: deploy `main` and look again. What has changed is
+  what an operator sees if it recurs. `runners.not_progressing` now says it, at half
+  the provision timeout, and splits the two shapes so the next look starts from an
+  answer rather than three sources: a runner still waiting for a container is the agent
+  or the image, and one whose container started without registering is the runner
+  process failing to reach GitHub. Whichever it is on that instance is the diagnosis
+  this entry was missing.
 - [x] **N03** [bug] The Jobs page called every queued job no pool claims a job that
   will never run, in red, and the problems drawer said nothing would run them; the
   installation's webhooks cover jobs on GitHub's own runners, on a hosted-runner vendor
