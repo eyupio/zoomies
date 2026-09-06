@@ -106,11 +106,17 @@ one list.
 
 ## Wave 4: polish, gaps and nits
 
-Shipped in three batches so far. **4a** (16 items, PR #65, merged as afb1d50):
-the Go core, the API contract and the controller. **4b** (11 items, PR #66,
-merged as bd1582b): backends, agent, auth, installer, deploy and the build.
-**4c** (22 items, PR #67): the web UI's tokens, state, copy and specs, plus
-N05 and N06. **4d**, the docs, is what is left.
+Shipped in four batches. **4a** (16 items, PR #65, merged as afb1d50): the Go
+core, the API contract and the controller. **4b** (11 items, PR #66, merged as
+bd1582b): backends, agent, auth, installer, deploy and the build. **4c** (22
+items, PR #67, merged as 0d3010d): the web UI's tokens, state, copy and specs,
+plus N05 and N06. **4d** (14 items): the documentation -- the reference pages
+and operator pages that did not exist, the corrections, and one home per
+paragraph.
+
+That closes the review. Two items are open and neither is a code change waiting
+to be written: **D16** is a brand decision for the maintainer, and **N02** needs
+`main` deployed before it can be looked at again.
 
 ### Go core: store, scheduler, config, events, migrate
 
@@ -177,21 +183,21 @@ N05 and N06. **4d**, the docs, is what is left.
 
 ### Docs, README and the site
 
-- [ ] **D06** [polish] Eight warning codes are emitted but documented nowhere, and the third severity is undocumented — `internal/config/validate.go:253`
-- [ ] **D08** [polish] `dependencies.md` has a row for an indirect dependency and none for `@types/node` — `docs/dependencies.md:28`
-- [ ] **D09** [polish] The FAQ's structured data has 12 questions against 17 headings — `docs/faq.md:11-19`
-- [ ] **D10** [polish] Configuration and brand pages: missing env names, an undocumented env var, root-only paths shown unconditionally, wrong counts — `docs/configuration.md:119-121`
-- [ ] **D11** [polish] The sample scheduler line is not what a default install prints — `docs/quickstart.md:180`
-- [ ] **D12** [polish] Alt text drifts per image, and 'every page' is photographed except three — `README.md:40`
-- [ ] **D13** [polish] Paragraphs duplicated across README, home page and quick start have already diverged, and a maintainer TODO sits in operator docs — `README.md:207-215`
-- [ ] **D16** [polish] The brand descriptor is 'Self-hosted Git runners' — `docs/brand.md:190`
-- [ ] **D17** [polish] Two numbers for the Go version, and none for Node in the manifest — `README.md:368`
+- [x] **D06** [polish] Eight warning codes are emitted but documented nowhere, and the third severity is undocumented — `internal/config/validate.go:253` — done, docs/problem-codes.md documents all 70 codes grouped by area, the third severity is named in CLAUDE.md, and internal/docs asserts the page stays complete
+- [x] **D08** [polish] `dependencies.md` has a row for an indirect dependency and none for `@types/node` — `docs/dependencies.md:28` — done, the indirect row dropped and @types/node given one, in the same why-not-what voice
+- [x] **D09** [polish] The FAQ's structured data has 12 questions against 17 headings — `docs/faq.md:11-19` — done, the structured data is generated from the page's own headings, so it cannot fall behind again
+- [x] **D10** [polish] Configuration and brand pages: missing env names, an undocumented env var, root-only paths shown unconditionally, wrong counts — `docs/configuration.md:119-121` — done, the OIDC env names added, the undocumented override documented, a config-dir/state-dir table with placeholders replacing the root-only paths, and every count corrected
+- [x] **D11** [polish] The sample scheduler line is not what a default install prints — `docs/quickstart.md:180` — done, the sample line is what a default install actually prints
+- [x] **D12** [polish] Alt text drifts per image, and 'every page' is photographed except three — `README.md:40` — done, one description per screenshot across README, ui.md and migration.md, with TestOneDescriptionPerScreenshot holding it there, and the two missing pages photographed
+- [x] **D13** [polish] Paragraphs duplicated across README, home page and quick start have already diverged, and a maintainer TODO sits in operator docs — `README.md:207-215` — done, the five duplicated passages each have one home and the rest point at it; the README keeps the claim and drops the specification
+- [ ] **D16** [polish] The brand descriptor is 'Self-hosted Git runners' — `docs/brand.md:190` — **for the maintainer**: the descriptor is drawn into the wordmark artwork, not just set in the page, so correcting it to "GitHub Actions" means redrawing the lockup. That is a brand call rather than a docs fix, and it is left for whoever owns the mark.
+- [x] **D17** [polish] Two numbers for the Go version, and none for Node in the manifest — `README.md:368` — done, one Go version, and Node given a floor in the manifest
 - [x] **D18** [polish] The docs and a CI comment say there is no release yet; `v0.1-alpha` was published on 4 September — `docs/configuration.md:223-224` — done, folded into B01
-- [ ] **D19** [polish] Capacity-demand semantics understated; missing description; stale hook comment — `docs/capacity-demand-receiver.md:10-11`
-- [ ] **D07** [gap] `capacity-demand-receiver.md` is orphaned — `docs/capacity-demand-receiver.md`
-- [ ] **D15** [gap] The operator pages that do not exist — `docs/`
-- [ ] **D14** [nit] Voice and reference nits across the docs — `docs/architecture.md`
-- [ ] **D20** [nit] The state diagram omits two allowed edges — `docs/architecture.md`
+- [x] **D19** [polish] Capacity-demand semantics understated; missing description; stale hook comment — `docs/capacity-demand-receiver.md:10-11` — done, the semantics stated in full, a description added, and the stale hook comment corrected
+- [x] **D07** [gap] `capacity-demand-receiver.md` is orphaned — `docs/capacity-demand-receiver.md` — done, the page is in the Guide, alongside the three new operator pages
+- [x] **D15** [gap] The operator pages that do not exist — `docs/` — done, troubleshooting.md, upgrading.md, backup-and-restore.md, SECURITY.md, cli.md and metrics.md written, with internal/docs asserting the last two stay complete
+- [x] **D14** [nit] Voice and reference nits across the docs — `docs/architecture.md` — done, ten unlabelled fences given a language, the component inventory corrected, CLAUDE.md's counts and deploy/ claim fixed, and the layout blocks now tested against the repository
+- [x] **D20** [nit] The state diagram omits two allowed edges — `docs/architecture.md` — done, the two allowed edges are in the diagram
 
 ### Build, CI and release
 
