@@ -280,7 +280,7 @@
     'this target'}, and the sealed App credentials are deleted with it."
   consequences={[
     `${pluralise(deleteTarget?.pool_count ?? 0, 'pool')} built on this installation will be deleted.`,
-    'Their runners are drained and deregistered from GitHub.',
+    'Their runners are removed now and deregistered from GitHub. A job running on one is interrupted; drain the pools first if that matters.',
     'The App itself stays on GitHub; uninstall it there if you want it gone.',
   ]}
   confirmLabel="Disconnect"

@@ -297,7 +297,7 @@ export interface paths {
         post?: never;
         /**
          * Remove an installation
-         * @description Cascades to its pools. The response says how many pools and runners went with it.
+         * @description Cascades to its pools, and removes their runners now, interrupting any job they are running: a runner has to be deregistered from GitHub while the installation's credentials still exist, which is before the row goes, so there is no drain here. Drain the pools first with `DELETE /pools/{id}` if the running jobs matter. The response says how many pools and runners went with it.
          */
         delete: operations["deleteInstallation"];
         options?: never;
