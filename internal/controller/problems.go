@@ -651,7 +651,11 @@ func (c *Controller) notProgressingProblems(ctx context.Context, out *[]Problem)
 		// created: a runner that spent four minutes pulling an image and then
 		// registered ten seconds ago is younger here than an older one whose
 		// container came up first.
-		if oldest == nil || from.Before(since) {
+		// A batch created in one pass shares a millisecond, and the fix below
+		// is written for whichever runner is named here, so a tie has to break
+		// the same way every time: the one still waiting for a container
+		// first, because that is the earlier failure, then the ID.
+		if oldest == nil || from.Before(since) || (from.Equal(since) && stuckBefore(r, oldest)) {
 			oldest, since = r, from
 		}
 		hosts[r.HostID] = true
@@ -697,4 +701,14 @@ func (c *Controller) notProgressingProblems(ctx context.Context, out *[]Problem)
 		TargetKind: "runner", TargetID: oldest.ID, Since: &since,
 	})
 	return nil
+}
+
+// stuckBefore orders two runners that have been stuck for the same time: a
+// runner with no container yet comes before one whose container started, and
+// equal shapes fall back to the ID so the choice is stable across passes.
+func stuckBefore(a, b *store.Runner) bool {
+	if (a.ContainerStartedAt == nil) != (b.ContainerStartedAt == nil) {
+		return a.ContainerStartedAt == nil
+	}
+	return a.ID < b.ID
 }
