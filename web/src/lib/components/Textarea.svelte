@@ -96,7 +96,8 @@
     reflows; only the glyphs grow.
   */
   @media (max-width: 768px) {
-    textarea {
+    textarea,
+    textarea.mono {
       font-size: var(--z-control-font-touch);
     }
   }

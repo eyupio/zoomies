@@ -84,13 +84,22 @@
    * Route change: move focus to the page heading so a keyboard user lands on
    * the content rather than at the top of the navigation, and announce the page
    * name politely for anyone who cannot see that it changed.
+   *
+   * `focused` is what makes this a *route* change rather than any change. The
+   * router's reactivity is one subscriber for the whole module, so a filter
+   * writing itself into the query string re-runs this effect even though the
+   * navigation count has not moved -- and it used to take the keyboard with it.
+   * Typing into any page's search box therefore gave up focus after the first
+   * character and swallowed the second: `zoomies-demo0000` became `z`.
    */
+  let focused = 0;
   $effect(() => {
     const count = router.navigation;
     // The title is read untracked: a detail page renaming itself once it knows
     // what it is looking at must not steal focus back to the heading.
     const title = untrack(() => router.title);
-    if (!authenticated || count === 0) return;
+    if (!authenticated || count === 0 || count === focused) return;
+    focused = count;
     void tick().then(() => {
       const heading = document.getElementById('page-heading') ?? document.getElementById('main');
       heading?.focus();

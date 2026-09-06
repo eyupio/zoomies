@@ -122,7 +122,8 @@
     reflows; only the glyphs grow.
   */
   @media (max-width: 768px) {
-    select {
+    .sm select,
+    .md select {
       font-size: var(--z-control-font-touch);
     }
   }

@@ -222,7 +222,9 @@
     reflows; only the glyphs grow.
   */
   @media (max-width: 768px) {
-    input {
+    .sm input,
+    .md input,
+    input.mono {
       font-size: var(--z-control-font-touch);
     }
   }

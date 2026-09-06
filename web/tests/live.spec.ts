@@ -124,3 +124,70 @@ test('a new risk on a pool reaches the problems bell on whatever page is open', 
     })
     .toBe(before);
 });
+
+test('a dropped stream says so, and the page catches up by itself when it returns', async ({
+  page,
+}) => {
+  // The promise behind having no refresh button is that a page which cannot
+  // hear the controller says so rather than quietly showing stale numbers, and
+  // that it reconciles once it can hear again. Nothing tested either half.
+  await goto(page, '/runners', 'Runners');
+  const rows = dataRows(grid(page, 'Runners'));
+  await expect(rows.first()).toBeVisible();
+
+  const connection = page.locator('.connection');
+  await expect(connection).toHaveAttribute('data-state', 'live');
+
+  // Cut the stream. Aborting is what a proxy, a laptop lid or a controller
+  // restart looks like from here.
+  let cut = true;
+  await page.route('**/api/v1/events*', async (route) => {
+    if (cut) return route.abort('connectionfailed');
+    return route.fallback();
+  });
+  await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+
+  await expect(connection, 'the top bar stops claiming to be live').not.toHaveAttribute(
+    'data-state',
+    'live',
+  );
+  await expect(page.locator('.connection-text')).toHaveText(/Reconnecting|Offline|Connecting/);
+
+  // Let it back through. The stream reopens on its own and the page returns to
+  // live without anybody pressing anything.
+  cut = false;
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await expect(connection, 'and comes back by itself').toHaveAttribute('data-state', 'live', {
+    timeout: 20_000,
+  });
+  // And the rows are still the rows: catching up is a reconcile, not a reload.
+  await expect(rows.first()).toBeVisible();
+});
+
+test('an optimistic change that the controller refuses is put back', async ({ page }) => {
+  // Optimism is what makes the grid feel immediate, and a refusal that left the
+  // wrong answer on screen would be worse than no optimism at all: the operator
+  // would believe the pool was disabled and walk away.
+  await goto(page, '/pools', 'Pools');
+  const rows = dataRows(grid(page, 'Pools'));
+  const linux = rows.filter({ hasText: FIXTURE.linuxPool });
+  await expect(linux).toContainText('Enabled');
+
+  await page.route('**/api/v1/pools/*/disable', (route) =>
+    route.fulfill({
+      status: 409,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: { code: 'conflict', message: 'That pool changed underneath you.' },
+      }),
+    }),
+  );
+
+  await linux.getByRole('button', { name: new RegExp(`Actions for ${FIXTURE.linuxPool}`) }).click();
+  await page.getByRole('menuitem', { name: 'Disable' }).click();
+
+  // The refusal is reported, and the row is what the controller says it is
+  // rather than what the click hoped for.
+  await expect(page.locator('.toast[data-tone="error"]')).toBeVisible();
+  await expect(linux, 'the row rolled back').toContainText('Enabled');
+});
