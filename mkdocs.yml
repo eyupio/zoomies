@@ -149,8 +149,10 @@ nav:
       - Migrating repositories: migration.md
       - Security: security.md
       - API: api-surface.md
+      - Capacity-demand receiver: capacity-demand-receiver.md
   - FAQ: faq.md
   - Reference:
+      - Problem codes: problem-codes.md
       - Dependencies: dependencies.md
       - UI guidelines: ui-guidelines.md
       - Brand: brand.md

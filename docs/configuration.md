@@ -26,8 +26,14 @@ flowchart LR
     e --> v{"config.Validate"}
     v -->|"an error"| stop["startup stops, and the message<br/>names what to change"]
     v -->|"a warning"| warn["startup continues -- printed here, and shown<br/>in the UI's problems drawer while it is true"]
+    v -->|"info"| note["startup continues -- a default worth knowing<br/>rather than anything wrong"]
     v -->|"nothing to say"| ok["running"]
 ```
+
+Every finding carries a code, and the code is the stable half: it is what you
+search for and alert on, while the sentence beside it is written for whoever is
+reading and may improve. [Problem codes](problem-codes.md) lists all of them —
+the validator's and the running controller's — with severities and what to do.
 
 ---
 

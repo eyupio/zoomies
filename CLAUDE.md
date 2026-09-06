@@ -119,13 +119,20 @@ Every setting is a `zoomies.yaml` key with a `ZOOMIES_*` environment override
 registered in `applyEnv` (`internal/config/config.go`). Adding a key means
 adding both, plus a row in `docs/configuration.md`.
 
-`config.Validate` returns `Finding`s split into two kinds, and the distinction
-matters: **errors** stop startup with a message saying what to change;
+`config.Validate` returns `Finding`s in three severities, and the distinctions
+matter: **errors** stop startup with a message saying what to change;
 **warnings** never stop anything but each one names a setting that weakens the
-default posture. The same list is printed at startup and rendered in the UI's
-problems panel. If you add a setting that can make the deployment less safe, add
-the warning too — silent dangerous toggles are the thing this design exists to
-prevent. `docs/security.md` explains what each one costs.
+default posture; **info** findings are neither wrong nor risky, and exist for
+the defaults that surprise people (`agent.none`, `tls.self_signed`). A few
+codes choose their severity from the circumstances -- `auth.disabled` is a
+warning on loopback and an error on a public bind.
+
+The same list is printed at startup and rendered in the UI's problems panel,
+alongside the problems the running controller raises. If you add a setting that
+can make the deployment less safe, add the warning too -- silent dangerous
+toggles are the thing this design exists to prevent. Every code needs a row in
+`docs/problem-codes.md`, which `internal/docs` tests in both directions;
+`docs/security.md` explains what the dangerous ones cost.
 
 The safe configuration is the default: loopback bind, auth on, ephemeral
 runners, no Docker socket in jobs, no root.

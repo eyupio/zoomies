@@ -226,6 +226,10 @@ count that is always amber is a count nobody reads. The per-pool settings are
 not startup matters at all: they are shown on the pool's own page and in the
 drawer for as long as the pool has them.
 
+This section is about what each dangerous setting *costs*.
+[Problem codes](problem-codes.md) is the other half: every code Zoomies can
+raise, dangerous or not, with its severity and what to do about it.
+
 ### `pool.docker_mode: host-socket`
 
 Bind-mounts the host's `docker.sock` into every runner in the pool.
