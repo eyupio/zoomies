@@ -147,7 +147,7 @@ anything, and only touching the jobs it is sure about. See
 ## Can I see what the scheduler is doing, and why?
 
 Yes -- every scaling decision carries a reason string written for a person
-("1 job queued > 30s"), and it is shown in the UI next to the pool it applies
+("1 job queued", or "3 jobs queued > 30s" once a scale-up delay is set), and it is shown in the UI next to the pool it applies
 to. Scheduling is a pure function of a snapshot, which is what makes those
 reasons reliable enough to print.
 
@@ -228,6 +228,14 @@ modified or not, asks nothing of you. The full text is in
     },
     {
       "@type": "Question",
+      "name": "What happens if a Zoomies webhook is misconfigured?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "The fleet gets slower, not stuck. workflow_job webhooks are how Zoomies finds out about a queued job, and a fallback poller runs behind them, so a delivery that never arrives means a job picked up on the next poll rather than a job that sits there forever. Webhook deliveries are at-least-once and can arrive out of order, and the jobs upsert refuses to move a job backwards through its lifecycle."
+      }
+    },
+    {
+      "@type": "Question",
       "name": "Can Zoomies run runners on more than one machine?",
       "acceptedAnswer": {
         "@type": "Answer",
@@ -244,6 +252,22 @@ modified or not, asks nothing of you. The full text is in
     },
     {
       "@type": "Question",
+      "name": "Can Zoomies jobs build container images?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes, with two settings on the pool. docker_mode: dind gives its runners a private Docker daemon, and the zoomies-runner-docker image gives them a client to drive it with. The default runner image has no Docker CLI on purpose, because most pools never build an image and the client is cold-start time they would pay for nothing. Setting only the first leaves the daemon unused and the job fails at its first Docker step."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Which platforms does Zoomies run on?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Linux on x86-64 and arm64 is what the controller, the agents and the runner images are built for. macOS works for running a controller in development. Windows runners are not supported."
+      }
+    },
+    {
+      "@type": "Question",
       "name": "Does Zoomies work with GitHub Enterprise Server?",
       "acceptedAnswer": {
         "@type": "Answer",
@@ -256,6 +280,22 @@ modified or not, asks nothing of you. The full text is in
       "acceptedAnswer": {
         "@type": "Answer",
         "text": "No. The GitHub target is either an organisation or a single repository written as owner/name. A repository target is how a personal account is used: the App is created on your own account and installed there, scoped to that repository, and its runners register at the repository level, because GitHub offers no account-wide runners for personal accounts. Each repository is one installation and one pool."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I move my existing workflows onto Zoomies?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "The migration wizard rewrites runs-on across your repositories and opens one pull request per repository. It shows you the exact diff before it opens anything, and only touches the jobs it is sure about."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I see what the Zoomies scheduler is doing, and why?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. Every scaling decision carries a reason string written for a person, such as 1 job queued, and it is shown in the UI next to the pool it applies to. Scheduling is a pure function of a snapshot, which is what makes those reasons reliable enough to print."
       }
     },
     {

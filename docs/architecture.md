@@ -82,7 +82,7 @@ sequenceDiagram
     C->>C: verify the HMAC, record the delivery
     C->>DB: upsert the job, never backwards
     C->>S: snapshot -- pools, runners, queued jobs, hosts
-    S-->>C: plan -- "create 1 in zoomies-linux-x64: 1 job queued > 30s"
+    S-->>C: plan -- "create 1 in zoomies-linux-x64: 1 job queued"
     C->>GH: ask for a single-use JIT configuration
     GH-->>C: JIT configuration
     C->>DB: runner row, state provisioning

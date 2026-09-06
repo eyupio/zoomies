@@ -179,7 +179,7 @@ the whole thing happen on the Overview page without refreshing — including the
 scheduler's reasoning, in its own words:
 
 ```
-scaled zoomies-linux-x64 0 -> 1: 1 job queued > 30s
+scaled zoomies-linux-x64 0 -> 1: 1 job queued
 ```
 
 The Jobs page keeps the record: how long each job waited, how long it ran,

@@ -25,8 +25,7 @@ Two things are deliberately **not** here, and both were close calls — see
 | `github.com/coreos/go-oidc/v3` | OIDC discovery and ID-token verification, including JWKS rotation. Optional feature, well-maintained library. |
 | `github.com/prometheus/client_golang` | The metrics endpoint. The exposition format has enough edge cases that hand-writing it is a false economy. |
 | `gopkg.in/yaml.v3` | `zoomies.yaml`. Strict decoding turns a misspelled key into an error naming the line. |
-| `github.com/charmbracelet/bubbletea` | The installer's TUI runtime. |
-| `github.com/charmbracelet/huh` | The installer's prompts — select, input, confirm, with validation. It is what makes `zoomies init` feel like a product rather than a script. |
+| `github.com/charmbracelet/huh` | The installer's prompts — select, input, confirm, with validation. It is what makes `zoomies init` feel like a product rather than a script. It brings `bubbletea` with it as its runtime, which is why that appears in `go.mod` as indirect and has no row of its own. |
 | `github.com/charmbracelet/lipgloss` | Styling for the installer and the CLI's table output. |
 | `golang.org/x/term` | Terminal detection, so the CLI and installer degrade to plain output when piped. |
 
@@ -52,6 +51,7 @@ Build and test only:
 | `vite`, `@sveltejs/vite-plugin-svelte` | Build and dev server. |
 | `tailwindcss`, `@tailwindcss/vite` | Utility CSS. v4's CSS-first `@theme` reads our design tokens directly, so there is exactly one source of truth for a colour. |
 | `typescript`, `svelte-check` | Types, and type checking inside `.svelte` files. |
+| `@types/node` | Node's own types, for the handful of files that run under Node rather than in the browser: `vite.config.ts`, the Playwright specs and the test harness. Without it those files typecheck against a DOM that has no `process`. |
 | `openapi-typescript` | Generates the API client's types from `api/openapi.yaml`. The UI cannot drift from the API without the build failing. |
 | `@playwright/test` | UI tests against the real binary. |
 | `eslint`, `typescript-eslint`, `eslint-plugin-svelte`, `@eslint/js`, `globals` | Linting. |

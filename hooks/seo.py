@@ -14,7 +14,8 @@ from the repository rather than written by hand, so neither can go stale:
   so a page added to ``mkdocs.yml`` appears in it without anyone remembering.
 
 This is a hook rather than a plugin because it needs nothing a plugin would
-bring: the docs build stays at four pinned dependencies.
+bring: the docs build stays at the three pinned dependencies in
+``docs/requirements.txt``.
 
 The git call is one process for the whole repository, not one per page. A
 shallow checkout has no history to read, so the dates come back empty and every

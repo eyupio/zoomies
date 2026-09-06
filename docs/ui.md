@@ -27,7 +27,7 @@ queue wait with its p95 — then how long runners take to start and to register.
 Under them, each pool's busy runners against its live ones with the floor and
 ceiling marked, what is running this moment, how the last jobs ended, and the
 scheduler's decisions in its own words: *scaled zoomies-demo-linux-x64 4 → 5:
-1 job queued > 30s*. When something needs a person it is one line and a
+1 job queued*. When something needs a person it is one line and a
 *Review* button, never a list that pushes the fleet below the fold.
 
 ![The Overview: four metric tiles with sparklines, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the recent scaling feed](screenshots/overview-dark.webp#only-dark){ .zoomies-shot }

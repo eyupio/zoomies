@@ -75,7 +75,7 @@ available space; it is not a choice between interchangeable logos.
 The product's own copies live in `web/public/` and are the sizes the app
 actually serves: `favicon.ico` (16/32/48), `favicon-16.png`, `favicon-32.png`,
 `apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, the dedicated
-`maskable-icon-512.png`, and the three web UI assets under `brand/`.
+`maskable-icon-512.png`, and the nine web UI assets under `brand/`.
 
 `brand/app-logo.png` is the original-dog GitHub avatar with circular-crop safe
 space. An App manifest cannot carry a logo, so the connect flow hands the
@@ -190,7 +190,7 @@ not try to set it in type.
 | Descriptor | Self-hosted Git runners |
 | CLI | `zoomies` |
 | Service | `zoomies` (controller), `zoomies-agent` (agent) |
-| Config directory | `/etc/zoomies`, or `.zoomies/` for a per-user install |
+| Config directory | `/etc/zoomies` as root, `~/.config/zoomies` otherwise; see [Where things live](configuration.md#where-things-live) |
 | Container images | `ghcr.io/eyupio/zoomies`, `ghcr.io/eyupio/zoomies-runner`, `ghcr.io/eyupio/zoomies-runner-docker` |
 | Runner names | `zoomies-k3f9qz2m` — the brand and eight random characters |
 | Pool names | `zoomies-truffle-docker-linux`; a name given without the prefix gains one |
