@@ -47,8 +47,14 @@ case "${family}" in
   dnf)
     dnf install -y 'dnf-command(config-manager)'
     repo="https://download.docker.com/linux/${repo_os}/docker-ce.repo"
-    dnf config-manager addrepo --from-repofile="${repo}" \
-      || dnf config-manager --add-repo "${repo}"
+    # dnf5 (Fedora) spells this "addrepo --from-repofile"; dnf4 (the RHEL
+    # rebuilds) spells it "--add-repo". Asking which one this dnf understands
+    # keeps a usage error that reads like a failure out of the build log.
+    if dnf config-manager --help 2>/dev/null | grep -q -- '--add-repo'; then
+      dnf config-manager --add-repo "${repo}"
+    else
+      dnf config-manager addrepo --from-repofile="${repo}"
+    fi
     dnf install -y --setopt=install_weak_deps=False \
       docker-ce-cli docker-buildx-plugin docker-compose-plugin
     dnf clean all

@@ -29,8 +29,15 @@ case "${family}" in
     ;;
   dnf)
     dnf install -y 'dnf-command(config-manager)'
-    dnf config-manager addrepo --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo \
-      || dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
+    repo="https://cli.github.com/packages/rpm/gh-cli.repo"
+    # dnf5 (Fedora) spells this "addrepo --from-repofile"; dnf4 (the RHEL
+    # rebuilds) spells it "--add-repo". Asking which one this dnf understands
+    # keeps a usage error that reads like a failure out of the build log.
+    if dnf config-manager --help 2>/dev/null | grep -q -- '--add-repo'; then
+      dnf config-manager --add-repo "${repo}"
+    else
+      dnf config-manager addrepo --from-repofile="${repo}"
+    fi
     dnf install -y --setopt=install_weak_deps=False gh
     dnf clean all
     rm -rf /var/cache/dnf
