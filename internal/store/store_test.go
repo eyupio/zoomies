@@ -789,7 +789,7 @@ func TestAppliedMigrationsListsTheLedgerInOrder(t *testing.T) {
 			t.Errorf("ledger[%d] = %s, want %s", i, applied[i].Name, embedded[i].name)
 		}
 		if applied[i].AppliedAt.IsZero() {
-t.Errorf("ledger[%d] %s has no applied_at", i, applied[i].Name)
+		t.Errorf("ledger[%d] %s has no applied_at", i, applied[i].Name)
 		}
 	}
 }
