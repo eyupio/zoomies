@@ -245,5 +245,8 @@ docker-compose.yml  the compose deployment, at the root so it is the one people 
 docs/               the zoomies.sh site, built by mkdocs.yml
 overrides/          the site's theme overrides: sharing tags, structured data, sitemap
 hooks/              the site's build-time SEO metadata: git dates and llms.txt
+ROADMAP.md          the follow-on roadmap, and the decisions it asks the owner to take
+roadmap/            what supports it: the work-package record, decision records,
+                    gate evidence, the model guidance and the source document
 install.sh          the one-line installer, served from the site root
 ```
