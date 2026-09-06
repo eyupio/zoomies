@@ -170,15 +170,16 @@ jobs:
       - run: make test
 ```
 
-One label is enough, and it is branded on purpose: a reviewer of the pull request
-that introduces it can tell at a glance that the job has left GitHub's runners.
-`runs-on: zoomies` works too, and means "anywhere in this fleet".
+One label is enough to reach a pool, and `runs-on: zoomies` works too, because
+every pool answers to that as well. [The labels to give a
+pool](configuration.md#the-labels-to-give-a-pool) says why they are branded, and
+what to write before anyone has decided which pool a repository belongs in.
 
 Push it. Zoomies sees the `workflow_job` webhook, starts a runner, and you watch
 the whole thing happen on the Overview page without refreshing — including the
 scheduler's reasoning, in its own words:
 
-```
+```text
 scaled zoomies-linux-x64 0 -> 1: 1 job queued
 ```
 
@@ -236,19 +237,13 @@ never a silent default.
 
 ## If something is wrong
 
-```sh
-zoomies status          # the Overview, in a terminal
-zoomies config check    # validate the config without starting anything
-journalctl -u zoomies -n 50
-```
+Very little of it should be a mystery. The UI, `zoomies status` and
+`GET /api/v1/problems` are three windows onto one list of problems, and on a
+healthy fleet that list is a single quiet line.
 
-The problems drawer -- the count in the UI's top bar opens it --
-`GET /api/v1/problems` and `zoomies status` all render the same list, each entry
-with what is true, why it matters and what to change. When there is nothing
-wrong it is one quiet line.
-
-[Troubleshooting](troubleshooting.md) has the five things that go wrong on a
-first run, and what a job sitting in the queue is telling you.
+[Troubleshooting](troubleshooting.md) is the page for the rest: the commands to
+run first, the five things that go wrong on a first run, and what a job sitting
+in the queue is telling you.
 
 ## Next
 

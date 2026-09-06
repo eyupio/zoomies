@@ -226,3 +226,132 @@ func TestEveryCommandIsDocumented(t *testing.T) {
 			strings.Join(missing, "\n  zoomies "))
 	}
 }
+
+// A screenshot has one description, wherever it appears.
+//
+// An alt text is read *instead of* the image, not beside it, so two
+// descriptions of one picture are two different pictures to anybody who cannot
+// see it -- and the two drift, because nobody rewrites both. Five screenshots
+// had two descriptions each before this test existed.
+func TestOneDescriptionPerScreenshot(t *testing.T) {
+	pages, err := filepath.Glob("../../docs/*.md")
+	if err != nil {
+		t.Fatalf("globbing docs: %v", err)
+	}
+	pages = append(pages, "../../README.md")
+
+	markdown := regexp.MustCompile(`!\[([^\]]*)\]\(([^)\s]*screenshots/[^)\s]+)`)
+	html := regexp.MustCompile(`<img src="([^"]*screenshots/[^"]+)" alt="([^"]*)"`)
+
+	// image file -> description -> the pages that use it.
+	seen := map[string]map[string][]string{}
+	note := func(src, alt, page string) {
+		// The theme's light/dark suffix is part of the link, not the image.
+		name := strings.SplitN(filepath.Base(src), "#", 2)[0]
+		if seen[name] == nil {
+			seen[name] = map[string][]string{}
+		}
+		seen[name][alt] = append(seen[name][alt], filepath.Base(page))
+	}
+
+	for _, page := range pages {
+		body, err := os.ReadFile(page)
+		if err != nil {
+			t.Fatalf("reading %s: %v", page, err)
+		}
+		for _, m := range markdown.FindAllStringSubmatch(string(body), -1) {
+			note(m[2], m[1], page)
+		}
+		for _, m := range html.FindAllStringSubmatch(string(body), -1) {
+			note(m[1], m[2], page)
+		}
+	}
+	if len(seen) == 0 {
+		t.Fatal("no screenshots were found at all; the docs moved, not the alt text")
+	}
+
+	for name, descriptions := range seen {
+		if len(descriptions) < 2 {
+			continue
+		}
+		var lines []string
+		for alt, pages := range descriptions {
+			lines = append(lines, "    "+strings.Join(pages, ", ")+": "+alt)
+		}
+		sort.Strings(lines)
+		t.Errorf("%s is described %d different ways:\n%s", name, len(descriptions), strings.Join(lines, "\n"))
+	}
+}
+
+// The two documents that draw a map of the repository. They are written for
+// different readers -- one for a visitor, one for a contributor -- so they are
+// allowed to differ in wording, but neither is allowed to name a path that is
+// not there or to leave a top-level directory out.
+var layouts = []string{"../../README.md", "../../CLAUDE.md"}
+
+// The fenced block under a layout heading, and one `path  what it is for` line
+// inside it. The continuation lines of a wrapped description start with spaces
+// and so do not match.
+var (
+	layoutBlock = regexp.MustCompile("(?is)## (?:Project )?Layout\\n+```text\\n(.*?)```")
+	layoutLine  = regexp.MustCompile(`(?m)^(\S+)\s{2,}\S`)
+)
+
+// Directories that are build products, tooling or checkouts rather than parts
+// of the repository, so a layout block that omits them is right to.
+var notInLayout = map[string]bool{
+	"node_modules": true, "site": true,
+}
+
+// A layout block that has drifted is the most quietly misleading kind of
+// documentation: it reads as authoritative, so a newcomer trusts it and spends
+// twenty minutes looking for a directory that moved.
+func TestTheLayoutBlocksDescribeTheRepositoryAsItIs(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatalf("resolving the repository root: %v", err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("reading the repository root: %v", err)
+	}
+	wanted := map[string]bool{}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() && !strings.HasPrefix(name, ".") && !notInLayout[name] {
+			wanted[name] = true
+		}
+	}
+	if len(wanted) == 0 {
+		t.Fatal("no top-level directories were found; the test is looking in the wrong place")
+	}
+
+	for _, doc := range layouts {
+		body, err := os.ReadFile(doc)
+		if err != nil {
+			t.Fatalf("reading %s: %v", doc, err)
+		}
+		block := layoutBlock.FindStringSubmatch(string(body))
+		if block == nil {
+			t.Errorf("%s has no layout block under a Layout heading any more", filepath.Base(doc))
+			continue
+		}
+
+		covered := map[string]bool{}
+		for _, m := range layoutLine.FindAllStringSubmatch(block[1], -1) {
+			path := strings.TrimSuffix(m[1], "/")
+			if _, err := os.Stat(filepath.Join(root, path)); err != nil {
+				t.Errorf("%s names %q, which is not in the repository", filepath.Base(doc), m[1])
+				continue
+			}
+			// `cmd/zoomies` is how a block says what `cmd/` holds.
+			covered[strings.SplitN(path, "/", 2)[0]] = true
+		}
+
+		for dir := range wanted {
+			if !covered[dir] {
+				t.Errorf("%s does not say what %s/ is for", filepath.Base(doc), dir)
+			}
+		}
+	}
+}

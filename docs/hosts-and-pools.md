@@ -197,7 +197,7 @@ setting it to 20 across two hosts of capacity 4 buys nothing.
 The scheduler says why, in one sentence, and the same reason appears in
 **Scaling events**, the problems drawer and the CLI:
 
-```
+```text
 no host can take a new docker runner (1 cordoned, 2 at capacity)
 ```
 
@@ -223,7 +223,7 @@ host cannot reach GitHub, the runner version does not exist -- is not replaced
 in the same pass that notices. The pool waits ten seconds after the first such
 failure, and doubles the wait with each one after it, up to five minutes:
 
-```
+```text
 cannot scale linux-x64 0 -> 1: the last 3 runners failed to start, most recently
 30s ago (No such image: sha256:9f2c…); trying again in 10s
 ```

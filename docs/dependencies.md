@@ -84,9 +84,9 @@ headers, is unit-tested.
 Those are inline SVG paths of a few dozen lines each. The smallest credible
 charting library is larger than the entire rest of the app shell.
 
-**A client-side router.** Fourteen routes, two of them with a parameter segment,
-do not need a routing library. `web/src/lib/router.ts` is small enough to read in
-one sitting and does exactly what the History API already offers.
+**A client-side router.** Seventeen routes, two of them with a parameter
+segment, do not need a routing library. `web/src/lib/router.ts` is small enough
+to read in one sitting and does exactly what the History API already offers.
 
 **A state-management library.** Svelte 5 runes are the state management library.
 

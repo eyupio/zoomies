@@ -174,3 +174,6 @@ validation:
   links:
     absolute_links: ignore
     unrecognized_links: warn
+    # A heading that gets reworded silently breaks every deep link into it, and
+    # a link that lands at the top of a long page looks like it worked.
+    anchors: warn

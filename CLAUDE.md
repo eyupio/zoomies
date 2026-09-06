@@ -183,7 +183,7 @@ Table-driven and standard-library `testing` throughout; no assertion framework.
 Tests use `:memory:` SQLite stores, injected clocks (`store.Options.Now`), and
 the fake GitHub in `internal/github/fake.go` rather than network calls. Helper
 constructors take `t` and call `t.Helper()` / `t.Cleanup`. Coverage is broad —
-about 70 test files against 185 Go files — so a new behaviour is expected to
+roughly one test file for every source file — so a new behaviour is expected to
 arrive with one.
 
 Test names are sentences about the behaviour, not the method
@@ -203,7 +203,12 @@ has a consistent voice, and matching it is part of a change looking finished.
 * **Error and warning messages are written for a person to act on.** An operator
   who gets a 403 should be told which role they are missing. Findings say what
   to change; API errors carry a human message and a stable code.
-* `--` is used for an em dash in Go comments.
+* **`--` in code, `—` in Markdown.** Go comments, TypeScript comments and
+  terminal output use `--` for an em dash, because a source file is read in a
+  terminal as often as in an editor and a literal em dash is one more thing to
+  get wrong. Markdown prose uses the character itself: the site renders it, and
+  a document is written to be read rather than to be greppable. Strings the UI
+  renders are Markdown's side of that line, not code's.
 * **Diagrams are Mermaid**, in a `mermaid` fenced block beside the prose they
   explain -- never ASCII art. The site renders them (`mkdocs.yml` registers the
   fence) and so does GitHub, so a diagram lives in the Markdown it belongs to and
@@ -216,7 +221,7 @@ has a consistent voice, and matching it is part of a change looking finished.
 
 ## Layout
 
-```
+```text
 cmd/zoomies         the binary: controller, agent, init, CLI
 internal/store      domain model, SQLite schema, every query
 internal/config     zoomies.yaml + env, and the validator that warns
@@ -227,13 +232,16 @@ internal/auth       identity, RBAC, tokens, audit, OIDC
 internal/api        REST, SSE, metrics, and the embedded UI
 internal/controller the reconcile loop and the agent task queue
 internal/agent      the runner-executing half
-internal/installer  zoomies init / uninstall / agent join
+internal/installer  zoomies init / uninstall / agent join, and the unit,
+                    compose and env templates they write
 internal/cryptox    AES-256-GCM at rest, argon2id, token hashing
 internal/events     in-process pub/sub that the SSE endpoint fans out
 internal/migrate    rewriting workflows' runs-on lines
 web/                the Svelte 5 UI
+test/e2e            the Docker end-to-end test, behind the `e2e` build tag
 api/openapi.yaml    the API contract both clients are generated from
-deploy/             images, compose, systemd units
+deploy/             the controller and runner images, and the runner entrypoint
+docker-compose.yml  the compose deployment, at the root so it is the one people find
 docs/               the zoomies.sh site, built by mkdocs.yml
 overrides/          the site's theme overrides: sharing tags, structured data, sitemap
 hooks/              the site's build-time SEO metadata: git dates and llms.txt

@@ -584,7 +584,7 @@ one of them is the common mistake:
 Miss the second and the daemon is there, reachable, and unused: the job fails at
 its first Docker step with
 
-```
+```text
 Error: Unable to locate executable file: docker.
 ```
 
@@ -622,7 +622,7 @@ panel. That is almost always a typo in `runs-on` or a label missing from a pool.
 
 Every start prints what it found:
 
-```
+```text
 $ zoomies controller
 level=INFO msg="configuration warning" code=bind.public_no_tls setting=server.bind
   title="listening on 0.0.0.0:8080 without TLS"

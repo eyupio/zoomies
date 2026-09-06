@@ -37,7 +37,7 @@ curl -fsSL https://zoomies.sh/install.sh | sh
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/overview-dark.webp">
-  <img src="docs/screenshots/overview-light.webp" alt="The Zoomies Overview: four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words" width="100%">
+  <img src="docs/screenshots/overview-light.webp" alt="The Overview: four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words" width="100%">
 </picture>
 
 </div>
@@ -124,19 +124,11 @@ the first administrator, connect GitHub, create a pool. The closing summary
 prints all three with their exact addresses, and the Overview repeats them
 as a checklist that ticks itself off.
 
-Prefer to read it first? That is the intended way:
-
-```sh
-curl -fsSLO https://zoomies.sh/install.sh
-less install.sh
-sh install.sh
-```
-
-Automating it? Every prompt has a flag:
-
-```sh
-sh install.sh --non-interactive --answers zoomies-answers.yaml
-```
+Prefer to read it first? That is the intended way, and
+[the quick start](docs/quickstart.md#1-install) has the three lines that
+download it, page through it and then run it. Automating it instead? Every
+prompt has a flag and the rest has an answer file:
+[unattended installs](docs/quickstart.md#unattended-installs).
 
 ### Docker Compose instead
 
@@ -188,32 +180,22 @@ use a Tunnel and publish no port at all. See
 
 ### Add another host
 
-Generate a join token in the UI (**Hosts → Add a host**) or on the CLI, then run
-the one line it gives you on the new machine:
-
-```sh
-curl -fsSL https://zoomies.sh/install.sh | sh -s -- \
-  --mode agent \
-  --controller https://zoomies.example.com \
-  --join-token zoojoin_...
-```
+**Hosts → Add a host** comes filled in from what the controller already knows
+and hands you one line to paste on the new machine; leave the page open and it
+says the moment the host has joined. The token is single-use, and the agent
+dials out rather than being dialled, so nothing has to be opened on either
+firewall. The [quick start](docs/quickstart.md#adding-another-host) has the line
+itself.
 
 ## Your first pool
 
-A pool says what labels your runners answer to and how many may exist.
-On a single-host install, setup creates this one for you once GitHub is
-connected -- it is derived from what the host actually is, so the numbers below
-are what you get on a 4-CPU Linux box with Docker:
-
-| | |
-| --- | --- |
-| **Name** | `zoomies-linux-x64` |
-| **Labels** | `zoomies-linux-x64`, and `zoomies` like every pool |
-| **Backend** | Docker (rootless if available) |
-| **Min / max** | `0` / `4` — nothing idle when nothing is queued; the max is the host's capacity |
-| **Idle timeout** | `5m` |
-| **Ephemeral** | yes |
-| **Docker in jobs** | none |
+A pool says what labels your runners answer to and how many may exist. On a
+single-host install, setup creates one for you once GitHub is connected, derived
+from what the host actually is: named after the platform, capped at the
+machine's capacity, nothing kept idle when nothing is queued, ephemeral, and
+Docker with no socket reachable from the job. The
+[quick start](docs/quickstart.md#4-your-first-pool) has the settings it lands
+on.
 
 Then in a workflow:
 
@@ -229,11 +211,10 @@ jobs:
 Push it. Zoomies sees the `workflow_job` webhook, starts a runner, and you watch
 the whole thing happen on the Overview page without refreshing.
 
-One label is enough, and it is branded on purpose: a reviewer of the pull request
-that introduces it can tell at a glance that the job has left GitHub's runners.
-Every pool also answers to `zoomies`, so `runs-on: zoomies` means "anywhere in
-this fleet" — the line to write before anyone has decided which pool a repository
-belongs in.
+One label is enough, and it is branded on purpose: a reviewer can tell at a
+glance that the job has left GitHub's runners. [The labels to give a
+pool](docs/configuration.md#the-labels-to-give-a-pool) has the rest, including
+the `zoomies` label every pool answers to.
 
 ## Moving your repositories over
 
@@ -270,7 +251,7 @@ wrong), **Pools**, **Runners**, **Jobs**, **Usage**, **Hosts**,
     <td width="50%" valign="top">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/job-dark.webp">
-  <img src="docs/screenshots/job-light.webp" alt="A failed job's drawer, naming the step it failed at and linking to that step's log" width="100%">
+  <img src="docs/screenshots/job-light.webp" alt="A failed job's drawer: the failing step named at the top, then the job's details, its steps with timings and a link to the run" width="100%">
 </picture>
       <p align="center"><sub>A job that went wrong, and where.</sub></p>
     </td>
@@ -279,14 +260,14 @@ wrong), **Pools**, **Runners**, **Jobs**, **Usage**, **Hosts**,
     <td width="50%" valign="top">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/hosts-dark.webp">
-  <img src="docs/screenshots/hosts-light.webp" alt="The Hosts page: a card per host with its health, slots in use, detected backends and labels" width="100%">
+  <img src="docs/screenshots/hosts-light.webp" alt="The Hosts page: a card per host with its health, slots in use, detected backends and labels, above the join tokens panel" width="100%">
 </picture>
       <p align="center"><sub>Hosts, their room left, and the backends their agents found.</sub></p>
     </td>
     <td width="50%" valign="top">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/migrate-dark.webp">
-  <img src="docs/screenshots/migrate-light.webp" alt="The migration wizard's review step: the exact diff, and the jobs it will not touch" width="100%">
+  <img src="docs/screenshots/migrate-light.webp" alt="The migration wizard's review step: the exact diff for one repository, changing runs-on from ubuntu-latest to the pool's labels, and the jobs it will not touch" width="100%">
 </picture>
       <p align="center"><sub>Migrate: the exact diff before a pull request is opened.</sub></p>
     </td>
@@ -328,7 +309,7 @@ export ZOOMIES_TOKEN=zoo_...
 One `zoomies.yaml`, every key overridable with a `ZOOMIES_*` environment
 variable. It is validated on startup, and the errors tell you what to change:
 
-```
+```text
 configuration is not valid:
   - server.tls.mode: "selfsigned" is not a TLS mode
       fix: use "off", "self-signed" or "files".
@@ -337,7 +318,7 @@ configuration is not valid:
 Warnings are separate from errors and never stop startup, but each one names a
 setting that weakens the default posture:
 
-```
+```text
 [warning] listening on 0.0.0.0:8080 without TLS -- session cookies, API tokens
 and the GitHub App private key you paste during setup all cross the network in
 cleartext. Fix: put a TLS-terminating reverse proxy in front, or set
@@ -398,7 +379,7 @@ hand-registered long-lived runners is too little.
 
 ## Project layout
 
-```
+```text
 cmd/zoomies         the binary: controller, agent, init, CLI
 internal/store      domain model, SQLite schema, every query
 internal/config     zoomies.yaml + env, and the validator that warns
@@ -409,15 +390,20 @@ internal/auth       identity, RBAC, tokens, audit, OIDC
 internal/api        REST, SSE, metrics, and the embedded UI
 internal/controller the reconcile loop and the agent task queue
 internal/agent      the runner-executing half
-internal/installer  zoomies init / uninstall / agent join
+internal/installer  zoomies init / uninstall / agent join, and the unit,
+                    compose and env templates they write
 internal/cryptox    AES-256-GCM at rest, argon2id, token hashing
 internal/events     in-process pub/sub that the SSE endpoint fans out
 internal/migrate    rewriting workflows' runs-on lines
 web/                the Svelte 5 UI
+test/e2e            the Docker end-to-end test, behind the `e2e` build tag
 api/openapi.yaml    the contract both clients are generated from
-deploy/             images, compose, systemd units
+deploy/             the controller and runner images, and the runner entrypoint
+docker-compose.yml  the compose deployment
 docs/               the zoomies.sh site: architecture, security, UI guidelines,
                     configuration, brand
+overrides/          the site's theme overrides: sharing tags, structured data
+hooks/              the site's build-time SEO metadata: git dates and llms.txt
 install.sh          the one-line installer, served from the site root
 mkdocs.yml          how docs/ becomes zoomies.sh
 ```
