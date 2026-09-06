@@ -91,7 +91,11 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	ctx, cancel := contextWithTimeout(r, 5*time.Second)
 	defer cancel()
-	if _, err := s.ctrl.Store().CountUsers(ctx); err != nil {
+	// The ledger is the readiness question itself: a database that answers
+	// and has taken every migration is one this build can serve. It is also
+	// what "schema version" means here, so the probe says which.
+	applied, err := s.ctrl.Store().AppliedMigrations(ctx)
+	if err != nil {
 		// The cause goes to the log. This route is anonymous, and a database
 		// error names paths and drivers that are nobody else's business.
 		s.logger(r).Warn("readiness probe failed", "error", err)
@@ -101,7 +105,11 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "version": version.Short()})
+	body := map[string]any{"ok": true, "version": version.Short()}
+	if n := len(applied); n > 0 {
+		body["schema"] = map[string]any{"applied": n, "latest": applied[n-1].Name}
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 // ---------------------------------------------------------------------------

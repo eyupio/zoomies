@@ -688,3 +688,29 @@ func TestTheJobsRebuildKeepsEveryRowAndItsIndexes(t *testing.T) {
 		t.Fatalf("the rebuilt jobs table has %d indexes, want 6", indexes)
 	}
 }
+
+// The ledger is the schema version: there is no number, only the file names,
+// so the readiness probe and a future backup manifest read the list and take
+// the last one. It has to come back in the order the migrations apply.
+func TestAppliedMigrationsListsTheLedgerInOrder(t *testing.T) {
+	s := newTestStore(t)
+	applied, err := s.AppliedMigrations(context.Background())
+	if err != nil {
+		t.Fatalf("AppliedMigrations: %v", err)
+	}
+	embedded, err := loadMigrations()
+	if err != nil {
+		t.Fatalf("loadMigrations: %v", err)
+	}
+	if len(applied) != len(embedded) {
+		t.Fatalf("ledger has %d rows, the binary embeds %d migrations", len(applied), len(embedded))
+	}
+	for i := range applied {
+		if applied[i].Name != embedded[i].name {
+			t.Errorf("ledger[%d] = %s, want %s", i, applied[i].Name, embedded[i].name)
+		}
+		if applied[i].AppliedAt.IsZero() {
+			t.Errorf("ledger[%d] %s has no applied_at", i, applied[i].Name)
+		}
+	}
+}

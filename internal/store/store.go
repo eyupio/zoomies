@@ -270,6 +270,36 @@ func (s *Store) migrate(ctx context.Context) error {
 // ---------------------------------------------------------------------------
 
 // exec runs a write statement under the single-writer lock.
+// AppliedMigration is one row of the ledger: which migration, and when this
+// database took it.
+type AppliedMigration struct {
+	Name      string    `json:"name"`
+	AppliedAt time.Time `json:"applied_at"`
+}
+
+// AppliedMigrations lists the ledger in the order the migrations apply, which
+// is the lexical order of their file names. It is what a readiness probe, a
+// bug report or a backup manifest means by "schema version": there is no
+// number, only the names, and the last one is the one that matters.
+func (s *Store) AppliedMigrations(ctx context.Context) ([]AppliedMigration, error) {
+	rows, err := s.read.QueryContext(ctx, `SELECT name, applied_at FROM schema_migrations ORDER BY name`)
+	if err != nil {
+		return nil, fmt.Errorf("store: reading migration ledger: %w", err)
+	}
+	defer rows.Close()
+	var out []AppliedMigration
+	for rows.Next() {
+		var m AppliedMigration
+		var applied int64
+		if err := rows.Scan(&m.Name, &applied); err != nil {
+			return nil, fmt.Errorf("store: reading migration ledger: %w", err)
+		}
+		m.AppliedAt = at(applied)
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) exec(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	s.wmu.Lock()
 	defer s.wmu.Unlock()
