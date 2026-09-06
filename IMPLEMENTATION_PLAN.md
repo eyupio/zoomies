@@ -106,6 +106,12 @@ one list.
 
 ## Wave 4: polish, gaps and nits
 
+Shipped in three batches so far. **4a** (16 items, PR #65, merged as afb1d50):
+the Go core, the API contract and the controller. **4b** (11 items, PR #66,
+merged as bd1582b): backends, agent, auth, installer, deploy and the build.
+**4c** (22 items, PR #67): the web UI's tokens, state, copy and specs, plus
+N05 and N06. **4d**, the docs, is what is left.
+
 ### Go core: store, scheduler, config, events, migrate
 
 - [x] **C07** [polish] `agent.root` warns about an agent process in a controller that runs no agent — `internal/config/validate.go:469-476` — done, agent.root fires only where an agent runs, gated on the same predicate as the rest of the agent section
@@ -143,31 +149,31 @@ one list.
 
 ### Web UI: behaviour and state
 
-- [ ] **U08** [polish] `Usage.svelte` bypasses the API client, the schema, the components, the tokens and the date conventions — `web/src/routes/Usage.svelte:5-36`
-- [ ] **U09** [polish] Toast eviction can drop an un-dismissed error — `web/src/lib/state/toasts.svelte.ts:73`
-- [ ] **U10** [polish] Constants and components duplicated, including one the code says it removed — `web/src/lib/settings/AccountPanel.svelte:19`
-- [ ] **U11** [polish] `aria-rowcount` without `aria-rowindex` — `web/src/lib/components/DataGrid.svelte:437`
-- [ ] **U13** [polish] Playwright does not exercise several documented behaviours — `web/tests`
-- [ ] **U12** [nit] Small UI code nits — `web/src/lib/api/types.ts:164-181`
+- [x] **U08** [polish] `Usage.svelte` bypasses the API client, the schema, the components, the tokens and the date conventions — `web/src/routes/Usage.svelte:5-36` — done, rebuilt on client.ts, the generated schema, DateRange, LoadingBoundary and the primitives; pools are named, the range and grouping live in the address bar so a report is a link, and the CSV carries the same range
+- [x] **U09** [polish] Toast eviction can drop an un-dismissed error — `web/src/lib/state/toasts.svelte.ts:73` — done, eviction takes the oldest toast that was leaving anyway, so a run of successes cannot push an unread refusal off the screen; a spec drives it through the pools page
+- [x] **U10** [polish] Constants and components duplicated, including one the code says it removed — `web/src/lib/settings/AccountPanel.svelte:19` — done, one definition each: MIN_PASSWORD_LENGTH imported rather than repeated, lib/roles.ts, lib/addresses.ts, lib/pools/consequences.ts, and one Panel in lib/components
+- [x] **U11** [polish] `aria-rowcount` without `aria-rowindex` — `web/src/lib/components/DataGrid.svelte:437` — done, the header is row 1 and each row carries offset + index + 2, so the announced total is reconcilable
+- [x] **U13** [polish] Playwright does not exercise several documented behaviours — `web/tests` — done, new specs for the g chords and / and ?, the Audit page, Settings create/edit/delete for accounts and tokens, the log viewer, a dropped stream, and an optimistic change the controller refuses
+- [x] **U12** [nit] Small UI code nits — `web/src/lib/api/types.ts:164-181` — done, EVENT_KINDS deleted, the palette guarded while closed and its scrim made a plain element, Jobs validates ?state=, a refused confirmation reports cancellation, the router caches loaded components, and the two serve scripts share one harness that waits for exit
 
 ### Web UI: design, copy and consistency
 
-- [ ] **P06** [polish] Five breakpoints beyond the two the guidelines allow — `web/src/lib/overview/FirstRun.svelte:412`
-- [ ] **P07** [polish] 359 raw `px` values in 107 files against a rule that says never — `web/src/lib/components/DataGrid.svelte:592-605`
-- [ ] **P08** [polish] The guidelines' token tables and the token file disagree — `web/src/lib/styles/tokens.css`
-- [ ] **P09** [polish] Six metric tiles in a four-column grid — `web/src/lib/overview/FleetMetrics.svelte`
-- [ ] **P10** [polish] Name cells wrap instead of truncating, and truncated text has no `title` — `web/src/routes/Runners.svelte:286-291`
-- [ ] **P11** [polish] Focus ring removed without a visible replacement — `web/src/lib/shell/CommandPalette.svelte:473`
-- [ ] **P12** [polish] Raw controls miss the 16 px phone rule — `web/src/lib/components/Pagination.svelte:118-127`
-- [ ] **P13** [polish] Phone top bar shows `Ctrl K`, and the bottom-nav pill misaligns its icon — `web/src/lib/shell/TopBar.svelte:260-265`
-- [ ] **P14** [polish] Copy inconsistencies: `--` in rendered text, mixed placeholders, a raw role id, diverging empty states — `web/src/lib/overview/FirstRun.svelte:165`
-- [ ] **P15** [polish] Three grids render state three ways, and the busy hue and Play icon are spent twice — `web/src/lib/runners/RunnerStateCell.svelte`
-- [ ] **P16** [polish] External links open inconsistently, and the footer's own rule is not true — `web/src/lib/shell/AppFooter.svelte:43`
-- [ ] **P17** [polish] Tall label rows, a doubled button and US dates in the shipped screenshots — `web/src/lib/jobs/JobLabels.svelte`
-- [ ] **P18** [polish] Number formatting bypassed in two grids — `web/src/routes/Pools.svelte:348`
-- [ ] **P20** [polish] The a11y spec covers four of ten pages and the mobile spec asserts the opposite of the guidelines — `web/tests/a11y.spec.ts`
-- [ ] **P19** [nit] Small design-system nits — `web/src/lib/components/Field.svelte:80-89`
-- [ ] **P21** [nit] `theme-color` is fixed to near-black in both themes — `web/index.html`
+- [x] **P06** [polish] Five breakpoints beyond the two the guidelines allow — `web/src/lib/overview/FirstRun.svelte:412` — done, the four strays all meant "stack this on a phone" and say 768; the one min-width: 1181px is the other side of the same threshold and says so
+- [x] **P07** [polish] 359 raw `px` values in 107 files against a rule that says never — `web/src/lib/components/DataGrid.svelte:592-605` — done, 402 raw px across 110 files becomes 32: border widths in three weights, sub-grid nudges, drawn-control sizes, tracking and the dialog and drawer measures are tokens, and the rule now names the three things that stay raw and why
+- [x] **P08** [polish] The guidelines' token tables and the token file disagree — `web/src/lib/styles/tokens.css` — done, the shadow and weight tables match the file, --z-focus-ring and --z-accent-active have consumers, Brand White and Cool Grey are derived rather than repeated, and the danger button takes its own contrast colour
+- [x] **P09** [polish] Six metric tiles in a four-column grid — `web/src/lib/overview/FleetMetrics.svelte` — done, the column count is a divisor of six at every width, so no row is left part empty
+- [x] **P10** [polish] Name cells wrap instead of truncating, and truncated text has no `title` — `web/src/routes/Runners.svelte:286-291` — done, one line with an ellipsis and the full value in a title, in both grids and for any column the grid renders itself
+- [x] **P11** [polish] Focus ring removed without a visible replacement — `web/src/lib/shell/CommandPalette.svelte:473` — done, the palette's search row and the label field carry a real ring drawn as a box-shadow, and the wizard step uses :focus-visible
+- [x] **P12** [polish] Raw controls miss the 16 px phone rule — `web/src/lib/components/Pagination.svelte:118-127` — done, pagination's select, the date range and the label field have the phone rule -- and the rule now beats the size selectors it was losing to
+- [x] **P13** [polish] Phone top bar shows `Ctrl K`, and the bottom-nav pill misaligns its icon — `web/src/lib/shell/TopBar.svelte:260-265` — done, the key cap goes on a phone and the button carries its own name, and the bottom-nav entries centre their icons
+- [x] **P14** [polish] Copy inconsistencies: `--` in rendered text, mixed placeholders, a raw role id, diverging empty states — `web/src/lib/overview/FirstRun.svelte:165` — done, real em dashes in rendered copy including two server sentences, the role label map on the account panel, and the guidelines' empty-state examples match the pages
+- [x] **P15** [polish] Three grids render state three ways, and the busy hue and Play icon are spent twice — `web/src/lib/runners/RunnerStateCell.svelte` — done, one state cell in lib/components used by all three grids, a power switch for enable and disable, and a neutral fill for slot occupancy
+- [x] **P16** [polish] External links open inconsistently, and the footer's own rule is not true — `web/src/lib/shell/AppFooter.svelte:43` — done, one rule -- a link that leaves the product opens a new tab and says so -- with a newTab prop on Button and the guidelines rewritten around it
+- [x] **P17** [polish] Tall label rows, a doubled button and US dates in the shipped screenshots — `web/src/lib/jobs/JobLabels.svelte` — done, chips stay on one line in a grid and wrap only where the whole set is on show, the Hosts page keeps one Add a host button, and the screenshot runner pins en-GB and Europe/London
+- [x] **P18** [polish] Number formatting bypassed in two grids — `web/src/routes/Pools.svelte:348` — done, both counts go through formatNumber
+- [x] **P20** [polish] The a11y spec covers four of ten pages and the mobile spec asserts the opposite of the guidelines — `web/tests/a11y.spec.ts` — done, the audit covers all ten pages and gained a drawer trap test, a reduced-motion check, the live regions and reflow at 200% zoom; the mobile spec asserts the 16px control rule
+- [x] **P19** [nit] Small design-system nits — `web/src/lib/components/Field.svelte:80-89` — done, the stale Field comment removed, the shortcut sheet lower-cased to match the nav, weights, tracking and easing added to the @theme mapping, --z-danger-contrast used, and the docs say why the nav shortens Migrate
+- [x] **P21** [nit] `theme-color` is fixed to near-black in both themes — `web/index.html` — done, two media-scoped tags for the system default, pinned by theme.svelte.ts when the operator has chosen a side
 
 ### Docs, README and the site
 
