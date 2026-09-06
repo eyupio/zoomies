@@ -360,8 +360,11 @@ development.
 
 ### `metrics.public: true`
 
-`/metrics` served without authentication. Repository names, workflow names and
-pool names appear in metric labels. Prefer giving Prometheus a viewer API token.
+`/metrics` served without authentication. No repository or workflow name is a
+label — the code stopped putting them there — but pool names, backend kinds,
+runner and host states, the id of each GitHub App installation a call was made
+for, and the build's version and commit are, and together they tell a stranger
+what you run and how busy it is. Prefer giving Prometheus a viewer API token.
 
 ### `server.allow_indexing: true`
 

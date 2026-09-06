@@ -17,7 +17,7 @@ jobs:
   check:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - id: latest
         name: Find the latest release
@@ -30,7 +30,7 @@ jobs:
           echo "current=$current" >> "$GITHUB_OUTPUT"
           echo "Current $current, latest $latest" >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         if: steps.latest.outputs.latest != steps.latest.outputs.current
         with:
           go-version: "1.26"
@@ -58,7 +58,7 @@ jobs:
 
       - name: Open a pull request
         if: steps.latest.outputs.latest != steps.latest.outputs.current
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7.0.11
         with:
           branch: chore/runner-${{ steps.latest.outputs.latest }}
           title: "Update the runner image to actions/runner ${{ steps.latest.outputs.latest }}"

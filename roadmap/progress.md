@@ -34,7 +34,7 @@ evidence.
 | --- | --- | --- | --- | --- | --- | --- |
 | ZF-001 | Reconcile completed work and define the next slice | new | `implemented` | the improvement plan (done) | Claude Fable 5.1, `high`; one orchestration of 12 mappers, 12 adversarial verifiers and a document critic; 1 review round | [validation/baseline-6d12a72.md](validation/baseline-6d12a72.md); [ROADMAP.md](../ROADMAP.md) §5–7 carry the classification of every package |
 | ZF-002 | Support matrix, invariants and measurement contract | mixed | `implemented` | ZF-001 | docs as ZF-001; code slice: Claude Fable 5.1, `high`, one session, 1 review round | [support-and-measurement.md](support-and-measurement.md); the code slice is merged: readiness names the schema, a held job's timeline says so with `waiting` and `approved`, and the completed count is split four ways. `validated` waits on the owner's reference host (decision 12) for the recorded OS and runtime versions |
-| ZF-003 | Supply-chain hygiene and three corrections | new; no behaviour change | `not_started` | nothing | | Size S; pulled forward from ZF-204 |
+| ZF-003 | Supply-chain hygiene and three corrections | new; no behaviour change | `implemented` | nothing | Claude Fable 5.1, `high`, one session, 1 review round | every `uses:` in the four workflows is a commit with its release beside it; `.github/dependabot.yml` covers actions, Go modules, npm under `web/` and the images under `deploy/`, weekly and grouped; `govulncheck` runs on every change and weekly against `main`; the three pages say what the code does, and the payload carries `schema_version: 1`. `validated` when CI has run on the pins and the first Dependabot pull requests arrive |
 
 ## Phase 1: correctness and security under failure
 
@@ -74,6 +74,8 @@ evidence.
 ## Log
 
 Newest first. One line per event that changed a row.
+
+* 2026-09-06: ZF-003 done in one pull request; the package is `implemented`.
 
 * 2026-09-06: ZF-002's code slice done; the package is `implemented`.
 
