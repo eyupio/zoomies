@@ -25,6 +25,7 @@ func TestBootstrapCreatesTheFirstAdmin(t *testing.T) {
 
 	resp := h.do(request{method: http.MethodPost, path: "/api/v1/auth/bootstrap", body: map[string]any{
 		"username": "root", "password": testPassword, "email": "root@example.com",
+		"setup_token": h.setupToken(),
 	}})
 	resp.mustStatus(t, http.StatusCreated, "bootstrap")
 
@@ -44,7 +45,7 @@ func TestBootstrapCreatesTheFirstAdmin(t *testing.T) {
 	session.mustStatus(t, http.StatusOK, "session after bootstrap")
 
 	again := h.do(request{method: http.MethodPost, path: "/api/v1/auth/bootstrap", body: map[string]any{
-		"username": "second", "password": testPassword,
+		"username": "second", "password": testPassword, "setup_token": h.setupToken(),
 	}})
 	again.mustStatus(t, http.StatusConflict, "second bootstrap")
 	if code := again.errorCode(t); code != codeConflict {
@@ -61,7 +62,7 @@ func TestBootstrapCreatesTheFirstAdmin(t *testing.T) {
 func TestBootstrapRejectsAShortPassword(t *testing.T) {
 	h := newHarness(t)
 	resp := h.do(request{method: http.MethodPost, path: "/api/v1/auth/bootstrap", body: map[string]any{
-		"username": "root", "password": "short",
+		"username": "root", "password": "short", "setup_token": h.setupToken(),
 	}})
 	resp.mustStatus(t, http.StatusUnprocessableEntity, "bootstrap with a short password")
 
@@ -308,4 +309,116 @@ func TestChangeOwnPassword(t *testing.T) {
 	old.mustStatus(t, http.StatusUnauthorized, "the old session after a password change")
 	fresh := h.do(request{method: http.MethodGet, path: "/api/v1/auth/session", cookie: ok.cookie.Value})
 	fresh.mustStatus(t, http.StatusOK, "the new session after a password change")
+}
+
+// ---------------------------------------------------------------------------
+// Single sign-on
+// ---------------------------------------------------------------------------
+
+// The OIDC state is minted server-side and remembered in a cookie on the
+// browser that began the handshake. Without that binding, a state an attacker
+// obtained by signing in as themselves is one this controller would accept from
+// anybody's browser -- and the victim would end up signed in as the attacker.
+//
+// The provider here is a bare value: Enabled() only asks whether there is one,
+// and the state check happens before anything touches it, which is the point.
+func TestOIDCCallbackRefusesAStateThisBrowserDidNotStart(t *testing.T) {
+	h := newHarness(t)
+	h.api.oidc = &auth.OIDCProvider{}
+
+	cases := []struct {
+		name   string
+		cookie string
+		state  string
+	}{
+		{name: "no cookie at all", state: "state-from-somewhere-else"},
+		{name: "a state from another browser", cookie: "ours", state: "theirs"},
+		{name: "a cookie but no state", cookie: "ours"},
+		{name: "neither"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := request{method: http.MethodGet, path: "/api/v1/auth/oidc/callback?code=abc&state=" + tc.state}
+			if tc.cookie != "" {
+				req.headers = map[string]string{"Cookie": OIDCStateCookie + "=" + tc.cookie}
+			}
+			resp := h.do(req)
+			resp.mustStatus(t, http.StatusFound, "callback with "+tc.name)
+			if loc := resp.header.Get("Location"); !strings.HasPrefix(loc, "/login?error=") {
+				t.Fatalf("Location = %q; want a redirect back to the login page", loc)
+			}
+			if resp.cookie != nil && resp.cookie.Value != "" {
+				t.Fatal("a refused callback issued a session")
+			}
+		})
+	}
+}
+
+// Whatever the outcome, the state cookie is spent: leaving it in place would
+// let the same callback be replayed against this browser.
+func TestOIDCCallbackClearsTheStateCookie(t *testing.T) {
+	h := newHarness(t)
+	h.api.oidc = &auth.OIDCProvider{}
+
+	resp := h.do(request{
+		method:  http.MethodGet,
+		path:    "/api/v1/auth/oidc/callback?code=abc&state=theirs",
+		headers: map[string]string{"Cookie": OIDCStateCookie + "=ours"},
+	})
+	resp.mustStatus(t, http.StatusFound, "refused callback")
+
+	var cleared bool
+	for _, c := range resp.header.Values("Set-Cookie") {
+		if strings.HasPrefix(c, OIDCStateCookie+"=;") || strings.Contains(c, OIDCStateCookie+"=;") {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Fatalf("the state cookie was not cleared: %v", resp.header.Values("Set-Cookie"))
+	}
+}
+
+// The bootstrap route has to be open on a fresh install and closed to everybody
+// who is not the operator, and "no account exists yet" does not tell those two
+// apart. The setup token does: it is printed in this controller's log, so
+// holding it means having deployed the thing.
+func TestBootstrapNeedsTheSetupToken(t *testing.T) {
+	h := newHarness(t)
+
+	cases := []struct {
+		name string
+		body map[string]any
+	}{
+		{name: "no token at all", body: map[string]any{"username": "root", "password": testPassword}},
+		{name: "an empty token", body: map[string]any{"username": "root", "password": testPassword, "setup_token": "  "}},
+		{name: "somebody else's guess", body: map[string]any{"username": "root", "password": testPassword, "setup_token": "zoo-not-the-token"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := h.do(request{method: http.MethodPost, path: "/api/v1/auth/bootstrap", body: tc.body})
+			resp.mustStatus(t, http.StatusUnprocessableEntity, "bootstrap with "+tc.name)
+
+			var env errorEnvelope
+			resp.into(t, &env)
+			if len(env.Errors) == 0 || env.Errors[0].Field != "setup_token" {
+				t.Fatalf("expected a field error on setup_token, got %+v", env)
+			}
+			if resp.cookie != nil && resp.cookie.Value != "" {
+				t.Fatal("a refused bootstrap issued a session")
+			}
+		})
+	}
+
+	// Nothing was created, so the instance is still waiting for its first
+	// account rather than quietly belonging to whoever tried.
+	if meta := h.do(request{method: http.MethodGet, path: "/api/v1/meta"}); meta.json(t)["bootstrap_required"] != true {
+		t.Fatal("a refused bootstrap created an account")
+	}
+	users, err := h.st.ListUsers(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(users) != 0 {
+		t.Fatalf("accounts = %d after refused bootstraps; want none", len(users))
+	}
 }

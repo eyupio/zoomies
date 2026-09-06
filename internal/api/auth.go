@@ -321,6 +321,56 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, token string) {
 	})
 }
 
+// OIDCStateCookie holds the state of a single sign-on handshake that is in
+// flight, so the callback can be checked against the browser that began it.
+const OIDCStateCookie = "zoomies_oidc_state"
+
+// oidcStateLifetime matches the provider-side state TTL in internal/auth: the
+// cookie should not outlive the thing it is proving.
+const oidcStateLifetime = 10 * time.Minute
+
+// setOIDCStateCookie remembers, in this browser, the state it was sent to the
+// identity provider with.
+//
+// SameSite=Lax rather than Strict because the callback arrives as a top-level
+// navigation from the provider's origin, and Strict would withhold the cookie
+// on exactly that request -- which would refuse every real sign-in.
+func (s *Server) setOIDCStateCookie(w http.ResponseWriter, state string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     OIDCStateCookie,
+		Value:    state,
+		Path:     auth.OIDCCallbackPath,
+		HttpOnly: true,
+		Secure:   s.cfg.CookieSecureValue(),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(oidcStateLifetime / time.Second),
+	})
+}
+
+// oidcStateCookie returns the state this browser started a handshake with.
+func oidcStateCookie(r *http.Request) string {
+	c, err := r.Cookie(OIDCStateCookie)
+	if err != nil {
+		return ""
+	}
+	return c.Value
+}
+
+// clearOIDCStateCookie expires the state cookie. It runs on every outcome of
+// the callback, success or failure, so a state cannot be replayed.
+func (s *Server) clearOIDCStateCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     OIDCStateCookie,
+		Value:    "",
+		Path:     auth.OIDCCallbackPath,
+		HttpOnly: true,
+		Secure:   s.cfg.CookieSecureValue(),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+		Expires:  time.Unix(0, 0),
+	})
+}
+
 // clearSessionCookie expires the cookie. The attributes have to match the ones
 // it was set with or the browser keeps the old cookie alongside the new one.
 func (s *Server) clearSessionCookie(w http.ResponseWriter) {

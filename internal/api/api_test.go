@@ -124,6 +124,11 @@ func newHarness(t *testing.T, opts ...func(*config.Config)) *harness {
 	return &harness{t: t, srv: srv, api: s, ctrl: ctrl, st: st, gh: gh, cfg: cfg, key: key, ctx: ctx}
 }
 
+// setupToken is the credential the first-run route asks for. It is minted per
+// process by the auth service and printed at startup, so a test reads it the
+// same way an operator reads it out of the log.
+func (h *harness) setupToken() string { return h.ctrl.Auth().SetupToken() }
+
 // ---------------------------------------------------------------------------
 // Request helpers
 // ---------------------------------------------------------------------------
@@ -528,7 +533,7 @@ func routeTable(ids fixtureIDs) []route {
 
 		{method: "POST", path: "/api/v1/auth/login", public: true, checksCredentials: true,
 			body: map[string]any{"username": "nobody", "password": "x"}},
-		{method: "POST", path: "/api/v1/auth/bootstrap", public: true, body: map[string]any{"username": "nobody", "password": testPassword}},
+		{method: "POST", path: "/api/v1/auth/bootstrap", public: true, body: map[string]any{"username": "nobody", "password": testPassword, "setup_token": "not-the-token"}},
 		{method: "GET", path: "/api/v1/auth/oidc/start", public: true},
 		{method: "GET", path: "/api/v1/auth/oidc/callback", public: true},
 

@@ -79,6 +79,12 @@ type HTTPOptions struct {
 	// InsecureSkipVerify disables verification entirely. Every construction
 	// with it set logs what it costs.
 	InsecureSkipVerify bool
+	// AllowInsecureHTTP permits an http:// controller URL that is not on
+	// loopback. It is refused by default: the agent token rides on every
+	// request, and the JIT runner configuration in a create task is a live
+	// registration credential for the organisation's runner group, so a
+	// plaintext hop hands both to anyone on the path.
+	AllowInsecureHTTP bool
 	// HTTPClient replaces the transport's own client. Tests use it; production
 	// leaves it nil so that the TLS settings above take effect.
 	HTTPClient *http.Client
@@ -126,6 +132,19 @@ func NewHTTPTransport(opts HTTPOptions) (*HTTPTransport, error) {
 	}
 	log = log.With("component", "agent.transport")
 
+	if strings.EqualFold(u.Scheme, "http") && !isLoopbackHost(u.Hostname()) {
+		if !opts.AllowInsecureHTTP {
+			return nil, fmt.Errorf("agent: refusing to talk to %s over plain HTTP: this agent's token and the runner "+
+				"registration credentials in every create task would cross the network in the clear. "+
+				"Use https://, or set agent.allow_insecure_http (ZOOMIES_AGENT_ALLOW_INSECURE_HTTP=true) if the hop is "+
+				"already private and you accept that", raw)
+		}
+		log.Warn("talking to the controller over plain HTTP",
+			"controller", raw,
+			"cost", "this agent's token and every runner's registration credentials cross the network in the clear",
+			"fix", "use https://, or terminate TLS closer to this host")
+	}
+
 	tlsCfg, err := buildTLSConfig(opts, u, log)
 	if err != nil {
 		return nil, err
@@ -157,6 +176,20 @@ func NewHTTPTransport(opts HTTPOptions) (*HTTPTransport, error) {
 		http: client,
 		log:  log,
 	}, nil
+}
+
+// isLoopbackHost reports whether a URL's host names this machine, which is the
+// one case where plain HTTP carries nothing off the box.
+//
+// "localhost" is matched by name as well as by address because that is what an
+// operator types, and it is required to resolve to a loopback address.
+func isLoopbackHost(host string) bool {
+	host = strings.TrimSpace(strings.Trim(host, "[]"))
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // buildTLSConfig turns the operator's certificate settings into a tls.Config,

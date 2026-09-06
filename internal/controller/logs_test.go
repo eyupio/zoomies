@@ -36,7 +36,7 @@ func TestLogRelayDeliversToASubscriber(t *testing.T) {
 	done := make(chan []byte, 1)
 	go func() { done <- drain(t, ch, 2*time.Second) }()
 
-	if err := h.c.AcceptLogStream(task.StreamID, strings.NewReader("run 1/3\nrun 2/3\nrun 3/3\n")); err != nil {
+	if err := h.c.AcceptLogStream(host.ID, task.StreamID, strings.NewReader("run 1/3\nrun 2/3\nrun 3/3\n")); err != nil {
 		t.Fatalf("AcceptLogStream: %v", err)
 	}
 
@@ -75,7 +75,7 @@ func TestSecondViewerSharesTheStream(t *testing.T) {
 	}
 
 	streamID := h.c.relay.streamIDFor(r.ID)
-	go func() { _ = h.c.AcceptLogStream(streamID, strings.NewReader("shared output\n")) }()
+	go func() { _ = h.c.AcceptLogStream(host.ID, streamID, strings.NewReader("shared output\n")) }()
 	if got := drain(t, ch2, 2*time.Second); !bytes.Contains(got, []byte("shared output")) {
 		t.Fatalf("the second viewer received %q", got)
 	}
@@ -101,7 +101,7 @@ func TestLastViewerLeavingCancelsTheStream(t *testing.T) {
 	if _, open := <-ch; open {
 		t.Fatal("the subscriber's channel is still open after it unsubscribed")
 	}
-	if err := h.c.AcceptLogStream(streamID, strings.NewReader("late")); !errors.Is(err, ErrStreamUnknown) {
+	if err := h.c.AcceptLogStream(host.ID, streamID, strings.NewReader("late")); !errors.Is(err, ErrStreamUnknown) {
 		t.Fatalf("AcceptLogStream after cancel = %v, want ErrStreamUnknown", err)
 	}
 }
@@ -125,7 +125,7 @@ func TestLogRelayDropsRatherThanBlocks(t *testing.T) {
 	// in separate chunks.
 	payload := bytes.Repeat([]byte("x"), logSubscriberQueue*3)
 	done := make(chan error, 1)
-	go func() { done <- h.c.AcceptLogStream(streamID, &byteReader{data: payload}) }()
+	go func() { done <- h.c.AcceptLogStream(host.ID, streamID, &byteReader{data: payload}) }()
 
 	select {
 	case err := <-done:
@@ -151,5 +151,49 @@ func TestLogStreamForARemovedRunnerIsRefused(t *testing.T) {
 		t.Fatal("OpenLogStream succeeded for a removed runner")
 	} else if !strings.Contains(err.Error(), "ephemeral") {
 		t.Fatalf("error = %v, want one explaining that the container is gone", err)
+	}
+}
+
+// Whatever arrives on a log relay is shown to operators as that runner's
+// output. Every other agent endpoint checks the reporting host owns what it is
+// reporting on; this one has to check the same thing against the stream, or one
+// host in the fleet can put words in another's mouth.
+func TestLogRelayRefusesAnotherHostsStream(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerBusy)
+	intruder := h.host("vm-intruder")
+
+	ch, cancel, err := h.c.OpenLogStream(h.ctx, r.ID, backend.LogOptions{Follow: true})
+	if err != nil {
+		t.Fatalf("OpenLogStream: %v", err)
+	}
+	defer cancel()
+	streamID := h.taskOfKind(host.ID, agent.TaskStreamLogs).StreamID
+
+	err = h.c.AcceptLogStream(intruder.ID, streamID, strings.NewReader("you have been pwned\n"))
+	if !errors.Is(err, ErrStreamUnknown) {
+		t.Fatalf("another host writing into the stream = %v; want ErrStreamUnknown", err)
+	}
+	// And the answer is the same one a closed stream gets, so probing for
+	// streams you do not own tells you nothing.
+	if err := h.c.AcceptLogStream(intruder.ID, "log_nosuchstream", strings.NewReader("x")); err.Error() == "" {
+		t.Fatal("an unknown stream should still be refused")
+	}
+
+	// Nothing the intruder sent reached the viewer.
+	select {
+	case chunk, ok := <-ch:
+		if ok {
+			t.Fatalf("the viewer received %q from a host that does not own the runner", chunk)
+		}
+		t.Fatal("the stream was closed by a refused write")
+	default:
+	}
+
+	// The owning host is unaffected.
+	go func() { _ = h.c.AcceptLogStream(host.ID, streamID, strings.NewReader("real output\n")) }()
+	if got := drain(t, ch, 2*time.Second); !bytes.Contains(got, []byte("real output")) {
+		t.Fatalf("the owning host's output did not arrive: %q", got)
 	}
 }

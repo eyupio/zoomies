@@ -11,6 +11,8 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -51,6 +53,17 @@ const (
 // as exactly 32 base32 characters.
 const secretBytes = 20
 
+// The per-account login limit is derived from security.rate_limit_logins rather
+// than configured separately: one number for "how hard may somebody guess" is
+// enough, and a second knob would mostly be set wrong. The factor and window
+// make it deliberately slack -- a legitimate person fumbling their password on
+// three devices must never trip it, and anyone can trip somebody else's counter
+// by trying, so the cost of tripping it has to stay small and self-healing.
+const (
+	accountLimitFactor = 5
+	accountLimitWindow = 15 * time.Minute
+)
+
 // touchInterval is how stale a token's last_used_at may get. Writing it on
 // every request would turn a read-only API call into a database write and
 // serialise the whole fleet behind SQLite's single writer; once a minute is
@@ -79,6 +92,9 @@ var (
 	ErrSSOOnly = errors.New("this account signs in with single sign-on; use the SSO button on the login page instead of a password")
 	// ErrRateLimited means too many login attempts came from one address.
 	ErrRateLimited = errors.New("too many login attempts from this address; wait a minute and try again")
+	// ErrBadSetupToken means the bootstrap request carried no setup token, or
+	// the wrong one. The right one is printed in this controller's log.
+	ErrBadSetupToken = errors.New("that is not this controller's setup token; it is printed in the controller's log at startup, on a line beginning \"setup token\"")
 	// ErrAlreadyBootstrapped means the first-admin endpoint was called on an
 	// instance that already has users.
 	ErrAlreadyBootstrapped = errors.New("this instance already has an account, so the first-admin endpoint is closed; sign in, or reset a password with `zoomies users passwd`")
@@ -176,8 +192,16 @@ type Service struct {
 	logger *slog.Logger
 	clock  func() time.Time
 
+	// setupToken gates the unauthenticated bootstrap route. It is per process
+	// and never persisted: a restart mints a new one and prints it again,
+	// which is the behaviour an operator who has lost the first one wants.
+	setupToken string
+
 	logins *RateLimiter
-	audit  *Auditor
+	// accountLogins is the same counter keyed on the username instead of the
+	// address, so a distributed attempt against one account is still bounded.
+	accountLogins *RateLimiter
+	audit         *Auditor
 
 	// bootstrapMu serialises CreateFirstAdmin so two simultaneous requests
 	// cannot both pass the "no users exist" check.
@@ -224,7 +248,9 @@ func New(st *store.Store, cfg *config.Config, bus *events.Bus, opts ...Option) *
 	for _, o := range opts {
 		o(s)
 	}
+	s.setupToken = store.NewSecret(secretBytes)
 	s.logins = NewRateLimiter(s.cfg.RateLimitLogins, time.Minute, s.clock)
+	s.accountLogins = NewRateLimiter(s.cfg.RateLimitLogins*accountLimitFactor, accountLimitWindow, s.clock)
 	s.audit = NewAuditor(st, bus, s.logger)
 	return s
 }
@@ -258,18 +284,50 @@ func (s *Service) NeedsBootstrap(ctx context.Context) (bool, error) {
 	return n == 0, nil
 }
 
+// SetupToken is the one-time credential the unauthenticated bootstrap route
+// asks for. It is minted per process, held only in memory, and printed at
+// startup while the instance has no accounts; a restart mints a new one.
+//
+// It exists because "no user exists yet" is a condition an attacker can also
+// satisfy. A fresh controller published to the internet -- which is what the
+// reference compose file does -- would otherwise hand administrator rights to
+// whoever loads the page first, and the operator would have no way to tell.
+// Holding the log is the proof of ownership that the empty database is not.
+func (s *Service) SetupToken() string { return s.setupToken }
+
 // CreateFirstAdmin creates the initial administrator.
 //
-// This is reachable without authentication -- it has to be, or a fresh install
-// could never be used -- so the "no user exists" check below is the whole
-// security of it. It must stay the first thing this function does, it must run
-// under bootstrapMu so two simultaneous requests cannot both pass it, and it
-// must never be relaxed into "no admin exists": that would let anyone claim
-// admin on an instance that already has viewers.
+// It is the trusted, local path: `zoomies init` and the installer call it,
+// having already established that whoever is running them is on the console.
+// Anything reachable over the network must use CreateFirstAdminWithSetupToken
+// instead, which is the same thing plus proof that the caller can read this
+// process's log.
+//
+// The "no user exists" check is the other half of the security here. It must
+// stay the first thing this function does, it must run under bootstrapMu so two
+// simultaneous requests cannot both pass it, and it must never be relaxed into
+// "no admin exists": that would let anyone claim admin on an instance that
+// already has viewers.
 func (s *Service) CreateFirstAdmin(ctx context.Context, username, password string) (*store.User, error) {
 	s.bootstrapMu.Lock()
 	defer s.bootstrapMu.Unlock()
+	return s.createFirstAdmin(ctx, username, password)
+}
 
+// CreateFirstAdminWithSetupToken is CreateFirstAdmin for a caller who arrived
+// over the network. The token is checked inside the same lock, so a wrong one
+// cannot race a right one.
+func (s *Service) CreateFirstAdminWithSetupToken(ctx context.Context, username, password, setupToken string) (*store.User, error) {
+	s.bootstrapMu.Lock()
+	defer s.bootstrapMu.Unlock()
+
+	if !cryptox.ConstantTimeEqual(s.setupToken, strings.TrimSpace(setupToken)) {
+		return nil, ErrBadSetupToken
+	}
+	return s.createFirstAdmin(ctx, username, password)
+}
+
+func (s *Service) createFirstAdmin(ctx context.Context, username, password string) (*store.User, error) {
 	n, err := s.store.CountUsers(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("counting accounts: %w", err)
@@ -292,9 +350,27 @@ func (s *Service) CreateFirstAdmin(ctx context.Context, username, password strin
 // session token the caller should set as a cookie. The token is not stored: the
 // database holds only its SHA-256, so a database leak does not hand over live
 // sessions.
+//
+// Nothing this function returns distinguishes an account that exists from one
+// that does not until the caller has proved they hold its password. "Disabled"
+// and "signs in with SSO" are useful things to be told, but only once you have
+// shown the account is yours; before that they are an enumeration oracle, and
+// an SSO-only account -- which has no password to prove anything with -- is
+// simply "incorrect username or password". The reason is logged and audited
+// either way, so an operator diagnosing a failed sign-in still has it.
 func (s *Service) Login(ctx context.Context, username, password, ip, ua string) (*store.User, string, error) {
+	account := normalizeForLimiter(username)
 	if !s.logins.Allow(ip) {
 		s.logger.Warn("login rate limit hit", "ip", ip, "username", username)
+		return nil, "", ErrRateLimited
+	}
+	// A second window, keyed on the account rather than the address, so that an
+	// attacker with a pool of addresses does not get an unbounded budget against
+	// one person. It is deliberately far looser than the per-address limit: a
+	// counter that a stranger can trip is a counter that locks the owner out,
+	// so this one only catches sustained guessing, and it heals on its own.
+	if account != "" && !s.accountLogins.Allow(account) {
+		s.logger.Warn("login rate limit hit for an account", "ip", ip, "username", username)
 		return nil, "", ErrRateLimited
 	}
 
@@ -310,14 +386,17 @@ func (s *Service) Login(ctx context.Context, username, password, ip, ua string) 
 	}
 	if u.PasswordHash == "" {
 		cryptox.DummyVerify(password)
-		return nil, "", ErrSSOOnly
-	}
-	if u.Disabled {
-		cryptox.DummyVerify(password)
-		return nil, "", ErrAccountDisabled
+		s.logger.Info("a password sign-in was attempted for an account that has none",
+			"user", u.Username, "ip", ip, "reason", ErrSSOOnly)
+		return nil, "", ErrInvalidCredentials
 	}
 	if !cryptox.VerifyPassword(password, u.PasswordHash) {
 		return nil, "", ErrInvalidCredentials
+	}
+	// The password was right, so the caller owns this account and can be told
+	// why it still cannot sign in.
+	if u.Disabled {
+		return nil, "", ErrAccountDisabled
 	}
 
 	token, err := s.NewSession(ctx, u, ip, ua)
@@ -332,9 +411,48 @@ func (s *Service) Login(ctx context.Context, username, password, ip, ua string) 
 	}
 	u.LastLoginAt = &now
 	// The attempts that got here were legitimate, so they should not count
-	// against the next person behind the same NAT.
+	// against the next person behind the same NAT, nor against this account.
 	s.logins.Reset(ip)
+	s.accountLogins.Reset(account)
 	return u, token, nil
+}
+
+// AuditLoginFailure records a refused sign-in.
+//
+// It lives here rather than in the HTTP handler because deciding what may be
+// written down is an auth-package question. The submitted username is recorded
+// only when it names an account that exists: an unrecognised one is far more
+// often a password typed into the wrong field than a real attempt, and the
+// audit log is readable by every viewer on the instance. What is left in its
+// place is a short fingerprint, so a run of attempts against one bad value can
+// still be correlated without storing the value.
+func (s *Service) AuditLoginFailure(ctx context.Context, username, ip string, cause error) {
+	shown := "[unrecognised:" + fingerprint(username) + "]"
+	if u, err := s.store.GetUserByUsername(ctx, username); err == nil {
+		shown = u.Username
+	}
+	reason := ""
+	if cause != nil {
+		reason = cause.Error()
+	}
+	s.audit.Auth(ctx, &Identity{Kind: KindUser, Name: shown, IP: ip}, "auth.login_failed", map[string]any{
+		"username": shown, "reason": reason,
+	})
+}
+
+// fingerprint is a short, stable, one-way tag for a value that must not be
+// stored. Eight hex characters is enough to correlate repeats and far too
+// little to reverse.
+func fingerprint(v string) string {
+	sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(v))))
+	return hex.EncodeToString(sum[:4])
+}
+
+// normalizeForLimiter renders a username as the per-account rate limiter's key.
+// It uses the same normalisation the store looks accounts up by, so "Alice" and
+// "alice " cannot be counted as two separate accounts.
+func normalizeForLimiter(username string) string {
+	return strings.ToLower(strings.TrimSpace(username))
 }
 
 // NewSession mints a browser session for a user who has already been

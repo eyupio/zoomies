@@ -149,8 +149,13 @@ type Agent struct {
 	ClientCertFile string `yaml:"client_cert_file"`
 	ClientKeyFile  string `yaml:"client_key_file"`
 	// InsecureSkipVerify disables controller certificate verification.
-	InsecureSkipVerify bool          `yaml:"insecure_skip_verify"`
-	HeartbeatInterval  time.Duration `yaml:"heartbeat_interval"`
+	InsecureSkipVerify bool `yaml:"insecure_skip_verify"`
+	// AllowInsecureHTTP permits an http:// controller URL that is not on
+	// loopback. Off by default: the agent token and the runner registration
+	// credentials in every create task would otherwise cross the network in
+	// the clear.
+	AllowInsecureHTTP bool          `yaml:"allow_insecure_http"`
+	HeartbeatInterval time.Duration `yaml:"heartbeat_interval"`
 	// Network is an optional pre-existing container network to attach runners to.
 	Network string `yaml:"network"`
 }
@@ -195,6 +200,13 @@ type OIDC struct {
 	OperatorGroups []string `yaml:"operator_groups"`
 	// AllowSignup provisions an account on first successful login.
 	AllowSignup bool `yaml:"allow_signup"`
+	// LinkByUsername lets a successful SSO login adopt an existing account that
+	// still has a local password. It is off by default: with it on, whoever
+	// controls a username at the identity provider controls the local account
+	// of the same name, which is the wrong default for an instance whose first
+	// administrator signs in with a password. Turn it on for the one migration
+	// where that is the intention, then turn it off again.
+	LinkByUsername bool `yaml:"link_by_username"`
 }
 
 // Metrics configures the Prometheus endpoint.
@@ -426,6 +438,21 @@ func (c *Config) CookieSecureValue() bool {
 	return c.Security.CookieSecure != nil && *c.Security.CookieSecure
 }
 
+// LikelyReachable reports whether anything other than this machine can reach
+// the controller.
+//
+// It is deliberately broader than BindsPublicly. A loopback bind is only
+// private when nothing forwards to it, and the deployment this project
+// recommends -- loopback plus a reverse proxy -- is precisely the case where
+// the bind address says "private" and the truth is "the internet". An external
+// URL or a configured trusted proxy is the operator telling us, in the
+// configuration itself, that something in front does forward to this listener.
+func (c *Config) LikelyReachable() bool {
+	return c.BindsPublicly() ||
+		strings.TrimSpace(c.Server.ExternalURL) != "" ||
+		len(c.Server.TrustedProxies) > 0
+}
+
 // BindsPublicly reports whether the listener accepts connections from off-host.
 func (c *Config) BindsPublicly() bool {
 	host, _, err := net.SplitHostPort(c.Server.Bind)
@@ -552,6 +579,7 @@ func (c *Config) applyEnv() error {
 	str("ZOOMIES_AGENT_CLIENT_CERT_FILE", &c.Agent.ClientCertFile)
 	str("ZOOMIES_AGENT_CLIENT_KEY_FILE", &c.Agent.ClientKeyFile)
 	boolean("ZOOMIES_AGENT_INSECURE_SKIP_VERIFY", &c.Agent.InsecureSkipVerify)
+	boolean("ZOOMIES_AGENT_ALLOW_INSECURE_HTTP", &c.Agent.AllowInsecureHTTP)
 	dur("ZOOMIES_HEARTBEAT_INTERVAL", &c.Agent.HeartbeatInterval)
 	str("ZOOMIES_AGENT_NETWORK", &c.Agent.Network)
 	if v, ok := os.LookupEnv("ZOOMIES_AGENT_LABELS"); ok {
@@ -583,6 +611,7 @@ func (c *Config) applyEnv() error {
 	strs("ZOOMIES_OIDC_ADMIN_GROUPS", &c.OIDC.AdminGroups)
 	strs("ZOOMIES_OIDC_OPERATOR_GROUPS", &c.OIDC.OperatorGroups)
 	boolean("ZOOMIES_OIDC_ALLOW_SIGNUP", &c.OIDC.AllowSignup)
+	boolean("ZOOMIES_OIDC_LINK_BY_USERNAME", &c.OIDC.LinkByUsername)
 
 	boolean("ZOOMIES_METRICS_ENABLED", &c.Metrics.Enabled)
 	str("ZOOMIES_METRICS_PATH", &c.Metrics.Path)

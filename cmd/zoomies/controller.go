@@ -126,6 +126,7 @@ func runController(ctx context.Context, e *env, args []string) error {
 	}
 
 	printBanner(e.out, cfg, backends)
+	printSetupToken(ctx, e.out, ctrl, log)
 	return srv.ListenAndServe(ctx)
 }
 
@@ -373,6 +374,33 @@ func printBanner(w io.Writer, cfg *config.Config, backends *backend.Registry) {
 	} {
 		fmt.Fprintf(w, "  %-14s %s\n", row[0], row[1])
 	}
+	fmt.Fprintln(w)
+}
+
+// printSetupToken shows the credential the first-run form asks for, but only
+// while there is nobody to sign in as.
+//
+// It goes to both the banner and the log: an operator watching a terminal sees
+// it there, and one who ran `docker compose up -d` finds it with
+// `docker compose logs`. Printing it on every start while the instance is empty
+// is deliberate -- an operator who lost the first one should not have to reset
+// anything, and once an account exists the line stops appearing for good.
+func printSetupToken(ctx context.Context, w io.Writer, ctrl *controller.Controller, log *slog.Logger) {
+	svc := ctrl.Auth()
+	need, err := svc.NeedsBootstrap(ctx)
+	if err != nil {
+		log.Warn("could not check whether this instance has any accounts", "error", err)
+		return
+	}
+	if !need {
+		return
+	}
+	token := svc.SetupToken()
+	log.Info("setup token: "+token,
+		"why", "this instance has no accounts yet; the first-run page asks for this token",
+		"note", "it changes on every restart, and this line stops once an account exists")
+	fmt.Fprintf(w, "  %-14s %s\n", "setup token", token)
+	fmt.Fprintf(w, "  %-14s %s\n", "", "paste this into the first-run page to create the first administrator")
 	fmt.Fprintln(w)
 }
 

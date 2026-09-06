@@ -22,7 +22,8 @@
   let password = $state('');
   let confirm = $state('');
   let email = $state('');
-  let touched = $state({ username: false, password: false, confirm: false });
+  let setupToken = $state('');
+  let touched = $state({ username: false, password: false, confirm: false, setupToken: false });
   let submitting = $state(false);
   let failure = $state<ApiError | null>(null);
   let form = $state<HTMLFormElement | null>(null);
@@ -45,6 +46,12 @@
     touched.confirm && confirm !== password ? 'The two passwords are not the same.' : undefined,
   );
 
+  const setupTokenError = $derived(
+    touched.setupToken && setupToken.trim() === ''
+      ? 'Paste the setup token from the controller log.'
+      : undefined,
+  );
+
   /** A hint that helps rather than scolds: length is what actually matters. */
   const strength = $derived.by(() => {
     if (password.length === 0) return `At least ${MIN_LENGTH} characters. A phrase works well.`;
@@ -56,12 +63,15 @@
   const fieldErrors = $derived(failure?.fieldErrors() ?? {});
 
   const valid = $derived(
-    username.trim().length > 0 && password.length >= MIN_LENGTH && confirm === password,
+    username.trim().length > 0 &&
+      password.length >= MIN_LENGTH &&
+      confirm === password &&
+      setupToken.trim().length > 0,
   );
 
   async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
-    touched = { username: true, password: true, confirm: true };
+    touched = { username: true, password: true, confirm: true, setupToken: true };
     if (!valid) {
       form?.querySelector<HTMLInputElement>('input[aria-invalid="true"]')?.focus();
       return;
@@ -72,6 +82,7 @@
       await session.completeBootstrap({
         username: username.trim(),
         password,
+        setup_token: setupToken.trim(),
         ...(email.trim() ? { email: email.trim() } : {}),
       });
       router.navigate('/');
@@ -99,6 +110,11 @@
     Nobody has an account on this controller yet. This form creates the first one, with the admin
     role, and stops being available the moment it exists.
   </p>
+  <p class="lede">
+    It also asks for the setup token the controller printed when it started, so that only whoever
+    deployed this controller can claim it. Find it in the controller's log, on a line beginning
+    <code>setup token</code> &mdash; with Docker Compose, <code>docker compose logs zoomies</code>.
+  </p>
 
   {#if failure}
     <p class="failure" role="alert">
@@ -109,6 +125,26 @@
   {/if}
 
   <form bind:this={form} onsubmit={submit} novalidate>
+    <Field
+      label="Setup token"
+      hint="Printed in the controller's log at startup. It changes on every restart."
+      error={setupTokenError ?? fieldErrors.setup_token}
+      required
+    >
+      {#snippet children({ id, describedBy, invalid })}
+        <Input
+          bind:value={setupToken}
+          {id}
+          {describedBy}
+          {invalid}
+          name="setup-token"
+          autocomplete="off"
+          mono
+          onblur={() => (touched = { ...touched, setupToken: true })}
+        />
+      {/snippet}
+    </Field>
+
     <Field label="Username" error={usernameError ?? fieldErrors.username} required>
       {#snippet children({ id, describedBy, invalid })}
         <Input
@@ -189,6 +225,13 @@
     line-height: var(--z-leading-xl);
     font-weight: var(--z-weight-bold);
     color: var(--z-text);
+  }
+  .lede code {
+    padding: 0 var(--z-space-1);
+    border-radius: var(--z-radius-sm);
+    background: var(--z-surface-sunken, var(--z-bg));
+    font-family: var(--z-font-mono);
+    font-size: var(--z-text-sm);
   }
   .lede {
     margin: var(--z-space-3) 0 var(--z-space-6);

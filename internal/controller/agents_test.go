@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -242,4 +243,144 @@ func contains(list []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// ---------------------------------------------------------------------------
+// Join: what a join token is and is not enough for
+// ---------------------------------------------------------------------------
+
+// joinToken mints one the way an operator would, with the labels and capacity
+// they chose for the host they are enrolling.
+func (h *harness) joinToken(t *testing.T, labels map[string]string, capacity int) string {
+	t.Helper()
+	_, plaintext, err := h.c.Auth().CreateJoinToken(h.ctx, time.Hour, labels, capacity, "usr_test")
+	if err != nil {
+		t.Fatalf("CreateJoinToken: %v", err)
+	}
+	return plaintext
+}
+
+func joinRequest(name, token string) agent.JoinRequest {
+	return agent.JoinRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		JoinToken:       token,
+		Name:            name,
+		Capacity:        1,
+		OS:              "linux",
+		Arch:            "amd64",
+		Backends:        []backend.Info{{Kind: store.BackendDocker, Available: true}},
+	}
+}
+
+// Host labels are what the scheduler matches a pool's host selector against, so
+// they decide which pools' work -- and which pools' runner registrations -- a
+// host is offered. The operator minting the join token chooses them; the agent
+// describing itself must not be able to overrule that choice.
+func TestJoinTokenLabelsBeatTheAgentsOwn(t *testing.T) {
+	h := newHarness(t)
+	token := h.joinToken(t, map[string]string{"tier": "untrusted", "site": "dc1"}, 0)
+
+	req := joinRequest("vm-9", token)
+	req.Labels = map[string]string{"tier": "release", "gpu": "yes"}
+
+	resp, err := h.c.Join(h.ctx, req, "10.0.0.9")
+	if err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	host, err := h.st.GetHost(h.ctx, resp.HostID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if host.Labels["tier"] != "untrusted" {
+		t.Errorf("tier = %q; the join token pinned it to untrusted", host.Labels["tier"])
+	}
+	if host.Labels["site"] != "dc1" {
+		t.Errorf("site = %q; the token's labels should all be applied", host.Labels["site"])
+	}
+	// Labels the token says nothing about are still the agent's to declare:
+	// the operator constrains, it does not have to enumerate.
+	if host.Labels["gpu"] != "yes" {
+		t.Errorf("gpu = %q; an agent may still describe what the token did not pin", host.Labels["gpu"])
+	}
+}
+
+// Re-joining by name destroys the previous host's runner records and inherits
+// its ID and cordon state. A join token is handed to whoever is enrolling a
+// machine, which is a wider circle than the admins who mint them, so it cannot
+// be enough on its own to take over a machine somebody else is running.
+func TestJoinWillNotTakeOverAnotherHostByName(t *testing.T) {
+	h := newHarness(t)
+	_, _, existing := h.fleet()
+
+	resp, err := h.c.Join(h.ctx, joinRequest(existing.Name, h.joinToken(t, nil, 0)), "10.0.0.7")
+	if err == nil {
+		t.Fatalf("a stranger took over host %q and got %+v", existing.Name, resp)
+	}
+	// The refusal has to say what to do about it, because a genuinely rebuilt
+	// machine whose credentials are gone lands here too.
+	for _, want := range []string{existing.ID, "hosts delete"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal should mention %q: %v", want, err)
+		}
+	}
+	// Nothing was touched: the row, its token and its runners are all intact.
+	after, err := h.st.GetHost(h.ctx, existing.ID)
+	if err != nil {
+		t.Fatalf("the existing host was deleted by a refused join: %v", err)
+	}
+	if after.TokenHash != existing.TokenHash {
+		t.Error("a refused join rotated the existing host's token")
+	}
+}
+
+// The machine itself is a different matter: it still holds the token it was
+// issued, and that is what a rebuild-in-place proves ownership with.
+func TestJoinReclaimsItsOwnHostWithThePreviousToken(t *testing.T) {
+	h := newHarness(t)
+
+	first, err := h.c.Join(h.ctx, joinRequest("vm-rebuilt", h.joinToken(t, nil, 0)), "10.0.0.3")
+	if err != nil {
+		t.Fatalf("first join: %v", err)
+	}
+
+	req := joinRequest("vm-rebuilt", h.joinToken(t, nil, 0))
+	req.PreviousToken = first.AgentToken
+	second, err := h.c.Join(h.ctx, req, "10.0.0.3")
+	if err != nil {
+		t.Fatalf("re-join with the previous token: %v", err)
+	}
+	if second.HostID != first.HostID {
+		t.Errorf("host ID = %s; a re-join should keep the row (%s) so audit rows and bookmarks resolve", second.HostID, first.HostID)
+	}
+	if second.AgentToken == first.AgentToken {
+		t.Error("a re-join should issue a fresh agent token")
+	}
+
+	// A wrong one proves nothing, even though a host of that name is this
+	// agent's own -- the token is the whole proof.
+	stale := joinRequest("vm-rebuilt", h.joinToken(t, nil, 0))
+	stale.PreviousToken = first.AgentToken
+	if _, err := h.c.Join(h.ctx, stale, "10.0.0.3"); err == nil {
+		t.Error("a superseded agent token was accepted as proof of ownership")
+	}
+}
+
+// The embedded agent is exempt: the caller is this same process, so there is no
+// remote identity to prove, and requiring one would stop a controller whose
+// state file was wiped from ever starting again.
+func TestEmbeddedJoinMayStillReclaimItsHost(t *testing.T) {
+	h := newHarness(t)
+	tr := h.c.EmbeddedTransport()
+
+	first, err := tr.Join(h.ctx, agent.JoinRequest{ProtocolVersion: agent.ProtocolVersion, Name: "embedded-1", Capacity: 1})
+	if err != nil {
+		t.Fatalf("first embedded join: %v", err)
+	}
+	second, err := tr.Join(h.ctx, agent.JoinRequest{ProtocolVersion: agent.ProtocolVersion, Name: "embedded-1", Capacity: 1})
+	if err != nil {
+		t.Fatalf("second embedded join with no credentials to show: %v", err)
+	}
+	if second.HostID != first.HostID {
+		t.Errorf("host ID = %s; want the same row (%s)", second.HostID, first.HostID)
+	}
 }

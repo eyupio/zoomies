@@ -246,6 +246,17 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return nil, fmt.Errorf("looking up host %q: %w", name, err)
 	}
+	// Taking over an existing row is a privileged act: it destroys that host's
+	// runner records and inherits its ID, its labels and its cordon state. A
+	// join token alone must not be enough, or anyone an operator trusts to
+	// enrol one machine can seize any other machine by naming itself after it.
+	// The proof is the agent token the previous registration was issued, which
+	// a re-joining agent still holds; the embedded agent is exempt because the
+	// caller is this same process.
+	if existing != nil && !embedded && !c.provesHost(existing, req.PreviousToken) {
+		return nil, fmt.Errorf("a host named %q is already enrolled here. Re-join from the machine that holds its credentials, "+
+			"or, if that machine is gone, delete the host first (`zoomies hosts delete %s`) and join again", name, existing.ID)
+	}
 	hostID := store.NewID(store.PrefixHost)
 	if existing != nil {
 		hostID = existing.ID
@@ -271,9 +282,18 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 		capacity = 1
 	}
 
+	// The agent describes itself, but the operator who minted the join token
+	// decides what this host advertises: labels are what the scheduler matches
+	// a pool's host selector against, so an agent that could overwrite them
+	// could place itself in a pool it was never meant to serve -- and be handed
+	// that pool's runner registrations. Token labels therefore win.
 	labels := store.StringMap{}
-	maps.Copy(labels, tokenLabels)
-	for k, v := range req.Labels {
+	maps.Copy(labels, req.Labels)
+	for k, v := range tokenLabels {
+		if was, ok := labels[k]; ok && was != v {
+			c.log.Warn("a joining agent declared a label the join token pins; the token's value stands",
+				"host", name, "label", k, "declared", was, "token", v)
+		}
 		labels[k] = v
 	}
 
@@ -335,6 +355,17 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 		ControllerVersion: version.Short(),
 		HeartbeatInterval: c.heartbeatInterval().String(),
 	}, nil
+}
+
+// provesHost reports whether a join request carries the agent token the named
+// host was last issued, which is what distinguishes a machine re-joining itself
+// from a stranger claiming its name.
+func (c *Controller) provesHost(h *store.Host, token string) bool {
+	token = strings.TrimSpace(token)
+	if token == "" || h.TokenHash == "" {
+		return false
+	}
+	return cryptox.ConstantTimeEqual(h.TokenHash, cryptox.HashToken(token))
 }
 
 // Heartbeat records that a host is alive, merges anything its agent observed,
@@ -688,7 +719,7 @@ func (t *embeddedTransport) OpenLogStream(ctx context.Context, streamID string) 
 	}
 	pr, pw := io.Pipe()
 	go func() {
-		err := t.c.AcceptLogStream(streamID, pr)
+		err := t.c.AcceptLogStream(t.host(), streamID, pr)
 		// Closing with the error makes the agent's next Write fail rather than
 		// block on a pipe nobody is draining.
 		_ = pr.CloseWithError(err)

@@ -38,8 +38,14 @@ export interface paths {
         /**
          * Create the first administrator
          * @description Available only while no user exists. Once any account has been created
-         *     this returns 409 forever. That check is the entire security of this
-         *     route, which is why it is unauthenticated.
+         *     this returns 409 forever.
+         *
+         *     It also requires the setup token the controller prints in its log at
+         *     startup while the instance has no accounts. "No account exists yet" is a
+         *     condition a stranger can satisfy too, so on its own it would hand a
+         *     freshly deployed controller to whoever loaded the page first; the token
+         *     is proof that the caller can read the controller's log. It is minted per
+         *     process, so restarting the controller prints a new one.
          */
         post: operations["bootstrap"];
         delete?: never;
@@ -1651,6 +1657,8 @@ export interface operations {
                     password: string;
                     /** Format: email */
                     email?: string;
+                    /** @description The setup token from the controller's log, on a line beginning "setup token". */
+                    setup_token: string;
                 };
             };
         };

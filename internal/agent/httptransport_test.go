@@ -279,3 +279,39 @@ func TestNewHTTPTransportValidatesItsOptions(t *testing.T) {
 		})
 	}
 }
+
+// The agent's token rides on every request, and a create task carries a JIT
+// runner configuration -- a live registration credential for the organisation's
+// runner group. Neither may cross the network in the clear by accident, so a
+// plaintext controller URL is refused rather than warned about.
+func TestHTTPTransportRefusesPlaintextToARemoteController(t *testing.T) {
+	cases := []struct {
+		url     string
+		allow   bool
+		wantErr bool
+	}{
+		{url: "https://zoomies.example.com:8080"},
+		{url: "http://127.0.0.1:8080"},
+		{url: "http://[::1]:8080"},
+		{url: "http://localhost:8080"},
+		{url: "http://zoomies.example.com:8080", wantErr: true},
+		{url: "http://10.0.0.5:8080", wantErr: true},
+		// An operator who has decided the hop is already private can say so.
+		{url: "http://zoomies.example.com:8080", allow: true},
+	}
+	for _, tc := range cases {
+		name := tc.url
+		if tc.allow {
+			name += " (opted in)"
+		}
+		t.Run(name, func(t *testing.T) {
+			_, err := NewHTTPTransport(HTTPOptions{ControllerURL: tc.url, AllowInsecureHTTP: tc.allow})
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("NewHTTPTransport(%q) = %v; want error=%v", tc.url, err, tc.wantErr)
+			}
+			if tc.wantErr && !strings.Contains(err.Error(), "allow_insecure_http") {
+				t.Errorf("the refusal should name the way out: %v", err)
+			}
+		})
+	}
+}

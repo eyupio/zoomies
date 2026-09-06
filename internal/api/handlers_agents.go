@@ -152,7 +152,7 @@ func (s *Server) handleAgentLogs(w http.ResponseWriter, r *http.Request) {
 	// A relayed stream lasts as long as the job does.
 	_ = http.NewResponseController(w).SetReadDeadline(time.Time{})
 
-	if err := s.ctrl.AcceptLogStream(streamID, r.Body); err != nil {
+	if err := s.ctrl.AcceptLogStream(agentHost(r).ID, streamID, r.Body); err != nil {
 		if errors.Is(err, controller.ErrStreamUnknown) {
 			// Nobody is watching any more -- the tab was closed between the
 			// task being issued and the agent acting on it. That is ordinary,

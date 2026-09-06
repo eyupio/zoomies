@@ -293,6 +293,11 @@ func (a *Agent) Join(ctx context.Context, joinToken string) error {
 		Version:         version.Version,
 		Labels:          a.opts.Labels,
 		Backends:        infos,
+		// A host that has joined before proves it is itself with the token it
+		// still holds, which is what lets it reclaim its own row rather than
+		// being refused as a name collision. A first join has none, and sending
+		// an empty string is exactly right there.
+		PreviousToken: a.previousToken(),
 	}
 	resp, err := a.tr.Join(ctx, req)
 	if err != nil {
@@ -326,6 +331,20 @@ func (a *Agent) Join(ctx context.Context, joinToken string) error {
 		"backends", strings.Join(available, ","),
 		"state_file", path)
 	return nil
+}
+
+// previousToken returns the agent token this host was last issued, or "" when
+// it has never joined or the credentials file is gone.
+//
+// A missing or unreadable file is not an error here: it only means this join
+// cannot claim an existing row of the same name, which the controller says in
+// as many words if there is one.
+func (a *Agent) previousToken() string {
+	creds, err := Load(StatePath(a.opts.WorkDir))
+	if err != nil {
+		return ""
+	}
+	return creds.AgentToken
 }
 
 func (a *Agent) setCredentials(c Credentials) {

@@ -140,11 +140,24 @@ func (lr *logRelay) unsubscribe(s *logStream, subID int) {
 
 // AcceptLogStream consumes the agent's outbound chunked POST and fans it out.
 // It returns when the agent closes the body or the stream is torn down.
-func (c *Controller) AcceptLogStream(streamID string, r io.Reader) error {
+//
+// hostID is the host the request authenticated as, and it must be the host the
+// stream was opened for: whatever arrives here is shown to operators as that
+// runner's output, so a stream another agent could write into would let one
+// host put words in another's mouth. Every other agent endpoint checks the same
+// thing against the runner's host; this one checks it against the stream's.
+func (c *Controller) AcceptLogStream(hostID, streamID string, r io.Reader) error {
 	c.relay.mu.Lock()
 	s := c.relay.streams[streamID]
 	c.relay.mu.Unlock()
 	if s == nil {
+		return fmt.Errorf("%w: %s", ErrStreamUnknown, streamID)
+	}
+	if s.hostID != hostID {
+		c.log.Warn("a host tried to write into another host's log stream",
+			"host", hostID, "stream", streamID, "owner", s.hostID)
+		// Deliberately the same answer a closed stream gets: an agent probing
+		// for streams it does not own learns nothing from the difference.
 		return fmt.Errorf("%w: %s", ErrStreamUnknown, streamID)
 	}
 

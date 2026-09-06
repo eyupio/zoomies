@@ -183,17 +183,37 @@ func TestClaimsFrom(t *testing.T) {
 		t.Errorf("role = %q; want admin", c.Role)
 	}
 
-	// Providers that send no preferred_username fall back to the email rather
-	// than failing a login nobody can debug.
-	c, err = p.claimsFrom("sub-2", map[string]any{"email": "bob@example.com", "groups": "admins"})
+	// Providers that send no preferred_username fall back to a *verified* email
+	// rather than failing a login nobody can debug.
+	c, err = p.claimsFrom("sub-2", map[string]any{
+		"email": "bob@example.com", "email_verified": true, "groups": "admins",
+	})
 	if err != nil {
 		t.Fatalf("claimsFrom: %v", err)
 	}
 	if c.Username != "bob@example.com" {
-		t.Errorf("username = %q; want the email as a fallback", c.Username)
+		t.Errorf("username = %q; want the verified email as a fallback", c.Username)
 	}
 	if c.Role != store.RoleAdmin {
 		t.Errorf("a groups claim sent as a single string was ignored: %+v", c)
+	}
+
+	// An unverified address is a value the person typed, and accounts are
+	// matched by username -- so it must not become one. The subject does.
+	c, err = p.claimsFrom("sub-3", map[string]any{"email": "root@example.com"})
+	if err != nil {
+		t.Fatalf("claimsFrom: %v", err)
+	}
+	if c.Username != "sub-3" {
+		t.Errorf("username = %q; an unverified email must not be used as the username", c.Username)
+	}
+	// Providers that render the flag as a string still count as verified.
+	c, err = p.claimsFrom("sub-4", map[string]any{"email": "carol@example.com", "email_verified": "true"})
+	if err != nil {
+		t.Fatalf("claimsFrom: %v", err)
+	}
+	if c.Username != "carol@example.com" {
+		t.Errorf("username = %q; email_verified sent as a string should still count", c.Username)
 	}
 
 	if _, err := p.claimsFrom("", map[string]any{"email": "x@example.com"}); err == nil {
@@ -234,9 +254,11 @@ func TestEnsureUser(t *testing.T) {
 		}
 	})
 
-	t.Run("adopts an existing username", func(t *testing.T) {
+	// An account an administrator pre-created for SSO has no password, so there
+	// is no local credential for the identity provider to displace.
+	t.Run("adopts an existing password-less username", func(t *testing.T) {
 		st := newStore(t)
-		want := addUser(t, st, "alice", store.RoleOperator, nil)
+		want := addUser(t, st, "alice", store.RoleOperator, func(u *store.User) { u.PasswordHash = "" })
 
 		got, err := p.EnsureUser(ctx, st, &Claims{Subject: "sub-9", Username: "Alice", Role: store.RoleViewer}, false)
 		if err != nil {
@@ -252,7 +274,40 @@ func TestEnsureUser(t *testing.T) {
 		if stored.OIDCSubject != "sub-9" {
 			t.Error("the link was not persisted")
 		}
-		if stored.PasswordHash == "" {
+	})
+
+	// An account with a local password is a different matter: adopting it hands
+	// whoever holds that username at the identity provider everything the local
+	// account can do, so it takes an explicit decision by the operator.
+	t.Run("refuses to adopt a password account unless asked", func(t *testing.T) {
+		st := newStore(t)
+		want := addUser(t, st, "alice", store.RoleAdmin, nil)
+
+		_, err := p.EnsureUser(ctx, st, &Claims{Subject: "sub-8", Username: "alice"}, false)
+		if err == nil {
+			t.Fatal("a password account was silently adopted by a matching SSO username")
+		}
+		if !strings.Contains(err.Error(), "link_by_username") {
+			t.Errorf("the refusal should name the setting that allows it: %v", err)
+		}
+		stored, err := st.GetUser(ctx, want.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stored.OIDCSubject != "" {
+			t.Error("the account was linked despite the refusal")
+		}
+
+		// With the migration setting on, the same login adopts it.
+		linking := &OIDCProvider{cfg: config.OIDC{LinkByUsername: true}}
+		got, err := linking.EnsureUser(ctx, st, &Claims{Subject: "sub-8", Username: "alice"}, false)
+		if err != nil {
+			t.Fatalf("EnsureUser with link_by_username: %v", err)
+		}
+		if got.ID != want.ID || got.OIDCSubject != "sub-8" {
+			t.Fatalf("user = %+v; want the existing account linked to sub-8", got)
+		}
+		if stored, _ := st.GetUser(ctx, want.ID); stored.PasswordHash == "" {
 			t.Error("adopting an account should not remove its password")
 		}
 	})

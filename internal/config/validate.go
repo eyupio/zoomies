@@ -149,6 +149,32 @@ func (c *Config) Validate() Findings {
 		}
 	}
 
+	// --- Cross-origin -----------------------------------------------------
+	//
+	// The origin check is what stops a page the operator merely visited from
+	// acting on their session. Widening it is a real decision, so it is named
+	// here the way every other dangerous toggle is.
+	for _, origin := range c.Server.AllowedOrigins {
+		switch origin = strings.TrimSpace(origin); {
+		case origin == "":
+		case origin == "*":
+			add(Finding{
+				Code: "origins.wildcard", Severity: SeverityWarning, Setting: "server.allowed_origins",
+				Title: `allowed_origins is "*", so the cross-origin check is off`,
+				Detail: "any site a signed-in operator visits can make state-changing calls to this controller with " +
+					"their session. The SameSite=Lax cookie still refuses most of them, but it is the only thing left.",
+				Fix: "list the origins you actually serve the UI from, or remove the setting for same-origin only.",
+			})
+		case !strings.HasPrefix(strings.ToLower(origin), "https://"):
+			add(Finding{
+				Code: "origins.insecure", Severity: SeverityInfo, Setting: "server.allowed_origins",
+				Title:  fmt.Sprintf("%q is not an https origin", origin),
+				Detail: "a plaintext origin is one anybody on the path can impersonate, so trusting it weakens the check.",
+				Fix:    "serve that origin over https, or drop it from server.allowed_origins.",
+			})
+		}
+	}
+
 	switch c.Server.TLS.Mode {
 	case TLSOff, TLSSelfSigned:
 	case TLSFiles:
@@ -282,19 +308,42 @@ func (c *Config) Validate() Findings {
 
 	// --- Authentication ---------------------------------------------------
 	if c.Security.DisableAuth {
+		// The bind address alone is not the question. The deployment this
+		// project recommends is a loopback bind behind a reverse proxy, and in
+		// exactly that shape "127.0.0.1" would wave through a controller the
+		// whole internet can reach. An external URL or a trusted proxy is the
+		// operator saying, in the configuration itself, that something in front
+		// forwards to this listener.
+		reachable := c.LikelyReachable()
 		sev := SeverityError
 		fix := "remove security.disable_auth."
-		if !public {
+		why := " The listener is not on loopback, so this is refused."
+		switch {
+		case !reachable:
 			sev = SeverityWarning
 			fix = "acceptable for local development only; never set this on a host others can reach."
+			why = ""
+		case !public:
+			why = " This controller is behind a proxy or has an external URL, so it is not only reachable from this host, and this is refused."
 		}
 		add(Finding{
 			Code: "auth.disabled", Severity: sev, Setting: "security.disable_auth",
 			Title: "authentication is disabled",
 			Detail: "every request is treated as an administrator: anyone who can reach the " +
-				"listener can create pools, read the audit log and drain the fleet." +
-				map[bool]string{true: " The listener is not on loopback, so this is refused.", false: ""}[public],
+				"listener can create pools, read the audit log and drain the fleet." + why,
 			Fix: fix,
+		})
+	}
+	// A session cookie without Secure is one a single plaintext request to the
+	// same host hands to anyone watching. Zoomies cannot see that a proxy in
+	// front terminates TLS, so it says so rather than guessing.
+	if !c.CookieSecureValue() && public {
+		add(Finding{
+			Code: "auth.cookie_insecure", Severity: SeverityWarning, Setting: "security.cookie_secure",
+			Title:  "session cookies are sent without the Secure attribute",
+			Detail: "any plain-HTTP request to this host will carry a live session cookie, in the clear.",
+			Fix: "set server.external_url to your https address (which turns this on by itself), " +
+				"or set security.cookie_secure to true if TLS is terminated in front of this controller.",
 		})
 	}
 	if c.Security.SessionTTL <= 0 {
