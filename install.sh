@@ -41,6 +41,11 @@ VERSION="${ZOOMIES_VERSION:-latest}"
 REPO="${ZOOMIES_REPO:-eyupio/zoomies}"
 PREFIX="${ZOOMIES_PREFIX:-/usr/local/bin}"
 BASE_URL="${ZOOMIES_BASE_URL:-https://github.com/${REPO}/releases}"
+# A tag is visible at /releases/latest the moment it is published, but the
+# release workflow attaches the binaries a few minutes later. Installing inside
+# that window is the one download failure worth waiting out rather than failing.
+ASSET_WAIT="${ZOOMIES_ASSET_WAIT:-300}"
+RESOLVED_LATEST=0
 # A redirect is somebody else's choice of protocol, and what this script
 # downloads is executed on the host. Redirects are pinned to https so a 302
 # can never turn the download into a plaintext one; the first request is
@@ -164,6 +169,9 @@ Options:
 
 Environment:
   ZOOMIES_VERSION, ZOOMIES_PREFIX, ZOOMIES_REPO, ZOOMIES_BASE_URL
+  ZOOMIES_ASSET_WAIT    Seconds to wait for a just-published release's
+                        binaries to finish uploading (default 300, 0 to
+                        fail immediately).
   NO_COLOR              Disable colour.
 
 Examples:
@@ -626,6 +634,35 @@ fetch_stdout() {
     fi
 }
 
+# A tag becomes the target of the /releases/latest redirect the moment it is
+# published, but the workflow that cross-compiles the binaries and attaches
+# them to the release is still running for a few minutes after that. An install
+# started inside that window asks for an asset that is genuinely on its way, so
+# wait for it rather than sending the operator away with a 404. Only when the
+# tag was resolved for them: an explicit --version missing its asset is a typo
+# or a withdrawn release, and no amount of waiting fixes either.
+wait_for_asset() {
+    # wait_for_asset <url> <dest>
+    [ "$RESOLVED_LATEST" -eq 1 ] || return 1
+    case "$ASSET_WAIT" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$ASSET_WAIT" -gt 0 ] || return 1
+
+    warn "$asset is not attached to $tag yet."
+    hint "$tag was published very recently and its binaries are still" \
+         "uploading. Waiting up to ${ASSET_WAIT}s for them."
+    waited=0
+    while [ "$waited" -lt "$ASSET_WAIT" ]; do
+        sleep 15
+        waited=$((waited + 15))
+        if fetch "$1" "$2"; then
+            ok "downloaded after ${waited}s"
+            return 0
+        fi
+        note "still waiting (${waited}s of ${ASSET_WAIT}s)"
+    done
+    return 1
+}
+
 sha256_of() {
     if have sha256sum; then
         sha256sum "$1" | cut -d' ' -f1
@@ -654,6 +691,7 @@ resolve_version() {
         */tag/*) VERSION="${url##*/tag/}" ;;
         *) die "could not work out the latest release. Pass --version v1.2.3, or check that $BASE_URL is reachable." ;;
     esac
+    RESOLVED_LATEST=1
     ok "latest is $VERSION"
 }
 
@@ -668,12 +706,16 @@ install_binary() {
     trap "rm -rf '$tmp'" EXIT INT TERM
 
     step "Downloading $asset $tag"
-    fetch "$url" "$tmp/zoomies" ||
-        die "could not download $asset $tag." \
-            "$url" \
-            "${FETCH_ERROR:-the transfer failed with no message.}" \
-            "Check that $tag exists at $BASE_URL," \
-            "and that this host can reach it."
+    if ! fetch "$url" "$tmp/zoomies"; then
+        wait_for_asset "$url" "$tmp/zoomies" ||
+            die "could not download $asset $tag." \
+                "$url" \
+                "${FETCH_ERROR:-the transfer failed with no message.}" \
+                "Check that $tag exists at $BASE_URL," \
+                "and that this host can reach it." \
+                "If $tag was published minutes ago its binaries may still be" \
+                "building; try again shortly, or pass --version <earlier tag>."
+    fi
 
     # A download that cannot be verified is refused, not warned about. All
     # three ways verification can fail to happen used to print one dim line and
