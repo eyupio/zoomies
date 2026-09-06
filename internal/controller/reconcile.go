@@ -9,17 +9,12 @@ import (
 
 	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/backend"
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 )
-
-// runnerNamePrefix is what github.RunnerName puts in front of every name it
-// mints. internal/github does not export it, and the reaper needs it to tell
-// a runner Zoomies created from one somebody else registered, so it is stated
-// here with that dependency called out.
-const runnerNamePrefix = "zoomies-"
 
 // reapInterval is how often Zoomies' view of the fleet is compared against the
 // runners GitHub thinks exist. It is slow because it costs one API call per
@@ -30,7 +25,8 @@ const reapInterval = 10 * time.Minute
 // reconcileLoop runs a pass on the configured interval and immediately on
 // every nudge, with only one pass in flight at a time.
 func (c *Controller) reconcileLoop(ctx context.Context) {
-	ticker := time.NewTicker(c.schedulerInterval())
+	interval := c.schedulerInterval()
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	// One pass at startup so a controller that was down while jobs queued
@@ -48,6 +44,12 @@ func (c *Controller) reconcileLoop(ctx context.Context) {
 			// collapsed into the single token we just took, so this is one
 			// pass for the whole burst.
 			c.reconcileNow(ctx)
+		}
+		// The interval is a runtime setting, and UpdateConfig nudges this
+		// loop, so a change is in force from the pass after it was accepted.
+		if d := c.schedulerInterval(); d != interval {
+			interval = d
+			ticker.Reset(d)
 		}
 	}
 }
@@ -75,6 +77,11 @@ func (c *Controller) Reconcile(ctx context.Context) error {
 	plan := scheduler.Decide(snap)
 	c.setLastPlan(plan)
 	c.apply(ctx, snap, plan)
+	c.publishCapacitySignals(ctx, snap, plan)
+	// The pass may have changed what the queue and the fleet look like, and
+	// time alone changes the wait percentiles; this is the moment the Overview
+	// learns either way.
+	c.publishDerived(ctx)
 	c.passes.Add(1)
 	c.metrics.reconcileDuration.Observe(time.Since(started).Seconds())
 	return nil
@@ -100,17 +107,23 @@ func (c *Controller) snapshot(ctx context.Context) (scheduler.Snapshot, error) {
 	if err != nil {
 		return scheduler.Snapshot{}, fmt.Errorf("listing queued jobs: %w", err)
 	}
+	activeByRepository, queuedByRepository, err := c.st.RepositoryJobCounts(ctx)
+	if err != nil {
+		return scheduler.Snapshot{}, fmt.Errorf("counting jobs by repository: %w", err)
+	}
 	hosts, err := c.st.ListHosts(ctx)
 	if err != nil {
 		return scheduler.Snapshot{}, fmt.Errorf("listing hosts: %w", err)
 	}
 	return scheduler.Snapshot{
-		Now:     c.Now(),
-		Pools:   pools,
-		Runners: runners,
-		Jobs:    jobs,
-		Hosts:   hosts,
-		Policy:  c.policy(),
+		Now:                c.Now(),
+		Pools:              pools,
+		Runners:            runners,
+		Jobs:               jobs,
+		ActiveByRepository: activeByRepository,
+		QueuedByRepository: queuedByRepository,
+		Hosts:              hosts,
+		Policy:             c.policy(),
 	}, nil
 }
 
@@ -159,6 +172,7 @@ func (c *Controller) apply(ctx context.Context, snap scheduler.Snapshot, plan sc
 			}
 		}
 		c.recordScaling(ctx, pp, created, drained)
+		c.noteBlocked(pp)
 	}
 }
 
@@ -218,7 +232,7 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, a sched
 			pool.Name, pool.InstallationID, err)
 	}
 
-	name := github.RunnerName(pool.Name)
+	name := github.RunnerName()
 	r := &store.Runner{
 		PoolID:        pool.ID,
 		HostID:        a.HostID,
@@ -226,20 +240,28 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, a sched
 		State:         store.RunnerProvisioning,
 		Ephemeral:     pool.Ephemeral,
 		Labels:        pool.Labels,
-		Image:         c.runnerImage(pool),
+		Image:         c.RunnerImage(pool),
 		RunnerVersion: c.runnerVersion(pool),
 		Message:       a.Reason,
 	}
 	if err := c.st.CreateRunner(ctx, r); err != nil {
 		return fmt.Errorf("creating the runner row for %s: %w", name, err)
 	}
-	c.publishRunner(events.KindRunnerCreated, r)
+	if queued, err := c.st.ListQueuedJobs(ctx); err == nil {
+		for _, j := range queued {
+			if j.PoolID == pool.ID {
+				observeDuration(c.metrics.queuedToCreate, pool.Name, string(pool.Backend), j.QueuedAt, r.CreatedAt)
+				break
+			}
+		}
+	}
+	c.publishRunner(ctx, events.KindRunnerCreated, r)
 
 	creds, ghID, err := c.mintCredentials(ctx, inst, pool, name)
 	if err != nil {
 		msg := fmt.Sprintf("GitHub would not register %s: %v", name, err)
 		if failed, ferr := c.st.TransitionRunner(ctx, r.ID, store.RunnerFailed, msg); ferr == nil {
-			c.publishRunner(events.KindRunnerUpdated, failed)
+			c.publishRunner(ctx, events.KindRunnerUpdated, failed)
 		} else {
 			c.log.Error("could not mark a runner failed after its registration failed",
 				"runner", r.ID, "error", ferr)
@@ -254,18 +276,24 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, a sched
 	}
 
 	spec := backend.Spec{
-		Name:          name,
-		RunnerID:      r.ID,
-		PoolID:        pool.ID,
-		PoolName:      pool.Name,
-		Image:         r.Image,
-		Credentials:   creds,
-		Env:           pool.Env,
-		Ephemeral:     pool.Ephemeral,
-		Resources:     pool.Resources,
+		Name:        name,
+		RunnerID:    r.ID,
+		PoolID:      pool.ID,
+		PoolName:    pool.Name,
+		Image:       r.Image,
+		PullPolicy:  pool.PullPolicy,
+		Credentials: creds,
+		Env:         pool.Env,
+		Ephemeral:   pool.Ephemeral,
+		Resources:   pool.Resources,
+		Cache:       pool.Cache,
+		// An organisation installation's target is the organisation, which is
+		// no repository at all; a pool under one names its cache's repository
+		// itself, and that is the identity the runner should carry.
+		Repository:    firstNonEmpty(strings.TrimSpace(pool.Cache.Repository), inst.Target),
 		DockerMode:    pool.DockerMode,
 		RunAsRoot:     pool.RunAsRoot,
-		Network:       c.cfg.Agent.Network,
+		Network:       c.cfg().Agent.Network,
 		RunnerVersion: r.RunnerVersion,
 	}
 	c.enqueue(a.HostID, agent.Task{
@@ -318,20 +346,28 @@ func (c *Controller) mintCredentials(ctx context.Context, inst *store.Installati
 	}, 0, nil
 }
 
-// runnerImage returns the image a pool's runners use, falling back to the
+// RunnerImage returns the image a pool's runners use, falling back to the
 // instance default so a pool created without one still works.
-func (c *Controller) runnerImage(p *store.Pool) string {
-	if strings.TrimSpace(p.Image) != "" {
-		return p.Image
+//
+// A pool that gives its jobs a daemon runs the stock image's Docker variant,
+// and the API already writes that into the pool when it is saved. The swap is
+// made again here because this is the one place that sees the fallback -- a
+// pool with no image of its own and github.runner_image at its stock default
+// -- and because what runs should be decided where the runner is made, not
+// trusted to every path that ever wrote a pool row.
+func (c *Controller) RunnerImage(p *store.Pool) string {
+	image := strings.TrimSpace(p.Image)
+	if image == "" {
+		image = c.cfg().GitHub.RunnerImage
 	}
-	return c.cfg.GitHub.RunnerImage
+	return config.RunnerImageFor(image, p.DockerMode.GivesDaemon())
 }
 
 func (c *Controller) runnerVersion(p *store.Pool) string {
 	if strings.TrimSpace(p.RunnerVersion) != "" {
 		return p.RunnerVersion
 	}
-	return c.cfg.GitHub.RunnerVersion
+	return c.cfg().GitHub.RunnerVersion
 }
 
 // ---------------------------------------------------------------------------
@@ -389,7 +425,7 @@ func (c *Controller) drainRunner(ctx context.Context, r *store.Runner, reason st
 	if err != nil {
 		return nil, err
 	}
-	c.publishRunner(events.KindRunnerUpdated, updated)
+	c.publishRunner(ctx, events.KindRunnerUpdated, updated)
 	c.enqueue(r.HostID, agent.Task{
 		Kind:        agent.TaskStopRunner,
 		RunnerID:    r.ID,
@@ -425,26 +461,44 @@ func (c *Controller) removeRunner(ctx context.Context, r *store.Runner, reason s
 	if err != nil {
 		return nil, err
 	}
-	c.publishRunner(events.KindRunnerUpdated, updated)
+	c.publishRunner(ctx, events.KindRunnerUpdated, updated)
 	c.log.Info("removed a runner", "runner", r.ID, "name", r.Name, "reason", reason)
+	if r.State == store.RunnerBusy {
+		// Only a forced removal reaches here with a job still running, and
+		// that job is about to fail on GitHub for a reason only this fleet
+		// knows.
+		c.noteRunnerLost(ctx, r, sourceController, reason)
+	}
 	return updated, nil
 }
 
 func (c *Controller) failRunnerID(ctx context.Context, id, reason string) error {
+	before, err := c.st.GetRunner(ctx, id)
+	if err != nil {
+		return err
+	}
 	updated, err := c.st.TransitionRunner(ctx, id, store.RunnerFailed, reason)
 	if err != nil {
 		return err
 	}
-	c.publishRunner(events.KindRunnerUpdated, updated)
+	c.publishRunner(ctx, events.KindRunnerUpdated, updated)
 	c.log.Warn("a runner failed", "runner", updated.ID, "name", updated.Name, "reason", reason)
+	c.noteRunnerLost(ctx, before, sourceController, reason)
 	return nil
 }
 
 // deleteRegistration removes a runner's registration from GitHub. Failures are
 // logged rather than returned: the reaper will find it again, and a GitHub
 // outage must not stop Zoomies from freeing the host's capacity.
+//
+// A JIT-registered runner carries the ID GitHub minted for it. One registered
+// with a registration token -- a non-ephemeral pool -- has none until GitHub
+// is asked, so it is looked up by name; the alternative was the container's
+// own config.sh remove on exit, with a registration token that expires after
+// an hour and had usually expired, leaving exactly the ghost that comment
+// promised to prevent.
 func (c *Controller) deleteRegistration(ctx context.Context, r *store.Runner, pool *store.Pool) {
-	if r.GitHubRunnerID == 0 {
+	if r.GitHubRunnerID == 0 && !store.IsRunnerName(r.Name) {
 		return
 	}
 	if pool == nil {
@@ -467,11 +521,31 @@ func (c *Controller) deleteRegistration(ctx context.Context, r *store.Runner, po
 		c.log.Warn("could not delete a GitHub runner registration", "runner", r.ID, "error", err)
 		return
 	}
-	err = client.DeleteRunner(ctx, r.GitHubRunnerID)
+	id := r.GitHubRunnerID
+	if id == 0 {
+		remote, err := client.ListRunners(ctx)
+		c.observeGitHub(inst.ID, err)
+		if err != nil {
+			c.log.Warn("could not list GitHub runners to find a registration to delete", "runner", r.ID, "name", r.Name, "error", err)
+			return
+		}
+		for _, gr := range remote {
+			if gr.Name == r.Name {
+				id = gr.ID
+				break
+			}
+		}
+		if id == 0 {
+			// Never registered, or already gone: either way there is nothing
+			// to delete, and nothing worth a warning.
+			return
+		}
+	}
+	err = client.DeleteRunner(ctx, id)
 	c.observeGitHub(inst.ID, err)
 	if err != nil {
 		c.log.Warn("could not delete a GitHub runner registration",
-			"runner", r.ID, "github_runner_id", r.GitHubRunnerID, "error", err)
+			"runner", r.ID, "github_runner_id", id, "error", err)
 	}
 }
 
@@ -515,7 +589,7 @@ func (c *Controller) reapLoop(ctx context.Context) {
 // The rule for what may be deleted is deliberately narrow, because this code
 // is one API call away from deleting somebody else's runners:
 //
-//   - the name must carry the "zoomies-" prefix that github.RunnerName mints,
+//   - the name must carry the "zoomies-" prefix that store.NewRunnerName mints,
 //     so a runner another tool registered is never a candidate;
 //   - and either Zoomies has a row for it in a terminal state (we know it is
 //     dead), or Zoomies has no row at all and GitHub reports it offline (the
@@ -544,7 +618,7 @@ func (c *Controller) reap(ctx context.Context) {
 			continue
 		}
 		for _, gr := range remote {
-			if !strings.HasPrefix(gr.Name, runnerNamePrefix) {
+			if !store.IsRunnerName(gr.Name) {
 				continue
 			}
 			if gr.Busy {

@@ -98,8 +98,8 @@ func TestSettings(t *testing.T) {
 	if retention["jobs"] != "48h0m0s" {
 		t.Errorf("retention.jobs = %v, want 48h0m0s", retention["jobs"])
 	}
-	if h.cfg.Retention.Jobs.String() != "48h0m0s" {
-		t.Errorf("the running configuration was not changed: %s", h.cfg.Retention.Jobs)
+	if h.ctrl.Config().Retention.Jobs.String() != "48h0m0s" {
+		t.Errorf("the running configuration was not changed: %s", h.ctrl.Config().Retention.Jobs)
 	}
 
 	// A setting that needs a restart is refused with a message that says so.
@@ -114,7 +114,7 @@ func TestSettings(t *testing.T) {
 	if !strings.Contains(env.Errors[0].Message, "restart") {
 		t.Errorf("the message does not say a restart is needed: %q", env.Errors[0].Message)
 	}
-	if h.cfg.Server.Bind == "0.0.0.0:9000" {
+	if h.ctrl.Config().Server.Bind == "0.0.0.0:9000" {
 		t.Error("a refused setting was applied anyway")
 	}
 
@@ -122,6 +122,31 @@ func TestSettings(t *testing.T) {
 	bad := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
 		body: map[string]any{"retention.audit": "forever"}})
 	bad.mustStatus(t, http.StatusUnprocessableEntity, "patch with a bad duration")
+
+	// A request is refused as a whole: a good key sent beside a bad one is not
+	// applied behind the operator's back, and nothing is audited.
+	countAudit := func() int {
+		res := h.do(request{method: http.MethodGet, path: "/api/v1/audit?action=settings.update", cookie: cookie})
+		res.mustStatus(t, http.StatusOK, "audit")
+		var page struct {
+			Total int `json:"total"`
+		}
+		res.into(t, &page)
+		return page.Total
+	}
+	audited := countAudit()
+	mixed := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
+		body: map[string]any{"retention.jobs": "1h", "log.level": "bogus"}})
+	mixed.mustStatus(t, http.StatusUnprocessableEntity, "patch a good key beside a bad one")
+	if h.ctrl.Config().Retention.Jobs.String() != "48h0m0s" {
+		t.Errorf("retention.jobs = %s after a refused request, want it left at 48h0m0s", h.ctrl.Config().Retention.Jobs)
+	}
+	if h.ctrl.Config().Log.Level != "debug" {
+		t.Errorf("log.level = %q after a refused request, want it left at debug", h.ctrl.Config().Log.Level)
+	}
+	if n := countAudit(); n != audited {
+		t.Errorf("a refused request wrote %d audit rows", n-audited)
+	}
 }
 
 // TestJoinTokenLifecycle covers minting the credential a new host enrols with.
@@ -156,6 +181,96 @@ func TestJoinTokenLifecycle(t *testing.T) {
 	bad := h.do(request{method: http.MethodPost, path: "/api/v1/join-tokens", cookie: cookie,
 		body: map[string]any{"ttl": "soon"}})
 	bad.mustStatus(t, http.StatusUnprocessableEntity, "create with a bad ttl")
+}
+
+// TestJoinTokenCanBeWatchedUntilAHostUsesIt is the contract behind the
+// Add-a-host page: it polls one token and learns which host redeemed it, so
+// the operator sees the machine arrive without leaving the page.
+func TestJoinTokenCanBeWatchedUntilAHostUsesIt(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("root", store.RoleAdmin)
+	cookie := h.session(admin)
+
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/join-tokens", cookie: cookie,
+		body: map[string]any{"ttl": "1h", "capacity": 0}})
+	created.mustStatus(t, http.StatusCreated, "create join token")
+	var minted createJoinTokenResponse
+	created.into(t, &minted)
+
+	before := h.do(request{method: http.MethodGet, path: "/api/v1/join-tokens/" + minted.ID, cookie: cookie})
+	before.mustStatus(t, http.StatusOK, "get an unused token")
+	var pending joinTokenResponse
+	before.into(t, &pending)
+	if !pending.Usable || pending.UsedAt != nil || pending.UsedByID != "" {
+		t.Fatalf("an unused token reads as %+v", pending)
+	}
+	if strings.Contains(string(before.body), minted.Token) {
+		t.Fatal("reading a join token back returned its secret")
+	}
+
+	join := h.do(request{method: http.MethodPost, path: "/api/v1/agent/join", body: map[string]any{
+		"protocol_version": 1, "join_token": minted.Token, "name": "build-box-7",
+		"capacity": 3, "os": "linux", "arch": "arm64", "version": "test",
+		"backends": []map[string]any{{"kind": "docker", "available": true}},
+	}})
+	join.mustStatus(t, http.StatusOK, "agent join")
+	var joined struct {
+		HostID string `json:"host_id"`
+	}
+	join.into(t, &joined)
+
+	after := h.do(request{method: http.MethodGet, path: "/api/v1/join-tokens/" + minted.ID, cookie: cookie})
+	after.mustStatus(t, http.StatusOK, "get a spent token")
+	var spent joinTokenResponse
+	after.into(t, &spent)
+	if spent.Usable || spent.UsedAt == nil {
+		t.Errorf("a redeemed token still reads as unused: %+v", spent)
+	}
+	if spent.UsedByID != joined.HostID {
+		t.Errorf("used_by_id = %q, want the host that joined, %q", spent.UsedByID, joined.HostID)
+	}
+	// Capacity 0 on the token means the agent's own number stands, which is
+	// what "let the agent decide" has to mean for the page's default.
+	host := h.do(request{method: http.MethodGet, path: "/api/v1/hosts/" + joined.HostID, cookie: cookie})
+	host.mustStatus(t, http.StatusOK, "get the joined host")
+	var view hostResponse
+	host.into(t, &view)
+	if view.Capacity != 3 {
+		t.Errorf("host capacity = %d, want the agent's 3 when the token left it to the agent", view.Capacity)
+	}
+
+	missing := h.do(request{method: http.MethodGet, path: "/api/v1/join-tokens/join_nothing", cookie: cookie})
+	missing.mustStatus(t, http.StatusNotFound, "get a token that never existed")
+}
+
+// TestJoinTokenCommandUsesTheAddressTheCallerGave covers the UI sending the
+// address the browser reached the controller on, so the pasted command never
+// carries a loopback URL or a placeholder.
+func TestJoinTokenCommandUsesTheAddressTheCallerGave(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("root", store.RoleAdmin)
+	cookie := h.session(admin)
+
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/join-tokens", cookie: cookie,
+		body: map[string]any{"controller_url": "https://zoomies.internal:8443/"}})
+	created.mustStatus(t, http.StatusCreated, "create with a controller_url")
+	var minted createJoinTokenResponse
+	created.into(t, &minted)
+	if !strings.Contains(minted.Command, "--controller https://zoomies.internal:8443 ") {
+		t.Errorf("the command does not carry the given address, without its trailing slash: %q", minted.Command)
+	}
+	if strings.Contains(minted.Command, "<this-controller>") {
+		t.Errorf("the command still carries the placeholder: %q", minted.Command)
+	}
+
+	for _, bad := range []string{"zoomies.internal", "ftp://zoomies.internal", "https://", "https://user:pw@zoomies.internal"} {
+		resp := h.do(request{method: http.MethodPost, path: "/api/v1/join-tokens", cookie: cookie,
+			body: map[string]any{"controller_url": bad}})
+		resp.mustStatus(t, http.StatusUnprocessableEntity, "create with controller_url "+bad)
+		if !strings.Contains(string(resp.body), `"controller_url"`) {
+			t.Errorf("the refusal of %q does not name the field: %s", bad, resp.body)
+		}
+	}
 }
 
 // TestHostCordonAndDelete covers taking a machine out of the fleet safely.
@@ -378,4 +493,64 @@ func TestOverviewEndpoints(t *testing.T) {
 
 	scaling := h.do(request{method: http.MethodGet, path: "/api/v1/scaling-events?limit=5", cookie: cookie})
 	scaling.mustStatus(t, http.StatusOK, "scaling events")
+}
+
+// The Hosts page and the pool wizard both answer "why is this host not taking
+// work?" out of backend_info, so the API has to hand back the agent's whole
+// probe -- the backends that failed included -- rather than a list of the ones
+// that worked.
+func TestHostResponseCarriesTheAgentsProbe(t *testing.T) {
+	h := newHarness(t)
+	host := h.host("vm-1")
+	host.Backends = store.StringSlice{"process"}
+	host.BackendInfo = store.HostBackends{
+		{Kind: store.BackendDocker, Detail: "cannot connect to /var/run/docker.sock: permission denied"},
+		{Kind: store.BackendProcess, Available: true, Version: "1.2.3", Endpoint: "exec", SupportsDinD: false},
+	}
+	if err := h.st.UpdateHost(h.ctx, host); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+	viewer, _ := h.user("viewer", store.RoleViewer)
+
+	resp := h.do(request{method: http.MethodGet, path: "/api/v1/hosts/" + host.ID, cookie: h.session(viewer)})
+	resp.mustStatus(t, http.StatusOK, "get host")
+	var out hostResponse
+	resp.into(t, &out)
+
+	if len(out.BackendInfo) != 2 {
+		t.Fatalf("backend_info = %+v, want every backend the agent probed", out.BackendInfo)
+	}
+	var docker backendInfoResponse
+	for _, b := range out.BackendInfo {
+		if b.Kind == store.BackendDocker {
+			docker = b
+		}
+	}
+	if docker.Available {
+		t.Errorf("docker is reported available although the agent could not reach it: %+v", docker)
+	}
+	if !strings.Contains(docker.Detail, "permission denied") {
+		t.Errorf("detail = %q, want the agent's own explanation", docker.Detail)
+	}
+}
+
+// A host that joined before probes were stored has no probe to show. Its
+// available kinds are still rendered, and nothing is invented about the
+// backends it never reported on.
+func TestHostResponseFallsBackToTheKindsAlone(t *testing.T) {
+	h := newHarness(t)
+	host := h.host("vm-1")
+	viewer, _ := h.user("viewer", store.RoleViewer)
+
+	resp := h.do(request{method: http.MethodGet, path: "/api/v1/hosts/" + host.ID, cookie: h.session(viewer)})
+	resp.mustStatus(t, http.StatusOK, "get host")
+	var out hostResponse
+	resp.into(t, &out)
+
+	if len(out.BackendInfo) != 1 || out.BackendInfo[0].Kind != store.BackendDocker || !out.BackendInfo[0].Available {
+		t.Fatalf("backend_info = %+v, want the one kind the host is known to have", out.BackendInfo)
+	}
+	if out.BackendInfo[0].Detail != "" {
+		t.Errorf("detail = %q, want nothing invented", out.BackendInfo[0].Detail)
+	}
 }

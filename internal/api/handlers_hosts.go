@@ -1,82 +1,24 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
-// backendInfoResponse describes one backend a host offers.
-type backendInfoResponse struct {
-	Kind      store.BackendKind `json:"kind"`
-	Available bool              `json:"available"`
-	Version   string            `json:"version,omitempty"`
-	Rootless  bool              `json:"rootless"`
-	Endpoint  string            `json:"endpoint,omitempty"`
-	Detail    string            `json:"detail,omitempty"`
-	DinD      bool              `json:"supports_dind"`
-}
+// hostResponse is the shape GET /hosts returns, rendered by the controller
+// so the event stream's host.updated frames are the same JSON. See
+// controller/views.go for why the renderer lives there.
+type hostResponse = controller.HostView
 
-// hostResponse is one agent host and the room it has left.
-type hostResponse struct {
-	ID            string                `json:"id"`
-	Name          string                `json:"name"`
-	Address       string                `json:"address,omitempty"`
-	Embedded      bool                  `json:"embedded"`
-	Capacity      int                   `json:"capacity"`
-	ActiveRunners int                   `json:"active_runners"`
-	Free          int                   `json:"free"`
-	Backends      []string              `json:"backends"`
-	BackendInfo   []backendInfoResponse `json:"backend_info"`
-	Labels        map[string]string     `json:"labels"`
-	OS            string                `json:"os,omitempty"`
-	Arch          string                `json:"arch,omitempty"`
-	Version       string                `json:"version,omitempty"`
-	Cordoned      bool                  `json:"cordoned"`
-	Healthy       bool                  `json:"healthy"`
-	LastHeartbeat time.Time             `json:"last_heartbeat"`
-	CreatedAt     time.Time             `json:"created_at"`
-}
-
-// hostResponse renders a host as the API returns it.
-//
-// backend_info is derived from the kinds the agent reported: the store keeps
-// only the backends a host said were *available*, so each one is reported
-// available here and nothing is invented about the ones that were not. The
-// richer detail an agent sends at join is not persisted, so there is nothing
-// truthful to put in the version or endpoint fields.
-func (s *Server) hostResponse(h *store.Host) hostResponse {
-	now := s.ctrl.Now()
-	out := hostResponse{
-		ID:            h.ID,
-		Name:          h.Name,
-		Address:       h.Address,
-		Embedded:      h.Embedded,
-		Capacity:      h.Capacity,
-		ActiveRunners: h.ActiveRunners,
-		Free:          h.Free(),
-		Backends:      emptySlice(h.Backends),
-		Labels:        emptyMap(h.Labels),
-		OS:            h.OS,
-		Arch:          h.Arch,
-		Version:       h.Version,
-		Cordoned:      h.Cordoned,
-		Healthy:       h.Healthy(now),
-		LastHeartbeat: h.LastHeartbeat,
-		CreatedAt:     h.CreatedAt,
-	}
-	out.BackendInfo = make([]backendInfoResponse, 0, len(h.Backends))
-	for _, kind := range h.Backends {
-		out.BackendInfo = append(out.BackendInfo, backendInfoResponse{
-			Kind:      store.BackendKind(kind),
-			Available: true,
-		})
-	}
-	return out
-}
+// backendInfoResponse is one entry of hostResponse.backend_info.
+type backendInfoResponse = controller.BackendInfoView
 
 // handleListHosts answers GET /api/v1/hosts.
 func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
@@ -87,7 +29,7 @@ func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]hostResponse, 0, len(hosts))
 	for _, h := range hosts {
-		out = append(out, s.hostResponse(h))
+		out = append(out, s.ctrl.HostView(h))
 	}
 	writeJSON(w, http.StatusOK, newList(out))
 }
@@ -99,7 +41,7 @@ func (s *Server) handleGetHost(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, "reading the host", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.hostResponse(h))
+	writeJSON(w, http.StatusOK, s.ctrl.HostView(h))
 }
 
 type hostUpdateRequest struct {
@@ -159,9 +101,10 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.auth.Auditor().Updated(r.Context(), Identity(r.Context()), "host", id, &before, h)
+	s.ctrl.PublishHost(h)
 	// Capacity and labels both decide where runners may be placed.
 	s.ctrl.Nudge()
-	writeJSON(w, http.StatusOK, s.hostResponse(h))
+	writeJSON(w, http.StatusOK, s.ctrl.HostView(h))
 }
 
 type cordonRequest struct {
@@ -198,9 +141,10 @@ func (s *Server) handleCordonHost(w http.ResponseWriter, r *http.Request) {
 		s.auth.Auditor().Act(r.Context(), Identity(r.Context()), action, "host", id, map[string]any{
 			"name": h.Name, "cordoned": req.Cordoned, "active_runners": h.ActiveRunners,
 		})
+		s.ctrl.PublishHost(h)
 		s.ctrl.Nudge()
 	}
-	writeJSON(w, http.StatusOK, s.hostResponse(h))
+	writeJSON(w, http.StatusOK, s.ctrl.HostView(h))
 }
 
 // handleDeleteHost removes a host.
@@ -233,7 +177,7 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.ctrl.Store().DeleteHost(r.Context(), id); err != nil {
+	if err := s.ctrl.DeleteHost(r.Context(), id); err != nil {
 		s.fail(w, r, "deleting the host", err)
 		return
 	}
@@ -302,6 +246,11 @@ type createJoinTokenRequest struct {
 	TTL      string            `json:"ttl"`
 	Capacity int               `json:"capacity"`
 	Labels   map[string]string `json:"labels"`
+	// ControllerURL is the address the new host should join on, when the
+	// caller knows better than server.external_url does. The UI always does:
+	// the browser reached this controller on some address, and a machine on
+	// the same network will usually reach it there too.
+	ControllerURL string `json:"controller_url"`
 }
 
 // handleCreateJoinToken mints a single-use enrolment credential.
@@ -327,6 +276,12 @@ func (s *Server) handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
 	if req.Capacity < 0 {
 		fields = append(fields, fieldError{"capacity", "capacity cannot be negative; leave it at 0 to let the agent decide from the host's CPU count"})
 	}
+	controllerURL := strings.TrimRight(strings.TrimSpace(req.ControllerURL), "/")
+	if controllerURL != "" {
+		if msg := checkControllerURL(controllerURL); msg != "" {
+			fields = append(fields, fieldError{"controller_url", msg})
+		}
+	}
 	if len(fields) > 0 {
 		unprocessable(w, "this join token could not be created", fields)
 		return
@@ -349,42 +304,80 @@ func (s *Server) handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, createJoinTokenResponse{
 		joinTokenResponse: s.joinTokenResponse(token),
 		Token:             plaintext,
-		Command:           s.joinCommand(plaintext),
+		Command:           s.joinCommand(plaintext, controllerURL),
 	})
+}
+
+// checkControllerURL says what is wrong with an address a host is being told
+// to join, or nothing. The bar is "an agent could dial it": an absolute
+// http(s) URL with a host in it. Loopback is allowed on purpose -- an operator
+// enrolling a second agent on the controller's own machine means it -- and
+// the UI is what warns about it, since the UI knows which machine it is on.
+func checkControllerURL(raw string) string {
+	u, err := url.Parse(raw)
+	switch {
+	case err != nil:
+		return fmt.Sprintf("%q is not a URL an agent could join; write it like https://zoomies.example.com", raw)
+	case u.Scheme != "http" && u.Scheme != "https":
+		return fmt.Sprintf("the controller address has to start with http:// or https://, not %q", u.Scheme+"://")
+	case u.Host == "":
+		return "the controller address needs a host name or IP address, like https://zoomies.example.com"
+	case u.User != nil:
+		return "the controller address must not carry a username or password; the join token is the credential"
+	}
+	return ""
 }
 
 // joinCommand renders the one-liner for the new host.
 //
-// It names the controller's external URL because that is the address the agent
-// has to reach; when it is not configured the command is still printed, with
-// the placeholder in it, since an operator who has not set it yet needs to see
-// what is missing rather than a blank field.
-func (s *Server) joinCommand(token string) string {
-	controller := s.cfg.Server.ExternalURL
+// The caller's address wins when it gave one. Otherwise the command names the
+// controller's external URL, because that is the address the agent has to
+// reach; when that is not configured either the command is still printed,
+// with the placeholder in it, since an operator who has not set it yet needs
+// to see what is missing rather than a blank field.
+func (s *Server) joinCommand(token, controllerURL string) string {
+	controller := controllerURL
 	if controller == "" {
-		controller = "https://<this-controller>"
+		controller = s.cfg().Server.ExternalURL
+		// A loopback external URL is as unusable here as no URL at all, and
+		// worse for being plausible: the default single-VM install makes it
+		// http://localhost:8080, so the command told the new machine to join
+		// itself, and the operator found out after a download, a system
+		// write and a spent single-use token. The placeholder makes the gap
+		// visible, and the UI fills it in.
+		if controller == "" || s.cfg().ExternalURLIsLocal() {
+			controller = "https://<this-controller>"
+		}
 	}
 	return fmt.Sprintf("curl -fsSL https://zoomies.sh/install.sh | sh -s -- --mode agent --controller %s --join-token %s",
 		controller, token)
 }
 
+// handleGetJoinToken answers GET /api/v1/join-tokens/{id}.
+//
+// It is what the Add-a-host page polls while the operator is over on the new
+// machine: the fleet stream deliberately carries nothing about credentials, so
+// a token being redeemed is learnt by asking, and used_by_id is the host it
+// became.
+func (s *Server) handleGetJoinToken(w http.ResponseWriter, r *http.Request) {
+	t, err := s.ctrl.Store().GetJoinToken(r.Context(), chiURLParam(r, "id"))
+	if err != nil {
+		s.fail(w, r, "reading the join token", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.joinTokenResponse(t))
+}
+
 // handleDeleteJoinToken revokes an unused join token.
 func (s *Server) handleDeleteJoinToken(w http.ResponseWriter, r *http.Request) {
 	id := chiURLParam(r, "id")
-	tokens, err := s.ctrl.Store().ListJoinTokens(r.Context())
+	found, err := s.ctrl.Store().GetJoinToken(r.Context(), id)
 	if err != nil {
-		s.internal(w, r, "listing join tokens", err)
-		return
-	}
-	var found *store.JoinToken
-	for _, t := range tokens {
-		if t.ID == id {
-			found = t
-			break
+		if errors.Is(err, store.ErrNotFound) {
+			notFound(w, "there is no join token "+id+"; it may already have been used or revoked")
+			return
 		}
-	}
-	if found == nil {
-		notFound(w, "there is no join token "+id+"; it may already have been used or revoked")
+		s.internal(w, r, "reading the join token", err)
 		return
 	}
 	if err := s.ctrl.Store().DeleteJoinToken(r.Context(), id); err != nil {

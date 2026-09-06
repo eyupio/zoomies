@@ -30,14 +30,17 @@ const (
 // Runner actions. Draining is separated from deleting because draining never
 // interrupts a running job and deleting can.
 const (
-	ActionRunnersRead   Action = "runners.read"
-	ActionRunnersCreate Action = "runners.create"
+	ActionRunnersRead Action = "runners.read"
+	// There is no runners.create: a runner is created by the scheduler, in
+	// response to a queued job, and no route asks for one. A scope nothing
+	// checks is a scope an operator can grant believing it does something.
 	ActionRunnersDrain  Action = "runners.drain"
 	ActionRunnersDelete Action = "runners.delete"
 )
 
 // Job actions. Jobs are observed, never mutated, so there is only a read.
 const ActionJobsRead Action = "jobs.read"
+const ActionUsageRead Action = "usage.read"
 
 // Host actions.
 const (
@@ -64,6 +67,16 @@ const (
 
 // Audit actions.
 const ActionAuditRead Action = "audit.read"
+
+// Migrations move a repository's workflows onto this fleet, which means
+// opening pull requests in repositories Zoomies does not own. Reading a plan
+// is an operator's job rather than a viewer's because it costs a burst of
+// GitHub quota the scheduler shares; opening the pull requests is the same
+// weight as changing a pool.
+const (
+	ActionMigrationsRead  Action = "migrations.read"
+	ActionMigrationsWrite Action = "migrations.write"
+)
 
 // Account and credential actions.
 const (
@@ -98,11 +111,11 @@ var actionRoles = map[Action]store.Role{
 	ActionPoolsDelete: store.RoleOperator,
 
 	ActionRunnersRead:   store.RoleViewer,
-	ActionRunnersCreate: store.RoleOperator,
 	ActionRunnersDrain:  store.RoleOperator,
 	ActionRunnersDelete: store.RoleOperator,
 
-	ActionJobsRead: store.RoleViewer,
+	ActionJobsRead:  store.RoleViewer,
+	ActionUsageRead: store.RoleViewer,
 
 	ActionHostsRead:   store.RoleViewer,
 	ActionHostsWrite:  store.RoleOperator,
@@ -118,6 +131,9 @@ var actionRoles = map[Action]store.Role{
 	ActionWebhooksTest: store.RoleOperator,
 
 	ActionAuditRead: store.RoleViewer,
+
+	ActionMigrationsRead:  store.RoleOperator,
+	ActionMigrationsWrite: store.RoleOperator,
 
 	ActionUsersRead:   store.RoleAdmin,
 	ActionUsersWrite:  store.RoleAdmin,

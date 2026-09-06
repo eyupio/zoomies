@@ -2,9 +2,18 @@
   What an unmatched job is, said in full.
 
   This is the one thing on the Jobs page that an operator cannot work out from
-  the row itself: the job is not slow, it is never going to start. The
-  explanation appears wherever unmatched jobs do -- above the grid when the
-  filter is on or the page contains one, and again in the drawer.
+  the row itself: the job is not slow, nothing in this fleet is going to start
+  it. The explanation appears wherever unmatched jobs do -- above the grid when
+  the filter is on or the page contains one, and again in the drawer.
+
+  It says "this fleet" rather than "never", and it reaches only queued jobs
+  whose labels are not GitHub's own or a vendor's. A controller cannot see the
+  whole of GitHub: the installation's webhooks cover every job in its
+  repositories, and a job on hosted runners, or on another self-hosted provider
+  in the same organisation, has labels no pool here claims and runs perfectly
+  well. Telling an operator those jobs will never run would be alarming and
+  false, so the note names both possibilities and lets them decide which this
+  is.
 -->
 <script lang="ts">
   import { TriangleAlert } from '@lucide/svelte';
@@ -26,11 +35,12 @@
 
   const heading = $derived(
     count === undefined
-      ? 'No enabled pool claims these labels'
+      ? 'No enabled pool here claims these labels'
       : count === 1
-        ? '1 job here will never run'
-        : `${pluralise(count, 'job')} here will never run`,
+        ? '1 queued job has no pool here'
+        : `${pluralise(count, 'queued job')} have no pool here`,
   );
+  const one = $derived(count === 1 || (count === undefined && labels !== undefined));
 </script>
 
 <div class="note {className}" class:compact role="note">
@@ -38,15 +48,16 @@
   <div class="body">
     <p class="heading">{heading}</p>
     <p class="detail">
-      No enabled pool answers
+      No enabled pool here answers
       {#if labels && labels.length > 0}
-        <span class="mono">{labels.join(', ')}</span>, so GitHub
+        <span class="mono">{labels.join(', ')}</span>, so
       {:else}
-        their labels, so GitHub
+        their labels, so
       {/if}
-      has nothing to hand the job to and it will sit queued until it is cancelled. It is almost always
-      a typo in <span class="mono">runs-on</span>, and otherwise a pool that is disabled or was
-      never created.
+      nothing in this fleet will start {one ? 'it' : 'them'}. If {one ? 'it is' : 'they are'} meant for
+      this fleet, that is the fault: a typo in <span class="mono">runs-on</span>, or a pool that is
+      disabled or was never created. If another runner provider serves those labels, this is
+      expected and the job starts there. Jobs on GitHub's own runners are not counted here.
     </p>
     {#if action}
       <Button size="sm" variant="secondary" href="/pools">Check the pools and their labels</Button>
@@ -60,16 +71,16 @@
     align-items: flex-start;
     gap: var(--z-space-3);
     padding: var(--z-space-4);
-    border: 1px solid var(--z-danger-border);
+    border: var(--z-border-width) solid var(--z-pending-border);
     border-radius: var(--z-radius-md);
-    background: var(--z-danger-subtle);
+    background: var(--z-pending-subtle);
   }
   .note.compact {
     padding: var(--z-space-3);
   }
   .note :global(.icon) {
     flex: none;
-    color: var(--z-danger);
+    color: var(--z-pending);
   }
   .body {
     display: flex;

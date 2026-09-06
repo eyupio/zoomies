@@ -72,9 +72,9 @@
     position: relative;
     width: var(--z-space-8);
     height: var(--z-space-5);
-    margin-top: 1px;
+    margin-top: var(--z-nudge-1);
     padding: 0;
-    border: 1px solid var(--z-border-strong);
+    border: var(--z-border-width) solid var(--z-border-strong);
     border-radius: var(--z-radius-full);
     background: var(--z-surface-sunken);
     cursor: pointer;
@@ -92,10 +92,10 @@
   }
   .thumb {
     position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 14px;
-    height: 14px;
+    top: var(--z-nudge-2);
+    left: var(--z-nudge-2);
+    width: var(--z-control-thumb);
+    height: var(--z-control-thumb);
     border-radius: var(--z-radius-full);
     background: var(--z-surface);
     box-shadow: var(--z-shadow-sm);
@@ -108,7 +108,7 @@
   .text {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--z-nudge-2);
   }
   label {
     font-size: var(--z-text-base);

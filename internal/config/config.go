@@ -4,12 +4,14 @@
 // Validation has two outputs. Errors stop the process with a message that says
 // what to change. Warnings do not stop anything, but every one of them names a
 // setting that weakens the default security posture; they are logged at startup
-// and surfaced in the UI's problems panel, so a dangerous toggle is never
+// and surfaced in the UI's problems drawer, so a dangerous toggle is never
 // silently in effect.
 package config
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"os"
@@ -24,19 +26,35 @@ import (
 
 // Config is the complete on-disk configuration.
 type Config struct {
-	Server    Server    `yaml:"server"`
-	Database  Database  `yaml:"database"`
-	Security  Security  `yaml:"security"`
-	GitHub    GitHub    `yaml:"github"`
-	Agent     Agent     `yaml:"agent"`
-	Scheduler Scheduler `yaml:"scheduler"`
-	Log       Log       `yaml:"log"`
-	OIDC      OIDC      `yaml:"oidc"`
-	Metrics   Metrics   `yaml:"metrics"`
-	Retention Retention `yaml:"retention"`
+	Server         Server         `yaml:"server"`
+	Database       Database       `yaml:"database"`
+	Security       Security       `yaml:"security"`
+	GitHub         GitHub         `yaml:"github"`
+	Agent          Agent          `yaml:"agent"`
+	Scheduler      Scheduler      `yaml:"scheduler"`
+	Log            Log            `yaml:"log"`
+	OIDC           OIDC           `yaml:"oidc"`
+	Metrics        Metrics        `yaml:"metrics"`
+	Retention      Retention      `yaml:"retention"`
+	CapacityDemand CapacityDemand `yaml:"capacity_demand"`
 
 	// path records where this config was read from, for error messages.
 	path string `yaml:"-"`
+	// keyInFile records that the encryption key was written in that file, as
+	// opposed to arriving from the environment after the file was read. The
+	// warning about a key in the config file has to look at where the key came
+	// from, not at whether one is present.
+	keyInFile bool `yaml:"-"`
+}
+
+// CapacityDemand publishes signed requests for host capacity to an external
+// provisioner. An empty DestinationURL disables the integration.
+type CapacityDemand struct {
+	DestinationURL string        `yaml:"destination_url"`
+	SigningSecret  string        `yaml:"signing_secret"`
+	Cooldown       time.Duration `yaml:"cooldown"`
+	Timeout        time.Duration `yaml:"timeout"`
+	Pools          []string      `yaml:"pools"`
 }
 
 // Server controls the HTTP listener.
@@ -50,6 +68,7 @@ type Server struct {
 	TLS         TLS    `yaml:"tls"`
 	// TrustedProxies lists CIDRs whose X-Forwarded-For header is believed.
 	// Empty means client IPs come from the socket, which is the safe default.
+	// The word "cloudflare" expands to Cloudflare's published ranges.
 	TrustedProxies []string      `yaml:"trusted_proxies"`
 	ReadTimeout    time.Duration `yaml:"read_timeout"`
 	WriteTimeout   time.Duration `yaml:"write_timeout"`
@@ -57,6 +76,10 @@ type Server struct {
 	// AllowedOrigins restricts browser origins for state-changing requests.
 	// Empty means same-origin only, which is what the embedded UI needs.
 	AllowedOrigins []string `yaml:"allowed_origins"`
+	// AllowIndexing invites search engines into the UI. Off by default: a
+	// controller is somebody's infrastructure rather than somebody's website,
+	// so robots.txt declines crawling until an operator says otherwise.
+	AllowIndexing bool `yaml:"allow_indexing"`
 }
 
 // TLSMode selects how the listener terminates TLS.
@@ -158,6 +181,35 @@ type Agent struct {
 	HeartbeatInterval time.Duration `yaml:"heartbeat_interval"`
 	// Network is an optional pre-existing container network to attach runners to.
 	Network string `yaml:"network"`
+	// RunnerSHA256 is the expected digest of the actions/runner archive the
+	// process backend downloads for this host's OS and architecture. Zoomies
+	// ships the digests for the release it pins; an operator who pins another
+	// release with github.runner_version supplies its digest here, from the
+	// actions/runner release notes, and gets a verified download.
+	RunnerSHA256 string `yaml:"runner_sha256"`
+	// AllowUnverifiedRunnerDownload lets the process backend install a runner
+	// archive whose digest it cannot check. Off by default and warned about:
+	// the alternative is executing whatever the network handed over.
+	AllowUnverifiedRunnerDownload bool `yaml:"allow_unverified_runner_download"`
+	// RegistryAuth is a base64 X-Registry-Auth value the container backends
+	// send when they pull. Without it a pool on a private registry cannot use
+	// pull_policy: pinned-only at all, because the pull it needs is the one
+	// the registry refuses. Best supplied as ZOOMIES_REGISTRY_AUTH rather than
+	// written into zoomies.yaml: it is a credential.
+	RegistryAuth string `yaml:"registry_auth"`
+	// RunnerDownloadURL replaces github.com/actions/runner/releases/download as
+	// the place the process backend fetches archives from, for hosts that
+	// mirror releases internally. The path below it is the same.
+	RunnerDownloadURL string `yaml:"runner_download_url"`
+	// FinishedRetention is how long a finished runner's workload -- the exited
+	// container with its output, its sidecar and scratch directory, or the
+	// process backend's runner directory -- stays on the host after the
+	// controller has been told how the runner ended, before the agent deletes
+	// it. It is the window an operator has to read a finished runner's log.
+	// Zero deletes on the next pass. Unlike retention.runners, which keeps the
+	// row, this is disk on the host: a busy host keeps one finished
+	// container per job for this long.
+	FinishedRetention time.Duration `yaml:"finished_retention"`
 }
 
 // Scheduler tunes the scaling loop.
@@ -167,8 +219,10 @@ type Scheduler struct {
 	// ScaleUpDelay makes the scheduler wait before reacting to a queued job,
 	// which damps churn when jobs arrive in bursts. Zero reacts immediately.
 	ScaleUpDelay time.Duration `yaml:"scale_up_delay"`
-	// MaxRunnerLifetime force-drains a runner that has lived this long, which
-	// catches runners wedged by a hung job.
+	// MaxRunnerLifetime drains a runner that has lived this long, the next
+	// time it is not busy. It bounds how long a persistent runner's state and
+	// credentials live; it never ends a job, so it is no answer to a hung
+	// one -- that is what a workflow's timeout-minutes is for.
 	MaxRunnerLifetime time.Duration `yaml:"max_runner_lifetime"`
 	// ProvisionTimeout fails a runner that never finishes registering.
 	ProvisionTimeout time.Duration `yaml:"provision_timeout"`
@@ -200,12 +254,13 @@ type OIDC struct {
 	OperatorGroups []string `yaml:"operator_groups"`
 	// AllowSignup provisions an account on first successful login.
 	AllowSignup bool `yaml:"allow_signup"`
-	// LinkByUsername lets a successful SSO login adopt an existing account that
-	// still has a local password. It is off by default: with it on, whoever
-	// controls a username at the identity provider controls the local account
-	// of the same name, which is the wrong default for an instance whose first
-	// administrator signs in with a password. Turn it on for the one migration
-	// where that is the intention, then turn it off again.
+	// LinkByUsername lets a first single sign-on login take over an existing
+	// local account that has a password and the same username. Off, the
+	// username alone links only to an account created for SSO -- one with no
+	// password -- because with an identity provider whose users can influence
+	// their own username claim, a sign-in as "admin" would otherwise inherit
+	// the local admin's role. Turn it on for the one migration where that is
+	// the intention, then turn it off again.
 	LinkByUsername bool `yaml:"link_by_username"`
 }
 
@@ -260,6 +315,7 @@ func Default() *Config {
 			Backend:           "docker",
 			WorkDir:           defaultStatePath("work"),
 			HeartbeatInterval: 30 * time.Second,
+			FinishedRetention: 10 * time.Minute,
 		},
 		Scheduler: Scheduler{
 			Interval:          10 * time.Second,
@@ -282,6 +338,7 @@ func Default() *Config {
 			Samples:  7 * 24 * time.Hour,
 			Webhooks: 7 * 24 * time.Hour,
 		},
+		CapacityDemand: CapacityDemand{Cooldown: 10 * time.Minute, Timeout: 10 * time.Second},
 	}
 }
 
@@ -289,6 +346,57 @@ func Default() *Config {
 // built from deploy/Dockerfile.runner and tracks the current actions/runner
 // release and its .NET 8 dependency.
 const DefaultRunnerImage = "ghcr.io/eyupio/zoomies-runner:latest"
+
+// DefaultRunnerDockerImage is DefaultRunnerImage plus a Docker client: the
+// same file's runner-docker target, published under the same tags. It is what
+// a pool whose docker_mode gives its jobs a daemon actually runs, whichever of
+// the two the pool names; see RunnerImageFor.
+const DefaultRunnerDockerImage = "ghcr.io/eyupio/zoomies-runner-docker:latest"
+
+// The two repositories RunnerImageFor translates between.
+const (
+	stockRunnerRepository       = "ghcr.io/eyupio/zoomies-runner"
+	stockRunnerDockerRepository = "ghcr.io/eyupio/zoomies-runner-docker"
+)
+
+// RunnerImageFor returns the image a pool's runners are created from, given
+// the image the pool names and whether its docker_mode gives jobs a daemon.
+//
+// A docker_mode gives a job a daemon and nothing else; the client has to come
+// from the image, and the stock runner image carries none, on purpose, because
+// most pools never build an image. Leaving the operator to remember that -- to
+// set the mode *and* swap the image for its Docker variant -- was the mistake
+// everybody made: the daemon came up, the job reached its first docker step,
+// and it failed with "Unable to locate executable file: docker", which names
+// the missing binary and not the reason.
+//
+// So the swap is made here, once, whenever daemon is true, and only for the
+// stock repository under a moving tag: no tag, :latest or :main, which CI
+// publishes for both images from the same commit. A pinned tag is left as
+// given, because the variant is only published beside the tags made since it
+// was added, and a pool moved onto a tag the registry does not have would
+// stop running every job, including the ones that never touch Docker; the
+// wizard says to pin the variant's tag instead. A digest reference names one
+// exact image and cannot be moved to another. An image of the operator's own
+// is theirs to equip, and so is a mirror of the stock image under another
+// registry: whether the mirror carries the variant is not something this code
+// can know.
+//
+// The swap is never reversed. A pool that stops asking for a daemon keeps the
+// client, which costs it pull time and nothing else, and may be using it
+// against a DOCKER_HOST of its own.
+func RunnerImageFor(image string, daemon bool) string {
+	if !daemon {
+		return image
+	}
+	switch image {
+	case stockRunnerRepository:
+		return stockRunnerDockerRepository
+	case stockRunnerRepository + ":latest", stockRunnerRepository + ":main":
+		return stockRunnerDockerRepository + strings.TrimPrefix(image, stockRunnerRepository)
+	}
+	return image
+}
 
 func defaultCapacity() int {
 	// One runner per two cores is a defensible starting point: a job usually
@@ -360,10 +468,12 @@ func Load(path string) (*Config, error) {
 		// names the line, instead of a setting that silently does nothing.
 		dec := yaml.NewDecoder(strings.NewReader(string(b)))
 		dec.KnownFields(true)
-		if err := dec.Decode(cfg); err != nil && err.Error() != "EOF" {
+		// An empty file is an empty configuration, not a parse error.
+		if err := dec.Decode(cfg); err != nil && !errors.Is(err, io.EOF) {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
 		cfg.path = path
+		cfg.keyInFile = cfg.Security.EncryptionKey != ""
 	case os.IsNotExist(err) && !explicit:
 		// Defaults plus environment.
 	default:
@@ -398,8 +508,15 @@ func (c *Config) Save(path string) error {
 // normalize fills in values that depend on other values.
 func (c *Config) normalize() {
 	c.Log.Level = strings.ToLower(strings.TrimSpace(c.Log.Level))
+	if c.Log.Level == "warning" {
+		// slog's name for the level is warn; the file may say either.
+		c.Log.Level = "warn"
+	}
 	c.Log.Format = strings.ToLower(strings.TrimSpace(c.Log.Format))
 	c.Agent.Backend = strings.ToLower(strings.TrimSpace(c.Agent.Backend))
+	// The environment override was always lowercased; the file is now too, so
+	// "Self-Signed" in zoomies.yaml is the same mode as self-signed.
+	c.Server.TLS.Mode = TLSMode(strings.ToLower(strings.TrimSpace(string(c.Server.TLS.Mode))))
 	if c.Server.TLS.Mode == "" {
 		c.Server.TLS.Mode = TLSOff
 	}
@@ -411,6 +528,15 @@ func (c *Config) normalize() {
 	}
 	c.Server.ExternalURL = strings.TrimRight(c.Server.ExternalURL, "/")
 	c.Agent.ControllerURL = strings.TrimRight(c.Agent.ControllerURL, "/")
+	// A bare Enterprise Server hostname is accepted, as the docs promise: it
+	// gains its scheme and /api/v3 here rather than failing validation for the
+	// lack of them. github.com in any spelling is left as the default reads.
+	if s := strings.TrimSpace(c.GitHub.APIBaseURL); s != "" && !strings.Contains(s, "api.github.com") && s != "https://github.com" {
+		if n, err := NormalizeGitHubAPIBaseURL(s); err == nil {
+			c.GitHub.APIBaseURL = strings.TrimRight(n, "/")
+		}
+	}
+	c.CapacityDemand.DestinationURL = strings.TrimSpace(c.CapacityDemand.DestinationURL)
 	if c.Agent.Name == "" {
 		if h, err := os.Hostname(); err == nil {
 			c.Agent.Name = h
@@ -422,6 +548,26 @@ func (c *Config) normalize() {
 		secure := strings.HasPrefix(c.Server.ExternalURL, "https://") || c.Server.TLS.Mode != TLSOff
 		c.Security.CookieSecure = &secure
 	}
+}
+
+// NormalizeGitHubAPIBaseURL turns whatever an operator wrote for a GitHub API
+// base into the form the client needs: github.com in any spelling becomes
+// https://api.github.com/, and an Enterprise Server host gains https:// and
+// /api/v3 when it lacks them. The result always ends in a slash.
+func NormalizeGitHubAPIBaseURL(raw string) (string, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" || s == "https://github.com" || s == "https://api.github.com" {
+		return "https://api.github.com/", nil
+	}
+	if !strings.Contains(s, "://") {
+		s = "https://" + s
+	}
+	s = strings.TrimRight(s, "/")
+	if !strings.HasSuffix(s, "/api/v3") && !strings.HasSuffix(s, "/api/uploads") &&
+		!strings.Contains(s, "api.github.com") {
+		s += "/api/v3"
+	}
+	return s + "/", nil
 }
 
 // WebhookURL returns the URL GitHub should deliver to, or "" if the external
@@ -463,12 +609,24 @@ func (c *Config) BindsPublicly() bool {
 	case "", "0.0.0.0", "::", "[::]", "*":
 		return true
 	}
-	ip := net.ParseIP(strings.Trim(host, "[]"))
-	if ip == nil {
-		// A hostname; assume it resolves off-host.
+	// Any other name is assumed to resolve off-host, except the ones that
+	// never can.
+	return !loopbackHost(host)
+}
+
+// loopbackHost reports whether a host name or address can only ever be this
+// machine: a loopback IP, localhost, or a name under .localhost, which RFC 6761
+// reserves for exactly that. It is the one answer to the question the bind
+// address, the external URL, the allowed origins and the OIDC issuer all ask,
+// so that "localhost" cannot count as local in one of them and public in
+// another, as it once did between external_url and bind.
+func loopbackHost(host string) bool {
+	host = strings.ToLower(strings.Trim(host, "[]"))
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
 		return true
 	}
-	return !ip.IsLoopback()
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // ExternalURLValid reports whether the external URL parses as an absolute URL.
@@ -478,6 +636,27 @@ func (c *Config) ExternalURLValid() bool {
 	}
 	u, err := url.Parse(c.Server.ExternalURL)
 	return err == nil && u.Scheme != "" && u.Host != ""
+}
+
+// ExternalURLIsLocal reports whether the address this controller believes it is
+// reached at is one only this machine can reach.
+//
+// It is the question behind three separate failures, so there is one answer to
+// it: GitHub cannot deliver a webhook to loopback, and a webhook URL is fixed
+// when the App is created; a join command naming loopback tells the new host to
+// join itself; and a "check reachability" probe made from the controller only
+// proves the controller can reach itself. A loopback external URL is a
+// perfectly good default for a fleet reached through an SSH tunnel -- it is not
+// a misconfiguration, which is why this is a question and not a warning.
+func (c *Config) ExternalURLIsLocal() bool {
+	if c.Server.ExternalURL == "" {
+		return false
+	}
+	u, err := url.Parse(c.Server.ExternalURL)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	return loopbackHost(u.Hostname())
 }
 
 // applyEnv overlays ZOOMIES_* environment variables.
@@ -531,6 +710,9 @@ func (c *Config) applyEnv() error {
 	}
 
 	str("ZOOMIES_BIND", &c.Server.Bind)
+	dur("ZOOMIES_READ_TIMEOUT", &c.Server.ReadTimeout)
+	dur("ZOOMIES_WRITE_TIMEOUT", &c.Server.WriteTimeout)
+	dur("ZOOMIES_IDLE_TIMEOUT", &c.Server.IdleTimeout)
 	str("ZOOMIES_EXTERNAL_URL", &c.Server.ExternalURL)
 	if v, ok := os.LookupEnv("ZOOMIES_TLS_MODE"); ok {
 		c.Server.TLS.Mode = TLSMode(strings.ToLower(strings.TrimSpace(v)))
@@ -540,6 +722,7 @@ func (c *Config) applyEnv() error {
 	strs("ZOOMIES_TLS_HOSTS", &c.Server.TLS.Hosts)
 	strs("ZOOMIES_TRUSTED_PROXIES", &c.Server.TrustedProxies)
 	strs("ZOOMIES_ALLOWED_ORIGINS", &c.Server.AllowedOrigins)
+	boolean("ZOOMIES_ALLOW_INDEXING", &c.Server.AllowIndexing)
 
 	str("ZOOMIES_DB_PATH", &c.Database.Path)
 
@@ -570,8 +753,16 @@ func (c *Config) applyEnv() error {
 	integer("ZOOMIES_AGENT_CAPACITY", &c.Agent.Capacity)
 	str("ZOOMIES_AGENT_BACKEND", &c.Agent.Backend)
 	str("ZOOMIES_DOCKER_HOST", &c.Agent.DockerHost)
-	str("DOCKER_HOST", &c.Agent.DockerHost)
+	// Docker's own variable is honoured only when Zoomies' is not set. The
+	// compose file hands the whole .env to the container, and an operator
+	// whose daemon is rootless or remote keeps DOCKER_HOST in that file for
+	// docker and compose themselves; read second, it would silently override
+	// the socket the compose file names explicitly.
+	if _, explicit := os.LookupEnv("ZOOMIES_DOCKER_HOST"); !explicit {
+		str("DOCKER_HOST", &c.Agent.DockerHost)
+	}
 	str("ZOOMIES_WORK_DIR", &c.Agent.WorkDir)
+	str("ZOOMIES_REGISTRY_AUTH", &c.Agent.RegistryAuth)
 	str("ZOOMIES_CONTROLLER_URL", &c.Agent.ControllerURL)
 	str("ZOOMIES_JOIN_TOKEN", &c.Agent.JoinToken)
 	str("ZOOMIES_AGENT_TOKEN", &c.Agent.AgentToken)
@@ -582,6 +773,10 @@ func (c *Config) applyEnv() error {
 	boolean("ZOOMIES_AGENT_ALLOW_INSECURE_HTTP", &c.Agent.AllowInsecureHTTP)
 	dur("ZOOMIES_HEARTBEAT_INTERVAL", &c.Agent.HeartbeatInterval)
 	str("ZOOMIES_AGENT_NETWORK", &c.Agent.Network)
+	dur("ZOOMIES_AGENT_FINISHED_RETENTION", &c.Agent.FinishedRetention)
+	str("ZOOMIES_AGENT_RUNNER_SHA256", &c.Agent.RunnerSHA256)
+	boolean("ZOOMIES_AGENT_ALLOW_UNVERIFIED_RUNNER_DOWNLOAD", &c.Agent.AllowUnverifiedRunnerDownload)
+	str("ZOOMIES_AGENT_RUNNER_DOWNLOAD_URL", &c.Agent.RunnerDownloadURL)
 	if v, ok := os.LookupEnv("ZOOMIES_AGENT_LABELS"); ok {
 		m, err := parseKV(v)
 		if err != nil {
@@ -622,6 +817,11 @@ func (c *Config) applyEnv() error {
 	dur("ZOOMIES_RETENTION_AUDIT", &c.Retention.Audit)
 	dur("ZOOMIES_RETENTION_SAMPLES", &c.Retention.Samples)
 	dur("ZOOMIES_RETENTION_WEBHOOKS", &c.Retention.Webhooks)
+	str("ZOOMIES_CAPACITY_DEMAND_URL", &c.CapacityDemand.DestinationURL)
+	str("ZOOMIES_CAPACITY_DEMAND_SIGNING_SECRET", &c.CapacityDemand.SigningSecret)
+	dur("ZOOMIES_CAPACITY_DEMAND_COOLDOWN", &c.CapacityDemand.Cooldown)
+	dur("ZOOMIES_CAPACITY_DEMAND_TIMEOUT", &c.CapacityDemand.Timeout)
+	strs("ZOOMIES_CAPACITY_DEMAND_POOLS", &c.CapacityDemand.Pools)
 
 	if len(errs) > 0 {
 		return fmt.Errorf("invalid environment configuration:\n  - %s", strings.Join(errs, "\n  - "))

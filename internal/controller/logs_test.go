@@ -197,3 +197,47 @@ func TestLogRelayRefusesAnotherHostsStream(t *testing.T) {
 		t.Fatalf("the owning host's output did not arrive: %q", got)
 	}
 }
+
+// cutReader hands out its data and then fails the way a dropped connection
+// does, rather than ending with a clean EOF.
+type cutReader struct {
+	data []byte
+	done bool
+}
+
+func (r *cutReader) Read(p []byte) (int, error) {
+	if r.done {
+		return 0, errors.New("read tcp: connection reset by peer")
+	}
+	r.done = true
+	return copy(p, r.data), nil
+}
+
+// A job that finishes under a watcher ends the agent's chunked POST without a
+// clean EOF -- the container is gone, and the connection with it. That is how
+// every watched job ends, and it used to be logged as an error and answered
+// with a 500 each time.
+func TestALogStreamCutMidJobEndsQuietly(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerBusy)
+
+	lines, cancel, err := h.c.OpenLogStream(h.ctx, r.ID, backend.LogOptions{Follow: true})
+	if err != nil {
+		t.Fatalf("OpenLogStream: %v", err)
+	}
+	defer cancel()
+	streamID := h.taskOfKind(host.ID, agent.TaskStreamLogs).StreamID
+
+	if err := h.c.AcceptLogStream(host.ID, streamID, &cutReader{data: []byte("last line\n")}); err != nil {
+		t.Fatalf("AcceptLogStream = %v, want the stream to end quietly", err)
+	}
+	select {
+	case chunk := <-lines:
+		if string(chunk) != "last line\n" {
+			t.Fatalf("delivered %q before the cut, want the last line", chunk)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the output before the cut was not delivered")
+	}
+}

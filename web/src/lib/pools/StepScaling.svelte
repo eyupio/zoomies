@@ -65,6 +65,24 @@
 </div>
 
 <Field
+  label="Priority"
+  error={errors['priority']}
+  hint="Higher-priority pools receive the global creation budget first. Pools at the same priority share it round-robin."
+>
+  {#snippet children({ id, describedBy, invalid })}
+    <Input
+      bind:value={draft.priority}
+      {id}
+      {describedBy}
+      {invalid}
+      type="number"
+      step={1}
+      onblur={() => touch('priority')}
+    />
+  {/snippet}
+</Field>
+
+<Field
   label="Idle timeout"
   error={errors['idle_timeout']}
   hint="How long a runner waits for work before it is destroyed. A Go duration: 5m, 90s, 1h30m."
@@ -146,6 +164,74 @@
       {/snippet}
     </Field>
   </div>
+</fieldset>
+
+<fieldset class="resources">
+  <legend>Performance cache</legend>
+  <p class="hint">
+    Mounted at <code>/opt/zoomies-cache</code>. This is disposable build acceleration, not
+    persistent workflow storage.
+  </p>
+  <Checkbox
+    bind:checked={draft.cache_enabled}
+    label="Enable cache"
+    description="Reuse downloaded dependencies and build outputs within the selected isolation boundary."
+    onchange={() => touch('cache.enabled')}
+  />
+  {#if draft.cache_enabled}
+    <div class="triple">
+      <Field label="Isolation scope" error={errors['cache.scope']}>
+        {#snippet children({ id, describedBy })}<select
+            bind:value={draft.cache_scope}
+            {id}
+            aria-describedby={describedBy}
+            ><option value="pool">Pool</option><option value="repository">Repository</option
+            ></select
+          >{/snippet}
+      </Field>
+      <Field label="Size limit (bytes)" error={errors['cache.size_limit']}>
+        {#snippet children({ id, describedBy, invalid })}<Input
+            bind:value={draft.cache_size_limit}
+            {id}
+            {describedBy}
+            {invalid}
+            type="number"
+            min={0}
+            placeholder="10737418240"
+          />{/snippet}
+      </Field>
+      <Field label="Host path or volume prefix" error={errors['cache.source']}>
+        {#snippet children({ id, describedBy, invalid })}<Input
+            bind:value={draft.cache_source}
+            {id}
+            {describedBy}
+            {invalid}
+            placeholder="zoomies-cache"
+          />{/snippet}
+      </Field>
+    </div>
+    <p class="hint">
+      A size limit is kept by evicting whole cache entries, least recently used first, between one
+      runner and the next. It needs an absolute host path above: there is nothing to measure inside
+      a named volume.
+    </p>
+    {#if draft.cache_scope === 'repository'}
+      <Field label="Cache repository (owner/name)" error={errors['cache.repository']}>
+        {#snippet children({ id, describedBy, invalid })}<Input
+            bind:value={draft.cache_repository}
+            {id}
+            {describedBy}
+            {invalid}
+            placeholder="acme/widgets"
+          />{/snippet}
+      </Field>
+      <p class="hint">
+        Leave this empty when the pool's installation is scoped to a single repository — it already
+        says which one. An organisation-wide installation does not, so name the repository this
+        pool's cache is for.
+      </p>
+    {/if}
+  {/if}
 </fieldset>
 
 <style>

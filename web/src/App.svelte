@@ -16,14 +16,19 @@
   import ErrorState from '$lib/components/ErrorState.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import Toaster from '$lib/components/Toaster.svelte';
+  import Logo from '$lib/components/Logo.svelte';
+  import AppFooter from '$lib/shell/AppFooter.svelte';
   import CommandPalette from '$lib/shell/CommandPalette.svelte';
   import Nav from '$lib/shell/Nav.svelte';
+  import NavMenu from '$lib/shell/NavMenu.svelte';
+  import ProblemsDrawer from '$lib/problems/ProblemsDrawer.svelte';
   import ShortcutSheet from '$lib/shell/ShortcutSheet.svelte';
   import TopBar from '$lib/shell/TopBar.svelte';
   import Bootstrap from './routes/Bootstrap.svelte';
   import Login from './routes/Login.svelte';
 
   let paletteOpen = $state(false);
+  let navMenuOpen = $state(false);
   let shortcutsOpen = $state(false);
   let announcement = $state('');
   let warnedAboutPassword = false;
@@ -32,10 +37,14 @@
   const authenticated = $derived(session.phase === 'ready');
 
   onMount(() => {
+    // A session that has lapsed shows the sign-in form in place: the shell
+    // renders Login whenever nobody is signed in, and leaving the address
+    // alone is what lets Login read it and send the operator back to the
+    // runner they were looking at once they have signed in again. Navigating
+    // to /login here threw that away and landed everyone on the Overview.
     onUnauthorized(() => {
       session.clear();
       fleet.stop();
-      if (router.pathname !== '/login') router.navigate('/login');
     });
     router.start();
     void session.boot();
@@ -77,13 +86,22 @@
    * Route change: move focus to the page heading so a keyboard user lands on
    * the content rather than at the top of the navigation, and announce the page
    * name politely for anyone who cannot see that it changed.
+   *
+   * `focused` is what makes this a *route* change rather than any change. The
+   * router's reactivity is one subscriber for the whole module, so a filter
+   * writing itself into the query string re-runs this effect even though the
+   * navigation count has not moved -- and it used to take the keyboard with it.
+   * Typing into any page's search box therefore gave up focus after the first
+   * character and swallowed the second: `zoomies-demo0000` became `z`.
    */
+  let focused = 0;
   $effect(() => {
     const count = router.navigation;
     // The title is read untracked: a detail page renaming itself once it knows
     // what it is looking at must not steal focus back to the heading.
     const title = untrack(() => router.title);
-    if (!authenticated || count === 0) return;
+    if (!authenticated || count === 0 || count === focused) return;
+    focused = count;
     void tick().then(() => {
       const heading = document.getElementById('page-heading') ?? document.getElementById('main');
       heading?.focus();
@@ -96,12 +114,12 @@
 
 {#if session.phase === 'booting'}
   <div class="boot" aria-busy="true">
-    <Skeleton width="180px" height="1.5rem" />
-    <Skeleton width="320px" height="1rem" />
+    <Logo variant="lockup" size={96} label="" />
     <span class="sr-only">Loading Zoomies</span>
   </div>
 {:else if session.phase === 'failed'}
   <main id="main" class="centred">
+    <div class="brand"><Logo variant="lockup" size={80} label="" /></div>
     <ErrorState
       error={session.error}
       title="Cannot reach the Zoomies controller"
@@ -116,7 +134,7 @@
   <main id="main" class="centred"><Login /></main>
 {:else}
   <div class="app">
-    <Nav />
+    <Nav menuOpen={navMenuOpen} onmore={() => (navMenuOpen = !navMenuOpen)} />
     <div class="column">
       <TopBar onpalette={() => (paletteOpen = true)} onshortcuts={() => (shortcutsOpen = true)} />
       <main id="main" tabindex="-1">
@@ -146,10 +164,13 @@
           </div>
         {/if}
       </main>
+      <AppFooter />
     </div>
   </div>
 
+  <NavMenu bind:open={navMenuOpen} />
   <CommandPalette bind:open={paletteOpen} />
+  <ProblemsDrawer />
   <ShortcutSheet bind:open={shortcutsOpen} />
 {/if}
 
@@ -166,6 +187,27 @@
     gap: var(--z-space-3);
     min-height: 100vh;
     padding: var(--z-space-6);
+  }
+  /*
+    The boot screen is usually gone within a frame or two, and a logo that
+    flashes on and then straight off again is worse than no logo at all. So it
+    waits out a third of a second and fades in only for the boots that are
+    actually slow enough to be worth reassuring somebody about. Under
+    reduced motion the durations collapse to 1ms with the rest of the tokens,
+    which shows it immediately -- correct, and one less rule to keep in step.
+  */
+  .boot :global(.logo) {
+    opacity: 0;
+    animation: reveal var(--z-motion-slow) var(--z-ease) var(--z-motion-slow) forwards;
+  }
+  @keyframes reveal {
+    to {
+      opacity: 1;
+    }
+  }
+  .brand {
+    margin-bottom: var(--z-space-2);
+    color: var(--z-text);
   }
   .app {
     display: flex;
@@ -211,7 +253,10 @@
       align-items: stretch;
     }
     .page {
-      padding: var(--z-space-4) var(--z-space-3) var(--z-space-16);
+      /* The clearance for the fixed bottom navigation is the footer's job
+         below this, so the page itself does not also reserve it and leave a
+         hole between the content and the footer. */
+      padding: var(--z-space-4) var(--z-space-3) var(--z-space-2);
     }
   }
 </style>

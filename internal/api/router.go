@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"net/url"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/auth"
+	"github.com/eyupio/zoomies/internal/github"
 )
 
 // maxBodyBytes bounds an ordinary JSON request. It is generous for a pool
@@ -50,16 +52,24 @@ func (s *Server) routes() http.Handler {
 	// can always fetch the spec for the version it is actually talking to.
 	r.Get("/api/openapi.yaml", s.handleOpenAPI)
 
+	// What a crawler asks for before anything else. Both are rendered per
+	// request rather than embedded, because both have to name this
+	// controller's own address and only a request knows it. Mounted here so
+	// they win over the SPA's file lookup, which would 404 a path with an
+	// extension.
+	r.Get("/robots.txt", s.handleRobots)
+	r.Get("/sitemap.xml", s.handleSitemap)
+
 	// The webhook. Mounted for every method rather than POST alone so that
 	// GitHub's own "wrong method" case gets the controller's message, which
 	// says what the endpoint is for, instead of a bare 405.
-	r.Handle(s.cfg.GitHub.WebhookPath, http.HandlerFunc(s.ctrl.HandleWebhook))
+	r.Handle(s.cfg().GitHub.WebhookPath, http.HandlerFunc(s.ctrl.HandleWebhook))
 
 	r.Mount("/api/v1/agent", s.agentRoutes())
 	r.Mount("/api/v1", s.apiRoutes())
 
-	if s.cfg.Metrics.Enabled {
-		r.Handle(s.cfg.Metrics.Path, s.metricsHandler())
+	if s.cfg().Metrics.Enabled {
+		r.Handle(s.cfg().Metrics.Path, s.metricsHandler())
 	}
 
 	return r
@@ -71,6 +81,7 @@ func (s *Server) apiRoutes() chi.Router {
 	r := chi.NewRouter()
 	r.NotFound(apiNotFound)
 	r.MethodNotAllowed(methodNotAllowed)
+	r.Use(noStore)
 	r.Use(limitBody)
 	r.Use(s.csrf)
 
@@ -127,6 +138,7 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionPoolsDelete)).Delete("/{id}", s.handleDeletePool)
 			r.With(s.require(auth.ActionPoolsWrite)).Post("/{id}/enable", s.handleEnablePool)
 			r.With(s.require(auth.ActionPoolsWrite)).Post("/{id}/disable", s.handleDisablePool)
+			r.With(s.require(auth.ActionPoolsWrite)).Post("/{id}/prewarm", s.handlePrewarmPool)
 		})
 
 		// Runners.
@@ -145,11 +157,14 @@ func (s *Server) apiRoutes() chi.Router {
 		})
 
 		// Jobs.
+		r.With(s.require(auth.ActionUsageRead)).Get("/usage", s.handleUsage)
+		r.With(s.require(auth.ActionUsageRead)).Get("/usage.csv", s.handleUsageCSV)
 		r.Route("/jobs", func(r chi.Router) {
 			r.Use(s.require(auth.ActionJobsRead))
 			r.Get("/", s.handleListJobs)
 			r.Get("/facets", s.handleJobFacets)
 			r.Get("/{id}", s.handleGetJob)
+			r.Get("/{id}/events", s.handleJobEvents)
 		})
 
 		// Hosts and enrolment.
@@ -162,8 +177,16 @@ func (s *Server) apiRoutes() chi.Router {
 		})
 		r.Route("/join-tokens", func(r chi.Router) {
 			r.With(s.require(auth.ActionJoinsRead)).Get("/", s.handleListJoinTokens)
+			r.With(s.require(auth.ActionJoinsRead)).Get("/{id}", s.handleGetJoinToken)
 			r.With(s.require(auth.ActionJoinsWrite)).Post("/", s.handleCreateJoinToken)
 			r.With(s.require(auth.ActionJoinsWrite)).Delete("/{id}", s.handleDeleteJoinToken)
+		})
+
+		// Migrations: what moving a repository's workflows onto this fleet
+		// would change, and then doing it. The plan writes nothing.
+		r.Route("/migrations", func(r chi.Router) {
+			r.With(s.require(auth.ActionMigrationsRead)).Post("/plan", s.handleMigrationPlan)
+			r.With(s.require(auth.ActionMigrationsWrite)).Post("/pull-requests", s.handleMigrationApply)
 		})
 
 		// Audit.
@@ -201,6 +224,7 @@ func (s *Server) agentRoutes() chi.Router {
 	r := chi.NewRouter()
 	r.NotFound(apiNotFound)
 	r.MethodNotAllowed(methodNotAllowed)
+	r.Use(noStore)
 
 	// Join is the one anonymous agent route: it is the call that mints the
 	// credential every other one carries.
@@ -319,10 +343,22 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 // it is allowed by its hash rather than by 'unsafe-inline', so any other inline
 // script (an injected one, for instance) is still refused. Styles need
 // 'unsafe-inline' because the component framework sets element styles directly.
-func contentSecurityPolicy(scriptHashes []string) string {
+//
+// formTargets are the origins a form on the page may post to besides this
+// one. The App manifest flow is a real HTML form that posts to GitHub -- that
+// is how GitHub's API works, there is no JSON equivalent -- and a form-action
+// of 'self' alone makes the browser refuse the submission. It does so silently
+// from the operator's point of view: the new tab opens on nothing, a reload
+// turns the POST into a GET, and GitHub answers that with an empty "create an
+// App" form that looks as if Zoomies had sent one with no fields in it.
+func contentSecurityPolicy(scriptHashes, formTargets []string) string {
 	script := "'self'"
 	for _, h := range scriptHashes {
 		script += " '" + h + "'"
+	}
+	form := "'self'"
+	for _, t := range formTargets {
+		form += " " + t
 	}
 	return strings.Join([]string{
 		"default-src 'self'",
@@ -334,12 +370,73 @@ func contentSecurityPolicy(scriptHashes []string) string {
 		"worker-src 'self' blob:",
 		"object-src 'none'",
 		"base-uri 'none'",
-		"form-action 'self'",
+		"form-action " + form,
 		"frame-ancestors 'none'",
 	}, "; ")
 }
 
+// manifestFormTargets lists the GitHub origins the App manifest form may be
+// posted to: github.com always, and the Enterprise Server this controller is
+// configured against when there is one.
+//
+// It is a startup-time list because the policy is a response header on every
+// page, not something the manifest endpoint can adjust per request. An
+// Enterprise host named only in the connect dialog, and not in the
+// configuration, is therefore refused by handleCreateManifest with a message
+// saying which setting to change -- the alternative is a form the browser
+// blocks without telling anyone why.
+func manifestFormTargets(apiBaseURL string) []string {
+	targets := []string{"https://github.com"}
+	if normalised, err := github.NormalizeAPIBaseURL(apiBaseURL); err == nil {
+		apiBaseURL = normalised
+	}
+	if origin := formOrigin(github.WebURLForAPI(apiBaseURL)); origin != "" && origin != targets[0] {
+		targets = append(targets, origin)
+	}
+	return targets
+}
+
+// formOrigin reduces a URL to the scheme and host a CSP source expression
+// wants; anything unparseable yields "" rather than a directive that is
+// itself invalid.
+func formOrigin(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
+}
+
+// formAllowed reports whether the page's policy lets a form post to raw.
+func (s *Server) formAllowed(raw string) bool {
+	origin := formOrigin(raw)
+	if origin == "" {
+		return false
+	}
+	if self := formOrigin(s.cfg().Server.ExternalURL); self != "" && strings.EqualFold(self, origin) {
+		return true
+	}
+	for _, t := range s.formTargets {
+		if strings.EqualFold(t, origin) {
+			return true
+		}
+	}
+	return false
+}
+
 // limitBody caps how much of a request body a handler can be made to read.
+// noStore keeps API responses out of every cache between the server and the
+// browser. They are authenticated, they change from one second to the next,
+// and a proxy or a browser that kept one would show a signed-out user the
+// previous user's fleet. The event stream sets its own header after this, and
+// the UI's static files, which are cacheable, are served outside these routers.
+func noStore(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		next.ServeHTTP(w, r)
+	})
+}
+
 func limitBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil {

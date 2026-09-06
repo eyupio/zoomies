@@ -19,7 +19,7 @@
   import EmptyState from '$lib/components/EmptyState.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import UtilisationBar from '$lib/components/UtilisationBar.svelte';
-  import Panel from './Panel.svelte';
+  import Panel from '$lib/components/Panel.svelte';
 
   interface Props {
     loading?: boolean;
@@ -138,7 +138,11 @@
       description="A pool decides what labels your runners answer to and how many of them exist."
     >
       {#if canCreate}
-        <Button variant="primary" href="/pools/new">Create a pool</Button>
+        <!-- The checklist above owns the first-run path, and offers this step
+             only once it can be completed. Repeating the button here would
+             send an operator with no installation into a wizard that refuses
+             on its first screen. -->
+        <Button variant="secondary" href="/pools/new">Create a pool</Button>
       {/if}
     </EmptyState>
   {:else}
@@ -192,8 +196,8 @@
     align-items: center;
     gap: var(--z-space-4);
     padding: var(--z-space-3) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
-    border-left: 3px solid transparent;
+    border-bottom: var(--z-border-width) solid var(--z-border);
+    border-left: var(--z-border-width-rail) solid transparent;
   }
   .row:last-child {
     border-bottom: 0;

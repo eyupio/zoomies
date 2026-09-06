@@ -2,8 +2,11 @@ package controller
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -32,8 +35,12 @@ func (c *Controller) backgroundLoop(ctx context.Context) {
 		}
 
 		now := c.Now()
-		c.sweepTasks(now)
+		c.sweepTasks(ctx, now)
 		c.checkHostHealth(ctx)
+		c.expireStaleQueuedJobs(ctx, now)
+		// A host going quiet is a problem and a capacity change, and neither
+		// waits for the next reconcile pass to be told about.
+		c.publishDerived(ctx)
 
 		if now.Sub(lastSample) >= sampleInterval {
 			lastSample = now
@@ -53,18 +60,32 @@ func (c *Controller) backgroundLoop(ctx context.Context) {
 // Delivery is at-least-once and every task is idempotent, so a redelivery
 // costs the agent a no-op. The alternative -- assuming one delivery is enough
 // -- means a runner that was never created and nothing to say why.
-func (c *Controller) sweepTasks(now time.Time) {
+func (c *Controller) sweepTasks(ctx context.Context, now time.Time) {
 	for hostID, q := range c.queues.all() {
 		requeued, dropped := q.sweep(now)
 		if requeued > 0 {
 			c.log.Warn("re-queued tasks a host never reported on",
 				"host", hostID, "tasks", requeued)
 		}
-		if dropped > 0 {
-			// The runner's provision timeout is what will notice now, and it
-			// says so on the Runners page.
-			c.log.Error("gave up redelivering tasks to a host",
-				"host", hostID, "tasks", dropped, "attempts", maxTaskAttempts)
+		if len(dropped) == 0 {
+			continue
+		}
+		c.log.Error("gave up redelivering tasks to a host",
+			"host", hostID, "tasks", len(dropped), "attempts", maxTaskAttempts)
+		for _, task := range dropped {
+			// A dropped create is noticed by the runner's provision timeout,
+			// which says so on the Runners page. A dropped stop is noticed by
+			// nothing: the runner would sit in draining for ever, counted
+			// against its pool's maximum and holding a slot on its host, so
+			// it is failed here and the next pass frees the slot.
+			if task.Kind != agent.TaskStopRunner {
+				continue
+			}
+			reason := fmt.Sprintf("the host never confirmed stopping this runner after %d deliveries; it is presumed gone", maxTaskAttempts)
+			if err := c.failRunnerID(ctx, task.RunnerID, reason); err != nil &&
+				!errors.Is(err, store.ErrNotFound) && !errors.Is(err, store.ErrInvalidTransition) {
+				c.log.Warn("could not fail a runner whose stop was never confirmed", "runner", task.RunnerID, "error", err)
+			}
 		}
 	}
 }
@@ -98,7 +119,7 @@ func (c *Controller) sample(ctx context.Context) error {
 // function.
 func (c *Controller) prune(ctx context.Context) {
 	now := c.Now()
-	r := c.cfg.Retention
+	r := c.cfg().Retention
 
 	type job struct {
 		what   string
@@ -107,7 +128,15 @@ func (c *Controller) prune(ctx context.Context) {
 	}
 	for _, j := range []job{
 		{"jobs", r.Jobs, c.st.PruneJobs},
-		{"runners", r.Runners, c.st.PruneRunners},
+		{"runners", r.Runners, func(ctx context.Context, before time.Time) (int64, error) {
+			// Each pruned row is announced, or the Runners page keeps showing
+			// runners that no longer exist until it is reloaded.
+			ids, err := c.st.PruneRunners(ctx, before)
+			for _, id := range ids {
+				c.publishRunnerDeleted(id)
+			}
+			return int64(len(ids)), err
+		}},
 		{"fleet samples", r.Samples, c.st.PruneSamples},
 		{"webhook deliveries", r.Webhooks, c.st.PruneDeliveries},
 		// Scaling history is decision history, so it follows the audit window.

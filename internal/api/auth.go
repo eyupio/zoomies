@@ -249,7 +249,7 @@ func (s *Server) originAllowed(origin string) bool {
 	if origin == "" {
 		return false
 	}
-	for _, allowed := range s.cfg.Server.AllowedOrigins {
+	for _, allowed := range s.cfg().Server.AllowedOrigins {
 		if strings.EqualFold(strings.TrimRight(strings.TrimSpace(allowed), "/"), strings.TrimRight(origin, "/")) {
 			return true
 		}
@@ -257,7 +257,7 @@ func (s *Server) originAllowed(origin string) bool {
 			return true
 		}
 	}
-	if ext := s.cfg.Server.ExternalURL; ext != "" {
+	if ext := s.cfg().Server.ExternalURL; ext != "" {
 		if u, err := url.Parse(ext); err == nil && sameOrigin(u, origin) {
 			return true
 		}
@@ -315,59 +315,9 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, token string) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   s.cfg.CookieSecureValue(),
+		Secure:   s.cfg().CookieSecureValue(),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(s.auth.SessionTTL() / time.Second),
-	})
-}
-
-// OIDCStateCookie holds the state of a single sign-on handshake that is in
-// flight, so the callback can be checked against the browser that began it.
-const OIDCStateCookie = "zoomies_oidc_state"
-
-// oidcStateLifetime matches the provider-side state TTL in internal/auth: the
-// cookie should not outlive the thing it is proving.
-const oidcStateLifetime = 10 * time.Minute
-
-// setOIDCStateCookie remembers, in this browser, the state it was sent to the
-// identity provider with.
-//
-// SameSite=Lax rather than Strict because the callback arrives as a top-level
-// navigation from the provider's origin, and Strict would withhold the cookie
-// on exactly that request -- which would refuse every real sign-in.
-func (s *Server) setOIDCStateCookie(w http.ResponseWriter, state string) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     OIDCStateCookie,
-		Value:    state,
-		Path:     auth.OIDCCallbackPath,
-		HttpOnly: true,
-		Secure:   s.cfg.CookieSecureValue(),
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int(oidcStateLifetime / time.Second),
-	})
-}
-
-// oidcStateCookie returns the state this browser started a handshake with.
-func oidcStateCookie(r *http.Request) string {
-	c, err := r.Cookie(OIDCStateCookie)
-	if err != nil {
-		return ""
-	}
-	return c.Value
-}
-
-// clearOIDCStateCookie expires the state cookie. It runs on every outcome of
-// the callback, success or failure, so a state cannot be replayed.
-func (s *Server) clearOIDCStateCookie(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     OIDCStateCookie,
-		Value:    "",
-		Path:     auth.OIDCCallbackPath,
-		HttpOnly: true,
-		Secure:   s.cfg.CookieSecureValue(),
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   -1,
-		Expires:  time.Unix(0, 0),
 	})
 }
 
@@ -379,7 +329,7 @@ func (s *Server) clearSessionCookie(w http.ResponseWriter) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   s.cfg.CookieSecureValue(),
+		Secure:   s.cfg().CookieSecureValue(),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 		Expires:  time.Unix(0, 0),
@@ -444,9 +394,12 @@ func (s *Server) resolveClientIP(r *http.Request) string {
 	// talked out of it, whereas X-Forwarded-For arrives as whatever the client
 	// sent with Cloudflare's own value appended. Both resolve correctly here,
 	// but only one of them is a single unambiguous value, so prefer it -- and
-	// only when the connection itself came from a trusted proxy, which is what
-	// stops a direct client from simply setting the header.
-	if cf := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); cf != "" {
+	// only when the connection itself came from one of Cloudflare's own
+	// addresses. A trusted proxy that is not Cloudflare -- nginx, HAProxy --
+	// forwards a header it does not recognise untouched, so from behind one of
+	// those the header is whatever the client chose to send, and believing it
+	// would let anyone pick the address the rate limiter and the audit log see.
+	if cf := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); cf != "" && s.isCloudflare(remote) {
 		if ip := net.ParseIP(strings.Trim(cf, "[]")); ip != nil {
 			return ip.String()
 		}
@@ -472,6 +425,16 @@ func (s *Server) resolveClientIP(r *http.Request) string {
 		}
 	}
 	return remote
+}
+
+// isCloudflare reports whether addr is one of Cloudflare's published edge
+// addresses -- the only peer whose CF-Connecting-IP means anything.
+func (s *Server) isCloudflare(addr string) bool {
+	ip := net.ParseIP(strings.Trim(addr, "[]"))
+	if ip == nil {
+		return false
+	}
+	return slices.ContainsFunc(s.cloudflare, func(n *net.IPNet) bool { return n.Contains(ip) })
 }
 
 func (s *Server) isTrustedProxy(addr string) bool {

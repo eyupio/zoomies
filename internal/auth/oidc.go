@@ -22,9 +22,9 @@ import (
 // constant rather than something an operator can drift out of sync.
 const OIDCCallbackPath = "/api/v1/auth/oidc/callback"
 
-// oidcStateTTL is how long a login may sit half-finished at the identity
+// OIDCStateTTL is how long a login may sit half-finished at the identity
 // provider before its state and nonce are forgotten.
-const oidcStateTTL = 10 * time.Minute
+const OIDCStateTTL = 10 * time.Minute
 
 // Claims is what a completed OIDC login tells us about the person, already
 // mapped onto Zoomies' own vocabulary.
@@ -104,7 +104,7 @@ func NewOIDC(ctx context.Context, cfg config.OIDC, externalURL string) (*OIDCPro
 			Scopes:       scopes,
 		},
 		verifier: provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
-		states:   newStateCache(oidcStateTTL, time.Now),
+		states:   newStateCache(OIDCStateTTL, time.Now),
 		logger:   slog.Default(),
 	}, nil
 }
@@ -146,8 +146,9 @@ func (p *OIDCProvider) AuthCodeURL(state, nonce string) string {
 
 // Complete finishes a login begun by Start: it spends the state, exchanges the
 // code and returns the claims. A state that is unknown, already spent or too
-// old is refused -- that is what makes the flow single-use and is the defence
-// against a login CSRF.
+// old is refused -- that is what makes the flow single-use. It proves the
+// handshake began on this controller, not that it began in this browser; the
+// API layer adds that half by binding the state to a cookie set at Start.
 func (p *OIDCProvider) Complete(ctx context.Context, state, code string) (*Claims, error) {
 	if p == nil {
 		return nil, errors.New("single sign-on is not configured on this instance")
@@ -258,9 +259,11 @@ func (p *OIDCProvider) mapsRoles() bool {
 //
 // It links by subject first, because that is the only identifier a provider
 // promises not to reuse. Failing that it adopts an existing account with the
-// same username -- which is how an instance moves from local passwords to SSO
-// without recreating everyone -- and only then, if allowSignup is on, creates
-// one.
+// same username, but only one made for single sign-on -- one with no password
+// -- unless oidc.link_by_username says otherwise: with a provider whose users
+// can influence their own username claim, adopting any account by name would
+// let a login as "admin" inherit the local admin's role. Only then, if
+// allowSignup is on, does it create one.
 func (p *OIDCProvider) EnsureUser(ctx context.Context, st *store.Store, claims *Claims, allowSignup bool) (*store.User, error) {
 	if claims == nil || claims.Subject == "" {
 		return nil, errors.New("no verified claims to sign in with")
@@ -290,8 +293,8 @@ func (p *OIDCProvider) EnsureUser(ctx context.Context, st *store.Store, claims *
 		// could claim a local account -- so an account that has a password of
 		// its own is only adopted when the operator has asked for exactly that.
 		if u.PasswordHash != "" && !p.cfg.LinkByUsername {
-			return nil, fmt.Errorf("the account %q signs in with a password, and this controller will not link it to single sign-on automatically; "+
-				"set oidc.link_by_username to adopt existing password accounts, or have an administrator clear its password first", username)
+			return nil, fmt.Errorf("an account named %q already exists and signs in with a password, so this single sign-on identity was not linked to it; "+
+				"an administrator can set oidc.link_by_username for the migration, or create an SSO account under another name", username)
 		}
 		u.OIDCSubject = claims.Subject
 		return p.sync(ctx, st, u, claims, username)

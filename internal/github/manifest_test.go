@@ -44,12 +44,11 @@ func permissions(t *testing.T, m map[string]any) map[string]string {
 
 func TestManifestOrgShape(t *testing.T) {
 	m := decodeManifest(t, ManifestOptions{
-		Name:          "zoomies-acme",
-		URL:           "https://zoomies.example.com",
-		WebhookURL:    "https://zoomies.example.com/webhooks/github",
-		WebhookSecret: "hunter2",
-		Organization:  "acme",
-		SetupURL:      "https://zoomies.example.com/setup/github",
+		Name:         "zoomies-acme",
+		URL:          "https://zoomies.example.com",
+		WebhookURL:   "https://zoomies.example.com/webhooks/github",
+		Organization: "acme",
+		SetupURL:     "https://zoomies.example.com/setup/github",
 	})
 
 	if m["name"] != "zoomies-acme" || m["url"] != "https://zoomies.example.com" {
@@ -66,9 +65,6 @@ func TestManifestOrgShape(t *testing.T) {
 	if hook["url"] != "https://zoomies.example.com/webhooks/github" || hook["active"] != true {
 		t.Fatalf("hook_attributes = %v", hook)
 	}
-	if hook["secret"] != "hunter2" {
-		t.Fatalf("webhook secret not carried into the manifest: %v", hook)
-	}
 
 	events, _ := m["default_events"].([]any)
 	if len(events) != 1 || events[0] != "workflow_job" {
@@ -79,6 +75,9 @@ func TestManifestOrgShape(t *testing.T) {
 		"organization_self_hosted_runners": "write",
 		"actions":                          "read",
 		"metadata":                         "read",
+		"contents":                         "write",
+		"pull_requests":                    "write",
+		"workflows":                        "write",
 	}
 	if got := permissions(t, m); !maps.Equal(got, want) {
 		t.Fatalf("permissions = %v, want %v", got, want)
@@ -92,6 +91,44 @@ func TestManifestOrgShape(t *testing.T) {
 	}
 }
 
+// GitHub validates the manifest key by key and rejects the whole thing with
+// `"<key>" is not a permitted key` when it does not recognise one, so a
+// well-meant addition here breaks App creation for everybody. These are the
+// keys GitHub's manifest schema accepts.
+func TestManifestSendsOnlyPermittedKeys(t *testing.T) {
+	permitted := map[string]bool{
+		"name": true, "url": true, "hook_attributes": true, "redirect_url": true,
+		"callback_urls": true, "setup_url": true, "description": true, "public": true,
+		"default_events": true, "default_permissions": true, "request_oauth_on_install": true,
+		"setup_on_update": true,
+	}
+	m := decodeManifest(t, ManifestOptions{
+		Name:         "zoomies-acme",
+		URL:          "https://zoomies.example.com",
+		WebhookURL:   "https://zoomies.example.com/webhooks/github",
+		Organization: "acme",
+		SetupURL:     "https://zoomies.example.com/setup/github",
+	})
+	for k := range m {
+		if !permitted[k] {
+			t.Errorf("manifest carries %q, which GitHub does not permit and will reject the whole manifest over", k)
+		}
+	}
+
+	// hook_attributes has its own, much shorter, list. A "secret" here is the
+	// tempting one: GitHub generates the secret itself and returns it from the
+	// conversion, and naming one makes App creation fail outright.
+	hook, ok := m["hook_attributes"].(map[string]any)
+	if !ok {
+		t.Fatalf("hook_attributes missing: %v", m)
+	}
+	for k := range hook {
+		if k != "url" && k != "active" {
+			t.Errorf("hook_attributes carries %q; GitHub permits only url and active", k)
+		}
+	}
+}
+
 func TestManifestRepoShape(t *testing.T) {
 	m := decodeManifest(t, ManifestOptions{
 		Name:       "zoomies-widgets",
@@ -102,6 +139,9 @@ func TestManifestRepoShape(t *testing.T) {
 		"administration": "write",
 		"actions":        "read",
 		"metadata":       "read",
+		"contents":       "write",
+		"pull_requests":  "write",
+		"workflows":      "write",
 	}
 	got := permissions(t, m)
 	if !maps.Equal(got, want) {
@@ -166,6 +206,26 @@ func TestInstallURL(t *testing.T) {
 	}
 	if got := InstallURL("  "); got != "" {
 		t.Fatalf("InstallURL of nothing = %q, want empty", got)
+	}
+}
+
+// The logo is the one thing a manifest cannot set, so the settings URL is what
+// stands in for it. GitHub 404s the account-scoped page for an org App and the
+// org-scoped page for a personal one, so the two forms have to be right.
+func TestSettingsURL(t *testing.T) {
+	cases := []struct{ api, slug, org, want string }{
+		{"https://api.github.com/", "zoomies-acme", "acme",
+			"https://github.com/organizations/acme/settings/apps/zoomies-acme"},
+		{"https://api.github.com/", "zoomies-acme", "",
+			"https://github.com/settings/apps/zoomies-acme"},
+		{"https://ghe.example.com/api/v3/", "zoomies", "acme",
+			"https://ghe.example.com/organizations/acme/settings/apps/zoomies"},
+		{"https://api.github.com/", "", "acme", ""},
+	}
+	for _, c := range cases {
+		if got := SettingsURL(c.api, c.slug, c.org); got != c.want {
+			t.Errorf("SettingsURL(%q, %q, %q) = %q, want %q", c.api, c.slug, c.org, got, c.want)
+		}
 	}
 }
 
@@ -251,7 +311,10 @@ func TestExchangeManifestCodeErrors(t *testing.T) {
 
 func TestManifestPermissionsAreMinimal(t *testing.T) {
 	// Every permission in the manifest has to be one Zoomies actually uses.
-	allowed := []string{"actions", "metadata", "administration", "organization_self_hosted_runners"}
+	allowed := []string{
+		"actions", "metadata", "administration", "organization_self_hosted_runners",
+		"contents", "pull_requests", "workflows",
+	}
 	for _, org := range []string{"", "acme"} {
 		m := decodeManifest(t, ManifestOptions{
 			Name: "zoomies", URL: "https://z.example", WebhookURL: "https://z.example/w",

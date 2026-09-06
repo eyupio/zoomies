@@ -1,14 +1,30 @@
 package api
 
 import (
+	"crypto/subtle"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/auth"
-	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/store"
 )
+
+// oidcStateCookie carries the state of a single sign-on handshake in the
+// browser that started it, so that the callback can only be finished from
+// there. The server's own record of the state proves the handshake was begun
+// on this controller; the cookie proves it was begun by this browser, which
+// is what stops an attacker from handing their own half-finished sign-in to
+// a victim and signing the victim in as them.
+const oidcStateCookie = "zoomies_oidc_state"
+
+// oidcCookiePath scopes the cookie to the two SSO routes, so it rides along
+// with nothing else.
+const oidcCookiePath = "/api/v1/auth/oidc"
 
 // identityResponse is the caller, as the UI's session store holds it.
 type identityResponse struct {
@@ -75,6 +91,13 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		unprocessable(w, "the first administrator could not be created", fields)
 		return
 	}
+	// Refused before the account exists: this endpoint closes for good the
+	// moment it succeeds, and an administrator whose session the browser then
+	// throws away has no second try at it.
+	if msg := s.cookieWouldBeDropped(r); msg != "" {
+		badRequest(w, msg)
+		return
+	}
 
 	u, err := s.auth.CreateFirstAdminWithSetupToken(r.Context(), req.Username, req.Password, req.SetupToken)
 	if err != nil {
@@ -82,10 +105,15 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, auth.ErrAlreadyBootstrapped):
 			conflict(w, err.Error())
 		case errors.Is(err, auth.ErrBadSetupToken):
+			// Worth a line of its own: a burst of these is somebody guessing.
 			s.logger(r).Warn("a bootstrap attempt carried the wrong setup token", "ip", ClientIP(r.Context()))
 			unprocessable(w, err.Error(), []fieldError{{"setup_token", err.Error()}})
-		default:
+		case errors.Is(err, auth.ErrInvalidInput):
 			unprocessable(w, err.Error(), nil)
+		default:
+			// This route is anonymous, so a database error must not come back
+			// as the text of a validation message.
+			s.fail(w, r, "creating the first administrator", err)
 		}
 		return
 	}
@@ -136,6 +164,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
+	if msg := s.cookieWouldBeDropped(r); msg != "" {
+		badRequest(w, msg)
+		return
+	}
 	ip := ClientIP(r.Context())
 
 	u, token, err := s.auth.Login(r.Context(), req.Username, req.Password, ip, r.UserAgent())
@@ -145,7 +177,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.auth.AuditLoginFailure(r.Context(), req.Username, ip, err)
 		switch {
 		case errors.Is(err, auth.ErrRateLimited):
-			rateLimited(w, err.Error(), 0)
+			rateLimited(w, err.Error(), s.auth.LoginRetryAfter(ip))
 		case errors.Is(err, auth.ErrInvalidCredentials),
 			errors.Is(err, auth.ErrAccountDisabled),
 			errors.Is(err, auth.ErrSSOOnly):
@@ -160,6 +192,53 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	id := &auth.Identity{Kind: auth.KindUser, ID: u.ID, Name: u.Username, Role: u.Role, IP: ip}
 	s.auth.Auditor().Auth(r.Context(), id, "auth.login", map[string]any{"role": u.Role})
 	writeJSON(w, http.StatusOK, newIdentityResponse(id, u.MustChangePassword))
+}
+
+// cookieWouldBeDropped says why a session minted for this request would never
+// be seen again, or "" when it would be kept.
+//
+// The compose deployment tells Zoomies its external URL is https, because a
+// proxy terminates TLS in front of it, and the session cookie is marked Secure
+// accordingly. An operator who then opens the container directly -- by IP,
+// over plain http, to check it is up before DNS exists -- creates the first
+// administrator, is signed in by a 201, and is immediately signed out again:
+// the browser refuses to keep a Secure cookie from an insecure page, every
+// later request is anonymous, and each login answers 200 and changes nothing.
+// Nothing in that loop is an error anyone sees.
+//
+// The browser's own Origin header says which scheme the page was loaded over,
+// which is the one fact the server cannot otherwise know: the request itself
+// may arrive over plain http from a perfectly good TLS-terminating proxy. A
+// loopback origin is left alone, because browsers treat localhost as a secure
+// context and do keep the cookie there.
+func (s *Server) cookieWouldBeDropped(r *http.Request) string {
+	if !s.cfg().CookieSecureValue() {
+		return ""
+	}
+	from := strings.TrimSpace(r.Header.Get("Origin"))
+	if from == "" {
+		from = strings.TrimSpace(r.Header.Get("Referer"))
+	}
+	u, err := url.Parse(from)
+	if err != nil || !strings.EqualFold(u.Scheme, "http") || u.Host == "" {
+		return ""
+	}
+	host := u.Hostname()
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return ""
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return ""
+	}
+	where := s.cfg().Server.ExternalURL
+	if where == "" {
+		where = "the https address"
+	}
+	return fmt.Sprintf("this page was opened over plain http (%s), and the session cookie is marked Secure "+
+		"(security.cookie_secure, which an https server.external_url turns on), so your browser would throw the cookie away "+
+		"and signing in would appear to do nothing. Open %s instead, through whatever terminates TLS in front of this controller; "+
+		"to test over plain http, set security.cookie_secure to false (ZOOMIES_COOKIE_SECURE=false).",
+		u.Scheme+"://"+u.Host, where)
 }
 
 // handleLogout ends the session behind the cookie and clears it.
@@ -263,8 +342,32 @@ func (s *Server) handleOIDCStart(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, "starting the single sign-on handshake", err)
 		return
 	}
-	s.setOIDCStateCookie(w, state)
+	http.SetCookie(w, &http.Cookie{
+		Name:     oidcStateCookie,
+		Value:    state,
+		Path:     oidcCookiePath,
+		HttpOnly: true,
+		Secure:   s.cfg().CookieSecureValue(),
+		// Lax, because the provider brings the browser back with a top-level
+		// GET, which is exactly the navigation Lax still sends cookies on.
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(auth.OIDCStateTTL / time.Second),
+	})
 	http.Redirect(w, r, authURL, http.StatusFound)
+}
+
+// clearOIDCStateCookie forgets the handshake, whichever way it ended.
+func (s *Server) clearOIDCStateCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     oidcStateCookie,
+		Value:    "",
+		Path:     oidcCookiePath,
+		HttpOnly: true,
+		Secure:   s.cfg().CookieSecureValue(),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+		Expires:  time.Unix(0, 0),
+	})
 }
 
 // handleOIDCCallback finishes the handshake and drops the browser back into the
@@ -289,20 +392,20 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The state has to be the one this browser was sent away with. Checking it
-	// before anything else means a callback aimed at somebody else's browser is
-	// refused without ever spending the state or exchanging the code.
-	state := q.Get("state")
-	expected := oidcStateCookie(r)
-	s.clearOIDCStateCookie(w)
-	if expected == "" || state == "" || !cryptox.ConstantTimeEqual(expected, state) {
-		s.logger(r).Warn("a single sign-on callback did not match the browser that started it",
-			"has_cookie", expected != "", "has_state", state != "")
-		s.redirectToLogin(w, r, "this sign-in did not start in this browser, so it cannot be completed here; start again from the login page")
+	// The state has to be the one this browser was handed when it started.
+	// Checked before the server-side state is spent, so a callback that
+	// arrives in the wrong browser leaves the real one able to finish.
+	if c, err := r.Cookie(oidcStateCookie); err != nil || c.Value == "" ||
+		subtle.ConstantTimeCompare([]byte(c.Value), []byte(q.Get("state"))) != 1 {
+		s.logger(r).Warn("a single sign-on callback arrived in a browser that did not start it")
+		s.clearOIDCStateCookie(w)
+		s.redirectToLogin(w, r, "this sign-in did not start in this browser, or took longer than "+
+			auth.OIDCStateTTL.String()+"; start again from the login page")
 		return
 	}
+	s.clearOIDCStateCookie(w)
 
-	claims, err := s.oidc.Complete(r.Context(), state, q.Get("code"))
+	claims, err := s.oidc.Complete(r.Context(), q.Get("state"), q.Get("code"))
 	if err != nil {
 		s.logger(r).Warn("a single sign-on callback could not be completed", "error", err)
 		s.redirectToLogin(w, r, err.Error())

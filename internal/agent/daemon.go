@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"net"
 	"os"
 	"runtime"
@@ -36,13 +37,15 @@ const (
 	defaultReconcileInterval = 30 * time.Second
 	// reportTimeout bounds a result, report or heartbeat POST.
 	reportTimeout = 30 * time.Second
-	// createTimeout has to cover a cold image pull on a slow link, which is
-	// minutes, not seconds.
-	createTimeout = 15 * time.Minute
-	// stopMargin is added to a task's stop timeout so the backend gets to run
+	// CreateTimeout has to cover a cold image pull on a slow link, which is
+	// minutes, not seconds. It, StopMargin and RemoveTimeout are exported for
+	// one reader: the controller's test that every task lease outlasts the
+	// work the agent gives itself for that task.
+	CreateTimeout = 15 * time.Minute
+	// StopMargin is added to a task's stop timeout so the backend gets to run
 	// its own kill path before the context expires.
-	stopMargin    = 30 * time.Second
-	removeTimeout = 2 * time.Minute
+	StopMargin    = 30 * time.Second
+	RemoveTimeout = 2 * time.Minute
 	// resolveTimeout bounds the backend listings used to find a runner the
 	// agent has no record of.
 	resolveTimeout = 30 * time.Second
@@ -55,6 +58,14 @@ const (
 	// create stuck on an image pull must not stop systemd from restarting the
 	// unit.
 	shutdownGrace = 30 * time.Second
+	// probeBudget bounds one round of capability probing, which is a ping per
+	// registered backend.
+	probeBudget = 15 * time.Second
+	// backendProbeInterval is how often a healthy host re-checks what it can
+	// run. Capabilities do change under a running agent -- a daemon is
+	// upgraded, restarted, or stopped -- and a probe is a ping per backend, so
+	// this is cheap enough to do regularly and slow enough to stay quiet.
+	backendProbeInterval = 5 * time.Minute
 	// orphanGrace is how long a workload nothing claims must stay unclaimed
 	// before the agent reaps it.
 	orphanGrace = 2 * time.Minute
@@ -82,6 +93,18 @@ type Options struct {
 	// after several missed beats, so shortening it makes failure detection
 	// faster at the cost of more requests.
 	HeartbeatInterval time.Duration
+	// FinishedRetention is how long a runner's workload stays on the host
+	// after the controller has been told how the runner ended: the exited
+	// container with its output, its docker-in-docker sidecar and any scratch
+	// directory, or the process backend's runner directory. The window is
+	// what gives an operator time to read a finished runner's output. Once
+	// it has passed the agent deletes the workload itself, because nothing
+	// else will: a clean exit is the normal end of an ephemeral runner's life
+	// and the controller has no reason to send a task for a runner it already
+	// considers gone. Zero removes a finished workload on the first pass
+	// after it has been reported. The controller's retention.runners is a
+	// different window -- it keeps the row, not the container.
+	FinishedRetention time.Duration
 	Logger            *slog.Logger
 	// Clock is injectable so tests do not have to sleep.
 	Clock func() time.Time
@@ -98,8 +121,11 @@ type Agent struct {
 	tr       Transport
 	clock    func() time.Time
 	heartbtI time.Duration
-	logs     *logRelay
-	notify   *notifier
+	// retention is Options.FinishedRetention: how long a finished runner's
+	// workload outlives its report before the reconciler deletes it.
+	retention time.Duration
+	logs      *logRelay
+	notify    *notifier
 
 	// sem bounds concurrent lifecycle tasks at Capacity, so a burst of creates
 	// from a busy morning cannot fork-bomb the host.
@@ -118,8 +144,11 @@ type Agent struct {
 	// orphans records when an unclaimed workload was first seen, which is how
 	// "the controller has not mentioned it in a while" is measured.
 	orphans map[backend.Handle]time.Time
-	// backendInfo is the last probe, sent with heartbeats.
+	// backendInfo is the last probe, sent with heartbeats, and probedAt is
+	// when it was taken. It is refreshed as the agent runs: what a host can do
+	// is not a fact of its startup.
 	backendInfo []backend.Info
+	probedAt    time.Time
 	// cordoned mirrors the controller's flag, logged when it changes.
 	cordoned bool
 	// warnedSkew keeps a version-skew warning to one line per run.
@@ -149,6 +178,14 @@ type tracked struct {
 	// once already; reporting it every reconcile would be noise the controller
 	// has to reject.
 	terminal bool
+	// terminalAt is when that end of life was observed, which is what the
+	// retention window on its workload counts from.
+	terminalAt time.Time
+	// reported records that the controller accepted a report carrying the
+	// terminal state. Until it has, the workload stays on the host: removing
+	// it first would take the exit code with it, and leave the controller
+	// holding a live row for a runner that no longer exists.
+	reported bool
 
 	state      store.RunnerState
 	phase      backend.Phase
@@ -211,6 +248,9 @@ func New(opts Options) (*Agent, error) {
 	if interval < minHeartbeatInterval {
 		return nil, fmt.Errorf("agent: heartbeat interval %s is too short to be useful; set agent.heartbeat_interval to at least %s", interval, minHeartbeatInterval)
 	}
+	if opts.FinishedRetention < 0 {
+		return nil, fmt.Errorf("agent: finished retention %s is negative; set agent.finished_retention to how long a finished runner's output should stay readable on the host, or to 0s to remove it as soon as the controller has been told", opts.FinishedRetention)
+	}
 
 	log := opts.Logger
 	if log == nil {
@@ -224,15 +264,16 @@ func New(opts Options) (*Agent, error) {
 	}
 
 	a := &Agent{
-		opts:     opts,
-		log:      log,
-		tr:       opts.Transport,
-		clock:    clock,
-		heartbtI: interval,
-		sem:      make(chan struct{}, opts.Capacity),
-		runners:  make(map[string]*tracked),
-		inflight: make(map[string]bool),
-		orphans:  make(map[backend.Handle]time.Time),
+		opts:      opts,
+		log:       log,
+		tr:        opts.Transport,
+		clock:     clock,
+		heartbtI:  interval,
+		retention: opts.FinishedRetention,
+		sem:       make(chan struct{}, opts.Capacity),
+		runners:   make(map[string]*tracked),
+		inflight:  make(map[string]bool),
+		orphans:   make(map[backend.Handle]time.Time),
 	}
 	a.logs = newLogRelay(opts.Transport, log)
 	return a, nil
@@ -273,7 +314,7 @@ func (a *Agent) Runners() []RunnerReport {
 // for the long-lived agent token that every later call carries.
 func (a *Agent) Join(ctx context.Context, joinToken string) error {
 	if strings.TrimSpace(joinToken) == "" {
-		return errors.New("agent: no join token; mint one in the UI under Hosts, or with `zoomies hosts token`, and pass it as --token")
+		return errors.New("agent: no join token; mint one in the UI under Hosts, or with `zoomies hosts join-token create`, and pass it as --token")
 	}
 
 	// Probe first so the controller learns what this host can actually do
@@ -281,6 +322,7 @@ func (a *Agent) Join(ctx context.Context, joinToken string) error {
 	infos := a.opts.Backends.Probe(ctx)
 	a.mu.Lock()
 	a.backendInfo = infos
+	a.probedAt = a.now()
 	a.mu.Unlock()
 
 	req := JoinRequest{
@@ -391,6 +433,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		"backends", kindList(kinds),
 		"default_backend", a.opts.DefaultBackend,
 		"heartbeat", a.heartbtI,
+		"finished_retention", a.retention,
 		"version", version.Short())
 
 	loopCtx, cancel := context.WithCancel(ctx)
@@ -480,10 +523,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	hctx, cancel := context.WithTimeout(ctx, reportTimeout)
 	defer cancel()
 
-	a.mu.Lock()
-	infos := a.backendInfo
-	a.mu.Unlock()
-
+	infos := a.refreshBackends(ctx)
 	runners := a.Runners()
 	resp, err := a.tr.Heartbeat(hctx, HeartbeatRequest{
 		ProtocolVersion: ProtocolVersion,
@@ -495,6 +535,9 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// The beat carried every runner the agent tracks, so the controller now
+	// knows how each finished one ended, and its workload may go.
+	a.markReported(runners)
 
 	if !a.ready.Swap(true) {
 		// systemd holds dependent units until this arrives, so it is sent only
@@ -527,6 +570,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 		// send it a stale capability list.
 		a.mu.Lock()
 		a.backendInfo = a.opts.Backends.Probe(hctx)
+		a.probedAt = a.now()
 		a.mu.Unlock()
 		if err := a.tr.ReportRunners(hctx, runners); err != nil {
 			a.log.Warn("resync report failed", "error", err)
@@ -535,8 +579,84 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	return nil
 }
 
+// refreshBackends returns the capability probe the next heartbeat should carry,
+// re-running it when the last one is stale.
+//
+// A probe is not a fact about startup. An agent that came up before its Docker
+// daemon -- the ordinary case on a rebooting host, and on one whose operator
+// has just added the agent's user to the docker group -- reported no backend at
+// join, and a host with no backends matches no pool: the pool looks healthy,
+// its jobs queue forever, and nothing in the fleet ever says why. So while
+// nothing is available the probe is retried on every heartbeat, which is the
+// cheapest way for that host to become schedulable on its own; once something
+// answers it settles down to backendProbeInterval, which is what notices a
+// daemon that was later stopped or upgraded.
+func (a *Agent) refreshBackends(ctx context.Context) []backend.Info {
+	a.mu.Lock()
+	last, at := a.backendInfo, a.probedAt
+	a.mu.Unlock()
+
+	if !a.probeDue(last, at) || ctx.Err() != nil {
+		return last
+	}
+	// The probe gets its own budget rather than sharing the heartbeat's: a
+	// daemon that hangs on a ping must not cost the controller the heartbeat
+	// that keeps this host marked healthy.
+	pctx, cancel := context.WithTimeout(ctx, probeBudget)
+	defer cancel()
+	fresh := a.opts.Backends.Probe(pctx)
+	if ctx.Err() != nil {
+		// The agent is shutting down. A probe cut short says every daemon is
+		// unreachable, which is a lie worth neither storing nor logging.
+		return last
+	}
+	a.mu.Lock()
+	a.backendInfo = fresh
+	a.probedAt = a.now()
+	a.mu.Unlock()
+
+	if was, now := availableKinds(last), availableKinds(fresh); !slices.Equal(was, now) {
+		a.log.Info("this host's backends changed",
+			"was", strings.Join(was, ","), "now", strings.Join(now, ","))
+		for _, i := range fresh {
+			if !i.Available {
+				a.log.Info("a backend is not usable on this host", "backend", i.Kind, "detail", i.Detail)
+			}
+		}
+	}
+	return fresh
+}
+
+// probeDue reports whether it is time to look again: always when the last probe
+// found nothing usable, and otherwise once every backendProbeInterval.
+func (a *Agent) probeDue(last []backend.Info, at time.Time) bool {
+	if at.IsZero() {
+		return true
+	}
+	if len(availableKinds(last)) == 0 {
+		return true
+	}
+	return a.now().Sub(at) >= backendProbeInterval
+}
+
+// availableKinds is the sorted list of backends that answered, which is exactly
+// what the controller stores and matches pools against.
+func availableKinds(infos []backend.Info) []string {
+	var out []string
+	for _, i := range infos {
+		if i.Available {
+			out = append(out, string(i.Kind))
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
 func (a *Agent) warnSkew(controllerVersion string) {
-	if controllerVersion == "" || controllerVersion == version.Version {
+	// The controller sends version.Short(), which carries the commit, so it is
+	// compared with the agent's Short(): comparing it with the bare Version
+	// made every release build warn on every join.
+	if controllerVersion == "" || controllerVersion == version.Short() {
 		return
 	}
 	a.mu.Lock()
@@ -545,8 +665,21 @@ func (a *Agent) warnSkew(controllerVersion string) {
 	a.mu.Unlock()
 	if first {
 		a.log.Warn("controller and agent versions differ; upgrade both to the same release before reporting a bug",
-			"controller_version", controllerVersion, "agent_version", version.Version)
+			"controller_version", controllerVersion, "agent_version", version.Short())
 	}
+}
+
+// jitter takes a random slice off the end of a backoff, up to a quarter of it.
+//
+// Every agent in a fleet fails the same poll at the same instant when the
+// controller goes down, and without this they all wait exactly the same
+// second and reconnect together -- a thundering herd against a controller
+// that has only just come back up.
+func jitter(d time.Duration) time.Duration {
+	if d <= 0 {
+		return d
+	}
+	return d - time.Duration(rand.Int64N(int64(d)/4+1))
 }
 
 // taskLoop long-polls for work and dispatches it.
@@ -565,8 +698,9 @@ func (a *Agent) taskLoop(ctx context.Context) error {
 			if errors.Is(err, ErrUnauthorized) {
 				return fmt.Errorf("agent: the controller rejected this agent's token while polling for tasks: re-join with `zoomies agent join %s --token <join-token>`: %w", a.tr.Describe(), err)
 			}
-			a.log.Warn("task poll failed; backing off", "error", err, "retry_in", backoff)
-			if !sleepCtx(ctx, backoff) {
+			wait := jitter(backoff)
+			a.log.Warn("task poll failed; backing off", "error", err, "retry_in", wait)
+			if !sleepCtx(ctx, wait) {
 				return nil
 			}
 			backoff = min(backoff*2, maxPollBackoff)
@@ -601,7 +735,7 @@ func (a *Agent) taskLoop(ctx context.Context) error {
 func (a *Agent) dispatch(ctx context.Context, task Task) {
 	if err := validateTask(task); err != nil {
 		a.log.Warn("rejecting task", "task", task.ID, "kind", task.Kind, "error", err)
-		a.report(ctx, TaskResult{TaskID: task.ID, RunnerID: task.RunnerID, OK: false, Error: err.Error(), CompletedAt: a.now()})
+		a.report(ctx, TaskResult{TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: false, Error: err.Error(), CompletedAt: a.now()})
 		return
 	}
 
@@ -640,6 +774,7 @@ func (a *Agent) dispatch(ctx context.Context, task Task) {
 			release()
 			a.report(ctx, TaskResult{
 				TaskID:      task.ID,
+				Kind:        task.Kind,
 				RunnerID:    task.RunnerID,
 				OK:          false,
 				Error:       "agent shut down before this task started; it is safe to redeliver",
@@ -682,6 +817,10 @@ func validateTask(task Task) error {
 		if task.StreamID == "" {
 			return errors.New("cancel_logs task has no stream ID")
 		}
+	case TaskPrewarmImage:
+		if task.PoolID == "" || task.Image == "" || !task.PullPolicy.Valid() {
+			return errors.New("prewarm_image task needs a pool, image, and valid pull policy")
+		}
 	default:
 		return fmt.Errorf("unknown task kind %q; this agent speaks protocol version %d, so upgrade it to match the controller", task.Kind, ProtocolVersion)
 	}
@@ -696,7 +835,31 @@ func (a *Agent) runTask(ctx context.Context, task Task, release func()) {
 		a.handleStop(ctx, task, release)
 	case TaskRemoveRunner:
 		a.handleRemove(ctx, task, release)
+	case TaskPrewarmImage:
+		a.handlePrewarm(ctx, task, release)
 	}
+}
+
+func (a *Agent) handlePrewarm(ctx context.Context, task Task, release func()) {
+	b, err := a.opts.Backends.Get(task.Backend)
+	if err != nil {
+		release()
+		a.reportFailure(ctx, task, err.Error())
+		return
+	}
+	p, ok := b.(backend.ImagePrewarmer)
+	if !ok {
+		release()
+		a.reportFailure(ctx, task, fmt.Sprintf("the %s backend does not support image prewarming", task.Backend))
+		return
+	}
+	digest, err := p.PrewarmImage(ctx, task.Image, task.PullPolicy)
+	release()
+	res := TaskResult{TaskID: task.ID, Kind: task.Kind, OK: err == nil, Digest: digest, CompletedAt: a.now()}
+	if err != nil {
+		res.Error = err.Error()
+	}
+	a.report(ctx, res)
 }
 
 func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
@@ -711,29 +874,68 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 		return
 	}
 
+	// Delivery is at-least-once. A create whose result never reached the
+	// controller comes round again once its lease expires, and the backend's
+	// Create begins by removing any workload of the runner's name -- so a
+	// redelivery used to destroy a runner that may have been mid-job and
+	// rebuild it with a JIT configuration GitHub had already consumed. A
+	// workload this host already has for the runner is the answer to the task.
+	if existing, handle, ok, err := a.resolve(ctx, task.RunnerID); err == nil && ok {
+		state := store.RunnerRegistering
+		a.mu.Lock()
+		if r := a.runners[task.RunnerID]; r != nil && r.state != "" {
+			state = r.state
+		}
+		a.mu.Unlock()
+		a.log.Info("a create task came again for a runner this host already has; reporting the existing workload",
+			"runner", task.RunnerID, "backend", existing.Kind(), "handle", handle)
+		release()
+		now := a.now()
+		a.report(ctx, TaskResult{
+			TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: true,
+			Handle: handle, State: state, CompletedAt: now,
+		})
+		return
+	}
+
 	spec := *task.Spec
 	if spec.RunnerID == "" {
 		spec.RunnerID = task.RunnerID
 	}
-	if spec.WorkDir == "" {
-		spec.WorkDir = a.opts.WorkDir
-	}
+	// The agent's own work directory is deliberately not handed to the
+	// backend as the runner's. For a container backend a spec WorkDir is bind
+	// mounted over the runner's _work, and the agent's directory is the wrong
+	// thing to mount three times over: it is one directory shared by every
+	// concurrent runner on the host; it belongs to the agent's account, which
+	// is not the image's runner uid, so the runner cannot write to it; and
+	// when the agent is itself a container -- the compose deployment -- the
+	// path names a place inside the agent's container, which the host daemon
+	// resolves on the host instead, mounting an empty root-owned directory
+	// that fails the first job. A runner container's own filesystem is the
+	// right scratch space for an ephemeral runner. The process backend keeps
+	// its own per-runner directories under the agent's work directory and
+	// never read this field.
 
 	// Tasks are given a context that shutdown does not cancel: a create that is
 	// half done is worse than one that finishes and is reported.
-	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), createTimeout)
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), CreateTimeout)
 	defer cancel()
 
 	start := a.now()
-	handle, err := b.Create(cctx, spec)
+	var created backend.CreateResult
+	if timed, ok := b.(backend.TimedCreator); ok {
+		created, err = timed.CreateWithResult(cctx, spec)
+	} else {
+		created.Handle, err = b.Create(cctx, spec)
+	}
 	if err != nil {
 		a.log.Error("creating runner failed", "runner", task.RunnerID, "name", spec.Name, "backend", kind, "error", err)
 		release()
 		a.reportFailure(ctx, task, fmt.Sprintf("the %s backend could not create runner %s: %v", kind, spec.Name, err))
 		return
 	}
-
 	now := a.now()
+	handle := created.Handle
 	a.mu.Lock()
 	a.runners[task.RunnerID] = &tracked{
 		runnerID:   task.RunnerID,
@@ -752,12 +954,17 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 	a.log.Info("runner created", "runner", task.RunnerID, "name", spec.Name, "backend", kind, "handle", handle, "took", now.Sub(start))
 	release()
 	a.report(ctx, TaskResult{
-		TaskID:      task.ID,
-		RunnerID:    task.RunnerID,
-		OK:          true,
-		Handle:      handle,
-		State:       store.RunnerRegistering,
-		CompletedAt: now,
+		TaskID:             task.ID,
+		Kind:               task.Kind,
+		RunnerID:           task.RunnerID,
+		OK:                 true,
+		Handle:             handle,
+		ImagePullDuration:  created.ImagePullDuration,
+		CreateDuration:     created.CreateDuration,
+		ContainerStartedAt: &now,
+		Digest:             created.Digest,
+		State:              store.RunnerRegistering,
+		CompletedAt:        now,
 	})
 }
 
@@ -772,7 +979,7 @@ func (a *Agent) handleStop(ctx context.Context, task Task, release func()) {
 		// Nothing to stop is the outcome the controller wanted, not an error.
 		a.log.Info("stop task for a runner with no workload on this host; reporting it removed", "runner", task.RunnerID)
 		release()
-		a.report(ctx, TaskResult{TaskID: task.ID, RunnerID: task.RunnerID, OK: true, State: store.RunnerRemoved, CompletedAt: a.now()})
+		a.report(ctx, TaskResult{TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: true, State: store.RunnerRemoved, CompletedAt: a.now()})
 		return
 	}
 
@@ -782,7 +989,7 @@ func (a *Agent) handleStop(ctx context.Context, task Task, release func()) {
 	}
 	a.markStopping(task.RunnerID)
 
-	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout+stopMargin)
+	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout+StopMargin)
 	defer cancel()
 
 	if err := b.Stop(sctx, handle, timeout); err != nil && !errors.Is(err, backend.ErrNotFound) {
@@ -790,6 +997,7 @@ func (a *Agent) handleStop(ctx context.Context, task Task, release func()) {
 		release()
 		a.report(ctx, TaskResult{
 			TaskID:      task.ID,
+			Kind:        task.Kind,
 			RunnerID:    task.RunnerID,
 			OK:          false,
 			Handle:      handle,
@@ -804,7 +1012,7 @@ func (a *Agent) handleStop(ctx context.Context, task Task, release func()) {
 	// from the workload's actual exit by the reconciler, which knows whether it
 	// finished its job or died.
 	release()
-	a.report(ctx, TaskResult{TaskID: task.ID, RunnerID: task.RunnerID, OK: true, Handle: handle, CompletedAt: a.now()})
+	a.report(ctx, TaskResult{TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: true, Handle: handle, CompletedAt: a.now()})
 }
 
 func (a *Agent) handleRemove(ctx context.Context, task Task, release func()) {
@@ -818,11 +1026,11 @@ func (a *Agent) handleRemove(ctx context.Context, task Task, release func()) {
 		// A workload that is already gone is exactly what this task asked for.
 		a.untrack(task.RunnerID)
 		release()
-		a.report(ctx, TaskResult{TaskID: task.ID, RunnerID: task.RunnerID, OK: true, State: store.RunnerRemoved, CompletedAt: a.now()})
+		a.report(ctx, TaskResult{TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: true, State: store.RunnerRemoved, CompletedAt: a.now()})
 		return
 	}
 
-	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), removeTimeout)
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), RemoveTimeout)
 	defer cancel()
 
 	if err := b.Remove(rctx, handle); err != nil && !errors.Is(err, backend.ErrNotFound) {
@@ -830,6 +1038,7 @@ func (a *Agent) handleRemove(ctx context.Context, task Task, release func()) {
 		release()
 		a.report(ctx, TaskResult{
 			TaskID:      task.ID,
+			Kind:        task.Kind,
 			RunnerID:    task.RunnerID,
 			OK:          false,
 			Handle:      handle,
@@ -842,13 +1051,13 @@ func (a *Agent) handleRemove(ctx context.Context, task Task, release func()) {
 	a.untrack(task.RunnerID)
 	a.log.Info("runner removed", "runner", task.RunnerID, "handle", handle)
 	release()
-	a.report(ctx, TaskResult{TaskID: task.ID, RunnerID: task.RunnerID, OK: true, Handle: handle, State: store.RunnerRemoved, CompletedAt: a.now()})
+	a.report(ctx, TaskResult{TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: true, Handle: handle, State: store.RunnerRemoved, CompletedAt: a.now()})
 }
 
 func (a *Agent) runLogTask(ctx context.Context, task Task) {
 	if task.Kind == TaskCancelLogs {
 		a.logs.cancel(task.StreamID)
-		a.report(ctx, TaskResult{TaskID: task.ID, RunnerID: task.RunnerID, OK: true, CompletedAt: a.now()})
+		a.report(ctx, TaskResult{TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: true, CompletedAt: a.now()})
 		return
 	}
 
@@ -860,6 +1069,7 @@ func (a *Agent) runLogTask(ctx context.Context, task Task) {
 		}
 		a.report(ctx, TaskResult{
 			TaskID:      task.ID,
+			Kind:        task.Kind,
 			RunnerID:    task.RunnerID,
 			OK:          false,
 			Error:       fmt.Sprintf("no workload for runner %s on this host, so its logs are gone; an ephemeral runner's output is only available while its container exists", task.RunnerID),
@@ -875,6 +1085,7 @@ func (a *Agent) runLogTask(ctx context.Context, task Task) {
 	if err = a.logs.start(ctx, task.StreamID, handle, b, opts); err != nil {
 		a.report(ctx, TaskResult{
 			TaskID:      task.ID,
+			Kind:        task.Kind,
 			RunnerID:    task.RunnerID,
 			OK:          false,
 			Handle:      handle,
@@ -883,7 +1094,7 @@ func (a *Agent) runLogTask(ctx context.Context, task Task) {
 		})
 		return
 	}
-	a.report(ctx, TaskResult{TaskID: task.ID, RunnerID: task.RunnerID, OK: true, Handle: handle, CompletedAt: a.now()})
+	a.report(ctx, TaskResult{TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: true, Handle: handle, CompletedAt: a.now()})
 }
 
 // report sends a task result. It uses a context shutdown does not cancel,
@@ -907,6 +1118,7 @@ func (a *Agent) reportUnsearchable(ctx context.Context, task Task, err error) {
 	a.log.Error("could not find the workload for a task", "task", task.ID, "kind", task.Kind, "runner", task.RunnerID, "error", err)
 	a.report(ctx, TaskResult{
 		TaskID:      task.ID,
+		Kind:        task.Kind,
 		RunnerID:    task.RunnerID,
 		OK:          false,
 		Error:       fmt.Sprintf("could not tell whether runner %s is still on this host because its backend would not answer, so nothing was changed: %v", task.RunnerID, err),
@@ -917,6 +1129,7 @@ func (a *Agent) reportUnsearchable(ctx context.Context, task Task, err error) {
 func (a *Agent) reportFailure(ctx context.Context, task Task, msg string) {
 	a.report(ctx, TaskResult{
 		TaskID:      task.ID,
+		Kind:        task.Kind,
 		RunnerID:    task.RunnerID,
 		OK:          false,
 		Error:       msg,

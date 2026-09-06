@@ -13,7 +13,7 @@
   import { listWebhookDeliveries, testWebhookReachability } from '$lib/api/client';
   import { events } from '$lib/api/sse';
   import type { WebhookCheck, WebhookDelivery } from '$lib/api/types';
-  import { deliveryStatus } from '$lib/status';
+  import { deliveryStatus, reachabilityStatus } from '$lib/status';
   import type { DeliveryStatus } from '$lib/status';
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
@@ -49,11 +49,16 @@
   let checking = $state(false);
   let check = $state<WebhookCheck | null>(null);
 
+  // `reload` bumps on every arriving delivery, which is the moment the operator
+  // is watching this list hardest -- during their first workflow run. Swapping
+  // it for skeletons on each one made the panel flicker exactly when it was
+  // being read. A refetch over rows already on screen leaves them there.
+  let loadedOnce = false;
   $effect(() => {
     const filter = status;
     void reload;
     const controller = new AbortController();
-    loading = true;
+    loading = !loadedOnce;
     void listWebhookDeliveries(
       { status: (filter || undefined) as 'accepted' | 'rejected' | 'error' | undefined, limit: 25 },
       controller.signal,
@@ -61,6 +66,7 @@
       .then((result) => {
         deliveries = result.items ?? [];
         lastReceived = result.last_received_at ?? null;
+        loadedOnce = true;
         error = null;
       })
       .catch((cause: unknown) => {
@@ -123,11 +129,7 @@
     {#if check}
       <div class="check" class:bad={check.reachable === false} class:good={check.reachable}>
         <p class="check-head">
-          <Badge
-            tone={check.reachable ? 'idle' : 'danger'}
-            label={check.reachable ? 'Reachable' : 'Not reachable'}
-            size="sm"
-          />
+          <Badge status={reachabilityStatus(check.reachable)} size="sm" />
           {#if check.url}<span class="mono url">{check.url}</span>{/if}
         </p>
         {#if check.message}<p class="check-line">{check.message}</p>{/if}
@@ -201,17 +203,18 @@
 
 <style>
   .panel {
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }
   header {
     display: flex;
+    flex-wrap: wrap;
     align-items: flex-start;
     justify-content: space-between;
     gap: var(--z-space-4);
     padding: var(--z-space-4) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   h2 {
     margin: 0;
@@ -236,7 +239,7 @@
   .note {
     margin: 0;
     padding: var(--z-space-3);
-    border: 1px solid var(--z-pending-border);
+    border: var(--z-border-width) solid var(--z-pending-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-pending-subtle);
     font-size: var(--z-text-base);
@@ -248,7 +251,7 @@
     flex-direction: column;
     gap: var(--z-space-2);
     padding: var(--z-space-4);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
   }
@@ -298,7 +301,7 @@
     align-items: baseline;
     gap: var(--z-space-3);
     padding: var(--z-space-2) 0;
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   .deliveries li:last-child {
     border-bottom: 0;

@@ -10,7 +10,8 @@
   wizard back.
 -->
 <script module lang="ts">
-  import type { BackendKind, DockerMode } from '$lib/api/types';
+  import type { BackendKind, DockerMode, Host } from '$lib/api/types';
+  import { pluralise } from '$lib/format';
 
   export interface Choice<T> {
     value: T;
@@ -42,7 +43,8 @@
     {
       value: 'none',
       label: 'None',
-      consequence: 'Jobs cannot use Docker. The safe default.',
+      consequence:
+        'Jobs get no Docker daemon, so a docker step, a container: or a services: block fails on this pool. The safe default.',
     },
     {
       value: 'dind',
@@ -65,6 +67,74 @@
     return DOCKER_MODES.find((m) => m.value === (mode ?? 'none'))?.label ?? 'None';
   }
 
+  /** What the fleet can actually run right now, counted from the connected hosts. */
+  export interface BackendOffer {
+    kind: BackendKind;
+    /** Hosts where this backend is available. */
+    hosts: number;
+    /** Hosts where Docker in Docker is possible. */
+    dindHosts: number;
+    /** The first host's explanation of why it is unavailable, when there is one. */
+    detail?: string;
+  }
+
+  export function backendOffers(hosts: readonly Host[]): BackendOffer[] {
+    const kinds: BackendKind[] = ['docker', 'podman', 'process'];
+    return kinds.map((kind) => {
+      let available = 0;
+      let dind = 0;
+      let detail: string | undefined;
+      for (const host of hosts) {
+        const info = (host.backend_info ?? []).find((entry) => entry.kind === kind);
+        const listed = info?.available === true || (host.backends ?? []).includes(kind);
+        if (listed) available += 1;
+        if (listed && info?.supports_dind === true) dind += 1;
+        if (!listed && detail === undefined && info?.detail) detail = info.detail;
+      }
+      const offer: BackendOffer = { kind, hosts: available, dindHosts: dind };
+      if (detail !== undefined) offer.detail = detail;
+      return offer;
+    });
+  }
+
+  /**
+   * Why this backend cannot be chosen, or "" when it can.
+   *
+   * A pool whose backend no host offers never makes a runner and looks perfectly
+   * healthy doing it, so the wizard refuses to create one while the fleet has
+   * something else to offer. The escape hatch is deliberate: when nothing is
+   * connected, or nothing is offering anything, there is no better answer to
+   * insist on and the pool is allowed through with a warning -- which is how the
+   * first pool gets created before the first agent joins.
+   */
+  export function backendUnavailable(
+    backend: BackendKind,
+    offers: readonly BackendOffer[],
+    hostsKnown: boolean,
+    /** True when the offers were counted over a pool's selected hosts only. */
+    restricted = false,
+  ): string {
+    if (!hostsKnown) return '';
+    const chosen = offers.find((offer) => offer.kind === backend);
+    if (!chosen || chosen.hosts > 0) return '';
+    const others = offers.filter((offer) => offer.kind !== backend && offer.hosts > 0);
+    if (others.length === 0) return '';
+    const alternatives = others
+      .map((offer) => `${backendLabel(offer.kind)} (${pluralise(offer.hosts, 'host')})`)
+      .join(' or ');
+    const because = chosen.detail ? ` ${chosen.detail}` : '';
+    // Once a pool is kept to some of the fleet, "no connected host offers it"
+    // is false as often as it is true -- the daemon may be running happily on
+    // the machines this pool is not allowed to use. Say which set was counted.
+    const nobody = restricted
+      ? `No matching host offers ${backendLabel(backend)}`
+      : `No connected host offers ${backendLabel(backend)}`;
+    const fix = restricted
+      ? `, widen which hosts this pool may use, or make ${backendLabel(backend)} work on one of them first.`
+      : `, or make ${backendLabel(backend)} work on a host first.`;
+    return `${nobody}, so this pool would never start a runner.${because} Choose ${alternatives}${fix}`;
+  }
+
   /* -- the creation wizard ------------------------------------------------- */
 
   export interface WizardStepDef {
@@ -84,6 +154,7 @@
       title: 'Labels',
       description: 'What a workflow writes in runs-on to reach this pool.',
     },
+    { id: 'hosts', title: 'Hosts', description: 'Which machines these runners land on.' },
     { id: 'backend', title: 'Backend', description: 'How a runner is actually run on a host.' },
     { id: 'scaling', title: 'Scaling', description: 'How many runners, and for how long.' },
     { id: 'review', title: 'Review', description: 'What the controller makes of it.' },
@@ -93,6 +164,7 @@
   export const STEP_FIELDS: readonly (readonly string[])[] = [
     ['name', 'installation_id', 'runner_group'],
     ['labels'],
+    ['host_selector'],
     ['backend', 'image', 'runner_version', 'docker_mode', 'run_as_root'],
     [
       'min_runners',
@@ -124,7 +196,7 @@
     'resources.cpus': 'CPUs',
     'resources.memory_mb': 'Memory',
     'resources.disk_gb': 'Disk',
-    host_selector: 'Host selector',
+    host_selector: 'Hosts',
     env: 'Environment',
   };
 

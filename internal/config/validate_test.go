@@ -1,10 +1,352 @@
 package config
 
 import (
+	"net"
+	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+	"time"
 )
+
+// The web UI does not show bind.public_no_tls, because a fleet behind
+// Cloudflare or any other TLS-terminating proxy is configured correctly and
+// would carry the warning forever. The CLI still says it.
+func TestForUIHidesTheNoTLSWarningButValidateKeepsIt(t *testing.T) {
+	c := Default()
+	c.Server.Bind = "0.0.0.0:8080"
+	c.Server.TLS.Mode = TLSOff
+
+	all := c.Validate()
+	if !hasCode(all, "bind.public_no_tls") {
+		t.Fatal("Validate dropped bind.public_no_tls; the CLI has to keep saying it")
+	}
+	if hasCode(all.ForUI(), "bind.public_no_tls") {
+		t.Error("ForUI kept bind.public_no_tls, which the UI must not show")
+	}
+
+	// Everything else survives: this is a suppression list of one, not a
+	// filter that quietly swallows whatever it does not recognise.
+	for _, f := range all {
+		if f.Code == "bind.public_no_tls" {
+			continue
+		}
+		if !hasCode(all.ForUI(), f.Code) {
+			t.Errorf("ForUI dropped %q, which the UI still needs", f.Code)
+		}
+	}
+}
+
+// An empty result must still be a usable slice: the panel renders "nothing
+// needs your attention" from a zero-length list, not from nil.
+func TestForUIReturnsEmptyNotNil(t *testing.T) {
+	if got := (Findings{}).ForUI(); got == nil || len(got) != 0 {
+		t.Fatalf("ForUI() = %#v, want an empty non-nil Findings", got)
+	}
+}
+
+// The token stands for Cloudflare's published ranges, so it must validate as
+// cleanly as the CIDRs it replaces.
+func TestTrustedProxiesAcceptsTheCloudflareToken(t *testing.T) {
+	c := Default()
+	c.Server.TrustedProxies = []string{"cloudflare", "10.0.0.0/8"}
+	for _, f := range c.Validate() {
+		if f.Code == "proxy.bad_cidr" {
+			t.Fatalf("the cloudflare token was treated as a bad CIDR: %v", f)
+		}
+	}
+}
+
+// The embedded ranges are a trust boundary written by hand, so the test
+// re-checks every one of them parses.
+func TestCloudflareCIDRsAllParse(t *testing.T) {
+	if len(CloudflareCIDRs) == 0 {
+		t.Fatal("no embedded Cloudflare ranges")
+	}
+	for _, cidr := range CloudflareCIDRs {
+		if _, _, err := net.ParseCIDR(cidr); err != nil {
+			t.Errorf("embedded range %q does not parse: %v", cidr, err)
+		}
+	}
+}
+
+func TestExpandTrustedProxiesReplacesTheTokenAndKeepsTheRest(t *testing.T) {
+	got := ExpandTrustedProxies([]string{"10.0.0.0/8", "cloudflare"})
+	if len(got) != 1+len(CloudflareCIDRs) {
+		t.Fatalf("expanded to %d entries, want the CIDR plus %d ranges", len(got), len(CloudflareCIDRs))
+	}
+	if got[0] != "10.0.0.0/8" {
+		t.Errorf("the operator's own CIDR must stay in place, got %q", got[0])
+	}
+	if got[1] != CloudflareCIDRs[0] {
+		t.Errorf("the token did not expand in order, got %q", got[1])
+	}
+}
+
+func hasCode(fs Findings, code string) bool {
+	for _, f := range fs {
+		if f.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+// A finished runner's container is disk the host never gets back until the
+// agent deletes it, so the window has to be a real duration, and a window long
+// enough to fill a busy host has to be said out loud rather than found out.
+func TestFinishedRetentionIsBoundedInBothDirections(t *testing.T) {
+	c := Default()
+	c.Agent.Embedded = true
+	if f := c.Validate(); hasCode(f, "agent.finished_retention") || hasCode(f, "agent.finished_retention_long") {
+		t.Fatalf("the default finished retention drew a finding: %+v", f)
+	}
+
+	c.Agent.FinishedRetention = -1
+	if f := c.Validate(); !hasCode(f, "agent.finished_retention") {
+		t.Fatal("a negative agent.finished_retention passed validation")
+	}
+
+	c.Agent.FinishedRetention = maxQuietFinishedRetention + 1
+	f := c.Validate()
+	if hasCode(f, "agent.finished_retention") {
+		t.Fatal("a long agent.finished_retention was reported as an error; it is a warning, not a reason to refuse to start")
+	}
+	if !hasCode(f, "agent.finished_retention_long") {
+		t.Fatal("a day-long agent.finished_retention drew no warning")
+	}
+}
+
+// The warning is about a key written into zoomies.yaml, where backups and
+// configuration management can read it. A key that arrived from the
+// environment while a config file merely existed used to trip it too, and its
+// fix text told the operator to do what they had already done.
+func TestKeyInConfigWarningLooksAtWhereTheKeyCameFrom(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "zoomies.yaml")
+	if err := os.WriteFile(path, []byte("server:\n  bind: 127.0.0.1:8080\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ZOOMIES_ENCRYPTION_KEY", "0000000000000000000000000000000000000000000=")
+
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if hasCode(c.Validate(), "crypto.key_in_config") {
+		t.Fatal("a key from the environment was reported as written in the config file")
+	}
+
+	if err := os.WriteFile(path, []byte("security:\n  encryption_key: 0000000000000000000000000000000000000000000=\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err = Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !hasCode(c.Validate(), "crypto.key_in_config") {
+		t.Fatal("a key written in the config file was not warned about")
+	}
+}
+
+// docs/configuration.md says a bare Enterprise Server hostname is accepted and
+// /api/v3 appended. The loader used to leave it alone and the validator then
+// refused to start on it.
+func TestABareEnterpriseHostnameIsNormalisedNotRefused(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "zoomies.yaml")
+	if err := os.WriteFile(path, []byte("github:\n  api_base_url: ghes.example.com\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.GitHub.APIBaseURL != "https://ghes.example.com/api/v3" {
+		t.Fatalf("api_base_url = %q, want https://ghes.example.com/api/v3", c.GitHub.APIBaseURL)
+	}
+	if hasCode(c.Validate(), "github.api_base_malformed") {
+		t.Fatal("a bare hostname the docs accept was refused by the validator")
+	}
+}
+
+// Each of these is a value that quietly weakens the default posture, which is
+// exactly what the validator exists to name, and none of them used to draw a
+// finding. They are warnings: every one has a legitimate use somewhere, and
+// the point is that the operator is told, not stopped.
+func TestQuietDangerousValuesAreNamed(t *testing.T) {
+	cases := []struct {
+		name string
+		code string
+		set  func(c *Config)
+	}{
+		{"any origin", "origins.any", func(c *Config) { c.Server.AllowedOrigins = []string{"*"} }},
+		{"a plaintext origin on an https controller", "origins.insecure", func(c *Config) {
+			c.Server.ExternalURL = "https://zoomies.example.com"
+			c.Server.AllowedOrigins = []string{"http://dash.example.com"}
+		}},
+		{"every address is a trusted proxy", "proxy.trust_everyone", func(c *Config) {
+			c.Server.TrustedProxies = []string{"0.0.0.0/0"}
+		}},
+		{"every IPv6 address is a trusted proxy", "proxy.trust_everyone", func(c *Config) {
+			c.Server.TrustedProxies = []string{"::/0"}
+		}},
+		{"no login rate limit", "auth.no_login_limit", func(c *Config) { c.Security.RateLimitLogins = 0 }},
+		{"a heartbeat interval near the lost-host timeout", "agent.heartbeat_interval_long", func(c *Config) {
+			c.Agent.HeartbeatInterval = MaxQuietHeartbeatInterval + time.Second
+		}},
+		{"a plaintext identity provider", "oidc.insecure_issuer", func(c *Config) {
+			c.OIDC.Enabled = true
+			c.OIDC.Issuer = "http://sso.example.com"
+			c.OIDC.ClientID = "zoomies"
+			c.Server.ExternalURL = "https://zoomies.example.com"
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := Default()
+			if hasCode(c.Validate(), tc.code) {
+				t.Fatalf("the default configuration drew %s", tc.code)
+			}
+			tc.set(c)
+			fs := c.Validate()
+			if !hasCode(fs, tc.code) {
+				t.Fatalf("no %s finding; got %+v", tc.code, fs)
+			}
+			for _, f := range fs {
+				if f.Code == tc.code && f.Severity != SeverityWarning {
+					t.Fatalf("%s is %s; it should warn, not refuse to start", tc.code, f.Severity)
+				}
+			}
+		})
+	}
+}
+
+// A plaintext origin costs nothing extra on a controller that is itself
+// plaintext -- bind.public_no_tls already covers that deployment -- and
+// nothing at all on loopback, where a Vite dev server lives.
+func TestPlaintextOriginsAreOnlyNamedOnAnHTTPSController(t *testing.T) {
+	c := Default()
+	c.Server.AllowedOrigins = []string{"http://dash.example.com", "http://localhost:5173"}
+	if hasCode(c.Validate(), "origins.insecure") {
+		t.Fatal("a plaintext origin on a plaintext controller drew origins.insecure")
+	}
+	c.Server.TLS.Mode = TLSSelfSigned
+	named := 0
+	for _, f := range c.Validate() {
+		if f.Code == "origins.insecure" {
+			named++
+		}
+	}
+	if named != 1 {
+		t.Fatalf("origins.insecure was raised %d times, want once: the loopback origin is exempt", named)
+	}
+}
+
+// A proxy range that is merely wide is a choice; only the range that is every
+// address is the warning, and a bad CIDR stays the error it always was.
+func TestOnlyTheEverythingRangeDrawsTheProxyWarning(t *testing.T) {
+	c := Default()
+	c.Server.TrustedProxies = []string{"10.0.0.0/8", "192.168.1.5", "cloudflare"}
+	if fs := c.Validate(); hasCode(fs, "proxy.trust_everyone") || hasCode(fs, "proxy.bad_cidr") {
+		t.Fatalf("an ordinary proxy list drew a finding: %+v", fs)
+	}
+	c.Server.TrustedProxies = []string{"not-a-cidr"}
+	if !hasCode(c.Validate(), "proxy.bad_cidr") {
+		t.Fatal("an unparseable proxy entry was accepted")
+	}
+}
+
+// agent.root is about the process that runs runners. A controller with no
+// embedded agent runs none, so a container escape has nothing of its to land
+// on; the warning used to fire there anyway, on every root controller in front
+// of a fleet of remote agents, and taught operators to ignore it.
+func TestTheRootWarningIsAboutTheProcessThatRunsRunners(t *testing.T) {
+	old := euid
+	euid = func() int { return 0 }
+	t.Cleanup(func() { euid = old })
+
+	c := Default()
+	c.Agent.Embedded = false
+	c.Agent.ControllerURL = ""
+	c.Agent.Backend = "docker"
+	if hasCode(c.Validate(), "agent.root") {
+		t.Fatal("agent.root fired for a controller that runs no agent")
+	}
+
+	c.Agent.Embedded = true
+	if !hasCode(c.Validate(), "agent.root") {
+		t.Fatal("agent.root did not fire for a root agent using docker")
+	}
+
+	c.Agent.Embedded = false
+	c.Agent.ControllerURL = "https://zoomies.example.com"
+	if !hasCode(c.Validate(), "agent.root") {
+		t.Fatal("agent.root did not fire for a standalone root agent")
+	}
+}
+
+// disable_auth on bind: localhost:8080 was refused as a public bind while the
+// same word in external_url counted as local, because BindsPublicly assumed
+// any name resolves off-host. localhost and the names under .localhost never
+// do; RFC 6761 reserves them for this machine.
+func TestALocalhostBindIsNotPublic(t *testing.T) {
+	for bind, public := range map[string]bool{
+		"localhost:8080":           false,
+		"LOCALHOST:8080":           false,
+		"dev.localhost:8080":       false,
+		"127.0.0.1:8080":           false,
+		"[::1]:8080":               false,
+		"0.0.0.0:8080":             true,
+		":8080":                    true,
+		"[::]:8080":                true,
+		"10.0.0.5:8080":            true,
+		"zoomies.example.com:8080": true,
+	} {
+		c := Default()
+		c.Server.Bind = bind
+		if got := c.BindsPublicly(); got != public {
+			t.Errorf("BindsPublicly(%q) = %v, want %v", bind, got, public)
+		}
+	}
+	c := Default()
+	c.Server.ExternalURL = "http://dev.localhost:8080"
+	if !c.ExternalURLIsLocal() {
+		t.Fatal("a .localhost external URL did not count as local")
+	}
+	if hasCode(c.Validate(), "external_url.insecure") {
+		t.Fatal("plaintext to this machine drew the insecure external URL warning")
+	}
+}
+
+// The file is read as forgivingly as the environment: tls.mode was lowercased
+// from ZOOMIES_TLS_MODE but not from zoomies.yaml, "warning" was a level the
+// logger understood and the validator refused, and an empty file was told
+// apart from a broken one by the text of the error.
+func TestTheFileIsReadAsForgivinglyAsTheEnvironment(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "zoomies.yaml")
+	if err := os.WriteFile(path, []byte("server:\n  tls:\n    mode: Self-Signed\nlog:\n  level: Warning\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.Server.TLS.Mode != TLSSelfSigned {
+		t.Fatalf("tls.mode = %q, want %q", c.Server.TLS.Mode, TLSSelfSigned)
+	}
+	if c.Log.Level != "warn" {
+		t.Fatalf("log.level = %q, want warn", c.Log.Level)
+	}
+	if hasCode(c.Validate(), "log.level") {
+		t.Fatal("a warning level the logger understands was refused")
+	}
+
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err != nil {
+		t.Fatalf("an empty file did not load as an empty configuration: %v", err)
+	}
+}
 
 // find returns the finding with this code, or a zero Finding.
 func find(fs Findings, code string) Finding {
@@ -14,15 +356,6 @@ func find(fs Findings, code string) Finding {
 		}
 	}
 	return Finding{}
-}
-
-// baseConfig is a configuration that validates cleanly, so each test can change
-// exactly the one setting it is about.
-func baseConfig(t *testing.T) *Config {
-	t.Helper()
-	c := Default()
-	c.Database.Path = filepath.Join(t.TempDir(), "zoomies.db")
-	return c
 }
 
 // security.disable_auth turns every request into an administrator, so the guard
@@ -64,7 +397,8 @@ func TestDisableAuthIsRefusedWhereverTheControllerIsReachable(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			c := baseConfig(t)
+			c := Default()
+			c.Database.Path = filepath.Join(t.TempDir(), "zoomies.db")
 			c.Security.DisableAuth = true
 			tc.mutate(c)
 
@@ -82,42 +416,12 @@ func TestDisableAuthIsRefusedWhereverTheControllerIsReachable(t *testing.T) {
 	}
 }
 
-// A wildcard origin switches the cross-origin check off entirely. Every other
-// setting that trades safety for convenience is named at startup and in the
-// problems panel; this one was silent.
-func TestWildcardAllowedOriginIsNamed(t *testing.T) {
-	c := baseConfig(t)
-	c.Server.AllowedOrigins = []string{"*"}
-
-	f := find(c.Validate(), "origins.wildcard")
-	if f.Severity != SeverityWarning {
-		t.Fatalf(`allowed_origins "*" produced %+v; want a warning`, f)
-	}
-	if !strings.Contains(f.Detail, "session") {
-		t.Errorf("the detail should say what it costs: %q", f.Detail)
-	}
-
-	// A real origin is not a finding.
-	c.Server.AllowedOrigins = []string{"https://zoomies.example.com"}
-	if f := find(c.Validate(), "origins.wildcard"); f.Code != "" {
-		t.Errorf("a named https origin was flagged as a wildcard: %+v", f)
-	}
-	if f := find(c.Validate(), "origins.insecure"); f.Code != "" {
-		t.Errorf("an https origin was flagged as insecure: %+v", f)
-	}
-
-	// A plaintext one is worth a note, because anyone on the path can be it.
-	c.Server.AllowedOrigins = []string{"http://zoomies.example.com"}
-	if f := find(c.Validate(), "origins.insecure"); f.Code == "" {
-		t.Error("a plaintext allowed origin produced no finding")
-	}
-}
-
 // Zoomies cannot see a proxy terminating TLS in front of it, so a publicly
 // bound controller whose cookies lack Secure has to be told about it: one
 // plain-HTTP request to that host otherwise hands over a live session.
 func TestInsecureCookieOnAPublicBindIsNamed(t *testing.T) {
-	c := baseConfig(t)
+	c := Default()
+	c.Database.Path = filepath.Join(t.TempDir(), "zoomies.db")
 	c.Server.Bind = "0.0.0.0:8080"
 	c.Server.ExternalURL = ""
 	c.normalize()

@@ -7,7 +7,7 @@
   select the operator would poke at.
 -->
 <script lang="ts">
-  import { Plug } from '@lucide/svelte';
+  import { Dices, Plug } from '@lucide/svelte';
   import type { Installation, RunnerGroup } from '$lib/api/types';
   import { installationStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
@@ -15,9 +15,11 @@
   import EmptyState from '$lib/components/EmptyState.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import Field from '$lib/components/Field.svelte';
+  import IconButton from '$lib/components/IconButton.svelte';
   import Input from '$lib/components/Input.svelte';
   import Select from '$lib/components/Select.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
+  import { brandedName } from '$lib/brand';
   import type { PoolDraft } from './PoolWizardForm.svelte';
 
   interface Props {
@@ -27,9 +29,13 @@
     installations: readonly Installation[];
     loading: boolean;
     error: unknown;
+    /** Fetch the installations again after a failure. */
+    onretry?: () => void;
     groups: readonly RunnerGroup[];
     groupsLoading: boolean;
     groupsError: unknown;
+    /** Roll another name. Left out when editing, where a name is already in use. */
+    onspin?: () => void;
   }
 
   let {
@@ -39,10 +45,23 @@
     installations,
     loading,
     error,
+    onretry,
     groups,
     groupsLoading,
     groupsError,
+    onspin,
   }: Props = $props();
+
+  // Purely so the dice turn when they are rolled. Cleared on animationend
+  // rather than on a timer, so the two cannot disagree about how long the
+  // animation is -- and under prefers-reduced-motion, where the token is 1ms,
+  // it ends immediately and nothing spins.
+  let rolling = $state(false);
+
+  function spin(): void {
+    rolling = true;
+    onspin?.();
+  }
 
   const installationOptions = $derived(
     installations.map((entry) => ({
@@ -63,7 +82,9 @@
   label="Pool name"
   required
   error={errors['name']}
-  hint="Operators see this everywhere: in runner names, the audit log and the CLI."
+  hint={onspin
+    ? 'Filled in from the kennel and what the fleet runs on. Type over it, or roll the dice for another. Every pool name starts with zoomies-, so one typed without it gains it.'
+    : 'Operators see this everywhere: in runner names, the audit log and the CLI. Every pool name starts with zoomies-, so one typed without it gains it.'}
 >
   {#snippet children({ id, describedBy, invalid })}
     <Input
@@ -72,15 +93,28 @@
       {describedBy}
       {invalid}
       mono
-      placeholder="linux-x64"
+      placeholder="zoomies-linux-x64"
       autocomplete="off"
-      onblur={() => touch('name')}
-    />
+      onblur={() => {
+        // Branded here as well as on save, so the field shows the name the
+        // server will store rather than the one that was typed.
+        draft.name = brandedName(draft.name);
+        touch('name');
+      }}
+    >
+      {#snippet trailing()}
+        {#if onspin}
+          <span class="dice" class:rolling onanimationend={() => (rolling = false)}>
+            <IconButton icon={Dices} label="Spin a new name" size="sm" onclick={spin} />
+          </span>
+        {/if}
+      {/snippet}
+    </Input>
   {/snippet}
 </Field>
 
 {#if error}
-  <ErrorState {error} title="Installations could not be listed" />
+  <ErrorState {error} title="Installations could not be listed" {onretry} />
 {:else if loading}
   <div class="loading">
     <Skeleton width="30%" height="0.75rem" />
@@ -89,10 +123,10 @@
 {:else if installations.length === 0}
   <EmptyState
     icon={Plug}
-    title="No GitHub installations yet"
+    title="No GitHub connection yet"
     description="A pool registers its runners with a GitHub App installation, so Zoomies needs one before it can make a pool."
   >
-    <Button variant="primary" href="/installations">Connect an installation</Button>
+    <Button variant="primary" href="/installations">Connect GitHub</Button>
   </EmptyState>
 {:else}
   <Field
@@ -165,6 +199,20 @@
 {/if}
 
 <style>
+  .dice {
+    display: inline-flex;
+  }
+  .rolling {
+    animation: roll var(--z-motion-slow) var(--z-ease);
+  }
+  @keyframes roll {
+    from {
+      transform: rotate(0turn);
+    }
+    to {
+      transform: rotate(1turn);
+    }
+  }
   .loading {
     display: flex;
     flex-direction: column;

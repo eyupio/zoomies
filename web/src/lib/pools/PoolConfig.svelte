@@ -36,7 +36,7 @@
 <dl class="config {className}">
   <div class="pair">
     <dt>Labels</dt>
-    <dd><PoolLabels labels={pool.labels ?? []} max={12} /></dd>
+    <dd><PoolLabels labels={pool.labels ?? []} max={12} wrap /></dd>
   </div>
 
   <div class="pair">
@@ -80,6 +80,9 @@
     <dd class="tabular">
       {formatNumber(pool.min_runners ?? 0)} minimum, {formatNumber(pool.max_runners ?? 0)} maximum
     </dd>
+
+    <dt>Priority</dt>
+    <dd>{formatNumber(pool.priority ?? 0)}</dd>
   </div>
 
   <div class="pair">
@@ -93,6 +96,11 @@
       <dd><code>{pool.image}</code></dd>
     </div>
   {/if}
+
+  <div class="pair">
+    <dt>Pull policy</dt>
+    <dd><code>{pool.pull_policy ?? 'if-not-present'}</code></dd>
+  </div>
 
   {#if pool.runner_version}
     <div class="pair">
@@ -183,7 +191,7 @@
   }
   code {
     padding: 0 var(--z-space-2);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     font-size: var(--z-text-xs);

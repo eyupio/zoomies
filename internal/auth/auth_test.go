@@ -562,6 +562,20 @@ func TestCreateUserValidation(t *testing.T) {
 	if _, err := s.CreateUser(ctx, NewUser{Username: "bad user", Password: testPassword}); err == nil {
 		t.Error("a username with a space was accepted")
 	}
+	// An account made ahead of its owner's first single sign-on has no
+	// password and, until that sign-in links it, no subject either.
+	if sso, err := s.CreateUser(ctx, NewUser{Username: "sso-only", SSOOnly: true}); err != nil {
+		t.Fatalf("CreateUser(SSOOnly): %v", err)
+	} else if sso.PasswordHash != "" || sso.OIDCSubject != "" {
+		t.Fatalf("SSO-only user = %+v, want no password hash and no subject yet", sso)
+	}
+	// A password sign-in against it is refused exactly as an unknown username
+	// is: the account has no password, so nothing offered here can prove it is
+	// yours, and saying "this one uses SSO" would enumerate the accounts that
+	// do. TestLoginRefusesDisabledAndSSOOnlyAccounts covers that in full.
+	if _, _, err := s.Login(ctx, "sso-only", testPassword, "10.0.0.1", "test"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("Login(sso-only) = %v, want ErrInvalidCredentials", err)
+	}
 	if _, err := s.CreateUser(ctx, NewUser{Username: "nopass"}); err == nil {
 		t.Error("an account with neither a password nor an OIDC subject was accepted")
 	}
@@ -735,5 +749,44 @@ func TestIdentityString(t *testing.T) {
 	id := &Identity{Kind: KindToken, Name: "ci", Role: store.RoleOperator, Scopes: []string{"pools:read"}}
 	if got := id.String(); !strings.Contains(got, "ci") || !strings.Contains(got, "operator") || !strings.Contains(got, "pools:read") {
 		t.Errorf("identity string = %q; want it to name the token, its role and its scopes", got)
+	}
+}
+
+// Every refusal this package makes for a reason the caller can act on is
+// ErrInvalidInput, and a name that is taken is store.ErrConflict, so the API
+// can answer them with the message and answer everything else -- a database
+// that is not there -- with a request ID instead of quoting it.
+func TestRefusalsSayWhatKindTheyAre(t *testing.T) {
+	s, _, _ := newService(t)
+	ctx := t.Context()
+
+	if _, err := s.CreateUser(ctx, NewUser{Username: "no spaces here", Password: "correct-horse-battery"}); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("a bad username = %v; want ErrInvalidInput", err)
+	}
+	if _, err := s.CreateUser(ctx, NewUser{Username: "sam", Password: "correct-horse-battery", Role: "owner"}); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("a bad role = %v; want ErrInvalidInput", err)
+	}
+	if _, err := s.CreateUser(ctx, NewUser{Username: "sam", Password: "short"}); !errors.Is(err, ErrInvalidInput) || !errors.Is(err, ErrPasswordTooShort) {
+		t.Fatalf("a short password = %v; want both ErrPasswordTooShort and ErrInvalidInput", err)
+	}
+	if _, err := s.CreateUser(ctx, NewUser{Username: "sam", Password: "correct-horse-battery"}); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	_, err := s.CreateUser(ctx, NewUser{Username: "sam", Password: "correct-horse-battery"})
+	if !errors.Is(err, store.ErrConflict) || errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("a taken name = %v; want store.ErrConflict and not ErrInvalidInput", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), `an account named "sam" already exists`) {
+		t.Fatalf("the conflict does not read as a sentence: %v", err)
+	}
+
+	if _, _, err := s.CreateAPIToken(ctx, NewToken{Name: "", Role: store.RoleViewer}); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("a nameless token = %v; want ErrInvalidInput", err)
+	}
+	if _, _, err := s.CreateAPIToken(ctx, NewToken{Name: "ci", Scopes: []string{"pools:fly"}}); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("an unknown scope = %v; want ErrInvalidInput", err)
+	}
+	if _, err := s.RedeemJoinToken(ctx, "zjt_not_a_real_token", "host_x"); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("a bad join token = %v; want ErrInvalidInput", err)
 	}
 }

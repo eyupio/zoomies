@@ -22,15 +22,23 @@ type ManifestOptions struct {
 	URL string
 	// WebhookURL is where GitHub delivers workflow_job events.
 	WebhookURL string
-	// WebhookSecret signs those deliveries. Zoomies always sets one.
-	WebhookSecret string
 	// Organization is the org the App is created under. Empty creates it on
 	// the operator's own account, which is the right choice for repo targets.
 	Organization string
-	// SetupURL is the Zoomies page GitHub returns the operator to, both after
-	// creating the App (carrying ?code=) and after installing it (carrying
-	// ?installation_id=).
+	// SetupURL is permanent App configuration: GitHub sends the operator here
+	// after every future install or reconfiguration of the App -- adding a
+	// repository to the installation, most commonly, years later. It has to be
+	// an address that still answers then.
 	SetupURL string
+	// RedirectURL is where GitHub returns during *this* handshake, carrying
+	// ?code=. Empty means "the same as SetupURL", which is right when the
+	// handshake is driven from the controller's own web UI.
+	//
+	// They are separate because the installer is not: it catches the callback
+	// on a temporary loopback listener that is gone minutes later, and writing
+	// that ephemeral port into setup_url left every App `zoomies init` ever
+	// created sending its operator to a refused connection.
+	RedirectURL string
 	// Public allows the App to be installed on accounts other than the one
 	// that created it. Zoomies defaults it off: a fleet controller's App has
 	// no business being installable by strangers.
@@ -51,10 +59,14 @@ type manifest struct {
 	DefaultPermissions map[string]string `json:"default_permissions"`
 }
 
+// hookAttributes carries the webhook configuration. GitHub's manifest schema
+// permits exactly url and active here: sending a "secret" key makes GitHub
+// reject the whole manifest with `"secret" is not a permitted key`. The secret
+// is GitHub's to generate, and it comes back from the conversion in
+// ManifestCredentials.WebhookSecret.
 type hookAttributes struct {
 	URL    string `json:"url"`
 	Active bool   `json:"active"`
-	Secret string `json:"secret,omitempty"`
 }
 
 // Manifest renders the JSON an operator's browser POSTs to GitHub to create
@@ -63,8 +75,12 @@ type hookAttributes struct {
 // The permission set is deliberately minimal, because an App that manages a
 // fleet's runners is a high-value credential: it asks for the runner
 // administration permission for the kind of target it will manage, read access
-// to Actions so it can see queued jobs, and nothing else. Metadata read is
-// mandatory for every App.
+// to Actions so it can see queued jobs, the three the migration wizard needs to
+// rewrite a runs-on line and open a pull request for it, and nothing else.
+// Metadata read is mandatory for every App.
+//
+// Every key here is one GitHub's manifest schema permits; it rejects anything
+// else outright, so nothing speculative belongs in this struct.
 func Manifest(o ManifestOptions) ([]byte, error) {
 	name := strings.TrimSpace(o.Name)
 	switch {
@@ -84,14 +100,18 @@ func Manifest(o ManifestOptions) ([]byte, error) {
 			"server.external_url in zoomies.yaml so GitHub can reach this controller")
 	}
 
+	redirect := o.RedirectURL
+	if redirect == "" {
+		redirect = o.SetupURL
+	}
+
 	m := manifest{
 		Name: name,
 		URL:  o.URL,
-		// The secret rides in the manifest because that is the only way GitHub
-		// accepts one; leaving it empty makes GitHub generate one and hand it
-		// back through the conversion, which Zoomies then seals.
-		HookAttributes: hookAttributes{URL: o.WebhookURL, Active: true, Secret: o.WebhookSecret},
-		RedirectURL:    o.SetupURL,
+		// No secret is sent: GitHub generates one for a manifest-created App
+		// and returns it through the conversion, which Zoomies then seals.
+		HookAttributes: hookAttributes{URL: o.WebhookURL, Active: true},
+		RedirectURL:    redirect,
 		SetupURL:       o.SetupURL,
 		Description:    "Self-hosted runner fleet managed by Zoomies.",
 		Public:         o.Public,
@@ -110,10 +130,27 @@ func Manifest(o ManifestOptions) ([]byte, error) {
 // manifestPermissions returns the least privilege that works for the target
 // kind. An org App manages runners through the organisation permission and
 // never needs repository administration; a repo App is the other way round.
+//
+// The three migration permissions are asked for here, at creation, rather than
+// left for the operator to add later. Adding a permission to an App that
+// already exists is not a setting an operator can just flip: GitHub holds the
+// change until the account's owner accepts it on the installation, and until
+// they do the migration wizard cannot even *read* a workflow -- it reports
+// every repository as unreadable, which is a broken product rather than a
+// missing permission. Asking once, on the consent screen the operator is
+// already reading, is both honest and the only point in the flow where saying
+// yes costs a click.
 func manifestPermissions(org bool) map[string]string {
 	p := map[string]string{
 		"actions":  "read",
 		"metadata": "read",
+		// The migration wizard's three: read a repository's workflows, commit
+		// the rewritten file to a branch, and open the pull request. GitHub
+		// requires "workflows" specifically for a change under
+		// .github/workflows, and grants nothing else with it.
+		"contents":      "write",
+		"pull_requests": "write",
+		"workflows":     "write",
 	}
 	if org {
 		p["organization_self_hosted_runners"] = "write"
@@ -142,7 +179,10 @@ type ManifestCredentials struct {
 	Name  string
 	// PEM is the App's private key. It is shown once and must be sealed
 	// immediately.
-	PEM           string
+	PEM string
+	// WebhookSecret is the secret GitHub generated for the App's webhook. It
+	// is the only copy: the manifest cannot ask for a particular one, and
+	// GitHub does not show it again.
 	WebhookSecret string
 	ClientID      string
 	ClientSecret  string
@@ -240,4 +280,28 @@ func InstallURL(htmlURL string) string {
 		return ""
 	}
 	return h + "/installations/new"
+}
+
+// SettingsURL returns the App's own settings page, which is the only place its
+// logo can be set.
+//
+// The App manifest schema has no field for an avatar -- GitHub takes it as an
+// upload and nothing else -- so an App created by Zoomies arrives with the grey
+// default, and every "Set up job" line in the organisation's logs is signed by
+// an anonymous App. Pointing the operator at the page and handing them the
+// mark is as close to automatic as GitHub allows.
+//
+// An App owned by an organisation has its settings under that organisation;
+// one owned by a user has them under the user's own settings, and GitHub
+// answers the wrong URL with a 404 rather than a redirect.
+func SettingsURL(apiBaseURL, slug, org string) string {
+	slug = strings.Trim(strings.TrimSpace(slug), "/")
+	if slug == "" {
+		return ""
+	}
+	web := strings.TrimRight(WebURLForAPI(apiBaseURL), "/")
+	if org = strings.Trim(strings.TrimSpace(org), "/"); org != "" {
+		return web + "/organizations/" + org + "/settings/apps/" + slug
+	}
+	return web + "/settings/apps/" + slug
 }

@@ -254,9 +254,7 @@ func TestEnsureUser(t *testing.T) {
 		}
 	})
 
-	// An account an administrator pre-created for SSO has no password, so there
-	// is no local credential for the identity provider to displace.
-	t.Run("adopts an existing password-less username", func(t *testing.T) {
+	t.Run("adopts an existing username only when the account was made for SSO", func(t *testing.T) {
 		st := newStore(t)
 		want := addUser(t, st, "alice", store.RoleOperator, func(u *store.User) { u.PasswordHash = "" })
 
@@ -276,39 +274,28 @@ func TestEnsureUser(t *testing.T) {
 		}
 	})
 
-	// An account with a local password is a different matter: adopting it hands
-	// whoever holds that username at the identity provider everything the local
-	// account can do, so it takes an explicit decision by the operator.
-	t.Run("refuses to adopt a password account unless asked", func(t *testing.T) {
+	// With a provider whose users can influence their own username claim, a
+	// sign-in as "admin" used to inherit the local admin's account and role.
+	t.Run("refuses to take over a password account by name unless told to", func(t *testing.T) {
 		st := newStore(t)
-		want := addUser(t, st, "alice", store.RoleAdmin, nil)
+		local := addUser(t, st, "admin", store.RoleAdmin, nil)
 
-		_, err := p.EnsureUser(ctx, st, &Claims{Subject: "sub-8", Username: "alice"}, false)
-		if err == nil {
-			t.Fatal("a password account was silently adopted by a matching SSO username")
+		_, err := p.EnsureUser(ctx, st, &Claims{Subject: "sub-10", Username: "admin"}, true)
+		if err == nil || !strings.Contains(err.Error(), "signs in with a password") || !strings.Contains(err.Error(), "link_by_username") {
+			t.Fatalf("EnsureUser = %v; want a refusal that names the setting", err)
 		}
-		if !strings.Contains(err.Error(), "link_by_username") {
-			t.Errorf("the refusal should name the setting that allows it: %v", err)
-		}
-		stored, err := st.GetUser(ctx, want.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
+		stored, _ := st.GetUser(ctx, local.ID)
 		if stored.OIDCSubject != "" {
-			t.Error("the account was linked despite the refusal")
+			t.Fatal("the password account was linked anyway")
 		}
 
-		// With the migration setting on, the same login adopts it.
 		linking := &OIDCProvider{cfg: config.OIDC{LinkByUsername: true}}
-		got, err := linking.EnsureUser(ctx, st, &Claims{Subject: "sub-8", Username: "alice"}, false)
+		got, err := linking.EnsureUser(ctx, st, &Claims{Subject: "sub-10", Username: "admin"}, false)
 		if err != nil {
 			t.Fatalf("EnsureUser with link_by_username: %v", err)
 		}
-		if got.ID != want.ID || got.OIDCSubject != "sub-8" {
-			t.Fatalf("user = %+v; want the existing account linked to sub-8", got)
-		}
-		if stored, _ := st.GetUser(ctx, want.ID); stored.PasswordHash == "" {
-			t.Error("adopting an account should not remove its password")
+		if got.ID != local.ID || got.OIDCSubject != "sub-10" || got.PasswordHash == "" {
+			t.Fatalf("user = %+v; want the local account linked, password kept", got)
 		}
 	})
 
