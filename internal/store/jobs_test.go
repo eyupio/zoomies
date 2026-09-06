@@ -325,3 +325,98 @@ func TestPruneJobsAlsoDropsAJobThatNeverFinished(t *testing.T) {
 		t.Fatalf("queued jobs after pruning = %d, want the recent one", len(queued))
 	}
 }
+
+// The Overview's failed tile and the Jobs page's failed filter used to have
+// different ideas of what failed: one counted "failure" alone, the other added
+// the timeouts and the runner faults, so the tile said 1 while the page it
+// linked to showed 3. Both now come from FailedConclusions, as does Job.Failed.
+func TestEveryPlaceThatCountsFailedJobsAgrees(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	started, done := now.Add(time.Second), now.Add(time.Minute)
+
+	for i, c := range []string{"success", "failure", "timed_out", "startup_failure", "cancelled", "skipped", "action_required", "neutral", "stale"} {
+		j := &Job{GitHubJobID: int64(100 + i), JobName: c, State: JobCompleted, Conclusion: c, QueuedAt: now, StartedAt: &started, CompletedAt: &done}
+		if _, err := s.UpsertJob(ctx, j); err != nil {
+			t.Fatalf("seeding %s: %v", c, err)
+		}
+	}
+	// A job GitHub called a success whose runner stopped under it is the
+	// fleet's failure even though it is not the workflow's.
+	if _, err := s.UpsertJob(ctx, &Job{GitHubJobID: 200, JobName: "faulted", State: JobCompleted, Conclusion: "success", QueuedAt: now, StartedAt: &started, CompletedAt: &done}); err != nil {
+		t.Fatalf("seeding faulted: %v", err)
+	}
+	faulted, err := s.GetJobByGitHubID(ctx, 200)
+	if err != nil {
+		t.Fatalf("GetJobByGitHubID: %v", err)
+	}
+	if _, _, err := s.SetJobRunnerFault(ctx, faulted.ID, "runner exited with code 137"); err != nil {
+		t.Fatalf("SetJobRunnerFault: %v", err)
+	}
+
+	want := map[string]bool{"failure": true, "timed_out": true, "startup_failure": true, "faulted": true}
+	listed, total, err := s.ListJobs(ctx, JobFilter{FailedOnly: true}, Page{Limit: 100})
+	if err != nil {
+		t.Fatalf("ListJobs: %v", err)
+	}
+	if total != len(want) {
+		t.Fatalf("FailedOnly total = %d, want %d", total, len(want))
+	}
+	for _, j := range listed {
+		if !want[j.JobName] {
+			t.Errorf("the filter counted %s as failed", j.JobName)
+		}
+	}
+
+	stats, err := s.StatsSince(ctx, now.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("StatsSince: %v", err)
+	}
+	if stats.Failed != total {
+		t.Fatalf("the Overview counts %d failed jobs, the filter %d", stats.Failed, total)
+	}
+
+	all, _, err := s.ListJobs(ctx, JobFilter{}, Page{Limit: 100})
+	if err != nil {
+		t.Fatalf("ListJobs: %v", err)
+	}
+	inGo := 0
+	for _, j := range all {
+		if j.Failed() != want[j.JobName] {
+			t.Errorf("Job.Failed() = %v for %s, want %v", j.Failed(), j.JobName, want[j.JobName])
+		}
+		if j.Failed() {
+			inGo++
+		}
+	}
+	if inGo != total {
+		t.Fatalf("Job.Failed says %d, the store says %d", inGo, total)
+	}
+}
+
+// The failed step says where a job stopped, not whether it failed: a cancelled
+// job's completion message names the step the cancel landed in, and a step
+// GitHub marks neutral is not a stop.
+func TestTheFailedStepIsWhereAJobStoppedWhateverItsConclusion(t *testing.T) {
+	cancelled := &Job{State: JobCompleted, Conclusion: "cancelled", Steps: JobSteps{
+		{Number: 1, Name: "Checkout", Conclusion: "success"},
+		{Number: 2, Name: "Lint", Conclusion: "neutral"},
+		{Number: 3, Name: "Build", Conclusion: "cancelled"},
+		{Number: 4, Name: "Test", Conclusion: "skipped"},
+	}}
+	if st := cancelled.FailedStep(); st == nil || st.Number != 3 {
+		t.Fatalf("FailedStep = %+v, want step 3, where the cancel landed", st)
+	}
+	if cancelled.Failed() {
+		t.Fatal("a cancelled job counted as failed")
+	}
+	running := &Job{State: JobInProgress, Steps: JobSteps{{Number: 1, Name: "Checkout", Status: "in_progress"}}}
+	if st := running.FailedStep(); st != nil {
+		t.Fatalf("a running job has a failed step: %+v", st)
+	}
+	green := &Job{State: JobCompleted, Conclusion: "success", Steps: JobSteps{{Number: 1, Conclusion: "success"}, {Number: 2, Conclusion: "skipped"}}}
+	if st := green.FailedStep(); st != nil {
+		t.Fatalf("a green job has a failed step: %+v", st)
+	}
+}

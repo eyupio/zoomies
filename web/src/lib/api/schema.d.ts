@@ -1818,7 +1818,7 @@ export interface components {
             run_attempt?: number;
             /** @description The job's steps as GitHub last reported them. A completed job carries every step with its conclusion; a running one carries them mid-flight. */
             steps?: components["schemas"]["JobStep"][];
-            /** @description The first step that did not succeed, on a job that failed on a step it ran. Null otherwise. Worked out by the server so every client names the same step. */
+            /** @description The step a completed job stopped at: the first that did not succeed, whether the job failed there or was cancelled there. Null when every step succeeded or while the job is still running. Worked out by the server so every client names the same step. */
             failed_step?: components["schemas"]["JobStep"] | null;
             /** @description Set when the runner of this fleet that was executing the job stopped before GitHub reported the job over -- the fleet's own explanation of a failure GitHub records like any other. Empty when the runner did nothing wrong. */
             runner_fault?: string;

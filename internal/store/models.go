@@ -760,12 +760,35 @@ type JobChange struct {
 	RunnerLinked bool
 }
 
-// FailedStep returns the step a job stopped at, or nil when it did not fail
-// on a step it ran.
+// FailedConclusions are the GitHub conclusions that count a job as failed
+// wherever Zoomies says "failed": the Overview's count, the Jobs page's filter
+// and Job.Failed. cancelled and skipped are not here, because a person or a
+// condition on the job chose them; nor is stale, Zoomies' own word for a job
+// GitHub stopped talking about. The UI keeps the same list in status.ts.
+var FailedConclusions = []string{"failure", "timed_out", "startup_failure"}
+
+// IsFailedConclusion reports whether a conclusion is one of FailedConclusions.
+func IsFailedConclusion(conclusion string) bool {
+	return slices.Contains(FailedConclusions, conclusion)
+}
+
+// Failed reports whether a job went wrong on either side: GitHub concluded it
+// did, or a runner of this fleet stopped under it, which GitHub may still be
+// waiting to hear about. It is the Go spelling of the SQL predicate the store's
+// queries use, so a count and a listing cannot disagree.
+func (j *Job) Failed() bool {
+	return IsFailedConclusion(j.Conclusion) || j.RunnerFault != ""
+}
+
+// FailedStep returns the step a job stopped at: the first step that did not
+// succeed, on a job that has completed. Nil when every step succeeded or was
+// skipped, or while the job is still running.
 //
-// GitHub's conclusion says that a job failed; the steps say where. The first
-// step that did not succeed is the one whose output the operator wants, because
-// every step after it is skipped or cancelled as a consequence.
+// It says where, not whether. Whether a job counts as failed is Failed's call,
+// made from the job's own conclusion; this is set for a cancelled job too,
+// because its completion message says which step the cancel landed in. The
+// first step that did not succeed is the one whose output the operator wants,
+// because every step after it is skipped or cancelled as a consequence.
 func (j *Job) FailedStep() *JobStep {
 	if j.State != JobCompleted {
 		return nil
@@ -773,9 +796,10 @@ func (j *Job) FailedStep() *JobStep {
 	for i := range j.Steps {
 		st := &j.Steps[i]
 		switch st.Conclusion {
-		case "failure", "timed_out", "cancelled", "startup_failure", "action_required":
-			return st
+		case "", "success", "skipped", "neutral":
+			continue
 		}
+		return st
 	}
 	return nil
 }

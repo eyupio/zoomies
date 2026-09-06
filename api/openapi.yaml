@@ -2380,8 +2380,9 @@ components:
           items: { $ref: "#/components/schemas/JobStep" }
         failed_step:
           description: >-
-            The first step that did not succeed, on a job that failed on a step it ran.
-            Null otherwise. Worked out by the server so every client names the same step.
+            The step a completed job stopped at: the first that did not succeed, whether the
+            job failed there or was cancelled there. Null when every step succeeded or while
+            the job is still running. Worked out by the server so every client names the same step.
           oneOf:
             - $ref: "#/components/schemas/JobStep"
             - type: "null"
