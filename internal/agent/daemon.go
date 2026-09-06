@@ -311,7 +311,7 @@ func (a *Agent) Runners() []RunnerReport {
 // for the long-lived agent token that every later call carries.
 func (a *Agent) Join(ctx context.Context, joinToken string) error {
 	if strings.TrimSpace(joinToken) == "" {
-		return errors.New("agent: no join token; mint one in the UI under Hosts, or with `zoomies hosts token`, and pass it as --token")
+		return errors.New("agent: no join token; mint one in the UI under Hosts, or with `zoomies hosts join-token create`, and pass it as --token")
 	}
 
 	// Probe first so the controller learns what this host can actually do

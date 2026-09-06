@@ -81,7 +81,7 @@ var (
 	ErrRateLimited = errors.New("too many login attempts from this address; wait a minute and try again")
 	// ErrAlreadyBootstrapped means the first-admin endpoint was called on an
 	// instance that already has users.
-	ErrAlreadyBootstrapped = errors.New("this instance already has an account, so the first-admin endpoint is closed; sign in, or reset a password with `zoomies users passwd`")
+	ErrAlreadyBootstrapped = errors.New("this instance already has an account, so the first-admin endpoint is closed; sign in, or have an administrator reset the password with `zoomies users passwd <user-id>`")
 	// ErrLastAdmin means the change would leave nobody able to administer the
 	// instance.
 	ErrLastAdmin = errors.New("this is the last enabled administrator; give another account the admin role before changing this one")

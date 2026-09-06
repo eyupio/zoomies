@@ -370,3 +370,39 @@ func decodeJSON(t *testing.T, r *http.Request, out any) {
 		t.Fatalf("decoding the request body: %v", err)
 	}
 }
+
+// The password never appears in argv: it is typed at a prompt, or piped in.
+// A --password flag would put a live credential in /proc/<pid>/cmdline, where
+// every account on the host can read it, and in the shell history after that.
+func TestUsersPasswdTakesTheSecretFromStandardInputNotAFlag(t *testing.T) {
+	var body map[string]any
+	var path string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		decodeJSON(t, r, &body)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	e, out, errOut := newTestEnv(t)
+	e.in = strings.NewReader("a-long-enough-password\n")
+	if code := dispatch(context.Background(), e, []string{"users", "passwd", "usr_7f3a", "--url", srv.URL}); code != exitOK {
+		t.Fatalf("exit code = %d\n%s", code, errOut)
+	}
+	if path != "/api/v1/users/usr_7f3a/password" {
+		t.Errorf("path = %q", path)
+	}
+	if body["new_password"] != "a-long-enough-password" {
+		t.Errorf("body = %v, want the password read from stdin", body)
+	}
+	if !strings.Contains(out.String(), "usr_7f3a") {
+		t.Errorf("output = %q, want it to name the account", out)
+	}
+
+	// Nothing piped in and no terminal to prompt on is a usage error, not an
+	// empty password sent to the server.
+	e2, _, _ := newTestEnv(t)
+	if code := dispatch(context.Background(), e2, []string{"users", "passwd", "usr_7f3a", "--url", srv.URL}); code != exitUsage {
+		t.Errorf("exit code with no password = %d, want a usage error", code)
+	}
+}
