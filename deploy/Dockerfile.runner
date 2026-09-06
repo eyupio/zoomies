@@ -4,10 +4,22 @@
 # entrypoint that understands the environment contract Zoomies' backends use.
 # Built for linux/amd64 and linux/arm64.
 #
-# Deliberately NOT based on a "everything a build might need" mega-image: this
-# is a runner, and what a job needs beyond it belongs in the job's own container
-# or setup steps. A smaller image means a faster cold start, which is the whole
-# point of ephemeral runners.
+# It also carries the toolchain a build typically reaches for -- a compiler, the
+# headers native extensions link against, python3 and node. That is a reversal:
+# this file used to argue that a runner should stay small because a smaller
+# image means a faster cold start, and that what a job needs beyond the runner
+# belongs in its own setup steps.
+#
+# The argument was sound while an image was pulled in front of the job that
+# needed it. It is not any more. A pool's image is prewarmed on every host that
+# can run the pool, and images.refresh_interval re-runs that prewarm, so the
+# pull happens on a timer in the background and the job finds the image already
+# there. What is left of "large image" is disk on the host, not queue wait.
+#
+# Against that, a runner missing cc is a workflow that fails in the middle, on
+# somebody else's afternoon, with an error about a missing compiler rather than
+# about this image. Parity with what actions/runner-images ships is the less
+# surprising default, and a pool that wants something leaner can name its own.
 #
 # Two targets come out of this file:
 #
@@ -22,7 +34,7 @@
 # split keeps that cost off the pools that never build an image.
 #
 # `runner` is the last stage on purpose, so that a plain `docker build -f
-# deploy/Dockerfile.runner .` still produces the small image; the variant is
+# deploy/Dockerfile.runner .` still produces the plain runner; the variant is
 # built with --target runner-docker.
 
 ARG RUNNER_VERSION=2.337.0
@@ -92,6 +104,68 @@ RUN set -eux; \
     mkdir -p /home/runner/_work; \
     chown -R runner:runner /home/runner
 
+# The build toolchain, after the runner download on purpose: this list is the
+# part of the file most likely to be edited, and putting it last means editing
+# it does not re-fetch the ~200 MB archive above.
+#
+# What is here is what a workflow assumes without ever saying so. The compilers
+# and headers are the ones native extensions link against -- node-gyp, a Python
+# wheel with no arm64 build, a Ruby gem -- and every one of them fails at
+# `make` with a message about the missing library rather than about the image.
+#
+# python3 and node are here for the steps that use them without a setup-python
+# or setup-node first. The setup actions still install their own versions and
+# take precedence on PATH, so the versions here are a floor, not a choice about
+# which version a workflow gets.
+#
+# Deliberately absent: a JDK and the other language runtimes with a good
+# setup-* action, which install what the workflow asked for rather than what
+# this image guessed, and would be hundreds of megabytes of wrong version.
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        build-essential pkg-config cmake autoconf automake libtool \
+        patch file dpkg-dev gettext \
+        python3 python3-pip python3-venv python3-dev python3-setuptools \
+        nodejs npm \
+        libssl-dev zlib1g-dev libffi-dev libyaml-dev libxml2-dev libxslt1-dev \
+        libcurl4-openssl-dev libsqlite3-dev libreadline-dev libbz2-dev \
+        liblzma-dev libncurses-dev uuid-dev \
+        git-lfs wget gnupg bzip2 zstd lsb-release software-properties-common \
+        netcat-openbsd dnsutils iputils-ping net-tools; \
+    rm -rf /var/lib/apt/lists/*; \
+    git lfs install --system
+
+# The GitHub CLI, from GitHub's own apt repository because Ubuntu does not carry
+# it. A workflow that shells out to `gh` is doing something GitHub-hosted
+# runners let it do, and the alternative is every such workflow installing the
+# same tool itself on every run.
+RUN set -eux; \
+    install -m 0755 -d /etc/apt/keyrings; \
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+      -o /etc/apt/keyrings/githubcli.gpg; \
+    chmod a+r /etc/apt/keyrings/githubcli.gpg; \
+    arch="$(dpkg --print-architecture)"; \
+    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/githubcli.gpg] https://cli.github.com/packages stable main\n' \
+      "$arch" > /etc/apt/sources.list.d/github-cli.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends gh; \
+    rm -rf /var/lib/apt/lists/*
+
+# Prove the toolchain is actually reachable, for the same reason the Docker
+# variant checks its client: a package that installed but left nothing on PATH
+# is the failure this exists to prevent, and it is far cheaper to catch in the
+# build than in somebody's workflow.
+RUN set -eux; \
+    cc --version; \
+    make --version; \
+    cmake --version; \
+    python3 --version; \
+    node --version; \
+    npm --version; \
+    git lfs version; \
+    gh --version
+
 COPY --chmod=0755 deploy/runner-entrypoint.sh /usr/local/bin/entrypoint.sh
 
 USER runner
@@ -138,6 +212,6 @@ USER runner
 
 # --- runner -------------------------------------------------------------------
 #
-# The default target, and the small one. Last in the file so that a bare build
-# with no --target produces it.
+# The default target: the runner and the build toolchain, without the Docker
+# client. Last in the file so that a bare build with no --target produces it.
 FROM runner-base AS runner

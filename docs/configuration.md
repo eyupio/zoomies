@@ -266,6 +266,40 @@ can be older than the controller's, and correctly so. Both come out of the same
 Dockerfile, as its `runner` and `runner-docker` targets, so they are never out of
 step with each other.
 
+### What is in the runner image
+
+Both runner images carry the actions/runner release and its .NET dependencies,
+and the toolchain a build typically reaches for without saying so:
+
+| | |
+| --- | --- |
+| Compilers and build tools | `build-essential` (gcc, g++, make), `cmake`, `pkg-config`, `autoconf`, `automake`, `libtool`, `patch`, `gettext` |
+| Headers native extensions link against | OpenSSL, zlib, libffi, libyaml, libxml2, libxslt, libcurl, SQLite, readline, bzip2, lzma, ncurses, uuid |
+| Interpreters | `python3` with `pip` and `venv`, `nodejs` with `npm` |
+| Source and transfer | `git`, `git-lfs`, `curl`, `wget`, `rsync`, `openssh-client`, `gnupg` |
+| Archives | `tar`, `gzip`, `xz-utils`, `bzip2`, `zstd`, `zip`, `unzip` |
+| GitHub | the `gh` CLI |
+| Diagnostics | `jq`, `file`, `netcat-openbsd`, `dnsutils`, `iputils-ping`, `net-tools`, `lsb-release` |
+
+`python3` and `nodejs` are a floor, not a choice about versions: `setup-python`
+and `setup-node` still install what a workflow asks for and take precedence on
+`PATH`. They are here so that a step which uses either **without** a setup
+action first does not fail.
+
+Deliberately absent: a JDK, and the other language runtimes with a good
+`setup-*` action. Those install the version the workflow asked for, where this
+image could only guess — at a cost of hundreds of megabytes of probably-wrong
+version.
+
+A large image is no longer cold-start time. A pool's image is prewarmed on
+every host that can run it and refreshed on a timer, so the pull happens in the
+background and a job finds the image already there. What a bigger image costs
+is disk on the host.
+
+If you want something leaner, point the pool at an image of your own; Zoomies
+only requires that it can run the entrypoint contract described in
+`deploy/runner-entrypoint.sh`.
+
 ### Deployment models
 
 `zoomies init` can run Zoomies three ways, and offers only the ones your host can
@@ -654,11 +688,15 @@ which names the missing binary and not the reason.
 only. It never runs a daemon of its own; that is what `docker_mode` is for.
 
 Whichever image a pool runs is pulled under its `pull_policy`, and the default,
-`if-not-present`, fetches a tag only when the host does not already have it. A
-pool on `latest` therefore keeps the build it first pulled until you either set
-`pull_policy: always` — a registry round trip on every runner created, with
+`if-not-present`, fetches a tag only when the host does not already have it. On
+its own that would leave a pool on `latest` running the build it first pulled
+for as long as its hosts lived, which is what
+[`images.refresh_interval`](#imagesrefresh_interval-keeping-a-moving-tag-current)
+exists to prevent: the image is prewarmed again on a timer, in the background,
+so the tag moves without a registry round trip in front of any job. Setting
+`pull_policy: always` puts that round trip back on every runner created — with
 the layers still cached, so the cost is a manifest check and not a download —
-or pull the new build on each host yourself.
+and is only worth it when an hour is too long to wait.
 
 On a `host-socket` pool Zoomies also adds the group that owns the host's
 `docker.sock` to the runner container, because the runner is not root inside it
