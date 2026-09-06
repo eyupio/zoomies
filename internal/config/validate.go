@@ -611,8 +611,9 @@ func (c *Config) Validate() Findings {
 	if c.Scheduler.MaxRunnerLifetime > 0 && c.Scheduler.MaxRunnerLifetime < 10*time.Minute {
 		add(Finding{
 			Code: "scheduler.lifetime_short", Severity: SeverityWarning, Setting: "scheduler.max_runner_lifetime",
-			Title:  fmt.Sprintf("runners are force-drained after %s", c.Scheduler.MaxRunnerLifetime),
-			Detail: "jobs longer than that will never complete; the runner is drained while they run.",
+			Title:  fmt.Sprintf("idle runners are recycled after %s", c.Scheduler.MaxRunnerLifetime),
+			Detail: "a runner that old is drained the moment it is not busy, so a pool that keeps a minimum re-registers its runners that often and any warm cache goes with them. Running jobs are never interrupted by it.",
+			Fix:    "keep scheduler.max_runner_lifetime to hours, or clear it for no limit.",
 		})
 	}
 

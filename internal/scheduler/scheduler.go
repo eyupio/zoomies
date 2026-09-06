@@ -69,8 +69,10 @@ type Policy struct {
 	// ScaleUpDelay is how long a job must have been queued before it counts as
 	// demand, which damps churn when jobs arrive in bursts.
 	ScaleUpDelay time.Duration
-	// MaxRunnerLifetime drains a runner that has lived this long, which catches
-	// runners wedged by a hung job.
+	// MaxRunnerLifetime drains a runner that has lived this long, the next
+	// time it is not busy. It bounds how long a persistent runner's state and
+	// credentials live; reap never drains a busy runner, so it is no answer to
+	// a hung job.
 	MaxRunnerLifetime time.Duration
 	// ProvisionTimeout fails a runner that never finished registering.
 	ProvisionTimeout time.Duration

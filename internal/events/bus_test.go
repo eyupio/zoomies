@@ -3,6 +3,7 @@ package events
 import (
 	"context"
 	"encoding/json"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -250,5 +251,25 @@ func TestWireIDsCarryTheEpoch(t *testing.T) {
 	other := New()
 	if other.Epoch() == b.Epoch() {
 		t.Fatal("two buses share an epoch; a restart would look like the same run")
+	}
+}
+
+// Subscribe starts a goroutine to close the subscription when its context
+// ends. The SSE handler closes its subscription itself, before the request's
+// context is cancelled, and a long-lived caller may pass a context that is
+// never cancelled at all; either way that goroutine used to wait for ever, one
+// per subscription for the life of the process.
+func TestClosingASubscriptionEndsItsContextWatcher(t *testing.T) {
+	b := New()
+	before := runtime.NumGoroutine()
+	for i := 0; i < 50; i++ {
+		b.Subscribe(context.Background(), SubscribeOptions{}).Close()
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for runtime.NumGoroutine() > before+5 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := runtime.NumGoroutine(); n > before+5 {
+		t.Fatalf("%d goroutines after closing 50 subscriptions, %d before them", n, before)
 	}
 }

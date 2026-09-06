@@ -407,9 +407,12 @@ arrive in bursts that resolve themselves and you would rather not churn runners.
 
 ### `scheduler.max_runner_lifetime`
 
-Force-drains a runner that has lived this long and is **not** busy. It catches
-runners wedged by something that never finished registering. It never interrupts
-a running job.
+Drains a runner that has lived this long, the next time it is **not** busy. It
+bounds how long a persistent runner's state and credentials live, so a pool that
+keeps a minimum re-registers its runners this often. It never interrupts a
+running job: a job that hangs keeps its runner busy, and ending that is what the
+workflow's `timeout-minutes` is for. A runner that never finished registering is
+`provision_timeout`'s to fail, not this setting's.
 
 ---
 

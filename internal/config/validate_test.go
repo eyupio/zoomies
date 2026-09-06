@@ -316,3 +316,34 @@ func TestALocalhostBindIsNotPublic(t *testing.T) {
 		t.Fatal("plaintext to this machine drew the insecure external URL warning")
 	}
 }
+
+// The file is read as forgivingly as the environment: tls.mode was lowercased
+// from ZOOMIES_TLS_MODE but not from zoomies.yaml, "warning" was a level the
+// logger understood and the validator refused, and an empty file was told
+// apart from a broken one by the text of the error.
+func TestTheFileIsReadAsForgivinglyAsTheEnvironment(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "zoomies.yaml")
+	if err := os.WriteFile(path, []byte("server:\n  tls:\n    mode: Self-Signed\nlog:\n  level: Warning\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.Server.TLS.Mode != TLSSelfSigned {
+		t.Fatalf("tls.mode = %q, want %q", c.Server.TLS.Mode, TLSSelfSigned)
+	}
+	if c.Log.Level != "warn" {
+		t.Fatalf("log.level = %q, want warn", c.Log.Level)
+	}
+	if hasCode(c.Validate(), "log.level") {
+		t.Fatal("a warning level the logger understands was refused")
+	}
+
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err != nil {
+		t.Fatalf("an empty file did not load as an empty configuration: %v", err)
+	}
+}
