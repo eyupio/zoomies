@@ -170,6 +170,9 @@ retention:
 
 images:
   refresh_interval: 1h          # ZOOMIES_IMAGE_REFRESH_INTERVAL  -- 0 switches it off
+
+updates:
+  check_interval: 24h           # ZOOMIES_UPDATE_CHECK_INTERVAL   -- 0 never asks
 ```
 
 ---
@@ -318,6 +321,36 @@ is disk on the host.
 If you want something leaner, point the pool at an image of your own; Zoomies
 only requires that it can run the entrypoint contract described in
 `deploy/runner-entrypoint.sh`.
+
+### `updates.check_interval` — knowing the controller is behind
+
+```yaml
+updates:
+  check_interval: 24h
+```
+
+Once a day, the controller asks github.com which release of Zoomies is current.
+If that is not the release this controller was built from, the Overview's
+problems panel says so, at **info** severity, naming both versions and linking
+the release notes.
+
+It only ever tells you. **Nothing downloads and nothing restarts** — the
+controller does not update itself, and it never will: a controller that
+restarted itself would drop in-flight webhook deliveries and every agent's
+long poll, and would only work for some of the ways `zoomies init` can install
+it. The upgrade stays a decision you make.
+
+The notice appears **only on a controller built from a release tag**. One built
+from `main` — which is what the `:latest` and `:main` images are — is normally
+*ahead* of the newest release, so telling it that a release is available would
+be telling it to downgrade. It says nothing rather than something wrong.
+
+This is the one request Zoomies makes to github.com that is not about your
+fleet, and it goes there whatever `github.api_base_url` is set to, because the
+releases of this software live on github.com whichever GitHub your runners talk
+to. An air-gapped deployment, or a GitHub Enterprise Server one with no route
+out, wants `check_interval: 0` — which switches off the check and the notice
+together.
 
 ### Deployment models
 

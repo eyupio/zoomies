@@ -665,6 +665,23 @@ func (c *Config) Validate() Findings {
 		})
 	}
 
+	// --- Update check -----------------------------------------------------
+	if c.Updates.CheckInterval < 0 {
+		add(Finding{
+			Code: "updates.interval_negative", Severity: SeverityError, Setting: "updates.check_interval",
+			Title: "updates.check_interval cannot be negative",
+			Fix:   `use a duration like "24h", or 0 to never ask.`,
+		})
+	}
+	if c.Updates.CheckInterval > 0 && c.Updates.CheckInterval < time.Hour {
+		add(Finding{
+			Code: "updates.interval_too_fast", Severity: SeverityWarning, Setting: "updates.check_interval",
+			Title:  fmt.Sprintf("asking github.com for the current release every %s", c.Updates.CheckInterval),
+			Detail: "releases are published far less often than that, and the check is unauthenticated, so it draws on a rate limit shared by everything else leaving this address.",
+			Fix:    `use "24h", which still notices a release within a working day.`,
+		})
+	}
+
 	// --- External capacity provisioner -----------------------------------
 	if c.CapacityDemand.DestinationURL != "" {
 		u, err := url.Parse(c.CapacityDemand.DestinationURL)

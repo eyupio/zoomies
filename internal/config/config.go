@@ -37,6 +37,7 @@ type Config struct {
 	Metrics        Metrics        `yaml:"metrics"`
 	Retention      Retention      `yaml:"retention"`
 	Images         Images         `yaml:"images"`
+	Updates        Updates        `yaml:"updates"`
 	CapacityDemand CapacityDemand `yaml:"capacity_demand"`
 
 	// path records where this config was read from, for error messages.
@@ -62,6 +63,20 @@ type Images struct {
 	// actually moved. Zero switches it off, which is what an air-gapped fleet
 	// or one that pins every pool to a digest wants.
 	RefreshInterval time.Duration `yaml:"refresh_interval"`
+}
+
+// Updates controls whether this controller asks github.com which release of
+// Zoomies is current, so that being out of date is something the UI says rather
+// than something an operator finds out later.
+type Updates struct {
+	// CheckInterval is how often that question is asked. Zero switches the
+	// check off, and with it the one request Zoomies makes to github.com that
+	// is not about your fleet -- which is what an air-gapped deployment, or one
+	// pointed at GitHub Enterprise Server with no route to github.com, wants.
+	//
+	// Nothing is ever downloaded or installed by this: the controller does not
+	// update itself, it only says that a newer release exists.
+	CheckInterval time.Duration `yaml:"check_interval"`
 }
 
 // CapacityDemand publishes signed requests for host capacity to an external
@@ -359,7 +374,10 @@ func Default() *Config {
 		},
 		// Hourly is soon enough that a host picks up a rebuilt image the same
 		// working day, and rare enough that the registry never notices.
-		Images:         Images{RefreshInterval: time.Hour},
+		Images: Images{RefreshInterval: time.Hour},
+		// Daily: releases are not frequent, and a controller that asks once a
+		// day still tells you within a working day of one being published.
+		Updates:        Updates{CheckInterval: 24 * time.Hour},
 		CapacityDemand: CapacityDemand{Cooldown: 10 * time.Minute, Timeout: 10 * time.Second},
 	}
 }
@@ -841,6 +859,7 @@ func (c *Config) applyEnv() error {
 	dur("ZOOMIES_RETENTION_WEBHOOKS", &c.Retention.Webhooks)
 
 	dur("ZOOMIES_IMAGE_REFRESH_INTERVAL", &c.Images.RefreshInterval)
+	dur("ZOOMIES_UPDATE_CHECK_INTERVAL", &c.Updates.CheckInterval)
 	str("ZOOMIES_CAPACITY_DEMAND_URL", &c.CapacityDemand.DestinationURL)
 	str("ZOOMIES_CAPACITY_DEMAND_SIGNING_SECRET", &c.CapacityDemand.SigningSecret)
 	dur("ZOOMIES_CAPACITY_DEMAND_COOLDOWN", &c.CapacityDemand.Cooldown)

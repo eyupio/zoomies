@@ -426,6 +426,7 @@ var runtimeWritable = map[string]string{
 	"retention.samples":              "how long the Overview's samples are kept",
 	"retention.webhooks":             "how long webhook deliveries are kept",
 	"images.refresh_interval":        "how often every pool's image is prewarmed again, so a moving tag reaches the hosts",
+	"updates.check_interval":         "how often github.com is asked which release of Zoomies is current; 0 never asks",
 }
 
 // restartRequiredKeys lists the settings that exist and cannot be changed here.
@@ -548,6 +549,9 @@ func (s *Server) settingsConfig() map[string]any {
 		},
 		"images": map[string]any{
 			"refresh_interval": c.Images.RefreshInterval.String(),
+		},
+		"updates": map[string]any{
+			"check_interval": c.Updates.CheckInterval.String(),
 		},
 	}
 }
@@ -708,6 +712,8 @@ func (s *Server) stageSetting(key string, value any) (func(*config.Config) any, 
 
 	case "images.refresh_interval":
 		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Images.RefreshInterval }, 0)
+	case "updates.check_interval":
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Updates.CheckInterval }, 0)
 	}
 	return nil, fmt.Errorf("%q is not a setting this API knows about", key)
 }

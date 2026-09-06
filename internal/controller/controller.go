@@ -139,6 +139,9 @@ type Controller struct {
 	// resynced records the hosts that have heartbeat since this process
 	// started; the first heartbeat from each asks for a full runner report.
 	resynced map[string]bool
+	// release is what the last update check learned about the current release
+	// of Zoomies, or nil until one has answered.
+	release  *releaseState
 	embedded *agent.Agent
 	// embeddedCancel stops the in-process agent, which may have been started
 	// with a context the controller does not otherwise control.

@@ -112,6 +112,8 @@ on a public address the same setting is an error.
 | `scheduler.interval` | error | `scheduler.interval` | Must be positive. |
 | `scheduler.burst` | error | `scheduler.max_creates_per_tick` | Must be at least 1. |
 | `scheduler.lifetime_short` | warning | `scheduler.max_runner_lifetime` | Idle runners are recycled sooner than a long job takes, so work may be interrupted. |
+| `updates.interval_negative` | error | `updates.check_interval` | Must not be negative. Use a duration, or 0 to never ask. |
+| `updates.interval_too_fast` | warning | `updates.check_interval` | Releases are published far less often than this, and the check is unauthenticated. |
 | `images.refresh_negative` | error | `images.refresh_interval` | Must not be negative. Use a duration, or 0 to leave images alone. |
 | `images.refresh_too_fast` | warning | `images.refresh_interval` | Every pool's image is checked on every host far more often than an image is built. |
 | `images.refresh_off` | info | `images.refresh_interval` | Nothing refreshes runner images, so a pool naming a moving tag keeps whatever its hosts pulled first. Expected on an air-gapped fleet, or one that pins every pool to a digest. |
@@ -146,6 +148,7 @@ on a public address the same setting is an error.
 | `runners.failed` | warning | Runners are in the failed state with their reasons recorded. |
 | `runners.not_progressing` | warning | Runners have sat in `provisioning` or `registering` for over half the provision timeout, so the fleet says so while there is still time to look rather than only when it fails them. The entry splits the two shapes, because they are not fixed in the same place: a runner still waiting for a container is a backend or image problem on the host, and one whose container started without registering is the runner process failing to reach GitHub. |
 | `capacity_demand.delivery_failed` | warning | An external capacity provisioner did not accept the latest event, after its retries. |
+| `controller.update_available` | info | A newer release of Zoomies has been published than the one this controller was built from. Nothing is wrong and nothing updates itself: runners, pools and jobs do not depend on the controller's version. It appears only on a controller built from a release tag — one built from `main` is normally ahead of the newest release, so it has nothing to compare — and `updates.check_interval: 0` switches both the check and this entry off. |
 | `controller.loop_panicked` | error | A background loop panicked and was restarted. The fleet keeps running, but this is a bug: the stack is in the log, and it is worth reporting. |
 
 ## Keeping this list honest
