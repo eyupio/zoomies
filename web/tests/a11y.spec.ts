@@ -80,9 +80,10 @@ for (const { path, heading } of PAGES) {
 test('every button and link has an accessible name', async ({ page }) => {
   // This one caught a real bug on the phone: the bottom bar hid each entry's
   // label with `display: none`, which took its accessible name with it, and a
-  // screen reader announced eight links called "link". The label is hidden the
-  // way the collapsed desktop nav hides its own now -- off screen, still in the
-  // accessibility tree -- so both projects assert the same thing.
+  // screen reader announced eight links called "link". The bar shows its four
+  // labels outright now, and the collapsed desktop sidebar hides its own off
+  // screen rather than removing them -- so both projects assert the same
+  // thing.
 
   // `getByRole` uses the browser's own name computation and skips anything
   // hidden from the accessibility tree, so this is the real question rather

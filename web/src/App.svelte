@@ -20,6 +20,7 @@
   import AppFooter from '$lib/shell/AppFooter.svelte';
   import CommandPalette from '$lib/shell/CommandPalette.svelte';
   import Nav from '$lib/shell/Nav.svelte';
+  import NavMenu from '$lib/shell/NavMenu.svelte';
   import ProblemsDrawer from '$lib/problems/ProblemsDrawer.svelte';
   import ShortcutSheet from '$lib/shell/ShortcutSheet.svelte';
   import TopBar from '$lib/shell/TopBar.svelte';
@@ -27,6 +28,7 @@
   import Login from './routes/Login.svelte';
 
   let paletteOpen = $state(false);
+  let navMenuOpen = $state(false);
   let shortcutsOpen = $state(false);
   let announcement = $state('');
   let warnedAboutPassword = false;
@@ -132,7 +134,7 @@
   <main id="main" class="centred"><Login /></main>
 {:else}
   <div class="app">
-    <Nav />
+    <Nav menuOpen={navMenuOpen} onmore={() => (navMenuOpen = !navMenuOpen)} />
     <div class="column">
       <TopBar onpalette={() => (paletteOpen = true)} onshortcuts={() => (shortcutsOpen = true)} />
       <main id="main" tabindex="-1">
@@ -166,6 +168,7 @@
     </div>
   </div>
 
+  <NavMenu bind:open={navMenuOpen} />
   <CommandPalette bind:open={paletteOpen} />
   <ProblemsDrawer />
   <ShortcutSheet bind:open={shortcutsOpen} />

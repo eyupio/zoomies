@@ -16,8 +16,12 @@ import {
   goto,
   grid,
   nav,
+  menuEntry,
   navEntry,
+  navMenu,
+  openNavMenu,
   pageHeading,
+  PRIMARY_SECTIONS,
   SECTIONS,
   sectionHeading,
 } from './support/fixtures';
@@ -59,7 +63,7 @@ test('the Overview is readable without scrolling sideways', async ({ page }) => 
   await expectNoSidewaysScroll(page, 'the Overview');
 });
 
-test('the navigation becomes a bar at the bottom and every page is reachable', async ({ page }) => {
+test('the navigation is a bar at the bottom, aligned and reaching every page', async ({ page }) => {
   await goto(page, '/', 'Overview');
 
   const bar = nav(page);
@@ -74,18 +78,88 @@ test('the navigation becomes a bar at the bottom and every page is reachable', a
   // The desktop collapse control is gone, because there is nothing to collapse.
   await expect(page.getByRole('button', { name: /the navigation/ })).toHaveCount(0);
 
-  // Every section is one press away from the Overview. Located by href rather
-  // than by name, because at this width the label is visually hidden and the
-  // href is the thing that has to be right.
+  // Four sections and the menu button, each an equal share of the width and
+  // each under its own word.
+  //
+  // This is the regression the whole test exists for. `.nav.collapsed` is two
+  // classes and the phone rules were one, a media query adds no specificity of
+  // its own, and the collapse pref defaulted to on at any width under 1180px --
+  // so on a phone the bar was 56px wide with all ten entries piled into the
+  // corner and the masthead sitting on top of them.
+  const entries = bar.getByRole('listitem');
+  await expect(entries).toHaveCount(5);
+  const widths: number[] = [];
+  for (let i = 0; i < 5; i++) {
+    const entry = await entries.nth(i).boundingBox();
+    expect(entry, 'every entry has a box').not.toBeNull();
+    expect(entry?.x ?? -1, 'no entry starts off the left edge').toBeGreaterThanOrEqual(0);
+    expect(
+      (entry?.x ?? 0) + (entry?.width ?? 0),
+      'no entry runs off the right edge',
+    ).toBeLessThanOrEqual((viewport?.width ?? 0) + 1);
+    widths.push(entry?.width ?? 0);
+  }
+  expect(
+    Math.max(...widths) - Math.min(...widths),
+    'the entries share the width evenly rather than bunching up',
+  ).toBeLessThanOrEqual(1);
+  expect(
+    Math.min(...widths),
+    'each entry is wide enough to be a thumb target',
+  ).toBeGreaterThanOrEqual(44);
+  for (const label of ['Overview', 'Pools', 'Runners', 'Jobs', 'More']) {
+    await expect(bar.getByText(label, { exact: true })).toBeVisible();
+  }
+
+  // Every section is one press away from the Overview: the four in the bar
+  // directly, the other six through the menu the fifth entry opens.
   //
   // Each hop starts from the Overview on purpose: a press from a page that has
   // been scrolled tells you less than a press from a known one.
   for (const section of SECTIONS) {
     await goto(page, '/', 'Overview');
-    await navEntry(page, section.path).click();
+    if (PRIMARY_SECTIONS.includes(section.path)) {
+      await navEntry(page, section.path).click();
+      await expect(pageHeading(page, sectionHeading(section))).toBeVisible();
+      await expect(navEntry(page, section.path)).toHaveAttribute('aria-current', 'page');
+      continue;
+    }
+    await openNavMenu(page);
+    await menuEntry(page, section.path).click();
     await expect(pageHeading(page, sectionHeading(section))).toBeVisible();
-    await expect(navEntry(page, section.path)).toHaveAttribute('aria-current', 'page');
+    // Choosing a section closes the menu: nobody wants to dismiss a menu they
+    // have already used.
+    await expect(navMenu(page)).toHaveCount(0);
+    // And the menu says where you are when it is opened again.
+    await openNavMenu(page);
+    await expect(menuEntry(page, section.path)).toHaveAttribute('aria-current', 'page');
+    await page.keyboard.press('Escape');
+    await expect(navMenu(page)).toHaveCount(0);
   }
+});
+
+test('the side menu closes on Escape and on the scrim, and lists every section', async ({
+  page,
+}) => {
+  await goto(page, '/', 'Overview');
+
+  const menu = await openNavMenu(page);
+  for (const section of SECTIONS) {
+    await expect(menuEntry(page, section.path)).toBeVisible();
+  }
+  // The masthead a phone otherwise never sees, since the bottom bar has no room
+  // for one.
+  await expect(menu.getByText('Zoomies', { exact: true })).toBeVisible();
+
+  await page.keyboard.press('Escape');
+  await expect(navMenu(page)).toHaveCount(0);
+
+  await openNavMenu(page);
+  // The scrim is the part of the overlay outside the panel; pressing the far
+  // right edge is pressing it.
+  const size = page.viewportSize();
+  await page.mouse.click((size?.width ?? 400) - 8, (size?.height ?? 800) / 2);
+  await expect(navMenu(page)).toHaveCount(0);
 });
 
 test('the grids stay inside the screen instead of overflowing it', async ({ page }) => {

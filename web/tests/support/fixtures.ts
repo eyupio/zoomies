@@ -119,7 +119,7 @@ export async function reload(page: Page, heading?: string): Promise<void> {
   await expect(pageHeading(page, heading)).toBeVisible();
 }
 
-/** The left navigation. */
+/** The persistent navigation: the left sidebar, or the phone's bottom bar. */
 export function nav(page: Page): Locator {
   return page.getByRole('navigation', { name: 'Sections' });
 }
@@ -127,13 +127,71 @@ export function nav(page: Page): Locator {
 /**
  * One navigation entry, by the path it points at.
  *
- * Deliberately not by accessible name: at the phone breakpoint the label span
- * is `display: none`, which empties the name (see the note in a11y.spec.ts),
- * and this helper has to work in both projects. Scoped to the list so the
- * brand mark, which also points at "/", is not one of the entries.
+ * By href rather than by accessible name, because the sidebar empties the name
+ * of its own labels when it is collapsed (see the note in a11y.spec.ts) and
+ * this helper has to work in both projects. Scoped to the list so the brand
+ * mark, which also points at "/", is not one of the entries.
+ *
+ * On a phone the bar carries only the four primary sections; the rest are in
+ * the side menu, so reach those with `menuEntry`.
  */
 export function navEntry(page: Page, path: string): Locator {
   return nav(page).getByRole('listitem').locator(`a[href="${path}"]`);
+}
+
+/** The paths the phone's bottom bar carries itself, from `lib/shell/sections.ts`. */
+export const PRIMARY_SECTIONS: readonly string[] = ['/', '/pools', '/runners', '/jobs'];
+
+/** The phone's side menu, once it is open. */
+export function navMenu(page: Page): Locator {
+  return page.getByRole('dialog', { name: 'All sections' });
+}
+
+/** Press "More" in the bottom bar and wait for the side menu it opens. */
+export async function openNavMenu(page: Page): Promise<Locator> {
+  await nav(page).getByRole('button', { name: 'More' }).click();
+  const menu = navMenu(page);
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+/** One entry of the side menu, by the path it points at. */
+export function menuEntry(page: Page, path: string): Locator {
+  return navMenu(page).getByRole('listitem').locator(`a[href="${path}"]`);
+}
+
+/**
+ * Go to a section the way an operator would at this width.
+ *
+ * The sidebar lists all ten; the phone's bar lists four and keeps the rest in
+ * the side menu. Which of those a test is looking at is not the thing under
+ * test in most specs, so they ask for the section and get there.
+ */
+export async function openSection(page: Page, path: string): Promise<void> {
+  if ((await navEntry(page, path).count()) > 0) {
+    await navEntry(page, path).click();
+    return;
+  }
+  await openNavMenu(page);
+  await menuEntry(page, path).click();
+  await expect(navMenu(page)).toHaveCount(0);
+}
+
+/**
+ * That the navigation marks this section as the one being looked at -- and
+ * marks exactly one, since a mark two entries carry means nothing.
+ */
+export async function expectCurrentSection(page: Page, path: string): Promise<void> {
+  if ((await navEntry(page, path).count()) > 0) {
+    await expect(navEntry(page, path)).toHaveAttribute('aria-current', 'page');
+    await expect(nav(page).locator('[aria-current="page"]')).toHaveCount(1);
+    return;
+  }
+  const menu = await openNavMenu(page);
+  await expect(menuEntry(page, path)).toHaveAttribute('aria-current', 'page');
+  await expect(menu.locator('[aria-current="page"]')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(navMenu(page)).toHaveCount(0);
 }
 
 /** A DataGrid by its accessible name: "Runners", "Pools", "Jobs". */

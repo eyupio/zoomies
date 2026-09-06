@@ -136,8 +136,13 @@
           }
           var n = localStorage.getItem('zoomies.nav.collapsed');
           // No choice recorded: a tablet-width window starts collapsed, as
-          // the guidelines promise. prefs.svelte.ts applies the same default.
-          var tablet = n === null && window.matchMedia && matchMedia('(max-width: 1180px)').matches;
+          // the guidelines promise. A phone is excluded -- its navigation is a
+          // bar along the bottom edge, which has nothing to collapse.
+          // prefs.svelte.ts applies the same default.
+          var tablet =
+            n === null &&
+            window.matchMedia &&
+            matchMedia('(min-width: 769px) and (max-width: 1180px)').matches;
           if (n === '1' || tablet) document.documentElement.setAttribute('data-nav', 'collapsed');
         } catch (e) {
           /* private mode: fall back to the system preference */
