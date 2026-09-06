@@ -135,15 +135,17 @@ func TestProblemsReportsEachCategory(t *testing.T) {
 	})
 }
 
-// A job whose labels no pool advertises will never run, and saying so is the
-// only way an operator finds out.
+// A job whose labels no pool here advertises is not going to run here, and
+// once it has waited long enough to mean something, saying so is the only way
+// an operator finds out.
 func TestUnmatchedJobIsRecordedAndReported(t *testing.T) {
 	h := newHarness(t)
 	h.fleet()
 
 	h.deliverJob(jobEvent{
 		Action: "queued", JobID: 909,
-		Labels: []string{"self-hosted", "linux", "gpu", "cuda12"},
+		Labels:   []string{"self-hosted", "linux", "gpu", "cuda12"},
+		QueuedAt: time.Now().Add(-unmatchedGrace - time.Minute),
 	})
 
 	job, err := h.st.GetJobByGitHubID(h.ctx, 909)
@@ -384,5 +386,54 @@ func TestAFullFleetIsAWarningRatherThanAnOutage(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("problems = %v, want the pool waiting on capacity", h.problemCodes())
+	}
+}
+
+// The installation's webhooks cover every job in its repositories, most of
+// which this fleet never touches. A job on GitHub's own runners is theirs to
+// run however long it queues, and a job no pool here claims may be another
+// provider's, about to start there; neither is a problem for this fleet, and
+// the dev instance once showed fifty of them as jobs that would never run.
+func TestAHostedOrFreshUnmatchedJobIsNotAProblem(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+
+	h.deliverJob(jobEvent{
+		Action: "queued", JobID: 910,
+		Labels:   []string{"ubuntu-latest"},
+		QueuedAt: time.Now().Add(-time.Hour),
+	})
+	h.deliverJob(jobEvent{
+		Action: "queued", JobID: 911,
+		Labels:   []string{"blacksmith-4vcpu-ubuntu-2404"},
+		QueuedAt: time.Now().Add(-time.Hour),
+	})
+	h.deliverJob(jobEvent{
+		Action: "queued", JobID: 912,
+		Labels: []string{"self-hosted", "arc-runner-set"},
+		// Fresh: another provider's scale-up delay has not run out.
+	})
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if contains(h.problemCodes(), "jobs.unmatched") {
+		t.Fatalf("problems = %v; hosted and freshly queued jobs are not this fleet's", h.problemCodes())
+	}
+
+	// The view says which jobs are hosted, so the UI can badge them rather
+	// than warn about them.
+	hosted, err := h.st.GetJobByGitHubID(h.ctx, 910)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := NewJobView(hosted, ""); !v.Hosted || v.Matched {
+		t.Fatalf("view = %+v, want hosted and unmatched", v)
+	}
+	own, err := h.st.GetJobByGitHubID(h.ctx, 912)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := NewJobView(own, ""); v.Hosted {
+		t.Fatalf("a self-hosted label counted as hosted: %+v", v)
 	}
 }

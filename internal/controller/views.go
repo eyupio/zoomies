@@ -9,6 +9,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/github"
+	"github.com/eyupio/zoomies/internal/migrate"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -120,25 +121,29 @@ func (c *Controller) HostView(h *store.Host) HostView {
 
 // JobView is one job with its pool named and its waits measured.
 type JobView struct {
-	ID          string          `json:"id"`
-	GitHubJobID int64           `json:"github_job_id"`
-	GitHubRunID int64           `json:"github_run_id"`
-	Repo        string          `json:"repo"`
-	Workflow    string          `json:"workflow"`
-	JobName     string          `json:"job_name"`
-	Labels      []string        `json:"labels"`
-	State       store.JobState  `json:"state"`
-	Conclusion  string          `json:"conclusion,omitempty"`
-	PoolID      string          `json:"pool_id,omitempty"`
-	PoolName    string          `json:"pool_name,omitempty"`
-	RunnerID    string          `json:"runner_id,omitempty"`
-	RunnerName  string          `json:"runner_name,omitempty"`
-	HTMLURL     string          `json:"html_url,omitempty"`
-	Matched     bool            `json:"matched"`
-	HeadBranch  string          `json:"head_branch,omitempty"`
-	HeadSHA     string          `json:"head_sha,omitempty"`
-	RunAttempt  int             `json:"run_attempt,omitempty"`
-	Steps       []store.JobStep `json:"steps"`
+	ID          string         `json:"id"`
+	GitHubJobID int64          `json:"github_job_id"`
+	GitHubRunID int64          `json:"github_run_id"`
+	Repo        string         `json:"repo"`
+	Workflow    string         `json:"workflow"`
+	JobName     string         `json:"job_name"`
+	Labels      []string       `json:"labels"`
+	State       store.JobState `json:"state"`
+	Conclusion  string         `json:"conclusion,omitempty"`
+	PoolID      string         `json:"pool_id,omitempty"`
+	PoolName    string         `json:"pool_name,omitempty"`
+	RunnerID    string         `json:"runner_id,omitempty"`
+	RunnerName  string         `json:"runner_name,omitempty"`
+	HTMLURL     string         `json:"html_url,omitempty"`
+	Matched     bool           `json:"matched"`
+	// Hosted is true when every label names a runner somebody else operates:
+	// GitHub's own or a hosted-runner vendor's. Such a job is theirs to run,
+	// so it being unmatched here is expected rather than a job going nowhere.
+	Hosted     bool            `json:"hosted"`
+	HeadBranch string          `json:"head_branch,omitempty"`
+	HeadSHA    string          `json:"head_sha,omitempty"`
+	RunAttempt int             `json:"run_attempt,omitempty"`
+	Steps      []store.JobStep `json:"steps"`
 	// FailedStep is the step a failed job stopped at, worked out here from the
 	// steps so that the grid and the drawer name the same one. Null when the
 	// job did not fail on a step it ran.
@@ -152,6 +157,23 @@ type JobView struct {
 	CompletedAt *time.Time `json:"completed_at"`
 	QueueWaitMS int64      `json:"queue_wait_ms"`
 	DurationMS  int64      `json:"duration_ms"`
+}
+
+// hostedJob reports whether a job's labels all name runners somebody else
+// operates -- GitHub's own, or a hosted-runner vendor's. The installation's
+// webhooks cover every job in its repositories, most of which this fleet never
+// touches, and calling one of those "unmatched" as though it were stuck was
+// alarming and false: it runs where its labels say.
+func hostedJob(labels []string) bool {
+	if len(labels) == 0 {
+		return false
+	}
+	for _, l := range labels {
+		if !migrate.IsManagedLabel(l) {
+			return false
+		}
+	}
+	return true
 }
 
 // NewJobView renders a job, given the name of the pool that claimed it.
@@ -172,6 +194,7 @@ func NewJobView(j *store.Job, poolName string) JobView {
 		RunnerName:  j.RunnerName,
 		HTMLURL:     j.HTMLURL,
 		Matched:     j.Matched,
+		Hosted:      hostedJob(j.Labels),
 		HeadBranch:  j.HeadBranch,
 		HeadSHA:     j.HeadSHA,
 		RunAttempt:  j.RunAttempt,

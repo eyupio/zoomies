@@ -19,6 +19,7 @@ import {
   CircleSlash,
   CircleX,
   Clock,
+  Cloud,
   Info,
   Minus,
   Play,
@@ -216,9 +217,27 @@ export const UNMATCHED: StatusMeta = meta(
  * to make, so the warning is kept for the one case it is true of: a job still
  * queued, with nothing to hand it to.
  */
-export function stuckUnmatched(job: { matched?: boolean; state?: JobState }): boolean {
-  return job.matched === false && job.state === 'queued';
+export function stuckUnmatched(job: {
+  matched?: boolean;
+  state?: JobState;
+  hosted?: boolean;
+}): boolean {
+  return job.matched === false && job.state === 'queued' && !job.hosted;
 }
+
+/**
+ * A job whose labels all name runners somebody else operates: GitHub's own, or
+ * a hosted-runner vendor's. It runs there, and is never stuck on this fleet's
+ * account however long it queues.
+ */
+export const HOSTED: StatusMeta = meta(
+  'hosted',
+  'Hosted elsewhere',
+  'neutral',
+  'hollow',
+  Cloud,
+  "Its labels name GitHub's own runners or a hosted-runner vendor's, so it runs there rather than on this fleet.",
+);
 
 /**
  * A job whose runner stopped under it. GitHub records the job as an ordinary

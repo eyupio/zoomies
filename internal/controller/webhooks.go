@@ -252,8 +252,11 @@ func (c *Controller) handleWorkflowJob(ctx context.Context, body []byte) error {
 		c.observeJobCompletion(saved)
 	}
 
-	if !saved.Matched && saved.State == store.JobQueued {
-		c.log.Warn("a queued job matches no enabled pool, so nothing will run it",
+	if !saved.Matched && saved.State == store.JobQueued && !hostedJob(saved.Labels) {
+		// Not a warning: next to another runner provider this is every one of
+		// its jobs. The problems drawer says so once the job has waited long
+		// enough to mean something.
+		c.log.Info("no enabled pool here claims a queued job; if it is meant for this fleet, its labels match no pool",
 			"job", saved.ID, "repo", saved.Repo, "labels", strings.Join(saved.Labels, ","))
 	}
 

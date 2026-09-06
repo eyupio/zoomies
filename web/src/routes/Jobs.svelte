@@ -21,7 +21,7 @@
   import { formatDuration } from '$lib/format';
   import { router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
-  import { jobStatus, RUNNER_LOST, stuckUnmatched, UNMATCHED } from '$lib/status';
+  import { HOSTED, jobStatus, RUNNER_LOST, stuckUnmatched, UNMATCHED } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import DataGrid from '$lib/components/DataGrid.svelte';
@@ -276,6 +276,8 @@
     {/if}
     {#if stuckUnmatched(job)}
       <Badge status={UNMATCHED} size="sm" title={UNMATCHED.hint} />
+    {:else if job.hosted && job.matched === false}
+      <Badge status={HOSTED} size="sm" title={HOSTED.hint} />
     {/if}
   </span>
 {/snippet}

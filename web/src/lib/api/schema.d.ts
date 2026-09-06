@@ -1965,6 +1965,8 @@ export interface components {
             html_url?: string;
             /** @description False when no enabled pool claims this job's labels. On a job that is not queued this only says the job ran somewhere else. */
             matched?: boolean;
+            /** @description True when every label names GitHub's own runners or a hosted-runner vendor's, so a job no pool here claims is theirs to run rather than stuck. */
+            hosted?: boolean;
             /** @description The branch the run was for. */
             head_branch?: string;
             head_sha?: string;

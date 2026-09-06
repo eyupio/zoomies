@@ -389,9 +389,20 @@ func (c *Controller) jobProblems(ctx context.Context, out *[]Problem) error {
 	if err := c.lostRunnerProblems(ctx, out); err != nil {
 		return err
 	}
-	unmatched, err := c.unmatchedQueuedJobs(ctx)
+	all, err := c.unmatchedQueuedJobs(ctx)
 	if err != nil {
 		return err
+	}
+	now := c.Now()
+	var unmatched []*store.Job
+	for _, j := range all {
+		// A job on GitHub's own runners or a vendor's is theirs to run however
+		// long it queues, and a job unclaimed for seconds may be another
+		// provider's, about to start there. Neither is this fleet's problem.
+		if hostedJob(j.Labels) || now.Sub(j.QueuedAt) < unmatchedGrace {
+			continue
+		}
+		unmatched = append(unmatched, j)
 	}
 	if len(unmatched) == 0 {
 		return nil
@@ -401,14 +412,20 @@ func (c *Controller) jobProblems(ctx context.Context, out *[]Problem) error {
 	*out = append(*out, Problem{
 		Code:     "jobs.unmatched",
 		Severity: config.SeverityWarning,
-		Title:    fmt.Sprintf("no enabled pool matches %s", plural(len(unmatched), "queued job")),
-		Detail: fmt.Sprintf("nothing will run them. The oldest is %s in %s, asking for [%s].",
-			example.JobName, example.Repo, labels),
-		Fix:        "create or enable a pool advertising those labels, or change the workflow's runs-on.",
+		Title:    fmt.Sprintf("no enabled pool here claims %s", plural(len(unmatched), "queued job")),
+		Detail: fmt.Sprintf("if they are meant for this fleet, nothing will run them. The oldest is %s in %s, asking for [%s], queued for %s. If another runner provider serves those labels, this is expected.",
+			example.JobName, example.Repo, labels, roundDuration(now.Sub(example.QueuedAt))),
+		Fix:        "create or enable a pool advertising those labels, or change the workflow's runs-on; if another provider takes these jobs, nothing needs doing.",
 		TargetKind: "job", TargetID: example.ID, Since: &example.QueuedAt,
 	})
 	return nil
 }
+
+// unmatchedGrace is how long a queued job no pool here claims is given before
+// it is reported. GitHub's own runners take a job within seconds and another
+// provider within its own scale-up delay, so a job still unclaimed after this
+// long is either meant for this fleet and mislabelled, or nobody's at all.
+const unmatchedGrace = 2 * time.Minute
 
 // lostRunnerProblems reports jobs whose runner stopped under them in the last
 // hour. GitHub records these as failures like any test failure, and a team
