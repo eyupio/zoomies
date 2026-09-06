@@ -193,31 +193,84 @@ func TestListenChoiceFor(t *testing.T) {
 
 func TestSuggestPool(t *testing.T) {
 	cases := []struct {
-		os, arch string
+		name     string
+		det      Detection
 		backend  store.BackendKind
 		capacity int
 		wantName string
 		wantCmd  string
 	}{
-		{"linux", "amd64", store.BackendDocker, 4, "linux-x64",
-			"zoomies pools create --name linux-x64 --labels linux-x64 --backend docker --max 4"},
-		{"linux", "arm64", store.BackendPodman, 2, "linux-arm64",
-			"zoomies pools create --name linux-arm64 --labels linux-arm64 --backend podman --max 2"},
-		{"linux", "amd64", store.BackendProcess, 1, "linux-x64-host",
-			"zoomies pools create --name linux-x64-host --labels linux-x64-host --backend process --max 1"},
-		{"darwin", "arm64", store.BackendDocker, 8, "macos-arm64",
-			"zoomies pools create --name macos-arm64 --labels macos-arm64 --backend docker --max 8"},
-		{"linux", "amd64", store.BackendDocker, 0, "linux-x64",
-			"zoomies pools create --name linux-x64 --labels linux-x64 --backend docker --max 1"},
+		{
+			name:     "a host that knows what it is gets a name that says so",
+			det:      Detection{OS: "linux", Arch: "amd64", Distro: "ubuntu", OSVersion: "24.04", CPUs: 16},
+			backend:  store.BackendDocker,
+			capacity: 4,
+			wantName: "zoomies-4vcpu-ubuntu-2404",
+			wantCmd: "zoomies pools create --name zoomies-4vcpu-ubuntu-2404 " +
+				"--labels zoomies-4vcpu-ubuntu-2404,linux,x64 --backend docker --max 4 " +
+				"--cpus 4 --os ubuntu --os-version 24.04 --arch amd64",
+		},
+		{
+			name:     "arm64 is spelled out",
+			det:      Detection{OS: "linux", Arch: "arm64", Distro: "debian", OSVersion: "12", CPUs: 8},
+			backend:  store.BackendPodman,
+			capacity: 2,
+			wantName: "zoomies-4vcpu-debian-12-arm64",
+			wantCmd: "zoomies pools create --name zoomies-4vcpu-debian-12-arm64 " +
+				"--labels zoomies-4vcpu-debian-12-arm64,linux,arm64 --backend podman --max 2 " +
+				"--cpus 4 --os debian --os-version 12 --arch arm64",
+		},
+		{
+			// The host is the environment, so there is no image and no
+			// platform to promise beyond the architecture.
+			name:     "the process backend answers to its own label",
+			det:      Detection{OS: "linux", Arch: "amd64", Distro: "ubuntu", OSVersion: "24.04", CPUs: 4},
+			backend:  store.BackendProcess,
+			capacity: 1,
+			wantName: "zoomies-4vcpu-ubuntu-2404-host",
+			wantCmd: "zoomies pools create --name zoomies-4vcpu-ubuntu-2404-host " +
+				"--labels zoomies-4vcpu-ubuntu-2404-host,linux,x64 --backend process --max 1 " +
+				"--cpus 4 --arch amd64",
+		},
+		{
+			// A host that will not say what distribution it is gets the old
+			// architecture label rather than a name that is only the brand.
+			name:     "a host that says nothing falls back",
+			det:      Detection{OS: "linux", Arch: "amd64"},
+			backend:  store.BackendDocker,
+			capacity: 0,
+			wantName: "linux-x64",
+			wantCmd: "zoomies pools create --name linux-x64 --labels linux-x64 " +
+				"--backend docker --max 1 --cpus 1 --arch amd64",
+		},
 	}
 	for _, tc := range cases {
-		got := SuggestPool(tc.os, tc.arch, tc.backend, tc.capacity)
-		if got.Name != tc.wantName {
-			t.Errorf("SuggestPool(%s/%s, %s).Name = %q, want %q", tc.os, tc.arch, tc.backend, got.Name, tc.wantName)
-		}
-		if cmd := got.Command(); cmd != tc.wantCmd {
-			t.Errorf("Command() = %q\nwant %q", cmd, tc.wantCmd)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			got := SuggestPool(tc.det, tc.backend, tc.capacity)
+			if got.Name != tc.wantName {
+				t.Errorf("Name = %q, want %q", got.Name, tc.wantName)
+			}
+			if cmd := got.Command(); cmd != tc.wantCmd {
+				t.Errorf("Command() = %q\nwant       %q", cmd, tc.wantCmd)
+			}
+		})
+	}
+}
+
+// The pool the installer suggests has to be one the scheduler will actually
+// place on the host that suggested it. It is the first thing an operator runs,
+// so a platform mismatch here is the worst possible first impression.
+func TestTheSuggestedPoolFitsTheHostThatSuggestedIt(t *testing.T) {
+	det := Detection{OS: "linux", Arch: "amd64", Distro: "ubuntu", OSVersion: "24.04", CPUs: 8, MemoryMB: 16384}
+	sug := SuggestPool(det, store.BackendDocker, 4)
+
+	host := &store.Host{
+		OS: det.OS, Distro: det.Distro, OSVersion: det.OSVersion, Arch: det.Arch,
+		CPUs: det.CPUs, MemoryMB: det.MemoryMB,
+	}
+	if !sug.Platform.Matches(host.Platform()) {
+		t.Errorf("the suggested pool asks for %+v, which this host (%+v) does not satisfy",
+			sug.Platform, host.Platform())
 	}
 }
 

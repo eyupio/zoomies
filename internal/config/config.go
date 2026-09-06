@@ -20,6 +20,9 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/eyupio/zoomies/internal/machine"
+	"github.com/eyupio/zoomies/internal/naming"
 )
 
 // Config is the complete on-disk configuration.
@@ -273,10 +276,11 @@ func Default() *Config {
 	}
 }
 
-// DefaultRunnerImage is the image new pools use unless told otherwise. It is
-// built from deploy/Dockerfile.runner and tracks the current actions/runner
-// release and its .NET 8 dependency.
-const DefaultRunnerImage = "ghcr.io/eyupio/zoomies-runner:latest"
+// DefaultRunnerImage is the image a pool uses when it names neither an image
+// nor an operating system. It is the default variant of the catalogue in
+// internal/naming, built from deploy/Dockerfile.runner; a pool that does name
+// an operating system gets that variant instead.
+var DefaultRunnerImage = naming.DefaultRunnerImage()
 
 func defaultCapacity() int {
 	// One runner per two cores is a defensible starting point: a job usually
@@ -400,11 +404,10 @@ func (c *Config) normalize() {
 	c.Server.ExternalURL = strings.TrimRight(c.Server.ExternalURL, "/")
 	c.Agent.ControllerURL = strings.TrimRight(c.Agent.ControllerURL, "/")
 	if c.Agent.Name == "" {
-		if h, err := os.Hostname(); err == nil {
-			c.Agent.Name = h
-		} else {
-			c.Agent.Name = "localhost"
-		}
+		// A host named for what it is -- "zoomies-16vcpu-32gb-ubuntu-2404-
+		// build01" -- answers at a glance the questions a bare hostname makes
+		// an operator open three pages to answer.
+		c.Agent.Name = machine.DefaultHostName()
 	}
 	if c.Security.CookieSecure == nil {
 		secure := strings.HasPrefix(c.Server.ExternalURL, "https://") || c.Server.TLS.Mode != TLSOff

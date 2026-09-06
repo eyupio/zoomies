@@ -33,12 +33,26 @@ type hostResponse struct {
 	BackendInfo   []backendInfoResponse `json:"backend_info"`
 	Labels        map[string]string     `json:"labels"`
 	OS            string                `json:"os,omitempty"`
+	Distro        string                `json:"distro,omitempty"`
+	OSVersion     string                `json:"os_version,omitempty"`
 	Arch          string                `json:"arch,omitempty"`
-	Version       string                `json:"version,omitempty"`
-	Cordoned      bool                  `json:"cordoned"`
-	Healthy       bool                  `json:"healthy"`
-	LastHeartbeat time.Time             `json:"last_heartbeat"`
-	CreatedAt     time.Time             `json:"created_at"`
+	// CPUs and MemoryMB are how much machine this host is, as its agent
+	// reported it -- the cgroup's share when the agent runs in a container.
+	CPUs     int   `json:"cpus,omitempty"`
+	MemoryMB int64 `json:"memory_mb,omitempty"`
+	// Platform is what this host is in the terms a pool asks in, and
+	// PlatformLabel is the same thing as a sentence: "Ubuntu 24.04, arm64".
+	Platform      store.Platform `json:"platform"`
+	PlatformLabel string         `json:"platform_label,omitempty"`
+	// CanonicalName is the name this machine would be given today. It is shown
+	// beside a host called something that says nothing, so an operator can see
+	// what renaming it would buy them.
+	CanonicalName string    `json:"canonical_name,omitempty"`
+	Version       string    `json:"version,omitempty"`
+	Cordoned      bool      `json:"cordoned"`
+	Healthy       bool      `json:"healthy"`
+	LastHeartbeat time.Time `json:"last_heartbeat"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // hostResponse renders a host as the API returns it.
@@ -61,7 +75,14 @@ func (s *Server) hostResponse(h *store.Host) hostResponse {
 		Backends:      emptySlice(h.Backends),
 		Labels:        emptyMap(h.Labels),
 		OS:            h.OS,
+		Distro:        h.Distro,
+		OSVersion:     h.OSVersion,
 		Arch:          h.Arch,
+		CPUs:          h.CPUs,
+		MemoryMB:      h.MemoryMB,
+		Platform:      h.Platform(),
+		PlatformLabel: h.Platform().Describe(),
+		CanonicalName: h.CanonicalName(),
 		Version:       h.Version,
 		Cordoned:      h.Cordoned,
 		Healthy:       h.Healthy(now),

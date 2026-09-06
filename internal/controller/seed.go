@@ -145,16 +145,21 @@ func (c *Controller) seedInstallation(ctx context.Context) error {
 func (c *Controller) seedHosts(ctx context.Context, now time.Time) ([]*store.Host, error) {
 	specs := []struct {
 		id, name, arch string
+		distro, osVer  string
+		cpus           int
+		memoryMB       int64
 		capacity       int
 		embedded       bool
 		cordoned       bool
 		silentFor      time.Duration
 	}{
-		{demoHostPrefix + "a", "demo-builder-1", "amd64", 6, true, false, 0},
-		{demoHostPrefix + "b", "demo-builder-2", "amd64", 4, false, false, 0},
+		{demoHostPrefix + "a", "demo-builder-1", "amd64", "ubuntu", "24.04", 16, 32768, 6, true, false, 0},
+		// A second distribution, so the Hosts page shows the platform column
+		// doing something and a pool's platform has a host it must not land on.
+		{demoHostPrefix + "b", "demo-builder-2", "amd64", "debian", "12", 8, 16384, 4, false, false, 0},
 		// One cordoned host, so the Hosts page and the problems panel both
 		// have something real to render.
-		{demoHostPrefix + "c", "demo-arm-1", "arm64", 2, false, true, 0},
+		{demoHostPrefix + "c", "demo-arm-1", "arm64", "ubuntu", "24.04", 8, 16384, 2, false, true, 0},
 	}
 	out := make([]*store.Host, 0, len(specs))
 	for _, s := range specs {
@@ -167,7 +172,11 @@ func (c *Controller) seedHosts(ctx context.Context, now time.Time) ([]*store.Hos
 			Backends:      store.StringSlice{"docker"},
 			Labels:        store.StringMap{"arch": s.arch, "zone": "demo"},
 			OS:            "linux",
+			Distro:        s.distro,
+			OSVersion:     s.osVer,
 			Arch:          s.arch,
+			CPUs:          s.cpus,
+			MemoryMB:      s.memoryMB,
 			Version:       "demo",
 			Cordoned:      s.cordoned,
 			LastHeartbeat: now.Add(-s.silentFor),
@@ -187,15 +196,17 @@ func (c *Controller) seedPools(ctx context.Context) (*store.Pool, *store.Pool, e
 		InstallationID: demoInstallationID,
 		Labels:         store.StringSlice{"self-hosted", "linux", "x64", "demo"},
 		Backend:        store.BackendDocker,
-		Image:          c.cfg.GitHub.RunnerImage,
-		MinRunners:     1,
-		MaxRunners:     8,
-		IdleTimeout:    store.Duration(5 * time.Minute),
-		Ephemeral:      true,
-		DockerMode:     store.DockerNone,
-		Resources:      store.Resources{CPUs: 2, MemoryMB: 4096},
-		HostSelector:   store.StringMap{"arch": "amd64"},
-		Enabled:        true,
+		// No image: the platform picks the variant, which is what a pool
+		// created today does and what the Pools page should demonstrate.
+		Platform:     store.Platform{OS: "ubuntu", OSVersion: "24.04", Arch: "amd64"},
+		MinRunners:   1,
+		MaxRunners:   8,
+		IdleTimeout:  store.Duration(5 * time.Minute),
+		Ephemeral:    true,
+		DockerMode:   store.DockerNone,
+		Resources:    store.Resources{CPUs: 2, MemoryMB: 4096},
+		HostSelector: store.StringMap{"arch": "amd64"},
+		Enabled:      true,
 	}
 	arm := &store.Pool{
 		ID:             demoPoolArmID,
@@ -203,7 +214,7 @@ func (c *Controller) seedPools(ctx context.Context) (*store.Pool, *store.Pool, e
 		InstallationID: demoInstallationID,
 		Labels:         store.StringSlice{"self-hosted", "linux", "arm64", "demo"},
 		Backend:        store.BackendDocker,
-		Image:          c.cfg.GitHub.RunnerImage,
+		Platform:       store.Platform{OS: "ubuntu", OSVersion: "24.04", Arch: "arm64"},
 		MinRunners:     0,
 		MaxRunners:     4,
 		IdleTimeout:    store.Duration(10 * time.Minute),

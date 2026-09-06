@@ -126,7 +126,10 @@ func Join(ctx context.Context, opts JoinOptions) error {
 	configFile := filepath.Join(opts.configDir(), "zoomies.yaml")
 	name := opts.Name
 	if name == "" {
-		name = det.Hostname
+		// Not the bare hostname: a fleet's Hosts page reads much better when
+		// each row says what the machine is, and the hostname is still the
+		// last part of the canonical name.
+		name = det.HostName()
 	}
 	capacity := opts.Capacity
 	if capacity <= 0 {

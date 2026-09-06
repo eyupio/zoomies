@@ -83,12 +83,14 @@ encryption key before it touches the database, and is never returned by the API.
 
 ## 4. Make a pool
 
-A pool says what labels your runners answer to and how many may exist.
+A pool says what its runners are, what labels they answer to, and how many may
+exist. The installer prints a suggestion named for the host it just set up.
 
 | | |
 | --- | --- |
-| **Name** | `linux-x64` |
-| **Labels** | `linux-x64` — what your workflows put in `runs-on` |
+| **Name** | `zoomies-4vcpu-ubuntu-2404` — 4 vCPU each, on Ubuntu 24.04 |
+| **Labels** | `zoomies-4vcpu-ubuntu-2404` — what your workflows put in `runs-on` |
+| **Platform** | Ubuntu 24.04, amd64 — picks the runner image, and keeps these runners off hosts that are something else |
 | **Backend** | Docker (rootless if available) |
 | **Min / max** | `0` / `8` — nothing idle when nothing is queued |
 | **Idle timeout** | `5m` |
@@ -97,12 +99,16 @@ A pool says what labels your runners answer to and how many may exist.
 
 Always set a maximum. It is your only backstop against a runaway workflow.
 
+The name is a convention rather than a rule — any name works — but one that
+says how much machine a workflow is asking for is worth far more in a `runs-on`
+than `linux-x64` is. See [Naming and platforms](naming.md).
+
 ## 5. Run something
 
 ```yaml
 jobs:
   build:
-    runs-on: [self-hosted, linux-x64]
+    runs-on: [self-hosted, zoomies-4vcpu-ubuntu-2404]
     steps:
       - uses: actions/checkout@v4
       - run: make test
@@ -113,7 +119,7 @@ the whole thing happen on the Overview page without refreshing — including the
 scheduler's reasoning, in its own words:
 
 ```
-scaled linux-x64 0 -> 1: 1 job queued > 30s
+scaled zoomies-4vcpu-ubuntu-2404 0 -> 1: 1 job queued > 30s
 ```
 
 ## Adding another host

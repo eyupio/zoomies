@@ -387,7 +387,8 @@ func (hs *hostSet) pick(p *store.Pool) *store.Host {
 
 func (hs *hostSet) eligible(h *store.Host, p *store.Pool) bool {
 	return hs.free[h.ID] > 0 && h.Healthy(hs.now) && !h.Cordoned &&
-		slices.Contains(h.Backends, string(p.Backend)) && selects(p.HostSelector, h.Labels)
+		slices.Contains(h.Backends, string(p.Backend)) &&
+		p.Platform.Matches(h.Platform()) && selects(p.HostSelector, h.Labels)
 }
 
 // selects reports whether every key and value of the selector is present on the
@@ -407,7 +408,7 @@ func (hs *hostSet) why(p *store.Pool) string {
 	if len(hs.hosts) == 0 {
 		return "no agent hosts are registered; run 'zoomies agent' on a machine that can host runners"
 	}
-	var unhealthy, cordoned, backend, selector, full int
+	var unhealthy, cordoned, backend, platform, selector, full int
 	for _, h := range hs.hosts {
 		switch {
 		case !h.Healthy(hs.now):
@@ -416,6 +417,8 @@ func (hs *hostSet) why(p *store.Pool) string {
 			cordoned++
 		case !slices.Contains(h.Backends, string(p.Backend)):
 			backend++
+		case !p.Platform.Matches(h.Platform()):
+			platform++
 		case !selects(p.HostSelector, h.Labels):
 			selector++
 		default:
@@ -431,10 +434,19 @@ func (hs *hostSet) why(p *store.Pool) string {
 	add(unhealthy, "unhealthy")
 	add(cordoned, "cordoned")
 	add(backend, "without the "+string(p.Backend)+" backend")
+	add(platform, "not "+p.Platform.Describe())
 	add(selector, "not matching the pool's host selector")
 	add(full, "at capacity")
-	return fmt.Sprintf("no host can take a new %s runner (%s); add a host, raise its capacity, or relax the pool's host selector",
-		p.Backend, strings.Join(parts, ", "))
+	// Naming the platform in the fix is the difference between an operator
+	// adding a host and an operator adding the *right* host: a pool that wants
+	// Ubuntu 24.04 arm64 will keep failing to place on the amd64 box they just
+	// built unless the message says so.
+	fix := "add a host, raise its capacity, or relax the pool's host selector"
+	if platform > 0 {
+		fix = fmt.Sprintf("add a %s host, or change the pool's platform to one you have", p.Platform.Describe())
+	}
+	return fmt.Sprintf("no host can take a new %s runner (%s); %s",
+		p.Backend, strings.Join(parts, ", "), fix)
 }
 
 // ---------------------------------------------------------------------------

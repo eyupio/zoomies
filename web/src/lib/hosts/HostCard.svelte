@@ -46,7 +46,21 @@
   const capacity = $derived(host.capacity ?? 0);
   const free = $derived(host.free ?? Math.max(0, capacity - active));
   const labels = $derived(Object.entries(host.labels ?? {}));
-  const platform = $derived([host.os, host.arch].filter(Boolean).join('/'));
+  // What this machine is, in the terms a pool asks in. The controller renders
+  // the sentence; the kernel and architecture are the fallback for an agent too
+  // old to report a distribution.
+  const platform = $derived(host.platform_label || [host.os, host.arch].filter(Boolean).join('/'));
+
+  // How much machine it is, which is the other half of the answer to "why is
+  // this host full".
+  const size = $derived.by(() => {
+    const cpus = host.cpus ?? 0;
+    if (cpus <= 0) return '';
+    const memory = host.memory_mb ?? 0;
+    return memory > 0
+      ? `${formatNumber(cpus)} vCPU · ${formatNumber(Math.round(memory / 1024))} GB`
+      : `${formatNumber(cpus)} vCPU`;
+  });
 
   const actions = $derived<MenuItem[]>([
     {
@@ -96,7 +110,8 @@
   </header>
 
   <p class="meta">
-    {#if platform}<span class="mono">{platform}</span>{/if}
+    {#if platform}<span>{platform}</span>{/if}
+    {#if size}<span class="tabular">{size}</span>{/if}
     {#if host.version}<span>agent {host.version}</span>{/if}
     {#if host.address}<span class="mono">{host.address}</span>{/if}
   </p>

@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net"
 	"os"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/backend"
+	"github.com/eyupio/zoomies/internal/machine"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
 )
@@ -85,6 +85,9 @@ type Options struct {
 	Logger            *slog.Logger
 	// Clock is injectable so tests do not have to sleep.
 	Clock func() time.Time
+	// Machine overrides what this agent reports about the host it runs on.
+	// It exists for tests; leaving it nil makes the agent detect for itself.
+	Machine *machine.Facts
 }
 
 // Agent is the half of Zoomies that runs on a host with a container runtime. It
@@ -269,6 +272,17 @@ func (a *Agent) Runners() []RunnerReport {
 	return out
 }
 
+// machine is what this agent reports about the host it runs on. Detection is
+// re-run rather than cached so that a host resized in place -- a VM given more
+// cores, a container's cgroup limit raised -- stops describing itself as the
+// machine it used to be on the next heartbeat.
+func (a *Agent) machine() machine.Facts {
+	if a.opts.Machine != nil {
+		return *a.opts.Machine
+	}
+	return machine.Detect()
+}
+
 // Join enrols this host with a controller, redeeming a short-lived join token
 // for the long-lived agent token that every later call carries.
 func (a *Agent) Join(ctx context.Context, joinToken string) error {
@@ -283,13 +297,18 @@ func (a *Agent) Join(ctx context.Context, joinToken string) error {
 	a.backendInfo = infos
 	a.mu.Unlock()
 
+	m := a.machine()
 	req := JoinRequest{
 		ProtocolVersion: ProtocolVersion,
 		JoinToken:       joinToken,
 		Name:            a.opts.Name,
 		Capacity:        a.opts.Capacity,
-		OS:              runtime.GOOS,
-		Arch:            runtime.GOARCH,
+		OS:              m.OS,
+		Distro:          m.Distro,
+		OSVersion:       m.OSVersion,
+		Arch:            m.Arch,
+		CPUs:            m.CPUs,
+		MemoryMB:        m.MemoryMB,
 		Version:         version.Version,
 		Labels:          a.opts.Labels,
 		Backends:        infos,
@@ -466,10 +485,13 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	a.mu.Unlock()
 
 	runners := a.Runners()
+	m := a.machine()
 	resp, err := a.tr.Heartbeat(hctx, HeartbeatRequest{
 		ProtocolVersion: ProtocolVersion,
 		Capacity:        a.opts.Capacity,
 		Version:         version.Version,
+		CPUs:            m.CPUs,
+		MemoryMB:        m.MemoryMB,
 		Backends:        infos,
 		Runners:         runners,
 	})

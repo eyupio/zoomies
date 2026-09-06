@@ -1,19 +1,27 @@
 <!--
-  Step three: how a runner is actually run, and how much Docker a job gets.
+  Step three: what a runner is made of, how it is run, and how much Docker a job
+  gets.
 
-  The two dangerous answers in the whole wizard live here, so both are spelled
-  out in the consequence rather than in a footnote, and the host-socket option
-  cannot be left selected without a deliberate confirmation.
+  The platform is first because it is the answer with the widest blast radius:
+  it picks the image every runner boots and it decides which hosts they may be
+  placed on. It is a list rather than a text field because it is served from the
+  images Zoomies actually publishes, and a pool that names one we do not publish
+  is a pool that validates and then never starts a runner.
+
+  The two dangerous answers in the whole wizard also live here, so both are
+  spelled out in the consequence rather than in a footnote, and the host-socket
+  option cannot be left selected without a deliberate confirmation.
 -->
 <script lang="ts">
   import { ShieldAlert } from '@lucide/svelte';
-  import type { BackendKind, DockerMode } from '$lib/api/types';
+  import type { BackendKind, DockerMode, Host, PoolPlatform } from '$lib/api/types';
   import { pluralise } from '$lib/format';
   import Checkbox from '$lib/components/Checkbox.svelte';
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
   import RadioGroup from '$lib/components/RadioGroup.svelte';
-  import { BACKENDS, DOCKER_MODES } from './PoolVocabulary.svelte';
+  import Select from '$lib/components/Select.svelte';
+  import { BACKENDS, DOCKER_MODES, platformKey } from './PoolVocabulary.svelte';
   import type { BackendOffer, PoolDraft } from './PoolWizardForm.svelte';
 
   interface Props {
@@ -23,6 +31,10 @@
     offers: readonly BackendOffer[];
     /** False until the fleet cache has landed, so we do not cry wolf about hosts. */
     hostsKnown: boolean;
+    /** The operating systems a runner image is published for. */
+    platforms: readonly PoolPlatform[];
+    /** Every connected host, so the step can say how many match the platform. */
+    hosts: readonly Host[];
     socketConfirmed?: boolean;
   }
 
@@ -32,6 +44,8 @@
     touch,
     offers,
     hostsKnown,
+    platforms,
+    hosts,
     socketConfirmed = $bindable(false),
   }: Props = $props();
 
@@ -73,6 +87,73 @@
 
   const usesImage = $derived(draft.backend !== 'process');
 
+  /* -- platform ----------------------------------------------------------- */
+
+  const osOptions = $derived([
+    { value: '', label: 'Any — use the default image' },
+    ...platforms.map((p) => ({
+      value: platformKey(p.os, p.os_version),
+      label: p.default ? `${p.label} (default)` : (p.label ?? ''),
+    })),
+  ]);
+
+  const ARCHES = [
+    { value: '', label: 'Any' },
+    { value: 'amd64', label: 'amd64' },
+    { value: 'arm64', label: 'arm64' },
+  ];
+
+  const chosenOS = $derived(platformKey(draft.platform_os, draft.platform_os_version));
+
+  const chosen = $derived(
+    platforms.find((p) => platformKey(p.os, p.os_version) === chosenOS) ?? undefined,
+  );
+
+  /**
+   * The image this pool will actually boot. A pool that names its own image
+   * keeps it; otherwise the platform picks one, and saying which turns an
+   * abstract choice into a concrete one.
+   */
+  const effectiveImage = $derived(draft.image.trim() || chosen?.image || '');
+
+  /**
+   * How many connected hosts this platform could be placed on. A pool that
+   * matches none of them will never start a runner, and finding that out here
+   * is far better than finding it out from an empty Runners page.
+   */
+  const matchingHosts = $derived(
+    hosts.filter((host) => {
+      if (draft.platform_os && host.platform?.os && host.platform.os !== draft.platform_os)
+        return false;
+      if (
+        draft.platform_os_version &&
+        host.platform?.os_version &&
+        host.platform.os_version !== draft.platform_os_version
+      )
+        return false;
+      if (draft.platform_arch && host.platform?.arch && host.platform.arch !== draft.platform_arch)
+        return false;
+      return true;
+    }).length,
+  );
+
+  function chooseOS(value: string): void {
+    const found = platforms.find((p) => platformKey(p.os, p.os_version) === value);
+    draft.platform_os = found?.os ?? '';
+    draft.platform_os_version = found?.os_version ?? '';
+    // An architecture the chosen variant is not built for would be refused by
+    // the server, so clear it rather than carry an impossible pair forward.
+    if (draft.platform_arch && found && !(found.arches ?? []).includes(draft.platform_arch)) {
+      draft.platform_arch = '';
+    }
+    touch('platform.os');
+  }
+
+  function chooseArch(value: string): void {
+    draft.platform_arch = value;
+    touch('platform.arch');
+  }
+
   function chooseBackend(value: string): void {
     draft.backend = value as BackendKind;
     touch('backend');
@@ -87,6 +168,57 @@
   }
 </script>
 
+{#if usesImage}
+  <div class="platform">
+    <Field
+      label="Operating system"
+      error={errors['platform.os'] ?? errors['platform.os_version']}
+      hint="Picks the zoomies-runner image these runners boot, and restricts them to hosts running the same thing."
+    >
+      {#snippet children({ id, describedBy, invalid })}
+        <Select
+          value={chosenOS}
+          options={osOptions}
+          {id}
+          {describedBy}
+          {invalid}
+          onchange={chooseOS}
+        />
+      {/snippet}
+    </Field>
+
+    <Field
+      label="Architecture"
+      error={errors['platform.arch']}
+      hint="Leave it as Any unless your fleet has both, and this pool belongs on one of them."
+    >
+      {#snippet children({ id, describedBy, invalid })}
+        <Select
+          value={draft.platform_arch}
+          options={ARCHES}
+          {id}
+          {describedBy}
+          {invalid}
+          onchange={chooseArch}
+        />
+      {/snippet}
+    </Field>
+  </div>
+
+  <p class="platform-note">
+    {#if effectiveImage}
+      Runners boot <code>{effectiveImage}</code>.
+    {:else}
+      Runners boot the controller's default image.
+    {/if}
+    {#if hostsKnown}
+      {matchingHosts === 0
+        ? ' No connected host matches, so this pool would never place a runner.'
+        : ` ${pluralise(matchingHosts, 'connected host')} match.`}
+    {/if}
+  </p>
+{/if}
+
 <RadioGroup
   name="pool-backend"
   legend="Backend"
@@ -99,7 +231,7 @@
   <Field
     label="Image"
     error={errors['image']}
-    hint="The container image runners are built from. Leave it empty to use the controller's default."
+    hint="Override the image the operating system above selects. Leave it empty unless you build your own."
   >
     {#snippet children({ id, describedBy, invalid })}
       <Input
@@ -108,7 +240,7 @@
         {describedBy}
         {invalid}
         mono
-        placeholder="ghcr.io/actions/actions-runner:latest"
+        placeholder={chosen?.image ?? 'ghcr.io/eyupio/zoomies-runner:latest'}
         autocomplete="off"
         onblur={() => touch('image')}
       />
@@ -176,6 +308,24 @@
 />
 
 <style>
+  .platform {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    gap: var(--z-space-4);
+  }
+  @media (max-width: 40rem) {
+    .platform {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  .platform-note {
+    margin: calc(var(--z-space-3) * -1) 0 0;
+    color: var(--z-text-muted);
+    font-size: var(--z-text-sm);
+  }
+  .platform-note code {
+    font-family: var(--z-font-mono);
+  }
   .docker {
     display: flex;
     flex-direction: column;

@@ -64,12 +64,69 @@ jobs:
           tags: |
             ghcr.io/eyupio/zoomies:${{ github.ref_name }}
             ghcr.io/eyupio/zoomies:latest
+
+  # One job per operating system in internal/naming's catalogue. Keep the two
+  # in step: a variant published here that the catalogue does not list is an
+  # image no pool can ask for, and a catalogue row with no job here is a pool
+  # whose runners will not start.
+  runner-images:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tag: ubuntu-2404
+            base: ubuntu:24.04
+            family: apt
+            os: ubuntu
+            version: "24.04"
+            latest: true
+          - tag: ubuntu-2204
+            base: ubuntu:22.04
+            family: apt
+            os: ubuntu
+            version: "22.04"
+          - tag: debian-12
+            base: debian:12-slim
+            family: apt
+            os: debian
+            version: "12"
+          - tag: fedora-42
+            base: fedora:42
+            family: dnf
+            os: fedora
+            version: "42"
+          - tag: rocky-9
+            base: rockylinux/rockylinux:9
+            family: dnf
+            os: rocky
+            version: "9"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v3
+      - name: Setup Blacksmith Builder
+        uses: useblacksmith/setup-docker-builder@v1
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
       - uses: useblacksmith/build-push-action@v2
         with:
           context: .
           file: deploy/Dockerfile.runner
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: |
+            BASE=${{ matrix.base }}
+            OS_FAMILY=${{ matrix.family }}
+            OS_ID=${{ matrix.os }}
+            OS_VERSION=${{ matrix.version }}
+          # The moving tag, the immutable one for this release, and -- for the
+          # default variant only -- :latest, which is what a pool that names no
+          # operating system gets.
           tags: |
-            ghcr.io/eyupio/zoomies-runner:${{ github.ref_name }}
-            ghcr.io/eyupio/zoomies-runner:latest
+            ghcr.io/eyupio/zoomies-runner:${{ matrix.tag }}
+            ghcr.io/eyupio/zoomies-runner:${{ matrix.tag }}-${{ github.ref_name }}
+            ${{ matrix.latest && format('ghcr.io/eyupio/zoomies-runner:{0}', 'latest') || '' }}
+            ${{ matrix.latest && format('ghcr.io/eyupio/zoomies-runner:{0}', github.ref_name) || '' }}

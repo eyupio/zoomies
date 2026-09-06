@@ -12,6 +12,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/cryptox"
+	"github.com/eyupio/zoomies/internal/machine"
 )
 
 // EnvFileName is the environment file a compose deployment reads. Compose
@@ -174,7 +175,7 @@ func (s EnvSpec) Config() *config.Config {
 	cfg.Agent.ControllerURL = s.ControllerURL
 	cfg.Agent.AgentToken = s.AgentToken
 	if cfg.Agent.Name == "" {
-		cfg.Agent.Name = hostname()
+		cfg.Agent.Name = machine.DefaultHostName()
 	}
 
 	cfg.Log.Format = s.LogFormat

@@ -15,6 +15,7 @@ Single Go binary. SQLite. No Kubernetes.
 [zoomies.sh](https://zoomies.sh) ·
 [Quick start](#quick-start) ·
 [How it works](docs/architecture.md) ·
+[Naming](docs/naming.md) ·
 [Security](docs/security.md) ·
 [Configuration](docs/configuration.md) ·
 [API](docs/api-surface.md) ·
@@ -41,8 +42,13 @@ fresh runner for each one, and destroys the runner when the job finishes.
   single-use JIT registrations itself. github.com and Enterprise Server.
 * **Event-driven.** `workflow_job` webhooks, with polling only as a fallback so
   a misconfigured webhook does not silently stop your fleet.
-* **Multi-host.** One controller, any number of agents. Agents connect outbound
-  only, so a host behind NAT needs no inbound rule.
+* **Multi-host, multi-OS.** One controller, any number of agents. Agents connect
+  outbound only, so a host behind NAT needs no inbound rule. Runner images for
+  Ubuntu 24.04 and 22.04, Debian 12, Fedora and Rocky Linux, on amd64 and arm64,
+  and a pool is only ever placed on a host that matches the one it asked for.
+* **Names that say something.** `zoomies-4vcpu-ubuntu-2404`, not `linux-x64`.
+  Pools, hosts and runners all follow [one grammar](docs/naming.md), so the
+  string in your `runs-on` says how much machine you are asking for.
 * **Actually observable.** SQLite for state, Prometheus metrics, structured
   logs, live log streaming, job history with queue waits, and an audit row for
   every mutating action.
@@ -128,12 +134,14 @@ curl -fsSL https://zoomies.sh/install.sh | sh -s -- \
 
 ## Your first pool
 
-A pool says what labels your runners answer to and how many may exist.
+A pool says what its runners are, what labels they answer to, and how many may
+exist. The installer suggests one named for the host it just set up.
 
 | | |
 | --- | --- |
-| **Name** | `linux-x64` |
-| **Labels** | `linux-x64` — what your workflows put in `runs-on` |
+| **Name** | `zoomies-4vcpu-ubuntu-2404` — 4 vCPU each, on Ubuntu 24.04 |
+| **Labels** | `zoomies-4vcpu-ubuntu-2404` — what your workflows put in `runs-on` |
+| **Platform** | Ubuntu 24.04, amd64 — picks the runner image, and keeps these runners off hosts that are something else |
 | **Backend** | Docker (rootless if available) |
 | **Min / max** | `0` / `8` — nothing idle when nothing is queued |
 | **Idle timeout** | `5m` |
@@ -145,11 +153,16 @@ Then in a workflow:
 ```yaml
 jobs:
   build:
-    runs-on: [self-hosted, linux-x64]
+    runs-on: [self-hosted, zoomies-4vcpu-ubuntu-2404]
     steps:
       - uses: actions/checkout@v4
       - run: make test
 ```
+
+The name is a convention, not a rule: call a pool anything you like. But a
+`runs-on` that says how much machine it wants is worth more than one that says
+`linux-x64`. See [docs/naming.md](docs/naming.md) for the grammar, the
+platforms, and the runner images behind them.
 
 Push it. Zoomies sees the `workflow_job` webhook, starts a runner, and you watch
 the whole thing happen on the Overview page without refreshing.
@@ -174,7 +187,8 @@ from one that is not reachable from the other.
 ```sh
 zoomies status                       # the Overview, in a terminal
 zoomies pools list
-zoomies pools create --name linux-x64 --labels linux-x64 --max 8
+zoomies pools create --name zoomies-4vcpu-ubuntu-2404 \
+  --labels zoomies-4vcpu-ubuntu-2404 --cpus 4 --os ubuntu --os-version 24.04 --max 8
 zoomies runners list --state busy
 zoomies runners drain run_k3f9qz2m
 zoomies runners logs run_k3f9qz2m --follow
@@ -217,6 +231,9 @@ The same list appears in the UI's problems panel. See
 
 * Linux (amd64 or arm64) for the controller and agents. macOS is supported for
   running the controller in development.
+* Any of Ubuntu 24.04 or 22.04, Debian 12, Fedora or Rocky Linux for the
+  runners themselves — a published runner image each, chosen by the pool's
+  platform.
 * Docker or Podman for the container backends — **rootless preferred**, and the
   installer looks for a rootless socket first.
 * A GitHub App on github.com or GitHub Enterprise Server. The installer creates
@@ -265,7 +282,9 @@ hand-registered long-lived runners is too little.
 cmd/zoomies         the binary: controller, agent, init, CLI
 internal/store      domain model, SQLite schema, every query
 internal/config     zoomies.yaml + env, and the validator that warns
-internal/scheduler  pure scaling decisions and label matching
+internal/naming     the zoomies-* naming grammar and the runner image catalogue
+internal/machine    what host this process is running on: distro, release, size
+internal/scheduler  pure scaling decisions, label matching and platform fit
 internal/github     App auth, JIT configs, webhooks, the fallback poller
 internal/backend    Docker, Podman and bare-process runner backends
 internal/auth       identity, RBAC, tokens, audit, OIDC
@@ -275,8 +294,8 @@ internal/agent      the runner-executing half
 internal/installer  zoomies init / uninstall / agent join
 web/                the Svelte 5 UI
 deploy/             images, compose, systemd units
-docs/               the zoomies.sh site: architecture, security, UI guidelines,
-                    configuration, brand
+docs/               the zoomies.sh site: architecture, naming, security,
+                    UI guidelines, configuration, brand
 mkdocs.yml          how docs/ becomes zoomies.sh
 ```
 

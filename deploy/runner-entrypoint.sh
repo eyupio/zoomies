@@ -13,11 +13,22 @@
 #   ZOOMIES_RUNNER_GROUP   runner group name
 #   ZOOMIES_EPHEMERAL      "true" to pass --ephemeral
 #
+# The image also bakes in what platform it is, which the startup line prints:
+#
+#   ZOOMIES_RUNNER_OS          the distribution this image was built from
+#   ZOOMIES_RUNNER_OS_VERSION  its release
+#   ZOOMIES_RUNNER_VERSION     the actions/runner release it carries
+#
 set -euo pipefail
 
 cd /home/runner
 
 log() { printf '%s zoomies-runner: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+
+# Say what this image is before doing anything else. A pool pointed at the
+# wrong variant is otherwise only discovered when a job fails on a missing
+# package, several minutes and one confusing log later.
+log "image: ${ZOOMIES_RUNNER_OS:-unknown} ${ZOOMIES_RUNNER_OS_VERSION:-} on $(uname -m), actions/runner ${ZOOMIES_RUNNER_VERSION:-unknown}"
 
 # The runner treats SIGINT as "finish the current job, then exit", which is
 # exactly what a Zoomies drain means. Forward it rather than letting the shell

@@ -625,7 +625,7 @@ func (i *Installer) containerSummary(p Plan, envPath string, reusedKey bool) {
 		i.ui.blank()
 	}
 
-	sug := SuggestPool(i.det.OS, i.det.Arch, p.Backend, p.Capacity)
+	sug := SuggestPool(i.det, p.Backend, p.Capacity)
 	i.ui.note("Your first pool -- this host is " + i.det.Arch + " with the " + string(p.Backend) + " backend:")
 	i.ui.note("  " + sug.Command())
 	i.ui.note("then put  runs-on: [self-hosted, " + sug.Name + "]  in a workflow.")

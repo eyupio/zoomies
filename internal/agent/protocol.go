@@ -21,16 +21,25 @@ const ProtocolVersion = 1
 
 // JoinRequest redeems a short-lived join token and enrols a new host.
 type JoinRequest struct {
-	ProtocolVersion int               `json:"protocol_version"`
-	JoinToken       string            `json:"join_token"`
-	Name            string            `json:"name"`
-	Address         string            `json:"address,omitempty"`
-	Capacity        int               `json:"capacity"`
-	OS              string            `json:"os"`
-	Arch            string            `json:"arch"`
-	Version         string            `json:"version"`
-	Labels          map[string]string `json:"labels,omitempty"`
-	Backends        []backend.Info    `json:"backends"`
+	ProtocolVersion int    `json:"protocol_version"`
+	JoinToken       string `json:"join_token"`
+	Name            string `json:"name"`
+	Address         string `json:"address,omitempty"`
+	Capacity        int    `json:"capacity"`
+	OS              string `json:"os"`
+	// Distro and OSVersion say which Linux this is. The controller cannot
+	// place a pool that asks for Ubuntu 24.04 without them, and an agent too
+	// old to send them is simply a host that makes no platform promise.
+	Distro    string `json:"distro,omitempty"`
+	OSVersion string `json:"os_version,omitempty"`
+	Arch      string `json:"arch"`
+	// CPUs and MemoryMB are how much machine this agent may use, which is the
+	// cgroup's share when it runs in a container rather than the host's total.
+	CPUs     int               `json:"cpus,omitempty"`
+	MemoryMB int64             `json:"memory_mb,omitempty"`
+	Version  string            `json:"version"`
+	Labels   map[string]string `json:"labels,omitempty"`
+	Backends []backend.Info    `json:"backends"`
 }
 
 // JoinResponse hands back the host's identity and its long-lived agent token.
@@ -46,11 +55,16 @@ type JoinResponse struct {
 // HeartbeatRequest is sent on every interval. It carries the agent's own view
 // of its runners so the controller can detect drift without polling.
 type HeartbeatRequest struct {
-	ProtocolVersion int            `json:"protocol_version"`
-	Capacity        int            `json:"capacity"`
-	Version         string         `json:"version"`
-	Backends        []backend.Info `json:"backends,omitempty"`
-	Runners         []RunnerReport `json:"runners,omitempty"`
+	ProtocolVersion int    `json:"protocol_version"`
+	Capacity        int    `json:"capacity"`
+	Version         string `json:"version"`
+	// CPUs and MemoryMB are re-sent on every beat so that a host resized in
+	// place -- a VM given more cores, a container's limit raised -- stops
+	// describing itself as the machine it used to be.
+	CPUs     int            `json:"cpus,omitempty"`
+	MemoryMB int64          `json:"memory_mb,omitempty"`
+	Backends []backend.Info `json:"backends,omitempty"`
+	Runners  []RunnerReport `json:"runners,omitempty"`
 }
 
 // HeartbeatResponse tells the agent whether the controller still recognises it.

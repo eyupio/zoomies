@@ -38,6 +38,8 @@ import (
 	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/cryptox"
+	"github.com/eyupio/zoomies/internal/machine"
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -682,27 +684,63 @@ func startCommand(kind store.BackendKind) string {
 // and then staring at an empty Pools page is the one part of this that has no
 // obvious next step, so the installer writes the command out.
 type PoolSuggestion struct {
-	Name       string
-	Labels     []string
+	Name   string
+	Labels []string
+	// Platform is what this host is, which the pool then promises. Naming it
+	// in the very first pool is what makes the fleet's second host land the
+	// right jobs: a pool that says nothing takes work on any machine.
+	Platform   store.Platform
 	Backend    store.BackendKind
 	MaxRunners int
+	// CPUs is the per-runner vCPU share the name advertises.
+	CPUs int
 }
 
-// SuggestPool builds the suggestion from this host's architecture and chosen
-// backend, so that the label in the suggestion is the one a workflow's
-// runs-on can actually use.
-func SuggestPool(osName, arch string, kind store.BackendKind, capacity int) PoolSuggestion {
-	name := archLabel(osName, arch)
+// SuggestPool builds the suggestion from what this host is and the backend it
+// chose, so that the label in the suggestion is both the one a workflow's
+// runs-on can use and an honest description of the machine behind it.
+//
+// The pool gets one vCPU per runner and the capacity as its maximum: the two
+// together are the host, divided up. An operator who wants fatter runners
+// changes one number, and the name changes with it.
+func SuggestPool(det Detection, kind store.BackendKind, capacity int) PoolSuggestion {
+	maxRunners := max(capacity, 1)
+	// Divide the machine among the runners it will hold, which is what makes
+	// the name's vCPU count a fact rather than a decoration.
+	cpus := 1
+	if det.CPUs > 0 {
+		cpus = max(det.CPUs/maxRunners, 1)
+	}
+	platform := store.Platform{
+		OS: firstNonEmpty(det.Distro, det.OS), OSVersion: det.OSVersion, Arch: det.Arch,
+	}.Normalized()
+
+	spec := naming.Spec{
+		CPUs: float64(cpus), OS: platform.OS, Version: platform.OSVersion, Arch: platform.Arch,
+	}
+	name := naming.PoolName(spec)
+	labels := naming.Labels(spec)
+	if platform.OS == "" {
+		// A host that will not say which distribution it runs cannot promise
+		// one, and a name built from the rest would advertise a size without
+		// saying what it is a size of. Fall back to the architecture label,
+		// which is what such a pool could always be called.
+		name = archLabel(det.OS, det.Arch)
+		labels = []string{name}
+	}
 	if kind == store.BackendProcess {
 		// A process-backend pool answers to a different label on purpose:
-		// jobs that land on it get the host, not a container.
+		// jobs that land on it get the host, not a container. It also makes no
+		// platform promise the runner image could satisfy, because there is no
+		// image -- the host itself is the environment.
 		name += "-host"
+		labels = append([]string{name}, labels[1:]...)
+		platform = store.Platform{Arch: platform.Arch}
 	}
-	maxRunners := capacity
-	if maxRunners < 1 {
-		maxRunners = 1
+	return PoolSuggestion{
+		Name: name, Labels: labels, Platform: platform,
+		Backend: kind, MaxRunners: maxRunners, CPUs: cpus,
 	}
-	return PoolSuggestion{Name: name, Labels: []string{name}, Backend: kind, MaxRunners: maxRunners}
 }
 
 func archLabel(osName, arch string) string {
@@ -727,8 +765,21 @@ func archLabel(osName, arch string) string {
 
 // Command renders the suggestion as a line the operator can paste.
 func (p PoolSuggestion) Command() string {
-	return fmt.Sprintf("zoomies pools create --name %s --labels %s --backend %s --max %d",
+	cmd := fmt.Sprintf("zoomies pools create --name %s --labels %s --backend %s --max %d",
 		p.Name, strings.Join(p.Labels, ","), p.Backend, p.MaxRunners)
+	if p.CPUs > 0 {
+		cmd += fmt.Sprintf(" --cpus %d", p.CPUs)
+	}
+	if p.Platform.OS != "" {
+		cmd += " --os " + p.Platform.OS
+		if p.Platform.OSVersion != "" {
+			cmd += " --os-version " + p.Platform.OSVersion
+		}
+	}
+	if p.Platform.Arch != "" {
+		cmd += " --arch " + p.Platform.Arch
+	}
+	return cmd
 }
 
 // Config renders the zoomies.yaml this plan describes.
@@ -765,7 +816,7 @@ func (p Plan) Config() *config.Config {
 	}
 	cfg.Agent.DockerHost = p.DockerHost
 	if cfg.Agent.Name == "" {
-		cfg.Agent.Name = hostname()
+		cfg.Agent.Name = machine.DefaultHostName()
 	}
 
 	secure := p.TLSMode != config.TLSOff || strings.HasPrefix(cfg.Server.ExternalURL, "https://")
@@ -1955,7 +2006,7 @@ func (i *Installer) stepSummary(p Plan) {
 		i.ui.blank()
 	}
 
-	sug := SuggestPool(i.det.OS, i.det.Arch, p.Backend, p.Capacity)
+	sug := SuggestPool(i.det, p.Backend, p.Capacity)
 	i.ui.note("Your first pool -- this host is " + i.det.Arch + " with the " + string(p.Backend) + " backend:")
 	i.ui.note("  " + sug.Command())
 	i.ui.note("then put  runs-on: [self-hosted, " + sug.Name + "]  in a workflow.")

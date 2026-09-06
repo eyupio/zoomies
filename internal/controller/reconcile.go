@@ -11,6 +11,7 @@ import (
 	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/github"
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -318,13 +319,15 @@ func (c *Controller) mintCredentials(ctx context.Context, inst *store.Installati
 	}, 0, nil
 }
 
-// runnerImage returns the image a pool's runners use, falling back to the
-// instance default so a pool created without one still works.
+// runnerImage returns the image a pool's runners use.
+//
+// A pool that names an image gets it, unchanged: an operator who has built
+// their own is not second-guessed. Otherwise the pool's platform picks the
+// variant, so that a pool called zoomies-4vcpu-debian-12 boots the Debian 12
+// image without anyone having to keep the two in step by hand. A pool that
+// names neither falls back to the instance default.
 func (c *Controller) runnerImage(p *store.Pool) string {
-	if strings.TrimSpace(p.Image) != "" {
-		return p.Image
-	}
-	return c.cfg.GitHub.RunnerImage
+	return naming.ResolveRunnerImage(p.Image, p.Platform.OS, p.Platform.OSVersion, c.cfg.GitHub.RunnerImage)
 }
 
 func (c *Controller) runnerVersion(p *store.Pool) string {

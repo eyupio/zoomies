@@ -104,6 +104,7 @@ nav:
   - Quick start: quickstart.md
   - Guide:
       - Architecture: architecture.md
+      - Naming and platforms: naming.md
       - Configuration: configuration.md
       - Security: security.md
       - API: api-surface.md

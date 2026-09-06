@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -161,33 +162,16 @@ type Factory interface {
 // RunnerName builds a unique, human-readable runner name for a pool.
 //
 // GitHub requires runner names to be unique within a target and rejects a
-// number of characters, so the pool name is sanitised and a short random
-// suffix guarantees uniqueness across restarts.
+// number of characters, so the name follows the grammar in internal/naming --
+// which brands it "zoomies-" and, for a pool named canonically, carries the
+// pool's size and platform -- with a short random suffix that guarantees
+// uniqueness across controller restarts.
+//
+// This is the name an operator sees in GitHub's own runner list, where Zoomies
+// has no UI of its own, so it is the one place the shape of a runner has to
+// speak for itself.
 func RunnerName(poolName string) string {
-	return "zoomies-" + sanitizeName(poolName) + "-" + store.NewSecret(4)
-}
-
-func sanitizeName(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	var b strings.Builder
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			b.WriteRune(r)
-		case r == '-' || r == '_' || r == '.':
-			b.WriteRune('-')
-		default:
-			b.WriteRune('-')
-		}
-	}
-	out := strings.Trim(b.String(), "-")
-	if out == "" {
-		out = "pool"
-	}
-	if len(out) > 40 {
-		out = strings.Trim(out[:40], "-")
-	}
-	return out
+	return naming.RunnerName(poolName, store.NewSecret(4))
 }
 
 // SplitTarget parses "owner" or "owner/repo" into its parts.

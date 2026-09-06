@@ -99,6 +99,35 @@ test('the wizard walks target, labels, backend, scaling and review', async ({ pa
   await expect(page.getByRole('button', { name: 'Create pool' })).toBeVisible();
 });
 
+test('the backend step names the image the chosen platform will boot', async ({ page }) => {
+  await goto(page, '/pools/new', 'Create a pool');
+  await nameField(page).fill('e2e-pool');
+  await next(page).click();
+  await addLabel(page, 'gpu');
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Backend' })).toBeVisible();
+
+  // Nothing chosen: the pool follows the controller's default image and any
+  // host will do.
+  const os = page.getByLabel('Operating system');
+  await expect(os).toHaveValue('');
+  await expect(page.getByText("Runners boot the controller's default image.")).toBeVisible();
+
+  // The options come from the server's catalogue, so choosing one must name a
+  // real published image rather than a string the UI made up.
+  await os.selectOption('debian-12');
+  await expect(page.getByText('ghcr.io/eyupio/zoomies-runner:debian-12')).toBeVisible();
+
+  // The fixture fleet is Ubuntu and Debian on amd64, with one arm64 host, so a
+  // Debian arm64 pool matches nothing and the step says so before the operator
+  // gets to the review.
+  await page.getByLabel('Architecture').selectOption('arm64');
+  await expect(page.getByText('No connected host matches')).toBeVisible();
+
+  await page.getByLabel('Architecture').selectOption('amd64');
+  await expect(page.getByText(/\d+ connected hosts? match/)).toBeVisible();
+});
+
 test('the labels step previews the runs-on line those labels produce', async ({ page }) => {
   await goto(page, '/pools/new', 'Create a pool');
   await nameField(page).fill('e2e-pool');

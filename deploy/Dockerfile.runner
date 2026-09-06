@@ -1,48 +1,89 @@
 # The Zoomies runner image.
 #
-# It carries the actions/runner release and its .NET 8 dependencies, and an
+# It carries the actions/runner release and its .NET dependencies, and an
 # entrypoint that understands the environment contract Zoomies' backends use.
-# Built for linux/amd64 and linux/arm64.
 #
-# Deliberately NOT based on a "everything a build might need" mega-image: this
-# is a runner, and what a job needs beyond it belongs in the job's own container
-# or setup steps. A smaller image means a faster cold start, which is the whole
-# point of ephemeral runners.
+# One Dockerfile builds every variant in internal/naming's catalogue: Ubuntu
+# 24.04 and 22.04, Debian 12, Fedora and Rocky Linux, on linux/amd64 and
+# linux/arm64. The variant is chosen with --build-arg BASE and OS_FAMILY, and
+# published as ghcr.io/eyupio/zoomies-runner:<os>-<version> -- the same
+# <os>-<version> that appears in a Zoomies pool name, so an operator can read
+# a pool name and know which image its runners boot.
+#
+#   docker build -f deploy/Dockerfile.runner \
+#     --build-arg BASE=debian:12-slim --build-arg OS_FAMILY=apt \
+#     --build-arg OS_ID=debian --build-arg OS_VERSION=12 \
+#     -t ghcr.io/eyupio/zoomies-runner:debian-12 .
+#
+# Alpine is deliberately absent: actions/runner ships glibc binaries, and a
+# musl image would build and then fail at the first job.
+#
+# Deliberately NOT an "everything a build might need" mega-image: this is a
+# runner, and what a job needs beyond it belongs in the job's own container, in
+# a setup step, or in EXTRA_PACKAGES below. A smaller image means a faster cold
+# start, which is the whole point of ephemeral runners.
 
 ARG RUNNER_VERSION=2.337.0
 ARG BASE=ubuntu:24.04
 
 FROM ${BASE}
+# Re-declared after FROM: an ARG from before it is out of scope in the build
+# stage, and the LABEL below would otherwise record an empty base image.
+ARG BASE
 ARG RUNNER_VERSION
 ARG TARGETARCH
+
+# OS_FAMILY selects the package manager: "apt" for Ubuntu and Debian, "dnf" for
+# Fedora and Rocky. It is a build arg rather than something detected at build
+# time so that a typo fails the build rather than silently producing an image
+# missing half its dependencies.
+ARG OS_FAMILY=apt
+# OS_ID and OS_VERSION are what this variant claims to be. They become image
+# labels, and the labels are what an operator (and `docker inspect`) reads to
+# confirm a running container is the platform its pool asked for.
+ARG OS_ID=ubuntu
+ARG OS_VERSION=24.04
+# EXTRA_PACKAGES bakes a fleet's own toolchain into a variant without forking
+# this file: --build-arg EXTRA_PACKAGES="python3 build-essential".
+ARG EXTRA_PACKAGES=""
 
 LABEL org.opencontainers.image.title="zoomies-runner" \
       org.opencontainers.image.description="GitHub Actions runner image for Zoomies" \
       org.opencontainers.image.source="https://github.com/eyupio/zoomies" \
       org.opencontainers.image.licenses="MIT" \
-      io.zoomies.runner-version="${RUNNER_VERSION}"
+      org.opencontainers.image.base.name="${BASE}" \
+      io.zoomies.runner-version="${RUNNER_VERSION}" \
+      io.zoomies.os="${OS_ID}" \
+      io.zoomies.os-version="${OS_VERSION}" \
+      io.zoomies.os-family="${OS_FAMILY}"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     RUNNER_MANUALLY_TRAP_SIG=1 \
     ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT=1
 
-# libicu is the dependency actions/runner most often dies without. git, curl,
-# ca-certificates and jq are what essentially every workflow assumes exists.
-RUN set -eux; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends \
-        ca-certificates curl git jq unzip zip tar gzip xz-utils \
-        libicu74 liblttng-ust1t64 libkrb5-3 zlib1g libssl3t64 \
-        sudo gosu tzdata locales openssh-client rsync; \
-    rm -rf /var/lib/apt/lists/*; \
-    localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8
-ENV LANG=en_US.UTF-8
+# The tools essentially every workflow assumes exist. actions/runner's own
+# .NET dependencies are left to ./bin/installdependencies.sh below, which knows
+# each distribution's package names for them -- pinning libicu74 here is what
+# made the previous version of this file Ubuntu-24.04-only.
+COPY --chmod=0755 deploy/runner-packages.sh /tmp/runner-packages.sh
+RUN /tmp/runner-packages.sh "${OS_FAMILY}" ${EXTRA_PACKAGES} && rm /tmp/runner-packages.sh
 
 # The runner must not be root. It gets passwordless sudo because a great many
 # real workflows expect it; a pool that does not want that can override the
 # entrypoint's user.
+#
+# uid 1001 rather than 1000: Fedora and Rocky leave 1000 free but Ubuntu's
+# cloud images take it, and a fixed uid is what lets a host bind-mount a work
+# directory that the runner can actually write to.
 RUN set -eux; \
-    useradd -m -s /bin/bash -u 1001 runner; \
+    if command -v useradd >/dev/null 2>&1; then \
+      groupadd -g 1001 runner 2>/dev/null || true; \
+      useradd -m -s /bin/bash -u 1001 -g 1001 runner; \
+    else \
+      addgroup -g 1001 runner; \
+      adduser -D -s /bin/sh -u 1001 -G runner runner; \
+    fi; \
+    mkdir -p /etc/sudoers.d; \
     echo "runner ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/runner; \
     chmod 0440 /etc/sudoers.d/runner
 
@@ -57,11 +98,19 @@ RUN set -eux; \
       "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-${RUNNER_ARCH}-${RUNNER_VERSION}.tar.gz"; \
     tar xzf runner.tar.gz; \
     rm runner.tar.gz; \
-    ./bin/installdependencies.sh || true; \
+    ./bin/installdependencies.sh; \
     mkdir -p /home/runner/_work; \
     chown -R runner:runner /home/runner
 
 COPY --chmod=0755 deploy/runner-entrypoint.sh /usr/local/bin/entrypoint.sh
+
+# These let a job -- and the entrypoint's own startup line -- state the platform
+# it actually landed on, which is the fastest way to catch a pool pointed at the
+# wrong image.
+ENV ZOOMIES_RUNNER_OS="${OS_ID}" \
+    ZOOMIES_RUNNER_OS_VERSION="${OS_VERSION}" \
+    ZOOMIES_RUNNER_VERSION="${RUNNER_VERSION}" \
+    LANG=en_US.UTF-8
 
 USER runner
 ENV RUNNER_ALLOW_RUNASROOT=0

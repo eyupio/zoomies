@@ -10,7 +10,7 @@
   wizard back.
 -->
 <script module lang="ts">
-  import type { BackendKind, DockerMode } from '$lib/api/types';
+  import type { BackendKind, DockerMode, Platform } from '$lib/api/types';
 
   export interface Choice<T> {
     value: T;
@@ -65,6 +65,52 @@
     return DOCKER_MODES.find((m) => m.value === (mode ?? 'none'))?.label ?? 'None';
   }
 
+  /* -- platforms ----------------------------------------------------------- */
+
+  /**
+   * How an operating system is spelled in prose. The API sends the canonical
+   * lowercase form; this is the only place that decides it reads "macOS" and
+   * not "macos".
+   */
+  const OS_NAMES: Readonly<Record<string, string>> = {
+    ubuntu: 'Ubuntu',
+    debian: 'Debian',
+    fedora: 'Fedora',
+    rocky: 'Rocky Linux',
+    alpine: 'Alpine',
+    macos: 'macOS',
+    windows: 'Windows',
+  };
+
+  export function osLabel(os: string | undefined): string {
+    if (!os) return '';
+    return OS_NAMES[os] ?? os;
+  }
+
+  /**
+   * A platform as one line: "Ubuntu 24.04, arm64". Empty fields are left out
+   * rather than filled with "any", because a pool that says only "arm64" is
+   * making exactly one promise and the line should read as one.
+   */
+  export function platformLabel(platform: Platform | undefined): string {
+    const parts: string[] = [];
+    const os = osLabel(platform?.os);
+    if (os) parts.push(platform?.os_version ? `${os} ${platform.os_version}` : os);
+    if (platform?.arch) parts.push(platform.arch);
+    return parts.join(', ');
+  }
+
+  /** The same, but with the word an empty platform deserves. */
+  export function platformLabelOrAny(platform: Platform | undefined): string {
+    return platformLabel(platform) || 'Any host';
+  }
+
+  /** The value a platform select uses: "ubuntu-24.04", or "" for "any". */
+  export function platformKey(os: string | undefined, version: string | undefined): string {
+    if (!os) return '';
+    return version ? `${os}-${version}` : os;
+  }
+
   /* -- the creation wizard ------------------------------------------------- */
 
   export interface WizardStepDef {
@@ -84,7 +130,11 @@
       title: 'Labels',
       description: 'What a workflow writes in runs-on to reach this pool.',
     },
-    { id: 'backend', title: 'Backend', description: 'How a runner is actually run on a host.' },
+    {
+      id: 'backend',
+      title: 'Backend',
+      description: 'What a runner is made of, and how it is run on a host.',
+    },
     { id: 'scaling', title: 'Scaling', description: 'How many runners, and for how long.' },
     { id: 'review', title: 'Review', description: 'What the controller makes of it.' },
   ];
@@ -93,7 +143,16 @@
   export const STEP_FIELDS: readonly (readonly string[])[] = [
     ['name', 'installation_id', 'runner_group'],
     ['labels'],
-    ['backend', 'image', 'runner_version', 'docker_mode', 'run_as_root'],
+    [
+      'backend',
+      'platform.os',
+      'platform.os_version',
+      'platform.arch',
+      'image',
+      'runner_version',
+      'docker_mode',
+      'run_as_root',
+    ],
     [
       'min_runners',
       'max_runners',
@@ -113,6 +172,9 @@
     runner_group: 'Runner group',
     labels: 'Labels',
     backend: 'Backend',
+    'platform.os': 'Operating system',
+    'platform.os_version': 'Release',
+    'platform.arch': 'Architecture',
     image: 'Image',
     runner_version: 'Runner version',
     min_runners: 'Minimum runners',

@@ -127,21 +127,65 @@ image: ## Build the controller/agent image
 		--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) \
 		-t ghcr.io/eyupio/zoomies:$(VERSION) -t ghcr.io/eyupio/zoomies:latest .
 
+# The runner image's variants. Each one is a base image, the package family
+# deploy/Dockerfile.runner installs with, and the platform it claims to be.
+# The same five rows appear in internal/naming's catalogue and in both
+# workflows, and a Go test fails if they drift apart.
+RUNNER_IMAGE   ?= ghcr.io/eyupio/zoomies-runner
+RUNNER_VARIANT ?= ubuntu-2404
+RUNNER_VARIANTS := ubuntu-2404 ubuntu-2204 debian-12 fedora-42 rocky-9
+
+# base | family | os | version
+variant.ubuntu-2404 := ubuntu:24.04 apt ubuntu 24.04
+variant.ubuntu-2204 := ubuntu:22.04 apt ubuntu 22.04
+variant.debian-12   := debian:12-slim apt debian 12
+variant.fedora-42   := fedora:42 dnf fedora 42
+variant.rocky-9     := rockylinux/rockylinux:9 dnf rocky 9
+
+# variant-args renders one variant's row as docker build arguments.
+variant-args = \
+	--build-arg BASE=$(word 1,$(variant.$(1))) \
+	--build-arg OS_FAMILY=$(word 2,$(variant.$(1))) \
+	--build-arg OS_ID=$(word 3,$(variant.$(1))) \
+	--build-arg OS_VERSION=$(word 4,$(variant.$(1)))
+
+.PHONY: check-variant
+check-variant:
+	@if [ -z "$(variant.$(RUNNER_VARIANT))" ]; then \
+		echo "unknown RUNNER_VARIANT '$(RUNNER_VARIANT)'; one of: $(RUNNER_VARIANTS)" >&2; \
+		exit 1; \
+	fi
+
 .PHONY: image-runner
-image-runner: ## Build the runner image for the host architecture
+image-runner: check-variant ## Build one runner variant for the host architecture (RUNNER_VARIANT=debian-12)
 	docker build -f deploy/Dockerfile.runner \
 		--build-arg RUNNER_VERSION=$(RUNNER_VERSION) \
-		-t ghcr.io/eyupio/zoomies-runner:$(RUNNER_VERSION) \
-		-t ghcr.io/eyupio/zoomies-runner:latest .
+		$(call variant-args,$(RUNNER_VARIANT)) \
+		-t $(RUNNER_IMAGE):$(RUNNER_VARIANT) .
+
+.PHONY: images-runner
+images-runner: ## Build every runner variant for the host architecture
+	@for v in $(RUNNER_VARIANTS); do \
+		echo "  building $(RUNNER_IMAGE):$$v"; \
+		$(MAKE) --no-print-directory image-runner RUNNER_VARIANT=$$v; \
+	done
+
+.PHONY: image-runner-multiarch
+image-runner-multiarch: check-variant ## Build one runner variant for amd64 and arm64 (needs buildx)
+	docker buildx build --platform linux/amd64,linux/arm64 \
+		-f deploy/Dockerfile.runner --build-arg RUNNER_VERSION=$(RUNNER_VERSION) \
+		$(call variant-args,$(RUNNER_VARIANT)) \
+		-t $(RUNNER_IMAGE):$(RUNNER_VARIANT) .
 
 .PHONY: images-multiarch
-images-multiarch: ## Build both images for amd64 and arm64 (needs buildx)
+images-multiarch: ## Build the controller and every runner variant for amd64 and arm64 (needs buildx)
 	docker buildx build --platform linux/amd64,linux/arm64 \
 		-f deploy/Dockerfile --target controller \
 		--build-arg VERSION=$(VERSION) -t ghcr.io/eyupio/zoomies:$(VERSION) .
-	docker buildx build --platform linux/amd64,linux/arm64 \
-		-f deploy/Dockerfile.runner --build-arg RUNNER_VERSION=$(RUNNER_VERSION) \
-		-t ghcr.io/eyupio/zoomies-runner:$(RUNNER_VERSION) .
+	@for v in $(RUNNER_VARIANTS); do \
+		echo "  building $(RUNNER_IMAGE):$$v for amd64 and arm64"; \
+		$(MAKE) --no-print-directory image-runner-multiarch RUNNER_VARIANT=$$v; \
+	done
 
 ##@ Housekeeping
 

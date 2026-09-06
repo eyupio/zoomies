@@ -272,6 +272,13 @@ export const createPool = (body: Body<'createPool'>) =>
 export const validatePool = (body: Body<'validatePool'>, signal?: AbortSignal) =>
   api.post<Result<'validatePool'>>('/pools/validate', { body, signal });
 
+/**
+ * The operating systems a pool may ask for. Served rather than hard-coded so
+ * the wizard cannot offer one no runner image is published for.
+ */
+export const listPoolPlatforms = (signal?: AbortSignal) =>
+  api.get<Result<'listPoolPlatforms'>>('/pools/platforms', { signal });
+
 export const updatePool = (id: string, body: Body<'updatePool'>) =>
   api.patch<Result<'updatePool'>>(`/pools/${enc(id)}`, { body });
 

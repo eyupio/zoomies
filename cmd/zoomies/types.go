@@ -1,6 +1,9 @@
 package main
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // The shapes below are the parts of api/openapi.yaml the tables read. They are
 // deliberately partial: a field this CLI does not render is a field it does not
@@ -33,7 +36,9 @@ type poolItem struct {
 	Labels             []string          `json:"labels"`
 	RunnerGroup        string            `json:"runner_group"`
 	Backend            string            `json:"backend"`
+	Platform           platformItem      `json:"platform"`
 	Image              string            `json:"image"`
+	EffectiveImage     string            `json:"effective_image"`
 	RunnerVersion      string            `json:"runner_version"`
 	MinRunners         int               `json:"min_runners"`
 	MaxRunners         int               `json:"max_runners"`
@@ -50,6 +55,33 @@ type poolItem struct {
 	QueuedJobs         int               `json:"queued_jobs"`
 	Utilisation        float64           `json:"utilisation"`
 	Warnings           []problemItem     `json:"warnings"`
+}
+
+// platformItem is the machine a pool needs, or the machine a host is.
+type platformItem struct {
+	OS        string `json:"os"`
+	OSVersion string `json:"os_version"`
+	Arch      string `json:"arch"`
+}
+
+// String renders the platform the way the UI does: "ubuntu 24.04, arm64", or
+// "any" when the pool promises nothing.
+func (p platformItem) String() string {
+	var parts []string
+	if p.OS != "" {
+		os := p.OS
+		if p.OSVersion != "" {
+			os += " " + p.OSVersion
+		}
+		parts = append(parts, os)
+	}
+	if p.Arch != "" {
+		parts = append(parts, p.Arch)
+	}
+	if len(parts) == 0 {
+		return "any"
+	}
+	return strings.Join(parts, ", ")
 }
 
 type runnerItem struct {
@@ -131,7 +163,14 @@ type hostItem struct {
 	BackendInfo   []backendInfo     `json:"backend_info"`
 	Labels        map[string]string `json:"labels"`
 	OS            string            `json:"os"`
+	Distro        string            `json:"distro"`
+	OSVersion     string            `json:"os_version"`
 	Arch          string            `json:"arch"`
+	CPUs          int               `json:"cpus"`
+	MemoryMB      int64             `json:"memory_mb"`
+	Platform      platformItem      `json:"platform"`
+	PlatformLabel string            `json:"platform_label"`
+	CanonicalName string            `json:"canonical_name"`
 	Version       string            `json:"version"`
 	Cordoned      bool              `json:"cordoned"`
 	Healthy       bool              `json:"healthy"`

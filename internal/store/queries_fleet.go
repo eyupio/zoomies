@@ -160,9 +160,9 @@ func (s *Store) DeleteInstallation(ctx context.Context, id string) error {
 // Pools
 // ---------------------------------------------------------------------------
 
-const poolCols = `id, name, installation_id, labels, runner_group, backend, image,
-	runner_version, min_runners, max_runners, idle_timeout_ms, ephemeral, docker_mode,
-	resources, host_selector, env, run_as_root, enabled, created_at, updated_at`
+const poolCols = `id, name, installation_id, labels, runner_group, backend, os, os_version,
+	arch, image, runner_version, min_runners, max_runners, idle_timeout_ms, ephemeral,
+	docker_mode, resources, host_selector, env, run_as_root, enabled, created_at, updated_at`
 
 func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 	var p Pool
@@ -170,6 +170,7 @@ func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 	var ephemeral, runAsRoot, enabled int
 	var resources string
 	err := sc.Scan(&p.ID, &p.Name, &p.InstallationID, &p.Labels, &p.RunnerGroup, &p.Backend,
+		&p.Platform.OS, &p.Platform.OSVersion, &p.Platform.Arch,
 		&p.Image, &p.RunnerVersion, &p.MinRunners, &p.MaxRunners, &idle, &ephemeral,
 		&p.DockerMode, &resources, &p.HostSelector, &p.Env, &runAsRoot, &enabled,
 		&created, &updated)
@@ -194,12 +195,14 @@ func (s *Store) CreatePool(ctx context.Context, p *Pool) error {
 	now := s.Now()
 	p.CreatedAt, p.UpdatedAt = now, now
 	p.Labels = NormalizeLabels(p.Labels)
+	p.Platform = p.Platform.Normalized()
 	res, err := marshalJSON(p.Resources)
 	if err != nil {
 		return err
 	}
-	_, err = s.exec(ctx, `INSERT INTO pools (`+poolCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		p.ID, p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend), p.Image,
+	_, err = s.exec(ctx, `INSERT INTO pools (`+poolCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		p.ID, p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend),
+		p.Platform.OS, p.Platform.OSVersion, p.Platform.Arch, p.Image,
 		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.IdleTimeout.Duration().Milliseconds(),
 		boolInt(p.Ephemeral), string(p.DockerMode), res, p.HostSelector, p.Env,
 		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.CreatedAt), ms(p.UpdatedAt))
@@ -248,15 +251,17 @@ func (s *Store) ListPools(ctx context.Context) ([]*Pool, error) {
 func (s *Store) UpdatePool(ctx context.Context, p *Pool) error {
 	p.UpdatedAt = s.Now()
 	p.Labels = NormalizeLabels(p.Labels)
+	p.Platform = p.Platform.Normalized()
 	res, err := marshalJSON(p.Resources)
 	if err != nil {
 		return err
 	}
 	r, err := s.exec(ctx, `UPDATE pools SET name=?, installation_id=?, labels=?, runner_group=?,
-		backend=?, image=?, runner_version=?, min_runners=?, max_runners=?, idle_timeout_ms=?,
-		ephemeral=?, docker_mode=?, resources=?, host_selector=?, env=?, run_as_root=?,
-		enabled=?, updated_at=? WHERE id=?`,
-		p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend), p.Image,
+		backend=?, os=?, os_version=?, arch=?, image=?, runner_version=?, min_runners=?,
+		max_runners=?, idle_timeout_ms=?, ephemeral=?, docker_mode=?, resources=?,
+		host_selector=?, env=?, run_as_root=?, enabled=?, updated_at=? WHERE id=?`,
+		p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend),
+		p.Platform.OS, p.Platform.OSVersion, p.Platform.Arch, p.Image,
 		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.IdleTimeout.Duration().Milliseconds(),
 		boolInt(p.Ephemeral), string(p.DockerMode), res, p.HostSelector, p.Env,
 		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.UpdatedAt), p.ID)
@@ -344,15 +349,17 @@ func (s *Store) CountRunnersByPool(ctx context.Context) (map[string]PoolCounts, 
 // Hosts
 // ---------------------------------------------------------------------------
 
-const hostCols = `id, name, address, embedded, capacity, backends, labels, os, arch,
-	version, cordoned, token_hash, last_heartbeat, created_at`
+const hostCols = `id, name, address, embedded, capacity, backends, labels, os, distro,
+	os_version, arch, cpus, memory_mb, version, cordoned, token_hash, last_heartbeat,
+	created_at`
 
 func scanHost(sc interface{ Scan(...any) error }) (*Host, error) {
 	var h Host
 	var embedded, cordoned int
 	var heartbeat, created int64
 	err := sc.Scan(&h.ID, &h.Name, &h.Address, &embedded, &h.Capacity, &h.Backends,
-		&h.Labels, &h.OS, &h.Arch, &h.Version, &cordoned, &h.TokenHash, &heartbeat, &created)
+		&h.Labels, &h.OS, &h.Distro, &h.OSVersion, &h.Arch, &h.CPUs, &h.MemoryMB,
+		&h.Version, &cordoned, &h.TokenHash, &heartbeat, &created)
 	if err != nil {
 		return nil, err
 	}
@@ -370,10 +377,10 @@ func (s *Store) CreateHost(ctx context.Context, h *Host) error {
 	if h.LastHeartbeat.IsZero() {
 		h.LastHeartbeat = h.CreatedAt
 	}
-	_, err := s.exec(ctx, `INSERT INTO hosts (`+hostCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := s.exec(ctx, `INSERT INTO hosts (`+hostCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		h.ID, h.Name, h.Address, boolInt(h.Embedded), h.Capacity, h.Backends, h.Labels,
-		h.OS, h.Arch, h.Version, boolInt(h.Cordoned), h.TokenHash,
-		ms(h.LastHeartbeat), ms(h.CreatedAt))
+		h.OS, h.Distro, h.OSVersion, h.Arch, h.CPUs, h.MemoryMB, h.Version,
+		boolInt(h.Cordoned), h.TokenHash, ms(h.LastHeartbeat), ms(h.CreatedAt))
 	return wrapWrite(err)
 }
 
@@ -470,9 +477,10 @@ func (s *Store) FindHostByTokenHash(ctx context.Context, hash string) (*Host, er
 // UpdateHost persists agent-reported host facts.
 func (s *Store) UpdateHost(ctx context.Context, h *Host) error {
 	res, err := s.exec(ctx, `UPDATE hosts SET name=?, address=?, capacity=?, backends=?, labels=?,
-		os=?, arch=?, version=?, cordoned=?, last_heartbeat=? WHERE id=?`,
-		h.Name, h.Address, h.Capacity, h.Backends, h.Labels, h.OS, h.Arch, h.Version,
-		boolInt(h.Cordoned), ms(h.LastHeartbeat), h.ID)
+		os=?, distro=?, os_version=?, arch=?, cpus=?, memory_mb=?, version=?, cordoned=?,
+		last_heartbeat=? WHERE id=?`,
+		h.Name, h.Address, h.Capacity, h.Backends, h.Labels, h.OS, h.Distro, h.OSVersion,
+		h.Arch, h.CPUs, h.MemoryMB, h.Version, boolInt(h.Cordoned), ms(h.LastHeartbeat), h.ID)
 	if err != nil {
 		return wrapWrite(err)
 	}

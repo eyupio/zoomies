@@ -78,9 +78,15 @@ after an hour. That works until it doesn't:
    no clock reads, no database, no network. That is what makes the scaling
    behaviour testable, and it is where every scaling decision's *reason string*
    comes from.
-5. For each `create` action the controller picks the installation, asks GitHub
-   for a JIT configuration, writes a `runners` row in `provisioning`, and queues
-   a task for the chosen host's agent.
+   `Decide` also places each new runner: a host qualifies only if it offers the
+   pool's backend, matches the pool's *platform* (distribution, release and
+   architecture) and satisfies its host selector, so an Ubuntu 24.04 arm64 pool
+   is never handed a Debian amd64 machine. A pool that names no platform, and a
+   host that has not reported one, both constrain nothing.
+5. For each `create` action the controller picks the installation, resolves the
+   runner image from the pool's own image or its platform, asks GitHub for a JIT
+   configuration, writes a `runners` row in `provisioning`, and queues a task for
+   the chosen host's agent.
 6. The agent long-polls, picks up the task, and starts a container with the JIT
    config in its environment. It reports back: `registering`, then `idle`.
 7. GitHub hands the job to the runner. A `workflow_job` `in_progress` webhook
@@ -105,7 +111,9 @@ silently stopped receiving webhooks looks exactly like a quiet fleet.
 | `internal/store` | The only place SQL is written. Domain types, embedded migrations, every query. Enforces the runner state machine. |
 | `internal/config` | `zoomies.yaml` + `ZOOMIES_*`. Splits findings into errors that stop startup and warnings that name every dangerous setting. |
 | `internal/cryptox` | AES-256-GCM for secrets at rest; argon2id for passwords; SHA-256 for bearer tokens. |
-| `internal/scheduler` | Pure scaling decisions and label matching. No I/O. |
+| `internal/scheduler` | Pure scaling decisions, label matching and platform fit. No I/O. |
+| `internal/naming` | The `zoomies-*` naming grammar for pools, hosts and runners, and the runner image catalogue. No I/O; see [Naming and platforms](naming.md). |
+| `internal/machine` | What host this process is running on: distribution, release, and how much machine the cgroup actually allows. |
 | `internal/github` | App auth, JIT configs, registration tokens, webhook validation, the fallback poller, and a fake GitHub for tests. |
 | `internal/backend` | How a runner becomes a real process: Docker, Podman, bare process. |
 | `internal/auth` | Identity, RBAC, sessions, API tokens, join tokens, OIDC, audit. |

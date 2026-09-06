@@ -988,3 +988,77 @@ func TestTiesBreakOnIDNotInputOrder(t *testing.T) {
 		}
 	}
 }
+
+// hostOn returns a host that has told the fleet what machine it is.
+func hostOn(id, distro, version, arch string, capacity int) *store.Host {
+	h := testHost(id, capacity, 0)
+	h.OS, h.Distro, h.OSVersion, h.Arch = "linux", distro, version, arch
+	return h
+}
+
+func TestRunnersOnlyLandOnHostsThatMatchThePoolsPlatform(t *testing.T) {
+	pool := testPool("zoomies-4vcpu-ubuntu-2404-arm64", "zoomies-4vcpu-ubuntu-2404-arm64")
+	pool.Platform = store.Platform{OS: "ubuntu", OSVersion: "24.04", Arch: "arm64"}
+
+	hosts := []*store.Host{
+		hostOn("host_amd", "ubuntu", "24.04", "amd64", 4),
+		hostOn("host_old", "ubuntu", "22.04", "arm64", 4),
+		hostOn("host_deb", "debian", "12", "arm64", 4),
+		hostOn("host_right", "ubuntu", "24.04", "arm64", 4),
+	}
+	jobs := []*store.Job{queued("job1", time.Minute, "zoomies-4vcpu-ubuntu-2404-arm64")}
+
+	plan := Decide(snap([]*store.Pool{pool}, nil, jobs, hosts))
+	creates := actionsOf(plan.Actions, ActionCreate)
+	if len(creates) != 1 {
+		t.Fatalf("got %d creates, want 1: %+v", len(creates), creates)
+	}
+	if creates[0].HostID != "host_right" {
+		t.Errorf("placed on %s; the only Ubuntu 24.04 arm64 host is host_right", creates[0].HostID)
+	}
+}
+
+func TestAPoolWithNoPlatformStillGoesAnywhere(t *testing.T) {
+	// Every fleet built before platforms existed has pools like this one. They
+	// must keep placing exactly as they did.
+	pool := testPool("linux-x64", "linux-x64")
+	hosts := []*store.Host{hostOn("host_a", "debian", "12", "amd64", 2)}
+	jobs := []*store.Job{queued("job1", time.Minute, "linux-x64")}
+
+	plan := Decide(snap([]*store.Pool{pool}, nil, jobs, hosts))
+	if got := len(actionsOf(plan.Actions, ActionCreate)); got != 1 {
+		t.Fatalf("got %d creates, want 1", got)
+	}
+}
+
+func TestAPlatformMismatchExplainsItselfWithTheMachineToAdd(t *testing.T) {
+	pool := testPool("zoomies-4vcpu-ubuntu-2404-arm64", "zoomies-4vcpu-ubuntu-2404-arm64")
+	pool.Platform = store.Platform{OS: "ubuntu", OSVersion: "24.04", Arch: "arm64"}
+	hosts := []*store.Host{hostOn("host_amd", "ubuntu", "24.04", "amd64", 4)}
+	jobs := []*store.Job{queued("job1", time.Minute, "zoomies-4vcpu-ubuntu-2404-arm64")}
+
+	plan := Decide(snap([]*store.Pool{pool}, nil, jobs, hosts))
+	if got := len(actionsOf(plan.Actions, ActionCreate)); got != 0 {
+		t.Fatalf("got %d creates, want none: the only host is amd64", got)
+	}
+	reason := plan.Pools[0].Reason
+	for _, want := range []string{"1 not Ubuntu 24.04, arm64", "add a Ubuntu 24.04, arm64 host"} {
+		if !strings.Contains(reason, want) {
+			t.Errorf("reason %q does not contain %q", reason, want)
+		}
+	}
+}
+
+func TestAHostThatHasNotSaidWhatItIsIsNotRuledOut(t *testing.T) {
+	// An agent from before this field existed reports no distribution. Refusing
+	// to place on it would turn an upgrade into an outage.
+	pool := testPool("zoomies-4vcpu-ubuntu-2404", "zoomies-4vcpu-ubuntu-2404")
+	pool.Platform = store.Platform{OS: "ubuntu", OSVersion: "24.04", Arch: "amd64"}
+	hosts := []*store.Host{testHost("host_quiet", 4, 0)}
+	jobs := []*store.Job{queued("job1", time.Minute, "zoomies-4vcpu-ubuntu-2404")}
+
+	plan := Decide(snap([]*store.Pool{pool}, nil, jobs, hosts))
+	if got := len(actionsOf(plan.Actions, ActionCreate)); got != 1 {
+		t.Fatalf("got %d creates, want 1", got)
+	}
+}

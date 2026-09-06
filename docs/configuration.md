@@ -156,12 +156,24 @@ github:
 A bare hostname is accepted and `/api/v3` appended. Everything else — App auth,
 JIT configs, webhooks, runner groups — works the same.
 
-### `github.runner_image` — which image tag to run
+### `github.runner_image` — the fallback runner image
 
 ```yaml
 github:
   runner_image: ghcr.io/eyupio/zoomies-runner:latest
 ```
+
+This is the last of three answers, not the first. A pool that names an image
+gets that image; a pool that names a **platform** gets the variant its platform
+selects; only a pool that names neither falls back to this setting. See
+[Naming and platforms](naming.md) for the catalogue and how a pool picks from
+it.
+
+The runner image is published with one tag per operating system —
+`ubuntu-2404`, `ubuntu-2204`, `debian-12`, `fedora-42`, `rocky-9` — each built
+for amd64 and arm64, and `latest` points at `ubuntu-2404`. Set this to a
+specific variant to change what an unspecified pool boots fleet-wide, or to your
+own image if you build one.
 
 Both images — `ghcr.io/eyupio/zoomies` (the controller) and
 `ghcr.io/eyupio/zoomies-runner` — are published to GHCR under four kinds of
@@ -184,9 +196,14 @@ release": drop it from the `images` job in `ci.yml`, and let `release.yml` be
 the only thing that moves it. Leaving both in place means the next merge to
 `main` overwrites the release's `latest` with an untagged build.
 
-The runner image is only rebuilt when something that goes into it changes —
-`deploy/Dockerfile.runner` or `deploy/runner-entrypoint.sh` — so its `main` tag
-can be older than the controller's, and correctly so.
+Each runner variant also carries its own `<os>-<version>-main` and
+`<os>-<version>-<tag>` forms, so a fleet can pin one operating system without
+pinning the controller.
+
+The runner images are only rebuilt when something that goes into them changes —
+`deploy/Dockerfile.runner`, `deploy/runner-entrypoint.sh` or
+`deploy/runner-packages.sh` — so their `main` tags can be older than the
+controller's, and correctly so.
 
 ### Deployment models
 

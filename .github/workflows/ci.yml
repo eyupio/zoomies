@@ -176,6 +176,10 @@ jobs:
           dash -n install.sh
           shellcheck -s sh install.sh
           shellcheck deploy/runner-entrypoint.sh
+          # The runner image's package step runs under whatever /bin/sh the
+          # base image has, which on Debian and Alpine is not bash.
+          dash -n deploy/runner-packages.sh
+          shellcheck -s sh deploy/runner-packages.sh
 
   images:
     name: Images
@@ -184,6 +188,13 @@ jobs:
     permissions:
       contents: read
       packages: write
+    # The runner-images job below repeats none of these decisions; it reads
+    # them from here, so a change to what publishes only has to be made once.
+    outputs:
+      publish: ${{ steps.publish.outputs.value }}
+      platforms: ${{ steps.platforms.outputs.list }}
+      runner: ${{ steps.changed.outputs.runner }}
+      sha: ${{ steps.tags.outputs.sha }}
     env:
       CONTROLLER_IMAGE: ghcr.io/eyupio/zoomies
       RUNNER_IMAGE: ghcr.io/eyupio/zoomies-runner
@@ -288,7 +299,7 @@ jobs:
           fi
 
           if git diff --name-only "$BASE" HEAD |
-             grep -qE '^deploy/(Dockerfile\.runner|runner-entrypoint\.sh)$'; then
+             grep -qE '^deploy/(Dockerfile\.runner|runner-entrypoint\.sh|runner-packages\.sh)$'; then
             echo "runner=true" >> "$GITHUB_OUTPUT"
           else
             echo "runner=false" >> "$GITHUB_OUTPUT"
@@ -313,19 +324,6 @@ jobs:
             ${{ env.CONTROLLER_IMAGE }}:main
             ${{ env.CONTROLLER_IMAGE }}:${{ steps.tags.outputs.sha }}
 
-      - name: Build the runner image
-        if: steps.changed.outputs.runner == 'true'
-        uses: useblacksmith/build-push-action@v2
-        with:
-          context: .
-          file: deploy/Dockerfile.runner
-          platforms: ${{ steps.platforms.outputs.list }}
-          push: ${{ steps.publish.outputs.value }}
-          tags: |
-            ${{ env.RUNNER_IMAGE }}:latest
-            ${{ env.RUNNER_IMAGE }}:main
-            ${{ env.RUNNER_IMAGE }}:${{ steps.tags.outputs.sha }}
-
       - name: Say what happened
         env:
           PUBLISH: ${{ steps.publish.outputs.value }}
@@ -335,7 +333,7 @@ jobs:
           set -eu
           {
             if [ "$RUNNER_BUILT" != "true" ]; then
-              echo "The runner image was not rebuilt: nothing under deploy/ that goes into it changed."
+              echo "The runner images were not rebuilt: nothing under deploy/ that goes into them changed."
               echo
             fi
             if [ "$PUBLISH" != "true" ]; then
@@ -345,11 +343,93 @@ jobs:
               echo
               echo "- \`$CONTROLLER_IMAGE:latest\`, \`:main\`, \`:$SHA_TAG\`"
               if [ "$RUNNER_BUILT" = "true" ]; then
-                echo "- \`$RUNNER_IMAGE:latest\`, \`:main\`, \`:$SHA_TAG\`"
+                echo "- \`$RUNNER_IMAGE\`: one tag per operating system, see the runner-images job"
               else
-                echo "- \`$RUNNER_IMAGE:latest\` is unchanged, and still current."
+                echo "- \`$RUNNER_IMAGE\` is unchanged, and still current."
               fi
               echo
               echo "Drop \`:latest\` from this job once the first release is tagged."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # One build per operating system in internal/naming's catalogue.
+  #
+  # It is a separate job from `images` because it is the expensive half -- five
+  # variants, each downloading the ~200 MB actions/runner tarball -- and only
+  # runs when something that goes into the image changed. A pull request builds
+  # amd64 only and publishes nothing; main builds both architectures and
+  # publishes every variant.
+  #
+  # TestReleaseMatrixCoversTheCatalogue keeps this list and internal/naming's
+  # catalogue in step, so a new operating system cannot be half-added.
+  runner-images:
+    name: Runner image (${{ matrix.tag }})
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: [images]
+    if: needs.images.outputs.runner == 'true'
+    permissions:
+      contents: read
+      packages: write
+    env:
+      RUNNER_IMAGE: ghcr.io/eyupio/zoomies-runner
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { tag: ubuntu-2404, base: "ubuntu:24.04",              family: apt, os: ubuntu, version: "24.04", default: true }
+          - { tag: ubuntu-2204, base: "ubuntu:22.04",              family: apt, os: ubuntu, version: "22.04" }
+          - { tag: debian-12,   base: "debian:12-slim",            family: apt, os: debian, version: "12" }
+          - { tag: fedora-42,   base: "fedora:42",                 family: dnf, os: fedora, version: "42" }
+          - { tag: rocky-9,     base: "rockylinux/rockylinux:9",   family: dnf, os: rocky,  version: "9" }
+    steps:
+      - uses: actions/checkout@v7
+
+      - if: needs.images.outputs.publish == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - if: needs.images.outputs.platforms != 'linux/amd64'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Blacksmith Builder
+        uses: useblacksmith/setup-docker-builder@v1
+
+      # Only the default variant carries the unqualified tags. Anything else
+      # would mean a pool that named no operating system got whichever variant
+      # this matrix happened to finish last.
+      - id: tags
+        name: Work out the tags
+        env:
+          IS_DEFAULT: ${{ matrix.default && 'true' || 'false' }}
+          TAG: ${{ matrix.tag }}
+          SHA_TAG: ${{ needs.images.outputs.sha }}
+        run: |
+          set -eu
+          {
+            echo "list<<EOF"
+            echo "$RUNNER_IMAGE:$TAG"
+            echo "$RUNNER_IMAGE:$TAG-main"
+            echo "$RUNNER_IMAGE:$TAG-$SHA_TAG"
+            if [ "$IS_DEFAULT" = "true" ]; then
+              echo "$RUNNER_IMAGE:latest"
+              echo "$RUNNER_IMAGE:main"
+              echo "$RUNNER_IMAGE:$SHA_TAG"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: deploy/Dockerfile.runner
+          platforms: ${{ needs.images.outputs.platforms }}
+          push: ${{ needs.images.outputs.publish }}
+          build-args: |
+            BASE=${{ matrix.base }}
+            OS_FAMILY=${{ matrix.family }}
+            OS_ID=${{ matrix.os }}
+            OS_VERSION=${{ matrix.version }}
+          tags: ${{ steps.tags.outputs.list }}

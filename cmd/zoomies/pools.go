@@ -50,7 +50,8 @@ func poolsList(ctx context.Context, e *env, args []string) error {
 		return p.emit(raw)
 	}
 	if len(out.Items) == 0 {
-		p.note("No pools yet. Create one with: zoomies pools create --name linux-x64 --labels self-hosted,linux-x64 --installation <id>")
+		p.note("No pools yet. Create one with: zoomies pools create --name zoomies-4vcpu-ubuntu-2404 " +
+			"--labels zoomies-4vcpu-ubuntu-2404 --cpus 4 --os ubuntu --os-version 24.04 --installation <id>")
 		return nil
 	}
 
@@ -63,8 +64,9 @@ func poolsList(ctx context.Context, e *env, args []string) error {
 		rows = append(rows, []string{
 			item.Name,
 			item.ID,
-			truncate(strings.Join(item.Labels, ","), 34),
+			truncate(strings.Join(item.Labels, ","), 30),
 			item.Backend,
+			item.Platform.String(),
 			fmt.Sprintf("%d/%d", item.Counts.Live, item.MaxRunners),
 			strconv.Itoa(item.Counts.Busy),
 			strconv.Itoa(item.QueuedJobs),
@@ -72,7 +74,7 @@ func poolsList(ctx context.Context, e *env, args []string) error {
 			enabled,
 		})
 	}
-	p.table([]string{"name", "id", "labels", "backend", "live/max", "busy", "queued", "utilisation", "enabled"}, rows)
+	p.table([]string{"name", "id", "labels", "backend", "platform", "live/max", "busy", "queued", "utilisation", "enabled"}, rows)
 	return nil
 }
 
@@ -112,7 +114,8 @@ func poolsGet(ctx context.Context, e *env, args []string) error {
 		{"labels", strings.Join(pool.Labels, ", ")},
 		{"runner group", dash(pool.RunnerGroup)},
 		{"backend", pool.Backend},
-		{"image", dash(pool.Image)},
+		{"platform", pool.Platform.String()},
+		{"image", poolImage(pool)},
 		{"runner version", dash(pool.RunnerVersion)},
 		{"runners", fmt.Sprintf("%d live of %d max, %d minimum", pool.Counts.Live, pool.MaxRunners, pool.MinRunners)},
 		{"states", fmt.Sprintf("%d idle, %d busy, %d draining, %d provisioning, %d failed",
@@ -129,6 +132,20 @@ func poolsGet(ctx context.Context, e *env, args []string) error {
 	})
 	printProblems(p, pool.Warnings, "This pool has settings that weaken the defaults:")
 	return nil
+}
+
+// poolImage says which image this pool's runners will boot, and where that
+// came from. A pool that pins nothing is the common case now that a platform
+// picks the variant, and "-" would leave an operator guessing at the single
+// most important thing about their runners.
+func poolImage(pool poolItem) string {
+	switch {
+	case pool.Image != "":
+		return pool.Image
+	case pool.EffectiveImage != "":
+		return pool.EffectiveImage + " (from the pool's platform)"
+	}
+	return "-"
 }
 
 // poolSpec holds the flags shared by create and edit. Keeping them in one place
@@ -153,6 +170,9 @@ type poolSpec struct {
 	cpus         *float64
 	memoryMB     *int64
 	diskGB       *int64
+	os           *string
+	osVersion    *string
+	arch         *string
 }
 
 // registerPoolFlags declares them, with the API's own defaults so that a
@@ -163,11 +183,11 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 		hostSelector: kvValue{},
 		envVars:      kvValue{},
 	}
-	spec.name = fs.String("name", "", "the pool's name, e.g. linux-x64")
+	spec.name = fs.String("name", "", "the pool's name, e.g. zoomies-4vcpu-ubuntu-2404")
 	spec.installation = fs.String("installation", "", "the GitHub App installation this pool registers runners with")
 	fs.Var(spec.labels, "labels", "the labels a workflow's runs-on must ask for (repeatable, or comma-separated)")
 	spec.backend = fs.String("backend", "docker", "docker, podman or process")
-	spec.image = fs.String("image", "", "runner image (default: the controller's github.runner_image)")
+	spec.image = fs.String("image", "", "runner image (default: the variant --os selects, else the controller's github.runner_image)")
 	spec.version = fs.String("runner-version", "", "pin the actions/runner release")
 	spec.group = fs.String("runner-group", "", "the GitHub runner group to register into")
 	spec.minRunners = fs.Int("min", 0, "runners to keep even when nothing is queued")
@@ -182,6 +202,9 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	spec.cpus = fs.Float64("cpus", 0, "CPU limit per runner")
 	spec.memoryMB = fs.Int64("memory-mb", 0, "memory limit per runner, in MiB")
 	spec.diskGB = fs.Int64("disk-gb", 0, "disk limit per runner, in GiB")
+	spec.os = fs.String("os", "", "the distribution these runners need: ubuntu, debian, fedora or rocky. It picks the runner image and restricts placement to hosts that match")
+	spec.osVersion = fs.String("os-version", "", "the release, e.g. 24.04")
+	spec.arch = fs.String("arch", "", "amd64 or arm64")
 	return spec
 }
 
@@ -221,6 +244,11 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 	if fs.changed("env") {
 		body["env"] = map[string]string(spec.envVars)
 	}
+	if fs.changed("os") || fs.changed("os-version") || fs.changed("arch") {
+		body["platform"] = map[string]any{
+			"os": *spec.os, "os_version": *spec.osVersion, "arch": *spec.arch,
+		}
+	}
 	if fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") {
 		resources := map[string]any{}
 		if *spec.cpus > 0 {
@@ -244,8 +272,10 @@ func poolsCreate(ctx context.Context, e *env, args []string) error {
 	spec := registerPoolFlags(fs)
 	dryRun := fs.Bool("dry-run", false, "validate the pool and print the verdict without creating anything")
 	fs.example(
-		"zoomies pools create --name linux-x64 --labels self-hosted,linux-x64 --installation inst_k3f9qz2m --max 8",
-		"zoomies pools create --name arm --labels linux-arm64 --installation inst_k3f9qz2m --host-selector arch=arm64 --dry-run",
+		"zoomies pools create --name zoomies-4vcpu-ubuntu-2404 --labels zoomies-4vcpu-ubuntu-2404 "+
+			"--installation inst_k3f9qz2m --cpus 4 --os ubuntu --os-version 24.04 --max 8",
+		"zoomies pools create --name zoomies-8vcpu-debian-12-arm64 --labels zoomies-8vcpu-debian-12-arm64 "+
+			"--installation inst_k3f9qz2m --cpus 8 --os debian --os-version 12 --arch arm64 --dry-run",
 	)
 	if err := fs.parse(args); err != nil {
 		return err
@@ -319,7 +349,9 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 		"Change the settings you name. Anything you do not name is left alone.")
 	cf := registerClientFlags(fs, true)
 	spec := registerPoolFlags(fs)
-	fs.example("zoomies pools edit pool_k3f9qz2m --max 12", "zoomies pools edit pool_k3f9qz2m --labels self-hosted,linux-x64,gpu")
+	fs.example("zoomies pools edit pool_k3f9qz2m --max 12",
+		"zoomies pools edit pool_k3f9qz2m --os ubuntu --os-version 24.04",
+		"zoomies pools edit pool_k3f9qz2m --labels zoomies-4vcpu-ubuntu-2404,gpu")
 	if err := fs.parse(args); err != nil {
 		return err
 	}

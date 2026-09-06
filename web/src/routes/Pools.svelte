@@ -37,7 +37,11 @@
   import UtilisationBar from '$lib/components/UtilisationBar.svelte';
   import PoolLabels from '$lib/pools/PoolLabels.svelte';
   import PoolRiskBadge from '$lib/pools/PoolRiskBadge.svelte';
-  import { backendLabel, dockerModeLabel } from '$lib/pools/PoolVocabulary.svelte';
+  import {
+    backendLabel,
+    dockerModeLabel,
+    platformLabelOrAny,
+  } from '$lib/pools/PoolVocabulary.svelte';
 
   const canOperate = $derived(session.can('operator'));
 
@@ -97,6 +101,8 @@
         return (a.installation_target ?? '').localeCompare(b.installation_target ?? '');
       case 'backend':
         return (a.backend ?? '').localeCompare(b.backend ?? '');
+      case 'platform':
+        return platformLabelOrAny(a.platform).localeCompare(platformLabelOrAny(b.platform));
       case 'live':
         return (a.counts?.live ?? 0) - (b.counts?.live ?? 0);
       case 'queued':
@@ -292,6 +298,12 @@
         header: 'Backend',
         sortable: true,
         value: (row) => backendLabel(row.backend),
+      },
+      {
+        id: 'platform',
+        header: 'Platform',
+        sortable: true,
+        value: (row) => platformLabelOrAny(row.platform),
       },
       {
         id: 'live',
