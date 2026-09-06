@@ -731,6 +731,11 @@ func classify(resp *gh.Response, err error) error {
 			return fmt.Errorf("%w: quota exhausted until %s", ErrRateLimited, resp.Rate.Reset.Format(time.RFC3339))
 		}
 		return fmt.Errorf("%w%s", ErrForbidden, detail(message))
+	case http.StatusUnprocessableEntity:
+		// The one status where GitHub says which field it objected to, and the
+		// one that used to fall through as go-github's raw "422 Validation
+		// Failed" -- printed on a runner row as the reason it never started.
+		return fmt.Errorf("%w%s", ErrInvalid, validationDetail(er, message))
 	case http.StatusTooManyRequests:
 		return fmt.Errorf("%w%s", ErrRateLimited, detail(message))
 	case http.StatusUnauthorized:
@@ -745,4 +750,27 @@ func detail(message string) string {
 		return ""
 	}
 	return ": " + message
+}
+
+// validationDetail renders GitHub's per-field errors on a 422, which say what
+// was actually wrong: "name is already taken" rather than "Validation Failed".
+func validationDetail(er *gh.ErrorResponse, message string) string {
+	if er == nil || len(er.Errors) == 0 {
+		return detail(message)
+	}
+	parts := make([]string, 0, len(er.Errors))
+	for _, e := range er.Errors {
+		switch {
+		case e.Message != "":
+			parts = append(parts, e.Message)
+		case e.Field != "" && e.Code != "":
+			parts = append(parts, strings.TrimSpace(e.Resource+" "+e.Field)+" "+e.Code)
+		case e.Code != "":
+			parts = append(parts, e.Code)
+		}
+	}
+	if len(parts) == 0 {
+		return detail(message)
+	}
+	return ": " + strings.Join(parts, "; ")
 }

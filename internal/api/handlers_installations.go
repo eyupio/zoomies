@@ -464,6 +464,11 @@ func (s *Server) githubFail(w http.ResponseWriter, r *http.Request, doing string
 			Code:    codeInternal,
 			Message: "GitHub refused this request, which usually means the App is missing a permission: " + err.Error(),
 		}})
+	case errors.Is(err, github.ErrInvalid):
+		// GitHub refused the request itself, naming the field. That is the
+		// caller's to fix, not this controller's, so it is a 422 with what
+		// GitHub said rather than a 500 with a request ID.
+		unprocessable(w, err.Error(), nil)
 	case errors.Is(err, github.ErrRateLimited):
 		rateLimited(w, "this installation has used up its GitHub API quota; the counters reset within the hour", 0)
 	default:
