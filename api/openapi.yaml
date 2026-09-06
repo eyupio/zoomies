@@ -24,7 +24,8 @@ info:
     CSRF.
 
     Agents use a separate credential class on `/agent/*` and can reach nothing
-    else.
+    else. Those routes are documented at the end, marked `x-internal`: they are
+    part of the surface, but no general client should call them.
 
     ## Roles
 
@@ -91,6 +92,7 @@ paths:
       operationId: getUsage
       tags: [jobs]
       summary: Aggregate bounded fleet usage
+      x-zoomies-role: viewer
       parameters:
         - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
         - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
@@ -104,6 +106,7 @@ paths:
       operationId: exportUsageCSV
       tags: [jobs]
       summary: Export bounded fleet usage as CSV
+      x-zoomies-role: viewer
       parameters:
         - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
         - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
@@ -233,6 +236,39 @@ paths:
         "204": { description: Changed }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /auth/oidc/start:
+    get:
+      operationId: oidcStart
+      tags: [auth]
+      summary: Begin single sign-on
+      description: >-
+        Sends the browser to the identity provider. A browser navigation, not an API call:
+        the answer is a redirect, and the handshake state travels in a short-lived cookie.
+      security: []
+      responses:
+        "302": { description: Redirected to the identity provider. }
+        "503": { description: Single sign-on is not enabled on this controller. }
+
+  /auth/oidc/callback:
+    get:
+      operationId: oidcCallback
+      tags: [auth]
+      summary: Finish single sign-on
+      description: >-
+        Where the identity provider sends the browser back. On success the session cookie is
+        set and the browser is redirected into the app; on any failure it is redirected to
+        the login page with the reason in the query string, because whoever is here is a
+        person trying to sign in and that is where they can try again.
+      security: []
+      parameters:
+        - { name: code, in: query, schema: { type: string } }
+        - { name: state, in: query, schema: { type: string } }
+        - { name: error, in: query, schema: { type: string } }
+        - { name: error_description, in: query, schema: { type: string } }
+      responses:
+        "302": { description: Redirected into the app, or to the login page with a message. }
+        "503": { description: Single sign-on is not enabled on this controller. }
 
   # ==========================================================================
   # Overview
@@ -770,6 +806,7 @@ paths:
       operationId: prewarmPool
       tags: [pools]
       summary: Prewarm the pool image on every matching host
+      x-zoomies-role: operator
       parameters:
         - $ref: "#/components/parameters/PathID"
       responses:
@@ -1654,6 +1691,139 @@ paths:
               schema: { $ref: "#/components/schemas/Settings" }
         "422": { $ref: "#/components/responses/Unprocessable" }
 
+  # ==========================================================================
+  # Agent routes
+  # ==========================================================================
+  # The half of the API agents talk to. These carry an agent token, never a
+  # user session, and an agent can reach nothing else. They are here so that
+  # this document is the whole surface it says it is, and marked x-internal
+  # because no general client should call them: the wire types are owned by
+  # internal/agent/protocol.go, and a client generator should skip them.
+  /agent/join:
+    post:
+      operationId: agentJoin
+      tags: [agent]
+      x-internal: true
+      summary: Redeem a join token and enrol a host
+      description: >-
+        The one anonymous agent route, because it is the call that mints the credential every
+        other one carries. The join token is single-use and short-lived; the agent token in
+        the response is shown exactly once, and the controller keeps only its hash.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AgentJoinRequest" }
+      responses:
+        "200":
+          description: Enrolled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AgentJoinResponse" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /agent/heartbeat:
+    post:
+      operationId: agentHeartbeat
+      tags: [agent]
+      x-internal: true
+      summary: Report that the host is alive, and what its runners are doing
+      security: [{ agentAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AgentHeartbeatRequest" }
+      responses:
+        "200":
+          description: Recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AgentHeartbeatResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: The host was deleted. No amount of retrying brings the row back; the agent re-joins. }
+
+  /agent/tasks:
+    get:
+      operationId: agentPollTasks
+      tags: [agent]
+      x-internal: true
+      summary: Long-poll for work
+      description: Blocks until the host has work or the wait elapses, so a task reaches an agent the instant it is queued while an idle agent makes two or three requests a minute.
+      security: [{ agentAuth: [] }]
+      parameters:
+        - name: wait
+          in: query
+          description: Seconds to wait for work before answering with an empty batch.
+          schema: { type: integer, minimum: 1, default: 25 }
+      responses:
+        "200":
+          description: The tasks queued for this host, possibly none.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AgentTaskBatch" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /agent/results:
+    post:
+      operationId: agentReportResult
+      tags: [agent]
+      x-internal: true
+      summary: Report the outcome of one task
+      security: [{ agentAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AgentTaskResult" }
+      responses:
+        "204": { description: Applied }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /agent/report:
+    post:
+      operationId: agentReportRunners
+      tags: [agent]
+      x-internal: true
+      summary: Report what the host's runners are doing, outside a heartbeat
+      description: The body is a bare array of runner reports, because that is what the agent sends and the two halves of the protocol must agree.
+      security: [{ agentAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items: { $ref: "#/components/schemas/RunnerReport" }
+      responses:
+        "204": { description: Applied }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /agent/logs/{stream_id}:
+    post:
+      operationId: agentRelayLogs
+      tags: [agent]
+      x-internal: true
+      summary: Relay a runner's output to a viewer
+      description: >-
+        The inverted half of log streaming. The controller never dials an agent, so a viewer's
+        request makes it queue a stream_logs task, and the agent answers by opening this
+        chunked POST, which stays open for as long as the runner produces output. Exempt from
+        the body-size limit for that reason.
+      security: [{ agentAuth: [] }]
+      parameters:
+        - { name: stream_id, in: path, required: true, schema: { type: string }, description: The stream named by the stream_logs task. }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "204": { description: The stream ended. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: Nobody is watching this stream any more; the agent stops sending. }
 components:
   securitySchemes:
     cookieAuth:
@@ -1666,6 +1836,13 @@ components:
       scheme: bearer
       bearerFormat: zoo_<prefix>_<secret>
       description: An API token. Not subject to the same-origin check, because it is not vulnerable to CSRF.
+    agentAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: zooagent_<secret>
+      description: >-
+        An agent's own token, minted by `POST /agent/join`. Accepted on `/agent/*` only: a
+        user credential is refused there, and an agent token is refused everywhere else.
 
   parameters:
     PathID:
@@ -2455,6 +2632,7 @@ components:
         endpoint: { type: string }
         detail: { type: string, description: When unavailable, what is wrong and how to fix it. }
         supports_dind: { type: boolean }
+        host_socket_path: { type: string, description: Where the host daemon's socket lives, for pools that opt into host-socket mode. }
 
     Host:
       type: object
@@ -2562,3 +2740,149 @@ components:
         version: { type: string }
         database_path: { type: string }
         event_subscribers: { type: integer }
+
+    # --- agent protocol (internal) ------------------------------------------
+    # The wire types of the agent routes. internal/agent/protocol.go owns them;
+    # these describe what it sends so the document is whole.
+    AgentJoinRequest:
+      type: object
+      required: [protocol_version, join_token, name, capacity, os, arch, version, backends]
+      properties:
+        protocol_version: { type: integer }
+        join_token: { type: string, format: password }
+        name: { type: string }
+        address: { type: string, description: How the host reports itself. The controller never dials it. }
+        capacity: { type: integer, description: Concurrent runners the host accepts. 0 lets the join token or the CPU count decide. }
+        os: { type: string }
+        arch: { type: string }
+        version: { type: string, description: The agent's build version, for skew warnings. }
+        labels: { type: object, additionalProperties: { type: string } }
+        backends: { type: array, items: { $ref: "#/components/schemas/BackendInfo" } }
+    AgentJoinResponse:
+      type: object
+      properties:
+        host_id: { type: string }
+        agent_token: { type: string, description: Shown once. The controller keeps only its hash. }
+        controller_version: { type: string }
+        heartbeat_interval: { $ref: "#/components/schemas/Duration" }
+    AgentHeartbeatRequest:
+      type: object
+      properties:
+        protocol_version: { type: integer }
+        capacity: { type: integer, description: The agent's configured value, sent for the log. The controller does not write it. }
+        version: { type: string }
+        backends: { type: array, items: { $ref: "#/components/schemas/BackendInfo" } }
+        runners: { type: array, items: { $ref: "#/components/schemas/RunnerReport" } }
+    AgentHeartbeatResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        cordoned: { type: boolean, description: Mirrors the host's cordon flag so the agent stops asking for work at once. }
+        controller_version: { type: string }
+        resync_requested: { type: boolean, description: Send a full runner report next time. Set after the controller restarts. }
+    RunnerReport:
+      type: object
+      required: [runner_id, observed_at]
+      properties:
+        runner_id: { type: string }
+        state:
+          description: >-
+            The state the agent asserts, or empty once the workload is up: whether GitHub has
+            handed the runner a job is not the agent's call.
+          oneOf:
+            - $ref: "#/components/schemas/RunnerState"
+            - { type: string, const: "" }
+        handle: { type: string, description: The backend's own name for the workload, such as a container ID. }
+        phase: { type: string, enum: [starting, running, exited, failed, gone] }
+        exit_code: { type: integer }
+        message: { type: string }
+        stats: { $ref: "#/components/schemas/WorkloadStats" }
+        github_runner_id: { type: integer, format: int64, description: Filled in once the runner has registered. }
+        observed_at: { type: string, format: date-time }
+    WorkloadStats:
+      type: object
+      properties:
+        cpu_percent: { type: number, format: double }
+        memory_bytes: { type: integer, format: int64 }
+        memory_limit: { type: integer, format: int64 }
+    AgentTaskKind:
+      type: string
+      enum: [create_runner, stop_runner, remove_runner, stream_logs, cancel_logs, prewarm_image]
+    AgentTask:
+      type: object
+      description: One unit of work for an agent. Tasks are idempotent; the controller may redeliver one after a restart.
+      required: [id, kind, issued_at]
+      properties:
+        id: { type: string }
+        kind: { $ref: "#/components/schemas/AgentTaskKind" }
+        runner_id: { type: string }
+        spec: { $ref: "#/components/schemas/RunnerSpec" }
+        backend: { $ref: "#/components/schemas/BackendKind" }
+        pool_id: { type: string }
+        image: { type: string }
+        pull_policy: { $ref: "#/components/schemas/PullPolicy" }
+        stop_timeout: { type: integer, format: int64, description: Nanoseconds. Bounds a graceful stop. }
+        stream_id: { type: string, description: The log relay a stream_logs or cancel_logs task concerns. }
+        log_options: { $ref: "#/components/schemas/LogOptions" }
+        issued_at: { type: string, format: date-time }
+    RunnerSpec:
+      type: object
+      description: >-
+        Everything a backend needs to create one runner. The one place a JIT config crosses
+        the wire, which is why the agent transport requires TLS off loopback.
+      properties:
+        name: { type: string, description: The runner name GitHub will know it by. It doubles as the container name. }
+        runner_id: { type: string }
+        pool_id: { type: string }
+        pool_name: { type: string }
+        image: { type: string }
+        pull_policy: { $ref: "#/components/schemas/PullPolicy" }
+        credentials:
+          type: object
+          description: The runner's registration credentials. Never logged, never shown.
+          properties:
+            jit_config: { type: string, format: password }
+            registration_token: { type: string, format: password }
+            url: { type: string, description: The organisation or repository URL the runner registers against. }
+            runner_group: { type: string }
+            labels: { type: array, items: { type: string } }
+        env: { type: object, additionalProperties: { type: string } }
+        ephemeral: { type: boolean }
+        resources: { $ref: "#/components/schemas/Resources" }
+        cache: { $ref: "#/components/schemas/CacheConfig" }
+        repository: { type: string }
+        docker_mode: { $ref: "#/components/schemas/DockerMode" }
+        run_as_root: { type: boolean }
+        network: { type: string }
+        work_dir: { type: string }
+        runner_version: { type: string, description: The actions/runner release the process backend downloads. }
+    LogOptions:
+      type: object
+      description: How a log relay reads the workload's output. The names are capitalised on the wire, as the Go type carries no JSON tags.
+      properties:
+        Follow: { type: boolean }
+        Tail: { type: integer, description: Lines of backlog to send first. 0 means everything. }
+        Since: { type: string, format: date-time }
+        Timestamps: { type: boolean }
+    AgentTaskResult:
+      type: object
+      required: [task_id, ok, completed_at]
+      properties:
+        task_id: { type: string }
+        kind: { $ref: "#/components/schemas/AgentTaskKind" }
+        runner_id: { type: string }
+        ok: { type: boolean }
+        error: { type: string }
+        handle: { type: string }
+        image_pull_duration: { type: integer, format: int64, description: Nanoseconds. Absent when the backend cannot tell pulling from creation. }
+        create_duration: { type: integer, format: int64, description: Nanoseconds. }
+        container_started_at: { type: string, format: date-time }
+        digest: { type: string }
+        state: { $ref: "#/components/schemas/RunnerState" }
+        completed_at: { type: string, format: date-time }
+    AgentTaskBatch:
+      type: object
+      required: [tasks]
+      properties:
+        tasks: { type: array, items: { $ref: "#/components/schemas/AgentTask" } }
+        backoff: { type: integer, format: int64, description: Nanoseconds to wait before polling again, when the controller sheds load. }

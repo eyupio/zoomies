@@ -182,7 +182,10 @@ for the whole report, so a client can drop the column rather than print zeroes.
 ### Agent routes
 
 Authenticated with the agent's own token, never a user session. An agent may
-only touch its own host's runners.
+only touch its own host's runners. They are in `api/openapi.yaml` too, marked
+`x-internal: true`, so the document is the whole surface it says it is; a
+client generator should skip them, and `internal/agent/protocol.go` owns the
+wire types.
 
 | Method | Path | Notes |
 | --- | --- | --- |

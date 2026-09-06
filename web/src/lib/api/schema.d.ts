@@ -156,6 +156,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/oidc/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Begin single sign-on
+         * @description Sends the browser to the identity provider. A browser navigation, not an API call: the answer is a redirect, and the handshake state travels in a short-lived cookie.
+         */
+        get: operations["oidcStart"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/oidc/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Finish single sign-on
+         * @description Where the identity provider sends the browser back. On success the session cookie is set and the browser is redirected into the app; on any failure it is redirected to the login page with the reason in the query string, because whoever is here is a person trying to sign in and that is where they can try again.
+         */
+        get: operations["oidcCallback"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stats": {
         parameters: {
             query?: never;
@@ -1150,6 +1190,120 @@ export interface paths {
         patch: operations["updateSettings"];
         trace?: never;
     };
+    "/agent/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Redeem a join token and enrol a host
+         * @description The one anonymous agent route, because it is the call that mints the credential every other one carries. The join token is single-use and short-lived; the agent token in the response is shown exactly once, and the controller keeps only its hash.
+         */
+        post: operations["agentJoin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/heartbeat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Report that the host is alive, and what its runners are doing */
+        post: operations["agentHeartbeat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Long-poll for work
+         * @description Blocks until the host has work or the wait elapses, so a task reaches an agent the instant it is queued while an idle agent makes two or three requests a minute.
+         */
+        get: operations["agentPollTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/results": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Report the outcome of one task */
+        post: operations["agentReportResult"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report what the host's runners are doing, outside a heartbeat
+         * @description The body is a bare array of runner reports, because that is what the agent sends and the two halves of the protocol must agree.
+         */
+        post: operations["agentReportRunners"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/logs/{stream_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Relay a runner's output to a viewer
+         * @description The inverted half of log streaming. The controller never dials an agent, so a viewer's request makes it queue a stream_logs task, and the agent answers by opening this chunked POST, which stays open for as long as the runner produces output. Exempt from the body-size limit for that reason.
+         */
+        post: operations["agentRelayLogs"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1884,6 +2038,8 @@ export interface components {
             /** @description When unavailable */
             detail?: string;
             supports_dind?: boolean;
+            /** @description Where the host daemon's socket lives */
+            host_socket_path?: string;
         };
         Host: {
             id?: string;
@@ -1995,6 +2151,172 @@ export interface components {
             version?: string;
             database_path?: string;
             event_subscribers?: number;
+        };
+        AgentJoinRequest: {
+            protocol_version: number;
+            /** Format: password */
+            join_token: string;
+            name: string;
+            /** @description How the host reports itself. The controller never dials it. */
+            address?: string;
+            /** @description Concurrent runners the host accepts. 0 lets the join token or the CPU count decide. */
+            capacity: number;
+            os: string;
+            arch: string;
+            /** @description The agent's build version */
+            version: string;
+            labels?: {
+                [key: string]: string;
+            };
+            backends: components["schemas"]["BackendInfo"][];
+        };
+        AgentJoinResponse: {
+            host_id?: string;
+            /** @description Shown once. The controller keeps only its hash. */
+            agent_token?: string;
+            controller_version?: string;
+            heartbeat_interval?: components["schemas"]["Duration"];
+        };
+        AgentHeartbeatRequest: {
+            protocol_version?: number;
+            /** @description The agent's configured value */
+            capacity?: number;
+            version?: string;
+            backends?: components["schemas"]["BackendInfo"][];
+            runners?: components["schemas"]["RunnerReport"][];
+        };
+        AgentHeartbeatResponse: {
+            ok?: boolean;
+            /** @description Mirrors the host's cordon flag so the agent stops asking for work at once. */
+            cordoned?: boolean;
+            controller_version?: string;
+            /** @description Send a full runner report next time. Set after the controller restarts. */
+            resync_requested?: boolean;
+        };
+        RunnerReport: {
+            runner_id: string;
+            /** @description The state the agent asserts, or empty once the workload is up: whether GitHub has handed the runner a job is not the agent's call. */
+            state?: components["schemas"]["RunnerState"] | "";
+            /** @description The backend's own name for the workload */
+            handle?: string;
+            /** @enum {string} */
+            phase?: "starting" | "running" | "exited" | "failed" | "gone";
+            exit_code?: number;
+            message?: string;
+            stats?: components["schemas"]["WorkloadStats"];
+            /**
+             * Format: int64
+             * @description Filled in once the runner has registered.
+             */
+            github_runner_id?: number;
+            /** Format: date-time */
+            observed_at: string;
+        };
+        WorkloadStats: {
+            /** Format: double */
+            cpu_percent?: number;
+            /** Format: int64 */
+            memory_bytes?: number;
+            /** Format: int64 */
+            memory_limit?: number;
+        };
+        /** @enum {string} */
+        AgentTaskKind: "create_runner" | "stop_runner" | "remove_runner" | "stream_logs" | "cancel_logs" | "prewarm_image";
+        /** @description One unit of work for an agent. Tasks are idempotent; the controller may redeliver one after a restart. */
+        AgentTask: {
+            id: string;
+            kind: components["schemas"]["AgentTaskKind"];
+            runner_id?: string;
+            spec?: components["schemas"]["RunnerSpec"];
+            backend?: components["schemas"]["BackendKind"];
+            pool_id?: string;
+            image?: string;
+            pull_policy?: components["schemas"]["PullPolicy"];
+            /**
+             * Format: int64
+             * @description Nanoseconds. Bounds a graceful stop.
+             */
+            stop_timeout?: number;
+            /** @description The log relay a stream_logs or cancel_logs task concerns. */
+            stream_id?: string;
+            log_options?: components["schemas"]["LogOptions"];
+            /** Format: date-time */
+            issued_at: string;
+        };
+        /** @description Everything a backend needs to create one runner. The one place a JIT config crosses the wire, which is why the agent transport requires TLS off loopback. */
+        RunnerSpec: {
+            /** @description The runner name GitHub will know it by. It doubles as the container name. */
+            name?: string;
+            runner_id?: string;
+            pool_id?: string;
+            pool_name?: string;
+            image?: string;
+            pull_policy?: components["schemas"]["PullPolicy"];
+            /** @description The runner's registration credentials. Never logged, never shown. */
+            credentials?: {
+                /** Format: password */
+                jit_config?: string;
+                /** Format: password */
+                registration_token?: string;
+                /** @description The organisation or repository URL the runner registers against. */
+                url?: string;
+                runner_group?: string;
+                labels?: string[];
+            };
+            env?: {
+                [key: string]: string;
+            };
+            ephemeral?: boolean;
+            resources?: components["schemas"]["Resources"];
+            cache?: components["schemas"]["CacheConfig"];
+            repository?: string;
+            docker_mode?: components["schemas"]["DockerMode"];
+            run_as_root?: boolean;
+            network?: string;
+            work_dir?: string;
+            /** @description The actions/runner release the process backend downloads. */
+            runner_version?: string;
+        };
+        /** @description How a log relay reads the workload's output. The names are capitalised on the wire, as the Go type carries no JSON tags. */
+        LogOptions: {
+            Follow?: boolean;
+            /** @description Lines of backlog to send first. 0 means everything. */
+            Tail?: number;
+            /** Format: date-time */
+            Since?: string;
+            Timestamps?: boolean;
+        };
+        AgentTaskResult: {
+            task_id: string;
+            kind?: components["schemas"]["AgentTaskKind"];
+            runner_id?: string;
+            ok: boolean;
+            error?: string;
+            handle?: string;
+            /**
+             * Format: int64
+             * @description Nanoseconds. Absent when the backend cannot tell pulling from creation.
+             */
+            image_pull_duration?: number;
+            /**
+             * Format: int64
+             * @description Nanoseconds.
+             */
+            create_duration?: number;
+            /** Format: date-time */
+            container_started_at?: string;
+            digest?: string;
+            state?: components["schemas"]["RunnerState"];
+            /** Format: date-time */
+            completed_at: string;
+        };
+        AgentTaskBatch: {
+            tasks: components["schemas"]["AgentTask"][];
+            /**
+             * Format: int64
+             * @description Nanoseconds to wait before polling again
+             */
+            backoff?: number;
         };
     };
     responses: {
@@ -2269,6 +2591,61 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             422: components["responses"]["Unprocessable"];
+        };
+    };
+    oidcStart: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redirected to the identity provider. */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Single sign-on is not enabled on this controller. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    oidcCallback: {
+        parameters: {
+            query?: {
+                code?: string;
+                state?: string;
+                error?: string;
+                error_description?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redirected into the app */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Single sign-on is not enabled on this controller. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     getStats: {
@@ -3989,6 +4366,167 @@ export interface operations {
                 };
             };
             422: components["responses"]["Unprocessable"];
+        };
+    };
+    agentJoin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentJoinRequest"];
+            };
+        };
+        responses: {
+            /** @description Enrolled */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentJoinResponse"];
+                };
+            };
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    agentHeartbeat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentHeartbeatRequest"];
+            };
+        };
+        responses: {
+            /** @description Recorded */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentHeartbeatResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description The host was deleted. No amount of retrying brings the row back; the agent re-joins. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    agentPollTasks: {
+        parameters: {
+            query?: {
+                /** @description Seconds to wait for work before answering with an empty batch. */
+                wait?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tasks queued for this host, possibly none. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentTaskBatch"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    agentReportResult: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentTaskResult"];
+            };
+        };
+        responses: {
+            /** @description Applied */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    agentReportRunners: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerReport"][];
+            };
+        };
+        responses: {
+            /** @description Applied */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    agentRelayLogs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The stream named by the stream_logs task. */
+                stream_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description The stream ended. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Nobody is watching this stream any more; the agent stops sending. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
 }
