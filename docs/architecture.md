@@ -214,6 +214,61 @@ allow-list itself is `validRunnerTransitions` in `internal/store/models.go`.
 Transitions are validated in `store.TransitionRunner`, not in the caller. An
 agent cannot report a nonsensical state and corrupt the fleet's accounting.
 
+### Reconciliation invariants
+
+The rules that keep the diagram true when something goes wrong are spread
+over four packages, and each constant was chosen against one in another. This
+is the list, with the constant and the package that owns it, so that a change
+to one is made knowing the rest. Two tests in `internal/controller`
+(`invariants_test.go`) fail if the relationships at the end stop holding.
+
+| Rule | Constant | Owner |
+| --- | --- | --- |
+| A task is delivered at least once. The controller keeps it in flight under a lease, and a result that has not arrived when the lease expires puts the task back on the host's queue. A log relay is the exception: it is tied to a browser that has since gone, so it is never re-queued. | `createLease` 20 min, `stopLease` 10 min, `removeLease` 5 min | `internal/controller` (`taskQueue.sweep`) |
+| A task is offered at most three times. After that it is dropped. A dropped create is noticed by the runner's provision timeout, which says so on the Runners page; a dropped stop would be noticed by nothing, so the sweep fails that runner itself and the next pass frees its slot. | `maxTaskAttempts` = 3 | `internal/controller` (`sweepTasks`) |
+| A host's queue is in memory. A controller restart loses every task in flight; the runner a lost create was for waits out the provision timeout and is replaced with a freshly minted credential. | — | `internal/controller` |
+| A host is late, then unhealthy, then lost, in that order. The controller hands the agent its heartbeat interval on every heartbeat. After three of them without a heartbeat the host is unhealthy and the scheduler places nothing new on it. After five minutes it is lost: every runner still recorded as live on it is failed, and a job one was running is marked the fleet's failure. | `agent.heartbeat_interval` 30 s; `store.HeartbeatTimeout` 90 s; `hostLostAfter` 5 min | `internal/config`; `internal/store` (`Host.Healthy`); `internal/controller` (`reclaimLostRunners`) |
+| A runner that has not come online in time is failed. The timeout covers both `provisioning` and `registering`; there is no second "registration timeout". | `scheduler.provision_timeout`, 5 min by default | `internal/scheduler` (`Decide`) |
+| A failed runner stays for ten minutes, then goes. It holds no host slot, its message is the only record of why it failed, and the failures still on the page decide how long the pool waits before creating another: ten seconds, doubling to five minutes. | `failedRetention` 10 min; `startBackoff` 10 s; `maxStartBackoff` 5 min | `internal/scheduler` |
+| A repeated state is legal and a wrong one is dropped. `CanTransition(s, s)` is true, so an agent that reports what the row already says changes nothing; a transition outside the allow-list is ignored with a log line, never forced. | `validRunnerTransitions` | `internal/store` (`TransitionRunner`); `internal/controller` (`applyRunnerState`) |
+| Capacity is derived from rows. A host's free capacity is its `capacity` minus the runners recorded as live on it, counted at read time; no counter is kept anywhere. A dead host's rows therefore count until they are failed, which is what the host-lost reclaim is for. | `Host.ActiveRunners`, `Host.Free` | `internal/store`; `internal/scheduler` (`HostCanRun`) |
+| An agent asserts no state for a live runner. Once the workload is up it reports the phase and leaves the state empty, because whether GitHub has handed the runner a job is not the host's call: the controller reads a running phase on a `registering` row as `idle`, and the webhook is what makes it `busy`. | — | `internal/agent`; `internal/controller` (`applyReports`) |
+| A host may only speak for its own runners. A task result or a runner report from a host that does not own the runner is refused. | — | `internal/controller` (`ReportResult`, `applyReports`) |
+| The agent reaps only what nothing claims, and only after it has asked. A managed workload it has no record of is removed two minutes after it was first seen, and never before the agent has completed one task poll, so a controller that is down can never look like "nobody owns these runners". A runner created moments ago is not declared gone for a minute, because the backend may not list it yet. | `orphanGrace` 2 min; `missingGrace` 1 min | `internal/agent` (`reapOrphan`, `ReconcileOnce`) |
+| The agent remembers nothing across a restart but its credentials. `agent.json` holds the join token; the set of runners it manages is in memory. A workload it did not start is adopted when a task arrives for it, by the runner id in the workload's labels. | `StateFile` | `internal/agent` (`adopt`) |
+| Registrations are compared with rows every ten minutes. A runner GitHub still lists that no row explains is an orphaned registration, untidy rather than urgent, and one API call per installation is what the comparison costs. | `reapInterval` 10 min | `internal/controller` |
+
+What holds them together, pinned by the two tests:
+
+* **The silence ladder is ordered.** `store.HeartbeatTimeout` is at least three
+  default heartbeat intervals, so one slow heartbeat never makes a host
+  unhealthy, and `hostLostAfter` is later than `store.HeartbeatTimeout`, so
+  runners are never failed on a host the scheduler is still placing new ones
+  on.
+* **Every lease outlasts the work it covers.** The create lease exceeds the
+  time the agent gives itself for a create, the stop lease exceeds the stop
+  timeout the controller hands out plus the agent's margin, and the remove
+  lease exceeds the agent's remove timeout. A shorter lease would offer the
+  task to the host again while the first attempt was still running.
+
+What follows from the constants as they stand, and is not yet what an
+operator would want:
+
+* The provision timeout is shorter than both the agent's create timeout and
+  the create lease. A cold image pull that takes longer than five minutes
+  registers a runner on a row the scheduler has already failed, and the
+  registering report is refused as an illegal transition while the workload
+  goes on to register with GitHub. The same happens to a create in flight on
+  a host that goes quiet and comes back: lost at five minutes, its lease
+  still has fifteen to run.
+* The agent's tracked set does not survive its restart, and adoption happens
+  only when a task arrives. On the single-VM install the controller runs the
+  agent inside itself, so a controller restart builds a fresh agent whose
+  first poll succeeds at once, and the workloads already running on that host
+  become orphans two minutes later. No test exercises this yet; the
+  [upgrading page](upgrading.md) is hedged accordingly, and the roadmap's
+  adoption-on-start change and its drill tier are what settle it.
+
 ## Why the agent connects outbound
 
 The controller never dials an agent. Agents long-poll for tasks and POST
