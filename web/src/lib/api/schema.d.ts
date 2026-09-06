@@ -2045,9 +2045,11 @@ export interface components {
                 };
             };
         };
-        /** @description Too many attempts. */
+        /** @description Too many attempts. Retry-After says how long to wait. */
         RateLimited: {
             headers: {
+                /** @description Seconds until the address is allowed another attempt. */
+                "Retry-After"?: number;
                 [name: string]: unknown;
             };
             content: {

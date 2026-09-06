@@ -322,6 +322,13 @@ func (s *Service) CreateFirstAdmin(ctx context.Context, username, password strin
 // Password login
 // ---------------------------------------------------------------------------
 
+// LoginRetryAfter says how long an address refused by the login rate limit has
+// to wait, so the 429 can carry a Retry-After a client can act on rather than
+// the promise of one.
+func (s *Service) LoginRetryAfter(ip string) time.Duration {
+	return s.logins.RetryAfter(ip)
+}
+
 // Login verifies a password and returns the user together with the plaintext
 // session token the caller should set as a cookie. The token is not stored: the
 // database holds only its SHA-256, so a database leak does not hand over live

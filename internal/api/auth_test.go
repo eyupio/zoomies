@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -142,6 +143,12 @@ func TestLoginIsRateLimited(t *testing.T) {
 	last.mustStatus(t, http.StatusTooManyRequests, "login after too many attempts")
 	if code := last.errorCode(t); code != codeRateLimited {
 		t.Errorf("error code = %q, want %q", code, codeRateLimited)
+	}
+	// The helper always promised the header and the handler always passed
+	// zero, so a client that honoured it retried immediately.
+	secs, err := strconv.Atoi(last.header.Get("Retry-After"))
+	if err != nil || secs <= 0 || secs > 60 {
+		t.Errorf("Retry-After = %q, want the seconds left of the one-minute window", last.header.Get("Retry-After"))
 	}
 }
 

@@ -1719,7 +1719,11 @@ components:
                 properties:
                   errors: { type: array, items: { $ref: "#/components/schemas/FieldError" } }
     RateLimited:
-      description: Too many attempts.
+      description: Too many attempts. Retry-After says how long to wait.
+      headers:
+        Retry-After:
+          description: Seconds until the address is allowed another attempt.
+          schema: { type: integer, minimum: 1 }
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }
