@@ -204,7 +204,10 @@ export const SHORTCUTS: readonly ShortcutGroup[] = [
   },
   {
     title: 'Go to',
-    items: GO_KEYS.map((g) => ({ keys: ['G', g.key.toUpperCase()], description: g.label })),
+    // Lower case, because that is the key an operator presses and what the nav
+    // itself shows beside each entry. The sheet said `G O` while the nav said
+    // `g o`, which reads as two different chords.
+    items: GO_KEYS.map((g) => ({ keys: ['g', g.key], description: g.label })),
   },
   {
     title: 'In a grid',

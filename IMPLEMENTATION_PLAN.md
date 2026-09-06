@@ -91,6 +91,18 @@ one list.
   the server for this fleet's own work and share one persisted switch that widens them,
   every row no runner here ran is badged `Elsewhere`, and Recent outcomes' live frames
   now use the same predicate as its fetch (screenshot, 6 September).
+- [x] **N05** [bug] A pool could not be edited at all: the wizard's review step calls
+  `POST /pools/validate`, which never said which pool it was a dry run of, so the name
+  check compared the pool against every pool including itself and refused with "a pool
+  called X already exists" — about itself. The only way to save any edit was to rename
+  the pool as well — `internal/api/handlers_pools.go:437` — done, the endpoint takes
+  `?id=` and the edit form passes it, with a test covering all three cases (reported
+  6 September).
+- [x] **N06** [gap] Ticking a pool offered Enable and Disable but not Edit, so an
+  operator who had ticked a row to disable it had to untick, find the row again and
+  open its menu to change anything else — `web/src/routes/Pools.svelte` — done, a bulk
+  action can declare that it acts on one row, and Edit is offered whatever is selected
+  and says why it is disabled while more than one is ticked (reported 6 September).
 
 ## Wave 4: polish, gaps and nits
 

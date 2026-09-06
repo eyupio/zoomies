@@ -78,16 +78,6 @@
     <p class="notice" id={noticeId} aria-live="polite">{notice}</p>
   {/if}
   <!--
-    Error and hint are rendered together, not as alternatives.
-
-    Two reasons. The describedby list names both, so dropping one left the
-    control pointing at an element that does not exist. And the hints here are
-    instructions, not decoration: the GitHub target field's hint explains that a
-    repository App is created on your own account, and it used to vanish the
-    moment the operator got the format wrong -- telling them what was wrong just
-    as it stopped telling them why.
-  -->
-  <!--
     One message row, so a validation error never reflows the form.
 
     An error rendered *in addition* to the hint adds a line, which moves

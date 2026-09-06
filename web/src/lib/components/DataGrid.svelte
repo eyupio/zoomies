@@ -37,6 +37,14 @@
     icon?: LucideIcon;
     danger?: boolean;
     /**
+     * This action opens something rather than doing something to a set, so it
+     * only makes sense for one row. It is offered whatever is selected, and
+     * disabled with a reason while more than one row is ticked -- an operator
+     * who ticked a row to act on it should not have to work out that the
+     * button they want is on a menu somewhere else.
+     */
+    single?: boolean;
+    /**
      * Act on the selected ids. Once it settles the selection is cleared, so
      * the same rows cannot be acted on twice by accident; resolve `false` to
      * keep it -- a confirmation the operator cancelled, say.
@@ -475,10 +483,13 @@
       <div class="bulk" role="group" aria-label="Actions for the selected {noun}">
         <span class="bulk-count tabular">{selected.length} selected</span>
         {#each bulkActions as action (action.id)}
+          {@const tooMany = action.single === true && selected.length > 1}
           <Button
             size="sm"
             variant={action.danger ? 'danger' : 'secondary'}
             icon={action.icon}
+            disabled={tooMany}
+            title={tooMany ? `${action.label} works on one ${noun} at a time` : undefined}
             onclick={() => void runBulk(action)}
           >
             {action.label}

@@ -219,6 +219,21 @@
             icon: PowerOff,
             run: (ids) => bulkSetEnabled(ids, false),
           },
+          {
+            // Editing is the third thing an operator wants from a ticked row,
+            // and it was only on the row's own menu -- so having ticked a pool
+            // to disable it, changing its image meant untick, find the row
+            // again, open the menu. One at a time, because there is nothing
+            // sensible to show for five pools at once.
+            id: 'edit',
+            label: 'Edit',
+            icon: Pencil,
+            single: true,
+            run: (ids) => {
+              const id = ids[0];
+              if (id) navigate(`/pools/${id}?edit=1`);
+            },
+          },
         ]
       : [],
   );

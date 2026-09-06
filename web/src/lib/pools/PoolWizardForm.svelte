@@ -498,7 +498,7 @@
     const controller = new AbortController();
     validating = true;
     const timer = setTimeout(() => {
-      validatePool(payload, controller.signal)
+      validatePool(payload, pool?.id, controller.signal)
         .then((result) => {
           verdict = result;
           validateError = null;

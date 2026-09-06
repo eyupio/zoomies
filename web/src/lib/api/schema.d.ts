@@ -3159,7 +3159,14 @@ export interface operations {
     };
     validatePool: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description The pool this would be an edit to. Its own name is then not treated
+                 *     as a clash -- without this, editing anything about a pool is refused
+                 *     because a pool with that name already exists, namely itself.
+                 */
+                id?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;

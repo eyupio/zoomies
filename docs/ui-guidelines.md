@@ -21,7 +21,10 @@ from here rather than inventing values.
 All tokens live in exactly one place: `web/src/lib/styles/tokens.css`, declared
 as CSS custom properties on `:root` and overridden under `[data-theme="dark"]`.
 Tailwind v4 consumes them through `@theme` so utility classes and hand-written
-CSS resolve to the same values.
+CSS resolve to the same values: colours, sizes, radii, shadows, weights,
+tracking and the easing curve are mapped by name, and the whole spacing scale
+is derived from the same 4px step by arithmetic rather than by a mapping that
+could drift.
 
 **Never write a raw colour, and never write a raw value that already has a
 token.** Colour is absolute: a hex or `rgb()` in a component is a bug, because a
@@ -352,7 +355,11 @@ fixed, because muscle memory is the point:
 5. **Usage** — runner-hours and job activity by pool, repository or workflow
 6. **Hosts** — where runners can go
 7. **Installations** — GitHub App connections
-8. **Migrate** — move repositories off GitHub's runners onto this fleet
+8. **Migrate repositories** — move repositories off GitHub's runners onto this
+   fleet. The navigation shortens it to *Migrate*, because a nav label has to
+   fit beside an icon in a 232px column; every other place that names the page
+   — its heading, the palette, the shortcut sheet, the browser title — uses the
+   full name.
 9. **Audit** — who did what
 10. **Settings** — users, tokens, appearance, danger zone
 
@@ -542,8 +549,18 @@ action inline:
   how many of them exist."* + **Create a pool**
 * Runners: *"No runners right now. That is normal when nothing is queued —
   runners are created on demand."*
-* Jobs: *"No jobs recorded yet. Zoomies records a job the first time GitHub
-  tells it about one."* + a link to check webhook delivery.
+* Jobs: *"No jobs have run on this fleet. This view shows jobs a pool claims or
+  a runner here ran."* + **Include other runners**
+
+**An empty grid that is empty because of a filter says so instead**, naming the
+filter rather than the noun: "No pools match those filters", "No runners match
+these filters". The two are different facts and an operator acts on them
+differently — one is a fleet with nothing in it, the other is a search with
+nothing in it. The Jobs page carries this furthest, because an empty grid there
+means three different things: with other runners included it is "no jobs
+recorded yet", which points at webhook delivery; without them it is "no jobs
+have run on this fleet", which offers to widen the view; and under the unmatched
+filter it is "no unmatched jobs", which is good news and says so.
 
 ### Keyboard
 

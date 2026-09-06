@@ -59,8 +59,8 @@
     <section aria-labelledby="time-heading">
       <h3 id="time-heading">Times and motion</h3>
       <p class="note">
-        Relative times -- "4m ago" -- refresh every {seconds} seconds from one shared clock, and every
-        one of them carries the exact timestamp in its tooltip, so nothing is ever only approximate. Durations
+        Relative times — "4m ago" — refresh every {seconds} seconds from one shared clock, and every one
+        of them carries the exact timestamp in its tooltip, so nothing is ever only approximate. Durations
         use tabular figures so columns line up.
       </p>
       <p class="note">

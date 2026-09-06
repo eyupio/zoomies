@@ -428,3 +428,41 @@ test('the pools page offers the wizard and the wizard can be abandoned', async (
   // Nothing was created on the way out.
   await expect(dataRows(grid(page, 'Pools'))).toHaveCount(2);
 });
+
+test('editing a pool is not refused because its own name is taken', async ({ page }) => {
+  await goto(page, `/pools`, 'Pools');
+  const rows = dataRows(grid(page, 'Pools'));
+  await rows.filter({ hasText: FIXTURE.linuxPool }).getByRole('link').first().click();
+  await expect(pageHeading(page, FIXTURE.linuxPool)).toBeVisible();
+
+  await page.getByRole('button', { name: 'Edit' }).first().click();
+  await expect(nameField(page)).toHaveValue(FIXTURE.linuxPool);
+
+  // Straight through to the review step without touching the name. The dry run
+  // used to compare the pool against every pool including itself, so this said
+  // "a pool called zoomies-demo-linux-x64 already exists" -- about itself -- and
+  // the only way to save any edit was to rename the pool as well.
+  for (let step = 0; step < 4; step += 1) await next(page).click();
+  await expect(page.getByText('already exists')).toBeHidden();
+  await expect(page.getByRole('button', { name: /Save|Update/ })).toBeEnabled();
+});
+
+test('a ticked pool can be edited from the same bar that enables and disables it', async ({
+  page,
+}) => {
+  await goto(page, '/pools', 'Pools');
+  const rows = dataRows(grid(page, 'Pools'));
+  const bar = page.getByRole('group', { name: /Actions for the selected/ });
+
+  await rows.filter({ hasText: FIXTURE.linuxPool }).getByRole('checkbox').check();
+  await expect(bar.getByRole('button', { name: 'Edit' })).toBeEnabled();
+
+  // Two ticked, and there is nothing sensible to edit: the button stays on
+  // screen and says why rather than disappearing.
+  await rows.filter({ hasText: FIXTURE.armPool }).getByRole('checkbox').check();
+  await expect(bar.getByRole('button', { name: 'Edit' })).toBeDisabled();
+
+  await rows.filter({ hasText: FIXTURE.armPool }).getByRole('checkbox').uncheck();
+  await bar.getByRole('button', { name: 'Edit' }).click();
+  await expect(nameField(page)).toHaveValue(FIXTURE.linuxPool);
+});

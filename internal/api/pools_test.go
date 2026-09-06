@@ -541,3 +541,58 @@ func TestPrewarmingAPoolIsAudited(t *testing.T) {
 		t.Fatalf("audit detail = %q, want the image %q", rows[0].After, pool.Image)
 	}
 }
+
+// A pool's own name is not a name that is taken.
+//
+// The wizard's review step is the same form whether it is creating a pool or
+// editing one, and it calls /pools/validate either way. Without saying which
+// pool it is editing, the name check compared the pool against every pool
+// including itself: opening a pool, changing its image and pressing on was
+// refused with "a pool called linux-x64 already exists" -- about itself -- and
+// the only way to save any edit was to rename the pool as well.
+func TestValidatingAnEditDoesNotClashWithThePoolBeingEdited(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	h.host("vm-1")
+	existing := h.pool(inst, "linux-x64")
+	other := h.pool(inst, "arm64")
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	body := poolBody(inst.ID)
+	body["image"] = "ghcr.io/eyupio/zoomies-runner:next"
+
+	for _, tc := range []struct {
+		name      string
+		query     string
+		wantValid bool
+		wantErr   string
+	}{
+		{"editing itself", "?id=" + existing.ID, true, ""},
+		{"creating another with the same name", "", false, "already exists"},
+		{"editing a different pool into a taken name", "?id=" + other.ID, false, "already exists"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res := h.do(request{method: http.MethodPost,
+				path: "/api/v1/pools/validate" + tc.query, cookie: cookie, body: body})
+			res.mustStatus(t, http.StatusOK, "validate")
+			var verdict validatePoolResponse
+			res.into(t, &verdict)
+			if verdict.Valid != tc.wantValid {
+				t.Fatalf("valid = %v, want %v (errors: %+v)", verdict.Valid, tc.wantValid, verdict.Errors)
+			}
+			if tc.wantErr == "" {
+				return
+			}
+			var found bool
+			for _, e := range verdict.Errors {
+				if e.Field == "name" && strings.Contains(e.Message, tc.wantErr) {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("no name error mentioning %q: %+v", tc.wantErr, verdict.Errors)
+			}
+		})
+	}
+}

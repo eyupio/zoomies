@@ -92,6 +92,19 @@
   --shadow-md: var(--z-shadow-md);
   --shadow-lg: var(--z-shadow-lg);
 
+  --font-weight-normal: var(--z-weight-normal);
+  --font-weight-medium: var(--z-weight-medium);
+  --font-weight-semibold: var(--z-weight-semibold);
+  --font-weight-bold: var(--z-weight-bold);
+
+  --tracking-tight: var(--z-tracking-tight);
+  --tracking-wide: var(--z-tracking-wide);
+  --tracking-wider: var(--z-tracking-wider);
+
+  --ease-out: var(--z-ease);
+
+  /* Tailwind derives its whole spacing scale from this one step, so `p-3` is
+     `--z-space-3` by arithmetic rather than by a mapping that could drift. */
   --spacing: 0.25rem;
 }
 

@@ -72,7 +72,7 @@ func (b *PodmanBackend) Probe(ctx context.Context) Info {
 	info.Kind = store.BackendPodman
 	info.SupportsDinD = false
 	if !info.Available {
-		info.Detail += "; if Podman is installed, its API socket is off by default -- enable it with `systemctl --user enable --now podman.socket`"
+		info.Detail += "; if Podman is installed, its API socket is off by default — enable it with `systemctl --user enable --now podman.socket`"
 	}
 	return info
 }
