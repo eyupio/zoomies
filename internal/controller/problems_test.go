@@ -437,3 +437,57 @@ func TestAHostedOrFreshUnmatchedJobIsNotAProblem(t *testing.T) {
 		t.Fatalf("a self-hosted label counted as hosted: %+v", v)
 	}
 }
+
+// A cordoned host used to be blamed for every queued job in the fleet, pools it
+// never offered included, which sent an operator to uncordon a machine that
+// would have changed nothing.
+func TestACordonedHostIsOnlyBlamedForWorkItCouldRun(t *testing.T) {
+	h := newHarness(t)
+	inst, _, host := h.fleet()
+	if err := h.st.SetHostCordoned(h.ctx, host.ID, true); err != nil {
+		t.Fatalf("SetHostCordoned: %v", err)
+	}
+	// A pool this host never offered: it runs bare processes, and the host's
+	// agent speaks Docker.
+	bare := h.pool(inst, "bare", "self-hosted", "bare")
+	bare.Backend = store.BackendProcess
+	if err := h.st.UpdatePool(h.ctx, bare); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	h.deliverJob(jobEvent{Action: "queued", JobID: 3, Labels: []string{"self-hosted", "bare"}})
+	if contains(h.problemCodes(), "host.cordoned_with_work") {
+		t.Fatalf("problems = %v; the queued job is for a backend this host does not offer", h.problemCodes())
+	}
+
+	h.deliverJob(jobEvent{Action: "queued", JobID: 4, Labels: []string{"self-hosted", "linux", "x64", "demo"}})
+	if !contains(h.problemCodes(), "host.cordoned_with_work") {
+		t.Fatalf("problems = %v, want the cordoned-host warning for a job it could run", h.problemCodes())
+	}
+}
+
+// The failed-runner count came from a page of at most a hundred rows, so a
+// fleet having a bad day was told it had a hundred failures however many it had.
+func TestTheFailedRunnerCountIsNotAPage(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	const failed = 120
+	for i := 0; i < failed; i++ {
+		r := h.runnerRow(pool, host, store.RunnerProvisioning)
+		if _, err := h.st.TransitionRunner(h.ctx, r.ID, store.RunnerFailed, "the image could not be pulled"); err != nil {
+			t.Fatalf("TransitionRunner: %v", err)
+		}
+	}
+	ps, err := h.c.Problems(h.ctx)
+	if err != nil {
+		t.Fatalf("Problems: %v", err)
+	}
+	for _, p := range ps {
+		if p.Code == "runners.failed" {
+			if want := "120 runners in the failed state"; p.Title != want {
+				t.Fatalf("title = %q, want %q", p.Title, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("problems = %v, want runners.failed", ps)
+}

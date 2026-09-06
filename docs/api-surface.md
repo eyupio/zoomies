@@ -15,9 +15,13 @@ a route below.
 Conventions:
 
 * Base path `/api/v1`. JSON in, JSON out, UTF-8.
-* List endpoints take `limit` (default 50, max 500), `offset`, `sort`, `order`
-  (`asc`/`desc`) and return `{ "items": [...], "total": <int>, "limit": <int>,
-  "offset": <int> }`.
+* The three long lists, `/runners`, `/jobs` and `/audit`, take `limit` (default
+  50, max 500), `offset`, `sort` and `order` (`asc`/`desc`) and return
+  `{ "items": [...], "total": <int>, "limit": <int>, "offset": <int> }`. Every
+  other list returns `{ "items": [...] }` whole; `/scaling-events` and
+  `/webhook-deliveries` take a `limit` and return the newest that many.
+* Every API response carries `Cache-Control: no-store`; nothing under `/api/v1`
+  is meant to be cached by a browser or a proxy.
 * Errors return `{ "error": { "code": "...", "message": "...", "field": "...",
   "detail": "..." } }` with a message written for a human. Codes:
   `bad_request`, `unauthorized`, `forbidden`, `not_found`, `conflict`,

@@ -884,3 +884,21 @@ func specOperations(t *testing.T, spec []byte) []specOperation {
 	}
 	return out
 }
+
+// API responses are authenticated and change by the second; a proxy or a
+// browser cache that kept one would show a signed-out user the previous
+// user's fleet. Every route under /api/v1 says so.
+func TestAPIResponsesAreNeverCached(t *testing.T) {
+	h := newHarness(t)
+	token := h.token("cache", store.RoleViewer)
+	for _, rt := range []request{
+		{method: http.MethodGet, path: "/api/v1/meta"},
+		{method: http.MethodGet, path: "/api/v1/pools", token: token},
+		{method: http.MethodGet, path: "/api/v1/agent/tasks"},
+	} {
+		resp := h.do(rt)
+		if cc := resp.header.Get("Cache-Control"); cc != "no-store" {
+			t.Errorf("%s %s: Cache-Control = %q, want no-store", rt.method, rt.path, cc)
+		}
+	}
+}

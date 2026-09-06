@@ -210,11 +210,13 @@ func (c *Controller) seedHosts(ctx context.Context, now time.Time) ([]*store.Hos
 		{demoHostPrefix + "c", "demo-arm-1", "arm64", 2, false, true, 0},
 	}
 	out := make([]*store.Host, 0, len(specs))
-	for _, s := range specs {
+	for i, s := range specs {
 		h := &store.Host{
-			ID:       s.id,
-			Name:     s.name,
-			Address:  "10.0.0." + s.id[len(s.id)-1:],
+			ID:   s.id,
+			Name: s.name,
+			// An address that reads as one; the last character of the ID
+			// gave the demo fleet a host at 10.0.0.a.
+			Address:  fmt.Sprintf("10.0.0.%d", 10+i),
 			Embedded: s.embedded,
 			Capacity: s.capacity,
 			Backends: store.StringSlice{"docker"},

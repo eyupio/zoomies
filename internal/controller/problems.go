@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -156,6 +157,14 @@ func (c *Controller) hostProblems(ctx context.Context, out *[]Problem) error {
 	if err != nil {
 		return fmt.Errorf("listing queued jobs: %w", err)
 	}
+	pools, err := c.st.ListPools(ctx)
+	if err != nil {
+		return fmt.Errorf("listing pools: %w", err)
+	}
+	poolByID := make(map[string]*store.Pool, len(pools))
+	for _, p := range pools {
+		poolByID[p.ID] = p
+	}
 	now := c.Now()
 
 	for _, h := range hosts {
@@ -181,11 +190,24 @@ func (c *Controller) hostProblems(ctx context.Context, out *[]Problem) error {
 			})
 			continue
 		}
-		if h.Cordoned && len(queued) > 0 {
+		if !h.Cordoned {
+			continue
+		}
+		// Only the queued work this host could take counts against it: a
+		// cordoned arm64 host has nothing to do with a queue of jobs for a
+		// pool it never offered, and blaming it sends an operator to uncordon
+		// a machine that would change nothing.
+		couldRun := 0
+		for _, j := range queued {
+			if p := poolByID[j.PoolID]; p != nil && scheduler.HostOffers(h, p) && scheduler.HostSelects(h, p) {
+				couldRun++
+			}
+		}
+		if couldRun > 0 {
 			*out = append(*out, Problem{
 				Code:       "host.cordoned_with_work",
 				Severity:   config.SeverityWarning,
-				Title:      fmt.Sprintf("host %s is cordoned with %s queued", h.Name, plural(len(queued), "job")),
+				Title:      fmt.Sprintf("host %s is cordoned with %s queued that it could run", h.Name, plural(couldRun, "job")),
 				Detail:     "a cordoned host keeps its runners but accepts no new ones, so its capacity is not available to the queue.",
 				Fix:        fmt.Sprintf("uncordon %s on the Hosts page if the maintenance it was cordoned for is over.", h.Name),
 				TargetKind: "host", TargetID: h.ID,
@@ -518,9 +540,23 @@ func (c *Controller) loopProblems() []Problem {
 }
 
 func (c *Controller) runnerProblems(ctx context.Context, out *[]Problem) error {
+	// The count comes from the store's aggregate, not from a page of rows: a
+	// page is capped, and "100 runners in the failed state" on a fleet with
+	// four hundred understates the day it is having.
+	counts, err := c.st.CountRunnersByPool(ctx)
+	if err != nil {
+		return fmt.Errorf("counting failed runners: %w", err)
+	}
+	total := 0
+	for _, pc := range counts {
+		total += pc.Failed
+	}
+	if total == 0 {
+		return nil
+	}
 	failed, _, err := c.st.ListRunners(ctx, store.RunnerFilter{
 		States: []store.RunnerState{store.RunnerFailed},
-	}, store.Page{Limit: 100})
+	}, store.Page{Limit: 1, Sort: "created_at", Desc: true})
 	if err != nil {
 		return fmt.Errorf("listing failed runners: %w", err)
 	}
@@ -531,7 +567,7 @@ func (c *Controller) runnerProblems(ctx context.Context, out *[]Problem) error {
 	*out = append(*out, Problem{
 		Code:       "runners.failed",
 		Severity:   config.SeverityWarning,
-		Title:      fmt.Sprintf("%s in the failed state", plural(len(failed), "runner")),
+		Title:      fmt.Sprintf("%s in the failed state", plural(total, "runner")),
 		Detail:     fmt.Sprintf("the most recent is %s: %s", example.Name, example.Message),
 		Fix:        "look at the runner's logs on the Runners page; failed runners are cleaned up automatically but the cause is not.",
 		TargetKind: "runner", TargetID: example.ID, Since: &example.CreatedAt,

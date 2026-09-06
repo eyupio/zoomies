@@ -80,6 +80,16 @@ func (c *Controller) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		})
 	case event == "workflow_job":
 		if err := c.handleWorkflowJob(ctx, body); err != nil {
+			if errors.Is(err, errMalformedDelivery) {
+				// A body that verified but is not a workflow_job event is
+				// GitHub's problem or a mistaken sender's, not a failure on
+				// this side, and a 500 would have GitHub redeliver it for
+				// ever. A 400 is recorded and ends there.
+				c.recordDelivery(ctx, d, "rejected", err.Error())
+				c.log.Warn("rejected a workflow_job delivery that could not be read", "delivery", d.DeliveryID, "error", err)
+				http.Error(w, "the delivery body is not a workflow_job event this controller can read", http.StatusBadRequest)
+				return
+			}
 			c.recordDelivery(ctx, d, "error", err.Error())
 			c.log.Error("could not apply a workflow_job delivery", "delivery", d.DeliveryID, "error", err)
 			// A 500 makes GitHub's redelivery button useful: this one failed
@@ -192,10 +202,15 @@ func (c *Controller) verifyDelivery(ctx context.Context, body []byte, signature,
 }
 
 // handleWorkflowJob is the path that actually scales the fleet.
+// errMalformedDelivery marks a verified delivery whose body is not a
+// workflow_job event, which is answered with a 400 rather than a 500 so that
+// GitHub does not redeliver it for ever.
+var errMalformedDelivery = errors.New("malformed workflow_job delivery")
+
 func (c *Controller) handleWorkflowJob(ctx context.Context, body []byte) error {
 	e, err := github.ParseWorkflowJob(body)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %v", errMalformedDelivery, err)
 	}
 	job := e.ToJob()
 

@@ -81,6 +81,7 @@ func (s *Server) apiRoutes() chi.Router {
 	r := chi.NewRouter()
 	r.NotFound(apiNotFound)
 	r.MethodNotAllowed(methodNotAllowed)
+	r.Use(noStore)
 	r.Use(limitBody)
 	r.Use(s.csrf)
 
@@ -223,6 +224,7 @@ func (s *Server) agentRoutes() chi.Router {
 	r := chi.NewRouter()
 	r.NotFound(apiNotFound)
 	r.MethodNotAllowed(methodNotAllowed)
+	r.Use(noStore)
 
 	// Join is the one anonymous agent route: it is the call that mints the
 	// credential every other one carries.
@@ -423,6 +425,18 @@ func (s *Server) formAllowed(raw string) bool {
 }
 
 // limitBody caps how much of a request body a handler can be made to read.
+// noStore keeps API responses out of every cache between the server and the
+// browser. They are authenticated, they change from one second to the next,
+// and a proxy or a browser that kept one would show a signed-out user the
+// previous user's fleet. The event stream sets its own header after this, and
+// the UI's static files, which are cacheable, are served outside these routers.
+func noStore(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		next.ServeHTTP(w, r)
+	})
+}
+
 func limitBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil {
