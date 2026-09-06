@@ -246,15 +246,15 @@ images](#jobs-that-build-container-images)) — each under four kinds of tag:
 
 | Tag | Points at | Published by |
 | --- | --- | --- |
-| `latest` | The most recent release | `release.yml`, on a `v*` tag |
-| `vX.Y.Z` | One tagged release | `release.yml`, on a `v*` tag |
+| `latest` | The tip of `main` | `ci.yml`, on every push to `main` |
 | `main` | The tip of `main` | `ci.yml`, on every push to `main` |
 | `sha-<commit>` | One exact commit | `ci.yml`, on every push to `main` |
+| `vX.Y.Z` | One tagged release | `release.yml`, on a `v*` tag |
 
-`latest` is the default and means the most recent release, so a pool that names
-no tag moves only when a release is cut, never on a merge. Pin `vX.Y.Z` to stay
-on one release, or `sha-<commit>` for an image that never changes at all. `main`
-is for running ahead of the releases, and moves with every merge.
+`latest` is the default, and tracks `main` rather than the newest release, so a
+pool that names no tag gets the newest build as soon as CI publishes it. Pin
+`vX.Y.Z` to stay on one release, or `sha-<commit>` for an image that never
+changes at all.
 
 The runner images are only rebuilt when something that goes into them changes —
 `deploy/Dockerfile.runner` or `deploy/runner-entrypoint.sh` — so their `main` tag
