@@ -13,6 +13,11 @@
 #   ZOOMIES_RUNNER_GROUP   runner group name
 #   ZOOMIES_EPHEMERAL      "true" to pass --ephemeral
 #
+# A pool with a docker_mode also gets DOCKER_HOST, pointing at a
+# docker-in-docker sidecar or at the host's mounted socket:
+#
+#   ZOOMIES_DOCKER_WAIT    seconds to wait for that daemon (default 30)
+#
 set -euo pipefail
 
 cd /home/runner
@@ -44,6 +49,37 @@ if [ -n "${DOCKER_HOST:-}" ] || [ -S /var/run/docker.sock ]; then
     log "jobs that run docker, buildx or compose will fail on it."
     log "use ghcr.io/eyupio/zoomies-runner-docker as the pool image, or an image"
     log "of your own with docker-ce-cli installed."
+  fi
+fi
+
+# The other half of that contract: the backend waits for the sidecar *container*
+# to be running, and leaves waiting for dockerd inside it to this script, since
+# only the image knows when its first docker command runs. Absorb the daemon's
+# boot here, before GitHub can hand this runner a job, rather than letting a
+# workflow's first docker step race it and fail with "Cannot connect to the
+# Docker daemon".
+#
+# A daemon that never answers is not fatal. The runner still takes jobs that do
+# not touch Docker, and one that does gets the client's own error, which says
+# more than anything this script could invent.
+wait_for_docker() {
+  local waited=0
+  local limit=${ZOOMIES_DOCKER_WAIT:-30}
+  while [ "$waited" -lt "$limit" ]; do
+    if docker version >/dev/null 2>&1; then
+      [ "$waited" -gt 0 ] && log "the docker daemon answered after ${waited}s"
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  log "warning: no docker daemon answered at ${DOCKER_HOST:-/var/run/docker.sock} within ${limit}s."
+  log "jobs that run docker will fail until it comes up."
+}
+
+if [ -n "${DOCKER_HOST:-}" ] || [ -S /var/run/docker.sock ]; then
+  if command -v docker >/dev/null 2>&1; then
+    wait_for_docker
   fi
 fi
 
