@@ -366,7 +366,9 @@ make build        # builds the UI and embeds it
 ./zoomies version
 ```
 
-Go 1.26 and Node 22. Node is a build-time dependency only — the binary is
+Go 1.25 or later, and Node 22 or later. `go.mod` sets the language version at
+1.25 and that is the floor a contributor needs; CI builds and releases with
+1.26. Node is a build-time dependency only — the binary is
 self-contained.
 
 ```sh

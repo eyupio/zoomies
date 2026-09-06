@@ -194,11 +194,7 @@ func (c *Controller) noteRunnerLost(ctx context.Context, before *store.Runner, s
 	}); err != nil {
 		c.log.Warn("could not record a job timeline entry", "job", j.ID, "kind", store.JobEventRunnerLost, "error", err)
 	}
-	pool := before.PoolID
-	if p, err := c.st.GetPool(ctx, before.PoolID); err == nil {
-		pool = p.Name
-	}
-	c.metrics.jobsRunnerLost.WithLabelValues(pool).Inc()
+	c.metrics.jobsRunnerLost.WithLabelValues(c.poolLabel(before.PoolID)).Inc()
 	c.log.Warn("a runner stopped while running a job", "job", j.ID, "runner", before.ID, "name", before.Name, "message", message)
 	c.publishJob(ctx, updated)
 }

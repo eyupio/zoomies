@@ -5,6 +5,9 @@
   "license": "AGPL-3.0-only",
   "type": "module",
   "description": "The Zoomies operator UI. Built with Vite and embedded into the Go binary.",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",

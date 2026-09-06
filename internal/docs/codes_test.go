@@ -13,6 +13,8 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -136,5 +138,91 @@ func TestTheReferenceDescribesNoCodeThatIsGone(t *testing.T) {
 	if len(stale) > 0 {
 		t.Errorf("docs/problem-codes.md documents codes nothing raises any more:\n  %s",
 			strings.Join(stale, "\n  "))
+	}
+}
+
+// Every metric the controller exposes has a row on the metrics page.
+//
+// The same argument as the problem codes: a reference page that claims to list
+// everything is worth having only if something checks. Metric names are found
+// by their `zoomies_` prefix rather than by parsing, because they are declared
+// three different ways -- a struct literal, a helper call and a NewDesc -- and
+// the prefix is the thing they actually have in common.
+func TestEveryMetricIsDocumented(t *testing.T) {
+	const (
+		source = "../controller/metrics.go"
+		page   = "../../docs/metrics.md"
+	)
+
+	code, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatalf("reading %s: %v", source, err)
+	}
+	reference, err := os.ReadFile(page)
+	if err != nil {
+		t.Fatalf("reading %s: %v", page, err)
+	}
+
+	names := map[string]bool{}
+	for _, quoted := range strings.Split(string(code), `"`) {
+		if strings.HasPrefix(quoted, "zoomies_") && !strings.Contains(quoted, " ") {
+			names[quoted] = true
+		}
+	}
+	if len(names) == 0 {
+		t.Fatal("no metric names were found at all; the source moved, not the docs")
+	}
+
+	var missing []string
+	for name := range names {
+		if !strings.Contains(string(reference), "`"+name+"`") {
+			missing = append(missing, name)
+		}
+	}
+	sort.Strings(missing)
+	if len(missing) > 0 {
+		t.Errorf("these metrics are exposed but have no row in docs/metrics.md:\n  %s",
+			strings.Join(missing, "\n  "))
+	}
+}
+
+// Every top-level command has a mention on the command-line page.
+//
+// A command an operator cannot find is a command that does not exist to them,
+// and the reference is where they look after `--help`. This checks the fifteen
+// the dispatch table knows about; the sub-subcommands are checked by nothing,
+// because a table of every flag would be a copy of the binary rather than a
+// document.
+func TestEveryCommandIsDocumented(t *testing.T) {
+	const (
+		source = "../../cmd/zoomies/main.go"
+		page   = "../../docs/cli.md"
+	)
+
+	code, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatalf("reading %s: %v", source, err)
+	}
+	reference, err := os.ReadFile(page)
+	if err != nil {
+		t.Fatalf("reading %s: %v", page, err)
+	}
+
+	table := regexp.MustCompile(`\{"([a-z-]+)", group(?:Run|Fleet|Setup),`)
+	found := table.FindAllStringSubmatch(string(code), -1)
+	if len(found) == 0 {
+		t.Fatal("no commands were found at all; the dispatch table moved, not the docs")
+	}
+
+	var missing []string
+	for _, m := range found {
+		if !strings.Contains(string(reference), "`zoomies "+m[1]) {
+			missing = append(missing, m[1])
+		}
+	}
+	sort.Strings(missing)
+	if len(missing) > 0 {
+		t.Errorf("these commands exist but are not on docs/cli.md:\n  zoomies %s",
+			strings.Join(missing, "\n  zoomies "))
 	}
 }
