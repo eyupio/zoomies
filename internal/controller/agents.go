@@ -258,13 +258,17 @@ func (c *Controller) PrewarmPool(ctx context.Context, p *store.Pool) (int, error
 	if p.Backend == store.BackendProcess {
 		return 0, ErrPrewarmUnsupported
 	}
+	// The image the runners will be created from, which for a pool that gives
+	// its jobs a daemon is not always the one the row names: pulling the other
+	// one would warm nothing.
+	image := c.RunnerImage(p)
 	n := 0
 	for _, h := range hosts {
 		if !scheduler.HostCanRun(h, p, c.Now()) {
 			continue
 		}
-		_ = c.st.SetPoolPrewarm(ctx, p.ID, h.ID, p.Image, "pending", "", "")
-		if c.enqueue(h.ID, agent.Task{Kind: agent.TaskPrewarmImage, PoolID: p.ID, Backend: p.Backend, Image: p.Image, PullPolicy: p.PullPolicy, IssuedAt: c.Now()}) {
+		_ = c.st.SetPoolPrewarm(ctx, p.ID, h.ID, image, "pending", "", "")
+		if c.enqueue(h.ID, agent.Task{Kind: agent.TaskPrewarmImage, PoolID: p.ID, Backend: p.Backend, Image: image, PullPolicy: p.PullPolicy, IssuedAt: c.Now()}) {
 			n++
 		}
 	}

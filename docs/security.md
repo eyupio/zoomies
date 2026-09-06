@@ -256,9 +256,10 @@ escape *from the sidecar* reaches the host. This is a real improvement on
 `host-socket` and still not a security boundary you should bet a production
 host on.
 
-Either mode gives the job a daemon and nothing else: the pool's image has to
-carry a Docker client too. See [Jobs that build container
-images](configuration.md#jobs-that-build-container-images).
+Either mode gives the job a daemon; the client comes from the image, and a pool
+on the stock runner image is switched to its Docker variant as it asks for one.
+An image of your own has to carry the client itself. See [Jobs that build
+container images](configuration.md#jobs-that-build-container-images).
 
 ### `pool.ephemeral: false`
 

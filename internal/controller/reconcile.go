@@ -9,6 +9,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/backend"
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/scheduler"
@@ -239,7 +240,7 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, a sched
 		State:         store.RunnerProvisioning,
 		Ephemeral:     pool.Ephemeral,
 		Labels:        pool.Labels,
-		Image:         c.runnerImage(pool),
+		Image:         c.RunnerImage(pool),
 		RunnerVersion: c.runnerVersion(pool),
 		Message:       a.Reason,
 	}
@@ -345,13 +346,21 @@ func (c *Controller) mintCredentials(ctx context.Context, inst *store.Installati
 	}, 0, nil
 }
 
-// runnerImage returns the image a pool's runners use, falling back to the
+// RunnerImage returns the image a pool's runners use, falling back to the
 // instance default so a pool created without one still works.
-func (c *Controller) runnerImage(p *store.Pool) string {
-	if strings.TrimSpace(p.Image) != "" {
-		return p.Image
+//
+// A pool that gives its jobs a daemon runs the stock image's Docker variant,
+// and the API already writes that into the pool when it is saved. The swap is
+// made again here because this is the one place that sees the fallback -- a
+// pool with no image of its own and github.runner_image at its stock default
+// -- and because what runs should be decided where the runner is made, not
+// trusted to every path that ever wrote a pool row.
+func (c *Controller) RunnerImage(p *store.Pool) string {
+	image := strings.TrimSpace(p.Image)
+	if image == "" {
+		image = c.cfg().GitHub.RunnerImage
 	}
-	return c.cfg().GitHub.RunnerImage
+	return config.RunnerImageFor(image, p.DockerMode.GivesDaemon())
 }
 
 func (c *Controller) runnerVersion(p *store.Pool) string {

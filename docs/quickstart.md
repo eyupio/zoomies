@@ -159,6 +159,12 @@ Decline it, or set `pool.skip` in an answer file, and the Pools page starts
 empty; nothing runs until a pool exists. Either way, always set a maximum. It
 is your only backstop against a runaway workflow.
 
+**Docker in jobs** stays `none` until a workflow needs a daemon — a `docker`
+step, a `container:` or a `services:` block — and then `dind` is the one to
+choose. That one setting is enough: the pool is switched to a runner image with
+a Docker client as it is saved. [Jobs that build container
+images](configuration.md#jobs-that-build-container-images) says what it costs.
+
 ## 5. Run something
 
 ```yaml

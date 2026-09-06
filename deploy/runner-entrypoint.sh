@@ -45,10 +45,12 @@ trap 'forward TERM' TERM
 # reason here instead, in the log the operator already downloads.
 if [ -n "${DOCKER_HOST:-}" ] || [ -S /var/run/docker.sock ]; then
   if ! command -v docker >/dev/null 2>&1; then
-    log "this pool provides a docker daemon, but this image has no docker client."
-    log "jobs that run docker, buildx or compose will fail on it."
-    log "use ghcr.io/eyupio/zoomies-runner-docker as the pool image, or an image"
-    log "of your own with docker-ce-cli installed."
+    log "this pool provides a docker daemon, but this image has no docker client,"
+    log "so jobs that run docker, buildx or compose will fail on it."
+    log "a current controller switches a pool on the stock runner image to"
+    log "ghcr.io/eyupio/zoomies-runner-docker when it asks for a daemon; if this is"
+    log "the stock image, upgrade the controller or set that image on the pool."
+    log "an image of your own needs docker-ce-cli installed in it."
   fi
 fi
 

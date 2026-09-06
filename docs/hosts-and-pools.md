@@ -120,8 +120,9 @@ second when a job needs something the first cannot give it:
 
 * **A different machine.** GPU boxes, arm64 builders, a host in another region.
   Label the hosts, and give the pool a `host_selector` that requires the label.
-* **A different runtime.** A pool whose jobs build images needs `docker_mode`
-  and a runner image carrying a Docker client; most pools want neither.
+* **A different runtime.** A pool whose jobs build images needs a
+  `docker_mode`, which most pools should not have; asking for one switches the
+  stock runner image to its Docker variant.
 * **A different ceiling.** A noisy repository is easier to bound with its own
   pool and its own `max_runners` than with a shared one.
 * **A different priority.** When the fleet is full, higher-priority pools

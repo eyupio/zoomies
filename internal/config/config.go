@@ -341,6 +341,57 @@ func Default() *Config {
 // release and its .NET 8 dependency.
 const DefaultRunnerImage = "ghcr.io/eyupio/zoomies-runner:latest"
 
+// DefaultRunnerDockerImage is DefaultRunnerImage plus a Docker client: the
+// same file's runner-docker target, published under the same tags. It is what
+// a pool whose docker_mode gives its jobs a daemon actually runs, whichever of
+// the two the pool names; see RunnerImageFor.
+const DefaultRunnerDockerImage = "ghcr.io/eyupio/zoomies-runner-docker:latest"
+
+// The two repositories RunnerImageFor translates between.
+const (
+	stockRunnerRepository       = "ghcr.io/eyupio/zoomies-runner"
+	stockRunnerDockerRepository = "ghcr.io/eyupio/zoomies-runner-docker"
+)
+
+// RunnerImageFor returns the image a pool's runners are created from, given
+// the image the pool names and whether its docker_mode gives jobs a daemon.
+//
+// A docker_mode gives a job a daemon and nothing else; the client has to come
+// from the image, and the stock runner image carries none, on purpose, because
+// most pools never build an image. Leaving the operator to remember that -- to
+// set the mode *and* swap the image for its Docker variant -- was the mistake
+// everybody made: the daemon came up, the job reached its first docker step,
+// and it failed with "Unable to locate executable file: docker", which names
+// the missing binary and not the reason.
+//
+// So the swap is made here, once, whenever daemon is true, and only for the
+// stock repository under a moving tag: no tag, :latest or :main, which CI
+// publishes for both images from the same commit. A pinned tag is left as
+// given, because the variant is only published beside the tags made since it
+// was added, and a pool moved onto a tag the registry does not have would
+// stop running every job, including the ones that never touch Docker; the
+// wizard says to pin the variant's tag instead. A digest reference names one
+// exact image and cannot be moved to another. An image of the operator's own
+// is theirs to equip, and so is a mirror of the stock image under another
+// registry: whether the mirror carries the variant is not something this code
+// can know.
+//
+// The swap is never reversed. A pool that stops asking for a daemon keeps the
+// client, which costs it pull time and nothing else, and may be using it
+// against a DOCKER_HOST of its own.
+func RunnerImageFor(image string, daemon bool) string {
+	if !daemon {
+		return image
+	}
+	switch image {
+	case stockRunnerRepository:
+		return stockRunnerDockerRepository
+	case stockRunnerRepository + ":latest", stockRunnerRepository + ":main":
+		return stockRunnerDockerRepository + strings.TrimPrefix(image, stockRunnerRepository)
+	}
+	return image
+}
+
 func defaultCapacity() int {
 	// One runner per two cores is a defensible starting point: a job usually
 	// wants more than one core, and the host still has room to breathe.

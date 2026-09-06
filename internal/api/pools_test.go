@@ -596,3 +596,122 @@ func TestValidatingAnEditDoesNotClashWithThePoolBeingEdited(t *testing.T) {
 		})
 	}
 }
+
+// A pool that gives its jobs a daemon needs an image with a Docker client, and
+// the stock runner image has none. Asking the operator to remember both halves
+// was the mistake everybody made -- the daemon came up, the job died at its
+// first docker step -- so the server makes the second half itself: the stock
+// image becomes its Docker variant as the pool is saved, and the response
+// shows it. What it must not do is undo an operator's own choice, or reverse
+// itself when the daemon goes away again.
+func TestAPoolThatGivesJobsADaemonIsSavedOnTheDockerImage(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	h.host("vm-1")
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	// The stock image with a daemon: swapped, and the tag survives.
+	body := poolBody(inst.ID)
+	body["image"] = "ghcr.io/eyupio/zoomies-runner:latest"
+	body["docker_mode"] = "dind"
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: body})
+	created.mustStatus(t, http.StatusCreated, "create")
+	var pool poolResponse
+	created.into(t, &pool)
+	if pool.Image != "ghcr.io/eyupio/zoomies-runner-docker:latest" {
+		t.Fatalf("image = %q, want the stock image's Docker variant under the same tag", pool.Image)
+	}
+
+	// Taking the daemon away does not take the client away: the swap is not
+	// reversed, because the image still runs everything the stock one does,
+	// and may be in use against a DOCKER_HOST of the pool's own.
+	patched := h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + pool.ID, cookie: cookie,
+		body: map[string]any{"docker_mode": "none"}})
+	patched.mustStatus(t, http.StatusOK, "patch to none")
+	patched.into(t, &pool)
+	if pool.Image != "ghcr.io/eyupio/zoomies-runner-docker:latest" {
+		t.Fatalf("image = %q after dropping the daemon, want it left alone", pool.Image)
+	}
+
+	// Putting the stock image back on a pool without a daemon stores it as
+	// typed; asking for a daemon again swaps it again.
+	patched = h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + pool.ID, cookie: cookie,
+		body: map[string]any{"image": "ghcr.io/eyupio/zoomies-runner:latest"}})
+	patched.mustStatus(t, http.StatusOK, "patch the stock image back")
+	patched.into(t, &pool)
+	if pool.Image != "ghcr.io/eyupio/zoomies-runner:latest" {
+		t.Fatalf("image = %q on a pool with no daemon, want the stock image as typed", pool.Image)
+	}
+	patched = h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + pool.ID, cookie: cookie,
+		body: map[string]any{"docker_mode": "host-socket"}})
+	patched.mustStatus(t, http.StatusOK, "patch to host-socket")
+	patched.into(t, &pool)
+	if pool.Image != "ghcr.io/eyupio/zoomies-runner-docker:latest" {
+		t.Fatalf("image = %q after asking for the host socket, want the Docker variant", pool.Image)
+	}
+
+	// "Correcting" the image back to the stock one on the edit page, with
+	// the daemon still on, is the same request with the same answer.
+	patched = h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + pool.ID, cookie: cookie,
+		body: map[string]any{"image": "ghcr.io/eyupio/zoomies-runner:latest"}})
+	patched.mustStatus(t, http.StatusOK, "patch the stock image onto a daemon pool")
+	patched.into(t, &pool)
+	if pool.Image != "ghcr.io/eyupio/zoomies-runner-docker:latest" {
+		t.Fatalf("image = %q after typing the stock image onto a daemon pool, want the Docker variant", pool.Image)
+	}
+
+	// A pinned tag is a deliberate choice of one build, and the variant may
+	// not exist for it, so it is kept exactly as typed.
+	patched = h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + pool.ID, cookie: cookie,
+		body: map[string]any{"image": "ghcr.io/eyupio/zoomies-runner:sha-b966fb6"}})
+	patched.mustStatus(t, http.StatusOK, "patch a pinned stock tag")
+	patched.into(t, &pool)
+	if pool.Image != "ghcr.io/eyupio/zoomies-runner:sha-b966fb6" {
+		t.Fatalf("image = %q, want a pinned tag left as typed", pool.Image)
+	}
+
+	// An image of the operator's own is theirs, daemon or not.
+	patched = h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + pool.ID, cookie: cookie,
+		body: map[string]any{"image": "registry.example.com/ci/runner:latest"}})
+	patched.mustStatus(t, http.StatusOK, "patch an own image")
+	patched.into(t, &pool)
+	if pool.Image != "registry.example.com/ci/runner:latest" {
+		t.Fatalf("image = %q, want an operator's own image left alone", pool.Image)
+	}
+
+	// The wizard's dry run is the same code path, and says which image the
+	// pool would run, so the review step can show the pool the server will
+	// make rather than the one that was typed.
+	body = poolBody(inst.ID)
+	body["name"] = "review"
+	body["image"] = "ghcr.io/eyupio/zoomies-runner:latest"
+	body["docker_mode"] = "dind"
+	validate := h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: cookie, body: body})
+	validate.mustStatus(t, http.StatusOK, "validate")
+	var verdict validatePoolResponse
+	validate.into(t, &verdict)
+	if !verdict.Valid || verdict.Image != "ghcr.io/eyupio/zoomies-runner-docker:latest" {
+		t.Fatalf("verdict = %+v, want a valid pool on the Docker variant", verdict)
+	}
+	if pools, err := h.st.ListPools(h.ctx); err != nil || len(pools) != 1 {
+		t.Fatalf("the dry run created a pool: %v %v", pools, err)
+	}
+
+	// Every swap the server made is in the audit trail as an image change,
+	// where an operator looking for why the pool's image is not what they
+	// typed will find it.
+	audit := h.do(request{method: http.MethodGet, path: "/api/v1/audit?target_kind=pool", cookie: cookie})
+	audit.mustStatus(t, http.StatusOK, "audit")
+	var events page[store.AuditEvent]
+	audit.into(t, &events)
+	found := false
+	for _, e := range events.Items {
+		if e.Action == "pool.create" && strings.Contains(e.After, "zoomies-runner-docker:latest") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no pool.create audit row records the Docker variant; rows: %d", len(events.Items))
+	}
+}

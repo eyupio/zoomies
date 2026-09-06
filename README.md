@@ -195,7 +195,9 @@ from what the host actually is: named after the platform, capped at the
 machine's capacity, nothing kept idle when nothing is queued, ephemeral, and
 Docker with no socket reachable from the job. The
 [quick start](docs/quickstart.md#4-your-first-pool) has the settings it lands
-on.
+on. A workflow that builds images needs one more thing from its pool, *Docker
+in jobs* set to `dind`, and that is the whole change: the pool is switched to
+a runner image with a Docker client as it is saved.
 
 Then in a workflow:
 

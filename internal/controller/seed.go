@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -369,10 +370,13 @@ func (c *Controller) seedPools(ctx context.Context) (*store.Pool, *store.Pool, e
 		InstallationID: demoInstallationID,
 		Labels:         store.StringSlice(store.BrandLabels([]string{"linux", "arm64", "zoomies-demo-linux-arm64"})),
 		Backend:        store.BackendDocker,
-		Image:          c.cfg().GitHub.RunnerImage,
-		MinRunners:     0,
-		MaxRunners:     4,
-		IdleTimeout:    store.Duration(10 * time.Minute),
+		// The image a pool that gives its jobs a daemon actually runs, written
+		// here as the API would write it, so the demo does not show the one
+		// combination the wizard and the migration exist to remove.
+		Image:       config.RunnerImageFor(c.cfg().GitHub.RunnerImage, true),
+		MinRunners:  0,
+		MaxRunners:  4,
+		IdleTimeout: store.Duration(10 * time.Minute),
 		// Persistent runners, so the problems drawer has a dangerous setting to
 		// show and the UI's warning styling is exercised.
 		Ephemeral:    false,

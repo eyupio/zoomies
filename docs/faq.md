@@ -106,15 +106,14 @@ code path.
 
 ## Can jobs build container images?
 
-Yes, with two settings on the pool. `docker_mode: dind` gives its runners a
-private Docker daemon, and `image: ghcr.io/eyupio/zoomies-runner-docker:latest`
-gives them a client to drive it with. The default runner image has no Docker CLI
-on purpose — most pools never build an image, and the client is cold-start time
-they would pay for nothing.
-
-Set only the first and the daemon sits there unused: the job fails at its first
-Docker step with `Unable to locate executable file: docker`. See [Jobs that build
-container images](configuration.md#jobs-that-build-container-images).
+Yes, with one setting on the pool: `docker_mode: dind` gives each of its runners
+a private Docker daemon. The stock runner image has no Docker CLI on purpose —
+most pools never build an image, and the client is cold-start time they would
+pay for nothing — so a pool that asks for a daemon is switched to
+`ghcr.io/eyupio/zoomies-runner-docker`, the same image plus a client, as it is
+saved. An image of your own is left alone and has to carry `docker` itself. See
+[Jobs that build container
+images](configuration.md#jobs-that-build-container-images).
 
 ## Which platforms does it run on?
 
@@ -255,7 +254,7 @@ modified or not, asks nothing of you. The full text is in
       "name": "Can Zoomies jobs build container images?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Yes, with two settings on the pool. docker_mode: dind gives its runners a private Docker daemon, and the zoomies-runner-docker image gives them a client to drive it with. The default runner image has no Docker CLI on purpose, because most pools never build an image and the client is cold-start time they would pay for nothing. Setting only the first leaves the daemon unused and the job fails at its first Docker step."
+        "text": "Yes, with one setting on the pool: docker_mode: dind gives each of its runners a private Docker daemon. The stock runner image has no Docker CLI on purpose, because most pools never build an image and the client is cold-start time they would pay for nothing, so a pool that asks for a daemon is switched to the zoomies-runner-docker image, the same image plus a client, as it is saved. An image of your own is left alone and has to carry docker itself."
       }
     },
     {

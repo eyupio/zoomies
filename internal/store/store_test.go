@@ -688,3 +688,82 @@ func TestTheJobsRebuildKeepsEveryRowAndItsIndexes(t *testing.T) {
 		t.Fatalf("the rebuilt jobs table has %d indexes, want 6", indexes)
 	}
 }
+
+// Pools saved before the API swapped the stock image for its Docker variant
+// still name an image that cannot use the daemon their docker_mode gives
+// them. The migration moves exactly those, and nothing else: not a pool with
+// no daemon, not a pinned tag the variant may not exist for, not an image of
+// the operator's own, not a digest that names one exact image, and not a pool
+// already on the variant.
+func TestExistingDaemonPoolsAreMovedOntoTheDockerImage(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "zoomies.db")
+	ctx := context.Background()
+
+	// The rows are created on a frozen clock in the past, so that the
+	// migration's wall-clock updated_at is later than created_at by months
+	// rather than by however long a reopen happens to take on this machine.
+	past := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	s, err := Open(ctx, Options{Path: path, Now: func() time.Time { return past }})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	inst := &Installation{AppID: 1, InstallationID: 2, Target: "acme", TargetType: TargetOrg}
+	if err := s.CreateInstallation(ctx, inst); err != nil {
+		t.Fatalf("CreateInstallation: %v", err)
+	}
+	const digest = "ghcr.io/eyupio/zoomies-runner@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	cases := []struct {
+		name  string
+		mode  DockerMode
+		image string
+		want  string
+	}{
+		{"dind-latest", DockerDinD, "ghcr.io/eyupio/zoomies-runner:latest", "ghcr.io/eyupio/zoomies-runner-docker:latest"},
+		{"socket-main", DockerHostSocket, "ghcr.io/eyupio/zoomies-runner:main", "ghcr.io/eyupio/zoomies-runner-docker:main"},
+		{"dind-untagged", DockerDinD, "ghcr.io/eyupio/zoomies-runner", "ghcr.io/eyupio/zoomies-runner-docker"},
+		{"dind-pinned-sha", DockerDinD, "ghcr.io/eyupio/zoomies-runner:sha-b966fb6", "ghcr.io/eyupio/zoomies-runner:sha-b966fb6"},
+		{"dind-pinned-release", DockerDinD, "ghcr.io/eyupio/zoomies-runner:v0.1-alpha", "ghcr.io/eyupio/zoomies-runner:v0.1-alpha"},
+		{"none-stock", DockerNone, "ghcr.io/eyupio/zoomies-runner:latest", "ghcr.io/eyupio/zoomies-runner:latest"},
+		{"dind-own", DockerDinD, "registry.example.com/ci/runner:latest", "registry.example.com/ci/runner:latest"},
+		{"dind-mirror", DockerDinD, "registry.example.com/eyupio/zoomies-runner:latest", "registry.example.com/eyupio/zoomies-runner:latest"},
+		{"dind-lookalike", DockerDinD, "ghcr.io/eyupio/zoomies-runner-gpu:latest", "ghcr.io/eyupio/zoomies-runner-gpu:latest"},
+		{"dind-digest", DockerDinD, digest, digest},
+		{"dind-already", DockerDinD, "ghcr.io/eyupio/zoomies-runner-docker:latest", "ghcr.io/eyupio/zoomies-runner-docker:latest"},
+	}
+	ids := map[string]string{}
+	for _, tc := range cases {
+		p := &Pool{Name: tc.name, InstallationID: inst.ID, Labels: StringSlice{tc.name}, Backend: BackendDocker,
+			Image: tc.image, MaxRunners: 1, Ephemeral: true, DockerMode: tc.mode, Enabled: true}
+		if err := s.CreatePool(ctx, p); err != nil {
+			t.Fatalf("CreatePool %s: %v", tc.name, err)
+		}
+		ids[tc.name] = p.ID
+	}
+	// The rows are in the shape the migration will find them in: it ran on an
+	// empty table when the database was opened, so pretend it has not.
+	if _, err := s.write.ExecContext(ctx,
+		`DELETE FROM schema_migrations WHERE name = '0010_docker_pools_get_a_client.sql'`); err != nil {
+		t.Fatalf("forgetting the migration: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	migrated, err := Open(ctx, Options{Path: path})
+	if err != nil {
+		t.Fatalf("Open after the migration: %v", err)
+	}
+	t.Cleanup(func() { migrated.Close() })
+	for _, tc := range cases {
+		got, err := migrated.GetPool(ctx, ids[tc.name])
+		if err != nil {
+			t.Fatalf("GetPool %s: %v", tc.name, err)
+		}
+		if got.Image != tc.want {
+			t.Errorf("%s: image = %q, want %q", tc.name, got.Image, tc.want)
+		}
+		if moved := got.Image != tc.image; moved != got.UpdatedAt.After(got.CreatedAt) {
+			t.Errorf("%s: updated_at moved = %v, want it to move exactly when the image did", tc.name, !moved)
+		}
+	}
+}
