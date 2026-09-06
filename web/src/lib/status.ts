@@ -226,6 +226,40 @@ export function stuckUnmatched(job: {
 }
 
 /**
+ * A job no runner of this fleet ran. The Overview's panels show these only
+ * when asked to: GitHub reports every job in the repositories an installation
+ * covers, and on an organisation that also uses hosted, vendor or another
+ * self-hosted provider's runners, most of them are somebody else's.
+ */
+export const ELSEWHERE: StatusMeta = meta(
+  'elsewhere',
+  'Elsewhere',
+  'neutral',
+  'hollow',
+  Cloud,
+  'No runner of this fleet ran this job. It is listed because GitHub reports every job in the repositories this installation covers.',
+);
+
+/** A job one of this fleet's runners picked up. */
+export function ranHere(job: { runner_id?: string }): boolean {
+  return Boolean(job.runner_id);
+}
+
+/**
+ * Whether this fleet has a hand in a job that is not queued: a pool claims its
+ * labels, or a runner here ran it. It mirrors the server's `managed` filter,
+ * and lives next to the places that use it so a panel's live frames and its
+ * fetch cannot disagree about what belongs on the page -- which they did.
+ */
+export function managedJob(job: {
+  matched?: boolean;
+  pool_id?: string;
+  runner_id?: string;
+}): boolean {
+  return Boolean(job.matched || job.pool_id || job.runner_id);
+}
+
+/**
  * A job whose labels all name runners somebody else operates: GitHub's own, or
  * a hosted-runner vendor's. It runs there, and is never stuck on this fleet's
  * account however long it queues.

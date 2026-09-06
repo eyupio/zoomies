@@ -62,7 +62,7 @@ export const FIXTURE = {
   busyRunnerId: 'run_demo00',
   repos: ['acme/api', 'acme/site', 'acme/widgets'],
   /** Every job the seed writes; nothing adds more, since no webhook arrives. */
-  totalJobs: 50,
+  totalJobs: 51,
   /**
    * What the Jobs page shows by default: everything except the one job the seed
    * runs on a hosted-runner vendor, which this fleet had no hand in.

@@ -4,6 +4,13 @@
   Jobs arrive here the moment a runner picks one up: one fetch when the page
   opens, then `job.updated` frames from the stream. A job that leaves
   `in_progress` leaves the list, so this is always the present tense.
+
+  It shows this fleet's own work by default. GitHub reports every job in the
+  repositories an installation covers, so an organisation that also uses
+  hosted, vendor or another self-hosted provider's runners would otherwise
+  find this panel headed "what the fleet is running" listing a job on a
+  machine Zoomies has never seen. The switch widens it to everything GitHub
+  reports, and every row it adds says whose runner has it.
 -->
 <script lang="ts">
   import { CircleSlash, ExternalLink } from '@lucide/svelte';
@@ -11,12 +18,15 @@
   import { events } from '$lib/api/sse';
   import type { Job } from '$lib/api/types';
   import { fleet } from '$lib/state/fleet.svelte';
+  import { prefs } from '$lib/state/prefs.svelte';
   import { formatNumber, toMillis } from '$lib/format';
+  import { ELSEWHERE, managedJob, ranHere } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import Duration from '$lib/components/Duration.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
+  import Switch from '$lib/components/Switch.svelte';
   import Panel from './Panel.svelte';
 
   interface Props {
@@ -42,10 +52,27 @@
     return rows.sort((a, b) => startedAt(b) - startedAt(a));
   }
 
-  async function load(signal?: AbortSignal): Promise<void> {
+  /** Whether the panel is showing jobs this fleet had no hand in. */
+  const others = $derived(prefs.otherRunners);
+
+  /** What belongs on the page, in the mode it is in. */
+  function belongs(job: Job): boolean {
+    return others || managedJob(job);
+  }
+
+  async function load(all: boolean, signal?: AbortSignal): Promise<void> {
     try {
       const page = await listJobs(
-        { state: ['in_progress'], limit: FETCH, sort: 'started_at', order: 'desc' },
+        {
+          state: ['in_progress'],
+          // The filter is the server's, not a slice of a page: on a busy
+          // organisation a page of fifty running jobs can be somebody else's
+          // fifty, and filtering here would leave the panel empty and wrong.
+          managed: all ? undefined : true,
+          limit: FETCH,
+          sort: 'started_at',
+          order: 'desc',
+        },
         signal,
       );
       jobs = order((page.items ?? []).filter((row) => Boolean(row.id)));
@@ -59,8 +86,9 @@
   }
 
   $effect(() => {
+    const all = others;
     const controller = new AbortController();
-    void load(controller.signal);
+    void load(all, controller.signal);
     return () => controller.abort();
   });
 
@@ -69,7 +97,7 @@
   let previous: string | null = null;
   $effect(() => {
     const status = fleet.connection;
-    if (previous !== null && previous !== 'live' && status === 'live') void load();
+    if (previous !== null && previous !== 'live' && status === 'live') void load(others);
     previous = status;
   });
 
@@ -77,7 +105,7 @@
     events.subscribe('job.updated', (job) => {
       if (!job.id) return;
       const next = jobs.filter((row) => row.id !== job.id);
-      if (job.state === 'in_progress') next.push(job);
+      if (job.state === 'in_progress' && belongs(job)) next.push(job);
       jobs = order(next);
     }),
   );
@@ -92,7 +120,9 @@
 
 <Panel
   title="Active jobs"
-  description="What the fleet is running at this moment."
+  description={others
+    ? 'Every job GitHub is running for these repositories, wherever it is running.'
+    : 'What this fleet is running at this moment.'}
   class={className}
   flush
 >
@@ -100,6 +130,7 @@
     {#if !loading && jobs.length > 0}
       <Badge tone="accent" label="{formatNumber(jobs.length)} running" dot={false} />
     {/if}
+    <Switch label="Other runners" checked={others} onchange={(on) => (prefs.otherRunners = on)} />
   {/snippet}
 
   {#if error}
@@ -108,7 +139,7 @@
         {error}
         compact
         title="The running jobs could not be loaded"
-        onretry={() => void load()}
+        onretry={() => void load(others)}
       />
     </div>
   {:else if loading}
@@ -127,7 +158,9 @@
       icon={CircleSlash}
       compact
       title="Nothing is running right now"
-      description="A job appears here the moment a runner picks it up."
+      description={others
+        ? 'GitHub is running nothing for these repositories, here or anywhere else.'
+        : 'A job appears here the moment a runner of this fleet picks it up. Turn on other runners to see what GitHub is running elsewhere.'}
     />
   {:else}
     <ul class="rows">
@@ -161,6 +194,9 @@
               <a href="/runners/{job.runner_id}">{runnerName(job)}</a>
             {:else}
               <span class="muted">{runnerName(job)}</span>
+            {/if}
+            {#if !ranHere(job)}
+              <Badge status={ELSEWHERE} size="sm" title={ELSEWHERE.hint} />
             {/if}
           </p>
           <p class="elapsed">

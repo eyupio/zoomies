@@ -482,6 +482,37 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 		}
 	}
 
+	// The vendor repository's other job: one running right now, on a machine
+	// this fleet has never seen. GitHub reports it because the installation
+	// covers the repository, and the Overview's panels must not count it as
+	// what the fleet is doing -- which is exactly what they did.
+	vendorStarted := now.Add(-3 * time.Minute)
+	vendor := &store.Job{
+		ID:          "job_demo050",
+		GitHubJobID: 80050,
+		GitHubRunID: 40025,
+		Repo:        repos[2],
+		Workflow:    "CI",
+		JobName:     "images",
+		Labels:      store.StringSlice{"blacksmith-4vcpu-ubuntu-2404"},
+		State:       store.JobInProgress,
+		QueuedAt:    vendorStarted.Add(-9 * time.Second),
+		StartedAt:   &vendorStarted,
+		RunnerName:  "blacksmith-4vcpu-ubuntu-2404-3a71",
+		HTMLURL:     fmt.Sprintf("https://github.com/%s/actions/runs/%d", repos[2], 40025),
+		HeadBranch:  "main",
+		HeadSHA:     fmt.Sprintf("%040x", 0xC0FFEE+50*7919),
+		RunAttempt:  1,
+		Steps:       demoSteps("images", "", vendorStarted, time.Time{}),
+	}
+	saved, change, err := c.st.ApplyJob(ctx, vendor)
+	if err != nil {
+		return fmt.Errorf("seeding the vendor job: %w", err)
+	}
+	if err := c.seedJobTimeline(ctx, saved, change); err != nil {
+		return err
+	}
+
 	// Link the busy runners to the jobs they are running, so the Runners page
 	// can show what each one is doing.
 	for i, r := range busy {
