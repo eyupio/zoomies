@@ -208,12 +208,12 @@
     line-height: var(--z-leading-base);
   }
   .verdict.good {
-    border: 1px solid var(--z-idle-border);
+    border: var(--z-border-width) solid var(--z-idle-border);
     background: var(--z-idle-subtle);
     color: var(--z-text);
   }
   .verdict.bad {
-    border: 1px solid var(--z-danger-border);
+    border: var(--z-border-width) solid var(--z-danger-border);
     background: var(--z-danger-subtle);
     color: var(--z-text);
   }
@@ -226,7 +226,7 @@
     margin: 0 0 var(--z-space-2);
     font-size: var(--z-text-2xs);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     font-weight: var(--z-weight-medium);
     color: var(--z-text-muted);
   }
@@ -243,7 +243,7 @@
   }
   .chips li {
     padding: 0 var(--z-space-2);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     color: var(--z-text-muted);

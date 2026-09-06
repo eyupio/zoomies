@@ -73,7 +73,7 @@
     /* Padding and border are always here, tint or no tint: this is what keeps
        a state change from moving anything. */
     padding: var(--z-space-1) var(--z-space-2);
-    border: 1px solid transparent;
+    border: var(--z-border-width) solid transparent;
     border-radius: var(--z-radius-sm);
     color: var(--cell-colour);
     white-space: nowrap;

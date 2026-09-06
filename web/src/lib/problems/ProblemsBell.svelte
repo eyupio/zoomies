@@ -57,7 +57,7 @@
     gap: var(--z-space-1);
     height: var(--z-space-6);
     padding: 0 var(--z-space-2);
-    border: 1px solid transparent;
+    border: var(--z-border-width) solid transparent;
     border-radius: var(--z-radius-md);
     background: none;
     color: var(--z-text-muted);

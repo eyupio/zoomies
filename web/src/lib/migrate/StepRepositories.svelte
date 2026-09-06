@@ -195,7 +195,7 @@
   .note {
     margin: 0 0 var(--z-space-3);
     padding: var(--z-space-3) var(--z-space-4);
-    border: 1px solid var(--z-pending-border);
+    border: var(--z-border-width) solid var(--z-pending-border);
     border-radius: var(--z-radius-md);
     background: var(--z-pending-subtle);
     color: var(--z-pending);
@@ -205,7 +205,7 @@
   .problem {
     margin: 0 0 var(--z-space-3);
     padding: var(--z-space-3) var(--z-space-4);
-    border: 1px solid var(--z-pending-border);
+    border: var(--z-border-width) solid var(--z-pending-border);
     border-radius: var(--z-radius-md);
     background: var(--z-pending-subtle);
     font-size: var(--z-text-xs);
@@ -243,7 +243,7 @@
   }
   .head {
     padding-bottom: var(--z-space-2);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   .repos {
     margin: 0;
@@ -254,7 +254,7 @@
   }
   .repos li {
     padding: var(--z-space-2) 0;
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   .repos li.inert {
     opacity: 0.6;

@@ -308,7 +308,7 @@
 
 <style>
   .panel {
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }
@@ -318,7 +318,7 @@
     justify-content: space-between;
     gap: var(--z-space-4);
     padding: var(--z-space-4) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   h2 {
     margin: 0;
@@ -354,18 +354,18 @@
   }
   th {
     padding: var(--z-space-2) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
     color: var(--z-text-muted);
     font-size: var(--z-text-2xs);
     font-weight: var(--z-weight-medium);
     text-align: left;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     white-space: nowrap;
   }
   td {
     padding: var(--z-space-3) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
     color: var(--z-text);
     vertical-align: top;
   }

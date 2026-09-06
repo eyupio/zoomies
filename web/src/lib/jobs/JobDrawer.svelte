@@ -230,7 +230,7 @@
     line-height: var(--z-leading-xs);
     font-weight: var(--z-weight-semibold);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     color: var(--z-text-subtle);
   }
 </style>

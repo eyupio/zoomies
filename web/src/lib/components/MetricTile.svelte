@@ -92,7 +92,7 @@
     flex-direction: column;
     gap: var(--z-space-1);
     padding: var(--z-space-5);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
     text-decoration: none;
@@ -118,7 +118,7 @@
     font-variant-numeric: tabular-nums;
   }
   .unit {
-    margin-left: 2px;
+    margin-left: var(--z-nudge-2);
     font-size: var(--z-text-base);
     font-weight: var(--z-weight-medium);
     color: var(--z-text-muted);
@@ -138,7 +138,7 @@
   .delta {
     display: inline-flex;
     align-items: center;
-    gap: 2px;
+    gap: var(--z-nudge-2);
     font-size: var(--z-text-xs);
     font-variant-numeric: tabular-nums;
     color: var(--z-text-muted);

@@ -196,8 +196,8 @@
     align-items: center;
     gap: var(--z-space-4);
     padding: var(--z-space-3) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
-    border-left: 3px solid transparent;
+    border-bottom: var(--z-border-width) solid var(--z-border);
+    border-left: var(--z-border-width-rail) solid transparent;
   }
   .row:last-child {
     border-bottom: 0;

@@ -117,7 +117,7 @@
     height: auto;
     gap: var(--z-space-2);
     padding: var(--z-space-2) var(--z-space-3);
-    border: 1px solid var(--z-border-strong);
+    border: var(--z-border-width) solid var(--z-border-strong);
     background: var(--z-surface);
     color: var(--z-text);
     font-size: var(--z-text-sm);

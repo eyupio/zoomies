@@ -278,7 +278,7 @@
     width: 100%;
     max-width: 25rem;
     padding: var(--z-space-8);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-lg);
     background: var(--z-surface);
     box-shadow: var(--z-shadow-lg);
@@ -287,7 +287,7 @@
     content: '';
     position: absolute;
     inset: 0 0 auto;
-    height: 1px;
+    height: var(--z-border-width);
     margin: 0 var(--z-radius-lg);
     background: linear-gradient(90deg, transparent, var(--z-border-strong), transparent);
   }
@@ -302,7 +302,7 @@
     font-size: var(--z-text-xl);
     line-height: var(--z-leading-xl);
     font-weight: var(--z-weight-semibold);
-    letter-spacing: -0.01em;
+    letter-spacing: var(--z-tracking-tight);
     color: var(--z-text);
     text-align: center;
   }
@@ -325,7 +325,7 @@
     gap: var(--z-space-2);
     margin: 0 0 var(--z-space-5);
     padding: var(--z-space-3);
-    border: 1px solid var(--z-danger-border);
+    border: var(--z-border-width) solid var(--z-danger-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-danger-subtle);
     font-size: var(--z-text-sm);
@@ -334,7 +334,7 @@
   }
   .failure :global(svg) {
     flex: none;
-    margin-top: 1px;
+    margin-top: var(--z-nudge-1);
     color: var(--z-danger);
   }
   .divider {
@@ -349,7 +349,7 @@
   .divider::after {
     content: '';
     flex: 1;
-    height: 1px;
+    height: var(--z-border-width);
     background: var(--z-border);
   }
   .note {

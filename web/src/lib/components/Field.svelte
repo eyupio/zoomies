@@ -122,7 +122,7 @@
   }
   .required {
     color: var(--z-danger);
-    margin-inline-start: 2px;
+    margin-inline-start: var(--z-nudge-2);
   }
   .hint,
   .notice,

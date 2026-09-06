@@ -40,7 +40,7 @@
     width: 360px;
     max-width: calc(100vw - var(--z-space-8));
     padding: var(--z-space-3);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface-raised);
     box-shadow: var(--z-shadow-md);
@@ -58,7 +58,7 @@
   .icon {
     flex: none;
     display: inline-flex;
-    margin-top: 1px;
+    margin-top: var(--z-nudge-1);
     color: var(--z-text-muted);
   }
   .toast[data-tone='success'] .icon {
@@ -81,7 +81,7 @@
     color: var(--z-text);
   }
   .message {
-    margin: 2px 0 0;
+    margin: var(--z-nudge-2) 0 0;
     font-size: var(--z-text-sm);
     line-height: var(--z-leading-sm);
     color: var(--z-text-muted);
@@ -93,7 +93,7 @@
   @keyframes rise {
     from {
       opacity: 0;
-      transform: translateY(6px);
+      transform: translateY(var(--z-nudge-3));
     }
   }
 </style>

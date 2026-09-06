@@ -154,7 +154,7 @@
     flex-direction: column;
     gap: var(--z-space-3);
     padding: var(--z-space-5);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
     min-width: 0;
@@ -204,7 +204,7 @@
   .cordoned {
     margin: 0;
     padding: var(--z-space-2) var(--z-space-3);
-    border: 1px solid var(--z-draining-border);
+    border: var(--z-border-width) solid var(--z-draining-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-draining-subtle);
     font-size: var(--z-text-xs);
@@ -233,13 +233,13 @@
     flex-direction: column;
     gap: var(--z-space-2);
     padding-top: var(--z-space-3);
-    border-top: 1px solid var(--z-border);
+    border-top: var(--z-border-width) solid var(--z-border);
   }
   h4 {
     margin: 0;
     font-size: var(--z-text-2xs);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     color: var(--z-text-muted);
     font-weight: var(--z-weight-medium);
   }
@@ -253,7 +253,7 @@
   }
   .labels li {
     padding: 0 var(--z-space-1);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     color: var(--z-text-muted);

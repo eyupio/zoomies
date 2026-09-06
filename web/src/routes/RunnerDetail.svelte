@@ -320,7 +320,7 @@
     gap: var(--z-space-2);
     margin: 0 0 var(--z-space-4);
     padding: var(--z-space-3) var(--z-space-4);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     font-size: var(--z-text-base);
     line-height: var(--z-leading-base);
@@ -375,7 +375,7 @@
     min-width: 0;
   }
   .unavailable {
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }

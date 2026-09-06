@@ -134,8 +134,8 @@
     gap: var(--z-space-2);
     margin: 0;
     padding: var(--z-space-2) var(--z-space-4);
-    border-top: 1px solid var(--z-border);
-    border-bottom: 1px solid var(--z-border);
+    border-top: var(--z-border-width) solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
     background: var(--z-surface-sunken);
     font-size: var(--z-text-xs);
     font-weight: var(--z-weight-semibold);
@@ -154,7 +154,7 @@
     color: var(--z-text-muted);
   }
   .dismissed {
-    border-top: 1px solid var(--z-border);
+    border-top: var(--z-border-width) solid var(--z-border);
   }
   .toggle {
     display: block;

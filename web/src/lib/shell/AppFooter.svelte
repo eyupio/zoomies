@@ -90,7 +90,7 @@
   }
   .descriptor {
     flex: none;
-    letter-spacing: 0.08em;
+    letter-spacing: var(--z-tracking-wider);
     text-transform: uppercase;
   }
   @media (max-width: 768px) {

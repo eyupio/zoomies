@@ -291,7 +291,7 @@
     borrowing a status colour operators have learned to read as a fleet state.
   */
   .firstrun {
-    border: 1px solid var(--z-accent-border, var(--z-border-strong));
+    border: var(--z-border-width) solid var(--z-accent-border, var(--z-border-strong));
     border-radius: var(--z-radius-md);
     background: var(--z-accent-subtle);
   }
@@ -329,7 +329,7 @@
     padding: var(--z-space-3) 0;
   }
   li + li {
-    border-top: 1px solid var(--z-border);
+    border-top: var(--z-border-width) solid var(--z-border);
   }
   /* A step that cannot start yet is quieter, but never hidden: the operator
      should be able to read the whole path before walking it. */
@@ -342,7 +342,7 @@
     justify-content: center;
     width: var(--z-space-5);
     height: var(--z-space-5);
-    border: 1px solid var(--z-border-strong);
+    border: var(--z-border-width) solid var(--z-border-strong);
     border-radius: var(--z-radius-full);
     background: var(--z-surface);
     font-size: var(--z-text-2xs);
@@ -385,7 +385,7 @@
   code {
     font-family: var(--z-font-mono);
     font-size: var(--z-text-xs);
-    padding: 2px var(--z-space-2);
+    padding: var(--z-nudge-2) var(--z-space-2);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     color: var(--z-text);
@@ -409,7 +409,7 @@
     color: var(--z-text-subtle);
     text-align: right;
   }
-  @media (max-width: 720px) {
+  @media (max-width: 768px) {
     li {
       grid-template-columns: var(--z-space-6) minmax(0, 1fr);
     }

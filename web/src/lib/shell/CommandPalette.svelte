@@ -451,7 +451,7 @@
     width: 100%;
     max-width: 620px;
     max-height: 70vh;
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-lg);
     background: var(--z-surface-raised);
     box-shadow: var(--z-shadow-lg);
@@ -466,7 +466,7 @@
     align-items: center;
     gap: var(--z-space-3);
     padding: var(--z-space-3) var(--z-space-4);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
     color: var(--z-text-subtle);
   }
   input {
@@ -512,7 +512,7 @@
     min-width: 62px;
     font-size: var(--z-text-2xs);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     color: var(--z-text-subtle);
   }
   .label {
@@ -532,7 +532,7 @@
     align-items: center;
     gap: var(--z-space-4);
     padding: var(--z-space-2) var(--z-space-4);
-    border-top: 1px solid var(--z-border);
+    border-top: var(--z-border-width) solid var(--z-border);
     background: var(--z-surface-sunken);
     font-size: var(--z-text-2xs);
     color: var(--z-text-subtle);
@@ -545,7 +545,7 @@
     font-weight: var(--z-weight-semibold);
     color: var(--z-text-muted);
   }
-  @media (max-width: 560px) {
+  @media (max-width: 768px) {
     /* The three key hints are the working part of this bar; the signature is
        the first thing to go when the row stops fitting. */
     .brand {
@@ -553,9 +553,9 @@
     }
   }
   kbd {
-    margin-right: 2px;
+    margin-right: var(--z-nudge-2);
     padding: 0 var(--z-space-1);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface);
     font-family: var(--z-font-mono);

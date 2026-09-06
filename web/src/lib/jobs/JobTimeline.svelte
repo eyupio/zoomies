@@ -139,10 +139,10 @@
   li:not(:last-child)::before {
     content: '';
     position: absolute;
-    left: 4px;
+    left: var(--z-space-1);
     top: var(--z-space-4);
     bottom: 0;
-    width: 1px;
+    width: var(--z-nudge-1);
     background: var(--z-border);
   }
   .marker {

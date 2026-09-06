@@ -556,7 +556,9 @@
         {#if !settled}
           {#each Array.from({ length: 8 }, (_, i) => i) as line (line)}
             <tr class="skeleton-row">
-              {#if selectable}<td class="pick"><Skeleton width="15px" height="15px" /></td>{/if}
+              {#if selectable}<td class="pick"
+                  ><Skeleton width="var(--z-control-box)" height="var(--z-control-box)" /></td
+                >{/if}
               {#each visibleColumns as column (column.id)}
                 <td><Skeleton width={column.align === 'end' ? '3rem' : '70%'} height="0.9rem" /></td
                 >
@@ -632,7 +634,7 @@
   .grid {
     display: flex;
     flex-direction: column;
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
     min-width: 0;
@@ -643,7 +645,7 @@
     justify-content: space-between;
     gap: var(--z-space-3);
     padding: var(--z-space-2) var(--z-space-3);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
     min-height: var(--z-space-10);
   }
   .bulk {
@@ -672,7 +674,7 @@
     gap: var(--z-space-2);
     min-width: 190px;
     padding: var(--z-space-3);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface-raised);
     box-shadow: var(--z-shadow-md);
@@ -702,14 +704,14 @@
     top: 0;
     z-index: var(--z-layer-sticky);
     padding: var(--z-space-2) var(--z-space-4);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
     background: var(--z-surface-sunken);
     color: var(--z-text-muted);
     font-size: var(--z-text-2xs);
     font-weight: var(--z-weight-medium);
     text-align: left;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     white-space: nowrap;
   }
   th.end,
@@ -740,11 +742,11 @@
   }
   .arrow {
     display: inline-block;
-    min-width: 8px;
+    min-width: var(--z-space-2);
   }
   tbody td {
     padding: var(--z-space-3) var(--z-space-4);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
     color: var(--z-text);
     vertical-align: middle;
   }
@@ -761,8 +763,8 @@
     background: var(--z-accent-subtle);
   }
   tbody tr:focus-visible {
-    outline: 2px solid var(--z-accent);
-    outline-offset: -2px;
+    outline: var(--z-focus-width) solid var(--z-focus-colour);
+    outline-offset: calc(-1 * var(--z-focus-offset));
   }
   .skeleton-row td {
     padding: var(--z-space-3) var(--z-space-4);

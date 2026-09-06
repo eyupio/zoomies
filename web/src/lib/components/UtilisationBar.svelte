@@ -89,7 +89,7 @@
   }
   .live {
     background: var(--z-idle-subtle);
-    border: 1px solid var(--z-idle-border);
+    border: var(--z-border-width) solid var(--z-idle-border);
   }
   .busy {
     background: var(--z-busy);
@@ -97,7 +97,7 @@
   .tick {
     position: absolute;
     inset-block: -2px;
-    width: 2px;
+    width: var(--z-nudge-2);
     background: var(--z-text-subtle);
     transform: translateX(-1px);
   }
@@ -106,7 +106,7 @@
   }
   .tick.max.reached {
     background: var(--z-pending);
-    width: 3px;
+    width: var(--z-nudge-3);
   }
   .text {
     margin: 0;

@@ -82,7 +82,7 @@
     font-size: var(--z-text-base);
     color: var(--z-text);
     background: var(--z-surface);
-    border: 1px solid var(--z-border-strong);
+    border: var(--z-border-width) solid var(--z-border-strong);
     border-radius: var(--z-radius-sm);
     cursor: pointer;
   }

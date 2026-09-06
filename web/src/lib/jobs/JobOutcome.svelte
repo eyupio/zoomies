@@ -88,7 +88,7 @@
     align-items: flex-start;
     gap: var(--z-space-3);
     padding: var(--z-space-3);
-    border: 1px solid var(--z-danger-border);
+    border: var(--z-border-width) solid var(--z-danger-border);
     border-radius: var(--z-radius-md);
     background: var(--z-danger-subtle);
   }

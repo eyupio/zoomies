@@ -130,7 +130,7 @@
     align-items: center;
     justify-content: center;
     gap: var(--z-space-2);
-    border: 1px solid transparent;
+    border: var(--z-border-width) solid transparent;
     border-radius: var(--z-radius-md);
     font-family: inherit;
     font-weight: var(--z-weight-medium);
@@ -174,6 +174,11 @@
   .primary:hover:not(:disabled):not([aria-disabled='true']) {
     background: var(--z-accent-hover);
   }
+  /* Held down. Without it a click on a slow action gives no feedback at all
+     until the request comes back. */
+  .primary:active:not(:disabled):not([aria-disabled='true']) {
+    background: var(--z-accent-active);
+  }
   .secondary {
     background: var(--z-surface);
     color: var(--z-text);
@@ -192,7 +197,7 @@
   }
   .danger {
     background: var(--z-danger);
-    color: var(--z-text-inverse);
+    color: var(--z-danger-contrast);
   }
   .danger:hover:not(:disabled):not([aria-disabled='true']) {
     background: var(--z-danger-hover);
@@ -214,9 +219,9 @@
     position: absolute;
     inset: 0;
     margin: auto;
-    width: 14px;
-    height: 14px;
-    border: 2px solid currentColor;
+    width: var(--z-control-icon);
+    height: var(--z-control-icon);
+    border: var(--z-border-width-thick) solid currentColor;
     border-top-color: transparent;
     border-radius: var(--z-radius-full);
     animation: spin calc(var(--z-motion-slow) * 2) linear infinite;

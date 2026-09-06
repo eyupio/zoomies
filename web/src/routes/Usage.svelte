@@ -125,7 +125,7 @@
   button,
   .export {
     padding: 0.55rem;
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: 0.4rem;
     background: var(--z-surface);
     color: inherit;
@@ -154,7 +154,7 @@
   td {
     text-align: left;
     padding: 0.7rem;
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   th {
     text-transform: capitalize;

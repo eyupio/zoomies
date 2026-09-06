@@ -239,7 +239,7 @@
     z-index: var(--z-layer-dropdown);
     min-width: 190px;
     padding: var(--z-space-1);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface-raised);
     box-shadow: var(--z-shadow-md);
@@ -285,7 +285,7 @@
   }
   .rule {
     display: block;
-    height: 1px;
+    height: var(--z-border-width);
     margin: var(--z-space-1) 0;
     background: var(--z-border);
   }

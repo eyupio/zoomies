@@ -232,7 +232,7 @@
     align-items: start;
     gap: var(--z-space-3);
     padding: var(--z-space-3) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   .row.failed {
     background: var(--z-danger-subtle);
@@ -301,7 +301,7 @@
     gap: var(--z-space-2);
     margin: 0;
     padding: var(--z-space-3) var(--z-space-5);
-    border-top: 1px solid var(--z-border);
+    border-top: var(--z-border-width) solid var(--z-border);
     font-size: var(--z-text-xs);
   }
   .more a {

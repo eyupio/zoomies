@@ -97,9 +97,27 @@
       }
     </script>
 
+    <!-- The browser chrome takes the page's own ground, not the brand's. One
+         fixed near-black put a black bar above a white page for every
+         light-theme operator on Android and iOS. These are --z-bg in each
+         theme, spelled out because a meta tag cannot read a custom property.
+         The media queries cover the "system" setting, which is the default; an
+         explicit choice is pinned by theme.svelte.ts, which rewrites them. -->
+    <meta
+      name="theme-color"
+      data-theme-colour="light"
+      media="(prefers-color-scheme: light)"
+      content="#f6f7f9"
+    />
+    <meta
+      name="theme-color"
+      data-theme-colour="dark"
+      media="(prefers-color-scheme: dark)"
+      content="#0a0b0d"
+    />
+
     <!-- The paw/swish is the official favicon-scale mark. Larger installed-app
          icons keep the primary circular dog identity. -->
-    <meta name="theme-color" content="#080808" />
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
     <link rel="icon" href="/favicon-16.png" type="image/png" sizes="16x16" />

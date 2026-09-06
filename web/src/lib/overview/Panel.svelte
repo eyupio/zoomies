@@ -55,7 +55,7 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }
@@ -68,7 +68,7 @@
     justify-content: space-between;
     gap: var(--z-space-2) var(--z-space-4);
     padding: var(--z-space-4) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   .titles {
     min-width: 0;

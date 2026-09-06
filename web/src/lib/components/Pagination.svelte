@@ -118,7 +118,7 @@
   select {
     height: var(--z-space-6);
     padding: 0 var(--z-space-1);
-    border: 1px solid var(--z-border-strong);
+    border: var(--z-border-width) solid var(--z-border-strong);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface);
     color: var(--z-text);

@@ -250,12 +250,14 @@
        with an orphan. */
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  /* The sidebar breakpoint from the other side: a media query cannot say
+     "above 1180" without naming the next pixel. */
   @media (min-width: 1181px) {
     .tiles {
       grid-template-columns: repeat(4, minmax(0, 1fr));
     }
   }
-  @media (max-width: 640px) {
+  @media (max-width: 768px) {
     .tiles {
       grid-template-columns: minmax(0, 1fr);
     }

@@ -1347,7 +1347,7 @@
     justify-content: center;
     width: var(--z-space-5);
     height: var(--z-space-5);
-    border: 1px solid var(--z-border-strong);
+    border: var(--z-border-width) solid var(--z-border-strong);
     border-radius: var(--z-radius-full);
     font-size: var(--z-text-2xs);
   }
@@ -1381,7 +1381,7 @@
   }
   .logo-step {
     padding: var(--z-space-3);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface-sunken);
   }
@@ -1427,7 +1427,7 @@
   .failure {
     margin: 0;
     padding: var(--z-space-3);
-    border: 1px solid var(--z-danger-border);
+    border: var(--z-border-width) solid var(--z-danger-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-danger-subtle);
     color: var(--z-text);
@@ -1460,13 +1460,13 @@
     line-height: var(--z-leading-sm);
   }
   .resume {
-    border: 1px solid var(--z-accent-border);
+    border: var(--z-border-width) solid var(--z-accent-border);
     background: var(--z-accent-subtle);
     color: var(--z-text);
   }
   .resume :global(svg) {
     flex: none;
-    margin-top: 2px;
+    margin-top: var(--z-nudge-2);
     color: var(--z-accent);
   }
   .resume div,
@@ -1484,13 +1484,13 @@
   }
   .blocked {
     margin-bottom: 0;
-    border: 1px solid var(--z-pending-border);
+    border: var(--z-border-width) solid var(--z-pending-border);
     background: var(--z-pending-subtle);
     color: var(--z-text);
   }
   .blocked :global(svg) {
     flex: none;
-    margin-top: 2px;
+    margin-top: var(--z-nudge-2);
     color: var(--z-pending);
   }
   .blocked-title {
@@ -1502,7 +1502,7 @@
      GitHub. */
   .facts {
     padding: var(--z-space-3);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     font-size: var(--z-text-xs);
@@ -1539,7 +1539,7 @@
     font-family: var(--z-font-mono);
     word-break: break-all;
   }
-  @media (max-width: 560px) {
+  @media (max-width: 768px) {
     .facts dl {
       grid-template-columns: minmax(0, 1fr);
     }
@@ -1556,7 +1556,7 @@
 
   .settled {
     padding: var(--z-space-4);
-    border: 1px solid var(--z-idle-border);
+    border: var(--z-border-width) solid var(--z-idle-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-idle-subtle);
     font-size: var(--z-text-sm);

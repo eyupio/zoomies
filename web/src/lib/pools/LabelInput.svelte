@@ -127,7 +127,7 @@
     gap: var(--z-space-2);
     min-height: var(--z-space-8);
     padding: var(--z-space-1) var(--z-space-2);
-    border: 1px solid var(--z-border-strong);
+    border: var(--z-border-width) solid var(--z-border-strong);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface);
   }
@@ -154,7 +154,7 @@
     align-items: center;
     gap: var(--z-space-1);
     padding: 0 var(--z-space-1) 0 var(--z-space-2);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     font-family: var(--z-font-mono);

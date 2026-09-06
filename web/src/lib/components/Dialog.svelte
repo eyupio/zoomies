@@ -128,7 +128,7 @@
        retracted, so a tall dialog put its footer -- and therefore its primary
        action -- under the browser's own bar with no way to scroll to it. */
     max-height: calc(100dvh - var(--z-space-12));
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-lg);
     background: var(--z-surface-raised);
     box-shadow: var(--z-shadow-lg);
@@ -138,13 +138,13 @@
     outline: none;
   }
   .sm {
-    max-width: 400px;
+    max-width: var(--z-width-dialog-sm);
   }
   .md {
-    max-width: 560px;
+    max-width: var(--z-width-dialog-md);
   }
   .lg {
-    max-width: 820px;
+    max-width: var(--z-width-dialog-lg);
   }
   header {
     display: flex;
@@ -188,7 +188,7 @@
   @keyframes rise {
     from {
       opacity: 0;
-      transform: translateY(8px);
+      transform: translateY(var(--z-space-2));
     }
   }
   @media (max-width: 768px) {

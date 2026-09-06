@@ -69,9 +69,9 @@
   }
   input {
     flex: none;
-    width: 15px;
-    height: 15px;
-    margin: 3px 0 0;
+    width: var(--z-control-box);
+    height: var(--z-control-box);
+    margin: var(--z-nudge-3) 0 0;
     accent-color: var(--z-accent);
     cursor: pointer;
   }
@@ -82,7 +82,7 @@
   .text {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--z-nudge-2);
   }
   label {
     font-size: var(--z-text-base);

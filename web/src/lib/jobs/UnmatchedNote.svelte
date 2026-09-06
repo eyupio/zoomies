@@ -71,7 +71,7 @@
     align-items: flex-start;
     gap: var(--z-space-3);
     padding: var(--z-space-4);
-    border: 1px solid var(--z-pending-border);
+    border: var(--z-border-width) solid var(--z-pending-border);
     border-radius: var(--z-radius-md);
     background: var(--z-pending-subtle);
   }

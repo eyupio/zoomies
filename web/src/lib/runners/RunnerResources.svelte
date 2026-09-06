@@ -82,7 +82,7 @@
     font-size: var(--z-text-2xs);
     font-weight: var(--z-weight-medium);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     color: var(--z-text-subtle);
   }
   dd {
