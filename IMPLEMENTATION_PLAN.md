@@ -42,11 +42,11 @@ notes that outlived the wave are under *Decisions worth recording*.
 
 ## Wave 3: risks
 
-Done: 33 items, shipped in the Wave 3 pull request from this branch: A08, A09,
-A10, A11, A12, A13, A14, A15, C08, C09, C10, C11, C12, C13, C14, C22, E07, E08,
-E09, E10, E11, E12, E13, E14, E15, E16, E17, E18, E19, U04, U05, U06, U07. Each
-has its commit on the branch and its reasoning in the review document; the notes
-that outlived the wave are under *Decisions worth recording*.
+Done: 33 items, shipped in PR #64 (merged as 67ffddc): A08, A09, A10, A11, A12,
+A13, A14, A15, C08, C09, C10, C11, C12, C13, C14, C22, E07, E08, E09, E10, E11,
+E12, E13, E14, E15, E16, E17, E18, E19, U04, U05, U06, U07. Each has its commit
+on the branch and its reasoning in the review document; the notes that outlived
+the wave are under *Decisions worth recording*.
 
 ## Reported since the review
 
@@ -60,19 +60,33 @@ one list.
   on the page for ten minutes, and raises `pool.runners_failing`; seen on the dev
   instance (video, 5 September). The cause of that instance's failures is still to be
   read off its Runners page now that the message stays there.
+- [ ] **N02** [bug] Every runner on the dev instance sits in `registering` and never
+  comes up — `internal/controller/agents.go` — seen on `zoomies-linux-64` on 6 September
+  (screenshot), after the crash-loop fix was deployed. The controller moves a runner out
+  of `registering` on one signal only: an agent report with no asserted state and a
+  running phase (`applyReports`), which the agent sends once it first observes the
+  workload running (`agent/reconcile.go`). Runners that never get there are ones whose
+  reports still carry a state, or that the observe loop never reaches -- adopted after
+  the restart the deploy caused, or created through the idempotent create path (E07).
+  `provision_timeout` (5 min) should fail them and the pool then backs off; if they sit
+  longer, the reconcile loop is not reaching them either. To read off the instance: the
+  runner's timeline (`GET /runners/{id}/timeline`) for how long it has been registering,
+  the controller log for "a runner state an agent reported out of order" or "a host
+  reported on a runner it does not own", and `docker ps` on the host for whether the
+  containers are running at all.
 
 ## Wave 4: polish, gaps and nits
 
 ### Go core: store, scheduler, config, events, migrate
 
-- [ ] **C07** [polish] `agent.root` warns about an agent process in a controller that runs no agent — `internal/config/validate.go:469-476`
-- [ ] **C15** [polish] Three different definitions of a failed job — `internal/store/queries_events.go:485`
-- [ ] **C16** [polish] `LIKE` searches do not escape `%` and `_` — `internal/store/queries_fleet.go:749`
-- [ ] **C17** [polish] The scale-up reason ignores the repository quota — `internal/scheduler/scheduler.go:344-351`
-- [ ] **C18** [polish] `bind: localhost:8080` is treated as a public bind — `internal/config/config.go:469`
-- [ ] **C19** [polish] Block-sequence `runs-on` items keep trailing comments inside the label — `internal/migrate/runson.go:338`
-- [ ] **C20** [nit] `Duration` decodes a bare integer as seconds from YAML but nanoseconds from JSON — `internal/store/models.go:481`
-- [ ] **C21** [nit] Small inconsistencies in config, scheduler and events — `internal/config/config.go:563`
+- [x] **C07** [polish] `agent.root` warns about an agent process in a controller that runs no agent — `internal/config/validate.go:469-476` — done, agent.root fires only where an agent runs, gated on the same predicate as the rest of the agent section
+- [x] **C15** [polish] Three different definitions of a failed job — `internal/store/queries_events.go:485` — done, store.FailedConclusions is the one list, spelt into SQL and Go; FailedStep is where a job stopped, not whether
+- [x] **C16** [polish] `LIKE` searches do not escape `%` and `_` — `internal/store/queries_fleet.go:749` — done, every LIKE escapes % _ and \ and says ESCAPE
+- [x] **C17** [polish] The scale-up reason ignores the repository quota — `internal/scheduler/scheduler.go:344-351` — done, the reason counts the admitted jobs and names the deferred ones and their repositories
+- [x] **C18** [polish] `bind: localhost:8080` is treated as a public bind — `internal/config/config.go:469` — done, one loopbackHost helper answers for bind, external URL, origins and OIDC issuer
+- [x] **C19** [polish] Block-sequence `runs-on` items keep trailing comments inside the label — `internal/migrate/runson.go:338` — done, items are split from their comments before classification; a commented item or a comment inside the list leaves the job alone with a reason
+- [x] **C20** [nit] `Duration` decodes a bare integer as seconds from YAML but nanoseconds from JSON — `internal/store/models.go:481` — done, both decoders refuse a bare number with the same sentence
+- [x] **C21** [nit] Small inconsistencies in config, scheduler and events — `internal/config/config.go:563` — done, tls.mode lowercased from the file, errors.Is for EOF, warning accepted, lifetime wording fixed everywhere, Subscribe watcher ends on Close
 
 ### API and controller
 
