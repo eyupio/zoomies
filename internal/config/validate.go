@@ -391,6 +391,58 @@ func (c *Config) Validate() Findings {
 				Fix:   "set agent.work_dir, e.g. /var/lib/zoomies/work.",
 			})
 		}
+		switch c.Agent.ImagePullPolicy {
+		case "never", "if-missing", "always":
+		default:
+			add(Finding{
+				Code: "agent.image_pull_policy", Severity: SeverityError, Setting: "agent.image_pull_policy",
+				Title: fmt.Sprintf("%q is not an image pull policy", c.Agent.ImagePullPolicy),
+				Fix:   `use "never", "if-missing" or "always".`,
+			})
+		}
+		if c.Agent.ImagePullPolicy == "always" {
+			add(Finding{
+				Code: "agent.pull_always", Severity: SeverityWarning, Setting: "agent.image_pull_policy",
+				Title:  "every runner will wait for a registry round trip before it starts",
+				Detail: "\"always\" re-fetches the image on the job's critical path, which is the queue wait an ephemeral runner exists to avoid.",
+				Fix:    "leave it at \"if-missing\" and let agent.image_refresh_interval keep the image current in the background.",
+			})
+		}
+		if c.Agent.ImageRefreshInterval < 0 {
+			add(Finding{
+				Code: "agent.image_refresh_negative", Severity: SeverityError, Setting: "agent.image_refresh_interval",
+				Title: "agent.image_refresh_interval cannot be negative",
+				Fix:   `use a duration like "1h", or 0 to switch the refresh off.`,
+			})
+		}
+		// A host that neither refreshes in the background nor pulls on create
+		// keeps whatever it first pulled for as long as it lives. That is a
+		// legitimate choice for a pinned tag and a trap for a moving one, and
+		// nothing else in the system will point it out.
+		if c.Agent.ImageRefreshInterval == 0 && c.Agent.ImagePullPolicy != "always" {
+			add(Finding{
+				Code: "agent.images_never_refreshed", Severity: SeverityWarning, Setting: "agent.image_refresh_interval",
+				Title:  "runner images on this host will never be updated",
+				Detail: fmt.Sprintf("with the refresh off and the pull policy %q, a moving tag such as :latest keeps pointing at whatever this host pulled first.", c.Agent.ImagePullPolicy),
+				Fix:    `set agent.image_refresh_interval to something like "1h", or pin the pool to an image tag that does not move.`,
+			})
+		}
+		if c.Agent.ImageRefreshInterval > 0 && c.Agent.ImageRefreshInterval < time.Minute {
+			add(Finding{
+				Code: "agent.image_refresh_too_fast", Severity: SeverityWarning, Setting: "agent.image_refresh_interval",
+				Title:  fmt.Sprintf("refreshing images every %s will hammer the registry", c.Agent.ImageRefreshInterval),
+				Detail: "each refresh is a registry round trip per distinct image this host runs, and images change no more often than they are built.",
+				Fix:    `use "15m" or more.`,
+			})
+		}
+		if c.Agent.ImageRefreshInterval > 0 && c.Agent.ImagePullPolicy == "never" {
+			add(Finding{
+				Code: "agent.refresh_contradicts_pull", Severity: SeverityWarning, Setting: "agent.image_pull_policy",
+				Title:  "the image refresh cannot run under the \"never\" pull policy",
+				Detail: "\"never\" exists so an air-gapped host never reaches a registry, and the refresh is exactly such a reach, so it is skipped.",
+				Fix:    "set agent.image_refresh_interval to 0 to say so plainly, or use \"if-missing\" if this host does have a registry.",
+			})
+		}
 	}
 	if !c.Agent.Embedded && c.Agent.ControllerURL == "" {
 		add(Finding{

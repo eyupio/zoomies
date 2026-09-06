@@ -153,6 +153,17 @@ type Agent struct {
 	HeartbeatInterval  time.Duration `yaml:"heartbeat_interval"`
 	// Network is an optional pre-existing container network to attach runners to.
 	Network string `yaml:"network"`
+	// ImagePullPolicy decides when a runner image is fetched: "never" for an
+	// air-gapped host, "if-missing" to fetch only what is not already local, or
+	// "always" to re-fetch on every runner create. It does not decide whether a
+	// moving tag stays current -- ImageRefreshInterval does, off the critical
+	// path -- so "if-missing" remains the sensible default.
+	ImagePullPolicy string `yaml:"image_pull_policy"`
+	// ImageRefreshInterval is how often this host re-fetches the runner images
+	// it has been asked to run, so that a moving tag like :latest is actually
+	// picked up. Zero switches the refresh off, which leaves a host on whatever
+	// it first pulled until something else replaces it.
+	ImageRefreshInterval time.Duration `yaml:"image_refresh_interval"`
 }
 
 // Scheduler tunes the scaling loop.
@@ -248,6 +259,12 @@ func Default() *Config {
 			Backend:           "docker",
 			WorkDir:           defaultStatePath("work"),
 			HeartbeatInterval: 30 * time.Second,
+			ImagePullPolicy:   "if-missing",
+			// Hourly is often enough that a host picks up a new image the same
+			// working day, and rare enough that the registry never notices. The
+			// pull happens in the background, so the cost is bandwidth, not the
+			// queue wait of the next job.
+			ImageRefreshInterval: time.Hour,
 		},
 		Scheduler: Scheduler{
 			Interval:          10 * time.Second,
@@ -388,6 +405,10 @@ func (c *Config) normalize() {
 	c.Log.Level = strings.ToLower(strings.TrimSpace(c.Log.Level))
 	c.Log.Format = strings.ToLower(strings.TrimSpace(c.Log.Format))
 	c.Agent.Backend = strings.ToLower(strings.TrimSpace(c.Agent.Backend))
+	c.Agent.ImagePullPolicy = strings.ToLower(strings.TrimSpace(c.Agent.ImagePullPolicy))
+	if c.Agent.ImagePullPolicy == "" {
+		c.Agent.ImagePullPolicy = "if-missing"
+	}
 	if c.Server.TLS.Mode == "" {
 		c.Server.TLS.Mode = TLSOff
 	}
@@ -554,6 +575,8 @@ func (c *Config) applyEnv() error {
 	boolean("ZOOMIES_AGENT_INSECURE_SKIP_VERIFY", &c.Agent.InsecureSkipVerify)
 	dur("ZOOMIES_HEARTBEAT_INTERVAL", &c.Agent.HeartbeatInterval)
 	str("ZOOMIES_AGENT_NETWORK", &c.Agent.Network)
+	str("ZOOMIES_AGENT_IMAGE_PULL_POLICY", &c.Agent.ImagePullPolicy)
+	dur("ZOOMIES_AGENT_IMAGE_REFRESH_INTERVAL", &c.Agent.ImageRefreshInterval)
 	if v, ok := os.LookupEnv("ZOOMIES_AGENT_LABELS"); ok {
 		m, err := parseKV(v)
 		if err != nil {

@@ -64,6 +64,8 @@ agent:
   labels: {}                    # ZOOMIES_AGENT_LABELS   -- "gpu=true,zone=eu"
   network: ""                   # ZOOMIES_AGENT_NETWORK
   heartbeat_interval: 30s       # ZOOMIES_HEARTBEAT_INTERVAL
+  image_pull_policy: if-missing # ZOOMIES_AGENT_IMAGE_PULL_POLICY -- never | if-missing | always
+  image_refresh_interval: 1h    # ZOOMIES_AGENT_IMAGE_REFRESH_INTERVAL -- 0 switches it off
   # Standalone agents only:
   controller_url: ""            # ZOOMIES_CONTROLLER_URL
   join_token: ""                # ZOOMIES_JOIN_TOKEN
@@ -187,6 +189,38 @@ the only thing that moves it. Leaving both in place means the next merge to
 The runner image is only rebuilt when something that goes into it changes —
 `deploy/Dockerfile.runner` or `deploy/runner-entrypoint.sh` — so its `main` tag
 can be older than the controller's, and correctly so.
+
+### `agent.image_pull_policy` and `agent.image_refresh_interval` — staying current
+
+```yaml
+agent:
+  image_pull_policy: if-missing
+  image_refresh_interval: 1h
+```
+
+These answer two different questions, and it is worth keeping them apart.
+
+`image_pull_policy` decides what happens **when a runner is created**:
+
+| | |
+| --- | --- |
+| `never` | Never reach a registry. An image that is not already on the host fails the runner, with an error naming the `docker pull` to run. For air-gapped hosts. |
+| `if-missing` | The default. Fetch only what is not already there, so a runner starts without a registry round trip. |
+| `always` | Re-fetch on every create. Correct, and it puts a registry round trip in front of every job — which is the queue wait ephemeral runners exist to avoid. |
+
+`image_refresh_interval` decides how often the host re-fetches the images it
+runs **in the background**, off any job's critical path. This is what keeps a
+moving tag such as `:latest` current. Zero switches it off.
+
+The default pairing — `if-missing` plus an hourly refresh — is deliberate: jobs
+start without waiting for a registry, and the image still moves within the hour
+of a new one being published. Before this existed, a host pulled `:latest` once
+and kept it for as long as the host lived, which meant `latest` on a host could
+be months behind `latest` in the registry with nothing to say so.
+
+A host set to `never` skips the refresh entirely, since the point of `never` is
+that this host does not talk to a registry at all. Zoomies warns at startup if
+you ask for both.
 
 ### Deployment models
 

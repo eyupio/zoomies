@@ -277,10 +277,11 @@ func loadOrCreateKey(cfg *config.Config, log *slog.Logger) (*cryptox.Key, error)
 func buildBackends(ctx context.Context, cfg *config.Config, log *slog.Logger) (*backend.Registry, error) {
 	var backends []backend.Backend
 	opts := backend.DockerOptions{
-		Host:    cfg.Agent.DockerHost,
-		Network: cfg.Agent.Network,
-		WorkDir: cfg.Agent.WorkDir,
-		Logger:  log,
+		Host:       cfg.Agent.DockerHost,
+		Network:    cfg.Agent.Network,
+		WorkDir:    cfg.Agent.WorkDir,
+		PullPolicy: backend.PullPolicy(cfg.Agent.ImagePullPolicy),
+		Logger:     log,
 	}
 	if b, err := backend.NewDocker(opts); err == nil {
 		backends = append(backends, b)
