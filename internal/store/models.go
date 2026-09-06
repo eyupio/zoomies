@@ -470,38 +470,33 @@ func (d Duration) String() string          { return time.Duration(d).String() }
 
 func (d Duration) MarshalJSON() ([]byte, error) { return json.Marshal(time.Duration(d).String()) }
 
+// durationNeedsUnit is the one answer both decoders give to a bare number. The
+// JSON side used to read 300 as nanoseconds and the YAML side as seconds, so
+// the same file meant different things depending on how it arrived; a unit is
+// unambiguous, and the OpenAPI schema has always said a duration is a string.
+const durationNeedsUnit = `a duration is written with its unit, like "30s", "5m" or "1h30m"`
+
 func (d *Duration) UnmarshalJSON(b []byte) error {
 	var s string
-	if err := json.Unmarshal(b, &s); err == nil {
-		p, err := time.ParseDuration(s)
-		if err != nil {
-			return fmt.Errorf("invalid duration %q: %w", s, err)
-		}
-		*d = Duration(p)
-		return nil
+	if err := json.Unmarshal(b, &s); err != nil {
+		return fmt.Errorf("%s", durationNeedsUnit)
 	}
-	var n int64
-	if err := json.Unmarshal(b, &n); err != nil {
-		return fmt.Errorf("duration must be a string like \"5m\" or a nanosecond count")
-	}
-	*d = Duration(n)
-	return nil
+	return d.parse(s)
 }
 
-// UnmarshalYAML lets zoomies.yaml write idle_timeout: 5m.
+// UnmarshalYAML lets a pool definition write idle_timeout: 5m.
 func (d *Duration) UnmarshalYAML(unmarshal func(any) error) error {
 	var s string
 	if err := unmarshal(&s); err != nil {
-		var n int64
-		if err2 := unmarshal(&n); err2 != nil {
-			return fmt.Errorf("duration must be a string like \"5m\"")
-		}
-		*d = Duration(time.Duration(n) * time.Second)
-		return nil
+		return fmt.Errorf("%s", durationNeedsUnit)
 	}
+	return d.parse(s)
+}
+
+func (d *Duration) parse(s string) error {
 	p, err := time.ParseDuration(s)
 	if err != nil {
-		return fmt.Errorf("invalid duration %q: %w", s, err)
+		return fmt.Errorf("invalid duration %q: %w; %s", s, err, durationNeedsUnit)
 	}
 	*d = Duration(p)
 	return nil
