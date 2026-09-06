@@ -46,6 +46,17 @@ func isLoopbackHost(host string) bool {
 	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
+// euid is os.Geteuid, replaceable so a test can ask what a root process would
+// be told without being one.
+var euid = os.Geteuid
+
+// runsAgent reports whether this process runs runners itself: as the embedded
+// agent inside a controller, or as a standalone agent joined to one. The
+// agent settings only mean something when it does.
+func (c *Config) runsAgent() bool {
+	return c.Agent.Embedded || c.Agent.ControllerURL != ""
+}
+
 // servesTLS reports whether browsers reach this controller over HTTPS, whether
 // the listener terminates it or a proxy named in server.external_url does.
 func (c *Config) servesTLS() bool {
@@ -470,7 +481,7 @@ func (c *Config) Validate() Findings {
 	}
 
 	// --- Agent and backends ----------------------------------------------
-	if c.Agent.Embedded || c.Agent.ControllerURL != "" {
+	if c.runsAgent() {
 		switch c.Agent.Backend {
 		case "docker", "podman", "process":
 		case "":
@@ -502,7 +513,7 @@ func (c *Config) Validate() Findings {
 				Fix: "use the docker or podman backend unless you specifically need host access.",
 			})
 		}
-		if os.Geteuid() == 0 && c.Agent.Backend == "process" {
+		if euid() == 0 && c.Agent.Backend == "process" {
 			add(Finding{
 				Code: "agent.process_root", Severity: SeverityWarning, Setting: "agent.backend",
 				Title:  "the process backend is running as root",
@@ -566,7 +577,7 @@ func (c *Config) Validate() Findings {
 			Fix:    fmt.Sprintf("keep agent.heartbeat_interval at %s or less.", MaxQuietHeartbeatInterval),
 		})
 	}
-	if !c.Agent.Embedded && c.Agent.ControllerURL == "" {
+	if !c.runsAgent() {
 		add(Finding{
 			Code: "agent.none", Severity: SeverityInfo, Setting: "agent.embedded",
 			Title:  "no embedded agent",
@@ -574,7 +585,11 @@ func (c *Config) Validate() Findings {
 			Fix:    "run `zoomies agent join <controller-url> --token <join-token>` on a host, or set agent.embedded to true.",
 		})
 	}
-	if os.Geteuid() == 0 && (c.Agent.Backend == "docker" || c.Agent.Backend == "podman") {
+	// The warning is about the process that runs runners. A controller with no
+	// agent in it runs none, so a container escape has nothing of its to land
+	// on, and a warning that fires there anyway is one operators learn to
+	// ignore everywhere.
+	if c.runsAgent() && euid() == 0 && (c.Agent.Backend == "docker" || c.Agent.Backend == "podman") {
 		add(Finding{
 			Code: "agent.root", Severity: SeverityWarning, Setting: "agent",
 			Title:  "the agent process is running as root",

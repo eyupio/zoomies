@@ -254,3 +254,32 @@ func TestOnlyTheEverythingRangeDrawsTheProxyWarning(t *testing.T) {
 		t.Fatal("an unparseable proxy entry was accepted")
 	}
 }
+
+// agent.root is about the process that runs runners. A controller with no
+// embedded agent runs none, so a container escape has nothing of its to land
+// on; the warning used to fire there anyway, on every root controller in front
+// of a fleet of remote agents, and taught operators to ignore it.
+func TestTheRootWarningIsAboutTheProcessThatRunsRunners(t *testing.T) {
+	old := euid
+	euid = func() int { return 0 }
+	t.Cleanup(func() { euid = old })
+
+	c := Default()
+	c.Agent.Embedded = false
+	c.Agent.ControllerURL = ""
+	c.Agent.Backend = "docker"
+	if hasCode(c.Validate(), "agent.root") {
+		t.Fatal("agent.root fired for a controller that runs no agent")
+	}
+
+	c.Agent.Embedded = true
+	if !hasCode(c.Validate(), "agent.root") {
+		t.Fatal("agent.root did not fire for a root agent using docker")
+	}
+
+	c.Agent.Embedded = false
+	c.Agent.ControllerURL = "https://zoomies.example.com"
+	if !hasCode(c.Validate(), "agent.root") {
+		t.Fatal("agent.root did not fire for a standalone root agent")
+	}
+}
