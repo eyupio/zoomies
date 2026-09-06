@@ -123,7 +123,7 @@
   */
   @media (max-width: 768px) {
     select {
-      font-size: var(--z-text-lg);
+      font-size: var(--z-control-font-touch);
     }
   }
 </style>

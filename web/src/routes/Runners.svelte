@@ -14,7 +14,7 @@
   import { CircleSlash, Search, Trash2 } from '@lucide/svelte';
   import { listRunners } from '$lib/api/client';
   import { RUNNER_STATES, type Runner, type RunnerState } from '$lib/api/types';
-  import { formatBytes, formatPercent } from '$lib/format';
+  import { formatBytes, formatNumber, formatPercent } from '$lib/format';
   import { registerSearch } from '$lib/keys';
   import { navigate, router } from '$lib/router';
   import { runnerStatus } from '$lib/status';
@@ -321,7 +321,7 @@
         sortable: true,
         align: 'end',
         width: '7rem',
-        value: (row) => String(row.jobs_handled ?? 0),
+        value: (row) => formatNumber(row.jobs_handled ?? 0),
       },
       {
         id: 'cpu',

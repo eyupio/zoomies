@@ -439,6 +439,20 @@ export const createToken = (body: Body<'createToken'>) =>
 
 export const revokeToken = (id: string) => api.del<Result<'revokeToken'>>(`/tokens/${enc(id)}`);
 
+/* -- usage ---------------------------------------------------------------- */
+
+export const getUsage = (query: Query<'getUsage'>, signal?: AbortSignal) =>
+  api.get<Result<'getUsage'>>('/usage', { query, signal });
+
+/**
+ * Where the browser goes for the CSV. A full navigation rather than a fetch,
+ * because the point is the browser's own download, not a string in memory.
+ */
+export const usageCsvUrl = (query: Query<'getUsage'>) =>
+  `${BASE}/usage.csv${toQuery(query as QueryInput)}`;
+
+/* -- settings ------------------------------------------------------------- */
+
 export const getSettings = (signal?: AbortSignal) =>
   api.get<Result<'getSettings'>>('/settings', { signal });
 

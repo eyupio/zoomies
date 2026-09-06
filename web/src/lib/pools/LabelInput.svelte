@@ -200,4 +200,19 @@
     font-family: var(--z-font-sans);
     color: var(--z-text-subtle);
   }
+  /*
+    16px on a phone, and only on a phone.
+
+    The base control size is right for a dense operator UI on a desktop -- but
+    mobile Safari zooms the whole viewport whenever a focused control's
+    font-size is under 16px, and the viewport meta deliberately does not set
+    maximum-scale. So every field tap jumped the 360px page to roughly 410px
+    effective width and ran the card off both edges, once per field. Height
+    comes from the space scale, so nothing reflows; only the glyphs grow.
+  */
+  @media (max-width: 768px) {
+    input {
+      font-size: var(--z-control-font-touch);
+    }
+  }
 </style>

@@ -328,7 +328,7 @@
         header: 'Runners',
         sortable: true,
         width: '13rem',
-        value: (row) => String(row.counts?.live ?? 0),
+        value: (row) => formatNumber(row.counts?.live ?? 0),
         cell: runnersCell,
       },
       {

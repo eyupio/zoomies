@@ -223,7 +223,7 @@
   */
   @media (max-width: 768px) {
     input {
-      font-size: var(--z-text-lg);
+      font-size: var(--z-control-font-touch);
     }
   }
 </style>
