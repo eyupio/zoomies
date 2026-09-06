@@ -50,3 +50,18 @@ func unsetenv(t *testing.T, key string) {
 		t.Fatalf("unsetting %s: %v", key, err)
 	}
 }
+
+// A private registry needs a credential, and the backends have always had a
+// field for one with no way to fill it: a pool on a private registry could not
+// use pinned-only at all, because the pull it needs was the one the registry
+// refused.
+func TestTheRegistryCredentialCanBeSuppliedByTheEnvironment(t *testing.T) {
+	t.Setenv("ZOOMIES_REGISTRY_AUTH", "eyJ1c2VybmFtZSI6ImJvdCJ9")
+	c := Default()
+	if err := c.applyEnv(); err != nil {
+		t.Fatalf("applyEnv: %v", err)
+	}
+	if c.Agent.RegistryAuth != "eyJ1c2VybmFtZSI6ImJvdCJ9" {
+		t.Fatalf("agent.registry_auth = %q, want the value from the environment", c.Agent.RegistryAuth)
+	}
+}

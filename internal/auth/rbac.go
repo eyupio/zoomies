@@ -30,8 +30,10 @@ const (
 // Runner actions. Draining is separated from deleting because draining never
 // interrupts a running job and deleting can.
 const (
-	ActionRunnersRead   Action = "runners.read"
-	ActionRunnersCreate Action = "runners.create"
+	ActionRunnersRead Action = "runners.read"
+	// There is no runners.create: a runner is created by the scheduler, in
+	// response to a queued job, and no route asks for one. A scope nothing
+	// checks is a scope an operator can grant believing it does something.
 	ActionRunnersDrain  Action = "runners.drain"
 	ActionRunnersDelete Action = "runners.delete"
 )
@@ -109,7 +111,6 @@ var actionRoles = map[Action]store.Role{
 	ActionPoolsDelete: store.RoleOperator,
 
 	ActionRunnersRead:   store.RoleViewer,
-	ActionRunnersCreate: store.RoleOperator,
 	ActionRunnersDrain:  store.RoleOperator,
 	ActionRunnersDelete: store.RoleOperator,
 

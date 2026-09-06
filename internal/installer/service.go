@@ -244,9 +244,7 @@ func RenderCompose(w io.Writer, spec ComposeSpec) error {
 	if spec.Capacity <= 0 {
 		spec.Capacity = 4
 	}
-	if spec.DockerGID == 0 {
-		spec.DockerGID = 999
-	}
+
 	if spec.ExternalURL == "" {
 		spec.ExternalURL = "https://zoomies.example.com"
 	}

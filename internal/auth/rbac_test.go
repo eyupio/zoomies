@@ -45,7 +45,7 @@ func TestEveryActionHasARole(t *testing.T) {
 	// endpoint has no policy behind it.
 	for _, required := range []Action{
 		ActionPoolsRead, ActionPoolsWrite, ActionPoolsDelete,
-		ActionRunnersRead, ActionRunnersCreate, ActionRunnersDrain, ActionRunnersDelete,
+		ActionRunnersRead, ActionRunnersDrain, ActionRunnersDelete,
 		ActionJobsRead,
 		ActionHostsRead, ActionHostsCordon, ActionHostsDelete,
 		ActionInstallationsRead, ActionInstallationsWrite, ActionInstallationsDelete,
@@ -187,8 +187,8 @@ func TestValidateScopes(t *testing.T) {
 }
 
 func TestSystemAndAgentIdentities(t *testing.T) {
-	if !SystemIdentity().Can(ActionRunnersCreate) {
-		t.Error("the system identity cannot create runners, which is its whole job")
+	if !SystemIdentity().Can(ActionRunnersDelete) {
+		t.Error("the system identity cannot remove runners, which is half its job")
 	}
 	agent := AgentIdentity(&store.Host{ID: "host_1", Name: "builder"}, "10.0.0.5")
 	if agent.Can(ActionPoolsWrite) {
@@ -196,5 +196,19 @@ func TestSystemAndAgentIdentities(t *testing.T) {
 	}
 	if agent.Kind != KindAgent || agent.Name != "builder" {
 		t.Errorf("agent identity = %+v", agent)
+	}
+}
+
+// A scope no route checks is one an operator can grant believing it does
+// something. runners.create was such a scope: runners are created by the
+// scheduler when a job queues, and no endpoint has ever asked for it.
+func TestEveryActionIsOneSomethingChecks(t *testing.T) {
+	for action := range actionRoles {
+		if strings.TrimSpace(string(action)) == "" {
+			t.Error("an empty action is in the role table")
+		}
+		if action == "runners.create" {
+			t.Error("runners.create is back; no route checks it, so granting it means nothing")
+		}
 	}
 }

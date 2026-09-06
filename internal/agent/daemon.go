@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"net"
 	"os"
 	"runtime"
@@ -647,6 +648,19 @@ func (a *Agent) warnSkew(controllerVersion string) {
 	}
 }
 
+// jitter takes a random slice off the end of a backoff, up to a quarter of it.
+//
+// Every agent in a fleet fails the same poll at the same instant when the
+// controller goes down, and without this they all wait exactly the same
+// second and reconnect together -- a thundering herd against a controller
+// that has only just come back up.
+func jitter(d time.Duration) time.Duration {
+	if d <= 0 {
+		return d
+	}
+	return d - time.Duration(rand.Int64N(int64(d)/4+1))
+}
+
 // taskLoop long-polls for work and dispatches it.
 func (a *Agent) taskLoop(ctx context.Context) error {
 	backoff := minPollBackoff
@@ -663,8 +677,9 @@ func (a *Agent) taskLoop(ctx context.Context) error {
 			if errors.Is(err, ErrUnauthorized) {
 				return fmt.Errorf("agent: the controller rejected this agent's token while polling for tasks: re-join with `zoomies agent join %s --token <join-token>`: %w", a.tr.Describe(), err)
 			}
-			a.log.Warn("task poll failed; backing off", "error", err, "retry_in", backoff)
-			if !sleepCtx(ctx, backoff) {
+			wait := jitter(backoff)
+			a.log.Warn("task poll failed; backing off", "error", err, "retry_in", wait)
+			if !sleepCtx(ctx, wait) {
 				return nil
 			}
 			backoff = min(backoff*2, maxPollBackoff)
