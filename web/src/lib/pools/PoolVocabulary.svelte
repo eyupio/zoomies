@@ -111,6 +111,8 @@
     backend: BackendKind,
     offers: readonly BackendOffer[],
     hostsKnown: boolean,
+    /** True when the offers were counted over a pool's selected hosts only. */
+    restricted = false,
   ): string {
     if (!hostsKnown) return '';
     const chosen = offers.find((offer) => offer.kind === backend);
@@ -121,7 +123,16 @@
       .map((offer) => `${backendLabel(offer.kind)} (${pluralise(offer.hosts, 'host')})`)
       .join(' or ');
     const because = chosen.detail ? ` ${chosen.detail}` : '';
-    return `No connected host offers ${backendLabel(backend)}, so this pool would never start a runner.${because} Choose ${alternatives}, or make ${backendLabel(backend)} work on a host first.`;
+    // Once a pool is kept to some of the fleet, "no connected host offers it"
+    // is false as often as it is true -- the daemon may be running happily on
+    // the machines this pool is not allowed to use. Say which set was counted.
+    const nobody = restricted
+      ? `No matching host offers ${backendLabel(backend)}`
+      : `No connected host offers ${backendLabel(backend)}`;
+    const fix = restricted
+      ? `, widen which hosts this pool may use, or make ${backendLabel(backend)} work on one of them first.`
+      : `, or make ${backendLabel(backend)} work on a host first.`;
+    return `${nobody}, so this pool would never start a runner.${because} Choose ${alternatives}${fix}`;
   }
 
   /* -- the creation wizard ------------------------------------------------- */
@@ -143,6 +154,7 @@
       title: 'Labels',
       description: 'What a workflow writes in runs-on to reach this pool.',
     },
+    { id: 'hosts', title: 'Hosts', description: 'Which machines these runners land on.' },
     { id: 'backend', title: 'Backend', description: 'How a runner is actually run on a host.' },
     { id: 'scaling', title: 'Scaling', description: 'How many runners, and for how long.' },
     { id: 'review', title: 'Review', description: 'What the controller makes of it.' },
@@ -152,6 +164,7 @@
   export const STEP_FIELDS: readonly (readonly string[])[] = [
     ['name', 'installation_id', 'runner_group'],
     ['labels'],
+    ['host_selector'],
     ['backend', 'image', 'runner_version', 'docker_mode', 'run_as_root'],
     [
       'min_runners',
@@ -183,7 +196,7 @@
     'resources.cpus': 'CPUs',
     'resources.memory_mb': 'Memory',
     'resources.disk_gb': 'Disk',
-    host_selector: 'Host selector',
+    host_selector: 'Hosts',
     env: 'Environment',
   };
 

@@ -1491,3 +1491,67 @@ func TestARunnerOnAnImageThePoolNoLongerNamesIsReplaced(t *testing.T) {
 		}
 	}
 }
+
+// A pool may select on the OS and architecture the agent reports, so an
+// operator can keep arm64 work on arm64 boxes across a fleet nobody has
+// labelled. An operator's own label still wins, which is what keeps a fleet
+// that already labelled `arch` by hand meaning what it chose.
+func TestHostSelectsMatchesReportedOSAndArch(t *testing.T) {
+	arm := testHost("host_arm", 2, 0)
+	arm.OS, arm.Arch = "linux", "arm64"
+	win := testHost("host_win", 2, 0)
+	win.OS, win.Arch = "windows", "amd64"
+	// The one host whose operator disagrees with its agent.
+	lied := testHost("host_lied", 2, 0)
+	lied.OS, lied.Arch = "linux", "amd64"
+	lied.Labels = store.StringMap{"arch": "legacy"}
+
+	cases := []struct {
+		name     string
+		selector store.StringMap
+		host     *store.Host
+		want     bool
+	}{
+		{"unlabelled arm64 host, selector asks for arm64", store.StringMap{"arch": "arm64"}, arm, true},
+		{"unlabelled arm64 host, selector asks for amd64", store.StringMap{"arch": "amd64"}, arm, false},
+		{"windows host by os", store.StringMap{"os": "windows"}, win, true},
+		{"linux selector does not take the windows host", store.StringMap{"os": "linux"}, win, false},
+		{"os and arch together", store.StringMap{"os": "linux", "arch": "arm64"}, arm, true},
+		{"os matches but arch does not", store.StringMap{"os": "linux", "arch": "amd64"}, arm, false},
+		{"an explicit label beats the reported arch", store.StringMap{"arch": "legacy"}, lied, true},
+		{"and the reported arch no longer answers once a label claims the key", store.StringMap{"arch": "amd64"}, lied, false},
+		{"an empty selector still means any host", nil, arm, true},
+		{"a key nothing answers for matches nothing", store.StringMap{"zone": "eu"}, arm, false},
+	}
+	for _, tc := range cases {
+		p := testPool("p", "p")
+		p.HostSelector = tc.selector
+		if got := HostSelects(tc.host, p); got != tc.want {
+			t.Errorf("%s: HostSelects = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// Selecting on a reported fact has to reach placement, not just the predicate:
+// this is the case an operator actually types, and the pool has to land on the
+// arm64 box and leave the amd64 one alone.
+func TestPlacementHonoursAReportedArchSelector(t *testing.T) {
+	arm := testHost("host_arm", 4, 0)
+	arm.OS, arm.Arch = "linux", "arm64"
+	amd := testHost("host_amd", 4, 0)
+	amd.OS, amd.Arch = "linux", "amd64"
+
+	p := testPool("arm-pool", "arm-pool")
+	p.HostSelector = store.StringMap{"arch": "arm64"}
+
+	hs := newHostSet([]*store.Host{arm, amd}, now)
+	got := hs.place(p, 3)
+	if len(got) != 3 {
+		t.Fatalf("placed %d runners, want 3: %v", len(got), got)
+	}
+	for _, id := range got {
+		if id != "host_arm" {
+			t.Errorf("placed on %s, want only host_arm", id)
+		}
+	}
+}

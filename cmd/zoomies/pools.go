@@ -230,7 +230,7 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	spec.dockerMode = fs.String("docker-mode", "none", "none, dind or host-socket (host-socket gives jobs root on the host)")
 	spec.runAsRoot = fs.Bool("run-as-root", false, "run job steps as root inside the runner")
 	spec.enabled = fs.Bool("enabled", true, "whether the pool may create runners")
-	fs.Var(spec.hostSelector, "host-selector", "only use hosts whose labels match, e.g. arch=arm64")
+	fs.Var(spec.hostSelector, "host-selector", "only use hosts that match, e.g. arch=arm64 or os=windows; os and arch need no label")
 	fs.Var(spec.envVars, "env", "environment variables for every job in this pool, e.g. HTTP_PROXY=...")
 	spec.cpus = fs.Float64("cpus", 0, "CPU limit per runner")
 	spec.memoryMB = fs.Int64("memory-mb", 0, "memory limit per runner, in MiB")

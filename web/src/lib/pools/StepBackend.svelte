@@ -31,6 +31,8 @@
     offers: readonly BackendOffer[];
     /** False until the fleet cache has landed, so we do not cry wolf about hosts. */
     hostsKnown: boolean;
+    /** True when the pool is kept to some of the fleet, so the counts are of those. */
+    restricted?: boolean;
     socketConfirmed?: boolean;
   }
 
@@ -40,6 +42,7 @@
     touch,
     offers,
     hostsKnown,
+    restricted = false,
     socketConfirmed = $bindable(false),
   }: Props = $props();
 
@@ -51,12 +54,16 @@
     if (!hostsKnown) return '';
     const found = offer(kind);
     if (!found) return '';
+    // "matching" rather than "connected" once the pool is kept to some of the
+    // fleet: the count is of the hosts it may actually land on.
+    const noun = restricted ? 'matching host' : 'connected host';
     if (found.hosts === 0) {
+      const none = `No ${noun} offers it`;
       return found.detail
-        ? `No connected host offers it: ${found.detail}`
-        : 'No connected host offers it, so this pool would never place a runner.';
+        ? `${none}: ${found.detail}`
+        : `${none}, so this pool would never place a runner.`;
     }
-    return `Offered by ${pluralise(found.hosts, 'connected host')}.`;
+    return `Offered by ${pluralise(found.hosts, noun)}.`;
   }
 
   const backendOptions = $derived(
@@ -71,7 +78,7 @@
 
   // Why this pool could not run as chosen, in the same sentence that stops the
   // wizard advancing, plus the backends it could move to.
-  const unavailable = $derived(backendUnavailable(draft.backend, offers, hostsKnown));
+  const unavailable = $derived(backendUnavailable(draft.backend, offers, hostsKnown, restricted));
   const runnable = $derived(
     offers.filter((entry) => entry.kind !== draft.backend && entry.hosts > 0),
   );
@@ -162,7 +169,7 @@
   <div class="unrunnable" role="group" aria-labelledby="backend-unrunnable">
     <p class="unrunnable-title" id="backend-unrunnable">
       <ServerOff size={16} aria-hidden="true" />
-      No connected host can run a {backendLabel(draft.backend)} pool
+      No {restricted ? 'matching' : 'connected'} host can run a {backendLabel(draft.backend)} pool
     </p>
     <p class="unrunnable-body"><RemedyText text={unavailable} /></p>
     <div class="unrunnable-actions">

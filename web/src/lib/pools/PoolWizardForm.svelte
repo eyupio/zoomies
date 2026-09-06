@@ -53,6 +53,14 @@
     /** Carried through untouched: the wizard does not edit it, and must not lose it. */
     pids_limit: string;
     host_selector: Record<string, string>;
+    /**
+     * The wizard's own state, not the pool's: whether the operator chose to
+     * keep this pool to some hosts. The selector cannot answer it, because
+     * "only hosts that match" with no rule typed yet is an empty map exactly
+     * like "any host" -- and reading the choice back off the selector is how
+     * a half-made rule reset itself on the way to the next step and back.
+     */
+    restrict_hosts: boolean;
     env: Record<string, string>;
   }
 
@@ -83,6 +91,7 @@
       cache_repository: '',
       pids_limit: '',
       host_selector: {},
+      restrict_hosts: false,
       env: {},
     };
   }
@@ -121,6 +130,7 @@
       cache_repository: pool.cache?.repository ?? '',
       pids_limit: fromNumber(resources.pids_limit),
       host_selector: { ...(pool.host_selector ?? {}) },
+      restrict_hosts: Object.keys(pool.host_selector ?? {}).length > 0,
       env: { ...(pool.env ?? {}) },
     };
   }
@@ -252,7 +262,12 @@
       errors['docker_mode'] =
         'Confirm that you understand what mounting the host socket gives every job on this pool.';
 
-    const unrunnable = backendUnavailable(draft.backend, offers, hostsKnown);
+    const unrunnable = backendUnavailable(
+      draft.backend,
+      offers,
+      hostsKnown,
+      Object.keys(draft.host_selector).length > 0,
+    );
     if (unrunnable) errors['backend'] = unrunnable;
 
     return errors;
@@ -260,7 +275,7 @@
 </script>
 
 <!--
-  Pool creation and pool editing, in the same five steps.
+  Pool creation and pool editing, in the same six steps.
 
   The draft is one object held here, so going back never loses what was typed;
   the steps are presentation only. Client-side rules run continuously and gate
@@ -286,6 +301,8 @@
   import Wizard from '$lib/components/Wizard.svelte';
   import StepTarget from './StepTarget.svelte';
   import StepLabels from './StepLabels.svelte';
+  import StepHosts from './StepHosts.svelte';
+  import { hostMatchesSelector } from './HostSelectorEditor.svelte';
   import StepBackend from './StepBackend.svelte';
   import StepScaling from './StepScaling.svelte';
   import StepReview from './StepReview.svelte';
@@ -346,7 +363,15 @@
   let validateError = $state<unknown>(null);
 
   const reviewStep = WIZARD_STEPS.length - 1;
-  const offers = $derived(backendOffers(fleet.hosts));
+  // The backend step counts over the hosts this pool is allowed to land on, not
+  // the whole fleet: "offered by 3 hosts" is a lie if two of them are the amd64
+  // boxes an arm64 pool will never touch. Placement is chosen first for exactly
+  // this reason.
+  const selectedHosts = $derived(
+    fleet.hosts.filter((host) => hostMatchesSelector(host, draft.host_selector)),
+  );
+  const restrictedToHosts = $derived(Object.keys(draft.host_selector).length > 0);
+  const offers = $derived(backendOffers(selectedHosts));
   const clientErrors = $derived(draftErrors(draft, socketConfirmed, offers, fleet.loaded));
   const body = $derived(toPoolBody(draft));
 
@@ -606,6 +631,8 @@
         />
       {:else if step.id === 'labels'}
         <StepLabels {draft} {errors} {touch} />
+      {:else if step.id === 'hosts'}
+        <StepHosts {draft} {touch} hosts={fleet.hosts} hostsKnown={fleet.loaded} />
       {:else if step.id === 'backend'}
         <StepBackend
           {draft}
@@ -613,6 +640,7 @@
           {touch}
           {offers}
           hostsKnown={fleet.loaded}
+          restricted={restrictedToHosts}
           bind:socketConfirmed
         />
       {:else if step.id === 'scaling'}
