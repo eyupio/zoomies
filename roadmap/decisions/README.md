@@ -16,7 +16,9 @@ Each record has five parts and no more:
   because of it.
 
 The decisions the roadmap asks the owner to ratify are listed in
-[ROADMAP.md](../../ROADMAP.md); each links to its record here.
+[ROADMAP.md](../../ROADMAP.md) section 3. The first two have records here;
+the rest get a record here when ratified or changed, so that the roadmap's
+numbered list stays the index and this directory stays the history.
 
 | Record | Decision | Status |
 | --- | --- | --- |
