@@ -54,6 +54,16 @@ EXPOSE 8080
 ENV ZOOMIES_STATE_DIR=/var/lib/zoomies \
     ZOOMIES_CONFIG_DIR=/etc/zoomies \
     ZOOMIES_DB_PATH=/var/lib/zoomies/zoomies.db
+# The check the compose files already spell out, declared here so that a plain
+# `docker run` gets it too -- an unhealthy controller that still has a running
+# container is exactly the state an operator finds out about by accident.
+#
+# Exec form: distroless has no shell, so the string form docker would otherwise
+# wrap in /bin/sh could never run. The port is the one EXPOSE names and the
+# installer's ContainerPort constant uses; a controller told to listen
+# elsewhere overrides this with its own --health-cmd.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD ["/usr/local/bin/zoomies", "healthcheck", "--url", "http://127.0.0.1:8080"]
 ENTRYPOINT ["/usr/local/bin/zoomies"]
 CMD ["controller"]
 

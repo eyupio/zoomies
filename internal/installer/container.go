@@ -303,6 +303,11 @@ func DockerRunArgs(s DockerRunSpec) []string {
 		s.Command = "controller"
 	}
 
+	// No --health-cmd: the image declares its own HEALTHCHECK, in exec form,
+	// which a plain `docker run` inherits. Repeating it here would have to be
+	// the string form, and docker wraps that in /bin/sh -- which a distroless
+	// image does not have, so the check would fail on every probe.
+	//
 	// The hostname is the name the embedded agent registers the host under;
 	// without one it is the container's random ID, which then follows the host
 	// into every scheduler reason and problem message.
