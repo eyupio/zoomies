@@ -320,22 +320,36 @@ func rewriteBlockSequence(lines []line, at int, m Mapping) (int, bool, blockOutc
 	var (
 		items    []string
 		consumed int
+		// commented is the first item that carries a comment of its own.
+		commented string
 	)
 	for j := at + 1; j < len(lines); j++ {
 		text := lines[j].text
-		if strings.TrimSpace(text) == "" || strings.HasPrefix(strings.TrimSpace(text), "#") {
-			// A blank line or a comment inside the sequence: stop rather than
-			// guess, since collapsing would delete it.
+		trimmed := strings.TrimSpace(text)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			// A blank line or a comment line. When the sequence carries on
+			// below it, the line sits inside the list, and collapsing the list
+			// would delete it -- or collapse the items above it and leave the
+			// ones below dangling under a flow value, which is not YAML. Stop
+			// and say so rather than guess. When nothing of the sequence
+			// follows, the line belongs to whatever comes next.
+			if sequenceContinues(lines, j, keyIndent) {
+				return consumed, false, blockOutcome{from: "[" + strings.Join(items, ", ") + "]",
+					err: "the runs-on list has a comment or a blank line inside it, which collapsing the list would delete; move it above runs-on, or change this job by hand"}
+			}
 			break
 		}
 		if indentOf(text) <= keyIndent {
 			break
 		}
-		item := strings.TrimSpace(text)
-		if !strings.HasPrefix(item, "- ") && item != "-" {
+		if !strings.HasPrefix(trimmed, "- ") && trimmed != "-" {
 			break
 		}
-		items = append(items, strings.TrimSpace(strings.TrimPrefix(item, "-")))
+		item, comment := splitItemComment(strings.TrimPrefix(trimmed, "-"))
+		if comment != "" && commented == "" {
+			commented = item
+		}
+		items = append(items, item)
 		consumed = j - at
 	}
 	if len(items) == 0 {
@@ -350,6 +364,14 @@ func rewriteBlockSequence(lines []line, at int, m Mapping) (int, bool, blockOutc
 	if reason != "" {
 		return consumed, false, blockOutcome{from: from, err: reason}
 	}
+	if commented != "" {
+		// The comment was about the item, and the item is what the rewrite
+		// replaces; carrying it onto the collapsed line would leave it
+		// describing something that is no longer there. This is the same rule
+		// as a comment line inside the list, and the same way out.
+		return consumed, false, blockOutcome{from: from,
+			err: fmt.Sprintf("the list item %q carries a comment, which collapsing the list would delete; move it above runs-on, or change this job by hand", commented)}
+	}
 
 	// Collapse: the key line carries the value, and the item lines go.
 	match := runsOnKey.FindStringSubmatch(lines[at].text)
@@ -362,6 +384,43 @@ func rewriteBlockSequence(lines []line, at int, m Mapping) (int, bool, blockOutc
 		lines[j].dropped = true
 	}
 	return consumed, true, blockOutcome{from: from, to: to}
+}
+
+// sequenceContinues reports whether a block sequence under a key indented at
+// keyIndent has more items after line at, looking past blank and comment
+// lines, which is what decides whether such a line is inside the list or
+// after it.
+func sequenceContinues(lines []line, at, keyIndent int) bool {
+	for j := at + 1; j < len(lines); j++ {
+		trimmed := strings.TrimSpace(lines[j].text)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		return indentOf(lines[j].text) > keyIndent && (strings.HasPrefix(trimmed, "- ") || trimmed == "-")
+	}
+	return false
+}
+
+// splitItemComment separates a sequence item from the comment that follows it
+// on the same line. YAML starts a comment at a # preceded by whitespace and
+// outside quotes, so a # inside a quoted label stays part of the label. Both
+// halves come back trimmed.
+func splitItemComment(item string) (string, string) {
+	var quote byte
+	for i := 0; i < len(item); i++ {
+		c := item[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '#' && (i == 0 || item[i-1] == ' ' || item[i-1] == '\t'):
+			return strings.TrimSpace(item[:i]), strings.TrimSpace(item[i:])
+		}
+	}
+	return strings.TrimSpace(item), ""
 }
 
 // HostedLabelsIn returns every hosted-runner label a workflow's runs-on lines
@@ -393,10 +452,19 @@ func HostedLabelsIn(content string) []string {
 			keyIndent := indentOf(lines[i].text)
 			for j := i + 1; j < len(lines); j++ {
 				item := strings.TrimSpace(lines[j].text)
-				if item == "" || indentOf(lines[j].text) <= keyIndent || !strings.HasPrefix(item, "-") {
+				if item == "" || strings.HasPrefix(item, "#") {
+					// Not an item; the indent of the next real line says
+					// whether the list goes on.
+					continue
+				}
+				if indentOf(lines[j].text) <= keyIndent || !strings.HasPrefix(item, "-") {
 					break
 				}
-				add(strings.TrimPrefix(item, "-"))
+				// The label is the item without the comment that may follow
+				// it, or the wizard offers "ubuntu-latest # pinned" as a
+				// label to map.
+				label, _ := splitItemComment(strings.TrimPrefix(item, "-"))
+				add(label)
 			}
 			continue
 		}
