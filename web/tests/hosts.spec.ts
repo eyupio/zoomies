@@ -125,3 +125,33 @@ test('the Hosts page leads here', async ({ page }) => {
   await page.getByRole('link', { name: 'Add a host' }).first().click();
   await expect(pageHeading(page, 'Add a host')).toBeVisible();
 });
+
+/**
+ * A host's disk is the resource that runs out first and says nothing when it
+ * does.
+ *
+ * Every slot on the machine still reads as free, so the fleet keeps placing
+ * work there, and the job fails part-way through a checkout or a cache
+ * restore -- which reads as a flaky build rather than as a full disk. The
+ * agent has measured it since ZF-103; until now it was stored and never shown.
+ */
+test('a host says how much disk its runners have, and marks the one that is nearly out', async ({
+  page,
+}) => {
+  await goto(page, '/hosts', 'Hosts');
+
+  const roomy = page.getByRole('article').filter({ hasText: 'demo-builder-1' });
+  await expect(roomy).toContainText('GB free of');
+  // 717 GB of 1024: the figure is the work directory's filesystem, in the
+  // same units the rest of the card uses.
+  await expect(roomy).toContainText(/717 GB free of 1,024/);
+
+  // The one at six percent is marked, because "31 GB free" beside "512" is
+  // not something anybody reads as urgent on its own.
+  const tight = page.getByRole('article').filter({ hasText: 'demo-builder-2' });
+  const low = tight.locator('.low');
+  await expect(low).toHaveText(/31 GB free of 512/);
+
+  // And the roomy one is not marked, or the mark says nothing.
+  await expect(roomy.locator('.low')).toHaveCount(0);
+});

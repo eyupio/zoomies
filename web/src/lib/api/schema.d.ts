@@ -2179,10 +2179,20 @@ export interface components {
             /** @description The distribution's release */
             os_version?: string;
             arch?: string;
-            /** @description vCPUs this agent may use */
+            /** @description How much machine this host is. An agent in a container sees its cgroup's share */
             cpus?: number;
             /** Format: int64 */
             memory_mb?: number;
+            /**
+             * Format: int64
+             * @description The filesystem holding the agent's work directory
+             */
+            disk_total_mb?: number;
+            /**
+             * Format: int64
+             * @description What a runner may write to
+             */
+            disk_free_mb?: number;
             platform?: components["schemas"]["Platform"];
             /** @example Ubuntu 24.04, arm64 */
             platform_label?: string;

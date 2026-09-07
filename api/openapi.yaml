@@ -2808,8 +2808,10 @@ components:
         distro: { type: string, description: The distribution, e.g. ubuntu. Empty when the host has not said. }
         os_version: { type: string, description: The distribution's release, e.g. "24.04". }
         arch: { type: string }
-        cpus: { type: integer, description: vCPUs this agent may use, which is the cgroup's share when it runs in a container. }
+        cpus: { type: integer, description: How much machine this host is. An agent in a container sees its cgroup's share, but a container runner runs beside it rather than inside that cgroup, so the daemon's larger view of the machine is the one reported. }
         memory_mb: { type: integer, format: int64 }
+        disk_total_mb: { type: integer, format: int64, description: The filesystem holding the agent's work directory, where a runner's checkout and caches land. Zero means the agent did not measure it, which is not a full disk. }
+        disk_free_mb: { type: integer, format: int64, description: What a runner may write to, which is less than what is unused by the reserve the filesystem keeps for root. }
         platform: { $ref: "#/components/schemas/Platform" }
         platform_label: { type: string, examples: ["Ubuntu 24.04, arm64"] }
         canonical_name:

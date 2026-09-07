@@ -62,6 +62,34 @@
       : `${formatNumber(cpus)} vCPU`;
   });
 
+  /**
+   * The disk behind the work directory, where a runner's checkout and its
+   * caches land.
+   *
+   * It is the resource that runs out first and says nothing when it does: a
+   * host with slots free and no space starts a job that fails part-way
+   * through, which reads as a flaky build rather than a full disk. Free is
+   * what a runner may actually write to -- the filesystem's reserve is root's,
+   * and a runner is not root.
+   *
+   * Zero total means the agent did not measure it, which is not a full disk,
+   * so nothing is shown rather than "0 GB free".
+   */
+  const disk = $derived.by(() => {
+    const total = host.disk_total_mb ?? 0;
+    if (total <= 0) return '';
+    const free = host.disk_free_mb ?? 0;
+    const gb = (mb: number) => formatNumber(Math.round(mb / 1024));
+    return `${gb(free)} GB free of ${gb(total)}`;
+  });
+
+  /** Below this, the disk is the reason a job will fail rather than a detail. */
+  const DISK_LOW = 0.1;
+  const diskLow = $derived.by(() => {
+    const total = host.disk_total_mb ?? 0;
+    return total > 0 && (host.disk_free_mb ?? 0) / total < DISK_LOW;
+  });
+
   const actions = $derived<MenuItem[]>([
     {
       id: 'cordon',
@@ -112,6 +140,11 @@
   <p class="meta">
     {#if platform}<span>{platform}</span>{/if}
     {#if size}<span class="tabular">{size}</span>{/if}
+    {#if disk}<span
+        class="tabular"
+        class:low={diskLow}
+        title="Disk on the filesystem holding the work directory">{disk}</span
+      >{/if}
     {#if host.version}<span>agent {host.version}</span>{/if}
     {#if host.address}<span class="mono">{host.address}</span>{/if}
   </p>
@@ -207,6 +240,13 @@
     margin: 0;
     font-size: var(--z-text-xs);
     color: var(--z-text-subtle);
+  }
+  /* A disk this close to full is the reason the next job fails, not a detail:
+     it takes the pending colour so it reads as something to attend to before
+     it becomes an incident. */
+  .meta .low {
+    color: var(--z-pending);
+    font-weight: var(--z-weight-medium);
   }
   .health {
     margin: 0;

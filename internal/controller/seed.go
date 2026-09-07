@@ -204,18 +204,21 @@ func (c *Controller) seedHosts(ctx context.Context, now time.Time) ([]*store.Hos
 		distro, osVer  string
 		cpus           int
 		memoryMB       int64
+		diskMB, freeMB int64
 		capacity       int
 		embedded       bool
 		cordoned       bool
 		silentFor      time.Duration
 	}{
-		{demoHostPrefix + "a", "demo-builder-1", "amd64", "ubuntu", "24.04", 16, 32768, 6, true, false, 0},
+		{demoHostPrefix + "a", "demo-builder-1", "amd64", "ubuntu", "24.04", 16, 32768, 1_048_576, 734_003, 6, true, false, 0},
 		// A second distribution, so the Hosts page shows the platform column
 		// doing something and a pool's platform has a host it must not land on.
-		{demoHostPrefix + "b", "demo-builder-2", "amd64", "debian", "12", 8, 16384, 4, false, false, 0},
+		{demoHostPrefix + "b", "demo-builder-2", "amd64", "debian", "12", 8, 16384, 524_288, 31_457, 4, false, false, 0},
 		// One cordoned host, so the Hosts page and the problems drawer both
-		// have something real to render.
-		{demoHostPrefix + "c", "demo-arm-1", "arm64", "ubuntu", "24.04", 8, 16384, 2, false, true, 0},
+		// have something real to render. The second builder is nearly out of
+		// disk, which is the state that stops jobs while every slot still
+		// reads as free -- the Hosts page has to show it.
+		{demoHostPrefix + "c", "demo-arm-1", "arm64", "ubuntu", "24.04", 8, 16384, 262_144, 190_054, 2, false, true, 0},
 	}
 	out := make([]*store.Host, 0, len(specs))
 	for i, s := range specs {
@@ -244,6 +247,8 @@ func (c *Controller) seedHosts(ctx context.Context, now time.Time) ([]*store.Hos
 			Arch:          s.arch,
 			CPUs:          s.cpus,
 			MemoryMB:      s.memoryMB,
+			DiskTotalMB:   s.diskMB,
+			DiskFreeMB:    s.freeMB,
 			Version:       "demo",
 			Cordoned:      s.cordoned,
 			LastHeartbeat: now.Add(-s.silentFor),

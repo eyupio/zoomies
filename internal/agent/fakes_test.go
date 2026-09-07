@@ -37,6 +37,10 @@ type fakeBackend struct {
 	// the agent has asked.
 	unavailable bool
 	probes      int
+	// cpus and memoryMB are the machine the daemon says it is running on,
+	// which on a containerised agent is larger than the agent's own share.
+	cpus     int
+	memoryMB int64
 }
 
 func newFakeBackend(kind store.BackendKind) *fakeBackend {
@@ -55,7 +59,8 @@ func (f *fakeBackend) Probe(context.Context) backend.Info {
 			Detail: "cannot connect to the daemon: no such file or directory",
 		}
 	}
-	return backend.Info{Kind: f.kind, Available: true, Version: "fake", Endpoint: "memory"}
+	return backend.Info{Kind: f.kind, Available: true, Version: "fake", Endpoint: "memory",
+		CPUs: f.cpus, MemoryMB: f.memoryMB}
 }
 
 // setUnavailable flips what the next probe will find.

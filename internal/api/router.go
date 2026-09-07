@@ -332,7 +332,11 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "same-origin")
 		h.Set("X-Frame-Options", "DENY")
-		if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		// Only over a connection this controller can tell was really
+		// https: see requestScheme. Emitting HSTS because a client said so
+		// lets anyone who can reach the listener pin the host in a
+		// victim's browser for a year.
+		if s.requestScheme(r) == "https" {
 			// A year, without includeSubDomains: Zoomies has no business
 			// making promises about the other hosts on its parent domain.
 			h.Set("Strict-Transport-Security", "max-age=31536000")

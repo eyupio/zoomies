@@ -460,7 +460,30 @@ containers to run. Pin the CA with `agent.ca_file` instead.
 
 ---
 
-## 7. Hardening a production install
+## 7. What is tested
+
+The claims above are not assertions of intent. Each of these is a test that was
+run against the code with its rule removed and confirmed to fail before it was
+kept; a rule that could not be made to fail did not ship.
+
+| Claim | Where |
+| --- | --- |
+| Every route refuses the roles below it, and every scoped token refuses the routes outside its resource | `TestRouteAuthorisation`, `TestScopedTokenRouteAuthorisation` (`internal/api`) |
+| A scope narrows a role and never widens it | `TestScopesAreNarrowerThanRoles` (`internal/api`) |
+| All five agent routes refuse a user credential, an anonymous caller and a revoked host | `TestAgentRoutesRefuseAUserCredential`, `TestADeletedHostsAgentTokenIsRefused` (`internal/api`) |
+| A host cannot report a runner, a task result or a log chunk that is not its own | `TestAHostCannotReportOnAnotherHostsRunner`, `TestAHostCannotReportATaskResultForAnotherHostsRunner`, `TestLogRelayRefusesAnotherHostsStream` (`internal/controller`) |
+| Secrets are absent from responses, error bodies, audit rows, event frames, metrics and the controller's log | `TestSecretsAreNeverInAResponse`, `TestSecretsAreNeverInAFailure` (`internal/api`) |
+| A task carries the runner's registration credential and no controller secret | `TestACreateTaskCarriesNoControllerSecret` (`internal/controller`) |
+| A `process` runner's environment is built, not inherited | `TestProcessChildEnvironmentIsBuiltNotInherited` (`internal/backend`) |
+| Disabling an account ends its sessions, not merely its access | `TestDisablingAUserEndsItsSessionsAtTheAPI` (`internal/api`) |
+| A cross-origin sign-in is refused, and a non-browser client is not | `TestCSRFRefusesACrossOriginLogin` (`internal/api`) |
+| `X-Forwarded-Proto` is believed only from a trusted proxy | `TestForwardedProtoIsBelievedOnlyFromATrustedProxy` (`internal/api`) |
+| Enrolment is rate limited, on a counter of its own | `TestAgentJoinIsRateLimited` (`internal/api`) |
+| A body over the limit is refused, and the log relay is exempt | `TestOversizeRequestBodyIsRefused`, `TestARunnerThatPrintsMoreThanTheBodyLimitIsNotCutOff` (`internal/api`) |
+
+---
+
+## 8. Hardening a production install
 
 1. Create the first administrator before anyone else can. If you deployed with
    the compose file rather than the installer, the controller is listening the
@@ -483,7 +506,7 @@ containers to run. Pin the CA with `agent.ca_file` instead.
 9. Keep the runner image current — it carries the `actions/runner` release and
    its .NET dependency, and GitHub deprecates old runner versions.
 
-## 8. Reporting a vulnerability
+## 9. Reporting a vulnerability
 
 Open a [private security advisory][advisory] on the repository rather than a
 public issue. Please include the version (`zoomies version`), the configuration

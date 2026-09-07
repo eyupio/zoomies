@@ -566,3 +566,86 @@ func TestDatabaseFailuresAreInternalErrorsNotValidationMessages(t *testing.T) {
 		t.Fatalf("the readiness probe quoted the database error: %q", msg)
 	}
 }
+
+// TestForwardedProtoIsBelievedOnlyFromATrustedProxy is the header's side of the
+// rule X-Forwarded-For has always followed.
+//
+// The scheme is not decoration. It decides whether an https:// Origin counts as
+// this controller's own -- which is a CSRF check -- and whether the response
+// carries HSTS. Believing a header any client can set let a caller choose the
+// answer to both.
+func TestForwardedProtoIsBelievedOnlyFromATrustedProxy(t *testing.T) {
+	// The harness's requests come from loopback, so a loopback CIDR is what
+	// makes this test server "behind a proxy".
+	const loopback = "127.0.0.0/8"
+
+	secureOrigin := func(h *harness) string {
+		return "https://" + strings.TrimPrefix(h.srv.URL, "http://")
+	}
+
+	t.Run("a forged header does not make an https origin same-origin", func(t *testing.T) {
+		h := newHarness(t)
+		u, _ := h.user("operator", store.RoleOperator)
+
+		resp := h.do(request{
+			method: http.MethodPost, path: "/api/v1/pools/validate",
+			cookie: h.session(u), origin: secureOrigin(h),
+			headers: map[string]string{"X-Forwarded-Proto": "https"},
+			body:    map[string]any{"name": "x"},
+		})
+		resp.mustStatus(t, http.StatusForbidden, "a cookie POST claiming https over a plain connection")
+	})
+
+	t.Run("the same header from a trusted proxy is believed", func(t *testing.T) {
+		h := newHarness(t, func(c *config.Config) {
+			c.Server.TrustedProxies = []string{loopback}
+		})
+		u, _ := h.user("operator", store.RoleOperator)
+
+		resp := h.do(request{
+			method: http.MethodPost, path: "/api/v1/pools/validate",
+			cookie: h.session(u), origin: secureOrigin(h),
+			headers: map[string]string{"X-Forwarded-Proto": "https"},
+			body:    map[string]any{"name": "x"},
+		})
+		if resp.status == http.StatusForbidden {
+			t.Fatalf("a request through a configured proxy was refused: %s", truncate(resp.body))
+		}
+	})
+
+	t.Run("HSTS is not emitted because a client asked for it", func(t *testing.T) {
+		h := newHarness(t)
+		resp := h.do(request{method: http.MethodGet, path: "/api/v1/meta",
+			headers: map[string]string{"X-Forwarded-Proto": "https"}})
+		if got := resp.header.Get("Strict-Transport-Security"); got != "" {
+			t.Errorf("Strict-Transport-Security = %q on a plain connection; anyone who can reach "+
+				"the listener could pin this host in a browser for a year", got)
+		}
+	})
+
+	t.Run("HSTS is emitted behind a proxy that terminates TLS", func(t *testing.T) {
+		h := newHarness(t, func(c *config.Config) {
+			c.Server.TrustedProxies = []string{loopback}
+		})
+		resp := h.do(request{method: http.MethodGet, path: "/api/v1/meta",
+			headers: map[string]string{"X-Forwarded-Proto": "https"}})
+		if got := resp.header.Get("Strict-Transport-Security"); got == "" {
+			t.Error("no Strict-Transport-Security behind a configured TLS-terminating proxy, " +
+				"which is the deployment the header exists for")
+		}
+	})
+
+	// A chain appends, and the entries after the first are hops inside the
+	// operator's own network. The client's own scheme is the left-most one, so
+	// a plain request that crossed an internal TLS hop is still plain.
+	t.Run("a chain is read left to right", func(t *testing.T) {
+		h := newHarness(t, func(c *config.Config) {
+			c.Server.TrustedProxies = []string{loopback}
+		})
+		resp := h.do(request{method: http.MethodGet, path: "/api/v1/meta",
+			headers: map[string]string{"X-Forwarded-Proto": "http, https"}})
+		if got := resp.header.Get("Strict-Transport-Security"); got != "" {
+			t.Errorf("Strict-Transport-Security = %q, though the client reached the first proxy over http", got)
+		}
+	})
+}
