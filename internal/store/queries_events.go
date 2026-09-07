@@ -386,11 +386,7 @@ func jobWhere(f JobFilter) (string, []any) {
 		cond = append(cond, `matched = 0 AND state = ?`)
 		args = append(args, string(JobQueued))
 	} else if f.ManagedOnly {
-		// A queued job no pool claims is kept: it is unclaimed rather than
-		// somebody else's, and hiding it would hide the fault the page exists
-		// to show.
-		cond = append(cond, `(matched = 1 OR pool_id != '' OR runner_id != '' OR (matched = 0 AND state = ?))`)
-		args = append(args, string(JobQueued))
+		cond = append(cond, managedJobSQL())
 	}
 	if f.FaultedOnly {
 		cond = append(cond, `runner_fault != ''`)
@@ -520,6 +516,19 @@ type JobStats struct {
 // the Overview's failed count and the Jobs page's failed filter cannot drift
 // apart again: one used to count "failure" alone while the other added the
 // timeouts and the runner faults, and the tile said 1 where the page showed 3.
+// managedJobSQL is the predicate behind "jobs this fleet has a hand in": one an
+// enabled pool claimed, one that ran on a runner this fleet started, or one
+// still queued that no pool claims -- unclaimed rather than somebody else's,
+// and the fault the Jobs page exists to show.
+//
+// It is a function rather than two copies because the Jobs list and the
+// Overview have to mean the same thing by it. A page that says four jobs are
+// queued beside a list showing five is worse than either number alone.
+func managedJobSQL() string {
+	return `(matched = 1 OR pool_id != '' OR runner_id != '' OR (matched = 0 AND state = '` +
+		string(JobQueued) + `'))`
+}
+
 func failedJobSQL() string {
 	quoted := make([]string, len(FailedConclusions))
 	for i, c := range FailedConclusions {
@@ -528,15 +537,27 @@ func failedJobSQL() string {
 	return `(conclusion IN (` + strings.Join(quoted, ",") + `) OR runner_fault != '')`
 }
 
-func (s *Store) StatsSince(ctx context.Context, since time.Time) (JobStats, error) {
+// StatsSince counts the jobs behind the Overview.
+//
+// managedOnly narrows every count and both percentiles to the jobs this fleet
+// has a hand in. GitHub reports every job in an installed repository, and on an
+// organisation that also uses hosted runners most of them are somebody else's:
+// a queue depth that counts those answers "why is my fleet slow?" with a number
+// the fleet cannot act on, and a median wait computed from them is somebody
+// else's queue.
+func (s *Store) StatsSince(ctx context.Context, since time.Time, managedOnly bool) (JobStats, error) {
+	scope := ""
+	if managedOnly {
+		scope = " AND " + managedJobSQL()
+	}
 	var st JobStats
 	err := s.read.QueryRowContext(ctx, `SELECT
-		(SELECT COUNT(*) FROM jobs WHERE state='queued'),
-		(SELECT COUNT(*) FROM jobs WHERE state='in_progress'),
-		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND completed_at >= ?),
-		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND `+failedJobSQL()+` AND completed_at >= ?),
-		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND conclusion = 'success' AND runner_fault = '' AND completed_at >= ?),
-		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND conclusion IN ('cancelled','skipped') AND runner_fault = '' AND completed_at >= ?)`,
+		(SELECT COUNT(*) FROM jobs WHERE state='queued'`+scope+`),
+		(SELECT COUNT(*) FROM jobs WHERE state='in_progress'`+scope+`),
+		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND completed_at >= ?`+scope+`),
+		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND `+failedJobSQL()+` AND completed_at >= ?`+scope+`),
+		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND conclusion = 'success' AND runner_fault = '' AND completed_at >= ?`+scope+`),
+		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND conclusion IN ('cancelled','skipped') AND runner_fault = '' AND completed_at >= ?`+scope+`)`,
 		ms(since), ms(since), ms(since), ms(since)).Scan(&st.Queued, &st.Running, &st.CompletedLast, &st.Failed, &st.Succeeded, &st.Cancelled)
 	if err != nil {
 		return st, err
@@ -545,7 +566,7 @@ func (s *Store) StatsSince(ctx context.Context, since time.Time) (JobStats, erro
 	// empty, neutral, action_required. It is counted rather than dropped so
 	// the four always add up to the completed total.
 	st.Unknown = st.CompletedLast - st.Failed - st.Succeeded - st.Cancelled
-	waits, err := s.queueWaits(ctx, since)
+	waits, err := s.queueWaits(ctx, since, managedOnly)
 	if err != nil {
 		return st, err
 	}
@@ -556,9 +577,13 @@ func (s *Store) StatsSince(ctx context.Context, since time.Time) (JobStats, erro
 	return st, nil
 }
 
-func (s *Store) queueWaits(ctx context.Context, since time.Time) ([]time.Duration, error) {
+func (s *Store) queueWaits(ctx context.Context, since time.Time, managedOnly bool) ([]time.Duration, error) {
+	scope := ""
+	if managedOnly {
+		scope = " AND " + managedJobSQL()
+	}
 	rows, err := s.read.QueryContext(ctx, `SELECT started_at - queued_at FROM jobs
-		WHERE started_at IS NOT NULL AND queued_at >= ? ORDER BY 1`, ms(since))
+		WHERE started_at IS NOT NULL AND queued_at >= ?`+scope+` ORDER BY 1`, ms(since))
 	if err != nil {
 		return nil, err
 	}
@@ -960,12 +985,19 @@ func (s *Store) PruneDeliveries(ctx context.Context, before time.Time) (int64, e
 
 // FleetSample is one point on the Overview's sparklines.
 type FleetSample struct {
-	At           time.Time `json:"at"`
-	QueuedJobs   int       `json:"queued_jobs"`
-	RunningJobs  int       `json:"running_jobs"`
-	IdleRunners  int       `json:"idle_runners"`
-	BusyRunners  int       `json:"busy_runners"`
-	TotalRunners int       `json:"total_runners"`
+	At          time.Time `json:"at"`
+	QueuedJobs  int       `json:"queued_jobs"`
+	RunningJobs int       `json:"running_jobs"`
+	// FleetQueuedJobs and FleetRunningJobs are the same minute narrowed to the
+	// jobs this fleet has a hand in, so the sparkline can follow the Overview's
+	// "other runners" toggle instead of always plotting somebody else's queue.
+	// Samples taken before this existed carry 0: there is no honest way to work
+	// out now what the fleet's own queue was then.
+	FleetQueuedJobs  int `json:"fleet_queued_jobs"`
+	FleetRunningJobs int `json:"fleet_running_jobs"`
+	IdleRunners      int `json:"idle_runners"`
+	BusyRunners      int `json:"busy_runners"`
+	TotalRunners     int `json:"total_runners"`
 }
 
 // RecordSample stores one fleet sample, replacing any sample for the same
@@ -973,18 +1005,24 @@ type FleetSample struct {
 func (s *Store) RecordSample(ctx context.Context, f FleetSample) error {
 	minute := f.At.UTC().Truncate(time.Minute)
 	_, err := s.exec(ctx, `INSERT INTO fleet_samples
-		(at, queued_jobs, running_jobs, idle_runners, busy_runners, total_runners)
-		VALUES (?,?,?,?,?,?)
+		(at, queued_jobs, running_jobs, fleet_queued_jobs, fleet_running_jobs,
+		 idle_runners, busy_runners, total_runners)
+		VALUES (?,?,?,?,?,?,?,?)
 		ON CONFLICT(at) DO UPDATE SET queued_jobs=excluded.queued_jobs,
-			running_jobs=excluded.running_jobs, idle_runners=excluded.idle_runners,
+			running_jobs=excluded.running_jobs,
+			fleet_queued_jobs=excluded.fleet_queued_jobs,
+			fleet_running_jobs=excluded.fleet_running_jobs,
+			idle_runners=excluded.idle_runners,
 			busy_runners=excluded.busy_runners, total_runners=excluded.total_runners`,
-		ms(minute), f.QueuedJobs, f.RunningJobs, f.IdleRunners, f.BusyRunners, f.TotalRunners)
+		ms(minute), f.QueuedJobs, f.RunningJobs, f.FleetQueuedJobs, f.FleetRunningJobs,
+		f.IdleRunners, f.BusyRunners, f.TotalRunners)
 	return err
 }
 
 // ListSamples returns fleet samples since a cutoff, oldest first.
 func (s *Store) ListSamples(ctx context.Context, since time.Time) ([]FleetSample, error) {
-	rows, err := s.read.QueryContext(ctx, `SELECT at, queued_jobs, running_jobs, idle_runners,
+	rows, err := s.read.QueryContext(ctx, `SELECT at, queued_jobs, running_jobs,
+		fleet_queued_jobs, fleet_running_jobs, idle_runners,
 		busy_runners, total_runners FROM fleet_samples WHERE at >= ? ORDER BY at`, ms(since))
 	if err != nil {
 		return nil, err
@@ -994,7 +1032,8 @@ func (s *Store) ListSamples(ctx context.Context, since time.Time) ([]FleetSample
 	for rows.Next() {
 		var f FleetSample
 		var t int64
-		if err := rows.Scan(&t, &f.QueuedJobs, &f.RunningJobs, &f.IdleRunners,
+		if err := rows.Scan(&t, &f.QueuedJobs, &f.RunningJobs,
+			&f.FleetQueuedJobs, &f.FleetRunningJobs, &f.IdleRunners,
 			&f.BusyRunners, &f.TotalRunners); err != nil {
 			return nil, err
 		}

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/store"
@@ -520,6 +521,54 @@ func TestAuditListAndFilters(t *testing.T) {
 		if e.Action != "pool.create" {
 			t.Errorf("the action filter let %q through", e.Action)
 		}
+	}
+}
+
+// TestStatsCarryTheFleetsOwnFigures is what lets the Overview default to this
+// fleet's numbers.
+//
+// GitHub reports every job in an installed repository, so on an organisation
+// that also uses hosted runners the unscoped counts are mostly somebody else's,
+// and a queue depth built from them answers "why is my fleet slow?" with a
+// number nobody here can act on. Both scopes travel in one payload rather than
+// being chosen by a query parameter, because the same numbers arrive over the
+// event stream -- one frame for every viewer -- so a per-request scope would be
+// right until the next frame overwrote it.
+func TestStatsCarryTheFleetsOwnFigures(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	h.job(pool, store.JobQueued)
+
+	// Somebody else's: reported by GitHub, claimed by no pool, run by no
+	// runner here, and already under way so it cannot be counted as the
+	// unclaimed-queued case the fleet does own.
+	started := time.Now().Add(-time.Minute)
+	if _, err := h.st.UpsertJob(h.ctx, &store.Job{
+		GitHubJobID: 987654, GitHubRunID: 2, Repo: "acme/widgets", Workflow: "ci",
+		JobName: "hosted", State: store.JobInProgress,
+		QueuedAt: time.Now().Add(-2 * time.Minute), StartedAt: &started,
+	}); err != nil {
+		t.Fatalf("seeding a hosted job: %v", err)
+	}
+
+	viewer, _ := h.user("viewer", store.RoleViewer)
+	resp := h.do(request{method: http.MethodGet, path: "/api/v1/stats", cookie: h.session(viewer)})
+	resp.mustStatus(t, http.StatusOK, "stats")
+	body := resp.json(t)
+
+	if body["running_jobs"] != float64(1) {
+		t.Errorf("running_jobs = %v, want the hosted job counted in the unscoped figure", body["running_jobs"])
+	}
+	fleet, ok := body["fleet"].(map[string]any)
+	if !ok {
+		t.Fatalf("the stats payload carries no fleet figures: %s", truncate(resp.body))
+	}
+	if fleet["running_jobs"] != float64(0) {
+		t.Errorf("fleet.running_jobs = %v, want 0: the only running job is somebody else's", fleet["running_jobs"])
+	}
+	if fleet["queued_jobs"] != float64(1) {
+		t.Errorf("fleet.queued_jobs = %v, want the pool's own queued job", fleet["queued_jobs"])
 	}
 }
 

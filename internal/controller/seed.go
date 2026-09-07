@@ -862,12 +862,18 @@ func (c *Controller) seedSamples(ctx context.Context, now time.Time, rng *rand.R
 		}
 
 		if err := c.st.RecordSample(ctx, store.FleetSample{
-			At:           at,
-			QueuedJobs:   queued,
-			RunningJobs:  running,
-			IdleRunners:  idle,
-			BusyRunners:  busy,
-			TotalRunners: total,
+			At:          at,
+			QueuedJobs:  queued,
+			RunningJobs: running,
+			// Every job the demo seeds belongs to one of its own pools, so the
+			// fleet's own figures are the same figures. Leaving them at zero
+			// would give the Overview a flat sparkline in its default view and
+			// make the demo look broken.
+			FleetQueuedJobs:  queued,
+			FleetRunningJobs: running,
+			IdleRunners:      idle,
+			BusyRunners:      busy,
+			TotalRunners:     total,
 		}); err != nil {
 			return fmt.Errorf("seeding the fleet sample for %s: %w", at.Format(time.RFC3339), err)
 		}

@@ -1472,6 +1472,20 @@ export interface components {
             p50_registration_ms?: number;
             /** Format: int64 */
             p95_registration_ms?: number;
+            /** @description The same job figures narrowed to the jobs this fleet has a hand in: one an enabled pool claimed, one that ran on a runner started here, or one still queued that no pool claims. GitHub reports every job in an installed repository, so on an organisation that also uses hosted runners the figures above are mostly somebody else's. Both are carried in one payload because the same numbers arrive over the event stream, which is one frame for every viewer. */
+            fleet?: {
+                queued_jobs?: number;
+                running_jobs?: number;
+                completed?: number;
+                succeeded?: number;
+                failed?: number;
+                cancelled?: number;
+                unknown?: number;
+                /** Format: int64 */
+                median_wait_ms?: number;
+                /** Format: int64 */
+                p95_wait_ms?: number;
+            };
             runners?: {
                 provisioning?: number;
                 registering?: number;
@@ -1506,6 +1520,10 @@ export interface components {
             at?: string;
             queued_jobs?: number;
             running_jobs?: number;
+            /** @description The same minute narrowed to the jobs this fleet has a hand in. Zero on samples taken before this was recorded. */
+            fleet_queued_jobs?: number;
+            /** @description As above */
+            fleet_running_jobs?: number;
             idle_runners?: number;
             busy_runners?: number;
             total_runners?: number;
