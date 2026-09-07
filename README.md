@@ -1,7 +1,7 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo-master-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/brand/logo-master-dark.png">
   <img src="docs/brand/logo-light-background.png" alt="Zoomies: a cocker spaniel curling through a circular motion path, above the wordmark" width="260">
 </picture>
 
