@@ -18,6 +18,7 @@
 import { createSubscriber } from 'svelte/reactivity';
 import type { Component } from 'svelte';
 import { loadChunk, reloadForFailedChunk } from './chunks';
+import { upgrade } from './state/upgrade.svelte';
 import Login from '../routes/Login.svelte';
 import NotFound from '../routes/NotFound.svelte';
 
@@ -291,6 +292,15 @@ export function navigate(to: string, options: NavigateOptions = {}): void {
   const target = url.pathname + url.search + url.hash;
   const current = location.pathname + location.search + location.hash;
   if (target === current) return;
+  // A tab that has been open across a deployment goes to the new build here.
+  // A navigation discards the page's state anyway, so this costs nothing that
+  // was not already being thrown away, and it is the difference between an
+  // operator seeing the fleet's current UI and seeing whichever one their
+  // phone happened to load last week. See $lib/state/upgrade.
+  if (upgrade.claimReload()) {
+    location.assign(target);
+    return;
+  }
   if (options.replace) history.replaceState({}, '', target);
   else history.pushState({}, '', target);
   if (!options.keepScroll) window.scrollTo(0, 0);

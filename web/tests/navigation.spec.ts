@@ -190,6 +190,90 @@ test('a page whose code never arrives says so rather than reloading forever', as
   await expect(nav(page)).toBeVisible();
 });
 
+/*
+ * A tab left open across a deployment goes on running the build it loaded. The
+ * chunk recovery below catches the loud half of that -- a route whose code is
+ * gone 404s and the tab reloads -- but a tab that already holds every chunk it
+ * needs never fails, so it can serve an old page for as long as it stays open.
+ * On a phone, backgrounded for days rather than closed, that is the ordinary
+ * case: the fleet moves on and the screen in somebody's pocket does not.
+ */
+test('a tab that has been open across an upgrade moves to the new build', async ({ page }) => {
+  await goto(page, '/', 'Overview');
+
+  // Something to lose, so the reload is provable rather than assumed: a
+  // client-side navigation keeps this, a full page load cannot.
+  await page.evaluate(() => ((window as unknown as { marker?: string }).marker = 'same-document'));
+
+  // The controller is upgraded under the tab. Nothing has failed to load --
+  // this tab holds every chunk it has asked for -- so only the build being
+  // different says anything is out of date.
+  // A different build every time it is asked, which is what a rollout part way
+  // through looks like -- or two controllers behind one address.
+  let asked = 0;
+  await page.route('**/api/v1/meta', async (route) => {
+    asked += 1;
+    const response = await route.fetch();
+    const body = (await response.json()) as Record<string, unknown>;
+    await route.fulfill({
+      response,
+      json: { ...body, version: `build-${asked}`, commit: `commit${asked}` },
+    });
+  });
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+
+  await openSection(page, '/hosts');
+  await expect(pageHeading(page, 'Hosts')).toBeVisible({ timeout: 20_000 });
+
+  const marker = await page.evaluate(() => (window as unknown as { marker?: string }).marker);
+  expect(
+    marker,
+    'the navigation stayed in the same document, so the tab is still the old build',
+  ).toBeUndefined();
+
+  // Once per tab, though. The version is still moving under it -- the stub
+  // answers with a new build on every request -- so without a limit every
+  // navigation from here becomes a page load, for as long as the rollout takes.
+  await page.evaluate(() => ((window as unknown as { marker?: string }).marker = 'second'));
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await openSection(page, '/jobs');
+  await expect(pageHeading(page, 'Jobs')).toBeVisible({ timeout: 20_000 });
+  expect(
+    await page.evaluate(() => (window as unknown as { marker?: string }).marker),
+    'the tab reloaded a second time for the same upgrade',
+  ).toBe('second');
+});
+
+// A tab with nowhere to record that it has already moved cannot know it has,
+// so it must not move at all: an old page is a smaller problem than a tab that
+// reloads itself on every navigation and never settles.
+test('a tab that cannot remember a reload does not spend one', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'sessionStorage', {
+      configurable: true,
+      get() {
+        throw new DOMException('denied', 'SecurityError');
+      },
+    });
+  });
+  await goto(page, '/', 'Overview');
+  await page.evaluate(() => ((window as unknown as { marker?: string }).marker = 'kept'));
+
+  await page.route('**/api/v1/meta', async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as Record<string, unknown>;
+    await route.fulfill({ response, json: { ...body, version: 'a-newer-build' } });
+  });
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+
+  await openSection(page, '/hosts');
+  await expect(pageHeading(page, 'Hosts')).toBeVisible({ timeout: 20_000 });
+  expect(
+    await page.evaluate(() => (window as unknown as { marker?: string }).marker),
+    'the tab reloaded with no way to record that it had',
+  ).toBe('kept');
+});
+
 test('an upgrade under an open tab reloads even just after another failure', async ({ page }) => {
   await goto(page, '/', 'Overview');
 
