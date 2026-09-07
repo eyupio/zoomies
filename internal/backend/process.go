@@ -111,8 +111,12 @@ type ProcessBackend struct {
 
 	// mu guards running, which holds the children this agent started so that
 	// exactly one goroutine waits on each of them.
-	mu      sync.Mutex
-	running map[string]*exec.Cmd
+	mu sync.Mutex
+	// running maps a runner's directory to the child there and to a channel
+	// closed once the goroutine reaping it has finished writing. Removal waits
+	// on that: the reaper records the exit code in the very directory the
+	// remove is deleting, and the two used to race.
+	running map[string]*child
 	// installing serialises release downloads so two concurrent creates do not
 	// fetch the same archive twice.
 	installing sync.Mutex
@@ -156,7 +160,7 @@ func NewProcess(opts ProcessOptions) (*ProcessBackend, error) {
 		baseURL:         base,
 		http:            client,
 		log:             log.With("backend", string(store.BackendProcess)),
-		running:         make(map[string]*exec.Cmd),
+		running:         make(map[string]*child),
 	}, nil
 }
 
@@ -410,10 +414,12 @@ func (b *ProcessBackend) start(dir string, args, env []string, spec Spec, versio
 	}
 
 	b.mu.Lock()
-	b.running[dir] = cmd
+	reaped := make(chan struct{})
+	b.running[dir] = &child{cmd: cmd, reaped: reaped}
 	b.mu.Unlock()
 
 	go func() {
+		defer close(reaped)
 		err := cmd.Wait()
 		_ = logFile.Close()
 		code := 0
@@ -433,6 +439,18 @@ func (b *ProcessBackend) start(dir string, args, env []string, spec Spec, versio
 	}()
 	return nil
 }
+
+// child is a runner process and the signal that everything written on its
+// behalf has been written.
+type child struct {
+	cmd    *exec.Cmd
+	reaped chan struct{}
+}
+
+// reapGrace is how long a removal waits for the exit record to be written
+// before deleting the directory anyway. It is a bound on a handover that takes
+// microseconds, not an expectation.
+const reapGrace = 5 * time.Second
 
 // abandon kills a child we have decided not to keep and reaps it, so that a
 // half-failed create leaves no zombie behind.
@@ -597,29 +615,44 @@ func (b *ProcessBackend) Stop(ctx context.Context, h Handle, timeout time.Durati
 	}
 	if runtime.GOOS == "windows" {
 		// Windows does not support sending os.Interrupt to arbitrary processes.
-		return b.kill(proc, dir)
+		return b.kill(ctx, proc, dir)
 	}
 	// The whole group, not the listener alone: the job runs in a worker the
 	// listener spawned, and it is the worker that has to be told to stop.
 	if err := signalRunner(proc, syscall.SIGINT); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		b.log.Warn("could not interrupt the runner; killing it", "dir", dir, "pid", pid, "error", err)
-		return b.kill(proc, dir)
+		return b.kill(ctx, proc, dir)
 	}
 	if waitFor(ctx, func() bool { return !processAlive(pid) }, timeout, 200*time.Millisecond) {
 		return nil
 	}
 
 	b.log.Warn("runner did not exit after SIGINT; killing it", "dir", dir, "pid", pid, "timeout", timeout)
-	return b.kill(proc, dir)
+	return b.kill(ctx, proc, dir)
 }
 
-func (b *ProcessBackend) kill(proc *os.Process, dir string) error {
+// killGrace is how long to wait for a killed runner to actually be gone.
+//
+// SIGKILL cannot be refused, so this is not a negotiation; it is the time the
+// kernel takes to tear a process tree down, which on a loaded machine is not
+// zero.
+const killGrace = 5 * time.Second
+
+func (b *ProcessBackend) kill(ctx context.Context, proc *os.Process, dir string) error {
 	if err := signalRunner(proc, syscall.SIGKILL); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		// The group could not be signalled; the leader alone is better than
 		// nothing, and is all Windows can do anyway.
 		if err := proc.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 			return fmt.Errorf("backend: killing the runner process %d in %s: %w", proc.Pid, dir, err)
 		}
+	}
+	// SIGKILL is delivered, not applied. Returning here says the runner has
+	// stopped when it is still running, and the caller's next move is usually
+	// to delete the directory it is running in -- which fails, or worse
+	// half-succeeds, while the process still has files open there. The SIGINT
+	// path above already waits; this one has to as well.
+	if !waitFor(ctx, func() bool { return !processAlive(proc.Pid) }, killGrace, 20*time.Millisecond) {
+		b.log.Warn("a killed runner is still there", "dir", dir, "pid", proc.Pid, "waited", killGrace)
 	}
 	return nil
 }
@@ -639,9 +672,28 @@ func (b *ProcessBackend) wipe(ctx context.Context, dir string) error {
 			b.log.Warn("could not stop the runner before removing it", "dir", dir, "error", err)
 		}
 	}
+	// The process being gone is not the end of the writing. The goroutine
+	// reaping it records the exit code in this very directory, and it gets
+	// there a moment after the process it was waiting on disappears -- which
+	// is a moment this function is already spending inside RemoveAll. The walk
+	// deletes what it found, the exit record lands behind it, and the rmdir
+	// meets a directory that is not empty. So the removal waits for the
+	// reaper, and there is nobody left writing here when it starts.
 	b.mu.Lock()
+	c := b.running[dir]
 	delete(b.running, dir)
 	b.mu.Unlock()
+	if c != nil && !waitFor(ctx, func() bool {
+		select {
+		case <-c.reaped:
+			return true
+		default:
+			return false
+		}
+	}, reapGrace, 10*time.Millisecond) {
+		b.log.Warn("a runner's exit was still being recorded when its directory was removed",
+			"dir", dir, "waited", reapGrace)
+	}
 
 	if err := os.RemoveAll(dir); err != nil {
 		return fmt.Errorf("backend: removing the runner directory %s: %w", dir, err)

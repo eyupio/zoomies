@@ -915,3 +915,121 @@ func TestProcessKeepsTheJITConfigOffTheCommandLine(t *testing.T) {
 		t.Fatalf("%s = %q, want the JIT config", EnvUpstreamJITConfig, jit)
 	}
 }
+
+// stubDeaf ignores the interrupt Stop sends first, so that stopping it has to
+// go through the kill, which is the path this file's other tests never take.
+const stubDeaf = `#!/bin/sh
+echo "listener started with $1"
+trap '' INT
+i=0
+while [ $i -lt 120 ]; do
+  sleep 1
+  i=$((i + 1))
+done
+`
+
+// SIGKILL is delivered, not applied: the process is still there, with its files
+// still open, for as long as the kernel takes to tear it down. Stop used to
+// return the moment the signal was sent, and what the caller does next is
+// delete the directory the runner is running in -- so a create replacing a
+// runner could fail on a directory that would not stay empty, and a remove
+// could half-succeed against a process still writing into it.
+func TestStoppingARunnerThatIgnoresTheInterruptWaitsForItToDie(t *testing.T) {
+	requireUnix(t)
+	root := t.TempDir()
+	installStubRunner(t, root, stubVersion, stubDeaf, stubConfigOK)
+	b, err := NewProcess(ProcessOptions{WorkDir: root, RunnerVersion: stubVersion, Logger: quietLogger()})
+	if err != nil {
+		t.Fatalf("NewProcess: %v", err)
+	}
+	ctx := context.Background()
+
+	h, err := b.Create(ctx, processSpec())
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	waitForPhase(t, b, h, PhaseRunning, 5*time.Second)
+	waitForLog(t, string(h), "listener started", 5*time.Second)
+	pid := readPID(string(h))
+	if pid <= 0 || !processAlive(pid) {
+		t.Fatalf("the runner is not running to begin with, pid = %d", pid)
+	}
+
+	// A short interrupt timeout, so the kill is reached quickly. The runner
+	// ignores the interrupt, so this is the only thing that ends it.
+	if err := b.Stop(ctx, h, 300*time.Millisecond); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+
+	if processAlive(pid) {
+		t.Fatal("Stop returned while the runner it killed was still running")
+	}
+	// And the directory it was running in can now be removed, which is what
+	// the caller does next.
+	if err := b.Remove(ctx, h); err != nil {
+		t.Fatalf("removing a runner that has just been killed: %v", err)
+	}
+}
+
+// The process being gone is not the end of the writing: the goroutine reaping
+// it records the exit code in the runner's own directory, and it gets there a
+// moment after the process disappears -- a moment the removal is already
+// spending inside RemoveAll. The walk deletes what it found, the exit record
+// lands behind it, and the rmdir meets a directory that is not empty. CI found
+// this as "directory not empty" from a create replacing an existing runner,
+// which is a fleet failing to start a runner rather than a test being unlucky.
+//
+// Staged rather than raced: a reaper that never finishes, so that whether the
+// removal waits for one is the only thing being measured. Waiting for a real
+// exit to be recorded takes microseconds, and a test that hopes to land inside
+// those is a test that passes whatever the code does.
+func TestRemovingARunnerWaitsForItsExitToBeRecorded(t *testing.T) {
+	requireUnix(t)
+	b, _ := newStubProcessBackend(t)
+
+	dir := b.runnerDir("zoomies-host-a1b2")
+	if err := os.MkdirAll(filepath.Join(dir, runnerWorkDir), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	b.mu.Lock()
+	b.running[dir] = &child{reaped: make(chan struct{})}
+	b.mu.Unlock()
+
+	// The context is what ends the wait, since this reaper never will. Without
+	// a wait at all the removal returns in microseconds.
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	if err := b.Remove(ctx, Handle(dir)); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if waited := time.Since(started); waited < 200*time.Millisecond {
+		t.Fatalf("Remove returned after %s, so it deleted the directory while the exit was still being recorded into it", waited)
+	}
+	// And it still removes the directory: a reaper that will not finish is a
+	// reason to wait, not a reason to leave a runner on the host for ever.
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("the runner directory is still there: %v", err)
+	}
+}
+
+// The same sequence the CI failure came from, run enough times that the window
+// between the process exiting and its exit record landing is hit rather than
+// hoped past.
+func TestReplacingARunnerRepeatedlyNeverTripsOverItsOwnExitRecord(t *testing.T) {
+	requireUnix(t)
+	b, _ := newStubProcessBackend(t)
+	ctx := context.Background()
+
+	for i := range 12 {
+		h, err := b.Create(ctx, processSpec())
+		if err != nil {
+			t.Fatalf("create %d: %v", i, err)
+		}
+		waitForPhase(t, b, h, PhaseRunning, 5*time.Second)
+		waitForLog(t, string(h), "listener started", 5*time.Second)
+	}
+	if err := b.Remove(ctx, Handle(b.runnerDir(processSpec().Name))); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+}
