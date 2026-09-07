@@ -437,6 +437,17 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 		}
 		h.Embedded = existing.Embedded || embedded
 		h.Cordoned = existing.Cordoned
+		// The reserve is the operator's, and a re-join is something the agent
+		// does: a rebuilt machine reclaiming its row, or an embedded agent
+		// whose credentials no longer match. Letting it drop here would be the
+		// agent writing the reserve after all, by the back door, and silently
+		// -- the row keeps its id, its cordon and its labels, so nothing looks
+		// wrong until the controller places into the space that was held back.
+		// Capacity needs no such line: the join token carries it, so an
+		// operator re-decides it every time one is minted.
+		h.ReserveCPUs = existing.ReserveCPUs
+		h.ReserveMemoryMB = existing.ReserveMemoryMB
+		h.ReserveDiskMB = existing.ReserveDiskMB
 	}
 	if err := c.st.CreateHost(ctx, h); err != nil {
 		return nil, fmt.Errorf("registering host %s: %w", name, err)
@@ -527,7 +538,7 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 		(req.CPUs > 0 && req.CPUs != h.CPUs) ||
 		(req.MemoryMB > 0 && req.MemoryMB != h.MemoryMB) ||
 		(req.DiskTotalMB > 0 && req.DiskTotalMB != h.DiskTotalMB) ||
-		diskFreeMoved(h.DiskFreeMB, req.DiskFreeMB)
+		diskFreeMoved(h.DiskFreeMB, req.DiskFreeMB, req.DiskTotalMB > 0)
 	if changed {
 		was := h.Backends
 		if len(probed) > 0 {
@@ -543,8 +554,9 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 		}
 		if req.DiskTotalMB > 0 {
 			h.DiskTotalMB = req.DiskTotalMB
-		}
-		if req.DiskFreeMB > 0 {
+			// Free is written whenever a measurement was taken, zero included:
+			// a disk with nothing left on it is the state an operator most
+			// needs to see, and the size is what says a measurement happened.
 			h.DiskFreeMB = req.DiskFreeMB
 		}
 		h.LastHeartbeat = now
@@ -1133,21 +1145,27 @@ func (c *Controller) heartbeatInterval() time.Duration {
 	return 30 * time.Second
 }
 
-// hostBackends converts an agent's probe into the form the store keeps. The
-// whole probe is persisted, not just the kinds that answered: "this host has no
-// docker" and "this host has docker but the agent cannot read its socket" are
-// the same row to the scheduler and completely different to an operator.
 // diskFreeTolerance is how far free disk may drift before the host row is
-// rewritten. Both halves matter: the fraction keeps a large disk from being
-// rewritten over a rounding error, and the floor keeps a small one from
-// needing to lose a gigabyte before anybody hears about it.
+// rewritten.
+//
+// The fraction is the rule; the floor only ever binds below about five
+// gigabytes, and it is there because a twentieth of a small volume is a few
+// megabytes -- an amount that changes constantly and tells nobody anything, so
+// tracking it would be the write-per-beat this exists to avoid. It does make a
+// small volume coarser in proportion, which is the price: a host whose runners
+// share a one-gigabyte scratch disk is not a host being placed on by disk.
 const (
 	diskFreeToleranceFraction = 0.05
 	diskFreeToleranceFloorMB  = 256
 )
 
+// hostBackends converts an agent's probe into the form the store keeps. The
+// whole probe is persisted, not just the kinds that answered: "this host has no
+// docker" and "this host has docker but the agent cannot read its socket" are
+// the same row to the scheduler and completely different to an operator.
+
 // diskFreeMoved reports whether free disk has changed by enough to be worth a
-// write.
+// write. `measured` says whether the agent took a reading at all.
 //
 // Free space is the one thing an agent reports that moves on its own: a job
 // unpacking a cache changes it, and so does the job next door. A heartbeat
@@ -1156,18 +1174,26 @@ const (
 // recorded turns a fleet's heartbeats into one row write per host per beat, for
 // a number that was never exactly the same twice and did not need to be.
 //
-// A tolerance is what makes it a fact worth keeping rather than a stream. The
-// first measurement always lands, because going from "not measured" to a figure
-// is the difference between a host that can be placed on by disk and one that
-// cannot.
-func diskFreeMoved(was, now int64) bool {
-	if now <= 0 {
-		// Not measured. An agent that has stopped answering says nothing about
-		// the disk, and overwriting a real figure with a zero would read as a
-		// full one.
+// Whether a reading was taken is a separate question from what it said, and
+// they cannot share an encoding. A disk with nothing left reads zero, and so
+// does an agent too old to look; treating the two alike leaves a full host
+// describing itself with the last comfortable figure it ever reported, which is
+// the one state where being out of date does real harm. The size is what says a
+// measurement happened -- no filesystem is zero bytes -- so free is free.
+func diskFreeMoved(was, now int64, measured bool) bool {
+	if !measured {
+		// An agent that has stopped answering says nothing about the disk, and
+		// its silence must not overwrite what was known.
+		return false
+	}
+	if was == now {
+		// Including a full disk that is still full: it is already on the row.
 		return false
 	}
 	if was <= 0 {
+		// The first reading, however small, because going from "not measured"
+		// to a figure is the difference between a host that can be placed on
+		// by disk and one that cannot.
 		return true
 	}
 	tolerance := int64(float64(was) * diskFreeToleranceFraction)

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"math"
 	"os"
 	"testing"
 
@@ -98,5 +99,43 @@ func TestADaemonThatSaysNothingDoesNotShrinkTheHost(t *testing.T) {
 
 	if cpus != 8 || memoryMB != 16_384 {
 		t.Fatalf("host = %d cpus, %d MB; a silent daemon must not shrink it", cpus, memoryMB)
+	}
+}
+
+// The arithmetic on its own, because the figures that break it cannot be
+// staged on a real filesystem: a block count wide enough to overflow a signed
+// multiply, or an available count above the total. Without this every check in
+// diskFromStatfs would be a line nothing could ever fail.
+func TestWhatCannotBeAFilesystemIsRefused(t *testing.T) {
+	const tb = 1 << 40
+	tests := []struct {
+		name           string
+		blocks, bavail uint64
+		bsize          int64
+		total, avail   int64
+		ok             bool
+	}{
+		{"an ordinary disk", 66_053_021, 5_419_506, 4096, 270_553_174_016, 22_198_296_576, true},
+		{"a full disk", 1000, 0, 4096, 4_096_000, 0, true},
+		{"no block size at all", 1000, 500, 0, 0, 0, false},
+		{"a negative block size", 1000, 500, -4096, 0, 0, false},
+		{"a block count that overflows the multiply", math.MaxUint64, 1, 4096, 0, 0, false},
+		// The one that matters: this wraps to 4096 bytes, which passes every
+		// check on the result. A four-petabyte volume would be reported as a
+		// four-kilobyte one and every host on it declared out of room.
+		{"an overflow that wraps to a plausible size", (1 << 52) + 1, 1, 4096, 0, 0, false},
+		{"an available count that overflows the multiply", 1000, math.MaxUint64, 4096, 0, 0, false},
+		{"more available than exists", 100, 200, 4096, 0, 0, false},
+		{"a filesystem of no size", 0, 0, 4096, 0, 0, false},
+		{"a large but honest disk", tb, tb / 2, 1, tb, tb / 2, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			total, avail, ok := diskFromStatfs(tc.blocks, tc.bavail, tc.bsize)
+			if ok != tc.ok || total != tc.total || avail != tc.avail {
+				t.Fatalf("diskFromStatfs(%d, %d, %d) = %d, %d, %v; want %d, %d, %v",
+					tc.blocks, tc.bavail, tc.bsize, total, avail, ok, tc.total, tc.avail, tc.ok)
+			}
+		})
 	}
 }

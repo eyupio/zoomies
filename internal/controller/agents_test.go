@@ -843,23 +843,56 @@ func TestWhenFreeDiskIsWorthAWrite(t *testing.T) {
 	tests := []struct {
 		name     string
 		was, now int64
+		measured bool
 		want     bool
 	}{
-		{"a first measurement, however small", 0, 10, true},
-		{"an agent that cannot measure says nothing", 200_000, 0, false},
-		{"neither figure known", 0, 0, false},
-		{"a job starting, on a large disk", 200_000, 198_000, false},
-		{"a disk filling up", 200_000, 40_000, true},
-		{"freed by a cache eviction", 40_000, 200_000, true},
-		{"a small disk, drifting under the floor", 1_000, 900, false},
-		{"a small disk, past the floor", 1_000, 700, true},
+		{"a first measurement, however small", 0, 10, true, true},
+		{"an agent that cannot measure says nothing", 200_000, 0, false, false},
+		{"neither figure known", 0, 0, false, false},
+		{"a job starting, on a large disk", 200_000, 198_000, true, false},
+		{"a disk filling up", 200_000, 40_000, true, true},
+		{"freed by a cache eviction", 40_000, 200_000, true, true},
+		{"a small disk, drifting under the floor", 1_000, 900, true, false},
+		{"a small disk, past the floor", 1_000, 700, true, true},
+		// The pair that cannot share an encoding. A host with nothing left is
+		// the one state where being out of date does real harm, and it reads
+		// as the same zero an agent too old to look sends.
+		{"a disk that has actually filled up", 200_000, 0, true, true},
+		{"a full disk that is still full", 0, 0, true, false},
+		{"the first space freed on a full disk", 0, 5_000, true, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := diskFreeMoved(tc.was, tc.now); got != tc.want {
-				t.Fatalf("diskFreeMoved(%d, %d) = %v, want %v", tc.was, tc.now, got, tc.want)
+			if got := diskFreeMoved(tc.was, tc.now, tc.measured); got != tc.want {
+				t.Fatalf("diskFreeMoved(%d, %d, measured=%v) = %v, want %v",
+					tc.was, tc.now, tc.measured, got, tc.want)
 			}
 		})
+	}
+}
+
+// The state an operator most needs to see, end to end: an agent reporting a
+// disk with nothing left on it, which reads as the same zero that an agent too
+// old to measure sends. Getting these two the same way round leaves a full host
+// describing itself with the last comfortable figure it ever reported.
+func TestAFullDiskIsRecordedRatherThanReadAsSilence(t *testing.T) {
+	h := newHarness(t)
+	tr, id := joinedHost(t, h, 500_000, 200_000)
+
+	if _, err := tr.Heartbeat(h.ctx, agent.HeartbeatRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		DiskTotalMB:     500_000,
+		DiskFreeMB:      0,
+	}); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+
+	total, free := hostDisk(t, h, id)
+	if free != 0 {
+		t.Fatalf("free = %d MB on a host that reported none left", free)
+	}
+	if total != 500_000 {
+		t.Fatalf("total = %d MB; the size is what says the reading happened", total)
 	}
 }
 
@@ -894,5 +927,55 @@ func TestAHeartbeatNeverWritesTheOperatorsReserve(t *testing.T) {
 	// the whole write was skipped.
 	if _, free := hostDisk(t, h, id); free != 40_000 {
 		t.Fatalf("free = %d; the heartbeat's own observation was lost", free)
+	}
+}
+
+// A re-join is the agent's doing -- a rebuilt machine reclaiming its row, or an
+// embedded agent whose credentials no longer match -- and it replaces the row
+// wholesale. Letting the reserve drop there would be the agent writing it after
+// all, by the back door and silently: the row keeps its id, its cordon and its
+// labels, so nothing looks wrong until the controller places into the space the
+// operator held back.
+func TestARejoinKeepsTheOperatorsReserve(t *testing.T) {
+	h := newHarness(t)
+	tr, id := joinedHost(t, h, 500_000, 200_000)
+	_ = tr
+
+	if err := h.st.SetHostReserve(h.ctx, id, 2, 4096, 50_000); err != nil {
+		t.Fatalf("SetHostReserve: %v", err)
+	}
+	before, err := h.st.GetHost(h.ctx, id)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	before.Cordoned = true
+	if err := h.st.UpdateHost(h.ctx, before); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+
+	// The same machine, joining again under its own name with a fresh token.
+	again := h.c.EmbeddedTransport()
+	resp, err := again.Join(h.ctx, agent.JoinRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		Name:            "vm-1",
+		Capacity:        4,
+		Backends:        []backend.Info{{Kind: store.BackendDocker, Available: true}},
+	})
+	if err != nil {
+		t.Fatalf("re-Join: %v", err)
+	}
+
+	after, err := h.st.GetHost(h.ctx, resp.HostID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if after.ReserveCPUs != 2 || after.ReserveMemoryMB != 4096 || after.ReserveDiskMB != 50_000 {
+		t.Fatalf("reserve = %d cpus, %d MB, %d MB disk after a re-join; the operator's must survive it",
+			after.ReserveCPUs, after.ReserveMemoryMB, after.ReserveDiskMB)
+	}
+	// The cordon is carried across for the same reason and is the proof that
+	// this row really was replaced rather than left alone.
+	if !after.Cordoned {
+		t.Fatal("the cordon did not survive the re-join either, so this is not testing what it claims")
 	}
 }
