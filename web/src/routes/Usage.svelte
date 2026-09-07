@@ -263,18 +263,24 @@
                 <span class="tag">no pool</span>
               {/if}
             </th>
-            <td class="end tabular">{formatNumber(row.jobs)}</td>
-            <td class="end tabular">{formatNumber(row.jobs_started)}</td>
-            <td class="end tabular">{formatNumber(row.jobs_completed)}</td>
-            <td class="end tabular">{formatNumber(row.peak_concurrency)}</td>
-            <td class="end tabular">{wait(row.average_queue_wait_seconds)}</td>
-            <td class="end tabular">{hours(row.job_execution_seconds)}</td>
+            <td class="end tabular" data-label="Queued">{formatNumber(row.jobs)}</td>
+            <td class="end tabular" data-label="Started">{formatNumber(row.jobs_started)}</td>
+            <td class="end tabular" data-label="Completed">{formatNumber(row.jobs_completed)}</td>
+            <td class="end tabular" data-label="Peak at once"
+              >{formatNumber(row.peak_concurrency)}</td
+            >
+            <td class="end tabular" data-label="Average queue wait"
+              >{wait(row.average_queue_wait_seconds)}</td
+            >
+            <td class="end tabular" data-label="Executing">{hours(row.job_execution_seconds)}</td>
             {#if attributable}
-              <td class="end tabular">{hours(row.allocated_runner_seconds)}</td>
-              <td class="end tabular"
+              <td class="end tabular" data-label="Runner-hours"
+                >{hours(row.allocated_runner_seconds)}</td
+              >
+              <td class="end tabular" data-label="Busy share"
                 >{utilisation(row.job_execution_seconds, row.allocated_runner_seconds)}</td
               >
-              <td class="end tabular">{cost(row.estimated_cost)}</td>
+              <td class="end tabular" data-label="Estimated cost">{cost(row.estimated_cost)}</td>
             {/if}
           </tr>
         {/each}
@@ -382,34 +388,77 @@
   }
 
   /*
-    On a phone this table is ten columns in a frame that scrolls sideways, and
-    scrolling to the cost column took the pool's name off the screen with it --
-    so the number you had gone looking for belonged to a row you could no longer
-    identify. Pinning the first column keeps the question and the answer on
-    screen together. It is done only where it is needed: on a desktop the whole
-    table fits and a sticky column is one more thing to paint.
+    On a phone this is ten columns in 412 pixels, and no amount of scrolling
+    makes that a table: the heading is cut off mid-word, every pool is
+    "zoomies-demo-lin..." and indistinguishable from the next, and the figure
+    you scrolled to belongs to a row you can no longer name. Pinning the first
+    column fixed only the last of those.
+
+    So on a phone each row becomes a card, which is what the Hosts page does
+    with the same problem, and each figure carries its own heading. Nothing is
+    dropped and nothing is truncated; the report simply reads down instead of
+    across.
   */
   @media (max-width: 768px) {
-    .key {
-      position: sticky;
-      left: 0;
-      z-index: var(--z-layer-sticky);
-      max-width: 10rem;
+    .frame {
+      border: 0;
+      background: none;
+      overflow-x: visible;
+    }
+    table {
+      display: block;
+    }
+    /* The column headings move onto the cells, so the row of them is noise. */
+    thead {
+      display: none;
+    }
+    tbody {
+      display: flex;
+      flex-direction: column;
+      gap: var(--z-space-3);
+    }
+    /* Already blockified by the flex tbody above, so it takes padding and a
+       border without needing a display of its own. */
+    tbody tr {
+      padding: var(--z-space-3) var(--z-space-4);
+      border: var(--z-border-width) solid var(--z-border);
+      border-radius: var(--z-radius-md);
       background: var(--z-surface);
-      /* The frame's own border cannot show through a sticky cell, so the cell
-         carries the edge the columns scroll under. */
-      border-right: var(--z-border-width) solid var(--z-border);
     }
-    thead th.key-header {
-      position: sticky;
-      left: 0;
-      z-index: var(--z-layer-sticky);
-      background: var(--z-surface-sunken);
-      border-right: var(--z-border-width) solid var(--z-border);
+    tbody th.key {
+      display: block;
+      max-width: none;
+      padding: 0 0 var(--z-space-2);
+      border-bottom: var(--z-border-width) solid var(--z-border);
+      /* The name is the whole point of the row, so it wraps rather than
+         truncating -- there is a whole card's width for it now. */
+      overflow: visible;
+      white-space: normal;
+      overflow-wrap: anywhere;
     }
-    th,
-    td {
-      padding: var(--z-space-3);
+    tbody td {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: var(--z-space-4);
+      padding: var(--z-space-2) 0;
+      border: 0;
+      text-align: right;
+      white-space: normal;
+    }
+    tbody td::before {
+      content: attr(data-label);
+      flex: none;
+      font-size: var(--z-text-2xs);
+      font-weight: var(--z-weight-medium);
+      text-transform: uppercase;
+      letter-spacing: var(--z-tracking-wide);
+      color: var(--z-text-muted);
+      text-align: left;
+    }
+    .name {
+      overflow: visible;
+      white-space: normal;
     }
   }
   .tabular {
