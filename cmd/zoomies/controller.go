@@ -36,6 +36,7 @@ func runController(ctx context.Context, e *env, args []string) error {
 	fs := newFlagSet(e, "zoomies controller [--config path]",
 		"Run the control plane: the scheduler, the API, the web UI and the webhook endpoint.")
 	cfgPath := fs.String("config", "", "path to zoomies.yaml (default: "+config.DefaultConfigFile()+", and a missing file is not an error)")
+	takeover := fs.Bool("takeover", false, "start even though another controller holds this database's lease, and take it from them")
 	fs.example(
 		"zoomies controller --config /etc/zoomies/zoomies.yaml",
 		"ZOOMIES_BIND=0.0.0.0:8080 zoomies controller     # no file at all: defaults plus environment",
@@ -59,11 +60,40 @@ func runController(ctx context.Context, e *env, args []string) error {
 
 	log, level := setupLogging(cfg)
 
+	// One controller per database, checked before the store opens.
+	//
+	// Two schedulers over one database both mint runner credentials, both
+	// reclaim hosts they think are lost, and both reap the workloads the other
+	// created; every symptom of it looks like a bug somewhere else. The lock
+	// catches a second process on this host and the lease catches a copy on a
+	// shared filesystem or another machine, which no lock here can see.
+	unlock, err := store.Lock(cfg.Database.Path)
+	if err != nil {
+		if errors.Is(err, store.ErrLocked) {
+			return fmt.Errorf("another controller is already running against %s on this host; "+
+				"stop it before starting this one", cfg.Database.Path)
+		}
+		return err
+	}
+	defer func() { _ = unlock() }()
+
 	st, err := store.Open(ctx, store.Options{Path: cfg.Database.Path})
 	if err != nil {
 		return err
 	}
 	defer st.Close()
+
+	lease, err := takeControllerLease(ctx, st, *takeover)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		// Handed back on a clean stop so the next controller starts at once
+		// rather than waiting out a lease nobody holds.
+		if err := st.ReleaseControllerLease(context.WithoutCancel(ctx), lease.Holder); err != nil {
+			log.Warn("could not hand the controller lease back", "error", err)
+		}
+	}()
 
 	key, err := loadOrCreateKey(cfg, log)
 	if err != nil {
@@ -89,6 +119,7 @@ func runController(ctx context.Context, e *env, args []string) error {
 		Backends: backends,
 		Logger:   log,
 		LogLevel: level,
+		Lease:    lease,
 	})
 	if err != nil {
 		return err
@@ -135,6 +166,32 @@ func runController(ctx context.Context, e *env, args []string) error {
 	printBanner(e.out, cfg, backends)
 	printSetupToken(ctx, e.out, ctrl, log)
 	return srv.ListenAndServe(ctx)
+}
+
+// takeControllerLease claims this database for this controller, or refuses to
+// start and says who has it.
+//
+// The message is the whole point of the lease: an operator who has just been
+// refused needs to know which machine to go and look at, and "the database is
+// locked" would send them to the wrong one.
+func takeControllerLease(ctx context.Context, st *store.Store, takeover bool) (*store.ControllerLease, error) {
+	host, _ := os.Hostname()
+	lease := &store.ControllerLease{
+		Holder:  store.NewID(store.PrefixController),
+		Host:    host,
+		PID:     os.Getpid(),
+		Version: version.Version,
+	}
+	held, err := st.AcquireControllerLease(ctx, lease, controller.LeaseTTL, takeover)
+	if errors.Is(err, store.ErrConflict) {
+		return nil, fmt.Errorf("another controller holds this database: %s, last seen %s ago. "+
+			"Stop it, or start this one with --takeover if you know it is gone",
+			held.Describe(), time.Since(held.RenewedAt).Round(time.Second))
+	}
+	if err != nil {
+		return nil, fmt.Errorf("taking the controller lease: %w", err)
+	}
+	return lease, nil
 }
 
 // ---------------------------------------------------------------------------

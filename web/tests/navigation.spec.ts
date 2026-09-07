@@ -154,6 +154,9 @@ test('a page whose code does not arrive recovers without the operator doing anyt
   // upgraded controller answers 404 for it. Both look like this, and neither
   // should leave "That page could not be loaded" on the screen when the very
   // next attempt would have worked.
+  // Reached with openSection rather than navEntry: the phone's bottom bar
+  // carries only the four primary sections, and Hosts is not one of them, so
+  // clicking the bar entry directly waits for a link that is in the side menu.
   let dropped = 0;
   await page.route(/\/assets\/Hosts\.[^/]*\.js$/, async (route) => {
     if (dropped === 0) {
@@ -164,7 +167,7 @@ test('a page whose code does not arrive recovers without the operator doing anyt
     await route.fallback();
   });
 
-  await navEntry(page, '/hosts').click();
+  await openSection(page, '/hosts');
 
   await expect(pageHeading(page, 'Hosts')).toBeVisible();
   expect(dropped, 'the chunk request really was dropped once').toBe(1);
@@ -179,7 +182,7 @@ test('a page whose code never arrives says so rather than reloading forever', as
   // in a loop.
   await page.route(/\/assets\/Hosts\.[^/]*\.js$/, (route) => route.abort('connectionfailed'));
 
-  await navEntry(page, '/hosts').click();
+  await openSection(page, '/hosts');
 
   await expect(page.getByText('That page could not be loaded')).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();

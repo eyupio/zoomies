@@ -168,6 +168,33 @@ stands that installation down for a quarter of an hour and carries on with the
 rest, because the quota is per installation and abandoning the sweep would let
 one organisation out of quota stop every other one from scaling.
 
+### One controller per database
+
+Two controllers over one database is not a supported topology and never was,
+but nothing used to stop it. SQLite's busy timeout serialises writes; it does
+not stop a second scheduler minting runner credentials, reclaiming hosts it
+thinks are lost and reaping workloads the first one created. Every symptom of
+that looks like a bug somewhere else.
+
+A controller therefore takes two things before it starts. An advisory lock on
+a file beside the database catches a second process on the same host, and the
+kernel drops it however the process exits, so a controller killed with
+`SIGKILL` leaves nothing to clean up. A lease row in the database catches what
+no lock on this host can see: a restored copy on a shared filesystem, or a
+controller on another machine pointed at the same file. A controller refused by
+either says which host and process is holding it, and `--takeover` starts
+anyway for the case where the other one is known to be gone.
+
+A controller restarting on the same host reclaims its predecessor's lease at
+once rather than waiting the lease out — the service unit restarts always, and
+the lock it already holds proves nothing else here has the database. The
+cross-host case, which is the one the lease exists for, is refused as normal.
+
+The holder renews its lease on a timer. If a renewal finds somebody else
+holding it, the controller raises `controller.lease_lost` and keeps raising it:
+two schedulers are now running, and this is not a state a process recovers from
+by trying again.
+
 ## Components
 
 | Package | Responsibility |

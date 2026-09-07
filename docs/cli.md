@@ -38,7 +38,7 @@ The listing commands add `--limit` (50), `--offset`, `--sort` and `--order`.
 
 | Command | What it does |
 | --- | --- |
-| `zoomies controller [--config path]` | Run the control plane: the scheduler, the API, the web UI and the webhook endpoint. On a single VM it runs an agent inside itself. |
+| `zoomies controller [--config path] [--takeover]` | Run the control plane: the scheduler, the API, the web UI and the webhook endpoint. On a single VM it runs an agent inside itself. It refuses to start when another controller holds the database, naming which machine and process has it; `--takeover` starts anyway, for the case where you know the other one is gone and cannot be asked. |
 | `zoomies agent [--config path]` | Run this host's agent: long-poll a controller for work, start and stop runners, report what happens. Also takes `--controller` and `--join-token` for a host configured entirely from flags. |
 | `zoomies agent join <controller-url> --token <join-token>` | Enrol this host: redeem the token, write the credentials, install the service. |
 

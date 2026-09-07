@@ -1064,6 +1064,46 @@ type WebhookDelivery struct {
 	ReceivedAt     time.Time `json:"received_at"`
 }
 
+// ControllerLease is the running control plane, as the database knows it.
+//
+// It is what a second controller reads before it starts: a file lock catches
+// another process on the same host, and this catches the copy on a shared
+// filesystem or on another machine, which no lock on this host can see.
+type ControllerLease struct {
+	// Holder is the controller instance, minted fresh on every start, so that
+	// a restarted controller can tell its own old row from a live rival's.
+	Holder string `json:"holder"`
+	// Host, PID and Version are for the operator staring at the refusal: they
+	// have to be able to go and find the thing that is already running.
+	Host       string    `json:"host,omitempty"`
+	PID        int       `json:"pid,omitempty"`
+	Version    string    `json:"version,omitempty"`
+	AcquiredAt time.Time `json:"acquired_at"`
+	RenewedAt  time.Time `json:"renewed_at"`
+}
+
+// Stale reports whether a lease has not been renewed inside ttl, which is what
+// lets a controller that was killed rather than stopped be replaced without an
+// operator having to force it.
+func (l *ControllerLease) Stale(now time.Time, ttl time.Duration) bool {
+	return l == nil || !now.Before(l.RenewedAt.Add(ttl))
+}
+
+// Describe names the holder in the one sentence an operator gets.
+func (l *ControllerLease) Describe() string {
+	if l == nil {
+		return "nobody"
+	}
+	where := l.Host
+	if where == "" {
+		where = "an unnamed host"
+	}
+	if l.PID > 0 {
+		return fmt.Sprintf("%s (pid %d) on %s", l.Holder, l.PID, where)
+	}
+	return fmt.Sprintf("%s on %s", l.Holder, where)
+}
+
 // User is a local account authenticated with an argon2id password hash.
 type User struct {
 	ID           string `json:"id"`

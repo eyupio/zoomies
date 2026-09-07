@@ -76,6 +76,10 @@ type Options struct {
 	// level changed through PATCH /settings or SIGHUP is the level the process
 	// actually logs at, not merely the one the settings page shows.
 	LogLevel *slog.LevelVar
+	// Lease is this controller's claim on the database, taken before the
+	// controller was built. A nil lease means nothing renews and nothing is
+	// reported, which is what an embedded or test controller wants.
+	Lease *store.ControllerLease
 }
 
 // Controller owns the control plane's moving parts and their lifecycles.
@@ -136,6 +140,12 @@ type Controller struct {
 	// can report the queued jobs no pool claimed without deciding again.
 	lastPlan   *scheduler.Plan
 	lastPlanAt time.Time
+	// lease is this controller's claim on the database, renewed on a timer.
+	// leaseLost is set when a renewal found somebody else holding it, which is
+	// the fleet's worst state: two schedulers, both certain they are the only
+	// one. It is never cleared -- the operator has to look.
+	lease     *store.ControllerLease
+	leaseLost atomic.Pointer[store.ControllerLease]
 	// runnerGroups remembers the pools whose runner group could not be
 	// resolved, so that the fallback to GitHub's Default group is a standing
 	// warning rather than a log line nobody reads. Keyed by pool ID.
@@ -236,6 +246,7 @@ func New(opts Options) (*Controller, error) {
 
 	c := &Controller{
 		st:               opts.Store,
+		lease:            opts.Lease,
 		live:             config.NewLive(opts.Config),
 		logLevel:         opts.LogLevel,
 		key:              opts.Key,
@@ -294,6 +305,9 @@ func (c *Controller) Start(ctx context.Context) error {
 	c.spawn("poller", loopCtx, c.pollLoop)
 	c.spawn("installations", loopCtx, c.probeLoop)
 	c.spawn("background", loopCtx, c.backgroundLoop)
+	if c.lease != nil {
+		c.spawn("lease", loopCtx, c.leaseLoop)
+	}
 	if seedRequested() {
 		c.spawn("demo-heartbeat", loopCtx, c.demoHeartbeatLoop)
 	}
