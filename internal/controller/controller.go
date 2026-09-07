@@ -122,8 +122,14 @@ type Controller struct {
 	// says out loud because a fleet scaling on the poller looks healthy until
 	// somebody wonders why it is slow.
 	pollingOnly atomic.Bool
-	// pollPausedUntil is a rate-limit backoff, as Unix nanoseconds.
-	pollPausedUntil atomic.Int64
+	// pollMu guards pollPaused, which is a map rather than one deadline
+	// because GitHub's quota is per installation: one organisation spending
+	// its hour must not stop the fleet polling another's, which is the whole
+	// point of the fallback poller on a controller serving several.
+	pollMu sync.Mutex
+	// pollPaused is the rate-limit backoff for each installation: the moment
+	// polling it may resume. An installation absent from the map is not held.
+	pollPaused map[string]time.Time
 
 	mu sync.Mutex
 	// lastPlan is the most recent scheduler decision, kept so that Problems

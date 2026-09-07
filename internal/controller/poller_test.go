@@ -45,8 +45,11 @@ func TestPollerStandsDownWhenWebhooksAreRecent(t *testing.T) {
 	h.fleet()
 	h.gh.AddQueuedJob("acme/widgets", "CI", "build", []string{"self-hosted", "linux", "x64", "demo"})
 
+	// The repository is what credits the delivery to an installation, and a
+	// real workflow_job delivery always carries one.
 	if err := h.st.RecordDelivery(h.ctx, &store.WebhookDelivery{
-		DeliveryID: "recent", Event: "workflow_job", Status: "accepted", ReceivedAt: time.Now(),
+		DeliveryID: "recent", Event: "workflow_job", Repo: "acme/widgets",
+		Status: "accepted", ReceivedAt: time.Now(),
 	}); err != nil {
 		t.Fatalf("RecordDelivery: %v", err)
 	}
@@ -91,14 +94,14 @@ func TestPollerKeepsGoingWhenDeliveriesAreRejected(t *testing.T) {
 // spend the quota the webhook path's own calls need.
 func TestPollerBacksOffWhenRateLimited(t *testing.T) {
 	h := newHarness(t)
-	h.fleet()
+	inst, _, _ := h.fleet()
 	reset := time.Now().Add(time.Hour)
 	h.gh.SetRateLimit(5000, 0, reset)
 	h.gh.SetError("/installation/repositories", 403, "API rate limit exceeded")
 
 	h.c.pollOnce(h.ctx)
 
-	if h.c.pollPausedUntil.Load() == 0 {
+	if !h.c.pollHeld(inst.ID, time.Now()) {
 		t.Fatal("the poller did not back off after GitHub reported a rate limit")
 	}
 

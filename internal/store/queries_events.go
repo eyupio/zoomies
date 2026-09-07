@@ -832,6 +832,53 @@ func (s *Store) LastAcceptedDeliveryAt(ctx context.Context) (time.Time, error) {
 	return s.lastDeliveryAt(ctx, "accepted")
 }
 
+// LastAcceptedDeliveryByInstallation returns, for each installation, when a
+// webhook for one of its repositories last verified.
+//
+// A delivery is credited to the installation that owns its repository, by the
+// same precedence FindInstallationByTarget uses -- deliberately not to the one
+// whose secret verified it, which verification allows to be another's. An
+// installation whose secrets have drifted is exactly the one whose webhooks
+// are not arriving, and crediting its neighbour's delivery to it would tell
+// the poller to stand down over the fleet's most broken installation.
+//
+// One query rather than one per installation: the caller has the whole list in
+// hand and asks on every sweep. An installation nothing has arrived for is
+// absent from the map, which reads as the zero time -- poll it.
+func (s *Store) LastAcceptedDeliveryByInstallation(ctx context.Context) (map[string]time.Time, error) {
+	rows, err := s.read.QueryContext(ctx, `
+		SELECT owner, MAX(received_at) FROM (
+			SELECT d.received_at AS received_at, (
+				SELECT i.id FROM installations i
+				 WHERE (i.target_type = 'repo' AND i.target = d.repo)
+				    OR (i.target_type = 'org'  AND i.target = CASE
+				            WHEN instr(d.repo, '/') > 1
+				            THEN substr(d.repo, 1, instr(d.repo, '/') - 1)
+				            ELSE d.repo END)
+				 ORDER BY CASE i.target_type WHEN 'repo' THEN 0 ELSE 1 END
+				 LIMIT 1
+			) AS owner
+			  FROM webhook_deliveries d
+			 WHERE d.status = 'accepted' AND d.repo != ''
+		)
+		WHERE owner IS NOT NULL
+		GROUP BY owner`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]time.Time{}
+	for rows.Next() {
+		var id string
+		var ms int64
+		if err := rows.Scan(&id, &ms); err != nil {
+			return nil, err
+		}
+		out[id] = at(ms)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) lastDeliveryAt(ctx context.Context, status string) (time.Time, error) {
 	var v sql.NullInt64
 	var err error
