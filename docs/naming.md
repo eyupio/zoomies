@@ -170,21 +170,28 @@ fail at the first job.
 
 ### Baking in a toolchain
 
-The image is deliberately not an "everything a build might need" mega-image: a
-smaller image is a faster cold start, which is the whole point of ephemeral
-runners. What a job needs beyond the baseline belongs in the job's own
-container or in a setup step.
+The image already carries what a build usually reaches for — a compiler, the
+headers native extensions link against, `python3`, `node`, `git-lfs` and the
+GitHub CLI — because a runner missing `cc` is a workflow that fails in the
+middle of somebody's afternoon with an error about a missing compiler rather
+than about this image.
 
-When a whole fleet needs the same extra packages, `EXTRA_PACKAGES` bakes them in
+When a whole fleet needs something beyond that, `EXTRA_PACKAGES` bakes it in
 without forking the Dockerfile:
 
 ```sh
 docker build -f deploy/Dockerfile.runner \
   --build-arg BASE=ubuntu:24.04 --build-arg OS_FAMILY=apt \
   --build-arg OS_ID=ubuntu --build-arg OS_VERSION=24.04 \
-  --build-arg EXTRA_PACKAGES="python3 build-essential" \
+  --build-arg EXTRA_PACKAGES="ruby-dev libpq-dev" \
   -t ghcr.io/acme/our-runner:ubuntu-2404 .
 ```
+
+The packages are named for the variant's own package manager, so an `apt`
+variant wants `libpq-dev` and a `dnf` one `libpq-devel`. They are installed in
+the image's last layer, so changing the list costs one package install rather
+than rebuilding the toolchain above it — and an unknown name fails the build,
+which is a much better place to find out than a workflow.
 
 Then point a pool at it with `--image`, which overrides whatever its platform
 would have selected.

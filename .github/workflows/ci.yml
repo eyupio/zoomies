@@ -177,9 +177,11 @@ jobs:
           shellcheck -s sh install.sh
           shellcheck deploy/runner-entrypoint.sh
           # The runner image's own scripts run under whatever /bin/sh the base
-          # image has, which on Debian is not bash.
-          for f in deploy/runner-packages.sh deploy/runner-toolchain.sh \
-                   deploy/runner-gh.sh deploy/runner-docker-cli.sh; do
+          # image has, which on Debian is not bash. Globbed rather than listed,
+          # so a new one is covered by existing.
+          for f in deploy/runner-*.sh; do
+            # The entrypoint is bash and is checked as bash, above.
+            case "$f" in deploy/runner-entrypoint.sh) continue ;; esac
             dash -n "$f"
             shellcheck -s sh "$f"
           done
@@ -462,3 +464,40 @@ jobs:
             OS_ID=${{ matrix.os }}
             OS_VERSION=${{ matrix.version }}
           tags: ${{ steps.tags.outputs.zoomies-runner-docker }}
+
+      # EXTRA_PACKAGES is a documented way to bake a fleet's own toolchain into
+      # a variant without forking the Dockerfile, and nothing above exercises
+      # it: it could stop reaching the image entirely and every build in this
+      # workflow would still pass. So each variant is built once more with it
+      # set, and the result is run.
+      #
+      # That is cheap because deploy/runner-extra.sh is the image's last layer:
+      # everything beneath it is a cache hit from the build above. Doing it on
+      # every row rather than one covers both package families, which is the
+      # only thing that script branches on. amd64 only, because a
+      # multi-platform image cannot be loaded into the local daemon to run.
+      - name: Build the variant with an extra package
+        uses: useblacksmith/build-push-action@9b0579bbec7a6cad2f171596c57e7ac1e7658850 # v2.3.0
+        with:
+          context: .
+          file: deploy/Dockerfile.runner
+          target: runner
+          platforms: linux/amd64
+          push: false
+          load: true
+          build-args: |
+            BASE=${{ matrix.base }}
+            OS_FAMILY=${{ matrix.family }}
+            OS_ID=${{ matrix.os }}
+            OS_VERSION=${{ matrix.version }}
+            EXTRA_PACKAGES=tree
+          tags: zoomies-runner-extra-packages:${{ matrix.tag }}
+
+      - name: The extra package is in the image
+        env:
+          IMAGE: zoomies-runner-extra-packages:${{ matrix.tag }}
+        run: |
+          set -eu
+          # `tree` is in no variant's own package list, so finding it on PATH
+          # can only mean the build argument arrived.
+          docker run --rm --entrypoint tree "$IMAGE" --version

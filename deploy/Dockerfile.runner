@@ -87,7 +87,8 @@ ARG OS_FAMILY=apt
 ARG OS_ID=ubuntu
 ARG OS_VERSION=24.04
 # EXTRA_PACKAGES bakes a fleet's own toolchain into a variant without forking
-# this file: --build-arg EXTRA_PACKAGES="ruby-dev golang".
+# this file: --build-arg EXTRA_PACKAGES="ruby-dev golang". It is installed in a
+# layer of its own, below -- see deploy/runner-extra.sh for why.
 ARG EXTRA_PACKAGES=""
 
 LABEL org.opencontainers.image.title="zoomies-runner" \
@@ -154,7 +155,7 @@ RUN set -eux; \
 # it does not re-fetch the ~200 MB archive above. What is in it, and what is
 # deliberately not, is in deploy/runner-toolchain.sh.
 COPY --chmod=0755 deploy/runner-toolchain.sh /tmp/runner-toolchain.sh
-RUN /tmp/runner-toolchain.sh "${OS_FAMILY}" ${EXTRA_PACKAGES} && rm /tmp/runner-toolchain.sh
+RUN /tmp/runner-toolchain.sh "${OS_FAMILY}" && rm /tmp/runner-toolchain.sh
 
 # The GitHub CLI, from GitHub's own repository because no distribution here
 # carries it.
@@ -176,6 +177,13 @@ RUN set -eux; \
     npm --version; \
     git lfs version; \
     gh --version
+
+# The fleet's own packages, last, so that editing the list costs one package
+# install rather than the whole toolchain above -- and so that a build with
+# EXTRA_PACKAGES set is cheap enough for CI to run one on every variant, which
+# is what keeps this build argument from quietly ceasing to work.
+COPY --chmod=0755 deploy/runner-extra.sh /tmp/runner-extra.sh
+RUN /tmp/runner-extra.sh "${OS_FAMILY}" ${EXTRA_PACKAGES} && rm /tmp/runner-extra.sh
 
 COPY --chmod=0755 deploy/runner-entrypoint.sh /usr/local/bin/entrypoint.sh
 
