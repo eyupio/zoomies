@@ -57,6 +57,14 @@ func UsageAllocationAttributable(group UsageGroup) bool {
 
 // Usage aggregates jobs and allocated runner lifetime without assuming a
 // cloud price. Pool costs, when configured by an administrator, are estimates.
+//
+// Only this fleet's jobs are counted. GitHub reports every job in an installed
+// repository, and a job it ran on one of its own hosted runners consumed no
+// runner-hour here, waited in no queue of ours and cost this fleet nothing --
+// counting it would inflate every figure on the page and, grouped by
+// installation, invent a row for a pool that does not exist. The predicate is
+// the one the Jobs page and the Overview use, so a repository's runner-hours
+// here and its job list there are about the same jobs.
 func (s *Store) Usage(ctx context.Context, from, to time.Time, group UsageGroup) ([]UsageRow, error) {
 	if !from.Before(to) {
 		return nil, fmt.Errorf("usage range must have from before to")
@@ -64,9 +72,9 @@ func (s *Store) Usage(ctx context.Context, from, to time.Time, group UsageGroup)
 	var expr string
 	switch group {
 	case UsageByInstallation:
-		// A job GitHub ran on one of its own hosted runners has no pool, so
-		// the LEFT JOIN yields NULL here, and scanning NULL into a string
-		// fails the whole query. Most real windows contain such a job.
+		// COALESCE survives the LEFT JOIN even now the hosted jobs are gone:
+		// an unclaimed queued job is this fleet's to see and still has no
+		// pool, and scanning NULL into a string fails the whole query.
 		expr = "COALESCE(p.installation_id, '')"
 	case UsageByRepository:
 		expr = "j.repo"
@@ -91,7 +99,8 @@ func (s *Store) Usage(ctx context.Context, from, to time.Time, group UsageGroup)
 	lo, hi := ms(from), ms(to)
 	rows, err := s.read.QueryContext(ctx, `SELECT `+expr+`, j.queued_at, j.started_at, j.completed_at
 		FROM jobs j LEFT JOIN pools p ON p.id=j.pool_id
-		WHERE j.queued_at < ? AND COALESCE(j.completed_at, ?) >= ?`, ms(to), ms(to), ms(from))
+		WHERE j.queued_at < ? AND COALESCE(j.completed_at, ?) >= ?
+		AND `+managedJobSQL(), ms(to), ms(to), ms(from))
 	if err != nil {
 		return nil, err
 	}

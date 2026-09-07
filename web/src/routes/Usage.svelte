@@ -170,7 +170,10 @@
   }
 </script>
 
-<PageHeader title="Usage" subtitle="Runner capacity and job activity over a range of days.">
+<PageHeader
+  title="Usage"
+  subtitle="This fleet's runner capacity and job activity over a range of days. Jobs GitHub ran on its own hosted runners are not counted: they used no runner here."
+>
   <Button
     variant="secondary"
     size="sm"

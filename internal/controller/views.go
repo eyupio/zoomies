@@ -60,9 +60,22 @@ type HostView struct {
 	OSVersion     string            `json:"os_version,omitempty"`
 	Arch          string            `json:"arch,omitempty"`
 	// CPUs and MemoryMB are how much machine this host is, as its agent
-	// reported it -- the cgroup's share when the agent runs in a container.
+	// reported it: the daemon's view of the machine where that is larger than
+	// the agent's own share, because a container runner runs beside the agent
+	// rather than inside its cgroup.
 	CPUs     int   `json:"cpus,omitempty"`
 	MemoryMB int64 `json:"memory_mb,omitempty"`
+	// DiskTotalMB and DiskFreeMB are the filesystem holding the agent's work
+	// directory, which is where a runner's checkout and its caches land -- so
+	// it is the disk that decides whether a job has anywhere to go, and the
+	// answer to "the host has slots free, why did nothing start?".
+	//
+	// Free is what a runner may write to rather than what is unused; the two
+	// differ by the reserve the filesystem keeps for root, and a runner is not
+	// root. Zero on both is "not measured" -- an agent too old to report it,
+	// or a platform with no portable way to ask -- and is not a full disk.
+	DiskTotalMB int64 `json:"disk_total_mb,omitempty"`
+	DiskFreeMB  int64 `json:"disk_free_mb,omitempty"`
 	// Platform is what this host is in the terms a pool asks in, and
 	// PlatformLabel is the same thing as a sentence: "Ubuntu 24.04, arm64".
 	Platform      store.Platform `json:"platform"`
@@ -103,6 +116,8 @@ func (c *Controller) HostView(h *store.Host) HostView {
 		Arch:          h.Arch,
 		CPUs:          h.CPUs,
 		MemoryMB:      h.MemoryMB,
+		DiskTotalMB:   h.DiskTotalMB,
+		DiskFreeMB:    h.DiskFreeMB,
 		Platform:      h.Platform(),
 		PlatformLabel: h.Platform().Describe(),
 		CanonicalName: h.CanonicalName(),

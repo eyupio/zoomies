@@ -155,13 +155,18 @@ func TestAllocationIsAbsentForGroupingsThatCannotAttributeIt(t *testing.T) {
 	}
 }
 
-// A job GitHub ran on its own hosted runners has no pool, and the installation
-// grouping reaches the installation through the pool. That NULL used to fail
-// the whole query, so a window with a single hosted-runner job in it -- which
-// is most windows on a fleet still migrating -- answered with an error.
+// A job with no pool reaches no installation, and the grouping reaches the
+// installation through the pool. That NULL used to fail the whole query, so a
+// window containing one such job answered with an error rather than a report.
+//
+// The job that used to demonstrate it was one GitHub ran on its own hosted
+// runners; those are now excluded from usage altogether. A queued job no pool
+// has claimed is the case that remains, and it is one this fleet should see:
+// nothing ran it, which is the fleet's problem rather than somebody else's
+// work.
 func TestUsageByInstallationTolerantOfJobsWithoutAPool(t *testing.T) {
 	s := newTestStore(t)
-	seedUsageJob(t, s, "", "acme/widgets", 0, mins(1), mins(2))
+	seedUsageJob(t, s, "", "acme/widgets", 0, nil, nil)
 
 	rows, err := s.Usage(context.Background(), usageAt(0), usageAt(10), UsageByInstallation)
 	if err != nil {
@@ -169,5 +174,55 @@ func TestUsageByInstallationTolerantOfJobsWithoutAPool(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0].Key != "" || rows[0].Jobs != 1 {
 		t.Fatalf("got %+v, want one row under the empty key counting the job", rows)
+	}
+}
+
+// TestUsageCountsOnlyThisFleetsJobs is what makes the page a report about this
+// fleet rather than about the organisation's whole Actions bill.
+//
+// A job GitHub ran on one of its own hosted runners consumed no runner-hour
+// here, waited in no queue of ours and cost this fleet nothing. Counting it
+// inflates every figure on the page -- and grouped by installation it invents a
+// row under the empty key for runners that were never ours.
+func TestUsageCountsOnlyThisFleetsJobs(t *testing.T) {
+	s := newTestStore(t)
+	_, pool, _ := seedPool(t, s)
+
+	// Ours: claimed by a pool, started and finished inside the window.
+	seedUsageJob(t, s, pool.ID, "acme/widgets", 0, mins(1), mins(3))
+	// Somebody else's: no pool ever claimed it, and it ran to completion
+	// elsewhere. Longer, and overlapping ours, so neither its runner-hours nor
+	// its concurrency can hide in the other's. The differing queue minute is
+	// what gives it a GitHub job ID of its own -- seeded with the same one it
+	// would upsert over the first and the fixture would prove nothing.
+	seedUsageJob(t, s, "", "acme/widgets", 1, mins(1), mins(6))
+
+	byRepo := usageRow(t, s, usageAt(-10), usageAt(60), UsageByRepository, "acme/widgets")
+	if byRepo.Jobs != 1 || byRepo.JobsStarted != 1 || byRepo.JobsCompleted != 1 {
+		t.Errorf("counted %d queued, %d started, %d completed; the hosted job is in the report",
+			byRepo.Jobs, byRepo.JobsStarted, byRepo.JobsCompleted)
+	}
+	// Two minutes of execution, not seven: the hosted job's five are not this
+	// fleet's to report.
+	if want := (2 * time.Minute).Seconds(); byRepo.JobExecutionSeconds != want {
+		t.Errorf("execution = %.0fs, want %.0fs", byRepo.JobExecutionSeconds, want)
+	}
+	// And concurrency is what this fleet actually ran at once. The two jobs
+	// overlap, so an unfiltered report would say two.
+	if byRepo.PeakConcurrency != 1 {
+		t.Errorf("peak concurrency = %d, want 1: the hosted job was never running here",
+			byRepo.PeakConcurrency)
+	}
+
+	// Grouped by installation there is one row, the pool's, and no empty-key
+	// row invented for machines that were never ours.
+	rows, err := s.Usage(context.Background(), usageAt(-10), usageAt(60), UsageByInstallation)
+	if err != nil {
+		t.Fatalf("Usage by installation: %v", err)
+	}
+	for _, r := range rows {
+		if r.Key == "" {
+			t.Errorf("a row appeared under the empty key: %+v", r)
+		}
 	}
 }

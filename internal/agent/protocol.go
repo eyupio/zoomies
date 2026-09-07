@@ -33,8 +33,12 @@ type JoinRequest struct {
 	Distro    string `json:"distro,omitempty"`
 	OSVersion string `json:"os_version,omitempty"`
 	Arch      string `json:"arch"`
-	// CPUs and MemoryMB are how much machine this agent may use, which is the
-	// cgroup's share when it runs in a container rather than the host's total.
+	// CPUs and MemoryMB are how much machine this host is, which is not always
+	// how much this agent may use. An agent in a container sees its cgroup's
+	// share, but a Docker runner is a sibling on the host and outside that
+	// cgroup, so the daemon's view of the machine is the one that decides what
+	// can be placed here; the larger of the two is sent. A process-backend
+	// runner is a child inside the cgroup, and there the two are the same.
 	CPUs     int   `json:"cpus,omitempty"`
 	MemoryMB int64 `json:"memory_mb,omitempty"`
 	// DiskTotalMB and DiskFreeMB measure the filesystem holding the work
