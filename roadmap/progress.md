@@ -41,7 +41,7 @@ evidence.
 | ID | Package | Classification | Status | Depends on | Session | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
 | ZF-101 | Enforce GitHub target boundaries everywhere | new (jobs carry no installation identity; label-only matching on all four paths) | `in_progress` | ZF-002 | PR1 and PR2: Claude Opus 5, `ultracode`; one orchestration of 8 subsystem mappers and 8 adversarial verifiers for PR1, a smaller one of 3 and 3 for PR2, each followed by one session | PR1 merged as #99: a job carries the installation covering its repository, `scheduler.Eligible` asks enabled, then installation, then labels, and all four matching paths go through it. Migration `0012` (not `0010`: 0010 and 0011 shipped since the plan was written). PR2 merged as #100: poll freshness and the rate-limit hold are both per installation, freshness credited by the delivery's repository rather than by the secret that verified it. PR3 done: the runner-group fallback is a `pool.runner_group_unresolved` warning on the drawer and the pool's own page instead of a log line, and `docs/hosts-and-pools.md` says a pool belongs to one installation and that GitHub, not Zoomies, makes the final dispatch decision inside an organisation. Every behavioural test was run against the code with its rule removed and confirmed to fail first |
-| ZF-102 | Make runner and agent reconciliation convergent | mixed (mechanics exist; adoption on restart and a controller lock do not; the log-relay host check landed with the security review) | `in_progress` | ZF-002; N02 needs `main` deployed | PR1: Claude Fable 5.1, `xhigh`, one session. PR2: Claude Opus 5, `ultracode`; one orchestration of 3 subsystem mappers and 3 adversarial verifiers, then one session | PR1 and PR2 of 4 done. PR1: the "Reconciliation invariants" section in `docs/architecture.md` with `internal/controller/invariants_test.go`. PR2: a database lock and a controller lease, with `--takeover` and `controller.lease_lost`. **Half of PR2 was already done**: the log relay has checked the authenticated host since PR #90's security review, with a test (`TestLogRelayRefusesAnotherHostsStream`), so only the lock and lease were outstanding. PR3 (adoption on agent start) and PR4 (late reports and the restart table) remain |
+| ZF-102 | Make runner and agent reconciliation convergent | mixed (mechanics exist; adoption on restart and a controller lock do not; the log-relay host check landed with the security review) | `in_progress` | ZF-002; N02 needs `main` deployed | PR1: Claude Fable 5.1, `xhigh`, one session. PR2: Claude Opus 5, `ultracode`; one orchestration of 3 subsystem mappers and 3 adversarial verifiers, then one session | PR1 and PR2 of 4 done. PR1: the "Reconciliation invariants" section in `docs/architecture.md` with `internal/controller/invariants_test.go`. PR2: a database lock and a controller lease, with `--takeover` and `controller.lease_lost`. **Half of PR2 was already done**: the log relay has checked the authenticated host since PR #90's security review, with a test (`TestLogRelayRefusesAnotherHostsStream`), so only the lock and lease were outstanding. PR3 done: an agent adopts every runner already on its host before its loops start, and the controller answers each heartbeat with the runners it has no row for so that only those are reaped. `docs/upgrading.md` no longer hedges: a restart keeps its runners on a single-VM install too. PR4 (late reports and the restart table) remains |
 | ZF-103 | Reserve host resources and enforce bounded admission | extension (slot model complete; no host resource reporting) | `not_started` | ZF-102 | | Size L; 103a before Gate F, 103b after |
 | ZF-104 | Verify control-plane access and secret boundaries | mixed (matrix and most tests exist; log relay unscoped to host; streams never re-check credentials) | `not_started` | ZF-101, ZF-102 | | Size M |
 | ZF-105 | Bound cleanup, retention and external failure handling | mixed (local cleanup exists; failure invisible; one listing-failure defect) | `in_progress` | ZF-102, except the first pull request | first slice: Claude Fable 5.1, `high`, one session, 1 review round | Size M; the listing-failure defect is fixed in its own pull request with a test that reproduces it on the old code |
@@ -74,6 +74,29 @@ evidence.
 ## Log
 
 Newest first. One line per event that changed a row.
+
+* 2026-09-07: ZF-102's third pull request, the package's one genuine defect.
+  A fresh agent knew nothing, and the reconciler removes what nothing claims,
+  so every job running on a host was destroyed two minutes after its agent came
+  back -- on the default single-VM install, that is every controller restart.
+  The fix is small because `adopt` already existed for the redelivered-create
+  path; what was missing was calling it for everything on the host before the
+  loops start.
+  
+  Adoption alone would have traded one fault for another: an agent that adopts
+  everything can no longer tell litter from live work, so a workload whose
+  runner the controller deleted while the agent was down would leak forever.
+  Hence the second half, and the rule behind it -- the agent never decides on
+  its own that something is litter, because it cannot tell "the controller
+  deleted this" from "I have forgotten it", and only one of those costs
+  somebody a job. The controller names the runners it has no row for, and only
+  those are released. A runner belonging to another host is deliberately never
+  named: that is a different fault, and answering it would invite one host to
+  remove another's work.
+  
+  `TestWithoutAdoptionARestartWouldReapALiveRunner` is kept deliberately: it
+  asserts the old behaviour still destroys the fixture, so the test above it
+  cannot quietly stop testing anything.
 
 * 2026-09-07: ZF-102's second pull request, one controller per database. Its
   first half was already merged: the plan says "the log relay takes the

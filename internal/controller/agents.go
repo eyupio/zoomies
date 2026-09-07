@@ -533,7 +533,48 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 		Cordoned:          h.Cordoned,
 		ControllerVersion: version.Short(),
 		ResyncRequested:   c.markHostSeen(hostID, false),
+		UnknownRunners:    c.unknownRunners(ctx, hostID, req.Runners),
 	}, nil
+}
+
+// unknownRunners names the runners a host reported that this controller has no
+// live row for, which are the ones whose workloads it may remove.
+//
+// An agent adopts what it finds running when it starts, so a restart no longer
+// destroys the jobs on its host -- and that is also what stops it recognising
+// genuine litter. This is the other half: the controller is the only party
+// that knows a runner was deleted while the agent was down, so it says which,
+// and the agent reaps only those.
+//
+// A runner belonging to another host is deliberately not named. That is a
+// different fault, already logged where reports are applied, and answering
+// "unknown" would invite one host to remove another's work.
+func (c *Controller) unknownRunners(ctx context.Context, hostID string, reports []agent.RunnerReport) []string {
+	if len(reports) == 0 {
+		return nil
+	}
+	var unknown []string
+	for _, rep := range reports {
+		if rep.RunnerID == "" {
+			continue
+		}
+		r, err := c.st.GetRunner(ctx, rep.RunnerID)
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			unknown = append(unknown, rep.RunnerID)
+		case err != nil:
+			// A read that failed is not evidence the runner is gone, and the
+			// answer to this question deletes containers.
+			c.log.Warn("could not tell whether a reported runner still exists",
+				"host", hostID, "runner", rep.RunnerID, "error", err)
+		case r.HostID != hostID:
+			// Somebody else's, and not this host's to remove.
+		case r.State == store.RunnerRemoved:
+			unknown = append(unknown, rep.RunnerID)
+		}
+	}
+	slices.Sort(unknown)
+	return unknown
 }
 
 // PollTasks blocks until this host has work or wait elapses.

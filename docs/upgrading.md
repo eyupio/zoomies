@@ -15,17 +15,24 @@ go back in.
 
 ## What happens to work in flight
 
-A controller restart does not touch a running job on a host with its own agent.
-The runner is a container on that host, the job is executing inside it, and
-neither is talking to the controller while that happens — GitHub is. On a
-single-VM install the agent runs inside the controller, and a restart brings
-that agent back with no memory of the runners it left: reading the code says it
-treats them as workloads nobody claimed and removes them about two minutes
-after it starts. Until that is fixed (it is the first item of the roadmap's
-reconciliation package), drain the embedded host before restarting the
-controller on a single-VM install, or restart it while nothing is running. What a restart interrupts is the *reporting*:
-webhook deliveries during the gap are missed, and the fallback poller catches up
-when the controller returns, which is one of the reasons to leave it on.
+A restart does not touch a running job. The runner is a container on its host,
+the job is executing inside it, and neither is talking to the controller while
+that happens — GitHub is. That holds on a host with its own agent, and it now
+holds on a single-VM install too, where the agent runs inside the controller:
+an agent lists what is already on its host before it starts its loops and
+adopts every runner it finds, so a restart finds its own work rather than a set
+of containers nobody claims.
+
+It is the controller that says what may be cleaned up. An agent reports the
+runners it adopted, and the controller answers with the ones it has no record
+of — a runner deleted while the agent was down, say. Only those are removed.
+The agent never decides on its own that something is litter, because it cannot
+tell "the controller deleted this" from "I have forgotten it", and only one of
+those should cost somebody a job.
+
+What a restart interrupts is the *reporting*: webhook deliveries during the gap
+are missed, and the fallback poller catches up when the controller returns,
+which is one of the reasons to leave it on.
 
 Agents keep working while the controller is down. They long-poll, so a
 connection that fails is retried with backoff, and a host that cannot reach the

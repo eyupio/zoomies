@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -196,5 +197,40 @@ func TestLosingTheLeaseIsReportedAsAnErrorThatNamesTheNewHolder(t *testing.T) {
 	}
 	if !strings.Contains(found.Fix, "--takeover") {
 		t.Errorf("fix = %q, want it to name the flag that resolves this", found.Fix)
+	}
+}
+
+// The agent adopts what it finds running, so the controller is the only party
+// that knows a runner was deleted while the agent was down. It answers with
+// the ones it does not know, and the agent reaps only those.
+func TestTheHeartbeatNamesOnlyTheRunnersThisControllerDoesNotKnow(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	live := h.runnerRow(pool, host, store.RunnerBusy)
+	other := h.host("vm-other")
+	theirs := h.runnerRow(pool, other, store.RunnerBusy)
+
+	resp, err := h.c.Heartbeat(h.ctx, host.ID, agent.HeartbeatRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		Runners: []agent.RunnerReport{
+			{RunnerID: live.ID, State: store.RunnerBusy},
+			{RunnerID: "run_deletedwhiledown", State: store.RunnerBusy},
+			{RunnerID: theirs.ID, State: store.RunnerBusy},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+
+	if len(resp.UnknownRunners) != 1 || resp.UnknownRunners[0] != "run_deletedwhiledown" {
+		t.Fatalf("unknown = %v, want only the runner with no row", resp.UnknownRunners)
+	}
+	// A runner belonging to another host is a different fault, already logged
+	// where reports are applied. Answering "unknown" would invite one host to
+	// remove another's work.
+	for _, id := range resp.UnknownRunners {
+		if id == theirs.ID {
+			t.Error("a runner owned by another host was named as unknown")
+		}
 	}
 }

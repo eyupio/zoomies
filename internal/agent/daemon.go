@@ -455,6 +455,15 @@ func (a *Agent) Run(ctx context.Context) error {
 		"finished_retention", a.retention,
 		"version", version.Short())
 
+	// Adopt what is already running before anything can reap it.
+	//
+	// The agent's unit restarts always, and on a single-VM install the agent
+	// lives inside the controller, so an agent starting over live workloads is
+	// an everyday event rather than an edge case. A fresh agent knows nothing,
+	// and the reconciler removes what nothing claims: without this, every job
+	// running on the host is destroyed two minutes after the agent comes back.
+	a.adoptExisting(ctx)
+
 	loopCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -586,6 +595,12 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 			a.log.Info("host uncordoned; the controller may schedule runners here again")
 		}
 	}
+
+	// Everything this agent adopted stays tracked, and therefore safe from the
+	// reconciler, until the controller says it does not know it. Releasing
+	// only what it names is what keeps a restart from destroying live jobs
+	// while still clearing up a workload whose runner was deleted meanwhile.
+	a.releaseUnknown(resp.UnknownRunners)
 
 	if resp.ResyncRequested {
 		// The controller restarted and lost its cache, so re-probe rather than
@@ -1211,6 +1226,73 @@ func (a *Agent) resolve(ctx context.Context, runnerID string) (backend.Backend, 
 		}
 	}
 	return nil, "", false, errors.Join(errs...)
+}
+
+// releaseUnknown stops tracking the runners the controller says it has no row
+// for, which hands their workloads back to the reconciler's orphan path.
+//
+// It is the only route out of the tracked set that removal depends on, and it
+// is driven by the controller rather than by anything the agent can decide for
+// itself: the agent cannot tell "the controller deleted this runner" from "the
+// agent has forgotten it", and only one of those should cost somebody a job.
+func (a *Agent) releaseUnknown(runnerIDs []string) {
+	if len(runnerIDs) == 0 {
+		return
+	}
+	a.mu.Lock()
+	released := make([]string, 0, len(runnerIDs))
+	for _, id := range runnerIDs {
+		if _, ok := a.runners[id]; ok {
+			delete(a.runners, id)
+			released = append(released, id)
+		}
+	}
+	a.mu.Unlock()
+	if len(released) > 0 {
+		a.log.Info("the controller has no record of these runners; their workloads will be cleaned up",
+			"runners", strings.Join(released, ","))
+	}
+}
+
+// adoptExisting takes over every runner workload already on this host.
+//
+// It runs before the loops, so the reconciler's first pass sees a tracked set
+// that matches the host rather than an empty one. A backend that cannot be
+// listed is logged and skipped: the reconciler already refuses to conclude
+// anything about a backend it could not list, and starting without adopting
+// from it is the same position an agent is in a moment before its first
+// successful list.
+//
+// Only workloads carrying a runner id are adopted. One without is not this
+// controller's to manage under an identity it can name, and the reconciler's
+// orphan path is still the right home for it.
+func (a *Agent) adoptExisting(ctx context.Context) {
+	kinds := a.opts.Backends.Kinds()
+	slices.Sort(kinds)
+	adopted := 0
+	for _, kind := range kinds {
+		b, err := a.opts.Backends.Get(kind)
+		if err != nil {
+			a.log.Warn("could not reach a backend to adopt what it is running", "backend", kind, "error", err)
+			continue
+		}
+		workloads, err := b.List(ctx)
+		if err != nil {
+			a.log.Warn("could not list a backend's workloads to adopt them; runners it holds will be adopted "+
+				"when the controller next asks about them", "backend", kind, "error", err)
+			continue
+		}
+		for _, w := range workloads {
+			if w.RunnerID == "" {
+				continue
+			}
+			a.adopt(w.RunnerID, kind, w)
+			adopted++
+		}
+	}
+	if adopted > 0 {
+		a.log.Info("adopted runners already on this host", "runners", adopted)
+	}
 }
 
 // adopt records a workload the agent found on the host but had no memory of,
