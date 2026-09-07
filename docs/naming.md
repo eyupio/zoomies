@@ -1,11 +1,12 @@
 # Naming and platforms
 
-Zoomies has a grammar for the two names an operator reads and writes, and the
-name says what the thing is:
+Zoomies has a grammar for every name an operator reads and writes, and the name
+says what the thing is:
 
 ```
-zoomies-4vcpu-ubuntu-2404              a pool
-zoomies-16vcpu-32gb-ubuntu-2404-tuck   the host running it
+zoomies-4vcpu-ubuntu-2404                      a pool
+zoomies-16vcpu-32gb-ubuntu-2404-tuck           the host running it
+zoomies-4vcpu-ubuntu-2404-biscuit-a3f9qz2m     one of the pool's runners
 ```
 
 The reason is narrow and practical. `runs-on: linux-x64` tells a workflow author
@@ -14,12 +15,11 @@ a slow build even less. A name that carries the size and the platform answers
 both at a glance, and a pool's name is copied into every workflow file that uses
 it, so it is read far more often than it is written.
 
-**Runner names are not in this grammar.** `store.NewRunnerName` mints them as
-the brand plus eight random characters, and deliberately says nothing else:
-GitHub shows a runner name in the runner list, the job header and every log's
-"Set up job" step, in columns narrow enough that a longer name loses the brand
-to truncation. Which pool a runner belongs to is on its labels and one click
-away in Zoomies.
+Runner names matter for a different reason: they are the one thing Zoomies puts
+in somebody else's GitHub account. GitHub shows a runner's name in the runner
+list, in a job's header, and in the "Set up job" step of every log — three places
+a reader arrives at knowing nothing, and often the place they are looking
+*because* something landed somewhere surprising. The name answers them there.
 
 ## The grammar
 
@@ -34,7 +34,7 @@ zoomies-<vcpu>vcpu[-<memory>gb]-<os>-<version>[-<arch>][-<suffix>]
 | `<memory>gb` | `32gb` | Only when there is a memory limit to state. Host names carry it; pool names carry it only when the pool caps memory. |
 | `<os>-<version>` | `ubuntu-2404` | The distribution and its release, with the dots removed. `ubuntu-2404`, `debian-12`, `fedora-42`, `rocky-9`. |
 | `<arch>` | `arm64` | Omitted for `amd64`, which is the default. Spelled out for everything else. |
-| `<suffix>` | `tuck` | A host's machine name. Pools have none: a pool *is* its shape. |
+| `<suffix>` | `tuck`, `biscuit-a3f9qz2m` | What tells two things of the same shape apart: a host's machine name, or a runner's kennel word and token. Pools have none: a pool *is* its shape. |
 
 Every part after the prefix is optional and left out when it is not known. A
 host that will not say what distribution it runs gets a name without one, rather
@@ -53,6 +53,46 @@ saved as `gpu` is stored as `zoomies-gpu`. That is
 [`internal/store/brand.go`](https://github.com/eyupio/zoomies/blob/main/internal/store/brand.go),
 and it is about the label a workflow in somebody else's repository has to write,
 not about the grammar here.
+
+## Runner names
+
+A runner is named after the pool it belongs to, plus a discriminator that tells
+it from its siblings — `zoomies-4vcpu-ubuntu-2404-biscuit-a3f9qz2m`:
+
+| Part | Example | What it is for |
+| --- | --- | --- |
+| brand | `zoomies` | The only sign that a registration on GitHub is this fleet's. |
+| shape | `4vcpu-ubuntu-2404` | The pool's, in the grammar above. |
+| kennel word | `biscuit` | A handle two people can say to each other. |
+| token | `a3f9qz2m` | Eight random characters, which is what makes the name unique. |
+
+The **kennel word** is one of thirty-two cocker spaniel names — the same list
+the pool wizard offers, because a fleet whose pools are named from one list and
+whose runners are named from another reads as two products. It is there to be
+said out loud: "the biscuit one" is a thing two people on a call can both find.
+
+The **token** is eight random characters, and it is what actually guarantees
+uniqueness. GitHub requires a runner's name to be unique within the target, and
+thirty-two words collide about as often as two people in a room of eight share
+a birthday — fine for something you say, useless for something a registration
+depends on.
+
+A pool that has no shape to report — no resources, no platform — lends its own
+name instead, so a wizard-created pool gets
+`zoomies-biscuit-docker-linux-truffle-a3f9qz2m` rather than a runner called
+nothing in particular.
+
+When a name will not fit in 64 characters, the **shape** is what gives way, one
+whole segment at a time. Neither the brand nor the token may be spent: without
+the brand, the reaper cannot tell this registration from one somebody made by
+hand; without the token, two runners truncated to the same name are one
+registration fighting itself. Segments go whole rather than mid-word, because
+`...ubuntu-24` claims a release that does not exist, where a name one segment
+shorter only says less.
+
+Because a runner's name is in the grammar, anything holding one can read it
+back into the pool's shape — which is what makes it worth the characters rather
+than just longer.
 
 ## Platforms
 
@@ -179,7 +219,7 @@ what picks the image and restricts placement, not the name.
 actually use, which is the cgroup's share when the agent runs in a container --
 so the controller in a two-core container does not claim the host's sixty-four.
 
-**Runners.** `zoomies-` and eight random characters, and nothing else, for the
-reason at the top of this page. That prefix is also how the uninstaller and the
-agent's orphan sweep know which registrations and containers are Zoomies' to
+**Runners.** The pool's shape, a kennel word and a token, as
+[above](#runner-names). The `zoomies-` prefix is also how the uninstaller and
+the agent's orphan sweep know which registrations and containers are Zoomies' to
 reap, so it must not appear in front of anything else.

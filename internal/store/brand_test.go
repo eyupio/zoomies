@@ -3,25 +3,97 @@ package store
 import (
 	"strings"
 	"testing"
+
+	"github.com/eyupio/zoomies/internal/naming"
 )
 
-func TestNewRunnerNameIsBrandedAndShort(t *testing.T) {
+func TestNewRunnerNameCarriesTheShapeOfItsPool(t *testing.T) {
+	pool := &Pool{
+		Name:      "zoomies-biscuit-docker-linux",
+		Resources: Resources{CPUs: 4, MemoryMB: 8 * 1024},
+		Platform:  Platform{OS: "ubuntu", OSVersion: "24.04", Arch: "amd64"},
+	}
+	// The point of the shape: somebody reading GitHub's runner list learns how
+	// much machine the job got and what it ran on, without leaving the page.
+	const want = "zoomies-4vcpu-8gb-ubuntu-2404-"
+	name := NewRunnerName(pool)
+	if !strings.HasPrefix(name, want) {
+		t.Fatalf("NewRunnerName = %q, want it to start with %q", name, want)
+	}
+	// And the shape is the pool's, not the pool's invented name: the operator
+	// chose "biscuit" for a thing the reader is not looking at.
+	if strings.Contains(name, "biscuit") {
+		t.Errorf("NewRunnerName = %q, want the pool's shape rather than its name", name)
+	}
+}
+
+func TestNewRunnerNameFallsBackToThePoolName(t *testing.T) {
+	// A pool recorded before resources and platform were: there is no shape to
+	// report, and the name the operator chose says more than nothing does.
+	pool := &Pool{Name: "zoomies-biscuit-docker-linux"}
+	if name := NewRunnerName(pool); !strings.HasPrefix(name, "zoomies-biscuit-docker-linux-") {
+		t.Errorf("NewRunnerName = %q, want it to fall back to the pool's own name", name)
+	}
+	// And a runner being named before it has a pool is still ours to reap.
+	if name := NewRunnerName(nil); !IsRunnerName(name) {
+		t.Errorf("NewRunnerName(nil) = %q, want a name the reaper recognises", name)
+	}
+}
+
+func TestNewRunnerNameIsBrandedUniqueAndShortEnoughForGitHub(t *testing.T) {
+	pools := []*Pool{
+		nil,
+		{Name: "zoomies-4vcpu-ubuntu-2404", Resources: Resources{CPUs: 4},
+			Platform: Platform{OS: "ubuntu", OSVersion: "24.04"}},
+		// The worst case a real fleet can produce: every dimension named, on a
+		// pool whose own name is as long as the store will take.
+		{Name: strings.Repeat("long-", 12), Resources: Resources{CPUs: 192, MemoryMB: 768 * 1024},
+			Platform: Platform{OS: "ubuntu", OSVersion: "24.04", Arch: "arm64"}},
+		{Name: strings.Repeat("long-", 12)},
+	}
 	seen := map[string]bool{}
-	for range 200 {
-		name := NewRunnerName()
-		if !strings.HasPrefix(name, "zoomies-") {
-			t.Fatalf("runner name %q is not branded", name)
+	for _, pool := range pools {
+		for range 200 {
+			name := NewRunnerName(pool)
+			if !strings.HasPrefix(name, "zoomies-") {
+				t.Fatalf("runner name %q is not branded", name)
+			}
+			// GitHub refuses a longer one, and it refuses it at registration --
+			// several seconds into provisioning a runner somebody is waiting for.
+			if len(name) > 64 {
+				t.Fatalf("runner name %q is %d characters, more than GitHub accepts", name, len(name))
+			}
+			// The token is the last two segments' worth of the name and is what
+			// makes it unique; truncation that ate it would produce collisions
+			// only under load, which is the worst time to find out.
+			if seen[name] {
+				t.Fatalf("runner name %q was minted twice in 200 tries", name)
+			}
+			seen[name] = true
+			if !IsRunnerName(name) {
+				t.Fatalf("IsRunnerName(%q) = false, want true for a name we just minted", name)
+			}
 		}
-		if got := len(name); got != len("zoomies-")+8 {
-			t.Fatalf("runner name %q is %d characters, want %d", name, got, len("zoomies-")+8)
-		}
-		if seen[name] {
-			t.Fatalf("runner name %q was minted twice in 200 tries", name)
-		}
-		seen[name] = true
-		if !IsRunnerName(name) {
-			t.Fatalf("IsRunnerName(%q) = false, want true for a name we just minted", name)
-		}
+	}
+}
+
+func TestNewRunnerNameReadsBackAsItsPoolsSpec(t *testing.T) {
+	// A runner's name is in the grammar, so anything holding one can recover
+	// what it was made of -- which is what makes the name worth its characters.
+	pool := &Pool{
+		Name:      "zoomies-8vcpu-debian-12-arm64",
+		Resources: Resources{CPUs: 8},
+		Platform:  Platform{OS: "debian", OSVersion: "12", Arch: "arm64"},
+	}
+	spec, ok := naming.Parse(NewRunnerName(pool))
+	if !ok {
+		t.Fatal("a runner name does not parse back into the grammar that built it")
+	}
+	if spec.CPUs != 8 || spec.OS != "debian" || spec.Version != "12" || spec.Arch != "arm64" {
+		t.Errorf("parsed %+v, want the pool's 8 vCPU Debian 12 arm64 shape", spec)
+	}
+	if spec.Suffix == "" {
+		t.Error("parsed no discriminator, so two runners of this pool would share a name")
 	}
 }
 

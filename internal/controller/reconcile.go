@@ -233,7 +233,7 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, a sched
 			pool.Name, pool.InstallationID, err)
 	}
 
-	name := github.RunnerName()
+	name := github.RunnerName(pool)
 	r := &store.Runner{
 		PoolID:        pool.ID,
 		HostID:        a.HostID,
