@@ -473,7 +473,8 @@ func (s *Store) CountRunnersByPool(ctx context.Context) (map[string]PoolCounts, 
 const hostCols = `id, name, address, embedded, capacity, backends, backend_info, labels,
 	os, distro, os_version, arch, cpus, memory_mb, version, cordoned, token_hash,
 	last_heartbeat, created_at, agent_session_id, agent_session_prev,
-	agent_session_alternations, agent_session_alt_at`
+	agent_session_alternations, agent_session_alt_at,
+	disk_total_mb, disk_free_mb, reserve_cpus, reserve_memory_mb, reserve_disk_mb`
 
 func scanHost(sc interface{ Scan(...any) error }) (*Host, error) {
 	var h Host
@@ -483,7 +484,8 @@ func scanHost(sc interface{ Scan(...any) error }) (*Host, error) {
 	err := sc.Scan(&h.ID, &h.Name, &h.Address, &embedded, &h.Capacity, &h.Backends,
 		&h.BackendInfo, &h.Labels, &h.OS, &h.Distro, &h.OSVersion, &h.Arch, &h.CPUs,
 		&h.MemoryMB, &h.Version, &cordoned, &h.TokenHash, &heartbeat, &created,
-		&h.AgentSessionID, &h.AgentSessionPrev, &h.AgentSessionAlternations, &altAt)
+		&h.AgentSessionID, &h.AgentSessionPrev, &h.AgentSessionAlternations, &altAt,
+		&h.DiskTotalMB, &h.DiskFreeMB, &h.ReserveCPUs, &h.ReserveMemoryMB, &h.ReserveDiskMB)
 	if err != nil {
 		return nil, err
 	}
@@ -502,11 +504,13 @@ func (s *Store) CreateHost(ctx context.Context, h *Host) error {
 	if h.LastHeartbeat.IsZero() {
 		h.LastHeartbeat = h.CreatedAt
 	}
-	_, err := s.exec(ctx, `INSERT INTO hosts (`+hostCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := s.exec(ctx, `INSERT INTO hosts (`+hostCols+`)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		h.ID, h.Name, h.Address, boolInt(h.Embedded), h.Capacity, h.Backends, h.BackendInfo,
 		h.Labels, h.OS, h.Distro, h.OSVersion, h.Arch, h.CPUs, h.MemoryMB, h.Version,
 		boolInt(h.Cordoned), h.TokenHash, ms(h.LastHeartbeat), ms(h.CreatedAt),
-		h.AgentSessionID, h.AgentSessionPrev, h.AgentSessionAlternations, msp(h.AgentSessionAltAt))
+		h.AgentSessionID, h.AgentSessionPrev, h.AgentSessionAlternations, msp(h.AgentSessionAltAt),
+		h.DiskTotalMB, h.DiskFreeMB, h.ReserveCPUs, h.ReserveMemoryMB, h.ReserveDiskMB)
 	return wrapWrite(err)
 }
 
@@ -602,16 +606,35 @@ func (s *Store) FindHostByTokenHash(ctx context.Context, hash string) (*Host, er
 
 // UpdateHost persists agent-reported host facts.
 func (s *Store) UpdateHost(ctx context.Context, h *Host) error {
+	// The reserves are deliberately absent: they are the operator's, set through
+	// the API, and this is the path an agent's heartbeat takes. A host must not
+	// be able to talk its way out of the room its operator held back for it.
 	res, err := s.exec(ctx, `UPDATE hosts SET name=?, address=?, capacity=?, backends=?,
 		backend_info=?, labels=?, os=?, distro=?, os_version=?, arch=?, cpus=?, memory_mb=?,
-		version=?, cordoned=?, last_heartbeat=? WHERE id=?`,
+		version=?, cordoned=?, last_heartbeat=?, disk_total_mb=?, disk_free_mb=? WHERE id=?`,
 		h.Name, h.Address, h.Capacity, h.Backends, h.BackendInfo, h.Labels, h.OS, h.Distro,
 		h.OSVersion, h.Arch, h.CPUs, h.MemoryMB, h.Version, boolInt(h.Cordoned),
-		ms(h.LastHeartbeat), h.ID)
+		ms(h.LastHeartbeat), h.DiskTotalMB, h.DiskFreeMB, h.ID)
 	if err != nil {
 		return wrapWrite(err)
 	}
 	return affected(res, "host", h.ID)
+}
+
+// SetHostReserve records what an operator wants held back from placement on a
+// host, for the machine's own sake rather than for any pool's.
+//
+// Its own statement, because UpdateHost deliberately cannot touch these: that
+// is the path an agent's heartbeat takes, and a host must not be able to talk
+// its way out of the room its operator kept for it. Capacity has the same shape
+// for the same reason.
+func (s *Store) SetHostReserve(ctx context.Context, id string, cpus int, memoryMB, diskMB int64) error {
+	res, err := s.exec(ctx, `UPDATE hosts SET reserve_cpus=?, reserve_memory_mb=?, reserve_disk_mb=?
+		WHERE id=?`, cpus, memoryMB, diskMB, id)
+	if err != nil {
+		return wrapWrite(err)
+	}
+	return affected(res, "host", id)
 }
 
 // Heartbeat records that an agent is alive and refreshes its live capacity.

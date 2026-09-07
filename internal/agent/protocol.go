@@ -35,11 +35,20 @@ type JoinRequest struct {
 	Arch      string `json:"arch"`
 	// CPUs and MemoryMB are how much machine this agent may use, which is the
 	// cgroup's share when it runs in a container rather than the host's total.
-	CPUs     int               `json:"cpus,omitempty"`
-	MemoryMB int64             `json:"memory_mb,omitempty"`
-	Version  string            `json:"version"`
-	Labels   map[string]string `json:"labels,omitempty"`
-	Backends []backend.Info    `json:"backends"`
+	CPUs     int   `json:"cpus,omitempty"`
+	MemoryMB int64 `json:"memory_mb,omitempty"`
+	// DiskTotalMB and DiskFreeMB measure the filesystem holding the work
+	// directory, which is where a runner's checkout and its caches land. Free
+	// is what is available to a runner rather than what is unused: the two
+	// differ by the reserve the filesystem keeps for root, and placing work
+	// into space the job cannot write to is the failure that distinction
+	// exists to prevent. Zero means the agent could not measure it, which is
+	// not the same as a full disk.
+	DiskTotalMB int64             `json:"disk_total_mb,omitempty"`
+	DiskFreeMB  int64             `json:"disk_free_mb,omitempty"`
+	Version     string            `json:"version"`
+	Labels      map[string]string `json:"labels,omitempty"`
+	Backends    []backend.Info    `json:"backends"`
 	// PreviousToken is the agent token this host was issued the last time it
 	// joined, sent when the credentials file still holds one. It is what lets
 	// a rebuilt machine reclaim its own row: without it the controller refuses
@@ -69,11 +78,18 @@ type HeartbeatRequest struct {
 	// CPUs and MemoryMB are facts about the machine rather than the operator's
 	// choice, so unlike Capacity the controller does record them: a host
 	// resized in place must stop describing itself as the machine it used to be.
-	CPUs     int            `json:"cpus,omitempty"`
-	MemoryMB int64          `json:"memory_mb,omitempty"`
-	Version  string         `json:"version"`
-	Backends []backend.Info `json:"backends,omitempty"`
-	Runners  []RunnerReport `json:"runners,omitempty"`
+	CPUs     int   `json:"cpus,omitempty"`
+	MemoryMB int64 `json:"memory_mb,omitempty"`
+	// DiskTotalMB and DiskFreeMB are the work directory's filesystem, sent on
+	// every beat because free space is the one of these that moves on its own.
+	// The controller writes them under a tolerance rather than on every
+	// change, or a fleet would take one row write per host per beat for a
+	// figure that is never exactly the same twice.
+	DiskTotalMB int64          `json:"disk_total_mb,omitempty"`
+	DiskFreeMB  int64          `json:"disk_free_mb,omitempty"`
+	Version     string         `json:"version"`
+	Backends    []backend.Info `json:"backends,omitempty"`
+	Runners     []RunnerReport `json:"runners,omitempty"`
 }
 
 // HeartbeatResponse tells the agent whether the controller still recognises it.

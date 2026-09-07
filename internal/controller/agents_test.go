@@ -697,3 +697,202 @@ func TestAStopTheHostNeverConfirmedFailsTheRunner(t *testing.T) {
 		t.Fatalf("message %q does not say the stop was never confirmed", after.Message)
 	}
 }
+
+// joinedHost joins a host reporting the given disk figures and returns the
+// transport, already carrying its credentials, with the host's ID.
+func joinedHost(t *testing.T, h *harness, totalMB, freeMB int64) (agent.Transport, string) {
+	t.Helper()
+	tr := h.c.EmbeddedTransport()
+	resp, err := tr.Join(h.ctx, agent.JoinRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		Name:            "vm-1",
+		Capacity:        4,
+		DiskTotalMB:     totalMB,
+		DiskFreeMB:      freeMB,
+		Backends:        []backend.Info{{Kind: store.BackendDocker, Available: true}},
+	})
+	if err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	tr.SetCredentials(resp.HostID, resp.AgentToken)
+	return tr, resp.HostID
+}
+
+func hostDisk(t *testing.T, h *harness, id string) (totalMB, freeMB int64) {
+	t.Helper()
+	host, err := h.st.GetHost(h.ctx, id)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	return host.DiskTotalMB, host.DiskFreeMB
+}
+
+// A host's disk is what decides whether a runner's checkout and its caches
+// have anywhere to go, and until now the agent measured none of it.
+func TestAHostReportsTheDiskItsRunnersWillUse(t *testing.T) {
+	h := newHarness(t)
+	_, id := joinedHost(t, h, 500_000, 200_000)
+
+	total, free := hostDisk(t, h, id)
+	if total != 500_000 || free != 200_000 {
+		t.Fatalf("disk = %d total, %d free; want what the agent reported", total, free)
+	}
+}
+
+// Free space is the one figure an agent reports that moves on its own: a job
+// unpacking a cache changes it, and so does the job next door. A heartbeat
+// arrives every thirty seconds per host, so recording every difference turns a
+// fleet's heartbeats into one row write per host per beat for a number that is
+// never exactly the same twice.
+func TestASmallChangeInFreeDiskIsNotWorthAWrite(t *testing.T) {
+	h := newHarness(t)
+	tr, id := joinedHost(t, h, 500_000, 200_000)
+
+	// One percent down, which is what a job starting looks like.
+	if _, err := tr.Heartbeat(h.ctx, agent.HeartbeatRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		DiskTotalMB:     500_000,
+		DiskFreeMB:      198_000,
+	}); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+
+	if _, free := hostDisk(t, h, id); free != 200_000 {
+		t.Fatalf("free = %d; a drift this small must not rewrite the row", free)
+	}
+}
+
+// Far enough is another matter: a host filling up is exactly what an operator
+// needs to see, and what placement will need to read.
+func TestADiskThatHasReallyMovedIsRecorded(t *testing.T) {
+	h := newHarness(t)
+	tr, id := joinedHost(t, h, 500_000, 200_000)
+
+	if _, err := tr.Heartbeat(h.ctx, agent.HeartbeatRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		DiskTotalMB:     500_000,
+		DiskFreeMB:      40_000,
+	}); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+
+	if _, free := hostDisk(t, h, id); free != 40_000 {
+		t.Fatalf("free = %d, want the 40000 the agent reported", free)
+	}
+}
+
+// An agent too old to measure disk, or one on a platform with no portable way
+// to ask, sends nothing. Nothing must not overwrite something: a zero read as
+// a full disk would take a host out of service on an upgrade, which is the
+// opposite of what reporting more about a host is for.
+func TestAnAgentThatCannotMeasureDiskDoesNotEraseWhatIsKnown(t *testing.T) {
+	h := newHarness(t)
+	tr, id := joinedHost(t, h, 500_000, 200_000)
+
+	// The beat carries a new version, so the row is rewritten for a reason
+	// that has nothing to do with the disk. Without a beat that writes at all,
+	// this would pass on the tolerance alone and say nothing about whether a
+	// silent agent's zero can reach the row.
+	if _, err := tr.Heartbeat(h.ctx, agent.HeartbeatRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		Version:         "0.3-beta",
+	}); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+	after, err := h.st.GetHost(h.ctx, id)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if after.Version != "0.3-beta" {
+		t.Fatalf("version = %q; the beat has to have rewritten the row for this to mean anything", after.Version)
+	}
+
+	total, free := hostDisk(t, h, id)
+	if total != 500_000 || free != 200_000 {
+		t.Fatalf("disk = %d total, %d free; a silent agent erased what was known", total, free)
+	}
+}
+
+// The first measurement always lands, however small the number, because going
+// from "not measured" to a figure is the difference between a host that can be
+// placed on by disk and one that cannot.
+func TestTheFirstDiskMeasurementIsAlwaysRecorded(t *testing.T) {
+	h := newHarness(t)
+	// The total is already known, so only the free figure is new. Letting the
+	// total change too would carry the write on its own and say nothing about
+	// how a first free-space measurement is treated.
+	tr, id := joinedHost(t, h, 500_000, 0)
+
+	if _, err := tr.Heartbeat(h.ctx, agent.HeartbeatRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		DiskTotalMB:     500_000,
+		DiskFreeMB:      10,
+	}); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+
+	if _, free := hostDisk(t, h, id); free != 10 {
+		t.Fatalf("free = %d; a first measurement is smaller than any tolerance and must still land", free)
+	}
+}
+
+// The tolerance itself, branch by branch. The heartbeat tests above prove the
+// wiring; this proves the rule, including the two cases whose only effect is a
+// row write that does not happen -- which nothing outside this package can see.
+func TestWhenFreeDiskIsWorthAWrite(t *testing.T) {
+	tests := []struct {
+		name     string
+		was, now int64
+		want     bool
+	}{
+		{"a first measurement, however small", 0, 10, true},
+		{"an agent that cannot measure says nothing", 200_000, 0, false},
+		{"neither figure known", 0, 0, false},
+		{"a job starting, on a large disk", 200_000, 198_000, false},
+		{"a disk filling up", 200_000, 40_000, true},
+		{"freed by a cache eviction", 40_000, 200_000, true},
+		{"a small disk, drifting under the floor", 1_000, 900, false},
+		{"a small disk, past the floor", 1_000, 700, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := diskFreeMoved(tc.was, tc.now); got != tc.want {
+				t.Fatalf("diskFreeMoved(%d, %d) = %v, want %v", tc.was, tc.now, got, tc.want)
+			}
+		})
+	}
+}
+
+// The reserve is the operator's, like capacity. An agent reports what it sees
+// and never writes this, or a host could talk its way out of the room its
+// operator held back for it.
+func TestAHeartbeatNeverWritesTheOperatorsReserve(t *testing.T) {
+	h := newHarness(t)
+	tr, id := joinedHost(t, h, 500_000, 200_000)
+
+	if err := h.st.SetHostReserve(h.ctx, id, 2, 4096, 50_000); err != nil {
+		t.Fatalf("SetHostReserve: %v", err)
+	}
+
+	if _, err := tr.Heartbeat(h.ctx, agent.HeartbeatRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		DiskTotalMB:     500_000,
+		DiskFreeMB:      40_000,
+	}); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+
+	after, err := h.st.GetHost(h.ctx, id)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if after.ReserveCPUs != 2 || after.ReserveMemoryMB != 4096 || after.ReserveDiskMB != 50_000 {
+		t.Fatalf("reserve = %d cpus, %d MB, %d MB disk; a heartbeat overwrote the operator's",
+			after.ReserveCPUs, after.ReserveMemoryMB, after.ReserveDiskMB)
+	}
+	// And the observation it carried did land, so this is not passing because
+	// the whole write was skipped.
+	if _, free := hostDisk(t, h, id); free != 40_000 {
+		t.Fatalf("free = %d; the heartbeat's own observation was lost", free)
+	}
+}

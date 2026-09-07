@@ -410,6 +410,8 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 		Arch:          req.Arch,
 		CPUs:          req.CPUs,
 		MemoryMB:      req.MemoryMB,
+		DiskTotalMB:   req.DiskTotalMB,
+		DiskFreeMB:    req.DiskFreeMB,
 		Version:       req.Version,
 		TokenHash:     hash,
 		LastHeartbeat: now,
@@ -523,7 +525,9 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 		// This is a fact about the machine, not the operator's capacity
 		// setting, which stays theirs.
 		(req.CPUs > 0 && req.CPUs != h.CPUs) ||
-		(req.MemoryMB > 0 && req.MemoryMB != h.MemoryMB)
+		(req.MemoryMB > 0 && req.MemoryMB != h.MemoryMB) ||
+		(req.DiskTotalMB > 0 && req.DiskTotalMB != h.DiskTotalMB) ||
+		diskFreeMoved(h.DiskFreeMB, req.DiskFreeMB)
 	if changed {
 		was := h.Backends
 		if len(probed) > 0 {
@@ -536,6 +540,12 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 		}
 		if req.MemoryMB > 0 {
 			h.MemoryMB = req.MemoryMB
+		}
+		if req.DiskTotalMB > 0 {
+			h.DiskTotalMB = req.DiskTotalMB
+		}
+		if req.DiskFreeMB > 0 {
+			h.DiskFreeMB = req.DiskFreeMB
 		}
 		h.LastHeartbeat = now
 		if err := c.st.UpdateHost(ctx, h); err != nil {
@@ -1127,6 +1137,50 @@ func (c *Controller) heartbeatInterval() time.Duration {
 // whole probe is persisted, not just the kinds that answered: "this host has no
 // docker" and "this host has docker but the agent cannot read its socket" are
 // the same row to the scheduler and completely different to an operator.
+// diskFreeTolerance is how far free disk may drift before the host row is
+// rewritten. Both halves matter: the fraction keeps a large disk from being
+// rewritten over a rounding error, and the floor keeps a small one from
+// needing to lose a gigabyte before anybody hears about it.
+const (
+	diskFreeToleranceFraction = 0.05
+	diskFreeToleranceFloorMB  = 256
+)
+
+// diskFreeMoved reports whether free disk has changed by enough to be worth a
+// write.
+//
+// Free space is the one thing an agent reports that moves on its own: a job
+// unpacking a cache changes it, and so does the job next door. A heartbeat
+// arrives every thirty seconds per host, and "different from last time" is true
+// of this figure essentially always -- so recording it the way the others are
+// recorded turns a fleet's heartbeats into one row write per host per beat, for
+// a number that was never exactly the same twice and did not need to be.
+//
+// A tolerance is what makes it a fact worth keeping rather than a stream. The
+// first measurement always lands, because going from "not measured" to a figure
+// is the difference between a host that can be placed on by disk and one that
+// cannot.
+func diskFreeMoved(was, now int64) bool {
+	if now <= 0 {
+		// Not measured. An agent that has stopped answering says nothing about
+		// the disk, and overwriting a real figure with a zero would read as a
+		// full one.
+		return false
+	}
+	if was <= 0 {
+		return true
+	}
+	tolerance := int64(float64(was) * diskFreeToleranceFraction)
+	if tolerance < diskFreeToleranceFloorMB {
+		tolerance = diskFreeToleranceFloorMB
+	}
+	delta := now - was
+	if delta < 0 {
+		delta = -delta
+	}
+	return delta >= tolerance
+}
+
 func hostBackends(infos []backend.Info) store.HostBackends {
 	if len(infos) == 0 {
 		return nil
