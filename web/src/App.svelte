@@ -26,6 +26,7 @@
   import TopBar from '$lib/shell/TopBar.svelte';
   import Bootstrap from './routes/Bootstrap.svelte';
   import Login from './routes/Login.svelte';
+  import { upgrade } from '$lib/state/upgrade.svelte';
 
   let paletteOpen = $state(false);
   let navMenuOpen = $state(false);
@@ -48,8 +49,9 @@
     });
     router.start();
     void session.boot();
+    const stopWatchingForUpgrades = upgrade.listen();
 
-    return installShortcuts({
+    const teardown = installShortcuts({
       palette: () => (paletteOpen = true),
       help: () => (shortcutsOpen = true),
       search: () => {
@@ -59,6 +61,17 @@
       },
       go: (path) => router.navigate(path),
     });
+    return () => {
+      stopWatchingForUpgrades();
+      teardown();
+    };
+  });
+
+  // The build this tab is running, taken from the meta the boot already
+  // fetched rather than a request of its own.
+  $effect(() => {
+    const version = session.meta?.version;
+    if (version) upgrade.note(version);
   });
 
   // Connect the live stream exactly once, and only for somebody signed in.
