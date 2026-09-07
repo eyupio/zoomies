@@ -129,6 +129,7 @@ scheduler:
   scale_up_delay: 0s            # ZOOMIES_SCALE_UP_DELAY
   max_runner_lifetime: 6h       # ZOOMIES_MAX_RUNNER_LIFETIME
   provision_timeout: 5m         # ZOOMIES_PROVISION_TIMEOUT
+  drain_timeout: 15m            # ZOOMIES_DRAIN_TIMEOUT
   max_creates_per_tick: 10      # ZOOMIES_MAX_CREATES_PER_TICK
 
 capacity_demand:
@@ -583,6 +584,26 @@ running job: a job that hangs keeps its runner busy, and ending that is what the
 workflow's `timeout-minutes` is for. A runner that never finished registering is
 `provision_timeout`'s to fail, not this setting's.
 
+### `scheduler.drain_timeout`
+
+Fails a runner that has been draining this long with **no job left on it**.
+
+A drain asks a runner to finish what it is doing and stop, and the agent carries
+that out. The queue those instructions live in is in memory on purpose, so a
+controller restart drops one that had already been issued. The row is left in
+draining, which is a state nothing else counts against: it holds its slot on the
+host, its pool sits one runner short, and both stay that way for as long as the
+controller runs. This bounds it — the runner is failed, so an operator sees it
+and its slot is taken back.
+
+It does not touch a runner still finishing a job, however long that takes.
+Waiting is what a drain is, there is no maximum job duration in Zoomies by
+design, and a build ended from here would look to its owner like a failure with
+no cause. Ending a job that hangs is the workflow's `timeout-minutes`.
+
+`0s` leaves a drain unbounded, which is the behaviour before this setting
+existed.
+
 ### `images.refresh_interval` — keeping a moving tag current
 
 ```yaml
@@ -719,13 +740,15 @@ absolute path puts the cache on a disk you chose; anything else is treated as a
 volume-name prefix. Zoomies appends the scope's own identity to whichever you
 give, so two pools never collide, and refuses a source containing `..`.
 
-`size_limit` is enforced, not advisory. In the gap between one runner finishing
-and the next starting — the only moment the cache is certainly idle, and so the
-only safe moment to delete from it — whole cache entries are removed, least
-recently modified first, until the cache is back under the limit. That bounds
-how far it drifts over the limit from one job to the next. It is not a
-filesystem quota: a single job can still fill the disk before the next runner
-starts, and if that matters, give the cache its own filesystem.
+`size_limit` is enforced, not advisory. As a runner starts, whole cache entries
+are removed, least recently modified first, until the cache is back under the
+limit. Deleting from a cache is only safe while nothing is reading it, so a
+runner that starts to find another runner still using the same cache leaves it
+alone and the next start tries again — on a pool with `max_runners` above one,
+that is most starts, and the eviction happens at the one that finds it idle.
+This bounds how far the cache drifts over the limit from one job to the next.
+It is not a filesystem quota: a single job can still fill the disk before the
+next runner starts, and if that matters, give the cache its own filesystem.
 
 Only a directory can be measured, so a non-zero `size_limit` requires `source`
 to be an absolute host path. On a named volume the bytes are the daemon's, on a

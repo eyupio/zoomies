@@ -263,6 +263,10 @@ type Scheduler struct {
 	MaxRunnerLifetime time.Duration `yaml:"max_runner_lifetime"`
 	// ProvisionTimeout fails a runner that never finishes registering.
 	ProvisionTimeout time.Duration `yaml:"provision_timeout"`
+	// DrainTimeout fails a runner that has been draining this long with no job
+	// left on it, so a stop lost to a controller restart stops holding a host
+	// slot for ever. A runner still finishing a job is never touched by it.
+	DrainTimeout time.Duration `yaml:"drain_timeout"`
 	// MaxCreatesPerTick caps how many runners may be created in one pass, so a
 	// thundering herd of queued jobs cannot exhaust a host in one go.
 	MaxCreatesPerTick int `yaml:"max_creates_per_tick"`
@@ -359,6 +363,7 @@ func Default() *Config {
 			ScaleUpDelay:      0,
 			MaxRunnerLifetime: 6 * time.Hour,
 			ProvisionTimeout:  5 * time.Minute,
+			DrainTimeout:      15 * time.Minute,
 			MaxCreatesPerTick: 10,
 		},
 		Log:     Log{Level: "info", Format: "json"},
@@ -833,6 +838,7 @@ func (c *Config) applyEnv() error {
 	dur("ZOOMIES_SCALE_UP_DELAY", &c.Scheduler.ScaleUpDelay)
 	dur("ZOOMIES_MAX_RUNNER_LIFETIME", &c.Scheduler.MaxRunnerLifetime)
 	dur("ZOOMIES_PROVISION_TIMEOUT", &c.Scheduler.ProvisionTimeout)
+	dur("ZOOMIES_DRAIN_TIMEOUT", &c.Scheduler.DrainTimeout)
 	integer("ZOOMIES_MAX_CREATES_PER_TICK", &c.Scheduler.MaxCreatesPerTick)
 
 	str("ZOOMIES_LOG_LEVEL", &c.Log.Level)

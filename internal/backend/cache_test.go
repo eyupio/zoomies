@@ -1,9 +1,14 @@
 package backend
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -161,5 +166,147 @@ func TestCacheDirectoryOnlyRecognisesHostPaths(t *testing.T) {
 	dir, ok := cacheDirectory(host)
 	if !ok || dir != "/var/lib/zoomies/cache/p" {
 		t.Fatalf("cacheDirectory = %q, %v", dir, ok)
+	}
+}
+
+// cacheFixture writes one oversized cache entry and returns the directory and a
+// spec whose cache is that directory with a limit it already exceeds.
+func cacheFixture(t *testing.T) (string, Spec) {
+	t.Helper()
+	root := t.TempDir()
+	spec := Spec{
+		PoolID: "pool_one",
+		Cache: store.CacheConfig{
+			Enabled:   true,
+			Scope:     store.CacheScopePool,
+			Source:    root,
+			SizeLimit: 1000,
+		},
+	}
+	dir, ok := cacheDirectory(spec)
+	if !ok {
+		t.Fatal("the fixture's cache must be a host directory, or there is nothing to prune")
+	}
+	entry := filepath.Join(dir, "blob")
+	if err := os.MkdirAll(entry, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(entry, "big"), make([]byte, 4000), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir, spec
+}
+
+// cacheUsers builds an engine that answers the "who is using this cache?"
+// listing with containers in the given states, and checks the question asked.
+func cacheUsers(t *testing.T, dir string, states ...string) *fakeEngine {
+	t.Helper()
+	return newFakeEngine(t, map[string]http.HandlerFunc{
+		"GET " + v + "/containers/json": func(w http.ResponseWriter, r *http.Request) {
+			var filters map[string][]string
+			if err := json.Unmarshal([]byte(r.Form.Get("filters")), &filters); err != nil {
+				t.Errorf("filters not JSON: %v", err)
+			}
+			// The daemon must be asked about this cache, not about everything:
+			// a listing of the whole host would let another pool's runner keep
+			// this cache from ever being pruned.
+			if !slices.Contains(filters["label"], LabelCacheVolume+"="+dir) {
+				t.Errorf("the listing must be scoped to this cache, got %v", filters)
+			}
+			out := make([]ContainerSummary, 0, len(states))
+			for i, state := range states {
+				out = append(out, ContainerSummary{
+					ID: fmt.Sprint("c", i), State: state,
+					Labels: map[string]string{LabelCacheVolume: dir},
+				})
+			}
+			writeJSON(w, 200, out)
+		},
+	})
+}
+
+func cacheStillHasItsEntry(t *testing.T, dir string) bool {
+	t.Helper()
+	_, err := os.Stat(filepath.Join(dir, "blob"))
+	return err == nil
+}
+
+// The eviction happens as a runner is created because that was taken to be the
+// moment the cache is idle. On a pool that runs two runners it is not: the
+// second runner's start would delete the files the first runner's job is part
+// way through using, which is a build failure an operator cannot explain and
+// cannot reproduce.
+func TestACacheAnotherRunnerIsUsingIsNotPruned(t *testing.T) {
+	dir, spec := cacheFixture(t)
+	b := dockerBackendFor(t, cacheUsers(t, dir, "running"), DockerOptions{})
+
+	b.pruneCacheFor(context.Background(), spec)
+
+	if !cacheStillHasItsEntry(t, dir) {
+		t.Fatal("evicted from a cache a running job is using")
+	}
+}
+
+// A container that exists but has finished is not reading anything, and a pool
+// that has just run a job would otherwise never prune again.
+func TestACacheOnlyFinishedRunnersHeldIsPruned(t *testing.T) {
+	dir, spec := cacheFixture(t)
+	b := dockerBackendFor(t, cacheUsers(t, dir, "exited", "dead"), DockerOptions{})
+
+	b.pruneCacheFor(context.Background(), spec)
+
+	if cacheStillHasItsEntry(t, dir) {
+		t.Fatal("a cache over its limit that nothing is using was left alone")
+	}
+}
+
+// A container the daemon has created but not started is about to read the
+// cache, so it counts. Guessing the other way costs a job for no gain.
+func TestACacheAStartingRunnerHoldsIsNotPruned(t *testing.T) {
+	dir, spec := cacheFixture(t)
+	b := dockerBackendFor(t, cacheUsers(t, dir, "created"), DockerOptions{})
+
+	b.pruneCacheFor(context.Background(), spec)
+
+	if !cacheStillHasItsEntry(t, dir) {
+		t.Fatal("evicted from a cache a starting runner is about to use")
+	}
+}
+
+// A daemon that will not answer says nothing about whether the cache is idle.
+// Carrying the excess for one more runner costs disk; guessing wrong costs a
+// job, so the unprovable case keeps the files.
+func TestACacheIsNotPrunedWhenTheDaemonWillNotSayWhoIsUsingIt(t *testing.T) {
+	dir, spec := cacheFixture(t)
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"GET " + v + "/containers/json": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "daemon is unwell"})
+		},
+	})
+	b := dockerBackendFor(t, f, DockerOptions{})
+
+	b.pruneCacheFor(context.Background(), spec)
+
+	if !cacheStillHasItsEntry(t, dir) {
+		t.Fatal("evicted from a cache without being able to tell whether it was in use")
+	}
+}
+
+// With no limit there is nothing to enforce, so the daemon is not asked at all.
+func TestACacheWithNoLimitAsksTheDaemonNothing(t *testing.T) {
+	dir, spec := cacheFixture(t)
+	spec.Cache.SizeLimit = 0
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"GET " + v + "/containers/json": func(w http.ResponseWriter, r *http.Request) {
+			t.Error("a cache with no size limit must not cost a listing")
+			writeJSON(w, 200, []ContainerSummary{})
+		},
+	})
+	b := dockerBackendFor(t, f, DockerOptions{})
+
+	b.pruneCacheFor(context.Background(), spec)
+
+	if !cacheStillHasItsEntry(t, dir) {
+		t.Fatal("a cache with no limit was pruned")
 	}
 }

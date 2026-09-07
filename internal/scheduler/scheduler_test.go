@@ -23,6 +23,7 @@ func testPolicy() Policy {
 		ScaleUpDelay:      0,
 		MaxRunnerLifetime: 6 * time.Hour,
 		ProvisionTimeout:  5 * time.Minute,
+		DrainTimeout:      15 * time.Minute,
 		MaxCreatesPerTick: 10,
 	}
 }
@@ -562,7 +563,12 @@ func TestReap(t *testing.T) {
 		{"an old idle runner is retired", idleRunner("r1", p, 7*time.Hour),
 			ActionDrain, "runner reached the 6h maximum lifetime"},
 		{"an old busy runner keeps its job", testRunner("r1", p, store.RunnerBusy, 7*time.Hour), "", ""},
-		{"an old draining runner is left to drain", testRunner("r1", p, store.RunnerDraining, 7*time.Hour), "", ""},
+		// Old enough for the maximum lifetime, which must not drain a runner
+		// that is already draining, but not yet past the drain timeout.
+		{"an old draining runner is left to drain", drainingRunner("r1", p, time.Minute), "", ""},
+		{"a drain with nothing left to wait for is failed once it is overdue",
+			drainingRunner("r1", p, 16*time.Minute), ActionFail,
+			"draining with no job for 16m, past the 15m drain timeout; its stop was never carried out, so the slot is being taken back"},
 		{"a young idle runner is left alone", idleRunner("r1", p, time.Minute), "", ""},
 	}
 	for _, tc := range tests {
@@ -1637,5 +1643,94 @@ func TestAHostThatHasNotSaidWhatItIsIsNotRuledOut(t *testing.T) {
 	plan := Decide(snap([]*store.Pool{pool}, nil, jobs, hosts))
 	if got := len(actionsOf(plan.Actions, ActionCreate)); got != 1 {
 		t.Fatalf("got %d creates, want 1", got)
+	}
+}
+
+// drainingRunner is a runner that was asked to stop drainedFor ago and has
+// been in draining ever since, with nothing left to wait for.
+func drainingRunner(id string, p *store.Pool, drainedFor time.Duration) *store.Runner {
+	r := testRunner(id, p, store.RunnerDraining, drainedFor+time.Hour)
+	since := ago(drainedFor)
+	r.DrainingSince = &since
+	return r
+}
+
+// The stop task queue is in memory by design, so a controller restart drops a
+// stop that had already gone out. Nothing counted against the row it left
+// behind: draining is neither a failure to see nor a runner to replace, so it
+// held its slot on the host and its pool ran one short for as long as the
+// controller lived.
+func TestARunnerDrainingWithNothingLeftToWaitForIsEventuallyFailed(t *testing.T) {
+	p := testPool("builders", "self-hosted")
+	r := drainingRunner("run_stuck", p, 16*time.Minute)
+
+	plan := Decide(snap([]*store.Pool{p}, []*store.Runner{r}, nil, []*store.Host{testHost("host_a", 4, 1)}))
+
+	fails := actionsOf(plan.Actions, ActionFail)
+	if len(fails) != 1 || fails[0].RunnerID != "run_stuck" {
+		t.Fatalf("the stuck drain must be failed, got %+v", plan.Actions)
+	}
+	// The reason has to name the drain, or an operator reads "failed" and goes
+	// looking for a fault on the host that never happened.
+	if !strings.Contains(fails[0].Reason, "drain timeout") {
+		t.Fatalf("reason = %q", fails[0].Reason)
+	}
+}
+
+// The timeout is counted from the moment it entered draining, not from birth.
+// A runner that served jobs all day and was drained a minute ago is not overdue.
+func TestADrainIsTimedFromWhenItStartedDrainingNotFromBirth(t *testing.T) {
+	p := testPool("builders", "self-hosted")
+	r := testRunner("run_old", p, store.RunnerDraining, 20*time.Hour)
+	since := ago(time.Minute)
+	r.DrainingSince = &since
+
+	plan := Decide(snap([]*store.Pool{p}, []*store.Runner{r}, nil, []*store.Host{testHost("host_a", 4, 1)}))
+
+	if fails := actionsOf(plan.Actions, ActionFail); len(fails) != 0 {
+		t.Fatalf("a runner that has only just started draining was failed: %+v", fails)
+	}
+}
+
+// A drain waits for the job the runner is running, however long that takes.
+// Zoomies has no maximum job duration by design -- that is the workflow's
+// timeout-minutes -- and failing here would end somebody's build from the far
+// side of the fleet, with a reason that names nothing they did.
+func TestADrainStillFinishingItsJobIsNeverFailedForTakingTooLong(t *testing.T) {
+	p := testPool("builders", "self-hosted")
+	r := drainingRunner("run_working", p, 9*time.Hour)
+	r.CurrentJobID = "job_long"
+
+	plan := Decide(snap([]*store.Pool{p}, []*store.Runner{r}, nil, []*store.Host{testHost("host_a", 4, 1)}))
+
+	if fails := actionsOf(plan.Actions, ActionFail); len(fails) != 0 {
+		t.Fatalf("a runner still running a job was failed for draining slowly: %+v", fails)
+	}
+}
+
+// Zero is off, which is what a deployment that has never set it had before.
+func TestNoDrainTimeoutLeavesADrainAlone(t *testing.T) {
+	p := testPool("builders", "self-hosted")
+	r := drainingRunner("run_stuck", p, 30*24*time.Hour)
+	s := snap([]*store.Pool{p}, []*store.Runner{r}, nil, []*store.Host{testHost("host_a", 4, 1)})
+	s.Policy.DrainTimeout = 0
+
+	if fails := actionsOf(Decide(s).Actions, ActionFail); len(fails) != 0 {
+		t.Fatalf("a drain was failed with the timeout off: %+v", fails)
+	}
+}
+
+// A row written before draining_since existed still has to be reachable, or the
+// very drains this rule was added for -- the ones already stuck when it shipped
+// -- would be the only ones it could never end.
+func TestADrainFromBeforeTheColumnExistedIsStillBounded(t *testing.T) {
+	p := testPool("builders", "self-hosted")
+	r := testRunner("run_legacy", p, store.RunnerDraining, 3*time.Hour)
+	r.DrainingSince = nil
+
+	plan := Decide(snap([]*store.Pool{p}, []*store.Runner{r}, nil, []*store.Host{testHost("host_a", 4, 1)}))
+
+	if fails := actionsOf(plan.Actions, ActionFail); len(fails) != 1 {
+		t.Fatalf("a drain with no recorded start was left stuck for ever: %+v", plan.Actions)
 	}
 }

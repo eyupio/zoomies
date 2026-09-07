@@ -815,7 +815,11 @@ type Runner struct {
 	// CreatedAt at the other end of the life, and the measurement contract's
 	// end of that interval.
 	CleanedUpAt *time.Time `json:"cleaned_up_at,omitempty"`
-	StartedAt   *time.Time `json:"started_at,omitempty"`
+	// DrainingSince is when the runner entered draining, and is the clock the
+	// drain timeout is counted from. Created-at is the wrong one: a runner that
+	// worked all day before being drained is not overdue the moment it drains.
+	DrainingSince *time.Time `json:"draining_since,omitempty"`
+	StartedAt     *time.Time `json:"started_at,omitempty"`
 	// LastIdleAt is when the runner most recently became idle; the scale-down
 	// path measures the idle timeout from here.
 	LastIdleAt  *time.Time `json:"last_idle_at,omitempty"`

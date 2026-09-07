@@ -70,12 +70,15 @@ func cacheDirectory(spec Spec) (string, bool) {
 // pruneCache brings a cache directory back under its configured limit by
 // deleting whole top-level entries, least recently modified first.
 //
-// This runs before a runner starts rather than on a timer, because that is the
-// moment the cache is guaranteed to be idle: a job holding a file open while we
-// delete the directory under it is the failure this ordering designs out. It is
-// a ceiling on how far over the limit a host can drift, not a quota -- a single
-// job can still fill a disk between two runners -- so the limit belongs to a
-// cache the operator is willing to lose, which is what this cache is.
+// This runs before a runner starts rather than on a timer, because a job
+// holding a file open while we delete the directory under it is the failure the
+// timing designs out. Starting is only half of that, and the caller owns the
+// other half: on a pool that runs more than one runner the cache is busy at
+// every start but the first, so pruneCacheFor asks whether anything else is
+// using this cache before calling here. It is a ceiling on how far over the
+// limit a host can drift, not a quota -- a single job can still fill a disk
+// between two runners -- so the limit belongs to a cache the operator is
+// willing to lose, which is what this cache is.
 func pruneCache(dir string, limit int64, log *slog.Logger) {
 	if limit <= 0 {
 		return
