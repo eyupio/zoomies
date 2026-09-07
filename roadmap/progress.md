@@ -60,7 +60,7 @@ evidence.
 
 | ID | Package | Classification | Status | Depends on | Session | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| ZF-301 | Extend the real end-to-end harness | mixed (one polling-mode test; no result categories, no cleanup ledger, no real container in any test) | `in_progress` | ZF-002; 301c on the owner's credentials | 301a: Claude Opus 5, `high`, one session | Size L in three slices. 301a done: every prerequisite is checked before anything is created, a required mode makes a missing one `blocked` rather than a silent exit-zero skip, each scenario writes a JSON result carrying its category, commit, marker, run link and any residual cleanup, `test-e2e-required` runs the verifier over those records rather than trusting `go test`'s exit code, a ledger outside the temp directory records every resource before it exists and a start-up sweep clears what an earlier crashed run left on GitHub, the orphan check now asks GitHub and the host instead of asking Zoomies about Zoomies, per-run labels stop two runs colliding, and the waits fit the Makefile's timeout with an untagged test pinning that. 301b (the drill tier) and 301c (the real scenarios, owner-gated) remain |
+| ZF-301 | Extend the real end-to-end harness | mixed (one polling-mode test; no result categories, no cleanup ledger, no real container in any test) | `in_progress` | ZF-002; 301c on the owner's credentials | 301a and 301b: Claude Opus 5, `high`, one session each | Size L in three slices. 301a done: every prerequisite is checked before anything is created, a required mode makes a missing one `blocked` rather than a silent exit-zero skip, each scenario writes a JSON result carrying its category, commit, marker, run link and any residual cleanup, `test-e2e-required` runs the verifier over those records rather than trusting `go test`'s exit code, a ledger outside the temp directory records every resource before it exists and a start-up sweep clears what an earlier crashed run left on GitHub, the orphan check now asks GitHub and the host instead of asking Zoomies about Zoomies, per-run labels stop two runs colliding, and the waits fit the Makefile's timeout with an untagged test pinning that. 301b done: a `drill`-tagged tier runs the built binary as a real controller and a real remote agent joined by a join token, against an in-process fake GitHub and a stub runner on the `process` backend, and watches a workload actually appear on the machine and go away. Two drills, both green and on every pull request. **It found its own hole first**: written the obvious way the lifecycle drill passed with `deleteRegistration` commented out, because the ten-minute reaper's first sweep lands where it was looking -- it was testing the backstop. The sharp assertion moved to a second drill on the path where deleting the registration really is Zoomies' job, and that one fails in seventeen seconds when it stops. 301c (the real scenarios, owner-gated) remains |
 | ZF-302 | Restart and recovery drills | mixed (fake-level tests exist for every fault class but disk; no process-level drill) | `not_started` | ZF-301b | | Size S once 301b exists |
 | ZF-303 | Controlled beta and the readiness record | new; owner-gated | `not_started` | everything above; the owner's deployment, credentials and second operator | | Size M for the template and helper; the observation is the owner's |
 
@@ -75,6 +75,34 @@ evidence.
 
 Newest first. One line per event that changed a row.
 
+* 2026-09-07: ZF-301b, the drill tier, and the first time anything in this
+  repository has run the product as an operator gets it: the built binary as a
+  controller, a second copy of it as a remote agent that joined with a join
+  token, and a real workload on the machine running the test. GitHub is the
+  in-process fake; the backend is `process` with a stub runner staged on disk,
+  which the backend accepts because it skips its download when the tools tree is
+  already there. So the tier needs no credentials, no Docker daemon and no
+  network, which is what lets the lifecycle drill run on every pull request.
+  It also had to learn that the fallback poller only finds *queued* jobs, so the
+  drill drives the fake and delivers signed webhooks -- which is what puts the
+  timing in the drill's hands, and what ZF-302's fault drills will need.
+  The finding worth keeping: the obvious version of the lifecycle drill passed
+  with `deleteRegistration` commented out. The reaper's first sweep is a minute
+  after the controller starts, which is where the drill was looking, so it was
+  testing the backstop. It cannot be sharpened in place either -- an ephemeral
+  runner that finishes its job exits by itself and nothing of Zoomies' deletes
+  the registration, correctly, because real GitHub removes a just-in-time runner
+  itself and the fake does not model that. The sharp assertion is a second
+  drill, on an operator removing an idle runner, where GitHub tidies nothing
+  and Zoomies must; it fails in seventeen seconds with the deletion removed.
+  Both drills name the runner they assert about rather than counting what is
+  left, because while a job is queued the scheduler is right to replace a
+  removed runner immediately. Each run appends its row to
+  `roadmap/validation/drills.md` with timings, so a pass that quietly becomes a
+  different pass is visible. **Not done here**: the six fault drills (kill the
+  controller mid-job, kill the agent, a dead Docker socket, a rate limit, a
+  failing JIT endpoint, a small filesystem) and the Docker backend's own
+  runtime qualification, which needs a daemon this container does not have.
 * 2026-09-07: ZF-301a, the harness's honesty. The end-to-end harness could
   not have failed: a skip is exit code zero, so a run that had never once
   talked to GitHub reported the same green as one that had run the scenario --

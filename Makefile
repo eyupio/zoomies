@@ -90,6 +90,10 @@ test-ui: ## Run the Playwright suite (builds the binary first)
 test-e2e: ## Docker-based end-to-end test; needs GitHub credentials, skipped without
 	$(GO) test -count=1 -tags e2e -timeout 30m ./test/e2e/...
 
+.PHONY: test-drill
+test-drill: build-nogui ## Runtime drills: the built binary as a real controller and agent, against a fake GitHub
+	$(GO) test -count=1 -v -tags drill -timeout 10m ./test/drill/...
+
 E2E_RESULTS ?= roadmap/validation/e2e
 
 .PHONY: test-e2e-required
