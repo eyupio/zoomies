@@ -273,6 +273,13 @@ func (b *DockerBackend) Probe(ctx context.Context) Info {
 			info.Version = sys.ServerVersion
 		}
 		info.Rootless = IsRootless(sys)
+		// The machine the daemon is on, which is the machine the runners will
+		// be on: they are started through this daemon as siblings, so an agent
+		// held to a two-core cgroup is still talking to a sixty-four core host.
+		info.CPUs = sys.NCPU
+		if sys.MemTotal > 0 {
+			info.MemoryMB = sys.MemTotal / (1 << 20)
+		}
 	}
 	if !info.Rootless && IsRootlessEndpoint(b.api.SocketPath()) {
 		info.Rootless = true

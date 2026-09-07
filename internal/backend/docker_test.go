@@ -495,6 +495,48 @@ func TestDockerProbeAvailable(t *testing.T) {
 	}
 }
 
+// The daemon knows the machine the runners will be on, and until now the probe
+// read that from /info and threw it away. It is the honest size of the host: an
+// agent in a container is held to its cgroup, and the runners it starts through
+// this daemon are siblings on the machine rather than children inside it.
+func TestTheProbeCarriesTheMachineTheDaemonIsOn(t *testing.T) {
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"GET " + v + "/_ping":   func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("OK")) },
+		"GET " + v + "/version": func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, VersionInfo{Version: "27.1.1"}) },
+		"GET " + v + "/info": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, SystemInfo{ServerVersion: "27.1.1", NCPU: 64, MemTotal: 274_877_906_944})
+		},
+	})
+
+	info := dockerBackendFor(t, f, DockerOptions{}).Probe(context.Background())
+
+	if info.CPUs != 64 {
+		t.Fatalf("cpus = %d, want the 64 the daemon reported", info.CPUs)
+	}
+	// 256 GiB in megabytes, because that is the unit the host row speaks in.
+	if info.MemoryMB != 262_144 {
+		t.Fatalf("memory = %d MB, want 262144", info.MemoryMB)
+	}
+}
+
+// A daemon that says nothing about its machine says nothing, rather than
+// saying zero -- an older one, or one behind a proxy that trims /info.
+func TestTheProbeSaysNothingAboutAMachineTheDaemonDidNotDescribe(t *testing.T) {
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"GET " + v + "/_ping":   func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("OK")) },
+		"GET " + v + "/version": func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, VersionInfo{Version: "27.1.1"}) },
+		"GET " + v + "/info": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, SystemInfo{ServerVersion: "27.1.1"})
+		},
+	})
+
+	info := dockerBackendFor(t, f, DockerOptions{}).Probe(context.Background())
+
+	if info.CPUs != 0 || info.MemoryMB != 0 {
+		t.Fatalf("info = %d cpus, %d MB; nothing said must stay nothing", info.CPUs, info.MemoryMB)
+	}
+}
+
 func TestDockerCreate(t *testing.T) {
 	var created ContainerCreateRequest
 	started := false

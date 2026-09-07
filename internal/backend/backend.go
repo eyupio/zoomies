@@ -101,6 +101,14 @@ type Info struct {
 	// HostSocketPath is where the host daemon's socket lives, for pools that
 	// have explicitly opted into host-socket mode.
 	HostSocketPath string `json:"host_socket_path,omitempty"`
+	// CPUs and MemoryMB are the machine the daemon is running on, as the
+	// daemon sees it. They are the honest bound for what this host can run,
+	// which the agent's own view is not: a containerised agent is held to its
+	// cgroup, and the runners it starts through this daemon are siblings on the
+	// host rather than children inside that cgroup. Zero where the daemon did
+	// not say, which includes every backend that is not a container runtime.
+	CPUs     int   `json:"cpus,omitempty"`
+	MemoryMB int64 `json:"memory_mb,omitempty"`
 }
 
 // Credentials carry whatever the runner needs to attach itself to GitHub.
