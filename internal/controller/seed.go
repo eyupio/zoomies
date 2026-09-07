@@ -11,6 +11,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/events"
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -405,6 +406,21 @@ func (c *Controller) seedPools(ctx context.Context) (*store.Pool, *store.Pool, e
 	return linux, arm, nil
 }
 
+// demoRunnerName is the name a demo runner would have been given, in the
+// grammar a real one is: its pool's shape, a word from the kennel, and a
+// discriminator.
+//
+// The discriminator is the index rather than a random token, because the demo
+// is a fixture. A screenshot taken today has to match one taken last week, and
+// a Playwright test navigates to a name it was told at build time; both break
+// on a name that is different every time the controller starts. "demo" in it
+// is not decoration either -- somebody looking at a screenshot should be able
+// to tell it from a fleet.
+func demoRunnerName(pool *store.Pool, i int) string {
+	word := naming.Kennel[i%len(naming.Kennel)]
+	return naming.RunnerName(pool.Spec().String(), fmt.Sprintf("%s-demo%02d", word, i))
+}
+
 // seedRunners writes a dozen runners spread over every state the UI renders
 // differently, so each badge, each empty field and the failure message all
 // have a fixture behind them.
@@ -441,7 +457,7 @@ func (c *Controller) seedRunners(ctx context.Context, now time.Time, pools []*st
 			ID:             fmt.Sprintf("run_demo%02d", i),
 			PoolID:         pool.ID,
 			HostID:         host.ID,
-			Name:           fmt.Sprintf("%sdemo%04d", store.RunnerNamePrefix, i),
+			Name:           demoRunnerName(pool, i),
 			State:          s.state,
 			Ephemeral:      pool.Ephemeral,
 			Labels:         pool.Labels,

@@ -74,8 +74,14 @@ export function sectionHeading(section: (typeof SECTIONS)[number]): string {
 export const FIXTURE = {
   linuxPool: 'zoomies-demo-linux-x64',
   armPool: 'zoomies-demo-linux-arm64',
-  /** A runner that is busy in the fixture, so it is never reaped mid-run. */
-  busyRunner: 'zoomies-demo0000',
+  /**
+   * A runner that is busy in the fixture, so it is never reaped mid-run.
+   *
+   * The shape is its pool's, the word is from the kennel and `demo00` is the
+   * index rather than a random token, because a fixture has to be the same
+   * every time. See demoRunnerName in internal/controller/seed.go.
+   */
+  busyRunner: 'zoomies-2vcpu-4gb-ubuntu-2404-banjo-demo00',
   /** Its id, which the seed fixes so a test can go straight to its page. */
   busyRunnerId: 'run_demo00',
   repos: ['acme/api', 'acme/site', 'acme/widgets'],

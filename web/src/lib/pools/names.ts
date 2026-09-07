@@ -7,12 +7,17 @@
  * Renaming a pool later does not un-write the workflows that already point at
  * it. So the wizard fills one in instead.
  *
- * The generated name has two halves and both earn their place. The kennel word
- * makes one pool tellable from another at a glance, which a list of
- * `zoomies-docker-linux-x64-2` never is; the infrastructure half says what the
- * pool actually lands on, which is what an operator wants to know before they
- * send a job to it. The brand prefix is not optional: it is what marks a
- * runner in the GitHub UI as ours rather than GitHub's.
+ * The name it fills in is the pool's shape -- `zoomies-4vcpu-ubuntu-2404`, the
+ * grammar in docs/naming.md -- because that is what a workflow author reading a
+ * `runs-on` needs to know before they send a job to it, and because it is the
+ * same name `zoomies init` suggests for a machine of that size. The wizard used
+ * to lead with a kennel word instead, which left an operator who met both with
+ * two conventions for one thing.
+ *
+ * The spaniel is still here, and still earns its place: it is what tells two
+ * pools of the same shape apart, and what names a pool created before anything
+ * about it is known. The brand prefix is not optional either -- it is what marks
+ * a runner in the GitHub UI as ours rather than GitHub's.
  */
 
 import type { BackendKind, Host } from '$lib/api/types';
@@ -88,41 +93,161 @@ function offersBackend(host: Host, backend: BackendKind): boolean {
 }
 
 /**
- * What the runners of such a pool would run on, most specific part last.
+ * The parts of a draft a name is made of.
  *
- * The operating system and architecture come from the connected hosts, and
- * only when every host that could run this pool reports the same ones: a fleet
- * of Linux and Windows hosts gets a name that says neither, because a name
- * that picked one would be a name that lies about half the fleet. With no
- * hosts connected yet -- which is where the first pool is created from -- the
- * backend is all there is to say, and that is enough.
+ * Structural rather than the wizard's own PoolDraft, so this module owes the
+ * wizard nothing: a draft satisfies it by having the fields, and the naming
+ * rules can be read without opening a component.
  */
-export function infrastructure(backend: BackendKind, hosts: readonly Host[]): string[] {
-  const parts = [sanitizeLabel(backend)];
-  const offering = hosts.filter((host) => offersBackend(host, backend));
-  const from = offering.length > 0 ? offering : hosts;
-  const os = agreed(from.map((host) => host.os));
-  const arch = agreed(from.map((host) => host.arch));
-  if (os !== '') parts.push(os);
-  if (arch !== '') parts.push(arch);
-  return parts.filter((part) => part !== '');
+export interface NameShape {
+  backend: BackendKind;
+  cpus: string;
+  memory_mb: string;
+  platform_os: string;
+  platform_os_version: string;
+  platform_arch: string;
 }
 
 /**
- * The name for a pool of this word on this infrastructure.
+ * A version with its dots taken out: 24.04 becomes 2404, 12 stays 12.
  *
- * Over budget, the least specific parts go first -- architecture, then
- * operating system -- because the kennel word is what an operator recognises
- * the pool by and the backend is what they most need to know about it.
+ * The same rule as naming.CompactVersion in Go, because the name a pool is
+ * suggested here has to be the name `zoomies init` would suggest for the same
+ * machine -- an operator who meets both should meet one convention.
  */
-export function poolName(word: string, backend: BackendKind, hosts: readonly Host[]): string {
-  const parts = [sanitizeLabel(word) || 'pool', ...infrastructure(backend, hosts)];
-  while (parts.length > 1) {
-    const candidate = RUNNER_NAME_PREFIX + parts.join('-');
-    if (candidate.length <= MAX_NAME) return candidate;
-    parts.pop();
+function compactVersion(v: string): string {
+  return v
+    .trim()
+    .split(/[._]/)
+    .slice(0, 2)
+    .map((part) => part.replace(/\D/g, ''))
+    .join('');
+}
+
+/**
+ * What a pool of this draft is made of, most significant part first.
+ *
+ * This is the shape half of the grammar in docs/naming.md: how much machine,
+ * running what. The draft's own fields win, and where it has not said, the
+ * connected hosts answer -- but only when every host that could run this pool
+ * agrees, because a name that picked one of two answers is a name that lies
+ * about half the fleet.
+ *
+ * Architecture follows the same rule the rest of the grammar does: amd64 is the
+ * overwhelming default and saying it on every pool stops the word carrying
+ * information, so only the others are spelled out.
+ */
+export function shape(draft: NameShape, hosts: readonly Host[]): string[] {
+  const parts: string[] = [];
+
+  const cpus = Math.ceil(Number(draft.cpus));
+  if (Number.isFinite(cpus) && cpus > 0) parts.push(`${cpus}vcpu`);
+  const gb = Math.floor(Number(draft.memory_mb) / 1024);
+  if (Number.isFinite(gb) && gb > 0) parts.push(`${gb}gb`);
+
+  const offering = hosts.filter((host) => offersBackend(host, draft.backend));
+  const from = offering.length > 0 ? offering : hosts;
+
+  const os = sanitizeLabel(draft.platform_os) || agreed(from.map((host) => host.platform?.os));
+  if (os !== '') {
+    parts.push(os);
+    const version =
+      compactVersion(draft.platform_os_version) ||
+      compactVersion(unanimous(from.map((host) => host.platform?.os_version)));
+    if (version !== '') parts.push(version);
   }
-  return (RUNNER_NAME_PREFIX + parts.join('-')).slice(0, MAX_NAME).replace(/-+$/, '');
+
+  const arch =
+    sanitizeLabel(draft.platform_arch) || agreed(from.map((host) => host.platform?.arch));
+  if (arch !== '' && arch !== 'amd64') parts.push(arch);
+
+  return parts;
+}
+
+/** The raw value every entry agrees on, before sanitising, or "". */
+function unanimous(values: readonly (string | undefined)[]): string {
+  let found = '';
+  for (const value of values) {
+    const clean = (value ?? '').trim();
+    if (clean === '') continue;
+    if (found === '') found = clean;
+    else if (found !== clean) return '';
+  }
+  return found;
+}
+
+/**
+ * The name for a pool of this draft, and the kennel word it falls back on.
+ *
+ * A pool is named for its shape, which is the same name `zoomies init` prints
+ * for a machine of that size and platform -- so the wizard and the installer
+ * stop offering an operator two conventions for the same thing.
+ *
+ * The kennel word earns its place where the shape cannot carry the name on its
+ * own. A pool created before anything about it is known has no shape to be
+ * named for, and two pools of the same shape are two pools GitHub needs two
+ * names for; in both cases a spaniel tells them apart, which
+ * `zoomies-4vcpu-ubuntu-2404-2` never would.
+ *
+ * Over budget, the least significant parts go first -- architecture, then the
+ * release, then the operating system -- because the size is what an operator is
+ * choosing between and the word is what they recognise the pool by.
+ */
+export function poolName(
+  word: string,
+  draft: NameShape,
+  hosts: readonly Host[],
+  taken: readonly string[] = [],
+): string {
+  const parts = named(draft, hosts);
+  const spelled = new Set(taken.map((name) => sanitizeLabel(name)));
+  const bare = fit(parts);
+  if (parts.length > 0 && !spelled.has(sanitizeLabel(bare))) return bare;
+  return nicknamedPoolName(word, draft, hosts);
+}
+
+/**
+ * The same name with a spaniel in it whether it needs one or not.
+ *
+ * This is what the dice ask for. A pool whose shape is already unique is
+ * offered a name without a word, so a button that only sometimes changed
+ * anything would read as broken -- and an operator who wants a handle for a
+ * pool is entitled to one without having to invent it themselves.
+ */
+export function nicknamedPoolName(word: string, draft: NameShape, hosts: readonly Host[]): string {
+  return fit(named(draft, hosts), sanitizeLabel(word) || 'pool');
+}
+
+/**
+ * The shape, plus the marker a process-backend pool carries.
+ *
+ * That backend is a different thing to ask for at the same shape -- its jobs get
+ * the host itself rather than a container -- and a workflow author choosing
+ * between two pools needs the name to say which. `zoomies init` marks it the
+ * same way.
+ */
+function named(draft: NameShape, hosts: readonly Host[]): string[] {
+  const parts = shape(draft, hosts);
+  if (draft.backend === 'process') parts.push('host');
+  return parts;
+}
+
+/**
+ * These parts as a branded name, dropping the least significant until it fits.
+ *
+ * `keep` is never dropped: when it is there at all it is the only thing telling
+ * this pool from one of the same shape, so a budget that spent it would produce
+ * the name it was added to avoid.
+ */
+function fit(parts: readonly string[], keep = ''): string {
+  const kept = [...parts];
+  const tail = keep === '' ? '' : `-${keep}`;
+  while (kept.length > 0) {
+    const candidate = RUNNER_NAME_PREFIX + kept.join('-') + tail;
+    if (candidate.length <= MAX_NAME) return candidate;
+    kept.pop();
+  }
+  return (RUNNER_NAME_PREFIX + keep).slice(0, MAX_NAME).replace(/-+$/, '');
 }
 
 /**

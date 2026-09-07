@@ -417,15 +417,19 @@ test('editing the maximum runners still lets the wizard reach review', async ({ 
   );
 });
 
-test('a new pool arrives named after a spaniel and after what it will run on', async ({ page }) => {
+test('a new pool with nothing to say for itself is named after a spaniel', async ({ page }) => {
   // A blank name field is answered with "test", and that name is then in every
-  // runner name and every runs-on for the life of the pool. So the wizard
-  // fills one in: the brand, a name from the kennel, and the infrastructure
-  // the runners actually land on -- the demo fleet is all Linux Docker hosts
-  // of two architectures, so it can say linux and honestly cannot say x64.
+  // runner name and every runs-on for the life of the pool. So the wizard fills
+  // one in.
+  //
+  // A pool is named for its shape, and this one has none yet: the demo fleet is
+  // Ubuntu and Debian on two architectures, so there is nothing every host
+  // agrees on, and nothing has been asked for. A name that picked one of those
+  // answers would be a name that lies about the rest of the fleet -- so the
+  // spaniel carries it until the operator says more.
   await goto(page, '/pools/new', 'Create a pool');
   const name = nameField(page);
-  await expect(name).toHaveValue(/^zoomies-[a-z]+-docker-linux$/);
+  await expect(name).toHaveValue(/^zoomies-[a-z]+$/);
   const first = await name.inputValue();
 
   // The label follows the name, so a pool is reachable without typing at all.
@@ -435,7 +439,7 @@ test('a new pool arrives named after a spaniel and after what it will run on', a
   await back(page).click();
   await page.getByRole('button', { name: 'Spin a new name' }).click();
   await expect(name).not.toHaveValue(first);
-  await expect(name).toHaveValue(/^zoomies-[a-z]+-docker-linux$/);
+  await expect(name).toHaveValue(/^zoomies-[a-z]+$/);
   const second = await name.inputValue();
 
   // And the label follows the roll, rather than leaving the pool answering to
@@ -445,33 +449,44 @@ test('a new pool arrives named after a spaniel and after what it will run on', a
   await expect(page.getByRole('button', { name: `Remove the label ${first}` })).toHaveCount(0);
 });
 
-test('the generated name follows the backend until somebody types their own', async ({ page }) => {
+test('the generated name follows the shape until somebody types their own', async ({ page }) => {
+  // The name is a claim about what a job gets, so it follows the answers as
+  // they are given: this is the same grammar `zoomies init` prints, and an
+  // operator who meets both should meet one convention.
   await goto(page, '/pools/new', 'Create a pool');
   const name = nameField(page);
-  await expect(name).toHaveValue(/-docker-linux$/);
 
-  // The infrastructure half is a claim about where the runners land, so it
-  // stops being true the moment the backend changes. Podman is the one no
-  // demo host offers, which is beside the point here: the wizard renames the
-  // pool on the way to finding that out.
   await next(page).click();
   await next(page).click();
   await next(page).click();
-  await radio(page, 'backend', 'podman').check();
+  await page.getByLabel('Operating system').selectOption('debian-12');
   await back(page).click();
   await back(page).click();
   await back(page).click();
-  await expect(name).toHaveValue(/^zoomies-[a-z]+-podman-linux$/);
+  await expect(name).toHaveValue('zoomies-debian-12');
 
-  // Once a name is typed it belongs to the operator, and choosing another
-  // backend must not rewrite it under their cursor. The brand is the one part
+  // The size is part of the shape too, and it is the part a workflow author is
+  // choosing between, so it leads.
+  await next(page).click();
+  await next(page).click();
+  await next(page).click();
+  await next(page).click();
+  await page.getByRole('spinbutton', { name: 'CPUs' }).fill('4');
+  await back(page).click();
+  await back(page).click();
+  await back(page).click();
+  await back(page).click();
+  await expect(name).toHaveValue('zoomies-4vcpu-debian-12');
+
+  // Once a name is typed it belongs to the operator, and answering another
+  // question must not rewrite it under their cursor. The brand is the one part
   // that is not theirs to drop, so it is put back on the typed name and left
   // at that.
   await name.fill('e2e-mine');
   await next(page).click();
   await next(page).click();
   await next(page).click();
-  await radio(page, 'backend', 'docker').check();
+  await page.getByLabel('Operating system').selectOption('ubuntu-24.04');
   await back(page).click();
   await back(page).click();
   await back(page).click();
