@@ -87,6 +87,28 @@ Newest first. One line per event that changed a row.
   once; a test that wants one installation held has to use the 429 secondary
   form. The first draft of that test did not, and passed for the wrong reason.
 
+  Two deliberate departures from the package's wording, recorded because the
+  plan is the contract and the next reader should not have to rediscover them.
+  The plan says "`LastAcceptedDeliveryAt` takes an installation"; instead it is
+  left alone and a sibling added, because `Controller.Start` and the
+  `pollingOnly` flag that ZF-202 keeps fleet-wide both still need the fleet-wide
+  answer, and one query per sweep beats one per installation. The sibling is
+  `InstallationsFreshSince`, bounded by the caller's own cutoff: asking for the
+  last delivery per installation groups over every accepted row inside the
+  retention window, which measured as a full scan of a week of history every
+  thirty seconds, where the cutoff makes it an index range. And the plan says
+  the tests need "two fakes"; one serves, because the fake's error injection is
+  matched on the request path, so a repository-target installation can be
+  rate-limited by its own path while its neighbour is not.
+
+  One asymmetry the query inherits from the attribution rule, worth knowing
+  before somebody reads it as a bug: where an organisation installation and a
+  repository installation both cover a repository, only the repository one is
+  credited, so an organisation whose only traffic is for a repository-scoped
+  sibling looks silent and keeps being polled. That is the conservative
+  direction -- poll rather than stand down -- and it is the same precedence
+  every other part of ZF-101 uses.
+
 * 2026-09-07: ZF-101's first pull request, the installation boundary. Three
   decisions taken inside decision 13's frame and recorded here because the
   later pull requests inherit them: a job is attributed to the installation

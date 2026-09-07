@@ -852,6 +852,12 @@ func (s *Store) LastAcceptedDeliveryAt(ctx context.Context) (time.Time, error) {
 //
 // One query rather than one per installation: the caller has the whole list in
 // hand and asks on every sweep.
+//
+// Where an organisation installation and a repository installation both cover
+// a repository, only the repository one is credited, because that is the
+// precedence everything else here uses. An organisation whose only traffic is
+// for a repository-scoped sibling therefore looks silent and keeps being
+// polled, which is the direction to be wrong in.
 func (s *Store) InstallationsFreshSince(ctx context.Context, since time.Time) (map[string]bool, error) {
 	rows, err := s.read.QueryContext(ctx, `
 		SELECT DISTINCT (
