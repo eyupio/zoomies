@@ -186,46 +186,72 @@ test('the grids stay inside the screen instead of overflowing it', async ({ page
 });
 
 /*
- * The usage report is not a DataGrid -- it is its own table, ten columns wide
- * at the pool grouping -- so it needs saying separately. Two things make it
- * usable on a phone, and both are invisible until they are gone: the page
- * around the table must not scroll sideways, and the first column has to stay
- * put when the table does, or the number you scrolled to belongs to a row you
- * can no longer name.
+ * The usage report is ten columns wide, which is not a table on a 412px phone
+ * however it scrolls: the heading is cut off mid-word, every pool reads
+ * "zoomies-demo-lin..." and is indistinguishable from the next, and the figure
+ * you scrolled to belongs to a row you can no longer name. On a phone each row
+ * is a card instead, so this holds the three things that makes it readable --
+ * the page does not scroll sideways, no row name is truncated, and every
+ * figure carries its own heading.
  */
-test('the usage report stays inside the screen and keeps its first column', async ({ page }) => {
+test('the usage report reads as cards on a phone, with nothing cut off', async ({ page }) => {
   for (const grouping of ['pool', 'repository', 'workflow', 'installation'] as const) {
     await goto(page, `/usage?group_by=${grouping}`, 'Usage');
     await expect(page.getByRole('table')).toBeVisible();
     await expectNoSidewaysScroll(page, `the usage report grouped by ${grouping}`);
   }
 
-  // Scroll the table's own frame to its far end -- where the cost column is --
-  // and the row's name is still on screen beside it.
   await goto(page, '/usage', 'Usage');
-  // The row's name is a `th scope="row"`, so it is a rowheader and not a cell.
-  const key = page.getByRole('table').getByRole('row').nth(1).getByRole('rowheader');
-  await expect(key).toBeVisible();
-  // textContent, not innerText: the row's tag is uppercased by CSS, and the
-  // question here is whether the same cell is still on screen, not how it is
-  // painted.
-  const name = ((await key.textContent()) ?? '').trim();
-  expect(name, 'the first row must be identified by something').not.toBe('');
+  const names = page.getByRole('rowheader');
+  await expect(names.first()).toBeVisible();
 
-  await page.evaluate(() => {
-    const table = document.querySelector('table');
-    let frame = table?.parentElement ?? null;
-    while (frame && frame.scrollWidth <= frame.clientWidth) frame = frame.parentElement;
-    if (frame) frame.scrollLeft = frame.scrollWidth;
-  });
+  // Every row's name is rendered in full. Truncation here is what made two
+  // different pools read as the same row.
+  //
+  // A name longer than the card wraps instead of being cut. Asserted on the
+  // rule rather than on the rendering, because every name the demo fleet has
+  // fits either way -- a measured check here would pass whatever the CSS said,
+  // and the pools that read alike on a real fleet have longer names than these.
+  const nowrap = await names.evaluateAll((els) =>
+    els
+      .flatMap((el) => [el, ...Array.from(el.querySelectorAll<HTMLElement>('*'))])
+      .filter((el) => {
+        const style = getComputedStyle(el);
+        return style.whiteSpace === 'nowrap' && style.overflow === 'hidden';
+      })
+      .map((el) => el.textContent ?? ''),
+  );
+  expect(nowrap, 'a row name is still held to one clipped line').toEqual([]);
 
-  const box = await key.boundingBox();
-  expect(box, 'the first column vanished when the table scrolled').not.toBeNull();
-  expect(
-    box?.x ?? -1,
-    'the first column scrolled off the left edge, so the row cannot be identified',
-  ).toBeGreaterThanOrEqual(0);
-  expect(((await key.textContent()) ?? '').trim()).toBe(name);
+  // And every figure says what it is, because the column headings are gone.
+  // The rendered pseudo-element is what is checked, not the attribute it is
+  // drawn from: a rule that stopped drawing it would leave the attribute in
+  // place and a column of unexplained numbers on screen.
+  const unlabelled = await page.getByRole('cell').evaluateAll((els) =>
+    els
+      .filter((el) => {
+        const label = getComputedStyle(el, '::before').content;
+        return !label || label === 'none' || label === '""';
+      })
+      .map((el) => el.textContent ?? ''),
+  );
+  expect(unlabelled, 'a figure has no heading of its own on a phone').toEqual([]);
+
+  // And the figures stack rather than running across, which is the whole of
+  // what makes ten columns fit: two cells of one row share a left edge and sit
+  // at different heights. Laid out as a table row they would do the opposite.
+  const first = page.getByRole('row').nth(1).getByRole('cell');
+  const a = await first.nth(0).boundingBox();
+  const b = await first.nth(1).boundingBox();
+  expect(a && b, 'the first row has no figures to lay out').toBeTruthy();
+  expect(b!.y, 'the figures are laid out across the row, not down the card').toBeGreaterThan(a!.y);
+  expect(Math.abs(b!.x - a!.x), 'the figures do not share a left edge').toBeLessThan(2);
+
+  // The card holds its contents off its own edge by more than the hairline of
+  // its border -- a row whose text starts on its own boundary reads as a wall
+  // of figures rather than as a card.
+  const card = await page.getByRole('row').nth(1).boundingBox();
+  expect(a!.x - card!.x, 'the card gives its contents no room off its own edge').toBeGreaterThan(4);
 });
 
 test('a grid is still usable at this width', async ({ page }) => {
