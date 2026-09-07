@@ -140,6 +140,7 @@ it yourself on the **Pools** page:
 | --- | --- |
 | **Name** | `zoomies-linux-x64` |
 | **Labels** | `zoomies-linux-x64` — what your workflows put in `runs-on` — and `zoomies`, which every pool answers to |
+| **Platform** | What the host is: Ubuntu 24.04, amd64. It picks the runner image, and it keeps this pool off hosts running something else |
 | **Backend** | Docker (rootless if available) |
 | **Min / max** | `0` / `4` — nothing idle when nothing is queued; the max is the host's capacity |
 | **Idle timeout** | `5m` |
@@ -158,6 +159,13 @@ in GitHub's own settings is one of yours.
 Decline it, or set `pool.skip` in an answer file, and the Pools page starts
 empty; nothing runs until a pool exists. Either way, always set a maximum. It
 is your only backstop against a runaway workflow.
+
+**Operating system** is the other row worth a look. It picks which
+`zoomies-runner` variant the pool boots — Ubuntu 24.04 and 22.04, Debian 12,
+Fedora and Rocky Linux are published — and it stops the scheduler putting these
+runners on a host running something else. Leave it as *Any* and the pool takes
+the controller's default image and any host that fits otherwise. See
+[Naming and platforms](naming.md).
 
 **Docker in jobs** stays `none` until a workflow needs a daemon — a `docker`
 step, a `container:` or a `services:` block — and then `dind` is the one to

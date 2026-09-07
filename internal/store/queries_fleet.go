@@ -208,10 +208,11 @@ func deletedIDs(ctx context.Context, tx *sql.Tx, query string, args ...any) ([]s
 // Pools
 // ---------------------------------------------------------------------------
 
-const poolCols = `id, name, installation_id, labels, runner_group, backend, image, pull_policy,
-	runner_version, min_runners, max_runners, priority, idle_timeout_ms, ephemeral, docker_mode,
-	resources, cache, host_selector, env, run_as_root, enabled, created_at, updated_at,
-	repository_scale_up_limit, cost_per_runner_hour`
+const poolCols = `id, name, installation_id, labels, runner_group, backend, os, os_version,
+	arch, image, pull_policy, runner_version, min_runners, max_runners, priority,
+	idle_timeout_ms, ephemeral, docker_mode, resources, cache, host_selector, env,
+	run_as_root, enabled, created_at, updated_at, repository_scale_up_limit,
+	cost_per_runner_hour`
 
 func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 	var p Pool
@@ -219,9 +220,10 @@ func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 	var ephemeral, runAsRoot, enabled int
 	var resources, cache string
 	err := sc.Scan(&p.ID, &p.Name, &p.InstallationID, &p.Labels, &p.RunnerGroup, &p.Backend,
-		&p.Image, &p.PullPolicy, &p.RunnerVersion, &p.MinRunners, &p.MaxRunners, &p.Priority, &idle, &ephemeral,
-		&p.DockerMode, &resources, &cache, &p.HostSelector, &p.Env, &runAsRoot, &enabled,
-		&created, &updated, &p.RepositoryScaleUpLimit, &p.CostPerRunnerHour)
+		&p.Platform.OS, &p.Platform.OSVersion, &p.Platform.Arch,
+		&p.Image, &p.PullPolicy, &p.RunnerVersion, &p.MinRunners, &p.MaxRunners, &p.Priority,
+		&idle, &ephemeral, &p.DockerMode, &resources, &cache, &p.HostSelector, &p.Env,
+		&runAsRoot, &enabled, &created, &updated, &p.RepositoryScaleUpLimit, &p.CostPerRunnerHour)
 	if err != nil {
 		return nil, err
 	}
@@ -250,6 +252,7 @@ func (s *Store) CreatePool(ctx context.Context, p *Pool) error {
 	p.CreatedAt, p.UpdatedAt = now, now
 	p.Name = BrandedName(p.Name)
 	p.Labels = NormalizeLabels(p.Labels)
+	p.Platform = p.Platform.Normalized()
 	if p.PullPolicy == "" {
 		p.PullPolicy = PullIfNotPresent
 	}
@@ -261,8 +264,9 @@ func (s *Store) CreatePool(ctx context.Context, p *Pool) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.exec(ctx, `INSERT INTO pools (`+poolCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		p.ID, p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend), p.Image,
+	_, err = s.exec(ctx, `INSERT INTO pools (`+poolCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		p.ID, p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend),
+		p.Platform.OS, p.Platform.OSVersion, p.Platform.Arch, p.Image,
 		string(p.PullPolicy),
 		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.Priority, p.IdleTimeout.Duration().Milliseconds(),
 		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
@@ -316,6 +320,7 @@ func (s *Store) UpdatePool(ctx context.Context, p *Pool) error {
 	p.UpdatedAt = s.Now()
 	p.Name = BrandedName(p.Name)
 	p.Labels = NormalizeLabels(p.Labels)
+	p.Platform = p.Platform.Normalized()
 	if p.PullPolicy == "" {
 		p.PullPolicy = PullIfNotPresent
 	}
@@ -328,10 +333,12 @@ func (s *Store) UpdatePool(ctx context.Context, p *Pool) error {
 		return err
 	}
 	r, err := s.exec(ctx, `UPDATE pools SET name=?, installation_id=?, labels=?, runner_group=?,
-		backend=?, image=?, pull_policy=?, runner_version=?, min_runners=?, max_runners=?, priority=?, idle_timeout_ms=?,
-		ephemeral=?, docker_mode=?, resources=?, cache=?, host_selector=?, env=?, run_as_root=?,
+		backend=?, os=?, os_version=?, arch=?, image=?, pull_policy=?, runner_version=?,
+		min_runners=?, max_runners=?, priority=?, idle_timeout_ms=?, ephemeral=?,
+		docker_mode=?, resources=?, cache=?, host_selector=?, env=?, run_as_root=?,
 		enabled=?, updated_at=?, repository_scale_up_limit=?, cost_per_runner_hour=? WHERE id=?`,
-		p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend), p.Image,
+		p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend),
+		p.Platform.OS, p.Platform.OSVersion, p.Platform.Arch, p.Image,
 		string(p.PullPolicy),
 		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.Priority, p.IdleTimeout.Duration().Milliseconds(),
 		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
@@ -463,16 +470,17 @@ func (s *Store) CountRunnersByPool(ctx context.Context) (map[string]PoolCounts, 
 // Hosts
 // ---------------------------------------------------------------------------
 
-const hostCols = `id, name, address, embedded, capacity, backends, backend_info, labels, os, arch,
-	version, cordoned, token_hash, last_heartbeat, created_at`
+const hostCols = `id, name, address, embedded, capacity, backends, backend_info, labels,
+	os, distro, os_version, arch, cpus, memory_mb, version, cordoned, token_hash,
+	last_heartbeat, created_at`
 
 func scanHost(sc interface{ Scan(...any) error }) (*Host, error) {
 	var h Host
 	var embedded, cordoned int
 	var heartbeat, created int64
 	err := sc.Scan(&h.ID, &h.Name, &h.Address, &embedded, &h.Capacity, &h.Backends,
-		&h.BackendInfo, &h.Labels, &h.OS, &h.Arch, &h.Version, &cordoned, &h.TokenHash,
-		&heartbeat, &created)
+		&h.BackendInfo, &h.Labels, &h.OS, &h.Distro, &h.OSVersion, &h.Arch, &h.CPUs,
+		&h.MemoryMB, &h.Version, &cordoned, &h.TokenHash, &heartbeat, &created)
 	if err != nil {
 		return nil, err
 	}
@@ -490,10 +498,10 @@ func (s *Store) CreateHost(ctx context.Context, h *Host) error {
 	if h.LastHeartbeat.IsZero() {
 		h.LastHeartbeat = h.CreatedAt
 	}
-	_, err := s.exec(ctx, `INSERT INTO hosts (`+hostCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := s.exec(ctx, `INSERT INTO hosts (`+hostCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		h.ID, h.Name, h.Address, boolInt(h.Embedded), h.Capacity, h.Backends, h.BackendInfo,
-		h.Labels, h.OS, h.Arch, h.Version, boolInt(h.Cordoned), h.TokenHash,
-		ms(h.LastHeartbeat), ms(h.CreatedAt))
+		h.Labels, h.OS, h.Distro, h.OSVersion, h.Arch, h.CPUs, h.MemoryMB, h.Version,
+		boolInt(h.Cordoned), h.TokenHash, ms(h.LastHeartbeat), ms(h.CreatedAt))
 	return wrapWrite(err)
 }
 
@@ -590,9 +598,11 @@ func (s *Store) FindHostByTokenHash(ctx context.Context, hash string) (*Host, er
 // UpdateHost persists agent-reported host facts.
 func (s *Store) UpdateHost(ctx context.Context, h *Host) error {
 	res, err := s.exec(ctx, `UPDATE hosts SET name=?, address=?, capacity=?, backends=?,
-		backend_info=?, labels=?, os=?, arch=?, version=?, cordoned=?, last_heartbeat=? WHERE id=?`,
-		h.Name, h.Address, h.Capacity, h.Backends, h.BackendInfo, h.Labels, h.OS, h.Arch,
-		h.Version, boolInt(h.Cordoned), ms(h.LastHeartbeat), h.ID)
+		backend_info=?, labels=?, os=?, distro=?, os_version=?, arch=?, cpus=?, memory_mb=?,
+		version=?, cordoned=?, last_heartbeat=? WHERE id=?`,
+		h.Name, h.Address, h.Capacity, h.Backends, h.BackendInfo, h.Labels, h.OS, h.Distro,
+		h.OSVersion, h.Arch, h.CPUs, h.MemoryMB, h.Version, boolInt(h.Cordoned),
+		ms(h.LastHeartbeat), h.ID)
 	if err != nil {
 		return wrapWrite(err)
 	}

@@ -14,6 +14,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/eyupio/zoomies/internal/naming"
 )
 
 // ---------------------------------------------------------------------------
@@ -379,6 +381,68 @@ type Installation struct {
 // Healthy reports whether the last credential check succeeded.
 func (i *Installation) Healthy() bool { return i.LastError == "" }
 
+// Platform is the machine a pool's runners need, or the machine a host is.
+//
+// It exists because "backend: docker" says how a runner is made and nothing
+// about what it is made of. A pool asking for Ubuntu 24.04 on arm64 must not
+// have its runners placed on a Debian amd64 host, and until the fleet can
+// state the platform on both sides there is no way to stop it.
+//
+// Every field is optional. An empty field is a promise nobody made, and
+// matches anything -- which is what keeps a fleet built before platforms
+// existed working exactly as it did.
+type Platform struct {
+	// OS is a distribution, normalised by naming.NormalizeOS: ubuntu, debian,
+	// fedora, rocky, macos, windows. Not a kernel: "linux" does not say which
+	// image a runner should be started from.
+	OS string `json:"os,omitempty"`
+	// OSVersion is the release, as an operator writes it: "24.04", "12".
+	OSVersion string `json:"os_version,omitempty"`
+	// Arch is amd64 or arm64, normalised by naming.NormalizeArch.
+	Arch string `json:"arch,omitempty"`
+}
+
+// Normalized returns the platform with each field in its canonical spelling,
+// dropping anything Zoomies does not recognise rather than storing a value the
+// scheduler would then never match.
+func (p Platform) Normalized() Platform {
+	return Platform{
+		OS:        naming.NormalizeOS(p.OS),
+		OSVersion: strings.TrimSpace(p.OSVersion),
+		Arch:      naming.NormalizeArch(p.Arch),
+	}
+}
+
+// Empty reports whether the platform constrains nothing.
+func (p Platform) Empty() bool { return p == Platform{} }
+
+// Matches reports whether a host of platform h can run a pool that asks for p.
+//
+// Comparison is one-directional on purpose: every field the pool leaves empty
+// is a question it did not ask, and a host that has not reported a field
+// cannot be ruled out by it either. The result is that adding a platform to a
+// pool narrows placement, and never widens it.
+func (p Platform) Matches(h Platform) bool {
+	p, h = p.Normalized(), h.Normalized()
+	if p.OS != "" && h.OS != "" && p.OS != h.OS {
+		return false
+	}
+	if p.Arch != "" && h.Arch != "" && p.Arch != h.Arch {
+		return false
+	}
+	if p.OSVersion != "" && h.OSVersion != "" &&
+		naming.CompactVersion(p.OSVersion) != naming.CompactVersion(h.OSVersion) {
+		return false
+	}
+	return true
+}
+
+// Describe renders the platform for the UI and for scheduler explanations,
+// e.g. "Ubuntu 24.04, arm64". It is empty when the platform promises nothing.
+func (p Platform) Describe() string {
+	return naming.Spec{OS: p.OS, Version: p.OSVersion, Arch: p.Arch}.Platform()
+}
+
 // Resources caps what a single runner may consume on its host. Zero means
 // "unlimited", which is the backend's own default.
 type Resources struct {
@@ -426,11 +490,15 @@ type Pool struct {
 	Labels         StringSlice `json:"labels"`
 	RunnerGroup    string      `json:"runner_group,omitempty"`
 	Backend        BackendKind `json:"backend"`
-	Image          string      `json:"image"`
-	PullPolicy     PullPolicy  `json:"pull_policy"`
-	RunnerVersion  string      `json:"runner_version,omitempty"`
-	MinRunners     int         `json:"min_runners"`
-	MaxRunners     int         `json:"max_runners"`
+	// Platform is the machine this pool's runners need. It picks the runner
+	// image when the pool names none, and it stops the scheduler placing a
+	// runner on a host that is not that machine.
+	Platform      Platform   `json:"platform"`
+	Image         string     `json:"image"`
+	PullPolicy    PullPolicy `json:"pull_policy"`
+	RunnerVersion string     `json:"runner_version,omitempty"`
+	MinRunners    int        `json:"min_runners"`
+	MaxRunners    int        `json:"max_runners"`
 	// RepositoryScaleUpLimit is a best-effort throttle on runner creation
 	// attributable to any one repository. GitHub may assign queued work to any
 	// compatible idle runner, so this is not a strict execution concurrency cap.
@@ -455,6 +523,23 @@ type Pool struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
+
+// Spec is the pool in the naming grammar's terms: how much machine each of its
+// runners gets, and which machine that is. It is what names the pool, what
+// labels it, and what the Pools page prints beside it.
+func (p *Pool) Spec() naming.Spec {
+	return naming.Spec{
+		CPUs:     p.Resources.CPUs,
+		MemoryGB: int(p.Resources.MemoryMB / 1024),
+		OS:       p.Platform.OS,
+		Version:  p.Platform.OSVersion,
+		Arch:     p.Platform.Arch,
+	}
+}
+
+// CanonicalName is the name this pool would be given by `zoomies pools create`
+// today. A pool whose name already equals it needs no explanation in the UI.
+func (p *Pool) CanonicalName() string { return naming.PoolName(p.Spec()) }
 
 type PoolPrewarm struct {
 	PoolID    string    `json:"pool_id"`
@@ -549,9 +634,19 @@ type Host struct {
 	// host is not taking work; the scheduler reads Backends, never this.
 	BackendInfo HostBackends `json:"backend_info,omitempty"`
 	Labels      StringMap    `json:"labels"`
-	OS          string       `json:"os"`
-	Arch        string       `json:"arch"`
-	Version     string       `json:"version"`
+	// OS is the kernel the agent runs on (Go's GOOS), kept as reported so an
+	// operator sees what the machine said about itself.
+	OS string `json:"os"`
+	// Distro and OSVersion are the distribution and release, which is what
+	// decides whether an Ubuntu 24.04 pool may be placed here.
+	Distro    string `json:"distro,omitempty"`
+	OSVersion string `json:"os_version,omitempty"`
+	Arch      string `json:"arch"`
+	// CPUs and MemoryMB are the machine's size, reported by the agent. They
+	// are what the host's canonical name and the Hosts page say out loud.
+	CPUs     int    `json:"cpus,omitempty"`
+	MemoryMB int64  `json:"memory_mb,omitempty"`
+	Version  string `json:"version"`
 	// Cordoned hosts keep their existing runners but accept no new ones.
 	Cordoned      bool      `json:"cordoned"`
 	LastHeartbeat time.Time `json:"last_heartbeat"`
@@ -561,6 +656,46 @@ type Host struct {
 	// Live counters, filled by the store on read.
 	ActiveRunners int `json:"active_runners"`
 }
+
+// Platform is what this machine is, in the terms a pool asks in.
+//
+// The distribution wins over the kernel: "linux" cannot pick an image, and a
+// pool asking for Ubuntu 24.04 needs to know it landed on Ubuntu. macOS and
+// Windows report no distribution, so for them the kernel is the answer.
+func (h *Host) Platform() Platform {
+	os := h.Distro
+	if naming.NormalizeOS(os) == "" {
+		os = h.OS
+	}
+	return Platform{OS: os, OSVersion: h.OSVersion, Arch: h.Arch}.Normalized()
+}
+
+// Spec is the host in the naming grammar's terms: how much machine it is, what
+// it runs, and which machine it is.
+//
+// The machine part is taken back out of a name that is already canonical, so
+// that re-deriving a host's name yields the name it already has rather than
+// nesting one inside the other on every heartbeat.
+func (h *Host) Spec() naming.Spec {
+	machine := h.Name
+	if parsed, ok := naming.Parse(machine); ok {
+		machine = parsed.Suffix
+	}
+	p := h.Platform()
+	return naming.Spec{
+		CPUs:     float64(h.CPUs),
+		MemoryGB: int(h.MemoryMB / 1024),
+		OS:       p.OS,
+		Version:  p.OSVersion,
+		Arch:     p.Arch,
+		Suffix:   machine,
+	}
+}
+
+// CanonicalName is the name this machine would be given by `zoomies agent
+// join` today, which is what the UI offers when a host is called something
+// that says nothing.
+func (h *Host) CanonicalName() string { return h.Spec().String() }
 
 // HeartbeatTimeout is how long a host may go silent before it is considered
 // unhealthy. It is three times the agent's default heartbeat interval.

@@ -113,12 +113,16 @@ In detail:
    no clock reads, no database, no network. That is what makes the scaling
    behaviour testable, and it is where every scaling decision's *reason string*
    comes from. Which host each new runner is placed on is decided here too --
-   healthy, uncordoned, offering the pool's backend, matching its host selector,
-   with room left -- and [Hosts and pools](hosts-and-pools.md) is that rule in
-   operator terms.
-5. For each `create` action the controller picks the installation, asks GitHub
-   for a JIT configuration, writes a `runners` row in `provisioning`, and queues
-   a task for the chosen host's agent. A JIT configuration registers exactly one
+   healthy, uncordoned, offering the pool's backend, *being the platform the
+   pool asked for*, matching its host selector, with room left -- and
+   [Hosts and pools](hosts-and-pools.md) is that rule in operator terms. A pool
+   that names no platform, and a host whose agent has not reported one, both
+   constrain nothing, so adding a platform narrows placement and never widens
+   it.
+5. For each `create` action the controller picks the installation, resolves the
+   runner image from the pool's own image or its platform, asks GitHub for a JIT
+   configuration, writes a `runners` row in `provisioning`, and queues a task for
+   the chosen host's agent. A JIT configuration registers exactly one
    runner and cannot be replayed, which is what makes it safe to hand to a
    container in its environment; a non-ephemeral pool has to run `config.sh`, so
    it gets a registration token instead.
@@ -160,7 +164,9 @@ silently stopped receiving webhooks looks exactly like a quiet fleet.
 | `internal/store` | The only place SQL is written. Domain types, embedded migrations, every query. Enforces the runner state machine. |
 | `internal/config` | `zoomies.yaml` + `ZOOMIES_*`. Splits findings into errors that stop startup and warnings that name every dangerous setting. |
 | `internal/cryptox` | AES-256-GCM for secrets at rest; argon2id for passwords; SHA-256 for bearer tokens. |
-| `internal/scheduler` | Pure scaling decisions and label matching. No I/O. |
+| `internal/scheduler` | Pure scaling decisions, label matching and platform fit. No I/O. |
+| `internal/naming` | The `zoomies-*` naming grammar for pools and hosts, and the runner image catalogue. No I/O; see [Naming and platforms](naming.md). |
+| `internal/machine` | What host this process is running on: distribution, release, and how much machine the cgroup actually allows. |
 | `internal/github` | App auth, JIT configs, registration tokens, webhook validation, the fallback poller, and a fake GitHub for tests. |
 | `internal/backend` | How a runner becomes a real process: Docker, Podman, bare process. |
 | `internal/auth` | Identity, RBAC, sessions, API tokens, join tokens, OIDC, audit. |

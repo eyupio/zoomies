@@ -240,6 +240,11 @@ type Factory interface {
 // "zoomies-linux-x64-a3f9q" -- long enough that the brand was what got
 // truncated in GitHub's own tables. Which pool a runner belongs to is a click
 // away in Zoomies and is on the runner's labels either way.
+//
+// This is why the naming grammar in internal/naming stops at pools and hosts:
+// a pool's name is read in a workflow file, where the size and the platform
+// are exactly what a reader needs, and a runner's is read in a column that
+// truncates.
 func RunnerName() string { return store.NewRunnerName() }
 
 // SplitTarget parses "owner" or "owner/repo" into its parts.

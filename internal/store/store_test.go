@@ -793,3 +793,119 @@ func TestAppliedMigrationsListsTheLedgerInOrder(t *testing.T) {
 		}
 	}
 }
+func TestPlatformRoundTrips(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	inst, _, _ := seedPool(t, s)
+
+	pool := &Pool{
+		Name: "zoomies-4vcpu-ubuntu-2404-arm64", InstallationID: inst.ID,
+		Backend: BackendDocker, MaxRunners: 4, Ephemeral: true, Enabled: true,
+		DockerMode: DockerNone,
+		// Deliberately in the spellings an operator types rather than the ones
+		// the scheduler compares, so that normalisation on write is exercised.
+		Platform:  Platform{OS: "Ubuntu", OSVersion: "24.04", Arch: "aarch64"},
+		Resources: Resources{CPUs: 4, MemoryMB: 16384},
+	}
+	if err := s.CreatePool(ctx, pool); err != nil {
+		t.Fatalf("CreatePool: %v", err)
+	}
+	got, err := s.GetPool(ctx, pool.ID)
+	if err != nil {
+		t.Fatalf("GetPool: %v", err)
+	}
+	want := Platform{OS: "ubuntu", OSVersion: "24.04", Arch: "arm64"}
+	if got.Platform != want {
+		t.Errorf("platform = %+v, want %+v", got.Platform, want)
+	}
+	if name := got.CanonicalName(); name != "zoomies-4vcpu-16gb-ubuntu-2404-arm64" {
+		t.Errorf("CanonicalName = %q", name)
+	}
+
+	got.Platform = Platform{OS: "debian", OSVersion: "12", Arch: "amd64"}
+	if err := s.UpdatePool(ctx, got); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	again, err := s.GetPool(ctx, pool.ID)
+	if err != nil {
+		t.Fatalf("GetPool: %v", err)
+	}
+	if again.Platform != got.Platform {
+		t.Errorf("platform after update = %+v, want %+v", again.Platform, got.Platform)
+	}
+}
+
+func TestHostReportsWhatMachineItIs(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	h := &Host{
+		Name: "zoomies-16vcpu-ubuntu-2404-build01", Capacity: 8, Backends: StringSlice{"docker"},
+		OS: "linux", Distro: "ubuntu", OSVersion: "24.04", Arch: "amd64",
+		CPUs: 16, MemoryMB: 32768,
+	}
+	if err := s.CreateHost(ctx, h); err != nil {
+		t.Fatalf("CreateHost: %v", err)
+	}
+	got, err := s.GetHost(ctx, h.ID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if got.CPUs != 16 || got.MemoryMB != 32768 {
+		t.Errorf("size = %d vCPU / %d MB, want 16 / 32768", got.CPUs, got.MemoryMB)
+	}
+	// "linux" cannot pick an image; the distribution is what a pool asks for.
+	want := Platform{OS: "ubuntu", OSVersion: "24.04", Arch: "amd64"}
+	if got.Platform() != want {
+		t.Errorf("Platform() = %+v, want %+v", got.Platform(), want)
+	}
+	if name := got.Spec().String(); name != "zoomies-16vcpu-32gb-ubuntu-2404-build01" {
+		t.Errorf("Spec().String() = %q", name)
+	}
+
+	got.OSVersion = "22.04"
+	got.CPUs = 32
+	if err := s.UpdateHost(ctx, got); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+	again, err := s.GetHost(ctx, h.ID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if again.OSVersion != "22.04" || again.CPUs != 32 {
+		t.Errorf("host after update = %q / %d vCPU", again.OSVersion, again.CPUs)
+	}
+}
+
+func TestPlatformMatching(t *testing.T) {
+	host := Platform{OS: "ubuntu", OSVersion: "24.04", Arch: "amd64"}
+	cases := []struct {
+		name string
+		pool Platform
+		want bool
+	}{
+		{"a pool that asks nothing goes anywhere", Platform{}, true},
+		{"the same machine", host, true},
+		{"a different distribution", Platform{OS: "debian"}, false},
+		{"a different architecture", Platform{Arch: "arm64"}, false},
+		{"a different release", Platform{OS: "ubuntu", OSVersion: "22.04"}, false},
+		{"the release written compactly", Platform{OS: "ubuntu", OSVersion: "2404"}, true},
+		{"an architecture in GitHub's spelling", Platform{Arch: "x64"}, true},
+		{"only part of the machine named", Platform{OS: "ubuntu"}, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := c.pool.Matches(host); got != c.want {
+				t.Errorf("Matches = %v, want %v", got, c.want)
+			}
+		})
+	}
+
+	// A host that has not reported a field cannot be ruled out by it: adding a
+	// platform to a pool must never widen placement, and it must not narrow it
+	// against hosts that predate the field either.
+	silent := Platform{}
+	if !(Platform{OS: "ubuntu", Arch: "arm64"}).Matches(silent) {
+		t.Error("a pool with a platform was refused a host that reported none")
+	}
+}

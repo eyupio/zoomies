@@ -14,6 +14,7 @@ import (
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/events"
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -72,6 +73,7 @@ type poolInput struct {
 	Labels                 *[]string          `json:"labels"`
 	RunnerGroup            *string            `json:"runner_group"`
 	Backend                *string            `json:"backend"`
+	Platform               *store.Platform    `json:"platform"`
 	Image                  *string            `json:"image"`
 	PullPolicy             *string            `json:"pull_policy"`
 	RunnerVersion          *string            `json:"runner_version"`
@@ -96,8 +98,12 @@ type poolInput struct {
 // wizard's review step showed.
 func (s *Server) defaultPool() *store.Pool {
 	return &store.Pool{
-		Backend:     store.BackendDocker,
-		Image:       s.cfg().GitHub.RunnerImage,
+		Backend: store.BackendDocker,
+		// No image: a pool that names none follows its platform, and a pool
+		// with no platform follows the instance default. Pinning the default
+		// here would freeze every pool on whatever the default was the day it
+		// was created.
+		Image:       "",
 		PullPolicy:  store.PullIfNotPresent,
 		MinRunners:  0,
 		MaxRunners:  4,
@@ -139,6 +145,16 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 	}
 	if in.Backend != nil {
 		p.Backend = store.BackendKind(strings.ToLower(strings.TrimSpace(*in.Backend)))
+	}
+	if in.Platform != nil {
+		// Keep what the operator sent rather than the normalised form: an
+		// operating system Zoomies does not know has to survive as far as the
+		// validator, which can then say so by name.
+		p.Platform = store.Platform{
+			OS:        strings.ToLower(strings.TrimSpace(in.Platform.OS)),
+			OSVersion: strings.TrimSpace(in.Platform.OSVersion),
+			Arch:      strings.ToLower(strings.TrimSpace(in.Platform.Arch)),
+		}
 	}
 	if in.Image != nil {
 		p.Image = strings.TrimSpace(*in.Image)
@@ -217,6 +233,79 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 	return errs
 }
 
+// platformOption is one row of the runner image catalogue, as the pool wizard
+// needs it: what to select, what to call it, and which architectures it can be
+// asked for.
+type platformOption struct {
+	OS        string   `json:"os"`
+	OSVersion string   `json:"os_version"`
+	Label     string   `json:"label"`
+	Image     string   `json:"image"`
+	Arches    []string `json:"arches"`
+	Default   bool     `json:"default"`
+}
+
+// handlePoolPlatforms answers GET /api/v1/pools/platforms.
+//
+// The catalogue is compiled into the binary, so this is a constant list. It is
+// served rather than duplicated in the UI because a dropdown offering an
+// operating system no image is published for is a pool that validates and then
+// never starts a runner.
+func (s *Server) handlePoolPlatforms(w http.ResponseWriter, _ *http.Request) {
+	images := naming.Images()
+	out := make([]platformOption, 0, len(images))
+	for _, img := range images {
+		out = append(out, platformOption{
+			OS:        img.OS,
+			OSVersion: img.Version,
+			Label:     naming.PrettyOS(img.OS) + " " + img.Version,
+			Image:     img.Ref(),
+			Arches:    img.Arches,
+			Default:   img.Default,
+		})
+	}
+	writeJSON(w, http.StatusOK, newList(out))
+}
+
+// validatePlatform checks the machine a pool asks for.
+//
+// The rule it enforces is that a pool must be startable: either it names an
+// image, or the platform it names is one Zoomies publishes an image for. A
+// pool that asks for Ubuntu 20.04 and no image would otherwise be accepted and
+// then fail at every create, which is a much later and much worse place to
+// find out.
+func validatePlatform(p *store.Pool) []fieldError {
+	var errs []fieldError
+	add := func(field, msg string) { errs = append(errs, fieldError{field, msg}) }
+
+	if p.Platform.OS != "" && naming.NormalizeOS(p.Platform.OS) == "" {
+		add("platform.os", fmt.Sprintf("%q is not an operating system Zoomies knows; use one of %s, or leave it blank and name an image instead",
+			p.Platform.OS, naming.SupportedPlatforms()))
+	}
+	if p.Platform.Arch != "" && naming.NormalizeArch(p.Platform.Arch) == "" {
+		add("platform.arch", fmt.Sprintf("%q is not an architecture Zoomies runs on; use amd64 or arm64", p.Platform.Arch))
+	}
+	if p.Backend == store.BackendProcess {
+		// There is no image: the host itself is the environment, so nothing
+		// below applies.
+		return errs
+	}
+
+	os := naming.NormalizeOS(p.Platform.OS)
+	if p.Image == "" && os != "" {
+		img, ok := naming.FindImage(os, p.Platform.OSVersion)
+		switch {
+		case !ok:
+			add("platform.os_version", fmt.Sprintf("no runner image is published for %s %s; Zoomies publishes %s, or name an image of your own",
+				naming.PrettyOS(os), p.Platform.OSVersion, naming.SupportedPlatforms()))
+		case !img.Supports(p.Platform.Arch):
+			add("platform.arch", fmt.Sprintf("%s is not published for %s; it is built for %s",
+				img.Ref(), p.Platform.Arch, strings.Join(img.Arches, " and ")))
+		}
+	}
+	return errs
+}
+
 // validatePool checks a pool the way the creation wizard does, and for the same
 // reasons, so that the review step and the server never disagree.
 func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID string) []fieldError {
@@ -267,8 +356,13 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	if p.Backend == store.BackendProcess && p.DockerMode != store.DockerNone && p.DockerMode != "" {
 		add("docker_mode", "the process backend runs jobs directly on the host, so it cannot give them a Docker daemon of their own; use the docker or podman backend, or set docker_mode to none")
 	}
-	if p.Image == "" && p.Backend != store.BackendProcess {
-		add("image", "a container backend needs a runner image; leave it blank only for the process backend")
+	// An empty image is only a problem when nothing else can supply one: a
+	// pool that names its platform gets the variant that platform selects, and
+	// one that names neither gets the instance default.
+	if p.Image == "" && p.Platform.OS == "" && p.Backend != store.BackendProcess &&
+		strings.TrimSpace(s.cfg().GitHub.RunnerImage) == "" {
+		add("image", "a container backend needs a runner image; leave it blank only for the process backend, "+
+			"or name an operating system and let its published image be used")
 	}
 	if !p.PullPolicy.Valid() {
 		add("pull_policy", "use if-not-present, always, or pinned-only")
@@ -276,6 +370,7 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	if p.PullPolicy == store.PullPinnedOnly && !digestReference(p.Image) {
 		add("image", "pinned-only requires an immutable digest reference such as image@sha256:…; mutable tags are rejected")
 	}
+	errs = append(errs, validatePlatform(p)...)
 
 	if p.MinRunners < 0 {
 		add("min_runners", "the minimum cannot be negative")
@@ -478,7 +573,14 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 		why := fmt.Sprintf("no healthy, uncordoned host offers the %s backend and matches this pool's host selector, "+
 			"so every runner it asks for would wait for a host that does not exist.", p.Backend)
 		fix := "add a host with that backend, uncordon one, or relax the host selector."
-		if detail := fit.Detail; detail != "" {
+		if platform := p.Platform.Describe(); fit.PlatformMismatch > 0 && platform != "" {
+			// A host that is simply not the machine this pool asked for cannot
+			// be fixed by making a backend usable on it, so naming the machine
+			// is the only instruction worth giving.
+			why = fmt.Sprintf("no healthy, uncordoned host is running %s with the %s backend, "+
+				"so every runner this pool asks for would wait for a host that does not exist.", platform, p.Backend)
+			fix = fmt.Sprintf("add a %s host, or change this pool's platform to one your fleet already has.", platform)
+		} else if detail := fit.Detail; detail != "" {
 			// A host is there and its agent already said what is wrong with it,
 			// which is a much shorter route to a working pool than adding a
 			// machine.

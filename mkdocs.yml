@@ -144,6 +144,7 @@ nav:
   - The UI: ui.md
   - Guide:
       - Architecture: architecture.md
+      - Naming and platforms: naming.md
       - Configuration: configuration.md
       - Hosts and pools: hosts-and-pools.md
       - Migrating repositories: migration.md

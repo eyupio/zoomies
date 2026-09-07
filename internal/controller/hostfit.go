@@ -24,6 +24,11 @@ type HostFit struct {
 	// The wizard turns them into the second half of its warning, in the same
 	// words the scheduler uses once the pool is real.
 	Alternatives []string
+	// PlatformMismatch counts the hosts that fit in every other way but are
+	// not the machine the pool asked for. It is called out separately because
+	// it is the one mismatch no backend change can fix: the answer is a
+	// different host, or a different platform on the pool.
+	PlatformMismatch int
 }
 
 // HostFit counts the hosts that could run a pool, using the scheduler's own
@@ -51,6 +56,10 @@ func (c *Controller) HostFit(ctx context.Context, p *store.Pool) (HostFit, error
 					fit.Detail = h.Name + " reports: " + info.Detail
 				}
 			}
+			continue
+		}
+		if !scheduler.HostIsPlatform(h, p) {
+			fit.PlatformMismatch++
 			continue
 		}
 		fit.Count++

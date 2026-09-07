@@ -133,6 +133,11 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionPoolsRead)).Get("/", s.handleListPools)
 			r.With(s.require(auth.ActionPoolsWrite)).Post("/", s.handleCreatePool)
 			r.With(s.require(auth.ActionPoolsWrite)).Post("/validate", s.handleValidatePool)
+			// The platforms the fleet can actually run. It sits under /pools
+			// because it is the list a pool's platform may be chosen from --
+			// and serving it means the wizard's dropdown cannot offer an
+			// operating system no image is published for.
+			r.With(s.require(auth.ActionPoolsRead)).Get("/platforms", s.handlePoolPlatforms)
 			r.With(s.require(auth.ActionPoolsRead)).Get("/{id}", s.handleGetPool)
 			r.With(s.require(auth.ActionPoolsWrite)).Patch("/{id}", s.handleUpdatePool)
 			r.With(s.require(auth.ActionPoolsDelete)).Delete("/{id}", s.handleDeletePool)

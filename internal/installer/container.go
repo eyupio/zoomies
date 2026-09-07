@@ -732,7 +732,7 @@ func (i *Installer) containerSummary(p Plan, envPath string, reusedKey bool) {
 	// none of the three things a native install does for the operator -- the
 	// administrator, the GitHub App, the first pool -- happened here. Naming
 	// them, in order, with the exact address of each, is the whole handover.
-	sug := SuggestPool(i.det.OS, i.det.Arch, p.Backend, p.Capacity)
+	sug := SuggestPool(i.det, p.Backend, p.Capacity)
 	// The same four steps, in the same order and with the same names, as the
 	// browser's own checklist and the first-run card it hands over from.
 	i.ui.step("Next -- four steps: three in the browser, then one in a workflow")

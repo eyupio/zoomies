@@ -92,6 +92,7 @@ Conventions:
 | GET | `/api/v1/pools` | viewer | Includes live per-state runner counts and utilisation. |
 | POST | `/api/v1/pools` | operator | Full pool object. Server-side validation mirrors the wizard's. |
 | POST | `/api/v1/pools/validate` | operator | Dry run: returns field errors and the dangerous-setting warnings the pool would produce, without creating anything. The wizard's review step calls this. |
+| GET | `/api/v1/pools/platforms` | viewer | The runner image catalogue: every operating system and release a `zoomies-runner` image is published for, and the architectures each is built for. Served rather than hard-coded in a client, so a pool cannot be offered a platform no image exists for. |
 | GET | `/api/v1/pools/{id}` | viewer | |
 | PATCH | `/api/v1/pools/{id}` | operator | |
 | DELETE | `/api/v1/pools/{id}` | operator | `?drain=true` (default) drains runners first; `?force=true` removes them immediately. The response says how many runners were affected. |

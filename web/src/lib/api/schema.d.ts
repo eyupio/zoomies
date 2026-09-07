@@ -517,6 +517,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/pools/platforms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The platforms a pool may ask for
+         * @description The runner image catalogue: every operating system and release Zoomies
+         *     publishes a zoomies-runner image for, and the architectures each is
+         *     built for. It is served rather than hard-coded in a client so that a
+         *     pool cannot be offered an operating system no image exists for.
+         */
+        get: operations["listPoolPlatforms"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pools/validate": {
         parameters: {
             query?: never;
@@ -1704,6 +1727,42 @@ export interface components {
             /** Format: int64 */
             pids_limit?: number;
         };
+        /** @description One row of the runner image catalogue. */
+        PoolPlatform: {
+            /** @example ubuntu */
+            os?: string;
+            /** @example 24.04 */
+            os_version?: string;
+            /** @example Ubuntu 24.04 */
+            label?: string;
+            /** @example ghcr.io/eyupio/zoomies-runner:ubuntu-2404 */
+            image?: string;
+            /**
+             * @example [
+             *       "amd64",
+             *       "arm64"
+             *     ]
+             */
+            arches?: string[];
+            /** @description True for the variant :latest points at. */
+            default?: boolean;
+        };
+        /** @description The machine a pool's runners need, or the machine a host is. Every field is optional; an empty field is a promise nobody made and matches anything. A pool's platform selects its runner image and restricts the hosts the scheduler may place its runners on. */
+        Platform: {
+            /**
+             * @description A distribution, not a kernel - "linux" cannot pick a runner image.
+             * @example ubuntu
+             * @enum {string}
+             */
+            os?: "ubuntu" | "debian" | "fedora" | "rocky" | "macos" | "windows";
+            /** @example 24.04 */
+            os_version?: string;
+            /**
+             * @example arm64
+             * @enum {string}
+             */
+            arch?: "amd64" | "arm64";
+        };
         UsageResponse: {
             /** Format: date-time */
             from: string;
@@ -1760,7 +1819,10 @@ export interface components {
             labels?: string[];
             runner_group?: string;
             backend?: components["schemas"]["BackendKind"];
+            platform?: components["schemas"]["Platform"];
             image?: string;
+            /** @description The image this pool's runners will actually boot: image when the pool names one, otherwise the variant its platform selects, otherwise the instance default -- and then its Docker variant when the pool gives its jobs a daemon. */
+            effective_image?: string;
             pull_policy?: components["schemas"]["PullPolicy"];
             runner_version?: string;
             min_runners?: number;
@@ -1828,14 +1890,16 @@ export interface components {
         };
         PoolCreate: {
             /**
-             * @description The pool's name. Every pool name carries the brand, so a name sent without the `zoomies-` prefix is stored with one: `gpu` becomes `zoomies-gpu`.
-             * @example zoomies-linux-x64
+             * @description The pool's name. Every pool name carries the brand, so a name sent without the `zoomies-` prefix is stored with one: `gpu` becomes `zoomies-gpu`. Beyond the brand, Zoomies' own convention is zoomies-<vcpu>vcpu[-<memory>gb]-<os>-<version>[-<arch>], so the name a workflow's runs-on carries says how much machine it is asking for. Any name is accepted.
+             * @example zoomies-4vcpu-ubuntu-2404
              */
             name: string;
             installation_id: string;
             labels: string[];
             runner_group?: string;
             backend: components["schemas"]["BackendKind"];
+            platform?: components["schemas"]["Platform"];
+            /** @description Leave blank to follow the pool's platform, which selects a published zoomies-runner variant, or the instance default when the pool names no platform. */
             image?: string;
             pull_policy?: components["schemas"]["PullPolicy"];
             runner_version?: string;
@@ -2075,8 +2139,25 @@ export interface components {
             labels?: {
                 [key: string]: string;
             };
+            /** @description The kernel */
             os?: string;
+            /** @description The distribution */
+            distro?: string;
+            /** @description The distribution's release */
+            os_version?: string;
             arch?: string;
+            /** @description vCPUs this agent may use */
+            cpus?: number;
+            /** Format: int64 */
+            memory_mb?: number;
+            platform?: components["schemas"]["Platform"];
+            /** @example Ubuntu 24.04, arm64 */
+            platform_label?: string;
+            /**
+             * @description The name this machine would be given today, for a host called something that says nothing.
+             * @example zoomies-16vcpu-32gb-ubuntu-2404-build01
+             */
+            canonical_name?: string;
             version?: string;
             cordoned?: boolean;
             healthy?: boolean;
@@ -3175,6 +3256,28 @@ export interface operations {
             };
             409: components["responses"]["Conflict"];
             422: components["responses"]["Unprocessable"];
+        };
+    };
+    listPoolPlatforms: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The catalogue */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["PoolPlatform"][];
+                    };
+                };
+            };
         };
     };
     validatePool: {

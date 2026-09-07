@@ -39,6 +39,8 @@ import (
 	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/cryptox"
+	"github.com/eyupio/zoomies/internal/machine"
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -815,38 +817,70 @@ func startCommand(kind store.BackendKind) string {
 // and then staring at an empty Pools page is the one part of this that has no
 // obvious next step, so the installer writes the command out.
 type PoolSuggestion struct {
-	Name       string
-	Labels     []string
+	Name   string
+	Labels []string
+	// Platform is what this host is, which the pool then promises. Naming it
+	// in the very first pool is what makes the fleet's second host land the
+	// right jobs: a pool that says nothing takes work on any machine.
+	Platform   store.Platform
 	Backend    store.BackendKind
 	MaxRunners int
+	// CPUs is the per-runner vCPU share the name advertises.
+	CPUs int
 }
 
-// SuggestPool builds the suggestion from this host's architecture and chosen
-// backend, so that the label in the suggestion is the one a workflow's
-// runs-on can actually use.
+// SuggestPool builds the suggestion from what this host is and the backend it
+// chose, so that the label in the suggestion is both the one a workflow's
+// runs-on can use and an honest description of the machine behind it.
 //
-// The name is branded -- "zoomies-linux-x64", not "linux-x64" -- because it is
-// the word a workflow in somebody else's repository has to write. An unbranded
-// label reads like one of GitHub's own and gives a reviewer of that pull
-// request no way to tell where the job is about to run.
-func SuggestPool(osName, arch string, kind store.BackendKind, capacity int) PoolSuggestion {
-	name := store.RunnerNamePrefix + archLabel(osName, arch)
+// The name is branded -- never a bare "linux-x64" -- because it is the word a
+// workflow in somebody else's repository has to write, and an unbranded label
+// reads like one of GitHub's own, giving a reviewer of that pull request no
+// way to tell where the job is about to run. Beyond the brand it says how much
+// machine the job is asking for: the pool gets one share of the host per
+// runner, so "zoomies-4vcpu-ubuntu-2404" is a fact rather than a decoration,
+// and an operator who wants fatter runners changes one number.
+func SuggestPool(det Detection, kind store.BackendKind, capacity int) PoolSuggestion {
+	maxRunners := max(capacity, 1)
+	cpus := 1
+	if det.CPUs > 0 {
+		cpus = max(det.CPUs/maxRunners, 1)
+	}
+	platform := store.Platform{
+		OS: firstNonEmpty(det.Distro, det.OS), OSVersion: det.OSVersion, Arch: det.Arch,
+	}.Normalized()
+
+	spec := naming.Spec{
+		CPUs: float64(cpus), OS: platform.OS, Version: platform.OSVersion, Arch: platform.Arch,
+	}
+	name := naming.PoolName(spec)
+	specific := naming.Labels(spec)
+	if platform.OS == "" {
+		// A host that will not say which distribution it runs cannot promise
+		// one, and a name built from the rest would advertise a size without
+		// saying what it is a size of. Fall back to the architecture label,
+		// which is what such a pool could always be called.
+		name = store.RunnerNamePrefix + archLabel(det.OS, det.Arch)
+		specific = []string{name}
+	}
 	if kind == store.BackendProcess {
 		// A process-backend pool answers to a different label on purpose:
-		// jobs that land on it get the host, not a container.
+		// jobs that land on it get the host, not a container. It also makes no
+		// platform promise a runner image could satisfy, because there is no
+		// image -- the host itself is the environment.
 		name += "-host"
-	}
-	maxRunners := capacity
-	if maxRunners < 1 {
-		maxRunners = 1
+		specific = append([]string{name}, specific[1:]...)
+		platform = store.Platform{Arch: platform.Arch}
 	}
 	return PoolSuggestion{
 		Name: name,
 		// Both labels, always: the specific one for a workflow that means this
 		// pool, and the brand for one that means "anywhere in this fleet".
-		Labels:     store.BrandLabels([]string{name}),
+		Labels:     store.BrandLabels(specific),
+		Platform:   platform,
 		Backend:    kind,
 		MaxRunners: maxRunners,
+		CPUs:       cpus,
 	}
 }
 
@@ -903,8 +937,24 @@ func (p PoolSuggestion) Command(installationID string) string {
 	if installationID == "" {
 		installationID = "<id from `zoomies installations list`>"
 	}
-	return fmt.Sprintf("zoomies pools create --name %s --labels %s --backend %s --max %d --installation %s",
+	cmd := fmt.Sprintf("zoomies pools create --name %s --labels %s --backend %s --max %d --installation %s",
 		p.Name, strings.Join(p.Labels, ","), p.Backend, p.MaxRunners, installationID)
+	// The platform flags are what make the created pool match the name it was
+	// given: they pick its runner image and keep it off hosts that are
+	// something else.
+	if p.CPUs > 0 {
+		cmd += fmt.Sprintf(" --cpus %d", p.CPUs)
+	}
+	if p.Platform.OS != "" {
+		cmd += " --os " + p.Platform.OS
+		if p.Platform.OSVersion != "" {
+			cmd += " --os-version " + p.Platform.OSVersion
+		}
+	}
+	if p.Platform.Arch != "" {
+		cmd += " --arch " + p.Platform.Arch
+	}
+	return cmd
 }
 
 // ReviewLine is one row of the plan an operator is shown before anything is
@@ -1042,7 +1092,7 @@ func (p Plan) Config() *config.Config {
 	}
 	cfg.Agent.DockerHost = p.DockerHost
 	if cfg.Agent.Name == "" {
-		cfg.Agent.Name = hostname()
+		cfg.Agent.Name = machine.DefaultHostName()
 	}
 
 	secure := p.TLSMode != config.TLSOff || strings.HasPrefix(cfg.Server.ExternalURL, "https://")
@@ -2277,7 +2327,7 @@ func (i *Installer) stepFirstPool(ctx context.Context, st *store.Store, cfg *con
 		return nil
 	}
 
-	sug := SuggestPool(i.det.OS, i.det.Arch, p.Backend, p.Capacity)
+	sug := SuggestPool(i.det, p.Backend, p.Capacity)
 	if i.answers != nil {
 		if i.answers.Pool.Skip {
 			i.ui.note("skipped: pool.skip is set in the answer file.")
@@ -2544,17 +2594,17 @@ func (i *Installer) stepSummary(p Plan, freshKey bool) {
 			p.ExternalURL+"/installations")
 	}
 	if p.PoolName == "" {
-		sug := SuggestPool(i.det.OS, i.det.Arch, p.Backend, p.Capacity)
+		sug := SuggestPool(i.det, p.Backend, p.Capacity)
 		next("Create a pool -- it decides what labels your runners answer to",
 			p.ExternalURL+"/pools/new")
-		i.ui.field("", "suggested for this "+i.det.Arch+" host: "+sug.Name+
+		i.ui.field("", "suggested for this host: "+sug.Name+
 			", up to "+strconv.Itoa(sug.MaxRunners))
 	}
 	runsOn := ""
 	if p.PoolName != "" {
 		runsOn = store.BrandedLabel(p.PoolName)
 	} else {
-		runsOn = SuggestPool(i.det.OS, i.det.Arch, p.Backend, p.Capacity).RunsOn()
+		runsOn = SuggestPool(i.det, p.Backend, p.Capacity).RunsOn()
 	}
 	next("Point a workflow at it", "runs-on: "+runsOn)
 	if n == 1 {

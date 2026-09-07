@@ -68,8 +68,10 @@ flowchart LR
   single-use JIT registrations itself. github.com and Enterprise Server.
 * **Event-driven.** `workflow_job` webhooks, with polling only as a fallback so
   a misconfigured webhook does not silently stop your fleet.
-* **Multi-host.** One controller, any number of agents. Agents connect outbound
-  only, so a host behind NAT needs no inbound rule.
+* **Multi-host, multi-OS.** One controller, any number of agents. Agents connect
+  outbound only, so a host behind NAT needs no inbound rule. Runner images for
+  Ubuntu 24.04 and 22.04, Debian 12, Fedora and Rocky Linux, on amd64 and arm64,
+  and a pool is only ever placed on a host that matches the one it asked for.
 * **Actually observable.** SQLite for state, Prometheus metrics, structured
   logs, live log streaming, job history with queue waits, and an audit row for
   every mutating action.
@@ -393,7 +395,9 @@ hand-registered long-lived runners is too little.
 cmd/zoomies         the binary: controller, agent, init, CLI
 internal/store      domain model, SQLite schema, every query
 internal/config     zoomies.yaml + env, and the validator that warns
-internal/scheduler  pure scaling decisions and label matching
+internal/scheduler  pure scaling decisions, label matching and platform fit
+internal/naming     the zoomies-* naming grammar and the runner image catalogue
+internal/machine    what host this process is running on: distro, release, size
 internal/github     App auth, JIT configs, webhooks, the fallback poller
 internal/backend    Docker, Podman and bare-process runner backends
 internal/auth       identity, RBAC, tokens, audit, OIDC
@@ -410,8 +414,8 @@ test/e2e            the Docker end-to-end test, behind the `e2e` build tag
 api/openapi.yaml    the contract both clients are generated from
 deploy/             the controller and runner images, and the runner entrypoint
 docker-compose.yml  the compose deployment
-docs/               the zoomies.sh site: architecture, security, UI guidelines,
-                    configuration, brand
+docs/               the zoomies.sh site: architecture, naming, security,
+                    UI guidelines, configuration, brand
 overrides/          the site's theme overrides: sharing tags, structured data
 hooks/              the site's build-time SEO metadata: git dates and llms.txt
 ROADMAP.md          the follow-on roadmap, and the decisions it asks the owner to take

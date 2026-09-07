@@ -11,7 +11,7 @@
   import { formatGoDuration, formatMegabytes, formatNumber } from '$lib/format';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import PoolLabels from './PoolLabels.svelte';
-  import { backendLabel, dockerModeLabel } from './PoolVocabulary.svelte';
+  import { backendLabel, dockerModeLabel, platformLabelOrAny } from './PoolVocabulary.svelte';
 
   interface Props {
     pool: Pool;
@@ -55,6 +55,11 @@
   </div>
 
   <div class="pair">
+    <dt>Platform</dt>
+    <dd>{platformLabelOrAny(pool.platform)}</dd>
+  </div>
+
+  <div class="pair">
     <dt>Docker in jobs</dt>
     <dd class:flagged={(pool.docker_mode ?? 'none') !== 'none'}>
       {dockerModeLabel(pool.docker_mode)}
@@ -90,10 +95,15 @@
     <dd>{formatGoDuration(pool.idle_timeout) || 'Not set'}</dd>
   </div>
 
-  {#if pool.image}
+  {#if pool.image || pool.effective_image}
     <div class="pair">
       <dt>Image</dt>
-      <dd><code>{pool.image}</code></dd>
+      <dd>
+        <code>{pool.image || pool.effective_image}</code>
+        {#if !pool.image}
+          <span class="note">Chosen by the platform above.</span>
+        {/if}
+      </dd>
     </div>
   {/if}
 

@@ -21,16 +21,25 @@ const ProtocolVersion = 1
 
 // JoinRequest redeems a short-lived join token and enrols a new host.
 type JoinRequest struct {
-	ProtocolVersion int               `json:"protocol_version"`
-	JoinToken       string            `json:"join_token"`
-	Name            string            `json:"name"`
-	Address         string            `json:"address,omitempty"`
-	Capacity        int               `json:"capacity"`
-	OS              string            `json:"os"`
-	Arch            string            `json:"arch"`
-	Version         string            `json:"version"`
-	Labels          map[string]string `json:"labels,omitempty"`
-	Backends        []backend.Info    `json:"backends"`
+	ProtocolVersion int    `json:"protocol_version"`
+	JoinToken       string `json:"join_token"`
+	Name            string `json:"name"`
+	Address         string `json:"address,omitempty"`
+	Capacity        int    `json:"capacity"`
+	OS              string `json:"os"`
+	// Distro and OSVersion say which Linux this is. The controller cannot
+	// place a pool that asks for Ubuntu 24.04 without them, and an agent too
+	// old to send them is simply a host that makes no platform promise.
+	Distro    string `json:"distro,omitempty"`
+	OSVersion string `json:"os_version,omitempty"`
+	Arch      string `json:"arch"`
+	// CPUs and MemoryMB are how much machine this agent may use, which is the
+	// cgroup's share when it runs in a container rather than the host's total.
+	CPUs     int               `json:"cpus,omitempty"`
+	MemoryMB int64             `json:"memory_mb,omitempty"`
+	Version  string            `json:"version"`
+	Labels   map[string]string `json:"labels,omitempty"`
+	Backends []backend.Info    `json:"backends"`
 	// PreviousToken is the agent token this host was issued the last time it
 	// joined, sent when the credentials file still holds one. It is what lets
 	// a rebuilt machine reclaim its own row: without it the controller refuses
@@ -56,7 +65,12 @@ type HeartbeatRequest struct {
 	// Capacity is the agent's configured value, sent for the log and for
 	// older controllers. The controller does not write it: capacity is set
 	// at join and belongs to the operator after that.
-	Capacity int            `json:"capacity"`
+	Capacity int `json:"capacity"`
+	// CPUs and MemoryMB are facts about the machine rather than the operator's
+	// choice, so unlike Capacity the controller does record them: a host
+	// resized in place must stop describing itself as the machine it used to be.
+	CPUs     int            `json:"cpus,omitempty"`
+	MemoryMB int64          `json:"memory_mb,omitempty"`
 	Version  string         `json:"version"`
 	Backends []backend.Info `json:"backends,omitempty"`
 	Runners  []RunnerReport `json:"runners,omitempty"`

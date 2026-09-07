@@ -715,3 +715,201 @@ func TestAPoolThatGivesJobsADaemonIsSavedOnTheDockerImage(t *testing.T) {
 		t.Fatalf("no pool.create audit row records the Docker variant; rows: %d", len(events.Items))
 	}
 }
+
+// A pool that names a platform gets the matching runner image without anyone
+// having to keep the two in step, and the API says which image that is.
+func TestAPoolsPlatformPicksItsImage(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	body := poolBody(inst.ID)
+	body["name"] = "zoomies-4vcpu-debian-12"
+	body["labels"] = []string{"zoomies-4vcpu-debian-12"}
+	delete(body, "image")
+	body["platform"] = map[string]any{"os": "debian", "os_version": "12", "arch": "amd64"}
+
+	res := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: body})
+	res.mustStatus(t, http.StatusCreated, "create")
+	var pool poolResponse
+	res.into(t, &pool)
+
+	if pool.Image != "" {
+		t.Errorf("image = %q; a pool that names none should stay unpinned", pool.Image)
+	}
+	if want := "ghcr.io/eyupio/zoomies-runner:debian-12"; pool.EffectiveImage != want {
+		t.Errorf("effective_image = %q, want %q", pool.EffectiveImage, want)
+	}
+	if pool.Platform.OS != "debian" || pool.Platform.OSVersion != "12" || pool.Platform.Arch != "amd64" {
+		t.Errorf("platform = %+v", pool.Platform)
+	}
+}
+
+// A pool with no platform and no image of its own falls back to the instance
+// default, which is what every pool created before platforms existed does.
+func TestAPoolWithNoPlatformFallsBackToTheInstanceDefault(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	body := poolBody(inst.ID)
+	delete(body, "image")
+	res := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: body})
+	res.mustStatus(t, http.StatusCreated, "create")
+	var pool poolResponse
+	res.into(t, &pool)
+	if pool.EffectiveImage != h.cfg.GitHub.RunnerImage {
+		t.Errorf("effective_image = %q, want the instance default %q",
+			pool.EffectiveImage, h.cfg.GitHub.RunnerImage)
+	}
+}
+
+// A platform nothing is published for is refused at creation, where it can
+// still be fixed, rather than at every create, where it cannot.
+func TestAPoolCannotAskForAPlatformNothingPublishes(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	cases := []struct {
+		name     string
+		platform map[string]any
+		field    string
+		contains string
+	}{
+		{
+			name:     "an operating system Zoomies does not know",
+			platform: map[string]any{"os": "plan9"},
+			field:    "platform.os",
+			contains: "Ubuntu 24.04",
+		},
+		{
+			name:     "a release nothing is published for",
+			platform: map[string]any{"os": "ubuntu", "os_version": "20.04"},
+			field:    "platform.os_version",
+			contains: "no runner image is published",
+		},
+		{
+			name:     "an architecture Zoomies does not run on",
+			platform: map[string]any{"os": "ubuntu", "arch": "riscv64"},
+			field:    "platform.arch",
+			contains: "amd64 or arm64",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := poolBody(inst.ID)
+			delete(req, "image")
+			req["platform"] = c.platform
+			res := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: req})
+			res.mustStatus(t, http.StatusUnprocessableEntity, "create")
+			body := string(res.body)
+			if !strings.Contains(body, c.field) || !strings.Contains(body, c.contains) {
+				t.Errorf("the error does not name %s or explain the fix: %s", c.field, body)
+			}
+		})
+	}
+}
+
+// Naming an image is an explicit override: an operator who has built their own
+// is not second-guessed about which platform it is.
+func TestAnExplicitImageOverridesThePlatform(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	body := poolBody(inst.ID)
+	body["image"] = "ghcr.io/acme/our-own-runner:v3"
+	body["platform"] = map[string]any{"os": "ubuntu", "os_version": "20.04"}
+
+	res := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: body})
+	res.mustStatus(t, http.StatusCreated, "create")
+	var pool poolResponse
+	res.into(t, &pool)
+	if pool.EffectiveImage != "ghcr.io/acme/our-own-runner:v3" {
+		t.Errorf("effective_image = %q, want the image the operator named", pool.EffectiveImage)
+	}
+}
+
+// The Hosts page has to be able to say what a machine is, not just what it is
+// called, and to offer the name it would be given today.
+func TestHostsReportWhatMachineTheyAre(t *testing.T) {
+	h := newHarness(t)
+	u, _ := h.user("viewer", store.RoleViewer)
+	cookie := h.session(u)
+
+	host := h.host("build01")
+	host.Distro, host.OSVersion, host.CPUs, host.MemoryMB = "ubuntu", "24.04", 16, 32768
+	if err := h.st.UpdateHost(h.ctx, host); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+
+	res := h.do(request{method: http.MethodGet, path: "/api/v1/hosts/" + host.ID, cookie: cookie})
+	res.mustStatus(t, http.StatusOK, "get host")
+	var got hostResponse
+	res.into(t, &got)
+
+	if got.PlatformLabel != "Ubuntu 24.04, amd64" {
+		t.Errorf("platform_label = %q", got.PlatformLabel)
+	}
+	if got.CanonicalName != "zoomies-16vcpu-32gb-ubuntu-2404-build01" {
+		t.Errorf("canonical_name = %q", got.CanonicalName)
+	}
+	if got.CPUs != 16 || got.MemoryMB != 32768 {
+		t.Errorf("size = %d vCPU / %d MB", got.CPUs, got.MemoryMB)
+	}
+}
+
+// The wizard's review step must not promise hosts the scheduler will then
+// refuse to place on: both go through controller.HostFit, which applies the
+// scheduler's own placement rule, platform included.
+func TestTheHostCountRespectsThePoolsPlatform(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	// One Ubuntu 24.04 amd64 host, which is what h.host builds plus a distro.
+	host := h.host("build01")
+	host.Distro, host.OSVersion = "ubuntu", "24.04"
+	if err := h.st.UpdateHost(h.ctx, host); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+
+	body := poolBody(inst.ID)
+	delete(body, "image")
+
+	// A pool that asks for nothing sees the host.
+	res := h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: cookie, body: body})
+	res.mustStatus(t, http.StatusOK, "validate")
+	var verdict validatePoolResponse
+	res.into(t, &verdict)
+	if verdict.MatchingHosts != 1 {
+		t.Fatalf("matching_hosts = %d, want 1", verdict.MatchingHosts)
+	}
+
+	// A pool that asks for Debian does not, and the warning says what to add.
+	body["platform"] = map[string]any{"os": "debian", "os_version": "12"}
+	res = h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: cookie, body: body})
+	res.mustStatus(t, http.StatusOK, "validate")
+	res.into(t, &verdict)
+	if verdict.MatchingHosts != 0 {
+		t.Errorf("matching_hosts = %d; the only host is Ubuntu", verdict.MatchingHosts)
+	}
+	found := false
+	for _, w := range verdict.Warnings {
+		if w.Code == "pool.no_matching_hosts" {
+			found = true
+			if !strings.Contains(w.Fix, "Debian 12") {
+				t.Errorf("the fix does not name the machine to add: %q", w.Fix)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("no warning about there being no host: %+v", verdict.Warnings)
+	}
+}

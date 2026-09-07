@@ -370,7 +370,11 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 		BackendInfo:   probed,
 		Labels:        labels,
 		OS:            req.OS,
+		Distro:        req.Distro,
+		OSVersion:     req.OSVersion,
 		Arch:          req.Arch,
+		CPUs:          req.CPUs,
+		MemoryMB:      req.MemoryMB,
 		Version:       req.Version,
 		TokenHash:     hash,
 		LastHeartbeat: now,
@@ -477,7 +481,14 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 	backendsChanged := len(probed) > 0 && !slices.Equal(kinds, h.Backends)
 	changed := backendsChanged ||
 		(len(probed) > 0 && !slices.Equal(probed, h.BackendInfo)) ||
-		(req.Version != "" && req.Version != h.Version)
+		(req.Version != "" && req.Version != h.Version) ||
+		// A host resized in place -- a VM given more cores, a container's
+		// cgroup limit raised -- has to stop describing itself as the machine
+		// it used to be, or its name and every pool sized from it go stale.
+		// This is a fact about the machine, not the operator's capacity
+		// setting, which stays theirs.
+		(req.CPUs > 0 && req.CPUs != h.CPUs) ||
+		(req.MemoryMB > 0 && req.MemoryMB != h.MemoryMB)
 	if changed {
 		was := h.Backends
 		if len(probed) > 0 {
@@ -485,6 +496,12 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 			h.BackendInfo = probed
 		}
 		h.Version = firstNonEmpty(req.Version, h.Version)
+		if req.CPUs > 0 {
+			h.CPUs = req.CPUs
+		}
+		if req.MemoryMB > 0 {
+			h.MemoryMB = req.MemoryMB
+		}
 		h.LastHeartbeat = now
 		if err := c.st.UpdateHost(ctx, h); err != nil {
 			c.log.Warn("could not record what a host reported about itself", "host", hostID, "error", err)

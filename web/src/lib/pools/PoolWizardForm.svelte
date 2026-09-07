@@ -3,6 +3,7 @@
     BackendKind,
     DockerMode,
     Installation,
+    Platform,
     Pool,
     PoolCreate,
     Resources,
@@ -32,6 +33,13 @@
     runner_group: string;
     labels: string[];
     backend: BackendKind;
+    /**
+     * The machine these runners need. Empty means the pool promises nothing,
+     * which is what a pool created before platforms existed looks like.
+     */
+    platform_os: string;
+    platform_os_version: string;
+    platform_arch: string;
     image: string;
     runner_version: string;
     min_runners: string;
@@ -71,6 +79,9 @@
       runner_group: '',
       labels: [],
       backend: 'docker',
+      platform_os: '',
+      platform_os_version: '',
+      platform_arch: '',
       image: '',
       runner_version: '',
       min_runners: '0',
@@ -110,6 +121,9 @@
       runner_group: pool.runner_group ?? '',
       labels: [...(pool.labels ?? [])],
       backend: pool.backend ?? 'docker',
+      platform_os: pool.platform?.os ?? '',
+      platform_os_version: pool.platform?.os_version ?? '',
+      platform_arch: pool.platform?.arch ?? '',
       image: pool.image ?? '',
       runner_version: pool.runner_version ?? '',
       min_runners: fromNumber(pool.min_runners),
@@ -188,6 +202,17 @@
         repository: draft.cache_scope === 'repository' ? draft.cache_repository.trim() : '',
       },
     };
+    // The draft holds plain strings because that is what a <select> gives
+    // back; the API's enums are narrower, and the server is the one that
+    // rejects a value outside them.
+    const platform: Platform = {};
+    if (draft.platform_os) platform.os = draft.platform_os as Platform['os'];
+    if (draft.platform_os_version) platform.os_version = draft.platform_os_version;
+    if (draft.platform_arch) platform.arch = draft.platform_arch as Platform['arch'];
+    // Always sent, so that clearing a platform on an edit actually clears it
+    // rather than being read as "leave it alone".
+    body.platform = platform;
+
     const complete = options.complete === true;
     if (complete || draft.runner_group.trim()) body.runner_group = draft.runner_group.trim();
     if (complete || draft.image.trim()) body.image = draft.image.trim();
@@ -289,11 +314,12 @@
     ApiError,
     createPool,
     listInstallations,
+    listPoolPlatforms,
     listRunnerGroups,
     updatePool,
     validatePool,
   } from '$lib/api/client';
-  import type { Body, Result } from '$lib/api/types';
+  import type { Body, PoolPlatform, Result } from '$lib/api/types';
   import { BRAND_LABEL, brandedLabel, brandedName } from '$lib/brand';
   import { poolName, spinWord } from './names';
   import { fleet } from '$lib/state/fleet.svelte';
@@ -357,6 +383,10 @@
   let groups = $state<RunnerGroup[]>([]);
   let groupsLoading = $state(false);
   let groupsError = $state<unknown>(null);
+
+  // The operating systems a runner image is published for. Served rather than
+  // hard-coded so the picker cannot offer one that does not exist.
+  let platforms = $state<PoolPlatform[]>([]);
 
   let verdict = $state<Result<'validatePool'> | null>(null);
   let validating = $state(false);
@@ -422,6 +452,18 @@
 
   $effect(() => {
     void installationsAttempt;
+    const controller = new AbortController();
+    // A failure here is not worth an error state: the picker falls back to
+    // "Any", which is what a pool got before platforms existed.
+    listPoolPlatforms(controller.signal)
+      .then((response) => {
+        platforms = response.items ?? [];
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  });
+
+  $effect(() => {
     const controller = new AbortController();
     installationsLoading = true;
     installationsError = null;
@@ -639,6 +681,8 @@
           {errors}
           {touch}
           {offers}
+          {platforms}
+          hosts={fleet.hosts}
           hostsKnown={fleet.loaded}
           restricted={restrictedToHosts}
           bind:socketConfirmed

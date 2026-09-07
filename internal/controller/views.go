@@ -10,6 +10,7 @@ import (
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/migrate"
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -55,12 +56,26 @@ type HostView struct {
 	BackendInfo   []BackendInfoView `json:"backend_info"`
 	Labels        map[string]string `json:"labels"`
 	OS            string            `json:"os,omitempty"`
+	Distro        string            `json:"distro,omitempty"`
+	OSVersion     string            `json:"os_version,omitempty"`
 	Arch          string            `json:"arch,omitempty"`
-	Version       string            `json:"version,omitempty"`
-	Cordoned      bool              `json:"cordoned"`
-	Healthy       bool              `json:"healthy"`
-	LastHeartbeat time.Time         `json:"last_heartbeat"`
-	CreatedAt     time.Time         `json:"created_at"`
+	// CPUs and MemoryMB are how much machine this host is, as its agent
+	// reported it -- the cgroup's share when the agent runs in a container.
+	CPUs     int   `json:"cpus,omitempty"`
+	MemoryMB int64 `json:"memory_mb,omitempty"`
+	// Platform is what this host is in the terms a pool asks in, and
+	// PlatformLabel is the same thing as a sentence: "Ubuntu 24.04, arm64".
+	Platform      store.Platform `json:"platform"`
+	PlatformLabel string         `json:"platform_label,omitempty"`
+	// CanonicalName is the name this machine would be given today. It is shown
+	// beside a host called something that says nothing, so an operator can see
+	// what renaming it would buy them.
+	CanonicalName string    `json:"canonical_name,omitempty"`
+	Version       string    `json:"version,omitempty"`
+	Cordoned      bool      `json:"cordoned"`
+	Healthy       bool      `json:"healthy"`
+	LastHeartbeat time.Time `json:"last_heartbeat"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // HostView renders a host as the API returns it.
@@ -83,7 +98,14 @@ func (c *Controller) HostView(h *store.Host) HostView {
 		Backends:      emptySlice(h.Backends),
 		Labels:        emptyMap(h.Labels),
 		OS:            h.OS,
+		Distro:        h.Distro,
+		OSVersion:     h.OSVersion,
 		Arch:          h.Arch,
+		CPUs:          h.CPUs,
+		MemoryMB:      h.MemoryMB,
+		Platform:      h.Platform(),
+		PlatformLabel: h.Platform().Describe(),
+		CanonicalName: h.CanonicalName(),
 		Version:       h.Version,
 		Cordoned:      h.Cordoned,
 		Healthy:       h.Healthy(c.Now()),
@@ -397,12 +419,21 @@ type PoolView struct {
 	Labels             []string          `json:"labels"`
 	RunnerGroup        string            `json:"runner_group,omitempty"`
 	Backend            store.BackendKind `json:"backend"`
-	Image              string            `json:"image"`
-	PullPolicy         store.PullPolicy  `json:"pull_policy"`
-	RunnerVersion      string            `json:"runner_version,omitempty"`
-	MinRunners         int               `json:"min_runners"`
-	MaxRunners         int               `json:"max_runners"`
-	Priority           int               `json:"priority"`
+	// Platform is the machine this pool's runners need. It picks the runner
+	// image and restricts which hosts the scheduler may place them on.
+	Platform store.Platform `json:"platform"`
+	Image    string         `json:"image"`
+	// EffectiveImage is the image runners will actually boot: Image when the
+	// pool names one, otherwise the variant its platform selects, otherwise
+	// the instance default. A pool page that showed a blank image field and
+	// nothing else would leave an operator guessing at the single most
+	// important thing about their runners.
+	EffectiveImage string           `json:"effective_image"`
+	PullPolicy     store.PullPolicy `json:"pull_policy"`
+	RunnerVersion  string           `json:"runner_version,omitempty"`
+	MinRunners     int              `json:"min_runners"`
+	MaxRunners     int              `json:"max_runners"`
+	Priority       int              `json:"priority"`
 	// RepositoryScaleUpLimit and CostPerRunnerHour are accepted on the way in,
 	// so they are rendered on the way out: a field the API takes but never
 	// shows again is a field an operator cannot check, edit or explain.
@@ -435,6 +466,9 @@ type PoolRenderer struct {
 	// runners that pool wanted. It is the answer to the question the pool page
 	// is opened to ask.
 	blocked map[string][]Problem
+	// defaultImage is what a pool that names neither an image nor a platform
+	// will boot, which the renderer needs to resolve EffectiveImage.
+	defaultImage string
 }
 
 // PoolRenderer gathers the per-pool counts, installation targets and queue
@@ -466,7 +500,16 @@ func (c *Controller) PoolRenderer(ctx context.Context) (*PoolRenderer, error) {
 	for _, p := range c.PoolCapacityProblems() {
 		blocked[p.TargetID] = append(blocked[p.TargetID], p)
 	}
-	return &PoolRenderer{counts: counts, installations: installations, queued: queued, blocked: blocked}, nil
+	return &PoolRenderer{counts: counts, installations: installations, queued: queued,
+		blocked: blocked, defaultImage: c.cfg().GitHub.RunnerImage}, nil
+}
+
+// image is the image this pool's runners will actually boot, resolved the same
+// way the controller resolves it when it makes one -- including the Docker
+// variant a pool that gives its jobs a daemon gets.
+func (v *PoolRenderer) image(p *store.Pool) string {
+	image := naming.ResolveRunnerImage(p.Image, p.Platform.OS, p.Platform.OSVersion, v.defaultImage)
+	return config.RunnerImageFor(image, p.DockerMode.GivesDaemon())
 }
 
 // View renders one pool.
@@ -485,7 +528,9 @@ func (v *PoolRenderer) View(p *store.Pool) PoolView {
 		Labels:                 emptySlice(p.Labels),
 		RunnerGroup:            p.RunnerGroup,
 		Backend:                p.Backend,
+		Platform:               p.Platform,
 		Image:                  p.Image,
+		EffectiveImage:         v.image(p),
 		PullPolicy:             p.PullPolicy,
 		RunnerVersion:          p.RunnerVersion,
 		MinRunners:             p.MinRunners,

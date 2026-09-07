@@ -256,12 +256,19 @@ github:
 A bare hostname is accepted and `/api/v3` appended. Everything else — App auth,
 JIT configs, webhooks, runner groups — works the same.
 
-### `github.runner_image` — which image tag to run
+### `github.runner_image` — the fallback runner image
 
 ```yaml
 github:
   runner_image: ghcr.io/eyupio/zoomies-runner:latest
 ```
+
+This is the last of three answers, not the first. A pool that names an image
+gets that image; a pool that names a **platform** gets the variant its platform
+selects; only a pool that names neither falls back to this setting. Whichever it
+lands on, a pool whose `docker_mode` gives jobs a daemon then gets that image's
+Docker variant. See [Naming and platforms](naming.md) for the catalogue and how
+a pool picks from it.
 
 Three images are published to GHCR — `ghcr.io/eyupio/zoomies` (the controller),
 `ghcr.io/eyupio/zoomies-runner` (the runner) and
@@ -282,11 +289,18 @@ pool that names no tag gets the newest build as soon as CI publishes it. Pin
 `vX.Y.Z` to stay on one release, or `sha-<commit>` for an image that never
 changes at all.
 
+Both runner images are also published with one tag per operating system —
+`ubuntu-2404`, `ubuntu-2204`, `debian-12`, `fedora-42`, `rocky-9`, each built
+for amd64 and arm64 — plus `<os>-<version>-main` and `<os>-<version>-<tag>` for
+pinning one operating system without pinning the controller. `latest` is the
+`ubuntu-2404` variant. Set this key to a specific variant to change what an
+unspecified pool boots fleet-wide.
+
 The runner images are only rebuilt when something that goes into them changes —
-`deploy/Dockerfile.runner` or `deploy/runner-entrypoint.sh` — so their `main` tag
-can be older than the controller's, and correctly so. Both come out of the same
-Dockerfile, as its `runner` and `runner-docker` targets, so they are never out of
-step with each other.
+`deploy/Dockerfile.runner`, `deploy/runner-entrypoint.sh` or the
+`deploy/runner-*.sh` install scripts — so their `main` tag can be older than the
+controller's, and correctly so. Every variant and both targets come out of the
+same Dockerfile, so they are never out of step with each other.
 
 ### What is in the runner image
 
@@ -622,6 +636,7 @@ the CLI or the API. These are their fields:
 | `backend` | `docker`, `podman` or `process`. |
 | `image` | Runner image for the container backends. Changing it replaces the pool's idle runners: one made from the old image is drained and a new one takes its place, and a busy one finishes its job first. |
 | `pull_policy` | `if-not-present` (the default), `always`, or `pinned-only`, which refuses to run anything but the digest the pool names. |
+| `platform` | The machine these runners need: `os` (a distribution, not a kernel), `os_version` and `arch`. It picks the runner image, and it keeps the pool off hosts running something else. Every field is optional; an empty one constrains nothing. See [Naming and platforms](naming.md). |
 | `runner_version` | Pin an `actions/runner` release instead of tracking the latest. |
 | `min_runners` | Kept warm even with nothing queued. `0` is usually right. |
 | `max_runners` | Hard ceiling. **Always set this** — it is your backstop against a runaway workflow. |

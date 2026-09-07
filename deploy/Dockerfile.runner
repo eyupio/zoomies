@@ -1,8 +1,29 @@
 # The Zoomies runner image.
 #
-# It carries the actions/runner release and its .NET 8 dependencies, and an
+# It carries the actions/runner release and its .NET dependencies, and an
 # entrypoint that understands the environment contract Zoomies' backends use.
 # Built for linux/amd64 and linux/arm64.
+#
+# One file builds every variant in internal/naming's catalogue -- Ubuntu 24.04
+# and 22.04, Debian 12, Fedora and Rocky Linux -- published as
+# ghcr.io/eyupio/zoomies-runner:<os>-<version>. That <os>-<version> is the same
+# string a Zoomies pool name carries, so an operator can read a pool name and
+# know which image its runners boot. The variant is chosen with build
+# arguments:
+#
+#   docker build -f deploy/Dockerfile.runner \
+#     --build-arg BASE=debian:12-slim --build-arg OS_FAMILY=apt \
+#     --build-arg OS_ID=debian --build-arg OS_VERSION=12 \
+#     -t ghcr.io/eyupio/zoomies-runner:debian-12 .
+#
+# Everything a distribution names differently lives in deploy/runner-*.sh, one
+# script per concern, each branching on the package family. That is deliberate:
+# the alternative is a chain of shell conditionals inside a RUN, where nobody
+# can read one distribution's list without reading all of them.
+#
+# Alpine is absent on purpose. actions/runner ships glibc binaries and .NET
+# dependencies that musl does not satisfy, so an Alpine image would build and
+# then fail at the first job.
 #
 # It also carries the toolchain a build typically reaches for -- a compiler, the
 # headers native extensions link against, python3 and node. That is a reversal:
@@ -46,38 +67,62 @@ ARG RUNNER_SHA256_ARM64=9b1dc70626422526e3c94767cf024896beb15da5342a3f4819bf2fea
 ARG BASE=ubuntu:24.04
 
 FROM ${BASE} AS runner-base
+# Re-declared after FROM: an ARG from before it is out of scope in the build
+# stage, and the labels below would otherwise record empty strings.
+ARG BASE
 ARG RUNNER_VERSION
 ARG RUNNER_SHA256_X64
 ARG RUNNER_SHA256_ARM64
 ARG TARGETARCH
 
+# OS_FAMILY selects the package manager: "apt" for Ubuntu and Debian, "dnf" for
+# Fedora and Rocky. It is a build argument rather than something detected at
+# build time so that a typo fails the build rather than quietly producing an
+# image missing half its dependencies.
+ARG OS_FAMILY=apt
+# OS_ID and OS_VERSION are what this variant claims to be. They become image
+# labels and environment, which is what `docker inspect` and the entrypoint's
+# first log line read to confirm a running container is the platform its pool
+# asked for.
+ARG OS_ID=ubuntu
+ARG OS_VERSION=24.04
+# EXTRA_PACKAGES bakes a fleet's own toolchain into a variant without forking
+# this file: --build-arg EXTRA_PACKAGES="ruby-dev golang".
+ARG EXTRA_PACKAGES=""
+
 LABEL org.opencontainers.image.title="zoomies-runner" \
       org.opencontainers.image.description="GitHub Actions runner image for Zoomies" \
       org.opencontainers.image.source="https://github.com/eyupio/zoomies" \
       org.opencontainers.image.licenses="AGPL-3.0-only" \
-      io.zoomies.runner-version="${RUNNER_VERSION}"
+      org.opencontainers.image.base.name="${BASE}" \
+      io.zoomies.runner-version="${RUNNER_VERSION}" \
+      io.zoomies.os="${OS_ID}" \
+      io.zoomies.os-version="${OS_VERSION}" \
+      io.zoomies.os-family="${OS_FAMILY}"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     RUNNER_MANUALLY_TRAP_SIG=1 \
     ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT=1
 
-# libicu is the dependency actions/runner most often dies without. git, curl,
-# ca-certificates and jq are what essentially every workflow assumes exists.
-RUN set -eux; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends \
-        ca-certificates curl git jq unzip zip tar gzip xz-utils \
-        libicu74 liblttng-ust1t64 libkrb5-3 zlib1g libssl3t64 \
-        sudo gosu tzdata locales openssh-client rsync; \
-    rm -rf /var/lib/apt/lists/*; \
-    localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8
+# git, curl, ca-certificates and jq are what essentially every workflow assumes
+# exists. actions/runner's own .NET dependencies are installed further down by
+# the tarball's installdependencies.sh, which knows each distribution's names
+# for them -- naming them here is what made this file Ubuntu-24.04-only.
+COPY --chmod=0755 deploy/runner-packages.sh /tmp/runner-packages.sh
+RUN /tmp/runner-packages.sh "${OS_FAMILY}" && rm /tmp/runner-packages.sh
 ENV LANG=en_US.UTF-8
 
 # The runner must not be root. It gets passwordless sudo because a great many
 # real workflows expect it; a pool that does not want that can override the
 # entrypoint's user.
+#
+# uid 1001 rather than 1000: Fedora and Rocky leave 1000 free but Ubuntu's
+# cloud images take it, and a fixed uid is what lets a host bind-mount a work
+# directory the runner can actually write to.
 RUN set -eux; \
-    useradd -m -s /bin/bash -u 1001 runner; \
+    groupadd -g 1001 runner 2>/dev/null || true; \
+    useradd -m -s /bin/bash -u 1001 -g 1001 runner; \
+    mkdir -p /etc/sudoers.d; \
     echo "runner ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/runner; \
     chmod 0440 /etc/sudoers.d/runner
 
@@ -105,57 +150,23 @@ RUN set -eux; \
     chown -R runner:runner /home/runner
 
 # The build toolchain, after the runner download on purpose: this list is the
-# part of the file most likely to be edited, and putting it last means editing
-# it does not re-fetch the ~200 MB archive above.
-#
-# What is here is what a workflow assumes without ever saying so. The compilers
-# and headers are the ones native extensions link against -- node-gyp, a Python
-# wheel with no arm64 build, a Ruby gem -- and every one of them fails at
-# `make` with a message about the missing library rather than about the image.
-#
-# python3 and node are here for the steps that use them without a setup-python
-# or setup-node first. The setup actions still install their own versions and
-# take precedence on PATH, so the versions here are a floor, not a choice about
-# which version a workflow gets.
-#
-# Deliberately absent: a JDK and the other language runtimes with a good
-# setup-* action, which install what the workflow asked for rather than what
-# this image guessed, and would be hundreds of megabytes of wrong version.
-RUN set -eux; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends \
-        build-essential pkg-config cmake autoconf automake libtool \
-        patch file dpkg-dev gettext \
-        python3 python3-pip python3-venv python3-dev python3-setuptools \
-        nodejs npm \
-        libssl-dev zlib1g-dev libffi-dev libyaml-dev libxml2-dev libxslt1-dev \
-        libcurl4-openssl-dev libsqlite3-dev libreadline-dev libbz2-dev \
-        liblzma-dev libncurses-dev uuid-dev \
-        git-lfs wget gnupg bzip2 zstd lsb-release software-properties-common \
-        netcat-openbsd dnsutils iputils-ping net-tools; \
-    rm -rf /var/lib/apt/lists/*; \
-    git lfs install --system
+# part of the image most likely to be edited, and putting it last means editing
+# it does not re-fetch the ~200 MB archive above. What is in it, and what is
+# deliberately not, is in deploy/runner-toolchain.sh.
+COPY --chmod=0755 deploy/runner-toolchain.sh /tmp/runner-toolchain.sh
+RUN /tmp/runner-toolchain.sh "${OS_FAMILY}" ${EXTRA_PACKAGES} && rm /tmp/runner-toolchain.sh
 
-# The GitHub CLI, from GitHub's own apt repository because Ubuntu does not carry
-# it. A workflow that shells out to `gh` is doing something GitHub-hosted
-# runners let it do, and the alternative is every such workflow installing the
-# same tool itself on every run.
-RUN set -eux; \
-    install -m 0755 -d /etc/apt/keyrings; \
-    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-      -o /etc/apt/keyrings/githubcli.gpg; \
-    chmod a+r /etc/apt/keyrings/githubcli.gpg; \
-    arch="$(dpkg --print-architecture)"; \
-    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/githubcli.gpg] https://cli.github.com/packages stable main\n' \
-      "$arch" > /etc/apt/sources.list.d/github-cli.list; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends gh; \
-    rm -rf /var/lib/apt/lists/*
+# The GitHub CLI, from GitHub's own repository because no distribution here
+# carries it.
+COPY --chmod=0755 deploy/runner-gh.sh /tmp/runner-gh.sh
+RUN /tmp/runner-gh.sh "${OS_FAMILY}" && rm /tmp/runner-gh.sh
 
 # Prove the toolchain is actually reachable, for the same reason the Docker
 # variant checks its client: a package that installed but left nothing on PATH
 # is the failure this exists to prevent, and it is far cheaper to catch in the
-# build than in somebody's workflow.
+# build than in somebody's workflow. It is also what keeps the two families'
+# package lists honest -- they are not translations of each other, and this is
+# what says whether each one is complete.
 RUN set -eux; \
     cc --version; \
     make --version; \
@@ -167,6 +178,13 @@ RUN set -eux; \
     gh --version
 
 COPY --chmod=0755 deploy/runner-entrypoint.sh /usr/local/bin/entrypoint.sh
+
+# What this image is, for the entrypoint's first log line and for a job that
+# wants to branch on it. A pool pointed at the wrong variant otherwise shows up
+# as a missing package several minutes into a workflow.
+ENV ZOOMIES_RUNNER_OS="${OS_ID}" \
+    ZOOMIES_RUNNER_OS_VERSION="${OS_VERSION}" \
+    ZOOMIES_RUNNER_VERSION="${RUNNER_VERSION}"
 
 USER runner
 ENV RUNNER_ALLOW_RUNASROOT=0
@@ -183,24 +201,15 @@ ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 # because that one drags in the daemon, containerd and runc -- a few hundred MB
 # of software this image must never run.
 FROM runner-base AS runner-docker
+ARG OS_FAMILY
+ARG OS_ID
 USER root
 
 LABEL org.opencontainers.image.title="zoomies-runner-docker" \
       org.opencontainers.image.description="GitHub Actions runner image for Zoomies, with the Docker CLI"
 
-RUN set -eux; \
-    install -m 0755 -d /etc/apt/keyrings; \
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
-      -o /etc/apt/keyrings/docker.asc; \
-    chmod a+r /etc/apt/keyrings/docker.asc; \
-    arch="$(dpkg --print-architecture)"; \
-    codename="$(. /etc/os-release && echo "${VERSION_CODENAME}")"; \
-    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu %s stable\n' \
-      "$arch" "$codename" > /etc/apt/sources.list.d/docker.list; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends \
-        docker-ce-cli docker-buildx-plugin docker-compose-plugin; \
-    rm -rf /var/lib/apt/lists/*
+COPY --chmod=0755 deploy/runner-docker-cli.sh /tmp/runner-docker-cli.sh
+RUN /tmp/runner-docker-cli.sh "${OS_FAMILY}" "${OS_ID}" && rm /tmp/runner-docker-cli.sh
 # Prove the client landed somewhere the runner will actually find it: a plugin
 # installed but unreachable is the same failure as no client at all, and it is
 # far cheaper to catch here than in somebody's workflow.

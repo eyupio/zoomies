@@ -136,6 +136,36 @@ test('the wizard walks target, labels, hosts, backend, scaling and review', asyn
   await expect(page.getByRole('button', { name: 'Create pool' })).toBeVisible();
 });
 
+test('the backend step names the image the chosen operating system will boot', async ({ page }) => {
+  await goto(page, '/pools/new', 'Create a pool');
+  await nameField(page).fill('e2e-pool');
+  await next(page).click();
+  await addLabel(page, 'gpu');
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Hosts' })).toBeVisible();
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Backend' })).toBeVisible();
+
+  // Nothing chosen: the pool follows the controller's default image and any
+  // host will do.
+  const os = page.getByLabel('Operating system');
+  await expect(os).toHaveValue('');
+  await expect(page.getByText("Runners boot the controller's default image.")).toBeVisible();
+
+  // The options come from the server's catalogue, so choosing one must name a
+  // real published image rather than a string the UI made up.
+  await os.selectOption('debian-12');
+  await expect(page.getByText('ghcr.io/eyupio/zoomies-runner:debian-12')).toBeVisible();
+
+  // The demo fleet has one Debian host, so the step can say so before the
+  // operator reaches the review.
+  await expect(page.getByText(/1 connected host match/)).toBeVisible();
+
+  // And an operating system nothing in the fleet runs is said to match nothing.
+  await os.selectOption('fedora-42');
+  await expect(page.getByText('No connected host matches')).toBeVisible();
+});
+
 test('the hosts step keeps a pool to an architecture and says which machines that is', async ({
   page,
 }) => {

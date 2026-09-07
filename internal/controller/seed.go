@@ -200,16 +200,21 @@ func (c *Controller) seedInstallation(ctx context.Context) error {
 func (c *Controller) seedHosts(ctx context.Context, now time.Time) ([]*store.Host, error) {
 	specs := []struct {
 		id, name, arch string
+		distro, osVer  string
+		cpus           int
+		memoryMB       int64
 		capacity       int
 		embedded       bool
 		cordoned       bool
 		silentFor      time.Duration
 	}{
-		{demoHostPrefix + "a", "demo-builder-1", "amd64", 6, true, false, 0},
-		{demoHostPrefix + "b", "demo-builder-2", "amd64", 4, false, false, 0},
+		{demoHostPrefix + "a", "demo-builder-1", "amd64", "ubuntu", "24.04", 16, 32768, 6, true, false, 0},
+		// A second distribution, so the Hosts page shows the platform column
+		// doing something and a pool's platform has a host it must not land on.
+		{demoHostPrefix + "b", "demo-builder-2", "amd64", "debian", "12", 8, 16384, 4, false, false, 0},
 		// One cordoned host, so the Hosts page and the problems drawer both
 		// have something real to render.
-		{demoHostPrefix + "c", "demo-arm-1", "arm64", 2, false, true, 0},
+		{demoHostPrefix + "c", "demo-arm-1", "arm64", "ubuntu", "24.04", 8, 16384, 2, false, true, 0},
 	}
 	out := make([]*store.Host, 0, len(specs))
 	for i, s := range specs {
@@ -233,7 +238,11 @@ func (c *Controller) seedHosts(ctx context.Context, now time.Time) ([]*store.Hos
 			},
 			Labels:        store.StringMap{"arch": s.arch, "zone": "demo"},
 			OS:            "linux",
+			Distro:        s.distro,
+			OSVersion:     s.osVer,
 			Arch:          s.arch,
+			CPUs:          s.cpus,
+			MemoryMB:      s.memoryMB,
 			Version:       "demo",
 			Cordoned:      s.cordoned,
 			LastHeartbeat: now.Add(-s.silentFor),
@@ -354,15 +363,17 @@ func (c *Controller) seedPools(ctx context.Context) (*store.Pool, *store.Pool, e
 		InstallationID: demoInstallationID,
 		Labels:         store.StringSlice(store.BrandLabels([]string{"linux", "x64", "zoomies-demo-linux-x64"})),
 		Backend:        store.BackendDocker,
-		Image:          c.cfg().GitHub.RunnerImage,
-		MinRunners:     1,
-		MaxRunners:     8,
-		IdleTimeout:    store.Duration(5 * time.Minute),
-		Ephemeral:      true,
-		DockerMode:     store.DockerNone,
-		Resources:      store.Resources{CPUs: 2, MemoryMB: 4096},
-		HostSelector:   store.StringMap{"arch": "amd64"},
-		Enabled:        true,
+		// No image: the platform picks the variant, which is what a pool
+		// created today does and what the Pools page should demonstrate.
+		Platform:     store.Platform{OS: "ubuntu", OSVersion: "24.04", Arch: "amd64"},
+		MinRunners:   1,
+		MaxRunners:   8,
+		IdleTimeout:  store.Duration(5 * time.Minute),
+		Ephemeral:    true,
+		DockerMode:   store.DockerNone,
+		Resources:    store.Resources{CPUs: 2, MemoryMB: 4096},
+		HostSelector: store.StringMap{"arch": "amd64"},
+		Enabled:      true,
 	}
 	arm := &store.Pool{
 		ID:             demoPoolArmID,
@@ -370,6 +381,7 @@ func (c *Controller) seedPools(ctx context.Context) (*store.Pool, *store.Pool, e
 		InstallationID: demoInstallationID,
 		Labels:         store.StringSlice(store.BrandLabels([]string{"linux", "arm64", "zoomies-demo-linux-arm64"})),
 		Backend:        store.BackendDocker,
+		Platform:       store.Platform{OS: "ubuntu", OSVersion: "24.04", Arch: "arm64"},
 		// The image a pool that gives its jobs a daemon actually runs, written
 		// here as the API would write it, so the demo does not show the one
 		// combination the wizard and the migration exist to remove.

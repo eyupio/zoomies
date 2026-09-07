@@ -717,6 +717,30 @@ paths:
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/Unprocessable" }
 
+  /pools/platforms:
+    get:
+      operationId: listPoolPlatforms
+      tags: [pools]
+      summary: The platforms a pool may ask for
+      description: |
+        The runner image catalogue: every operating system and release Zoomies
+        publishes a zoomies-runner image for, and the architectures each is
+        built for. It is served rather than hard-coded in a client so that a
+        pool cannot be offered an operating system no image exists for.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: The catalogue
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/PoolPlatform" }
+
   /pools/validate:
     post:
       operationId: validatePool
@@ -2315,6 +2339,32 @@ components:
         disk_gb: { type: integer, format: int64 }
         pids_limit: { type: integer, format: int64 }
 
+    PoolPlatform:
+      type: object
+      description: One row of the runner image catalogue.
+      properties:
+        os: { type: string, examples: [ubuntu] }
+        os_version: { type: string, examples: ["24.04"] }
+        label: { type: string, examples: ["Ubuntu 24.04"] }
+        image: { type: string, examples: ["ghcr.io/eyupio/zoomies-runner:ubuntu-2404"] }
+        arches: { type: array, items: { type: string }, examples: [[amd64, arm64]] }
+        default: { type: boolean, description: True for the variant :latest points at. }
+
+    Platform:
+      type: object
+      description: >-
+        The machine a pool's runners need, or the machine a host is. Every field
+        is optional; an empty field is a promise nobody made and matches
+        anything. A pool's platform selects its runner image and restricts the
+        hosts the scheduler may place its runners on.
+      properties:
+        os:
+          type: string
+          description: A distribution, not a kernel - "linux" cannot pick a runner image.
+          enum: [ubuntu, debian, fedora, rocky, macos, windows]
+          examples: [ubuntu]
+        os_version: { type: string, examples: ["24.04"] }
+        arch: { type: string, enum: [amd64, arm64], examples: [arm64] }
     UsageResponse:
       type: object
       required: [from, to, group_by, items, costs_are_estimates, allocation_attributable]
@@ -2375,7 +2425,15 @@ components:
         labels: { type: array, items: { type: string } }
         runner_group: { type: string }
         backend: { $ref: "#/components/schemas/BackendKind" }
+        platform: { $ref: "#/components/schemas/Platform" }
         image: { type: string }
+        effective_image:
+          type: string
+          description: >-
+            The image this pool's runners will actually boot: image when the pool
+            names one, otherwise the variant its platform selects, otherwise the
+            instance default -- and then its Docker variant when the pool gives
+            its jobs a daemon.
         pull_policy: { $ref: "#/components/schemas/PullPolicy" }
         runner_version: { type: string }
         min_runners: { type: integer }
@@ -2454,13 +2512,22 @@ components:
           description: >-
             The pool's name. Every pool name carries the brand, so a name sent
             without the `zoomies-` prefix is stored with one: `gpu` becomes
-            `zoomies-gpu`.
-          examples: [zoomies-linux-x64]
+            `zoomies-gpu`. Beyond the brand, Zoomies' own convention is
+            zoomies-<vcpu>vcpu[-<memory>gb]-<os>-<version>[-<arch>], so the name
+            a workflow's runs-on carries says how much machine it is asking for.
+            Any name is accepted.
+          examples: [zoomies-4vcpu-ubuntu-2404]
         installation_id: { type: string }
         labels: { type: array, items: { type: string }, minItems: 1 }
         runner_group: { type: string }
         backend: { $ref: "#/components/schemas/BackendKind" }
-        image: { type: string }
+        platform: { $ref: "#/components/schemas/Platform" }
+        image:
+          type: string
+          description: >-
+            Leave blank to follow the pool's platform, which selects a published
+            zoomies-runner variant, or the instance default when the pool names
+            no platform.
         pull_policy: { $ref: "#/components/schemas/PullPolicy" }
         runner_version: { type: string }
         min_runners: { type: integer, default: 0, minimum: 0 }
@@ -2679,8 +2746,18 @@ components:
         backends: { type: array, items: { type: string } }
         backend_info: { type: array, items: { $ref: "#/components/schemas/BackendInfo" } }
         labels: { type: object, additionalProperties: { type: string } }
-        os: { type: string }
+        os: { type: string, description: The kernel, as Go names it - linux, darwin, windows. }
+        distro: { type: string, description: The distribution, e.g. ubuntu. Empty when the host has not said. }
+        os_version: { type: string, description: The distribution's release, e.g. "24.04". }
         arch: { type: string }
+        cpus: { type: integer, description: vCPUs this agent may use, which is the cgroup's share when it runs in a container. }
+        memory_mb: { type: integer, format: int64 }
+        platform: { $ref: "#/components/schemas/Platform" }
+        platform_label: { type: string, examples: ["Ubuntu 24.04, arm64"] }
+        canonical_name:
+          type: string
+          description: The name this machine would be given today, for a host called something that says nothing.
+          examples: [zoomies-16vcpu-32gb-ubuntu-2404-build01]
         version: { type: string }
         cordoned: { type: boolean }
         healthy: { type: boolean }

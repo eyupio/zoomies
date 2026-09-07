@@ -569,6 +569,7 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "GET", path: "/api/v1/pools", role: store.RoleViewer},
 		{method: "POST", path: "/api/v1/pools", role: store.RoleOperator, body: map[string]any{}},
 		{method: "POST", path: "/api/v1/pools/validate", role: store.RoleOperator, body: map[string]any{}},
+		{method: "GET", path: "/api/v1/pools/platforms", role: store.RoleViewer},
 		{method: "GET", path: "/api/v1/pools/" + ids.pool, role: store.RoleViewer},
 		{method: "PATCH", path: "/api/v1/pools/" + ids.pool, role: store.RoleOperator, body: map[string]any{}},
 		{method: "DELETE", path: "/api/v1/pools/missing", role: store.RoleOperator},

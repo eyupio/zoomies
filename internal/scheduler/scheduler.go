@@ -661,7 +661,19 @@ func (hs *hostSet) eligible(h *store.Host, p *store.Pool) bool {
 // behind. Room on the host is the scheduler's own accounting and is checked
 // separately.
 func HostCanRun(h *store.Host, p *store.Pool, now time.Time) bool {
-	return HostAvailable(h, now) && HostOffers(h, p) && HostSelects(h, p)
+	return HostAvailable(h, now) && HostOffers(h, p) && HostIsPlatform(h, p) && HostSelects(h, p)
+}
+
+// HostIsPlatform reports whether a host is the machine the pool asked for.
+//
+// It is separate from HostSelects because it is not a selector: a selector is
+// something an operator writes about their own fleet, and this is a promise the
+// pool makes about what its runners are -- the same promise that picks the
+// runner image. An empty field on either side constrains nothing, so a pool
+// with no platform still goes anywhere and a host whose agent has not reported
+// one is never ruled out.
+func HostIsPlatform(h *store.Host, p *store.Pool) bool {
+	return p.Platform.Matches(h.Platform())
 }
 
 // HostAvailable reports whether a host may take new runners at all: its agent
@@ -717,7 +729,7 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 			fix:  "run 'zoomies agent' on a machine that can host runners, using a join token from the Hosts page",
 		}
 	}
-	var unhealthy, cordoned, backend, selector, full int
+	var unhealthy, cordoned, backend, platform, selector, full int
 	var detail string
 	for _, h := range hs.hosts {
 		switch {
@@ -736,6 +748,8 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 					detail = h.Name + " reports: " + info.Detail
 				}
 			}
+		case !HostIsPlatform(h, p):
+			platform++
 		case !HostSelects(h, p):
 			selector++
 		default:
@@ -751,6 +765,7 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 	add(unhealthy, "unhealthy")
 	add(cordoned, "cordoned")
 	add(backend, "without the "+string(p.Backend)+" backend")
+	add(platform, "not "+p.Platform.Describe())
 	add(selector, "not matching the pool's host selector")
 	add(full, "at capacity")
 	b := blockage{
@@ -768,6 +783,13 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 		b.fix = "wait for a job to finish, raise a host's capacity, or add a host"
 	case unhealthy == len(hs.hosts):
 		b.fix = "check that the zoomies agent is running on those hosts and can reach this controller"
+	case platform > 0 && platform+unhealthy+cordoned == len(hs.hosts):
+		// Naming the platform is the difference between an operator adding a
+		// host and adding the *right* one: a pool that wants Ubuntu 24.04
+		// arm64 will keep failing to place on the amd64 box they just built
+		// unless the message says so.
+		b.fix = fmt.Sprintf("add a %s host, or change this pool's platform to one your fleet already has",
+			p.Platform.Describe())
 	case backend > 0 && backend+unhealthy+cordoned == len(hs.hosts):
 		// Only a pool blocked on its backend can be unblocked by changing it,
 		// so that is the only case that carries alternatives. Offering them for

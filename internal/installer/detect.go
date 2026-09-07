@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/backend"
+	"github.com/eyupio/zoomies/internal/machine"
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -170,9 +172,17 @@ func (e ExistingInstall) Items() []string {
 // the operator anything. Run prints it once, at the top, because half of
 // setting up a fleet controller is finding out what the machine already has.
 type Detection struct {
-	OS       string
-	Arch     string
-	Distro   string
+	OS     string
+	Arch   string
+	Distro string
+	// OSVersion is the distribution's release, e.g. "24.04". With Distro it is
+	// what a pool's platform is matched against, and what picks the runner
+	// image variant this host can actually run.
+	OSVersion string
+	// CPUs and MemoryMB are how much machine this is. They size the first
+	// pool's suggestion and name the host.
+	CPUs     int
+	MemoryMB int64
 	Init     InitSystem
 	Hostname string
 
@@ -225,10 +235,17 @@ var defaultPorts = []int{8080, 443}
 // any privilege change and its answers describe the same host, so re-deriving
 // them here could only disagree confusingly.
 func Detect(ctx context.Context, opts Options) Detection {
+	// install.sh has already looked at /etc/os-release; machine.Detect reads
+	// the same file plus the size of the machine, and knows about cgroups, so
+	// an installer running inside a container does not report the host's cores.
+	facts := machine.Detect()
 	d := Detection{
 		OS:          firstNonEmpty(opts.DetectedOS, runtime.GOOS),
 		Arch:        firstNonEmpty(opts.DetectedArch, runtime.GOARCH),
-		Distro:      firstNonEmpty(opts.DetectedDistro, readDistroID()),
+		Distro:      firstNonEmpty(opts.DetectedDistro, facts.Distro, readDistroID()),
+		OSVersion:   facts.OSVersion,
+		CPUs:        facts.CPUs,
+		MemoryMB:    facts.MemoryMB,
 		Hostname:    hostname(),
 		UID:         os.Geteuid(),
 		GID:         os.Getegid(),
@@ -481,7 +498,8 @@ type Field struct {
 
 func (d Detection) Lines() []string {
 	out := []string{
-		fmt.Sprintf("%-12s%s/%s (%s)", "os", d.OS, d.Arch, d.Distro),
+		fmt.Sprintf("%-12s%s/%s (%s)", "os", d.OS, d.Arch, d.describeDistro()),
+		fmt.Sprintf("%-12s%s", "size", d.describeSize()),
 		fmt.Sprintf("%-12s%s", "init", d.Init),
 		fmt.Sprintf("%-12s%s (uid %d)%s", "user", d.User, d.UID, map[bool]string{true: " -- root", false: ""}[d.Root]),
 		fmt.Sprintf("%-12s%s", "config", d.ConfigDir),
@@ -503,6 +521,44 @@ func (d Detection) Lines() []string {
 		out = append(out, fmt.Sprintf("%-12sa previous installation is present", "existing"))
 	}
 	return out
+}
+
+// describeDistro is the distribution and its release, which together are what
+// decides which runner image this host can run.
+func (d Detection) describeDistro() string {
+	if d.OSVersion == "" {
+		return d.Distro
+	}
+	return d.Distro + " " + d.OSVersion
+}
+
+// describeSize is how much machine this is, in the words the host's name uses.
+func (d Detection) describeSize() string {
+	if d.CPUs <= 0 {
+		return "unknown"
+	}
+	out := fmt.Sprintf("%d vCPU", d.CPUs)
+	if d.MemoryMB > 0 {
+		out += fmt.Sprintf(", %d GB", d.MemoryMB/1024)
+	}
+	return out
+}
+
+// HostName is the canonical name this machine would join under: what it is,
+// then which one it is. `zoomies agent join --name` overrides it.
+func (d Detection) HostName() string {
+	spec := naming.Spec{
+		CPUs:     float64(d.CPUs),
+		MemoryGB: int(d.MemoryMB / 1024),
+		OS:       firstNonEmpty(d.Distro, d.OS),
+		Version:  d.OSVersion,
+		Arch:     d.Arch,
+		Suffix:   d.Hostname,
+	}
+	if spec.Empty() {
+		return naming.Slug(d.Hostname)
+	}
+	return spec.String()
 }
 
 func runtimeLine(r RuntimeInfo) string {
