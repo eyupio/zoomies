@@ -168,3 +168,46 @@ func TestAReportForAnAlreadyRemovedRunnerQueuesNothing(t *testing.T) {
 		t.Fatal("a remove task was queued for an already-removed runner")
 	}
 }
+
+// A duplicated credential -- a cloned VM, or a state directory copied to
+// another machine -- gives two agents one host id. From the controller's side
+// they are indistinguishable: both hold a valid token and both report real
+// work. What they cannot hide is handing the session back and forth.
+//
+// It is reported and not refused, by decision: both are running jobs, and
+// picking one to reject would end the other's work on a coin toss.
+func TestTwoAgentsOnOneHostAreReportedButNotRefused(t *testing.T) {
+	h := newHarness(t)
+	_, _, host := h.fleet()
+
+	h.c.NoteAgentSession(h.ctx, host.ID, "ses_one")
+	h.c.NoteAgentSession(h.ctx, host.ID, "ses_two")
+	if contains(h.problemCodes(), "host.duplicate_agent") {
+		t.Fatalf("problems = %v; one change of session is an ordinary restart", h.problemCodes())
+	}
+
+	h.c.NoteAgentSession(h.ctx, host.ID, "ses_one")
+	if !contains(h.problemCodes(), "host.duplicate_agent") {
+		t.Fatalf("problems = %v, want host.duplicate_agent once the sessions swap back", h.problemCodes())
+	}
+}
+
+// The problem ages out on its own. An operator who has stopped the second
+// agent should not have to clear anything by hand, and a host that was
+// duplicated last month is not a fault today.
+func TestADuplicateAgentStopsBeingReportedOnceItIsGone(t *testing.T) {
+	h := newHarness(t)
+	_, _, host := h.fleet()
+
+	h.c.NoteAgentSession(h.ctx, host.ID, "ses_one")
+	h.c.NoteAgentSession(h.ctx, host.ID, "ses_two")
+	h.c.NoteAgentSession(h.ctx, host.ID, "ses_one")
+	if !contains(h.problemCodes(), "host.duplicate_agent") {
+		t.Fatalf("problems = %v, want the duplicate reported first", h.problemCodes())
+	}
+
+	h.advance(duplicateAgentWindow + time.Minute)
+	if contains(h.problemCodes(), "host.duplicate_agent") {
+		t.Fatalf("problems = %v; the duplicate should age out once the sessions stop swapping", h.problemCodes())
+	}
+}

@@ -572,6 +572,36 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 	}, nil
 }
 
+// NoteAgentSession folds the session an agent identified itself with into its
+// host's record, and warns when the host has seen that session before.
+//
+// Seeing a session a host has already moved on from is the duplicate-agent
+// signal: an agent mints its session at start-up, so restarting moves the id
+// forward and never back, and only two agents sharing one host's credentials
+// -- a cloned VM, or a copied state directory -- hand the same pair back and
+// forth. Counting plain changes instead would flag every ordinary restart.
+//
+// Detect only, by decision. Refusing the older session would be a coin toss
+// over which of two live agents keeps the host, and both are running real
+// work; the problems panel names it and an operator decides which machine
+// should not be there.
+func (c *Controller) NoteAgentSession(ctx context.Context, hostID, sessionID string) {
+	if hostID == "" || sessionID == "" {
+		return
+	}
+	alternated, err := c.st.RecordAgentSession(ctx, hostID, sessionID)
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			c.log.Debug("could not record an agent session", "host", hostID, "error", err)
+		}
+		return
+	}
+	if alternated {
+		c.log.Warn("two agents appear to share this host's credentials; they are splitting its tasks between them",
+			"host", hostID, "session", sessionID)
+	}
+}
+
 // unknownRunners names the runners a host reported that this controller has no
 // live row for, which are the ones whose workloads it may remove.
 //

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/logging"
 )
@@ -366,6 +367,10 @@ func (s *Server) agentAuth(next http.Handler) http.Handler {
 			info.identity = id
 			info.log = info.log.With("host", h.ID, "host_name", h.Name)
 		}
+		// Every authenticated agent request carries the session, so recording
+		// it here catches a duplicate whichever call it makes first rather
+		// than only on the heartbeat.
+		s.ctrl.NoteAgentSession(r.Context(), h.ID, r.Header.Get(agent.HeaderAgentSession))
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxAgentHost, h)))
 	})
 }
