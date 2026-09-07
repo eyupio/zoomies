@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/events"
@@ -117,6 +118,29 @@ func (s *sseWriter) flush() { _ = s.rc.Flush() }
 // GET /api/v1/events
 // ---------------------------------------------------------------------------
 
+// endIfRevoked re-resolves the credential this stream was opened with and, when
+// it no longer stands, ends the stream with a frame saying so.
+//
+// A live stream is authorised once, at the moment it is opened, and then held
+// for as long as the tab is. Without this, signing out, revoking the token,
+// disabling the account or letting the session expire leaves the stream running
+// -- the fleet's every movement still arriving at a browser whose credential
+// the operator has just taken away, until something else happens to break the
+// connection. Every other route re-checks on every request; a stream's
+// heartbeat is the closest thing it has to one, so it re-checks there.
+//
+// The reason is deliberately the same whichever way the credential failed: an
+// ended stream tells a client to stop and sign in again, and which of the four
+// happened is not something the far end can do anything different about.
+func (s *Server) endIfRevoked(stream *sseWriter, r *http.Request, action auth.Action) bool {
+	id, err := s.resolveIdentity(r)
+	if err == nil && auth.Allowed(id, action) {
+		return false
+	}
+	_ = stream.event("end", "", []byte(`{"reason":"this stream's credential is no longer valid; sign in again"}`))
+	return true
+}
+
 // handleEvents streams every change the operator would want to see.
 //
 // There is no polling anywhere in the UI, so this endpoint is the whole of the
@@ -160,7 +184,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	ticker := time.NewTicker(heartbeatInterval)
+	ticker := time.NewTicker(s.streamHeartbeat)
 	defer ticker.Stop()
 
 	for {
@@ -179,6 +203,9 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case <-ticker.C:
+			if s.endIfRevoked(stream, r, auth.ActionEventsRead) {
+				return
+			}
 			if err := stream.comment("heartbeat"); err != nil {
 				return
 			}
@@ -271,7 +298,7 @@ func (s *Server) handleRunnerLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ticker := time.NewTicker(heartbeatInterval)
+	ticker := time.NewTicker(s.streamHeartbeat)
 	defer ticker.Stop()
 
 	for {
@@ -291,6 +318,9 @@ func (s *Server) handleRunnerLogs(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case <-ticker.C:
+			if s.endIfRevoked(stream, r, auth.ActionLogsRead) {
+				return
+			}
 			if err := stream.comment("heartbeat"); err != nil {
 				return
 			}
