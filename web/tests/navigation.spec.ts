@@ -203,17 +203,16 @@ test('an upgrade under an open tab reloads even just after another failure', asy
   //
   // The controller says which build it is, so an upgrade is something the tab
   // can recognise rather than guess at.
+  //
+  // Nothing here stubs the route that answers with the build. An earlier
+  // version of this test did, and so it went on passing while the endpoint it
+  // asked -- liveness, which answers `{"ok":true}` and nothing else -- gave an
+  // empty version every time, leaving the upgrade case dead in the shipped
+  // binary. The identity below therefore comes from the running controller.
   await page.evaluate(() => {
     sessionStorage.setItem('zoomies.chunk-reload', String(Date.now()));
     sessionStorage.setItem('zoomies.chunk-reload-version', 'the-build-this-tab-started-on');
   });
-  await page.route('**/healthz', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ ok: true, version: 'a-newer-build' }),
-    }),
-  );
 
   // The chunk is gone, the way an upgrade leaves it, until the tab reloads.
   let served = false;
@@ -230,9 +229,20 @@ test('an upgrade under an open tab reloads even just after another failure', asy
 
   await expect(pageHeading(page, 'Hosts')).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText('That page could not be loaded')).toHaveCount(0);
-  // And the reload is spent against that version, so the same upgrade cannot
-  // reload the tab twice.
+
+  // And the reload is spent against the build the controller actually reports,
+  // so the same upgrade cannot reload the tab twice. Comparing against what the
+  // server says, rather than a constant, is what makes this fail if the client
+  // ever asks a route that has no build to give.
+  const identity = await page.evaluate(async () => {
+    const meta = (await (await fetch('/api/v1/meta')).json()) as {
+      version?: string;
+      commit?: string;
+    };
+    return [meta.version, meta.commit].filter((v) => typeof v === 'string' && v !== '').join(' ');
+  });
+  expect(identity, 'the controller must report a build the tab can recognise').not.toBe('');
   expect(await page.evaluate(() => sessionStorage.getItem('zoomies.chunk-reload-version'))).toBe(
-    'a-newer-build',
+    identity,
   );
 });
