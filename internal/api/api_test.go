@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -911,4 +912,65 @@ func TestAPIResponsesAreNeverCached(t *testing.T) {
 			t.Errorf("%s %s: Cache-Control = %q, want no-store", rt.method, rt.path, cc)
 		}
 	}
+}
+
+// TestOversizeRequestBodyIsRefused covers the limit that stops a caller making
+// the controller buffer memory on purpose.
+//
+// The status is the point as much as the refusal is. A 400 tells a client its
+// JSON is wrong, and the JSON is not wrong -- there is simply too much of it,
+// which is a different thing to do about it. The webhook endpoint has answered
+// 413 for the same condition since it was written, so this is also the two
+// halves of the surface giving one answer.
+func TestOversizeRequestBodyIsRefused(t *testing.T) {
+	h := newHarness(t)
+	token := h.token("bulky", store.RoleAdmin)
+	_, agentToken := h.agentToken("vm-1")
+
+	// Built from the production constant, so raising the limit does not
+	// quietly leave this test asserting nothing.
+	oversize := `{"name":"` + strings.Repeat("a", maxBodyBytes) + `"}`
+	json := map[string]string{"Content-Type": "application/json"}
+
+	for _, tc := range []struct {
+		name string
+		req  request
+	}{
+		{"the user API", request{method: http.MethodPost, path: "/api/v1/pools",
+			token: token, rawBody: oversize, headers: json}},
+		{"the anonymous agent join", request{method: http.MethodPost, path: "/api/v1/agent/join",
+			rawBody: oversize, headers: json}},
+		{"an authenticated agent route", request{method: http.MethodPost, path: "/api/v1/agent/heartbeat",
+			token: agentToken, rawBody: oversize, headers: json}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := h.do(tc.req)
+			resp.mustStatus(t, http.StatusRequestEntityTooLarge, "an oversize body on "+tc.req.path)
+			if code := resp.errorCode(t); code != codeTooLarge {
+				t.Errorf("code = %q, want %q", code, codeTooLarge)
+			}
+			// The message names the limit, because a client that has just been
+			// refused needs to know what it has to fit inside.
+			if msg := resp.errorMessage(t); !strings.Contains(msg, strconv.Itoa(maxBodyBytes)) {
+				t.Errorf("the refusal does not name the %d byte limit: %q", maxBodyBytes, msg)
+			}
+		})
+	}
+
+	// A body just under the limit is not refused for its size. It is refused
+	// for being a nonsense pool, which is the handler's business and proves
+	// the middleware let it through.
+	t.Run("a body under the limit", func(t *testing.T) {
+		under := `{"name":"` + strings.Repeat("a", maxBodyBytes/2) + `"}`
+		resp := h.do(request{method: http.MethodPost, path: "/api/v1/pools",
+			token: token, rawBody: under, headers: json})
+		if resp.status == http.StatusRequestEntityTooLarge {
+			t.Fatalf("a body inside the limit was refused as too large: %s", truncate(resp.body))
+		}
+	})
+
+	// The log relay's exemption is asserted where it can be observed, in
+	// TestARunnerThatPrintsMoreThanTheBodyLimitIsNotCutOff: a relay for a
+	// stream nobody is watching answers 404 before it reads a byte, so it
+	// would answer the same whether the limit applied to it or not.
 }

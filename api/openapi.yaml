@@ -2017,7 +2017,7 @@ components:
           properties:
             code:
               type: string
-              enum: [bad_request, unauthorized, forbidden, not_found, conflict, unprocessable, rate_limited, internal]
+              enum: [bad_request, unauthorized, forbidden, not_found, conflict, unprocessable, too_large, rate_limited, internal]
             message: { type: string, description: Written for a person to read, and to act on. }
             field: { type: string }
             detail: { type: string }

@@ -1033,3 +1033,135 @@ func TestReplacingARunnerRepeatedlyNeverTripsOverItsOwnExitRecord(t *testing.T) 
 		t.Fatalf("remove: %v", err)
 	}
 }
+
+// TestProcessChildEnvironmentIsBuiltNotInherited is the process backend's
+// side of the isolation the container backends get from the container. A
+// job's steps run as ordinary processes on the agent's machine, so anything
+// left in the agent's environment would be readable by every workflow the
+// fleet runs -- and on a single-VM install the agent is inside the controller,
+// whose environment holds the database path, the encryption key and the GitHub
+// App's private key.
+//
+// The parent is poisoned with the things that would actually be there.
+func TestProcessChildEnvironmentIsBuiltNotInherited(t *testing.T) {
+	b := &ProcessBackend{}
+
+	poison := map[string]string{
+		"ZOOMIES_ENCRYPTION_KEY":        "3d5f0a1b-the-key-that-decrypts-every-installation",
+		"ZOOMIES_GITHUB_PRIVATE_KEY":    "-----BEGIN RSA PRIVATE KEY-----\nMIIEow...\n",
+		"ZOOMIES_GITHUB_WEBHOOK_SECRET": "the-webhook-hmac-secret",
+		"ZOOMIES_DATABASE":              "/var/lib/zoomies/zoomies.db",
+		"ZOOMIES_AGENT_TOKEN":           "zag_this_hosts_own_credential",
+		"GITHUB_TOKEN":                  "ghp_a_token_the_operator_exported",
+		"AWS_SECRET_ACCESS_KEY":         "an-unrelated-secret-that-happened-to-be-there",
+		"SSH_AUTH_SOCK":                 "/tmp/ssh-agent.sock",
+	}
+	for k, v := range poison {
+		t.Setenv(k, v)
+	}
+	// The agent's own home must not become the runner's: the runner writes its
+	// credentials and state next to it.
+	t.Setenv("HOME", "/root")
+
+	dir := t.TempDir()
+	spec := Spec{Name: "zoomies-runner-1", Ephemeral: true, Env: map[string]string{
+		"RUNNER_ALLOW_RUNASROOT": "1",
+		"ZOOMIES_POOL":           "linux-x64",
+	}}
+	env := b.childEnv(spec, dir)
+
+	got := map[string]string{}
+	for _, kv := range env {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok {
+			t.Fatalf("childEnv produced %q, which is not a KEY=VALUE pair", kv)
+		}
+		got[k] = v
+	}
+
+	for k, v := range poison {
+		if _, present := got[k]; present {
+			t.Errorf("the runner's environment carries %s from the agent's", k)
+		}
+		// Not merely absent under that name: absent as a value, so a rename
+		// or a well-meaning "pass the proxy settings through" that widened
+		// the allowlist would still be caught.
+		for _, kv := range env {
+			if strings.Contains(kv, v) {
+				t.Errorf("%s's value reached the runner as %q", k, kv)
+			}
+		}
+	}
+
+	if got["HOME"] != dir {
+		t.Errorf("HOME = %q, want the runner's own directory %q", got["HOME"], dir)
+	}
+	if got["ZOOMIES_POOL"] != "linux-x64" {
+		t.Errorf("the controller's own spec.Env did not reach the runner: %v", got)
+	}
+}
+
+// TestProcessChildEnvironmentPassesTheAllowlistThrough is the other half: the
+// allowlist exists because a runner behind a corporate proxy or in a non-UTC
+// timezone needs those settings, and dropping them would make the backend
+// unusable rather than safe. Both halves have to be asserted, or "return nil"
+// would pass the test above.
+func TestProcessChildEnvironmentPassesTheAllowlistThrough(t *testing.T) {
+	b := &ProcessBackend{}
+
+	allowed := map[string]string{
+		"LANG":                                  "en_GB.UTF-8",
+		"LC_ALL":                                "en_GB.UTF-8",
+		"TZ":                                    "Europe/London",
+		"HTTP_PROXY":                            "http://proxy.example.com:3128",
+		"HTTPS_PROXY":                           "http://proxy.example.com:3128",
+		"NO_PROXY":                              "localhost,10.0.0.0/8",
+		"http_proxy":                            "http://proxy.example.com:3128",
+		"https_proxy":                           "http://proxy.example.com:3128",
+		"no_proxy":                              "localhost,10.0.0.0/8",
+		"DOTNET_SYSTEM_GLOBALIZATION_INVARIANT": "1",
+	}
+	for k, v := range allowed {
+		t.Setenv(k, v)
+	}
+	t.Setenv("PATH", "/opt/toolcache/bin:/usr/bin")
+
+	env := b.childEnv(Spec{Name: "zoomies-runner-1"}, t.TempDir())
+	got := map[string]string{}
+	for _, kv := range env {
+		k, v, _ := strings.Cut(kv, "=")
+		got[k] = v
+	}
+
+	for k, want := range allowed {
+		if got[k] != want {
+			t.Errorf("%s = %q, want %q -- a runner needs the agent's proxy and locale settings", k, got[k], want)
+		}
+	}
+	if got["PATH"] != "/opt/toolcache/bin:/usr/bin" {
+		t.Errorf("PATH = %q, want the agent's -- it is how the runner finds its toolchain", got["PATH"])
+	}
+
+	// A variable on the allowlist that the agent does not have is left unset
+	// rather than set empty: an empty TZ is not the same as no TZ, and the
+	// runner's own defaulting is better than a blank.
+	t.Setenv("TZ", "Europe/London") // registers the cleanup that restores it
+	os.Unsetenv("TZ")
+	withoutTZ := map[string]string{}
+	for _, kv := range b.childEnv(Spec{Name: "zoomies-runner-1"}, t.TempDir()) {
+		k, v, _ := strings.Cut(kv, "=")
+		withoutTZ[k] = v
+	}
+	if v, present := withoutTZ["TZ"]; present {
+		t.Errorf("TZ = %q was invented for a runner whose agent has no TZ set", v)
+	}
+
+	// And PATH is the one variable with a fallback, because a runner with no
+	// PATH finds no tools at all -- not even the ones it downloaded.
+	t.Setenv("PATH", "")
+	for _, kv := range b.childEnv(Spec{Name: "zoomies-runner-1"}, t.TempDir()) {
+		if kv == "PATH=" {
+			t.Error("an empty PATH was passed through instead of the fallback")
+		}
+	}
+}

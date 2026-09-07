@@ -1,7 +1,10 @@
 package controller
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -213,6 +216,177 @@ func TestAHostCannotReportOnAnotherHostsRunner(t *testing.T) {
 	}
 	if after.State != store.RunnerRegistering {
 		t.Fatalf("state = %q; a report from the wrong host changed a runner", after.State)
+	}
+}
+
+// The task result is the other half of the same rule, and the stricter half:
+// a runner report that names somebody else's runner is dropped with a warning,
+// but a result carries a state transition, a container handle and a startup
+// timing, so the wrong host being believed here would rewrite another machine's
+// accounting. The check exists; until now only the report path had a test, so
+// deleting it would have gone unnoticed.
+func TestAHostCannotReportATaskResultForAnotherHostsRunner(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	other := h.host("vm-2")
+	r := h.runnerRow(pool, host, store.RunnerRegistering)
+
+	err := h.c.ReportResult(h.ctx, other.ID, agent.TaskResult{
+		TaskID:   "tsk_whatever",
+		Kind:     agent.TaskCreateRunner,
+		RunnerID: r.ID,
+		OK:       false,
+		State:    store.RunnerFailed,
+		Error:    "a failure this host did not witness",
+		Handle:   "container-the-intruder-picked",
+	})
+	if err == nil {
+		t.Fatal("a result for another host's runner was accepted")
+	}
+	// The message names both hosts and the runner: an operator reading it has
+	// to be able to tell which machine is confused about what.
+	for _, want := range []string{other.ID, host.ID, r.ID} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not name %q: %v", want, err)
+		}
+	}
+
+	after, err := h.st.GetRunner(h.ctx, r.ID)
+	if err != nil {
+		t.Fatalf("GetRunner: %v", err)
+	}
+	if after.State != store.RunnerRegistering {
+		t.Errorf("state = %q; a result from the wrong host moved a runner", after.State)
+	}
+	if after.ContainerID == "container-the-intruder-picked" {
+		t.Errorf("a result from the wrong host set the runner's workload handle to %q", after.ContainerID)
+	}
+	if after.Message != "" {
+		t.Errorf("message = %q; a result from the wrong host wrote onto a runner", after.Message)
+	}
+
+	// The owning host is still believed, so this is a refusal of the caller
+	// and not a runner that the attempt left unwritable.
+	if err := h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{
+		TaskID: "tsk_whatever", Kind: agent.TaskCreateRunner, RunnerID: r.ID,
+		OK: false, State: store.RunnerFailed, Error: "the real failure",
+	}); err != nil {
+		t.Fatalf("the owning host was refused after the intruder tried: %v", err)
+	}
+	owned, err := h.st.GetRunner(h.ctx, r.ID)
+	if err != nil {
+		t.Fatalf("GetRunner: %v", err)
+	}
+	if owned.State != store.RunnerFailed {
+		t.Errorf("state = %q, want the owning host's result to have been applied", owned.State)
+	}
+}
+
+// TestACreateTaskCarriesNoControllerSecret walks the whole task over the wire
+// the way an agent receives it.
+//
+// A task is the one thing the controller hands a machine it does not otherwise
+// trust: an agent may be a shared builder, an imported host, or somebody's
+// laptop. It has to carry the runner's own registration credential and nothing
+// else. The App private key would let the holder mint runners in every
+// repository the installation covers, and the webhook secret would let it forge
+// job events -- neither is anywhere near what running one job requires.
+//
+// The check is on the marshalled bytes rather than the struct, because a field
+// added to backend.Spec or backend.Credentials is a wire change whether or not
+// anyone reads it on the far side.
+func TestACreateTaskCarriesNoControllerSecret(t *testing.T) {
+	h := newHarness(t)
+
+	// Distinctive plaintexts, so a hit is a real leak rather than the word
+	// "test" occurring somewhere legitimate.
+	const (
+		appPrivateKey = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAtheAppKeyNobodyOutsideTheControllerMayHold\n-----END RSA PRIVATE KEY-----"
+		hookSecret    = "webhook-hmac-nobody-outside-the-controller-may-hold"
+	)
+	pem, err := h.key.SealString(appPrivateKey)
+	if err != nil {
+		t.Fatalf("sealing the private key: %v", err)
+	}
+	sealed, err := h.key.SealString(hookSecret)
+	if err != nil {
+		t.Fatalf("sealing the webhook secret: %v", err)
+	}
+	inst := &store.Installation{
+		AppID:            h.gh.AppID(),
+		InstallationID:   h.gh.InstallationID(),
+		Target:           "acme",
+		TargetType:       store.TargetOrg,
+		APIBaseURL:       h.gh.URL(),
+		PrivateKeyEnc:    pem,
+		WebhookSecretEnc: sealed,
+	}
+	if err := h.st.CreateInstallation(h.ctx, inst); err != nil {
+		t.Fatalf("CreateInstallation: %v", err)
+	}
+
+	pool := h.pool(inst, "linux-x64")
+	host := h.host("vm-1")
+
+	h.deliver("workflow_job", jobEvent{Action: "queued", JobID: 42,
+		Labels: []string{"self-hosted", "linux", "x64", "demo"}}.body(), hookSecret)
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	task := h.taskOfKind(host.ID, agent.TaskCreateRunner)
+	wire, err := json.Marshal(task)
+	if err != nil {
+		t.Fatalf("marshalling the task: %v", err)
+	}
+
+	// Searched over the decoded values rather than the raw bytes: JSON escapes
+	// a PEM's newlines and base64s a []byte, so a needle matched against the
+	// wire directly would quietly never match and the test would pass however
+	// badly the task leaked.
+	values := stringsIn(t, wire)
+	for _, secret := range []struct {
+		what  string
+		value string
+	}{
+		{"the App private key", appPrivateKey},
+		{"the webhook secret", hookSecret},
+	} {
+		for _, v := range values {
+			if strings.Contains(v, secret.value) {
+				t.Errorf("a create task carries %s in %q", secret.what, truncateValue(v))
+			}
+		}
+	}
+	// The sealed forms are checked against the raw bytes instead. A ciphertext
+	// is not valid UTF-8, so it cannot survive a JSON string field to be found
+	// among the values above -- but a []byte field added to the spec would
+	// marshal it as base64, and that is a task handing out something the
+	// instance key turns back into the plaintext, on an install where every
+	// agent has been given that key.
+	for _, secret := range []struct {
+		what  string
+		value []byte
+	}{
+		{"the sealed private key", pem},
+		{"the sealed webhook secret", sealed},
+	} {
+		if bytes.Contains(wire, secret.value) ||
+			bytes.Contains(wire, []byte(base64.StdEncoding.EncodeToString(secret.value))) {
+			t.Errorf("a create task carries %s on the wire", secret.what)
+		}
+	}
+
+	// And the task is not empty of credentials, or "carry nothing" would pass
+	// every assertion above while breaking every runner.
+	if task.Spec == nil {
+		t.Fatal("the create task carries no spec at all")
+	}
+	if task.Spec.Credentials.JITConfig == "" && task.Spec.Credentials.RegistrationToken == "" {
+		t.Fatalf("the create task carries no registration credential: %+v", task.Spec.Credentials)
+	}
+	if pool.Ephemeral && !bytes.Contains(wire, []byte(task.Spec.Credentials.JITConfig)) {
+		t.Fatal("the runner's own JIT configuration did not survive marshalling")
 	}
 }
 
@@ -978,4 +1152,41 @@ func TestARejoinKeepsTheOperatorsReserve(t *testing.T) {
 	if !after.Cordoned {
 		t.Fatal("the cordon did not survive the re-join either, so this is not testing what it claims")
 	}
+}
+
+// stringsIn returns every string in a marshalled JSON document, keys included,
+// so a secret is found wherever it was put and whatever escaping it picked up
+// on the way.
+func stringsIn(t *testing.T, doc []byte) []string {
+	t.Helper()
+	var v any
+	if err := json.Unmarshal(doc, &v); err != nil {
+		t.Fatalf("unmarshalling to walk it: %v", err)
+	}
+	var out []string
+	var walk func(any)
+	walk = func(n any) {
+		switch n := n.(type) {
+		case string:
+			out = append(out, n)
+		case []any:
+			for _, e := range n {
+				walk(e)
+			}
+		case map[string]any:
+			for k, e := range n {
+				out = append(out, k)
+				walk(e)
+			}
+		}
+	}
+	walk(v)
+	return out
+}
+
+func truncateValue(s string) string {
+	if len(s) > 120 {
+		return s[:120] + "..."
+	}
+	return s
 }

@@ -1,10 +1,12 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -62,6 +64,70 @@ func TestUserLifecycle(t *testing.T) {
 	deleted.mustStatus(t, http.StatusNoContent, "delete user")
 	gone := h.do(request{method: http.MethodGet, path: "/api/v1/users/" + bob.ID, cookie: cookie})
 	gone.mustStatus(t, http.StatusNotFound, "get a deleted user")
+}
+
+// TestDisablingAUserEndsItsSessionsAtTheAPI proves the teardown that actually
+// runs in production. The auth service has SetUserDisabled, which deletes the
+// sessions and is what the service-level test covers, but nothing calls it: the
+// only way an account is disabled is this PATCH, which saves the row and then
+// ends the sessions itself. Deleting that second step would break the property
+// and break no test.
+//
+// A 401 on its own would not prove it, either. Authentication refuses a
+// disabled account whatever its sessions look like, so the cookie stops
+// working the moment the flag is set. What has to be shown is that the rows
+// are gone -- because an account that is re-enabled must not find its old
+// cookies waiting, and because a session left behind is a live credential for
+// as long as it has not expired.
+func TestDisablingAUserEndsItsSessionsAtTheAPI(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("root", store.RoleAdmin)
+	adminCookie := h.session(admin)
+	// Two sessions, because the teardown is per-account and not per-cookie:
+	// signing out the laptop is no use if the phone is still signed in.
+	bob, laptop := h.user("bob", store.RoleOperator)
+	phone := h.session(bob)
+
+	for _, c := range []struct {
+		name   string
+		cookie string
+	}{{"laptop", laptop}, {"phone", phone}} {
+		probe := h.do(request{method: http.MethodGet, path: "/api/v1/auth/session", cookie: c.cookie})
+		probe.mustStatus(t, http.StatusOK, "bob's "+c.name+" before being disabled")
+	}
+
+	disable := h.do(request{method: http.MethodPatch, path: "/api/v1/users/" + bob.ID,
+		cookie: adminCookie, body: map[string]any{"disabled": true}})
+	disable.mustStatus(t, http.StatusOK, "disable bob")
+
+	// The rows themselves are gone, not merely refused. This is the assertion
+	// the 401 cannot make.
+	for _, c := range []struct {
+		name   string
+		cookie string
+	}{{"laptop", laptop}, {"phone", phone}} {
+		_, _, err := h.st.GetSessionByTokenHash(h.ctx, cryptox.HashToken(c.cookie))
+		if !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("bob's %s session survived being disabled: %v", c.name, err)
+		}
+	}
+
+	// And re-enabling the account does not bring them back, which is what an
+	// operator disabling somebody for an hour is relying on.
+	enable := h.do(request{method: http.MethodPatch, path: "/api/v1/users/" + bob.ID,
+		cookie: adminCookie, body: map[string]any{"disabled": false}})
+	enable.mustStatus(t, http.StatusOK, "re-enable bob")
+	for _, c := range []struct {
+		name   string
+		cookie string
+	}{{"laptop", laptop}, {"phone", phone}} {
+		probe := h.do(request{method: http.MethodGet, path: "/api/v1/auth/session", cookie: c.cookie})
+		probe.mustStatus(t, http.StatusUnauthorized, "bob's "+c.name+" after he was re-enabled")
+	}
+
+	// Nobody else was signed out: the teardown is scoped to the one account.
+	stillIn := h.do(request{method: http.MethodGet, path: "/api/v1/auth/session", cookie: adminCookie})
+	stillIn.mustStatus(t, http.StatusOK, "the admin who did the disabling")
 }
 
 // TestSettings covers what may be changed at runtime and what may not.
