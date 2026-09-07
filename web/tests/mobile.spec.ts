@@ -185,6 +185,49 @@ test('the grids stay inside the screen instead of overflowing it', async ({ page
   }
 });
 
+/*
+ * The usage report is not a DataGrid -- it is its own table, ten columns wide
+ * at the pool grouping -- so it needs saying separately. Two things make it
+ * usable on a phone, and both are invisible until they are gone: the page
+ * around the table must not scroll sideways, and the first column has to stay
+ * put when the table does, or the number you scrolled to belongs to a row you
+ * can no longer name.
+ */
+test('the usage report stays inside the screen and keeps its first column', async ({ page }) => {
+  for (const grouping of ['pool', 'repository', 'workflow', 'installation'] as const) {
+    await goto(page, `/usage?group_by=${grouping}`, 'Usage');
+    await expect(page.getByRole('table')).toBeVisible();
+    await expectNoSidewaysScroll(page, `the usage report grouped by ${grouping}`);
+  }
+
+  // Scroll the table's own frame to its far end -- where the cost column is --
+  // and the row's name is still on screen beside it.
+  await goto(page, '/usage', 'Usage');
+  // The row's name is a `th scope="row"`, so it is a rowheader and not a cell.
+  const key = page.getByRole('table').getByRole('row').nth(1).getByRole('rowheader');
+  await expect(key).toBeVisible();
+  // textContent, not innerText: the row's tag is uppercased by CSS, and the
+  // question here is whether the same cell is still on screen, not how it is
+  // painted.
+  const name = ((await key.textContent()) ?? '').trim();
+  expect(name, 'the first row must be identified by something').not.toBe('');
+
+  await page.evaluate(() => {
+    const table = document.querySelector('table');
+    let frame = table?.parentElement ?? null;
+    while (frame && frame.scrollWidth <= frame.clientWidth) frame = frame.parentElement;
+    if (frame) frame.scrollLeft = frame.scrollWidth;
+  });
+
+  const box = await key.boundingBox();
+  expect(box, 'the first column vanished when the table scrolled').not.toBeNull();
+  expect(
+    box?.x ?? -1,
+    'the first column scrolled off the left edge, so the row cannot be identified',
+  ).toBeGreaterThanOrEqual(0);
+  expect(((await key.textContent()) ?? '').trim()).toBe(name);
+});
+
 test('a grid is still usable at this width', async ({ page }) => {
   await goto(page, '/runners', 'Runners');
   const rows = dataRows(grid(page, 'Runners'));
