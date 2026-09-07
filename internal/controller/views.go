@@ -506,6 +506,12 @@ func (c *Controller) PoolRenderer(ctx context.Context) (*PoolRenderer, error) {
 	for _, p := range c.PoolCapacityProblems() {
 		blocked[p.TargetID] = append(blocked[p.TargetID], p)
 	}
+	// The pool's own page carries the same sentences the drawer does: an
+	// operator who opens a pool because its jobs are going somewhere strange
+	// should not have to find the drawer to be told why.
+	for _, p := range c.PoolRunnerGroupProblems() {
+		blocked[p.TargetID] = append(blocked[p.TargetID], p)
+	}
 	return &PoolRenderer{counts: counts, installations: installations, queued: queued,
 		blocked: blocked, defaultImage: c.cfg().GitHub.RunnerImage}, nil
 }

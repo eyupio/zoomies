@@ -40,7 +40,7 @@ evidence.
 
 | ID | Package | Classification | Status | Depends on | Session | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| ZF-101 | Enforce GitHub target boundaries everywhere | new (jobs carry no installation identity; label-only matching on all four paths) | `in_progress` | ZF-002 | PR1 and PR2: Claude Opus 5, `ultracode`; one orchestration of 8 subsystem mappers and 8 adversarial verifiers for PR1, a smaller one of 3 and 3 for PR2, each followed by one session | PR1 merged as #99: a job carries the installation covering its repository, `scheduler.Eligible` asks enabled, then installation, then labels, and all four matching paths go through it. Migration `0012` (not `0010`: 0010 and 0011 shipped since the plan was written). PR2 done: poll freshness and the rate-limit hold are both per installation, freshness credited by the delivery's repository rather than by the secret that verified it. Every behavioural test was run against the code with its rule removed and confirmed to fail first. PR3 (the runner-group warning and the hosts-and-pools section) remains |
+| ZF-101 | Enforce GitHub target boundaries everywhere | new (jobs carry no installation identity; label-only matching on all four paths) | `in_progress` | ZF-002 | PR1 and PR2: Claude Opus 5, `ultracode`; one orchestration of 8 subsystem mappers and 8 adversarial verifiers for PR1, a smaller one of 3 and 3 for PR2, each followed by one session | PR1 merged as #99: a job carries the installation covering its repository, `scheduler.Eligible` asks enabled, then installation, then labels, and all four matching paths go through it. Migration `0012` (not `0010`: 0010 and 0011 shipped since the plan was written). PR2 merged as #100: poll freshness and the rate-limit hold are both per installation, freshness credited by the delivery's repository rather than by the secret that verified it. PR3 done: the runner-group fallback is a `pool.runner_group_unresolved` warning on the drawer and the pool's own page instead of a log line, and `docs/hosts-and-pools.md` says a pool belongs to one installation and that GitHub, not Zoomies, makes the final dispatch decision inside an organisation. Every behavioural test was run against the code with its rule removed and confirmed to fail first |
 | ZF-102 | Make runner and agent reconciliation convergent | mixed (mechanics exist; adoption on restart, a controller lock and the log-relay host check do not) | `in_progress` | ZF-002; N02 needs `main` deployed | PR1: Claude Fable 5.1, `xhigh`, one session; two mapping-and-verification orchestrations over the four packages | PR1 of 4 done: the "Reconciliation invariants" section in `docs/architecture.md` lists every rule with its constant and owner, and `internal/controller/invariants_test.go` pins the silence ladder and the lease-outlasts-work relationship. PR2 (log-relay host binding, state-directory lock and controller lease), PR3 (adoption on agent start) and PR4 (late reports and the restart table) remain |
 | ZF-103 | Reserve host resources and enforce bounded admission | extension (slot model complete; no host resource reporting) | `not_started` | ZF-102 | | Size L; 103a before Gate F, 103b after |
 | ZF-104 | Verify control-plane access and secret boundaries | mixed (matrix and most tests exist; log relay unscoped to host; streams never re-check credentials) | `not_started` | ZF-101, ZF-102 | | Size M |
@@ -74,6 +74,19 @@ evidence.
 ## Log
 
 Newest first. One line per event that changed a row.
+
+* 2026-09-07: ZF-101's third pull request, and the package's last. The runner
+  group falling back to GitHub's Default was a log line; it is now a standing
+  warning, because Default is the group every repository the installation
+  covers can reach, so a pool that asked to be fenced into a group and quietly
+  was not is running its jobs somewhere wider than its operator asked for. Two
+  things the plan did not name but the code needed: the three fallbacks say
+  which one happened, because "the group is not there", "GitHub would not say
+  which groups exist" and "this is a repository, and groups are an
+  organisation's" have three different fixes; and an unresolved name is
+  deliberately not cached, so that the warning clears by itself on the next
+  create once an operator makes the group, at the cost of one API call per
+  runner on a pool that is misconfigured.
 
 * 2026-09-07: ZF-101's second pull request, the poller made per-installation.
   The freshness question is answered from the delivery's repository, as the

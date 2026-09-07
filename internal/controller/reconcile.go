@@ -326,7 +326,8 @@ func (c *Controller) mintCredentials(ctx context.Context, inst *store.Installati
 	}
 
 	if pool.Ephemeral {
-		group := c.clients.runnerGroupID(ctx, inst, client, pool.RunnerGroup)
+		group, unresolved := c.clients.runnerGroupID(ctx, inst, client, pool.RunnerGroup)
+		c.noteRunnerGroup(pool, pool.RunnerGroup, unresolved)
 		jit, err := client.CreateJITConfig(ctx, github.JITRequest{
 			Name:          name,
 			Labels:        pool.Labels,

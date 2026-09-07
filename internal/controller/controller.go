@@ -136,6 +136,10 @@ type Controller struct {
 	// can report the queued jobs no pool claimed without deciding again.
 	lastPlan   *scheduler.Plan
 	lastPlanAt time.Time
+	// runnerGroups remembers the pools whose runner group could not be
+	// resolved, so that the fallback to GitHub's Default group is a standing
+	// warning rather than a log line nobody reads. Keyed by pool ID.
+	runnerGroups map[string]runnerGroupNote
 	// blocked remembers the reason each pool could not place a runner, so that
 	// a fleet that cannot scale says so once rather than every tick.
 	blocked map[string]string
@@ -658,6 +662,42 @@ func (c *Controller) setLastPlan(p scheduler.Plan) {
 	defer c.mu.Unlock()
 	c.lastPlan = &p
 	c.lastPlanAt = c.Now()
+}
+
+// runnerGroupNote is a pool whose runners went to the default runner group
+// because the one it asked for could not be resolved.
+type runnerGroupNote struct {
+	// PoolName and Group are what the sentence names; the reason is the half
+	// that differs between "the group is not there" and "GitHub would not say".
+	PoolName string
+	Group    string
+	Reason   string
+}
+
+// noteRunnerGroup records that a pool's runners were placed in the default
+// runner group, or that they no longer are. Like noteBlocked, each change is
+// logged once: a pool creating runners every few seconds would otherwise
+// repeat the same sentence until somebody noticed it.
+func (c *Controller) noteRunnerGroup(p *store.Pool, group, reason string) {
+	c.mu.Lock()
+	if c.runnerGroups == nil {
+		c.runnerGroups = map[string]runnerGroupNote{}
+	}
+	was, had := c.runnerGroups[p.ID]
+	if reason == "" {
+		delete(c.runnerGroups, p.ID)
+	} else {
+		c.runnerGroups[p.ID] = runnerGroupNote{PoolName: p.Name, Group: group, Reason: reason}
+	}
+	c.mu.Unlock()
+
+	switch {
+	case reason != "" && reason != was.Reason:
+		c.log.Warn("a pool's runners are going to the default runner group",
+			"pool", p.Name, "group", group, "reason", reason)
+	case reason == "" && had:
+		c.log.Info("a pool's runner group resolved again", "pool", p.Name, "group", group)
+	}
 }
 
 // noteBlocked logs a pool that wanted runners and could not place any, and the
