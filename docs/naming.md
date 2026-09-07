@@ -135,7 +135,7 @@ and the tag is the same `<os>-<version>` that appears in a pool name.
 | Tag | Base | Architectures |
 | --- | --- | --- |
 | `ubuntu-2404` | `ubuntu:24.04` | amd64, arm64 |
-| `ubuntu-2204` | `ubuntu:22.04` | amd64, arm64 |
+| `ubuntu-2204` | `ubuntu:22.04` | amd64 |
 | `debian-12` | `debian:12-slim` | amd64, arm64 |
 | `fedora-42` | `fedora:42` | amd64, arm64 |
 | `rocky-9` | `rockylinux/rockylinux:9` | amd64, arm64 |
@@ -144,6 +144,14 @@ and the tag is the same `<os>-<version>` that appears in a pool name.
 `:latest` points at `ubuntu-2404`, which is what a pool that names no platform
 gets. Each release also publishes `<tag>-<version>` for pinning one operating
 system without pinning the controller.
+
+Ubuntu 22.04 is amd64 only, and not by choice. The arm64 images are cross-built
+under emulation, and QEMU's aarch64 emulation segfaults inside `ldconfig` on
+22.04's glibc — the build dies mid package install with `uncaught target signal
+11`. The emulator belongs to the build service rather than to this repository,
+so a pool asking for Ubuntu 22.04 on arm64 is refused with that as its reason
+rather than being handed a tag that resolves to nothing. Every other variant is
+built for both.
 
 Every variant is published twice: as `zoomies-runner` and as
 `zoomies-runner-docker`, the same image plus a Docker CLI, which a pool is

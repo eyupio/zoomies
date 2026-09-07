@@ -68,10 +68,18 @@ const (
 	FamilyDNF = "dnf"
 )
 
-// bothArches is the architecture set every published variant carries. It is a
-// package-level slice so that callers cannot accidentally alias one variant's
-// list into another's; runnerImages hands out copies.
-var bothArches = []string{ArchAMD64, ArchARM64}
+// The architecture sets a variant can be published for. They are package-level
+// slices so that callers cannot accidentally alias one variant's list into
+// another's; runnerImages hands out copies.
+//
+// A variant's Arches is not a wish: it is what CI actually builds, because the
+// generated workflow matrices are written from it. A row claiming an
+// architecture nothing publishes gives a pool a tag that does not exist, which
+// is a runner that will not start rather than a validation error.
+var (
+	bothArches = []string{ArchAMD64, ArchARM64}
+	amd64Only  = []string{ArchAMD64}
+)
 
 // runnerImages is the catalogue, and the one place an operating system is added
 // or swapped. A row here plus `make generate` is the whole of it: the generator
@@ -85,7 +93,17 @@ var bothArches = []string{ArchAMD64, ArchARM64}
 // and then fail at the first job, which is worse than not offering it.
 var runnerImages = []Image{
 	{OS: OSUbuntu, Version: "24.04", Base: "ubuntu:24.04", Family: FamilyAPT, Arches: bothArches, Default: true},
-	{OS: OSUbuntu, Version: "22.04", Base: "ubuntu:22.04", Family: FamilyAPT, Arches: bothArches},
+	// amd64 only, and not by choice. This variant is the one that cannot be
+	// cross-built: QEMU's aarch64 emulation segfaults in ldconfig on 22.04's
+	// glibc, so the build dies in the middle of a package install with
+	// "uncaught target signal 11" and dpkg exit 139. The emulator belongs to
+	// the build service rather than to this repository, so there is nothing
+	// here to fix -- and publishing an arm64 tag we cannot build would give a
+	// pool an image reference that resolves to nothing. Saying amd64 makes the
+	// pool validator refuse an arm64 Ubuntu 22.04 pool with a sentence naming
+	// the reason, which is the honest failure. Flip it back to bothArches and
+	// run `make generate` when the emulator can do it.
+	{OS: OSUbuntu, Version: "22.04", Base: "ubuntu:22.04", Family: FamilyAPT, Arches: amd64Only},
 	{OS: OSDebian, Version: "12", Base: "debian:12-slim", Family: FamilyAPT, Arches: bothArches},
 	{OS: OSFedora, Version: "42", Base: "fedora:42", Family: FamilyDNF, Arches: bothArches},
 	{OS: OSRocky, Version: "9", Base: "rockylinux/rockylinux:9", Family: FamilyDNF, Arches: bothArches},

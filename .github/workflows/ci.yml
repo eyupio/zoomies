@@ -385,11 +385,11 @@ jobs:
         # or swapping an operating system is a row there, not here.
         # zoomies:catalogue-begin
         include:
-          - { tag: ubuntu-2404, base: "ubuntu:24.04",            family: apt, os: ubuntu, version: "24.04", default: true }
-          - { tag: ubuntu-2204, base: "ubuntu:22.04",            family: apt, os: ubuntu, version: "22.04" }
-          - { tag: debian-12,   base: "debian:12-slim",          family: apt, os: debian, version: "12" }
-          - { tag: fedora-42,   base: "fedora:42",               family: dnf, os: fedora, version: "42" }
-          - { tag: rocky-9,     base: "rockylinux/rockylinux:9", family: dnf, os: rocky,  version: "9" }
+          - { tag: ubuntu-2404, base: "ubuntu:24.04",            family: apt, os: ubuntu, version: "24.04", platforms: "linux/amd64,linux/arm64", default: true }
+          - { tag: ubuntu-2204, base: "ubuntu:22.04",            family: apt, os: ubuntu, version: "22.04", platforms: "linux/amd64" }
+          - { tag: debian-12,   base: "debian:12-slim",          family: apt, os: debian, version: "12",    platforms: "linux/amd64,linux/arm64" }
+          - { tag: fedora-42,   base: "fedora:42",               family: dnf, os: fedora, version: "42",    platforms: "linux/amd64,linux/arm64" }
+          - { tag: rocky-9,     base: "rockylinux/rockylinux:9", family: dnf, os: rocky,  version: "9",     platforms: "linux/amd64,linux/arm64" }
         # zoomies:catalogue-end
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -403,26 +403,6 @@ jobs:
 
       - if: needs.images.outputs.platforms != 'linux/amd64'
         uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
-
-      # The arm64 half of this job is emulated, and QEMU's aarch64 emulation has
-      # a long history of segfaulting inside ldconfig on Ubuntu 22.04's glibc.
-      # It cost us a published image: the ubuntu-2204 variant failed on main six
-      # minutes into a package install, with "uncaught target signal 11" and
-      # nothing naming the cause, while the other four variants went green.
-      #
-      # The registration is torn down and remade rather than only installed,
-      # because binfmt leaves an emulator that is already registered alone --
-      # so a runner image that ships its own older QEMU keeps it, and the
-      # `--install` above is a no-op that looks like a fix. Then the emulator is
-      # asked to do the exact thing that crashes, here, where it costs seconds
-      # rather than six minutes and says which step to look at.
-      - name: The emulator can run what it crashes on
-        if: needs.images.outputs.platforms != 'linux/amd64'
-        run: |
-          set -eu
-          docker run --privileged --rm tonistiigi/binfmt:latest --uninstall arm64 || true
-          docker run --privileged --rm tonistiigi/binfmt:latest --install arm64
-          docker run --rm --platform=linux/arm64 ubuntu:22.04 /sbin/ldconfig
 
       - name: Setup Blacksmith Builder
         uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2.2.0
@@ -459,7 +439,10 @@ jobs:
           context: .
           file: deploy/Dockerfile.runner
           target: runner
-          platforms: ${{ needs.images.outputs.platforms }}
+          # A pull request builds one architecture to stay fast; main and a
+          # dispatch build the set this variant is actually published for,
+          # which is not the same for every row -- see internal/naming.
+          platforms: ${{ needs.images.outputs.platforms == 'linux/amd64' && 'linux/amd64' || matrix.platforms }}
           push: ${{ needs.images.outputs.publish }}
           build-args: |
             BASE=${{ matrix.base }}
@@ -476,7 +459,7 @@ jobs:
           context: .
           file: deploy/Dockerfile.runner
           target: runner-docker
-          platforms: ${{ needs.images.outputs.platforms }}
+          platforms: ${{ needs.images.outputs.platforms == 'linux/amd64' && 'linux/amd64' || matrix.platforms }}
           push: ${{ needs.images.outputs.publish }}
           build-args: |
             BASE=${{ matrix.base }}

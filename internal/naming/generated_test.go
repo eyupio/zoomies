@@ -32,8 +32,13 @@ func TestWorkflowMatricesCoverTheCatalogue(t *testing.T) {
 			got := runnerMatrix(t, wf.file, wf.job)
 			want := map[string]matrixEntry{}
 			for _, img := range Images() {
+				plats := make([]string, 0, len(img.Arches))
+				for _, arch := range img.Arches {
+					plats = append(plats, "linux/"+arch)
+				}
 				want[img.Tag()] = matrixEntry{
 					Base: img.Base, Family: img.Family, OS: img.OS, Version: img.Version,
+					Platforms: strings.Join(plats, ","),
 				}
 			}
 			for tag, w := range want {
@@ -56,11 +61,17 @@ func TestWorkflowMatricesCoverTheCatalogue(t *testing.T) {
 }
 
 // matrixEntry is the part of a matrix row that has to agree with the catalogue.
+//
+// Platforms is in here because a variant's architectures are a claim the
+// registry has to be able to satisfy: a catalogue row saying arm64 that the
+// workflow does not build for arm64 gives a pool an image reference that
+// resolves to nothing.
 type matrixEntry struct {
-	Base    string `yaml:"base"`
-	Family  string `yaml:"family"`
-	OS      string `yaml:"os"`
-	Version string `yaml:"version"`
+	Base      string `yaml:"base"`
+	Family    string `yaml:"family"`
+	OS        string `yaml:"os"`
+	Version   string `yaml:"version"`
+	Platforms string `yaml:"platforms"`
 }
 
 func runnerMatrix(t *testing.T, file, job string) map[string]matrixEntry {

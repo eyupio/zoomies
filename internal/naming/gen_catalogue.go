@@ -124,24 +124,39 @@ func makefileBlock(images []naming.Image) string {
 // matrixBlock renders the `strategy.matrix` both workflows build from. The rows
 // are column-aligned because they are read as a table, not as YAML.
 func matrixBlock(images []naming.Image) string {
-	tagWidth, baseWidth, osWidth := 0, 0, 0
+	tagWidth, baseWidth, osWidth, versionWidth := 0, 0, 0, 0
 	for _, img := range images {
 		tagWidth = max(tagWidth, len(img.Tag()))
 		baseWidth = max(baseWidth, len(quote(img.Base))+1)
 		osWidth = max(osWidth, len(img.OS)+1)
+		versionWidth = max(versionWidth, len(quote(img.Version))+1)
 	}
 	var b strings.Builder
 	b.WriteString("        include:\n")
 	for _, img := range images {
-		fmt.Fprintf(&b, "          - { tag: %-*s base: %-*s family: %s, os: %-*s version: %s%s }\n",
+		fmt.Fprintf(&b, "          - { tag: %-*s base: %-*s family: %s, os: %-*s version: %-*s platforms: %s%s }\n",
 			tagWidth+1, img.Tag()+",",
 			baseWidth, quote(img.Base)+",",
 			img.Family,
 			osWidth, img.OS+",",
-			quote(img.Version),
+			versionWidth, quote(img.Version)+",",
+			quote(platforms(img)),
 			defaultField(img))
 	}
 	return strings.TrimSuffix(b.String(), "\n")
+}
+
+// platforms renders a variant's architectures as the `platforms:` value buildx
+// takes. It comes from the catalogue rather than the job, because the variants
+// are not all publishable for the same set -- and a workflow that asked for one
+// nothing can build would fail the whole matrix rather than the row that means
+// it.
+func platforms(img naming.Image) string {
+	out := make([]string, 0, len(img.Arches))
+	for _, arch := range img.Arches {
+		out = append(out, "linux/"+arch)
+	}
+	return strings.Join(out, ",")
 }
 
 // defaultField marks the one variant that carries the unqualified tags. Only
