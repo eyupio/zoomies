@@ -41,7 +41,7 @@ evidence.
 | ID | Package | Classification | Status | Depends on | Session | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
 | ZF-101 | Enforce GitHub target boundaries everywhere | new (jobs carry no installation identity; label-only matching on all four paths) | `in_progress` | ZF-002 | PR1 and PR2: Claude Opus 5, `ultracode`; one orchestration of 8 subsystem mappers and 8 adversarial verifiers for PR1, a smaller one of 3 and 3 for PR2, each followed by one session | PR1 merged as #99: a job carries the installation covering its repository, `scheduler.Eligible` asks enabled, then installation, then labels, and all four matching paths go through it. Migration `0012` (not `0010`: 0010 and 0011 shipped since the plan was written). PR2 merged as #100: poll freshness and the rate-limit hold are both per installation, freshness credited by the delivery's repository rather than by the secret that verified it. PR3 done: the runner-group fallback is a `pool.runner_group_unresolved` warning on the drawer and the pool's own page instead of a log line, and `docs/hosts-and-pools.md` says a pool belongs to one installation and that GitHub, not Zoomies, makes the final dispatch decision inside an organisation. Every behavioural test was run against the code with its rule removed and confirmed to fail first |
-| ZF-102 | Make runner and agent reconciliation convergent | mixed (mechanics exist; adoption on restart, a controller lock and the log-relay host check do not) | `in_progress` | ZF-002; N02 needs `main` deployed | PR1: Claude Fable 5.1, `xhigh`, one session; two mapping-and-verification orchestrations over the four packages | PR1 of 4 done: the "Reconciliation invariants" section in `docs/architecture.md` lists every rule with its constant and owner, and `internal/controller/invariants_test.go` pins the silence ladder and the lease-outlasts-work relationship. PR2 (log-relay host binding, state-directory lock and controller lease), PR3 (adoption on agent start) and PR4 (late reports and the restart table) remain |
+| ZF-102 | Make runner and agent reconciliation convergent | mixed (mechanics exist; adoption on restart and a controller lock do not; the log-relay host check landed with the security review) | `in_progress` | ZF-002; N02 needs `main` deployed | PR1: Claude Fable 5.1, `xhigh`, one session. PR2: Claude Opus 5, `ultracode`; one orchestration of 3 subsystem mappers and 3 adversarial verifiers, then one session | PR1 and PR2 of 4 done. PR1: the "Reconciliation invariants" section in `docs/architecture.md` with `internal/controller/invariants_test.go`. PR2: a database lock and a controller lease, with `--takeover` and `controller.lease_lost`. **Half of PR2 was already done**: the log relay has checked the authenticated host since PR #90's security review, with a test (`TestLogRelayRefusesAnotherHostsStream`), so only the lock and lease were outstanding. PR3 (adoption on agent start) and PR4 (late reports and the restart table) remain |
 | ZF-103 | Reserve host resources and enforce bounded admission | extension (slot model complete; no host resource reporting) | `not_started` | ZF-102 | | Size L; 103a before Gate F, 103b after |
 | ZF-104 | Verify control-plane access and secret boundaries | mixed (matrix and most tests exist; log relay unscoped to host; streams never re-check credentials) | `not_started` | ZF-101, ZF-102 | | Size M |
 | ZF-105 | Bound cleanup, retention and external failure handling | mixed (local cleanup exists; failure invisible; one listing-failure defect) | `in_progress` | ZF-102, except the first pull request | first slice: Claude Fable 5.1, `high`, one session, 1 review round | Size M; the listing-failure defect is fixed in its own pull request with a test that reproduces it on the old code |
@@ -74,6 +74,30 @@ evidence.
 ## Log
 
 Newest first. One line per event that changed a row.
+
+* 2026-09-07: ZF-102's second pull request, one controller per database. Its
+  first half was already merged: the plan says "the log relay takes the
+  authenticated host id", and `AcceptLogStream` has compared the reporting
+  host against the stream's owner since PR #90 closed the auth and web-UI
+  security review, with a test that an intruding host is refused and told
+  nothing it did not already know. The plan predates that merge. What was
+  outstanding is the lock and the lease, and they are two different guards on
+  purpose: an advisory lock on a file beside the database catches a second
+  process on this host and is dropped by the kernel however the process dies,
+  while the lease row catches the restored copy on a shared filesystem or the
+  controller on another machine, which no lock here can see. A lost lease is
+  reported and never cleared, because there is no state this process reaches
+  on its own that makes two schedulers safe again.
+
+  The lease nearly shipped with a defect worth recording, because the next
+  slice touches the same restart path: the service unit is `Restart=always`,
+  so a controller that is killed returns within seconds under a new holder id,
+  finds its predecessor's lease renewed moments ago, and refuses to start --
+  a restart loop for the whole lease window after every crash. A lease naming
+  this same host is therefore reclaimed at once. That is sound only because
+  the caller already holds the file lock, which proves nothing else on this
+  host has the database; the cross-host case, the one the lease exists for,
+  is untouched.
 
 * 2026-09-07: ZF-101's third pull request, and the package's last. The runner
   group falling back to GitHub's Default was a log line; it is now a standing

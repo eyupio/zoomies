@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -159,4 +160,41 @@ func TestAPoolWithNoRunnerGroupIsNotWarnedAbout(t *testing.T) {
 		})
 	}
 	_ = h
+}
+
+// Losing the lease means another controller is running against the same
+// database and both are scheduling. It is the one condition this process
+// cannot recover from on its own, so it says so and keeps saying so.
+func TestLosingTheLeaseIsReportedAsAnErrorThatNamesTheNewHolder(t *testing.T) {
+	h := newHarness(t)
+	if got := h.problemCodes(); contains(got, "controller.lease_lost") {
+		t.Fatalf("a controller that holds its lease reported losing it: %v", got)
+	}
+
+	h.c.leaseLost.Store(&store.ControllerLease{
+		Holder: "ctl_rival", Host: "vm-b", PID: 991,
+	})
+
+	ps, err := h.c.Problems(h.ctx)
+	if err != nil {
+		t.Fatalf("Problems: %v", err)
+	}
+	var found *Problem
+	for i, p := range ps {
+		if p.Code == "controller.lease_lost" {
+			found = &ps[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("problems = %v, want the lost-lease error", h.problemCodes())
+	}
+	if found.Severity != config.SeverityError {
+		t.Errorf("severity = %q, want an error: two controllers are scheduling", found.Severity)
+	}
+	if !strings.Contains(found.Detail, "vm-b") || !strings.Contains(found.Detail, "991") {
+		t.Errorf("detail = %q, want it to name the machine and process now holding it", found.Detail)
+	}
+	if !strings.Contains(found.Fix, "--takeover") {
+		t.Errorf("fix = %q, want it to name the flag that resolves this", found.Fix)
+	}
 }

@@ -22,6 +22,7 @@ const (
 	PrefixScaling      = "scl"
 	PrefixDelivery     = "whd"
 	PrefixJobEvent     = "jev"
+	PrefixController   = "ctl"
 )
 
 var idEncoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)

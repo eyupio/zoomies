@@ -102,6 +102,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	}
 	out = append(out, c.PoolCapacityProblems()...)
 	out = append(out, c.PoolRunnerGroupProblems()...)
+	out = append(out, c.leaseProblems()...)
 	out = append(out, c.loopProblems()...)
 	out = append(out, c.updateProblems()...)
 	if err := c.runnerProblems(ctx, &out); err != nil {
@@ -325,6 +326,30 @@ func (c *Controller) webhookURLOrPath() string {
 // host selector. Nothing else in the product says so -- a scaling event is only
 // written when the size actually moved -- so a fleet in this state answers
 // "why is nothing running?" with silence unless it is reported here.
+// leaseProblems reports that this controller no longer holds the database's
+// lease, which means another one has taken it and both are now scheduling.
+//
+// An error rather than a warning, and one that never clears by itself: there
+// is no state this process can reach on its own that makes it safe again. Two
+// controllers over one database mint runner credentials against each other,
+// reclaim each other's hosts and reap each other's workloads, and every
+// symptom of it looks like a bug somewhere else -- which is the reason to name
+// it here rather than leave an operator to work it out.
+func (c *Controller) leaseProblems() []Problem {
+	held := c.leaseLost.Load()
+	if held == nil {
+		return nil
+	}
+	return []Problem{{
+		Code:     "controller.lease_lost",
+		Severity: config.SeverityError,
+		Title:    "another controller has taken this database",
+		Detail: fmt.Sprintf("this controller's lease is now held by %s, so two controllers are running against the same database. Both are scheduling: they will mint runners against each other, reclaim each other's hosts and remove each other's workloads.",
+			held.Describe()),
+		Fix: "stop one of them. If this one is the survivor, restart it with --takeover once the other is gone; a controller that has lost its lease does not take it back by itself, because two processes fighting over it is the same failure twice.",
+	}}
+}
+
 // PoolRunnerGroupProblems reports the pools whose runners went into GitHub's
 // default runner group because the group they asked for could not be resolved.
 //
