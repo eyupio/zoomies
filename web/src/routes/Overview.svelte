@@ -35,7 +35,9 @@
 <script lang="ts">
   import ErrorState from '$lib/components/ErrorState.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
+  import Switch from '$lib/components/Switch.svelte';
   import { fleet } from '$lib/state/fleet.svelte';
+  import { prefs } from '$lib/state/prefs.svelte';
   import ActiveJobs from '$lib/overview/ActiveJobs.svelte';
   import FirstRun from '$lib/overview/FirstRun.svelte';
   import FleetMetrics from '$lib/overview/FleetMetrics.svelte';
@@ -49,6 +51,15 @@
   let setupPending = $state(false);
 
   const loading = $derived(!fleet.loaded);
+
+  /**
+   * Whether the page is counting jobs this fleet had no hand in.
+   *
+   * One preference for the whole page: the tiles, the active list and the
+   * outcomes all read it, so a queue depth at the top and the jobs listed
+   * under it are never answering different questions.
+   */
+  const others = $derived(prefs.otherRunners);
   // A failed reconcile once there is something on screen is not an error state:
   // the stream may well recover, and the last known truth is better than a
   // blank page. Only a first load that never landed gets one.
@@ -57,8 +68,12 @@
 
 <PageHeader
   title="Overview"
-  subtitle="What the fleet is doing right now. Trends and waits cover the last hour."
-/>
+  subtitle={(others
+    ? 'What is happening across every runner GitHub reports on, this fleet\u2019s and everybody else\u2019s.'
+    : 'What this fleet is doing right now.') + ' Trends and waits cover the last hour.'}
+>
+  <Switch label="Other runners" checked={others} onchange={(on) => (prefs.otherRunners = on)} />
+</PageHeader>
 
 {#if failed}
   <ErrorState

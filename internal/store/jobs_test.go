@@ -371,7 +371,7 @@ func TestEveryPlaceThatCountsFailedJobsAgrees(t *testing.T) {
 		}
 	}
 
-	stats, err := s.StatsSince(ctx, now.Add(-time.Hour))
+	stats, err := s.StatsSince(ctx, now.Add(-time.Hour), false)
 	if err != nil {
 		t.Fatalf("StatsSince: %v", err)
 	}
@@ -423,6 +423,90 @@ func TestTheFailedStepIsWhereAJobStoppedWhateverItsConclusion(t *testing.T) {
 	}
 }
 
+// TestStatsCanBeNarrowedToTheFleetsOwnJobs is the Overview's side of the
+// distinction the Jobs page already makes.
+//
+// GitHub tells Zoomies about every job in an installed repository, and on an
+// organisation that also uses hosted runners most of them are somebody else's.
+// A queue depth that counts those answers "why is my fleet slow?" with a number
+// nobody here can act on, and a median wait computed from them is a measurement
+// of somebody else's queue.
+func TestStatsCanBeNarrowedToTheFleetsOwnJobs(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	started, done := now.Add(time.Second), now.Add(time.Minute)
+	slow := now.Add(time.Hour)
+
+	// Somebody else's: GitHub reported it, no pool claimed it, and no runner
+	// here touched it. Its wait is an hour, which would drag the percentiles
+	// somewhere no operator could act on.
+	if _, err := s.UpsertJob(ctx, &Job{GitHubJobID: 900, JobName: "hosted-running",
+		State: JobInProgress, QueuedAt: now, StartedAt: &slow}); err != nil {
+		t.Fatalf("seeding a hosted running job: %v", err)
+	}
+	// Three of them, so that they outnumber ours and the unscoped median lands
+	// on an hour: with an equal split the two medians coincide by accident and
+	// the assertion below would pass without the scoping doing anything.
+	for id, name := range map[int64]string{901: "hosted-done", 902: "hosted-done-again"} {
+		if _, err := s.UpsertJob(ctx, &Job{GitHubJobID: id, JobName: name,
+			State: JobCompleted, Conclusion: "success", QueuedAt: now, StartedAt: &slow, CompletedAt: &done}); err != nil {
+			t.Fatalf("seeding %s: %v", name, err)
+		}
+	}
+
+	// This fleet's, three ways of being ours.
+	ours := []*Job{
+		{GitHubJobID: 910, JobName: "claimed", State: JobInProgress, Matched: true,
+			QueuedAt: now, StartedAt: &started},
+		{GitHubJobID: 911, JobName: "ran-here", State: JobCompleted, Conclusion: "success",
+			RunnerID: "run_ours", QueuedAt: now, StartedAt: &started, CompletedAt: &done},
+		// Queued and unclaimed. It stays in: nothing ran it, so it is this
+		// fleet's problem to see rather than somebody else's job.
+		{GitHubJobID: 912, JobName: "unclaimed", State: JobQueued, QueuedAt: now},
+	}
+	for _, j := range ours {
+		if _, err := s.UpsertJob(ctx, j); err != nil {
+			t.Fatalf("seeding %s: %v", j.JobName, err)
+		}
+	}
+
+	all, err := s.StatsSince(ctx, now.Add(-time.Hour), false)
+	if err != nil {
+		t.Fatalf("StatsSince(all): %v", err)
+	}
+	fleet, err := s.StatsSince(ctx, now.Add(-time.Hour), true)
+	if err != nil {
+		t.Fatalf("StatsSince(fleet): %v", err)
+	}
+
+	if all.Running != 2 || all.Queued != 1 || all.CompletedLast != 3 {
+		t.Errorf("unscoped: running=%d queued=%d completed=%d, want 2/1/3",
+			all.Running, all.Queued, all.CompletedLast)
+	}
+	if fleet.Running != 1 {
+		t.Errorf("fleet running = %d, want 1: the hosted job is somebody else's", fleet.Running)
+	}
+	if fleet.CompletedLast != 1 {
+		t.Errorf("fleet completed = %d, want 1: the hosted job is somebody else's", fleet.CompletedLast)
+	}
+	if fleet.Queued != 1 {
+		t.Errorf("fleet queued = %d, want 1: an unclaimed queued job is this fleet's to show", fleet.Queued)
+	}
+
+	// The percentiles are narrowed too, which is the half a count-only filter
+	// would miss: an hour-long hosted wait beside a one-second one here makes
+	// the fleet's own median an hour.
+	if fleet.MedianWaitMS != time.Second.Milliseconds() {
+		t.Errorf("fleet median wait = %dms, want %dms -- somebody else's queue is in the percentile",
+			fleet.MedianWaitMS, time.Second.Milliseconds())
+	}
+	if all.MedianWaitMS <= fleet.MedianWaitMS {
+		t.Errorf("unscoped median wait = %dms, fleet = %dms; the fixture is not distinguishing them",
+			all.MedianWaitMS, fleet.MedianWaitMS)
+	}
+}
+
 // A success rate computed from completed and failed alone counts a job GitHub
 // stopped reporting as a success. The Overview's stats split the completed
 // count four ways instead, and the four have to add up.
@@ -453,7 +537,7 @@ func TestStatsSplitCompletedJobsFourWays(t *testing.T) {
 		}
 	}
 
-	stats, err := s.StatsSince(ctx, now.Add(-time.Hour))
+	stats, err := s.StatsSince(ctx, now.Add(-time.Hour), false)
 	if err != nil {
 		t.Fatalf("StatsSince: %v", err)
 	}

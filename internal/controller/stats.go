@@ -36,9 +36,34 @@ type Stats struct {
 	P50RegistrationMS int64  `json:"p50_registration_ms"`
 	P95RegistrationMS int64  `json:"p95_registration_ms"`
 
+	// Fleet is every job figure above, narrowed to the jobs this fleet has a
+	// hand in. Both are carried in one payload rather than chosen by a query
+	// parameter because the same numbers arrive over the event stream, which
+	// is one frame for every viewer: a per-request scope would be correct
+	// until the next frame overwrote it, a second or two later.
+	Fleet ScopedJobStats `json:"fleet"`
+
 	Runners RunnerStats `json:"runners"`
 	Hosts   HostStats   `json:"hosts"`
 	Pools   []PoolStats `json:"pools"`
+}
+
+// ScopedJobStats is the job half of Stats over one scope.
+//
+// GitHub reports every job in an installed repository, and on an organisation
+// that also uses hosted runners most of them are somebody else's. A queue depth
+// that counts those answers "why is my fleet slow?" with a number nobody here
+// can act on, and a median wait computed from them is somebody else's queue.
+type ScopedJobStats struct {
+	QueuedJobs   int   `json:"queued_jobs"`
+	RunningJobs  int   `json:"running_jobs"`
+	Completed    int   `json:"completed"`
+	Succeeded    int   `json:"succeeded"`
+	Failed       int   `json:"failed"`
+	Cancelled    int   `json:"cancelled"`
+	Unknown      int   `json:"unknown"`
+	MedianWaitMS int64 `json:"median_wait_ms"`
+	P95WaitMS    int64 `json:"p95_wait_ms"`
 }
 
 // RunnerStats counts the fleet by runner state.
@@ -82,11 +107,26 @@ func (c *Controller) Stats(ctx context.Context, window time.Duration) (*Stats, e
 	}
 	since := c.Now().Add(-window)
 
-	js, err := c.st.StatsSince(ctx, since)
+	js, err := c.st.StatsSince(ctx, since, false)
 	if err != nil {
 		return nil, fmt.Errorf("computing job statistics: %w", err)
 	}
+	fleet, err := c.st.StatsSince(ctx, since, true)
+	if err != nil {
+		return nil, fmt.Errorf("computing this fleet's job statistics: %w", err)
+	}
 	out := &Stats{
+		Fleet: ScopedJobStats{
+			QueuedJobs:   fleet.Queued,
+			RunningJobs:  fleet.Running,
+			Completed:    fleet.CompletedLast,
+			Succeeded:    fleet.Succeeded,
+			Failed:       fleet.Failed,
+			Cancelled:    fleet.Cancelled,
+			Unknown:      fleet.Unknown,
+			MedianWaitMS: fleet.MedianWaitMS,
+			P95WaitMS:    fleet.P95WaitMS,
+		},
 		Window:       window.String(),
 		QueuedJobs:   js.Queued,
 		RunningJobs:  js.Running,

@@ -38,6 +38,57 @@ test('the four metric tiles carry the numbers the fleet is judged on', async ({ 
   await expect(wait).toContainText(/p95/);
 });
 
+/**
+ * The tiles are the first numbers anybody reads, and until now they counted
+ * every job GitHub reported.
+ *
+ * On an organisation that also uses hosted runners -- which the fixture is --
+ * that made "Queued jobs" and "Running jobs" partly somebody else's, so the
+ * headline answer to "why is my fleet slow?" was a number nobody here could
+ * act on. The tiles now default to this fleet's own work, like the panels
+ * below them, and the same switch widens all of it.
+ */
+test("the metric tiles are this fleet's work, and the switch widens them", async ({ page }) => {
+  const running = page.getByRole('link', { name: /^Running jobs/ });
+  // The page header's own switch, not one of the panels': it governs the whole
+  // page, and the tiles are the part of it nothing else controls.
+  const header = page.locator('header').filter({ has: page.getByRole('heading', { level: 1 }) });
+  const toggle = header.getByRole('switch', { name: 'Other runners' });
+
+  await expect(toggle, 'the Overview carries the toggle its panels have').toBeVisible();
+  await expect(toggle).not.toBeChecked();
+
+  const ours = Number((await running.getByText(COUNT).innerText()).replace(/,/g, ''));
+
+  // The fixture has one job running on a hosted-runner vendor. With the switch
+  // off it is not in the tile; with it on it is.
+  await toggle.click();
+  await expect(toggle).toBeChecked();
+  await expect
+    .poll(async () => Number((await running.getByText(COUNT).innerText()).replace(/,/g, '')), {
+      message: "the tile did not widen to include somebody else's running job",
+    })
+    .toBeGreaterThan(ours);
+
+  // The tile links to the same jobs it just counted, or the number and the
+  // list it leads to disagree.
+  await expect(running).toHaveAttribute('href', /all=true/);
+
+  // One preference, so the panels below moved with it.
+  await expect(
+    page
+      .getByRole('region', { name: 'Active jobs', exact: true })
+      .getByRole('switch', { name: 'Other runners' }),
+  ).toBeChecked();
+
+  await toggle.click();
+  await expect(toggle).not.toBeChecked();
+  await expect(running).toHaveAttribute('href', /^\/jobs\?state=in_progress$/);
+  await expect
+    .poll(async () => Number((await running.getByText(COUNT).innerText()).replace(/,/g, '')))
+    .toBe(ours);
+});
+
 test('each trend tile carries a described sparkline', async ({ page }) => {
   // The wait tile is deliberately excluded: its series is built from live
   // `stats` frames rather than from GET /samples, so on a freshly started

@@ -158,11 +158,19 @@ func (c *Controller) sample(ctx context.Context) error {
 		s.BusyRunners += pc.Busy
 		s.TotalRunners += pc.Live()
 	}
-	stats, err := c.st.StatsSince(ctx, c.Now().Add(-time.Hour))
+	stats, err := c.st.StatsSince(ctx, c.Now().Add(-time.Hour), false)
 	if err != nil {
 		return err
 	}
 	s.QueuedJobs, s.RunningJobs = stats.Queued, stats.Running
+	// The fleet's own figures are recorded alongside, so the Overview's
+	// sparkline can follow its "other runners" toggle rather than making the
+	// line disagree with the tile above it.
+	fleet, err := c.st.StatsSince(ctx, c.Now().Add(-time.Hour), true)
+	if err != nil {
+		return err
+	}
+	s.FleetQueuedJobs, s.FleetRunningJobs = fleet.Queued, fleet.Running
 	return c.st.RecordSample(ctx, s)
 }
 

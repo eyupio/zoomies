@@ -2084,6 +2084,26 @@ components:
         p95_startup_ms: { type: integer, format: int64 }
         p50_registration_ms: { type: integer, format: int64, description: Median container-start-to-registration latency. }
         p95_registration_ms: { type: integer, format: int64 }
+        fleet:
+          type: object
+          description: >
+            The same job figures narrowed to the jobs this fleet has a hand in:
+            one an enabled pool claimed, one that ran on a runner started here,
+            or one still queued that no pool claims. GitHub reports every job in
+            an installed repository, so on an organisation that also uses hosted
+            runners the figures above are mostly somebody else's. Both are
+            carried in one payload because the same numbers arrive over the
+            event stream, which is one frame for every viewer.
+          properties:
+            queued_jobs: { type: integer }
+            running_jobs: { type: integer }
+            completed: { type: integer }
+            succeeded: { type: integer }
+            failed: { type: integer }
+            cancelled: { type: integer }
+            unknown: { type: integer }
+            median_wait_ms: { type: integer, format: int64 }
+            p95_wait_ms: { type: integer, format: int64 }
         runners:
           type: object
           properties:
@@ -2123,6 +2143,8 @@ components:
         at: { type: string, format: date-time }
         queued_jobs: { type: integer }
         running_jobs: { type: integer }
+        fleet_queued_jobs: { type: integer, description: The same minute narrowed to the jobs this fleet has a hand in. Zero on samples taken before this was recorded. }
+        fleet_running_jobs: { type: integer, description: As above, for jobs in progress. }
         idle_runners: { type: integer }
         busy_runners: { type: integer }
         total_runners: { type: integer }
