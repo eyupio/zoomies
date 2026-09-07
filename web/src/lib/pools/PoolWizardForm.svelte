@@ -321,7 +321,7 @@
   } from '$lib/api/client';
   import type { Body, PoolPlatform, Result } from '$lib/api/types';
   import { BRAND_LABEL, brandedLabel, brandedName } from '$lib/brand';
-  import { poolName, spinWord } from './names';
+  import { nicknamedPoolName, poolName, spinWord } from './names';
   import { fleet } from '$lib/state/fleet.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
   import Wizard from '$lib/components/Wizard.svelte';
@@ -514,12 +514,27 @@
 
   /* -- the name, and the label it implies ---------------------------------- */
 
-  // The infrastructure half of the name follows the backend and the fleet, so
-  // a name generated before any host had connected does not go on claiming the
-  // pool is x64 after an arm64 host joins.
+  /** The names already in use, so a new pool is not offered one of them. */
+  const poolNames = $derived(fleet.pools.map((p) => p.name ?? ''));
+
+  /**
+   * Whether the operator has asked for a spaniel in the name.
+   *
+   * Without this the dice would be undone by the next thing they typed: the
+   * suggested name is recomputed as the draft changes, and a shape that needs
+   * no word would quietly drop the one they just rolled.
+   */
+  let nicknamed = $state(false);
+
+  // The name follows the shape as the operator fills it in: a name generated
+  // before any host had connected must not go on claiming the pool is 2 vCPU
+  // Ubuntu after they have said 8 vCPU Debian, and the pools already in the
+  // fleet decide whether this one needs a spaniel to be told from them.
   $effect(() => {
     if (editing) return;
-    const suggested = poolName(kennelWord, draft.backend, fleet.hosts);
+    const suggested = nicknamed
+      ? nicknamedPoolName(kennelWord, draft, fleet.hosts)
+      : poolName(kennelWord, draft, fleet.hosts, poolNames);
     untrack(() => {
       if (draft.name !== '' && draft.name !== autoName) return;
       draft.name = suggested;
@@ -547,11 +562,19 @@
     });
   });
 
-  /** Roll a new name from the kennel, whatever is in the field now. */
+  /**
+   * Roll a name from the kennel, whatever is in the field now.
+   *
+   * The suggested name carries a spaniel only when the shape cannot tell this
+   * pool from another, so the dice ask for one outright: pressing it on a pool
+   * whose shape is already unique has to change something, or it reads as a
+   * broken button.
+   */
   function spin(): void {
     if (editing) return;
+    nicknamed = true;
     kennelWord = spinWord(kennelWord);
-    const next = poolName(kennelWord, draft.backend, fleet.hosts);
+    const next = nicknamedPoolName(kennelWord, draft, fleet.hosts);
     draft.name = next;
     autoName = next;
     touch('name');

@@ -228,10 +228,21 @@ every pool answers to, and the kernel and architecture labels actions/runner
 advertises anyway. Declaring the last two is what makes the scheduler refuse an
 x64 job on an arm64 pool.
 
-The **Pools** page's own wizard names a new pool from the kennel instead --
-`zoomies-biscuit-docker-linux`, with a dice to roll another -- and offers the
-operating system as a separate field. Either name is legal; the platform is
-what picks the image and restricts placement, not the name.
+The **Pools** page's wizard fills in the same name, following the answers as
+they are given: choose Debian 12 and it says `zoomies-debian-12`, ask for four
+CPUs and it says `zoomies-4vcpu-debian-12`. It used to lead with a kennel word
+instead, which left an operator who met both the wizard and `zoomies init` with
+two conventions for one thing.
+
+The spaniel is still there, for the two cases the shape cannot cover on its own:
+a pool created before anything about it is known — the first one, before a host
+has connected — is `zoomies-biscuit`, and a second pool of a shape the fleet
+already has becomes `zoomies-4vcpu-ubuntu-2404-truffle` rather than colliding.
+The dice ask for one outright, for an operator who wants a handle whether or not
+the name needs one.
+
+Any name is still legal, and the platform rather than the name is what picks the
+image and restricts placement.
 
 **Hosts.** An agent that joins without `--name` is named for what it is:
 `zoomies-16vcpu-32gb-ubuntu-2404-build01`. The size is what the agent may
