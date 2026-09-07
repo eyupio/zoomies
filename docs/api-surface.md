@@ -104,14 +104,17 @@ A pool's `cache` is disposable build acceleration mounted at
 `/opt/zoomies-cache`, not workflow storage, and two of its fields have rules
 worth stating plainly.
 
-`cache.size_limit` is enforced, not advisory: in the gap between one runner and
-the next, whole cache entries are deleted least-recently-modified-first until
-the cache is back under the limit. That gap is the only moment the cache is
-certainly idle, so it is the only safe moment to evict. It bounds how far a
-cache drifts over its limit across jobs; it is not a filesystem quota, and one
-job can still fill a disk before the next runner starts. Only a directory can
-be measured, so a non-zero limit requires `cache.source` to be an absolute host
-path — a limit on a named volume is refused rather than accepted and ignored.
+`cache.size_limit` is enforced, not advisory: as a runner starts, whole cache
+entries are deleted least-recently-modified-first until the cache is back under
+the limit — but only when no other runner is using that cache. A pool that runs
+several runners at once shares one cache between them, so evicting whenever a
+runner starts would delete files out from under a job already running, and a
+start that finds the cache busy leaves it alone until one finds it idle. It
+bounds how far a cache drifts over its limit across jobs; it is not a filesystem
+quota, and one job can still fill a disk before the next runner starts. Only a
+directory can be measured, so a non-zero limit requires `cache.source` to be an
+absolute host path — a limit on a named volume is refused rather than accepted
+and ignored.
 
 `cache.scope: repository` gives each repository its own cache. A
 repository-targeted installation says which repository that is; an

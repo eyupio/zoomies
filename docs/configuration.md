@@ -719,13 +719,15 @@ absolute path puts the cache on a disk you chose; anything else is treated as a
 volume-name prefix. Zoomies appends the scope's own identity to whichever you
 give, so two pools never collide, and refuses a source containing `..`.
 
-`size_limit` is enforced, not advisory. In the gap between one runner finishing
-and the next starting — the only moment the cache is certainly idle, and so the
-only safe moment to delete from it — whole cache entries are removed, least
-recently modified first, until the cache is back under the limit. That bounds
-how far it drifts over the limit from one job to the next. It is not a
-filesystem quota: a single job can still fill the disk before the next runner
-starts, and if that matters, give the cache its own filesystem.
+`size_limit` is enforced, not advisory. As a runner starts, whole cache entries
+are removed, least recently modified first, until the cache is back under the
+limit. Deleting from a cache is only safe while nothing is reading it, so a
+runner that starts to find another runner still using the same cache leaves it
+alone and the next start tries again — on a pool with `max_runners` above one,
+that is most starts, and the eviction happens at the one that finds it idle.
+This bounds how far the cache drifts over the limit from one job to the next.
+It is not a filesystem quota: a single job can still fill the disk before the
+next runner starts, and if that matters, give the cache its own filesystem.
 
 Only a directory can be measured, so a non-zero `size_limit` requires `source`
 to be an absolute host path. On a named volume the bytes are the daemon's, on a

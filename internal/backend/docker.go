@@ -565,11 +565,7 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (Create
 	}
 	opts.WorkDirMount, opts.WorkDirOwned = workDir, owned
 
-	// The cache is idle exactly now, between the runner that last used it and
-	// the one about to, so this is the only safe moment to evict from it.
-	if dir, ok := cacheDirectory(spec); ok {
-		pruneCache(dir, spec.Cache.SizeLimit, b.log)
-	}
+	b.pruneCacheFor(ctx, spec)
 
 	var dindID string
 	switch spec.DockerMode {
@@ -918,6 +914,66 @@ func (b *DockerBackend) Remove(ctx context.Context, h Handle) error {
 		}
 	}
 	return nil
+}
+
+// pruneCacheFor brings this spec's cache back under its limit, when it is safe.
+//
+// Eviction happens as a runner is created because that was believed to be the
+// moment the cache is idle. It is, for a pool that runs one runner at a time.
+// For any other pool it is not: the cache belongs to every runner of its scope
+// at once, so evicting as the second runner starts deletes files out from under
+// the job the first is running -- the exact failure this timing was chosen to
+// design out.
+//
+// A listing that fails counts as in use. The limit is a ceiling on how far a
+// host may drift, not a quota, so carrying one runner's worth of excess costs
+// some disk; deleting a running job's cache costs the job.
+func (b *DockerBackend) pruneCacheFor(ctx context.Context, spec Spec) {
+	// No limit is nothing to enforce, and no reason to ask the daemon.
+	if spec.Cache.SizeLimit <= 0 {
+		return
+	}
+	dir, ok := cacheDirectory(spec)
+	if !ok {
+		return
+	}
+	switch inUse, err := b.cacheInUse(ctx, dir); {
+	case err != nil:
+		b.log.Warn("could not tell whether another runner is using this cache, so its size limit was left unenforced this time",
+			"dir", dir, "error", err)
+	case inUse:
+		b.log.Info("another runner is still using this cache, so its size limit was left unenforced this time",
+			"dir", dir, "limit_bytes", spec.Cache.SizeLimit)
+	default:
+		pruneCache(dir, spec.Cache.SizeLimit, b.log)
+	}
+}
+
+// cacheInUse reports whether a container that has not finished is running
+// against this cache directory.
+//
+// The question is asked of the cache itself rather than of the pool, because
+// the cache is what is being deleted: two runners of one pool under a
+// repository-scoped cache hold different directories and do not block each
+// other, and anything that does share the directory does, whatever pool it
+// belongs to. The runner container records its cache in a label, so the daemon
+// can answer it directly.
+func (b *DockerBackend) cacheInUse(ctx context.Context, dir string) (bool, error) {
+	summaries, err := b.api.ContainerList(ctx, map[string][]string{
+		"label": {LabelManaged + "=true", LabelCacheVolume + "=" + dir},
+	})
+	if err != nil {
+		return false, fmt.Errorf("backend: listing the containers using cache %s: %w", dir, err)
+	}
+	for _, s := range summaries {
+		switch phaseFromState(s.State) {
+		case PhaseExited, PhaseFailed, PhaseGone:
+			// Finished, so it is not reading the cache any more.
+		default:
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // List returns every runner container this backend owns, plus any sidecar
