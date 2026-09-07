@@ -189,3 +189,50 @@ test('a page whose code never arrives says so rather than reloading forever', as
   // The shell survives, so the rest of the fleet is still one click away.
   await expect(nav(page)).toBeVisible();
 });
+
+test('an upgrade under an open tab reloads even just after another failure', async ({ page }) => {
+  await goto(page, '/', 'Overview');
+
+  // The cooldown exists so a chunk that is *broken* cannot loop the tab. It was
+  // also stopping the one case a reload certainly fixes: the controller was
+  // upgraded, so every chunk name this tab holds is gone from the new build.
+  // A tab that had any failure in the previous thirty seconds -- a dropped
+  // request on a train, say -- then sat on "That page could not be loaded" for
+  // a page a single reload would have fixed, and went on running code the
+  // fleet had moved past everywhere else.
+  //
+  // The controller says which build it is, so an upgrade is something the tab
+  // can recognise rather than guess at.
+  await page.evaluate(() => {
+    sessionStorage.setItem('zoomies.chunk-reload', String(Date.now()));
+    sessionStorage.setItem('zoomies.chunk-reload-version', 'the-build-this-tab-started-on');
+  });
+  await page.route('**/healthz', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, version: 'a-newer-build' }),
+    }),
+  );
+
+  // The chunk is gone, the way an upgrade leaves it, until the tab reloads.
+  let served = false;
+  await page.route(/\/assets\/Hosts\.[^/]*\.js$/, async (route) => {
+    if (!served) {
+      served = true;
+      await route.fulfill({ status: 404, body: 'not found' });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await openSection(page, '/hosts');
+
+  await expect(pageHeading(page, 'Hosts')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText('That page could not be loaded')).toHaveCount(0);
+  // And the reload is spent against that version, so the same upgrade cannot
+  // reload the tab twice.
+  expect(await page.evaluate(() => sessionStorage.getItem('zoomies.chunk-reload-version'))).toBe(
+    'a-newer-build',
+  );
+});
