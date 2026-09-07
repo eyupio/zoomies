@@ -75,6 +75,22 @@ evidence.
 
 Newest first. One line per event that changed a row.
 
+* 2026-09-07: the Gate F readiness note, which is what section 10 says ends
+  Assignment A. Phase 1 is complete -- ZF-101 through ZF-105 are all done -- and
+  the note says which of Gate F's eight targets can be measured at all today.
+  **One is a code gap inside Assignment A's own scope**: the scheduling-latency
+  target has no start. The measurement contract says `Job.EligibleAt` lands with
+  ZF-101; ZF-101 delivered `scheduler.Eligible` as a function and nothing stamps
+  the moment, so the only figure available is the
+  `zoomies_runner_queued_to_create_seconds` proxy, which measures from
+  `Job.QueuedAt` and therefore charges the platform for a job that was
+  ineligible, held for approval or waiting on a scale-up delay. The end of that
+  interval (`Runner.TaskIssuedAt`) and both ends of cleanup convergence
+  (`Runner.CleanedUpAt`) do exist. The note also records that the largest
+  untested surface is the Docker backend at runtime -- nothing in this
+  repository has ever started a container -- and that the drill record is
+  written to a file no run ever commits, so the history its own comment exists
+  for does not accumulate.
 * 2026-09-07: ZF-105 done. Five of its six pull requests had already landed in
   earlier sessions -- the cleanup record, sidecars, the cache guard, the drain
   timeout and the rate-limit hold are all in the code, which the package's own

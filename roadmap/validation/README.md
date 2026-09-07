@@ -25,6 +25,7 @@ Files:
 | File | What it records |
 | --- | --- |
 | [baseline-6d12a72.md](baseline-6d12a72.md) | The reconciled baseline for the follow-on roadmap: what was run against `main` at `6d12a72` on 6 September 2026 and what was not. |
+| [gate-f-readiness-2cc7d9c.md](gate-f-readiness-2cc7d9c.md) | What Gate F still needs at the end of Assignment A: which of its targets can be measured at all, what has never run, and what is the owner's to supply. |
 
 Gate F, when it is attempted, gets a file of its own here, with the counts the
 roadmap asks for and the exclusions listed beside them.
