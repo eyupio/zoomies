@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -505,5 +506,109 @@ func TestAPoolOnTheDefaultImageGetsTheDockerVariantWhenItAsksForADaemon(t *testi
 	}
 	if task := h.taskOfKind(host.ID, agent.TaskCreateRunner); task.Spec == nil || task.Spec.Image != want {
 		t.Fatalf("create task image = %+v, want %q", task.Spec, want)
+	}
+}
+
+// countRequests is how many of the fake's logged requests contain fragment.
+func countRequests(h *harness, fragment string) int {
+	n := 0
+	for _, r := range h.gh.Requests() {
+		if strings.Contains(r, fragment) {
+			n++
+		}
+	}
+	return n
+}
+
+// seedOrphans gives GitHub n registrations the reap is entitled to delete: a
+// Zoomies-minted name, and a row of ours that is already terminal.
+func seedOrphans(h *harness, pool *store.Pool, host *store.Host, n int) {
+	h.t.Helper()
+	for range n {
+		r := h.runnerRow(pool, host, store.RunnerProvisioning)
+		if _, err := h.st.TransitionRunner(h.ctx, r.ID, store.RunnerRemoved, "done"); err != nil {
+			h.t.Fatalf("TransitionRunner: %v", err)
+		}
+		h.gh.AddRunner(r.Name, []string{"linux"})
+	}
+}
+
+// The reap walks an installation's whole orphan list. Once GitHub has said the
+// quota is gone, every remaining delete is refused the same way -- and each
+// refusal is another call against a quota that is already spent, which is how
+// one exhausted window becomes two. It stops on the first, and stands the
+// installation down for as long as GitHub asked.
+//
+// Only the delete is refused: the listing shares its path, and refusing that
+// too would test the rule above this one instead of this one.
+func TestTheReapStopsAtTheFirstRefusedDeleteInsteadOfSpendingTheRest(t *testing.T) {
+	h := newHarness(t)
+	inst, pool, host := h.fleet()
+	seedOrphans(h, pool, host, 3)
+
+	// A 429 with the quota otherwise healthy, which is GitHub's secondary rate
+	// limit. Exhausting the primary one instead would prove less than it looks:
+	// go-github refuses a call locally once a response has told it the quota is
+	// spent, so the calls this rule saves would never leave the process anyway.
+	// The secondary limit has no such guard, and neither does the log.
+	h.gh.SetRateLimit(5000, 4999, time.Now().Add(time.Hour))
+	h.gh.SetMethodError(http.MethodDelete, "/actions/runners/",
+		http.StatusTooManyRequests, "You have exceeded a secondary rate limit")
+
+	h.c.reap(h.ctx)
+
+	if got := countRequests(h, "DELETE"); got != 1 {
+		t.Fatalf("the reap made %d delete calls after the first was refused for quota, want 1", got)
+	}
+	if !h.c.githubHeld(inst.ID, time.Now()) {
+		t.Fatal("the installation was not stood down after GitHub refused it for quota")
+	}
+	// The registrations are still there, which is the point: they are reaped
+	// on a later pass rather than on a quota that is gone.
+	if len(h.gh.Runners()) != 3 {
+		t.Fatalf("GitHub holds %d registrations, want 3", len(h.gh.Runners()))
+	}
+}
+
+// The listing is refused for quota just as readily as the delete, and it is
+// the first call the reap makes. Standing down on it is what stops the sweep
+// asking again a minute later for the whole of an exhausted window.
+func TestTheReapStandsDownWhenTheListingIsRefusedForQuota(t *testing.T) {
+	h := newHarness(t)
+	inst, pool, host := h.fleet()
+	seedOrphans(h, pool, host, 2)
+
+	h.gh.SetRateLimit(5000, 4999, time.Now().Add(time.Hour))
+	h.gh.SetMethodError(http.MethodGet, "/actions/runners",
+		http.StatusTooManyRequests, "You have exceeded a secondary rate limit")
+
+	h.c.reap(h.ctx)
+
+	if got := countRequests(h, "DELETE"); got != 0 {
+		t.Fatalf("the reap made %d delete calls without a listing to decide from", got)
+	}
+	if !h.c.githubHeld(inst.ID, time.Now()) {
+		t.Fatal("a refused listing left the installation open to being asked again at once")
+	}
+}
+
+// An installation already standing down is not asked again until the hold runs
+// out. The poller earns holds too, and rediscovering the same refusal from the
+// reap costs exactly the call the hold exists to save.
+func TestTheReapSkipsAnInstallationThatIsStandingDown(t *testing.T) {
+	h := newHarness(t)
+	inst, pool, host := h.fleet()
+	seedOrphans(h, pool, host, 1)
+
+	h.c.holdGitHub(inst.ID, time.Now().Add(10*time.Minute))
+	before := len(h.gh.Requests())
+
+	h.c.reap(h.ctx)
+
+	if got := len(h.gh.Requests()); got != before {
+		t.Fatalf("the reap spent %d calls on an installation that is standing down", got-before)
+	}
+	if len(h.gh.Runners()) != 1 {
+		t.Fatal("the registration should still be there; the reap had no business deleting it yet")
 	}
 }

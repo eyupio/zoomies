@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -101,7 +102,7 @@ func TestPollerBacksOffWhenRateLimited(t *testing.T) {
 
 	h.c.pollOnce(h.ctx)
 
-	if !h.c.pollHeld(inst.ID, time.Now()) {
+	if !h.c.githubHeld(inst.ID, time.Now()) {
 		t.Fatal("the poller did not back off after GitHub reported a rate limit")
 	}
 
@@ -109,5 +110,52 @@ func TestPollerBacksOffWhenRateLimited(t *testing.T) {
 	h.c.pollOnce(h.ctx)
 	if after := len(h.gh.Requests()); after != before {
 		t.Fatalf("the poller made %d more calls while backed off", after-before)
+	}
+}
+
+// A flat fifteen minutes is either most of a window wasted or most of a window
+// spent rediscovering the same refusal. GitHub says when the quota returns, so
+// the fixed wait is only what to do when it did not.
+func TestAStandDownLastsAsLongAsGitHubAsked(t *testing.T) {
+	now := time.Date(2025, 3, 4, 12, 0, 0, 0, time.UTC)
+	reset := now.Add(2 * time.Minute)
+
+	got := rateLimitHold(&github.RateLimitedError{ResetAt: reset}, now)
+
+	// A little past the reset: resuming on the exact second races GitHub's own
+	// accounting and buys another refusal.
+	if !got.After(reset) {
+		t.Fatalf("hold = %v; it must clear the reset at %v", got, reset)
+	}
+	if got.Sub(reset) > time.Minute {
+		t.Fatalf("hold = %v, which is far past the reset at %v", got, reset)
+	}
+	if got.Sub(now) >= rateLimitBackoff {
+		t.Fatalf("hold of %s is no better than the flat %s it replaces", got.Sub(now), rateLimitBackoff)
+	}
+}
+
+// GitHub does not always say -- an older enterprise server, a proxy that drops
+// the headers -- and the fixed wait is what that case still gets.
+func TestAStandDownFallsBackToTheFixedWaitWhenGitHubSaysNothing(t *testing.T) {
+	now := time.Date(2025, 3, 4, 12, 0, 0, 0, time.UTC)
+
+	got := rateLimitHold(&github.RateLimitedError{}, now)
+
+	if !got.Equal(now.Add(rateLimitBackoff)) {
+		t.Fatalf("hold = %v, want the fixed %s", got, rateLimitBackoff)
+	}
+}
+
+// A reset days away is a clock out of step or a proxy inventing a header.
+// Believing it would take an installation out of service until somebody
+// noticed, which is a worse failure than one more refused call.
+func TestAnAbsurdResetDoesNotParkAnInstallationForEver(t *testing.T) {
+	now := time.Date(2025, 3, 4, 12, 0, 0, 0, time.UTC)
+
+	got := rateLimitHold(&github.RateLimitedError{ResetAt: now.Add(72 * time.Hour)}, now)
+
+	if got.Sub(now) > maxRateLimitBackoff {
+		t.Fatalf("hold of %s exceeds the %s cap", got.Sub(now), maxRateLimitBackoff)
 	}
 }

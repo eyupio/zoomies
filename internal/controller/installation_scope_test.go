@@ -348,10 +348,10 @@ func TestARateLimitedInstallationDoesNotStopTheOthersBeingPolled(t *testing.T) {
 	before := len(h.gh.Requests())
 	h.c.pollOnce(h.ctx)
 
-	if !h.c.pollHeld(acme.ID, time.Now()) {
+	if !h.c.githubHeld(acme.ID, time.Now()) {
 		t.Error("the rate-limited installation was not stood down")
 	}
-	if h.c.pollHeld(globex.ID, time.Now()) {
+	if h.c.githubHeld(globex.ID, time.Now()) {
 		t.Error("the installation GitHub did not rate-limit was stood down with it")
 	}
 	if asked := polledRepos(h, before); !asked["globex/thing"] {

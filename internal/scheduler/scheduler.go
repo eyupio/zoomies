@@ -45,6 +45,15 @@ type Snapshot struct {
 	// repository an operator recognises instead of an opaque identifier.
 	Installations []*store.Installation
 	Policy        Policy
+	// Jitter spreads the start-failure backoff, keyed by pool ID and redrawn
+	// on every pass. It arrives here rather than being drawn here for the same
+	// reason Now does: the scheduler reads no clock and no random source, so a
+	// decision is reproducible from its inputs alone and a test can place a
+	// pool exactly either side of its wait.
+	//
+	// Values outside [0,1) are clamped, and a pool with no entry gets none --
+	// a caller that has not thought about jitter keeps the old behaviour.
+	Jitter map[string]float64
 }
 
 const (
@@ -64,6 +73,13 @@ const (
 	// calls a time, until the installation's hourly quota is spent on nothing.
 	startBackoff    = 10 * time.Second
 	maxStartBackoff = 5 * time.Minute
+
+	// startBackoffJitter is how much of a pool's wait may be added to it, at
+	// most. Without it every pool broken by the same thing -- a daemon that
+	// went down, a registry that stopped answering -- counts the same doubling
+	// from the same failure and retries in the same second, so the recovery
+	// arrives as the same thundering herd that broke it.
+	startBackoffJitter = 0.2
 )
 
 // Policy carries the tunables from config.Scheduler.
@@ -219,6 +235,7 @@ func Decide(s Snapshot) Plan {
 		budget:             s.Policy.MaxCreatesPerTick,
 		activeByRepository: s.ActiveByRepository,
 		poolCount:          len(pools),
+		jitter:             s.Jitter,
 	}
 	if t.budget <= 0 {
 		// An unset cap must not stall the fleet; host capacity still bounds us.
@@ -248,6 +265,7 @@ type tick struct {
 	budget             int
 	activeByRepository map[string]int
 	poolCount          int
+	jitter             map[string]float64
 }
 
 // assign maps every queued job onto the pool that will run it, and collects the
@@ -336,7 +354,7 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 	// it must not stand in for the runner a queued job is waiting on.
 	plan.Desired = clamp(max(p.MinRunners, busy+draining+eligible), p.MinRunners, p.MaxRunners)
 	plan.eligible = eligible
-	plan.Failing = t.holdAfterStartFailures(runners)
+	plan.Failing = t.holdAfterStartFailures(p, runners)
 
 	switch {
 	case plan.Desired < live:
@@ -356,7 +374,7 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 // each failure still on the page, so a broken pool settles at one attempt
 // every few minutes rather than one a second; it recovers on its own, because
 // a pass that creates nothing adds no failure and the wait simply runs out.
-func (t *tick) holdAfterStartFailures(runners []*store.Runner) string {
+func (t *tick) holdAfterStartFailures(p *store.Pool, runners []*store.Runner) string {
 	failed := startFailures(runners, t.now)
 	if len(failed) == 0 {
 		return ""
@@ -365,6 +383,7 @@ func (t *tick) holdAfterStartFailures(runners []*store.Runner) string {
 	if shift := len(failed) - 1; shift < 8 && startBackoff<<shift < maxStartBackoff {
 		wait = startBackoff << shift
 	}
+	wait = jittered(wait, t.jitter[p.ID])
 	since := t.now.Sub(failedAt(failed[0]))
 	if since >= wait {
 		return ""
@@ -376,6 +395,21 @@ func (t *tick) holdAfterStartFailures(runners []*store.Runner) string {
 	return fmt.Sprintf("%s failed to start, most recently %s ago (%s); trying again in %s",
 		which, formatDuration(since.Truncate(time.Second)), summarise(failed[0].Message),
 		formatDuration((wait - since).Round(time.Second)))
+}
+
+// jittered lengthens a wait by up to startBackoffJitter of itself.
+//
+// It only ever adds. Shortening a backoff would let the pool that is failing
+// hardest come back soonest, which is the opposite of what the doubling is
+// for; spreading the herd is worth a little extra wait and nothing else.
+func jittered(d time.Duration, f float64) time.Duration {
+	if f <= 0 {
+		return d
+	}
+	if f > 1 {
+		f = 1
+	}
+	return d + time.Duration(float64(d)*startBackoffJitter*f)
 }
 
 // startFailures returns the runners that failed before ever registering and

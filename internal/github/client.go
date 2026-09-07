@@ -26,6 +26,72 @@ var ErrNotFound = errors.New("github: not found")
 // The caller backs off rather than hammering.
 var ErrRateLimited = errors.New("github: rate limited")
 
+// RateLimitedError is a refusal that says when to come back.
+//
+// GitHub sends the answer on every rate-limited response -- a reset instant on
+// the primary limit, a retry-after duration on the secondary one -- and it used
+// to be formatted straight into the message and lost, leaving every caller to
+// guess a fixed wait. Guessing long wastes quota that came back minutes ago;
+// guessing short spends the next window on refusals. So the number is carried.
+//
+// It wraps ErrRateLimited, so the callers that only ask "was this a rate limit"
+// keep working through errors.Is and only the ones that want the time reach for
+// errors.As.
+type RateLimitedError struct {
+	// ResetAt is when the quota refills, zero when GitHub did not say.
+	ResetAt time.Time
+	// RetryAfter is the secondary limit's answer, which is a duration rather
+	// than an instant. Zero when unset.
+	RetryAfter time.Duration
+	Detail     string
+}
+
+func (e *RateLimitedError) Error() string {
+	switch {
+	case !e.ResetAt.IsZero():
+		return fmt.Sprintf("%s: quota exhausted until %s%s",
+			ErrRateLimited, e.ResetAt.UTC().Format(time.RFC3339), e.Detail)
+	case e.RetryAfter > 0:
+		return fmt.Sprintf("%s: secondary rate limit, retry after %s%s",
+			ErrRateLimited, e.RetryAfter, e.Detail)
+	}
+	return ErrRateLimited.Error() + e.Detail
+}
+
+func (e *RateLimitedError) Unwrap() error { return ErrRateLimited }
+
+// RetryAt is when a caller may try this installation again, given the time it
+// is asking at, and whether GitHub said anything at all.
+//
+// A reset already in the past is no answer -- clocks drift, and a response can
+// sit in a queue -- so it is reported as unknown and the caller keeps its own
+// default rather than resuming into the same refusal.
+func (e *RateLimitedError) RetryAt(now time.Time) (time.Time, bool) {
+	if e == nil {
+		return time.Time{}, false
+	}
+	if e.RetryAfter > 0 {
+		return now.Add(e.RetryAfter), true
+	}
+	if !e.ResetAt.IsZero() && e.ResetAt.After(now) {
+		return e.ResetAt, true
+	}
+	return time.Time{}, false
+}
+
+// RetryAfterRateLimit reports when err says an installation may be used again.
+//
+// It answers false for anything that is not a rate limit and for a rate limit
+// GitHub said nothing useful about, which is the same thing to a caller: fall
+// back to your own wait.
+func RetryAfterRateLimit(err error, now time.Time) (time.Time, bool) {
+	var rl *RateLimitedError
+	if !errors.As(err, &rl) {
+		return time.Time{}, false
+	}
+	return rl.RetryAt(now)
+}
+
 // ErrForbidden is returned for a 403 that is not a rate limit, usually meaning
 // the App installation is missing a permission.
 var ErrForbidden = errors.New("github: forbidden")
