@@ -886,6 +886,20 @@ type Job struct {
 	// Matched records whether any enabled pool claimed this job's labels. An
 	// unmatched queued job is a configuration problem worth surfacing.
 	Matched bool `json:"matched"`
+	// EligibleAt is when this job first became something this fleet could act
+	// on, which is the start of the scheduling-latency interval the
+	// measurement contract defines. It is stamped the first time Matched
+	// becomes true and never moved afterwards.
+	//
+	// Nil is "not eligible yet", or a job from before the column existed. It
+	// is deliberately not zero: a zero time reads as 1970 and would make every
+	// latency computed from it enormous rather than obviously absent.
+	//
+	// The interval it starts ends at Runner.TaskIssuedAt. Neither the queue
+	// wait before eligibility nor a configured scale-up delay belongs in it --
+	// the first is GitHub's and the operator's, the second is a setting doing
+	// what it was set to do.
+	EligibleAt *time.Time `json:"eligible_at,omitempty"`
 	// HeadBranch, HeadSHA and RunAttempt say what the job ran for. A failure
 	// on a release branch and one on a feature branch are different news.
 	HeadBranch string `json:"head_branch,omitempty"`

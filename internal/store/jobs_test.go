@@ -773,3 +773,80 @@ func TestDeliveryFreshnessIsCreditedToTheInstallationOwningTheRepository(t *test
 		t.Errorf("inside the last minute = %v, want the organisation alone", recent)
 	}
 }
+
+// TestAJobIsStampedTheMomentThisFleetCouldFirstActOnIt records the start of the
+// scheduling-latency interval the measurement contract defines.
+//
+// Without it the only figure available runs from queued_at, which charges the
+// platform for time it had no say in: a job whose labels no pool claimed yet,
+// one GitHub held for a deployment review, one waiting on a scale-up delay the
+// operator configured. None of those are the fleet being slow.
+func TestAJobIsStampedTheMomentThisFleetCouldFirstActOnIt(t *testing.T) {
+	clock := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	s := newTestStoreAt(t, func() time.Time { return clock })
+	ctx := context.Background()
+
+	// Nothing claims it yet, so there is no moment to record.
+	unclaimed, err := s.UpsertJob(ctx, &Job{GitHubJobID: 700, Repo: "acme/widgets",
+		JobName: "build", State: JobQueued, QueuedAt: clock})
+	if err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+	if unclaimed.EligibleAt != nil {
+		t.Fatalf("a job no pool claims is already eligible at %v", unclaimed.EligibleAt)
+	}
+
+	// A pool is created, the next poll matches it, and that is the moment.
+	clock = clock.Add(90 * time.Second)
+	claimed, err := s.UpsertJob(ctx, &Job{GitHubJobID: 700, Repo: "acme/widgets",
+		JobName: "build", State: JobQueued, QueuedAt: unclaimed.QueuedAt, Matched: true})
+	if err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+	if claimed.EligibleAt == nil {
+		t.Fatal("a job a pool claimed carries no eligible time, so its latency cannot be measured")
+	}
+	if !claimed.EligibleAt.Equal(clock) {
+		t.Errorf("eligible at %v, want the moment it was claimed (%v)", claimed.EligibleAt, clock)
+	}
+	// Not the moment it was queued: the ninety seconds it spent with nothing
+	// able to run it are not this fleet's to answer for.
+	if claimed.EligibleAt.Equal(claimed.QueuedAt) {
+		t.Error("eligibility was stamped at queue time, which is the figure this column exists to replace")
+	}
+
+	// A later delivery finds it matched again and must not move the stamp: it
+	// is the first moment that matters, not the most recent one saying so.
+	clock = clock.Add(30 * time.Second)
+	started := clock
+	again, err := s.UpsertJob(ctx, &Job{GitHubJobID: 700, Repo: "acme/widgets",
+		JobName: "build", State: JobInProgress, QueuedAt: unclaimed.QueuedAt,
+		Matched: true, StartedAt: &started})
+	if err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+	if !again.EligibleAt.Equal(*claimed.EligibleAt) {
+		t.Errorf("eligible at %v after a second delivery, want the first moment (%v)",
+			again.EligibleAt, claimed.EligibleAt)
+	}
+}
+
+// A job already claimed when it is first seen -- the ordinary case, since
+// ingest matches before it writes -- is eligible from that moment. There was
+// no earlier one to record.
+func TestAJobClaimedOnArrivalIsEligibleFromArrival(t *testing.T) {
+	clock := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	s := newTestStoreAt(t, func() time.Time { return clock })
+
+	j, err := s.UpsertJob(context.Background(), &Job{GitHubJobID: 701, Repo: "acme/widgets",
+		JobName: "build", State: JobQueued, QueuedAt: clock, Matched: true})
+	if err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+	if j.EligibleAt == nil {
+		t.Fatal("a job claimed on arrival carries no eligible time")
+	}
+	if !j.EligibleAt.Equal(clock) {
+		t.Errorf("eligible at %v, want %v", j.EligibleAt, clock)
+	}
+}

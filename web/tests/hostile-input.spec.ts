@@ -42,8 +42,12 @@ test('a pool named with markup is shown as text, not run as it', async ({ page }
   await page.route('**/api/v1/pools**', async (route) => {
     const response = await route.fetch();
     const body = await response.json();
-    // Only the list, which is the shape that carries names to the grid.
-    if (Array.isArray(body.items) && body.items.length) body.items[0].name = name;
+    // Every row rather than the first: another spec may have added a pool
+    // before this one runs, and which rows the grid has drawn is then not
+    // something this test should depend on.
+    if (Array.isArray(body.items)) {
+      for (const pool of body.items) pool.name = name;
+    }
     await route.fulfill({ response, json: body });
   });
 

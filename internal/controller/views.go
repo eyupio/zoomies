@@ -178,6 +178,13 @@ type JobView struct {
 	RunnerName     string `json:"runner_name,omitempty"`
 	HTMLURL        string `json:"html_url,omitempty"`
 	Matched        bool   `json:"matched"`
+	// EligibleAt is when this fleet could first have acted on the job: the
+	// moment an enabled pool claimed its labels. It is the start of the
+	// scheduling-latency interval, and it is not queued_at -- the wait
+	// before anything could run the job is not this fleet's to answer for.
+	// Absent on a job nothing has claimed, and on one recorded before the
+	// column existed.
+	EligibleAt *time.Time `json:"eligible_at,omitempty"`
 	// Hosted is true when every label names a runner somebody else operates:
 	// GitHub's own or a hosted-runner vendor's. Such a job is theirs to run,
 	// so it being unmatched here is expected rather than a job going nowhere.
@@ -237,6 +244,7 @@ func NewJobView(j *store.Job, poolName string) JobView {
 		RunnerName:     j.RunnerName,
 		HTMLURL:        j.HTMLURL,
 		Matched:        j.Matched,
+		EligibleAt:     j.EligibleAt,
 		Hosted:         hostedJob(j.Labels),
 		HeadBranch:     j.HeadBranch,
 		HeadSHA:        j.HeadSHA,

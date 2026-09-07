@@ -22,7 +22,7 @@ are kept apart, and a test that skipped itself is *not run*.
 | Observation: 7 days, 200 attempts, ≥20 failures, ≥20 cancellations, ≥3 bursts over capacity | **No** | A deployment with real GitHub behind it. Owner's (decision 12, ZF-301c). |
 | Denominator: completed jobs on non-demo installations whose runner this controller created | **Yes** | Nothing. `jobs.installation_id` (migration `0012`) and the runner's own row carry it. `retention.runners` defaults to 7 days and must be raised on the reference instance, or evidence exported daily. |
 | Outcome rate ≥ 99%, a Zoomies fault being `Job.RunnerFault` or a pre-registration failure | **Yes** | Nothing. `RunnerFault` is recorded and the four-way completed split exists. |
-| **Scheduling latency p95 ≤ `scheduler.interval` + 2 s** | **No — the interval has no start** | `Job.EligibleAt`. The contract says it lands with ZF-101 and ZF-101 is done, but ZF-101 delivered `scheduler.Eligible` as a *function* and nothing stamps the moment. `Runner.TaskIssuedAt` (the end) does exist, from ZF-102. Until the start is recorded, only the `zoomies_runner_queued_to_create_seconds` proxy stands in, and it measures from `Job.QueuedAt` rather than from eligibility — so it charges the platform for a job that was ineligible, held for approval, or waiting on a scale-up delay. **This is the one code gap in Assignment A's own scope.** |
+| **Scheduling latency p95 ≤ `scheduler.interval` + 2 s** | **Both ends recorded; no series yet** | This note found the start missing and it was closed in the same pull request: `Job.EligibleAt` (migration `0019`) is stamped the first time an enabled pool claims the job's labels, and never moved afterwards. `Runner.TaskIssuedAt` (the end) came with ZF-102. What remains is the series itself — the existing `zoomies_runner_queued_to_create_seconds` still measures from `Job.QueuedAt` and is still a proxy, and replacing it with the real interval is ZF-205's "real latency series", which is Assignment B. The evidence can be exported from the store meanwhile: both columns are on the rows and on the API's job shape. |
 | **Cleanup convergence ≤ 5 min** | **Yes** | Nothing. `Runner.CleanedUpAt` landed with ZF-105 and is set only when the registration, the workload and the work directory are all gone. |
 | Restore, ≤ 30 min on a clean environment | **No** | ZF-203, which is Assignment B: there is no backup command yet. |
 | Second operator completes setup and diagnoses an injected failure | **No** | A person. Owner's (ZF-303). Cannot be produced here. |
@@ -74,7 +74,15 @@ runs on the thing.
 * A second operator for one setup-and-diagnose session (ZF-303).
 * The pre-release tag at the end of Assignment A (decision 9).
 
-## One thing this note found
+## Two things this note found
+
+The first was a code gap in Assignment A's own scope, and writing it down is
+what closed it: the measurement contract said `Job.EligibleAt` landed with
+ZF-101, ZF-101 was marked done, and the column did not exist. What ZF-101 had
+delivered was `scheduler.Eligible` as a *function* — the definition, not the
+timestamp. It is recorded now.
+
+The second is still open.
 
 The drill record writes `roadmap/validation/drills.md` and CI appends it to the
 job summary, but the file is never committed, and every run starts from a fresh

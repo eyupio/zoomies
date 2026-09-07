@@ -78,15 +78,18 @@ Newest first. One line per event that changed a row.
 * 2026-09-07: the Gate F readiness note, which is what section 10 says ends
   Assignment A. Phase 1 is complete -- ZF-101 through ZF-105 are all done -- and
   the note says which of Gate F's eight targets can be measured at all today.
-  **One is a code gap inside Assignment A's own scope**: the scheduling-latency
-  target has no start. The measurement contract says `Job.EligibleAt` lands with
-  ZF-101; ZF-101 delivered `scheduler.Eligible` as a function and nothing stamps
-  the moment, so the only figure available is the
-  `zoomies_runner_queued_to_create_seconds` proxy, which measures from
-  `Job.QueuedAt` and therefore charges the platform for a job that was
-  ineligible, held for approval or waiting on a scale-up delay. The end of that
-  interval (`Runner.TaskIssuedAt`) and both ends of cleanup convergence
-  (`Runner.CleanedUpAt`) do exist. The note also records that the largest
+  **Writing it found a code gap inside Assignment A's own
+  scope, and closed it**: the scheduling-latency target had no start. The
+  measurement contract said `Job.EligibleAt` landed with ZF-101 and ZF-101 was
+  marked done, but what ZF-101 delivered was `scheduler.Eligible` as a function
+  -- the definition of eligibility, not the moment it was reached. The column
+  exists now (migration `0019`), stamped the first time an enabled pool claims
+  the job's labels and never moved afterwards, so the interval no longer starts
+  at `queued_at` and no longer charges the platform for a job that was
+  ineligible, held for a deployment review, or waiting on a scale-up delay it
+  was configured to wait for. The end of that interval (`Runner.TaskIssuedAt`)
+  and both ends of cleanup convergence (`Runner.CleanedUpAt`) already existed.
+  The series that consumes it is ZF-205's, in Assignment B. The note also records that the largest
   untested surface is the Docker backend at runtime -- nothing in this
   repository has ever started a container -- and that the drill record is
   written to a file no run ever commits, so the history its own comment exists
