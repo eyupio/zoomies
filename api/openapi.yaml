@@ -2210,6 +2210,13 @@ components:
         repo: { type: string }
         status: { type: string, enum: [accepted, rejected, error] }
         error: { type: string }
+        installation_id:
+          type: string
+          description: >-
+            The installation whose webhook secret verified this delivery. It is not
+            necessarily the one covering the repository: when none does, every configured
+            secret is tried, and this says which one answered. Empty on a delivery that
+            verified against none.
         received_at: { type: string, format: date-time }
 
     WebhookCheck:
@@ -2650,6 +2657,13 @@ components:
         labels: { type: array, items: { type: string } }
         state: { $ref: "#/components/schemas/JobState" }
         conclusion: { type: string, examples: [success, failure, cancelled, skipped] }
+        installation_id:
+          type: string
+          description: >-
+            The GitHub App installation covering this job's repository, resolved when the job
+            was first recorded. Read-only. A pool only ever runs work in its own installation's
+            target, so a pool whose labels fit is still not eligible unless this matches it.
+            Empty when no installation here covers the repository.
         pool_id: { type: string }
         pool_name: { type: string }
         runner_id: { type: string }

@@ -116,6 +116,10 @@ func (c *Controller) snapshot(ctx context.Context) (scheduler.Snapshot, error) {
 	if err != nil {
 		return scheduler.Snapshot{}, fmt.Errorf("listing hosts: %w", err)
 	}
+	installations, err := c.st.ListInstallations(ctx)
+	if err != nil {
+		return scheduler.Snapshot{}, fmt.Errorf("listing installations: %w", err)
+	}
 	return scheduler.Snapshot{
 		Now:                c.Now(),
 		Pools:              pools,
@@ -124,6 +128,7 @@ func (c *Controller) snapshot(ctx context.Context) (scheduler.Snapshot, error) {
 		ActiveByRepository: activeByRepository,
 		QueuedByRepository: queuedByRepository,
 		Hosts:              hosts,
+		Installations:      installations,
 		Policy:             c.policy(),
 	}, nil
 }

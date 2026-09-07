@@ -117,7 +117,7 @@ func (c *Controller) pollOnce(ctx context.Context) {
 			continue
 		}
 		found += len(jobs)
-		n, err := c.ingestQueuedJobs(ctx, jobs)
+		n, err := c.ingestQueuedJobs(ctx, inst, jobs)
 		if err != nil {
 			c.log.Error("could not record polled jobs", "installation", inst.ID, "error", err)
 			continue
@@ -135,7 +135,15 @@ func (c *Controller) pollOnce(ctx context.Context) {
 
 // ingestQueuedJobs folds polled jobs into the same rows the webhook path
 // writes, so both paths feed one scheduler and one history.
-func (c *Controller) ingestQueuedJobs(ctx context.Context, jobs []github.QueuedJob) (int, error) {
+//
+// A job is attributed to the installation covering its repository, resolved
+// the same way the webhook path resolves it, rather than to the installation
+// this poll happened to come from. The two are usually the same and are not
+// always: an organisation installation and a repository one can both cover a
+// repository, and if each path picked its own answer the job's installation
+// would flip with every delivery. The polled installation is the fallback,
+// because it did report the job.
+func (c *Controller) ingestQueuedJobs(ctx context.Context, polled *store.Installation, jobs []github.QueuedJob) (int, error) {
 	if len(jobs) == 0 {
 		return 0, nil
 	}
@@ -147,21 +155,22 @@ func (c *Controller) ingestQueuedJobs(ctx context.Context, jobs []github.QueuedJ
 	changed := 0
 	for _, q := range jobs {
 		job := &store.Job{
-			GitHubJobID: q.ID,
-			GitHubRunID: q.RunID,
-			Repo:        q.Repo,
-			Workflow:    q.WorkflowName,
-			JobName:     q.JobName,
-			Labels:      store.NormalizeLabels(q.Labels),
-			State:       store.JobQueued,
-			RunnerName:  q.RunnerName,
-			HTMLURL:     q.HTMLURL,
-			QueuedAt:    q.QueuedAt,
+			GitHubJobID:    q.ID,
+			GitHubRunID:    q.RunID,
+			Repo:           q.Repo,
+			Workflow:       q.WorkflowName,
+			JobName:        q.JobName,
+			Labels:         store.NormalizeLabels(q.Labels),
+			State:          store.JobQueued,
+			InstallationID: c.owningInstallation(ctx, q.Repo, polled),
+			RunnerName:     q.RunnerName,
+			HTMLURL:        q.HTMLURL,
+			QueuedAt:       q.QueuedAt,
 		}
 		if job.QueuedAt.IsZero() {
 			job.QueuedAt = c.Now()
 		}
-		if p := scheduler.BestPool(pools, job.Labels); p != nil {
+		if p := scheduler.BestPool(pools, job); p != nil {
 			job.PoolID = p.ID
 			job.Matched = true
 		}
@@ -177,4 +186,18 @@ func (c *Controller) ingestQueuedJobs(ctx context.Context, jobs []github.QueuedJ
 		c.publishJob(ctx, saved)
 	}
 	return changed, nil
+}
+
+// owningInstallation is the installation covering a repository, with a
+// fallback for the caller that already knows one. A lookup failure is not
+// worth abandoning an ingest over: the poller's own installation is a worse
+// answer than the repository's and a much better one than none.
+func (c *Controller) owningInstallation(ctx context.Context, repo string, fallback *store.Installation) string {
+	if owner, err := c.st.FindInstallationByTarget(ctx, repo); err == nil {
+		return owner.ID
+	} else if !errors.Is(err, store.ErrNotFound) {
+		c.log.Warn("could not resolve the installation covering a polled repository",
+			"repo", repo, "error", err)
+	}
+	return installationID(fallback)
 }

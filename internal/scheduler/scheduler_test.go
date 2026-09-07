@@ -27,16 +27,23 @@ func testPolicy() Policy {
 	}
 }
 
+// testInstallation is the one GitHub App installation almost every test runs
+// under: a pool and a job that share it are eligible for each other, so a case
+// that says nothing about installations exercises the label rule alone. The
+// cross-installation cases name their own.
+const testInstallation = "ins_acme"
+
 func testPool(name string, labels ...string) *store.Pool {
 	return &store.Pool{
-		ID:          "pool_" + name,
-		Name:        name,
-		Labels:      store.NormalizeLabels(labels),
-		Backend:     store.BackendDocker,
-		MaxRunners:  10,
-		IdleTimeout: store.Duration(5 * time.Minute),
-		Ephemeral:   true,
-		Enabled:     true,
+		ID:             "pool_" + name,
+		Name:           name,
+		InstallationID: testInstallation,
+		Labels:         store.NormalizeLabels(labels),
+		Backend:        store.BackendDocker,
+		MaxRunners:     10,
+		IdleTimeout:    store.Duration(5 * time.Minute),
+		Ephemeral:      true,
+		Enabled:        true,
 	}
 }
 
@@ -63,7 +70,8 @@ func idleRunner(id string, p *store.Pool, idleFor time.Duration) *store.Runner {
 func queued(id string, waited time.Duration, labels ...string) *store.Job {
 	return &store.Job{
 		ID: id, Repo: "acme/widgets", JobName: id, State: store.JobQueued,
-		Labels: store.StringSlice(labels), QueuedAt: ago(waited),
+		InstallationID: testInstallation,
+		Labels:         store.StringSlice(labels), QueuedAt: ago(waited),
 	}
 }
 
@@ -73,7 +81,9 @@ func snap(pools []*store.Pool, runners []*store.Runner, jobs []*store.Job, hosts
 	for _, r := range runners {
 		byPool[r.PoolID] = append(byPool[r.PoolID], r)
 	}
-	return Snapshot{Now: now, Pools: pools, Runners: byPool, Jobs: jobs, Hosts: hosts, Policy: testPolicy()}
+	return Snapshot{Now: now, Pools: pools, Runners: byPool, Jobs: jobs, Hosts: hosts,
+		Installations: []*store.Installation{{ID: testInstallation, Target: "acme", TargetType: store.TargetOrg}},
+		Policy:        testPolicy()}
 }
 
 func actionsOf(as []Action, kind ActionKind) []Action {
@@ -919,7 +929,7 @@ func TestDisabledPoolDrainsToZero(t *testing.T) {
 	if want := "scaled linux-x64 3 -> 1: pool is disabled"; pp.Reason != want {
 		t.Fatalf("reason = %q, want %q", pp.Reason, want)
 	}
-	if len(plan.Unmatched) != 1 || plan.Unmatched[0].ID != "j1" {
+	if len(plan.Unmatched) != 1 || plan.Unmatched[0].Job.ID != "j1" {
 		t.Fatalf("a job whose only pool is disabled must be reported unmatched, got %v", plan.Unmatched)
 	}
 }
@@ -951,8 +961,8 @@ func TestUnmatchedJobsAreReported(t *testing.T) {
 	plan := Decide(snap([]*store.Pool{p}, nil, jobs, []*store.Host{testHost("host_a", 8, 0)}))
 
 	var got []string
-	for _, j := range plan.Unmatched {
-		got = append(got, j.ID)
+	for _, u := range plan.Unmatched {
+		got = append(got, u.Job.ID)
 	}
 	if !slices.Equal(got, []string{"gpu", "windows"}) {
 		t.Fatalf("unmatched = %v, want [gpu windows]", got)
@@ -1111,7 +1121,7 @@ func TestBusyFleetPlan(t *testing.T) {
 	if want := "scaled retired 1 -> 0: pool is disabled"; byPool["retired"].Reason != want {
 		t.Fatalf("retired reason = %q, want %q", byPool["retired"].Reason, want)
 	}
-	if len(plan.Unmatched) != 1 || plan.Unmatched[0].ID != "j_lost" {
+	if len(plan.Unmatched) != 1 || plan.Unmatched[0].Job.ID != "j_lost" {
 		t.Fatalf("unmatched = %v, want [j_lost]", plan.Unmatched)
 	}
 }
@@ -1226,8 +1236,8 @@ func TestTiesBreakOnIDNotInputOrder(t *testing.T) {
 			t.Fatalf("pool order = %s first, want pool_a", plan.Pools[0].PoolID)
 		}
 		var order []string
-		for _, j := range plan.Unmatched {
-			order = append(order, j.ID)
+		for _, u := range plan.Unmatched {
+			order = append(order, u.Job.ID)
 		}
 		if !slices.Equal(order, []string{"j0", "j1", "j2"}) {
 			t.Fatalf("unmatched order = %v, want oldest first then by ID", order)

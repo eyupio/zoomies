@@ -40,7 +40,7 @@ evidence.
 
 | ID | Package | Classification | Status | Depends on | Session | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| ZF-101 | Enforce GitHub target boundaries everywhere | new (jobs carry no installation identity; label-only matching on all four paths) | `not_started` | ZF-002 | | Size M; ready now; takes migration `0010` |
+| ZF-101 | Enforce GitHub target boundaries everywhere | new (jobs carry no installation identity; label-only matching on all four paths) | `in_progress` | ZF-002 | PR1: Claude Opus 5, `ultracode`; one orchestration of 8 subsystem mappers and 8 adversarial verifiers, then one session | PR1 of 3 done: a job carries the installation covering its repository, `scheduler.Eligible` asks enabled, then installation, then labels, and all four matching paths go through it. Migration `0012` (not `0010`: 0010 and 0011 shipped since the plan was written). Two-installation tests on the webhook, poller and scheduler paths, each proven to fail without the rule. PR2 (per-installation freshness and backoff) and PR3 (the runner-group warning and the hosts-and-pools section) remain |
 | ZF-102 | Make runner and agent reconciliation convergent | mixed (mechanics exist; adoption on restart, a controller lock and the log-relay host check do not) | `in_progress` | ZF-002; N02 needs `main` deployed | PR1: Claude Fable 5.1, `xhigh`, one session; two mapping-and-verification orchestrations over the four packages | PR1 of 4 done: the "Reconciliation invariants" section in `docs/architecture.md` lists every rule with its constant and owner, and `internal/controller/invariants_test.go` pins the silence ladder and the lease-outlasts-work relationship. PR2 (log-relay host binding, state-directory lock and controller lease), PR3 (adoption on agent start) and PR4 (late reports and the restart table) remain |
 | ZF-103 | Reserve host resources and enforce bounded admission | extension (slot model complete; no host resource reporting) | `not_started` | ZF-102 | | Size L; 103a before Gate F, 103b after |
 | ZF-104 | Verify control-plane access and secret boundaries | mixed (matrix and most tests exist; log relay unscoped to host; streams never re-check credentials) | `not_started` | ZF-101, ZF-102 | | Size M |
@@ -74,6 +74,24 @@ evidence.
 ## Log
 
 Newest first. One line per event that changed a row.
+
+* 2026-09-07: ZF-101's first pull request, the installation boundary. Three
+  decisions taken inside decision 13's frame and recorded here because the
+  later pull requests inherit them: a job is attributed to the installation
+  covering its **repository**, never the one whose secret verified the
+  delivery, which verification deliberately allows to be another's;
+  `webhook_deliveries.installation_id` holds the **verifying** installation,
+  because that is the one fact about a delivery which cannot be recomputed
+  afterwards, and ZF-101's second pull request must therefore derive
+  per-installation poll freshness from the repository rather than from that
+  column; and the migration clears `matched` and `pool_id` on waiting and
+  queued rows it re-attributes but leaves in-progress rows alone, because a
+  running job's pool is the record of where it actually ran. The Jobs page
+  carries the reason it can derive from the row itself -- the repository no
+  installation covers -- and the cross-installation sentence reaches the
+  operator through the problems drawer, which is where the scheduler's plan
+  is read; a per-job reason on the Jobs page would be a new API field and is
+  not in this pull request.
 
 * 2026-09-06: ZF-102's first pull request, the invariants written down and pinned; the package is `in_progress`.
 

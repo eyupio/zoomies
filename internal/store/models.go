@@ -806,13 +806,18 @@ type Job struct {
 	Labels      StringSlice `json:"labels"`
 	State       JobState    `json:"state"`
 	Conclusion  string      `json:"conclusion,omitempty"` // success|failure|cancelled|skipped
-	PoolID      string      `json:"pool_id,omitempty"`
-	RunnerID    string      `json:"runner_id,omitempty"`
-	RunnerName  string      `json:"runner_name,omitempty"`
-	HTMLURL     string      `json:"html_url,omitempty"`
-	QueuedAt    time.Time   `json:"queued_at"`
-	StartedAt   *time.Time  `json:"started_at,omitempty"`
-	CompletedAt *time.Time  `json:"completed_at,omitempty"`
+	// InstallationID is the installation whose GitHub App covers this job's
+	// repository, resolved at ingest. It is what stops a pool from claiming
+	// work in a target it has no credentials for; empty means no installation
+	// here covers the repository, which is a reason rather than a wildcard.
+	InstallationID string     `json:"installation_id,omitempty"`
+	PoolID         string     `json:"pool_id,omitempty"`
+	RunnerID       string     `json:"runner_id,omitempty"`
+	RunnerName     string     `json:"runner_name,omitempty"`
+	HTMLURL        string     `json:"html_url,omitempty"`
+	QueuedAt       time.Time  `json:"queued_at"`
+	StartedAt      *time.Time `json:"started_at,omitempty"`
+	CompletedAt    *time.Time `json:"completed_at,omitempty"`
 	// Matched records whether any enabled pool claimed this job's labels. An
 	// unmatched queued job is a configuration problem worth surfacing.
 	Matched bool `json:"matched"`
@@ -1043,14 +1048,20 @@ func (e *ScalingEvent) Direction() string {
 // WebhookDelivery records one inbound webhook so that delivery failures are
 // visible instead of silently dropped.
 type WebhookDelivery struct {
-	ID         string    `json:"id"`
-	DeliveryID string    `json:"delivery_id"`
-	Event      string    `json:"event"`
-	Action     string    `json:"action,omitempty"`
-	Repo       string    `json:"repo,omitempty"`
-	Status     string    `json:"status"` // accepted | rejected | error
-	Error      string    `json:"error,omitempty"`
-	ReceivedAt time.Time `json:"received_at"`
+	ID         string `json:"id"`
+	DeliveryID string `json:"delivery_id"`
+	Event      string `json:"event"`
+	Action     string `json:"action,omitempty"`
+	Repo       string `json:"repo,omitempty"`
+	Status     string `json:"status"` // accepted | rejected | error
+	Error      string `json:"error,omitempty"`
+	// InstallationID is the installation whose webhook secret verified this
+	// delivery. It is not necessarily the one that owns the repository: when
+	// no installation covers the repository every configured secret is tried,
+	// and knowing which one answered is how "your secrets are out of step with
+	// your installations" is told from "this delivery was forged".
+	InstallationID string    `json:"installation_id,omitempty"`
+	ReceivedAt     time.Time `json:"received_at"`
 }
 
 // User is a local account authenticated with an argon2id password hash.

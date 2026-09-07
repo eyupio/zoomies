@@ -100,7 +100,7 @@ func eligibleCapacity(p *store.Pool, hosts []*store.Host, now time.Time) int {
 func oldestPoolQueue(p *store.Pool, pools []*store.Pool, jobs []*store.Job, now time.Time) int64 {
 	var oldest time.Duration
 	for _, j := range jobs {
-		if scheduler.BestPool(pools, j.Labels) == p {
+		if scheduler.BestPool(pools, j) == p {
 			if a := now.Sub(j.QueuedAt); a > oldest {
 				oldest = a
 			}

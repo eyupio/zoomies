@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -462,5 +464,157 @@ func TestStatsSplitCompletedJobsFourWays(t *testing.T) {
 	}
 	if stats.Succeeded+stats.Failed+stats.Cancelled+stats.Unknown != stats.CompletedLast {
 		t.Fatalf("the four outcomes do not add up to the completed count: %+v", stats)
+	}
+}
+
+// The upgrade has to attribute the work already on the queue. Until it does,
+// every unfinished job is eligible for no pool at all, so a fleet that upgrades
+// mid-flight would stop scaling for the jobs it was already running.
+func TestTheInstallationBackfillAttributesUnfinishedWorkAndUndoesAWrongMatch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "zoomies.db")
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Millisecond)
+
+	s, err := Open(ctx, Options{Path: path})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	org := &Installation{AppID: 1, InstallationID: 10, Target: "acme", TargetType: TargetOrg}
+	repo := &Installation{AppID: 1, InstallationID: 11, Target: "acme/widgets", TargetType: TargetRepo}
+	other := &Installation{AppID: 1, InstallationID: 12, Target: "globex", TargetType: TargetOrg}
+	for _, i := range []*Installation{org, repo, other} {
+		if err := s.CreateInstallation(ctx, i); err != nil {
+			t.Fatalf("CreateInstallation: %v", err)
+		}
+	}
+	theirs := &Pool{Name: "theirs", InstallationID: other.ID, Labels: StringSlice{"linux"},
+		Backend: BackendDocker, MaxRunners: 2, Ephemeral: true, DockerMode: DockerNone, Enabled: true}
+	if err := s.CreatePool(ctx, theirs); err != nil {
+		t.Fatalf("CreatePool: %v", err)
+	}
+
+	// Wind the column back off the database, so that reopening runs the
+	// backfill over rows written before it existed.
+	for _, stmt := range []string{
+		`DELETE FROM schema_migrations WHERE name = '0012_job_installation.sql'`,
+		`ALTER TABLE jobs DROP COLUMN installation_id`,
+		`ALTER TABLE webhook_deliveries DROP COLUMN installation_id`,
+		// A queued job in the organisation, matched to a pool belonging to
+		// another installation: exactly what the old label-only rule did.
+		fmt.Sprintf(`INSERT INTO jobs (id, github_job_id, repo, labels, state, pool_id, matched, queued_at)
+			VALUES ('job_cross', 601, 'acme/gadgets', '["linux"]', 'queued', '%s', 1, %d)`, theirs.ID, now.UnixMilli()),
+		// A queued job in a repository its own installation covers, correctly
+		// matched to nothing yet.
+		fmt.Sprintf(`INSERT INTO jobs (id, github_job_id, repo, labels, state, queued_at)
+			VALUES ('job_repo', 602, 'acme/widgets', '["linux"]', 'queued', %d)`, now.UnixMilli()),
+		// Work already running, and history. The first is attributed; the
+		// second is left exactly as it was.
+		fmt.Sprintf(`INSERT INTO jobs (id, github_job_id, repo, labels, state, started_at, queued_at)
+			VALUES ('job_running', 603, 'globex/thing', '["linux"]', 'in_progress', %d, %d)`, now.UnixMilli(), now.UnixMilli()),
+		fmt.Sprintf(`INSERT INTO jobs (id, github_job_id, repo, labels, state, conclusion, completed_at, queued_at)
+			VALUES ('job_done', 604, 'acme/widgets', '["linux"]', 'completed', 'success', %d, %d)`, now.UnixMilli(), now.UnixMilli()),
+		// And a repository no installation covers.
+		fmt.Sprintf(`INSERT INTO jobs (id, github_job_id, repo, labels, state, pool_id, matched, queued_at)
+			VALUES ('job_orphan', 605, 'nobody/here', '["linux"]', 'queued', '%s', 1, %d)`, theirs.ID, now.UnixMilli()),
+		// A job GitHub is holding for a deployment review: not demand yet, but
+		// it becomes demand the moment somebody approves it, so it is
+		// attributed with the rest of the unfinished work.
+		fmt.Sprintf(`INSERT INTO jobs (id, github_job_id, repo, labels, state, queued_at)
+			VALUES ('job_waiting', 606, 'globex/thing', '["linux"]', 'waiting', %d)`, now.UnixMilli()),
+		// And work already running on the wrong installation's pool, which is
+		// the evidence of the bug and is left exactly as it is.
+		fmt.Sprintf(`INSERT INTO jobs (id, github_job_id, repo, labels, state, pool_id, matched, started_at, queued_at)
+			VALUES ('job_ran_there', 607, 'acme/widgets', '["linux"]', 'in_progress', '%s', 1, %d, %d)`,
+			theirs.ID, now.UnixMilli(), now.UnixMilli()),
+	} {
+		if _, err := s.write.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("winding the schema back: %v: %s", err, stmt)
+		}
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	migrated, err := Open(ctx, Options{Path: path})
+	if err != nil {
+		t.Fatalf("Open after the backfill: %v", err)
+	}
+	t.Cleanup(func() { migrated.Close() })
+
+	for _, tc := range []struct {
+		id   string
+		want string
+		why  string
+	}{
+		{"job_cross", org.ID, "an organisation installation covers acme/gadgets"},
+		{"job_repo", repo.ID, "a repository installation beats the organisation one"},
+		{"job_running", other.ID, "work already running is attributed too"},
+		{"job_done", "", "history is left alone"},
+		{"job_orphan", "", "no installation covers nobody/here"},
+		{"job_waiting", other.ID, "a job held for review is attributed with the rest"},
+		{"job_ran_there", repo.ID, "a running job is attributed too"},
+	} {
+		j, err := migrated.GetJob(ctx, tc.id)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.id, err)
+		}
+		if j.InstallationID != tc.want {
+			t.Errorf("%s installation = %q, want %q: %s", tc.id, j.InstallationID, tc.want, tc.why)
+		}
+	}
+
+	// The cross-installation match is the one the upgrade invalidates: that
+	// pool will never run that job, and the match is sticky, so the migration
+	// is the only thing that can take it back.
+	cross, err := migrated.GetJob(ctx, "job_cross")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cross.Matched || cross.PoolID != "" {
+		t.Errorf("job_cross = %+v, want it unclaimed: its pool belongs to another installation", cross)
+	}
+
+	// A job nothing covers is unclaimed by the same rule: no pool's
+	// installation can equal its empty one, and none of them can run it.
+	orphan, err := migrated.GetJob(ctx, "job_orphan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if orphan.Matched || orphan.PoolID != "" {
+		t.Errorf("job_orphan = %+v, want it unclaimed: nothing here can run it", orphan)
+	}
+
+	// The running job keeps its pool even though that pool is on the wrong
+	// installation. Its runner exists, and where the job actually ran is the
+	// evidence that this was happening.
+	ran, err := migrated.GetJob(ctx, "job_ran_there")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ran.Matched || ran.PoolID != theirs.ID {
+		t.Errorf("job_ran_there = %+v, want its pool kept: it is the record of where the job ran", ran)
+	}
+}
+
+// Most deliveries carry nothing but a state change: the expiry sweep writes a
+// job with four fields set. A merge rule that treated an absent installation as
+// "clear it" would unattribute a job every time it moved on.
+func TestAStaleDeliveryDoesNotForgetWhichInstallationAJobBelongsTo(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	first := &Job{GitHubJobID: 700, Repo: "acme/widgets", State: JobQueued,
+		InstallationID: "ins_acme", QueuedAt: time.Now()}
+	if _, err := s.UpsertJob(ctx, first); err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+	done := time.Now()
+	got, err := s.UpsertJob(ctx, &Job{GitHubJobID: 700, State: JobCompleted,
+		Conclusion: "success", CompletedAt: &done})
+	if err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+	if got.InstallationID != "ins_acme" {
+		t.Fatalf("installation = %q, want it kept: the delivery carried none", got.InstallationID)
 	}
 }

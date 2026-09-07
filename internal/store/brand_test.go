@@ -21,8 +21,13 @@ func TestNewRunnerNameCarriesTheShapeOfItsPool(t *testing.T) {
 		t.Fatalf("NewRunnerName = %q, want it to start with %q", name, want)
 	}
 	// And the shape is the pool's, not the pool's invented name: the operator
-	// chose "biscuit" for a thing the reader is not looking at.
-	if strings.Contains(name, "biscuit") {
+	// chose "biscuit-docker-linux" for a thing the reader is not looking at.
+	//
+	// Asserted on the part of that name no kennel word can be. Every runner
+	// name ends in one drawn from naming.Kennel, "biscuit" among them, so a
+	// test that looked for the word alone failed roughly one run in thirty
+	// for a reason that had nothing to do with pools.
+	if strings.Contains(name, "docker-linux") {
 		t.Errorf("NewRunnerName = %q, want the pool's shape rather than its name", name)
 	}
 }

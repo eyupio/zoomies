@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -612,15 +613,23 @@ func TestTheJobsRebuildKeepsEveryRowAndItsIndexes(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Millisecond)
 
-	// A database at the schema before the rebuild: open it normally, then
-	// pretend the rebuild has not happened by removing its ledger row and
-	// putting the old table back the way 0008 left it.
+	// A database at the schema 0008 left behind: open it normally, then wind
+	// every later migration that touches these two tables back off it -- the
+	// ledger row and the change itself -- so that reopening migrates a genuine
+	// old database forward rather than one that is already up to date.
+	//
+	// The rows are written with SQL against that old table rather than through
+	// UpsertJob, because UpsertJob writes today's columns and the whole point
+	// of the fixture is a table that does not have them yet.
 	s, err := Open(ctx, Options{Path: path})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
+	done := now.Add(time.Minute)
 	for _, stmt := range []string{
-		`DELETE FROM schema_migrations WHERE name = '0009_jobs_waiting_state.sql'`,
+		`DELETE FROM schema_migrations WHERE name IN
+			('0009_jobs_waiting_state.sql', '0012_job_installation.sql')`,
+		`ALTER TABLE webhook_deliveries DROP COLUMN installation_id`,
 		`DROP TABLE jobs`,
 		`CREATE TABLE jobs (
 			id TEXT PRIMARY KEY, github_job_id INTEGER NOT NULL, github_run_id INTEGER NOT NULL DEFAULT 0,
@@ -632,19 +641,17 @@ func TestTheJobsRebuildKeepsEveryRowAndItsIndexes(t *testing.T) {
 			head_branch TEXT NOT NULL DEFAULT '', head_sha TEXT NOT NULL DEFAULT '', run_attempt INTEGER NOT NULL DEFAULT 0,
 			steps TEXT NOT NULL DEFAULT '[]', runner_fault TEXT NOT NULL DEFAULT '')`,
 		`CREATE UNIQUE INDEX idx_jobs_github ON jobs(github_job_id)`,
+		fmt.Sprintf(`INSERT INTO jobs (id, github_job_id, repo, labels, state, conclusion, queued_at,
+			completed_at, head_branch, run_attempt, steps)
+			VALUES ('job_old1', 501, 'acme/widgets', '["self-hosted"]', 'completed', 'success', %d, %d,
+			'main', 2, '[{"number":1,"name":"Checkout","status":"completed","conclusion":"success"}]')`,
+			now.UnixMilli(), done.UnixMilli()),
+		fmt.Sprintf(`INSERT INTO jobs (id, github_job_id, state, queued_at)
+			VALUES ('job_old2', 502, 'queued', %d)`, now.UnixMilli()),
 	} {
 		if _, err := s.write.ExecContext(ctx, stmt); err != nil {
 			t.Fatalf("preparing the old schema: %v: %s", err, stmt)
 		}
-	}
-	done := now.Add(time.Minute)
-	if _, err := s.UpsertJob(ctx, &Job{GitHubJobID: 501, Repo: "acme/widgets", State: JobCompleted, Conclusion: "success",
-		Labels: StringSlice{"self-hosted"}, QueuedAt: now, CompletedAt: &done, HeadBranch: "main", RunAttempt: 2,
-		Steps: JobSteps{{Number: 1, Name: "Checkout", Status: "completed", Conclusion: "success"}}}); err != nil {
-		t.Fatalf("writing a row into the old schema: %v", err)
-	}
-	if _, err := s.UpsertJob(ctx, &Job{GitHubJobID: 502, State: JobQueued, QueuedAt: now}); err != nil {
-		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {
 		t.Fatal(err)

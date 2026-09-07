@@ -25,6 +25,7 @@ var shippedMigrations = []string{
 	"0009_jobs_waiting_state.sql",
 	"0010_docker_pools_get_a_client.sql",
 	"0011_platform.sql",
+	"0012_job_installation.sql",
 }
 
 // The two prefixes shared by files that already shipped. They sort by what

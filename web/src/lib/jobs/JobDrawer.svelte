@@ -68,7 +68,12 @@
       {#if failed}
         <JobOutcome {job} />
       {:else if unmatched}
-        <UnmatchedNote labels={job.labels} compact />
+        <UnmatchedNote
+          labels={job.labels}
+          repo={job.repo}
+          installationId={job.installation_id}
+          compact
+        />
       {:else if waiting && job.pool_id}
         <JobWaiting {job} />
       {/if}

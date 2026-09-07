@@ -76,7 +76,7 @@ ledger keyed by file name. Two rules the code enforces and a test holds:
 They run in one transaction each, in lexical order, and a failure stops startup
 with the name of the file that failed. Nothing is applied twice.
 
-One migration changes rows rather than shape. `0010_docker_pools_get_a_client`
+Two migrations change rows rather than shape. `0010_docker_pools_get_a_client`
 moves a pool whose `docker_mode` is not `none` from the stock runner image
 under a moving tag (`latest`, `main`, or none) to
 `ghcr.io/eyupio/zoomies-runner-docker` under the same tag, because the stock
@@ -87,6 +87,22 @@ tags made after it was added — pin the variant's tag yourself. Neither is a
 pool on a digest or on an image of its own. Idle runners made from the old
 image are drained and replaced on the first scheduler pass. See [Jobs that
 build container images](configuration.md#jobs-that-build-container-images).
+
+`0012_job_installation` is the other. It records on every unfinished job which
+GitHub App installation covers its repository, matching an installation on the
+repository itself before one on the organisation that owns it, and it then
+unclaims any waiting or queued job whose pool turns out to belong to a
+different installation. Before it, a job carried no installation identity at
+all and a pool was chosen for it on labels alone, so on a controller with more
+than one installation a job could be — and deterministically was — matched to a
+pool in the wrong GitHub target. Those matches are the ones it takes back: the
+pool would never have run the job, and the next scheduler pass decides again.
+A job in a repository no installation here covers keeps no installation and is
+unclaimed for that reason, which the Jobs page and the problems drawer both
+say. Jobs that have already finished are not touched, and neither is a job
+already in progress: its runner exists, and where it ran is a fact worth more
+than a tidy row. **A controller with one installation sees no change**, because
+every pool on it belongs to that installation.
 
 ## There is no downgrade
 

@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.1 · 6 September 2026 · derived from the owner's
+Version 2.2 · 7 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -92,11 +92,11 @@ ratified.
    Zoomies-caused failure is defined by the row. The numbers as proposed
    either fail by construction or pass by noise. *Recommend: adopt.*
 7. **The schema rule.** Never edit or rename a shipped migration; the next
-   file takes the next unused prefix alone (`0010`); prefer adding a column;
+   file takes the next unused prefix alone; prefer adding a column;
    a data-preserving rebuild in a new file is acceptable when SQLite forces
    it, with the reason in the file header as migration 0009 does. Packages
    land their own migrations rather than pooling them into one: ZF-101 is
-   ready and takes `0010`. *Recommend: accept.*
+   ready and takes the next free prefix. *Recommend: accept.*
 8. **What `:latest` means.** Your own PR #71 this morning made `:latest`
    track `main` again, reversing the decision recorded in the improvement
    plan. During an observation window an untagged pool then runs unreleased
@@ -415,7 +415,7 @@ warning; the per-repository throttle is documented as not being isolation.
 
 **Do, in three pull requests:**
 
-1. Migration `0010` adds `jobs.installation_id` (with a backfill for queued and
+1. Migration `0012` adds `jobs.installation_id` (with a backfill for queued and
    in-progress rows by matching the repository to an installation, repository
    target before organisation target) and `webhook_deliveries.installation_id`.
    Add `scheduler.Eligible(pool, job) (bool, reason)`: enabled, then
@@ -589,7 +589,7 @@ says so.
 1. Agents report host resources: CPUs, memory and free disk on the work
    directory, from the Docker or Podman `/info` where there is one and from the
    OS otherwise, as optional fields on join and heartbeat (protocol version
-   stays 1). Migration `0010` adds the observed columns and a per-host reserve
+   stays 1). Its migration adds the observed columns and a per-host reserve
    to `hosts`; heartbeats write the observed values and never the reserve,
    mirroring how capacity is the operator's today.
 2. The scheduler fits a reservation: a pure `Reservation(pool, host)` that is
@@ -1315,7 +1315,7 @@ parallel sessions.
 2. ZF-003, hygiene. Ready; no dependency.
 3. ZF-105's first pull request, the listing-failure defect. Ready; ships
    alone.
-4. ZF-101 (first pull request, migration `0010`) ∥ ZF-102 (invariants, lock
+4. ZF-101 (first pull request, migration `0012`) ∥ ZF-102 (invariants, lock
    and lease, log-relay host binding). Both ready.
 5. ZF-301a (the harness's honesty) then ZF-301b (the drill tier with a
    remote agent). Ready; 301b is the first real-runtime qualification of the
@@ -1384,6 +1384,14 @@ replaces the source roadmap's section 15.
 
 
 ## 13. Change record
+
+* **7 September 2026 — Version 2.2:** the migration prefixes this document
+  reserved are stale. `0010` and `0011` shipped from other work between the
+  plan being written and ZF-101 starting, so ZF-101 took `0012` and ZF-103's
+  number is left to be decided when it lands. The schema rule itself is
+  unchanged: the next file takes the next unused prefix, whatever that is by
+  then, which is why the rule and not a number is what this document now
+  names.
 
 * **6 September 2026 — Version 2.1:** N02 is fixed and removed as a programme
   gate. Added the deliberately deferred **ZF-404b** host-stewardship and

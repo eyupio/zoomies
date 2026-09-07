@@ -101,6 +101,15 @@ func (c *Controller) claimKind(j *store.Job) store.JobEventKind {
 
 func (c *Controller) claimMessage(ctx context.Context, j *store.Job) string {
 	if !j.Matched {
+		// A job this fleet holds no credential for is refused for a reason its
+		// labels cannot explain, and the timeline is read by the same person
+		// the problems drawer is; telling them to check their runs-on here
+		// while the drawer says the App is not installed would be worse than
+		// saying nothing.
+		if j.InstallationID == "" {
+			return "no GitHub App installation here covers " + j.Repo +
+				", so no pool can claim it whatever its labels say"
+		}
 		return "no enabled pool claims these labels, so nothing in this fleet will start it"
 	}
 	name := j.PoolID
