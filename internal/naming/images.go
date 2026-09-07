@@ -73,11 +73,12 @@ const (
 // list into another's; runnerImages hands out copies.
 var bothArches = []string{ArchAMD64, ArchARM64}
 
-// runnerImages is the catalogue. Adding a row here and a matrix entry in
-// .github/workflows/release.yml is the whole of adding an operating system:
-// the Dockerfile already handles both package families, the pool validator
-// reads this list to tell an operator what they may ask for, and the docs
-// table is generated from the same rows.
+// runnerImages is the catalogue, and the one place an operating system is added
+// or swapped. A row here plus `make generate` is the whole of it: the generator
+// rewrites both workflows' matrices, the Makefile's build variants and the
+// table on the site from these rows, and the Dockerfile already handles both
+// package families. The pool validator reads the same list to tell an operator
+// what they may ask for.
 //
 // Alpine is deliberately absent. actions/runner ships glibc binaries and .NET
 // dependencies that musl does not satisfy, so an Alpine variant would build

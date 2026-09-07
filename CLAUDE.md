@@ -101,6 +101,11 @@ has a CI job that diffs them:
   editing the spec, run `go run internal/api/gen_openapi.go` from the repo root.
 * `web/src/lib/api/schema.d.ts` is generated from the same spec. Run
   `make openapi` and commit the result.
+* The runner image catalogue in `internal/naming/images.go` is the source for
+  both workflows' build matrices, the Makefile's `variant.*` rows and the table
+  in `docs/naming.md`. Adding or swapping an operating system is a row there and
+  then `make generate`; editing any of the four by hand fails a test in
+  `internal/naming`.
 * `install.sh` at the repo root is copied verbatim to the site root — the script
   people `curl` is the script a contributor edits. Do not create a second copy.
 * The app shell must stay under **200 KB gzipped** (`web/vite.config.ts`

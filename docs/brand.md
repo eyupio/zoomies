@@ -192,7 +192,7 @@ not try to set it in type.
 | Service | `zoomies` (controller), `zoomies-agent` (agent) |
 | Config directory | `/etc/zoomies` as root, `~/.config/zoomies` otherwise; see [Where things live](configuration.md#where-things-live) |
 | Container images | `ghcr.io/eyupio/zoomies`, `ghcr.io/eyupio/zoomies-runner`, `ghcr.io/eyupio/zoomies-runner-docker` |
-| Runner names | `zoomies-k3f9qz2m` — the brand and eight random characters |
+| Runner names | `zoomies-4vcpu-ubuntu-2404-biscuit-a3f9qz2m` — the brand, the pool's shape, a kennel word and a token |
 | Pool names | `zoomies-truffle-docker-linux`; a name given without the prefix gains one |
 | Pool labels | `zoomies-linux-x64`, `zoomies-gpu`; every pool also answers to `zoomies` |
 | Migration branch | `zoomies/migrate-runners-<timestamp>` |
@@ -202,10 +202,12 @@ not try to set it in type.
 Two of those names are read far more often outside Zoomies than inside it: the
 runner name, which GitHub prints in its runner list and in every job's "Set up
 job" step, and the pool label, which has to be written into `runs-on` in every
-workflow in the organisation. Both are short, both start with the product name,
-and neither carries anything a reader would have to decode. The runner name used
-to carry the pool as well — `zoomies-linux-x64-a3f9q` — which made the brand the
-part GitHub truncated.
+workflow in the organisation. Both start with the product name, and neither
+carries anything a reader would have to decode. The runner name carries the
+pool's *shape* rather than the name somebody invented for it, because a reader
+on GitHub is there precisely because they do not yet know what they are looking
+at — and when it will not fit, the shape is what gives way rather than the
+brand. See [Naming and platforms](naming.md#runner-names).
 
 `internal/store/brand.go` is the one place these are spelled out;
 `web/src/lib/brand.ts` is the browser's copy of it.

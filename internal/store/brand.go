@@ -1,6 +1,10 @@
 package store
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/eyupio/zoomies/internal/naming"
+)
 
 // The brand, as it appears on GitHub.
 //
@@ -34,6 +38,11 @@ const (
 	// encodes to eight base32 characters, which is a name a person can read
 	// back over a call and still leaves a collision within one target
 	// vanishingly unlikely.
+	//
+	// The kennel word beside it does not reduce this. Thirty-two words is five
+	// bits, which makes two runners share a word about as often as two people
+	// in a room of eight share a birthday -- fine for something an operator
+	// says out loud, useless as the thing GitHub relies on for uniqueness.
 	runnerNameEntropy = 5
 
 	// maxLabelSegment bounds the part of a label derived from something an
@@ -42,15 +51,43 @@ const (
 	maxLabelSegment = 40
 )
 
-// NewRunnerName mints the name one runner registers under: "zoomies-" and
-// eight random characters.
+// NewRunnerName mints the name one runner of this pool registers under: the
+// brand, the pool's shape, a word from the kennel, and a token.
 //
-// It deliberately says nothing else. GitHub shows this name in the runner list
-// and in every job's log header, where the useful facts -- which pool, which
-// host, which job -- are either already on screen or one click away in Zoomies.
-// Encoding them in the name made it long enough that the brand was the part
-// that got truncated.
-func NewRunnerName() string { return RunnerNamePrefix + NewSecret(runnerNameEntropy) }
+// This used to be the brand and eight random characters, on the argument that
+// GitHub shows a runner name in narrow columns and the useful facts are a click
+// away in Zoomies. The argument was wrong about where the reader is. Somebody
+// looking at GitHub's runner list, or at the "Set up job" line of a log, is
+// there precisely because they do not yet know which pool they are looking at;
+// asking them to go and find out is asking them to leave. What made the old
+// name too long was carrying the pool's *invented* name as well as the brand,
+// and naming/RunnerName solves that by dropping shape segments rather than the
+// brand when a name will not fit.
+//
+// A nil pool -- a runner Zoomies is naming before it knows where it goes -- gets
+// the brand and the discriminator, which is exactly the old name plus a word.
+func NewRunnerName(p *Pool) string {
+	return naming.RunnerName(runnerBase(p), naming.KennelWord()+"-"+NewSecret(runnerNameEntropy))
+}
+
+// runnerBase is the part of a runner's name that says what it is.
+//
+// The pool's shape wins over the pool's name because the shape is the half a
+// reader on GitHub cannot get anywhere else: "4vcpu-ubuntu-2404" answers the
+// question they are asking, where "biscuit" is a handle for a thing they are
+// not looking at. A pool that has no shape to report -- no resources, no
+// platform, which is what a pool created before either was recorded looks like
+// -- falls back to its own name, because a name that says something an operator
+// chose beats a name that says nothing at all.
+func runnerBase(p *Pool) string {
+	if p == nil {
+		return Brand
+	}
+	if spec := p.Spec(); !spec.Empty() {
+		return spec.String()
+	}
+	return p.Name
+}
 
 // IsRunnerName reports whether name looks like one NewRunnerName minted, which
 // is as much as anything outside this package can know about a registration it

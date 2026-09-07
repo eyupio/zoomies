@@ -1,5 +1,5 @@
-// Package naming owns the grammar Zoomies uses for the two names an operator
-// reads and writes: a pool's, and a host's.
+// Package naming owns the grammar Zoomies uses for the names an operator reads
+// and writes: a pool's, a host's, and the runners' derived from them.
 //
 // The problem it solves is that "linux-x64" tells you almost nothing. When a
 // job is slow, when a bill is too big, or when a job landed somewhere it had no
@@ -13,16 +13,16 @@
 //
 //	zoomies-<cpu>vcpu[-<memory>gb]-<os>-<version>[-<arch>][-<suffix>]
 //
-// so a pool is "zoomies-4vcpu-ubuntu-2404" and a host running it is
-// "zoomies-16vcpu-ubuntu-2404-tuck". Every part after the prefix is optional
-// and omitted when it is not known, because a half-described host is still
-// better named than one called "ip-10-0-4-17".
+// so a pool is "zoomies-4vcpu-ubuntu-2404", a host running it is
+// "zoomies-16vcpu-ubuntu-2404-tuck", and a runner of that pool is
+// "zoomies-4vcpu-ubuntu-2404-biscuit-a3f9qz2m". Every part after the prefix is
+// optional and omitted when it is not known, because a half-described host is
+// still better named than one called "ip-10-0-4-17".
 //
-// Runner names are deliberately not in this grammar. store.NewRunnerName mints
-// them as the brand plus random characters, because GitHub shows a runner name
-// in columns narrow enough that anything longer loses the brand to truncation
-// -- and which pool a runner belongs to is on its labels anyway. See
-// internal/store/brand.go.
+// The suffix slot is what makes two things of the same shape tellable apart: a
+// machine name for a host, and for a runner a word from the kennel and a random
+// token. RunnerName explains why a runner needs both, and why the shape rather
+// than the prefix or the token is what gives way when a name will not fit.
 //
 // Two conventions keep names short enough to read:
 //

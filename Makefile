@@ -135,11 +135,16 @@ image: ## Build the controller/agent image
 
 # The runner image's variants. Each one is a base image, the package family
 # deploy/Dockerfile.runner installs with, and the platform it claims to be.
-# The same five rows appear in internal/naming's catalogue and in both
-# workflows, and a Go test fails if they drift apart.
+#
+# The rows below are generated from internal/naming's catalogue, which is the
+# one place an operating system is added or swapped. Do not edit them by hand:
+# run `make generate` and commit what it writes.
 RUNNER_IMAGE   ?= ghcr.io/eyupio/zoomies-runner
-RUNNER_VARIANT ?= ubuntu-2404
+RUNNER_VARIANT ?= $(RUNNER_VARIANT_DEFAULT)
+
+# zoomies:catalogue-begin
 RUNNER_VARIANTS := ubuntu-2404 ubuntu-2204 debian-12 fedora-42 rocky-9
+RUNNER_VARIANT_DEFAULT := ubuntu-2404
 
 # base | family | os | version
 variant.ubuntu-2404 := ubuntu:24.04 apt ubuntu 24.04
@@ -147,6 +152,7 @@ variant.ubuntu-2204 := ubuntu:22.04 apt ubuntu 22.04
 variant.debian-12   := debian:12-slim apt debian 12
 variant.fedora-42   := fedora:42 dnf fedora 42
 variant.rocky-9     := rockylinux/rockylinux:9 dnf rocky 9
+# zoomies:catalogue-end
 
 # variant-args renders one variant's row as docker build arguments.
 variant-args = \
@@ -198,6 +204,10 @@ images-multiarch: ## Build the controller and every runner variant for amd64 and
 .PHONY: openapi
 openapi: ## Regenerate the TypeScript client from api/openapi.yaml
 	cd $(UI_DIR) && $(NPM) run generate:api
+
+.PHONY: generate
+generate: ## Rewrite everything generated from internal/naming's image catalogue
+	go run internal/naming/gen_catalogue.go
 
 .PHONY: clean
 clean: ## Remove build output

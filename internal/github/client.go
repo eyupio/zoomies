@@ -231,21 +231,22 @@ type Factory interface {
 	For(ctx context.Context, inst *store.Installation, privateKeyPEM []byte) (Client, error)
 }
 
-// RunnerName mints the name one runner registers under: the brand and a short
-// random suffix, "zoomies-k3f9qz2m".
+// RunnerName mints the name one runner of this pool registers under:
+// "zoomies-4vcpu-ubuntu-2404-biscuit-a3f9qz2m".
 //
-// GitHub requires the name to be unique within a target and shows it in the
-// runner list, in the job header and in the "Set up job" step of every log. It
-// used to carry the pool name as well, which made the common case --
-// "zoomies-linux-x64-a3f9q" -- long enough that the brand was what got
-// truncated in GitHub's own tables. Which pool a runner belongs to is a click
-// away in Zoomies and is on the runner's labels either way.
+// This is the one name Zoomies puts in somebody else's account, so GitHub's
+// constraints on it are worth stating where the registration is made. The name
+// must be unique within the target -- two runners answering to one name is one
+// registration being taken over, not two runners -- which is what the random
+// token at the end is for, and why nothing may truncate it away. GitHub also
+// shows it in three places a reader arrives at knowing nothing: the runner list,
+// the job header, and the "Set up job" step of every log. That is what the shape
+// in the middle answers, and store.NewRunnerName explains why it is worth the
+// characters.
 //
-// This is why the naming grammar in internal/naming stops at pools and hosts:
-// a pool's name is read in a workflow file, where the size and the platform
-// are exactly what a reader needs, and a runner's is read in a column that
-// truncates.
-func RunnerName() string { return store.NewRunnerName() }
+// The 64-character limit GitHub enforces is internal/naming's MaxNameLength, so
+// a name is trimmed to fit here rather than refused by the API at registration.
+func RunnerName(pool *store.Pool) string { return store.NewRunnerName(pool) }
 
 // SplitTarget parses "owner" or "owner/repo" into its parts.
 func SplitTarget(target string) (owner, repo string, kind store.TargetType) {

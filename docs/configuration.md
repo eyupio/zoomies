@@ -668,8 +668,10 @@ request that introduces it can tell the job has left GitHub's runners, which
 every pool, so `runs-on: zoomies` means "anywhere in this fleet" — useful for a
 repository nobody has assigned a pool to yet.
 
-Runners are named for the brand too: `zoomies-k3f9qz2m`, which is what GitHub
-shows in its runner list and in every job's log header.
+Runners are named for the brand too, and for their pool's shape:
+`zoomies-4vcpu-ubuntu-2404-biscuit-a3f9qz2m`, which is what GitHub shows in its
+runner list and in every job's log header. See
+[Naming and platforms](naming.md#runner-names).
 
 ### The pool cache
 

@@ -22,19 +22,20 @@
 # list and not the dnf one for that reason: Fedora retired redhat-lsb-core, and
 # /etc/os-release -- which every image here has -- is what replaced it.
 #
-#   usage: runner-toolchain.sh <apt|dnf> [extra packages...]
+# A fleet's own extra packages are not installed here but in
+# deploy/runner-extra.sh, in a layer of its own, so that adding one does not
+# reinstall all of this.
+#
+#   usage: runner-toolchain.sh <apt|dnf>
 #
 set -eu
 
-family="${1:?usage: runner-toolchain.sh <apt|dnf> [extra packages...]}"
-shift || true
-extra="$*"
+family="${1:?usage: runner-toolchain.sh <apt|dnf>}"
 
 case "${family}" in
   apt)
     export DEBIAN_FRONTEND=noninteractive
     apt-get update
-    # shellcheck disable=SC2086  # extra is a deliberately word-split list
     apt-get install -y --no-install-recommends \
       build-essential pkg-config cmake autoconf automake libtool \
       patch file dpkg-dev gettext \
@@ -44,7 +45,7 @@ case "${family}" in
       libcurl4-openssl-dev libsqlite3-dev libreadline-dev libbz2-dev \
       liblzma-dev libncurses-dev uuid-dev \
       git-lfs wget gnupg bzip2 zstd lsb-release software-properties-common \
-      netcat-openbsd dnsutils iputils-ping net-tools ${extra}
+      netcat-openbsd dnsutils iputils-ping net-tools
     rm -rf /var/lib/apt/lists/*
     ;;
   dnf)
@@ -64,7 +65,6 @@ case "${family}" in
     # -devel packages whose Debian names differ enough to be worth listing.
     dnf group install -y --setopt=install_weak_deps=False development-tools \
       || dnf group install -y --setopt=install_weak_deps=False "Development Tools"
-    # shellcheck disable=SC2086
     dnf install -y --allowerasing --setopt=install_weak_deps=False \
       pkgconf-pkg-config cmake autoconf automake libtool patch file gettext \
       python3 python3-pip python3-devel python3-setuptools \
@@ -73,7 +73,7 @@ case "${family}" in
       libcurl-devel sqlite-devel readline-devel bzip2-devel \
       xz-devel ncurses-devel libuuid-devel \
       git-lfs wget gnupg2 bzip2 zstd \
-      nmap-ncat bind-utils iputils net-tools ${extra}
+      nmap-ncat bind-utils iputils net-tools
     dnf clean all
     rm -rf /var/cache/dnf
     ;;
