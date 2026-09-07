@@ -260,6 +260,62 @@ func TestCSRF(t *testing.T) {
 	read.mustStatus(t, http.StatusOK, "cross-origin GET")
 }
 
+// TestCSRFRefusesACrossOriginLogin covers the one claim the csrf middleware's
+// own doc comment makes and nothing asserted: the check runs on the whole
+// /api/v1 subtree rather than only on cookie-authenticated routes, because a
+// login CSRF -- signing the victim into the attacker's account, so that
+// everything they then do is in a session the attacker can read -- is worth
+// refusing too. Scoping the middleware to authenticated routes would look like
+// a tidy-up and would silently reopen it.
+func TestCSRFRefusesACrossOriginLogin(t *testing.T) {
+	h := newHarness(t)
+	h.user("alice", store.RoleAdmin)
+
+	credentials := map[string]any{"username": "alice", "password": testPassword}
+
+	foreign := h.do(request{
+		method: http.MethodPost, path: "/api/v1/auth/login",
+		origin: "https://evil.example.com", body: credentials,
+	})
+	foreign.mustStatus(t, http.StatusForbidden, "login posted from a foreign origin")
+	if !strings.Contains(foreign.errorMessage(t), "evil.example.com") {
+		t.Errorf("the refusal does not name the origin: %q", foreign.errorMessage(t))
+	}
+	// The refusal has to happen before the credentials are checked, or a
+	// foreign page still learns whether the password was right -- and the
+	// cookie must not have been minted whatever the answer was.
+	if foreign.cookie != nil {
+		t.Errorf("a cross-origin login still set a session cookie: %+v", foreign.cookie)
+	}
+
+	// Bootstrap mints the first admin, so a forged one is worse still.
+	bootstrap := h.do(request{
+		method: http.MethodPost, path: "/api/v1/auth/bootstrap",
+		origin: "https://evil.example.com",
+		body:   map[string]any{"username": "mallory", "password": testPassword, "setup_token": "whatever"},
+	})
+	bootstrap.mustStatus(t, http.StatusForbidden, "bootstrap posted from a foreign origin")
+
+	// And the counterpart that keeps the check from being a blanket ban: a
+	// plain client with no browser headers and no cookie is not a forged
+	// request, it is curl, and it is about to be asked for credentials anyway.
+	headless := h.do(request{
+		method: http.MethodPost, path: "/api/v1/auth/login",
+		noOrigin: true, body: credentials,
+	})
+	if headless.status == http.StatusForbidden {
+		t.Fatalf("a non-browser login was refused as cross-origin: %s", truncate(headless.body))
+	}
+	headless.mustStatus(t, http.StatusOK, "non-browser login")
+
+	// The ordinary browser login from the controller's own page still works.
+	sameOrigin := h.do(request{method: http.MethodPost, path: "/api/v1/auth/login", body: credentials})
+	sameOrigin.mustStatus(t, http.StatusOK, "same-origin login")
+	if sameOrigin.cookie == nil {
+		t.Error("a same-origin login minted no session cookie")
+	}
+}
+
 func TestAllowedOriginsPermitsAConfiguredOrigin(t *testing.T) {
 	h := newHarness(t, func(c *config.Config) {
 		c.Server.AllowedOrigins = []string{"https://ops.example.com"}

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -60,6 +61,67 @@ type harness struct {
 	cfg  *config.Config
 	key  *cryptox.Key
 	ctx  context.Context
+	logs *logCapture
+}
+
+// logCapture is the controller's own log, kept so that a test can assert on
+// what it wrote. It exists for the secret-absence tests: an operator's log is
+// read by more people than the API is, is shipped to wherever logs are shipped,
+// and outlives the request, so a credential written into it is the leak that
+// lasts longest.
+//
+// It records attribute values rather than a formatted line, because a text
+// handler escapes what it writes and a secret would then be searched for in one
+// form and present in another. The lines live in a sink the derived handlers
+// share, because the request logger is a With() of the root one and its lines
+// are exactly the ones worth reading.
+type logCapture struct {
+	sink *logSink
+	pre  []slog.Attr
+}
+
+type logSink struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func newLogCapture() *logCapture { return &logCapture{sink: &logSink{}} }
+
+func (c *logCapture) Enabled(context.Context, slog.Level) bool { return true }
+
+func (c *logCapture) Handle(_ context.Context, r slog.Record) error {
+	var b strings.Builder
+	b.WriteString(r.Level.String())
+	b.WriteString(" ")
+	b.WriteString(r.Message)
+	write := func(a slog.Attr) {
+		b.WriteString(" ")
+		b.WriteString(a.Key)
+		b.WriteString("=")
+		b.WriteString(a.Value.String())
+	}
+	for _, a := range c.pre {
+		write(a)
+	}
+	r.Attrs(func(a slog.Attr) bool { write(a); return true })
+
+	c.sink.mu.Lock()
+	defer c.sink.mu.Unlock()
+	c.sink.lines = append(c.sink.lines, b.String())
+	return nil
+}
+
+func (c *logCapture) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &logCapture{sink: c.sink, pre: append(append([]slog.Attr{}, c.pre...), attrs...)}
+}
+
+func (c *logCapture) WithGroup(string) slog.Handler { return c }
+
+// text is everything logged so far, as one string to search.
+func (c *logCapture) text() string {
+	c.sink.mu.Lock()
+	defer c.sink.mu.Unlock()
+	return strings.Join(c.sink.lines, "\n")
 }
 
 func testConfig(t *testing.T) *config.Config {
@@ -100,7 +162,8 @@ func newHarness(t *testing.T, opts ...func(*config.Config)) *harness {
 	}
 
 	bus := events.New()
-	logger := slog.New(slog.DiscardHandler)
+	logs := newLogCapture()
+	logger := slog.New(logs)
 	ctrl, err := controller.New(controller.Options{
 		Store:  st,
 		Config: cfg,
@@ -122,7 +185,7 @@ func newHarness(t *testing.T, opts ...func(*config.Config)) *harness {
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(srv.Close)
 
-	return &harness{t: t, srv: srv, api: s, ctrl: ctrl, st: st, gh: gh, cfg: cfg, key: key, ctx: ctx}
+	return &harness{t: t, srv: srv, api: s, ctrl: ctrl, st: st, gh: gh, cfg: cfg, key: key, ctx: ctx, logs: logs}
 }
 
 // setupToken is the credential the first-run route asks for. It is minted per
@@ -523,6 +586,12 @@ type route struct {
 	// credentials in its body rather than about the caller -- which is exactly
 	// what a failed sign-in is.
 	checksCredentials bool
+	// action is the permission the route's own gate checks, and the scope a
+	// narrowed token therefore has to carry. Empty means no gate: the public
+	// routes, and the three self-service ones every signed-in identity may
+	// call. It is written out beside the role for the same reason the role is
+	// -- a column read back off the router would agree with a mistake.
+	action auth.Action
 }
 
 // routeTable is every route in api/openapi.yaml, plus health and the spec.
@@ -547,91 +616,91 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "POST", path: "/api/v1/auth/password", role: store.RoleViewer,
 			body: map[string]any{"old_password": "x", "new_password": testPassword}},
 
-		{method: "GET", path: "/api/v1/stats", role: store.RoleViewer},
-		{method: "GET", path: "/api/v1/samples", role: store.RoleViewer},
-		{method: "GET", path: "/api/v1/problems", role: store.RoleViewer},
-		{method: "GET", path: "/api/v1/scaling-events", role: store.RoleViewer},
-		{method: "GET", path: "/api/v1/events", role: store.RoleViewer},
-		{method: "GET", path: "/api/v1/usage", role: store.RoleViewer},
-		{method: "GET", path: "/api/v1/usage.csv", role: store.RoleViewer},
+		{method: "GET", path: "/api/v1/stats", role: store.RoleViewer, action: auth.ActionStatsRead},
+		{method: "GET", path: "/api/v1/samples", role: store.RoleViewer, action: auth.ActionStatsRead},
+		{method: "GET", path: "/api/v1/problems", role: store.RoleViewer, action: auth.ActionStatsRead},
+		{method: "GET", path: "/api/v1/scaling-events", role: store.RoleViewer, action: auth.ActionStatsRead},
+		{method: "GET", path: "/api/v1/events", role: store.RoleViewer, action: auth.ActionEventsRead},
+		{method: "GET", path: "/api/v1/usage", role: store.RoleViewer, action: auth.ActionUsageRead},
+		{method: "GET", path: "/api/v1/usage.csv", role: store.RoleViewer, action: auth.ActionUsageRead},
 
-		{method: "GET", path: "/api/v1/installations", role: store.RoleViewer},
-		{method: "POST", path: "/api/v1/installations", role: store.RoleAdmin, body: map[string]any{}},
-		{method: "GET", path: "/api/v1/installations/" + ids.installation, role: store.RoleViewer},
-		{method: "PATCH", path: "/api/v1/installations/" + ids.installation, role: store.RoleAdmin, body: map[string]any{}},
-		{method: "DELETE", path: "/api/v1/installations/missing", role: store.RoleAdmin},
-		{method: "POST", path: "/api/v1/installations/" + ids.installation + "/verify", role: store.RoleOperator},
-		{method: "GET", path: "/api/v1/installations/" + ids.installation + "/runner-groups", role: store.RoleViewer},
-		{method: "GET", path: "/api/v1/installations/" + ids.installation + "/rate-limit", role: store.RoleViewer},
-		{method: "POST", path: "/api/v1/installations/manifest", role: store.RoleAdmin,
+		{method: "GET", path: "/api/v1/installations", role: store.RoleViewer, action: auth.ActionInstallationsRead},
+		{method: "POST", path: "/api/v1/installations", role: store.RoleAdmin, body: map[string]any{}, action: auth.ActionInstallationsWrite},
+		{method: "GET", path: "/api/v1/installations/" + ids.installation, role: store.RoleViewer, action: auth.ActionInstallationsRead},
+		{method: "PATCH", path: "/api/v1/installations/" + ids.installation, role: store.RoleAdmin, body: map[string]any{}, action: auth.ActionInstallationsWrite},
+		{method: "DELETE", path: "/api/v1/installations/missing", role: store.RoleAdmin, action: auth.ActionInstallationsDelete},
+		{method: "POST", path: "/api/v1/installations/" + ids.installation + "/verify", role: store.RoleOperator, action: auth.ActionInstallationsVerify},
+		{method: "GET", path: "/api/v1/installations/" + ids.installation + "/runner-groups", role: store.RoleViewer, action: auth.ActionInstallationsRead},
+		{method: "GET", path: "/api/v1/installations/" + ids.installation + "/rate-limit", role: store.RoleViewer, action: auth.ActionInstallationsRead},
+		{method: "POST", path: "/api/v1/installations/manifest", role: store.RoleAdmin, action: auth.ActionInstallationsWrite,
 			body: map[string]any{"target": "acme", "target_type": "org"}},
-		{method: "POST", path: "/api/v1/installations/manifest/exchange", role: store.RoleAdmin,
+		{method: "POST", path: "/api/v1/installations/manifest/exchange", role: store.RoleAdmin, action: auth.ActionInstallationsWrite,
 			body: map[string]any{"code": ""}},
-		{method: "GET", path: "/api/v1/webhook-deliveries", role: store.RoleViewer},
-		{method: "POST", path: "/api/v1/webhook-test", role: store.RoleOperator},
+		{method: "GET", path: "/api/v1/webhook-deliveries", role: store.RoleViewer, action: auth.ActionWebhooksRead},
+		{method: "POST", path: "/api/v1/webhook-test", role: store.RoleOperator, action: auth.ActionWebhooksTest},
 
-		{method: "GET", path: "/api/v1/pools", role: store.RoleViewer},
-		{method: "POST", path: "/api/v1/pools", role: store.RoleOperator, body: map[string]any{}},
-		{method: "POST", path: "/api/v1/pools/validate", role: store.RoleOperator, body: map[string]any{}},
-		{method: "GET", path: "/api/v1/pools/platforms", role: store.RoleViewer},
-		{method: "GET", path: "/api/v1/pools/" + ids.pool, role: store.RoleViewer},
-		{method: "PATCH", path: "/api/v1/pools/" + ids.pool, role: store.RoleOperator, body: map[string]any{}},
-		{method: "DELETE", path: "/api/v1/pools/missing", role: store.RoleOperator},
-		{method: "POST", path: "/api/v1/pools/" + ids.pool + "/enable", role: store.RoleOperator},
-		{method: "POST", path: "/api/v1/pools/" + ids.pool + "/disable", role: store.RoleOperator},
-		{method: "POST", path: "/api/v1/pools/" + ids.pool + "/prewarm", role: store.RoleOperator},
+		{method: "GET", path: "/api/v1/pools", role: store.RoleViewer, action: auth.ActionPoolsRead},
+		{method: "POST", path: "/api/v1/pools", role: store.RoleOperator, body: map[string]any{}, action: auth.ActionPoolsWrite},
+		{method: "POST", path: "/api/v1/pools/validate", role: store.RoleOperator, body: map[string]any{}, action: auth.ActionPoolsWrite},
+		{method: "GET", path: "/api/v1/pools/platforms", role: store.RoleViewer, action: auth.ActionPoolsRead},
+		{method: "GET", path: "/api/v1/pools/" + ids.pool, role: store.RoleViewer, action: auth.ActionPoolsRead},
+		{method: "PATCH", path: "/api/v1/pools/" + ids.pool, role: store.RoleOperator, body: map[string]any{}, action: auth.ActionPoolsWrite},
+		{method: "DELETE", path: "/api/v1/pools/missing", role: store.RoleOperator, action: auth.ActionPoolsDelete},
+		{method: "POST", path: "/api/v1/pools/" + ids.pool + "/enable", role: store.RoleOperator, action: auth.ActionPoolsWrite},
+		{method: "POST", path: "/api/v1/pools/" + ids.pool + "/disable", role: store.RoleOperator, action: auth.ActionPoolsWrite},
+		{method: "POST", path: "/api/v1/pools/" + ids.pool + "/prewarm", role: store.RoleOperator, action: auth.ActionPoolsWrite},
 
-		{method: "GET", path: "/api/v1/runners", role: store.RoleViewer},
-		{method: "GET", path: "/api/v1/runners/" + ids.runner, role: store.RoleViewer},
-		{method: "DELETE", path: "/api/v1/runners/missing", role: store.RoleOperator},
-		{method: "POST", path: "/api/v1/runners/missing/drain", role: store.RoleOperator},
-		{method: "GET", path: "/api/v1/runners/" + ids.runner + "/timeline", role: store.RoleViewer},
-		{method: "POST", path: "/api/v1/runners/bulk", role: store.RoleOperator,
+		{method: "GET", path: "/api/v1/runners", role: store.RoleViewer, action: auth.ActionRunnersRead},
+		{method: "GET", path: "/api/v1/runners/" + ids.runner, role: store.RoleViewer, action: auth.ActionRunnersRead},
+		{method: "DELETE", path: "/api/v1/runners/missing", role: store.RoleOperator, action: auth.ActionRunnersDelete},
+		{method: "POST", path: "/api/v1/runners/missing/drain", role: store.RoleOperator, action: auth.ActionRunnersDrain},
+		{method: "GET", path: "/api/v1/runners/" + ids.runner + "/timeline", role: store.RoleViewer, action: auth.ActionRunnersRead},
+		{method: "POST", path: "/api/v1/runners/bulk", role: store.RoleOperator, action: auth.ActionRunnersDrain,
 			body: map[string]any{"action": "drain", "ids": []string{"missing"}}},
-		{method: "GET", path: "/api/v1/runners/missing/logs", role: store.RoleViewer},
-		{method: "GET", path: "/api/v1/runners/missing/logs/download", role: store.RoleViewer},
+		{method: "GET", path: "/api/v1/runners/missing/logs", role: store.RoleViewer, action: auth.ActionLogsRead},
+		{method: "GET", path: "/api/v1/runners/missing/logs/download", role: store.RoleViewer, action: auth.ActionLogsRead},
 
-		{method: "GET", path: "/api/v1/jobs", role: store.RoleViewer},
-		{method: "GET", path: "/api/v1/jobs/facets", role: store.RoleViewer},
-		{method: "GET", path: "/api/v1/jobs/" + ids.job, role: store.RoleViewer},
-		{method: "GET", path: "/api/v1/jobs/" + ids.job + "/events", role: store.RoleViewer},
+		{method: "GET", path: "/api/v1/jobs", role: store.RoleViewer, action: auth.ActionJobsRead},
+		{method: "GET", path: "/api/v1/jobs/facets", role: store.RoleViewer, action: auth.ActionJobsRead},
+		{method: "GET", path: "/api/v1/jobs/" + ids.job, role: store.RoleViewer, action: auth.ActionJobsRead},
+		{method: "GET", path: "/api/v1/jobs/" + ids.job + "/events", role: store.RoleViewer, action: auth.ActionJobsRead},
 
-		{method: "GET", path: "/api/v1/hosts", role: store.RoleViewer},
-		{method: "GET", path: "/api/v1/hosts/" + ids.host, role: store.RoleViewer},
-		{method: "PATCH", path: "/api/v1/hosts/" + ids.host, role: store.RoleOperator, body: map[string]any{}},
-		{method: "POST", path: "/api/v1/hosts/" + ids.host + "/cordon", role: store.RoleOperator,
+		{method: "GET", path: "/api/v1/hosts", role: store.RoleViewer, action: auth.ActionHostsRead},
+		{method: "GET", path: "/api/v1/hosts/" + ids.host, role: store.RoleViewer, action: auth.ActionHostsRead},
+		{method: "PATCH", path: "/api/v1/hosts/" + ids.host, role: store.RoleOperator, body: map[string]any{}, action: auth.ActionHostsWrite},
+		{method: "POST", path: "/api/v1/hosts/" + ids.host + "/cordon", role: store.RoleOperator, action: auth.ActionHostsCordon,
 			body: map[string]any{"cordoned": false}},
-		{method: "DELETE", path: "/api/v1/hosts/missing", role: store.RoleAdmin},
+		{method: "DELETE", path: "/api/v1/hosts/missing", role: store.RoleAdmin, action: auth.ActionHostsDelete},
 
-		{method: "GET", path: "/api/v1/join-tokens", role: store.RoleAdmin},
-		{method: "GET", path: "/api/v1/join-tokens/missing", role: store.RoleAdmin},
-		{method: "POST", path: "/api/v1/join-tokens", role: store.RoleAdmin, body: map[string]any{"ttl": "15m"}},
-		{method: "DELETE", path: "/api/v1/join-tokens/missing", role: store.RoleAdmin},
+		{method: "GET", path: "/api/v1/join-tokens", role: store.RoleAdmin, action: auth.ActionJoinsRead},
+		{method: "GET", path: "/api/v1/join-tokens/missing", role: store.RoleAdmin, action: auth.ActionJoinsRead},
+		{method: "POST", path: "/api/v1/join-tokens", role: store.RoleAdmin, body: map[string]any{"ttl": "15m"}, action: auth.ActionJoinsWrite},
+		{method: "DELETE", path: "/api/v1/join-tokens/missing", role: store.RoleAdmin, action: auth.ActionJoinsWrite},
 
-		{method: "POST", path: "/api/v1/migrations/plan", role: store.RoleOperator,
+		{method: "POST", path: "/api/v1/migrations/plan", role: store.RoleOperator, action: auth.ActionMigrationsRead,
 			body: map[string]any{"installation_id": ids.installation}},
-		{method: "POST", path: "/api/v1/migrations/pull-requests", role: store.RoleOperator,
+		{method: "POST", path: "/api/v1/migrations/pull-requests", role: store.RoleOperator, action: auth.ActionMigrationsWrite,
 			body: map[string]any{"installation_id": ids.installation, "repos": []string{}, "mapping": map[string]string{}}},
 
-		{method: "GET", path: "/api/v1/audit", role: store.RoleViewer},
-		{method: "GET", path: "/api/v1/audit/actions", role: store.RoleViewer},
+		{method: "GET", path: "/api/v1/audit", role: store.RoleViewer, action: auth.ActionAuditRead},
+		{method: "GET", path: "/api/v1/audit/actions", role: store.RoleViewer, action: auth.ActionAuditRead},
 
-		{method: "GET", path: "/api/v1/users", role: store.RoleAdmin},
-		{method: "POST", path: "/api/v1/users", role: store.RoleAdmin, body: map[string]any{"username": "", "role": "viewer"}},
-		{method: "GET", path: "/api/v1/users/missing", role: store.RoleAdmin},
-		{method: "PATCH", path: "/api/v1/users/missing", role: store.RoleAdmin, body: map[string]any{}},
-		{method: "DELETE", path: "/api/v1/users/missing", role: store.RoleAdmin},
-		{method: "POST", path: "/api/v1/users/missing/password", role: store.RoleAdmin,
+		{method: "GET", path: "/api/v1/users", role: store.RoleAdmin, action: auth.ActionUsersRead},
+		{method: "POST", path: "/api/v1/users", role: store.RoleAdmin, body: map[string]any{"username": "", "role": "viewer"}, action: auth.ActionUsersWrite},
+		{method: "GET", path: "/api/v1/users/missing", role: store.RoleAdmin, action: auth.ActionUsersRead},
+		{method: "PATCH", path: "/api/v1/users/missing", role: store.RoleAdmin, body: map[string]any{}, action: auth.ActionUsersWrite},
+		{method: "DELETE", path: "/api/v1/users/missing", role: store.RoleAdmin, action: auth.ActionUsersWrite},
+		{method: "POST", path: "/api/v1/users/missing/password", role: store.RoleAdmin, action: auth.ActionUsersWrite,
 			body: map[string]any{"new_password": testPassword}},
 
-		{method: "GET", path: "/api/v1/tokens", role: store.RoleAdmin},
-		{method: "POST", path: "/api/v1/tokens", role: store.RoleAdmin, body: map[string]any{"name": "", "role": "viewer"}},
-		{method: "DELETE", path: "/api/v1/tokens/missing", role: store.RoleAdmin},
+		{method: "GET", path: "/api/v1/tokens", role: store.RoleAdmin, action: auth.ActionTokensRead},
+		{method: "POST", path: "/api/v1/tokens", role: store.RoleAdmin, body: map[string]any{"name": "", "role": "viewer"}, action: auth.ActionTokensWrite},
+		{method: "DELETE", path: "/api/v1/tokens/missing", role: store.RoleAdmin, action: auth.ActionTokensWrite},
 
-		{method: "GET", path: "/api/v1/settings", role: store.RoleAdmin},
-		{method: "PATCH", path: "/api/v1/settings", role: store.RoleAdmin, body: map[string]any{}},
+		{method: "GET", path: "/api/v1/settings", role: store.RoleAdmin, action: auth.ActionSettingsRead},
+		{method: "PATCH", path: "/api/v1/settings", role: store.RoleAdmin, body: map[string]any{}, action: auth.ActionSettingsWrite},
 
-		{method: "GET", path: "/metrics", role: store.RoleViewer},
+		{method: "GET", path: "/metrics", role: store.RoleViewer, action: auth.ActionMetricsRead},
 	}
 }
 
@@ -718,6 +787,114 @@ func TestRouteAuthorisation(t *testing.T) {
 			})
 		}
 	}
+}
+
+// TestScopedTokenRouteAuthorisation is the walk for the second gate.
+//
+// A role says how much of the fleet an identity may touch; a scope narrows a
+// token below its role, and it is the mechanism behind every "give CI a token
+// that can only drain runners". Until now exactly one route had a test for it,
+// and that one was really testing a handler's second check on its body. The
+// route gate itself -- s.require, on sixty-odd routes -- had none, so a token
+// scoped to nothing in particular would have reached all of them.
+//
+// Every token here carries the admin role, so a refusal can only be about the
+// scope: if the role gate fired instead, the message would name a role and the
+// assertion below would catch it.
+func TestScopedTokenRouteAuthorisation(t *testing.T) {
+	h := newHarness(t)
+	ids := h.fixtures()
+
+	// One token per resource, carrying every scope in the system except that
+	// resource's. That is stronger than a single decoy scope: it proves the
+	// route is gated on its own permission and not merely on holding some
+	// scope, and it survives a new action being added elsewhere.
+	elsewhere := map[string]string{}
+	tokenWithoutResource := func(res string) string {
+		if tok, ok := elsewhere[res]; ok {
+			return tok
+		}
+		var scopes []string
+		for _, a := range auth.AllActions() {
+			if a.Resource() != res {
+				scopes = append(scopes, a.Scope())
+			}
+		}
+		tok := h.token("everything-but-"+res, store.RoleAdmin, scopes...)
+		elsewhere[res] = tok
+		return tok
+	}
+
+	gated := 0
+	for _, rt := range routeTable(ids) {
+		if rt.action == "" {
+			continue
+		}
+		gated++
+		t.Run(rt.method+" "+rt.path, func(t *testing.T) {
+			refused := h.do(request{method: rt.method, path: rt.path, body: rt.body,
+				token: tokenWithoutResource(rt.action.Resource())})
+			refused.mustStatus(t, http.StatusForbidden, "a token scoped to every other resource")
+			// The message names the scope that is missing, because the person
+			// reading it has to know what to add to the token.
+			if msg := refused.errorMessage(t); !strings.Contains(msg, rt.action.Scope()) {
+				t.Errorf("the refusal does not name the %q scope: %q", rt.action.Scope(), msg)
+			}
+
+			// The positive half, three ways of holding the permission. Without
+			// it, a gate that refused everything would pass the walk.
+			for _, scope := range []string{rt.action.Scope(), rt.action.Resource() + ":*", "*"} {
+				allowed := h.do(request{method: rt.method, path: rt.path, body: rt.body,
+					token: h.token(scope+" for "+rt.method+" "+rt.path, store.RoleAdmin, scope)})
+				if allowed.status == http.StatusForbidden || allowed.status == http.StatusUnauthorized {
+					t.Errorf("a token scoped to %q was refused %d: %s", scope, allowed.status, truncate(allowed.body))
+				}
+			}
+		})
+	}
+	if gated == 0 {
+		t.Fatal("no route in the table carries an action, so this walked nothing")
+	}
+}
+
+// TestEveryActionIsReachableThroughARoute keeps the column above honest in the
+// direction the walk cannot: an action nothing in the table claims is either a
+// permission no route enforces -- so a token scoped to it grants nothing and an
+// operator has been sold a scope that does not exist -- or a route that arrived
+// without a row, which is the same hole the role walk exists to close.
+func TestEveryActionIsReachableThroughARoute(t *testing.T) {
+	h := newHarness(t)
+	claimed := map[auth.Action]bool{}
+	for _, rt := range routeTable(h.fixtures()) {
+		if rt.action != "" {
+			claimed[rt.action] = true
+		}
+	}
+	for _, a := range auth.AllActions() {
+		if !claimed[a] {
+			t.Errorf("%s is a permission no route in the table checks", a)
+		}
+	}
+}
+
+// TestScopesAreNarrowerThanRoles is the property the two walks together imply
+// and neither states: a scope may take permissions away from a role and must
+// never add one back. An admin-scoped token held by a viewer is still a viewer.
+func TestScopesAreNarrowerThanRoles(t *testing.T) {
+	h := newHarness(t)
+	ids := h.fixtures()
+
+	// A viewer holding the widest scope there is.
+	viewer := h.token("wide-open viewer", store.RoleViewer, "*")
+
+	resp := h.do(request{method: http.MethodDelete, path: "/api/v1/pools/" + ids.pool, token: viewer})
+	resp.mustStatus(t, http.StatusForbidden, "a viewer with the * scope deleting a pool")
+	if msg := resp.errorMessage(t); !strings.Contains(msg, string(store.RoleOperator)) {
+		t.Errorf("the refusal does not name the role that is missing: %q", msg)
+	}
+	// And the reading it may do is unaffected.
+	read := h.do(request{method: http.MethodGet, path: "/api/v1/pools", token: viewer})
+	read.mustStatus(t, http.StatusOK, "a viewer with the * scope listing pools")
 }
 
 // TestRouteTableCoversTheSpec checks the hand-written table against the
@@ -911,4 +1088,65 @@ func TestAPIResponsesAreNeverCached(t *testing.T) {
 			t.Errorf("%s %s: Cache-Control = %q, want no-store", rt.method, rt.path, cc)
 		}
 	}
+}
+
+// TestOversizeRequestBodyIsRefused covers the limit that stops a caller making
+// the controller buffer memory on purpose.
+//
+// The status is the point as much as the refusal is. A 400 tells a client its
+// JSON is wrong, and the JSON is not wrong -- there is simply too much of it,
+// which is a different thing to do about it. The webhook endpoint has answered
+// 413 for the same condition since it was written, so this is also the two
+// halves of the surface giving one answer.
+func TestOversizeRequestBodyIsRefused(t *testing.T) {
+	h := newHarness(t)
+	token := h.token("bulky", store.RoleAdmin)
+	_, agentToken := h.agentToken("vm-1")
+
+	// Built from the production constant, so raising the limit does not
+	// quietly leave this test asserting nothing.
+	oversize := `{"name":"` + strings.Repeat("a", maxBodyBytes) + `"}`
+	json := map[string]string{"Content-Type": "application/json"}
+
+	for _, tc := range []struct {
+		name string
+		req  request
+	}{
+		{"the user API", request{method: http.MethodPost, path: "/api/v1/pools",
+			token: token, rawBody: oversize, headers: json}},
+		{"the anonymous agent join", request{method: http.MethodPost, path: "/api/v1/agent/join",
+			rawBody: oversize, headers: json}},
+		{"an authenticated agent route", request{method: http.MethodPost, path: "/api/v1/agent/heartbeat",
+			token: agentToken, rawBody: oversize, headers: json}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := h.do(tc.req)
+			resp.mustStatus(t, http.StatusRequestEntityTooLarge, "an oversize body on "+tc.req.path)
+			if code := resp.errorCode(t); code != codeTooLarge {
+				t.Errorf("code = %q, want %q", code, codeTooLarge)
+			}
+			// The message names the limit, because a client that has just been
+			// refused needs to know what it has to fit inside.
+			if msg := resp.errorMessage(t); !strings.Contains(msg, strconv.Itoa(maxBodyBytes)) {
+				t.Errorf("the refusal does not name the %d byte limit: %q", maxBodyBytes, msg)
+			}
+		})
+	}
+
+	// A body just under the limit is not refused for its size. It is refused
+	// for being a nonsense pool, which is the handler's business and proves
+	// the middleware let it through.
+	t.Run("a body under the limit", func(t *testing.T) {
+		under := `{"name":"` + strings.Repeat("a", maxBodyBytes/2) + `"}`
+		resp := h.do(request{method: http.MethodPost, path: "/api/v1/pools",
+			token: token, rawBody: under, headers: json})
+		if resp.status == http.StatusRequestEntityTooLarge {
+			t.Fatalf("a body inside the limit was refused as too large: %s", truncate(resp.body))
+		}
+	})
+
+	// The log relay's exemption is asserted where it can be observed, in
+	// TestARunnerThatPrintsMoreThanTheBodyLimitIsNotCutOff: a relay for a
+	// stream nobody is watching answers 404 before it reads a byte, so it
+	// would answer the same whether the limit applied to it or not.
 }

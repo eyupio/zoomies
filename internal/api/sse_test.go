@@ -226,6 +226,91 @@ func TestEventStreamEndsWhenTheClientGoesAway(t *testing.T) {
 	t.Fatalf("subscribers = %d after the client went away, want %d", h.ctrl.Events().Subscribers(), before)
 }
 
+// TestARunnerThatPrintsMoreThanTheBodyLimitIsNotCutOff is the log relay's
+// exemption from the request body limit, asserted on a stream that is really
+// open -- which is the only place it shows. A relay for a stream nobody is
+// watching is refused before its body is read, so it answers the same whether
+// the limit applies to it or not.
+//
+// The exemption matters because the body here is not a request, it is a
+// runner's whole output for as long as the job runs. Applying the ordinary
+// limit would cut off every build that prints more than a megabyte, and it
+// would do it by tearing down the operator's log view mid-build.
+func TestARunnerThatPrintsMoreThanTheBodyLimitIsNotCutOff(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+
+	hostID, agentToken := h.agentToken("vm-1")
+	host, err := h.st.GetHost(h.ctx, hostID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	run := h.runner(pool, host, store.RunnerBusy)
+
+	u, _ := h.user("viewer", store.RoleViewer)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	frames, resp := h.openStream(t, ctx, "/api/v1/runners/"+run.ID+"/logs", h.session(u), nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("log stream status %d", resp.StatusCode)
+	}
+	await(t, frames, "the attach comment", func(f sseFrame) bool { return f.comment != "" })
+
+	tasks := h.do(request{method: http.MethodGet, path: "/api/v1/agent/tasks?wait=2", token: agentToken})
+	tasks.mustStatus(t, http.StatusOK, "agent task poll")
+	var batch struct {
+		Tasks []struct {
+			Kind     string `json:"kind"`
+			StreamID string `json:"stream_id"`
+		} `json:"tasks"`
+	}
+	tasks.into(t, &batch)
+	streamID := ""
+	for _, task := range batch.Tasks {
+		if task.Kind == "stream_logs" {
+			streamID = task.StreamID
+		}
+	}
+	if streamID == "" {
+		t.Fatalf("no stream_logs task was queued: %+v", batch.Tasks)
+	}
+
+	// A verbose build: comfortably over the limit an ordinary request gets,
+	// with the marker at the very end so that finding it proves the whole body
+	// was read rather than the first megabyte of it.
+	const marker = "the last line of a very talkative build"
+	verbose := strings.Repeat("a line of build output that goes on a bit\n", (maxBodyBytes/42)+1024) + marker + "\n"
+	if len(verbose) <= maxBodyBytes {
+		t.Fatalf("the fixture is %d bytes, which is inside the %d byte limit it is meant to exceed", len(verbose), maxBodyBytes)
+	}
+
+	done := make(chan *response, 1)
+	go func() {
+		done <- h.do(request{
+			method: http.MethodPost, path: "/api/v1/agent/logs/" + streamID,
+			token: agentToken, headers: map[string]string{"Content-Type": "application/octet-stream"},
+			rawBody: verbose,
+		})
+	}()
+
+	await(t, frames, "the end of a body over the limit", func(f sseFrame) bool {
+		if f.event != logChunkKind {
+			return false
+		}
+		var line string
+		if err := json.Unmarshal([]byte(f.data), &line); err != nil {
+			return false
+		}
+		return strings.Contains(line, marker)
+	})
+
+	if post := <-done; post.status != http.StatusNoContent && post.status != http.StatusOK {
+		t.Errorf("the agent's oversize log POST answered %d: %s", post.status, truncate(post.body))
+	}
+}
+
 // TestRunnerLogStream relays an agent's output to a watching browser. It is the
 // inverted path: the viewer's request queues a task, the agent answers it with
 // a chunked POST, and the bytes come back out here.

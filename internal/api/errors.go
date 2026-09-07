@@ -34,6 +34,7 @@ const (
 	codeNotFound      = "not_found"
 	codeConflict      = "conflict"
 	codeUnprocessable = "unprocessable"
+	codeTooLarge      = "too_large"
 	codeRateLimited   = "rate_limited"
 	codeInternal      = "internal"
 )
@@ -103,6 +104,18 @@ func badRequest(w http.ResponseWriter, message string) {
 func badRequestField(w http.ResponseWriter, field, message string) {
 	writeError(w, http.StatusBadRequest, errorEnvelope{Error: errorBody{
 		Code: codeBadRequest, Message: message, Field: field,
+	}})
+}
+
+// payloadTooLarge is the refusal for a body over the limit.
+//
+// It is 413 rather than 400 because the two say different things to a client:
+// a 400 invites it to fix its JSON, and there is nothing wrong with the JSON.
+// The webhook endpoint has always answered 413 for the same condition, so this
+// is also the two halves of the surface agreeing.
+func payloadTooLarge(w http.ResponseWriter, message string) {
+	writeError(w, http.StatusRequestEntityTooLarge, errorEnvelope{Error: errorBody{
+		Code: codeTooLarge, Message: message,
 	}})
 }
 

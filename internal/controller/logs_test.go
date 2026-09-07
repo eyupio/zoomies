@@ -175,10 +175,19 @@ func TestLogRelayRefusesAnotherHostsStream(t *testing.T) {
 	if !errors.Is(err, ErrStreamUnknown) {
 		t.Fatalf("another host writing into the stream = %v; want ErrStreamUnknown", err)
 	}
-	// And the answer is the same one a closed stream gets, so probing for
-	// streams you do not own tells you nothing.
-	if err := h.c.AcceptLogStream(intruder.ID, "log_nosuchstream", strings.NewReader("x")); err.Error() == "" {
-		t.Fatal("an unknown stream should still be refused")
+	// And the answer is the same one a stream that never existed gets, so
+	// probing for streams you do not own tells you nothing. The two messages
+	// name their own stream id, so they are not compared for equality; what
+	// must match is the sentinel, and what must not appear in either is any
+	// hint that this particular id belongs to somebody.
+	never := h.c.AcceptLogStream(intruder.ID, "log_nosuchstream", strings.NewReader("x"))
+	if !errors.Is(never, ErrStreamUnknown) {
+		t.Fatalf("a stream that never existed = %v; want the same ErrStreamUnknown", never)
+	}
+	for _, telltale := range []string{host.ID, host.Name, r.ID, "owner", "another", "belongs", "forbidden"} {
+		if strings.Contains(err.Error(), telltale) {
+			t.Fatalf("the refusal names %q, which tells an intruder the stream is real: %v", telltale, err)
+		}
 	}
 
 	// Nothing the intruder sent reached the viewer.

@@ -201,7 +201,7 @@ func decodeWith(w http.ResponseWriter, r *http.Request, v any, strict bool) bool
 		case errors.Is(err, io.EOF):
 			badRequest(w, "this endpoint needs a JSON body and the request had none")
 		case errors.As(err, &maxErr):
-			badRequest(w, fmt.Sprintf("the request body is larger than the %d byte limit", maxErr.Limit))
+			payloadTooLarge(w, fmt.Sprintf("the request body is larger than the %d byte limit", maxErr.Limit))
 		default:
 			badRequest(w, "the request body is not valid JSON for this endpoint: "+err.Error())
 		}
