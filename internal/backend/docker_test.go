@@ -656,9 +656,6 @@ func TestDockerListOnlyReturnsOurRunners(t *testing.T) {
 			if !slices.Contains(filters["label"], LabelManaged+"=true") {
 				t.Errorf("list must filter on the managed label, got %v", filters)
 			}
-			if !slices.Contains(filters["label"], LabelRole+"="+roleRunner) {
-				t.Errorf("list must exclude sidecars, got %v", filters)
-			}
 			writeJSON(w, 200, []ContainerSummary{{
 				ID: "c1", State: "running",
 				Labels: map[string]string{LabelName: "runner-1", LabelRunnerID: "run_1", LabelPoolID: "pool_1"},
@@ -673,6 +670,134 @@ func TestDockerListOnlyReturnsOurRunners(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].RunnerID != "run_1" || got[0].Status.Phase != PhaseRunning {
 		t.Fatalf("workloads = %+v", got)
+	}
+}
+
+// A live pool with docker-in-docker has two containers, and only one of them
+// is the runner. Returning both would give the caller two workloads carrying
+// one runner id, and whichever it looked at first would decide which container
+// a stop task killed.
+func TestDockerListLeavesALiveRunnersSidecarAlone(t *testing.T) {
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"GET " + v + "/containers/json": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, []ContainerSummary{
+				{
+					ID: "dind1", State: "running",
+					Labels: map[string]string{
+						LabelRole: roleDinD, LabelDinDFor: "runner-1",
+						LabelName: "runner-1-dind", LabelRunnerID: "run_1",
+					},
+				},
+				{
+					ID: "c1", State: "running",
+					Labels: map[string]string{
+						LabelRole: roleRunner, LabelName: "runner-1", LabelRunnerID: "run_1",
+					},
+				},
+			})
+		},
+	})
+	b := dockerBackendFor(t, f, DockerOptions{})
+
+	got, err := b.List(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("only the runner belongs in the listing, got %+v", got)
+	}
+	if got[0].Handle != "c1" || got[0].Sidecar {
+		t.Fatalf("workload = %+v", got[0])
+	}
+}
+
+// A runner container removed out of band -- docker rm, or a daemon restart
+// that cleaned up -- takes nothing with it, so its privileged sidecar keeps
+// running for a job that ended. Listing it is what lets the agent reap it.
+func TestDockerListReturnsTheSidecarOfARunnerThatHasGone(t *testing.T) {
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"GET " + v + "/containers/json": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, []ContainerSummary{{
+				ID: "dind1", State: "running",
+				Labels: map[string]string{
+					LabelRole: roleDinD, LabelDinDFor: "runner-1",
+					LabelName: "runner-1-dind", LabelRunnerID: "run_1", LabelPoolID: "pool_1",
+				},
+			}})
+		},
+	})
+	b := dockerBackendFor(t, f, DockerOptions{})
+
+	got, err := b.List(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("the abandoned sidecar must be listed, got %+v", got)
+	}
+	if !got[0].Sidecar {
+		t.Fatal("the sidecar must say what it is, or the agent will manage it as a runner")
+	}
+	// It keeps the runner id: that is the only thing that says whose
+	// leftovers these are when an operator reads the log line.
+	if got[0].RunnerID != "run_1" || got[0].Handle != "dind1" {
+		t.Fatalf("workload = %+v", got[0])
+	}
+}
+
+// A sidecar built before the name label was written, or by a version that
+// named it differently, still shares its runner's id. That is enough to know
+// the runner is alive, and leaving a live pool without its Docker daemon is a
+// far worse mistake than leaving a dead pool's daemon behind.
+func TestDockerListPairsASidecarByRunnerIdWhenTheNameIsMissing(t *testing.T) {
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"GET " + v + "/containers/json": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, []ContainerSummary{
+				{
+					ID: "dind1", State: "running",
+					Labels: map[string]string{LabelRole: roleDinD, LabelRunnerID: "run_1"},
+				},
+				{
+					ID: "c1", State: "running",
+					Labels: map[string]string{LabelName: "runner-1", LabelRunnerID: "run_1"},
+				},
+			})
+		},
+	})
+	b := dockerBackendFor(t, f, DockerOptions{})
+
+	got, err := b.List(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 || got[0].Handle != "c1" {
+		t.Fatalf("the sidecar of a runner that is still here must not be listed, got %+v", got)
+	}
+}
+
+// The name is the purpose-built link between a sidecar and its runner -- it is
+// what Remove uses -- and it is the only one left when neither container
+// carries a runner id, as one built before the id was assigned does not.
+func TestDockerListPairsASidecarByNameWhenThereIsNoRunnerId(t *testing.T) {
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"GET " + v + "/containers/json": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, []ContainerSummary{
+				{
+					ID: "dind1", State: "running",
+					Labels: map[string]string{LabelRole: roleDinD, LabelDinDFor: "runner-1"},
+				},
+				{ID: "c1", State: "running", Labels: map[string]string{LabelName: "runner-1"}},
+			})
+		},
+	})
+	b := dockerBackendFor(t, f, DockerOptions{})
+
+	got, err := b.List(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 || got[0].Handle != "c1" {
+		t.Fatalf("the sidecar of a runner that is still here must not be listed, got %+v", got)
 	}
 }
 

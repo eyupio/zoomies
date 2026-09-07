@@ -83,6 +83,17 @@ func (a *Agent) ReconcileOnce(ctx context.Context) ([]RunnerReport, error) {
 		}
 
 		for _, w := range workloads {
+			if w.Sidecar {
+				// A sidecar carries its runner's id, so it must never be
+				// looked up as one. The backend only lists it once that
+				// runner has gone, and what is left is a privileged daemon
+				// nobody is using. What that is worth reporting is reapOrphan's
+				// decision, not this loop's.
+				if rep, ok := a.reapOrphan(ctx, b, kind, w, now); ok {
+					reports = append(reports, rep)
+				}
+				continue
+			}
 			r, tracked := a.snapshot(w.RunnerID)
 			if !tracked {
 				if rep, ok := a.reapOrphan(ctx, b, kind, w, now); ok {
@@ -305,12 +316,22 @@ func (a *Agent) reapOrphan(ctx context.Context, b backend.Backend, kind store.Ba
 		return RunnerReport{}, false
 	}
 	a.forgetOrphan(w.Handle)
-	a.log.Warn("removed an orphaned runner workload left behind by an earlier agent",
+	what := "runner workload"
+	if w.Sidecar {
+		what = "docker-in-docker sidecar"
+	}
+	a.log.Warn("removed an orphaned "+what+" left behind by an earlier agent",
 		"backend", kind, "handle", w.Handle, "name", w.Name, "runner", w.RunnerID, "unclaimed_for", now.Sub(first))
 
 	if w.RunnerID == "" {
 		// Nothing to report: the workload carried no runner ID, so the
 		// controller has no row to move.
+		return RunnerReport{}, false
+	}
+	if w.Sidecar {
+		// The sidecar's removal is not the runner's. Its runner container has
+		// its own way of being declared gone, and reporting this one as the
+		// runner would move a row on the strength of the wrong container.
 		return RunnerReport{}, false
 	}
 	return RunnerReport{

@@ -254,6 +254,17 @@ type Workload struct {
 	RunnerID string `json:"runner_id"`
 	PoolID   string `json:"pool_id"`
 	Status   Status `json:"status"`
+	// Sidecar marks a supporting container -- today only the docker-in-docker
+	// daemon a pool can ask for -- rather than a runner. A backend only lists
+	// one once the runner it served has gone, so it is always something to
+	// clean up and never something to manage.
+	//
+	// It carries its runner's id, because that is the only thing that says
+	// whose leftovers these are. Anything that finds a runner by id must
+	// therefore skip it: binding a runner's slot to its sidecar would stop the
+	// sidecar when the controller asked for the runner and leave the real
+	// container running somebody's job unattended.
+	Sidecar bool `json:"sidecar,omitempty"`
 }
 
 // LabelPrefix namespaces the container labels Zoomies writes.

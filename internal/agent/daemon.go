@@ -1219,7 +1219,10 @@ func (a *Agent) resolve(ctx context.Context, runnerID string) (backend.Backend, 
 			continue
 		}
 		for _, w := range workloads {
-			if w.RunnerID == runnerID {
+			// A sidecar shares its runner's id and would answer here first
+			// often enough to matter, sending the stop to the daemon and
+			// leaving the runner holding the job.
+			if w.RunnerID == runnerID && !w.Sidecar {
 				a.adopt(runnerID, k, w)
 				return b, w.Handle, true, nil
 			}
@@ -1263,9 +1266,12 @@ func (a *Agent) releaseUnknown(runnerIDs []string) {
 // from it is the same position an agent is in a moment before its first
 // successful list.
 //
-// Only workloads carrying a runner id are adopted. One without is not this
-// controller's to manage under an identity it can name, and the reconciler's
-// orphan path is still the right home for it.
+// Only runner workloads carrying a runner id are adopted. One without is not
+// this controller's to manage under an identity it can name, and the
+// reconciler's orphan path is still the right home for it. A sidecar is
+// skipped although it does carry one: it is not the runner, and adopting it
+// would point that runner's slot at the wrong container for the rest of the
+// agent's life.
 func (a *Agent) adoptExisting(ctx context.Context) {
 	kinds := a.opts.Backends.Kinds()
 	slices.Sort(kinds)
@@ -1283,7 +1289,7 @@ func (a *Agent) adoptExisting(ctx context.Context) {
 			continue
 		}
 		for _, w := range workloads {
-			if w.RunnerID == "" {
+			if w.RunnerID == "" || w.Sidecar {
 				continue
 			}
 			a.adopt(w.RunnerID, kind, w)
