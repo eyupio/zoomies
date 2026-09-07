@@ -480,6 +480,8 @@ kept; a rule that could not be made to fail did not ship.
 | `X-Forwarded-Proto` is believed only from a trusted proxy | `TestForwardedProtoIsBelievedOnlyFromATrustedProxy` (`internal/api`) |
 | Enrolment is rate limited, on a counter of its own | `TestAgentJoinIsRateLimited` (`internal/api`) |
 | A live stream ends within one heartbeat of its credential being revoked, and keeps running while it stands | `TestAStreamEndsWhenItsCredentialIsRevoked`, `TestALogStreamEndsWhenItsCredentialIsRevoked`, `TestALiveStreamSurvivesItsOwnHeartbeat` (`internal/api`) |
+| A name carrying markup is rendered as text, and a runner's output cannot retitle the page, clear it or open a dialog | `web/tests/hostile-input.spec.ts` |
+| A link a runner printed is followed only when it is http or https, and then with `noopener` | `followableLink` in `web/src/lib/logs/LogViewer.svelte` (see the note in ZF-104's fourth pull request) |
 | A body over the limit is refused, and the log relay is exempt | `TestOversizeRequestBodyIsRefused`, `TestARunnerThatPrintsMoreThanTheBodyLimitIsNotCutOff` (`internal/api`) |
 
 ---
