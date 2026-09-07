@@ -72,6 +72,8 @@ type fakeJob struct {
 // fakeFailure makes matching requests fail, so tests can exercise the error
 // paths without a network.
 type fakeFailure struct {
+	// method narrows the failure to one HTTP verb. Empty matches any.
+	method  string
 	pattern string
 	status  int
 	message string
@@ -283,6 +285,19 @@ func (f *FakeGitHub) SetError(pattern string, status int, message string) {
 	f.failures = append(f.failures, fakeFailure{pattern: pattern, status: status, message: message})
 }
 
+// SetMethodError is SetError narrowed to one HTTP method.
+//
+// Several verbs share a path: an orphan sweep lists an installation's runners
+// and then deletes them at the same one, so a test about a refused delete
+// cannot afford to refuse the listing that finds them too.
+func (f *FakeGitHub) SetMethodError(method, pattern string, status int, message string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failures = append(f.failures, fakeFailure{
+		method: method, pattern: pattern, status: status, message: message,
+	})
+}
+
 // ClearErrors removes every failure injected with SetError.
 func (f *FakeGitHub) ClearErrors() {
 	f.mu.Lock()
@@ -359,6 +374,9 @@ func (f *FakeGitHub) middleware(next http.Handler) http.Handler {
 		rate := f.rateLimit
 		var hit *fakeFailure
 		for i := range f.failures {
+			if f.failures[i].method != "" && f.failures[i].method != r.Method {
+				continue
+			}
 			if f.failures[i].pattern == "" || strings.Contains(path, f.failures[i].pattern) {
 				hit = &f.failures[i]
 				break

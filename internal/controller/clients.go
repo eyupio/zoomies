@@ -122,9 +122,9 @@ func (c *Controller) Forget(installationID string) {
 	// but an installation that is gone should leave nothing behind, and one
 	// re-added under the same identifier would inherit a stand-down it never
 	// earned.
-	c.pollMu.Lock()
-	delete(c.pollPaused, installationID)
-	c.pollMu.Unlock()
+	c.githubMu.Lock()
+	delete(c.githubPaused, installationID)
+	c.githubMu.Unlock()
 }
 
 // runnerGroupID resolves a runner group name to the ID the JIT config API

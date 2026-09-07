@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"strings"
 	"time"
 
@@ -130,7 +131,23 @@ func (c *Controller) snapshot(ctx context.Context) (scheduler.Snapshot, error) {
 		Hosts:              hosts,
 		Installations:      installations,
 		Policy:             c.policy(),
+		Jitter:             poolJitter(pools),
 	}, nil
+}
+
+// poolJitter draws one number per pool for the scheduler to spread its
+// start-failure backoff with.
+//
+// It is drawn here because the scheduler has no random source, for the same
+// reason it has no clock: a plan has to be reproducible from the snapshot that
+// produced it, and a decision that reached for rand inside could not be put in
+// front of a test or explained to an operator afterwards.
+func poolJitter(pools []*store.Pool) map[string]float64 {
+	out := make(map[string]float64, len(pools))
+	for _, p := range pools {
+		out[p.ID] = rand.Float64()
+	}
+	return out
 }
 
 // apply executes a plan pool by pool and records what actually happened.
@@ -625,9 +642,17 @@ func (c *Controller) reap(ctx context.Context) {
 		c.log.Error("could not list installations to reap runner registrations", "error", err)
 		return
 	}
+	now := c.Now()
 	for _, inst := range insts {
 		if ctx.Err() != nil {
 			return
+		}
+		// An installation already refusing for quota is not asked again until
+		// the hold runs out. The reap shares that hold with the poller: both
+		// spend the same quota, so a stand-down either of them earned is one
+		// the other would otherwise spend a refused call rediscovering.
+		if c.githubHeld(inst.ID, now) {
+			continue
 		}
 		client, err := c.clients.get(ctx, inst)
 		if err != nil {
@@ -636,6 +661,10 @@ func (c *Controller) reap(ctx context.Context) {
 		remote, err := client.ListRunners(ctx)
 		c.observeGitHub(inst.ID, err)
 		if err != nil {
+			if errors.Is(err, github.ErrRateLimited) {
+				c.holdRateLimited(inst.ID, err, now, "listing runners")
+				continue
+			}
 			c.log.Warn("could not list GitHub runners while reaping", "installation", inst.ID, "error", err)
 			continue
 		}
@@ -657,6 +686,15 @@ func (c *Controller) reap(ctx context.Context) {
 			}
 			err := client.DeleteRunner(ctx, gr.ID)
 			c.observeGitHub(inst.ID, err)
+			if errors.Is(err, github.ErrRateLimited) {
+				// Stop on this installation rather than working down the rest
+				// of its list. Every one of them would be refused the same
+				// way, and each refusal is another call against a quota that
+				// is already gone -- which is how a reap turns one exhausted
+				// window into two.
+				c.holdRateLimited(inst.ID, err, now, "deleting an orphaned registration")
+				break
+			}
 			if err != nil {
 				c.log.Warn("could not delete an orphaned runner registration",
 					"installation", inst.ID, "runner_name", gr.Name, "error", err)

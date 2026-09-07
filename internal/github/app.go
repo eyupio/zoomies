@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -699,14 +700,15 @@ func classify(resp *gh.Response, err error) error {
 
 	var rl *gh.RateLimitError
 	if errors.As(err, &rl) {
-		return fmt.Errorf("%w: quota exhausted until %s", ErrRateLimited, rl.Rate.Reset.Format(time.RFC3339))
+		return &RateLimitedError{ResetAt: rl.Rate.Reset.Time}
 	}
 	var abuse *gh.AbuseRateLimitError
 	if errors.As(err, &abuse) {
+		out := &RateLimitedError{}
 		if abuse.RetryAfter != nil {
-			return fmt.Errorf("%w: secondary rate limit, retry after %s", ErrRateLimited, *abuse.RetryAfter)
+			out.RetryAfter = *abuse.RetryAfter
 		}
-		return fmt.Errorf("%w: secondary rate limit", ErrRateLimited)
+		return out
 	}
 
 	status, message := 0, ""
@@ -728,7 +730,7 @@ func classify(resp *gh.Response, err error) error {
 		// go-github only builds a RateLimitError when GitHub sends the header;
 		// GHES and proxies sometimes do not, so check the parsed rate too.
 		if resp != nil && resp.Rate.Limit > 0 && resp.Rate.Remaining == 0 {
-			return fmt.Errorf("%w: quota exhausted until %s", ErrRateLimited, resp.Rate.Reset.Format(time.RFC3339))
+			return &RateLimitedError{ResetAt: resp.Rate.Reset.Time}
 		}
 		return fmt.Errorf("%w%s", ErrForbidden, detail(message))
 	case http.StatusUnprocessableEntity:
@@ -737,7 +739,18 @@ func classify(resp *gh.Response, err error) error {
 		// Failed" -- printed on a runner row as the reason it never started.
 		return fmt.Errorf("%w%s", ErrInvalid, validationDetail(er, message))
 	case http.StatusTooManyRequests:
-		return fmt.Errorf("%w%s", ErrRateLimited, detail(message))
+		// A 429 with no rate headers go-github recognised. The retry-after is
+		// still worth taking when the proxy in front of GitHub sent one.
+		out := &RateLimitedError{Detail: detail(message)}
+		if resp != nil && resp.Response != nil {
+			if after, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && after > 0 {
+				out.RetryAfter = time.Duration(after) * time.Second
+			}
+		}
+		if resp != nil && resp.Rate.Limit > 0 && resp.Rate.Remaining == 0 {
+			out.ResetAt = resp.Rate.Reset.Time
+		}
+		return out
 	case http.StatusUnauthorized:
 		return fmt.Errorf("github: authentication rejected%s: the App ID or private key no longer "+
 			"matches the App on GitHub", detail(message))

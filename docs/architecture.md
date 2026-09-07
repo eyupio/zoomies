@@ -164,9 +164,24 @@ that owns the repository named in them, not to whichever secret verified them â€
 so one organisation's working deliveries cannot silence the poller for an
 organisation whose webhooks reach nobody, which is the exact failure the poller
 is the safety net for. And when GitHub rate-limits one installation the poller
-stands that installation down for a quarter of an hour and carries on with the
-rest, because the quota is per installation and abandoning the sweep would let
-one organisation out of quota stop every other one from scaling.
+stands that installation down and carries on with the rest, because the quota is
+per installation and abandoning the sweep would let one organisation out of
+quota stop every other one from scaling.
+
+The stand-down lasts as long as GitHub asked: every rate-limited response says
+when the quota returns, either as a reset instant or as a retry-after, and the
+error carries the number rather than formatting it into a message. A fixed wait
+is only the fallback for a response that said nothing â€” waiting a flat quarter
+of an hour for a quota that came back in two minutes wastes the difference on
+every sweep, and for one that returns in fifty spends the rest of the window
+rediscovering the same refusal. It is capped at an hour, because GitHub's window
+is an hour and anything beyond it is a clock out of step rather than an answer.
+
+The hold belongs to the installation rather than to the poller, so the
+registration reap honours it too and sets it the same way. The reap is the other
+sweep that spends quota on its own schedule, and it stops working down an
+installation's list at the first refusal: every remaining call would be refused
+identically, and each one is another call against a quota that is already gone.
 
 ### One controller per database
 

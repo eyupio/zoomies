@@ -11,11 +11,44 @@ import (
 	"github.com/eyupio/zoomies/internal/store"
 )
 
-// rateLimitBackoff is how long the poller stands down after GitHub says the
-// installation is out of quota. Polling is the fallback path; spending the
-// last of an installation's quota on it would take the webhook path's own API
-// calls -- minting JIT configs -- down with it.
+// rateLimitBackoff is how long to stand down from an installation when GitHub
+// says it is out of quota and does not say when that ends. Polling and reaping
+// are background paths; spending the last of an installation's quota on them
+// would take the webhook path's own API calls -- minting JIT configs -- down
+// with it.
 const rateLimitBackoff = 15 * time.Minute
+
+const (
+	// rateLimitSlack is added to a reset GitHub named. Resuming on the exact
+	// second races its own accounting and buys another refusal, which costs
+	// the call and starts the wait again.
+	rateLimitSlack = 5 * time.Second
+
+	// maxRateLimitBackoff caps a stand-down however far away the reset says it
+	// is. GitHub's primary window is an hour, so anything beyond that is a
+	// clock out of step or a proxy inventing a header -- and taking an
+	// installation out of service for a day on either would be a far worse
+	// failure than one more refused call.
+	maxRateLimitBackoff = time.Hour
+)
+
+// rateLimitHold is when an installation refused for quota may be used again.
+//
+// GitHub sends the answer on the response, so the fixed backoff is only what
+// to do when it did not: waiting a flat fifteen minutes for a quota that came
+// back in two wastes the difference on every sweep, and for one that comes
+// back in fifty spends the rest of the window discovering that again.
+func rateLimitHold(err error, now time.Time) time.Time {
+	until, ok := github.RetryAfterRateLimit(err, now)
+	if !ok {
+		return now.Add(rateLimitBackoff)
+	}
+	until = until.Add(rateLimitSlack)
+	if capped := now.Add(maxRateLimitBackoff); until.After(capped) {
+		return capped
+	}
+	return until
+}
 
 // pollLoop is the webhook fallback.
 //
@@ -104,7 +137,7 @@ func (c *Controller) pollOnce(ctx context.Context) {
 			// tick of a demo instance.
 			continue
 		}
-		if c.pollHeld(inst.ID, now) {
+		if c.githubHeld(inst.ID, now) {
 			continue
 		}
 		// An installation whose webhooks are arriving costs nothing: this is
@@ -126,9 +159,10 @@ func (c *Controller) pollOnce(ctx context.Context) {
 				// Hold this installation only. Its quota is its own, and the
 				// sweep abandoning the rest would let one organisation out of
 				// quota stop every other one from scaling.
-				c.holdPolling(inst.ID, now.Add(rateLimitBackoff))
+				until := rateLimitHold(err, now)
+				c.holdGitHub(inst.ID, until)
 				c.log.Warn("GitHub rate-limited the fallback poller for an installation; standing down for it",
-					"installation", inst.ID, "backoff", rateLimitBackoff, "error", err)
+					"installation", inst.ID, "until", until.UTC().Format(time.RFC3339), "error", err)
 				continue
 			}
 			c.log.Warn("could not poll for queued jobs", "installation", inst.ID, "error", err)
@@ -206,31 +240,40 @@ func (c *Controller) ingestQueuedJobs(ctx context.Context, polled *store.Install
 	return changed, nil
 }
 
-// pollHeld reports whether an installation is inside its rate-limit backoff,
+// holdRateLimited stands every background sweep down from one installation for
+// as long as GitHub asked, and says so once.
+func (c *Controller) holdRateLimited(id string, err error, now time.Time, doing string) {
+	until := rateLimitHold(err, now)
+	c.holdGitHub(id, until)
+	c.log.Warn("GitHub rate-limited this installation; standing down from it",
+		"installation", id, "while", doing, "until", until.UTC().Format(time.RFC3339), "error", err)
+}
+
+// githubHeld reports whether an installation is inside its rate-limit backoff,
 // clearing the hold once it has expired so the map does not grow with the
 // installations that have long since recovered.
-func (c *Controller) pollHeld(id string, now time.Time) bool {
-	c.pollMu.Lock()
-	defer c.pollMu.Unlock()
-	until, ok := c.pollPaused[id]
+func (c *Controller) githubHeld(id string, now time.Time) bool {
+	c.githubMu.Lock()
+	defer c.githubMu.Unlock()
+	until, ok := c.githubPaused[id]
 	if !ok {
 		return false
 	}
 	if !now.Before(until) {
-		delete(c.pollPaused, id)
+		delete(c.githubPaused, id)
 		return false
 	}
 	return true
 }
 
-// holdPolling stands the poller down for one installation until a moment.
-func (c *Controller) holdPolling(id string, until time.Time) {
-	c.pollMu.Lock()
-	defer c.pollMu.Unlock()
-	if c.pollPaused == nil {
-		c.pollPaused = map[string]time.Time{}
+// holdGitHub stands the poller down for one installation until a moment.
+func (c *Controller) holdGitHub(id string, until time.Time) {
+	c.githubMu.Lock()
+	defer c.githubMu.Unlock()
+	if c.githubPaused == nil {
+		c.githubPaused = map[string]time.Time{}
 	}
-	c.pollPaused[id] = until
+	c.githubPaused[id] = until
 }
 
 // owningInstallation is the installation covering a repository, with a

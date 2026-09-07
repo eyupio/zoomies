@@ -1734,3 +1734,46 @@ func TestADrainFromBeforeTheColumnExistedIsStillBounded(t *testing.T) {
 		t.Fatalf("a drain with no recorded start was left stuck for ever: %+v", plan.Actions)
 	}
 }
+
+// A pool that cannot start a runner waits, and the wait doubles with each
+// failure. Every pool broken by the same thing -- a daemon that went down, a
+// registry that stopped answering -- counts the same doubling from the same
+// failure, so without jitter they all come back in the same second and the
+// recovery arrives as the same herd that broke them.
+func TestTheStartBackoffIsSpreadByTheJitterTheSnapshotCarries(t *testing.T) {
+	p := testPool("builders", "self-hosted")
+	// One start failure: the wait is the base backoff, and the pool is exactly
+	// far enough past it to be let go with no jitter at all.
+	failed := testRunner("run_dead", p, store.RunnerFailed, time.Minute)
+	when := ago(startBackoff + time.Second)
+	failed.FinishedAt = &when
+
+	held := func(jitter float64) bool {
+		s := snap([]*store.Pool{p}, []*store.Runner{failed}, []*store.Job{queued("job_1", time.Minute, "self-hosted")},
+			[]*store.Host{testHost("host_a", 4, 0)})
+		s.Jitter = map[string]float64{p.ID: jitter}
+		return only(t, Decide(s)).Failing != ""
+	}
+
+	if held(0) {
+		t.Fatal("with no jitter the wait is out, so the pool may try again")
+	}
+	// The same pool, at the same instant, with the jitter drawn high: the wait
+	// is longer and it is still holding.
+	if !held(1) {
+		t.Fatal("the jitter was not applied, so every pool that broke together retries together")
+	}
+}
+
+// Jitter only ever lengthens a wait. Shortening it would let the pool failing
+// hardest come back soonest, which is the opposite of what the doubling is for.
+func TestJitterNeverShortensAWait(t *testing.T) {
+	for _, f := range []float64{0, 0.5, 1, 2, -1} {
+		if got := jittered(time.Minute, f); got < time.Minute {
+			t.Fatalf("jittered(1m, %v) = %s, which is shorter than the wait it spreads", f, got)
+		}
+		if got := jittered(time.Minute, f); got > time.Minute+time.Duration(startBackoffJitter*float64(time.Minute)) {
+			t.Fatalf("jittered(1m, %v) = %s, which is past the share it may add", f, got)
+		}
+	}
+}
