@@ -216,7 +216,16 @@ type Service struct {
 	// accountLogins is the same counter keyed on the username instead of the
 	// address, so a distributed attempt against one account is still bounded.
 	accountLogins *RateLimiter
-	audit         *Auditor
+	// joins bounds agent enrolment, which is the other unauthenticated route
+	// that takes a credential and says whether it was right. Without it a join
+	// token is guarded only by its own entropy.
+	//
+	// A counter of its own rather than the login one, at the same setting: an
+	// attacker hammering /agent/join from an address administrators also sign
+	// in from would otherwise lock them out of the UI, which turns a bounded
+	// guessing attempt into a denial of service on the thing that fixes it.
+	joins *RateLimiter
+	audit *Auditor
 
 	// bootstrapMu serialises CreateFirstAdmin so two simultaneous requests
 	// cannot both pass the "no users exist" check.
@@ -266,6 +275,7 @@ func New(st *store.Store, cfg *config.Config, bus *events.Bus, opts ...Option) *
 	s.setupToken = store.NewSecret(secretBytes)
 	s.logins = NewRateLimiter(s.cfg.RateLimitLogins, time.Minute, s.clock)
 	s.accountLogins = NewRateLimiter(s.cfg.RateLimitLogins*accountLimitFactor, accountLimitWindow, s.clock)
+	s.joins = NewRateLimiter(s.cfg.RateLimitLogins, time.Minute, s.clock)
 	s.audit = NewAuditor(st, bus, s.logger)
 	return s
 }
@@ -391,6 +401,19 @@ func (s *Service) createFirstAdmin(ctx context.Context, username, password strin
 func (s *Service) LoginRetryAfter(ip string) time.Duration {
 	return s.logins.RetryAfter(ip)
 }
+
+// AllowJoin reports whether another enrolment attempt from this address is
+// within the rate limit, and records it.
+//
+// Enrolment is unauthenticated and answers whether the join token was right,
+// which makes it guessable in exactly the way a sign-in is. Legitimate joins
+// are rare -- once per machine -- so a limit that never troubles an operator
+// still costs an attacker every attempt.
+func (s *Service) AllowJoin(ip string) bool { return s.joins.Allow(ip) }
+
+// JoinRetryAfter says how long a refused address has to wait, so the 429 can
+// carry a Retry-After the agent's own backoff can use.
+func (s *Service) JoinRetryAfter(ip string) time.Duration { return s.joins.RetryAfter(ip) }
 
 // Login verifies a password and returns the user together with the plaintext
 // session token the caller should set as a cookie. The token is not stored: the

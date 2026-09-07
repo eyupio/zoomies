@@ -198,6 +198,13 @@ problem otherwise. When you do run behind a proxy, also set
 `server.trusted_proxies` so audit entries and login rate limiting see the real
 client address instead of your proxy's.
 
+It governs `X-Forwarded-Proto` as well as `X-Forwarded-For`. Without it the
+controller reads every request as plain `http`, whatever the header says,
+because nothing distinguishes your proxy from anyone else who can reach the
+listener — so it will not send `Strict-Transport-Security`, and an `https://`
+`Origin` is same-origin only by way of `server.external_url`. Set both and
+neither applies.
+
 ### The setup token
 
 While the instance has no accounts, the controller prints a **setup token** at

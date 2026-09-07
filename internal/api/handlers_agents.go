@@ -25,6 +25,16 @@ func agentHost(r *http.Request) *store.Host {
 // credential every other one carries. The join token is single-use and
 // short-lived, and the agent token it returns is shown exactly once.
 func (s *Server) handleAgentJoin(w http.ResponseWriter, r *http.Request) {
+	// The one anonymous agent route, and one that says whether the credential
+	// it was given was right -- so it is guessable the way a sign-in is, and it
+	// is bounded the same way. A machine joins once, so a limit generous enough
+	// to be invisible to an operator still costs an attacker every attempt.
+	if ip := ClientIP(r.Context()); !s.auth.AllowJoin(ip) {
+		s.logger(r).Warn("join rate limit hit", "ip", ip)
+		rateLimited(w, "too many enrolment attempts from this address; wait a minute and try again",
+			s.auth.JoinRetryAfter(ip))
+		return
+	}
 	var req agent.JoinRequest
 	if !decodeLenient(w, r, &req) {
 		return

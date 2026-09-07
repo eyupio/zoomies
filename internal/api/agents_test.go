@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/agent"
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -327,4 +328,42 @@ func TestAgentRoutesTolerateFieldsTheyDoNotKnow(t *testing.T) {
 	typo := h.do(request{method: http.MethodPost, path: "/api/v1/users", cookie: h.session(admin),
 		body: map[string]any{"username": "sam", "password": "correct-horse-battery", "rolle": "viewer"}})
 	typo.mustStatus(t, http.StatusBadRequest, "a typo in a user API field")
+}
+
+// TestAgentJoinIsRateLimited closes the last unauthenticated route that says
+// whether the credential it was handed was right.
+//
+// A join token is a bearer credential with nothing else in front of it, so
+// without a limit a guess costs an attacker one request and the only thing
+// standing in the way is the token's entropy. A machine joins once, so a limit
+// generous enough that no operator ever meets it still costs every attempt.
+func TestAgentJoinIsRateLimited(t *testing.T) {
+	// One attempt, so the second is refused and the test does not depend on
+	// the shipped default.
+	h := newHarness(t, func(c *config.Config) { c.Security.RateLimitLogins = 1 })
+
+	body := map[string]any{
+		"protocol_version": 1, "join_token": "zjoin_a_guess", "name": "vm-guess",
+		"capacity": 1, "os": "linux", "arch": "amd64", "version": "test",
+	}
+
+	first := h.do(request{method: http.MethodPost, path: "/api/v1/agent/join", body: body})
+	if first.status == http.StatusTooManyRequests {
+		t.Fatalf("the first attempt was rate limited: %s", truncate(first.body))
+	}
+
+	second := h.do(request{method: http.MethodPost, path: "/api/v1/agent/join", body: body})
+	second.mustStatus(t, http.StatusTooManyRequests, "a second join attempt from the same address")
+	if second.header.Get("Retry-After") == "" {
+		t.Error("the refusal carries no Retry-After, so an agent's backoff has nothing to read")
+	}
+
+	// The limiter is the join route's own. An attacker hammering enrolment
+	// must not be able to lock the operators out of the page they would use to
+	// stop it, which sharing the login counter would do.
+	admin, _ := h.user("root", store.RoleAdmin)
+	_ = admin
+	login := h.do(request{method: http.MethodPost, path: "/api/v1/auth/login",
+		body: map[string]any{"username": "root", "password": testPassword}})
+	login.mustStatus(t, http.StatusOK, "signing in while enrolment is rate limited")
 }

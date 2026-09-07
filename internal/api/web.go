@@ -231,20 +231,15 @@ var uiRoutes = []string{
 // operator told GitHub and what browsers are pointed at. Without it the
 // request's own Host is the best available answer -- unlike the sharing tags
 // baked into index.html at startup, these two files are rendered per request,
-// so there is a Host header to read and no need to guess. X-Forwarded-Proto is
-// believed for the scheme only, which at worst produces an http:// URL for an
-// https:// site in a sitemap nobody is obliged to trust.
+// so there is a Host header to read and no need to guess. The scheme comes from
+// requestScheme, which believes X-Forwarded-Proto only from a trusted proxy; at
+// worst that gives an http:// URL for an https:// site in a sitemap nobody is
+// obliged to trust, which is the better way round to be wrong.
 func (s *Server) requestOrigin(r *http.Request) string {
 	if u := strings.TrimRight(strings.TrimSpace(s.cfg().Server.ExternalURL), "/"); u != "" {
 		return u
 	}
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	if proto := r.Header.Get("X-Forwarded-Proto"); strings.EqualFold(proto, "https") {
-		scheme = "https"
-	}
+	scheme := s.requestScheme(r)
 	host := r.Host
 	if host == "" {
 		return ""
