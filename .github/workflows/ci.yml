@@ -287,6 +287,19 @@ jobs:
 
       - name: Setup Blacksmith Builder
         uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2.2.0
+        with:
+          # v2 made this required and derives nothing when it is missing. Without
+          # it the action warns, builds on a throwaway local builder with no
+          # sticky disk, and every image build refetches every module and every
+          # package from scratch -- which is how one reset stream from the module
+          # proxy failed a build whose go.mod had not changed. The value is the
+          # Dockerfile, as the action's own description asks, and it matches
+          # release.yml so a tagged build reuses the layers main already built.
+          cache-key: deploy/Dockerfile
+          # Fail rather than quietly downgrade. The fallback warning ran on every
+          # image build for a day and nobody read it; a red job is the only kind
+          # of notice that works.
+          nofallback: true
 
       # Which images actually need building. The runner image is by far the
       # most expensive thing in this workflow -- it apt-installs a desktop's
@@ -432,6 +445,13 @@ jobs:
 
       - name: Setup Blacksmith Builder
         uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2.2.0
+        with:
+          # Per variant, not per Dockerfile: the five variants share
+          # Dockerfile.runner but almost none of its layers -- different base
+          # images, different package managers -- so one key between them would
+          # thrash rather than cache.
+          cache-key: deploy/Dockerfile.runner-${{ matrix.tag }}
+          nofallback: true
 
       # Only the default variant carries the unqualified tags. Anything else
       # would mean a pool that named no operating system got whichever variant
