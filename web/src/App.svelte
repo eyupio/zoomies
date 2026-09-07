@@ -92,7 +92,7 @@
    * writing itself into the query string re-runs this effect even though the
    * navigation count has not moved -- and it used to take the keyboard with it.
    * Typing into any page's search box therefore gave up focus after the first
-   * character and swallowed the second: `zoomies-demo0000` became `z`.
+   * character and swallowed the second: a runner name became `z`.
    */
   let focused = 0;
   $effect(() => {

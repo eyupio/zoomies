@@ -158,7 +158,12 @@ const launchOptions = process.env.PLAYWRIGHT_CHROMIUM
 /** Boot a seeded controller with authentication on, and wait until it answers. */
 async function bootController(dir) {
   const child = spawn(binary, ['controller'], {
-    stdio: ['ignore', 'ignore', 'inherit'],
+    // stdout is piped rather than ignored because the setup token is printed
+    // there and nowhere else: the bootstrap route asks for it as proof that
+    // whoever creates the first administrator can read the controller's log,
+    // and this harness is in the same position as an operator. It is echoed on,
+    // so a controller that fails to boot is still readable.
+    stdio: ['ignore', 'pipe', 'inherit'],
     env: {
       ...process.env,
       ...controllerEnv(dir, PORT),
@@ -172,6 +177,16 @@ async function bootController(dir) {
       ZOOMIES_SEED_DEMO: 'true',
     },
   });
+  // Scoped to this controller, not to the module: each colour scheme gets a
+  // fresh database and therefore a fresh token, and the second boot carrying
+  // the first one over is a 422 that reads like a broken form.
+  let setupToken = '';
+  child.stdout.on('data', (chunk) => {
+    process.stdout.write(chunk);
+    if (setupToken !== '') return;
+    const match = /setup token\s+(\S+)/.exec(String(chunk));
+    if (match) setupToken = match[1];
+  });
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
@@ -179,14 +194,21 @@ async function bootController(dir) {
     }
     try {
       const res = await fetch(`http://127.0.0.1:${PORT}/healthz`);
-      if (res.ok) return child;
+      // Answering /healthz does not mean the token line has been flushed, so
+      // both are waited for: bootstrapping without one is a 422 that reads
+      // like a bug in the form rather than a race in this script.
+      if (res.ok && setupToken !== '') return { child, setupToken };
     } catch {
       /* not listening yet */
     }
     await new Promise((r) => setTimeout(r, 200));
   }
   child.kill('SIGKILL');
-  throw new Error('the controller did not answer /healthz within 30s');
+  throw new Error(
+    setupToken === ''
+      ? 'the controller never printed a setup token'
+      : 'the controller did not answer /healthz within 30s',
+  );
 }
 
 function stopController(child) {
@@ -267,7 +289,7 @@ async function settle(page, shot) {
 
 async function capture(browser, scheme, pngDir) {
   const dir = mkdtempSync(join(tmpdir(), 'zoomies-screenshots-'));
-  const child = await bootController(dir);
+  const { child, setupToken } = await bootController(dir);
   const baseURL = `http://127.0.0.1:${PORT}`;
   // en-GB, and a fixed one. Native date inputs render in the browser's locale,
   // and a runner with none set takes the machine's -- so the shipped
@@ -289,7 +311,9 @@ async function capture(browser, scheme, pngDir) {
     });
     // The first administrator, created the way the first-run form does it.
     // The 201 sets the session cookie on this context.
-    const created = await desktop.request.post('/api/v1/auth/bootstrap', { data: ADMIN });
+    const created = await desktop.request.post('/api/v1/auth/bootstrap', {
+      data: { ...ADMIN, setup_token: setupToken },
+    });
     if (created.status() !== 201) {
       throw new Error(`bootstrap returned ${created.status()}: ${await created.text()}`);
     }
