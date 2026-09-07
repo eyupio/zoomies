@@ -53,6 +53,32 @@ jobs:
       - name: Coverage summary
         run: go tool cover -func=coverage.out | tail -1 >> "$GITHUB_STEP_SUMMARY"
 
+  drill:
+    name: Drill
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # The runtime tier runs the built binary as two real processes. It needs
+      # no Docker daemon and no GitHub credentials: the backend is `process`
+      # with a stub runner staged on disk, and GitHub is a fake in the test
+      # process. That is what makes it something every pull request can afford.
+      - name: Run the lifecycle drill
+        run: make test-drill
+
+      # The record is the deliverable, not just the exit code: it says what was
+      # observed and whether anything was left for a person to clean up.
+      - name: Drill record
+        if: always()
+        run: |
+          if [ -f roadmap/validation/drills.md ]; then
+            cat roadmap/validation/drills.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   staticcheck:
     name: staticcheck
     runs-on: blacksmith-2vcpu-ubuntu-2404
