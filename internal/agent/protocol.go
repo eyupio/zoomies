@@ -87,6 +87,17 @@ type HeartbeatResponse struct {
 	// ResyncRequested asks the agent to send a full runner report next time,
 	// which the controller sets after its own restart.
 	ResyncRequested bool `json:"resync_requested"`
+	// UnknownRunners names the runners this host reported that the controller
+	// has no live row for. They are the ones whose workloads may be removed.
+	//
+	// An agent adopts what it finds running when it starts, so that a restart
+	// does not destroy the jobs on its host. That adoption is also what stops
+	// it recognising genuine litter -- a workload whose runner the controller
+	// deleted while the agent was down -- so the controller answers with the
+	// ones it does not know, and only those are reaped. Additive: an older
+	// controller sends nothing here, and an agent that receives nothing simply
+	// keeps what it adopted, which is the safe direction.
+	UnknownRunners []string `json:"unknown_runners,omitempty"`
 }
 
 // RunnerReport is the agent's observation of one runner. The controller merges
