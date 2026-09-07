@@ -428,6 +428,45 @@ func (s *Store) ListQueuedJobs(ctx context.Context) ([]*Job, error) {
 	return out, rows.Err()
 }
 
+// ListRunningJobsForRunner returns the jobs GitHub says are executing on one
+// runner, which is how a caller asks whether a workload still has work in it.
+//
+// The runner row cannot answer that: it clears current_job_id the moment the
+// runner goes terminal, so a runner failed as lost has forgotten what it was
+// running by the time anybody needs to know. The job keeps its side of the
+// link, so the question is asked from here.
+//
+// The equality on state is load-bearing, and not only as a filter. There is no
+// index on runner_id and there should not be one for this: the state predicate
+// is what lets the planner seek idx_jobs_state_queued straight to the
+// in-progress rows -- of which a fleet has at most as many as it has busy
+// runners -- and scan runner_id across that handful. Drop it and the query
+// walks a jobs table that grows without bound, on every heartbeat.
+// runningJobsForRunnerSQL is a const so the query-plan test pins the statement
+// that actually ships rather than a copy of it that can drift away from it.
+var runningJobsForRunnerSQL = `SELECT ` + jobCols + ` FROM jobs
+	WHERE state = 'in_progress' AND runner_id = ? ORDER BY queued_at`
+
+func (s *Store) ListRunningJobsForRunner(ctx context.Context, runnerID string) ([]*Job, error) {
+	if runnerID == "" {
+		return nil, nil
+	}
+	rows, err := s.read.QueryContext(ctx, runningJobsForRunnerSQL, runnerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Job
+	for rows.Next() {
+		j, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, j)
+	}
+	return out, rows.Err()
+}
+
 // JobDistinct returns the distinct values of a filterable column, for
 // populating the job filter's dropdowns without a full table scan client-side.
 func (s *Store) JobDistinct(ctx context.Context, column string, limit int) ([]string, error) {

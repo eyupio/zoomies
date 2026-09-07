@@ -328,6 +328,14 @@ const JOB_EVENTS: Record<JobEventKind, StatusMeta> = {
   started: JOB_RUNNING,
   completed: meta('completed', 'Completed', 'neutral', 'square', CircleCheck),
   runner_lost: RUNNER_LOST,
+  runner_returned: meta(
+    'runner_returned',
+    'Runner returned',
+    'idle',
+    'hollow',
+    CircleCheck,
+    'The runner reported lost is alive after all and this job is still running on it. The entry above it stands as what the fleet believed at the time.',
+  ),
 };
 
 /**

@@ -901,6 +901,12 @@ const (
 	// JobEventRunnerLost: the runner executing the job stopped before GitHub
 	// reported the job over. This is the fleet's fault, not the workflow's.
 	JobEventRunnerLost JobEventKind = "runner_lost"
+	// JobEventRunnerReturned: the runner reported lost is alive after all, and
+	// this job is still running on it. It only ever follows a runner_lost on
+	// the same job, and it exists because the timeline had no way to withdraw
+	// one: a job that finishes normally after its runner was written off read
+	// as a contradiction, and an operator had to guess which entry to believe.
+	JobEventRunnerReturned JobEventKind = "runner_returned"
 )
 
 // JobEvent is one entry in a job's timeline: what happened, who observed it,

@@ -702,6 +702,10 @@ func (c *Controller) applyReports(ctx context.Context, hostID string, reports []
 				"host", hostID, "runner", r.ID, "owner", r.HostID)
 			continue
 		}
+		if r.State.Terminal() && rep.Phase.Live() {
+			c.reconcileLateReport(ctx, r, rep)
+			continue
+		}
 		if rep.Handle != "" && string(rep.Handle) != r.ContainerID {
 			_ = c.st.SetRunnerContainer(ctx, r.ID, string(rep.Handle))
 		}
@@ -722,6 +726,106 @@ func (c *Controller) applyReports(ctx context.Context, hostID string, reports []
 		}
 		c.applyRunnerState(ctx, r, state, rep.Message)
 	}
+}
+
+// reconcileLateReport settles a runner this controller has already written
+// off, whose host has come back with the workload still running.
+//
+// It happens for real: a host silent past hostLostAfter has its runners failed
+// as lost, and "lost" is a guess. A network partition, a long agent restart or
+// a paused VM all end with the host returning and the container exactly where
+// it was, still executing its job. Before this, the report was dropped as an
+// illegal transition and nothing else looked again: the row stayed failed, the
+// agent kept the workload tracked because the controller never disowned it,
+// and the container ran for ever on a host nobody was accounting for.
+//
+// The row is not resurrected. failed and removed are terminal because the
+// fleet has already told an operator, and a job's events, that this runner was
+// gone; walking that back would make the timeline a worse record than no
+// record. What is repaired instead is the truth of the message and the fate of
+// the workload.
+//
+// The workload outlives the row while a job is still running on it. A job in
+// flight is worth more than a tidy row -- the runner is failed, so its slot is
+// already free and the scheduler has replaced it, and killing the container
+// now would fail a job that is about to succeed for no reason but neatness.
+// Once nothing is running on it, it is removed properly, through the same path
+// as any other removal.
+func (c *Controller) reconcileLateReport(ctx context.Context, r *store.Runner, rep agent.RunnerReport) {
+	if r.State == store.RunnerRemoved {
+		// Already the answer. The heartbeat names a removed runner as unknown,
+		// so the agent releases it and the reconciler collects the workload.
+		return
+	}
+	running, err := c.st.ListRunningJobsForRunner(ctx, r.ID)
+	if err != nil {
+		// Removing a workload is not a thing to do on a failed read.
+		c.log.Warn("could not tell whether a returned runner still has a job on it",
+			"runner", r.ID, "host", r.HostID, "error", err)
+		return
+	}
+	if len(running) > 0 {
+		c.noteRunnerReturned(ctx, r, running)
+		return
+	}
+	pool, err := c.st.GetPool(ctx, r.PoolID)
+	if err != nil {
+		pool = nil
+	}
+	if _, err := c.removeRunner(ctx, r, "the host returned with this runner still on it after it was given up as lost, and it has no job left to finish", pool); err != nil {
+		c.log.Warn("could not remove a runner that outlived being declared lost",
+			"runner", r.ID, "host", r.HostID, "error", err)
+	}
+}
+
+// noteRunnerReturned records that a runner given up as lost is alive after all
+// and still working, on the row and on every job it is running.
+//
+// It writes once per job. A host reports its runners on every heartbeat, so
+// without the guard a runner that takes ten minutes to finish would write the
+// same line into its job's timeline forty times.
+func (c *Controller) noteRunnerReturned(ctx context.Context, r *store.Runner, running []*store.Job) {
+	message := fmt.Sprintf("host %s returned with this runner still running; it was given up as lost, and its job is being left to finish", c.hostName(ctx, r.HostID))
+	if r.Message != message {
+		if updated, err := c.st.TransitionRunner(ctx, r.ID, r.State, message); err == nil {
+			c.publishRunner(ctx, events.KindRunnerUpdated, updated)
+		} else {
+			c.log.Warn("could not correct the message on a returned runner", "runner", r.ID, "error", err)
+		}
+	}
+	for _, j := range running {
+		timeline, err := c.st.ListJobEvents(ctx, j.ID)
+		if err != nil {
+			continue
+		}
+		if slices.ContainsFunc(timeline, func(e *store.JobEvent) bool {
+			return e.Kind == store.JobEventRunnerReturned && e.RunnerID == r.ID
+		}) {
+			continue
+		}
+		if err := c.st.AppendJobEvent(ctx, &store.JobEvent{
+			JobID: j.ID, Kind: store.JobEventRunnerReturned, Source: sourceAgent,
+			Message:  fmt.Sprintf("runner %s was reported lost with its host, but both came back and this job is still running on it", r.Name),
+			RunnerID: r.ID, RunnerName: r.Name, At: c.Now(),
+		}); err != nil {
+			c.log.Warn("could not record a returned runner on its job", "job", j.ID, "runner", r.ID, "error", err)
+			continue
+		}
+		if updated, err := c.st.GetJob(ctx, j.ID); err == nil {
+			c.publishJob(ctx, updated)
+		}
+	}
+	c.log.Info("a runner given up as lost came back still working",
+		"runner", r.ID, "name", r.Name, "host", r.HostID, "jobs", len(running))
+}
+
+// hostName is the operator-facing name of a host, falling back to its id so a
+// message is never left with a hole in it.
+func (c *Controller) hostName(ctx context.Context, hostID string) string {
+	if h, err := c.st.GetHost(ctx, hostID); err == nil && h.Name != "" {
+		return h.Name
+	}
+	return hostID
 }
 
 // applyRunnerState performs a reported transition when it is legal, and
