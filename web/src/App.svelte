@@ -125,7 +125,7 @@
             <ErrorState
               error={router.error}
               title="That page could not be loaded"
-              description="The page's code failed to download. Check your connection, then try again."
+              description="The page's code did not download, and retrying did not help. Check your connection, then try again."
               onretry={() => location.reload()}
             />
           </div>
