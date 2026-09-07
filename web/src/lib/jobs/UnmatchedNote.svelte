@@ -3,8 +3,9 @@
 
   This is the one thing on the Jobs page that an operator cannot work out from
   the row itself: the job is not slow, nothing in this fleet is going to start
-  it. The explanation appears wherever unmatched jobs do -- above the grid when
-  the filter is on or the page contains one, and again in the drawer.
+  it. The explanation appears where an operator has asked about unmatched jobs
+  -- above the grid when the filter is on, and again in the drawer of a job
+  that is one. Never above the default grid: see the note in Jobs.svelte.
 
   It says "this fleet" rather than "never", and it reaches only queued jobs
   whose labels are not GitHub's own or a vendor's. A controller cannot see the

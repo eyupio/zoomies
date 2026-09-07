@@ -13,6 +13,14 @@
   never touches. The page therefore shows Zoomies' own work by default -- jobs a
   pool claims, jobs its runners ran, and queued jobs nothing claims -- and the
   "Include other runners" switch widens it to everything GitHub has reported.
+
+  The note explaining unmatched jobs belongs to the filtered view, not to the
+  default one. An organisation that also rents runners elsewhere keeps queueing
+  jobs this fleet has no pool for, and they are counted here because nothing
+  here ran them -- so a note above the default grid is a standing red warning
+  about somebody else's work, which is the one thing this page must not do.
+  Discovery is the problems panel's job: `jobs.unmatched` waits out a grace
+  period first, and its link opens this page with the filter already on.
 -->
 <script lang="ts">
   import { getJobFacets, listJobs } from '$lib/api/client';
@@ -370,7 +378,7 @@
     onclear={clearFilters}
   />
 
-  {#if unmatchedOnPage > 0}
+  {#if filters.unmatched && unmatchedOnPage > 0}
     <UnmatchedNote count={unmatchedOnPage} />
   {/if}
 
