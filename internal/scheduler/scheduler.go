@@ -81,6 +81,14 @@ type Policy struct {
 	MaxRunnerLifetime time.Duration
 	// ProvisionTimeout fails a runner that never finished registering.
 	ProvisionTimeout time.Duration
+	// DrainTimeout fails a runner that has been draining this long with no job
+	// left on it. The agent task queue is in memory by design, so a controller
+	// restart drops a stop that was already issued; without this the row stays
+	// in draining, holds its host slot and leaves its pool one runner short for
+	// as long as the controller runs. A runner still finishing a job is never
+	// touched by it -- that wait is what a drain is -- so this bounds only the
+	// drain that has nothing to wait for. Zero leaves a drain unbounded.
+	DrainTimeout time.Duration
 	// MaxCreatesPerTick caps creates across the whole fleet in one pass, so a
 	// thundering herd of queued jobs cannot fill every host at once. Pools are
 	// shared fairly among pools at the same priority; zero means no cap.
@@ -388,6 +396,20 @@ func startFailures(runners []*store.Runner, now time.Time) []*store.Runner {
 // failedAt is when a runner failed. The store stamps finished_at on the
 // transition; a row without one falls back to its creation, which is the
 // conservative reading for a failure of unknown age.
+// drainingFor is how long a runner has been draining.
+//
+// A row written before the column existed has no draining_since, and its age
+// is the only clock left. That over-counts -- a long-lived runner drained a
+// moment ago looks overdue at once -- but the alternative is a drain from
+// before the upgrade that no timeout can ever reach, which is the state this
+// rule exists to end.
+func drainingFor(r *store.Runner, now time.Time) time.Duration {
+	if r.DrainingSince != nil {
+		return now.Sub(*r.DrainingSince)
+	}
+	return r.Age(now)
+}
+
 func failedAt(r *store.Runner) time.Time {
 	if r.FinishedAt != nil {
 		return *r.FinishedAt
@@ -533,6 +555,16 @@ func (t *tick) reap(p *store.Pool, runners []*store.Runner) (actions []Action, r
 			fails = append(fails, t.action(ActionFail, p, r, fmt.Sprintf(
 				"stuck in %s for %s, past the %s provision timeout; check the host's agent log",
 				r.State, formatDuration(age), formatDuration(t.policy.ProvisionTimeout))))
+		case r.State == store.RunnerDraining && r.CurrentJobID == "" &&
+			t.policy.DrainTimeout > 0 && drainingFor(r, t.now) > t.policy.DrainTimeout:
+			// Only a drain with nothing left to wait for. A runner draining
+			// with a job still on it is doing exactly what a drain asks, for
+			// as long as that job takes; there is no maximum job duration in
+			// this system by design, and inventing one here would kill
+			// somebody's build from the wrong end of the fleet.
+			fails = append(fails, t.action(ActionFail, p, r, fmt.Sprintf(
+				"draining with no job for %s, past the %s drain timeout; its stop was never carried out, so the slot is being taken back",
+				formatDuration(drainingFor(r, t.now)), formatDuration(t.policy.DrainTimeout))))
 		case t.policy.MaxRunnerLifetime > 0 && age > t.policy.MaxRunnerLifetime &&
 			r.State != store.RunnerBusy && r.State != store.RunnerDraining:
 			retires = append(retires, t.action(ActionDrain, p, r, fmt.Sprintf(

@@ -511,6 +511,7 @@ func (c *Controller) policy() scheduler.Policy {
 		ScaleUpDelay:      c.cfg().Scheduler.ScaleUpDelay,
 		MaxRunnerLifetime: c.cfg().Scheduler.MaxRunnerLifetime,
 		ProvisionTimeout:  c.cfg().Scheduler.ProvisionTimeout,
+		DrainTimeout:      c.cfg().Scheduler.DrainTimeout,
 		MaxCreatesPerTick: c.cfg().Scheduler.MaxCreatesPerTick,
 	}
 }

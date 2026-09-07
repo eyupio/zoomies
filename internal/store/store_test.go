@@ -916,3 +916,55 @@ func TestPlatformMatching(t *testing.T) {
 		t.Error("a pool with a platform was refused a host that reported none")
 	}
 }
+
+// The scheduler's drain timeout counts from here, so this stamp is the whole
+// mechanism: a drain whose start is not recorded, or is pushed forward every
+// time somebody says "still draining", is a drain no timeout can ever reach.
+func TestEnteringDrainingIsStampedOnceAndNotMovedAfterwards(t *testing.T) {
+	clock := time.Date(2025, 3, 4, 12, 0, 0, 0, time.UTC)
+	s := newTestStore(t)
+	s.now = func() time.Time { return clock }
+	ctx := context.Background()
+	_, pool, host := seedPool(t, s)
+
+	r := &Runner{PoolID: pool.ID, HostID: host.ID, Name: "zoomies-linux-x64-abcd", Ephemeral: true}
+	if err := s.CreateRunner(ctx, r); err != nil {
+		t.Fatalf("CreateRunner: %v", err)
+	}
+	if r.DrainingSince != nil {
+		t.Fatal("a runner is not draining when it is created")
+	}
+	if _, err := s.TransitionRunner(ctx, r.ID, RunnerRegistering, ""); err != nil {
+		t.Fatalf("-> registering: %v", err)
+	}
+
+	got, err := s.TransitionRunner(ctx, r.ID, RunnerDraining, "operator asked")
+	if err != nil {
+		t.Fatalf("-> draining: %v", err)
+	}
+	if got.DrainingSince == nil || !got.DrainingSince.Equal(clock) {
+		t.Fatalf("draining_since = %v, want %v", got.DrainingSince, clock)
+	}
+	first := *got.DrainingSince
+
+	// An agent reporting the state it is already in is legal, and must not
+	// restart the clock -- that is how the runner would become immortal.
+	clock = clock.Add(time.Hour)
+	got, err = s.TransitionRunner(ctx, r.ID, RunnerDraining, "still draining")
+	if err != nil {
+		t.Fatalf("-> draining again: %v", err)
+	}
+	if got.DrainingSince == nil || !got.DrainingSince.Equal(first) {
+		t.Fatalf("draining_since moved to %v; it must stay at %v", got.DrainingSince, first)
+	}
+
+	// And it survives a reload, because a controller restart is the case the
+	// whole column exists for.
+	reloaded, err := s.GetRunner(ctx, r.ID)
+	if err != nil {
+		t.Fatalf("GetRunner: %v", err)
+	}
+	if reloaded.DrainingSince == nil || !reloaded.DrainingSince.Equal(first) {
+		t.Fatalf("draining_since did not survive a reload: %v", reloaded.DrainingSince)
+	}
+}

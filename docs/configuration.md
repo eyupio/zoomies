@@ -129,6 +129,7 @@ scheduler:
   scale_up_delay: 0s            # ZOOMIES_SCALE_UP_DELAY
   max_runner_lifetime: 6h       # ZOOMIES_MAX_RUNNER_LIFETIME
   provision_timeout: 5m         # ZOOMIES_PROVISION_TIMEOUT
+  drain_timeout: 15m            # ZOOMIES_DRAIN_TIMEOUT
   max_creates_per_tick: 10      # ZOOMIES_MAX_CREATES_PER_TICK
 
 capacity_demand:
@@ -582,6 +583,26 @@ keeps a minimum re-registers its runners this often. It never interrupts a
 running job: a job that hangs keeps its runner busy, and ending that is what the
 workflow's `timeout-minutes` is for. A runner that never finished registering is
 `provision_timeout`'s to fail, not this setting's.
+
+### `scheduler.drain_timeout`
+
+Fails a runner that has been draining this long with **no job left on it**.
+
+A drain asks a runner to finish what it is doing and stop, and the agent carries
+that out. The queue those instructions live in is in memory on purpose, so a
+controller restart drops one that had already been issued. The row is left in
+draining, which is a state nothing else counts against: it holds its slot on the
+host, its pool sits one runner short, and both stay that way for as long as the
+controller runs. This bounds it — the runner is failed, so an operator sees it
+and its slot is taken back.
+
+It does not touch a runner still finishing a job, however long that takes.
+Waiting is what a drain is, there is no maximum job duration in Zoomies by
+design, and a build ended from here would look to its owner like a failure with
+no cause. Ending a job that hangs is the workflow's `timeout-minutes`.
+
+`0s` leaves a drain unbounded, which is the behaviour before this setting
+existed.
 
 ### `images.refresh_interval` — keeping a moving tag current
 

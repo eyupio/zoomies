@@ -660,19 +660,21 @@ const runnerCols = `id, pool_id, host_id, name, state, github_runner_id, contain
 	ephemeral, labels, image, image_digest, runner_version, current_job_id, created_at, started_at,
 	last_idle_at, finished_at, message, jobs_handled, cpu_percent, memory_bytes,
 	image_pull_ms, container_started_at, registered_at, task_issued_at,
-	cleanup_error, cleanup_failed_at, cleanup_attempts, registration_deleted_at, cleaned_up_at`
+	cleanup_error, cleanup_failed_at, cleanup_attempts, registration_deleted_at, cleaned_up_at,
+	draining_since`
 
 func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 	var r Runner
 	var ephemeral int
 	var created int64
 	var started, idle, finished, pullMS, containerStarted, registered, taskIssued sql.NullInt64
-	var cleanupFailed, registrationDeleted, cleanedUp sql.NullInt64
+	var cleanupFailed, registrationDeleted, cleanedUp, drainingSince sql.NullInt64
 	err := sc.Scan(&r.ID, &r.PoolID, &r.HostID, &r.Name, &r.State, &r.GitHubRunnerID,
 		&r.ContainerID, &ephemeral, &r.Labels, &r.Image, &r.ImageDigest, &r.RunnerVersion, &r.CurrentJobID,
 		&created, &started, &idle, &finished, &r.Message, &r.JobsHandled,
 		&r.CPUPercent, &r.MemoryBytes, &pullMS, &containerStarted, &registered, &taskIssued,
-		&r.CleanupError, &cleanupFailed, &r.CleanupAttempts, &registrationDeleted, &cleanedUp)
+		&r.CleanupError, &cleanupFailed, &r.CleanupAttempts, &registrationDeleted, &cleanedUp,
+		&drainingSince)
 	if err != nil {
 		return nil, err
 	}
@@ -687,6 +689,7 @@ func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 	r.TaskIssuedAt = atp(taskIssued)
 	r.CleanupFailedAt, r.RegistrationDeletedAt = atp(cleanupFailed), atp(registrationDeleted)
 	r.CleanedUpAt = atp(cleanedUp)
+	r.DrainingSince = atp(drainingSince)
 	return &r, nil
 }
 
@@ -700,14 +703,14 @@ func (s *Store) CreateRunner(ctx context.Context, r *Runner) error {
 	}
 	r.CreatedAt = s.Now()
 	_, err := s.exec(ctx, `INSERT INTO runners (`+runnerCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		r.ID, r.PoolID, r.HostID, r.Name, string(r.State), r.GitHubRunnerID, r.ContainerID,
 		boolInt(r.Ephemeral), r.Labels, r.Image, r.ImageDigest, r.RunnerVersion, r.CurrentJobID,
 		ms(r.CreatedAt), msp(r.StartedAt), msp(r.LastIdleAt), msp(r.FinishedAt),
 		r.Message, r.JobsHandled, r.CPUPercent, r.MemoryBytes, durationMS(r.ImagePullDuration),
 		msp(r.ContainerStartedAt), msp(r.RegisteredAt), msp(r.TaskIssuedAt),
 		r.CleanupError, msp(r.CleanupFailedAt), r.CleanupAttempts,
-		msp(r.RegistrationDeletedAt), msp(r.CleanedUpAt))
+		msp(r.RegistrationDeletedAt), msp(r.CleanedUpAt), msp(r.DrainingSince))
 	return wrapWrite(err)
 }
 
@@ -980,6 +983,15 @@ func (s *Store) TransitionRunner(ctx context.Context, id string, to RunnerState,
 				r.StartedAt = &t
 			}
 			r.LastIdleAt = nil
+		case RunnerDraining:
+			// Only on the way in. Draining is one-way -- it leads to removed
+			// or failed and nowhere else -- so this is written once, and a
+			// second caller reporting "still draining" must not push it
+			// forward and make the drain timeout unreachable.
+			if prev != RunnerDraining {
+				t := now
+				r.DrainingSince = &t
+			}
 		case RunnerRemoved, RunnerFailed:
 			if prev != to {
 				t := now
@@ -988,9 +1000,10 @@ func (s *Store) TransitionRunner(ctx context.Context, id string, to RunnerState,
 			r.CurrentJobID = ""
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE runners SET state=?, message=?, started_at=?,
-			last_idle_at=?, finished_at=?, jobs_handled=?, current_job_id=?, registered_at=? WHERE id=?`,
+			last_idle_at=?, finished_at=?, jobs_handled=?, current_job_id=?, registered_at=?,
+			draining_since=? WHERE id=?`,
 			string(r.State), r.Message, msp(r.StartedAt), msp(r.LastIdleAt), msp(r.FinishedAt),
-			r.JobsHandled, r.CurrentJobID, msp(r.RegisteredAt), r.ID)
+			r.JobsHandled, r.CurrentJobID, msp(r.RegisteredAt), msp(r.DrainingSince), r.ID)
 		if err != nil {
 			return err
 		}
