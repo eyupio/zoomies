@@ -379,12 +379,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Generated from internal/naming's catalogue by `make generate`. Adding
+        # or swapping an operating system is a row there, not here.
+        # zoomies:catalogue-begin
         include:
           - { tag: ubuntu-2404, base: "ubuntu:24.04",            family: apt, os: ubuntu, version: "24.04", default: true }
           - { tag: ubuntu-2204, base: "ubuntu:22.04",            family: apt, os: ubuntu, version: "22.04" }
           - { tag: debian-12,   base: "debian:12-slim",          family: apt, os: debian, version: "12" }
           - { tag: fedora-42,   base: "fedora:42",               family: dnf, os: fedora, version: "42" }
           - { tag: rocky-9,     base: "rockylinux/rockylinux:9", family: dnf, os: rocky,  version: "9" }
+        # zoomies:catalogue-end
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

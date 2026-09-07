@@ -131,6 +131,7 @@ change the pool's platform to one you have
 `ghcr.io/eyupio/zoomies-runner` is published with one tag per operating system,
 and the tag is the same `<os>-<version>` that appears in a pool name.
 
+<!-- zoomies:catalogue-begin -->
 | Tag | Base | Architectures |
 | --- | --- | --- |
 | `ubuntu-2404` | `ubuntu:24.04` | amd64, arm64 |
@@ -138,6 +139,7 @@ and the tag is the same `<os>-<version>` that appears in a pool name.
 | `debian-12` | `debian:12-slim` | amd64, arm64 |
 | `fedora-42` | `fedora:42` | amd64, arm64 |
 | `rocky-9` | `rockylinux/rockylinux:9` | amd64, arm64 |
+<!-- zoomies:catalogue-end -->
 
 `:latest` points at `ubuntu-2404`, which is what a pool that names no platform
 gets. Each release also publishes `<tag>-<version>` for pinning one operating
@@ -156,9 +158,11 @@ dependencies are left to the tarball's `installdependencies.sh`, which already
 knows every distribution's package names for them; naming them by hand is what
 made this image Ubuntu 24.04 and nothing else.
 
-Adding an operating system is a row in `internal/naming`'s catalogue, a row in
-the Makefile, and a matrix entry in each workflow -- and a Go test fails if
-those three ever disagree.
+Adding an operating system, or swapping one for its next release, is a row in
+[`internal/naming/images.go`](https://github.com/eyupio/zoomies/blob/main/internal/naming/images.go)
+and then `make generate`, which rewrites the table above, the Makefile's build
+variants and both workflows' matrices from it. Go tests fail, naming that
+command, if any of them is edited by hand instead.
 
 There is no Alpine variant. actions/runner ships glibc binaries and .NET
 dependencies that musl does not satisfy, so an Alpine image would build and then
