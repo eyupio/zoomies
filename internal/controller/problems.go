@@ -108,6 +108,9 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	if err := c.runnerProblems(ctx, &out); err != nil {
 		return nil, err
 	}
+	if err := c.cleanupProblems(ctx, &out); err != nil {
+		return nil, err
+	}
 	if err := c.notProgressingProblems(ctx, &out); err != nil {
 		return nil, err
 	}
@@ -693,6 +696,47 @@ func (c *Controller) runnerProblems(ctx context.Context, out *[]Problem) error {
 		Detail:     fmt.Sprintf("the most recent is %s: %s", example.Name, example.Message),
 		Fix:        "look at the runner's logs on the Runners page; failed runners are cleaned up automatically but the cause is not.",
 		TargetKind: "runner", TargetID: example.ID, Since: &example.CreatedAt,
+	})
+	return nil
+}
+
+// cleanupProblems names the runners Zoomies could not finish taking away.
+//
+// This is a different fault from runners.failed and worth its own code. A
+// failed runner is a job that did not run; a runner that will not clean up is
+// something *left behind* -- a container holding disk on a host, or a
+// registration sitting on somebody's organisation -- and it does not go away
+// on its own. Neither had anywhere to be said before: the task result was
+// dropped because the row was already terminal, and a failed registration
+// delete was a log line.
+func (c *Controller) cleanupProblems(ctx context.Context, out *[]Problem) error {
+	stuck, err := c.st.RunnersWithFailedCleanup(ctx)
+	if err != nil {
+		return fmt.Errorf("listing runners whose cleanup failed: %w", err)
+	}
+	if len(stuck) == 0 {
+		return nil
+	}
+	example := stuck[0]
+	// A registration left on GitHub and a container left on a host need
+	// different things done about them, so the fix says which this is.
+	fix := fmt.Sprintf("look at %s on the Runners page. If the container is still on %s, remove it there; "+
+		"Zoomies retries, and the row clears itself when it succeeds.",
+		example.Name, c.hostName(ctx, example.HostID))
+	if strings.Contains(example.CleanupError, "registration") {
+		fix = fmt.Sprintf("check the target's runner settings page for %s. Zoomies retries the deletion every "+
+			"ten minutes and the row clears itself when it succeeds; a registration that stays is usually a "+
+			"permission the App has lost.", example.Name)
+	}
+	*out = append(*out, Problem{
+		Code:     "runners.cleanup_failed",
+		Severity: config.SeverityWarning,
+		Title:    fmt.Sprintf("%s could not be cleaned up", plural(len(stuck), "runner")),
+		Detail: fmt.Sprintf("%s, after %s: %s. Something is left behind — a container on its host, or a "+
+			"registration on GitHub — and it will not go away on its own.",
+			example.Name, plural(example.CleanupAttempts, "attempt"), example.CleanupError),
+		Fix:        fix,
+		TargetKind: "runner", TargetID: example.ID, Since: example.CleanupFailedAt,
 	})
 	return nil
 }

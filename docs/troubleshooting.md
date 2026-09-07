@@ -152,3 +152,54 @@ A host whose Docker daemon was not up when the agent started re-probes as it
 runs, so it starts taking work within a heartbeat of the daemon appearing. What
 each host can currently run, and why it cannot run the rest, is on the Hosts
 page.
+
+## What Zoomies cleans up, and what it leaves
+
+Most of the time cleanup is invisible, which is the point. What follows is what
+it actually does, so that the one time something is left behind you know
+whether it is yours to deal with.
+
+**What Zoomies removes by itself:**
+
+* **The runner's workload.** The agent deletes a finished runner's container
+  once the controller has heard how it ended and the window an operator gets to
+  read its output — `agent.finished_retention` — has passed. A
+  docker-in-docker sidecar goes with it.
+* **Untracked workloads on a host.** Anything carrying Zoomies' own labels that
+  no runner claims is removed, but only after a successful poll and a
+  two-minute grace, and only when the controller has said it does not know it.
+  The agent never decides on its own that something is litter.
+* **GitHub runner registrations.** Removing a runner deletes its registration.
+  A deletion that fails is retried by a sweep every ten minutes, which also
+  clears registrations for runners this fleet has finished with.
+* **History.** Jobs, deliveries, audit rows and samples are pruned on their own
+  retention settings.
+
+**What it never removes:**
+
+* **Container images.** Zoomies pulls images and never deletes one. A host that
+  has run several pools accumulates them, and `docker image prune` is the
+  answer; nothing here will do it behind your back.
+* **A job that is running.** No maximum job duration exists by design — a
+  workflow's own `timeout-minutes` is the right place for that, and it is the
+  one GitHub reports honestly.
+
+**When cleanup fails**, the runner's row says so rather than only the log. The
+Runners page and the runner's own page show what went wrong, how many times it
+has been tried, and the `runners.cleanup_failed` problem names it in the
+problems panel. Two shapes:
+
+* **A container Zoomies could not remove.** It is still on its host, holding
+  its writable layer. Zoomies keeps retrying; if it does not clear, remove it
+  on the host with `docker rm -f`, and look at why the daemon refused.
+* **A registration GitHub would not delete.** It is still on the organisation's
+  runner list, offline and doing nothing, and this is usually a permission the
+  App has lost. Check the App's installation, or delete the entry on the
+  target's runner settings page.
+
+Both clear themselves when a retry succeeds. The attempt count is kept
+afterwards, because how many tries it took is the difference between a blip and
+a host worth looking at.
+
+A runner's **Cleaned up** time is when nothing of it was left, on the host or
+on GitHub. A finished runner without one still has something outstanding.

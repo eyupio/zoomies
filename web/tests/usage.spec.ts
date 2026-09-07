@@ -76,3 +76,34 @@ test('the report is a link: the range and the grouping live in the address bar',
   await expect(csv).toHaveAttribute('href', /from=2026-08-01T/);
   await expect(csv).toHaveAttribute('href', /to=2026-08-31T/);
 });
+
+/**
+ * On a phone this table is ten columns in a frame that scrolls sideways, and
+ * scrolling to the cost column used to take the pool's name off the screen with
+ * it -- so the number you had gone looking for belonged to a row you could no
+ * longer identify.
+ *
+ * The mobile project is what makes this test mean anything: at desktop width
+ * the table fits, nothing scrolls, and the assertion would pass whatever the
+ * CSS said.
+ */
+test('the pool stays on screen while the numbers scroll under it', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile', 'the column only sticks where the table overflows');
+  await goto(page, '/usage', 'Usage');
+
+  const firstKey = table(page).locator('tbody th').first();
+  await expect(firstKey).toBeVisible();
+  const before = await firstKey.boundingBox();
+
+  // Scroll the frame to its far right, where the cost column is.
+  const frame = page.locator('.report .frame').first();
+  await frame.evaluate((el) => el.scrollTo({ left: el.scrollWidth }));
+  await expect.poll(async () => frame.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+
+  const after = await firstKey.boundingBox();
+  expect(before, 'the key column had no box to begin with').not.toBeNull();
+  expect(after, 'the key column left the page when the table scrolled').not.toBeNull();
+  // Pinned means it stayed where it was on screen, not that it moved less.
+  expect(Math.abs((after?.x ?? 0) - (before?.x ?? 0))).toBeLessThan(2);
+  await expect(firstKey).toBeInViewport();
+});

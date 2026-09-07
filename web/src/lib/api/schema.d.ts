@@ -1999,6 +1999,17 @@ export interface components {
             last_idle_at?: string | null;
             /** Format: date-time */
             finished_at?: string | null;
+            /** @description Why Zoomies could not finish taking this runner away: a stop or remove the agent could not complete, or a registration GitHub would not delete. Empty is the normal case. A non-empty value means something is left behind — a container on its host, or a registration on the organisation — and it will not go away on its own. Zoomies retries, and this clears when it succeeds. */
+            cleanup_error?: string;
+            /** Format: date-time */
+            cleanup_failed_at?: string | null;
+            /** @description How many times cleanup has been tried. It is kept after a success, because how many tries it took is the difference between a blip and a host worth looking at. */
+            cleanup_attempts?: number;
+            /**
+             * Format: date-time
+             * @description The end of the runner's life: nothing of it left, on the host or on GitHub. The counterpart of `created_at` at the other end.
+             */
+            cleaned_up_at?: string | null;
         };
         RunnerDetail: components["schemas"]["Runner"] & {
             host?: components["schemas"]["Host"];

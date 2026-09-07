@@ -215,6 +215,26 @@
   </p>
 {/if}
 
+<!--
+  A cleanup failure is a different thing from a failed runner, and it is shown
+  even on a removed one -- especially on a removed one. A failed runner is a job
+  that did not run; this is something still on a host or on somebody's
+  organisation, and the row it belongs to is the only place it is written down.
+  Zoomies keeps retrying, so the wording says that rather than asking for an
+  action that may already be unnecessary.
+-->
+{#if runner?.cleanup_error}
+  <p class="callout pending">
+    <TriangleAlert size={15} aria-hidden="true" />
+    <span>
+      Zoomies could not finish taking this runner away{runner.cleanup_attempts
+        ? ` after ${runner.cleanup_attempts} ${runner.cleanup_attempts === 1 ? 'attempt' : 'attempts'}`
+        : ''}: {runner.cleanup_error}. Something is left behind — a container on its host, or a
+      registration on GitHub. Zoomies keeps retrying, and this clears when it succeeds.
+    </span>
+  </p>
+{/if}
+
 {#if error}
   <ErrorState
     {error}
@@ -334,6 +354,14 @@
     border-color: var(--z-neutral-border);
     background: var(--z-neutral-subtle);
     color: var(--z-text-muted);
+  }
+  /* Pending rather than danger: something is left behind, but Zoomies is still
+     retrying and it usually clears itself. Red here would compete with a real
+     failure on the same page. */
+  .callout.pending {
+    border-color: var(--z-pending-border);
+    background: var(--z-pending-subtle);
+    color: var(--z-text);
   }
   .layout {
     display: grid;

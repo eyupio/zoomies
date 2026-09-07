@@ -140,14 +140,33 @@
    *
    * The API groups by identifier, which is right for a stable report and wrong
    * for a person: a table of `pool_demoarm` is not something anybody takes to a
-   * finance meeting. Repositories and workflows are already names. A pool the
-   * cache has not heard of -- deleted since the range began, most likely --
-   * keeps its id rather than disappearing, because its hours were still spent.
+   * finance meeting. Repositories and workflows are already names.
+   *
+   * Three cases have to look different, and used to look the same. A live pool
+   * is its name. A pool the fleet has no record of -- deleted since the range
+   * began -- keeps its id, because its hours were still spent, but it is said
+   * to be gone rather than shown as a bare identifier that reads like a name.
+   * And a row with no pool at all is not a pool: it is the work this fleet had
+   * no hand in, which on a one-pool fleet otherwise looks like a second pool.
    */
   function label(key: string): string {
     if (!key) return 'Unattributed';
     if (grouping !== 'pool') return key;
     return fleet.pool(key)?.name ?? key;
+  }
+
+  /**
+   * What this row is, when the grouping is by pool.
+   *
+   * `unknown` while the fleet cache is still loading: every pool would
+   * otherwise be reported as deleted for the moment it takes to arrive, which
+   * is worse than saying nothing.
+   */
+  function kind(key: string): 'live' | 'gone' | 'unattributed' | 'unknown' {
+    if (grouping !== 'pool') return 'live';
+    if (!key) return 'unattributed';
+    if (fleet.pool(key)) return 'live';
+    return fleet.loaded ? 'gone' : 'unknown';
   }
 </script>
 
@@ -218,7 +237,7 @@
       </caption>
       <thead>
         <tr>
-          <th scope="col">{KEY_HEADER[grouping]}</th>
+          <th scope="col" class="key-header">{KEY_HEADER[grouping]}</th>
           <th scope="col" class="end">Queued</th>
           <th scope="col" class="end">Started</th>
           <th scope="col" class="end">Completed</th>
@@ -234,8 +253,16 @@
       </thead>
       <tbody>
         {#each rows as row (row.key)}
+          {@const rowKind = kind(row.key)}
           <tr>
-            <th scope="row" class="key" title={row.key || undefined}>{label(row.key)}</th>
+            <th scope="row" class="key" title={row.key || undefined}>
+              <span class="name" class:muted={rowKind !== 'live'}>{label(row.key)}</span>
+              {#if rowKind === 'gone'}
+                <span class="tag">deleted</span>
+              {:else if rowKind === 'unattributed'}
+                <span class="tag">no pool</span>
+              {/if}
+            </th>
             <td class="end tabular">{formatNumber(row.jobs)}</td>
             <td class="end tabular">{formatNumber(row.jobs_started)}</td>
             <td class="end tabular">{formatNumber(row.jobs_completed)}</td>
@@ -330,6 +357,60 @@
     max-width: 24rem;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .name {
+    /* The tag sits beside the name rather than under it, so a narrow column
+       truncates the name and never the word that says what the row is. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .name.muted {
+    color: var(--z-text-muted);
+    font-weight: var(--z-weight-regular);
+  }
+  .tag {
+    margin-left: var(--z-space-2);
+    padding: 0 var(--z-space-2);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-sm);
+    font-size: var(--z-text-2xs);
+    font-weight: var(--z-weight-medium);
+    text-transform: uppercase;
+    letter-spacing: var(--z-tracking-wide);
+    color: var(--z-text-muted);
+    white-space: nowrap;
+  }
+
+  /*
+    On a phone this table is ten columns in a frame that scrolls sideways, and
+    scrolling to the cost column took the pool's name off the screen with it --
+    so the number you had gone looking for belonged to a row you could no longer
+    identify. Pinning the first column keeps the question and the answer on
+    screen together. It is done only where it is needed: on a desktop the whole
+    table fits and a sticky column is one more thing to paint.
+  */
+  @media (max-width: 768px) {
+    .key {
+      position: sticky;
+      left: 0;
+      z-index: var(--z-layer-sticky);
+      max-width: 10rem;
+      background: var(--z-surface);
+      /* The frame's own border cannot show through a sticky cell, so the cell
+         carries the edge the columns scroll under. */
+      border-right: var(--z-border-width) solid var(--z-border);
+    }
+    thead th.key-header {
+      position: sticky;
+      left: 0;
+      z-index: var(--z-layer-sticky);
+      background: var(--z-surface-sunken);
+      border-right: var(--z-border-width) solid var(--z-border);
+    }
+    th,
+    td {
+      padding: var(--z-space-3);
+    }
   }
   .tabular {
     font-variant-numeric: tabular-nums;

@@ -794,7 +794,28 @@ type Runner struct {
 	// row is indistinguishable from one whose create was issued a second ago,
 	// and the provision timeout is counted from the wrong end.
 	TaskIssuedAt *time.Time `json:"task_issued_at,omitempty"`
-	StartedAt    *time.Time `json:"started_at,omitempty"`
+	// CleanupError, CleanupFailedAt and CleanupAttempts record a stop or
+	// remove the agent could not complete, or a registration GitHub would not
+	// delete.
+	//
+	// They exist because a terminal row had nowhere to put that. The result
+	// came back for a runner already marked removed, the state machine refused
+	// the transition -- correctly; a removed runner cannot become failed -- and
+	// it was dropped at debug level. The container stayed on the host and
+	// nobody was told.
+	CleanupError    string     `json:"cleanup_error,omitempty"`
+	CleanupFailedAt *time.Time `json:"cleanup_failed_at,omitempty"`
+	CleanupAttempts int        `json:"cleanup_attempts,omitempty"`
+	// RegistrationDeletedAt is when GitHub confirmed the registration was gone.
+	// Unset on a terminal runner is the ghost: a row this fleet has finished
+	// with, and a registration still on somebody's organisation.
+	RegistrationDeletedAt *time.Time `json:"registration_deleted_at,omitempty"`
+	// CleanedUpAt is the end of the cleanup interval: the moment nothing of
+	// this runner is left, on the host or on GitHub. It is the counterpart of
+	// CreatedAt at the other end of the life, and the measurement contract's
+	// end of that interval.
+	CleanedUpAt *time.Time `json:"cleaned_up_at,omitempty"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
 	// LastIdleAt is when the runner most recently became idle; the scale-down
 	// path measures the idle timeout from here.
 	LastIdleAt  *time.Time `json:"last_idle_at,omitempty"`
