@@ -44,7 +44,7 @@ evidence.
 | ZF-102 | Make runner and agent reconciliation convergent | mixed (mechanics exist; adoption on restart and a controller lock do not; the log-relay host check landed with the security review) | `done` | ZF-002; N02 needs `main` deployed | PR1: Claude Fable 5.1, `xhigh`, one session. PR2: Claude Opus 5, `ultracode`; one orchestration of 3 subsystem mappers and 3 adversarial verifiers, then one session | PR1 and PR2 of 4 done. PR1: the "Reconciliation invariants" section in `docs/architecture.md` with `internal/controller/invariants_test.go`. PR2: a database lock and a controller lease, with `--takeover` and `controller.lease_lost`. **Half of PR2 was already done**: the log relay has checked the authenticated host since PR #90's security review, with a test (`TestLogRelayRefusesAnotherHostsStream`), so only the lock and lease were outstanding. PR3 done: an agent adopts every runner already on its host before its loops start, and the controller answers each heartbeat with the runners it has no row for so that only those are reaped. `docs/upgrading.md` no longer hedges: a restart keeps its runners on a single-VM install too. PR4 done: late reports settle the workload without resurrecting a terminal row, `task_issued_at` survives the queue a restart drops, `host.duplicate_agent` detects a shared credential by session alternation, and the restart-boundary table covers seven boundaries. All four pull requests are done |
 | ZF-103 | Reserve host resources and enforce bounded admission | extension (slot model complete; no host resource reporting) | `in_progress` | ZF-102 | 103a: Claude Opus 5, `ultracode`; one orchestration of 30 reviewers over the diff | 103a done and merged as #115: an agent reports its host's CPUs, memory and the disk behind its work directory, sized by the daemon that will run the runners rather than by the agent's own cgroup share, and a re-join keeps the operator's reserve. Migrations `0016` and `0017`. Its own adversarial review then found three test gaps in it, all confirmed by mutation and closed in #118: the byte-to-MB conversion was unpinned (raw bytes into `disk_total_mb` passed the suite), nothing connected measuring a host to reporting it (the two lines that put the figures on the wire could be deleted with everything green), and `f_bavail` versus `f_bfree` had no test. The figures reach the Hosts page in #118. 103b, the admission half, remains |
 | ZF-104 | Verify control-plane access and secret boundaries | mixed (matrix and most tests exist; log relay unscoped to host; streams never re-check credentials) | `done` | ZF-101, ZF-102 | Claude Opus 5, `ultracode`; one orchestration of 10 surveyors over the nine assertions of PR1, then one session per pull request | All five done. PR1 merged as #116 (the walks and the secret searches). **PR2 was already implemented**: the log relay has bound to the authenticated host since ZF-102, with a test -- what was missing was that the test's indistinguishability check could not fail, and it now can. PR5 merged as #118 with the proxy fix and the join limiter. PR3 and PR4 in #119. Every behavioural test was run against the code with its rule removed and confirmed to fail; two assertions that could not be made to fail were deleted rather than shipped. `docs/security.md` §7 now names the test behind each claim |
-| ZF-105 | Bound cleanup, retention and external failure handling | mixed (local cleanup exists; failure invisible; one listing-failure defect) | `in_progress` | ZF-102, except the first pull request | first slice: Claude Fable 5.1, `high`, one session, 1 review round | Size M; the listing-failure defect is fixed in its own pull request with a test that reproduces it on the old code |
+| ZF-105 | Bound cleanup, retention and external failure handling | mixed (local cleanup exists; failure invisible; one listing-failure defect) | `done` | ZF-102, except the first pull request | first slice: Claude Fable 5.1, `high`, one session, 1 review round | All six pull requests done: the listing-failure defect, the cleanup record on the runner row with `runners.cleanup_failed` (migration `0015`), orphaned sidecars, the cache prune guard, the drain timeout (migration `0016`), and the typed rate-limited error with a per-installation hold. Of the verifier's three extra findings for the second: the work-directory leak is closed on the backend where it is reachable, the GitHub-failure-during-cleanup one is what `runners.cleanup_failed` answers, and the third is stale -- there is no poll-interval channel in the protocol to leave unset |
 
 ## Phase 2: operable and usable
 
@@ -75,6 +75,26 @@ evidence.
 
 Newest first. One line per event that changed a row.
 
+* 2026-09-07: ZF-105 done. Five of its six pull requests had already landed in
+  earlier sessions -- the cleanup record, sidecars, the cache guard, the drain
+  timeout and the rate-limit hold are all in the code, which the package's own
+  status had not caught up with. What was genuinely outstanding was one of the
+  verifier's extra findings for the second: a work directory that leaks when its
+  workload goes away out of band. **Half of that finding is not reachable**: the
+  Docker backend learns the directory from the container's label, so losing the
+  container loses the path, but nothing sets `Spec.WorkDir`, so the backend
+  never creates one and there is nothing to leak. The process backend's half is
+  live and is fixed here. Create makes the runner's directory and clones the
+  tools tree into it -- hundreds of megabytes -- before it writes the metadata,
+  and `List` skipped any directory whose metadata would not read, so an agent
+  killed in that window left the tree on the host with nothing that would ever
+  look at it again. Such a directory is now listed as a workload that is gone,
+  and the agent's existing orphan path removes it under the same grace and the
+  same "only after a successful poll" rule as a container nothing claims. It is
+  reported only once nothing has written to it for fifteen minutes, which is
+  what tells an abandoned clone from one in progress: the clone touches the
+  directory with every file it lays down. Both halves are pinned -- skipping the
+  directory fails the test, and so does dropping the grace.
 * 2026-09-07: ZF-104 done, in four pull requests rather than five. The package
   was seventy percent "tests that already exist", so the first work was finding
   out which of its claims anything actually held up: ten surveyors over the nine
