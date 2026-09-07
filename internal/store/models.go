@@ -644,9 +644,27 @@ type Host struct {
 	Arch      string `json:"arch"`
 	// CPUs and MemoryMB are the machine's size, reported by the agent. They
 	// are what the host's canonical name and the Hosts page say out loud.
-	CPUs     int    `json:"cpus,omitempty"`
-	MemoryMB int64  `json:"memory_mb,omitempty"`
-	Version  string `json:"version"`
+	CPUs     int   `json:"cpus,omitempty"`
+	MemoryMB int64 `json:"memory_mb,omitempty"`
+	// DiskTotalMB and DiskFreeMB measure the filesystem holding the agent's
+	// work directory, which is where a runner's checkout and its caches land.
+	// Free is what a runner may use rather than what is unused, since the two
+	// differ by the reserve the filesystem keeps for root.
+	//
+	// Zero is "not measured": an agent too old to report it, or one on a
+	// platform with no portable way to ask. It is not "full", and nothing may
+	// read it as such -- refusing to place work on every host that predates
+	// the field would empty a fleet on upgrade.
+	DiskTotalMB int64 `json:"disk_total_mb,omitempty"`
+	DiskFreeMB  int64 `json:"disk_free_mb,omitempty"`
+	// ReserveCPUs, ReserveMemoryMB and ReserveDiskMB are the operator's, like
+	// Capacity: what to hold back from placement for the machine's own sake.
+	// An agent reports what it sees and never writes these, so a host cannot
+	// talk its way out of the room its operator kept for it.
+	ReserveCPUs     int    `json:"reserve_cpus,omitempty"`
+	ReserveMemoryMB int64  `json:"reserve_memory_mb,omitempty"`
+	ReserveDiskMB   int64  `json:"reserve_disk_mb,omitempty"`
+	Version         string `json:"version"`
 	// Cordoned hosts keep their existing runners but accept no new ones.
 	Cordoned      bool      `json:"cordoned"`
 	LastHeartbeat time.Time `json:"last_heartbeat"`

@@ -968,3 +968,48 @@ func TestEnteringDrainingIsStampedOnceAndNotMovedAfterwards(t *testing.T) {
 		t.Fatalf("draining_since did not survive a reload: %v", reloaded.DrainingSince)
 	}
 }
+
+// The reserve is what an operator holds back from placement for a machine's
+// own sake, and it is theirs the way capacity is. Its own statement is what
+// keeps it that way: UpdateHost is the path an agent's heartbeat takes, and a
+// host that could write this could talk its way out of the room kept for it.
+func TestAHostsReserveIsSetOnItsOwnAndSurvivesWhatAnAgentReports(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	_, _, host := seedPool(t, s)
+
+	if err := s.SetHostReserve(ctx, host.ID, 2, 4096, 50_000); err != nil {
+		t.Fatalf("SetHostReserve: %v", err)
+	}
+	got, err := s.GetHost(ctx, host.ID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if got.ReserveCPUs != 2 || got.ReserveMemoryMB != 4096 || got.ReserveDiskMB != 50_000 {
+		t.Fatalf("reserve = %d cpus, %d MB, %d MB disk", got.ReserveCPUs, got.ReserveMemoryMB, got.ReserveDiskMB)
+	}
+
+	// What an agent reports goes through UpdateHost, which carries the
+	// observations and leaves the reserve alone.
+	got.DiskTotalMB, got.DiskFreeMB = 500_000, 200_000
+	got.ReserveCPUs, got.ReserveMemoryMB, got.ReserveDiskMB = 0, 0, 0
+	if err := s.UpdateHost(ctx, got); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+
+	after, err := s.GetHost(ctx, host.ID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if after.ReserveCPUs != 2 || after.ReserveMemoryMB != 4096 || after.ReserveDiskMB != 50_000 {
+		t.Fatalf("reserve = %d cpus, %d MB, %d MB disk after an agent's update; it must be untouched",
+			after.ReserveCPUs, after.ReserveMemoryMB, after.ReserveDiskMB)
+	}
+	if after.DiskTotalMB != 500_000 || after.DiskFreeMB != 200_000 {
+		t.Fatalf("disk = %d total, %d free; the observation did not land", after.DiskTotalMB, after.DiskFreeMB)
+	}
+	// A host that does not exist is a caller's mistake, not a silent no-op.
+	if err := s.SetHostReserve(ctx, "host_nope", 1, 1, 1); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("SetHostReserve on a missing host = %v, want ErrNotFound", err)
+	}
+}

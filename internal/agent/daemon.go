@@ -340,6 +340,8 @@ func (a *Agent) Join(ctx context.Context, joinToken string) error {
 	a.mu.Unlock()
 
 	m := a.machine()
+	cpus, memoryMB := hostSize(infos, m)
+	total, free := a.workDirSpace()
 	req := JoinRequest{
 		ProtocolVersion: ProtocolVersion,
 		JoinToken:       joinToken,
@@ -349,8 +351,10 @@ func (a *Agent) Join(ctx context.Context, joinToken string) error {
 		Distro:          m.Distro,
 		OSVersion:       m.OSVersion,
 		Arch:            m.Arch,
-		CPUs:            m.CPUs,
-		MemoryMB:        m.MemoryMB,
+		CPUs:            cpus,
+		MemoryMB:        memoryMB,
+		DiskTotalMB:     total,
+		DiskFreeMB:      free,
 		Version:         version.Version,
 		Labels:          a.opts.Labels,
 		Backends:        infos,
@@ -554,12 +558,16 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	infos := a.refreshBackends(ctx)
 	runners := a.Runners()
 	m := a.machine()
+	cpus, memoryMB := hostSize(infos, m)
+	total, free := a.workDirSpace()
 	resp, err := a.tr.Heartbeat(hctx, HeartbeatRequest{
 		ProtocolVersion: ProtocolVersion,
 		Capacity:        a.opts.Capacity,
 		Version:         version.Version,
-		CPUs:            m.CPUs,
-		MemoryMB:        m.MemoryMB,
+		CPUs:            cpus,
+		MemoryMB:        memoryMB,
+		DiskTotalMB:     total,
+		DiskFreeMB:      free,
 		Backends:        infos,
 		Runners:         runners,
 	})
@@ -1299,6 +1307,55 @@ func (a *Agent) adoptExisting(ctx context.Context) {
 	if adopted > 0 {
 		a.log.Info("adopted runners already on this host", "runners", adopted)
 	}
+}
+
+// hostSize is how much machine this host has for runners, preferring what a
+// container daemon says over what the agent can see of itself.
+//
+// The two differ, and which is right depends on where the runners end up. The
+// agent's own view is clamped to its cgroup, deliberately: an agent in a
+// two-core container should not claim the host's sixty-four. But a runner
+// started through Docker or Podman is a sibling on the host, outside that
+// cgroup entirely, so the agent's share is not the bound on what it can start
+// -- and a containerised controller, which is the usual deployment, would
+// otherwise report a fleet a fraction of its real size and place accordingly.
+// A runner the process backend starts is a child of the agent and is held to
+// that cgroup, so where no daemon answers, the agent's own view is the honest
+// one and is what this falls back to.
+func hostSize(infos []backend.Info, self machine.Facts) (cpus int, memoryMB int64) {
+	cpus, memoryMB = self.CPUs, self.MemoryMB
+	for _, info := range infos {
+		if !info.Available {
+			continue
+		}
+		if info.CPUs > cpus {
+			cpus = info.CPUs
+		}
+		if info.MemoryMB > memoryMB {
+			memoryMB = info.MemoryMB
+		}
+	}
+	return cpus, memoryMB
+}
+
+// workDirSpace measures the filesystem the runners' scratch space lives on, in
+// megabytes, and reports zeroes when it cannot be measured.
+//
+// Megabytes rather than bytes because that is the unit the host row and every
+// other size on the Hosts page already use, and because a figure this coarse is
+// what a placement decision needs -- nobody is choosing a host on the strength
+// of one megabyte.
+//
+// Zero is "not measured" and never "full". A platform with no portable answer,
+// or a work directory that has not been created yet, must not read as a host
+// with no room, or upgrading would empty a fleet.
+func (a *Agent) workDirSpace() (totalMB, freeMB int64) {
+	total, avail, ok := diskSpace(a.opts.WorkDir)
+	if !ok {
+		return 0, 0
+	}
+	const mb = 1 << 20
+	return total / mb, avail / mb
 }
 
 // adopt records a workload the agent found on the host but had no memory of,
