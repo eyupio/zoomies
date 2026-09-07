@@ -152,12 +152,17 @@ type JobView struct {
 	Labels      []string       `json:"labels"`
 	State       store.JobState `json:"state"`
 	Conclusion  string         `json:"conclusion,omitempty"`
-	PoolID      string         `json:"pool_id,omitempty"`
-	PoolName    string         `json:"pool_name,omitempty"`
-	RunnerID    string         `json:"runner_id,omitempty"`
-	RunnerName  string         `json:"runner_name,omitempty"`
-	HTMLURL     string         `json:"html_url,omitempty"`
-	Matched     bool           `json:"matched"`
+	// InstallationID is the GitHub App installation covering this job's
+	// repository. It is read-only and derived at ingest; a pool only ever runs
+	// work in its own installation's target, so this is half of why a job is
+	// or is not claimed.
+	InstallationID string `json:"installation_id,omitempty"`
+	PoolID         string `json:"pool_id,omitempty"`
+	PoolName       string `json:"pool_name,omitempty"`
+	RunnerID       string `json:"runner_id,omitempty"`
+	RunnerName     string `json:"runner_name,omitempty"`
+	HTMLURL        string `json:"html_url,omitempty"`
+	Matched        bool   `json:"matched"`
 	// Hosted is true when every label names a runner somebody else operates:
 	// GitHub's own or a hosted-runner vendor's. Such a job is theirs to run,
 	// so it being unmatched here is expected rather than a job going nowhere.
@@ -201,33 +206,34 @@ func hostedJob(labels []string) bool {
 // NewJobView renders a job, given the name of the pool that claimed it.
 func NewJobView(j *store.Job, poolName string) JobView {
 	return JobView{
-		ID:          j.ID,
-		GitHubJobID: j.GitHubJobID,
-		GitHubRunID: j.GitHubRunID,
-		Repo:        j.Repo,
-		Workflow:    j.Workflow,
-		JobName:     j.JobName,
-		Labels:      emptySlice(j.Labels),
-		State:       j.State,
-		Conclusion:  j.Conclusion,
-		PoolID:      j.PoolID,
-		PoolName:    poolName,
-		RunnerID:    j.RunnerID,
-		RunnerName:  j.RunnerName,
-		HTMLURL:     j.HTMLURL,
-		Matched:     j.Matched,
-		Hosted:      hostedJob(j.Labels),
-		HeadBranch:  j.HeadBranch,
-		HeadSHA:     j.HeadSHA,
-		RunAttempt:  j.RunAttempt,
-		Steps:       emptySlice([]store.JobStep(j.Steps)),
-		FailedStep:  j.FailedStep(),
-		RunnerFault: j.RunnerFault,
-		QueuedAt:    j.QueuedAt,
-		StartedAt:   j.StartedAt,
-		CompletedAt: j.CompletedAt,
-		QueueWaitMS: millis(j.QueueWait()),
-		DurationMS:  millis(j.Duration()),
+		ID:             j.ID,
+		GitHubJobID:    j.GitHubJobID,
+		GitHubRunID:    j.GitHubRunID,
+		Repo:           j.Repo,
+		Workflow:       j.Workflow,
+		JobName:        j.JobName,
+		Labels:         emptySlice(j.Labels),
+		State:          j.State,
+		Conclusion:     j.Conclusion,
+		InstallationID: j.InstallationID,
+		PoolID:         j.PoolID,
+		PoolName:       poolName,
+		RunnerID:       j.RunnerID,
+		RunnerName:     j.RunnerName,
+		HTMLURL:        j.HTMLURL,
+		Matched:        j.Matched,
+		Hosted:         hostedJob(j.Labels),
+		HeadBranch:     j.HeadBranch,
+		HeadSHA:        j.HeadSHA,
+		RunAttempt:     j.RunAttempt,
+		Steps:          emptySlice([]store.JobStep(j.Steps)),
+		FailedStep:     j.FailedStep(),
+		RunnerFault:    j.RunnerFault,
+		QueuedAt:       j.QueuedAt,
+		StartedAt:      j.StartedAt,
+		CompletedAt:    j.CompletedAt,
+		QueueWaitMS:    millis(j.QueueWait()),
+		DurationMS:     millis(j.Duration()),
 	}
 }
 

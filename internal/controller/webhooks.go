@@ -68,6 +68,7 @@ func (c *Controller) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	// A delivery that verified proves webhooks reach this controller.
 	c.pollingOnly.Store(false)
+	d.InstallationID = installationID(inst)
 
 	switch {
 	case github.IsPing(event):
@@ -127,6 +128,10 @@ func parseEnvelope(body []byte) envelope {
 		Organization struct {
 			Login string `json:"login"`
 		} `json:"organization"`
+		// The installation GitHub says sent this. It is read for the record
+		// only: it is GitHub's numeric identifier rather than the store's, and
+		// a delivery asserting which installation it belongs to would be the
+		// delivery choosing its own scope. The repository decides instead.
 		Installation struct {
 			ID int64 `json:"id"`
 		} `json:"installation"`
@@ -214,6 +219,19 @@ func (c *Controller) handleWorkflowJob(ctx context.Context, body []byte) error {
 	}
 	job := e.ToJob()
 
+	// Which installation owns this work is the job's repository's question,
+	// not the delivery's. Verification deliberately falls back to any secret
+	// that answers, so the installation that signed a delivery may be one that
+	// has nothing to do with the repository named in it; scoping the job by
+	// that would mint runners in the wrong GitHub target. A repository no
+	// installation covers is recorded with none, and the eligibility rule says
+	// so rather than the delivery being rejected.
+	if owner, err := c.st.FindInstallationByTarget(ctx, job.Repo); err == nil {
+		job.InstallationID = owner.ID
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return fmt.Errorf("resolving the installation covering %s: %w", job.Repo, err)
+	}
+
 	// Which pool claims this job is decided here rather than at reconcile time
 	// so that "no pool wants this job" is visible on the Jobs page the moment
 	// it arrives, instead of only in a scheduler decision nobody is watching.
@@ -221,7 +239,7 @@ func (c *Controller) handleWorkflowJob(ctx context.Context, body []byte) error {
 	if err != nil {
 		return fmt.Errorf("listing pools to match job %d: %w", e.JobID, err)
 	}
-	if p := scheduler.BestPool(pools, job.Labels); p != nil {
+	if p := scheduler.BestPool(pools, job); p != nil {
 		job.PoolID = p.ID
 		job.Matched = true
 	}

@@ -1603,6 +1603,8 @@ export interface components {
             /** @enum {string} */
             status?: "accepted" | "rejected" | "error";
             error?: string;
+            /** @description The installation whose webhook secret verified this delivery. It is not necessarily the one covering the repository: when none does, every configured secret is tried, and this says which one answered. Empty on a delivery that verified against none. */
+            installation_id?: string;
             /** Format: date-time */
             received_at?: string;
         };
@@ -2039,6 +2041,8 @@ export interface components {
              * @example skipped
              */
             conclusion?: string;
+            /** @description The GitHub App installation covering this job's repository, resolved when the job was first recorded. Read-only. A pool only ever runs work in its own installation's target, so a pool whose labels fit is still not eligible unless this matches it. Empty when no installation here covers the repository. */
+            installation_id?: string;
             pool_id?: string;
             pool_name?: string;
             runner_id?: string;

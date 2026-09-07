@@ -122,3 +122,26 @@ func TestJobTimelineAndFailedFilterAreServed(t *testing.T) {
 		t.Fatalf("failed job = %+v, want its fault, an empty steps list and no failed step", page.Items[0])
 	}
 }
+
+// Which installation a job belongs to is now half of why a pool can or cannot
+// run it, so the answer has to be on the wire: the Jobs page explains an
+// unclaimed job from the row it was handed, and a field the server keeps to
+// itself is a field the page cannot say anything about.
+func TestAJobCarriesTheInstallationItBelongsTo(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux")
+	mine := h.job(pool, store.JobQueued)
+	_, cookie := h.user("viewer", store.RoleViewer)
+
+	var out struct {
+		ID             string `json:"id"`
+		InstallationID string `json:"installation_id"`
+	}
+	resp := h.do(request{method: "GET", path: "/api/v1/jobs/" + mine.ID, cookie: cookie})
+	resp.mustStatus(t, 200, "getting a job")
+	resp.into(t, &out)
+	if out.InstallationID != inst.ID {
+		t.Fatalf("installation_id = %q, want %q", out.InstallationID, inst.ID)
+	}
+}

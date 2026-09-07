@@ -421,31 +421,52 @@ func (c *Controller) jobProblems(ctx context.Context, out *[]Problem) error {
 		return err
 	}
 	now := c.Now()
-	var unmatched []*store.Job
-	for _, j := range all {
+	var unmatched []scheduler.UnmatchedJob
+	for _, u := range all {
 		// A job on GitHub's own runners or a vendor's is theirs to run however
 		// long it queues, and a job unclaimed for seconds may be another
 		// provider's, about to start there. Neither is this fleet's problem.
-		if hostedJob(j.Labels) || now.Sub(j.QueuedAt) < unmatchedGrace {
+		if hostedJob(u.Job.Labels) || now.Sub(u.Job.QueuedAt) < unmatchedGrace {
 			continue
 		}
-		unmatched = append(unmatched, j)
+		unmatched = append(unmatched, u)
 	}
 	if len(unmatched) == 0 {
 		return nil
 	}
-	example := unmatched[0]
+	example := unmatched[0].Job
 	labels := strings.Join(example.Labels, ", ")
+	// The scheduler's reason is only set for a job something less obvious than
+	// its labels refused -- a pool advertising exactly those labels but on
+	// another installation. Saying "if another provider serves those labels,
+	// this is expected" about such a job would send the operator looking in
+	// the wrong place entirely.
+	tail := " If another runner provider serves those labels, this is expected."
+	fix := "create or enable a pool advertising those labels, or change the workflow's runs-on; if another provider takes these jobs, nothing needs doing."
+	if reason := unmatched[0].Reason; reason != "" {
+		tail = fmt.Sprintf(" %s.", capitalise(reason))
+		fix = "point the workflow at a pool on the installation covering that repository, or add a pool there; a pool only ever runs work in its own GitHub target."
+	}
 	*out = append(*out, Problem{
 		Code:     "jobs.unmatched",
 		Severity: config.SeverityWarning,
 		Title:    fmt.Sprintf("no enabled pool here claims %s", plural(len(unmatched), "queued job")),
-		Detail: fmt.Sprintf("if they are meant for this fleet, nothing will run them. The oldest is %s in %s, asking for [%s], queued for %s. If another runner provider serves those labels, this is expected.",
-			example.JobName, example.Repo, labels, roundDuration(now.Sub(example.QueuedAt))),
-		Fix:        "create or enable a pool advertising those labels, or change the workflow's runs-on; if another provider takes these jobs, nothing needs doing.",
+		Detail: fmt.Sprintf("if they are meant for this fleet, nothing will run them. The oldest is %s in %s, asking for [%s], queued for %s.%s",
+			example.JobName, example.Repo, labels, roundDuration(now.Sub(example.QueuedAt)), tail),
+		Fix:        fix,
 		TargetKind: "job", TargetID: example.ID, Since: &example.QueuedAt,
 	})
 	return nil
+}
+
+// capitalise upper-cases the first letter of a sentence written to be joined
+// onto another. The reasons are written lowercase so that they read inside a
+// clause; here one begins a sentence of its own.
+func capitalise(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 // unmatchedGrace is how long a queued job no pool here claims is given before
@@ -502,7 +523,10 @@ func (c *Controller) lostRunnerProblems(ctx context.Context, out *[]Problem) err
 // unmatchedQueuedJobs prefers the last scheduler decision, which is computed
 // against the pools as they are now; it falls back to the flag stored on each
 // job when no pass has run yet, so a fresh controller still reports honestly.
-func (c *Controller) unmatchedQueuedJobs(ctx context.Context) ([]*store.Job, error) {
+//
+// The fallback carries no reason. The stored flag records that nothing claimed
+// the job, not what refused it, and inventing one from a row would be a guess.
+func (c *Controller) unmatchedQueuedJobs(ctx context.Context) ([]scheduler.UnmatchedJob, error) {
 	if plan, at := c.getLastPlan(); plan != nil && !at.IsZero() {
 		return plan.Unmatched, nil
 	}
@@ -513,7 +537,11 @@ func (c *Controller) unmatchedQueuedJobs(ctx context.Context) ([]*store.Job, err
 	if err != nil {
 		return nil, fmt.Errorf("listing unmatched jobs: %w", err)
 	}
-	return jobs, nil
+	out := make([]scheduler.UnmatchedJob, 0, len(jobs))
+	for _, j := range jobs {
+		out = append(out, scheduler.UnmatchedJob{Job: j})
+	}
+	return out, nil
 }
 
 // loopProblems reports every background loop that has panicked since the

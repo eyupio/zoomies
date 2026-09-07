@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"fmt"
 	"slices"
 
 	"github.com/eyupio/zoomies/internal/store"
@@ -85,23 +86,72 @@ func Score(poolLabels, jobLabels []string) int {
 	return max(exactScore-surplus, 0)
 }
 
-// BestPool returns the enabled pool that best fits jobLabels, or nil when no
-// pool claims the job -- which the caller surfaces as a configuration problem
-// rather than silently dropping the job. Disabled pools are skipped, because
-// an operator disables a pool precisely so that it stops taking work.
+// Eligible reports whether a pool may run a job at all, and when it may not,
+// says why in the operator's words.
+//
+// The three tests are asked in the order an operator would ask them. A
+// disabled pool was disabled on purpose. A pool belonging to another GitHub
+// App installation cannot run the job whatever its labels say: Zoomies would
+// mint the runner's registration in the wrong GitHub target, and the job would
+// sit queued while a runner waited for it somewhere it can never be offered.
+// Labels come last, because they are the only one of the three an operator
+// changes by editing a workflow.
+func Eligible(p *store.Pool, j *store.Job) (bool, string) {
+	switch {
+	case p == nil || j == nil:
+		return false, ""
+	case !p.Enabled:
+		return false, "the pool is disabled"
+	case j.InstallationID == "":
+		return false, "no GitHub App installation here covers that repository"
+	case p.InstallationID != j.InstallationID:
+		return false, "the pool belongs to another GitHub App installation"
+	case !Matches(p.Labels, j.Labels):
+		return false, "the pool does not advertise those labels"
+	}
+	return true, ""
+}
+
+// BestPool returns the pool that best fits a job, or nil when no pool is
+// eligible for it -- which the caller surfaces as a configuration problem
+// rather than silently dropping the job.
 //
 // Ties break on pool name and then pool ID, so the same job always lands in
 // the same pool. Anything else would make the controller disagree with itself
 // across restarts, and make a scaling decision impossible to explain.
-func BestPool(pools []*store.Pool, jobLabels []string) *store.Pool {
-	job := store.NormalizeLabels(jobLabels)
+func BestPool(pools []*store.Pool, j *store.Job) *store.Pool {
+	best, _ := bestPool(pools, j, nil)
+	return best
+}
+
+// bestPool is BestPool that also explains an empty answer, given the target
+// each installation manages so that the explanation can name one.
+//
+// The explanation names the nearest miss rather than every pool's objection.
+// A job whose labels match a pool in another installation is a different
+// problem from one whose labels match nothing here -- the first is a pool on
+// the wrong installation, the second is a workflow asking for a machine this
+// fleet does not offer -- and only the first is worth a sentence, because the
+// second is what the Jobs page already says.
+func bestPool(pools []*store.Pool, j *store.Job, targets map[string]string) (*store.Pool, string) {
 	var best *store.Pool
 	bestScore := noMatch
+	var elsewhere *store.Pool
 	for _, p := range pools {
-		if p == nil || !p.Enabled {
+		if p == nil {
 			continue
 		}
-		s := Score(p.Labels, job)
+		if ok, _ := Eligible(p, j); !ok {
+			// A pool that would take the job but for its installation is the
+			// near miss worth reporting. Ties break the same way matches do,
+			// so the sentence does not change between passes.
+			if p.Enabled && Matches(p.Labels, j.Labels) &&
+				(elsewhere == nil || lessPool(p, elsewhere)) {
+				elsewhere = p
+			}
+			continue
+		}
+		s := Score(p.Labels, j.Labels)
 		if s < 0 {
 			continue
 		}
@@ -109,7 +159,24 @@ func BestPool(pools []*store.Pool, jobLabels []string) *store.Pool {
 			best, bestScore = p, s
 		}
 	}
-	return best
+	if best != nil || elsewhere == nil {
+		return best, ""
+	}
+	if j.InstallationID == "" {
+		return nil, fmt.Sprintf("its labels match pool %s, but no GitHub App installation here covers %s", elsewhere.Name, j.Repo)
+	}
+	return nil, fmt.Sprintf("its labels match pool %s, which belongs to installation %s",
+		elsewhere.Name, installationName(elsewhere.InstallationID, targets))
+}
+
+// installationName prefers the target an installation manages -- the
+// organisation or repository an operator recognises -- and falls back to the
+// identifier when the caller did not supply the targets.
+func installationName(id string, targets map[string]string) string {
+	if t := targets[id]; t != "" {
+		return t
+	}
+	return id
 }
 
 // lessPool is the total order used wherever two pools would otherwise tie.

@@ -462,9 +462,13 @@ func (h *harness) job(pool *store.Pool, state store.JobState) *store.Job {
 		JobName:     "build",
 		Labels:      store.StringSlice{"self-hosted", "linux", "x64"},
 		State:       state,
-		PoolID:      pool.ID,
-		Matched:     true,
-		QueuedAt:    time.Now().Add(-time.Minute),
+		// The installation is the pool's, as ingest would have resolved it
+		// from the repository: a job carrying none is ineligible for every
+		// pool, which is a different test from the ones using this helper.
+		InstallationID: pool.InstallationID,
+		PoolID:         pool.ID,
+		Matched:        true,
+		QueuedAt:       time.Now().Add(-time.Minute),
 	}
 	out, err := h.st.UpsertJob(h.ctx, j)
 	if err != nil {

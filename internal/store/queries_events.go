@@ -14,8 +14,8 @@ import (
 // ---------------------------------------------------------------------------
 
 const jobCols = `id, github_job_id, github_run_id, repo, workflow, job_name, labels, state,
-	conclusion, pool_id, runner_id, runner_name, html_url, queued_at, started_at,
-	completed_at, matched, head_branch, head_sha, run_attempt, steps, runner_fault`
+	conclusion, installation_id, pool_id, runner_id, runner_name, html_url, queued_at,
+	started_at, completed_at, matched, head_branch, head_sha, run_attempt, steps, runner_fault`
 
 func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
 	var j Job
@@ -23,8 +23,8 @@ func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
 	var started, completed sql.NullInt64
 	var matched int
 	err := sc.Scan(&j.ID, &j.GitHubJobID, &j.GitHubRunID, &j.Repo, &j.Workflow, &j.JobName,
-		&j.Labels, &j.State, &j.Conclusion, &j.PoolID, &j.RunnerID, &j.RunnerName,
-		&j.HTMLURL, &queued, &started, &completed, &matched,
+		&j.Labels, &j.State, &j.Conclusion, &j.InstallationID, &j.PoolID, &j.RunnerID,
+		&j.RunnerName, &j.HTMLURL, &queued, &started, &completed, &matched,
 		&j.HeadBranch, &j.HeadSHA, &j.RunAttempt, &j.Steps, &j.RunnerFault)
 	if err != nil {
 		return nil, err
@@ -67,11 +67,11 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 			}
 			j.Labels = NormalizeLabels(j.Labels)
 			_, err := tx.ExecContext(ctx, `INSERT INTO jobs (`+jobCols+`)
-				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 				j.ID, j.GitHubJobID, j.GitHubRunID, j.Repo, j.Workflow, j.JobName, j.Labels,
-				string(j.State), j.Conclusion, j.PoolID, j.RunnerID, j.RunnerName, j.HTMLURL,
-				ms(j.QueuedAt), msp(j.StartedAt), msp(j.CompletedAt), boolInt(j.Matched),
-				j.HeadBranch, j.HeadSHA, j.RunAttempt, j.Steps, j.RunnerFault)
+				string(j.State), j.Conclusion, j.InstallationID, j.PoolID, j.RunnerID,
+				j.RunnerName, j.HTMLURL, ms(j.QueuedAt), msp(j.StartedAt), msp(j.CompletedAt),
+				boolInt(j.Matched), j.HeadBranch, j.HeadSHA, j.RunAttempt, j.Steps, j.RunnerFault)
 			if err != nil {
 				return err
 			}
@@ -112,6 +112,7 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 		text(&merged.Repo, j.Repo)
 		text(&merged.Workflow, j.Workflow)
 		text(&merged.JobName, j.JobName)
+		text(&merged.InstallationID, j.InstallationID)
 		text(&merged.PoolID, j.PoolID)
 		text(&merged.RunnerID, j.RunnerID)
 		text(&merged.RunnerName, j.RunnerName)
@@ -134,14 +135,14 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 		merged.Matched = merged.Matched || j.Matched
 
 		_, err = tx.ExecContext(ctx, `UPDATE jobs SET github_run_id=?, repo=?, workflow=?,
-			job_name=?, labels=?, state=?, conclusion=?, pool_id=?, runner_id=?, runner_name=?,
-			html_url=?, started_at=?, completed_at=?, matched=?, head_branch=?, head_sha=?,
-			run_attempt=?, steps=?, runner_fault=? WHERE id=?`,
+			job_name=?, labels=?, state=?, conclusion=?, installation_id=?, pool_id=?,
+			runner_id=?, runner_name=?, html_url=?, started_at=?, completed_at=?, matched=?,
+			head_branch=?, head_sha=?, run_attempt=?, steps=?, runner_fault=? WHERE id=?`,
 			merged.GitHubRunID, merged.Repo, merged.Workflow, merged.JobName, merged.Labels,
-			string(merged.State), merged.Conclusion, merged.PoolID, merged.RunnerID,
-			merged.RunnerName, merged.HTMLURL, msp(merged.StartedAt), msp(merged.CompletedAt),
-			boolInt(merged.Matched), merged.HeadBranch, merged.HeadSHA, merged.RunAttempt,
-			merged.Steps, merged.RunnerFault, merged.ID)
+			string(merged.State), merged.Conclusion, merged.InstallationID, merged.PoolID,
+			merged.RunnerID, merged.RunnerName, merged.HTMLURL, msp(merged.StartedAt),
+			msp(merged.CompletedAt), boolInt(merged.Matched), merged.HeadBranch, merged.HeadSHA,
+			merged.RunAttempt, merged.Steps, merged.RunnerFault, merged.ID)
 		if err != nil {
 			return err
 		}
@@ -767,8 +768,10 @@ func (s *Store) RecordDelivery(ctx context.Context, d *WebhookDelivery) error {
 		d.ReceivedAt = s.Now()
 	}
 	_, err := s.exec(ctx, `INSERT INTO webhook_deliveries
-		(id, delivery_id, event, action, repo, status, error, received_at) VALUES (?,?,?,?,?,?,?,?)`,
-		d.ID, d.DeliveryID, d.Event, d.Action, d.Repo, d.Status, d.Error, ms(d.ReceivedAt))
+		(id, delivery_id, event, action, repo, status, error, installation_id, received_at)
+		VALUES (?,?,?,?,?,?,?,?,?)`,
+		d.ID, d.DeliveryID, d.Event, d.Action, d.Repo, d.Status, d.Error,
+		d.InstallationID, ms(d.ReceivedAt))
 	return err
 }
 
@@ -778,7 +781,8 @@ func (s *Store) ListDeliveries(ctx context.Context, status string, limit int) ([
 	if limit <= 0 || limit > 500 {
 		limit = 50
 	}
-	q := `SELECT id, delivery_id, event, action, repo, status, error, received_at FROM webhook_deliveries`
+	q := `SELECT id, delivery_id, event, action, repo, status, error, installation_id, received_at
+		FROM webhook_deliveries`
 	var args []any
 	if status != "" {
 		q += ` WHERE status = ?`
@@ -796,7 +800,7 @@ func (s *Store) ListDeliveries(ctx context.Context, status string, limit int) ([
 		var d WebhookDelivery
 		var recv int64
 		if err := rows.Scan(&d.ID, &d.DeliveryID, &d.Event, &d.Action, &d.Repo,
-			&d.Status, &d.Error, &recv); err != nil {
+			&d.Status, &d.Error, &d.InstallationID, &recv); err != nil {
 			return nil, err
 		}
 		d.ReceivedAt = at(recv)

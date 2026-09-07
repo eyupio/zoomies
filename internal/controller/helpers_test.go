@@ -114,8 +114,18 @@ func newHarness(t *testing.T) *harness {
 	return &harness{t: t, c: c, st: st, gh: gh, factory: factory, key: key, cfg: cfg, ctx: ctx}
 }
 
-// installation seeds a GitHub App installation with a sealed webhook secret.
+// installation seeds a GitHub App installation on the "acme" organisation with
+// a sealed webhook secret.
 func (h *harness) installation() *store.Installation {
+	h.t.Helper()
+	return h.installationOn("acme", store.TargetOrg)
+}
+
+// installationOn seeds an installation on a named target, so that a test can
+// have two of them and prove work does not cross between them. One fake GitHub
+// backs both: its client is built per target, which is the distinction that
+// matters here.
+func (h *harness) installationOn(target string, kind store.TargetType) *store.Installation {
 	h.t.Helper()
 	pem, err := h.key.SealString("-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----")
 	if err != nil {
@@ -128,8 +138,8 @@ func (h *harness) installation() *store.Installation {
 	inst := &store.Installation{
 		AppID:            h.gh.AppID(),
 		InstallationID:   h.gh.InstallationID(),
-		Target:           "acme",
-		TargetType:       store.TargetOrg,
+		Target:           target,
+		TargetType:       kind,
 		APIBaseURL:       h.gh.URL(),
 		PrivateKeyEnc:    pem,
 		WebhookSecretEnc: secret,

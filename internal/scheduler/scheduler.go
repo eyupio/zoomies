@@ -38,8 +38,13 @@ type Snapshot struct {
 	ActiveByRepository map[string]int
 	QueuedByRepository map[string]int
 	// Hosts is every registered agent host, with ActiveRunners filled in.
-	Hosts  []*store.Host
-	Policy Policy
+	Hosts []*store.Host
+	// Installations is every configured GitHub App installation. Eligibility
+	// is decided from the identifiers a pool and a job already carry, so this
+	// is here only so that an explanation can name the organisation or
+	// repository an operator recognises instead of an opaque identifier.
+	Installations []*store.Installation
+	Policy        Policy
 }
 
 const (
@@ -176,9 +181,20 @@ type Plan struct {
 	Pools []PoolPlan `json:"pools"`
 	// Actions is every pool's actions flattened, in execution order.
 	Actions []Action `json:"actions,omitempty"`
-	// Unmatched holds queued jobs no enabled pool claims. They will never run,
-	// so the UI surfaces them as a configuration problem.
-	Unmatched []*store.Job `json:"unmatched,omitempty"`
+	// Unmatched holds queued jobs no pool will run, each with the reason the
+	// nearest pool refused it. They will never run, so the UI surfaces them as
+	// a configuration problem.
+	Unmatched []UnmatchedJob `json:"unmatched,omitempty"`
+}
+
+// UnmatchedJob is a queued job no pool claimed, and why.
+type UnmatchedJob struct {
+	Job *store.Job `json:"job"`
+	// Reason is empty when the job's labels simply match no pool here, which
+	// is the case the Jobs page already explains on its own. It is set when
+	// something less obvious refused the job -- a pool that advertises exactly
+	// those labels but belongs to another GitHub App installation.
+	Reason string `json:"reason,omitempty"`
 }
 
 // Decide turns a snapshot of the fleet into the actions that move it towards
@@ -186,7 +202,7 @@ type Plan struct {
 // yields the same plan, down to the order of the actions.
 func Decide(s Snapshot) Plan {
 	pools := sortedPools(s.Pools)
-	demand, unmatched := assign(pools, s.Jobs)
+	demand, unmatched := assign(pools, s.Jobs, targetsOf(s.Installations))
 
 	t := &tick{
 		now:                s.Now,
@@ -227,22 +243,37 @@ type tick struct {
 }
 
 // assign maps every queued job onto the pool that will run it, and collects the
-// ones nothing claims.
-func assign(pools []*store.Pool, jobs []*store.Job) (map[string][]*store.Job, []*store.Job) {
+// ones nothing claims, each with the reason it went unclaimed.
+func assign(pools []*store.Pool, jobs []*store.Job, targets map[string]string) (map[string][]*store.Job, []UnmatchedJob) {
 	demand := make(map[string][]*store.Job, len(pools))
-	var unmatched []*store.Job
+	var unmatched []UnmatchedJob
 	for _, j := range sortedJobs(jobs) {
 		if j.State != store.JobQueued {
 			continue
 		}
-		p := BestPool(pools, j.Labels)
+		p, reason := bestPool(pools, j, targets)
 		if p == nil {
-			unmatched = append(unmatched, j)
+			unmatched = append(unmatched, UnmatchedJob{Job: j, Reason: reason})
 			continue
 		}
 		demand[p.ID] = append(demand[p.ID], j)
 	}
 	return demand, unmatched
+}
+
+// targetsOf indexes installations by identifier so that an explanation can
+// name the organisation or repository one manages.
+func targetsOf(insts []*store.Installation) map[string]string {
+	if len(insts) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(insts))
+	for _, i := range insts {
+		if i != nil {
+			out[i.ID] = i.Target
+		}
+	}
+	return out
 }
 
 // decidePool applies the reap, scale-up and scale-down rules to one pool.
