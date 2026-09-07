@@ -618,3 +618,74 @@ func TestAStaleDeliveryDoesNotForgetWhichInstallationAJobBelongsTo(t *testing.T)
 		t.Fatalf("installation = %q, want it kept: the delivery carried none", got.InstallationID)
 	}
 }
+
+// The poller stands down for an installation whose webhooks are arriving. That
+// has to be asked per installation: a fleet where one organisation's deliveries
+// flow and another's do not is exactly the case the fallback poller exists for,
+// and a fleet-wide answer lets the working half hide the broken one.
+func TestDeliveryFreshnessIsCreditedToTheInstallationOwningTheRepository(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	org := &Installation{AppID: 1, InstallationID: 10, Target: "acme", TargetType: TargetOrg}
+	repo := &Installation{AppID: 1, InstallationID: 11, Target: "acme/widgets", TargetType: TargetRepo}
+	quiet := &Installation{AppID: 1, InstallationID: 12, Target: "globex", TargetType: TargetOrg}
+	for _, i := range []*Installation{org, repo, quiet} {
+		if err := s.CreateInstallation(ctx, i); err != nil {
+			t.Fatalf("CreateInstallation: %v", err)
+		}
+	}
+
+	base := time.Now().Truncate(time.Millisecond)
+	for _, d := range []struct {
+		repo, status string
+		at           time.Time
+	}{
+		{"acme/gadgets", "accepted", base.Add(-9 * time.Minute)},
+		{"acme/gadgets", "accepted", base.Add(-3 * time.Minute)},
+		// A repository installation owns its own repository even though the
+		// organisation installation covers it too.
+		{"acme/widgets", "accepted", base.Add(-7 * time.Minute)},
+		// Rejected: it started no runner, so it is no evidence webhooks work.
+		{"globex/thing", "rejected", base.Add(-1 * time.Minute)},
+		// No installation covers it, so it is nobody's freshness.
+		{"nobody/here", "accepted", base.Add(-2 * time.Minute)},
+		// An organisation-wide ping carries the organisation, not a repository.
+		{"acme", "accepted", base.Add(-30 * time.Second)},
+	} {
+		if err := s.RecordDelivery(ctx, &WebhookDelivery{
+			DeliveryID: d.repo + d.at.String(), Event: "workflow_job",
+			Repo: d.repo, Status: d.status, ReceivedAt: d.at,
+		}); err != nil {
+			t.Fatalf("RecordDelivery: %v", err)
+		}
+	}
+
+	// A window wide enough for every delivery above.
+	got, err := s.InstallationsFreshSince(ctx, base.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("InstallationsFreshSince: %v", err)
+	}
+	if !got[org.ID] {
+		t.Error("the organisation's own deliveries are arriving, so it is fresh")
+	}
+	if !got[repo.ID] {
+		t.Error("the repository installation owns its repository's delivery, so it is fresh")
+	}
+	if got[quiet.ID] {
+		t.Error("globex has only a rejected delivery, so it must look silent")
+	}
+	if len(got) != 2 {
+		t.Errorf("got %d fresh installations, want 2: %v", len(got), got)
+	}
+
+	// And the cutoff is what the caller means by fresh: narrow it past the
+	// repository installation's delivery and only the organisation, whose ping
+	// arrived thirty seconds ago, is still arriving.
+	recent, err := s.InstallationsFreshSince(ctx, base.Add(-time.Minute))
+	if err != nil {
+		t.Fatalf("InstallationsFreshSince: %v", err)
+	}
+	if !recent[org.ID] || recent[repo.ID] {
+		t.Errorf("inside the last minute = %v, want the organisation alone", recent)
+	}
+}

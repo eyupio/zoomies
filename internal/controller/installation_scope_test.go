@@ -300,3 +300,100 @@ func TestTheTimelineSaysWhenNoInstallationCoversTheRepository(t *testing.T) {
 		t.Fatalf("the unmatched entry says %q, want it to name the uncovered repository", said)
 	}
 }
+
+// twoPolledInstallations seeds two repository-target installations, so each
+// polls only its own repository and the two queues cannot be confused.
+func twoPolledInstallations(h *harness) (acme, globex *store.Installation) {
+	h.t.Helper()
+	labels := []string{"self-hosted", "linux", "x64", "demo"}
+	a := h.installationOn("acme/widgets", store.TargetRepo)
+	g := h.installationOn("globex/thing", store.TargetRepo)
+	h.host("vm-1")
+	h.pool(a, "acme-pool", labels...)
+	h.pool(g, "globex-pool", labels...)
+	h.gh.AddQueuedJob("acme/widgets", "CI", "build", labels)
+	h.gh.AddQueuedJob("globex/thing", "CI", "build", labels)
+	return a, g
+}
+
+// polledRepos is the repositories this sweep asked GitHub about, which is what
+// says which installations were actually polled.
+func polledRepos(h *harness, since int) map[string]bool {
+	h.t.Helper()
+	out := map[string]bool{}
+	for _, r := range h.gh.Requests()[since:] {
+		for _, repo := range []string{"acme/widgets", "globex/thing"} {
+			if strings.Contains(r, "/repos/"+repo+"/") {
+				out[repo] = true
+			}
+		}
+	}
+	return out
+}
+
+// GitHub's quota is per installation. A sweep that abandoned the rest of the
+// fleet on the first rate-limited installation would let one organisation out
+// of quota stop every other one from scaling -- and the poller is the fallback
+// that exists precisely for the installation whose webhooks are not arriving.
+func TestARateLimitedInstallationDoesNotStopTheOthersBeingPolled(t *testing.T) {
+	h := newHarness(t)
+	acme, globex := twoPolledInstallations(h)
+	// A secondary rate limit, which GitHub reports as a 429 on the call it
+	// refuses. The primary form is a 403 plus an exhausted quota in the
+	// response headers, and those headers are what go-github caches per
+	// client -- setting them on the fake would rate-limit every installation
+	// at once and prove nothing about isolation.
+	h.gh.SetError("/repos/acme/widgets/", 429, "You have exceeded a secondary rate limit")
+
+	before := len(h.gh.Requests())
+	h.c.pollOnce(h.ctx)
+
+	if !h.c.pollHeld(acme.ID, time.Now()) {
+		t.Error("the rate-limited installation was not stood down")
+	}
+	if h.c.pollHeld(globex.ID, time.Now()) {
+		t.Error("the installation GitHub did not rate-limit was stood down with it")
+	}
+	if asked := polledRepos(h, before); !asked["globex/thing"] {
+		t.Errorf("globex was never polled: %v", asked)
+	}
+
+	// And the next sweep skips the held installation while still polling the
+	// other, rather than the hold covering the whole fleet.
+	before = len(h.gh.Requests())
+	h.c.pollOnce(h.ctx)
+	asked := polledRepos(h, before)
+	if asked["acme/widgets"] {
+		t.Error("the held installation was polled again inside its backoff")
+	}
+	if !asked["globex/thing"] {
+		t.Errorf("the other installation stopped being polled: %v", asked)
+	}
+}
+
+// Standing down because webhooks are arriving is what makes the poller cheap
+// enough to leave on. Asked fleet-wide, one organisation's working deliveries
+// would silence the poller for an organisation whose webhooks reach nobody --
+// which is the exact failure the poller is the safety net for.
+func TestAFreshInstallationDoesNotSilenceThePollerForASilentOne(t *testing.T) {
+	h := newHarness(t)
+	_, _ = twoPolledInstallations(h)
+
+	if err := h.st.RecordDelivery(h.ctx, &store.WebhookDelivery{
+		DeliveryID: "recent", Event: "workflow_job", Repo: "acme/widgets",
+		Status: "accepted", ReceivedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("RecordDelivery: %v", err)
+	}
+
+	before := len(h.gh.Requests())
+	h.c.pollOnce(h.ctx)
+
+	asked := polledRepos(h, before)
+	if asked["acme/widgets"] {
+		t.Error("an installation whose webhooks are arriving was polled anyway")
+	}
+	if !asked["globex/thing"] {
+		t.Errorf("the installation no webhook has ever arrived for was not polled: %v", asked)
+	}
+}

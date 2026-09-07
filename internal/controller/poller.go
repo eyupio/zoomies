@@ -65,20 +65,25 @@ func (c *Controller) pollInterval() time.Duration {
 // spend an organisation's API quota.
 func (c *Controller) pollOnce(ctx context.Context) {
 	now := c.Now()
-	if until := c.pollPausedUntil.Load(); until > 0 && now.UnixNano() < until {
-		return
-	}
 
 	// Accepted deliveries only: one that was rejected recorded a job for
 	// nobody, and a run of them is the mistyped-secret case this poller is
 	// the safety net for.
+	//
+	// The fleet-wide answer is only used to say whether a webhook has ever
+	// arrived, which the Overview reports about the deployment rather than
+	// about any one installation. What to poll is decided per installation
+	// below.
 	last, err := c.st.LastAcceptedDeliveryAt(ctx)
 	if err != nil {
 		c.log.Error("could not tell when the last webhook arrived", "error", err)
 		return
 	}
 	c.pollingOnly.Store(last.IsZero())
-	if !last.IsZero() && now.Sub(last) < 2*c.pollInterval() {
+
+	fresh, err := c.st.InstallationsFreshSince(ctx, now.Add(-2*c.pollInterval()))
+	if err != nil {
+		c.log.Error("could not tell which installations webhooks are arriving for", "error", err)
 		return
 	}
 
@@ -99,6 +104,16 @@ func (c *Controller) pollOnce(ctx context.Context) {
 			// tick of a demo instance.
 			continue
 		}
+		if c.pollHeld(inst.ID, now) {
+			continue
+		}
+		// An installation whose webhooks are arriving costs nothing: this is
+		// what makes leaving the poller on by default defensible, and asking
+		// it per installation is what stops a working organisation's
+		// deliveries from covering for a silent one on the same controller.
+		if fresh[inst.ID] {
+			continue
+		}
 		client, err := c.clients.get(ctx, inst)
 		if err != nil {
 			c.log.Warn("skipping an installation while polling", "installation", inst.ID, "error", err)
@@ -108,10 +123,13 @@ func (c *Controller) pollOnce(ctx context.Context) {
 		c.observeGitHub(inst.ID, err)
 		if err != nil {
 			if errors.Is(err, github.ErrRateLimited) {
-				c.pollPausedUntil.Store(now.Add(rateLimitBackoff).UnixNano())
-				c.log.Warn("GitHub rate-limited the fallback poller; standing down",
+				// Hold this installation only. Its quota is its own, and the
+				// sweep abandoning the rest would let one organisation out of
+				// quota stop every other one from scaling.
+				c.holdPolling(inst.ID, now.Add(rateLimitBackoff))
+				c.log.Warn("GitHub rate-limited the fallback poller for an installation; standing down for it",
 					"installation", inst.ID, "backoff", rateLimitBackoff, "error", err)
-				return
+				continue
 			}
 			c.log.Warn("could not poll for queued jobs", "installation", inst.ID, "error", err)
 			continue
@@ -186,6 +204,33 @@ func (c *Controller) ingestQueuedJobs(ctx context.Context, polled *store.Install
 		c.publishJob(ctx, saved)
 	}
 	return changed, nil
+}
+
+// pollHeld reports whether an installation is inside its rate-limit backoff,
+// clearing the hold once it has expired so the map does not grow with the
+// installations that have long since recovered.
+func (c *Controller) pollHeld(id string, now time.Time) bool {
+	c.pollMu.Lock()
+	defer c.pollMu.Unlock()
+	until, ok := c.pollPaused[id]
+	if !ok {
+		return false
+	}
+	if !now.Before(until) {
+		delete(c.pollPaused, id)
+		return false
+	}
+	return true
+}
+
+// holdPolling stands the poller down for one installation until a moment.
+func (c *Controller) holdPolling(id string, until time.Time) {
+	c.pollMu.Lock()
+	defer c.pollMu.Unlock()
+	if c.pollPaused == nil {
+		c.pollPaused = map[string]time.Time{}
+	}
+	c.pollPaused[id] = until
 }
 
 // owningInstallation is the installation covering a repository, with a

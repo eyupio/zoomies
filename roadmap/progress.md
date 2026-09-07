@@ -40,7 +40,7 @@ evidence.
 
 | ID | Package | Classification | Status | Depends on | Session | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| ZF-101 | Enforce GitHub target boundaries everywhere | new (jobs carry no installation identity; label-only matching on all four paths) | `in_progress` | ZF-002 | PR1: Claude Opus 5, `ultracode`; one orchestration of 8 subsystem mappers and 8 adversarial verifiers, then one session | PR1 of 3 done: a job carries the installation covering its repository, `scheduler.Eligible` asks enabled, then installation, then labels, and all four matching paths go through it. Migration `0012` (not `0010`: 0010 and 0011 shipped since the plan was written). Two-installation tests on the webhook, poller and scheduler paths, each proven to fail without the rule. PR2 (per-installation freshness and backoff) and PR3 (the runner-group warning and the hosts-and-pools section) remain |
+| ZF-101 | Enforce GitHub target boundaries everywhere | new (jobs carry no installation identity; label-only matching on all four paths) | `in_progress` | ZF-002 | PR1 and PR2: Claude Opus 5, `ultracode`; one orchestration of 8 subsystem mappers and 8 adversarial verifiers for PR1, a smaller one of 3 and 3 for PR2, each followed by one session | PR1 merged as #99: a job carries the installation covering its repository, `scheduler.Eligible` asks enabled, then installation, then labels, and all four matching paths go through it. Migration `0012` (not `0010`: 0010 and 0011 shipped since the plan was written). PR2 done: poll freshness and the rate-limit hold are both per installation, freshness credited by the delivery's repository rather than by the secret that verified it. Every behavioural test was run against the code with its rule removed and confirmed to fail first. PR3 (the runner-group warning and the hosts-and-pools section) remains |
 | ZF-102 | Make runner and agent reconciliation convergent | mixed (mechanics exist; adoption on restart, a controller lock and the log-relay host check do not) | `in_progress` | ZF-002; N02 needs `main` deployed | PR1: Claude Fable 5.1, `xhigh`, one session; two mapping-and-verification orchestrations over the four packages | PR1 of 4 done: the "Reconciliation invariants" section in `docs/architecture.md` lists every rule with its constant and owner, and `internal/controller/invariants_test.go` pins the silence ladder and the lease-outlasts-work relationship. PR2 (log-relay host binding, state-directory lock and controller lease), PR3 (adoption on agent start) and PR4 (late reports and the restart table) remain |
 | ZF-103 | Reserve host resources and enforce bounded admission | extension (slot model complete; no host resource reporting) | `not_started` | ZF-102 | | Size L; 103a before Gate F, 103b after |
 | ZF-104 | Verify control-plane access and secret boundaries | mixed (matrix and most tests exist; log relay unscoped to host; streams never re-check credentials) | `not_started` | ZF-101, ZF-102 | | Size M |
@@ -74,6 +74,40 @@ evidence.
 ## Log
 
 Newest first. One line per event that changed a row.
+
+* 2026-09-07: ZF-101's second pull request, the poller made per-installation.
+  The freshness question is answered from the delivery's repository, as the
+  first pull request's record said it would have to be: a delivery credits the
+  installation that owns the repository named in it, never the one whose secret
+  verified it, so an installation whose secrets have drifted cannot be told to
+  stand down on its neighbour's traffic. The rate-limit hold became a map and
+  the sweep continues past a held installation. One thing worth knowing for the
+  later slices: go-github caches an exhausted quota on the client, so a fake
+  that sets the rate-limit headers globally rate-limits every installation at
+  once; a test that wants one installation held has to use the 429 secondary
+  form. The first draft of that test did not, and passed for the wrong reason.
+
+  Two deliberate departures from the package's wording, recorded because the
+  plan is the contract and the next reader should not have to rediscover them.
+  The plan says "`LastAcceptedDeliveryAt` takes an installation"; instead it is
+  left alone and a sibling added, because `Controller.Start` and the
+  `pollingOnly` flag that ZF-202 keeps fleet-wide both still need the fleet-wide
+  answer, and one query per sweep beats one per installation. The sibling is
+  `InstallationsFreshSince`, bounded by the caller's own cutoff: asking for the
+  last delivery per installation groups over every accepted row inside the
+  retention window, which measured as a full scan of a week of history every
+  thirty seconds, where the cutoff makes it an index range. And the plan says
+  the tests need "two fakes"; one serves, because the fake's error injection is
+  matched on the request path, so a repository-target installation can be
+  rate-limited by its own path while its neighbour is not.
+
+  One asymmetry the query inherits from the attribution rule, worth knowing
+  before somebody reads it as a bug: where an organisation installation and a
+  repository installation both cover a repository, only the repository one is
+  credited, so an organisation whose only traffic is for a repository-scoped
+  sibling looks silent and keeps being polled. That is the conservative
+  direction -- poll rather than stand down -- and it is the same precedence
+  every other part of ZF-101 uses.
 
 * 2026-09-07: ZF-101's first pull request, the installation boundary. Three
   decisions taken inside decision 13's frame and recorded here because the

@@ -157,6 +157,17 @@ interval and feeds the same code path. The UI's problems drawer says
 plainly when the controller is running on polling alone, because a fleet that
 silently stopped receiving webhooks looks exactly like a quiet fleet.
 
+Both of the poller's decisions are made per installation, and that is
+load-bearing on a controller serving more than one. It skips an installation
+whose own webhooks are arriving — deliveries are credited to the installation
+that owns the repository named in them, not to whichever secret verified them —
+so one organisation's working deliveries cannot silence the poller for an
+organisation whose webhooks reach nobody, which is the exact failure the poller
+is the safety net for. And when GitHub rate-limits one installation the poller
+stands that installation down for a quarter of an hour and carries on with the
+rest, because the quota is per installation and abandoning the sweep would let
+one organisation out of quota stop every other one from scaling.
+
 ## Components
 
 | Package | Responsibility |
