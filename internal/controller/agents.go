@@ -243,6 +243,41 @@ func (c *Controller) enqueue(hostID string, t agent.Task) bool {
 	return c.queues.get(hostID).enqueue(t)
 }
 
+// enqueueLifecycle queues a task that decides a runner's fate and records on
+// the runner's own row when it was issued.
+//
+// Only lifecycle tasks are stamped. A log relay says nothing about whether a
+// runner is progressing -- the container is where it was, doing what it was
+// doing -- and a prewarm has no runner to stamp.
+func (c *Controller) enqueueLifecycle(ctx context.Context, hostID string, t agent.Task) bool {
+	queued := c.enqueue(hostID, t)
+	if queued {
+		c.stampTaskIssued(ctx, t)
+	}
+	return queued
+}
+
+// stampTaskIssued records on a runner's row that its task has been issued.
+//
+// A failure is logged and dropped. The stamp is diagnostic -- it tells an
+// operator, and a controller that has just restarted, how long this runner has
+// been waiting on a task -- and losing it must never stop the task itself
+// being handed to the host.
+func (c *Controller) stampTaskIssued(ctx context.Context, t agent.Task) {
+	if t.RunnerID == "" || !lifecycleTask(t.Kind) {
+		return
+	}
+	issued := t.IssuedAt
+	if issued.IsZero() {
+		issued = c.Now()
+	}
+	if err := c.st.SetRunnerTaskIssued(ctx, t.RunnerID, issued); err != nil &&
+		!errors.Is(err, store.ErrNotFound) {
+		c.log.Debug("could not record when a runner's task was issued",
+			"runner", t.RunnerID, "kind", t.Kind, "error", err)
+	}
+}
+
 // PrewarmPool queues one idempotent image preparation task on every matching
 // healthy host. A failure is recorded per host and never affects scheduling.
 // ErrPrewarmUnsupported is returned for a pool whose backend has no image to
@@ -592,6 +627,7 @@ func (c *Controller) PollTasks(ctx context.Context, hostID string, wait time.Dur
 	q := c.queues.get(hostID)
 
 	if tasks := q.take(maxTasksPerPoll, c.Now()); len(tasks) > 0 {
+		c.stampIssued(ctx, tasks)
 		return &agent.TaskBatch{Tasks: tasks}, nil
 	}
 
@@ -605,7 +641,18 @@ func (c *Controller) PollTasks(ctx context.Context, hostID string, wait time.Dur
 	case <-timer.C:
 		return &agent.TaskBatch{}, nil
 	case <-q.wake:
-		return &agent.TaskBatch{Tasks: q.take(maxTasksPerPoll, c.Now())}, nil
+		tasks := q.take(maxTasksPerPoll, c.Now())
+		c.stampIssued(ctx, tasks)
+		return &agent.TaskBatch{Tasks: tasks}, nil
+	}
+}
+
+// stampIssued records the issue time of every lifecycle task in a batch. This
+// is the redelivery half: take stamps a fresh IssuedAt on each attempt, so a
+// task the sweep re-queued moves the row's clock forward with it.
+func (c *Controller) stampIssued(ctx context.Context, tasks []agent.Task) {
+	for _, t := range tasks {
+		c.stampTaskIssued(ctx, t)
 	}
 }
 

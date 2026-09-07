@@ -302,7 +302,7 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, a sched
 		Network:       c.cfg().Agent.Network,
 		RunnerVersion: r.RunnerVersion,
 	}
-	c.enqueue(a.HostID, agent.Task{
+	c.enqueueLifecycle(ctx, a.HostID, agent.Task{
 		Kind:     agent.TaskCreateRunner,
 		RunnerID: r.ID,
 		Spec:     &spec,
@@ -435,7 +435,7 @@ func (c *Controller) drainRunner(ctx context.Context, r *store.Runner, reason st
 		return nil, err
 	}
 	c.publishRunner(ctx, events.KindRunnerUpdated, updated)
-	c.enqueue(r.HostID, agent.Task{
+	c.enqueueLifecycle(ctx, r.HostID, agent.Task{
 		Kind:        agent.TaskStopRunner,
 		RunnerID:    r.ID,
 		Backend:     c.backendKind(ctx, r, pool),
@@ -459,7 +459,7 @@ func (c *Controller) removeRunnerID(ctx context.Context, id, reason string, pool
 // is the slow part, and the registration goes before the row so that a crash
 // in between leaves a row we can still find the registration from.
 func (c *Controller) removeRunner(ctx context.Context, r *store.Runner, reason string, pool *store.Pool) (*store.Runner, error) {
-	c.enqueue(r.HostID, agent.Task{
+	c.enqueueLifecycle(ctx, r.HostID, agent.Task{
 		Kind:     agent.TaskRemoveRunner,
 		RunnerID: r.ID,
 		Backend:  c.backendKind(ctx, r, pool),

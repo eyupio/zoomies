@@ -472,20 +472,24 @@ func (s *Store) CountRunnersByPool(ctx context.Context) (map[string]PoolCounts, 
 
 const hostCols = `id, name, address, embedded, capacity, backends, backend_info, labels,
 	os, distro, os_version, arch, cpus, memory_mb, version, cordoned, token_hash,
-	last_heartbeat, created_at`
+	last_heartbeat, created_at, agent_session_id, agent_session_prev,
+	agent_session_alternations, agent_session_alt_at`
 
 func scanHost(sc interface{ Scan(...any) error }) (*Host, error) {
 	var h Host
 	var embedded, cordoned int
 	var heartbeat, created int64
+	var altAt sql.NullInt64
 	err := sc.Scan(&h.ID, &h.Name, &h.Address, &embedded, &h.Capacity, &h.Backends,
 		&h.BackendInfo, &h.Labels, &h.OS, &h.Distro, &h.OSVersion, &h.Arch, &h.CPUs,
-		&h.MemoryMB, &h.Version, &cordoned, &h.TokenHash, &heartbeat, &created)
+		&h.MemoryMB, &h.Version, &cordoned, &h.TokenHash, &heartbeat, &created,
+		&h.AgentSessionID, &h.AgentSessionPrev, &h.AgentSessionAlternations, &altAt)
 	if err != nil {
 		return nil, err
 	}
 	h.Embedded, h.Cordoned = embedded == 1, cordoned == 1
 	h.LastHeartbeat, h.CreatedAt = at(heartbeat), at(created)
+	h.AgentSessionAltAt = atp(altAt)
 	return &h, nil
 }
 
@@ -498,10 +502,11 @@ func (s *Store) CreateHost(ctx context.Context, h *Host) error {
 	if h.LastHeartbeat.IsZero() {
 		h.LastHeartbeat = h.CreatedAt
 	}
-	_, err := s.exec(ctx, `INSERT INTO hosts (`+hostCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := s.exec(ctx, `INSERT INTO hosts (`+hostCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		h.ID, h.Name, h.Address, boolInt(h.Embedded), h.Capacity, h.Backends, h.BackendInfo,
 		h.Labels, h.OS, h.Distro, h.OSVersion, h.Arch, h.CPUs, h.MemoryMB, h.Version,
-		boolInt(h.Cordoned), h.TokenHash, ms(h.LastHeartbeat), ms(h.CreatedAt))
+		boolInt(h.Cordoned), h.TokenHash, ms(h.LastHeartbeat), ms(h.CreatedAt),
+		h.AgentSessionID, h.AgentSessionPrev, h.AgentSessionAlternations, msp(h.AgentSessionAltAt))
 	return wrapWrite(err)
 }
 
@@ -654,17 +659,17 @@ func (s *Store) DeleteHost(ctx context.Context, id string) ([]string, error) {
 const runnerCols = `id, pool_id, host_id, name, state, github_runner_id, container_id,
 	ephemeral, labels, image, image_digest, runner_version, current_job_id, created_at, started_at,
 	last_idle_at, finished_at, message, jobs_handled, cpu_percent, memory_bytes,
-	image_pull_ms, container_started_at, registered_at`
+	image_pull_ms, container_started_at, registered_at, task_issued_at`
 
 func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 	var r Runner
 	var ephemeral int
 	var created int64
-	var started, idle, finished, pullMS, containerStarted, registered sql.NullInt64
+	var started, idle, finished, pullMS, containerStarted, registered, taskIssued sql.NullInt64
 	err := sc.Scan(&r.ID, &r.PoolID, &r.HostID, &r.Name, &r.State, &r.GitHubRunnerID,
 		&r.ContainerID, &ephemeral, &r.Labels, &r.Image, &r.ImageDigest, &r.RunnerVersion, &r.CurrentJobID,
 		&created, &started, &idle, &finished, &r.Message, &r.JobsHandled,
-		&r.CPUPercent, &r.MemoryBytes, &pullMS, &containerStarted, &registered)
+		&r.CPUPercent, &r.MemoryBytes, &pullMS, &containerStarted, &registered, &taskIssued)
 	if err != nil {
 		return nil, err
 	}
@@ -676,6 +681,7 @@ func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 		r.ImagePullDuration = &d
 	}
 	r.ContainerStartedAt, r.RegisteredAt = atp(containerStarted), atp(registered)
+	r.TaskIssuedAt = atp(taskIssued)
 	return &r, nil
 }
 
@@ -689,12 +695,12 @@ func (s *Store) CreateRunner(ctx context.Context, r *Runner) error {
 	}
 	r.CreatedAt = s.Now()
 	_, err := s.exec(ctx, `INSERT INTO runners (`+runnerCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		r.ID, r.PoolID, r.HostID, r.Name, string(r.State), r.GitHubRunnerID, r.ContainerID,
 		boolInt(r.Ephemeral), r.Labels, r.Image, r.ImageDigest, r.RunnerVersion, r.CurrentJobID,
 		ms(r.CreatedAt), msp(r.StartedAt), msp(r.LastIdleAt), msp(r.FinishedAt),
 		r.Message, r.JobsHandled, r.CPUPercent, r.MemoryBytes, durationMS(r.ImagePullDuration),
-		msp(r.ContainerStartedAt), msp(r.RegisteredAt))
+		msp(r.ContainerStartedAt), msp(r.RegisteredAt), msp(r.TaskIssuedAt))
 	return wrapWrite(err)
 }
 
@@ -1003,6 +1009,60 @@ func (s *Store) SetRunnerContainer(ctx context.Context, id, containerID string) 
 func (s *Store) SetRunnerResourceUsage(ctx context.Context, id string, cpu float64, mem int64) error {
 	_, err := s.exec(ctx, `UPDATE runners SET cpu_percent=?, memory_bytes=? WHERE id=?`, cpu, mem, id)
 	return err
+}
+
+// SetRunnerTaskIssued records when this runner's lifecycle task was handed to
+// its host, at enqueue and again on every redelivery.
+//
+// It is what survives a controller restart of an in-memory task queue: the row
+// keeps the time even though the task itself is gone, so a provisioning runner
+// can still be told apart from one whose create was issued moments ago.
+func (s *Store) SetRunnerTaskIssued(ctx context.Context, id string, at time.Time) error {
+	_, err := s.exec(ctx, `UPDATE runners SET task_issued_at=? WHERE id=?`, at.UnixMilli(), id)
+	return err
+}
+
+// RecordAgentSession folds one agent's session id into a host's record and
+// reports whether it is a session this host has already moved on from.
+//
+// That is the duplicate-agent signal, and it is chosen because a single agent
+// cannot produce it. A session id is minted at start-up, so restarting moves
+// the id forward and never back; only two agents sharing one host's
+// credentials hand the same pair back and forth. Counting plain changes would
+// flag every restart instead.
+//
+// The whole read-modify-write is one transaction. Two agents alternating are
+// by definition writing this row at the same time, so doing it in the caller
+// would drop exactly the alternations it exists to count.
+func (s *Store) RecordAgentSession(ctx context.Context, hostID, sessionID string) (bool, error) {
+	if sessionID == "" {
+		return false, nil
+	}
+	var alternated bool
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		var current, prev string
+		row := tx.QueryRowContext(ctx, `SELECT agent_session_id, agent_session_prev FROM hosts WHERE id = ?`, hostID)
+		if err := row.Scan(&current, &prev); errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("host %s: %w", hostID, ErrNotFound)
+		} else if err != nil {
+			return err
+		}
+		if sessionID == current {
+			return nil
+		}
+		if sessionID == prev {
+			// Back to a session this host had already left behind.
+			alternated = true
+			_, err := tx.ExecContext(ctx, `UPDATE hosts SET agent_session_id=?, agent_session_prev=?,
+				agent_session_alternations=agent_session_alternations+1, agent_session_alt_at=? WHERE id=?`,
+				sessionID, current, s.Now().UnixMilli(), hostID)
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `UPDATE hosts SET agent_session_id=?, agent_session_prev=? WHERE id=?`,
+			sessionID, current, hostID)
+		return err
+	})
+	return alternated, err
 }
 
 // AssignRunnerJob links a runner to the job it is executing.

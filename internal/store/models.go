@@ -653,6 +653,20 @@ type Host struct {
 	CreatedAt     time.Time `json:"created_at"`
 	// TokenHash authenticates the agent on every request.
 	TokenHash string `json:"-"`
+	// AgentSessionID is the session the agent last identified itself with, and
+	// AgentSessionPrev the one before it. An agent mints a session when it
+	// starts, so a restart moves the id forward once and never back.
+	//
+	// Seeing AgentSessionPrev again is therefore something one agent cannot
+	// do: it means two of them share this host's credentials -- a cloned VM,
+	// or a copied state directory -- and are splitting its tasks.
+	// AgentSessionAlternations counts how often that has happened and
+	// AgentSessionAltAt when it last did, so the problem ages out on its own
+	// once the duplicate is gone.
+	AgentSessionID           string     `json:"agent_session_id,omitempty"`
+	AgentSessionPrev         string     `json:"-"`
+	AgentSessionAlternations int        `json:"agent_session_alternations,omitempty"`
+	AgentSessionAltAt        *time.Time `json:"agent_session_alt_at,omitempty"`
 	// Live counters, filled by the store on read.
 	ActiveRunners int `json:"active_runners"`
 }
@@ -772,7 +786,15 @@ type Runner struct {
 	ImagePullDuration  *time.Duration `json:"image_pull_duration,omitempty"`
 	ContainerStartedAt *time.Time     `json:"container_started_at,omitempty"`
 	RegisteredAt       *time.Time     `json:"registered_at,omitempty"`
-	StartedAt          *time.Time     `json:"started_at,omitempty"`
+	// TaskIssuedAt is when this runner's lifecycle task was last handed to its
+	// host, stamped again on every redelivery.
+	//
+	// The task queue is in memory by design, so a controller restart drops it.
+	// What the restart must not drop is the time: without this a provisioning
+	// row is indistinguishable from one whose create was issued a second ago,
+	// and the provision timeout is counted from the wrong end.
+	TaskIssuedAt *time.Time `json:"task_issued_at,omitempty"`
+	StartedAt    *time.Time `json:"started_at,omitempty"`
 	// LastIdleAt is when the runner most recently became idle; the scale-down
 	// path measures the idle timeout from here.
 	LastIdleAt  *time.Time `json:"last_idle_at,omitempty"`

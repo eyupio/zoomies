@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -56,7 +57,15 @@ type harness struct {
 	key     *cryptox.Key
 	cfg     *config.Config
 	ctx     context.Context
+	// offset is added to the wall clock the controller reads, in nanoseconds.
+	// It is zero unless a test calls advance, so time still passes normally
+	// for everything that does not ask; a lease that has to expire is the one
+	// thing a test cannot wait out honestly.
+	offset *atomic.Int64
 }
+
+// advance moves the controller's clock forward without moving the test's.
+func (h *harness) advance(d time.Duration) { h.offset.Add(int64(d)) }
 
 // testConfig is a configuration that validates without a single warning, so a
 // test asserting "Problems is empty" is asserting about the fleet rather than
@@ -97,6 +106,7 @@ func newHarness(t *testing.T) *harness {
 	cfg := testConfig(t)
 	bus := events.New()
 	factory := &fakeFactory{gh: gh}
+	offset := new(atomic.Int64)
 
 	c, err := New(Options{
 		Store:  st,
@@ -106,12 +116,12 @@ func newHarness(t *testing.T) *harness {
 		Events: bus,
 		GitHub: factory,
 		Logger: slog.New(slog.DiscardHandler),
-		Clock:  time.Now,
+		Clock:  func() time.Time { return time.Now().Add(time.Duration(offset.Load())) },
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	return &harness{t: t, c: c, st: st, gh: gh, factory: factory, key: key, cfg: cfg, ctx: ctx}
+	return &harness{t: t, c: c, st: st, gh: gh, factory: factory, key: key, cfg: cfg, ctx: ctx, offset: offset}
 }
 
 // installation seeds a GitHub App installation on the "acme" organisation with
@@ -352,6 +362,16 @@ func (h *harness) runners() []*store.Runner {
 }
 
 // onlyRunner asserts there is exactly one runner and returns it.
+// runnerByID re-reads one runner, for a test that has to see a column change.
+func (h *harness) runnerByID(t *testing.T, id string) *store.Runner {
+	t.Helper()
+	r, err := h.st.GetRunner(h.ctx, id)
+	if err != nil {
+		t.Fatalf("GetRunner %s: %v", id, err)
+	}
+	return r
+}
+
 func (h *harness) onlyRunner() *store.Runner {
 	h.t.Helper()
 	rs := h.runners()
