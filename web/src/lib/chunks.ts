@@ -126,22 +126,29 @@ export async function reloadForFailedChunk(): Promise<boolean> {
  * dropped", which are the two things that break an `import()` and want
  * different answers.
  *
- * A response without a version is still a reachable controller -- an older one,
- * or a proxy answering the probe -- so the version is optional and its absence
- * falls back to the cooldown alone.
+ * It asks `/api/v1/meta` rather than `/healthz`. Liveness deliberately touches
+ * nothing and says nothing but `{"ok":true}`, so reading a version from it got
+ * an empty string every time and the upgrade case below could never fire --
+ * which left the tab on an error for exactly the failure a reload fixes. Meta
+ * is the route that already carries the build, it is already unauthenticated
+ * because the shell needs it before anybody signs in, and it is equally cheap.
+ *
+ * Version and commit are both taken, because either moving means a new build
+ * and new chunk names. A response with neither is still a reachable controller
+ * -- an older one, or a proxy answering the probe -- so the identity is
+ * optional and its absence falls back to the cooldown alone.
  */
 async function controllerHealth(): Promise<{ version: string } | null> {
   try {
-    const res = await fetch('/healthz', { cache: 'no-store', credentials: 'same-origin' });
+    const res = await fetch('/api/v1/meta', { cache: 'no-store', credentials: 'same-origin' });
     if (!res.ok) return null;
     const body: unknown = await res.json().catch(() => null);
-    const version =
-      body &&
-      typeof body === 'object' &&
-      typeof (body as { version?: unknown }).version === 'string'
-        ? (body as { version: string }).version
-        : '';
-    return { version };
+    if (!body || typeof body !== 'object') return { version: '' };
+    const meta = body as { version?: unknown; commit?: unknown };
+    const parts = [meta.version, meta.commit].filter(
+      (v): v is string => typeof v === 'string' && v !== '',
+    );
+    return { version: parts.join(' ') };
   } catch {
     return null;
   }

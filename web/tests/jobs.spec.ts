@@ -130,10 +130,31 @@ test('a job that already ran is never called unmatched, whatever its labels say'
 
   // No banner either: it speaks for queued work, and there is none here.
   await expect(page.getByRole('note')).toHaveCount(0);
+});
 
-  // And on the unfiltered page the banner counts the one job that is actually
-  // waiting, not every job whose labels this fleet does not answer.
+/*
+ * An organisation that also rents runners elsewhere queues jobs this fleet has
+ * no pool for all day long. They are listed by default because nothing here
+ * ran them, but a warning above the grid about somebody else's work is a red
+ * banner an operator can never clear -- and after a while stops reading, which
+ * costs them the one that is theirs. The explanation is kept for the operator
+ * who went looking: the unmatched filter, or the problems panel's link into it.
+ */
+test('the unmatched explanation waits to be asked for', async ({ page }) => {
   await goto(page, '/jobs', 'Jobs');
+  await expect(dataRows(jobs(page)).first()).toBeVisible();
+
+  // The job is listed, and its row says what it is.
+  await expect(jobs(page)).toContainText('Unmatched');
+  await expect(page.getByRole('note')).toHaveCount(0);
+
+  await page.getByRole('switch', { name: 'Unmatched only' }).click();
+  await expect(page).toHaveURL(/[?&]unmatched=true/);
+  await expect(page.getByRole('note')).toContainText('1 queued job has no pool here');
+
+  // The problems panel links straight here with the filter already on, which
+  // is how an operator who has not gone looking still finds it.
+  await goto(page, '/jobs?unmatched=true', 'Jobs');
   await expect(page.getByRole('note')).toContainText('1 queued job has no pool here');
 });
 
@@ -159,9 +180,11 @@ test('other runners are hidden by default and one switch brings them back', asyn
   );
 
   // A queued job nothing claims stays in the default view either way: nothing
-  // ran it, so it is this fleet's problem to see.
+  // ran it, so it is this fleet's problem to see. The row is how it is seen --
+  // the explanation above the grid waits for the filter.
   await goto(page, '/jobs', 'Jobs');
-  await expect(page.getByRole('note')).toContainText('1 queued job has no pool here');
+  await expect(jobs(page).getByText('cuda12')).toBeVisible();
+  await expect(jobs(page)).toContainText('Unmatched');
 });
 
 /*

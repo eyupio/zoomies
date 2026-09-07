@@ -920,41 +920,86 @@ func (b *DockerBackend) Remove(ctx context.Context, h Handle) error {
 	return nil
 }
 
-// List returns every runner container this backend owns.
+// List returns every runner container this backend owns, plus any sidecar
+// whose runner has gone.
 //
 // The filter is on our own labels, so a host that also runs unrelated
 // containers is never touched -- an agent reaping orphans must not be able to
 // delete somebody's database.
+//
+// A sidecar is listed only once its runner container has disappeared, which is
+// the one case nothing else cleans it up: Remove takes a live runner's sidecar
+// with it, but a runner container that goes away out of band -- docker rm, a
+// daemon restart with cleanup -- leaves a privileged daemon running for a job
+// that ended. While the runner is still there, returning both would hand the
+// caller two containers claiming one runner id.
 func (b *DockerBackend) List(ctx context.Context) ([]Workload, error) {
 	summaries, err := b.api.ContainerList(ctx, map[string][]string{
-		"label": {LabelManaged + "=true", LabelRole + "=" + roleRunner},
+		"label": {LabelManaged + "=true"},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("backend: listing runner containers: %w", err)
 	}
 
+	// Whether a sidecar is abandoned is a question about the whole listing
+	// rather than about the sidecar on its own, so the runners are gathered
+	// first and the sidecars judged against them.
 	out := make([]Workload, 0, len(summaries))
+	var sidecars []ContainerSummary
+	runnerNames := make(map[string]bool, len(summaries))
+	runnerIDs := make(map[string]bool, len(summaries))
 	for _, s := range summaries {
-		w := Workload{
-			Handle:   Handle(s.ID),
-			Name:     s.Labels[LabelName],
-			RunnerID: s.Labels[LabelRunnerID],
-			PoolID:   s.Labels[LabelPoolID],
-			Status:   Status{Handle: Handle(s.ID), Phase: phaseFromState(s.State)},
+		// A container from before the role label existed is a runner: the
+		// sidecar is the only thing that has ever carried a different role.
+		if s.Labels[LabelRole] == roleDinD {
+			sidecars = append(sidecars, s)
+			continue
 		}
-		if w.Name == "" && len(s.Names) > 0 {
-			w.Name = strings.TrimPrefix(s.Names[0], "/")
+		if n := s.Labels[LabelName]; n != "" {
+			runnerNames[n] = true
 		}
-		// The summary has no exit code, and an exit code is the whole point of
-		// looking at a container that has stopped.
-		if w.Status.Phase == PhaseExited || w.Status.Phase == PhaseFailed {
-			if insp, err := b.api.ContainerInspect(ctx, s.ID); err == nil {
-				w.Status = statusFromInspect(Handle(s.ID), insp)
-			}
+		if id := s.Labels[LabelRunnerID]; id != "" {
+			runnerIDs[id] = true
 		}
-		out = append(out, w)
+		out = append(out, b.workloadFrom(ctx, s, false))
+	}
+
+	for _, s := range sidecars {
+		// Two ways to find the runner, because leaving a live pool without its
+		// Docker daemon is far worse than leaving a dead one's behind: the
+		// name it was built for, and failing that the runner id both share.
+		if n := s.Labels[LabelDinDFor]; n != "" && runnerNames[n] {
+			continue
+		}
+		if id := s.Labels[LabelRunnerID]; id != "" && runnerIDs[id] {
+			continue
+		}
+		out = append(out, b.workloadFrom(ctx, s, true))
 	}
 	return out, nil
+}
+
+// workloadFrom renders one container summary as a Workload.
+func (b *DockerBackend) workloadFrom(ctx context.Context, s ContainerSummary, sidecar bool) Workload {
+	w := Workload{
+		Handle:   Handle(s.ID),
+		Name:     s.Labels[LabelName],
+		RunnerID: s.Labels[LabelRunnerID],
+		PoolID:   s.Labels[LabelPoolID],
+		Sidecar:  sidecar,
+		Status:   Status{Handle: Handle(s.ID), Phase: phaseFromState(s.State)},
+	}
+	if w.Name == "" && len(s.Names) > 0 {
+		w.Name = strings.TrimPrefix(s.Names[0], "/")
+	}
+	// The summary has no exit code, and an exit code is the whole point of
+	// looking at a container that has stopped.
+	if w.Status.Phase == PhaseExited || w.Status.Phase == PhaseFailed {
+		if insp, err := b.api.ContainerInspect(ctx, s.ID); err == nil {
+			w.Status = statusFromInspect(Handle(s.ID), insp)
+		}
+	}
+	return w
 }
 
 func phaseFromState(state string) Phase {
@@ -1003,6 +1048,10 @@ func containerName(name string) string {
 
 // dindName is the sidecar name for a runner. Deriving it rather than storing it
 // means a Remove can find the sidecar even when the runner row is gone.
+//
+// The runner *container* is a different matter: Remove learns the name from
+// that container's own label, so once it has gone there is nothing left to
+// derive from. That case is List's, which returns the sidecar as an orphan.
 func dindName(name string) string { return containerName(name) + "-dind" }
 
 // hostnameFor returns the hostname to set, or "" for the network modes where

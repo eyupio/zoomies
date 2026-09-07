@@ -143,3 +143,59 @@ func TestAdoptionSurvivesABackendThatCannotBeListed(t *testing.T) {
 		t.Fatal("something was adopted from a backend that could not be listed")
 	}
 }
+
+// seedSidecar puts an abandoned docker-in-docker daemon on the backend, ahead
+// of anything already there. The order matters: it is what an agent looking a
+// runner up by id would meet first, which is exactly the mistake being ruled
+// out.
+func seedSidecar(be *fakeBackend, runnerID, name string, handle backend.Handle) {
+	be.mu.Lock()
+	defer be.mu.Unlock()
+	be.workloads = append([]backend.Workload{{
+		Handle:   handle,
+		Name:     name,
+		RunnerID: runnerID,
+		Sidecar:  true,
+		Status:   backend.Status{Phase: backend.PhaseRunning, StartedAt: time.Now().Add(-time.Hour)},
+	}}, be.workloads...)
+}
+
+// A sidecar carries its runner's id, so adopting by id alone binds the
+// runner's slot to the daemon container. Every stop and remove the controller
+// later sends for that runner then goes to the daemon, and the container
+// running somebody's job is left behind with nothing tracking it.
+func TestARestartedAgentAdoptsTheRunnerAndNotItsSidecar(t *testing.T) {
+	a, _, be, _ := newAgent(t, 4)
+	seedRunning(be, "run_live", "zoomies-live", "wl-live")
+	seedSidecar(be, "run_live", "zoomies-live-dind", "wl-dind")
+
+	a.adoptExisting(context.Background())
+
+	r, ok := a.snapshot("run_live")
+	if !ok {
+		t.Fatal("the runner was not adopted, so the next pass would reap it")
+	}
+	if r.handle != "wl-live" {
+		t.Fatalf("the runner's slot points at %q, which is its sidecar, not the runner", r.handle)
+	}
+}
+
+// resolve is the other way a runner is found on the host: it runs when a stop
+// or remove task arrives for a runner the agent has no memory of, which is the
+// moment sending the command to the wrong container costs the most.
+func TestResolvingARunnerIgnoresItsSidecar(t *testing.T) {
+	a, _, be, _ := newAgent(t, 4)
+	seedRunning(be, "run_live", "zoomies-live", "wl-live")
+	seedSidecar(be, "run_live", "zoomies-live-dind", "wl-dind")
+
+	_, handle, found, err := a.resolve(context.Background(), "run_live")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if !found {
+		t.Fatal("the runner is on the host and must be found")
+	}
+	if handle != "wl-live" {
+		t.Fatalf("resolved to %q, which is the sidecar; a stop would spare the runner", handle)
+	}
+}

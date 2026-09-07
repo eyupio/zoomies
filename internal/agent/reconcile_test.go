@@ -516,3 +516,88 @@ func TestAListingFailureDoesNotDeclareTrackedRunnersGone(t *testing.T) {
 		t.Fatalf("reports = %+v, want one removed", reports)
 	}
 }
+
+// sidecar is what a backend lists when a runner container has gone out of band
+// and its privileged docker-in-docker daemon is still running. It carries the
+// runner's id, because that is the only thing that says whose leftovers it is.
+func sidecar(handle backend.Handle, runnerID string) backend.Workload {
+	return backend.Workload{
+		Handle:   handle,
+		Name:     "runner-" + runnerID + "-dind",
+		RunnerID: runnerID,
+		Sidecar:  true,
+		Status:   backend.Status{Handle: handle, Phase: backend.PhaseRunning},
+	}
+}
+
+// The sidecar shares its runner's id, so an agent that looks runners up by id
+// alone finds the sidecar and concludes the runner is alive and well -- at the
+// wrong handle. The runner is then never declared missing, its job is never
+// marked lost, a later stop goes to the daemon rather than the container, and
+// the sidecar is never reaped. It has to be treated as rubbish from the start.
+func TestReconcileTreatsAnAbandonedSidecarAsRubbishNotAsItsRunner(t *testing.T) {
+	a, _, be, clock := newAgent(t, 2)
+	a.polled.Store(true)
+	track(a, "runner-1", "wl-1", true)
+	// The runner container has been removed behind the agent's back; only the
+	// sidecar is left on the host.
+	be.setWorkloads(sidecar("dind-1", "runner-1"))
+
+	reports, err := a.ReconcileOnce(context.Background())
+	if err != nil {
+		t.Fatalf("ReconcileOnce: %v", err)
+	}
+	if len(reports) != 0 {
+		t.Fatalf("nothing is decided within the grace periods, got %+v", reports)
+	}
+
+	clock.advance(orphanGrace + time.Second)
+	reports, err = a.ReconcileOnce(context.Background())
+	if err != nil {
+		t.Fatalf("ReconcileOnce: %v", err)
+	}
+
+	if got := removedHandles(be); len(got) != 1 || got[0] != "dind-1" {
+		t.Fatalf("the abandoned sidecar must be removed, removed = %v", got)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("want one report, the runner's own disappearance, got %+v", reports)
+	}
+	if reports[0].RunnerID != "runner-1" || reports[0].State != store.RunnerRemoved {
+		t.Fatalf("report = %+v", reports[0])
+	}
+	// The runner's own handle, not the sidecar's: the report has to be about
+	// the container that held the job.
+	if reports[0].Handle != "wl-1" {
+		t.Fatalf("the report named the sidecar rather than the runner: %+v", reports[0])
+	}
+	if _, ok := a.snapshot("runner-1"); ok {
+		t.Fatal("a runner reported gone must stop being tracked")
+	}
+}
+
+// Reaping a sidecar is not the runner's removal. Its runner container reaches
+// the controller through its own absence, and reporting this one as the runner
+// would move a row on the strength of the wrong container.
+func TestReconcileDoesNotReportASidecarAsItsRunnersRemoval(t *testing.T) {
+	a, _, be, clock := newAgent(t, 2)
+	a.polled.Store(true)
+	// Nothing tracked: this is a host the agent restarted onto, where the
+	// runner is long gone and only its sidecar remains.
+	be.setWorkloads(sidecar("dind-1", "runner-1"))
+
+	if _, err := a.ReconcileOnce(context.Background()); err != nil {
+		t.Fatalf("ReconcileOnce: %v", err)
+	}
+	clock.advance(orphanGrace + time.Second)
+	reports, err := a.ReconcileOnce(context.Background())
+	if err != nil {
+		t.Fatalf("ReconcileOnce: %v", err)
+	}
+	if _, _, removed := be.counts(); removed != 1 {
+		t.Fatalf("Remove called %d times, want 1", removed)
+	}
+	if len(reports) != 0 {
+		t.Fatalf("a sidecar has no runner row to move, got %+v", reports)
+	}
+}
