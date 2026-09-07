@@ -301,6 +301,15 @@ type RunnerView struct {
 	StartedAt      *time.Time        `json:"started_at"`
 	LastIdleAt     *time.Time        `json:"last_idle_at"`
 	FinishedAt     *time.Time        `json:"finished_at"`
+	// CleanupError and its companions describe a runner Zoomies could not
+	// finish taking away. An empty error is the normal case; a non-empty one
+	// means something is still on a host or on GitHub.
+	CleanupError    string     `json:"cleanup_error,omitempty"`
+	CleanupFailedAt *time.Time `json:"cleanup_failed_at,omitempty"`
+	CleanupAttempts int        `json:"cleanup_attempts,omitempty"`
+	// CleanedUpAt is the end of the runner's life: nothing of it left, on the
+	// host or on GitHub.
+	CleanedUpAt *time.Time `json:"cleaned_up_at,omitempty"`
 }
 
 // RunnerRenderer names pools and hosts without a query per runner.
@@ -348,29 +357,33 @@ func (c *Controller) RunnerRenderer(ctx context.Context, runners []*store.Runner
 // View renders one runner.
 func (v *RunnerRenderer) View(r *store.Runner) RunnerView {
 	out := RunnerView{
-		ID:             r.ID,
-		Name:           r.Name,
-		PoolID:         r.PoolID,
-		PoolName:       v.pools[r.PoolID],
-		HostID:         r.HostID,
-		HostName:       v.hosts[r.HostID],
-		State:          r.State,
-		GitHubRunnerID: r.GitHubRunnerID,
-		ContainerID:    r.ContainerID,
-		Ephemeral:      r.Ephemeral,
-		Labels:         emptySlice(r.Labels),
-		Image:          r.Image,
-		ImageDigest:    r.ImageDigest,
-		RunnerVersion:  r.RunnerVersion,
-		CurrentJobID:   r.CurrentJobID,
-		Message:        r.Message,
-		JobsHandled:    r.JobsHandled,
-		CPUPercent:     r.CPUPercent,
-		MemoryBytes:    r.MemoryBytes,
-		CreatedAt:      r.CreatedAt,
-		StartedAt:      r.StartedAt,
-		LastIdleAt:     r.LastIdleAt,
-		FinishedAt:     r.FinishedAt,
+		ID:              r.ID,
+		Name:            r.Name,
+		PoolID:          r.PoolID,
+		PoolName:        v.pools[r.PoolID],
+		HostID:          r.HostID,
+		HostName:        v.hosts[r.HostID],
+		State:           r.State,
+		GitHubRunnerID:  r.GitHubRunnerID,
+		ContainerID:     r.ContainerID,
+		Ephemeral:       r.Ephemeral,
+		Labels:          emptySlice(r.Labels),
+		Image:           r.Image,
+		ImageDigest:     r.ImageDigest,
+		RunnerVersion:   r.RunnerVersion,
+		CurrentJobID:    r.CurrentJobID,
+		Message:         r.Message,
+		JobsHandled:     r.JobsHandled,
+		CPUPercent:      r.CPUPercent,
+		MemoryBytes:     r.MemoryBytes,
+		CreatedAt:       r.CreatedAt,
+		StartedAt:       r.StartedAt,
+		LastIdleAt:      r.LastIdleAt,
+		FinishedAt:      r.FinishedAt,
+		CleanupError:    r.CleanupError,
+		CleanupFailedAt: r.CleanupFailedAt,
+		CleanupAttempts: r.CleanupAttempts,
+		CleanedUpAt:     r.CleanedUpAt,
 	}
 	if j := v.jobs[r.CurrentJobID]; j != nil {
 		job := NewJobView(j, v.pools[j.PoolID])

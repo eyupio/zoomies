@@ -553,8 +553,21 @@ func (c *Controller) deleteRegistration(ctx context.Context, r *store.Runner, po
 	err = client.DeleteRunner(ctx, id)
 	c.observeGitHub(inst.ID, err)
 	if err != nil {
+		// Recorded on the row, not only logged. A registration Zoomies could
+		// not delete is a ghost on somebody's organisation, and a log line and
+		// a counter are not something an operator finds before the runner list
+		// is full of them. The reap will try again; until it succeeds, the row
+		// says so and runners.cleanup_failed names it.
+		if rerr := c.st.RecordCleanupFailure(ctx, r.ID,
+			fmt.Sprintf("the GitHub runner registration could not be deleted: %v", err)); rerr != nil {
+			c.log.Warn("could not record a failed registration delete", "runner", r.ID, "error", rerr)
+		}
 		c.log.Warn("could not delete a GitHub runner registration",
 			"runner", r.ID, "github_runner_id", id, "error", err)
+		return
+	}
+	if err := c.st.RecordRegistrationDeleted(ctx, r.ID); err != nil {
+		c.log.Warn("could not record a deleted registration", "runner", r.ID, "error", err)
 	}
 }
 
@@ -651,6 +664,19 @@ func (c *Controller) reap(ctx context.Context) {
 			}
 			c.log.Info("deleted an orphaned GitHub runner registration",
 				"installation", inst.ID, "target", inst.Target, "runner_name", gr.Name)
+			// The reap is the retry for a delete that failed earlier, so it is
+			// also what clears the row's complaint about it.
+			if row, rerr := c.st.GetRunnerByName(ctx, gr.Name); rerr == nil {
+				if err := c.st.RecordRegistrationDeleted(ctx, row.ID); err != nil {
+					c.log.Warn("could not record a reaped registration", "runner", row.ID, "error", err)
+				}
+				if strings.Contains(row.CleanupError, "registration") {
+					if err := c.st.ClearCleanupFailure(ctx, row.ID); err != nil {
+						c.log.Warn("could not clear a registration cleanup failure", "runner", row.ID, "error", err)
+					}
+					c.publishRunnerByID(ctx, row.ID)
+				}
+			}
 		}
 	}
 }

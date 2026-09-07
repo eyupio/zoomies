@@ -659,17 +659,20 @@ func (s *Store) DeleteHost(ctx context.Context, id string) ([]string, error) {
 const runnerCols = `id, pool_id, host_id, name, state, github_runner_id, container_id,
 	ephemeral, labels, image, image_digest, runner_version, current_job_id, created_at, started_at,
 	last_idle_at, finished_at, message, jobs_handled, cpu_percent, memory_bytes,
-	image_pull_ms, container_started_at, registered_at, task_issued_at`
+	image_pull_ms, container_started_at, registered_at, task_issued_at,
+	cleanup_error, cleanup_failed_at, cleanup_attempts, registration_deleted_at, cleaned_up_at`
 
 func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 	var r Runner
 	var ephemeral int
 	var created int64
 	var started, idle, finished, pullMS, containerStarted, registered, taskIssued sql.NullInt64
+	var cleanupFailed, registrationDeleted, cleanedUp sql.NullInt64
 	err := sc.Scan(&r.ID, &r.PoolID, &r.HostID, &r.Name, &r.State, &r.GitHubRunnerID,
 		&r.ContainerID, &ephemeral, &r.Labels, &r.Image, &r.ImageDigest, &r.RunnerVersion, &r.CurrentJobID,
 		&created, &started, &idle, &finished, &r.Message, &r.JobsHandled,
-		&r.CPUPercent, &r.MemoryBytes, &pullMS, &containerStarted, &registered, &taskIssued)
+		&r.CPUPercent, &r.MemoryBytes, &pullMS, &containerStarted, &registered, &taskIssued,
+		&r.CleanupError, &cleanupFailed, &r.CleanupAttempts, &registrationDeleted, &cleanedUp)
 	if err != nil {
 		return nil, err
 	}
@@ -682,6 +685,8 @@ func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 	}
 	r.ContainerStartedAt, r.RegisteredAt = atp(containerStarted), atp(registered)
 	r.TaskIssuedAt = atp(taskIssued)
+	r.CleanupFailedAt, r.RegistrationDeletedAt = atp(cleanupFailed), atp(registrationDeleted)
+	r.CleanedUpAt = atp(cleanedUp)
 	return &r, nil
 }
 
@@ -695,12 +700,14 @@ func (s *Store) CreateRunner(ctx context.Context, r *Runner) error {
 	}
 	r.CreatedAt = s.Now()
 	_, err := s.exec(ctx, `INSERT INTO runners (`+runnerCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		r.ID, r.PoolID, r.HostID, r.Name, string(r.State), r.GitHubRunnerID, r.ContainerID,
 		boolInt(r.Ephemeral), r.Labels, r.Image, r.ImageDigest, r.RunnerVersion, r.CurrentJobID,
 		ms(r.CreatedAt), msp(r.StartedAt), msp(r.LastIdleAt), msp(r.FinishedAt),
 		r.Message, r.JobsHandled, r.CPUPercent, r.MemoryBytes, durationMS(r.ImagePullDuration),
-		msp(r.ContainerStartedAt), msp(r.RegisteredAt), msp(r.TaskIssuedAt))
+		msp(r.ContainerStartedAt), msp(r.RegisteredAt), msp(r.TaskIssuedAt),
+		r.CleanupError, msp(r.CleanupFailedAt), r.CleanupAttempts,
+		msp(r.RegistrationDeletedAt), msp(r.CleanedUpAt))
 	return wrapWrite(err)
 }
 
@@ -1009,6 +1016,69 @@ func (s *Store) SetRunnerContainer(ctx context.Context, id, containerID string) 
 func (s *Store) SetRunnerResourceUsage(ctx context.Context, id string, cpu float64, mem int64) error {
 	_, err := s.exec(ctx, `UPDATE runners SET cpu_percent=?, memory_bytes=? WHERE id=?`, cpu, mem, id)
 	return err
+}
+
+// RecordCleanupFailure notes that taking this runner away did not work, and
+// counts the attempt.
+//
+// It is deliberately not a state transition. A runner whose remove failed is
+// still removed as far as the fleet's accounting goes -- its slot is free and
+// the scheduler has moved on -- and forcing it back through the state machine
+// would make capacity wrong to record a tidying problem. What is wrong is the
+// host, or GitHub, and that is what these columns say.
+func (s *Store) RecordCleanupFailure(ctx context.Context, id, reason string) error {
+	if reason == "" {
+		reason = "cleanup failed without saying why"
+	}
+	_, err := s.exec(ctx, `UPDATE runners
+		SET cleanup_error=?, cleanup_failed_at=?, cleanup_attempts=cleanup_attempts+1
+		WHERE id=?`, reason, s.Now().UnixMilli(), id)
+	return err
+}
+
+// ClearCleanupFailure records that the cleanup this row was complaining about
+// has since worked, and stamps the end of the runner's life.
+//
+// The attempt count is kept. How many tries it took is the difference between
+// a blip and a host that needs looking at, and clearing it would erase the
+// only evidence that anything was ever wrong.
+func (s *Store) ClearCleanupFailure(ctx context.Context, id string) error {
+	_, err := s.exec(ctx, `UPDATE runners
+		SET cleanup_error='', cleanup_failed_at=NULL, cleaned_up_at=COALESCE(cleaned_up_at, ?)
+		WHERE id=?`, s.Now().UnixMilli(), id)
+	return err
+}
+
+// RecordRegistrationDeleted stamps the moment GitHub confirmed a runner's
+// registration was gone, and closes the cleanup interval when nothing else is
+// outstanding.
+func (s *Store) RecordRegistrationDeleted(ctx context.Context, id string) error {
+	now := s.Now().UnixMilli()
+	_, err := s.exec(ctx, `UPDATE runners
+		SET registration_deleted_at=COALESCE(registration_deleted_at, ?),
+		    cleaned_up_at=CASE WHEN cleanup_error='' THEN COALESCE(cleaned_up_at, ?) ELSE cleaned_up_at END
+		WHERE id=?`, now, now, id)
+	return err
+}
+
+// RunnersWithFailedCleanup returns the rows still complaining, newest failure
+// first, so the problems pass can name them without reading the whole table.
+func (s *Store) RunnersWithFailedCleanup(ctx context.Context) ([]*Runner, error) {
+	rows, err := s.read.QueryContext(ctx, `SELECT `+runnerCols+` FROM runners
+		WHERE cleanup_error != '' ORDER BY cleanup_failed_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Runner
+	for rows.Next() {
+		r, err := scanRunner(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // SetRunnerTaskIssued records when this runner's lifecycle task was handed to

@@ -749,9 +749,77 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 		if message == "" {
 			message = "the agent could not complete task " + res.TaskID
 		}
+		if r.State.Terminal() {
+			// The row is already finished with, so there is no transition to
+			// make: a removed runner cannot become failed, and the state
+			// machine is right to refuse it. Before this the result was
+			// dropped there at debug level -- and a remove that failed means
+			// the container is still on the host, with nobody told. It is
+			// recorded on the row instead.
+			c.noteCleanupFailure(ctx, r, kind, message)
+			return nil
+		}
+	} else if lifecycleTask(kind) && cleansUp(kind) {
+		// A stop or remove that worked settles whatever an earlier attempt
+		// left on the row.
+		c.noteCleanupSucceeded(ctx, r)
 	}
 	c.applyRunnerState(ctx, r, state, message)
 	return nil
+}
+
+// publishRunnerByID re-reads a runner and puts it on the bus, for the places
+// that changed a column rather than a state.
+func (c *Controller) publishRunnerByID(ctx context.Context, id string) {
+	if updated, err := c.st.GetRunner(ctx, id); err == nil {
+		c.publishRunner(ctx, events.KindRunnerUpdated, updated)
+	}
+}
+
+// cleansUp reports whether this task kind is one whose success means there is
+// less of the runner left on the host than there was.
+func cleansUp(kind agent.TaskKind) bool {
+	return kind == agent.TaskStopRunner || kind == agent.TaskRemoveRunner
+}
+
+// noteCleanupFailure records on the runner's row that taking it away did not
+// work, and says so where an operator will see it.
+//
+// It is not a state transition. The runner is terminal and its slot is already
+// free; forcing it back through the state machine would make the fleet's
+// capacity wrong in order to record a tidying problem. What is wrong is the
+// host, and the row is where that belongs.
+func (c *Controller) noteCleanupFailure(ctx context.Context, r *store.Runner, kind agent.TaskKind, reason string) {
+	detail := fmt.Sprintf("%s failed: %s", kind, reason)
+	if err := c.st.RecordCleanupFailure(ctx, r.ID, detail); err != nil {
+		c.log.Warn("could not record a failed cleanup on its runner",
+			"runner", r.ID, "kind", kind, "error", err)
+		return
+	}
+	c.log.Warn("could not clean a runner up; it is recorded on the row",
+		"runner", r.ID, "name", r.Name, "host", r.HostID, "kind", kind, "error", reason)
+	if updated, err := c.st.GetRunner(ctx, r.ID); err == nil {
+		c.publishRunner(ctx, events.KindRunnerUpdated, updated)
+	}
+}
+
+// noteCleanupSucceeded clears a recorded failure once the same work has since
+// worked, and closes the runner's cleanup interval.
+func (c *Controller) noteCleanupSucceeded(ctx context.Context, r *store.Runner) {
+	if r.CleanupError == "" && r.CleanedUpAt != nil {
+		return
+	}
+	if err := c.st.ClearCleanupFailure(ctx, r.ID); err != nil {
+		c.log.Warn("could not clear a recorded cleanup failure", "runner", r.ID, "error", err)
+		return
+	}
+	if r.CleanupError != "" {
+		c.log.Info("a runner that would not clean up has now been cleaned up",
+			"runner", r.ID, "name", r.Name, "attempts", r.CleanupAttempts+1)
+	}
+	if updated, err := c.st.GetRunner(ctx, r.ID); err == nil {
+		c.publishRunner(ctx, events.KindRunnerUpdated, updated)
+	}
 }
 
 // ReportRunners merges an agent's observations outside the heartbeat cycle, so

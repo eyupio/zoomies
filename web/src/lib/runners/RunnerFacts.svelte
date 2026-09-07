@@ -133,6 +133,19 @@
       <dd><RelativeTime value={runner.finished_at} /></dd>
     </div>
   {/if}
+
+  <!--
+    Cleaned up is a different fact from finished, and the gap between them is
+    the interesting part: finished is when the runner stopped working, cleaned
+    up is when nothing of it was left. A terminal runner with no cleaned-up
+    time has something still on a host or on GitHub.
+  -->
+  {#if runner.cleaned_up_at}
+    <div class="row">
+      <dt>Cleaned up</dt>
+      <dd><RelativeTime value={runner.cleaned_up_at} /></dd>
+    </div>
+  {/if}
 </dl>
 
 <style>
