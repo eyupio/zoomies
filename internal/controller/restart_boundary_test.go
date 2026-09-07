@@ -38,7 +38,7 @@ func TestALateResultAfterARestartLeavesOneLiveRowPerRunner(t *testing.T) {
 		wantState store.RunnerState
 	}{
 		{
-			name: "create enqueued but never collected",
+			name:  "create enqueued but never collected",
 			state: store.RunnerProvisioning, kind: agent.TaskCreateRunner,
 			ok: true, reports: store.RunnerRegistering, wantState: store.RunnerRegistering,
 		},
