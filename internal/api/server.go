@@ -37,6 +37,10 @@ type Options struct {
 	Controller *controller.Controller
 	// Logger is the process logger; nil uses slog's default.
 	Logger *slog.Logger
+	// StreamHeartbeat is how often a live stream sends a keep-alive and
+	// re-checks the credential it was opened with. Zero uses the shipped
+	// interval; a test sets it small so it does not have to wait one.
+	StreamHeartbeat time.Duration
 }
 
 // Server is the HTTP surface. Build it with New and either hand Handler() to a
@@ -53,6 +57,9 @@ type Server struct {
 	// that needs it instead of stopping the whole server from starting.
 	key    *cryptox.Key
 	keyErr error
+
+	// streamHeartbeat is Options.StreamHeartbeat, defaulted.
+	streamHeartbeat time.Duration
 
 	// oidc is nil when single sign-on is off or its discovery failed at
 	// startup; oidcErr then carries the reason, which the SSO routes report
@@ -94,12 +101,18 @@ func New(opts Options) (*Server, error) {
 	}
 	log = log.With("component", "api")
 
+	beat := opts.StreamHeartbeat
+	if beat <= 0 {
+		beat = heartbeatInterval
+	}
+
 	cfg := opts.Controller.Config()
 	s := &Server{
-		ctrl:      opts.Controller,
-		auth:      opts.Controller.Auth(),
-		log:       log,
-		manifests: newManifestStates(opts.Controller.Now),
+		ctrl:            opts.Controller,
+		auth:            opts.Controller.Auth(),
+		log:             log,
+		manifests:       newManifestStates(opts.Controller.Now),
+		streamHeartbeat: beat,
 	}
 
 	spa, err := newSPAHandler(cfg.Server.ExternalURL, cfg.Server.AllowIndexing)

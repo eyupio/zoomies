@@ -479,6 +479,7 @@ kept; a rule that could not be made to fail did not ship.
 | A cross-origin sign-in is refused, and a non-browser client is not | `TestCSRFRefusesACrossOriginLogin` (`internal/api`) |
 | `X-Forwarded-Proto` is believed only from a trusted proxy | `TestForwardedProtoIsBelievedOnlyFromATrustedProxy` (`internal/api`) |
 | Enrolment is rate limited, on a counter of its own | `TestAgentJoinIsRateLimited` (`internal/api`) |
+| A live stream ends within one heartbeat of its credential being revoked, and keeps running while it stands | `TestAStreamEndsWhenItsCredentialIsRevoked`, `TestALogStreamEndsWhenItsCredentialIsRevoked`, `TestALiveStreamSurvivesItsOwnHeartbeat` (`internal/api`) |
 | A body over the limit is refused, and the log relay is exempt | `TestOversizeRequestBodyIsRefused`, `TestARunnerThatPrintsMoreThanTheBodyLimitIsNotCutOff` (`internal/api`) |
 
 ---

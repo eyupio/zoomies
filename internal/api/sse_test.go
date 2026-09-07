@@ -434,3 +434,133 @@ func TestEventStreamSaysWhenItCannotReplayTheGap(t *testing.T) {
 		}
 	})
 }
+
+// TestAStreamEndsWhenItsCredentialIsRevoked is the thing a live stream had that
+// no other route did: an authorisation decision taken once and then held for as
+// long as the tab was open.
+//
+// Signing out, revoking the token, disabling the account or letting the session
+// expire all left the stream running -- every movement of the fleet still
+// arriving at a browser whose credential the operator had just taken away,
+// until something else happened to break the connection. Every other route
+// re-checks on every request; a stream's heartbeat is the closest thing it has
+// to one.
+func TestAStreamEndsWhenItsCredentialIsRevoked(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// revoke takes the credential away by the route an operator would.
+		revoke func(t *testing.T, h *harness, u *store.User, cookie, adminCookie string)
+	}{
+		{"signing out", func(t *testing.T, h *harness, _ *store.User, cookie, _ string) {
+			h.do(request{method: http.MethodPost, path: "/api/v1/auth/logout", cookie: cookie}).
+				mustStatus(t, http.StatusNoContent, "logout")
+		}},
+		{"the account being disabled", func(t *testing.T, h *harness, u *store.User, _, adminCookie string) {
+			h.do(request{method: http.MethodPatch, path: "/api/v1/users/" + u.ID,
+				cookie: adminCookie, body: map[string]any{"disabled": true}}).
+				mustStatus(t, http.StatusOK, "disable")
+		}},
+		{"the account being deleted", func(t *testing.T, h *harness, u *store.User, _, adminCookie string) {
+			h.do(request{method: http.MethodDelete, path: "/api/v1/users/" + u.ID, cookie: adminCookie}).
+				mustStatus(t, http.StatusNoContent, "delete")
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			// An admin who stays signed in, so the revoking call has a caller
+			// and the last-admin invariant is never the thing that refuses it.
+			admin, _ := h.user("root", store.RoleAdmin)
+			adminCookie := h.session(admin)
+			watcher, _ := h.user("watcher", store.RoleOperator)
+			cookie := h.session(watcher)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			frames, resp := h.openStream(t, ctx, "/api/v1/events", cookie, nil)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("event stream status %d", resp.StatusCode)
+			}
+			await(t, frames, "the attach comment", func(f sseFrame) bool { return f.comment != "" })
+
+			tc.revoke(t, h, watcher, cookie, adminCookie)
+
+			end := await(t, frames, "an end frame", func(f sseFrame) bool { return f.event == "end" })
+			if !strings.Contains(end.data, "sign in again") {
+				t.Errorf("the end frame does not say what to do about it: %q", end.data)
+			}
+			// And the response really ends, rather than the frame being sent
+			// into a connection that stays open.
+			for range frames {
+			}
+		})
+	}
+}
+
+// The log stream is authorised on a different action, and holds a relay open on
+// a host for as long as it runs -- so a revoked credential there costs a machine
+// something, not just a browser.
+func TestALogStreamEndsWhenItsCredentialIsRevoked(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	hostID, _ := h.agentToken("vm-1")
+	host, err := h.st.GetHost(h.ctx, hostID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	run := h.runner(pool, host, store.RunnerBusy)
+
+	u, _ := h.user("viewer", store.RoleViewer)
+	cookie := h.session(u)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	frames, resp := h.openStream(t, ctx, "/api/v1/runners/"+run.ID+"/logs", cookie, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("log stream status %d", resp.StatusCode)
+	}
+	await(t, frames, "the attach comment", func(f sseFrame) bool { return f.comment != "" })
+
+	h.do(request{method: http.MethodPost, path: "/api/v1/auth/logout", cookie: cookie}).
+		mustStatus(t, http.StatusNoContent, "logout")
+
+	end := await(t, frames, "an end frame", func(f sseFrame) bool { return f.event == "end" })
+	if !strings.Contains(end.data, "sign in again") {
+		t.Errorf("the end frame does not say what to do about it: %q", end.data)
+	}
+}
+
+// The other half, which a check that ended every stream would also pass: a
+// credential that is still good keeps its stream.
+func TestALiveStreamSurvivesItsOwnHeartbeat(t *testing.T) {
+	h := newHarness(t)
+	u, _ := h.user("watcher", store.RoleOperator)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	frames, resp := h.openStream(t, ctx, "/api/v1/events", h.session(u), nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event stream status %d", resp.StatusCode)
+	}
+
+	// Several heartbeats' worth. Any of them re-checks the credential, and a
+	// stream that ended here would be one nobody could keep open at all.
+	beats := 0
+	deadline := time.After(5 * time.Second)
+	for beats < 3 {
+		select {
+		case f, ok := <-frames:
+			if !ok {
+				t.Fatal("the stream ended though the credential is still good")
+			}
+			if f.event == "end" {
+				t.Fatalf("the stream ended on a live credential: %q", f.data)
+			}
+			if f.event == string(events.KindHeartbeat) {
+				beats++
+			}
+		case <-deadline:
+			t.Fatalf("only %d heartbeats arrived", beats)
+		}
+	}
+}

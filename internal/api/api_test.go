@@ -178,7 +178,10 @@ func newHarness(t *testing.T, opts ...func(*config.Config)) *harness {
 		t.Fatalf("controller.New: %v", err)
 	}
 
-	s, err := New(Options{Controller: ctrl, Logger: logger})
+	// A short stream heartbeat, because it is also how often a live stream
+	// re-checks the credential it was opened with: at the shipped twenty
+	// seconds the revocation tests would each wait one.
+	s, err := New(Options{Controller: ctrl, Logger: logger, StreamHeartbeat: 50 * time.Millisecond})
 	if err != nil {
 		t.Fatalf("api.New: %v", err)
 	}
