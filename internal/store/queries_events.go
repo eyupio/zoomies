@@ -832,8 +832,8 @@ func (s *Store) LastAcceptedDeliveryAt(ctx context.Context) (time.Time, error) {
 	return s.lastDeliveryAt(ctx, "accepted")
 }
 
-// LastAcceptedDeliveryByInstallation returns, for each installation, when a
-// webhook for one of its repositories last verified.
+// InstallationsFreshSince returns the installations a webhook has verified for
+// since a cutoff: the ones whose deliveries are arriving.
 //
 // A delivery is credited to the installation that owns its repository, by the
 // same precedence FindInstallationByTarget uses -- deliberately not to the one
@@ -842,39 +842,46 @@ func (s *Store) LastAcceptedDeliveryAt(ctx context.Context) (time.Time, error) {
 // are not arriving, and crediting its neighbour's delivery to it would tell
 // the poller to stand down over the fleet's most broken installation.
 //
+// It answers "which installations are fresh" rather than "when was each one
+// last fresh", because the cutoff is what lets the index do the work. Asking
+// for the last delivery per installation groups over every accepted row ever
+// kept -- a week of them by default, rescanned on every sweep. With the cutoff
+// the plan is a range over idx_webhook_status and touches only the deliveries
+// inside the window. The caller asks nothing else, and an installation absent
+// from the set is one to poll.
+//
 // One query rather than one per installation: the caller has the whole list in
-// hand and asks on every sweep. An installation nothing has arrived for is
-// absent from the map, which reads as the zero time -- poll it.
-func (s *Store) LastAcceptedDeliveryByInstallation(ctx context.Context) (map[string]time.Time, error) {
+// hand and asks on every sweep.
+func (s *Store) InstallationsFreshSince(ctx context.Context, since time.Time) (map[string]bool, error) {
 	rows, err := s.read.QueryContext(ctx, `
-		SELECT owner, MAX(received_at) FROM (
-			SELECT d.received_at AS received_at, (
-				SELECT i.id FROM installations i
-				 WHERE (i.target_type = 'repo' AND i.target = d.repo)
-				    OR (i.target_type = 'org'  AND i.target = CASE
-				            WHEN instr(d.repo, '/') > 1
-				            THEN substr(d.repo, 1, instr(d.repo, '/') - 1)
-				            ELSE d.repo END)
-				 ORDER BY CASE i.target_type WHEN 'repo' THEN 0 ELSE 1 END
-				 LIMIT 1
-			) AS owner
-			  FROM webhook_deliveries d
-			 WHERE d.status = 'accepted' AND d.repo != ''
-		)
-		WHERE owner IS NOT NULL
-		GROUP BY owner`)
+		SELECT DISTINCT (
+			SELECT i.id FROM installations i
+			 WHERE (i.target_type = 'repo' AND i.target = d.repo)
+			    OR (i.target_type = 'org'  AND i.target = CASE
+			            WHEN instr(d.repo, '/') > 1
+			            THEN substr(d.repo, 1, instr(d.repo, '/') - 1)
+			            ELSE d.repo END)
+			 ORDER BY CASE i.target_type WHEN 'repo' THEN 0 ELSE 1 END
+			 LIMIT 1
+		) AS owner
+		  FROM webhook_deliveries d
+		 WHERE d.status = 'accepted' AND d.received_at >= ? AND d.repo != ''`, ms(since))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[string]time.Time{}
+	out := map[string]bool{}
 	for rows.Next() {
-		var id string
-		var ms int64
-		if err := rows.Scan(&id, &ms); err != nil {
+		var id sql.NullString
+		if err := rows.Scan(&id); err != nil {
 			return nil, err
 		}
-		out[id] = at(ms)
+		// A repository no installation covers is nobody's freshness, and a
+		// delivery that verified against a secret belonging to some other
+		// installation does not make that one's webhooks work.
+		if id.Valid && id.String != "" {
+			out[id.String] = true
+		}
 	}
 	return out, rows.Err()
 }

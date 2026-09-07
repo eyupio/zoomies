@@ -115,7 +115,17 @@ func (cc *clientCache) forget(id string) {
 
 // Forget drops the cached client for an installation. The API calls it after
 // deleting or re-keying one, so the next call rebuilds from the stored row.
-func (c *Controller) Forget(installationID string) { c.clients.forget(installationID) }
+func (c *Controller) Forget(installationID string) {
+	c.clients.forget(installationID)
+	// Its rate-limit hold goes with it. The hold is read only when the
+	// installation comes round on a sweep, so a stale entry changes nothing --
+	// but an installation that is gone should leave nothing behind, and one
+	// re-added under the same identifier would inherit a stand-down it never
+	// earned.
+	c.pollMu.Lock()
+	delete(c.pollPaused, installationID)
+	c.pollMu.Unlock()
+}
 
 // runnerGroupID resolves a runner group name to the ID the JIT config API
 // wants. An empty or unknown name falls back to 0, which the github package

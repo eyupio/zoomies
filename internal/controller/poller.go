@@ -81,7 +81,7 @@ func (c *Controller) pollOnce(ctx context.Context) {
 	}
 	c.pollingOnly.Store(last.IsZero())
 
-	fresh, err := c.st.LastAcceptedDeliveryByInstallation(ctx)
+	fresh, err := c.st.InstallationsFreshSince(ctx, now.Add(-2*c.pollInterval()))
 	if err != nil {
 		c.log.Error("could not tell which installations webhooks are arriving for", "error", err)
 		return
@@ -111,7 +111,7 @@ func (c *Controller) pollOnce(ctx context.Context) {
 		// what makes leaving the poller on by default defensible, and asking
 		// it per installation is what stops a working organisation's
 		// deliveries from covering for a silent one on the same controller.
-		if at, ok := fresh[inst.ID]; ok && now.Sub(at) < 2*c.pollInterval() {
+		if fresh[inst.ID] {
 			continue
 		}
 		client, err := c.clients.get(ctx, inst)

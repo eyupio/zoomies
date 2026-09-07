@@ -660,20 +660,32 @@ func TestDeliveryFreshnessIsCreditedToTheInstallationOwningTheRepository(t *test
 		}
 	}
 
-	got, err := s.LastAcceptedDeliveryByInstallation(ctx)
+	// A window wide enough for every delivery above.
+	got, err := s.InstallationsFreshSince(ctx, base.Add(-time.Hour))
 	if err != nil {
-		t.Fatalf("LastAcceptedDeliveryByInstallation: %v", err)
+		t.Fatalf("InstallationsFreshSince: %v", err)
 	}
-	if want := base.Add(-30 * time.Second); !got[org.ID].Equal(want) {
-		t.Errorf("the organisation's freshness = %v, want its ping at %v", got[org.ID], want)
+	if !got[org.ID] {
+		t.Error("the organisation's own deliveries are arriving, so it is fresh")
 	}
-	if want := base.Add(-7 * time.Minute); !got[repo.ID].Equal(want) {
-		t.Errorf("the repository installation's freshness = %v, want its own delivery at %v", got[repo.ID], want)
+	if !got[repo.ID] {
+		t.Error("the repository installation owns its repository's delivery, so it is fresh")
 	}
-	if at, ok := got[quiet.ID]; ok {
-		t.Errorf("globex has only a rejected delivery, so it must look silent, not fresh at %v", at)
+	if got[quiet.ID] {
+		t.Error("globex has only a rejected delivery, so it must look silent")
 	}
 	if len(got) != 2 {
-		t.Errorf("got %d installations with freshness, want 2: %v", len(got), got)
+		t.Errorf("got %d fresh installations, want 2: %v", len(got), got)
+	}
+
+	// And the cutoff is what the caller means by fresh: narrow it past the
+	// repository installation's delivery and only the organisation, whose ping
+	// arrived thirty seconds ago, is still arriving.
+	recent, err := s.InstallationsFreshSince(ctx, base.Add(-time.Minute))
+	if err != nil {
+		t.Fatalf("InstallationsFreshSince: %v", err)
+	}
+	if !recent[org.ID] || recent[repo.ID] {
+		t.Errorf("inside the last minute = %v, want the organisation alone", recent)
 	}
 }
