@@ -144,3 +144,45 @@ test('an unknown address renders the not-found page, not a blank screen', async 
   await page.getByRole('link', { name: 'Go to the overview', exact: true }).click();
   await expect(pageHeading(page, 'Overview')).toBeVisible();
 });
+
+test('a page whose code does not arrive recovers without the operator doing anything', async ({
+  page,
+}) => {
+  await goto(page, '/', 'Overview');
+
+  // A phone on a flaky link loses the request for the route's chunk; an
+  // upgraded controller answers 404 for it. Both look like this, and neither
+  // should leave "That page could not be loaded" on the screen when the very
+  // next attempt would have worked.
+  let dropped = 0;
+  await page.route(/\/assets\/Hosts\.[^/]*\.js$/, async (route) => {
+    if (dropped === 0) {
+      dropped += 1;
+      await route.abort('connectionfailed');
+      return;
+    }
+    await route.fallback();
+  });
+
+  await navEntry(page, '/hosts').click();
+
+  await expect(pageHeading(page, 'Hosts')).toBeVisible();
+  expect(dropped, 'the chunk request really was dropped once').toBe(1);
+  await expect(page.getByText('That page could not be loaded')).toHaveCount(0);
+});
+
+test('a page whose code never arrives says so rather than reloading forever', async ({ page }) => {
+  await goto(page, '/', 'Overview');
+
+  // Every attempt fails, including the ones after a recovery reload. The
+  // operator gets an explanation and a button, not a tab that reloads itself
+  // in a loop.
+  await page.route(/\/assets\/Hosts\.[^/]*\.js$/, (route) => route.abort('connectionfailed'));
+
+  await navEntry(page, '/hosts').click();
+
+  await expect(page.getByText('That page could not be loaded')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
+  // The shell survives, so the rest of the fleet is still one click away.
+  await expect(nav(page)).toBeVisible();
+});

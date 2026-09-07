@@ -5,7 +5,9 @@
  *
  *  * Route components are loaded with dynamic `import()`, so the grids, the
  *    log viewer and the pool wizard never reach a visitor who only looks at the
- *    Overview. That is most of how the app shell stays under budget.
+ *    Overview. That is most of how the app shell stays under budget. A chunk
+ *    that does not arrive is retried and, if need be, recovered by a reload;
+ *    see `chunks.ts` for why that is worth doing rather than reporting.
  *  * Query state is first class. Every grid keeps its filters and paging in the
  *    URL so a view can be pasted into a chat window, and `setQuery` replaces
  *    them without unmounting the page.
@@ -15,6 +17,7 @@
  */
 import { createSubscriber } from 'svelte/reactivity';
 import type { Component } from 'svelte';
+import { loadChunk, reloadForFailedChunk } from './chunks';
 import Login from '../routes/Login.svelte';
 import NotFound from '../routes/NotFound.svelte';
 
@@ -210,13 +213,19 @@ async function apply(): Promise<void> {
     loading = true;
     currentComponent = null;
     changed();
+    const load = found.route.load;
     try {
-      const module = await found.route.load?.();
+      const module = load ? await loadChunk(load, () => token !== navigationToken) : undefined;
       if (token !== navigationToken) return;
       currentComponent = module?.default ?? null;
       if (currentComponent) loaded.set(found.route, currentComponent);
     } catch (cause) {
       if (token !== navigationToken) return;
+      // A chunk goes missing for two reasons -- a dropped request, or an
+      // upgrade that renamed it under an open tab -- and a reload fixes both.
+      // While one is on its way, stay on the skeleton: an error that replaces
+      // itself half a second later is worse than no error at all.
+      if (await reloadForFailedChunk()) return;
       loadError =
         cause instanceof Error
           ? cause
