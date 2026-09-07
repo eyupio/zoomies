@@ -130,10 +130,16 @@ func (c *Controller) Forget(installationID string) {
 // runnerGroupID resolves a runner group name to the ID the JIT config API
 // wants. An empty or unknown name falls back to 0, which the github package
 // turns into the Default group every target has.
-func (cc *clientCache) runnerGroupID(ctx context.Context, inst *store.Installation, client github.Client, name string) int64 {
+//
+// The second return value is why the fallback happened, empty when it did not.
+// Falling back is not a detail: Default is the group every repository the
+// installation covers can reach, so a pool that asked to be fenced into one
+// group and quietly landed in Default is running its jobs somewhere wider than
+// its operator asked for. The caller turns it into a standing warning.
+func (cc *clientCache) runnerGroupID(ctx context.Context, inst *store.Installation, client github.Client, name string) (int64, string) {
 	name = strings.TrimSpace(name)
 	if name == "" || strings.EqualFold(name, "default") {
-		return 0
+		return 0, ""
 	}
 
 	cc.mu.Lock()
@@ -141,18 +147,32 @@ func (cc *clientCache) runnerGroupID(ctx context.Context, inst *store.Installati
 	if e != nil && e.groups != nil {
 		if id, ok := e.groups[strings.ToLower(name)]; ok {
 			cc.mu.Unlock()
-			return id
+			return id, ""
 		}
 	}
 	cc.mu.Unlock()
 
+	// Runner groups are an organisation concept, so a pool on a
+	// repository-target installation cannot have one whatever it names. Said
+	// separately because the fix is the opposite: drop the group from the
+	// pool, rather than create it on GitHub.
+	if inst.TargetType == store.TargetRepo {
+		cc.c.log.Warn("a repository target has no runner groups; using the default group",
+			"installation", inst.ID, "target", inst.Target, "group", name)
+		return 0, "runner groups belong to an organisation, and " + inst.Target + " is a repository"
+	}
+
+	// A name that resolved to nothing is deliberately not cached, so that the
+	// next create asks again. It costs one call per runner on a pool that is
+	// misconfigured, and it is what lets the warning clear by itself the
+	// moment an operator creates the group GitHub was missing.
 	groups, err := client.ListRunnerGroups(ctx)
 	if err != nil {
 		// A pool naming a group Zoomies cannot list still deserves a runner;
 		// GitHub will place it in Default and the operator sees the warning.
 		cc.c.log.Warn("could not list runner groups; falling back to the default group",
 			"installation", inst.ID, "group", name, "error", err)
-		return 0
+		return 0, "GitHub would not say which runner groups exist on " + inst.Target
 	}
 
 	found := int64(0)
@@ -163,7 +183,6 @@ func (cc *clientCache) runnerGroupID(ctx context.Context, inst *store.Installati
 			found = g.ID
 		}
 	}
-
 	cc.mu.Lock()
 	if e := cc.entries[inst.ID]; e != nil {
 		e.groups = m
@@ -173,8 +192,9 @@ func (cc *clientCache) runnerGroupID(ctx context.Context, inst *store.Installati
 	if found == 0 {
 		cc.c.log.Warn("the pool names a runner group that does not exist on the target; using the default group",
 			"installation", inst.ID, "target", inst.Target, "group", name)
+		return 0, "the group " + name + " does not exist on " + inst.Target
 	}
-	return found
+	return found, ""
 }
 
 // probeLoop re-checks every installation's credentials on an interval, so a

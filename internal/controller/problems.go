@@ -101,6 +101,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 		return nil, err
 	}
 	out = append(out, c.PoolCapacityProblems()...)
+	out = append(out, c.PoolRunnerGroupProblems()...)
 	out = append(out, c.loopProblems()...)
 	out = append(out, c.updateProblems()...)
 	if err := c.runnerProblems(ctx, &out); err != nil {
@@ -324,6 +325,43 @@ func (c *Controller) webhookURLOrPath() string {
 // host selector. Nothing else in the product says so -- a scaling event is only
 // written when the size actually moved -- so a fleet in this state answers
 // "why is nothing running?" with silence unless it is reported here.
+// PoolRunnerGroupProblems reports the pools whose runners went into GitHub's
+// default runner group because the group they asked for could not be resolved.
+//
+// It is a warning rather than a log line because of what Default means: it is
+// the group every repository the installation covers can reach. A pool put
+// into a named group to fence its runners off, and quietly placed in Default
+// instead, is running its jobs somewhere wider than its operator asked for --
+// and nothing else on the page would say so.
+func (c *Controller) PoolRunnerGroupProblems() []Problem {
+	c.mu.Lock()
+	notes := make([]runnerGroupNote, 0, len(c.runnerGroups))
+	ids := make([]string, 0, len(c.runnerGroups))
+	for id, n := range c.runnerGroups {
+		ids = append(ids, id)
+		notes = append(notes, n)
+	}
+	c.mu.Unlock()
+
+	out := make([]Problem, 0, len(notes))
+	for i, n := range notes {
+		out = append(out, Problem{
+			Code:     "pool.runner_group_unresolved",
+			Severity: config.SeverityWarning,
+			Title:    fmt.Sprintf("pool %s: its runners are registering in the default runner group", n.PoolName),
+			Detail: fmt.Sprintf("%s, so GitHub is placing them in Default, which every repository the installation covers can reach. The pool asked for %s to keep its runners away from work that is not meant for them.",
+				capitalise(n.Reason), n.Group),
+			Fix: fmt.Sprintf("create the %s group on GitHub and give this pool's target access to it, or clear the pool's runner group; the runners already registered stay in Default until they are replaced.",
+				n.Group),
+			TargetKind: "pool", TargetID: ids[i],
+		})
+	}
+	// A stable order, because the drawer is re-rendered on every pass and a
+	// map's is not.
+	slices.SortFunc(out, func(a, b Problem) int { return strings.Compare(a.TargetID, b.TargetID) })
+	return out
+}
+
 func (c *Controller) PoolCapacityProblems() []Problem {
 	plan, at := c.getLastPlan()
 	if plan == nil || at.IsZero() {

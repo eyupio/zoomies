@@ -162,6 +162,43 @@ reports what each one did.
 to zero and creates nothing, while its settings and history survive. Deleting
 drains its runners first unless you pass `--force`.
 
+### A pool belongs to one installation
+
+`--installation` is not bookkeeping. A pool's runners are registered into that
+installation's GitHub target with that installation's credentials, so the
+target decides which jobs can ever reach them — and Zoomies will not put a job
+from one installation on a pool belonging to another, whatever the labels say.
+Two installations whose pools advertise the same labels are two separate
+fleets that happen to use the same words.
+
+A job Zoomies cannot place for this reason says so rather than sitting there:
+the Jobs page and the problems drawer name the pool whose labels matched and
+the installation it belongs to, and a repository no installation here covers is
+reported as that rather than as a labelling mistake. Neither has a fix in the
+workflow file; both are fixed by installing the App on the right target or by
+adding a pool there.
+
+Within one organisation installation, that is as far as the boundary goes.
+**GitHub decides which of its runners gets a queued job**, and it offers a job
+to any runner in scope whose labels match — so a runner this fleet created for
+one repository's job may be handed another repository's job from the same
+organisation instead. Zoomies has no say in it. Where two repositories must not
+share runners, give each one a repository-target installation, or separate them
+by labels and accept that the separation is a convention kept in workflow files
+rather than something the platform enforces. The same caveat governs a
+repository-scoped cache: see
+[Adding a pool](#adding-a-pool) and the pool's own warnings.
+
+A **runner group** narrows this further, and only on an organisation. Naming
+one puts the pool's runners in that group, so only repositories with access to
+it can be offered their jobs. If the group cannot be resolved — it does not
+exist on the target, or the App may not list groups — the runners register in
+Default, which every repository the installation covers can reach; the pool
+then carries a `pool.runner_group_unresolved` warning saying which happened,
+because a pool that asked to be fenced off and quietly was not is worth
+noticing. Repositories have no runner groups at all, so a repository-target
+pool naming one is warned about the same way.
+
 ## How a runner is placed
 
 Every scheduler pass takes a snapshot — pools, runners, queued jobs, hosts — and
