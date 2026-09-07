@@ -362,6 +362,28 @@ func (h *harness) runners() []*store.Runner {
 }
 
 // onlyRunner asserts there is exactly one runner and returns it.
+// restart builds a fresh controller over the same store, which is what a
+// process restart actually is: every row survives and every in-memory
+// structure -- the task queue above all -- does not.
+func (h *harness) restart() *Controller {
+	h.t.Helper()
+	bus := events.New()
+	c, err := New(Options{
+		Store:  h.st,
+		Config: h.cfg,
+		Key:    h.key,
+		Auth:   auth.New(h.st, h.cfg, bus),
+		Events: bus,
+		GitHub: h.factory,
+		Logger: slog.New(slog.DiscardHandler),
+		Clock:  func() time.Time { return time.Now().Add(time.Duration(h.offset.Load())) },
+	})
+	if err != nil {
+		h.t.Fatalf("restarting the controller: %v", err)
+	}
+	return c
+}
+
 // runnerByID re-reads one runner, for a test that has to see a column change.
 func (h *harness) runnerByID(t *testing.T, id string) *store.Runner {
 	t.Helper()
