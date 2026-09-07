@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
 )
 
@@ -41,6 +42,22 @@ var ErrRetryable = errors.New("agent: transient failure talking to the controlle
 // HeaderHostID carries the agent's host ID alongside its bearer token, so that
 // a controller log line can name the host without first looking the token up.
 const HeaderHostID = "X-Zoomies-Host"
+
+// HeaderAgentSession carries the identity of the agent *process*, minted fresh
+// when it starts and never reused.
+//
+// It is what makes a duplicated credential visible. A cloned VM or a copied
+// state directory gives two agents one host id, and from the controller's side
+// they are indistinguishable -- both hold a valid token for that host and both
+// report real work. What they cannot hide is handing the session back and
+// forth: a single agent moves its session forward when it restarts and never
+// back, so a session this host has already left behind can only be a second
+// one still running.
+//
+// A header rather than a field because the runner report's body is a bare JSON
+// array, and the alternative was three body shapes changing instead of one
+// place that every authenticated agent request already passes through.
+const HeaderAgentSession = "X-Zoomies-Agent-Session"
 
 // Sizes and deadlines for the request path.
 const (
@@ -101,6 +118,12 @@ type HTTPTransport struct {
 	base string
 	http *http.Client
 	log  *slog.Logger
+
+	// session identifies this agent process for the life of it. It is minted
+	// here rather than passed in because "one agent process" is exactly what a
+	// transport is, and it is never rotated: an id that changed under a
+	// running agent would look like the duplicate it exists to find.
+	session string
 
 	mu         sync.RWMutex
 	hostID     string
@@ -172,9 +195,10 @@ func NewHTTPTransport(opts HTTPOptions) (*HTTPTransport, error) {
 	}
 
 	return &HTTPTransport{
-		base: strings.TrimSuffix(u.String(), "/"),
-		http: client,
-		log:  log,
+		base:    strings.TrimSuffix(u.String(), "/"),
+		http:    client,
+		log:     log,
+		session: "ses_" + store.NewSecret(8),
 	}, nil
 }
 
@@ -368,6 +392,7 @@ func (t *HTTPTransport) call(ctx context.Context, r request) (int, error) {
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set(HeaderHostID, hostID)
+		req.Header.Set(HeaderAgentSession, t.session)
 	}
 
 	resp, err := t.http.Do(req)

@@ -58,6 +58,12 @@ const (
 	PhaseGone Phase = "gone"
 )
 
+// Live reports whether the workload still exists and may yet do work. It is
+// the question a caller asks before deciding a container is safe to delete,
+// and starting counts: a workload created moments ago has not failed, it has
+// not finished starting.
+func (p Phase) Live() bool { return p == PhaseStarting || p == PhaseRunning }
+
 // Status is a point-in-time report on one workload.
 type Status struct {
 	Handle    Handle    `json:"handle"`

@@ -108,7 +108,7 @@
           </div>
           <p class="message">
             {entry.message}
-            {#if entry.runner_id && entry.kind === 'runner_lost'}
+            {#if entry.runner_id && (entry.kind === 'runner_lost' || entry.kind === 'runner_returned')}
               <a href="/runners/{entry.runner_id}">Open the runner</a>
             {/if}
           </p>

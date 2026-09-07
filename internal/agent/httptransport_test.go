@@ -315,3 +315,58 @@ func TestHTTPTransportRefusesPlaintextToARemoteController(t *testing.T) {
 		})
 	}
 }
+
+// The session is what makes a duplicated credential visible, and it is only
+// any use if the agent sends it on every authenticated call: a duplicate that
+// only ever polled for tasks would go unseen if the header rode on heartbeats
+// alone. It must also be stable for the life of the process -- an id that
+// changed under a running agent would look exactly like the duplicate it
+// exists to find -- and absent from join, which is what mints the credentials
+// the session belongs to.
+func TestTheAgentSendsOneStableSessionOnEveryAuthenticatedCall(t *testing.T) {
+	var mu sync.Mutex
+	seen := map[string]http.Header{}
+	mux := http.NewServeMux()
+	record := func(path string, body any) {
+		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			seen[path] = r.Header.Clone()
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(body)
+		})
+	}
+	record(PathJoin, JoinResponse{HostID: "host-1", AgentToken: "agent-token"})
+	record(PathHeartbeat, HeartbeatResponse{OK: true})
+	record(PathResults, struct{}{})
+	record(PathReport, struct{}{})
+
+	tr, _ := newTestTransport(t, mux)
+	ctx := context.Background()
+	if _, err := tr.Join(ctx, JoinRequest{Name: "h"}); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if _, err := tr.Heartbeat(ctx, HeartbeatRequest{Capacity: 2}); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+	if err := tr.ReportResult(ctx, TaskResult{TaskID: "t1", OK: true}); err != nil {
+		t.Fatalf("ReportResult: %v", err)
+	}
+	if err := tr.ReportRunners(ctx, []RunnerReport{{RunnerID: "run_1"}}); err != nil {
+		t.Fatalf("ReportRunners: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if got := seen[PathJoin].Get(HeaderAgentSession); got != "" {
+		t.Fatalf("join sent %s = %q; join is what mints the credentials the session belongs to", HeaderAgentSession, got)
+	}
+	first := seen[PathHeartbeat].Get(HeaderAgentSession)
+	if first == "" {
+		t.Fatalf("the heartbeat sent no %s", HeaderAgentSession)
+	}
+	for _, path := range []string{PathResults, PathReport} {
+		if got := seen[path].Get(HeaderAgentSession); got != first {
+			t.Fatalf("%s %s = %q, want the same session as the heartbeat (%q)", path, HeaderAgentSession, got, first)
+		}
+	}
+}

@@ -41,7 +41,7 @@ evidence.
 | ID | Package | Classification | Status | Depends on | Session | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
 | ZF-101 | Enforce GitHub target boundaries everywhere | new (jobs carry no installation identity; label-only matching on all four paths) | `in_progress` | ZF-002 | PR1 and PR2: Claude Opus 5, `ultracode`; one orchestration of 8 subsystem mappers and 8 adversarial verifiers for PR1, a smaller one of 3 and 3 for PR2, each followed by one session | PR1 merged as #99: a job carries the installation covering its repository, `scheduler.Eligible` asks enabled, then installation, then labels, and all four matching paths go through it. Migration `0012` (not `0010`: 0010 and 0011 shipped since the plan was written). PR2 merged as #100: poll freshness and the rate-limit hold are both per installation, freshness credited by the delivery's repository rather than by the secret that verified it. PR3 done: the runner-group fallback is a `pool.runner_group_unresolved` warning on the drawer and the pool's own page instead of a log line, and `docs/hosts-and-pools.md` says a pool belongs to one installation and that GitHub, not Zoomies, makes the final dispatch decision inside an organisation. Every behavioural test was run against the code with its rule removed and confirmed to fail first |
-| ZF-102 | Make runner and agent reconciliation convergent | mixed (mechanics exist; adoption on restart and a controller lock do not; the log-relay host check landed with the security review) | `in_progress` | ZF-002; N02 needs `main` deployed | PR1: Claude Fable 5.1, `xhigh`, one session. PR2: Claude Opus 5, `ultracode`; one orchestration of 3 subsystem mappers and 3 adversarial verifiers, then one session | PR1 and PR2 of 4 done. PR1: the "Reconciliation invariants" section in `docs/architecture.md` with `internal/controller/invariants_test.go`. PR2: a database lock and a controller lease, with `--takeover` and `controller.lease_lost`. **Half of PR2 was already done**: the log relay has checked the authenticated host since PR #90's security review, with a test (`TestLogRelayRefusesAnotherHostsStream`), so only the lock and lease were outstanding. PR3 done: an agent adopts every runner already on its host before its loops start, and the controller answers each heartbeat with the runners it has no row for so that only those are reaped. `docs/upgrading.md` no longer hedges: a restart keeps its runners on a single-VM install too. PR4 (late reports and the restart table) remains |
+| ZF-102 | Make runner and agent reconciliation convergent | mixed (mechanics exist; adoption on restart and a controller lock do not; the log-relay host check landed with the security review) | `done` | ZF-002; N02 needs `main` deployed | PR1: Claude Fable 5.1, `xhigh`, one session. PR2: Claude Opus 5, `ultracode`; one orchestration of 3 subsystem mappers and 3 adversarial verifiers, then one session | PR1 and PR2 of 4 done. PR1: the "Reconciliation invariants" section in `docs/architecture.md` with `internal/controller/invariants_test.go`. PR2: a database lock and a controller lease, with `--takeover` and `controller.lease_lost`. **Half of PR2 was already done**: the log relay has checked the authenticated host since PR #90's security review, with a test (`TestLogRelayRefusesAnotherHostsStream`), so only the lock and lease were outstanding. PR3 done: an agent adopts every runner already on its host before its loops start, and the controller answers each heartbeat with the runners it has no row for so that only those are reaped. `docs/upgrading.md` no longer hedges: a restart keeps its runners on a single-VM install too. PR4 done: late reports settle the workload without resurrecting a terminal row, `task_issued_at` survives the queue a restart drops, `host.duplicate_agent` detects a shared credential by session alternation, and the restart-boundary table covers seven boundaries. All four pull requests are done |
 | ZF-103 | Reserve host resources and enforce bounded admission | extension (slot model complete; no host resource reporting) | `not_started` | ZF-102 | | Size L; 103a before Gate F, 103b after |
 | ZF-104 | Verify control-plane access and secret boundaries | mixed (matrix and most tests exist; log relay unscoped to host; streams never re-check credentials) | `not_started` | ZF-101, ZF-102 | | Size M |
 | ZF-105 | Bound cleanup, retention and external failure handling | mixed (local cleanup exists; failure invisible; one listing-failure defect) | `in_progress` | ZF-102, except the first pull request | first slice: Claude Fable 5.1, `high`, one session, 1 review round | Size M; the listing-failure defect is fixed in its own pull request with a test that reproduces it on the old code |
@@ -75,6 +75,28 @@ evidence.
 
 Newest first. One line per event that changed a row.
 
+* 2026-09-07: ZF-102's fourth and last pull request, and the package is done.
+  Four things. A runner given up as lost whose host comes back with the
+  container still running is no longer dropped as an illegal transition: the
+  terminal row stands, because the fleet has already told an operator and the
+  job's timeline that the runner was gone, but the message is corrected, a new
+  `runner_returned` timeline entry withdraws the `runner_lost`, and the
+  workload is left alone while a job is still on it and removed once none is.
+  Before this it ran for ever -- the reaper only takes untracked workloads and
+  the retention sweep only finished ones, so nothing in the system would ever
+  have collected it. `task_issued_at` on the runner row keeps the one fact the
+  in-memory queue must not lose across a restart, stamped again on every
+  redelivery so the provision timeout is not counted from an attempt the host
+  never received. `host.duplicate_agent` sees two agents sharing one host id by
+  the one thing they cannot hide -- handing a session back and forth, which a
+  single agent cannot do because it never reuses one -- and reports without
+  refusing, per decision 14. The restart-boundary table covers seven boundaries
+  and would fail on all seven if a late result were dropped. Two departures
+  from the package text, both deliberate: the code is `host.duplicate_agent`
+  rather than `hosts.*`, to sit with `host.unhealthy` and
+  `host.cordoned_with_work`; and the session travels as a header rather than a
+  field on three messages, because the runner report's body is a bare JSON
+  array by design and one middleware sees every authenticated agent call.
 * 2026-09-07: ZF-102's third pull request, the package's one genuine defect.
   A fresh agent knew nothing, and the reconciler removes what nothing claims,
   so every job running on a host was destroyed two minutes after its agent came

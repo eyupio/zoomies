@@ -175,6 +175,26 @@ func (c *Controller) hostProblems(ctx context.Context, out *[]Problem) error {
 	now := c.Now()
 
 	for _, h := range hosts {
+		// Raised before health and cordon are considered, and without a
+		// `continue`: two agents on one host is true whatever else that host
+		// is, and it is very often the explanation for the other two.
+		if h.AgentSessionAltAt != nil && now.Sub(*h.AgentSessionAltAt) < duplicateAgentWindow {
+			since := *h.AgentSessionAltAt
+			*out = append(*out, Problem{
+				Code:     "host.duplicate_agent",
+				Severity: config.SeverityWarning,
+				Title:    fmt.Sprintf("two agents appear to be running as host %s", h.Name),
+				Detail: fmt.Sprintf("this host's credentials have been used by two agent sessions in turn %s. "+
+					"An agent takes a new session each time it starts and never goes back to an old one, so "+
+					"alternation means a second agent holds a copy of this host's token -- usually a cloned VM, "+
+					"or a state directory copied to another machine. They are splitting this host's tasks between "+
+					"them, so each sees only half of its own work.", plural(h.AgentSessionAlternations, "time")),
+				Fix: fmt.Sprintf("find the second machine reporting as %s and stop its agent, then re-join it with "+
+					"its own join token so it becomes a host of its own (zoomies agent join). Zoomies does not "+
+					"refuse either session, because both are running real jobs and picking one would end the other's.", h.Name),
+				TargetKind: "host", TargetID: h.ID, Since: &since,
+			})
+		}
 		if !h.Healthy(now) {
 			since := h.LastHeartbeat
 			severity := config.SeverityWarning
@@ -531,6 +551,12 @@ func capitalise(s string) string {
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
 }
+
+// duplicateAgentWindow is how long after the last alternation the duplicate is
+// still reported. It ages the problem out on its own: once the second agent is
+// stopped the sessions stop swapping, and an operator who has fixed it should
+// not have to clear anything by hand.
+const duplicateAgentWindow = time.Hour
 
 // unmatchedGrace is how long a queued job no pool here claims is given before
 // it is reported. GitHub's own runners take a job within seconds and another

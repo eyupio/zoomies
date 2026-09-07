@@ -34,6 +34,24 @@ What a restart interrupts is the *reporting*: webhook deliveries during the gap
 are missed, and the fallback poller catches up when the controller returns,
 which is one of the reasons to leave it on.
 
+The task queue does not survive a restart either, and that is deliberate: every
+task is derived from state the database already holds, so persisting it would
+add a second source of truth that could disagree with the runners table. An
+agent that finishes work across the gap reports a result for a task the new
+controller never issued, and it is applied anyway — the agent did the work, and
+the row is the only place that fact can land. Each runner row also records when
+its task was last handed to its host, so a restart does not lose how long the
+host has actually had it.
+
+One thing a late result cannot do is bring a runner back. If the host was quiet
+long enough to be given up on, the fleet has already told an operator, and the
+job's timeline, that the runner was gone; a success arriving afterwards does not
+make that untrue. Instead the runner keeps its terminal row and the *workload*
+is settled: while a job is still running on it the container is left alone to
+finish, and once nothing is, it is removed. The job's timeline gains a **runner
+returned** entry, so a job that completes normally after its runner was written
+off does not read as a contradiction.
+
 Agents keep working while the controller is down. They long-poll, so a
 connection that fails is retried with backoff, and a host that cannot reach the
 controller does not stop the runner it already started.
@@ -70,6 +88,20 @@ they do not have to match.
 
 The version each host is running is on the Hosts page, so a fleet halfway
 through an upgrade is visible rather than something to keep track of elsewhere.
+
+### Two agents as one host
+
+Copying a VM, or a state directory, to a second machine gives two agents one
+host identity. Both hold a valid token, both report real work, and each sees
+only half of that host's tasks — which looks like a fault almost anywhere else.
+
+Zoomies notices. An agent takes a fresh session each time it starts and never
+returns to an old one, so a session a host has already moved on from can only
+be a second agent still running, and `host.duplicate_agent` says so. Neither
+session is refused: both are executing real jobs, and picking one would end the
+other's. Stop the agent on the machine that should not be there and re-join it
+with its own join token; the problem clears itself an hour after the sessions
+stop swapping.
 
 ## Schema migrations
 
