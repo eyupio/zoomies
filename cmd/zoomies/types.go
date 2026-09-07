@@ -125,29 +125,34 @@ type timelineEntry struct {
 }
 
 type jobItem struct {
-	ID          string     `json:"id"`
-	GitHubRunID int64      `json:"github_run_id"`
-	Repo        string     `json:"repo"`
-	Workflow    string     `json:"workflow"`
-	JobName     string     `json:"job_name"`
-	Labels      []string   `json:"labels"`
-	State       string     `json:"state"`
-	Conclusion  string     `json:"conclusion"`
-	PoolName    string     `json:"pool_name"`
-	RunnerName  string     `json:"runner_name"`
-	HTMLURL     string     `json:"html_url"`
-	Matched     bool       `json:"matched"`
-	HeadBranch  string     `json:"head_branch"`
-	HeadSHA     string     `json:"head_sha"`
-	RunAttempt  int        `json:"run_attempt"`
-	Steps       []jobStep  `json:"steps"`
-	FailedStep  *jobStep   `json:"failed_step"`
-	RunnerFault string     `json:"runner_fault"`
-	QueuedAt    time.Time  `json:"queued_at"`
-	StartedAt   *time.Time `json:"started_at"`
-	CompletedAt *time.Time `json:"completed_at"`
-	QueueWaitMS int64      `json:"queue_wait_ms"`
-	DurationMS  int64      `json:"duration_ms"`
+	ID          string   `json:"id"`
+	GitHubRunID int64    `json:"github_run_id"`
+	Repo        string   `json:"repo"`
+	Workflow    string   `json:"workflow"`
+	JobName     string   `json:"job_name"`
+	Labels      []string `json:"labels"`
+	State       string   `json:"state"`
+	Conclusion  string   `json:"conclusion"`
+	// InstallationID is the GitHub App installation covering this job's
+	// repository. It is read to tell the two reasons a queued job goes
+	// unclaimed apart: no pool advertises its labels, or nothing here holds a
+	// credential for its target at all.
+	InstallationID string     `json:"installation_id"`
+	PoolName       string     `json:"pool_name"`
+	RunnerName     string     `json:"runner_name"`
+	HTMLURL        string     `json:"html_url"`
+	Matched        bool       `json:"matched"`
+	HeadBranch     string     `json:"head_branch"`
+	HeadSHA        string     `json:"head_sha"`
+	RunAttempt     int        `json:"run_attempt"`
+	Steps          []jobStep  `json:"steps"`
+	FailedStep     *jobStep   `json:"failed_step"`
+	RunnerFault    string     `json:"runner_fault"`
+	QueuedAt       time.Time  `json:"queued_at"`
+	StartedAt      *time.Time `json:"started_at"`
+	CompletedAt    *time.Time `json:"completed_at"`
+	QueueWaitMS    int64      `json:"queue_wait_ms"`
+	DurationMS     int64      `json:"duration_ms"`
 }
 
 type jobStep struct {
