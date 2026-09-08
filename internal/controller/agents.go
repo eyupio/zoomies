@@ -185,14 +185,22 @@ func (q *taskQueue) complete(taskID string) (agent.Task, bool) {
 //
 // A create, stop or remove that fails does; a log relay that could not be
 // opened says nothing about the runner at all -- the container is where it
-// was, doing what it was doing. An unknown kind is treated as lifecycle,
-// which is the only safe reading of a failure whose task nobody can name.
+// was, doing what it was doing.
+//
+// It is an allowlist, and that is the whole point of the shape. It used to
+// name the exceptions and return true for everything else, so an unknown kind
+// counted as lifecycle -- reasonable-sounding, and wrong in the one case it
+// actually met: an agent one release behind does not ignore a task kind it has
+// never heard of, it reports the task failed, and this controller then marked a
+// perfectly healthy runner failed for it. An unknown kind now leaves the runner
+// alone, which is the only conclusion available about a task neither side can
+// name.
 func lifecycleTask(kind agent.TaskKind) bool {
 	switch kind {
-	case agent.TaskStreamLogs, agent.TaskCancelLogs, agent.TaskPrewarmImage:
-		return false
+	case agent.TaskCreateRunner, agent.TaskStopRunner, agent.TaskRemoveRunner:
+		return true
 	}
-	return true
+	return false
 }
 
 // sweep re-queues tasks whose lease has expired and drops the ones that have
@@ -415,6 +423,12 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 		Version:       req.Version,
 		TokenHash:     hash,
 		LastHeartbeat: now,
+		// Recorded at join as well as at every heartbeat. The join above
+		// refuses a mismatch outright -- there is no fleet to disrupt yet, and
+		// an agent that cannot join has nothing running to strand -- so what
+		// this stores is the version of an agent that matched, which is what
+		// makes a *later* mismatch, after a controller upgrade, visible.
+		ProtocolVersion: req.ProtocolVersion,
 	}
 	if existing != nil {
 		// A host that is joining again is, to the fleet, a new machine: it has
@@ -506,6 +520,19 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 
 	now := c.Now()
 	wasHealthy := h.Healthy(now)
+
+	// The protocol, on every beat rather than only at join. An agent that
+	// joined before a protocol bump kept polling and receiving tasks it could
+	// not understand, because the check ran once and never again.
+	//
+	// The answer is exclusion, not refusal. Refusing the heartbeat would send
+	// every agent in the fleet into its re-join path at the same moment, which
+	// is the outage the upgrade was supposed to avoid; excluding the host from
+	// placement leaves its runners working and its agent draining them, and
+	// gives an operator a fleet that shrinks rather than one that falls over.
+	if err := c.noteProtocol(ctx, h, req.ProtocolVersion); err != nil {
+		c.log.Warn("could not record a host's agent protocol", "host", hostID, "error", err)
+	}
 	// The heartbeat's capacity is deliberately not written. Capacity is set
 	// at join -- from the join token when it carries one, else from the
 	// agent -- and from then on the host row is what an operator edits: the
@@ -586,12 +613,72 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 	c.setHostHealth(hostID, true)
 
 	return &agent.HeartbeatResponse{
-		OK:                true,
-		Cordoned:          h.Cordoned,
-		ControllerVersion: version.Short(),
-		ResyncRequested:   c.markHostSeen(hostID, false),
-		UnknownRunners:    c.unknownRunners(ctx, hostID, req.Runners),
+		OK: true,
+		// An incompatible host is told it is cordoned as well, so an agent
+		// that does understand the field stops asking for new work without
+		// waiting to be told twice. The two are separate fields because they
+		// are separate facts: one is an operator's decision and the other is
+		// this controller's conclusion about the binary.
+		Cordoned:           h.Cordoned || h.Incompatible,
+		Incompatible:       h.Incompatible,
+		IncompatibleReason: incompatibleReason(h),
+		ProtocolVersion:    agent.ProtocolVersion,
+		ControllerVersion:  version.Short(),
+		ResyncRequested:    c.markHostSeen(hostID, false),
+		UnknownRunners:     c.unknownRunners(ctx, hostID, req.Runners),
 	}, nil
+}
+
+// noteProtocol records what protocol the agent says it speaks and whether this
+// controller can work with it.
+//
+// A zero is an agent old enough not to send one, and it is not incompatible:
+// it is the one case this cannot judge, and guessing would exclude every host
+// in a fleet mid-upgrade from a controller that had just learnt to ask.
+//
+// It writes through its own statement rather than the general host update, so
+// that learning the protocol does not drag every other figure the heartbeat
+// carried into the row with it -- the free-disk drift the tolerance exists to
+// ignore, in particular.
+func (c *Controller) noteProtocol(ctx context.Context, h *store.Host, reported int) error {
+	if reported == 0 {
+		return nil
+	}
+	incompatible := reported != agent.ProtocolVersion
+	if h.ProtocolVersion == reported && h.Incompatible == incompatible {
+		return nil
+	}
+	was := h.Incompatible
+	h.ProtocolVersion, h.Incompatible = reported, incompatible
+	if err := c.st.SetHostProtocol(ctx, h.ID, reported, incompatible); err != nil {
+		return err
+	}
+	if incompatible != was {
+		if incompatible {
+			c.log.Warn("a host's agent speaks a protocol this controller does not",
+				"host", h.ID, "name", h.Name, "agent_protocol", reported, "controller_protocol", agent.ProtocolVersion,
+				"detail", "it is excluded from placement like a cordoned host; its existing runners keep working and are drained as normal",
+				"fix", "upgrade the agent on that host to match this controller")
+		} else {
+			c.log.Info("a host's agent is compatible with this controller again",
+				"host", h.ID, "name", h.Name, "agent_protocol", reported)
+		}
+		// Placement changes either way, and the Hosts page has to say so.
+		c.publishHost(h)
+		c.Nudge()
+	}
+	return nil
+}
+
+// incompatibleReason is the sentence the agent logs about itself, written here
+// because this side is the one that knows both numbers.
+func incompatibleReason(h *store.Host) string {
+	if !h.Incompatible {
+		return ""
+	}
+	return fmt.Sprintf("this agent speaks protocol version %d and the controller speaks %d; "+
+		"no new runner will be placed here until they match. Existing runners keep working and will be drained as normal. "+
+		"Upgrade this agent to the controller's release", h.ProtocolVersion, agent.ProtocolVersion)
 }
 
 // NoteAgentSession folds the session an agent identified itself with into its

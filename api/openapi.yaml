@@ -3178,6 +3178,20 @@ components:
           examples: [zoomies-16vcpu-32gb-ubuntu-2404-build01]
         version: { type: string }
         cordoned: { type: boolean }
+        protocol_version:
+          type: integer
+          description: >-
+            The agent protocol this host reported speaking. Absent from an agent old enough
+            not to send one, which is not the same as incompatible -- it is the one case the
+            controller cannot judge.
+        incompatible:
+          type: boolean
+          description: >-
+            Whether this host's agent speaks a protocol the controller does not. An
+            incompatible host is excluded from placement exactly as a cordoned one is, and
+            nothing else: its runners keep working and are drained as normal. Refusing its
+            heartbeat instead would restart every agent in the fleet at once.
+        incompatible_reason: { type: string, description: What to do about it, naming both protocol versions. }
         healthy: { type: boolean }
         last_heartbeat: { type: string, format: date-time }
         created_at: { type: string, format: date-time }

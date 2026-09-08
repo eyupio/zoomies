@@ -104,6 +104,17 @@ type HeartbeatResponse struct {
 	Cordoned bool `json:"cordoned"`
 	// ControllerVersion is echoed for skew detection.
 	ControllerVersion string `json:"controller_version"`
+	// Incompatible says this agent speaks a protocol the controller does not,
+	// with IncompatibleReason as the sentence to log. It is separate from
+	// Cordoned because they are separate facts -- one is an operator's
+	// decision, the other this controller's conclusion about the binary --
+	// even though the controller sets Cordoned too, so an agent that predates
+	// these fields still stops asking for work.
+	Incompatible       bool   `json:"incompatible,omitempty"`
+	IncompatibleReason string `json:"incompatible_reason,omitempty"`
+	// ProtocolVersion is what the controller speaks, so the agent can say
+	// which way the gap runs rather than only that there is one.
+	ProtocolVersion int `json:"protocol_version,omitempty"`
 	// ResyncRequested asks the agent to send a full runner report next time,
 	// which the controller sets after its own restart.
 	ResyncRequested bool `json:"resync_requested"`

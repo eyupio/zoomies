@@ -154,6 +154,11 @@ type Agent struct {
 	probedAt    time.Time
 	// cordoned mirrors the controller's flag, logged when it changes.
 	cordoned bool
+	// incompatible and incompatibleReason are the controller's conclusion
+	// about this binary, kept so a create arriving anyway can be refused with
+	// the sentence the controller wrote rather than one invented here.
+	incompatible       bool
+	incompatibleReason string
 	// warnedSkew keeps a version-skew warning to one line per run.
 	warnedSkew bool
 
@@ -594,8 +599,23 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 
 	a.mu.Lock()
 	changed := a.cordoned != resp.Cordoned
+	incompatibleChanged := a.incompatible != resp.Incompatible
 	a.cordoned = resp.Cordoned
+	a.incompatible = resp.Incompatible
+	a.incompatibleReason = resp.IncompatibleReason
 	a.mu.Unlock()
+	if incompatibleChanged {
+		if resp.Incompatible {
+			// Error rather than warn: nothing is wrong with this machine and
+			// nothing will fix itself. A person has to upgrade a binary, and
+			// until they do this host is quietly out of the fleet.
+			a.log.Error("this agent is not compatible with its controller",
+				"reason", incompatibleSentence(resp),
+				"fix", "upgrade this agent to the controller's release")
+		} else {
+			a.log.Info("this agent is compatible with its controller again; it may take new runners")
+		}
+	}
 	if changed {
 		if resp.Cordoned {
 			a.log.Info("host cordoned; the controller will stop scheduling new runners here")
@@ -777,11 +797,56 @@ func (a *Agent) taskLoop(ctx context.Context) error {
 // dispatch validates a task and starts it, or reports why it cannot run.
 // Silence is the one outcome the controller cannot act on, so every task ends
 // in a result -- including the ones that were malformed.
+// incompatibleSentence prefers the controller's own words -- it is the side
+// that knows both numbers -- and falls back to what this agent can say alone.
+func incompatibleSentence(resp *HeartbeatResponse) string {
+	if strings.TrimSpace(resp.IncompatibleReason) != "" {
+		return resp.IncompatibleReason
+	}
+	return fmt.Sprintf("this agent speaks protocol version %d and the controller speaks %d",
+		ProtocolVersion, resp.ProtocolVersion)
+}
+
+// refuseNewWork returns why this host may not take a new runner, or "" when it
+// may. Incompatibility is named first: it is the one of the two an operator
+// did not choose, and the one whose fix is a version rather than a decision.
+func (a *Agent) refuseNewWork() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	switch {
+	case a.incompatibleReason != "":
+		return a.incompatibleReason
+	case a.incompatible:
+		return "this agent speaks a protocol version the controller does not; upgrade it to the controller's release"
+	case a.cordoned:
+		return "this host is cordoned, so it takes no new runners"
+	}
+	return ""
+}
+
 func (a *Agent) dispatch(ctx context.Context, task Task) {
 	if err := validateTask(task); err != nil {
 		a.log.Warn("rejecting task", "task", task.ID, "kind", task.Kind, "error", err)
 		a.report(ctx, TaskResult{TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: false, Error: err.Error(), CompletedAt: a.now()})
 		return
+	}
+
+	// A host the controller has told to take no new work refuses to create
+	// one, and does everything else as normal.
+	//
+	// This is the belt to the controller's braces: the scheduler already
+	// excludes a cordoned or incompatible host, so a create arriving here is a
+	// controller that has not caught up -- a plan computed before the flag, or
+	// one that does not know about the flag at all. Refusing only creates is
+	// what keeps the rest true: a cordoned host still has runners to drain,
+	// stop and stream logs from, and an agent that stopped polling would
+	// strand every one of them.
+	if task.Kind == TaskCreateRunner {
+		if why := a.refuseNewWork(); why != "" {
+			a.log.Warn("refusing to create a runner", "task", task.ID, "runner", task.RunnerID, "reason", why)
+			a.report(ctx, TaskResult{TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: false, Error: why, CompletedAt: a.now()})
+			return
+		}
 	}
 
 	switch task.Kind {

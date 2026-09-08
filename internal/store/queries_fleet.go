@@ -474,22 +474,24 @@ const hostCols = `id, name, address, embedded, capacity, backends, backend_info,
 	os, distro, os_version, arch, cpus, memory_mb, version, cordoned, token_hash,
 	last_heartbeat, created_at, agent_session_id, agent_session_prev,
 	agent_session_alternations, agent_session_alt_at,
-	disk_total_mb, disk_free_mb, reserve_cpus, reserve_memory_mb, reserve_disk_mb`
+	disk_total_mb, disk_free_mb, reserve_cpus, reserve_memory_mb, reserve_disk_mb,
+	protocol_version, incompatible`
 
 func scanHost(sc interface{ Scan(...any) error }) (*Host, error) {
 	var h Host
-	var embedded, cordoned int
+	var embedded, cordoned, incompatible int
 	var heartbeat, created int64
 	var altAt sql.NullInt64
 	err := sc.Scan(&h.ID, &h.Name, &h.Address, &embedded, &h.Capacity, &h.Backends,
 		&h.BackendInfo, &h.Labels, &h.OS, &h.Distro, &h.OSVersion, &h.Arch, &h.CPUs,
 		&h.MemoryMB, &h.Version, &cordoned, &h.TokenHash, &heartbeat, &created,
 		&h.AgentSessionID, &h.AgentSessionPrev, &h.AgentSessionAlternations, &altAt,
-		&h.DiskTotalMB, &h.DiskFreeMB, &h.ReserveCPUs, &h.ReserveMemoryMB, &h.ReserveDiskMB)
+		&h.DiskTotalMB, &h.DiskFreeMB, &h.ReserveCPUs, &h.ReserveMemoryMB, &h.ReserveDiskMB,
+		&h.ProtocolVersion, &incompatible)
 	if err != nil {
 		return nil, err
 	}
-	h.Embedded, h.Cordoned = embedded == 1, cordoned == 1
+	h.Embedded, h.Cordoned, h.Incompatible = embedded == 1, cordoned == 1, incompatible == 1
 	h.LastHeartbeat, h.CreatedAt = at(heartbeat), at(created)
 	h.AgentSessionAltAt = atp(altAt)
 	return &h, nil
@@ -505,12 +507,13 @@ func (s *Store) CreateHost(ctx context.Context, h *Host) error {
 		h.LastHeartbeat = h.CreatedAt
 	}
 	_, err := s.exec(ctx, `INSERT INTO hosts (`+hostCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		h.ID, h.Name, h.Address, boolInt(h.Embedded), h.Capacity, h.Backends, h.BackendInfo,
 		h.Labels, h.OS, h.Distro, h.OSVersion, h.Arch, h.CPUs, h.MemoryMB, h.Version,
 		boolInt(h.Cordoned), h.TokenHash, ms(h.LastHeartbeat), ms(h.CreatedAt),
 		h.AgentSessionID, h.AgentSessionPrev, h.AgentSessionAlternations, msp(h.AgentSessionAltAt),
-		h.DiskTotalMB, h.DiskFreeMB, h.ReserveCPUs, h.ReserveMemoryMB, h.ReserveDiskMB)
+		h.DiskTotalMB, h.DiskFreeMB, h.ReserveCPUs, h.ReserveMemoryMB, h.ReserveDiskMB,
+		h.ProtocolVersion, boolInt(h.Incompatible))
 	return wrapWrite(err)
 }
 
@@ -611,14 +614,33 @@ func (s *Store) UpdateHost(ctx context.Context, h *Host) error {
 	// be able to talk its way out of the room its operator held back for it.
 	res, err := s.exec(ctx, `UPDATE hosts SET name=?, address=?, capacity=?, backends=?,
 		backend_info=?, labels=?, os=?, distro=?, os_version=?, arch=?, cpus=?, memory_mb=?,
-		version=?, cordoned=?, last_heartbeat=?, disk_total_mb=?, disk_free_mb=? WHERE id=?`,
+		version=?, cordoned=?, last_heartbeat=?, disk_total_mb=?, disk_free_mb=?,
+		protocol_version=?, incompatible=? WHERE id=?`,
 		h.Name, h.Address, h.Capacity, h.Backends, h.BackendInfo, h.Labels, h.OS, h.Distro,
 		h.OSVersion, h.Arch, h.CPUs, h.MemoryMB, h.Version, boolInt(h.Cordoned),
-		ms(h.LastHeartbeat), h.DiskTotalMB, h.DiskFreeMB, h.ID)
+		ms(h.LastHeartbeat), h.DiskTotalMB, h.DiskFreeMB,
+		h.ProtocolVersion, boolInt(h.Incompatible), h.ID)
 	if err != nil {
 		return wrapWrite(err)
 	}
 	return affected(res, "host", h.ID)
+}
+
+// SetHostProtocol records what agent protocol a host speaks and whether this
+// controller can work with it.
+//
+// Its own statement rather than a field of UpdateHost, for the same reason the
+// reserves have one: UpdateHost writes the whole row, and folding this into it
+// would make a protocol change carry every other figure the heartbeat brought
+// with it -- including a free-disk drift the tolerance exists to ignore. A
+// heartbeat that only learnt the protocol should write only the protocol.
+func (s *Store) SetHostProtocol(ctx context.Context, id string, version int, incompatible bool) error {
+	res, err := s.exec(ctx, `UPDATE hosts SET protocol_version=?, incompatible=? WHERE id=?`,
+		version, boolInt(incompatible), id)
+	if err != nil {
+		return wrapWrite(err)
+	}
+	return affected(res, "host", id)
 }
 
 // SetHostReserve records what an operator wants held back from placement on a
