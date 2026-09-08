@@ -91,8 +91,23 @@ test('a job GitHub is holding says it is held, and is not charged a queue wait',
 
   await page.getByText('deploy-production').first().click();
 
+  // The sentence now comes from the controller rather than from the browser,
+  // and it is the same one `zoomies jobs get` prints -- which is the point of
+  // moving it: two renderings of one answer instead of two answers.
   await expect(page.getByText(/holding this job for a deployment review/i)).toBeVisible();
+  await expect(page.getByText(/approve the deployment on GitHub/i)).toBeVisible();
   // The time a held job spends is GitHub's, not the queue's: a number here
   // would charge this fleet for a review it cannot influence.
   await expect(page.getByText('Not queued yet')).toBeVisible();
+});
+
+test('a blocked pool says blocked in the drawer, not merely waiting', async ({ page }) => {
+  await goto(page, '/jobs');
+
+  // The distinction the explanation exists for: a fleet that is merely busy
+  // clears itself, and a pool whose selector matches nothing never will. The
+  // panel used to say "waiting" to both, because counting a pool's runners
+  // cannot tell them apart.
+  await page.getByText('deploy-production').first().click();
+  await expect(page.getByRole('status', { name: /What is happening to this job/i })).toBeVisible();
 });

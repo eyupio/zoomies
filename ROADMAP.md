@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.10 · 8 September 2026 · derived from the owner's
+Version 2.11 · 8 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -978,8 +978,9 @@ unmatched by construction, so the default Jobs view hid every one of them.
 *The two new things (M and L):* **the explanation is done** — `GET
 /jobs/{id}/explanation` returns one answer computed from the last plan, the
 pool, the runner and the host, and separates `waiting` from `blocked` because
-the two need different advice; what remains of it is the drawer and the CLI
-rendering it instead of reasoning for themselves. **Outstanding:** a support bundle as one JSON document from
+the two need different advice; and the drawer and the CLI render it
+instead of reasoning for themselves, so the explanation is complete.
+**Outstanding:** a support bundle as one JSON document from
 one admin route under a new `diagnostics.read` action, assembled section by
 section so a failing section lands in an `errors` array rather than failing
 the whole, size-capped, secret-free by the shared blanking, never carrying
@@ -1682,6 +1683,12 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **8 September 2026 — Version 2.11:** the explanation is finished: the drawer
+  and the CLI render it rather than reasoning for themselves, which is the
+  defect this package named and the reason the endpoint exists. What the work
+  clarified is where the boundary falls — a pool's live counts are facts and
+  stay in the panel; only the reason moved.
 
 * **8 September 2026 — Version 2.10:** `GET /jobs/{id}/explanation` is done.
   The shape it settled on is worth recording because the rest of the package

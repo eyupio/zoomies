@@ -53,6 +53,13 @@
    * drawer with nothing said about it at all.
    */
   const held = $derived(job?.state === 'waiting');
+  /**
+   * Anything still waiting on something, whichever kind of waiting it is. One
+   * panel answers all of them now, because the controller's explanation makes
+   * the distinctions itself -- and a second opinion computed here is exactly
+   * what that endpoint replaced.
+   */
+  const pending = $derived(waiting || held);
   const steps = $derived(job?.steps ?? []);
 </script>
 
@@ -81,13 +88,7 @@
           installationId={job.installation_id}
           compact
         />
-      {:else if held}
-        <p class="held" role="status">
-          GitHub is holding this job for a deployment review, and has been for
-          <Duration from={job.queued_at} live />. Nothing in this fleet can start it until somebody
-          approves it; when they do, GitHub queues it and the wait for a runner begins then.
-        </p>
-      {:else if waiting && job.pool_id}
+      {:else if pending}
         <JobWaiting {job} />
       {/if}
 
@@ -238,16 +239,6 @@
     margin: 0;
     color: var(--z-text);
     overflow-wrap: anywhere;
-  }
-  .held {
-    margin: 0;
-    padding: var(--z-space-3);
-    border: var(--z-nudge-1) solid var(--z-border);
-    border-radius: var(--z-radius-md);
-    background: var(--z-surface-sunken);
-    font-size: var(--z-text-sm);
-    line-height: var(--z-leading-sm);
-    color: var(--z-text-muted);
   }
   .muted {
     color: var(--z-text-subtle);
