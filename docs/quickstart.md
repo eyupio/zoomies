@@ -261,6 +261,7 @@ in the queue is telling you.
 
 ## Next
 
+- [The UI](ui.md) — every page you now have, in both themes
 - [Hosts and pools](hosts-and-pools.md) — a second machine, a second pool, and how placement is decided
 - [Configuration](configuration.md) — every setting, including running behind Cloudflare
 - [Troubleshooting](troubleshooting.md) — when a first run does not work, and when a job sits in the queue
@@ -270,3 +271,4 @@ in the queue is telling you.
 - [Architecture](architecture.md) — how the pieces fit
 - [API](api-surface.md) — the REST surface the UI and CLI both use
 - [Command line](cli.md), [Problem codes](problem-codes.md), [Metrics](metrics.md) — the reference tables
+- [FAQ](faq.md) — what it costs, what it needs, and what it will not protect you from

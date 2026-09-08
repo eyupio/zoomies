@@ -1,9 +1,10 @@
 ---
+title: Give your GitHub Actions runners the Zoomies.
+social_title: Zoomies — free, open-source self-hosted GitHub Actions runners
 description: >-
-  Zoomies is a lightweight, self-hosted GitHub Actions runner fleet
-  controller:
-  ephemeral runners by default, webhook-driven autoscaling, one Go binary and
-  SQLite. No Kubernetes, no pasted tokens, AGPL-3.0 licensed.
+  Free, open-source self-hosted GitHub Actions runners: a fresh ephemeral runner
+  for every job, autoscaling across your own hosts, and the whole fleet on one
+  live page.
 hide:
   - navigation
   - toc
@@ -13,13 +14,11 @@ hide:
 
 ![Zoomies](brand/logo-white-transparent.png){ .off-glb }
 
-<p class="tagline">Off the lead, on the job.</p>
+# Give your GitHub Actions runners the Zoomies.
 
 <p class="lede">
-A lightweight, self-hosted GitHub Actions runner fleet controller. Ephemeral
-runners by default, GitHub App auth, webhook-driven autoscaling, multi-host
-agents, a live web UI, and a one-line installer. Single Go binary, SQLite, no
-Kubernetes.
+<strong>Free and open source.</strong> Install in minutes, manage every runner
+from a live web UI, and move off static runners without rebuilding your CI.
 </p>
 
 <div class="zoomies-install" markdown>
@@ -32,26 +31,33 @@ curl -fsSL https://zoomies.sh/install.sh | sh
 
 <div class="actions" markdown>
 
-[Read the quick start :material-arrow-right:](quickstart.md){ .md-button .md-button--primary }
-[:material-github: View the source](https://github.com/eyupio/zoomies){ .md-button }
+[Install Zoomies :material-arrow-right:](quickstart.md){ .md-button .md-button--primary }
+[See the web UI](ui.md){ .md-button }
+[Migrate existing runners](migration.md){ .md-button }
 
 </div>
 
 <ul class="pills">
-  <li>Open source · AGPL-3.0</li>
+  <li>Free · AGPL-3.0</li>
   <li>Self-hosted</li>
   <li>Single Go binary</li>
   <li>No Kubernetes</li>
-  <li>Docker</li>
-  <li>Docker Compose</li>
+  <li>No database server</li>
+  <li>Early beta</li>
 </ul>
 
 </div>
 
+Zoomies gives each job a fresh runner, scales across the hosts and runner
+operating systems you already use, and makes the fleet easy to see and operate —
+without Kubernetes and without a database server.
+{ .zoomies-proof }
+
 ![The Overview: four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words](screenshots/overview-dark.webp#only-dark){ .zoomies-shot }
 ![The Overview: four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words](screenshots/overview-light.webp#only-light){ .zoomies-shot }
 
-The Overview, on a fleet part-way through a morning. [Every page, in both themes](ui.md).
+The Overview, on a fleet part-way through a morning — every number live, no
+refresh button anywhere. [See all ten pages, in both themes](ui.md).
 { .zoomies-shot-caption }
 
 ## How it works
@@ -75,6 +81,16 @@ flowchart LR
 ## What you get
 
 <div class="zoomies-grid" markdown>
+
+<div markdown>
+:material-monitor-dashboard:{ .icon }
+
+### A live web UI
+Ten pages, one job each, and every one of them updates in place from the
+controller's event stream — there is no refresh button anywhere. Light and dark,
+a command palette, and a log viewer built for a hundred thousand lines.
+[See every page](ui.md).
+</div>
 
 <div markdown>
 :material-recycle-variant:{ .icon }
@@ -103,9 +119,11 @@ webhook slows your fleet down instead of silently stopping it.
 <div markdown>
 :material-server-network-outline:{ .icon }
 
-### Multi-host
-One controller, any number of agents. Agents only ever connect outbound, so a
-host behind NAT needs no inbound firewall rule.
+### Multi-host, multi-OS
+One controller, any number of agents, each connecting outbound only — a host
+behind NAT needs no inbound firewall rule. Runner images for Ubuntu, Debian,
+Fedora and Rocky Linux, and a pool names the machine it needs.
+[Which images](naming.md#the-runner-image).
 </div>
 
 <div markdown>
@@ -130,7 +148,8 @@ deviation is named at startup and in the UI's problems drawer.
 ### One pull request per repository
 The migration wizard rewrites `runs-on` across your repositories and opens a
 pull request on each one — after showing you the exact diff, and only for the
-jobs it is sure about. [How it works](migration.md).
+jobs it is sure about. It never pushes to your default branch and never merges
+anything. [How it works](migration.md).
 </div>
 
 </div>
@@ -152,6 +171,63 @@ survive one — [download it, read it, then run it](quickstart.md#1-install).
 It can deploy three ways — the binary under systemd, a `docker compose` stack
 with a fully populated `.env`, or a single container — and it will only offer
 the ones your host can actually run. See the [quick start](quickstart.md).
+
+## Moving what you have now
+
+Two different journeys, and Zoomies answers them differently on purpose.
+
+**Still on GitHub's runners, or renting somebody's?** The migration wizard reads
+the workflows across the repositories your App can see, maps each hosted label
+to one of your pools, and shows you the exact diff before it writes anything.
+Approve it and you get one pull request per repository, each on its own branch.
+It changes the `runs-on` lines and nothing else — comments, indentation,
+quoting and line endings all survive byte for byte, because a pull request that
+reformats the file hides the one line that actually changed. It never pushes to
+your default branch, never merges, and never opens more than twenty-five at a
+time.
+
+**Already running your own static runners?** Then you do not need the wizard,
+and it will deliberately leave those jobs alone — somebody already made that
+decision and guessing at it would be rude. Give a Zoomies pool the label your
+existing runners already advertise, and **not a line of any workflow changes**:
+the same `runs-on` now reaches a fleet that gives every job a fresh runner.
+Retire the old machines as the work moves across.
+
+Either way, nothing is written until you have read it, and
+`ZOOMIES_SEED_DEMO=true` gives you a whole fixture fleet to walk the wizard
+through before you connect GitHub to anything.
+
+[Migrate existing runners :material-arrow-right:](migration.md){ .md-button }
+
+## What runs where
+
+Three different questions, and conflating them is how a project ends up
+promising a platform it has never run on.
+
+| | Where it runs |
+| --- | --- |
+| **The controller and the agents** | Linux on x86-64 and arm64. macOS builds every release and is fine for running a controller while you develop against it. |
+| **The runners** | Ubuntu 24.04, Ubuntu 22.04, Debian 12, Fedora 42 and Rocky Linux 9, from `ghcr.io/eyupio/zoomies-runner`. Every image is built for x86-64 and arm64 except Ubuntu 22.04, which is x86-64 only. [The catalogue](naming.md#the-runner-image) is generated from one table in the code, so these docs cannot drift from what is published. |
+| **The backends** | `docker` — the default — `podman`, including rootless, and `process`, which runs the runner straight on the host without a container. |
+
+A pool names the machine its runners need, and the scheduler will not place it
+anywhere else; when no host matches, the Overview says which machine to add.
+Windows runners are not supported, and there is no macOS runner image.
+
+## What is qualified
+
+Zoomies is an early beta, and this project keeps a
+[support matrix](https://github.com/eyupio/zoomies/blob/main/roadmap/support-and-measurement.md)
+that separates what a test has actually run on from what merely builds. Read it
+before you put anything precious on this. Today, in short: the controller, the
+agents, a join, and a queued job becoming a real workload on a real machine are
+exercised on every pull request, on the `process` backend against a fake GitHub;
+the Docker backend is unit-tested against a fake Engine API and no test here has
+yet started a real container; and no test runs on arm64.
+
+That is not a reason to keep it off your own machines. It is the reason the
+defaults are the careful ones, and the reason every claim on this page names
+the thing that backs it.
 
 ## Why not something else
 
@@ -190,19 +266,25 @@ blast radius of each execution as small as it reasonably can:
 Every setting that trades any of that away is named at startup, listed in the
 UI, and documented in [Security](security.md) with what it actually costs you.
 
+Zoomies is an early beta, and the honest advice is to start it on workloads you
+already trust. [What is qualified](#what-is-qualified) says which parts have
+been run and which have only been built.
+
 <div class="zoomies-cta" markdown>
 
-<p class="title">Ready to run your own fleet?</p>
+<p class="title">Give your CI the Zoomies.</p>
 
 <p class="lede">
 One command installs it, and the quick start takes you from a fresh host to a
-running job in about five minutes. Still deciding? The FAQ answers what people
-ask before they self-host runners -- what it costs, what it needs, and what it
-will not protect you from.
+running job in about five minutes. It is free, it is yours, and you can read
+every line of it. Still deciding? The FAQ answers what people ask before they
+self-host runners — what it costs, what it needs, and what it will not protect
+you from.
 </p>
 
 <p class="actions" markdown>
-[Read the quick start :material-arrow-right:](quickstart.md){ .md-button .md-button--primary }
+[Install Zoomies :material-arrow-right:](quickstart.md){ .md-button .md-button--primary }
+[See the web UI](ui.md){ .md-button }
 [Browse the FAQ](faq.md){ .md-button }
 </p>
 

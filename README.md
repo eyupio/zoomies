@@ -1,24 +1,28 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: light)" srcset="docs/brand/logo-master-dark.png">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo-master-dark.png">
   <img src="docs/brand/logo-light-background.png" alt="Zoomies: a cocker spaniel curling through a circular motion path, above the wordmark" width="260">
 </picture>
 
-# Zoomies
+# Give your GitHub Actions runners the Zoomies.
 
-**Off the lead, on the job.**
+**Free and open source.** Install in minutes, manage every runner from a live
+web UI, and move off static runners without rebuilding your CI.
 
-A lightweight, self-hosted GitHub Actions runner fleet controller.<br>
-Ephemeral runners by default, GitHub App auth, webhook-driven autoscaling,
-multi-host agents, a live web UI, and a one-line installer.
+Zoomies gives each job a fresh runner, scales across the hosts and runner
+operating systems you already use, and makes the fleet easy to see and
+operate — without Kubernetes and without a database server.
 
-Single Go binary. SQLite. No Kubernetes. AGPL-3.0 licensed.
+Single Go binary. SQLite. AGPL-3.0.
 
+*Early beta, for workloads you trust. The [support matrix](https://zoomies.sh/#what-is-qualified)
+separates what a test has actually run on from what merely builds.*
+
+[![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-2F80ED?labelColor=080808)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/eyupio/zoomies?display_name=tag&color=2F80ED&labelColor=080808)](https://github.com/eyupio/zoomies/releases/latest)
 [![CI](https://github.com/eyupio/zoomies/actions/workflows/ci.yml/badge.svg)](https://github.com/eyupio/zoomies/actions/workflows/ci.yml)
 [![Website](https://github.com/eyupio/zoomies/actions/workflows/docs.yml/badge.svg)](https://zoomies.sh)
-[![Latest release](https://img.shields.io/github/v/release/eyupio/zoomies?display_name=tag&color=2F80ED&labelColor=080808)](https://github.com/eyupio/zoomies/releases/latest)
-[![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-2F80ED?labelColor=080808)](LICENSE)
 
 ```sh
 curl -fsSL https://zoomies.sh/install.sh | sh
@@ -26,6 +30,7 @@ curl -fsSL https://zoomies.sh/install.sh | sh
 
 **[zoomies.sh](https://zoomies.sh)** ·
 [Quick start](https://zoomies.sh/quickstart/) ·
+[See the web UI](https://zoomies.sh/ui/) ·
 [Architecture](https://zoomies.sh/architecture/) ·
 [Configuration](https://zoomies.sh/configuration/) ·
 [Migrating](https://zoomies.sh/migration/) ·
@@ -62,16 +67,21 @@ flowchart LR
     q --> w --> d --> s --> a --> e
 ```
 
+* **A live web UI.** Ten pages, one job each, all updating in place from the
+  controller's event stream — there is no refresh button anywhere. Light and
+  dark, a command palette, and a log viewer built for a hundred thousand lines.
+  [See every page](https://zoomies.sh/ui/).
 * **Ephemeral by default.** One job per runner. Nothing leaks from one workflow
   run to the next.
 * **No pasted tokens.** Zoomies authenticates as a GitHub App and mints
-  single-use JIT registrations itself. github.com and Enterprise Server.
+  single-use JIT registrations itself.
 * **Event-driven.** `workflow_job` webhooks, with polling only as a fallback so
   a misconfigured webhook does not silently stop your fleet.
 * **Multi-host, multi-OS.** One controller, any number of agents. Agents connect
   outbound only, so a host behind NAT needs no inbound rule. Runner images for
-  Ubuntu 24.04 and 22.04, Debian 12, Fedora and Rocky Linux, on amd64 and arm64,
-  and a pool is only ever placed on a host that matches the one it asked for.
+  Ubuntu 24.04, Ubuntu 22.04, Debian 12, Fedora 42 and Rocky Linux 9 — amd64
+  and arm64, except Ubuntu 22.04, which is amd64 only — and a pool is only ever
+  placed on a host that matches the one it asked for.
 * **Actually observable.** SQLite for state, Prometheus metrics, structured
   logs, live log streaming, job history with queue waits, and an audit row for
   every mutating action.
@@ -242,7 +252,15 @@ body.
 
 It needs three App permissions the rest of Zoomies deliberately does not ask for
 (Contents, Pull requests, Workflows), and it tells you which are missing before
-it tries anything. See [docs/migration.md](docs/migration.md).
+it tries anything.
+
+**Already running your own static runners?** Then the wizard is not the tool —
+it deliberately leaves those jobs where they are, because somebody made that
+decision on purpose. Give a Zoomies pool the label your existing runners already
+advertise and not a line of any workflow changes: the same `runs-on` reaches the
+new fleet, and you retire the old machines as the work moves across.
+
+See [docs/migration.md](docs/migration.md).
 
 ## The UI
 
@@ -347,8 +365,9 @@ The same list appears in the UI's problems panel. See
   running the controller in development.
 * Docker or Podman for the container backends — **rootless preferred**, and the
   installer looks for a rootless socket first.
-* A GitHub App on github.com or GitHub Enterprise Server. The installer creates
-  it for you.
+* A GitHub App on github.com. The installer creates it for you. Enterprise
+  Server is what `github.api_base_url` exists for and the configuration is
+  validated for it, but no test has run against one yet.
 * No database server, no Kubernetes, no message queue.
 
 ## Building from source

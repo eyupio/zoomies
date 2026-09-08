@@ -1,3 +1,9 @@
+---
+description: >-
+  How Zoomies names pools, runners and hosts, which runner images it publishes
+  for Ubuntu, Debian, Fedora and Rocky Linux, and what a pool's platform means.
+---
+
 # Naming and platforms
 
 Zoomies has a grammar for every name an operator reads and writes, and the name
