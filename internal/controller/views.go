@@ -83,12 +83,20 @@ type HostView struct {
 	// CanonicalName is the name this machine would be given today. It is shown
 	// beside a host called something that says nothing, so an operator can see
 	// what renaming it would buy them.
-	CanonicalName string    `json:"canonical_name,omitempty"`
-	Version       string    `json:"version,omitempty"`
-	Cordoned      bool      `json:"cordoned"`
-	Healthy       bool      `json:"healthy"`
-	LastHeartbeat time.Time `json:"last_heartbeat"`
-	CreatedAt     time.Time `json:"created_at"`
+	CanonicalName string `json:"canonical_name,omitempty"`
+	Version       string `json:"version,omitempty"`
+	Cordoned      bool   `json:"cordoned"`
+	// ProtocolVersion is the agent protocol this host reported, and
+	// Incompatible whether this controller can work with it. An incompatible
+	// host is excluded from placement exactly as a cordoned one is, so the
+	// Hosts page has to say which of the two it is: nothing is broken, the
+	// host is up and heartbeating, and it has quietly stopped taking work.
+	ProtocolVersion    int       `json:"protocol_version,omitempty"`
+	Incompatible       bool      `json:"incompatible"`
+	IncompatibleReason string    `json:"incompatible_reason,omitempty"`
+	Healthy            bool      `json:"healthy"`
+	LastHeartbeat      time.Time `json:"last_heartbeat"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 
 // HostView renders a host as the API returns it.
@@ -101,31 +109,34 @@ type HostView struct {
 // backends it never reported on.
 func (c *Controller) HostView(h *store.Host) HostView {
 	out := HostView{
-		ID:            h.ID,
-		Name:          h.Name,
-		Address:       h.Address,
-		Embedded:      h.Embedded,
-		Capacity:      h.Capacity,
-		ActiveRunners: h.ActiveRunners,
-		Free:          h.Free(),
-		Backends:      emptySlice(h.Backends),
-		Labels:        emptyMap(h.Labels),
-		OS:            h.OS,
-		Distro:        h.Distro,
-		OSVersion:     h.OSVersion,
-		Arch:          h.Arch,
-		CPUs:          h.CPUs,
-		MemoryMB:      h.MemoryMB,
-		DiskTotalMB:   h.DiskTotalMB,
-		DiskFreeMB:    h.DiskFreeMB,
-		Platform:      h.Platform(),
-		PlatformLabel: h.Platform().Describe(),
-		CanonicalName: h.CanonicalName(),
-		Version:       h.Version,
-		Cordoned:      h.Cordoned,
-		Healthy:       h.Healthy(c.Now()),
-		LastHeartbeat: h.LastHeartbeat,
-		CreatedAt:     h.CreatedAt,
+		ID:                 h.ID,
+		Name:               h.Name,
+		Address:            h.Address,
+		Embedded:           h.Embedded,
+		Capacity:           h.Capacity,
+		ActiveRunners:      h.ActiveRunners,
+		Free:               h.Free(),
+		Backends:           emptySlice(h.Backends),
+		Labels:             emptyMap(h.Labels),
+		OS:                 h.OS,
+		Distro:             h.Distro,
+		OSVersion:          h.OSVersion,
+		Arch:               h.Arch,
+		CPUs:               h.CPUs,
+		MemoryMB:           h.MemoryMB,
+		DiskTotalMB:        h.DiskTotalMB,
+		DiskFreeMB:         h.DiskFreeMB,
+		Platform:           h.Platform(),
+		PlatformLabel:      h.Platform().Describe(),
+		CanonicalName:      h.CanonicalName(),
+		Version:            h.Version,
+		Cordoned:           h.Cordoned,
+		ProtocolVersion:    h.ProtocolVersion,
+		Incompatible:       h.Incompatible,
+		IncompatibleReason: incompatibleReason(h),
+		Healthy:            h.Healthy(c.Now()),
+		LastHeartbeat:      h.LastHeartbeat,
+		CreatedAt:          h.CreatedAt,
 	}
 	if len(h.BackendInfo) > 0 {
 		out.BackendInfo = make([]BackendInfoView, 0, len(h.BackendInfo))

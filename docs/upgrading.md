@@ -70,24 +70,49 @@ Two consequences follow:
 The controller and its agents are separate binaries on separate machines, and
 they do not have to match.
 
-* **An older agent against a newer controller** is the normal state during a
-  rolling upgrade, and it works for the task kinds the agent knows. An agent
-  that is handed a task kind it does not understand reports that task as
-  failed, with a message saying to upgrade it, and the controller marks the
-  runner the task concerned as failed. Today every task kind is one every
-  agent knows, so this has not bitten anyone; a release that adds a runner
-  task kind will say so in its notes, and the controller will stop counting
-  an unknown kind as a lifecycle failure before that happens. The protocol
-  version is checked when an agent joins, and a mismatch is refused with a
-  message naming the version to upgrade to.
-* **A newer agent against an older controller** works because the controller's
-  API is additive, and is worth avoiding only because it is not the direction
-  anyone tests.
-* **Upgrade the controller first.** It is the piece that owns the schema and the
-  API, and an agent has nothing to migrate.
+The policy, in three rules:
 
-The version each host is running is on the Hosts page, so a fleet halfway
-through an upgrade is visible rather than something to keep track of elsewhere.
+* **The protocol version must match.** It is checked when an agent joins — a
+  mismatch is refused there, because an agent that cannot join has nothing
+  running to strand — and on **every heartbeat** after that, because an agent
+  that joined before a bump would otherwise keep polling and receiving tasks it
+  could not understand.
+* **An agent may lag the controller by releases**, as long as the protocol
+  matches. This is the normal state during a rolling upgrade. The Hosts page
+  shows what each host is running.
+* **A newer agent against an older controller is unsupported.** It usually
+  works, because the controller's API is additive, but it is not a direction
+  anyone tests. Upgrade the controller first: it owns the schema and the API,
+  and an agent has nothing to migrate.
+
+### What happens when the protocol stops matching
+
+The host is **excluded from placement, exactly as a cordon excludes it** — and
+nothing else. Its runners keep working, its agent keeps draining and stopping
+them, and the fleet shrinks host by host as it goes.
+
+It is deliberately not a refusal. Answering a heartbeat with an error would
+send every agent in the fleet into its re-join path at the same moment, which
+is the outage the upgrade was meant to avoid.
+
+The host says `incompatible` on the Hosts page with both protocol versions, a
+pool that can no longer place says "running an agent this controller cannot
+talk to" with the fix, and the agent logs an error about itself on every
+change. Upgrading that agent clears it on the next heartbeat, with no re-join.
+
+An agent old enough not to report a protocol version at all is **not** judged.
+It is the one case the controller cannot decide, and guessing would empty a
+fleet the moment its controller learnt to ask.
+
+### A task kind an agent does not know
+
+An agent handed a task kind it does not understand reports that task as failed,
+with a message saying to upgrade it. The controller treats an unrecognised kind
+as **not** lifecycle work, so the runner the task concerned is left alone — a
+runner that is running a job is not made to fail by a message neither side can
+name. Only `create_runner`, `stop_runner` and `remove_runner` are lifecycle,
+and that list is an allowlist so a kind added in a later release is safe on an
+older controller by default.
 
 ### Two agents as one host
 

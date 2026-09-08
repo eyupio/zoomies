@@ -666,9 +666,20 @@ type Host struct {
 	ReserveDiskMB   int64  `json:"reserve_disk_mb,omitempty"`
 	Version         string `json:"version"`
 	// Cordoned hosts keep their existing runners but accept no new ones.
-	Cordoned      bool      `json:"cordoned"`
-	LastHeartbeat time.Time `json:"last_heartbeat"`
-	CreatedAt     time.Time `json:"created_at"`
+	Cordoned bool `json:"cordoned"`
+	// ProtocolVersion is the agent protocol this host last reported speaking,
+	// or 0 from an agent old enough not to say. Incompatible is what this
+	// controller concluded from it.
+	//
+	// Incompatible excludes the host from placement exactly as a cordon does,
+	// and does nothing else: its runners keep working, its agent keeps
+	// draining and stopping them, and nothing is refused. A protocol mismatch
+	// answered by refusing the heartbeat would restart every agent in the
+	// fleet at once, which is the outage the upgrade was meant to avoid.
+	ProtocolVersion int       `json:"protocol_version,omitempty"`
+	Incompatible    bool      `json:"incompatible"`
+	LastHeartbeat   time.Time `json:"last_heartbeat"`
+	CreatedAt       time.Time `json:"created_at"`
 	// TokenHash authenticates the agent on every request.
 	TokenHash string `json:"-"`
 	// AgentSessionID is the session the agent last identified itself with, and

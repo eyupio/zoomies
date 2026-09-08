@@ -2468,6 +2468,12 @@ export interface components {
             canonical_name?: string;
             version?: string;
             cordoned?: boolean;
+            /** @description The agent protocol this host reported speaking. Absent from an agent old enough not to send one, which is not the same as incompatible -- it is the one case the controller cannot judge. */
+            protocol_version?: number;
+            /** @description Whether this host's agent speaks a protocol the controller does not. An incompatible host is excluded from placement exactly as a cordoned one is, and nothing else: its runners keep working and are drained as normal. Refusing its heartbeat instead would restart every agent in the fleet at once. */
+            incompatible?: boolean;
+            /** @description What to do about it */
+            incompatible_reason?: string;
             healthy?: boolean;
             /** Format: date-time */
             last_heartbeat?: string;

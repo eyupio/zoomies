@@ -179,7 +179,7 @@ for the whole report, so a client can drop the column rather than print zeroes.
 
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
-| GET | `/api/v1/hosts` | viewer | Includes health, capacity, active runners, backend capabilities. |
+| GET | `/api/v1/hosts` | viewer | Includes health, capacity, active runners, backend capabilities. Also `protocol_version` and `incompatible`: a host whose agent speaks a protocol this controller does not is excluded from placement exactly as a cordoned one is, and nothing else — its runners keep working and are drained as normal. |
 | GET | `/api/v1/hosts/{id}` | viewer | |
 | PATCH | `/api/v1/hosts/{id}` | operator | Capacity and labels. |
 | POST | `/api/v1/hosts/{id}/cordon` | operator | `{cordoned: bool}`. Keeps existing runners, accepts no new ones. |

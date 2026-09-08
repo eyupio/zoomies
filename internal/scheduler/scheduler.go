@@ -832,9 +832,14 @@ func HostIsPlatform(h *store.Host, p *store.Pool) bool {
 }
 
 // HostAvailable reports whether a host may take new runners at all: its agent
-// is heartbeating and an operator has not cordoned it.
+// is heartbeating, an operator has not cordoned it, and its agent speaks a
+// protocol this controller understands.
+//
+// An incompatible agent is excluded here rather than refused at the door, so
+// its existing runners keep working and are drained as normal. A fleet
+// mid-upgrade shrinks host by host instead of falling over all at once.
 func HostAvailable(h *store.Host, now time.Time) bool {
-	return h.Healthy(now) && !h.Cordoned
+	return h.Healthy(now) && !h.Cordoned && !h.Incompatible
 }
 
 // HostOffers reports whether a host's agent offers the pool's backend.
@@ -884,7 +889,7 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 			fix:  "run 'zoomies agent' on a machine that can host runners, using a join token from the Hosts page",
 		}
 	}
-	var unhealthy, cordoned, backend, platform, selector, tooSmall, full int
+	var unhealthy, cordoned, incompatible, backend, platform, selector, tooSmall, full int
 	var shortCPU, shortMemory, lowDisk int
 	var detail string
 	for _, h := range hs.hosts {
@@ -893,6 +898,8 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 			unhealthy++
 		case h.Cordoned:
 			cordoned++
+		case h.Incompatible:
+			incompatible++
 		case !slices.Contains(h.Backends, string(p.Backend)):
 			backend++
 			// The agent's own probe usually names the fix -- a socket that is
@@ -947,6 +954,7 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 	}
 	add(unhealthy, "unhealthy")
 	add(cordoned, "cordoned")
+	add(incompatible, "running an agent this controller cannot talk to")
 	add(backend, "without the "+string(p.Backend)+" backend")
 	add(platform, "not "+p.Platform.Describe())
 	add(selector, "not matching the pool's host selector")
@@ -977,6 +985,11 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 		b.fix = "lower this pool's CPU or memory limits, or add a host large enough to run one"
 	case shortMemory+shortCPU > 0 && shortMemory+shortCPU+unhealthy+cordoned == len(hs.hosts):
 		b.fix = "wait for a runner to finish, lower this pool's limits, or add a host"
+	case incompatible > 0 && incompatible+unhealthy+cordoned == len(hs.hosts):
+		// The one blockage whose fix is a version rather than a resource, and
+		// the one an operator is least likely to guess: nothing is broken, the
+		// hosts are up, and the fleet has simply stopped placing on them.
+		b.fix = "upgrade the agent on those hosts to this controller's release; their existing runners keep working and are drained as normal"
 	case unhealthy == len(hs.hosts):
 		b.fix = "check that the zoomies agent is running on those hosts and can reach this controller"
 	case platform > 0 && platform+unhealthy+cordoned == len(hs.hosts):
@@ -1013,7 +1026,7 @@ var backendOrder = []store.BackendKind{store.BackendDocker, store.BackendPodman,
 func (hs *hostSet) otherBackends(p *store.Pool) []string {
 	offered := map[string]int{}
 	for _, h := range hs.hosts {
-		if hs.free[h.ID] <= 0 || !h.Healthy(hs.now) || h.Cordoned || !HostSelects(h, p) {
+		if hs.free[h.ID] <= 0 || !h.Healthy(hs.now) || h.Cordoned || h.Incompatible || !HostSelects(h, p) {
 			continue
 		}
 		for _, kind := range h.Backends {
@@ -1055,7 +1068,7 @@ func (hs *hostSet) switchTo(p *store.Pool, alternatives []string) string {
 func (hs *hostSet) offering(p *store.Pool, kind string) int {
 	n := 0
 	for _, h := range hs.hosts {
-		if hs.free[h.ID] > 0 && h.Healthy(hs.now) && !h.Cordoned &&
+		if hs.free[h.ID] > 0 && h.Healthy(hs.now) && !h.Cordoned && !h.Incompatible &&
 			slices.Contains(h.Backends, kind) && HostSelects(h, p) {
 			n++
 		}

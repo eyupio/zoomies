@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.16 · 8 September 2026 · derived from the owner's
+Version 2.17 · 8 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -1134,20 +1134,30 @@ re-uploaded two days after tagging; and there is no upgrade test of any kind.
 
 **Do, in six small pull requests, most of them S:**
 
-1. Compatibility enforced and stated: the same protocol check at heartbeat,
-   answered by flagging the host incompatible and excluding it from placement
-   like a cordon (never a refusal that restarts every agent at once); the
-   controller's lifecycle-task predicate becomes an explicit allowlist so an
-   unknown kind leaves the runner alone; the policy written in
-   `docs/upgrading.md`: protocol must match, an agent may lag by one minor
-   release and is shown as behind, a newer agent is unsupported and warned.
+1. Compatibility enforced and stated: **done** — the same protocol check at
+   heartbeat, answered by flagging the host incompatible and excluding it from
+   placement like a cordon (never a refusal that restarts every agent at
+   once); the controller's lifecycle-task predicate is an explicit allowlist,
+   so an unknown kind leaves the runner alone; the policy is written in
+   `docs/upgrading.md`. **The verifier's finding about the agent's cordon flag
+   is fixed with it**: it was log-only, and an agent now refuses a *create*
+   while cordoned or incompatible and does everything else as normal —
+   refusing every kind would strand the runners a cordoned host still has to
+   drain. **A correction to this plan**: "an agent may lag by one minor
+   release" is not what the code can enforce, because nothing compares release
+   numbers; what it enforces is that the protocol matches, and lag beyond that
+   is a fact the Hosts page shows rather than a rule. The badge for it is
+   pull request 2.
 2. Skew visible: a derived `host.version_behind` problem and a badge on the
    host card, with its row on the problem-codes page.
-3. Schema safety: the store refuses to open a database whose ledger names a
-   migration the binary does not embed, with an emergency override that is
-   warned about; a test that a failing migration aborts startup, leaves the
-   ledger clean and applies on the re-run; a fixture database at the
-   `v0.1-alpha` schema migrated to head in a test.
+3. Schema safety: **the first half landed early, in ZF-203** — the store
+   already refuses to open a database whose ledger names a migration the
+   binary does not embed, because a safe restore needed it first; **no
+   emergency override was added, and none should be**, since the refusal
+   names the release to run and an override is a way to corrupt a database
+   under pressure. Still owed: a test that a failing migration aborts startup,
+   leaves the ledger clean and applies on the re-run; and a fixture database
+   at the `v0.1-alpha` schema migrated to head in a test.
 4. Backup before migrate: when the store is file-backed and migrations are
    pending, `VACUUM INTO` a sibling copy first, keeping the last two, using
    ZF-203's primitive and file naming rather than a second one.
@@ -1169,9 +1179,11 @@ re-uploaded two days after tagging; and there is no upgrade test of any kind.
 Six details from the verifier for the pull requests above: the runner and
 runner-docker images are built with no version, commit or date build
 arguments at all, so build identity is worse for them than for the
-controller image; the agent's cordon flag from the heartbeat is log-only
-and does not gate its poll loop, which the incompatible-host design reuses
-and must first make real; the release workflow has no dispatch trigger, so
+controller image; the agent's cordon flag from the heartbeat was log-only
+and did not gate anything, which the incompatible-host design reuses and had
+to make real first -- **fixed in pull request 1**, by refusing creates alone
+rather than gating the poll loop, since a cordoned host still has runners to
+drain and an agent that stopped polling would strand every one of them; the release workflow has no dispatch trigger, so
 the runner-selection input needs a dispatch path that takes a tag; the agent
 compares the short version with commit while the host row stores the bare
 version, so a skew badge and the agent's own warning disagree for two
@@ -1715,6 +1727,20 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **8 September 2026 — Version 2.17:** ZF-204's first pull request is done, and
+  it corrected two things in this plan. "An agent may lag by one minor release"
+  is not a rule any code here can enforce, because nothing compares release
+  numbers — what is enforced is that the protocol matches, and lag beyond that
+  is a fact to show rather than a rule to apply. And the verifier's cordon
+  finding has a sharper answer than "gate the poll loop": an agent refuses a
+  *create* while cordoned or incompatible and serves every other task kind,
+  because a cordoned host still has runners to drain and an agent that stopped
+  polling would strand them. Pull request 3's first item is also already done:
+  the ledger refusal landed in ZF-203, which needed it for a safe restore, and
+  the emergency override that item asks for should not be built — the refusal
+  names the release to run, and an override is a way to corrupt a database
+  under pressure.
 
 * **8 September 2026 — Version 2.16:** the fence is done, and ZF-203's code is
   complete; only the owner-run GitHub half of its acceptance remains. Two
