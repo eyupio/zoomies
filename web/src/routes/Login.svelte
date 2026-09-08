@@ -21,7 +21,7 @@
   import { authFailureText, sentence } from '$lib/errors';
   import { router } from '$lib/router';
   import { session } from '$lib/state/session.svelte';
-  import { DEVELOPER_NAME, DEVELOPER_URL, SITE_HOST, SITE_URL } from '$lib/links';
+  import { DEVELOPER_NAME, DEVELOPER_URL, REPO_URL, SITE_HOST, SITE_URL } from '$lib/links';
   import Logo from '$lib/components/Logo.svelte';
   import Button from '$lib/components/Button.svelte';
   import Field from '$lib/components/Field.svelte';
@@ -257,9 +257,18 @@
   {/if}
 </div>
 
+<!--
+  The one place a person who did not install this can find out what it is.
+  A controller is usually somebody's private infrastructure, so whoever reaches
+  this screen is often not its operator -- and until now the page named the
+  product and nothing else. Free and open source is the fact worth carrying
+  here, because it is what makes "you could run your own" a real sentence.
+-->
 <p class="colophon">
   {#if meta?.version}<span class="version">Zoomies {meta.version}</span>{/if}
+  <span class="what">Free, open-source self-hosted GitHub Actions runners</span>
   <a href={SITE_URL} target="_blank" rel="noopener noreferrer">{SITE_HOST}</a>
+  <a href={REPO_URL} target="_blank" rel="noopener noreferrer">Source</a>
   <span class="credit">
     Developed by
     <a href={DEVELOPER_URL} target="_blank" rel="noopener noreferrer">{DEVELOPER_NAME}</a>

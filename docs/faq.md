@@ -119,12 +119,19 @@ images](configuration.md#jobs-that-build-container-images).
 
 Linux on x86-64 and arm64 is what the controller, the agents and the runner
 images are built for. macOS works for running a controller in development.
-Windows runners are not supported.
+Windows runners are not supported. The
+[runner image catalogue](naming.md#the-runner-image) is the list of
+distributions, and it is generated from the code that publishes them.
 
 ## Does it work with GitHub Enterprise Server?
 
-Yes. Point `github.api_base_url` at your Enterprise Server instance; the App
-authentication, the JIT configurations and the webhooks are the same.
+It is designed for it, and has not yet been verified against one. Point
+`github.api_base_url` at your Enterprise Server instance and the App
+authentication, the JIT configurations and the webhooks are all the same code
+paths; the setting is validated, and nothing about the design assumes
+github.com. What is missing is evidence: no test, fake or real run in this
+project has ever spoken to an Enterprise Server. If you try it, please say how
+it went.
 
 ## Do I need a GitHub organisation?
 
@@ -270,7 +277,7 @@ modified or not, asks nothing of you. The full text is in
       "name": "Does Zoomies work with GitHub Enterprise Server?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Yes. Point github.api_base_url at your Enterprise Server instance; the App authentication, the JIT configurations and the webhooks are the same."
+        "text": "It is designed for it, and has not yet been verified against one. Point github.api_base_url at your Enterprise Server instance and the App authentication, the JIT configurations and the webhooks are the same code paths, and the setting is validated. What is missing is evidence: no test, fake or real run in this project has ever spoken to an Enterprise Server."
       }
     },
     {

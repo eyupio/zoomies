@@ -77,6 +77,31 @@ Each skip is listed in the review step and again in the pull request body, so
 whoever reviews the change can see which jobs are still running on GitHub after
 they merge it.
 
+## Coming from your own static runners
+
+The second row of that table is the interesting one. If your workflows already
+say `runs-on: [self-hosted, linux, x64]`, or name a label your own machines
+advertise, the wizard skips them on purpose — and you do not need it, because
+there is a shorter route that changes no workflow at all.
+
+Give a Zoomies pool the label your existing runners already advertise. Labels
+every `actions/runner` binary carries anyway — `self-hosted`, `linux`,
+`windows`, `macos`, `x64`, `arm64`, `arm` — never decide which pool a job goes
+to, so a job asking only for those reaches any pool whose platform does not
+contradict it. Anything else is matched exactly: a pool carrying `acme-bigbox`
+is what `runs-on: acme-bigbox` finds.
+
+So the move looks like this, and no pull request is involved:
+
+1. Create a pool whose labels include the one your static runners advertise.
+2. Watch a job land on it — the Jobs page names the pool that claimed each one.
+3. Take the old runners offline as the work moves across. GitHub sends each job
+   to whichever matching runner is idle, so the two can overlap for as long as
+   you like.
+
+The wizard is for the repositories still on GitHub's own runners, or renting
+somebody else's. This is for the ones already on machines you own.
+
 ## The labels it writes
 
 A pool's branded label, on its own:

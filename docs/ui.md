@@ -28,7 +28,11 @@ Under them, each pool's busy runners against its live ones with the floor and
 ceiling marked, what is running this moment, how the last jobs ended, and the
 scheduler's decisions in its own words: *scaled zoomies-demo-linux-x64 4 → 5:
 1 job queued*. When something needs a person it is one line and a
-*Review* button, never a list that pushes the fleet below the fold.
+*Review* button, never a list that pushes the fleet below the fold. The
+*Other runners* switch says whether these numbers count only the jobs this
+fleet ran or every job GitHub reported on an installed repository — the
+default is this fleet's own work, because that is the question an operator is
+usually asking.
 
 ![The Overview: four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words](screenshots/overview-dark.webp#only-dark){ .zoomies-shot }
 ![The Overview: four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words](screenshots/overview-light.webp#only-light){ .zoomies-shot }
@@ -92,8 +96,9 @@ host's agent last reported it, and the live log.
 Everything this fleet claims, runs or is waiting to run, with each job's queue
 wait and duration. The filters — repository, workflow, pool, label, outcome,
 state, dates — live in the URL, so a view can be pasted into a chat. A queued
-job that no enabled pool claims is called out at the top of the page, because
-it is almost always a typo in `runs-on`.
+job that no enabled pool claims is one filter away — *Unmatched only* — and the
+problems drawer links straight to it: on an organisation that also rents
+runners elsewhere, most such jobs are somebody else's rather than a fault.
 
 ![The Jobs page: the fleet's queued, running and finished jobs with their labels, pool, runner, queue wait and duration](screenshots/jobs-dark.webp#only-dark){ .zoomies-shot }
 ![The Jobs page: the fleet's queued, running and finished jobs with their labels, pool, runner, queue wait and duration](screenshots/jobs-light.webp#only-light){ .zoomies-shot }
@@ -118,9 +123,9 @@ table exports as CSV.
 
 ## Hosts
 
-Where runners can go. Each machine's heartbeat, its slots in use, the backends
-its agent found — and the exact command to run when one is missing — and the
-labels pools select it by. A cordoned host keeps its runners and takes no new
+Where runners can go. Each machine's heartbeat, its slots in use, the disk its
+runners have left to write into, the backends its agent found — and the exact
+command to run when one is missing — and the labels pools select it by. A cordoned host keeps its runners and takes no new
 ones. *Add a host* mints a join token and prints the one line to paste on the
 new machine.
 
@@ -180,3 +185,7 @@ updates in place.
 
 The design system behind all of this — tokens, status colours, components and
 the accessibility checklist — is in [UI guidelines](ui-guidelines.md).
+
+Nothing here needs a GitHub App to look at: the [quick start](quickstart.md)
+takes about five minutes, and `ZOOMIES_SEED_DEMO=true` fills a fresh controller
+with the same fleet these screenshots were taken from.
