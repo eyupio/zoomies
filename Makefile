@@ -94,6 +94,18 @@ test-e2e: ## Docker-based end-to-end test; needs GitHub credentials, skipped wit
 test-drill: build-nogui ## Runtime drills: the built binary as a real controller and agent, against a fake GitHub
 	$(GO) test -count=1 -v -tags drill -timeout 10m ./test/drill/...
 
+# Both binaries land under dist/, which is already ignored: a fixed directory
+# rather than a mktemp -d so a failed run leaves the two binaries that produced
+# it where they can be run again by hand.
+UPGRADE_DIR := $(DIST)/upgrade
+
+.PHONY: test-upgrade
+test-upgrade: build-nogui ## Install the last published release, then upgrade it in place to this build
+	@mkdir -p $(UPGRADE_DIR)/old
+	$(GO) build -o $(UPGRADE_DIR)/new/zoomies ./cmd/zoomies
+	sh install.sh --no-init --yes --prefix $(UPGRADE_DIR)/old
+	sh test/upgrade/upgrade-check.sh $(UPGRADE_DIR)/old/zoomies $(UPGRADE_DIR)/new/zoomies
+
 E2E_RESULTS ?= roadmap/validation/e2e
 
 .PHONY: test-e2e-required

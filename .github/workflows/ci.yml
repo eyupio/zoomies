@@ -79,6 +79,24 @@ jobs:
             cat roadmap/validation/drills.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
+  upgrade:
+    name: Upgrade
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # This is the one job that runs two builds of Zoomies: the last published
+      # release, installed the way an operator installs it, and the build under
+      # test on top of it. It is also the only check that install.sh can still
+      # find a release at all -- everything else about the installer is a syntax
+      # check.
+      - name: Upgrade the last published release to this build
+        run: make test-upgrade
+
   staticcheck:
     name: staticcheck
     runs-on: blacksmith-2vcpu-ubuntu-2404
@@ -202,6 +220,8 @@ jobs:
           dash -n install.sh
           shellcheck -s sh install.sh
           shellcheck deploy/runner-entrypoint.sh
+          dash -n test/upgrade/upgrade-check.sh
+          shellcheck -s sh test/upgrade/upgrade-check.sh
           # The runner image's own scripts run under whatever /bin/sh the base
           # image has, which on Debian is not bash. Globbed rather than listed,
           # so a new one is covered by existing.
