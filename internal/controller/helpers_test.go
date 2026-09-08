@@ -505,3 +505,21 @@ func mustReportRunning(t *testing.T, h *harness, hostID, runnerID string) {
 		t.Fatalf("ReportRunners(running): %v", err)
 	}
 }
+
+// problem returns the one problem with a code, failing the test when the list
+// does not carry it. Tests that assert on an entry's words need the entry, not
+// only that its code is present.
+func (h *harness) problem(t *testing.T, code string) Problem {
+	t.Helper()
+	ps, err := h.c.Problems(h.ctx)
+	if err != nil {
+		t.Fatalf("Problems: %v", err)
+	}
+	for _, p := range ps {
+		if p.Code == code {
+			return p
+		}
+	}
+	t.Fatalf("no %s problem in %v", code, h.problemCodes())
+	return Problem{}
+}

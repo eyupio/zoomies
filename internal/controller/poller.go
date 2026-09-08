@@ -183,6 +183,13 @@ func (c *Controller) pollOnce(ctx context.Context) {
 	if changed > 0 {
 		c.Nudge()
 	}
+
+	// Stamped here, at the end, rather than in the loop that calls this: what
+	// an operator wants to know is when the poller last got all the way round,
+	// and a sweep that returned early because it could not read its own
+	// database did not. The early returns above deliberately leave the stamp
+	// where it was, so the interval keeps growing and poller.stale fires.
+	c.lastPollAt.Store(c.Now().UnixNano())
 }
 
 // ingestQueuedJobs folds polled jobs into the same rows the webhook path
@@ -264,6 +271,26 @@ func (c *Controller) githubHeld(id string, now time.Time) bool {
 		return false
 	}
 	return true
+}
+
+// heldInstallations lists the installations currently inside a rate-limit
+// backoff, with the moment each may be used again.
+//
+// Expired holds are dropped here as they are in githubHeld, so a caller that
+// only reads never leaves the map growing with installations that recovered
+// hours ago.
+func (c *Controller) heldInstallations(now time.Time) map[string]time.Time {
+	c.githubMu.Lock()
+	defer c.githubMu.Unlock()
+	held := make(map[string]time.Time, len(c.githubPaused))
+	for id, until := range c.githubPaused {
+		if !now.Before(until) {
+			delete(c.githubPaused, id)
+			continue
+		}
+		held[id] = until
+	}
+	return held
 }
 
 // holdGitHub stands the poller down for one installation until a moment.

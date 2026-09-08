@@ -1153,3 +1153,26 @@ func TestOversizeRequestBodyIsRefused(t *testing.T) {
 	// stream nobody is watching answers 404 before it reads a byte, so it
 	// would answer the same whether the limit applied to it or not.
 }
+
+// The Overview reads the poller's state from /meta, and the two facts it needs
+// are different questions: whether the fallback poller is running at all, and
+// whether it is still sweeping. A controller that has never swept says so by
+// omitting the stamp rather than by sending a zero time, because "1 January
+// year 1" rendered on a page is worse than a blank.
+func TestMetaSaysWhetherTheFallbackPollerIsRunning(t *testing.T) {
+	h := newHarness(t)
+
+	resp := h.do(request{method: http.MethodGet, path: "/api/v1/meta"})
+	resp.mustStatus(t, http.StatusOK, "meta")
+	var out struct {
+		PollerEnabled    bool       `json:"poller_enabled"`
+		PollerLastPollAt *time.Time `json:"poller_last_poll_at"`
+	}
+	resp.into(t, &out)
+	if !out.PollerEnabled {
+		t.Error("the fallback poller is on by default and /meta says it is not")
+	}
+	if out.PollerLastPollAt != nil {
+		t.Errorf("a controller that has not swept reported a last poll: %v", out.PollerLastPollAt)
+	}
+}

@@ -1440,6 +1440,13 @@ export interface components {
             webhook_url?: string;
             /** @description True when no webhook has ever been received and the poller is doing the work. */
             polling_only?: boolean;
+            /** @description True when the fallback poller is running. It is off only by configuration */
+            poller_enabled?: boolean;
+            /**
+             * Format: date-time
+             * @description When the fallback poller last completed a sweep
+             */
+            poller_last_poll_at?: string | null;
         };
         Stats: {
             /**

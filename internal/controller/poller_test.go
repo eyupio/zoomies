@@ -159,3 +159,30 @@ func TestAnAbsurdResetDoesNotParkAnInstallationForEver(t *testing.T) {
 		t.Fatalf("hold of %s exceeds the %s cap", got.Sub(now), maxRateLimitBackoff)
 	}
 }
+
+// The stamp is the only evidence that the safety net is still sweeping, so the
+// thing to pin is that a sweep writes it -- the failure being designed out is a
+// stamp nothing ever moves, which reads as a poller that stopped the moment the
+// controller started and would make poller.stale permanent.
+func TestACompletedSweepStampsWhenItFinished(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+
+	if !h.c.LastPollAt().IsZero() {
+		t.Fatal("a controller that has not swept reported a last poll")
+	}
+
+	before := h.c.Now()
+	h.c.pollOnce(h.ctx)
+	first := h.c.LastPollAt()
+	if first.Before(before) {
+		t.Fatalf("a completed sweep did not stamp: LastPollAt = %v, sweep started %v", first, before)
+	}
+
+	// And it moves with each sweep, or the second one is invisible.
+	h.advance(time.Minute)
+	h.c.pollOnce(h.ctx)
+	if !h.c.LastPollAt().After(first) {
+		t.Errorf("a second sweep left the stamp at %v", first)
+	}
+}

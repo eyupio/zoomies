@@ -704,3 +704,81 @@ func TestProblemsSurvivesASectionItCannotGather(t *testing.T) {
 		}
 	}
 }
+
+// The fallback poller is the safety net for a fleet whose webhooks have stopped
+// arriving, and both of its failure modes are silent by construction: a sweep
+// that has stopped happening looks exactly like a sweep with nothing to find.
+// Until now both were visible only in the log, and nobody reads the log of a
+// fleet that appears to be fine.
+func TestTheProblemsListSaysWhenThePollerHasStoppedSweeping(t *testing.T) {
+	h := newHarness(t)
+	h.cfg.GitHub.PollFallback = true
+	h.cfg.GitHub.PollInterval = 30 * time.Second
+
+	// A poller that has never swept says nothing: a controller that started
+	// ten seconds ago is not a controller with a broken poller.
+	if contains(h.problemCodes(), "poller.stale") {
+		t.Fatalf("a controller that has not polled yet reported a stale poller: %v", h.problemCodes())
+	}
+
+	h.c.lastPollAt.Store(h.c.Now().UnixNano())
+	if contains(h.problemCodes(), "poller.stale") {
+		t.Fatalf("a poller that has just swept was called stale: %v", h.problemCodes())
+	}
+
+	// One missed tick is a slow query, not a fault, so the grace is more than
+	// one interval and the entry must not fire inside it.
+	h.advance(45 * time.Second)
+	if contains(h.problemCodes(), "poller.stale") {
+		t.Errorf("one missed tick was reported as a stopped poller: %v", h.problemCodes())
+	}
+
+	h.advance(2 * time.Minute)
+	got := h.problem(t, "poller.stale")
+	if got.Severity != config.SeverityWarning {
+		t.Errorf("severity = %q, want a warning", got.Severity)
+	}
+	if !strings.Contains(got.Detail, "webhook") {
+		t.Errorf("the detail does not say what is lost while it is stopped: %q", got.Detail)
+	}
+
+	// Off is a choice the configuration validator already names, and saying it
+	// twice would be the drawer disagreeing with itself.
+	h.cfg.GitHub.PollFallback = false
+	if contains(h.problemCodes(), "poller.stale") {
+		t.Errorf("a deliberately disabled poller was reported as broken: %v", h.problemCodes())
+	}
+}
+
+// GitHub's quota is per installation, so a hold on one is not a fleet-wide
+// fault -- and an operator told "the poller is paused" would go looking for
+// one. ZF-101 made the hold per installation; this is the entry catching up
+// with it.
+func TestARateLimitedInstallationIsNamedRatherThanTheWholePoller(t *testing.T) {
+	h := newHarness(t)
+	h.cfg.GitHub.PollFallback = true
+	inst := h.installation()
+
+	until := h.c.Now().Add(20 * time.Minute)
+	h.c.holdGitHub(inst.ID, until)
+
+	got := h.problem(t, "poller.paused")
+	if got.TargetKind != "installation" || got.TargetID != inst.ID {
+		t.Errorf("the entry does not point at the installation being held: %+v", got)
+	}
+	// The organisation, not the opaque identifier: an operator recognises one
+	// of those.
+	if !strings.Contains(got.Title, "acme") {
+		t.Errorf("the title does not name the installation an operator would recognise: %q", got.Title)
+	}
+	if !strings.Contains(got.Detail, until.UTC().Format(time.RFC3339)) {
+		t.Errorf("the detail does not say when it clears: %q", got.Detail)
+	}
+
+	// It clears itself, and the entry has to go with it or an operator is left
+	// chasing a hold that expired an hour ago.
+	h.advance(21 * time.Minute)
+	if contains(h.problemCodes(), "poller.paused") {
+		t.Errorf("an expired hold was still reported: %v", h.problemCodes())
+	}
+}
