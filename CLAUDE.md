@@ -79,9 +79,10 @@ Other invariants worth knowing before you edit:
   straight into its cache, so a `host.updated` carrying a bare store row -- no
   `healthy`, no `free` -- repaints the host wrong. Publish through the
   controller's `publish*`/`Publish*` helpers, which render the view; never put a
-  store row on the bus. `stats` and `problems.updated` are computed after every
-  pass and sent only when they change, so a new kind of problem needs no
-  publish call of its own.
+  store row on the bus. `stats`, `problems.updated` and each host's view are
+  computed after every pass and sent only when they change, so a new kind of
+  problem -- or a host whose slots or heartbeat moved with no row written --
+  needs no publish call of its own.
 * **Sentinel errors** from the store: `ErrNotFound`, `ErrConflict`,
   `ErrInvalidTransition`, and `ErrJoinTokenUsed` / `ErrJoinTokenExpired` for
   the two ways a join token that exists is still refused. Match with

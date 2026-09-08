@@ -15,6 +15,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -173,10 +174,12 @@ type Controller struct {
 
 	// derivedMu guards the last published form of the stats and problems
 	// payloads, which the reconcile loop and the housekeeping loop both
-	// compare against.
+	// compare against, and of each host, which every publisher records so the
+	// pass's diff does not send a frame that has just gone out.
 	derivedMu    sync.Mutex
 	lastStats    []byte
 	lastProblems []byte
+	lastHosts    map[string][]byte
 
 	startMu sync.Mutex
 	started bool
@@ -544,11 +547,43 @@ func (c *Controller) publishRunner(ctx context.Context, kind events.Kind, r *sto
 // agent going quiet without the operator refreshing. The frame is the API's
 // host shape, with `healthy` worked out, because that is the field the event
 // exists to change.
+//
+// Every host frame goes through here, and each one records the bytes it sent:
+// the reconcile pass diffs against that record (see publishHostChanges), so a
+// change announced the moment it happened is not announced a second time a few
+// seconds later.
 func (c *Controller) publishHost(h *store.Host) {
 	if h == nil || c.bus == nil {
 		return
 	}
-	c.publish(events.KindHostUpdated, "host:"+h.ID, c.HostView(h))
+	raw, err := json.Marshal(c.HostView(h))
+	if err != nil {
+		// Not reachable with a HostView, and not worth dropping the frame
+		// over if it ever were: the operator needs the event more than the
+		// pass needs its record.
+		c.log.Error("could not marshal a host for the event stream", "host", h.ID, "error", err)
+		c.publish(events.KindHostUpdated, "host:"+h.ID, c.HostView(h))
+		return
+	}
+	c.rememberHost(h.ID, raw)
+	c.publish(events.KindHostUpdated, "host:"+h.ID, json.RawMessage(raw))
+}
+
+// rememberHost records the form a host was last published in.
+//
+// Best-effort, and deliberately so: a caller that publishes a host it has
+// changed in memory without saving records bytes the pass will not match --
+// the store keeps timestamps to the millisecond and a Go value does not --
+// and the next pass then repeats the frame once. Repeating a frame costs a
+// browser one repaint of a row it already has; a scheme that could not be
+// wrong here would cost every publisher a re-read.
+func (c *Controller) rememberHost(id string, raw []byte) {
+	c.derivedMu.Lock()
+	defer c.derivedMu.Unlock()
+	if c.lastHosts == nil {
+		c.lastHosts = map[string][]byte{}
+	}
+	c.lastHosts[id] = raw
 }
 
 // publishJob announces a job change in the shape GET /jobs/{id} returns.
@@ -656,6 +691,9 @@ func (c *Controller) PublishHost(h *store.Host) { c.publishHost(h) }
 
 // PublishHostDeleted announces that a host is gone.
 func (c *Controller) PublishHostDeleted(id string) {
+	c.derivedMu.Lock()
+	delete(c.lastHosts, id)
+	c.derivedMu.Unlock()
 	c.publish(events.KindHostDeleted, "host:"+id, deletedPayload{ID: id})
 }
 

@@ -147,8 +147,119 @@ func TestNothingIsComputedForNobody(t *testing.T) {
 	if got := h.c.Events().LastID(); got != before {
 		t.Errorf("a pass with no subscribers published %d event(s)", got-before)
 	}
-	if h.c.lastStats != nil || h.c.lastProblems != nil {
+	if h.c.lastStats != nil || h.c.lastProblems != nil || h.c.lastHosts != nil {
 		t.Error("a pass with no subscribers still computed the derived payloads")
+	}
+}
+
+// The two numbers an operator reads off the Hosts page are the two nothing
+// writes a row for: the slots in use are counted from the runners table when a
+// host is read, and the heartbeat is one column no publisher watches. Starting
+// a runner therefore moved the bar on the card with nothing to announce it,
+// and the page sat still while the fleet moved under it.
+func TestAPassAnnouncesTheSlotsAHostHasFilled(t *testing.T) {
+	h := newHarness(t)
+	_, _, host := h.fleet()
+	sub := h.listen(events.KindHostUpdated)
+
+	// The first pass introduces the host, because nothing has been sent yet.
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	first := nextOfKind(t, sub, events.KindHostUpdated)
+	if first["active_runners"] != float64(0) {
+		t.Fatalf("first host frame active_runners = %v, want 0", first["active_runners"])
+	}
+
+	// A queued job puts a runner on that host. The runner's own frame says the
+	// runner exists; only the host's says the machine has one fewer slot.
+	h.deliverJob(jobEvent{Action: "queued", JobID: 1, Labels: []string{"self-hosted", "linux", "x64", "demo"}})
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile with a job: %v", err)
+	}
+	got := nextOfKind(t, sub, events.KindHostUpdated)
+	if got["active_runners"] != float64(1) {
+		t.Errorf("host frame after a runner started: active_runners = %v, want 1", got["active_runners"])
+	}
+	if got["free"] != float64(host.Capacity-1) {
+		t.Errorf("host frame free = %v, want %d", got["free"], host.Capacity-1)
+	}
+}
+
+// A frame every ten seconds saying what the last one said is noise the browser
+// repaints for, and there is one of these per host.
+func TestAPassSaysNothingAboutAHostThatHasNotMoved(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+	sub := h.listen(events.KindHostUpdated)
+
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	nextOfKind(t, sub, events.KindHostUpdated)
+
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+	nothingFor(t, sub)
+}
+
+// An operator's change is announced the moment it is made. The pass that comes
+// along a few seconds later must not say it again: every publisher records what
+// it sent, and the diff is against that record rather than against the last
+// pass.
+func TestAChangeAlreadyAnnouncedIsNotAnnouncedAgain(t *testing.T) {
+	h := newHarness(t)
+	_, _, host := h.fleet()
+	sub := h.listen(events.KindHostUpdated)
+
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	nextOfKind(t, sub, events.KindHostUpdated)
+
+	// Exactly what the API handler does when somebody cordons a host: read it,
+	// write the change, then announce the row it read.
+	if err := h.st.SetHostCordoned(h.ctx, host.ID, true); err != nil {
+		t.Fatalf("SetHostCordoned: %v", err)
+	}
+	cordoned, err := h.st.GetHost(h.ctx, host.ID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	h.c.PublishHost(cordoned)
+	if got := nextOfKind(t, sub, events.KindHostUpdated); got["cordoned"] != true {
+		t.Fatalf("host frame after cordoning = %v, want cordoned", got)
+	}
+
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile after cordoning: %v", err)
+	}
+	nothingFor(t, sub)
+}
+
+// A host that has gone is not something the pass should keep a record of, or
+// the map grows for the life of the process on a fleet that churns machines.
+func TestADeletedHostIsForgotten(t *testing.T) {
+	h := newHarness(t)
+	_, _, host := h.fleet()
+	sub := h.listen(events.KindHostUpdated, events.KindHostDeleted)
+
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	nextOfKind(t, sub, events.KindHostUpdated)
+
+	if err := h.c.DeleteHost(h.ctx, host.ID); err != nil {
+		t.Fatalf("DeleteHost: %v", err)
+	}
+	nextOfKind(t, sub, events.KindHostDeleted)
+
+	h.c.derivedMu.Lock()
+	_, remembered := h.c.lastHosts[host.ID]
+	h.c.derivedMu.Unlock()
+	if remembered {
+		t.Error("a deleted host is still remembered as something to diff against")
 	}
 }
 

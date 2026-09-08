@@ -287,12 +287,18 @@ client ever has to poll or ask the operator to reload:
   merging into it. The views are rendered once, in
   `internal/controller/views.go`, for both transports, so the two cannot drift.
   A `*.deleted` frame carries `{ "id": … }` and nothing else.
-* **`stats` and `problems.updated` are computed, not stored**, so no row change
-  can announce them. The controller works both out after every reconcile pass
-  and every housekeeping tick, and sends each only when its JSON changed.
-  `stats` summarises the same one-hour window `GET /stats` defaults to;
-  `problems.updated` is the whole `GET /problems` response. Neither is computed
-  while nobody is connected to the stream.
+* **`stats`, `problems.updated` and a host's own numbers are computed, not
+  stored**, so no row change can announce them. The controller works them out
+  after every reconcile pass and every housekeeping tick, and sends each only
+  when its JSON changed. `stats` summarises the same one-hour window
+  `GET /stats` defaults to; `problems.updated` is the whole `GET /problems`
+  response. A host is the same idea per row: `active_runners` is counted from
+  the runners table when the host is read, and the heartbeat behind
+  `last_heartbeat` writes one column nothing publishes, so a runner starting or
+  an agent checking in moves the card with no row change to announce it. Each
+  host whose rendered view differs from the one last sent gets a `host.updated`;
+  a host nobody has touched marshals to the same bytes and gets nothing. None of
+  this is computed while nobody is connected to the stream.
 * **An operator's change is announced by the handler that made it.** Creating,
   editing, enabling, disabling or deleting a pool; editing, cordoning or
   deleting a host; adding, editing or removing an installation -- each

@@ -530,8 +530,7 @@ in words that it is waiting and how.
 
 Refreshing is never how the screen keeps up — the stream is — but it is how an
 operator settles the question of whether it has. Some things genuinely do not
-arrive over the stream: join tokens, users, API tokens, the configuration, and a
-host that has only just been enrolled.
+arrive over the stream: join tokens, users, API tokens, and the configuration.
 
 So the control is one control, in one place, everywhere it means anything:
 
