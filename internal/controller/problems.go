@@ -114,6 +114,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	gather("hosts", c.hostProblems)
 	gather("installations", c.installationProblems)
 	gather("the encryption key", c.keyProblems)
+	out = append(out, c.fenceProblems()...)
 	gather("webhook deliveries", c.webhookProblems)
 	gather("jobs", c.jobProblems)
 	out = append(out, c.PoolCapacityProblems()...)
@@ -289,6 +290,34 @@ func (c *Controller) installationProblems(ctx context.Context, out *[]Problem) e
 		})
 	}
 	return nil
+}
+
+// fenceProblems says the fleet is held, which is otherwise invisible: a fenced
+// controller looks exactly like a healthy one with nothing to do.
+//
+// It is the highest-consequence entry the drawer can carry, because everything
+// else on it is a thing that went wrong and this is a thing somebody chose.
+// The fix names the three checks a restore leaves undone rather than only the
+// route that lifts it: an operator who lifts the fence without making them has
+// spent the fence for nothing.
+func (c *Controller) fenceProblems() []Problem {
+	f := c.Fenced()
+	if !f.Fenced {
+		return nil
+	}
+	detail := "The scheduler is deciding as normal and applying none of it: no runner is created, drained or removed, nothing is reaped from GitHub, and the fallback poller is not sweeping. " +
+		"Everything below and on the Overview is what this controller would do the moment the fence is lifted."
+	if f.Reason != "" {
+		detail = f.Reason + ". " + detail
+	}
+	return []Problem{{
+		Code:     "recovery.fenced",
+		Severity: config.SeverityError,
+		Title:    "this fleet is held for recovery and is doing nothing",
+		Detail:   detail,
+		Fix: "check the three things a restore does not bring with it -- the external URL this fleet answers on, the agents, and the runners that were live when the backup was taken -- " +
+			"then lift the fence with POST /api/v1/recovery/unfence. If another controller is still running on the original database, stop it first.",
+	}}
 }
 
 // keyProblems answers "is this the key that sealed what is in the database?".

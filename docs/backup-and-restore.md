@@ -154,10 +154,22 @@ proven only by opening something — so that shows up as `crypto.key_mismatch` i
 the problems drawer, naming the installations it cannot decrypt. `zoomies
 restore` catches it earlier, from the manifest's fingerprint.
 
-### Then check the three things that do not travel with the file
+### The fence, and the three things that do not travel with the file
 
-The restored database is marked for recovery (`recovery.fenced`), with the
-reason recorded and an audit row saying where it came from.
+The restored database is marked for recovery, with the reason recorded and an
+audit row saying where it came from. A controller reading that mark **decides
+as normal and applies none of it**: no runner is created, drained or removed,
+nothing is reaped from GitHub, and the fallback poller does not sweep. The
+Overview and the problems drawer show exactly what it would do the moment the
+fence is lifted, which is the difference between "nothing to do" and "not
+allowed to".
+
+`/readyz` answers 503 while the fence is on, so a load balancer takes the
+instance out of rotation. Liveness is unaffected, so a container runtime does
+not restart it — that would achieve nothing and lose your session.
+
+Check these three before you lift it, because they are what a restore does not
+bring with it:
 
 * **The external URL.** If the new machine answers on a different address, the
   GitHub App's webhook URL points at the old one and no delivery will arrive.
@@ -169,6 +181,16 @@ reason recorded and an audit row saying where it came from.
   reports it. The controller reclaims runners from a host that has stopped
   heartbeating, so this resolves itself, but the first few minutes will show
   failures for work that had already gone.
+
+Then lift the fence:
+
+```sh
+curl -X POST -H "Authorization: Bearer $ZOOMIES_TOKEN" \
+  https://zoomies.example.com/api/v1/recovery/unfence
+```
+
+It needs an administrator, and it is audited under its own action — the audit
+log is where somebody later asks who decided the fleet was ready.
 
 ### Restoring onto a second machine
 

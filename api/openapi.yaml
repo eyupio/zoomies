@@ -85,6 +85,8 @@ tags:
     description: Users, API tokens and settings.
   - name: diagnostics
     description: One document describing this instance, for a bug report.
+  - name: recovery
+    description: The fence a restore sets, and the one act that lifts it.
   - name: agent
     description: Routes used by agents. Not for general clients.
 
@@ -1758,6 +1760,45 @@ paths:
         "204": { description: Revoked }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /recovery:
+    get:
+      operationId: getRecovery
+      tags: [recovery]
+      summary: Whether this fleet is held for recovery
+      description: >-
+        A restored database is marked for recovery, and a controller that reads that mark
+        decides as normal and applies none of it: no runner is created, drained or
+        removed, nothing is reaped from GitHub, and the fallback poller does not sweep.
+        The plan is still computed and published, so an operator can see exactly what
+        would happen the moment the fence is lifted -- and can tell "nothing to do" from
+        "not allowed to". A fenced instance answers `/readyz` with 503; liveness is
+        unaffected, so its container runtime does not restart it.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Recovery" }
+
+  /recovery/unfence:
+    post:
+      operationId: unfence
+      tags: [recovery]
+      summary: Lift the recovery fence
+      description: >-
+        A person saying that a recovered fleet has been checked and may act on the world
+        again. It is audited under its own action, because the audit log is where somebody
+        later asks who decided that and when. Lifting an unfenced instance succeeds and
+        changes nothing: two operators recovering one fleet will both press it.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Recovery" }
+
   /diagnostics/bundle:
     get:
       operationId: getSupportBundle
@@ -2848,6 +2889,15 @@ components:
         runner_id: { type: string }
         host_id: { type: string }
         computed_at: { type: string, format: date-time }
+
+    Recovery:
+      type: object
+      required: [fenced]
+      properties:
+        fenced: { type: boolean }
+        reason:
+          type: string
+          description: Why the fence is on -- normally the backup this database was restored from.
 
     SupportBundle:
       type: object

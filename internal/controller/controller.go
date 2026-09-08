@@ -132,6 +132,11 @@ type Controller struct {
 	// has stopped sweeping looks exactly like a poller with nothing to do, and
 	// on a fleet whose webhooks are also broken the difference is every job.
 	lastPollAt atomic.Int64
+	// fence is the recovery fence, read from the database at start and kept
+	// here so that a decision made ten times a minute is not ten database
+	// reads. It is a pointer so the zero value -- no fence -- costs nothing to
+	// express and a lift is one atomic store.
+	fence atomic.Pointer[store.RecoveryFence]
 	// githubMu guards githubPaused, which is a map rather than one deadline
 	// because GitHub's quota is per installation: one organisation spending
 	// its hour must not stop the fleet polling another's, which is the whole
@@ -309,6 +314,19 @@ func (c *Controller) Start(ctx context.Context) error {
 		}
 	}
 
+	// The fence, before any loop starts. A controller that began reconciling
+	// and then discovered it was fenced would already have created the runners
+	// the fence exists to prevent.
+	if err := c.LoadFence(ctx); err != nil {
+		return fmt.Errorf("controller: reading the recovery fence: %w", err)
+	}
+	if f := c.Fenced(); f.Fenced {
+		c.log.Warn("this fleet is fenced for recovery",
+			"reason", f.Reason,
+			"detail", "the scheduler will decide as normal and apply nothing: no runner is created, drained or removed, nothing is reaped, and the poller does not sweep",
+			"fix", "check what the restore did not bring with it, then lift the fence")
+	}
+
 	// Knowing up front whether a webhook has ever arrived means the Overview
 	// can answer "are we event-driven?" without waiting for the first poll.
 	if last, err := c.st.LastAcceptedDeliveryAt(ctx); err == nil {
@@ -396,6 +414,51 @@ func (c *Controller) notePanic(name string, value any) {
 	p.Last = fmt.Sprint(value)
 	p.At = c.Now()
 	c.loopPanics[name] = p
+}
+
+// LoadFence reads the recovery fence from the database into this controller.
+//
+// It is called at start and again whenever the fence is changed, rather than
+// on every pass: the fence changes once in the life of a recovery, and a
+// database read in the hot path of a loop that runs every few seconds would
+// cost more than it could ever save.
+func (c *Controller) LoadFence(ctx context.Context) error {
+	f, err := c.st.RecoveryFenced(ctx)
+	if err != nil {
+		return err
+	}
+	c.fence.Store(&f)
+	return nil
+}
+
+// Fence is the recovery fence as the API renders it. It is an alias so the
+// transport layer names a controller type rather than reaching into the store.
+type Fence = store.RecoveryFence
+
+// Fenced reports whether this fleet is held for recovery, and why.
+func (c *Controller) Fenced() store.RecoveryFence {
+	if f := c.fence.Load(); f != nil {
+		return *f
+	}
+	return store.RecoveryFence{}
+}
+
+// Unfence lifts the fence and lets the fleet act again.
+//
+// It writes the database first and the in-memory copy second, so a failed
+// write leaves a fenced controller rather than one that believes it is free.
+func (c *Controller) Unfence(ctx context.Context) error {
+	if err := c.st.SetRecoveryFence(ctx, false, ""); err != nil {
+		return err
+	}
+	if err := c.LoadFence(ctx); err != nil {
+		return err
+	}
+	c.log.Info("the recovery fence was lifted; this fleet will create, drain and remove runners again")
+	// The fleet has been standing still: decide now rather than at the next
+	// tick, because everything queued during the fence is waiting on this.
+	c.Nudge()
+	return nil
 }
 
 // LoopPanics returns the crashes recorded against each background loop since

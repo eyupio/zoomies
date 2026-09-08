@@ -155,6 +155,13 @@ func poolJitter(pools []*store.Pool) map[string]float64 {
 // A failure on one action never abandons the rest: one pool being unable to
 // reach GitHub must not stop another pool from draining an idle runner.
 func (c *Controller) apply(ctx context.Context, snap scheduler.Snapshot, plan scheduler.Plan) {
+	// A fenced fleet has decided and does nothing about it. The plan is still
+	// computed and published above, which is the point: an operator recovering
+	// from a backup can see exactly what this controller would do the moment
+	// they lift the fence, and can tell "nothing to do" from "not allowed to".
+	if c.Fenced().Fenced {
+		return
+	}
 	pools := make(map[string]*store.Pool, len(snap.Pools))
 	for _, p := range snap.Pools {
 		pools[p.ID] = p
@@ -613,7 +620,12 @@ func (c *Controller) reapLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-timer.C:
-			c.reap(ctx)
+			// Not while fenced. Reaping deletes GitHub registrations, and a
+			// restored database's idea of which runners are gone is as old as
+			// the backup -- so the one thing it must not do is act on it.
+			if !c.Fenced().Fenced {
+				c.reap(ctx)
+			}
 			timer.Reset(reapInterval)
 		}
 	}

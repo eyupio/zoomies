@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -46,6 +47,11 @@ type fleet struct {
 	agent      *process
 
 	baseURL string
+	// port and stateDir are kept so a drill can stop the controller and start
+	// another on the same address -- against the same database, or against one
+	// it has just restored.
+	port     int
+	stateDir string
 	// agentWork is the agent's work directory, where the backend lays out
 	// runners. The drill watches this to see a workload appear.
 	agentWork string
@@ -99,8 +105,21 @@ func newFleet(t *testing.T) *fleet {
 func (f *fleet) startController() {
 	t := f.t
 	t.Helper()
-	port := freePort(t)
-	dir := t.TempDir()
+	f.port = freePort(t)
+	f.stateDir = t.TempDir()
+	f.startControllerOn(f.stateDir)
+}
+
+// startControllerOn runs the built binary as a controller against one state
+// directory, on this fleet's address.
+//
+// The directory is a parameter because a restore drill's whole point is that
+// the second controller comes up on a different one: the database it was given
+// rather than the database it wrote.
+func (f *fleet) startControllerOn(dir string) {
+	t := f.t
+	t.Helper()
+	port := f.port
 	f.baseURL = fmt.Sprintf("http://127.0.0.1:%d", port)
 
 	f.controller = f.spawn("controller", []string{"controller"}, append(baseEnv(dir),
@@ -125,6 +144,21 @@ func (f *fleet) startController() {
 		resp.Body.Close()
 		return resp.StatusCode == http.StatusOK
 	})
+}
+
+// run executes the built binary as a one-shot command against a state
+// directory, the way an operator runs `zoomies backup` on the machine holding
+// the data. It returns what the command printed.
+func (f *fleet) run(dir string, args ...string) string {
+	t := f.t
+	t.Helper()
+	cmd := exec.Command(builtBinary(), args...)
+	cmd.Env = append(baseEnv(dir), "ZOOMIES_DB_PATH="+filepath.Join(dir, "zoomies.db"))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("zoomies %s: %v\noutput: %q", strings.Join(args, " "), err, string(out))
+	}
+	return string(out)
 }
 
 // connectInstallation registers the fake's app with the controller.

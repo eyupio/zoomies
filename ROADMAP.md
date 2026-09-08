@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.15 · 8 September 2026 · derived from the owner's
+Version 2.16 · 8 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -1067,12 +1067,17 @@ integrity check, so no new dependency is needed.
    line in `zoomies.yaml`, because it belongs to the data: a restored database
    is fenced wherever it is put, and a copy carried to a second machine arrives
    fenced too.
-4. The fence (M): a `recovery.fenced` setting the controller reads at start;
-   reconcile still snapshots and decides so the UI shows what it would do,
-   but applies nothing, reaps nothing and creates nothing from the poller;
+4. The fence (M): **done** — a `recovery.fenced` setting the controller reads
+   at start; reconcile still snapshots and decides so the UI shows what it
+   would do, but applies nothing, reaps nothing and does not sweep the poller;
    a `recovery.fenced` problem whose fix names the checks to make; readiness
-   answers 503 with the reason; one audited admin route lifts it. Automatic
-   lifting waits for ZF-102's definition of a reconciled fleet.
+   answers 503 with the reason while liveness does not, so the container
+   runtime does not restart a fenced controller; one audited admin route
+   (`recovery.write`, admin) lifts it. Automatic lifting waits for ZF-102's
+   definition of a reconciled fleet. **The mechanical drill the acceptance
+   names is written** and passes: back up a running fleet, stop it, restore
+   into a clean state directory, and assert the integrity, the fence, the
+   data and the lift.
 
 Five constraints the verifier found for the design: once the store refuses
 a newer ledger, the restore command cannot take its pre-restore copy of a
@@ -1091,7 +1096,9 @@ suffice); a backup UI page; a separate encrypted key-escrow route; the
 page-copy backup API; "reconciled" as a computed condition.
 
 **Accept when:** the mechanical drill is a CI test (backup, stop, restore into
-a clean state directory, integrity and fence asserted) and the GitHub half
+a clean state directory, integrity and fence asserted) — **done**, in
+`test/drill`, where the binary is the one an operator has and the restore is a
+command run against a database on disk — and the GitHub half
 (sign in, re-join a controlled agent, run a job after lifting the fence) is
 recorded once in `roadmap/validation/` with the achieved time and the copy's
 age. Cross-machine fencing is an operator procedure, stop the original first,
@@ -1708,6 +1715,16 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **8 September 2026 — Version 2.16:** the fence is done, and ZF-203's code is
+  complete; only the owner-run GitHub half of its acceptance remains. Two
+  distinctions the work sharpened. Readiness fails while fenced and liveness
+  does not, because the container image's health check is `/healthz`: a fenced
+  controller must be taken out of rotation and must **not** be restarted, which
+  would achieve nothing and lose the operator's session. And the fence stops
+  the fleet *acting* without stopping it *deciding* — the plan is still
+  computed and published, so an operator can tell "nothing to do" from "not
+  allowed to", which is the difference a fenced fleet otherwise cannot show.
 
 * **8 September 2026 — Version 2.15:** `zoomies restore` is done, and it fixed
   the fence's home. `recovery.fenced` is a row in the restored database's own

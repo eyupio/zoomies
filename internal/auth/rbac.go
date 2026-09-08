@@ -103,6 +103,12 @@ const (
 	// viewer-readable bundle would hand out the one section this project has
 	// always kept behind an admin.
 	ActionDiagnosticsRead Action = "diagnostics.read"
+	// ActionRecoveryWrite lifts the fence a restore sets. It is its own action
+	// rather than settings.write because it is not a setting: it is a promise
+	// that somebody has looked at a recovered fleet and decided it may act on
+	// the world again, and it wants to be visible in an audit log under a name
+	// that says so.
+	ActionRecoveryWrite Action = "recovery.write"
 )
 
 // actionRoles is the authorisation policy in one table.
@@ -157,6 +163,7 @@ var actionRoles = map[Action]store.Role{
 	ActionStatsRead:     store.RoleViewer,
 
 	ActionDiagnosticsRead: store.RoleAdmin,
+	ActionRecoveryWrite:   store.RoleAdmin,
 }
 
 // AllActions returns every action, sorted. The UI's token editor lists the

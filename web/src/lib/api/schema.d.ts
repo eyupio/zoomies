@@ -1221,6 +1221,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/recovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether this fleet is held for recovery
+         * @description A restored database is marked for recovery, and a controller that reads that mark decides as normal and applies none of it: no runner is created, drained or removed, nothing is reaped from GitHub, and the fallback poller does not sweep. The plan is still computed and published, so an operator can see exactly what would happen the moment the fence is lifted -- and can tell "nothing to do" from "not allowed to". A fenced instance answers `/readyz` with 503; liveness is unaffected, so its container runtime does not restart it.
+         */
+        get: operations["getRecovery"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/recovery/unfence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Lift the recovery fence
+         * @description A person saying that a recovered fleet has been checked and may act on the world again. It is audited under its own action, because the audit log is where somebody later asks who decided that and when. Lifting an unfenced instance succeeds and changes nothing: two operators recovering one fleet will both press it.
+         */
+        post: operations["unfence"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/diagnostics/bundle": {
         parameters: {
             query?: never;
@@ -2165,6 +2205,11 @@ export interface components {
             host_id?: string;
             /** Format: date-time */
             computed_at: string;
+        };
+        Recovery: {
+            fenced: boolean;
+            /** @description Why the fence is on -- normally the backup this database was restored from. */
+            reason?: string;
         };
         SupportBundle: {
             /** @description The shape's own number, so a reader given a bundle out of context knows what it is looking at. It moves when a section is removed or renamed, not when one is added. */
@@ -4750,6 +4795,46 @@ export interface operations {
                 content?: never;
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    getRecovery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Recovery"];
+                };
+            };
+        };
+    };
+    unfence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Recovery"];
+                };
+            };
         };
     };
     getSupportBundle: {
