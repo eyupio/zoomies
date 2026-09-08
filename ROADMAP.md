@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.18 · 8 September 2026 · derived from the owner's
+Version 2.19 · 8 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -1128,8 +1128,8 @@ opposite, and is corrected in this pull request. Also: nothing backs up
 before a migration; an older binary silently runs against a newer schema;
 every third-party action is tag-pinned with no dependency updates or
 vulnerability scanning; every workflow, release and site included, depends on
-one runner vendor with no GitHub-hosted path; the only release, `v0.1-alpha`,
-is mutable, not marked as a prerelease, and had its assets rebuilt and
+one runner vendor with no GitHub-hosted path; the releases -- `v0.1-alpha` when this was
+written, and `v0.2-beta` since -- are mutable, not marked as prereleases, and had its assets rebuilt and
 re-uploaded two days after tagging; and there is no upgrade test of any kind.
 
 **Do, in six small pull requests, most of them S:**
@@ -1159,14 +1159,17 @@ re-uploaded two days after tagging; and there is no upgrade test of any kind.
    order what it cannot parse rather than guessing, because a wrong order
    sends an operator to upgrade the wrong side; a host *ahead* of its
    controller gets its own sentence for exactly that reason.
-3. Schema safety: **the first half landed early, in ZF-203** — the store
+3. Schema safety: **done. The first half landed early, in ZF-203** — the store
    already refuses to open a database whose ledger names a migration the
    binary does not embed, because a safe restore needed it first; **no
    emergency override was added, and none should be**, since the refusal
    names the release to run and an override is a way to corrupt a database
-   under pressure. Still owed: a test that a failing migration aborts startup,
-   leaves the ledger clean and applies on the re-run; and a fixture database
-   at the `v0.1-alpha` schema migrated to head in a test.
+   under pressure. The rest is now tested: a failing migration stops startup,
+   leaves the ledger clean and applies on the re-run; and a database at an
+   older release migrates to head. **A correction: there are two releases
+   now**, not one — `v0.1-alpha` shipped `0001_init.sql` alone and `v0.2-beta`
+   shipped through `0010`, so the fixture covers both, which are the two points
+   somebody's database is actually sitting at.
 4. Backup before migrate: when the store is file-backed and migrations are
    pending, `VACUUM INTO` a sibling copy first, keeping the last two, using
    ZF-203's primitive and file naming rather than a second one.
@@ -1736,6 +1739,15 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **8 September 2026 — Version 2.19:** ZF-204's schema-safety tests are done,
+  and writing them corrected the plan's picture twice. There are two releases
+  now rather than one, so the upgrade fixture covers both points a real
+  database sits at. And the fixture has to be a database built by applying the
+  old migrations, not a current one with its ledger trimmed: trimming leaves
+  the columns the later migrations add, so re-applying them fails on a
+  duplicate and the thing being tested is an upgrade from a database that
+  never existed. The first attempt did exactly that and the test caught it.
 
 * **8 September 2026 — Version 2.18:** ZF-204's second pull request is done.
   The distinction it settled is what "skew" means: a *release* difference, not

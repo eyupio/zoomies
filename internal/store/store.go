@@ -361,6 +361,19 @@ func (s *Store) migrate(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("store: loading embedded migrations: %w", err)
 	}
+	return s.applyMigrations(ctx, migs, applied)
+}
+
+// applyMigrations runs the ones not already in the ledger, each in its own
+// transaction.
+//
+// It is separate from migrate so a test can hand it a migration that fails:
+// what happens then is the behaviour that matters, and it cannot be exercised
+// through the embedded set, every member of which works. The rule it holds is
+// that a failure stops startup and leaves the ledger clean, so the same
+// migration is tried again on the next start rather than being skipped as
+// though it had worked.
+func (s *Store) applyMigrations(ctx context.Context, migs []migration, applied map[string]bool) error {
 	for _, m := range migs {
 		if applied[m.name] {
 			continue
