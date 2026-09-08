@@ -42,13 +42,20 @@
   let reload = $state(0);
   let rates = $state<Record<string, RateLimit>>({});
 
+  // First load and refetch are different things. `reload` bumps on every
+  // `installation.updated` event, after every verify and after every delete, so
+  // swapping the cards for skeletons each time made the one page an operator
+  // watches during their first job blink its content away -- which reads as the
+  // page being broken. The last known truth is better than a blank panel.
+  let loadedOnce = false;
   $effect(() => {
     void reload;
     const controller = new AbortController();
-    loading = true;
+    loading = !loadedOnce;
     void listInstallations(controller.signal)
       .then((result) => {
         installations = result.items ?? [];
+        loadedOnce = true;
         error = null;
         void readRateLimits(installations, controller.signal);
       })
@@ -62,7 +69,9 @@
 
   // An installation going unhealthy is news; the list reloads rather than
   // patching one row, because pool counts move with it.
-  $effect(() => events.subscribe('installation.updated', () => (reload += 1)));
+  $effect(() =>
+    events.subscribe(['installation.updated', 'installation.deleted'], () => (reload += 1)),
+  );
 
   /**
    * Read each App's remaining quota.
@@ -247,6 +256,7 @@
   initialState={returnedState}
   initialInstallationId={returnedInstallationId}
   oncreated={() => (reload += 1)}
+  onexchanged={() => router.setQuery({ code: null, state: null })}
   onclose={clearReturnedParams}
 />
 
@@ -270,7 +280,7 @@
     'this target'}, and the sealed App credentials are deleted with it."
   consequences={[
     `${pluralise(deleteTarget?.pool_count ?? 0, 'pool')} built on this installation will be deleted.`,
-    'Their runners are drained and deregistered from GitHub.',
+    'Their runners are removed now and deregistered from GitHub. A job running on one is interrupted; drain the pools first if that matters.',
     'The App itself stays on GitHub; uninstall it there if you want it gone.',
   ]}
   confirmLabel="Disconnect"
@@ -303,7 +313,7 @@
     flex-direction: column;
     gap: var(--z-space-3);
     padding: var(--z-space-5);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }

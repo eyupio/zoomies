@@ -1,6 +1,9 @@
 package main
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // The shapes below are the parts of api/openapi.yaml the tables read. They are
 // deliberately partial: a field this CLI does not render is a field it does not
@@ -33,10 +36,14 @@ type poolItem struct {
 	Labels             []string          `json:"labels"`
 	RunnerGroup        string            `json:"runner_group"`
 	Backend            string            `json:"backend"`
+	Platform           platformItem      `json:"platform"`
 	Image              string            `json:"image"`
+	EffectiveImage     string            `json:"effective_image"`
+	PullPolicy         string            `json:"pull_policy"`
 	RunnerVersion      string            `json:"runner_version"`
 	MinRunners         int               `json:"min_runners"`
 	MaxRunners         int               `json:"max_runners"`
+	Priority           int               `json:"priority"`
 	IdleTimeout        string            `json:"idle_timeout"`
 	Ephemeral          bool              `json:"ephemeral"`
 	DockerMode         string            `json:"docker_mode"`
@@ -50,6 +57,33 @@ type poolItem struct {
 	QueuedJobs         int               `json:"queued_jobs"`
 	Utilisation        float64           `json:"utilisation"`
 	Warnings           []problemItem     `json:"warnings"`
+}
+
+// platformItem is the machine a pool needs, or the machine a host is.
+type platformItem struct {
+	OS        string `json:"os"`
+	OSVersion string `json:"os_version"`
+	Arch      string `json:"arch"`
+}
+
+// String renders the platform the way the UI does: "ubuntu 24.04, arm64", or
+// "any" when the pool promises nothing.
+func (p platformItem) String() string {
+	var parts []string
+	if p.OS != "" {
+		os := p.OS
+		if p.OSVersion != "" {
+			os += " " + p.OSVersion
+		}
+		parts = append(parts, os)
+	}
+	if p.Arch != "" {
+		parts = append(parts, p.Arch)
+	}
+	if len(parts) == 0 {
+		return "any"
+	}
+	return strings.Join(parts, ", ")
 }
 
 type runnerItem struct {
@@ -91,23 +125,51 @@ type timelineEntry struct {
 }
 
 type jobItem struct {
-	ID          string     `json:"id"`
-	GitHubRunID int64      `json:"github_run_id"`
-	Repo        string     `json:"repo"`
-	Workflow    string     `json:"workflow"`
-	JobName     string     `json:"job_name"`
-	Labels      []string   `json:"labels"`
-	State       string     `json:"state"`
+	ID          string   `json:"id"`
+	GitHubRunID int64    `json:"github_run_id"`
+	Repo        string   `json:"repo"`
+	Workflow    string   `json:"workflow"`
+	JobName     string   `json:"job_name"`
+	Labels      []string `json:"labels"`
+	State       string   `json:"state"`
+	Conclusion  string   `json:"conclusion"`
+	// InstallationID is the GitHub App installation covering this job's
+	// repository. It is read to tell the two reasons a queued job goes
+	// unclaimed apart: no pool advertises its labels, or nothing here holds a
+	// credential for its target at all.
+	InstallationID string     `json:"installation_id"`
+	PoolName       string     `json:"pool_name"`
+	RunnerName     string     `json:"runner_name"`
+	HTMLURL        string     `json:"html_url"`
+	Matched        bool       `json:"matched"`
+	HeadBranch     string     `json:"head_branch"`
+	HeadSHA        string     `json:"head_sha"`
+	RunAttempt     int        `json:"run_attempt"`
+	Steps          []jobStep  `json:"steps"`
+	FailedStep     *jobStep   `json:"failed_step"`
+	RunnerFault    string     `json:"runner_fault"`
+	QueuedAt       time.Time  `json:"queued_at"`
+	StartedAt      *time.Time `json:"started_at"`
+	CompletedAt    *time.Time `json:"completed_at"`
+	QueueWaitMS    int64      `json:"queue_wait_ms"`
+	DurationMS     int64      `json:"duration_ms"`
+}
+
+type jobStep struct {
+	Number      int        `json:"number"`
+	Name        string     `json:"name"`
+	Status      string     `json:"status"`
 	Conclusion  string     `json:"conclusion"`
-	PoolName    string     `json:"pool_name"`
-	RunnerName  string     `json:"runner_name"`
-	HTMLURL     string     `json:"html_url"`
-	Matched     bool       `json:"matched"`
-	QueuedAt    time.Time  `json:"queued_at"`
 	StartedAt   *time.Time `json:"started_at"`
 	CompletedAt *time.Time `json:"completed_at"`
-	QueueWaitMS int64      `json:"queue_wait_ms"`
-	DurationMS  int64      `json:"duration_ms"`
+}
+
+type jobEventItem struct {
+	Kind       string    `json:"kind"`
+	Source     string    `json:"source"`
+	Message    string    `json:"message"`
+	RunnerName string    `json:"runner_name"`
+	At         time.Time `json:"at"`
 }
 
 type backendInfo struct {
@@ -131,7 +193,14 @@ type hostItem struct {
 	BackendInfo   []backendInfo     `json:"backend_info"`
 	Labels        map[string]string `json:"labels"`
 	OS            string            `json:"os"`
+	Distro        string            `json:"distro"`
+	OSVersion     string            `json:"os_version"`
 	Arch          string            `json:"arch"`
+	CPUs          int               `json:"cpus"`
+	MemoryMB      int64             `json:"memory_mb"`
+	Platform      platformItem      `json:"platform"`
+	PlatformLabel string            `json:"platform_label"`
+	CanonicalName string            `json:"canonical_name"`
 	Version       string            `json:"version"`
 	Cordoned      bool              `json:"cordoned"`
 	Healthy       bool              `json:"healthy"`
@@ -249,7 +318,10 @@ type statsResponse struct {
 	QueuedJobs   int    `json:"queued_jobs"`
 	RunningJobs  int    `json:"running_jobs"`
 	Completed    int    `json:"completed"`
+	Succeeded    int    `json:"succeeded"`
 	Failed       int    `json:"failed"`
+	Cancelled    int    `json:"cancelled"`
+	Unknown      int    `json:"unknown"`
 	MedianWaitMS int64  `json:"median_wait_ms"`
 	P95WaitMS    int64  `json:"p95_wait_ms"`
 	Runners      struct {

@@ -1,3 +1,9 @@
+---
+description: >-
+  Every dependency Zoomies carries, the one-line reason it earns its place,
+  and the two that were deliberately left out.
+---
+
 # Dependencies
 
 Every dependency needs a reason. If one below stops earning its line, it should
@@ -19,8 +25,7 @@ Two things are deliberately **not** here, and both were close calls — see
 | `github.com/coreos/go-oidc/v3` | OIDC discovery and ID-token verification, including JWKS rotation. Optional feature, well-maintained library. |
 | `github.com/prometheus/client_golang` | The metrics endpoint. The exposition format has enough edge cases that hand-writing it is a false economy. |
 | `gopkg.in/yaml.v3` | `zoomies.yaml`. Strict decoding turns a misspelled key into an error naming the line. |
-| `github.com/charmbracelet/bubbletea` | The installer's TUI runtime. |
-| `github.com/charmbracelet/huh` | The installer's prompts — select, input, confirm, with validation. It is what makes `zoomies init` feel like a product rather than a script. |
+| `github.com/charmbracelet/huh` | The installer's prompts — select, input, confirm, with validation. It is what makes `zoomies init` feel like a product rather than a script. It brings `bubbletea` with it as its runtime, which is why that appears in `go.mod` as indirect and has no row of its own. |
 | `github.com/charmbracelet/lipgloss` | Styling for the installer and the CLI's table output. |
 | `golang.org/x/term` | Terminal detection, so the CLI and installer degrade to plain output when piped. |
 
@@ -46,10 +51,24 @@ Build and test only:
 | `vite`, `@sveltejs/vite-plugin-svelte` | Build and dev server. |
 | `tailwindcss`, `@tailwindcss/vite` | Utility CSS. v4's CSS-first `@theme` reads our design tokens directly, so there is exactly one source of truth for a colour. |
 | `typescript`, `svelte-check` | Types, and type checking inside `.svelte` files. |
+| `@types/node` | Node's own types, for the handful of files that run under Node rather than in the browser: `vite.config.ts`, the Playwright specs and the test harness. Without it those files typecheck against a DOM that has no `process`. |
 | `openapi-typescript` | Generates the API client's types from `api/openapi.yaml`. The UI cannot drift from the API without the build failing. |
 | `@playwright/test` | UI tests against the real binary. |
 | `eslint`, `typescript-eslint`, `eslint-plugin-svelte`, `@eslint/js`, `globals` | Linting. |
 | `prettier`, `prettier-plugin-svelte` | Formatting. |
+
+## The docs site
+
+`docs/requirements.txt`, pinned. These never reach a user's machine — they
+build [zoomies.sh](https://zoomies.sh) and nothing else.
+
+| Package | Why |
+| --- | --- |
+| `mkdocs` | Turns `docs/` into the site, so the website is the repository's own documentation rather than a second copy of it. Pinned below 2.0 deliberately; the reason is in `docs/requirements.txt`. |
+| `mkdocs-material` | The theme. It carries the search, the light/dark palettes, the tabbed blocks the quick start uses, and the Mermaid integration below. |
+| `pymdown-extensions` | The fenced-block, tabbed and admonition syntax the pages are written in, including the custom `mermaid` fence. |
+| Mermaid | Diagrams. Material fetches it from a CDN in the reader's browser, only on a page that has one, and colours it from the palette above — so a diagram lives in the Markdown beside what it explains, renders on GitHub as well, and there is no exported image to go stale. |
+| `pillow` | Encodes the screenshots in `docs/screenshots/` as lossless WebP, at under half the size of the PNGs Playwright takes. Only `make screenshots` needs it, so it is not in `docs/requirements.txt` and the site builds without it; the browser can write lossless WebP itself but compresses it six times worse. |
 
 ## Deliberate omissions
 
@@ -65,9 +84,9 @@ headers, is unit-tested.
 Those are inline SVG paths of a few dozen lines each. The smallest credible
 charting library is larger than the entire rest of the app shell.
 
-**A client-side router.** Eight routes with a couple of parameter segments does
-not need a routing library. `web/src/lib/router.ts` is small enough to read in
-one sitting and does exactly what the History API already offers.
+**A client-side router.** Seventeen routes, two of them with a parameter
+segment, do not need a routing library. `web/src/lib/router.ts` is small enough
+to read in one sitting and does exactly what the History API already offers.
 
 **A state-management library.** Svelte 5 runes are the state management library.
 

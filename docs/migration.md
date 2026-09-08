@@ -1,3 +1,10 @@
+---
+description: >-
+  Move workflows off GitHub-hosted runners: the migration wizard rewrites
+  runs-on across repositories and opens one pull request each, showing the
+  diff first.
+---
+
 # Moving repositories onto your runners
 
 You have a fleet. Your workflows still say `runs-on: ubuntu-latest`, in every
@@ -9,14 +16,21 @@ Open it at **Migrate** in the navigation, or `g` then `m`.
 
 ## What it does
 
+![The migration wizard's review step: the exact diff for one repository, changing runs-on from ubuntu-latest to the pool's labels, and the jobs it will not touch](screenshots/migrate-dark.webp#only-dark){ .zoomies-shot }
+![The migration wizard's review step: the exact diff for one repository, changing runs-on from ubuntu-latest to the pool's labels, and the jobs it will not touch](screenshots/migrate-light.webp#only-light){ .zoomies-shot }
+
 1. **Reads.** It lists the repositories your GitHub App installation can see and
    reads the workflow files at the top of each one's `.github/workflows`. A large
    organisation is read a page at a time — **Read the next page** appends to the
    list rather than replacing it, so you end up looking at one list of everything
    you have looked at, with the choices you made on the way still ticked.
-2. **Proposes.** For every GitHub-hosted label it found — `ubuntu-latest`,
-   `ubuntu-24.04-arm`, `macos-14` — it proposes the pool that promises the same
-   operating system and architecture.
+2. **Proposes.** For every rented-runner label it found — GitHub's own
+   (`ubuntu-latest`, `ubuntu-24.04-arm`, `macos-14`) and the vendors that sit in
+   front of Actions (`blacksmith-4vcpu-ubuntu-2404`, `buildjet-4vcpu-ubuntu-2204`,
+   `warp-ubuntu-latest-x64-4x`, `nscloud-…`, `depot-…`, `ubicloud-…`) — it
+   proposes the pool that promises the same operating system and architecture.
+   A vendor's machines are the bill this fleet exists to replace, so its labels
+   are as migratable as GitHub's.
 3. **Shows you.** A unified diff of every file it would change, and every job it
    would not, with the reason.
 4. **Opens.** One pull request per repository, each on its own branch, changing
@@ -24,22 +38,34 @@ Open it at **Migrate** in the navigation, or `g` then `m`.
 
 Nothing before step four writes anything.
 
+```mermaid
+flowchart LR
+    read["read every workflow the<br/>installation can see"] --> dec{"what does<br/>runs-on say?"}
+    dec -->|"a hosted label you mapped"| rw["rewrite that one line"]
+    dec -->|"a matrix expression"| skip["left alone,<br/>and the reason recorded"]
+    dec -->|"already self-hosted"| skip
+    dec -->|"a label you invented"| skip
+    dec -->|"a hosted label you did not map"| skip
+    rw --> rev["review: the exact diff,<br/>nothing written yet"]
+    skip --> rev
+    rev --> pr["one pull request per repository,<br/>each on its own branch"]
+```
+
 ## Choosing what moves
 
 Two things are true of any organisation, and the repository step is shaped
 around them.
 
-Most repositories have nothing to move — no workflows, or workflows already
-pointed somewhere deliberate. Those are **hidden by default**, with a count of
-how many, and the switch above the list shows them again: "acme/docs has no
-workflows" is an answer worth being able to check, but it is not what this step
-is for.
+Most repositories cannot move — the App cannot read them, they have no
+workflows, or their jobs already point somewhere deliberate. Those are **hidden
+by default**, with a count of how many, and the switch above the list shows them
+again: "acme/docs has no workflows" is an answer worth being able to check, but
+it is not what this step is for.
 
-The ones that do have something to move often have several workflow files, and a
-release or a nightly is exactly the one to leave on GitHub's runners. A
-repository with more than one file to change can be opened up and **picked
-through file by file**; the review step then shows only the files you ticked,
-and the pull request touches only those.
+The ones that can move often have several workflow files, and a release or a
+nightly is exactly the one to leave where it is. A repository with more than one
+such file can be opened up and **picked through file by file**; the review step
+then shows only the files you ticked, and the pull request touches only those.
 
 ## What it changes, and what it will not
 
@@ -63,8 +89,8 @@ Four things it leaves alone, and says so:
 | --- | --- | --- |
 | `runs-on: ${{ matrix.os }}` | Skips it | What it resolves to is decided elsewhere in the file, or in a reusable workflow, or by a repository variable. |
 | `runs-on: [self-hosted, linux]` | Skips it | Somebody already pointed this job somewhere deliberate. |
-| `runs-on: buildjet-4vcpu-ubuntu-2204` | Skips it | Not one of GitHub's labels, so it is another vendor's or your own. |
-| A hosted label you did not map | Skips it | You chose to leave it on GitHub's runners. |
+| `runs-on: acme-bigbox` | Skips it | Not a label any hosted-runner vendor publishes, so it is a runner group or a fleet of your own. |
+| A rented label you did not map | Skips it | You chose to leave those jobs where they are. |
 
 Each skip is listed in the review step and again in the pull request body, so
 whoever reviews the change can see which jobs are still running on GitHub after
@@ -91,7 +117,7 @@ pool for yet.
 ## Permissions
 
 This is the only thing in Zoomies that writes to a repository, and it needs
-three App permissions the rest of Zoomies deliberately does not ask for:
+three App permissions the rest of Zoomies has no use for:
 
 | Permission | Level | Why |
 | --- | --- | --- |
@@ -99,9 +125,18 @@ three App permissions the rest of Zoomies deliberately does not ask for:
 | Pull requests | read and write | To open the pull request. |
 | Workflows | write | GitHub requires it specifically to change files under `.github/workflows`. |
 
-They are not in the App manifest the installer builds, because an App that
-manages a fleet's runners is a high-value credential and most fleets never
-migrate anything. Add them yourself, once, when you want to:
+They are in the App manifest the installer builds, so an App created by Zoomies
+already has them and there is nothing to do. Asking at creation is a deliberate
+trade: an App that manages a fleet's runners is a high-value credential and most
+fleets never migrate anything, but adding a permission to an App that already
+exists is not a setting you can flip. GitHub holds the change until the
+account's owner accepts it on the installation, and until they do the wizard
+cannot even *read* a workflow — it reports every repository as unreadable, which
+looks like a broken product rather than a missing permission. One consent
+screen, at the point you are already reading one, is the honest version.
+
+If your App predates this — or you removed them, which is a reasonable thing to
+do in a fleet that will never migrate — add them once:
 
 1. Open the App's settings — the review step links straight to the page.
 2. **Permissions & events**, set the three above.
@@ -173,5 +208,7 @@ reach.
 Nothing else to do. The next `workflow_job` webhook for that repository arrives
 with your pool's label on it, the scheduler matches it, and a runner starts. If
 a job queues and nothing happens, the **Jobs** page has an "unmatched" filter
-that finds jobs no pool claims and says why — usually a label typo, or a pool
-that is disabled.
+that finds *queued* jobs no pool claims and says why — usually a label typo, or a
+pool that is disabled. A job that already ran is never listed there, however its
+labels read: half-migrated repositories are the normal state of a migration, and
+their jobs run on somebody else's machines rather than being stuck.

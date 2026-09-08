@@ -226,6 +226,91 @@ func TestEventStreamEndsWhenTheClientGoesAway(t *testing.T) {
 	t.Fatalf("subscribers = %d after the client went away, want %d", h.ctrl.Events().Subscribers(), before)
 }
 
+// TestARunnerThatPrintsMoreThanTheBodyLimitIsNotCutOff is the log relay's
+// exemption from the request body limit, asserted on a stream that is really
+// open -- which is the only place it shows. A relay for a stream nobody is
+// watching is refused before its body is read, so it answers the same whether
+// the limit applies to it or not.
+//
+// The exemption matters because the body here is not a request, it is a
+// runner's whole output for as long as the job runs. Applying the ordinary
+// limit would cut off every build that prints more than a megabyte, and it
+// would do it by tearing down the operator's log view mid-build.
+func TestARunnerThatPrintsMoreThanTheBodyLimitIsNotCutOff(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+
+	hostID, agentToken := h.agentToken("vm-1")
+	host, err := h.st.GetHost(h.ctx, hostID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	run := h.runner(pool, host, store.RunnerBusy)
+
+	u, _ := h.user("viewer", store.RoleViewer)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	frames, resp := h.openStream(t, ctx, "/api/v1/runners/"+run.ID+"/logs", h.session(u), nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("log stream status %d", resp.StatusCode)
+	}
+	await(t, frames, "the attach comment", func(f sseFrame) bool { return f.comment != "" })
+
+	tasks := h.do(request{method: http.MethodGet, path: "/api/v1/agent/tasks?wait=2", token: agentToken})
+	tasks.mustStatus(t, http.StatusOK, "agent task poll")
+	var batch struct {
+		Tasks []struct {
+			Kind     string `json:"kind"`
+			StreamID string `json:"stream_id"`
+		} `json:"tasks"`
+	}
+	tasks.into(t, &batch)
+	streamID := ""
+	for _, task := range batch.Tasks {
+		if task.Kind == "stream_logs" {
+			streamID = task.StreamID
+		}
+	}
+	if streamID == "" {
+		t.Fatalf("no stream_logs task was queued: %+v", batch.Tasks)
+	}
+
+	// A verbose build: comfortably over the limit an ordinary request gets,
+	// with the marker at the very end so that finding it proves the whole body
+	// was read rather than the first megabyte of it.
+	const marker = "the last line of a very talkative build"
+	verbose := strings.Repeat("a line of build output that goes on a bit\n", (maxBodyBytes/42)+1024) + marker + "\n"
+	if len(verbose) <= maxBodyBytes {
+		t.Fatalf("the fixture is %d bytes, which is inside the %d byte limit it is meant to exceed", len(verbose), maxBodyBytes)
+	}
+
+	done := make(chan *response, 1)
+	go func() {
+		done <- h.do(request{
+			method: http.MethodPost, path: "/api/v1/agent/logs/" + streamID,
+			token: agentToken, headers: map[string]string{"Content-Type": "application/octet-stream"},
+			rawBody: verbose,
+		})
+	}()
+
+	await(t, frames, "the end of a body over the limit", func(f sseFrame) bool {
+		if f.event != logChunkKind {
+			return false
+		}
+		var line string
+		if err := json.Unmarshal([]byte(f.data), &line); err != nil {
+			return false
+		}
+		return strings.Contains(line, marker)
+	})
+
+	if post := <-done; post.status != http.StatusNoContent && post.status != http.StatusOK {
+		t.Errorf("the agent's oversize log POST answered %d: %s", post.status, truncate(post.body))
+	}
+}
+
 // TestRunnerLogStream relays an agent's output to a watching browser. It is the
 // inverted path: the viewer's request queues a task, the agent answers it with
 // a chunked POST, and the bytes come back out here.
@@ -304,4 +389,178 @@ func TestLogStreamForAnUnknownRunnerIs404(t *testing.T) {
 	u, _ := h.user("viewer", store.RoleViewer)
 	resp := h.do(request{method: http.MethodGet, path: "/api/v1/runners/run_nope/logs", cookie: h.session(u)})
 	resp.mustStatus(t, http.StatusNotFound, "logs for an unknown runner")
+}
+
+// A reconnecting client whose gap the server cannot replay used to be handed
+// nothing and told nothing: after a controller restart its last id was a
+// number from another sequence, so nothing matched, and the tab quietly showed
+// a fleet that no longer existed. The first frame now says so.
+func TestEventStreamSaysWhenItCannotReplayTheGap(t *testing.T) {
+	h := newHarness(t)
+	u, _ := h.user("viewer", store.RoleViewer)
+	cookie := h.session(u)
+	bus := h.ctrl.Events()
+	bus.Publish(events.KindPoolCreated, "pool:a", map[string]any{"id": "a"})
+
+	t.Run("an id from another run of the controller", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		frames, _ := h.openStream(t, ctx, "/api/v1/events", cookie, map[string]string{
+			"Last-Event-ID": "previousrun.7",
+		})
+		got := await(t, frames, "the first event frame", func(f sseFrame) bool { return f.event != "" })
+		if got.event != string(events.KindResync) {
+			t.Fatalf("first frame after a restart = %q, want resync", got.event)
+		}
+		if got.id != "" {
+			t.Fatalf("the resync frame carried an id (%q); it must leave the client's last id alone", got.id)
+		}
+	})
+
+	t.Run("an id this run still holds is replayed without a resync", func(t *testing.T) {
+		first := bus.LastID()
+		bus.Publish(events.KindPoolUpdated, "pool:b", map[string]any{"id": "b"})
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		frames, _ := h.openStream(t, ctx, "/api/v1/events", cookie, map[string]string{
+			"Last-Event-ID": bus.WireID(first),
+		})
+		got := await(t, frames, "the replayed event", func(f sseFrame) bool { return f.event != "" })
+		if got.event != string(events.KindPoolUpdated) {
+			t.Fatalf("first frame on a covered reconnect = %q, want the replayed pool.updated", got.event)
+		}
+		if got.id != bus.WireID(bus.LastID()) {
+			t.Fatalf("event id = %q, want the epoch-qualified %q", got.id, bus.WireID(bus.LastID()))
+		}
+	})
+}
+
+// TestAStreamEndsWhenItsCredentialIsRevoked is the thing a live stream had that
+// no other route did: an authorisation decision taken once and then held for as
+// long as the tab was open.
+//
+// Signing out, revoking the token, disabling the account or letting the session
+// expire all left the stream running -- every movement of the fleet still
+// arriving at a browser whose credential the operator had just taken away,
+// until something else happened to break the connection. Every other route
+// re-checks on every request; a stream's heartbeat is the closest thing it has
+// to one.
+func TestAStreamEndsWhenItsCredentialIsRevoked(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// revoke takes the credential away by the route an operator would.
+		revoke func(t *testing.T, h *harness, u *store.User, cookie, adminCookie string)
+	}{
+		{"signing out", func(t *testing.T, h *harness, _ *store.User, cookie, _ string) {
+			h.do(request{method: http.MethodPost, path: "/api/v1/auth/logout", cookie: cookie}).
+				mustStatus(t, http.StatusNoContent, "logout")
+		}},
+		{"the account being disabled", func(t *testing.T, h *harness, u *store.User, _, adminCookie string) {
+			h.do(request{method: http.MethodPatch, path: "/api/v1/users/" + u.ID,
+				cookie: adminCookie, body: map[string]any{"disabled": true}}).
+				mustStatus(t, http.StatusOK, "disable")
+		}},
+		{"the account being deleted", func(t *testing.T, h *harness, u *store.User, _, adminCookie string) {
+			h.do(request{method: http.MethodDelete, path: "/api/v1/users/" + u.ID, cookie: adminCookie}).
+				mustStatus(t, http.StatusNoContent, "delete")
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			// An admin who stays signed in, so the revoking call has a caller
+			// and the last-admin invariant is never the thing that refuses it.
+			admin, _ := h.user("root", store.RoleAdmin)
+			adminCookie := h.session(admin)
+			watcher, _ := h.user("watcher", store.RoleOperator)
+			cookie := h.session(watcher)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			frames, resp := h.openStream(t, ctx, "/api/v1/events", cookie, nil)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("event stream status %d", resp.StatusCode)
+			}
+			await(t, frames, "the attach comment", func(f sseFrame) bool { return f.comment != "" })
+
+			tc.revoke(t, h, watcher, cookie, adminCookie)
+
+			end := await(t, frames, "an end frame", func(f sseFrame) bool { return f.event == "end" })
+			if !strings.Contains(end.data, "sign in again") {
+				t.Errorf("the end frame does not say what to do about it: %q", end.data)
+			}
+			// And the response really ends, rather than the frame being sent
+			// into a connection that stays open.
+			for range frames {
+			}
+		})
+	}
+}
+
+// The log stream is authorised on a different action, and holds a relay open on
+// a host for as long as it runs -- so a revoked credential there costs a machine
+// something, not just a browser.
+func TestALogStreamEndsWhenItsCredentialIsRevoked(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	hostID, _ := h.agentToken("vm-1")
+	host, err := h.st.GetHost(h.ctx, hostID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	run := h.runner(pool, host, store.RunnerBusy)
+
+	u, _ := h.user("viewer", store.RoleViewer)
+	cookie := h.session(u)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	frames, resp := h.openStream(t, ctx, "/api/v1/runners/"+run.ID+"/logs", cookie, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("log stream status %d", resp.StatusCode)
+	}
+	await(t, frames, "the attach comment", func(f sseFrame) bool { return f.comment != "" })
+
+	h.do(request{method: http.MethodPost, path: "/api/v1/auth/logout", cookie: cookie}).
+		mustStatus(t, http.StatusNoContent, "logout")
+
+	end := await(t, frames, "an end frame", func(f sseFrame) bool { return f.event == "end" })
+	if !strings.Contains(end.data, "sign in again") {
+		t.Errorf("the end frame does not say what to do about it: %q", end.data)
+	}
+}
+
+// The other half, which a check that ended every stream would also pass: a
+// credential that is still good keeps its stream.
+func TestALiveStreamSurvivesItsOwnHeartbeat(t *testing.T) {
+	h := newHarness(t)
+	u, _ := h.user("watcher", store.RoleOperator)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	frames, resp := h.openStream(t, ctx, "/api/v1/events", h.session(u), nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event stream status %d", resp.StatusCode)
+	}
+
+	// Several heartbeats' worth. Any of them re-checks the credential, and a
+	// stream that ended here would be one nobody could keep open at all.
+	beats := 0
+	deadline := time.After(5 * time.Second)
+	for beats < 3 {
+		select {
+		case f, ok := <-frames:
+			if !ok {
+				t.Fatal("the stream ended though the credential is still good")
+			}
+			if f.event == "end" {
+				t.Fatalf("the stream ended on a live credential: %q", f.data)
+			}
+			if f.event == string(events.KindHeartbeat) {
+				beats++
+			}
+		case <-deadline:
+			t.Fatalf("only %d heartbeats arrived", beats)
+		}
+	}
 }

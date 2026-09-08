@@ -204,12 +204,7 @@
         Object.assign(next, result.mapping ?? {});
         mapping = next;
       }
-      if (!narrowed) {
-        // Default to every file that would actually change, in the
-        // repositories this scan brought in. Choices already made elsewhere in
-        // the list are left alone.
-        chooseByDefault(result.repositories ?? []);
-      }
+      if (!narrowed) chooseByDefault(result.repositories ?? []);
       return true;
     } catch (cause) {
       report(cause, 'The repositories could not be read.');
@@ -256,14 +251,23 @@
     return { ...fresh, repositories: kept };
   }
 
-  /** Ticks every file that would change in these repositories. */
+  /**
+   * Ticks every workflow file that asks for a rented runner, in the
+   * repositories a scan has just brought in.
+   *
+   * On the labels, not on "would change under the mapping so far": the mapping
+   * is chosen on the step after this one, so ticking on what the server's
+   * provisional mapping already rewrites would hide from an operator the very
+   * files they came here to map. Choices already made elsewhere in the list are
+   * left alone.
+   */
   function chooseByDefault(repos: readonly MigrationRepo[]): void {
     const next = { ...selection };
     for (const repo of repos) {
       const name = repo.repo ?? '';
-      if (!name || name in next) continue;
+      if (!name || name in next || repo.error) continue;
       const paths = (repo.workflows ?? [])
-        .filter((w) => (w.rewrites ?? []).length > 0)
+        .filter((w) => (w.hosted_labels ?? []).length > 0)
         .map((w) => w.path ?? '')
         .filter(Boolean);
       if (paths.length > 0) next[name] = paths;
@@ -455,7 +459,7 @@
   .failure {
     margin: 0 0 var(--z-space-4);
     padding: var(--z-space-3) var(--z-space-4);
-    border: 1px solid var(--z-danger-border);
+    border: var(--z-border-width) solid var(--z-danger-border);
     border-radius: var(--z-radius-md);
     background: var(--z-danger-subtle);
     color: var(--z-danger);

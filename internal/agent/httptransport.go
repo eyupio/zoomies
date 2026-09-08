@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
 )
 
@@ -41,6 +42,22 @@ var ErrRetryable = errors.New("agent: transient failure talking to the controlle
 // HeaderHostID carries the agent's host ID alongside its bearer token, so that
 // a controller log line can name the host without first looking the token up.
 const HeaderHostID = "X-Zoomies-Host"
+
+// HeaderAgentSession carries the identity of the agent *process*, minted fresh
+// when it starts and never reused.
+//
+// It is what makes a duplicated credential visible. A cloned VM or a copied
+// state directory gives two agents one host id, and from the controller's side
+// they are indistinguishable -- both hold a valid token for that host and both
+// report real work. What they cannot hide is handing the session back and
+// forth: a single agent moves its session forward when it restarts and never
+// back, so a session this host has already left behind can only be a second
+// one still running.
+//
+// A header rather than a field because the runner report's body is a bare JSON
+// array, and the alternative was three body shapes changing instead of one
+// place that every authenticated agent request already passes through.
+const HeaderAgentSession = "X-Zoomies-Agent-Session"
 
 // Sizes and deadlines for the request path.
 const (
@@ -79,6 +96,12 @@ type HTTPOptions struct {
 	// InsecureSkipVerify disables verification entirely. Every construction
 	// with it set logs what it costs.
 	InsecureSkipVerify bool
+	// AllowInsecureHTTP permits an http:// controller URL that is not on
+	// loopback. It is refused by default: the agent token rides on every
+	// request, and the JIT runner configuration in a create task is a live
+	// registration credential for the organisation's runner group, so a
+	// plaintext hop hands both to anyone on the path.
+	AllowInsecureHTTP bool
 	// HTTPClient replaces the transport's own client. Tests use it; production
 	// leaves it nil so that the TLS settings above take effect.
 	HTTPClient *http.Client
@@ -95,6 +118,12 @@ type HTTPTransport struct {
 	base string
 	http *http.Client
 	log  *slog.Logger
+
+	// session identifies this agent process for the life of it. It is minted
+	// here rather than passed in because "one agent process" is exactly what a
+	// transport is, and it is never rotated: an id that changed under a
+	// running agent would look like the duplicate it exists to find.
+	session string
 
 	mu         sync.RWMutex
 	hostID     string
@@ -126,6 +155,19 @@ func NewHTTPTransport(opts HTTPOptions) (*HTTPTransport, error) {
 	}
 	log = log.With("component", "agent.transport")
 
+	if strings.EqualFold(u.Scheme, "http") && !isLoopbackHost(u.Hostname()) {
+		if !opts.AllowInsecureHTTP {
+			return nil, fmt.Errorf("agent: refusing to talk to %s over plain HTTP: this agent's token and the runner "+
+				"registration credentials in every create task would cross the network in the clear. "+
+				"Use https://, or set agent.allow_insecure_http (ZOOMIES_AGENT_ALLOW_INSECURE_HTTP=true) if the hop is "+
+				"already private and you accept that", raw)
+		}
+		log.Warn("talking to the controller over plain HTTP",
+			"controller", raw,
+			"cost", "this agent's token and every runner's registration credentials cross the network in the clear",
+			"fix", "use https://, or terminate TLS closer to this host")
+	}
+
 	tlsCfg, err := buildTLSConfig(opts, u, log)
 	if err != nil {
 		return nil, err
@@ -153,10 +195,25 @@ func NewHTTPTransport(opts HTTPOptions) (*HTTPTransport, error) {
 	}
 
 	return &HTTPTransport{
-		base: strings.TrimSuffix(u.String(), "/"),
-		http: client,
-		log:  log,
+		base:    strings.TrimSuffix(u.String(), "/"),
+		http:    client,
+		log:     log,
+		session: "ses_" + store.NewSecret(8),
 	}, nil
+}
+
+// isLoopbackHost reports whether a URL's host names this machine, which is the
+// one case where plain HTTP carries nothing off the box.
+//
+// "localhost" is matched by name as well as by address because that is what an
+// operator types, and it is required to resolve to a loopback address.
+func isLoopbackHost(host string) bool {
+	host = strings.TrimSpace(strings.Trim(host, "[]"))
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // buildTLSConfig turns the operator's certificate settings into a tls.Config,
@@ -335,6 +392,7 @@ func (t *HTTPTransport) call(ctx context.Context, r request) (int, error) {
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set(HeaderHostID, hostID)
+		req.Header.Set(HeaderAgentSession, t.session)
 	}
 
 	resp, err := t.http.Do(req)

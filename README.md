@@ -1,25 +1,44 @@
 <div align="center">
 
-<img src="docs/brand/logo-master-dark.png" alt="Zoomies" width="260">
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/brand/logo-master-dark.png">
+  <img src="docs/brand/logo-light-background.png" alt="Zoomies: a cocker spaniel curling through a circular motion path, above the wordmark" width="260">
+</picture>
 
 # Zoomies
 
 **Off the lead, on the job.**
 
-A lightweight, self-hosted GitHub Actions runner fleet controller.
+A lightweight, self-hosted GitHub Actions runner fleet controller.<br>
 Ephemeral runners by default, GitHub App auth, webhook-driven autoscaling,
 multi-host agents, a live web UI, and a one-line installer.
 
-Single Go binary. SQLite. No Kubernetes.
+Single Go binary. SQLite. No Kubernetes. AGPL-3.0 licensed.
 
-[zoomies.sh](https://zoomies.sh) ·
-[Quick start](#quick-start) ·
-[How it works](docs/architecture.md) ·
-[Migrating](docs/migration.md) ·
-[Security](docs/security.md) ·
-[Configuration](docs/configuration.md) ·
-[API](docs/api-surface.md) ·
-[Brand](docs/brand.md)
+[![CI](https://github.com/eyupio/zoomies/actions/workflows/ci.yml/badge.svg)](https://github.com/eyupio/zoomies/actions/workflows/ci.yml)
+[![Website](https://github.com/eyupio/zoomies/actions/workflows/docs.yml/badge.svg)](https://zoomies.sh)
+[![Latest release](https://img.shields.io/github/v/release/eyupio/zoomies?display_name=tag&color=2F80ED&labelColor=080808)](https://github.com/eyupio/zoomies/releases/latest)
+[![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-2F80ED?labelColor=080808)](LICENSE)
+
+```sh
+curl -fsSL https://zoomies.sh/install.sh | sh
+```
+
+**[zoomies.sh](https://zoomies.sh)** ·
+[Quick start](https://zoomies.sh/quickstart/) ·
+[Architecture](https://zoomies.sh/architecture/) ·
+[Configuration](https://zoomies.sh/configuration/) ·
+[Migrating](https://zoomies.sh/migration/) ·
+[Security](https://zoomies.sh/security/) ·
+[API](https://zoomies.sh/api-surface/) ·
+[FAQ](https://zoomies.sh/faq/)
+
+<br>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/overview-dark.webp">
+  <img src="docs/screenshots/overview-light.webp" alt="The Overview: four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words" width="100%">
+</picture>
 
 </div>
 
@@ -27,13 +46,20 @@ Single Go binary. SQLite. No Kubernetes.
 
 ## What it does
 
-You point Zoomies at a GitHub organisation. It watches for queued jobs, starts a
-fresh runner for each one, and destroys the runner when the job finishes.
+You point Zoomies at a GitHub organisation, or at a repository on a personal
+account. It watches for queued jobs, starts a fresh runner for each one, and
+destroys the runner when the job finishes.
 
-```
-  job queued ──▶ webhook ──▶ scheduler decides ──▶ agent starts a container
-                                                        │
-  job done ◀── runner exits ◀── GitHub assigns the job ◀─┘
+```mermaid
+flowchart LR
+    q["a job is queued<br/>on GitHub"]
+    w["workflow_job<br/>webhook"]
+    d["the scheduler decides,<br/>and says why"]
+    s["an agent starts<br/>a runner container"]
+    a["GitHub hands<br/>the job to it"]
+    e["the job finishes,<br/>the container is destroyed"]
+
+    q --> w --> d --> s --> a --> e
 ```
 
 * **Ephemeral by default.** One job per runner. Nothing leaks from one workflow
@@ -42,8 +68,10 @@ fresh runner for each one, and destroys the runner when the job finishes.
   single-use JIT registrations itself. github.com and Enterprise Server.
 * **Event-driven.** `workflow_job` webhooks, with polling only as a fallback so
   a misconfigured webhook does not silently stop your fleet.
-* **Multi-host.** One controller, any number of agents. Agents connect outbound
-  only, so a host behind NAT needs no inbound rule.
+* **Multi-host, multi-OS.** One controller, any number of agents. Agents connect
+  outbound only, so a host behind NAT needs no inbound rule. Runner images for
+  Ubuntu 24.04 and 22.04, Debian 12, Fedora and Rocky Linux, on amd64 and arm64,
+  and a pool is only ever placed on a host that matches the one it asked for.
 * **Actually observable.** SQLite for state, Prometheus metrics, structured
   logs, live log streaming, job history with queue waits, and an audit row for
   every mutating action.
@@ -58,54 +86,99 @@ Five minutes on a fresh Ubuntu, Debian, Fedora or Alpine host.
 curl -fsSL https://zoomies.sh/install.sh | sh
 ```
 
-The script detects your OS, architecture, container runtime and init system,
-then hands off to `zoomies init`, which walks you through:
+The script checks what it needs before it downloads anything — the platform it
+is fetching for, whether the install prefix can be written and with what,
+whether there is a terminal to run setup on — shows you what it is about to do,
+and asks once. Then it hands off to `zoomies init`.
+
+**How setup finishes depends on how you choose to run Zoomies**, and that is the
+one fork worth knowing about before you start. Compose is the default whenever
+you have a `compose` command:
+
+#### Native — finishes in the terminal
 
 1. **Install mode** — single VM with an embedded agent, controller only, or
    agent only.
-2. **Binary** — downloaded to `/usr/local/bin` and checksum-verified.
-3. **Service user and directories** — a dedicated unprivileged `zoomies` user.
-4. **Backend** — rootless Docker if it finds one, otherwise Docker, Podman or
-   bare process, with the trade-off spelled out.
-5. **Bind address and TLS** — loopback, a certificate you provide, a self-signed
-   one, or reverse-proxy mode.
-6. **GitHub App** — opens your browser at a pre-filled App manifest with exactly
-   the permissions Zoomies needs and the webhook URL already set. Create it, and
-   the credentials come back to the installer automatically.
-7. **First admin account.**
-8. **Service** — a hardened systemd unit (or launchd, or a printed
-   `docker-compose.yml`), started and health-checked.
+2. **Service user and directories** — a dedicated unprivileged `zoomies` user.
+3. **Backend** — rootless Docker if it finds one, otherwise Docker, Podman or
+   bare process, with the trade-off on every option.
+4. **Bind address and TLS** — loopback, a certificate you provide, a
+   self-signed one, or reverse-proxy mode.
+5. **Review** — the whole plan and the exact files it will write, before
+   anything is written. Install, change an answer, or stop.
+6. **GitHub App** — opens your browser at a pre-filled App manifest with
+   exactly the permissions Zoomies needs and the webhook URL already set.
+   Create it, and the credentials come back to the installer automatically.
+7. **First admin account**, and a **first pool** sized for the host.
+8. **Service** — a hardened systemd unit (or launchd), started and
+   health-checked.
 
-It finishes by telling you the URL, your login, and a first pool suggestion
-based on the host's architecture and backend.
+It finishes with the URL, your login, and the `runs-on:` line to put in a
+workflow.
 
-Prefer to read it first? That is the intended way:
+#### Compose or Docker — finishes in the browser
 
-```sh
-curl -fsSLO https://zoomies.sh/install.sh
-less install.sh
-sh install.sh
-```
+The same questions up to the review, then it writes the deployment
+(`docker-compose.yml` and a fully populated `.env`, or one container and an
+env file) and brings it up. The database lives in a volume this installer
+cannot open, so the last three steps happen in the browser instead: create
+the first administrator, connect GitHub, create a pool. The closing summary
+prints all three with their exact addresses, and the Overview repeats them
+as a checklist that ticks itself off.
 
-Automating it? Every prompt has a flag:
-
-```sh
-sh install.sh --non-interactive --answers zoomies-answers.yaml
-```
+Prefer to read it first? That is the intended way, and
+[the quick start](docs/quickstart.md#1-install) has the three lines that
+download it, page through it and then run it. Automating it instead? Every
+prompt has a flag and the rest has an answer file:
+[unattended installs](docs/quickstart.md#unattended-installs).
 
 ### Docker Compose instead
 
 ```sh
 git clone https://github.com/eyupio/zoomies && cd zoomies
 cp .env.example .env
-$EDITOR .env          # set ZOOMIES_ENCRYPTION_KEY
-mkdir -p data && chown 65532:65532 data   # the container runs as 65532
+$EDITOR .env          # ZOOMIES_EXTERNAL_URL, ZOOMIES_ENCRYPTION_KEY, DOCKER_GID
+mkdir -p data && sudo chown 65532:65532 data   # the container runs as 65532
 docker compose up -d
+docker compose logs zoomies | grep 'setup token'
 ```
 
-The database and the runners' work area live in `./data` beside the compose
-file, so a backup is a copy of a directory. It has to be owned by uid 65532: a
-bind mount keeps the host directory's ownership, and the container is not root.
+Then open the controller, paste that token, and create the first administrator.
+The token is what proves the instance is yours: the origin is reachable the
+moment the container starts, and an empty database is a thing a stranger can
+find too. It changes on every restart and stops being printed once an account
+exists. (The installer above creates the administrator on the console, so it
+never needs one.)
+
+Three values are required, and compose will not start without them:
+
+* `ZOOMIES_EXTERNAL_URL` — the https address you and GitHub reach the
+  controller at. Webhooks are delivered there, and creating the GitHub App
+  sends your browser back there.
+* `ZOOMIES_ENCRYPTION_KEY` — `openssl rand -base64 32`. Back it up; without it
+  the stored App key cannot be read.
+* `DOCKER_GID` — the gid that owns `/var/run/docker.sock`, which
+  `stat -c '%g' /var/run/docker.sock` prints. It is not always the group called
+  `docker`. The container is put in that group so it can create runner
+  containers; with the wrong number it comes up healthy and can start nothing.
+  If that happens, the Hosts page says which group the container holds and
+  which line to change, and `docker compose up -d` recreates it. If `stat`
+  prints `0`, the socket belongs to root's group: give it a group of its own
+  (`sudo groupadd docker`, then restart the daemon) or use a rootless daemon
+  rather than putting the container in group 0.
+
+The database lives in `./data` beside the compose file, so a backup is a copy
+of a directory. It has to be owned by uid 65532: a bind mount keeps the host
+directory's ownership, and the container is not root, so the `chown` needs
+`sudo`.
+
+Open the https address, not `http://<ip>`: the session cookie is marked Secure
+because the external URL is https, and a browser on a plain-http page throws
+it away. Zoomies refuses to sign you in from such a page and says why.
+
+This path has no `zoomies init`, so nothing creates a pool for you. Once
+GitHub is connected, make the first one on the **Pools** page; nothing runs
+until a pool exists.
 
 The compose file is set up for running behind Cloudflare: the origin serves
 plain HTTP on port 80 and Cloudflare terminates TLS, with `ZOOMIES_EXTERNAL_URL`
@@ -117,32 +190,24 @@ use a Tunnel and publish no port at all. See
 
 ### Add another host
 
-Generate a join token in the UI (**Hosts → Add a host**) or on the CLI, then run
-the one line it gives you on the new machine:
-
-```sh
-curl -fsSL https://zoomies.sh/install.sh | sh -s -- \
-  --mode agent \
-  --controller https://zoomies.example.com \
-  --join-token zoojoin_...
-```
+**Hosts → Add a host** comes filled in from what the controller already knows
+and hands you one line to paste on the new machine; leave the page open and it
+says the moment the host has joined. The token is single-use, and the agent
+dials out rather than being dialled, so nothing has to be opened on either
+firewall. The [quick start](docs/quickstart.md#adding-another-host) has the line
+itself.
 
 ## Your first pool
 
-A pool says what labels your runners answer to and how many may exist.
-On a single-host install, setup creates this one for you once GitHub is
-connected -- it is derived from what the host actually is, so the numbers below
-are what you get on a 4-CPU Linux box with Docker:
-
-| | |
-| --- | --- |
-| **Name** | `zoomies-linux-x64` |
-| **Labels** | `zoomies-linux-x64`, and `zoomies` like every pool |
-| **Backend** | Docker (rootless if available) |
-| **Min / max** | `0` / `4` — nothing idle when nothing is queued; the max is the host's capacity |
-| **Idle timeout** | `5m` |
-| **Ephemeral** | yes |
-| **Docker in jobs** | none |
+A pool says what labels your runners answer to and how many may exist. On a
+single-host install, setup creates one for you once GitHub is connected, derived
+from what the host actually is: named after the platform, capped at the
+machine's capacity, nothing kept idle when nothing is queued, ephemeral, and
+Docker with no socket reachable from the job. The
+[quick start](docs/quickstart.md#4-your-first-pool) has the settings it lands
+on. A workflow that builds images needs one more thing from its pool, *Docker
+in jobs* set to `dind`, and that is the whole change: the pool is switched to
+a runner image with a Docker client as it is saved.
 
 Then in a workflow:
 
@@ -158,11 +223,10 @@ jobs:
 Push it. Zoomies sees the `workflow_job` webhook, starts a runner, and you watch
 the whole thing happen on the Overview page without refreshing.
 
-One label is enough, and it is branded on purpose: a reviewer of the pull request
-that introduces it can tell at a glance that the job has left GitHub's runners.
-Every pool also answers to `zoomies`, so `runs-on: zoomies` means "anywhere in
-this fleet" — the line to write before anyone has decided which pool a repository
-belongs in.
+One label is enough, and it is branded on purpose: a reviewer can tell at a
+glance that the job has left GitHub's runners. [The labels to give a
+pool](docs/configuration.md#the-labels-to-give-a-pool) has the rest, including
+the `zoomies` label every pool answers to.
 
 ## Moving your repositories over
 
@@ -182,13 +246,51 @@ it tries anything. See [docs/migration.md](docs/migration.md).
 
 ## The UI
 
-Nine pages, one job each: **Overview** (fleet health, queue depth, scaling
+Ten pages, one job each: **Overview** (fleet health, queue depth, scaling
 decisions in plain words, and a problems panel that is quiet when nothing is
-wrong), **Pools**, **Runners**, **Jobs**, **Hosts**, **Installations**,
-**Migrate**, **Audit**, **Settings**.
+wrong), **Pools**, **Runners**, **Jobs**, **Usage**, **Hosts**,
+**Installations**, **Migrate**, **Audit**, **Settings**.
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/problems-dark.webp">
+  <img src="docs/screenshots/problems-light.webp" alt="The problems drawer open over the Overview, each entry saying what is true, why it matters and what to change" width="100%">
+</picture>
+      <p align="center"><sub>The problems drawer: what is true, why it matters, what to change.</sub></p>
+    </td>
+    <td width="50%" valign="top">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/job-dark.webp">
+  <img src="docs/screenshots/job-light.webp" alt="A failed job's drawer: the failing step named at the top, then the job's details, its steps with timings and a link to the run" width="100%">
+</picture>
+      <p align="center"><sub>A job that went wrong, and where.</sub></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/hosts-dark.webp">
+  <img src="docs/screenshots/hosts-light.webp" alt="The Hosts page: a card per host with its health, slots in use, detected backends and labels, above the join tokens panel" width="100%">
+</picture>
+      <p align="center"><sub>Hosts, their room left, and the backends their agents found.</sub></p>
+    </td>
+    <td width="50%" valign="top">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/migrate-dark.webp">
+  <img src="docs/screenshots/migrate-light.webp" alt="The migration wizard's review step: the exact diff for one repository, changing runs-on from ubuntu-latest to the pool's labels, and the jobs it will not touch" width="100%">
+</picture>
+      <p align="center"><sub>Migrate: the exact diff before a pull request is opened.</sub></p>
+    </td>
+  </tr>
+</table>
 
 Light and dark, keyboard-driven, a `⌘K` command palette, live everywhere, and a
-log viewer that handles a hundred thousand lines. Design system in
+log viewer that handles a hundred thousand lines. Every page is shown at
+[zoomies.sh/ui](https://zoomies.sh/ui/). The screenshots are taken from the
+real binary against its demo fleet by `make screenshots`, so they cannot show
+a page the product does not have. Design system in
 [docs/ui-guidelines.md](docs/ui-guidelines.md), identity in
 [docs/brand.md](docs/brand.md).
 
@@ -200,7 +302,7 @@ from one that is not reachable from the other.
 ```sh
 zoomies status                       # the Overview, in a terminal
 zoomies pools list
-zoomies pools create --name zoomies-linux-x64 --labels zoomies-linux-x64 --max 8
+zoomies pools create --name zoomies-linux-x64 --labels zoomies-linux-x64 --installation ins_k3f9qz2m --max 8
 zoomies runners list --state busy
 zoomies runners drain run_k3f9qz2m
 zoomies runners logs run_k3f9qz2m --follow
@@ -219,7 +321,7 @@ export ZOOMIES_TOKEN=zoo_...
 One `zoomies.yaml`, every key overridable with a `ZOOMIES_*` environment
 variable. It is validated on startup, and the errors tell you what to change:
 
-```
+```text
 configuration is not valid:
   - server.tls.mode: "selfsigned" is not a TLS mode
       fix: use "off", "self-signed" or "files".
@@ -228,7 +330,7 @@ configuration is not valid:
 Warnings are separate from errors and never stop startup, but each one names a
 setting that weakens the default posture:
 
-```
+```text
 [warning] listening on 0.0.0.0:8080 without TLS -- session cookies, API tokens
 and the GitHub App private key you paste during setup all cross the network in
 cleartext. Fix: put a TLS-terminating reverse proxy in front, or set
@@ -257,7 +359,9 @@ make build        # builds the UI and embeds it
 ./zoomies version
 ```
 
-Go 1.26 and Node 22. Node is a build-time dependency only — the binary is
+Go 1.25 or later, and Node 22 or later. `go.mod` sets the language version at
+1.25 and that is the floor a contributor needs; CI builds and releases with
+1.26. Node is a build-time dependency only — the binary is
 self-contained.
 
 ```sh
@@ -275,34 +379,49 @@ is too much machinery — you have a VM or three, not a cluster — but a handfu
 hand-registered long-lived runners is too little.
 
 | | ARC | A few static runners | Zoomies |
-| --- | --- | --- | --- |
-| Needs Kubernetes | yes | no | no |
-| Ephemeral runners | yes | rarely | default |
-| Autoscaling | yes | no | yes |
-| Multi-host | yes | no | yes |
-| Auth model | GitHub App | a PAT per runner | GitHub App |
-| Web UI | no | sometimes | yes |
-| Audit log | no | no | yes |
-| To install | Helm, CRDs, a cluster | manual | one command |
+| --- | :---: | :---: | :---: |
+| Runs without Kubernetes | — | ✓ | ✓ |
+| Ephemeral runners | ✓ | rarely | **default** |
+| Autoscaling | ✓ | — | ✓ |
+| Multi-host | ✓ | — | ✓ |
+| Auth model | GitHub App | a PAT per runner | **GitHub App** |
+| Web UI | — | sometimes | ✓ |
+| Audit log | — | — | ✓ |
+| To install | Helm, CRDs, a cluster | manual | **one command** |
 
 ## Project layout
 
-```
+```text
 cmd/zoomies         the binary: controller, agent, init, CLI
 internal/store      domain model, SQLite schema, every query
 internal/config     zoomies.yaml + env, and the validator that warns
-internal/scheduler  pure scaling decisions and label matching
+internal/scheduler  pure scaling decisions, label matching and platform fit
+internal/naming     the zoomies-* naming grammar and the runner image catalogue
+internal/machine    what host this process is running on: distro, release, size
 internal/github     App auth, JIT configs, webhooks, the fallback poller
 internal/backend    Docker, Podman and bare-process runner backends
 internal/auth       identity, RBAC, tokens, audit, OIDC
 internal/api        REST, SSE, metrics, and the embedded UI
 internal/controller the reconcile loop and the agent task queue
 internal/agent      the runner-executing half
-internal/installer  zoomies init / uninstall / agent join
+internal/installer  zoomies init / uninstall / agent join, and the unit,
+                    compose and env templates they write
+internal/cryptox    AES-256-GCM at rest, argon2id, token hashing
+internal/events     in-process pub/sub that the SSE endpoint fans out
+internal/migrate    rewriting workflows' runs-on lines
 web/                the Svelte 5 UI
-deploy/             images, compose, systemd units
-docs/               the zoomies.sh site: architecture, security, UI guidelines,
-                    configuration, brand
+test/e2e            the Docker end-to-end test, behind the `e2e` build tag
+api/openapi.yaml    the contract both clients are generated from
+deploy/             the controller and runner images, and the runner entrypoint
+docker-compose.yml  the compose deployment
+docs/               the zoomies.sh site: architecture, naming, security,
+                    UI guidelines, configuration, brand
+overrides/          the site's theme overrides: sharing tags, structured data
+hooks/              the site's build-time SEO metadata: git dates and llms.txt
+ROADMAP.md          the follow-on roadmap, and the decisions it asks the owner to take
+roadmap/            what supports it: the work-package record, decision records,
+                    gate evidence, the model guidance and the source document
+install.sh          the one-line installer, served from the site root
 mkdocs.yml          how docs/ becomes zoomies.sh
 ```
 
@@ -328,4 +447,22 @@ one-line justification, and that is enforced by review. UI changes should keep
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE).
+GNU Affero General Public License, version 3 (`AGPL-3.0-only`). See
+[LICENSE](LICENSE). Copyright (C) 2026 Zoomies contributors.
+
+The AGPL is the GPL with one addition, and the addition is the point: anyone
+who modifies Zoomies and lets other people use the modified version over a
+network -- a hosted runner service built on it, say -- has to offer those
+people the source of what they are running. Running it for your own
+organisation, changed or not, asks nothing of you.
+
+---
+
+<div align="center">
+
+<img src="docs/brand/paw-swish-white.png" alt="" width="28" height="28">
+
+**Zoomies** · Self-hosted Git runners<br>
+Developed by [EyUp.io](https://eyup.io)
+
+</div>

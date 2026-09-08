@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/store"
@@ -16,18 +17,53 @@ const defaultStatsWindow = 24 * time.Hour
 // Stats is the Overview payload: what the queue is doing, what the fleet is
 // doing, and how long jobs are waiting.
 type Stats struct {
-	// Window is the period Completed, Failed and the wait percentiles cover.
-	Window       string `json:"window"`
-	QueuedJobs   int    `json:"queued_jobs"`
-	RunningJobs  int    `json:"running_jobs"`
-	Completed    int    `json:"completed"`
-	Failed       int    `json:"failed"`
-	MedianWaitMS int64  `json:"median_wait_ms"`
-	P95WaitMS    int64  `json:"p95_wait_ms"`
+	// Window is the period the completed counts and the wait percentiles
+	// cover. Completed is Succeeded + Failed + Cancelled + Unknown; a rate
+	// computed from Completed and Failed alone would count a job GitHub
+	// stopped reporting as a success, which is why the split is here.
+	Window            string `json:"window"`
+	QueuedJobs        int    `json:"queued_jobs"`
+	RunningJobs       int    `json:"running_jobs"`
+	Completed         int    `json:"completed"`
+	Succeeded         int    `json:"succeeded"`
+	Failed            int    `json:"failed"`
+	Cancelled         int    `json:"cancelled"`
+	Unknown           int    `json:"unknown"`
+	MedianWaitMS      int64  `json:"median_wait_ms"`
+	P95WaitMS         int64  `json:"p95_wait_ms"`
+	P50StartupMS      int64  `json:"p50_startup_ms"`
+	P95StartupMS      int64  `json:"p95_startup_ms"`
+	P50RegistrationMS int64  `json:"p50_registration_ms"`
+	P95RegistrationMS int64  `json:"p95_registration_ms"`
+
+	// Fleet is every job figure above, narrowed to the jobs this fleet has a
+	// hand in. Both are carried in one payload rather than chosen by a query
+	// parameter because the same numbers arrive over the event stream, which
+	// is one frame for every viewer: a per-request scope would be correct
+	// until the next frame overwrote it, a second or two later.
+	Fleet ScopedJobStats `json:"fleet"`
 
 	Runners RunnerStats `json:"runners"`
 	Hosts   HostStats   `json:"hosts"`
 	Pools   []PoolStats `json:"pools"`
+}
+
+// ScopedJobStats is the job half of Stats over one scope.
+//
+// GitHub reports every job in an installed repository, and on an organisation
+// that also uses hosted runners most of them are somebody else's. A queue depth
+// that counts those answers "why is my fleet slow?" with a number nobody here
+// can act on, and a median wait computed from them is somebody else's queue.
+type ScopedJobStats struct {
+	QueuedJobs   int   `json:"queued_jobs"`
+	RunningJobs  int   `json:"running_jobs"`
+	Completed    int   `json:"completed"`
+	Succeeded    int   `json:"succeeded"`
+	Failed       int   `json:"failed"`
+	Cancelled    int   `json:"cancelled"`
+	Unknown      int   `json:"unknown"`
+	MedianWaitMS int64 `json:"median_wait_ms"`
+	P95WaitMS    int64 `json:"p95_wait_ms"`
 }
 
 // RunnerStats counts the fleet by runner state.
@@ -71,16 +107,34 @@ func (c *Controller) Stats(ctx context.Context, window time.Duration) (*Stats, e
 	}
 	since := c.Now().Add(-window)
 
-	js, err := c.st.StatsSince(ctx, since)
+	js, err := c.st.StatsSince(ctx, since, false)
 	if err != nil {
 		return nil, fmt.Errorf("computing job statistics: %w", err)
 	}
+	fleet, err := c.st.StatsSince(ctx, since, true)
+	if err != nil {
+		return nil, fmt.Errorf("computing this fleet's job statistics: %w", err)
+	}
 	out := &Stats{
+		Fleet: ScopedJobStats{
+			QueuedJobs:   fleet.Queued,
+			RunningJobs:  fleet.Running,
+			Completed:    fleet.CompletedLast,
+			Succeeded:    fleet.Succeeded,
+			Failed:       fleet.Failed,
+			Cancelled:    fleet.Cancelled,
+			Unknown:      fleet.Unknown,
+			MedianWaitMS: fleet.MedianWaitMS,
+			P95WaitMS:    fleet.P95WaitMS,
+		},
 		Window:       window.String(),
 		QueuedJobs:   js.Queued,
 		RunningJobs:  js.Running,
 		Completed:    js.CompletedLast,
+		Succeeded:    js.Succeeded,
 		Failed:       js.Failed,
+		Cancelled:    js.Cancelled,
+		Unknown:      js.Unknown,
 		MedianWaitMS: js.MedianWaitMS,
 		P95WaitMS:    js.P95WaitMS,
 	}
@@ -101,6 +155,15 @@ func (c *Controller) Stats(ctx context.Context, window time.Duration) (*Stats, e
 	for _, j := range queued {
 		queuedByPool[j.PoolID]++
 	}
+	// The samples come from a query over the window rather than a page of
+	// runner rows: the page was capped at 500, so the percentiles described
+	// the newest few hundred starts and called it a day.
+	startup, registration, err := c.st.StartupSamples(ctx, since)
+	if err != nil {
+		return nil, fmt.Errorf("sampling runner start-up times: %w", err)
+	}
+	out.P50StartupMS, out.P95StartupMS = percentile(startup, .50), percentile(startup, .95)
+	out.P50RegistrationMS, out.P95RegistrationMS = percentile(registration, .50), percentile(registration, .95)
 
 	out.Pools = make([]PoolStats, 0, len(pools))
 	for _, p := range pools {
@@ -147,6 +210,15 @@ func (c *Controller) Stats(ctx context.Context, window time.Duration) (*Stats, e
 		out.Hosts.Used += h.ActiveRunners
 	}
 	return out, nil
+}
+
+func percentile(values []int64, q float64) int64 {
+	if len(values) == 0 {
+		return 0
+	}
+	slices.Sort(values)
+	i := int(float64(len(values)-1)*q + .5)
+	return values[i]
 }
 
 // Samples returns the Overview's sparkline points since a cutoff.

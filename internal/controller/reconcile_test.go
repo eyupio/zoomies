@@ -2,12 +2,14 @@ package controller
 
 import (
 	"context"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/agent"
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -250,7 +252,7 @@ func (h *harness) runnerRow(pool *store.Pool, host *store.Host, state store.Runn
 	r := &store.Runner{
 		PoolID:    pool.ID,
 		HostID:    host.ID,
-		Name:      store.NewRunnerName(),
+		Name:      store.NewRunnerName(pool),
 		State:     state,
 		Ephemeral: pool.Ephemeral,
 		Labels:    pool.Labels,
@@ -263,4 +265,350 @@ func (h *harness) runnerRow(pool *store.Pool, host *store.Host, state store.Runn
 		h.t.Fatalf("CreateRunner: %v", err)
 	}
 	return r
+}
+
+// A runner that died on creation used to be replaced in the same pass that
+// noticed: the agent's failure report nudged a pass, the pass removed the
+// failed runner and created another, the agent failed that one too, and a pool
+// with a bad image churned through a runner a second -- two GitHub API calls a
+// time -- with the reason gone from the page before anyone could read it.
+func TestARunnerThatDiesOnCreationIsNotReplacedUntilTheWaitIsOut(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	h.deliverJob(jobEvent{Action: "queued", JobID: 7001, Labels: []string{"self-hosted", "linux", "x64", "demo"}})
+
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	first := h.runners()
+	if len(first) != 1 || first[0].State != store.RunnerProvisioning {
+		t.Fatalf("after the first pass: %+v, want one provisioning runner", first)
+	}
+
+	batch, err := h.c.PollTasks(h.ctx, host.ID, time.Second)
+	if err != nil || len(batch.Tasks) != 1 {
+		t.Fatalf("PollTasks: %v, %d tasks", err, len(batch.Tasks))
+	}
+	if err := h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{
+		TaskID: batch.Tasks[0].ID, RunnerID: first[0].ID, OK: false,
+		Error: "the docker backend could not create runner: No such image: sha256:9f2c",
+	}); err != nil {
+		t.Fatalf("ReportResult: %v", err)
+	}
+
+	// The pass the failure provokes.
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+	after := h.runners()
+	if len(after) != 1 {
+		t.Fatalf("the failed runner was replaced straight away: %+v", after)
+	}
+	if after[0].State != store.RunnerFailed {
+		t.Fatalf("the failed runner is %q; it should stay on the page as failed, with its reason", after[0].State)
+	}
+	if after[0].Message != "the docker backend could not create runner: No such image: sha256:9f2c" {
+		t.Fatalf("the failure's reason was lost: %q", after[0].Message)
+	}
+	plan, _ := h.c.getLastPlan()
+	if plan == nil || len(plan.Pools) != 1 || plan.Pools[0].Failing == "" {
+		t.Fatalf("the plan does not say the pool is waiting: %+v", plan)
+	}
+	if !strings.Contains(plan.Pools[0].Failing, "No such image") || !strings.Contains(plan.Pools[0].Failing, "trying again in") {
+		t.Fatalf("the wait is not explained in the plan: %q", plan.Pools[0].Failing)
+	}
+	codes := h.problemCodes()
+	if !contains(codes, "pool.runners_failing") || !contains(codes, "runners.failed") {
+		t.Fatalf("problems = %v, want the pool held back and the failed runner both reported", codes)
+	}
+	if n := len(h.gh.Runners()); n != 1 {
+		t.Fatalf("GitHub was asked for %d registrations, want the one the first runner used", n)
+	}
+	_ = pool
+}
+
+// A queued row is demand for as long as it exists. A job whose completed
+// delivery was lost -- repository deleted, run cancelled while the poller was
+// rate-limited -- used to hold a pool's desired count up for ever, with a
+// runner created for it, idling out, and created again. GitHub gives up on a
+// job nobody picked up within a day; so does the controller.
+func TestAQueuedJobGitHubNeverStartedIsRetiredAfterADay(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	h.c.clock = func() time.Time { return now }
+
+	h.deliverJob(jobEvent{Action: "queued", JobID: 8001, QueuedAt: now.Add(-25 * time.Hour),
+		Labels: []string{"self-hosted", "linux", "x64", "demo"}})
+	h.deliverJob(jobEvent{Action: "queued", JobID: 8002, QueuedAt: now.Add(-2 * time.Hour),
+		Labels: []string{"self-hosted", "linux", "x64", "demo"}})
+
+	h.c.expireStaleQueuedJobs(h.ctx, now)
+
+	old, err := h.st.GetJobByGitHubID(h.ctx, 8001)
+	if err != nil {
+		t.Fatalf("GetJobByGitHubID: %v", err)
+	}
+	if old.State != store.JobCompleted || old.Conclusion != "stale" || old.CompletedAt == nil {
+		t.Fatalf("the day-old job = state %q conclusion %q; want completed as stale", old.State, old.Conclusion)
+	}
+	recent, err := h.st.GetJobByGitHubID(h.ctx, 8002)
+	if err != nil {
+		t.Fatalf("GetJobByGitHubID: %v", err)
+	}
+	if recent.State != store.JobQueued {
+		t.Fatalf("a two-hour-old job was retired: %q", recent.State)
+	}
+	queued, err := h.st.ListQueuedJobs(h.ctx)
+	if err != nil || len(queued) != 1 {
+		t.Fatalf("queued jobs after retiring = %d (%v), want the recent one only", len(queued), err)
+	}
+	timeline, err := h.st.ListJobEvents(h.ctx, old.ID)
+	if err != nil {
+		t.Fatalf("ListJobEvents: %v", err)
+	}
+	last := timeline[len(timeline)-1]
+	if last.Kind != store.JobEventCompleted || !strings.Contains(last.Message, "presumed cancelled or lost") {
+		t.Fatalf("the timeline does not say why the job was retired: %+v", last)
+	}
+}
+
+// A job GitHub is holding for a deployment review is not demand. Recorded as
+// queued, it had the scheduler start a runner that idled out and was started
+// again on the next pass, for as long as the review took.
+func TestAJobWaitingForApprovalIsNotDemandUntilItIsQueued(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+	labels := []string{"self-hosted", "linux", "x64", "demo"}
+
+	h.deliverJob(jobEvent{Action: "waiting", JobID: 8101, Labels: labels})
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if got := len(h.runners()); got != 0 {
+		t.Fatalf("a waiting job had %d runners created for it", got)
+	}
+	j, err := h.st.GetJobByGitHubID(h.ctx, 8101)
+	if err != nil || j.State != store.JobWaiting {
+		t.Fatalf("job = %+v, %v; want it recorded as waiting", j, err)
+	}
+
+	// The approval arrives as an ordinary queued delivery, and moves the job
+	// forward into demand.
+	h.deliverJob(jobEvent{Action: "queued", JobID: 8101, Labels: labels})
+	j, err = h.st.GetJobByGitHubID(h.ctx, 8101)
+	if err != nil || j.State != store.JobQueued {
+		t.Fatalf("job after approval = %+v, %v; want queued", j, err)
+	}
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if got := len(h.runners()); got != 1 {
+		t.Fatalf("the approved job had %d runners created for it, want 1", got)
+	}
+}
+
+// A runner registered with a registration token -- a non-ephemeral pool -- has
+// no GitHub ID on its row, so removing it deleted nothing, and the container's
+// own config.sh remove ran with a token that had usually expired. The
+// registration is found by name instead.
+func TestRemovingATokenRegisteredRunnerDeletesItsRegistrationByName(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerIdle)
+	if r.GitHubRunnerID != 0 {
+		t.Fatalf("the fixture runner carries GitHub ID %d; this test is about a runner without one", r.GitHubRunnerID)
+	}
+	h.gh.AddRunner(r.Name, []string{"self-hosted", "linux"})
+	h.gh.AddRunner("somebody-elses-runner", []string{"self-hosted"})
+
+	if _, err := h.c.RemoveRunner(h.ctx, r.ID, "test", true); err != nil {
+		t.Fatalf("RemoveRunner: %v", err)
+	}
+	names := make([]string, 0, 1)
+	for _, gr := range h.gh.Runners() {
+		names = append(names, gr.Name)
+	}
+	if !slices.Equal(names, []string{"somebody-elses-runner"}) {
+		t.Fatalf("registrations after removal = %v, want only the runner that was never ours", names)
+	}
+}
+
+// A pool that gives its jobs a daemon runs the stock image's Docker variant,
+// whatever the row says: the API writes the swap into new pools, but a pool
+// saved before it did still names the stock image, and a runner made from
+// that image has a daemon it cannot reach. The row is left alone here -- the
+// migration that rewrites it is the store's -- and the runner gets the image
+// that works.
+func TestAPoolThatGivesJobsADaemonRunsTheDockerImage(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "builders")
+	pool.DockerMode = store.DockerDinD
+	pool.Image = "ghcr.io/eyupio/zoomies-runner:main"
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	host := h.host("vm-1")
+
+	h.deliverJob(jobEvent{Action: "queued", JobID: 11, Labels: []string{"self-hosted", "linux", "x64", "demo"}})
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	const want = "ghcr.io/eyupio/zoomies-runner-docker:main"
+	r := h.onlyRunner()
+	if r.Image != want {
+		t.Fatalf("runner image = %q, want %q: a daemon with no client is the failure this exists to prevent", r.Image, want)
+	}
+	task := h.taskOfKind(host.ID, agent.TaskCreateRunner)
+	if task.Spec == nil || task.Spec.Image != want {
+		t.Fatalf("create task image = %+v, want %q", task.Spec, want)
+	}
+
+	// Warming the pool pulls the image the runners will use, not the one the
+	// row names: pulling the other one warms nothing.
+	if _, err := h.c.PrewarmPool(h.ctx, pool); err != nil {
+		t.Fatalf("PrewarmPool: %v", err)
+	}
+	prewarm := h.taskOfKind(host.ID, agent.TaskPrewarmImage)
+	if prewarm.Image != want {
+		t.Fatalf("prewarm image = %q, want %q", prewarm.Image, want)
+	}
+}
+
+// The one place that sees a pool with no image of its own is the controller,
+// which falls back to github.runner_image; at its stock default that fallback
+// needs the same swap, or a daemon pool made by hand would get the image with
+// no client.
+func TestAPoolOnTheDefaultImageGetsTheDockerVariantWhenItAsksForADaemon(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "builders")
+	pool.DockerMode = store.DockerHostSocket
+	pool.Image = ""
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	host := h.host("vm-1")
+
+	h.deliverJob(jobEvent{Action: "queued", JobID: 12, Labels: []string{"self-hosted", "linux", "x64", "demo"}})
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	want := config.RunnerImageFor(config.DefaultRunnerImage, true)
+	if want == config.DefaultRunnerImage {
+		t.Fatal("the default image is not swapped at all; this test has nothing to check")
+	}
+	if r := h.onlyRunner(); r.Image != want {
+		t.Fatalf("runner image = %q, want the default's Docker variant %q", r.Image, want)
+	}
+	if task := h.taskOfKind(host.ID, agent.TaskCreateRunner); task.Spec == nil || task.Spec.Image != want {
+		t.Fatalf("create task image = %+v, want %q", task.Spec, want)
+	}
+}
+
+// countRequests is how many of the fake's logged requests contain fragment.
+func countRequests(h *harness, fragment string) int {
+	n := 0
+	for _, r := range h.gh.Requests() {
+		if strings.Contains(r, fragment) {
+			n++
+		}
+	}
+	return n
+}
+
+// seedOrphans gives GitHub n registrations the reap is entitled to delete: a
+// Zoomies-minted name, and a row of ours that is already terminal.
+func seedOrphans(h *harness, pool *store.Pool, host *store.Host, n int) {
+	h.t.Helper()
+	for range n {
+		r := h.runnerRow(pool, host, store.RunnerProvisioning)
+		if _, err := h.st.TransitionRunner(h.ctx, r.ID, store.RunnerRemoved, "done"); err != nil {
+			h.t.Fatalf("TransitionRunner: %v", err)
+		}
+		h.gh.AddRunner(r.Name, []string{"linux"})
+	}
+}
+
+// The reap walks an installation's whole orphan list. Once GitHub has said the
+// quota is gone, every remaining delete is refused the same way -- and each
+// refusal is another call against a quota that is already spent, which is how
+// one exhausted window becomes two. It stops on the first, and stands the
+// installation down for as long as GitHub asked.
+//
+// Only the delete is refused: the listing shares its path, and refusing that
+// too would test the rule above this one instead of this one.
+func TestTheReapStopsAtTheFirstRefusedDeleteInsteadOfSpendingTheRest(t *testing.T) {
+	h := newHarness(t)
+	inst, pool, host := h.fleet()
+	seedOrphans(h, pool, host, 3)
+
+	// A 429 with the quota otherwise healthy, which is GitHub's secondary rate
+	// limit. Exhausting the primary one instead would prove less than it looks:
+	// go-github refuses a call locally once a response has told it the quota is
+	// spent, so the calls this rule saves would never leave the process anyway.
+	// The secondary limit has no such guard, and neither does the log.
+	h.gh.SetRateLimit(5000, 4999, time.Now().Add(time.Hour))
+	h.gh.SetMethodError(http.MethodDelete, "/actions/runners/",
+		http.StatusTooManyRequests, "You have exceeded a secondary rate limit")
+
+	h.c.reap(h.ctx)
+
+	if got := countRequests(h, "DELETE"); got != 1 {
+		t.Fatalf("the reap made %d delete calls after the first was refused for quota, want 1", got)
+	}
+	if !h.c.githubHeld(inst.ID, time.Now()) {
+		t.Fatal("the installation was not stood down after GitHub refused it for quota")
+	}
+	// The registrations are still there, which is the point: they are reaped
+	// on a later pass rather than on a quota that is gone.
+	if len(h.gh.Runners()) != 3 {
+		t.Fatalf("GitHub holds %d registrations, want 3", len(h.gh.Runners()))
+	}
+}
+
+// The listing is refused for quota just as readily as the delete, and it is
+// the first call the reap makes. Standing down on it is what stops the sweep
+// asking again a minute later for the whole of an exhausted window.
+func TestTheReapStandsDownWhenTheListingIsRefusedForQuota(t *testing.T) {
+	h := newHarness(t)
+	inst, pool, host := h.fleet()
+	seedOrphans(h, pool, host, 2)
+
+	h.gh.SetRateLimit(5000, 4999, time.Now().Add(time.Hour))
+	h.gh.SetMethodError(http.MethodGet, "/actions/runners",
+		http.StatusTooManyRequests, "You have exceeded a secondary rate limit")
+
+	h.c.reap(h.ctx)
+
+	if got := countRequests(h, "DELETE"); got != 0 {
+		t.Fatalf("the reap made %d delete calls without a listing to decide from", got)
+	}
+	if !h.c.githubHeld(inst.ID, time.Now()) {
+		t.Fatal("a refused listing left the installation open to being asked again at once")
+	}
+}
+
+// An installation already standing down is not asked again until the hold runs
+// out. The poller earns holds too, and rediscovering the same refusal from the
+// reap costs exactly the call the hold exists to save.
+func TestTheReapSkipsAnInstallationThatIsStandingDown(t *testing.T) {
+	h := newHarness(t)
+	inst, pool, host := h.fleet()
+	seedOrphans(h, pool, host, 1)
+
+	h.c.holdGitHub(inst.ID, time.Now().Add(10*time.Minute))
+	before := len(h.gh.Requests())
+
+	h.c.reap(h.ctx)
+
+	if got := len(h.gh.Requests()); got != before {
+		t.Fatalf("the reap spent %d calls on an installation that is standing down", got-before)
+	}
+	if len(h.gh.Runners()) != 1 {
+		t.Fatal("the registration should still be there; the reap had no business deleting it yet")
+	}
 }

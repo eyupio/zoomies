@@ -24,7 +24,8 @@ info:
     CSRF.
 
     Agents use a separate credential class on `/agent/*` and can reach nothing
-    else.
+    else. Those routes are documented at the end, marked `x-internal`: they are
+    part of the surface, but no general client should call them.
 
     ## Roles
 
@@ -45,7 +46,7 @@ info:
     * Errors are `{ "error": { code, message, field?, detail? } }` with a
       message written for a human to read.
   license:
-    name: MIT
+    name: AGPL-3.0-only
     url: https://github.com/eyupio/zoomies/blob/main/LICENSE
   contact:
     name: Zoomies
@@ -86,6 +87,32 @@ tags:
     description: Routes used by agents. Not for general clients.
 
 paths:
+  /usage:
+    get:
+      operationId: getUsage
+      tags: [jobs]
+      summary: Aggregate bounded fleet usage
+      x-zoomies-role: viewer
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: group_by, in: query, schema: { type: string, enum: [installation, repository, workflow, pool], default: pool } }
+      responses:
+        "200":
+          description: Usage totals; monetary values are administrator-configured estimates.
+          content: { application/json: { schema: { $ref: "#/components/schemas/UsageResponse" } } }
+  /usage.csv:
+    get:
+      operationId: exportUsageCSV
+      tags: [jobs]
+      summary: Export bounded fleet usage as CSV
+      x-zoomies-role: viewer
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: group_by, in: query, schema: { type: string, enum: [installation, repository, workflow, pool], default: pool } }
+      responses:
+        "200": { description: CSV export, content: { text/csv: { schema: { type: string } } } }
   # ==========================================================================
   # Meta
   # ==========================================================================
@@ -116,8 +143,14 @@ paths:
       summary: Create the first administrator
       description: |
         Available only while no user exists. Once any account has been created
-        this returns 409 forever. That check is the entire security of this
-        route, which is why it is unauthenticated.
+        this returns 409 forever.
+
+        It also requires the setup token the controller prints in its log at
+        startup while the instance has no accounts. "No account exists yet" is a
+        condition a stranger can satisfy too, so on its own it would hand a
+        freshly deployed controller to whoever loaded the page first; the token
+        is proof that the caller can read the controller's log. It is minted per
+        process, so restarting the controller prints a new one.
       security: []
       requestBody:
         required: true
@@ -125,11 +158,14 @@ paths:
           application/json:
             schema:
               type: object
-              required: [username, password]
+              required: [username, password, setup_token]
               properties:
                 username: { type: string, minLength: 1, maxLength: 64, examples: [admin] }
                 password: { type: string, minLength: 12, format: password }
                 email: { type: string, format: email }
+                setup_token:
+                  type: string
+                  description: The setup token from the controller's log, on a line beginning "setup token".
       responses:
         "201":
           description: Created, and the session cookie is set
@@ -209,6 +245,39 @@ paths:
         "204": { description: Changed }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /auth/oidc/start:
+    get:
+      operationId: oidcStart
+      tags: [auth]
+      summary: Begin single sign-on
+      description: >-
+        Sends the browser to the identity provider. A browser navigation, not an API call:
+        the answer is a redirect, and the handshake state travels in a short-lived cookie.
+      security: []
+      responses:
+        "302": { description: Redirected to the identity provider. }
+        "503": { description: Single sign-on is not enabled on this controller. }
+
+  /auth/oidc/callback:
+    get:
+      operationId: oidcCallback
+      tags: [auth]
+      summary: Finish single sign-on
+      description: >-
+        Where the identity provider sends the browser back. On success the session cookie is
+        set and the browser is redirected into the app; on any failure it is redirected to
+        the login page with the reason in the query string, because whoever is here is a
+        person trying to sign in and that is where they can try again.
+      security: []
+      parameters:
+        - { name: code, in: query, schema: { type: string } }
+        - { name: state, in: query, schema: { type: string } }
+        - { name: error, in: query, schema: { type: string } }
+        - { name: error_description, in: query, schema: { type: string } }
+      responses:
+        "302": { description: Redirected into the app, or to the login page with a message. }
+        "503": { description: Single sign-on is not enabled on this controller. }
 
   # ==========================================================================
   # Overview
@@ -312,8 +381,12 @@ paths:
       description: |
         `text/event-stream`. Every state change the operator would want to see.
         Honours `Last-Event-ID` on reconnect and replays what the server still
-        holds. A `heartbeat` event every 20 seconds keeps proxies from closing
-        an idle connection.
+        holds. Event ids are `<epoch>.<sequence>`, where the epoch names one
+        run of the controller; when the events since the client's last id
+        cannot all be replayed -- the buffer has moved on, or the controller
+        restarted -- the first frame is a `resync` event telling the client
+        to fetch the resources again. A `heartbeat` event every 20 seconds
+        keeps proxies from closing an idle connection.
       x-zoomies-role: viewer
       parameters:
         - name: kinds
@@ -406,7 +479,12 @@ paths:
       operationId: deleteInstallation
       tags: [installations]
       summary: Remove an installation
-      description: Cascades to its pools. The response says how many pools and runners went with it.
+      description: >-
+        Cascades to its pools, and removes their runners now, interrupting any job they are
+        running: a runner has to be deregistered from GitHub while the installation's
+        credentials still exist, which is before the row goes, so there is no drain here.
+        Drain the pools first with `DELETE /pools/{id}` if the running jobs matter. The
+        response says how many pools and runners went with it.
       x-zoomies-role: admin
       responses:
         "200":
@@ -639,6 +717,30 @@ paths:
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/Unprocessable" }
 
+  /pools/platforms:
+    get:
+      operationId: listPoolPlatforms
+      tags: [pools]
+      summary: The platforms a pool may ask for
+      description: |
+        The runner image catalogue: every operating system and release Zoomies
+        publishes a zoomies-runner image for, and the architectures each is
+        built for. It is served rather than hard-coded in a client so that a
+        pool cannot be offered an operating system no image exists for.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: The catalogue
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/PoolPlatform" }
+
   /pools/validate:
     post:
       operationId: validatePool
@@ -650,6 +752,15 @@ paths:
         step calls this, so the warnings an operator sees before confirming are
         the same ones the server would raise afterwards.
       x-zoomies-role: operator
+      parameters:
+        - name: id
+          in: query
+          required: false
+          schema: { type: string }
+          description: |
+            The pool this would be an edit to. Its own name is then not treated
+            as a clash -- without this, editing anything about a pool is refused
+            because a pool with that name already exists, namely itself.
       requestBody:
         required: true
         content:
@@ -674,6 +785,9 @@ paths:
                   matching_hosts:
                     type: integer
                     description: How many hosts could actually run this pool. Zero is worth saying out loud before the pool is created.
+                  image:
+                    type: string
+                    description: The image the pool would actually run, which for a pool that gives its jobs a daemon is the stock image's Docker variant rather than the image the request named.
 
   /pools/{id}:
     parameters: [{ $ref: "#/components/parameters/PathID" }]
@@ -731,6 +845,26 @@ paths:
                 properties:
                   runners_affected: { type: integer }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /pools/{id}/prewarm:
+    post:
+      operationId: prewarmPool
+      tags: [pools]
+      summary: Prewarm the pool image on every matching host
+      x-zoomies-role: operator
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "202":
+          description: Tasks queued; hosts contains per-host pending or prior state.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  queued: { type: integer }
+                  hosts: { type: array, items: { $ref: "#/components/schemas/PoolPrewarm" } }
+        "422": { $ref: "#/components/responses/Unprocessable" }
 
   /pools/{id}/enable:
     parameters: [{ $ref: "#/components/parameters/PathID" }]
@@ -964,7 +1098,25 @@ paths:
         - { name: until, in: query, schema: { type: string, format: date-time } }
         - name: unmatched
           in: query
-          description: Only jobs no enabled pool claims. These will never run, and are almost always a typo in `runs-on`.
+          description: >-
+            Only jobs that are still queued and that no enabled pool claims. A job that
+            already started or finished was run by something else, so it is not included
+            however its labels read.
+          schema: { type: boolean }
+        - name: managed
+          in: query
+          description: >-
+            Only jobs this controller has a hand in: one an enabled pool claims, one that
+            ran on a runner this fleet started, and queued jobs no pool claims -- which
+            nothing ran, so they belong here too. Leave it off to see every job GitHub has
+            reported, including those run on hosted runners this fleet does not own.
+          schema: { type: boolean }
+        - name: failed
+          in: query
+          description: >-
+            Only jobs that went wrong, on either side: a conclusion GitHub counts as a
+            failure (failure, timed_out, startup_failure), or a runner of this fleet that
+            stopped under the job -- including one GitHub still believes is running.
           schema: { type: boolean }
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Offset"
@@ -997,6 +1149,32 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Job" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /jobs/{id}/events:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: getJobEvents
+      tags: [jobs]
+      summary: A job's timeline
+      description: >-
+        What Zoomies observed and did about one job, oldest first, each entry a sentence
+        an operator can read. Entries are written from what each delivery changed rather
+        than from the delivery itself, so GitHub redelivering one adds nothing. Every
+        change to the timeline is accompanied by a `job.updated` frame on the event
+        stream, which is when a client refetches it.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/JobEvent" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /jobs/facets:
@@ -1142,8 +1320,22 @@ paths:
               type: object
               properties:
                 ttl: { type: string, default: "15m", examples: ["15m", "1h"] }
-                capacity: { type: integer, default: 2, minimum: 1 }
+                capacity:
+                  type: integer
+                  default: 2
+                  minimum: 0
+                  description: 0 lets the agent decide from the host's CPU count.
                 labels: { type: object, additionalProperties: { type: string } }
+                controller_url:
+                  type: string
+                  format: uri
+                  description: |
+                    The address the new host should join on, used in the
+                    returned command in place of `server.external_url`. The
+                    UI sends the address the browser reached this controller
+                    on, which is the one a machine beside it can usually reach
+                    too. Must be an absolute http or https URL.
+                  examples: ["https://zoomies.example.com"]
       responses:
         "201":
           description: Created
@@ -1164,6 +1356,22 @@ paths:
 
   /join-tokens/{id}:
     parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: getJoinToken
+      tags: [hosts]
+      summary: Get a join token
+      description: |
+        The token's state, never its secret. Once a host has redeemed it,
+        `used_by_id` is that host's id -- which is how the Add-a-host page
+        knows the machine it is waiting for has arrived.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JoinToken" }
+        "404": { $ref: "#/components/responses/NotFound" }
     delete:
       operationId: deleteJoinToken
       tags: [hosts]
@@ -1544,6 +1752,139 @@ paths:
               schema: { $ref: "#/components/schemas/Settings" }
         "422": { $ref: "#/components/responses/Unprocessable" }
 
+  # ==========================================================================
+  # Agent routes
+  # ==========================================================================
+  # The half of the API agents talk to. These carry an agent token, never a
+  # user session, and an agent can reach nothing else. They are here so that
+  # this document is the whole surface it says it is, and marked x-internal
+  # because no general client should call them: the wire types are owned by
+  # internal/agent/protocol.go, and a client generator should skip them.
+  /agent/join:
+    post:
+      operationId: agentJoin
+      tags: [agent]
+      x-internal: true
+      summary: Redeem a join token and enrol a host
+      description: >-
+        The one anonymous agent route, because it is the call that mints the credential every
+        other one carries. The join token is single-use and short-lived; the agent token in
+        the response is shown exactly once, and the controller keeps only its hash.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AgentJoinRequest" }
+      responses:
+        "200":
+          description: Enrolled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AgentJoinResponse" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /agent/heartbeat:
+    post:
+      operationId: agentHeartbeat
+      tags: [agent]
+      x-internal: true
+      summary: Report that the host is alive, and what its runners are doing
+      security: [{ agentAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AgentHeartbeatRequest" }
+      responses:
+        "200":
+          description: Recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AgentHeartbeatResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: The host was deleted. No amount of retrying brings the row back; the agent re-joins. }
+
+  /agent/tasks:
+    get:
+      operationId: agentPollTasks
+      tags: [agent]
+      x-internal: true
+      summary: Long-poll for work
+      description: Blocks until the host has work or the wait elapses, so a task reaches an agent the instant it is queued while an idle agent makes two or three requests a minute.
+      security: [{ agentAuth: [] }]
+      parameters:
+        - name: wait
+          in: query
+          description: Seconds to wait for work before answering with an empty batch.
+          schema: { type: integer, minimum: 1, default: 25 }
+      responses:
+        "200":
+          description: The tasks queued for this host, possibly none.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AgentTaskBatch" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /agent/results:
+    post:
+      operationId: agentReportResult
+      tags: [agent]
+      x-internal: true
+      summary: Report the outcome of one task
+      security: [{ agentAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AgentTaskResult" }
+      responses:
+        "204": { description: Applied }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /agent/report:
+    post:
+      operationId: agentReportRunners
+      tags: [agent]
+      x-internal: true
+      summary: Report what the host's runners are doing, outside a heartbeat
+      description: The body is a bare array of runner reports, because that is what the agent sends and the two halves of the protocol must agree.
+      security: [{ agentAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items: { $ref: "#/components/schemas/RunnerReport" }
+      responses:
+        "204": { description: Applied }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /agent/logs/{stream_id}:
+    post:
+      operationId: agentRelayLogs
+      tags: [agent]
+      x-internal: true
+      summary: Relay a runner's output to a viewer
+      description: >-
+        The inverted half of log streaming. The controller never dials an agent, so a viewer's
+        request makes it queue a stream_logs task, and the agent answers by opening this
+        chunked POST, which stays open for as long as the runner produces output. Exempt from
+        the body-size limit for that reason.
+      security: [{ agentAuth: [] }]
+      parameters:
+        - { name: stream_id, in: path, required: true, schema: { type: string }, description: The stream named by the stream_logs task. }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "204": { description: The stream ended. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: Nobody is watching this stream any more; the agent stops sending. }
 components:
   securitySchemes:
     cookieAuth:
@@ -1556,6 +1897,13 @@ components:
       scheme: bearer
       bearerFormat: zoo_<prefix>_<secret>
       description: An API token. Not subject to the same-origin check, because it is not vulnerable to CSRF.
+    agentAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: zooagent_<secret>
+      description: >-
+        An agent's own token, minted by `POST /agent/join`. Accepted on `/agent/*` only: a
+        user credential is refused there, and an agent token is refused everywhere else.
 
   parameters:
     PathID:
@@ -1614,7 +1962,11 @@ components:
                 properties:
                   errors: { type: array, items: { $ref: "#/components/schemas/FieldError" } }
     RateLimited:
-      description: Too many attempts.
+      description: Too many attempts. Retry-After says how long to wait.
+      headers:
+        Retry-After:
+          description: Seconds until the address is allowed another attempt.
+          schema: { type: integer, minimum: 1 }
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -1630,6 +1982,12 @@ components:
     BackendKind:
       type: string
       enum: [docker, podman, process]
+    PullPolicy:
+      type: string
+      enum: [if-not-present, always, pinned-only]
+      default: if-not-present
+      description: pinned-only requires an image@sha256 digest and rejects mutable tags.
+
     DockerMode:
       type: string
       enum: [none, dind, host-socket]
@@ -1638,12 +1996,17 @@ components:
         `none` is the default and the only one that is not a warning.
         `dind` gives a private, privileged sidecar daemon.
         `host-socket` hands the job the host's daemon, and with it root on the host.
+        Either of those switches a pool on the stock `ghcr.io/eyupio/zoomies-runner`
+        image under a moving tag (none, `latest` or `main`) to
+        `ghcr.io/eyupio/zoomies-runner-docker` under the same tag as it is saved,
+        because the stock image has no client for the daemon. A pinned tag, a
+        digest, or an image of your own is left as given.
     RunnerState:
       type: string
       enum: [provisioning, registering, idle, busy, draining, removed, failed]
     JobState:
       type: string
-      enum: [queued, in_progress, completed]
+      enum: [waiting, queued, in_progress, completed]
     Severity:
       type: string
       enum: [error, warning, info]
@@ -1670,7 +2033,7 @@ components:
           properties:
             code:
               type: string
-              enum: [bad_request, unauthorized, forbidden, not_found, conflict, unprocessable, rate_limited, internal]
+              enum: [bad_request, unauthorized, forbidden, not_found, conflict, unprocessable, too_large, rate_limited, internal]
             message: { type: string, description: Written for a person to read, and to act on. }
             field: { type: string }
             detail: { type: string }
@@ -1726,10 +2089,37 @@ components:
         window: { type: string, description: The window these counts cover, echoed back., examples: ["1h"] }
         queued_jobs: { type: integer }
         running_jobs: { type: integer }
-        completed: { type: integer, description: Within the requested window. }
-        failed: { type: integer }
+        completed: { type: integer, description: Within the requested window. The sum of the four below. }
+        succeeded: { type: integer, description: GitHub reported success and the fleet had no fault in it. }
+        failed: { type: integer, description: A failing conclusion, or a runner that stopped under the job. }
+        cancelled: { type: integer, description: Cancelled or skipped, with no fault of the fleet's. }
+        unknown: { type: integer, description: None of the above, including a job GitHub stopped reporting. Never counted as a success. }
         median_wait_ms: { type: integer, format: int64 }
         p95_wait_ms: { type: integer, format: int64 }
+        p50_startup_ms: { type: integer, format: int64, description: Median runner creation-to-container-start latency. }
+        p95_startup_ms: { type: integer, format: int64 }
+        p50_registration_ms: { type: integer, format: int64, description: Median container-start-to-registration latency. }
+        p95_registration_ms: { type: integer, format: int64 }
+        fleet:
+          type: object
+          description: >
+            The same job figures narrowed to the jobs this fleet has a hand in:
+            one an enabled pool claimed, one that ran on a runner started here,
+            or one still queued that no pool claims. GitHub reports every job in
+            an installed repository, so on an organisation that also uses hosted
+            runners the figures above are mostly somebody else's. Both are
+            carried in one payload because the same numbers arrive over the
+            event stream, which is one frame for every viewer.
+          properties:
+            queued_jobs: { type: integer }
+            running_jobs: { type: integer }
+            completed: { type: integer }
+            succeeded: { type: integer }
+            failed: { type: integer }
+            cancelled: { type: integer }
+            unknown: { type: integer }
+            median_wait_ms: { type: integer, format: int64 }
+            p95_wait_ms: { type: integer, format: int64 }
         runners:
           type: object
           properties:
@@ -1769,6 +2159,8 @@ components:
         at: { type: string, format: date-time }
         queued_jobs: { type: integer }
         running_jobs: { type: integer }
+        fleet_queued_jobs: { type: integer, description: The same minute narrowed to the jobs this fleet has a hand in. Zero on samples taken before this was recorded. }
+        fleet_running_jobs: { type: integer, description: As above, for jobs in progress. }
         idle_runners: { type: integer }
         busy_runners: { type: integer }
         total_runners: { type: integer }
@@ -1799,6 +2191,12 @@ components:
         api_base_url: { type: string }
         app_slug: { type: string }
         web_url: { type: string }
+        settings_url:
+          type: string
+          description: >-
+            The App's own settings page on GitHub, which is the only place its
+            avatar can be uploaded. Absent when the App's slug is unknown.
+          examples: ["https://github.com/organizations/acme/settings/apps/zoomies-acme"]
         enterprise: { type: boolean }
         healthy: { type: boolean }
         last_error: { type: string }
@@ -1850,6 +2248,13 @@ components:
         repo: { type: string }
         status: { type: string, enum: [accepted, rejected, error] }
         error: { type: string }
+        installation_id:
+          type: string
+          description: >-
+            The installation whose webhook secret verified this delivery. It is not
+            necessarily the one covering the repository: when none does, every configured
+            secret is tried, and this says which one answered. Empty on a delivery that
+            verified against none.
         received_at: { type: string, format: date-time }
 
     WebhookCheck:
@@ -1891,6 +2296,10 @@ components:
         sha: { type: string, description: The blob SHA the plan was computed against. }
         rewrites: { type: array, items: { $ref: "#/components/schemas/MigrationRewrite" } }
         skips: { type: array, items: { $ref: "#/components/schemas/MigrationSkip" } }
+        hosted_labels:
+          type: array
+          items: { type: string }
+          description: The hosted-runner labels this file asks for, mapped or not.
         diff: { type: string, description: A unified diff of the change, empty when the file is untouched. }
 
     MigrationRepo:
@@ -1902,7 +2311,7 @@ components:
         hosted_labels:
           type: array
           items: { type: string }
-          description: The GitHub-hosted labels this repository asks for, mapped or not.
+          description: The hosted-runner labels this repository asks for - GitHub's own and the vendors' - mapped or not.
         error: { type: string, description: Set when this repository could not be read; the rest of the plan still stands. }
 
     MigrationPoolOption:
@@ -1981,6 +2390,82 @@ components:
         disk_gb: { type: integer, format: int64 }
         pids_limit: { type: integer, format: int64 }
 
+    PoolPlatform:
+      type: object
+      description: One row of the runner image catalogue.
+      properties:
+        os: { type: string, examples: [ubuntu] }
+        os_version: { type: string, examples: ["24.04"] }
+        label: { type: string, examples: ["Ubuntu 24.04"] }
+        image: { type: string, examples: ["ghcr.io/eyupio/zoomies-runner:ubuntu-2404"] }
+        arches: { type: array, items: { type: string }, examples: [[amd64, arm64]] }
+        default: { type: boolean, description: True for the variant :latest points at. }
+
+    Platform:
+      type: object
+      description: >-
+        The machine a pool's runners need, or the machine a host is. Every field
+        is optional; an empty field is a promise nobody made and matches
+        anything. A pool's platform selects its runner image and restricts the
+        hosts the scheduler may place its runners on.
+      properties:
+        os:
+          type: string
+          description: A distribution, not a kernel - "linux" cannot pick a runner image.
+          enum: [ubuntu, debian, fedora, rocky, macos, windows]
+          examples: [ubuntu]
+        os_version: { type: string, examples: ["24.04"] }
+        arch: { type: string, enum: [amd64, arm64], examples: [arm64] }
+    UsageResponse:
+      type: object
+      required: [from, to, group_by, items, costs_are_estimates, allocation_attributable]
+      properties:
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+        group_by: { type: string, enum: [installation, repository, workflow, pool] }
+        costs_are_estimates: { type: boolean, const: true }
+        allocation_attributable:
+          type: boolean
+          description: |
+            Whether allocated runner lifetime, and therefore cost, can be
+            attributed to this grouping at all. A runner idles on behalf of a
+            pool, never on behalf of a repository or a workflow, so it is false
+            for the repository and workflow groupings and every row's
+            allocated_runner_seconds is null.
+        items:
+          type: array
+          items:
+            type: object
+            required: [key, job_execution_seconds, allocated_runner_seconds, jobs, jobs_started, jobs_completed, average_queue_wait_seconds, peak_concurrency]
+            properties:
+              key: { type: string }
+              job_execution_seconds: { type: number, description: Job execution time clipped to the reported interval. }
+              allocated_runner_seconds:
+                type: number
+                nullable: true
+                description: Runner lifetime clipped to the interval, or null when the grouping cannot attribute it. Null is not zero.
+              jobs: { type: integer, description: "Jobs queued within the interval. Counts are additive: adjacent reports sum." }
+              jobs_started: { type: integer, description: Jobs whose run began within the interval. }
+              jobs_completed: { type: integer, description: Jobs that finished within the interval. }
+              average_queue_wait_seconds:
+                type: number
+                nullable: true
+                description: Mean wait of the jobs_started jobs, so the denominator is the population with an observed wait. Null when nothing started in the interval.
+              peak_concurrency: { type: integer }
+              estimated_cost: { type: number, description: Estimate from administrator-assigned pool rates; omitted when no rate exists. }
+
+    PoolPrewarm:
+      type: object
+      properties:
+        pool_id: { type: string }
+        host_id: { type: string }
+        host_name: { type: string }
+        image: { type: string }
+        state: { type: string, enum: [pending, succeeded, failed] }
+        digest: { type: string }
+        error: { type: string }
+        updated_at: { type: string, format: date-time }
+
     Pool:
       type: object
       properties:
@@ -1991,14 +2476,27 @@ components:
         labels: { type: array, items: { type: string } }
         runner_group: { type: string }
         backend: { $ref: "#/components/schemas/BackendKind" }
+        platform: { $ref: "#/components/schemas/Platform" }
         image: { type: string }
+        effective_image:
+          type: string
+          description: >-
+            The image this pool's runners will actually boot: image when the pool
+            names one, otherwise the variant its platform selects, otherwise the
+            instance default -- and then its Docker variant when the pool gives
+            its jobs a daemon.
+        pull_policy: { $ref: "#/components/schemas/PullPolicy" }
         runner_version: { type: string }
         min_runners: { type: integer }
         max_runners: { type: integer }
+        repository_scale_up_limit: { type: integer, minimum: 0, description: Best-effort per-repository runner creation throttle; zero disables it. This cannot prevent GitHub from assigning work to compatible idle runners and is not a strict execution concurrency cap. }
+        cost_per_runner_hour: { type: number, minimum: 0, nullable: true, description: Optional administrator-assigned rate used only for estimates. }
+        priority: { type: integer, default: 0, description: Higher-priority pools receive creation capacity before lower-priority pools. }
         idle_timeout: { $ref: "#/components/schemas/Duration" }
         ephemeral: { type: boolean }
         docker_mode: { $ref: "#/components/schemas/DockerMode" }
         resources: { $ref: "#/components/schemas/Resources" }
+        cache: { $ref: "#/components/schemas/CacheConfig" }
         host_selector: { type: object, additionalProperties: { type: string } }
         env: { type: object, additionalProperties: { type: string } }
         run_as_root: { type: boolean }
@@ -2022,23 +2520,77 @@ components:
           items: { $ref: "#/components/schemas/Problem" }
           description: The dangerous settings this pool has in effect, if any.
 
+    CacheConfig:
+      type: object
+      description: Disposable performance cache mounted at /opt/zoomies-cache; it is not persistent workflow storage and may be evicted.
+      required: [enabled, scope]
+      properties:
+        enabled: { type: boolean, default: false }
+        scope:
+          type: string
+          enum: [pool, repository]
+          default: pool
+          description: >-
+            Repository scope gives each repository its own cache. Under an
+            organisation-targeted installation it needs `repository` set,
+            because the installation alone does not say which repository the
+            pool serves.
+        size_limit:
+          type: integer
+          format: int64
+          minimum: 0
+          description: >-
+            Maximum bytes, enforced between one runner and the next by evicting
+            whole cache entries, least recently modified first. Only a cache in
+            a host directory can be measured, so a non-zero limit requires
+            `source` to be an absolute host path. Zero is unlimited.
+        source: { type: string, description: Optional absolute host directory or safe named-volume prefix. }
+        repository:
+          type: string
+          description: >-
+            The repository a repository-scoped cache belongs to, as owner/name.
+            Required when the pool's installation targets an organisation, and
+            left empty when it targets a single repository, which supplies it.
+
     PoolCreate:
       type: object
       required: [name, installation_id, labels, backend]
       properties:
-        name: { type: string, minLength: 1, maxLength: 64, examples: [linux-x64] }
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: >-
+            The pool's name. Every pool name carries the brand, so a name sent
+            without the `zoomies-` prefix is stored with one: `gpu` becomes
+            `zoomies-gpu`. Beyond the brand, Zoomies' own convention is
+            zoomies-<vcpu>vcpu[-<memory>gb]-<os>-<version>[-<arch>], so the name
+            a workflow's runs-on carries says how much machine it is asking for.
+            Any name is accepted.
+          examples: [zoomies-4vcpu-ubuntu-2404]
         installation_id: { type: string }
         labels: { type: array, items: { type: string }, minItems: 1 }
         runner_group: { type: string }
         backend: { $ref: "#/components/schemas/BackendKind" }
-        image: { type: string }
+        platform: { $ref: "#/components/schemas/Platform" }
+        image:
+          type: string
+          description: >-
+            Leave blank to follow the pool's platform, which selects a published
+            zoomies-runner variant, or the instance default when the pool names
+            no platform.
+        pull_policy: { $ref: "#/components/schemas/PullPolicy" }
         runner_version: { type: string }
         min_runners: { type: integer, default: 0, minimum: 0 }
         max_runners: { type: integer, default: 4, minimum: 1 }
+        repository_scale_up_limit: { type: integer, minimum: 0, description: Best-effort creation throttle, not a strict execution concurrency cap. }
+        cost_per_runner_hour: { type: number, minimum: 0, nullable: true }
+        priority: { type: integer, default: 0 }
         idle_timeout: { allOf: [{ $ref: "#/components/schemas/Duration" }], default: "5m" }
         ephemeral: { type: boolean, default: true }
         docker_mode: { allOf: [{ $ref: "#/components/schemas/DockerMode" }], default: none }
         resources: { $ref: "#/components/schemas/Resources" }
+        cache: { $ref: "#/components/schemas/CacheConfig" }
         host_selector: { type: object, additionalProperties: { type: string } }
         env: { type: object, additionalProperties: { type: string } }
         run_as_root: { type: boolean, default: false }
@@ -2052,19 +2604,32 @@ components:
     PoolUpdate:
       type: object
       properties:
-        name: { type: string, minLength: 1, maxLength: 64, examples: [linux-x64] }
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: >-
+            The pool's name. Every pool name carries the brand, so a name sent
+            without the `zoomies-` prefix is stored with one: `gpu` becomes
+            `zoomies-gpu`.
+          examples: [zoomies-linux-x64]
         installation_id: { type: string }
         labels: { type: array, items: { type: string }, minItems: 1 }
         runner_group: { type: string }
         backend: { $ref: "#/components/schemas/BackendKind" }
         image: { type: string }
+        pull_policy: { $ref: "#/components/schemas/PullPolicy" }
         runner_version: { type: string }
         min_runners: { type: integer, minimum: 0 }
         max_runners: { type: integer, minimum: 1 }
+        repository_scale_up_limit: { type: integer, minimum: 0, description: Best-effort creation throttle, not a strict execution concurrency cap. }
+        cost_per_runner_hour: { type: number, minimum: 0, nullable: true }
+        priority: { type: integer }
         idle_timeout: { $ref: "#/components/schemas/Duration" }
         ephemeral: { type: boolean }
         docker_mode: { $ref: "#/components/schemas/DockerMode" }
         resources: { $ref: "#/components/schemas/Resources" }
+        cache: { $ref: "#/components/schemas/CacheConfig" }
         host_selector: { type: object, additionalProperties: { type: string } }
         env: { type: object, additionalProperties: { type: string } }
         run_as_root: { type: boolean }
@@ -2086,6 +2651,7 @@ components:
         ephemeral: { type: boolean }
         labels: { type: array, items: { type: string } }
         image: { type: string }
+        image_digest: { type: string, description: Immutable digest resolved by the host backend. }
         runner_version: { type: string }
         current_job_id: { type: string }
         current_job: { $ref: "#/components/schemas/Job" }
@@ -2097,6 +2663,26 @@ components:
         started_at: { type: [string, "null"], format: date-time }
         last_idle_at: { type: [string, "null"], format: date-time }
         finished_at: { type: [string, "null"], format: date-time }
+        cleanup_error:
+          type: string
+          description: >-
+            Why Zoomies could not finish taking this runner away: a stop or remove the
+            agent could not complete, or a registration GitHub would not delete. Empty is
+            the normal case. A non-empty value means something is left behind — a container
+            on its host, or a registration on the organisation — and it will not go away on
+            its own. Zoomies retries, and this clears when it succeeds.
+        cleanup_failed_at: { type: [string, "null"], format: date-time }
+        cleanup_attempts:
+          type: integer
+          description: >-
+            How many times cleanup has been tried. It is kept after a success, because how
+            many tries it took is the difference between a blip and a host worth looking at.
+        cleaned_up_at:
+          type: [string, "null"]
+          format: date-time
+          description: >-
+            The end of the runner's life: nothing of it left, on the host or on GitHub. The
+            counterpart of `created_at` at the other end.
 
     RunnerDetail:
       allOf:
@@ -2112,6 +2698,12 @@ components:
       type: object
       properties:
         state: { $ref: "#/components/schemas/RunnerState" }
+        stage:
+          type: string
+          description: >-
+            A finer point within the state, when one was observed: the image was pulled,
+            the container started, the runner registered with GitHub.
+          enum: [image_pulling, container_started, registered]
         at: { type: string, format: date-time }
         duration_ms: { type: integer, format: int64, description: How long the runner stayed in this state. }
         message: { type: string }
@@ -2129,17 +2721,85 @@ components:
         labels: { type: array, items: { type: string } }
         state: { $ref: "#/components/schemas/JobState" }
         conclusion: { type: string, examples: [success, failure, cancelled, skipped] }
+        installation_id:
+          type: string
+          description: >-
+            The GitHub App installation covering this job's repository, resolved when the job
+            was first recorded. Read-only. A pool only ever runs work in its own installation's
+            target, so a pool whose labels fit is still not eligible unless this matches it.
+            Empty when no installation here covers the repository.
         pool_id: { type: string }
         pool_name: { type: string }
         runner_id: { type: string }
         runner_name: { type: string }
         html_url: { type: string, description: The run on GitHub. }
-        matched: { type: boolean, description: False when no enabled pool claims this job's labels. }
+        matched: { type: boolean, description: "False when no enabled pool claims this job's labels. On a job that is not queued this only says the job ran somewhere else." }
+        eligible_at: { type: string, format: date-time, description: "When this fleet could first have acted on the job - an enabled pool claiming its labels. The start of the scheduling-latency interval, and deliberately not queued_at: the wait before anything could run the job is not this fleet's. Absent on a job nothing has claimed." }
+        hosted: { type: boolean, description: "True when every label names GitHub's own runners or a hosted-runner vendor's, so a job no pool here claims is theirs to run rather than stuck." }
+        head_branch: { type: string, description: The branch the run was for. }
+        head_sha: { type: string }
+        run_attempt: { type: integer, description: "1 for a first run; higher when the run was re-run." }
+        steps:
+          type: array
+          description: >-
+            The job's steps as GitHub last reported them. A completed job carries every
+            step with its conclusion; a running one carries them mid-flight.
+          items: { $ref: "#/components/schemas/JobStep" }
+        failed_step:
+          description: >-
+            The step a completed job stopped at: the first that did not succeed, whether the
+            job failed there or was cancelled there. Null when every step succeeded or while
+            the job is still running. Worked out by the server so every client names the same step.
+          oneOf:
+            - $ref: "#/components/schemas/JobStep"
+            - type: "null"
+        runner_fault:
+          type: string
+          description: >-
+            Set when the runner of this fleet that was executing the job stopped before
+            GitHub reported the job over -- the fleet's own explanation of a failure GitHub
+            records like any other. Empty when the runner did nothing wrong.
         queued_at: { type: string, format: date-time }
         started_at: { type: [string, "null"], format: date-time }
         completed_at: { type: [string, "null"], format: date-time }
         queue_wait_ms: { type: integer, format: int64 }
         duration_ms: { type: integer, format: int64 }
+
+    JobStep:
+      type: object
+      properties:
+        number: { type: integer }
+        name: { type: string }
+        status: { type: string, examples: [queued, in_progress, completed] }
+        conclusion: { type: string, examples: [success, failure, cancelled, skipped] }
+        started_at: { type: [string, "null"], format: date-time }
+        completed_at: { type: [string, "null"], format: date-time }
+
+    JobEventKind:
+      type: string
+      description: >-
+        What happened. `runner_lost` is the one entry GitHub cannot produce: the runner
+        stopped under the job, and GitHub will report an ordinary failure. `waiting` and
+        `approved` bracket a deployment review: the time between them is GitHub's, and
+        the queue wait starts at `approved`. `runner_returned` withdraws a `runner_lost`:
+        the host was silent long enough to be given up on, came back with the runner
+        still executing this job, and the job is being left to finish.
+      enum: [queued, waiting, approved, claimed, unmatched, started, completed, runner_lost, runner_returned]
+
+    JobEvent:
+      type: object
+      properties:
+        id: { type: string }
+        job_id: { type: string }
+        kind: { $ref: "#/components/schemas/JobEventKind" }
+        source:
+          type: string
+          description: Who observed it. A timeline that is all `poller` is a controller no webhook reaches.
+          enum: [webhook, poller, agent, controller]
+        message: { type: string, description: One sentence, written for an operator. }
+        runner_id: { type: string }
+        runner_name: { type: string }
+        at: { type: string, format: date-time }
 
     # --- hosts ------------------------------------------------------------
     BackendInfo:
@@ -2152,6 +2812,7 @@ components:
         endpoint: { type: string }
         detail: { type: string, description: When unavailable, what is wrong and how to fix it. }
         supports_dind: { type: boolean }
+        host_socket_path: { type: string, description: Where the host daemon's socket lives, for pools that opt into host-socket mode. }
 
     Host:
       type: object
@@ -2166,8 +2827,20 @@ components:
         backends: { type: array, items: { type: string } }
         backend_info: { type: array, items: { $ref: "#/components/schemas/BackendInfo" } }
         labels: { type: object, additionalProperties: { type: string } }
-        os: { type: string }
+        os: { type: string, description: The kernel, as Go names it - linux, darwin, windows. }
+        distro: { type: string, description: The distribution, e.g. ubuntu. Empty when the host has not said. }
+        os_version: { type: string, description: The distribution's release, e.g. "24.04". }
         arch: { type: string }
+        cpus: { type: integer, description: How much machine this host is. An agent in a container sees its cgroup's share, but a container runner runs beside it rather than inside that cgroup, so the daemon's larger view of the machine is the one reported. }
+        memory_mb: { type: integer, format: int64 }
+        disk_total_mb: { type: integer, format: int64, description: The filesystem holding the agent's work directory, where a runner's checkout and caches land. Zero means the agent did not measure it, which is not a full disk. }
+        disk_free_mb: { type: integer, format: int64, description: What a runner may write to, which is less than what is unused by the reserve the filesystem keeps for root. }
+        platform: { $ref: "#/components/schemas/Platform" }
+        platform_label: { type: string, examples: ["Ubuntu 24.04, arm64"] }
+        canonical_name:
+          type: string
+          description: The name this machine would be given today, for a host called something that says nothing.
+          examples: [zoomies-16vcpu-32gb-ubuntu-2404-build01]
         version: { type: string }
         cordoned: { type: boolean }
         healthy: { type: boolean }
@@ -2259,3 +2932,149 @@ components:
         version: { type: string }
         database_path: { type: string }
         event_subscribers: { type: integer }
+
+    # --- agent protocol (internal) ------------------------------------------
+    # The wire types of the agent routes. internal/agent/protocol.go owns them;
+    # these describe what it sends so the document is whole.
+    AgentJoinRequest:
+      type: object
+      required: [protocol_version, join_token, name, capacity, os, arch, version, backends]
+      properties:
+        protocol_version: { type: integer }
+        join_token: { type: string, format: password }
+        name: { type: string }
+        address: { type: string, description: How the host reports itself. The controller never dials it. }
+        capacity: { type: integer, description: Concurrent runners the host accepts. 0 lets the join token or the CPU count decide. }
+        os: { type: string }
+        arch: { type: string }
+        version: { type: string, description: The agent's build version, for skew warnings. }
+        labels: { type: object, additionalProperties: { type: string } }
+        backends: { type: array, items: { $ref: "#/components/schemas/BackendInfo" } }
+    AgentJoinResponse:
+      type: object
+      properties:
+        host_id: { type: string }
+        agent_token: { type: string, description: Shown once. The controller keeps only its hash. }
+        controller_version: { type: string }
+        heartbeat_interval: { $ref: "#/components/schemas/Duration" }
+    AgentHeartbeatRequest:
+      type: object
+      properties:
+        protocol_version: { type: integer }
+        capacity: { type: integer, description: The agent's configured value, sent for the log. The controller does not write it. }
+        version: { type: string }
+        backends: { type: array, items: { $ref: "#/components/schemas/BackendInfo" } }
+        runners: { type: array, items: { $ref: "#/components/schemas/RunnerReport" } }
+    AgentHeartbeatResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        cordoned: { type: boolean, description: Mirrors the host's cordon flag so the agent stops asking for work at once. }
+        controller_version: { type: string }
+        resync_requested: { type: boolean, description: Send a full runner report next time. Set after the controller restarts. }
+    RunnerReport:
+      type: object
+      required: [runner_id, observed_at]
+      properties:
+        runner_id: { type: string }
+        state:
+          description: >-
+            The state the agent asserts, or empty once the workload is up: whether GitHub has
+            handed the runner a job is not the agent's call.
+          oneOf:
+            - $ref: "#/components/schemas/RunnerState"
+            - { type: string, const: "" }
+        handle: { type: string, description: The backend's own name for the workload, such as a container ID. }
+        phase: { type: string, enum: [starting, running, exited, failed, gone] }
+        exit_code: { type: integer }
+        message: { type: string }
+        stats: { $ref: "#/components/schemas/WorkloadStats" }
+        github_runner_id: { type: integer, format: int64, description: Filled in once the runner has registered. }
+        observed_at: { type: string, format: date-time }
+    WorkloadStats:
+      type: object
+      properties:
+        cpu_percent: { type: number, format: double }
+        memory_bytes: { type: integer, format: int64 }
+        memory_limit: { type: integer, format: int64 }
+    AgentTaskKind:
+      type: string
+      enum: [create_runner, stop_runner, remove_runner, stream_logs, cancel_logs, prewarm_image]
+    AgentTask:
+      type: object
+      description: One unit of work for an agent. Tasks are idempotent; the controller may redeliver one after a restart.
+      required: [id, kind, issued_at]
+      properties:
+        id: { type: string }
+        kind: { $ref: "#/components/schemas/AgentTaskKind" }
+        runner_id: { type: string }
+        spec: { $ref: "#/components/schemas/RunnerSpec" }
+        backend: { $ref: "#/components/schemas/BackendKind" }
+        pool_id: { type: string }
+        image: { type: string }
+        pull_policy: { $ref: "#/components/schemas/PullPolicy" }
+        stop_timeout: { type: integer, format: int64, description: Nanoseconds. Bounds a graceful stop. }
+        stream_id: { type: string, description: The log relay a stream_logs or cancel_logs task concerns. }
+        log_options: { $ref: "#/components/schemas/LogOptions" }
+        issued_at: { type: string, format: date-time }
+    RunnerSpec:
+      type: object
+      description: >-
+        Everything a backend needs to create one runner. The one place a JIT config crosses
+        the wire, which is why the agent transport requires TLS off loopback.
+      properties:
+        name: { type: string, description: The runner name GitHub will know it by. It doubles as the container name. }
+        runner_id: { type: string }
+        pool_id: { type: string }
+        pool_name: { type: string }
+        image: { type: string }
+        pull_policy: { $ref: "#/components/schemas/PullPolicy" }
+        credentials:
+          type: object
+          description: The runner's registration credentials. Never logged, never shown.
+          properties:
+            jit_config: { type: string, format: password }
+            registration_token: { type: string, format: password }
+            url: { type: string, description: The organisation or repository URL the runner registers against. }
+            runner_group: { type: string }
+            labels: { type: array, items: { type: string } }
+        env: { type: object, additionalProperties: { type: string } }
+        ephemeral: { type: boolean }
+        resources: { $ref: "#/components/schemas/Resources" }
+        cache: { $ref: "#/components/schemas/CacheConfig" }
+        repository: { type: string }
+        docker_mode: { $ref: "#/components/schemas/DockerMode" }
+        run_as_root: { type: boolean }
+        network: { type: string }
+        work_dir: { type: string }
+        runner_version: { type: string, description: The actions/runner release the process backend downloads. }
+    LogOptions:
+      type: object
+      description: How a log relay reads the workload's output. The names are capitalised on the wire, as the Go type carries no JSON tags.
+      properties:
+        Follow: { type: boolean }
+        Tail: { type: integer, description: Lines of backlog to send first. 0 means everything. }
+        Since: { type: string, format: date-time }
+        Timestamps: { type: boolean }
+    AgentTaskResult:
+      type: object
+      required: [task_id, ok, completed_at]
+      properties:
+        task_id: { type: string }
+        kind: { $ref: "#/components/schemas/AgentTaskKind" }
+        runner_id: { type: string }
+        ok: { type: boolean }
+        error: { type: string }
+        handle: { type: string }
+        image_pull_duration: { type: integer, format: int64, description: Nanoseconds. Absent when the backend cannot tell pulling from creation. }
+        create_duration: { type: integer, format: int64, description: Nanoseconds. }
+        container_started_at: { type: string, format: date-time }
+        digest: { type: string }
+        state: { $ref: "#/components/schemas/RunnerState" }
+        completed_at: { type: string, format: date-time }
+    AgentTaskBatch:
+      type: object
+      required: [tasks]
+      properties:
+        tasks: { type: array, items: { $ref: "#/components/schemas/AgentTask" } }
+        backoff: { type: integer, format: int64, description: Nanoseconds to wait before polling again, when the controller sheds load. }

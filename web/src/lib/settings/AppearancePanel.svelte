@@ -59,8 +59,8 @@
     <section aria-labelledby="time-heading">
       <h3 id="time-heading">Times and motion</h3>
       <p class="note">
-        Relative times -- "4m ago" -- refresh every {seconds} seconds from one shared clock, and every
-        one of them carries the exact timestamp in its tooltip, so nothing is ever only approximate. Durations
+        Relative times — "4m ago" — refresh every {seconds} seconds from one shared clock, and every one
+        of them carries the exact timestamp in its tooltip, so nothing is ever only approximate. Durations
         use tabular figures so columns line up.
       </p>
       <p class="note">
@@ -82,13 +82,13 @@
 
 <style>
   .panel {
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }
   header {
     padding: var(--z-space-4) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   h2 {
     margin: 0;
@@ -114,7 +114,7 @@
     margin: 0 0 var(--z-space-3);
     font-size: var(--z-text-2xs);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     font-weight: var(--z-weight-medium);
     color: var(--z-text-muted);
   }

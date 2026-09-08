@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/migrate"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -221,7 +222,7 @@ func TestMigrationOpensOnePullRequestPerRepository(t *testing.T) {
 func TestMigrationPlanPagesThroughTheOrganisation(t *testing.T) {
 	h, inst, cookie := migrationHarness(t)
 	// Enough repositories that one plan cannot hold them.
-	for i := 0; i < maxPlanRepos; i++ {
+	for i := 0; i < controller.MaxPlanRepos; i++ {
 		h.gh.AddWorkflow(fmt.Sprintf("acme/z%02d", i), ".github/workflows/ci.yml", ciBefore)
 	}
 
@@ -231,13 +232,13 @@ func TestMigrationPlanPagesThroughTheOrganisation(t *testing.T) {
 	var page1 migrationPlanResponse
 	first.into(t, &page1)
 
-	if len(page1.Repositories) != maxPlanRepos {
-		t.Fatalf("first page = %d repositories, want %d", len(page1.Repositories), maxPlanRepos)
+	if len(page1.Repositories) != controller.MaxPlanRepos {
+		t.Fatalf("first page = %d repositories, want %d", len(page1.Repositories), controller.MaxPlanRepos)
 	}
 	if !page1.Truncated || page1.NextCursor == "" {
 		t.Fatalf("first page says it is the whole organisation: truncated=%v cursor=%q", page1.Truncated, page1.NextCursor)
 	}
-	if want := maxPlanRepos + 3; page1.TotalRepos != want {
+	if want := controller.MaxPlanRepos + 3; page1.TotalRepos != want {
 		t.Errorf("total_repos = %d, want %d, so the wizard can say what it is showing", page1.TotalRepos, want)
 	}
 	if last := page1.Repositories[len(page1.Repositories)-1].Repo; page1.NextCursor != last {

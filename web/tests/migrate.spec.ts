@@ -48,7 +48,7 @@ test('a repository with nothing to move is hidden, and can be shown', async ({ p
   // hides -- not a list of an organisation's documentation repositories.
   const quiet = page.getByRole('checkbox', { name: FIXTURE.quietRepo, exact: false });
   await expect(quiet).toBeHidden();
-  await expect(page.getByText('with nothing to move')).toBeVisible();
+  await expect(page.getByText('that cannot move')).toBeVisible();
 
   await page.getByRole('switch', { name: 'Only repositories with something to move' }).click();
   await expect(quiet).toBeVisible();
@@ -71,7 +71,7 @@ test('a repository with several workflows is chosen file by file', async ({ page
 
   // The repository is now partly chosen, and says so.
   await expect(repo).not.toBeChecked();
-  await expect(page.getByText('1 chosen')).toBeVisible();
+  await expect(page.getByText('1 of 2 files chosen')).toBeVisible();
 
   // And the review only offers to change the file that is still ticked.
   await page.getByRole('button', { name: 'Next' }).click();

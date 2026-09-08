@@ -14,6 +14,17 @@
     since: string;
     until: string;
     unmatched: boolean;
+    /**
+     * Only jobs that went wrong, on either side: a failing conclusion, or a
+     * runner of this fleet that stopped under the job.
+     */
+    failed: boolean;
+    /**
+     * Show every job GitHub reported, not only the ones this fleet has a hand in.
+     * Inverted on purpose: the default view is Zoomies' own jobs, so an absent
+     * URL key means the default rather than "show everything".
+     */
+    all: boolean;
   }
 
   export const EMPTY_JOB_FILTERS: JobFilterState = {
@@ -27,6 +38,8 @@
     since: '',
     until: '',
     unmatched: false,
+    failed: false,
+    all: false,
   };
 </script>
 
@@ -145,6 +158,26 @@
           },
         ]
       : []),
+    ...(value.failed
+      ? [
+          {
+            id: 'failed',
+            label: 'Only',
+            value: 'jobs that went wrong',
+            onremove: () => onchange({ failed: false }),
+          },
+        ]
+      : []),
+    ...(value.all
+      ? [
+          {
+            id: 'all',
+            label: 'Showing',
+            value: 'jobs from every runner',
+            onremove: () => onchange({ all: false }),
+          },
+        ]
+      : []),
   ]);
 </script>
 
@@ -213,9 +246,23 @@
 
   <Switch
     label="Unmatched only"
-    description="Jobs no enabled pool claims"
+    description="Queued jobs no enabled pool claims"
     checked={value.unmatched}
     onchange={(on) => onchange({ unmatched: on })}
+  />
+
+  <Switch
+    label="Failed only"
+    description="Failing conclusions, and runners that stopped under a job"
+    checked={value.failed}
+    onchange={(on) => onchange({ failed: on })}
+  />
+
+  <Switch
+    label="Include other runners"
+    description="Also show jobs GitHub ran without this fleet"
+    checked={value.all}
+    onchange={(on) => onchange({ all: on })}
   />
 </FilterBar>
 

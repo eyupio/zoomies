@@ -72,7 +72,7 @@
 
 <style>
   .warnings:not(.bare) {
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
     padding: var(--z-space-5);
@@ -95,7 +95,7 @@
   }
   li {
     padding-left: var(--z-space-3);
-    border-left: 2px solid var(--z-pending-border);
+    border-left: var(--z-border-width-thick) solid var(--z-pending-border);
   }
   .head {
     display: flex;
@@ -123,7 +123,7 @@
     font-size: var(--z-text-2xs);
     font-weight: var(--z-weight-medium);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     color: var(--z-idle);
   }
   .setting {

@@ -20,12 +20,16 @@
   import AppFooter from '$lib/shell/AppFooter.svelte';
   import CommandPalette from '$lib/shell/CommandPalette.svelte';
   import Nav from '$lib/shell/Nav.svelte';
+  import NavMenu from '$lib/shell/NavMenu.svelte';
+  import ProblemsDrawer from '$lib/problems/ProblemsDrawer.svelte';
   import ShortcutSheet from '$lib/shell/ShortcutSheet.svelte';
   import TopBar from '$lib/shell/TopBar.svelte';
   import Bootstrap from './routes/Bootstrap.svelte';
   import Login from './routes/Login.svelte';
+  import { upgrade } from '$lib/state/upgrade.svelte';
 
   let paletteOpen = $state(false);
+  let navMenuOpen = $state(false);
   let shortcutsOpen = $state(false);
   let announcement = $state('');
   let warnedAboutPassword = false;
@@ -34,15 +38,20 @@
   const authenticated = $derived(session.phase === 'ready');
 
   onMount(() => {
+    // A session that has lapsed shows the sign-in form in place: the shell
+    // renders Login whenever nobody is signed in, and leaving the address
+    // alone is what lets Login read it and send the operator back to the
+    // runner they were looking at once they have signed in again. Navigating
+    // to /login here threw that away and landed everyone on the Overview.
     onUnauthorized(() => {
       session.clear();
       fleet.stop();
-      if (router.pathname !== '/login') router.navigate('/login');
     });
     router.start();
     void session.boot();
+    const stopWatchingForUpgrades = upgrade.listen();
 
-    return installShortcuts({
+    const teardown = installShortcuts({
       palette: () => (paletteOpen = true),
       help: () => (shortcutsOpen = true),
       search: () => {
@@ -52,6 +61,17 @@
       },
       go: (path) => router.navigate(path),
     });
+    return () => {
+      stopWatchingForUpgrades();
+      teardown();
+    };
+  });
+
+  // The build this tab is running, taken from the meta the boot already
+  // fetched rather than a request of its own.
+  $effect(() => {
+    const version = session.meta?.version;
+    if (version) upgrade.note(version);
   });
 
   // Connect the live stream exactly once, and only for somebody signed in.
@@ -79,13 +99,22 @@
    * Route change: move focus to the page heading so a keyboard user lands on
    * the content rather than at the top of the navigation, and announce the page
    * name politely for anyone who cannot see that it changed.
+   *
+   * `focused` is what makes this a *route* change rather than any change. The
+   * router's reactivity is one subscriber for the whole module, so a filter
+   * writing itself into the query string re-runs this effect even though the
+   * navigation count has not moved -- and it used to take the keyboard with it.
+   * Typing into any page's search box therefore gave up focus after the first
+   * character and swallowed the second: a runner name became `z`.
    */
+  let focused = 0;
   $effect(() => {
     const count = router.navigation;
     // The title is read untracked: a detail page renaming itself once it knows
     // what it is looking at must not steal focus back to the heading.
     const title = untrack(() => router.title);
-    if (!authenticated || count === 0) return;
+    if (!authenticated || count === 0 || count === focused) return;
+    focused = count;
     void tick().then(() => {
       const heading = document.getElementById('page-heading') ?? document.getElementById('main');
       heading?.focus();
@@ -98,12 +127,12 @@
 
 {#if session.phase === 'booting'}
   <div class="boot" aria-busy="true">
-    <Logo variant="lockup" size={72} label="" />
+    <Logo variant="lockup" size={96} label="" />
     <span class="sr-only">Loading Zoomies</span>
   </div>
 {:else if session.phase === 'failed'}
   <main id="main" class="centred">
-    <div class="brand"><Logo variant="lockup" size={56} label="" /></div>
+    <div class="brand"><Logo variant="lockup" size={80} label="" /></div>
     <ErrorState
       error={session.error}
       title="Cannot reach the Zoomies controller"
@@ -118,7 +147,7 @@
   <main id="main" class="centred"><Login /></main>
 {:else}
   <div class="app">
-    <Nav />
+    <Nav menuOpen={navMenuOpen} onmore={() => (navMenuOpen = !navMenuOpen)} />
     <div class="column">
       <TopBar onpalette={() => (paletteOpen = true)} onshortcuts={() => (shortcutsOpen = true)} />
       <main id="main" tabindex="-1">
@@ -127,7 +156,7 @@
             <ErrorState
               error={router.error}
               title="That page could not be loaded"
-              description="The page's code failed to download. Check your connection, then try again."
+              description="The page's code did not download, and retrying did not help. Check your connection, then try again."
               onretry={() => location.reload()}
             />
           </div>
@@ -152,7 +181,9 @@
     </div>
   </div>
 
+  <NavMenu bind:open={navMenuOpen} />
   <CommandPalette bind:open={paletteOpen} />
+  <ProblemsDrawer />
   <ShortcutSheet bind:open={shortcutsOpen} />
 {/if}
 

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/logging"
 )
@@ -214,7 +215,7 @@ func (s *Server) checkOrigin(r *http.Request) string {
 		// Not sent: either an older browser or a non-browser client. Fall
 		// through to the Origin header.
 	default:
-		if s.originAllowed(r.Header.Get("Origin")) || sameOriginAsRequest(r, r.Header.Get("Origin")) {
+		if s.originAllowed(r.Header.Get("Origin")) || s.sameOriginAsRequest(r, r.Header.Get("Origin")) {
 			return ""
 		}
 		from := strings.TrimSpace(r.Header.Get("Origin"))
@@ -235,7 +236,7 @@ func (s *Server) checkOrigin(r *http.Request) string {
 		return "this request carried no Origin or Sec-Fetch-Site header, so it cannot be shown to have come from the Zoomies UI. " +
 			"Use a browser, or authenticate with an API token, which is exempt from this check."
 	}
-	if s.originAllowed(origin) || sameOriginAsRequest(r, origin) {
+	if s.originAllowed(origin) || s.sameOriginAsRequest(r, origin) {
 		return ""
 	}
 	return "this request came from " + origin + ", which is not this controller's origin. " +
@@ -249,7 +250,7 @@ func (s *Server) originAllowed(origin string) bool {
 	if origin == "" {
 		return false
 	}
-	for _, allowed := range s.cfg.Server.AllowedOrigins {
+	for _, allowed := range s.cfg().Server.AllowedOrigins {
 		if strings.EqualFold(strings.TrimRight(strings.TrimSpace(allowed), "/"), strings.TrimRight(origin, "/")) {
 			return true
 		}
@@ -257,7 +258,7 @@ func (s *Server) originAllowed(origin string) bool {
 			return true
 		}
 	}
-	if ext := s.cfg.Server.ExternalURL; ext != "" {
+	if ext := s.cfg().Server.ExternalURL; ext != "" {
 		if u, err := url.Parse(ext); err == nil && sameOrigin(u, origin) {
 			return true
 		}
@@ -277,7 +278,7 @@ func sameOrigin(u *url.URL, origin string) bool {
 // sameOriginAsRequest reports whether origin matches the host the request was
 // addressed to. It is the fallback when server.external_url is not configured,
 // which is the common case on a loopback development instance.
-func sameOriginAsRequest(r *http.Request, origin string) bool {
+func (s *Server) sameOriginAsRequest(r *http.Request, origin string) bool {
 	o, err := url.Parse(origin)
 	if err != nil || o.Host == "" {
 		return false
@@ -285,14 +286,7 @@ func sameOriginAsRequest(r *http.Request, origin string) bool {
 	if !strings.EqualFold(o.Host, r.Host) {
 		return false
 	}
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
-		scheme = strings.ToLower(proto)
-	}
-	return strings.EqualFold(o.Scheme, scheme)
+	return strings.EqualFold(o.Scheme, s.requestScheme(r))
 }
 
 func hasCookie(r *http.Request, name string) bool {
@@ -315,7 +309,7 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, token string) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   s.cfg.CookieSecureValue(),
+		Secure:   s.cfg().CookieSecureValue(),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(s.auth.SessionTTL() / time.Second),
 	})
@@ -329,7 +323,7 @@ func (s *Server) clearSessionCookie(w http.ResponseWriter) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   s.cfg.CookieSecureValue(),
+		Secure:   s.cfg().CookieSecureValue(),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 		Expires:  time.Unix(0, 0),
@@ -366,6 +360,10 @@ func (s *Server) agentAuth(next http.Handler) http.Handler {
 			info.identity = id
 			info.log = info.log.With("host", h.ID, "host_name", h.Name)
 		}
+		// Every authenticated agent request carries the session, so recording
+		// it here catches a duplicate whichever call it makes first rather
+		// than only on the heartbeat.
+		s.ctrl.NoteAgentSession(r.Context(), h.ID, r.Header.Get(agent.HeaderAgentSession))
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxAgentHost, h)))
 	})
 }
@@ -394,9 +392,12 @@ func (s *Server) resolveClientIP(r *http.Request) string {
 	// talked out of it, whereas X-Forwarded-For arrives as whatever the client
 	// sent with Cloudflare's own value appended. Both resolve correctly here,
 	// but only one of them is a single unambiguous value, so prefer it -- and
-	// only when the connection itself came from a trusted proxy, which is what
-	// stops a direct client from simply setting the header.
-	if cf := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); cf != "" {
+	// only when the connection itself came from one of Cloudflare's own
+	// addresses. A trusted proxy that is not Cloudflare -- nginx, HAProxy --
+	// forwards a header it does not recognise untouched, so from behind one of
+	// those the header is whatever the client chose to send, and believing it
+	// would let anyone pick the address the rate limiter and the audit log see.
+	if cf := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); cf != "" && s.isCloudflare(remote) {
 		if ip := net.ParseIP(strings.Trim(cf, "[]")); ip != nil {
 			return ip.String()
 		}
@@ -422,6 +423,56 @@ func (s *Server) resolveClientIP(r *http.Request) string {
 		}
 	}
 	return remote
+}
+
+// isCloudflare reports whether addr is one of Cloudflare's published edge
+// addresses -- the only peer whose CF-Connecting-IP means anything.
+func (s *Server) isCloudflare(addr string) bool {
+	ip := net.ParseIP(strings.Trim(addr, "[]"))
+	if ip == nil {
+		return false
+	}
+	return slices.ContainsFunc(s.cloudflare, func(n *net.IPNet) bool { return n.Contains(ip) })
+}
+
+// requestScheme is the scheme the client actually used, as far as this
+// controller can honestly tell.
+//
+// X-Forwarded-Proto is believed only when the connection itself came from a
+// CIDR in server.trusted_proxies, exactly as X-Forwarded-For is. Anything else
+// lets a client choose the scheme the controller thinks it was reached on --
+// and that scheme decides whether an https:// Origin counts as same-origin,
+// which is a CSRF check, and whether the response carries HSTS.
+//
+// A deployment behind a TLS-terminating proxy that has set neither
+// trusted_proxies nor external_url now reads as http here. That is the honest
+// answer: nothing about such a request distinguishes the proxy from anyone
+// else who can reach the listener. It costs little in practice -- an Origin
+// matching server.external_url is allowed before this is consulted, and a
+// browser new enough to send Sec-Fetch-Site never reaches it at all -- and a
+// missing external_url already raises a startup warning of its own.
+func (s *Server) requestScheme(r *http.Request) string {
+	if r.TLS != nil {
+		return "https"
+	}
+	remote, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		remote = r.RemoteAddr
+	}
+	if len(s.trusted) == 0 || !s.isTrustedProxy(remote) {
+		return "http"
+	}
+	// The left-most value, which is the scheme the original client used: a
+	// chain of proxies appends, and the entries after the first describe hops
+	// inside the operator's own network.
+	proto := r.Header.Get("X-Forwarded-Proto")
+	if i := strings.IndexByte(proto, ','); i >= 0 {
+		proto = proto[:i]
+	}
+	if strings.EqualFold(strings.TrimSpace(proto), "https") {
+		return "https"
+	}
+	return "http"
 }
 
 func (s *Server) isTrustedProxy(addr string) bool {

@@ -11,6 +11,7 @@
   import { ApiError, createToken, listTokens, revokeToken } from '$lib/api/client';
   import type { APIToken, Role } from '$lib/api/types';
   import { toasts } from '$lib/state/toasts.svelte';
+  import { ROLE_OPTIONS, roleLabel } from '$lib/roles';
   import { apiTokenStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
@@ -27,16 +28,6 @@
   import OneTimeSecret from './OneTimeSecret.svelte';
 
   type Minted = APIToken & { token?: string };
-
-  const ROLE_OPTIONS = [
-    { value: 'viewer', label: 'Viewer', description: 'Reads everything except secrets.' },
-    { value: 'operator', label: 'Operator', description: 'Acts on the fleet and manages pools.' },
-    {
-      value: 'admin',
-      label: 'Administrator',
-      description: 'Everything, including accounts and settings. Give this out sparingly.',
-    },
-  ];
 
   const EXPIRY_OPTIONS = [
     { value: '720h', label: '30 days' },
@@ -185,7 +176,7 @@
             <tr class:revoked={token.revoked}>
               <td class="name">{token.name}</td>
               <td class="mono">{token.prefix ?? '--'}</td>
-              <td>{ROLE_OPTIONS.find((r) => r.value === token.role)?.label ?? token.role}</td>
+              <td>{roleLabel(token.role)}</td>
               <td class="scopes mono">
                 {#if (token.scopes ?? []).length === 0}
                   <span class="muted">Whatever the role allows</span>
@@ -308,7 +299,7 @@
 
 <style>
   .panel {
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }
@@ -318,7 +309,7 @@
     justify-content: space-between;
     gap: var(--z-space-4);
     padding: var(--z-space-4) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   h2 {
     margin: 0;
@@ -339,6 +330,12 @@
   }
   .scroll {
     overflow-x: auto;
+    /* The table is wider than a phone and scrolls inside this box, but a
+       mobile browser still counts what it clips towards the page's width,
+       grows the layout viewport to fit, and the fixed bottom navigation grows
+       with it -- so the whole page scrolls sideways. Paint containment says
+       what is clipped here stays here. */
+    contain: paint;
   }
   table {
     width: 100%;
@@ -348,18 +345,18 @@
   }
   th {
     padding: var(--z-space-2) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
     color: var(--z-text-muted);
     font-size: var(--z-text-2xs);
     font-weight: var(--z-weight-medium);
     text-align: left;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     white-space: nowrap;
   }
   td {
     padding: var(--z-space-3) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
     color: var(--z-text);
     vertical-align: top;
   }

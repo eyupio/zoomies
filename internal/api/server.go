@@ -20,7 +20,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/auth"
@@ -38,13 +37,16 @@ type Options struct {
 	Controller *controller.Controller
 	// Logger is the process logger; nil uses slog's default.
 	Logger *slog.Logger
+	// StreamHeartbeat is how often a live stream sends a keep-alive and
+	// re-checks the credential it was opened with. Zero uses the shipped
+	// interval; a test sets it small so it does not have to wait one.
+	StreamHeartbeat time.Duration
 }
 
 // Server is the HTTP surface. Build it with New and either hand Handler() to a
 // listener of your own or let ListenAndServe run one.
 type Server struct {
 	ctrl *controller.Controller
-	cfg  *config.Config
 	auth *auth.Service
 	log  *slog.Logger
 
@@ -56,24 +58,36 @@ type Server struct {
 	key    *cryptox.Key
 	keyErr error
 
+	// streamHeartbeat is Options.StreamHeartbeat, defaulted.
+	streamHeartbeat time.Duration
+
 	// oidc is nil when single sign-on is off or its discovery failed at
 	// startup; oidcErr then carries the reason, which the SSO routes report
 	// rather than pretending the button was never there.
 	oidc    *auth.OIDCProvider
 	oidcErr error
 
-	spa       *spaHandler
-	csp       string
-	trusted   []*net.IPNet
-	manifests *manifestStates
-
-	// settingsMu serialises PATCH /settings against itself. The configuration
-	// it writes into is the one the controller's loops read, so two operators
-	// changing different keys at the same moment must not interleave.
-	settingsMu sync.Mutex
+	spa *spaHandler
+	csp string
+	// formTargets are the GitHub origins the page policy lets the App
+	// manifest form post to; handleCreateManifest refuses to build a manifest
+	// for any other, since the browser would refuse to send it.
+	formTargets []string
+	trusted     []*net.IPNet
+	// cloudflare is Cloudflare's own edge ranges, kept apart from trusted so
+	// that CF-Connecting-IP is believed only from a peer that is Cloudflare,
+	// never from another proxy an operator happens to trust.
+	cloudflare []*net.IPNet
+	manifests  *manifestStates
 
 	handler http.Handler
 }
+
+// cfg is the configuration as it currently stands. It comes from the
+// controller on every call rather than being captured once, because PATCH
+// /settings replaces the controller's snapshot and a copy taken at startup
+// would go on describing the old settings.
+func (s *Server) cfg() *config.Config { return s.ctrl.Config() }
 
 // New builds the server. It does no I/O beyond loading the encryption key and,
 // when single sign-on is configured, discovering the identity provider.
@@ -87,21 +101,27 @@ func New(opts Options) (*Server, error) {
 	}
 	log = log.With("component", "api")
 
-	cfg := opts.Controller.Config()
-	s := &Server{
-		ctrl:      opts.Controller,
-		cfg:       cfg,
-		auth:      opts.Controller.Auth(),
-		log:       log,
-		manifests: newManifestStates(opts.Controller.Now),
+	beat := opts.StreamHeartbeat
+	if beat <= 0 {
+		beat = heartbeatInterval
 	}
 
-	spa, err := newSPAHandler()
+	cfg := opts.Controller.Config()
+	s := &Server{
+		ctrl:            opts.Controller,
+		auth:            opts.Controller.Auth(),
+		log:             log,
+		manifests:       newManifestStates(opts.Controller.Now),
+		streamHeartbeat: beat,
+	}
+
+	spa, err := newSPAHandler(cfg.Server.ExternalURL, cfg.Server.AllowIndexing)
 	if err != nil {
 		return nil, err
 	}
 	s.spa = spa
-	s.csp = contentSecurityPolicy(spa.inlineScriptHashes())
+	s.formTargets = manifestFormTargets(cfg.GitHub.APIBaseURL)
+	s.csp = contentSecurityPolicy(spa.inlineScriptHashes(), s.formTargets)
 
 	s.key, s.keyErr = loadKey(cfg)
 	if s.keyErr != nil {
@@ -114,6 +134,11 @@ func New(opts Options) (*Server, error) {
 
 	s.trusted, err = parseTrustedProxies(cfg.Server.TrustedProxies)
 	if err != nil {
+		return nil, err
+	}
+	// The ranges are the binary's own, so parsing them cannot fail on an
+	// operator's input; a failure here is a broken build.
+	if s.cloudflare, err = parseTrustedProxies([]string{config.TrustedProxyCloudflare}); err != nil {
 		return nil, err
 	}
 
@@ -145,16 +170,16 @@ func (s *Server) Handler() http.Handler { return s.handler }
 // controller booting: password login still works, and the login page needs to
 // come up to say so. The error is kept and returned by the SSO routes.
 func (s *Server) initOIDC() {
-	if !s.cfg.OIDC.Enabled {
+	if !s.cfg().OIDC.Enabled {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	p, err := auth.NewOIDC(ctx, s.cfg.OIDC, s.cfg.Server.ExternalURL)
+	p, err := auth.NewOIDC(ctx, s.cfg().OIDC, s.cfg().Server.ExternalURL)
 	if err != nil {
 		s.oidcErr = err
 		s.log.Error("single sign-on is configured but could not be set up; password login still works",
-			"issuer", s.cfg.OIDC.Issuer, "error", err)
+			"issuer", s.cfg().OIDC.Issuer, "error", err)
 		return
 	}
 	s.oidc = p
@@ -174,9 +199,11 @@ func loadKey(cfg *config.Config) (*cryptox.Key, error) {
 
 // parseTrustedProxies turns the configured CIDRs into networks, accepting a
 // bare address as a single host so an operator does not have to write /32.
+// The cloudflare token expands to Cloudflare's published ranges first, so
+// what is believed is exactly what the operator named.
 func parseTrustedProxies(in []string) ([]*net.IPNet, error) {
 	var out []*net.IPNet
-	for _, raw := range in {
+	for _, raw := range config.ExpandTrustedProxies(in) {
 		raw = strings.TrimSpace(raw)
 		if raw == "" {
 			continue
@@ -263,9 +290,9 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	}
 	srv.TLSConfig = tlsCfg
 
-	ln, err := net.Listen("tcp", s.cfg.Server.Bind)
+	ln, err := net.Listen("tcp", s.cfg().Server.Bind)
 	if err != nil {
-		return fmt.Errorf("api: cannot listen on %s: %w (another process may already be using that address; change server.bind)", s.cfg.Server.Bind, err)
+		return fmt.Errorf("api: cannot listen on %s: %w (another process may already be using that address; change server.bind)", s.cfg().Server.Bind, err)
 	}
 	scheme := "http"
 	if tlsCfg != nil {
@@ -274,7 +301,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	}
 
 	s.log.Info("serving", "address", ln.Addr().String(), "scheme", scheme,
-		"external_url", s.cfg.Server.ExternalURL, "ui", s.spa.built)
+		"external_url", s.cfg().Server.ExternalURL, "ui", s.spa.built)
 	notifyReady()
 
 	errs := make(chan error, 1)
@@ -325,9 +352,9 @@ func (s *Server) httpServer(baseCtx context.Context) *http.Server {
 		// ReadTimeout covers the request body too, which would cut off the
 		// agent's chunked log relay; the handlers that stream a body clear
 		// their own read deadline with an http.ResponseController.
-		ReadTimeout:       s.cfg.Server.ReadTimeout,
-		ReadHeaderTimeout: readHeaderTimeout(s.cfg.Server.ReadTimeout),
-		IdleTimeout:       s.cfg.Server.IdleTimeout,
+		ReadTimeout:       s.cfg().Server.ReadTimeout,
+		ReadHeaderTimeout: readHeaderTimeout(s.cfg().Server.ReadTimeout),
+		IdleTimeout:       s.cfg().Server.IdleTimeout,
 		BaseContext:       func(net.Listener) context.Context { return baseCtx },
 		ErrorLog:          slog.NewLogLogger(s.log.Handler(), slog.LevelWarn),
 	}
@@ -345,7 +372,7 @@ func readHeaderTimeout(readTimeout time.Duration) time.Duration {
 
 // tlsConfig builds the listener's TLS configuration, or nil for plain HTTP.
 func (s *Server) tlsConfig() (*tls.Config, error) {
-	t := s.cfg.Server.TLS
+	t := s.cfg().Server.TLS
 	switch t.Mode {
 	case "", config.TLSOff:
 		return nil, nil
@@ -385,7 +412,7 @@ func baseTLS(cert tls.Certificate) *tls.Config {
 // generated data, and the agent's ca_file error message points operators at
 // exactly this path.
 func (s *Server) selfSignedPaths() (certPath, keyPath string) {
-	certPath, keyPath = s.cfg.Server.TLS.CertFile, s.cfg.Server.TLS.KeyFile
+	certPath, keyPath = s.cfg().Server.TLS.CertFile, s.cfg().Server.TLS.KeyFile
 	if certPath == "" {
 		certPath = filepath.Join(config.StateDir(), "tls", "cert.pem")
 	}
@@ -445,11 +472,11 @@ func (s *Server) selfSignedCertificate() (tls.Certificate, error) {
 // the operator configured, the external URL's host, the machine's own name, and
 // loopback -- because the installer's own health check dials 127.0.0.1.
 func (s *Server) certificateHosts() []string {
-	hosts := slices.Clone(s.cfg.Server.TLS.Hosts)
-	if u, err := url.Parse(s.cfg.Server.ExternalURL); err == nil && u.Hostname() != "" {
+	hosts := slices.Clone(s.cfg().Server.TLS.Hosts)
+	if u, err := url.Parse(s.cfg().Server.ExternalURL); err == nil && u.Hostname() != "" {
 		hosts = append(hosts, u.Hostname())
 	}
-	if h, _, err := net.SplitHostPort(s.cfg.Server.Bind); err == nil && h != "" && h != "0.0.0.0" && h != "::" {
+	if h, _, err := net.SplitHostPort(s.cfg().Server.Bind); err == nil && h != "" && h != "0.0.0.0" && h != "::" {
 		hosts = append(hosts, h)
 	}
 	if name, err := os.Hostname(); err == nil && name != "" {

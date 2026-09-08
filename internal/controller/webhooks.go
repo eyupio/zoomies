@@ -68,6 +68,7 @@ func (c *Controller) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	// A delivery that verified proves webhooks reach this controller.
 	c.pollingOnly.Store(false)
+	d.InstallationID = installationID(inst)
 
 	switch {
 	case github.IsPing(event):
@@ -80,6 +81,16 @@ func (c *Controller) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		})
 	case event == "workflow_job":
 		if err := c.handleWorkflowJob(ctx, body); err != nil {
+			if errors.Is(err, errMalformedDelivery) {
+				// A body that verified but is not a workflow_job event is
+				// GitHub's problem or a mistaken sender's, not a failure on
+				// this side, and a 500 would have GitHub redeliver it for
+				// ever. A 400 is recorded and ends there.
+				c.recordDelivery(ctx, d, "rejected", err.Error())
+				c.log.Warn("rejected a workflow_job delivery that could not be read", "delivery", d.DeliveryID, "error", err)
+				http.Error(w, "the delivery body is not a workflow_job event this controller can read", http.StatusBadRequest)
+				return
+			}
 			c.recordDelivery(ctx, d, "error", err.Error())
 			c.log.Error("could not apply a workflow_job delivery", "delivery", d.DeliveryID, "error", err)
 			// A 500 makes GitHub's redelivery button useful: this one failed
@@ -117,6 +128,10 @@ func parseEnvelope(body []byte) envelope {
 		Organization struct {
 			Login string `json:"login"`
 		} `json:"organization"`
+		// The installation GitHub says sent this. It is read for the record
+		// only: it is GitHub's numeric identifier rather than the store's, and
+		// a delivery asserting which installation it belongs to would be the
+		// delivery choosing its own scope. The repository decides instead.
 		Installation struct {
 			ID int64 `json:"id"`
 		} `json:"installation"`
@@ -192,12 +207,30 @@ func (c *Controller) verifyDelivery(ctx context.Context, body []byte, signature,
 }
 
 // handleWorkflowJob is the path that actually scales the fleet.
+// errMalformedDelivery marks a verified delivery whose body is not a
+// workflow_job event, which is answered with a 400 rather than a 500 so that
+// GitHub does not redeliver it for ever.
+var errMalformedDelivery = errors.New("malformed workflow_job delivery")
+
 func (c *Controller) handleWorkflowJob(ctx context.Context, body []byte) error {
 	e, err := github.ParseWorkflowJob(body)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %v", errMalformedDelivery, err)
 	}
 	job := e.ToJob()
+
+	// Which installation owns this work is the job's repository's question,
+	// not the delivery's. Verification deliberately falls back to any secret
+	// that answers, so the installation that signed a delivery may be one that
+	// has nothing to do with the repository named in it; scoping the job by
+	// that would mint runners in the wrong GitHub target. A repository no
+	// installation covers is recorded with none, and the eligibility rule says
+	// so rather than the delivery being rejected.
+	if owner, err := c.st.FindInstallationByTarget(ctx, job.Repo); err == nil {
+		job.InstallationID = owner.ID
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return fmt.Errorf("resolving the installation covering %s: %w", job.Repo, err)
+	}
 
 	// Which pool claims this job is decided here rather than at reconcile time
 	// so that "no pool wants this job" is visible on the Jobs page the moment
@@ -206,7 +239,7 @@ func (c *Controller) handleWorkflowJob(ctx context.Context, body []byte) error {
 	if err != nil {
 		return fmt.Errorf("listing pools to match job %d: %w", e.JobID, err)
 	}
-	if p := scheduler.BestPool(pools, job.Labels); p != nil {
+	if p := scheduler.BestPool(pools, job); p != nil {
 		job.PoolID = p.ID
 		job.Matched = true
 	}
@@ -219,9 +252,17 @@ func (c *Controller) handleWorkflowJob(ctx context.Context, body []byte) error {
 		}
 	}
 
-	saved, err := c.st.UpsertJob(ctx, job)
+	saved, change, err := c.st.ApplyJob(ctx, job)
 	if err != nil {
 		return fmt.Errorf("recording job %d: %w", e.JobID, err)
+	}
+	c.recordJobChange(ctx, saved, change, sourceWebhook, runner)
+	if saved.StartedAt != nil {
+		poolName, backendName := UnmatchedPool, "unknown"
+		if p, e := c.st.GetPool(ctx, saved.PoolID); e == nil {
+			poolName, backendName = p.Name, string(p.Backend)
+		}
+		observeDuration(c.metrics.queuedToStarted, poolName, backendName, saved.QueuedAt, *saved.StartedAt)
 	}
 
 	if runner != nil {
@@ -244,12 +285,15 @@ func (c *Controller) handleWorkflowJob(ctx context.Context, body []byte) error {
 		c.observeJobCompletion(saved)
 	}
 
-	if !saved.Matched && saved.State == store.JobQueued {
-		c.log.Warn("a queued job matches no enabled pool, so nothing will run it",
+	if !saved.Matched && saved.State == store.JobQueued && !hostedJob(saved.Labels) {
+		// Not a warning: next to another runner provider this is every one of
+		// its jobs. The problems drawer says so once the job has waited long
+		// enough to mean something.
+		c.log.Info("no enabled pool here claims a queued job; if it is meant for this fleet, its labels match no pool",
 			"job", saved.ID, "repo", saved.Repo, "labels", strings.Join(saved.Labels, ","))
 	}
 
-	c.publish(events.KindJobUpdated, "job:"+saved.ID, saved)
+	c.publishJob(ctx, saved)
 	// Wake the reconcile loop rather than scheduling inline: GitHub is holding
 	// this connection open, and a reconcile can take as long as GitHub's API
 	// does to answer.
@@ -260,10 +304,7 @@ func (c *Controller) handleWorkflowJob(ctx context.Context, body []byte) error {
 // observeJobCompletion feeds the histograms the Overview's percentiles and the
 // Prometheus endpoint are built from.
 func (c *Controller) observeJobCompletion(j *store.Job) {
-	pool := j.PoolID
-	if pool == "" {
-		pool = "unmatched"
-	}
+	pool := c.poolLabel(j.PoolID)
 	conclusion := j.Conclusion
 	if conclusion == "" {
 		conclusion = "unknown"

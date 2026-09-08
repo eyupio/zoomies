@@ -14,6 +14,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/eyupio/zoomies/internal/naming"
 )
 
 // ---------------------------------------------------------------------------
@@ -48,9 +50,21 @@ func (b BackendKind) Valid() bool {
 	return false
 }
 
+type PullPolicy string
+
+const (
+	PullIfNotPresent PullPolicy = "if-not-present"
+	PullAlways       PullPolicy = "always"
+	PullPinnedOnly   PullPolicy = "pinned-only"
+)
+
+func (p PullPolicy) Valid() bool {
+	return p == PullIfNotPresent || p == PullAlways || p == PullPinnedOnly
+}
+
 // DockerMode controls whether jobs running on a pool's runners can themselves
 // talk to a Docker daemon. Both non-none values weaken isolation, so both are
-// surfaced as warnings by the config validator and in the UI problems panel.
+// surfaced as warnings by the config validator and in the UI problems drawer.
 type DockerMode string
 
 const (
@@ -75,6 +89,12 @@ func (d DockerMode) Valid() bool {
 // Dangerous reports whether this mode materially weakens the isolation between
 // a workflow job and the host it runs on.
 func (d DockerMode) Dangerous() bool { return d == DockerHostSocket }
+
+// GivesDaemon reports whether jobs on a pool with this mode get a Docker
+// daemon at all. It is the question the pool's image has to answer as well: a
+// daemon is worth nothing to a job whose image has no client to reach it with,
+// so the image a pool runs is decided by this rather than by the mode's name.
+func (d DockerMode) GivesDaemon() bool { return d == DockerDinD || d == DockerHostSocket }
 
 // RunnerState is the runner lifecycle state machine:
 //
@@ -136,6 +156,12 @@ func CanTransition(from, to RunnerState) bool {
 type JobState string
 
 const (
+	// JobWaiting is a job GitHub is holding for a deployment review. It is not
+	// demand: nothing may run it until somebody approves it, and GitHub sends
+	// a real "queued" delivery when they do. Recording it as queued made the
+	// scheduler start a runner that idled out and was started again on the
+	// next pass, for as long as the review took.
+	JobWaiting    JobState = "waiting"
 	JobQueued     JobState = "queued"
 	JobInProgress JobState = "in_progress"
 	JobCompleted  JobState = "completed"
@@ -143,7 +169,7 @@ const (
 
 func (s JobState) Valid() bool {
 	switch s {
-	case JobQueued, JobInProgress, JobCompleted:
+	case JobWaiting, JobQueued, JobInProgress, JobCompleted:
 		return true
 	}
 	return false
@@ -355,6 +381,68 @@ type Installation struct {
 // Healthy reports whether the last credential check succeeded.
 func (i *Installation) Healthy() bool { return i.LastError == "" }
 
+// Platform is the machine a pool's runners need, or the machine a host is.
+//
+// It exists because "backend: docker" says how a runner is made and nothing
+// about what it is made of. A pool asking for Ubuntu 24.04 on arm64 must not
+// have its runners placed on a Debian amd64 host, and until the fleet can
+// state the platform on both sides there is no way to stop it.
+//
+// Every field is optional. An empty field is a promise nobody made, and
+// matches anything -- which is what keeps a fleet built before platforms
+// existed working exactly as it did.
+type Platform struct {
+	// OS is a distribution, normalised by naming.NormalizeOS: ubuntu, debian,
+	// fedora, rocky, macos, windows. Not a kernel: "linux" does not say which
+	// image a runner should be started from.
+	OS string `json:"os,omitempty"`
+	// OSVersion is the release, as an operator writes it: "24.04", "12".
+	OSVersion string `json:"os_version,omitempty"`
+	// Arch is amd64 or arm64, normalised by naming.NormalizeArch.
+	Arch string `json:"arch,omitempty"`
+}
+
+// Normalized returns the platform with each field in its canonical spelling,
+// dropping anything Zoomies does not recognise rather than storing a value the
+// scheduler would then never match.
+func (p Platform) Normalized() Platform {
+	return Platform{
+		OS:        naming.NormalizeOS(p.OS),
+		OSVersion: strings.TrimSpace(p.OSVersion),
+		Arch:      naming.NormalizeArch(p.Arch),
+	}
+}
+
+// Empty reports whether the platform constrains nothing.
+func (p Platform) Empty() bool { return p == Platform{} }
+
+// Matches reports whether a host of platform h can run a pool that asks for p.
+//
+// Comparison is one-directional on purpose: every field the pool leaves empty
+// is a question it did not ask, and a host that has not reported a field
+// cannot be ruled out by it either. The result is that adding a platform to a
+// pool narrows placement, and never widens it.
+func (p Platform) Matches(h Platform) bool {
+	p, h = p.Normalized(), h.Normalized()
+	if p.OS != "" && h.OS != "" && p.OS != h.OS {
+		return false
+	}
+	if p.Arch != "" && h.Arch != "" && p.Arch != h.Arch {
+		return false
+	}
+	if p.OSVersion != "" && h.OSVersion != "" &&
+		naming.CompactVersion(p.OSVersion) != naming.CompactVersion(h.OSVersion) {
+		return false
+	}
+	return true
+}
+
+// Describe renders the platform for the UI and for scheduler explanations,
+// e.g. "Ubuntu 24.04, arm64". It is empty when the platform promises nothing.
+func (p Platform) Describe() string {
+	return naming.Spec{OS: p.OS, Version: p.OSVersion, Arch: p.Arch}.Platform()
+}
+
 // Resources caps what a single runner may consume on its host. Zero means
 // "unlimited", which is the backend's own default.
 type Resources struct {
@@ -362,6 +450,35 @@ type Resources struct {
 	MemoryMB  int64   `json:"memory_mb,omitempty"`  // e.g. 4096
 	DiskGB    int64   `json:"disk_gb,omitempty"`    // advisory; enforced where the backend can
 	PidsLimit int64   `json:"pids_limit,omitempty"` // container pids cgroup limit
+}
+
+type CacheScope string
+
+const (
+	CacheScopePool       CacheScope = "pool"
+	CacheScopeRepository CacheScope = "repository"
+)
+
+func (s CacheScope) Valid() bool { return s == CacheScopePool || s == CacheScopeRepository }
+
+// CacheConfig describes disposable accelerator data mounted at /opt/zoomies-cache.
+// It is not persistent workflow storage and may be evicted. Source is either an
+// absolute host directory prefix or a named-volume prefix.
+type CacheConfig struct {
+	Enabled bool       `json:"enabled"`
+	Scope   CacheScope `json:"scope"`
+	// SizeLimit is enforced by evicting whole cache entries, least recently
+	// modified first, in the gap between one runner and the next. Only a cache
+	// in a host directory can be measured, so a limit is refused on a named
+	// volume rather than accepted and quietly ignored. Zero is unlimited.
+	SizeLimit int64  `json:"size_limit,omitempty"`
+	Source    string `json:"source,omitempty"`
+	// Repository names the repository a repository-scoped cache belongs to,
+	// as "owner/name". A repository-targeted installation supplies it on its
+	// own; an organisation-targeted one cannot, because the fleet it serves has
+	// many repositories, and this is what lets such a pool have a repository
+	// cache without an installation of its own per repository.
+	Repository string `json:"repository,omitempty"`
 }
 
 // Pool is a named group of interchangeable runners: what labels they answer to,
@@ -373,14 +490,28 @@ type Pool struct {
 	Labels         StringSlice `json:"labels"`
 	RunnerGroup    string      `json:"runner_group,omitempty"`
 	Backend        BackendKind `json:"backend"`
-	Image          string      `json:"image"`
-	RunnerVersion  string      `json:"runner_version,omitempty"`
-	MinRunners     int         `json:"min_runners"`
-	MaxRunners     int         `json:"max_runners"`
-	IdleTimeout    Duration    `json:"idle_timeout"`
-	Ephemeral      bool        `json:"ephemeral"`
-	DockerMode     DockerMode  `json:"docker_mode"`
-	Resources      Resources   `json:"resources"`
+	// Platform is the machine this pool's runners need. It picks the runner
+	// image when the pool names none, and it stops the scheduler placing a
+	// runner on a host that is not that machine.
+	Platform      Platform   `json:"platform"`
+	Image         string     `json:"image"`
+	PullPolicy    PullPolicy `json:"pull_policy"`
+	RunnerVersion string     `json:"runner_version,omitempty"`
+	MinRunners    int        `json:"min_runners"`
+	MaxRunners    int        `json:"max_runners"`
+	// RepositoryScaleUpLimit is a best-effort throttle on runner creation
+	// attributable to any one repository. GitHub may assign queued work to any
+	// compatible idle runner, so this is not a strict execution concurrency cap.
+	// Zero leaves the pool unrestricted.
+	RepositoryScaleUpLimit int `json:"repository_scale_up_limit,omitempty"`
+	// CostPerRunnerHour is administrator supplied; Zoomies never embeds prices.
+	CostPerRunnerHour *float64    `json:"cost_per_runner_hour,omitempty"`
+	Priority          int         `json:"priority"`
+	IdleTimeout       Duration    `json:"idle_timeout"`
+	Ephemeral         bool        `json:"ephemeral"`
+	DockerMode        DockerMode  `json:"docker_mode"`
+	Resources         Resources   `json:"resources"`
+	Cache             CacheConfig `json:"cache"`
 	// HostSelector matches Host.Labels; empty means "any host".
 	HostSelector StringMap `json:"host_selector"`
 	// Env is injected into every runner this pool creates.
@@ -393,6 +524,34 @@ type Pool struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// Spec is the pool in the naming grammar's terms: how much machine each of its
+// runners gets, and which machine that is. It is what names the pool, what
+// labels it, and what the Pools page prints beside it.
+func (p *Pool) Spec() naming.Spec {
+	return naming.Spec{
+		CPUs:     p.Resources.CPUs,
+		MemoryGB: int(p.Resources.MemoryMB / 1024),
+		OS:       p.Platform.OS,
+		Version:  p.Platform.OSVersion,
+		Arch:     p.Platform.Arch,
+	}
+}
+
+// CanonicalName is the name this pool would be given by `zoomies pools create`
+// today. A pool whose name already equals it needs no explanation in the UI.
+func (p *Pool) CanonicalName() string { return naming.PoolName(p.Spec()) }
+
+type PoolPrewarm struct {
+	PoolID    string    `json:"pool_id"`
+	HostID    string    `json:"host_id"`
+	HostName  string    `json:"host_name,omitempty"`
+	Image     string    `json:"image"`
+	State     string    `json:"state"`
+	Digest    string    `json:"digest,omitempty"`
+	Error     string    `json:"error,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // Duration is a time.Duration that marshals to and from a Go duration string
 // ("5m", "1h30s") so config files and API payloads stay readable.
 type Duration time.Duration
@@ -402,38 +561,33 @@ func (d Duration) String() string          { return time.Duration(d).String() }
 
 func (d Duration) MarshalJSON() ([]byte, error) { return json.Marshal(time.Duration(d).String()) }
 
+// durationNeedsUnit is the one answer both decoders give to a bare number. The
+// JSON side used to read 300 as nanoseconds and the YAML side as seconds, so
+// the same file meant different things depending on how it arrived; a unit is
+// unambiguous, and the OpenAPI schema has always said a duration is a string.
+const durationNeedsUnit = `a duration is written with its unit, like "30s", "5m" or "1h30m"`
+
 func (d *Duration) UnmarshalJSON(b []byte) error {
 	var s string
-	if err := json.Unmarshal(b, &s); err == nil {
-		p, err := time.ParseDuration(s)
-		if err != nil {
-			return fmt.Errorf("invalid duration %q: %w", s, err)
-		}
-		*d = Duration(p)
-		return nil
+	if err := json.Unmarshal(b, &s); err != nil {
+		return fmt.Errorf("%s", durationNeedsUnit)
 	}
-	var n int64
-	if err := json.Unmarshal(b, &n); err != nil {
-		return fmt.Errorf("duration must be a string like \"5m\" or a nanosecond count")
-	}
-	*d = Duration(n)
-	return nil
+	return d.parse(s)
 }
 
-// UnmarshalYAML lets zoomies.yaml write idle_timeout: 5m.
+// UnmarshalYAML lets a pool definition write idle_timeout: 5m.
 func (d *Duration) UnmarshalYAML(unmarshal func(any) error) error {
 	var s string
 	if err := unmarshal(&s); err != nil {
-		var n int64
-		if err2 := unmarshal(&n); err2 != nil {
-			return fmt.Errorf("duration must be a string like \"5m\"")
-		}
-		*d = Duration(time.Duration(n) * time.Second)
-		return nil
+		return fmt.Errorf("%s", durationNeedsUnit)
 	}
+	return d.parse(s)
+}
+
+func (d *Duration) parse(s string) error {
 	p, err := time.ParseDuration(s)
 	if err != nil {
-		return fmt.Errorf("invalid duration %q: %w", s, err)
+		return fmt.Errorf("invalid duration %q: %w; %s", s, err, durationNeedsUnit)
 	}
 	*d = Duration(p)
 	return nil
@@ -442,7 +596,7 @@ func (d *Duration) UnmarshalYAML(unmarshal func(any) error) error {
 func (d Duration) MarshalYAML() (any, error) { return time.Duration(d).String(), nil }
 
 // Dangerous returns the list of pool settings that weaken the default security
-// posture, phrased for direct display in the UI's problems panel.
+// posture, phrased for direct display in the UI's problems drawer.
 func (p *Pool) Dangerous() []string {
 	var out []string
 	if !p.Ephemeral {
@@ -480,18 +634,100 @@ type Host struct {
 	// host is not taking work; the scheduler reads Backends, never this.
 	BackendInfo HostBackends `json:"backend_info,omitempty"`
 	Labels      StringMap    `json:"labels"`
-	OS          string       `json:"os"`
-	Arch        string       `json:"arch"`
-	Version     string       `json:"version"`
+	// OS is the kernel the agent runs on (Go's GOOS), kept as reported so an
+	// operator sees what the machine said about itself.
+	OS string `json:"os"`
+	// Distro and OSVersion are the distribution and release, which is what
+	// decides whether an Ubuntu 24.04 pool may be placed here.
+	Distro    string `json:"distro,omitempty"`
+	OSVersion string `json:"os_version,omitempty"`
+	Arch      string `json:"arch"`
+	// CPUs and MemoryMB are the machine's size, reported by the agent. They
+	// are what the host's canonical name and the Hosts page say out loud.
+	CPUs     int   `json:"cpus,omitempty"`
+	MemoryMB int64 `json:"memory_mb,omitempty"`
+	// DiskTotalMB and DiskFreeMB measure the filesystem holding the agent's
+	// work directory, which is where a runner's checkout and its caches land.
+	// Free is what a runner may use rather than what is unused, since the two
+	// differ by the reserve the filesystem keeps for root.
+	//
+	// Zero is "not measured": an agent too old to report it, or one on a
+	// platform with no portable way to ask. It is not "full", and nothing may
+	// read it as such -- refusing to place work on every host that predates
+	// the field would empty a fleet on upgrade.
+	DiskTotalMB int64 `json:"disk_total_mb,omitempty"`
+	DiskFreeMB  int64 `json:"disk_free_mb,omitempty"`
+	// ReserveCPUs, ReserveMemoryMB and ReserveDiskMB are the operator's, like
+	// Capacity: what to hold back from placement for the machine's own sake.
+	// An agent reports what it sees and never writes these, so a host cannot
+	// talk its way out of the room its operator kept for it.
+	ReserveCPUs     int    `json:"reserve_cpus,omitempty"`
+	ReserveMemoryMB int64  `json:"reserve_memory_mb,omitempty"`
+	ReserveDiskMB   int64  `json:"reserve_disk_mb,omitempty"`
+	Version         string `json:"version"`
 	// Cordoned hosts keep their existing runners but accept no new ones.
 	Cordoned      bool      `json:"cordoned"`
 	LastHeartbeat time.Time `json:"last_heartbeat"`
 	CreatedAt     time.Time `json:"created_at"`
 	// TokenHash authenticates the agent on every request.
 	TokenHash string `json:"-"`
+	// AgentSessionID is the session the agent last identified itself with, and
+	// AgentSessionPrev the one before it. An agent mints a session when it
+	// starts, so a restart moves the id forward once and never back.
+	//
+	// Seeing AgentSessionPrev again is therefore something one agent cannot
+	// do: it means two of them share this host's credentials -- a cloned VM,
+	// or a copied state directory -- and are splitting its tasks.
+	// AgentSessionAlternations counts how often that has happened and
+	// AgentSessionAltAt when it last did, so the problem ages out on its own
+	// once the duplicate is gone.
+	AgentSessionID           string     `json:"agent_session_id,omitempty"`
+	AgentSessionPrev         string     `json:"-"`
+	AgentSessionAlternations int        `json:"agent_session_alternations,omitempty"`
+	AgentSessionAltAt        *time.Time `json:"agent_session_alt_at,omitempty"`
 	// Live counters, filled by the store on read.
 	ActiveRunners int `json:"active_runners"`
 }
+
+// Platform is what this machine is, in the terms a pool asks in.
+//
+// The distribution wins over the kernel: "linux" cannot pick an image, and a
+// pool asking for Ubuntu 24.04 needs to know it landed on Ubuntu. macOS and
+// Windows report no distribution, so for them the kernel is the answer.
+func (h *Host) Platform() Platform {
+	os := h.Distro
+	if naming.NormalizeOS(os) == "" {
+		os = h.OS
+	}
+	return Platform{OS: os, OSVersion: h.OSVersion, Arch: h.Arch}.Normalized()
+}
+
+// Spec is the host in the naming grammar's terms: how much machine it is, what
+// it runs, and which machine it is.
+//
+// The machine part is taken back out of a name that is already canonical, so
+// that re-deriving a host's name yields the name it already has rather than
+// nesting one inside the other on every heartbeat.
+func (h *Host) Spec() naming.Spec {
+	machine := h.Name
+	if parsed, ok := naming.Parse(machine); ok {
+		machine = parsed.Suffix
+	}
+	p := h.Platform()
+	return naming.Spec{
+		CPUs:     float64(h.CPUs),
+		MemoryGB: int(h.MemoryMB / 1024),
+		OS:       p.OS,
+		Version:  p.OSVersion,
+		Arch:     p.Arch,
+		Suffix:   machine,
+	}
+}
+
+// CanonicalName is the name this machine would be given by `zoomies agent
+// join` today, which is what the UI offers when a host is called something
+// that says nothing.
+func (h *Host) CanonicalName() string { return h.Spec().String() }
 
 // HeartbeatTimeout is how long a host may go silent before it is considered
 // unhealthy. It is three times the agent's default heartbeat interval.
@@ -505,6 +741,35 @@ func (h *Host) Healthy(now time.Time) bool {
 // Available reports whether the scheduler may place a new runner here.
 func (h *Host) Available(now time.Time) bool {
 	return h.Healthy(now) && !h.Cordoned && h.ActiveRunners < h.Capacity
+}
+
+// The selector keys every host answers for without an operator typing
+// anything. The agent reports the OS and architecture of the machine it runs
+// on, so a pool can ask for arm64 or windows without a fleet being hand
+// labelled first -- which is what "label every ARM box before you can select
+// one" used to cost.
+const (
+	LabelOS   = "os"
+	LabelArch = "arch"
+)
+
+// SelectorValue returns what this host answers for one host-selector key.
+//
+// An operator's own label wins over the reported fact, so a fleet that already
+// labels `arch` by hand keeps the meaning it chose -- including a deliberate
+// lie, like calling an amd64 box `arch=legacy` to keep pools off it. Only when
+// no label claims the key does the agent's report answer for it.
+func (h *Host) SelectorValue(key string) string {
+	if v, ok := h.Labels[key]; ok {
+		return v
+	}
+	switch key {
+	case LabelOS:
+		return h.OS
+	case LabelArch:
+		return h.Arch
+	}
+	return ""
 }
 
 // Free returns the number of additional runners this host can take.
@@ -531,11 +796,48 @@ type Runner struct {
 	Ephemeral     bool        `json:"ephemeral"`
 	Labels        StringSlice `json:"labels"`
 	Image         string      `json:"image,omitempty"`
+	ImageDigest   string      `json:"image_digest,omitempty"`
 	RunnerVersion string      `json:"runner_version,omitempty"`
 	// CurrentJobID points at the jobs row this runner is executing, if any.
-	CurrentJobID string     `json:"current_job_id,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
-	StartedAt    *time.Time `json:"started_at,omitempty"`
+	CurrentJobID       string         `json:"current_job_id,omitempty"`
+	CreatedAt          time.Time      `json:"created_at"`
+	ImagePullDuration  *time.Duration `json:"image_pull_duration,omitempty"`
+	ContainerStartedAt *time.Time     `json:"container_started_at,omitempty"`
+	RegisteredAt       *time.Time     `json:"registered_at,omitempty"`
+	// TaskIssuedAt is when this runner's lifecycle task was last handed to its
+	// host, stamped again on every redelivery.
+	//
+	// The task queue is in memory by design, so a controller restart drops it.
+	// What the restart must not drop is the time: without this a provisioning
+	// row is indistinguishable from one whose create was issued a second ago,
+	// and the provision timeout is counted from the wrong end.
+	TaskIssuedAt *time.Time `json:"task_issued_at,omitempty"`
+	// CleanupError, CleanupFailedAt and CleanupAttempts record a stop or
+	// remove the agent could not complete, or a registration GitHub would not
+	// delete.
+	//
+	// They exist because a terminal row had nowhere to put that. The result
+	// came back for a runner already marked removed, the state machine refused
+	// the transition -- correctly; a removed runner cannot become failed -- and
+	// it was dropped at debug level. The container stayed on the host and
+	// nobody was told.
+	CleanupError    string     `json:"cleanup_error,omitempty"`
+	CleanupFailedAt *time.Time `json:"cleanup_failed_at,omitempty"`
+	CleanupAttempts int        `json:"cleanup_attempts,omitempty"`
+	// RegistrationDeletedAt is when GitHub confirmed the registration was gone.
+	// Unset on a terminal runner is the ghost: a row this fleet has finished
+	// with, and a registration still on somebody's organisation.
+	RegistrationDeletedAt *time.Time `json:"registration_deleted_at,omitempty"`
+	// CleanedUpAt is the end of the cleanup interval: the moment nothing of
+	// this runner is left, on the host or on GitHub. It is the counterpart of
+	// CreatedAt at the other end of the life, and the measurement contract's
+	// end of that interval.
+	CleanedUpAt *time.Time `json:"cleaned_up_at,omitempty"`
+	// DrainingSince is when the runner entered draining, and is the clock the
+	// drain timeout is counted from. Created-at is the wrong one: a runner that
+	// worked all day before being drained is not overdue the moment it drains.
+	DrainingSince *time.Time `json:"draining_since,omitempty"`
+	StartedAt     *time.Time `json:"started_at,omitempty"`
 	// LastIdleAt is when the runner most recently became idle; the scale-down
 	// path measures the idle timeout from here.
 	LastIdleAt  *time.Time `json:"last_idle_at,omitempty"`
@@ -569,16 +871,199 @@ type Job struct {
 	Labels      StringSlice `json:"labels"`
 	State       JobState    `json:"state"`
 	Conclusion  string      `json:"conclusion,omitempty"` // success|failure|cancelled|skipped
-	PoolID      string      `json:"pool_id,omitempty"`
-	RunnerID    string      `json:"runner_id,omitempty"`
-	RunnerName  string      `json:"runner_name,omitempty"`
-	HTMLURL     string      `json:"html_url,omitempty"`
-	QueuedAt    time.Time   `json:"queued_at"`
-	StartedAt   *time.Time  `json:"started_at,omitempty"`
-	CompletedAt *time.Time  `json:"completed_at,omitempty"`
+	// InstallationID is the installation whose GitHub App covers this job's
+	// repository, resolved at ingest. It is what stops a pool from claiming
+	// work in a target it has no credentials for; empty means no installation
+	// here covers the repository, which is a reason rather than a wildcard.
+	InstallationID string     `json:"installation_id,omitempty"`
+	PoolID         string     `json:"pool_id,omitempty"`
+	RunnerID       string     `json:"runner_id,omitempty"`
+	RunnerName     string     `json:"runner_name,omitempty"`
+	HTMLURL        string     `json:"html_url,omitempty"`
+	QueuedAt       time.Time  `json:"queued_at"`
+	StartedAt      *time.Time `json:"started_at,omitempty"`
+	CompletedAt    *time.Time `json:"completed_at,omitempty"`
 	// Matched records whether any enabled pool claimed this job's labels. An
 	// unmatched queued job is a configuration problem worth surfacing.
 	Matched bool `json:"matched"`
+	// EligibleAt is when this job first became something this fleet could act
+	// on, which is the start of the scheduling-latency interval the
+	// measurement contract defines. It is stamped the first time Matched
+	// becomes true and never moved afterwards.
+	//
+	// Nil is "not eligible yet", or a job from before the column existed. It
+	// is deliberately not zero: a zero time reads as 1970 and would make every
+	// latency computed from it enormous rather than obviously absent.
+	//
+	// The interval it starts ends at Runner.TaskIssuedAt. Neither the queue
+	// wait before eligibility nor a configured scale-up delay belongs in it --
+	// the first is GitHub's and the operator's, the second is a setting doing
+	// what it was set to do.
+	EligibleAt *time.Time `json:"eligible_at,omitempty"`
+	// HeadBranch, HeadSHA and RunAttempt say what the job ran for. A failure
+	// on a release branch and one on a feature branch are different news.
+	HeadBranch string `json:"head_branch,omitempty"`
+	HeadSHA    string `json:"head_sha,omitempty"`
+	RunAttempt int    `json:"run_attempt,omitempty"`
+	// Steps are the job's steps as GitHub last reported them. The completed
+	// delivery carries every step with its conclusion, which is how a failed
+	// job can say which step it stopped at.
+	Steps JobSteps `json:"steps"`
+	// RunnerFault is the fleet's own side of a failure: what the runner that
+	// was executing this job said when it stopped before GitHub reported the
+	// job over. GitHub records such a job as "failure" like any test failure;
+	// this is what tells "the tests failed" from "the runner died".
+	RunnerFault string `json:"runner_fault,omitempty"`
+}
+
+// JobStep is one step of a workflow job as GitHub reported it.
+type JobStep struct {
+	Number      int        `json:"number"`
+	Name        string     `json:"name"`
+	Status      string     `json:"status"` // queued | in_progress | completed
+	Conclusion  string     `json:"conclusion,omitempty"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+}
+
+// JobSteps is persisted as a JSON array in a TEXT column.
+type JobSteps []JobStep
+
+func (s *JobSteps) Scan(v any) error {
+	*s = nil
+	switch t := v.(type) {
+	case nil:
+		return nil
+	case []byte:
+		if len(t) == 0 {
+			return nil
+		}
+		return json.Unmarshal(t, s)
+	case string:
+		if t == "" {
+			return nil
+		}
+		return json.Unmarshal([]byte(t), s)
+	}
+	return fmt.Errorf("store: cannot scan %T into JobSteps", v)
+}
+
+func (s JobSteps) Value() (driver.Value, error) {
+	if s == nil {
+		s = JobSteps{}
+	}
+	b, err := json.Marshal([]JobStep(s))
+	return string(b), err
+}
+
+// JobEventKind names one thing that happened to a job.
+type JobEventKind string
+
+const (
+	// JobEventQueued: GitHub announced the job and it is waiting for a runner.
+	JobEventQueued JobEventKind = "queued"
+	// JobEventWaiting: GitHub is holding the job for a deployment review, so
+	// nothing here can start it yet. The time it spends here is GitHub's, and
+	// the timeline says so rather than folding it into the queue wait.
+	JobEventWaiting JobEventKind = "waiting"
+	// JobEventApproved: the review passed and the job joined the queue. This
+	// is the moment the queue wait starts for a job that was held.
+	JobEventApproved JobEventKind = "approved"
+	// JobEventClaimed: an enabled pool answers the job's labels.
+	JobEventClaimed JobEventKind = "claimed"
+	// JobEventUnmatched: no enabled pool does, so nothing here will start it.
+	JobEventUnmatched JobEventKind = "unmatched"
+	// JobEventStarted: a runner picked the job up.
+	JobEventStarted JobEventKind = "started"
+	// JobEventCompleted: GitHub reported the job over, with its conclusion.
+	JobEventCompleted JobEventKind = "completed"
+	// JobEventRunnerLost: the runner executing the job stopped before GitHub
+	// reported the job over. This is the fleet's fault, not the workflow's.
+	JobEventRunnerLost JobEventKind = "runner_lost"
+	// JobEventRunnerReturned: the runner reported lost is alive after all, and
+	// this job is still running on it. It only ever follows a runner_lost on
+	// the same job, and it exists because the timeline had no way to withdraw
+	// one: a job that finishes normally after its runner was written off read
+	// as a contradiction, and an operator had to guess which entry to believe.
+	JobEventRunnerReturned JobEventKind = "runner_returned"
+)
+
+// JobEvent is one entry in a job's timeline: what happened, who observed it,
+// and the sentence the UI shows for it.
+type JobEvent struct {
+	ID    string       `json:"id"`
+	JobID string       `json:"job_id"`
+	Kind  JobEventKind `json:"kind"`
+	// Source is who saw it happen: "webhook", "poller", "agent" or
+	// "controller". A timeline that is all "poller" is a controller that no
+	// webhook is reaching, which is worth being able to see.
+	Source     string    `json:"source"`
+	Message    string    `json:"message"`
+	RunnerID   string    `json:"runner_id,omitempty"`
+	RunnerName string    `json:"runner_name,omitempty"`
+	At         time.Time `json:"at"`
+}
+
+// JobChange reports what an upsert actually changed, so the caller can write
+// the timeline from the transition rather than from the delivery: webhook
+// deliveries are at-least-once, and a redelivered "queued" must not add a
+// second "queued" entry.
+type JobChange struct {
+	// Created is true when the store had never seen this job.
+	Created bool
+	// PreviousState is the state before the upsert; empty when Created.
+	PreviousState JobState
+	// StateChanged is true when the job moved forward through its lifecycle.
+	StateChanged bool
+	// Claimed is true when the job was unclaimed before and a pool claims it now.
+	Claimed bool
+	// RunnerLinked is true when the job was linked to one of this fleet's
+	// runner rows for the first time.
+	RunnerLinked bool
+}
+
+// FailedConclusions are the GitHub conclusions that count a job as failed
+// wherever Zoomies says "failed": the Overview's count, the Jobs page's filter
+// and Job.Failed. cancelled and skipped are not here, because a person or a
+// condition on the job chose them; nor is stale, Zoomies' own word for a job
+// GitHub stopped talking about. The UI keeps the same list in status.ts.
+var FailedConclusions = []string{"failure", "timed_out", "startup_failure"}
+
+// IsFailedConclusion reports whether a conclusion is one of FailedConclusions.
+func IsFailedConclusion(conclusion string) bool {
+	return slices.Contains(FailedConclusions, conclusion)
+}
+
+// Failed reports whether a job went wrong on either side: GitHub concluded it
+// did, or a runner of this fleet stopped under it, which GitHub may still be
+// waiting to hear about. It is the Go spelling of the SQL predicate the store's
+// queries use, so a count and a listing cannot disagree.
+func (j *Job) Failed() bool {
+	return IsFailedConclusion(j.Conclusion) || j.RunnerFault != ""
+}
+
+// FailedStep returns the step a job stopped at: the first step that did not
+// succeed, on a job that has completed. Nil when every step succeeded or was
+// skipped, or while the job is still running.
+//
+// It says where, not whether. Whether a job counts as failed is Failed's call,
+// made from the job's own conclusion; this is set for a cancelled job too,
+// because its completion message says which step the cancel landed in. The
+// first step that did not succeed is the one whose output the operator wants,
+// because every step after it is skipped or cancelled as a consequence.
+func (j *Job) FailedStep() *JobStep {
+	if j.State != JobCompleted {
+		return nil
+	}
+	for i := range j.Steps {
+		st := &j.Steps[i]
+		switch st.Conclusion {
+		case "", "success", "skipped", "neutral":
+			continue
+		}
+		return st
+	}
+	return nil
 }
 
 // QueueWait returns how long the job waited before a runner picked it up.
@@ -612,6 +1097,16 @@ type AuditEvent struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+// CapacityDemandDelivery is the durable deduplication and delivery record for
+// one kind of capacity signal for a pool.
+type CapacityDemandDelivery struct {
+	PoolID, EventType, EventID, Payload string
+	ObservedSince                       time.Time
+	AttemptedAt, DeliveredAt            *time.Time
+	StatusCode, Attempts                int
+	LastError                           string
+}
+
 // ScalingEvent records one scheduler decision, with the reason in the words the
 // UI shows: "scaled linux-x64 2 -> 4: 3 jobs queued > 30s".
 type ScalingEvent struct {
@@ -638,14 +1133,60 @@ func (e *ScalingEvent) Direction() string {
 // WebhookDelivery records one inbound webhook so that delivery failures are
 // visible instead of silently dropped.
 type WebhookDelivery struct {
-	ID         string    `json:"id"`
-	DeliveryID string    `json:"delivery_id"`
-	Event      string    `json:"event"`
-	Action     string    `json:"action,omitempty"`
-	Repo       string    `json:"repo,omitempty"`
-	Status     string    `json:"status"` // accepted | rejected | error
-	Error      string    `json:"error,omitempty"`
-	ReceivedAt time.Time `json:"received_at"`
+	ID         string `json:"id"`
+	DeliveryID string `json:"delivery_id"`
+	Event      string `json:"event"`
+	Action     string `json:"action,omitempty"`
+	Repo       string `json:"repo,omitempty"`
+	Status     string `json:"status"` // accepted | rejected | error
+	Error      string `json:"error,omitempty"`
+	// InstallationID is the installation whose webhook secret verified this
+	// delivery. It is not necessarily the one that owns the repository: when
+	// no installation covers the repository every configured secret is tried,
+	// and knowing which one answered is how "your secrets are out of step with
+	// your installations" is told from "this delivery was forged".
+	InstallationID string    `json:"installation_id,omitempty"`
+	ReceivedAt     time.Time `json:"received_at"`
+}
+
+// ControllerLease is the running control plane, as the database knows it.
+//
+// It is what a second controller reads before it starts: a file lock catches
+// another process on the same host, and this catches the copy on a shared
+// filesystem or on another machine, which no lock on this host can see.
+type ControllerLease struct {
+	// Holder is the controller instance, minted fresh on every start, so that
+	// a restarted controller can tell its own old row from a live rival's.
+	Holder string `json:"holder"`
+	// Host, PID and Version are for the operator staring at the refusal: they
+	// have to be able to go and find the thing that is already running.
+	Host       string    `json:"host,omitempty"`
+	PID        int       `json:"pid,omitempty"`
+	Version    string    `json:"version,omitempty"`
+	AcquiredAt time.Time `json:"acquired_at"`
+	RenewedAt  time.Time `json:"renewed_at"`
+}
+
+// Stale reports whether a lease has not been renewed inside ttl, which is what
+// lets a controller that was killed rather than stopped be replaced without an
+// operator having to force it.
+func (l *ControllerLease) Stale(now time.Time, ttl time.Duration) bool {
+	return l == nil || !now.Before(l.RenewedAt.Add(ttl))
+}
+
+// Describe names the holder in the one sentence an operator gets.
+func (l *ControllerLease) Describe() string {
+	if l == nil {
+		return "nobody"
+	}
+	where := l.Host
+	if where == "" {
+		where = "an unnamed host"
+	}
+	if l.PID > 0 {
+		return fmt.Sprintf("%s (pid %d) on %s", l.Holder, l.PID, where)
+	}
+	return fmt.Sprintf("%s on %s", l.Holder, where)
 }
 
 // User is a local account authenticated with an argon2id password hash.
