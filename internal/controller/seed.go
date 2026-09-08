@@ -46,6 +46,11 @@ func IsDemoID(id string) bool {
 // demo installation reports to the migration wizard.
 var demoRepos = []string{"acme/widgets", "acme/api", "acme/site"}
 
+// demoQuietRepos have no workflows at all. They exist only for the migration
+// wizard, which has to show that a repository was looked at and had nothing to
+// move -- and has to be able to hide it again.
+var demoQuietRepos = []string{"acme/docs"}
+
 var demoPoolNames = []string{
 	"zoomies-demo-linux-x64", "zoomies-demo-linux-arm64",
 	"demo-linux-x64", "demo-linux-arm64",

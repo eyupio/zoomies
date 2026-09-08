@@ -1381,8 +1381,12 @@ export interface components {
             unmapped?: string[];
             pools?: components["schemas"]["MigrationPoolOption"][];
             counts?: components["schemas"]["MigrationCounts"];
-            /** @description True when the installation has more repositories than one plan reads. */
+            /** @description True when there are more repositories after this page. */
             truncated?: boolean;
+            /** @description Send as `cursor` to read the next page of repositories. Absent on the last page. */
+            next_cursor?: string;
+            /** @description How many repositories the installation can see in total */
+            total_repos?: number;
             /** @description What the App still needs before pull requests can be opened. Reported here, in the step before, because discovering it halfway through leaves half the pull requests open. */
             missing_permissions?: string[];
             permission_hint?: string;
@@ -3174,6 +3178,8 @@ export interface operations {
                     mapping?: {
                         [key: string]: string;
                     };
+                    /** @description The page of repositories to read: the `next_cursor` a previous plan returned, which is the full name of the last repository it listed. Empty starts at the first page. Ignored when `repos` names repositories. */
+                    cursor?: string;
                 };
             };
         };
@@ -3205,6 +3211,10 @@ export interface operations {
                     repos: string[];
                     mapping: {
                         [key: string]: string;
+                    };
+                    /** @description Narrows a repository to these workflow files, keyed by repository, e.g. {"acme/widgets": [".github/workflows/ci.yml"]}. A repository left out of the map gets every file the mapping would change. A path that is not directly under .github/workflows is rejected. */
+                    workflows?: {
+                        [key: string]: string[];
                     };
                     /** @description Overrides the default pull request title. */
                     title?: string;

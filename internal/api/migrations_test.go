@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -210,6 +211,132 @@ func TestMigrationOpensOnePullRequestPerRepository(t *testing.T) {
 	branches := h.gh.Branches("acme/widgets")
 	if len(branches) != 2 || !slices.Contains(branches, "main") {
 		t.Errorf("branches = %v, want main and the migration branch", branches)
+	}
+}
+
+// An organisation is read a page at a time, and the pages fit together: the
+// second one starts where the first stopped, and nothing appears in both. An
+// operator who cannot reach the repository at the end of the alphabet cannot
+// migrate it.
+func TestMigrationPlanPagesThroughTheOrganisation(t *testing.T) {
+	h, inst, cookie := migrationHarness(t)
+	// Enough repositories that one plan cannot hold them.
+	for i := 0; i < maxPlanRepos; i++ {
+		h.gh.AddWorkflow(fmt.Sprintf("acme/z%02d", i), ".github/workflows/ci.yml", ciBefore)
+	}
+
+	first := h.do(request{method: http.MethodPost, path: "/api/v1/migrations/plan", cookie: cookie,
+		body: map[string]any{"installation_id": inst.ID}})
+	first.mustStatus(t, http.StatusOK, "first page")
+	var page1 migrationPlanResponse
+	first.into(t, &page1)
+
+	if len(page1.Repositories) != maxPlanRepos {
+		t.Fatalf("first page = %d repositories, want %d", len(page1.Repositories), maxPlanRepos)
+	}
+	if !page1.Truncated || page1.NextCursor == "" {
+		t.Fatalf("first page says it is the whole organisation: truncated=%v cursor=%q", page1.Truncated, page1.NextCursor)
+	}
+	if want := maxPlanRepos + 3; page1.TotalRepos != want {
+		t.Errorf("total_repos = %d, want %d, so the wizard can say what it is showing", page1.TotalRepos, want)
+	}
+	if last := page1.Repositories[len(page1.Repositories)-1].Repo; page1.NextCursor != last {
+		t.Errorf("next_cursor = %q, want the last repository on the page (%q)", page1.NextCursor, last)
+	}
+
+	second := h.do(request{method: http.MethodPost, path: "/api/v1/migrations/plan", cookie: cookie,
+		body: map[string]any{"installation_id": inst.ID, "cursor": page1.NextCursor}})
+	second.mustStatus(t, http.StatusOK, "second page")
+	var page2 migrationPlanResponse
+	second.into(t, &page2)
+
+	if page2.Truncated || page2.NextCursor != "" {
+		t.Errorf("second page wants a third: truncated=%v cursor=%q", page2.Truncated, page2.NextCursor)
+	}
+	seen := map[string]bool{}
+	for _, r := range page1.Repositories {
+		seen[r.Repo] = true
+	}
+	for _, r := range page2.Repositories {
+		if seen[r.Repo] {
+			t.Errorf("%s is on both pages", r.Repo)
+		}
+		seen[r.Repo] = true
+	}
+	if len(seen) != page1.TotalRepos {
+		t.Errorf("the two pages hold %d repositories, want all %d", len(seen), page1.TotalRepos)
+	}
+}
+
+// A repository with several workflow files is not all-or-nothing: the operator
+// ticks the ones that should move, and the pull request touches those.
+func TestMigrationOpensOnlyTheWorkflowFilesChosen(t *testing.T) {
+	h, inst, cookie := migrationHarness(t)
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/migrations/pull-requests", cookie: cookie,
+		body: map[string]any{
+			"installation_id": inst.ID,
+			"repos":           []string{"acme/widgets"},
+			"mapping":         map[string]string{"ubuntu-latest": "zoomies-linux-x64", "ubuntu-22.04": "zoomies-linux-x64"},
+			"workflows":       map[string][]string{"acme/widgets": {".github/workflows/ci.yml"}},
+		}})
+	resp.mustStatus(t, http.StatusOK, "pull requests")
+
+	var out migrationApplyResponse
+	resp.into(t, &out)
+	widgets := result(t, out, "acme/widgets")
+	if widgets.Status != "opened" || widgets.Workflows != 1 || widgets.Jobs != 1 {
+		t.Fatalf("acme/widgets = %+v, want one file and one job", widgets)
+	}
+
+	ci, _ := h.gh.FileContent("acme/widgets", ".github/workflows/ci.yml")
+	if !strings.Contains(ci, "runs-on: zoomies-linux-x64") {
+		t.Errorf("the chosen file was not migrated:\n%s", ci)
+	}
+	release, _ := h.gh.FileContent("acme/widgets", ".github/workflows/release.yml")
+	if release != releaseBefore {
+		t.Errorf("the file nobody chose was changed:\n%s", release)
+	}
+}
+
+// A repository whose chosen files have nothing to move is skipped with a reason
+// naming the choice, rather than silently opening a pull request on the files
+// the operator left alone.
+func TestMigrationSkipsARepositoryWhoseChosenFilesDoNotChange(t *testing.T) {
+	h, inst, cookie := migrationHarness(t)
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/migrations/pull-requests", cookie: cookie,
+		body: map[string]any{
+			"installation_id": inst.ID,
+			"repos":           []string{"acme/widgets"},
+			"mapping":         map[string]string{"ubuntu-latest": "zoomies-linux-x64"},
+			"workflows":       map[string][]string{"acme/widgets": {".github/workflows/release.yml"}},
+		}})
+	resp.mustStatus(t, http.StatusOK, "pull requests")
+
+	var out migrationApplyResponse
+	resp.into(t, &out)
+	widgets := result(t, out, "acme/widgets")
+	if widgets.Status != "skipped" || !strings.Contains(widgets.Reason, "you chose") {
+		t.Errorf("acme/widgets = %+v, want a skip that names the choice", widgets)
+	}
+}
+
+// A path outside .github/workflows is a client bug, and accepting it would mean
+// a pull request that quietly changed nothing.
+func TestMigrationRefusesAPathThatIsNotAWorkflow(t *testing.T) {
+	h, inst, cookie := migrationHarness(t)
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/migrations/pull-requests", cookie: cookie,
+		body: map[string]any{
+			"installation_id": inst.ID,
+			"repos":           []string{"acme/widgets"},
+			"mapping":         map[string]string{"ubuntu-latest": "zoomies-linux-x64"},
+			"workflows":       map[string][]string{"acme/widgets": {"Makefile"}},
+		}})
+	resp.mustStatus(t, http.StatusUnprocessableEntity, "not a workflow")
+	if msg := resp.errorMessage(t); !strings.Contains(msg, "Makefile") {
+		t.Errorf("message = %q, want it to name the path", msg)
 	}
 }
 

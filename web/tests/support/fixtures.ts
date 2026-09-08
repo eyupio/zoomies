@@ -60,6 +60,10 @@ export const FIXTURE = {
   /** Its id, which the seed fixes so a test can go straight to its page. */
   busyRunnerId: 'run_demo00',
   repos: ['acme/api', 'acme/site', 'acme/widgets'],
+  /** Has no workflows, so the migration wizard hides it by default. */
+  quietRepo: 'acme/docs',
+  /** Has two workflow files, so the wizard can be made to choose between them. */
+  multiWorkflowRepo: 'acme/widgets',
   /** Every job the seed writes; nothing adds more, since no webhook arrives. */
   totalJobs: 50,
   /** Jobs in acme/api: the seed cycles three repositories over fifty jobs. */
