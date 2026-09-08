@@ -84,20 +84,80 @@ own for anything sealed. So keep the key too — once, wherever you keep secrets
 A key passed in `ZOOMIES_ENCRYPTION_KEY` rather than a file has nothing to
 copy; `--include-key` says so rather than pretending.
 
-## Restoring on a new machine
+## Restoring
 
-1. Install Zoomies, but do not run `zoomies init` — it is for a fresh instance,
-   and it will refuse to seed over real state anyway.
-2. Put the database in place, and the encryption key where
-   `security.encryption_key_file` points. Check the key against the
-   `fingerprint` in the backup's manifest before you start anything — that is
-   what the fingerprint is for.
-3. Match the ownership: the service user has to be able to read the key and
-   write the database. An install as root uses the `zoomies` user.
-4. Start it. Migrations for any newer version run on that first start.
+```sh
+zoomies restore /var/backups/zoomies/zoomies-20260908-181718
+```
 
-Then check three things, because they are the three that do not travel with the
-file:
+It restores the database and nothing else. The encryption key, `zoomies.yaml`
+and the service unit are yours to put back, because each is a decision about
+this host rather than a copy of the data.
+
+Stop the controller first. Restoring underneath a running one leaves it holding
+a database that is no longer there.
+
+### What it refuses, and why it refuses rather than warns
+
+Every one of these is something you would otherwise discover after the
+controller was running on the restored data — the fleet live, the original
+possibly gone, and the symptom saying nothing about the restore that caused it.
+So they all happen before anything is moved.
+
+* **A copy that is not sound.** The backup's database is opened and integrity
+  checked first.
+* **A backup from a newer release.** The store refuses a ledger naming
+  migrations this binary does not have, and the refusal names them.
+* **The wrong encryption key.** The manifest's fingerprint is compared against
+  the key this host is configured with. A mismatch would give you a fleet that
+  starts, reports itself healthy, and cannot authenticate to GitHub.
+* **An existing database.** `--replace` is required, and it moves the database
+  that was there to `zoomies.db.before-restore-<timestamp>` rather than
+  deleting it — with its `-wal` and `-shm`, which belong to that database and
+  would otherwise be replayed into the restored one.
+
+### What it invalidates
+
+A backup freezes credentials in the state where they still work, and restoring
+brings them back. Two are dealt with by default:
+
+* **Every session.** A browser cookie from the day of the backup would
+  otherwise still be signed in.
+* **Every unredeemed join token.** Each one enrols a new host. The redeemed
+  ones are kept: they cannot be used again, and they are the record of how each
+  host got here.
+
+Two more are flags, because each has a cost only you can weigh:
+
+| Flag | When |
+| --- | --- |
+| `--revoke-api-tokens` | The backup may have been read by someone else. Whatever automation holds a token needs a new one. |
+| `--reset-agent-tokens` | Same, or you are rebuilding the fleet's hosts anyway. Each agent exits with the command to join again. |
+
+### And what the controller checks when it starts
+
+`zoomies restore` is not the only path onto a restored database — a database
+put in place by hand skips all of the above — so the controller makes two of
+the same checks itself, at startup, rather than hours later:
+
+* **The database is newer than the binary.** It refuses to start and names the
+  migrations it does not have. See [there is no
+  downgrade](upgrading.md#there-is-no-downgrade).
+* **The key did not come with the database.** If the database holds GitHub App
+  credentials and there is no key file, it refuses to start and names the file
+  to put back, rather than generating a fresh key — which is what it does on a
+  genuine first run, and which here would leave every sealed credential
+  unreadable for good.
+
+A key that is present but *wrong* cannot be refused at startup — a key is
+proven only by opening something — so that shows up as `crypto.key_mismatch` in
+the problems drawer, naming the installations it cannot decrypt. `zoomies
+restore` catches it earlier, from the manifest's fingerprint.
+
+### Then check the three things that do not travel with the file
+
+The restored database is marked for recovery (`recovery.fenced`), with the
+reason recorded and an audit row saying where it came from.
 
 * **The external URL.** If the new machine answers on a different address, the
   GitHub App's webhook URL points at the old one and no delivery will arrive.
@@ -110,25 +170,12 @@ file:
   heartbeating, so this resolves itself, but the first few minutes will show
   failures for work that had already gone.
 
-## What the controller checks on that first start
+### Restoring onto a second machine
 
-Two of the ways a restore goes wrong are caught at startup rather than hours
-later, because both used to fail somewhere that gave no hint of the cause.
-
-* **The database is newer than the binary.** If the copy was written by a later
-  release than the one installed, the controller refuses to start and names the
-  migrations it does not have. See [there is no
-  downgrade](upgrading.md#there-is-no-downgrade).
-* **The key did not come with the database.** If the database holds GitHub App
-  credentials and there is no key file, the controller refuses to start and
-  names the file to put back, rather than generating a fresh key — which is
-  what it does on a genuine first run, and which here would leave every sealed
-  credential unreadable for good.
-
-If a key is present but is the *wrong* one, nothing can be refused at startup —
-a key is only proven by opening something — so it shows up as
-`crypto.key_mismatch` in the problems drawer once the controller is running,
-naming the installations it cannot decrypt.
+Stop the original first. Two controllers reconciling one fleet's runners from
+the same rows is how a restore becomes an outage — they will each decide the
+other's runners are theirs to remove. There is no interlock across machines
+that could enforce this for you.
 
 ## What is not worth backing up
 

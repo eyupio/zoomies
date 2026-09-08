@@ -184,7 +184,15 @@ func Open(ctx context.Context, opts Options) (*Store, error) {
 	if err := write.PingContext(ctx); err != nil {
 		read.Close()
 		write.Close()
-		if !memory {
+		switch {
+		case opts.ReadOnly:
+			// A read-only open is not asking for a writable directory, so the
+			// hint below would send the reader to check the wrong thing. What
+			// it is usually looking at is a file that is not a database, or is
+			// one that has been damaged -- which is precisely the case
+			// `zoomies restore` opens a backup to find out about.
+			return nil, fmt.Errorf("store: reading %s (is it a Zoomies database, and is it intact?): %w", opts.Path, err)
+		case !memory:
 			// The overwhelmingly common cause is a directory the running user
 			// cannot write to -- a container volume owned by root, say. SQLite
 			// will not say so, so say it here.

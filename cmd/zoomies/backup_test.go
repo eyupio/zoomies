@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/store"
+	_ "modernc.org/sqlite"
 )
 
 // backupHost prepares a host with a database that has something sealed in it
@@ -251,4 +253,16 @@ func TestRetentionRemovesOnlyThisCommandsOwnBackups(t *testing.T) {
 	if !strings.Contains(out.String(), "keeping the newest 2") {
 		t.Errorf("the summary does not say what it removed:\n%s", out)
 	}
+}
+
+// plantFutureMigration records a migration this build does not embed, which is
+// what a database written by a later release looks like to this one.
+func plantFutureMigration(path string) error {
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	_, err = db.Exec(`INSERT INTO schema_migrations (name, applied_at) VALUES ('9999_from_the_future.sql', 0)`)
+	return err
 }
