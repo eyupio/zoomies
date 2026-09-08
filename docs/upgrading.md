@@ -182,9 +182,16 @@ does all of it silently. Rolling a release back is a thing people do under
 pressure, and this is the moment to be told that the database went forward
 with it.
 
-So the rollback plan is a copy of the database from before the upgrade, which
-is the subject of [Backup and restore](backup-and-restore.md). Take one before
-an upgrade you are unsure about. It is one file and it takes a second.
+So the rollback plan is a copy of the database from before the upgrade — and
+**the controller takes one for you**. Whenever it starts and finds migrations
+pending on an existing database, it copies the database to
+`pre-migration/zoomies-<timestamp>/` beside it before applying anything, and
+keeps the last two. It is the same layout `zoomies restore` takes, so putting
+one back is one command.
+
+Take your own as well before an upgrade you are unsure about: the automatic one
+is beside the database, and a disk that fails takes both.
+[Backup and restore](backup-and-restore.md) is the subject.
 
 ## Upgrading a container deployment
 

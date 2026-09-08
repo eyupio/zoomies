@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.19 · 8 September 2026 · derived from the owner's
+Version 2.20 · 8 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -1170,9 +1170,16 @@ re-uploaded two days after tagging; and there is no upgrade test of any kind.
    now**, not one — `v0.1-alpha` shipped `0001_init.sql` alone and `v0.2-beta`
    shipped through `0010`, so the fixture covers both, which are the two points
    somebody's database is actually sitting at.
-4. Backup before migrate: when the store is file-backed and migrations are
-   pending, `VACUUM INTO` a sibling copy first, keeping the last two, using
-   ZF-203's primitive and file naming rather than a second one.
+4. Backup before migrate: **done** — when the store is file-backed and
+   migrations are pending, `VACUUM INTO` a sibling copy first, keeping the last
+   two, using ZF-203's primitive and file naming. **The naming is shared rather
+   than merely matched**: the two constants moved into `internal/store`, which
+   owns the layout, so a copy taken automatically is restorable by exactly the
+   command that restores one taken by hand. **The copies live in their own
+   `pre-migration/` directory** rather than beside the operator's: retention
+   here deletes, and a rule that kept "the last two" in a directory somebody
+   points `zoomies backup --dir` at would eventually take one of theirs.
+   Nothing is copied on a first start or a restart with nothing pending.
 5. Supply chain: every action pinned to a commit with its version in a
    comment; a Dependabot configuration for actions, Go modules, npm and
    images, weekly and grouped; `govulncheck` in CI and on a weekly schedule;
@@ -1739,6 +1746,13 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **8 September 2026 — Version 2.20:** backup-before-migrate is done, and the
+  interaction it uncovered is worth recording: `zoomies restore` opens the
+  database it restored, so restoring a backup from an *older* release migrates
+  it — and now keeps a copy of it as it was first. Restoring an old backup no
+  longer consumes it. Both pages say so, which they did not before, because
+  until this the migration on restore was invisible.
 
 * **8 September 2026 — Version 2.19:** ZF-204's schema-safety tests are done,
   and writing them corrected the plan's picture twice. There are two releases

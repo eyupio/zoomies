@@ -212,6 +212,13 @@ func Open(ctx context.Context, opts Options) (*Store, error) {
 		}
 		return s, nil
 	}
+	// Before migrating, not during: migrate holds the write lock and so does
+	// Backup, and unlocking around the copy to get past that would be a
+	// deadlock waiting for the first caller who does not read the comment.
+	if err := s.backupIfMigrationsPending(ctx); err != nil {
+		s.Close()
+		return nil, err
+	}
 	if err := s.migrate(ctx); err != nil {
 		s.Close()
 		return nil, err
@@ -318,6 +325,66 @@ func unknownMigrations(applied []string) error {
 		ErrSchemaNewer, strings.Join(unknown, ", "))
 }
 
+// backupIfMigrationsPending copies the database before any migration touches
+// it, when there is both something pending and something to lose.
+//
+// Migrations are one-way and the binary that wrote this database will refuse
+// to open it afterwards, so this is the one moment a rollback is most likely
+// to be wanted and least likely to have been prepared for: an operator
+// upgrading is not thinking about backups. It costs a file copy once per
+// release.
+//
+// A database being created has no ledger to read, which is how "nothing to
+// lose" is recognised: a fresh install gets no empty copy beside it.
+func (s *Store) backupIfMigrationsPending(ctx context.Context) error {
+	if s.readOnly || s.path == "" {
+		return nil
+	}
+	rows, err := s.read.QueryContext(ctx, `SELECT name FROM schema_migrations`)
+	if err != nil {
+		// No ledger: this database is being created.
+		return nil
+	}
+	applied := map[string]bool{}
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			rows.Close()
+			return fmt.Errorf("store: reading migration ledger: %w", err)
+		}
+		applied[n] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("store: reading migration ledger: %w", err)
+	}
+	if len(applied) == 0 {
+		return nil
+	}
+
+	migs, err := loadMigrations()
+	if err != nil {
+		return fmt.Errorf("store: loading embedded migrations: %w", err)
+	}
+	var pending []string
+	for _, m := range migs {
+		if !applied[m.name] {
+			pending = append(pending, m.name)
+		}
+	}
+	dest, err := s.backupBeforeMigrate(ctx, pending)
+	if err != nil {
+		return fmt.Errorf("store: copying the database before migrating it: %w "+
+			"(the upgrade has not started; free space beside the database, or move the old copies out of the way)", err)
+	}
+	if dest != "" {
+		slog.Info("copied the database before migrating it",
+			"copy", dest, "migrations", len(pending),
+			"detail", "migrations are one-way; this is what an older release could be restored onto")
+	}
+	return nil
+}
+
 func (s *Store) migrate(ctx context.Context) error {
 	s.wmu.Lock()
 	defer s.wmu.Unlock()
@@ -361,6 +428,7 @@ func (s *Store) migrate(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("store: loading embedded migrations: %w", err)
 	}
+
 	return s.applyMigrations(ctx, migs, applied)
 }
 

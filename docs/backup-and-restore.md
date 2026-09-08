@@ -134,6 +134,26 @@ Two more are flags, because each has a cost only you can weigh:
 | `--revoke-api-tokens` | The backup may have been read by someone else. Whatever automation holds a token needs a new one. |
 | `--reset-agent-tokens` | Same, or you are rebuilding the fleet's hosts anyway. Each agent exits with the command to join again. |
 
+### A backup from an older release
+
+`zoomies restore` accepts it — the refusal is only for a backup from a *newer*
+release — and the database is migrated to this build as part of putting it
+back. A copy of it exactly as it was is kept first, under `pre-migration/`
+beside the database, so restoring an old backup does not consume it.
+
+### Upgrades copy the database first
+
+Whenever a controller starts and finds migrations pending on an existing
+database, it copies it to `pre-migration/zoomies-<timestamp>/` before applying
+anything, and keeps the last two. Migrations are one-way and the release that
+wrote a database will refuse to open it once a newer one has moved it on, so
+this is the rollback for an upgrade nobody planned to roll back — and it is the
+same layout `zoomies restore` takes, so putting one back is one command.
+
+It is a copy of the whole database each time, so the two are worth checking on
+the disk budget of a very large fleet. A first start takes none: there is
+nothing there to lose.
+
 ### And what the controller checks when it starts
 
 `zoomies restore` is not the only path onto a restored database — a database
