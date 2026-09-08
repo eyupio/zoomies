@@ -57,6 +57,9 @@ var (
 	// ErrNothingMapped means the apply request maps no hosted label to a pool,
 	// so no workflow would change.
 	ErrNothingMapped = errors.New("nothing would change: no hosted label is mapped to a pool")
+	// ErrNotAWorkflow means the apply request named a file GitHub would never
+	// run, which would be a pull request that quietly changed nothing.
+	ErrNotAWorkflow = errors.New("only files directly under .github/workflows can be migrated")
 )
 
 // ---------------------------------------------------------------------------
@@ -72,6 +75,11 @@ type MigrationPlanRequest struct {
 	// Mapping is hosted label -> the runs-on value that replaces it. Empty asks
 	// the server to propose one from the pools that exist.
 	Mapping map[string]string `json:"mapping"`
+	// Cursor asks for the page of repositories after this one. It is the full
+	// name of the last repository the previous page returned, because the
+	// listing is sorted by name: a name is stable when the App gains or loses
+	// a repository between two pages, and an offset is not.
+	Cursor string `json:"cursor"`
 }
 
 // MigrationApplyRequest opens the pull requests a plan described.
@@ -79,6 +87,12 @@ type MigrationApplyRequest struct {
 	InstallationID string            `json:"installation_id"`
 	Repos          []string          `json:"repos"`
 	Mapping        map[string]string `json:"mapping"`
+	// Workflows narrows a repository to the workflow files named here, keyed by
+	// repository. A repository absent from the map gets every file the mapping
+	// would change, which is what a client that does not know about the field
+	// asks for. It exists because a repository with a dozen workflow files is
+	// rarely one where all dozen should move at once.
+	Workflows map[string][]string `json:"workflows"`
 	// Title, Body and CommitMessage override the defaults. They are here
 	// because the pull request lands in somebody else's repository, and an
 	// organisation with a pull-request template or a commit convention should
@@ -123,10 +137,16 @@ type MigrationPlan struct {
 	// Pools is what the mapping step chooses between.
 	Pools  []MigrationPoolOption `json:"pools"`
 	Counts migrate.Counts        `json:"counts"`
-	// Truncated says the installation has more repositories than one plan
-	// reads, so the operator knows this is a page rather than the whole
-	// organisation.
+	// Truncated says there are more repositories after this page. It is kept
+	// alongside NextCursor because it is what a client reads to know the
+	// listing is incomplete, whether or not it can page.
 	Truncated bool `json:"truncated"`
+	// NextCursor is what to send as Cursor to read the next page. Empty means
+	// this was the last one.
+	NextCursor string `json:"next_cursor,omitempty"`
+	// TotalRepos is how many repositories the installation can see, so a wizard
+	// showing a page can say what fraction of the whole it is.
+	TotalRepos int `json:"total_repos"`
 	// MissingPermissions is what the App still needs before the apply step can
 	// work. It is reported here, in the step before, because discovering it
 	// halfway through opening pull requests leaves half of them open.
@@ -187,7 +207,7 @@ func (c *Controller) PlanMigration(ctx context.Context, req MigrationPlanRequest
 		return nil, ErrNoMigrationPool
 	}
 
-	repos, truncated, err := migrationRepos(ctx, client, req.Repos, MaxPlanRepos)
+	repos, next, total, err := migrationRepos(ctx, client, req.Repos, req.Cursor, MaxPlanRepos)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +250,9 @@ func (c *Controller) PlanMigration(ctx context.Context, req MigrationPlanRequest
 		Unmapped:           emptySlice(unmapped),
 		Pools:              poolOptions(pools),
 		Counts:             migrate.Count(plans),
-		Truncated:          truncated,
+		Truncated:          next != "",
+		NextCursor:         next,
+		TotalRepos:         total,
 		MissingPermissions: []string{},
 	}
 	// Asking GitHub what the App may do costs one call and turns "403 halfway
@@ -267,11 +289,15 @@ func (c *Controller) ApplyMigration(ctx context.Context, req MigrationApplyReque
 	if len(mapping) == 0 {
 		return nil, ErrNothingMapped
 	}
+	only, err := workflowSelection(req.Workflows)
+	if err != nil {
+		return nil, err
+	}
 	_, client, err := c.migrationClient(ctx, req.InstallationID)
 	if err != nil {
 		return nil, err
 	}
-	repos, _, err := migrationRepos(ctx, client, req.Repos, MaxApplyRepos)
+	repos, _, _, err := migrationRepos(ctx, client, req.Repos, "", MaxApplyRepos)
 	if err != nil {
 		return nil, err
 	}
@@ -288,7 +314,7 @@ func (c *Controller) ApplyMigration(ctx context.Context, req MigrationApplyReque
 		if err := ctx.Err(); err != nil {
 			break
 		}
-		out.Results = append(out.Results, migrateRepo(ctx, client, repo, mapping, branch, title, req.Body, commit))
+		out.Results = append(out.Results, migrateRepo(ctx, client, repo, mapping, only[strings.ToLower(repo.FullName)], branch, title, req.Body, commit))
 	}
 	for _, res := range out.Results {
 		switch res.Status {
@@ -304,8 +330,11 @@ func (c *Controller) ApplyMigration(ctx context.Context, req MigrationApplyReque
 }
 
 // migrateRepo plans and opens the pull request for one repository.
+//
+// only, when not nil, is the set of workflow paths the operator chose in this
+// repository; every other file is left where it is.
 func migrateRepo(ctx context.Context, client github.Client, repo github.Repository,
-	mapping map[string]string, branch, title, body, commit string) MigrationResult {
+	mapping map[string]string, only map[string]bool, branch, title, body, commit string) MigrationResult {
 
 	res := MigrationResult{Repo: repo.FullName, Status: "skipped"}
 	if repo.Archived {
@@ -324,6 +353,9 @@ func migrateRepo(ctx context.Context, client github.Client, repo github.Reposito
 	}
 
 	plan := migrate.PlanRepo(repo.FullName, repo.DefaultBranch, asMigrateWorkflows(workflows), migrate.Mapping{Labels: mapping})
+	if only != nil {
+		plan = selectWorkflows(plan, only)
+	}
 	var files []github.FileChange
 	for _, wf := range plan.Workflows {
 		if !wf.Changed() {
@@ -335,6 +367,9 @@ func migrateRepo(ctx context.Context, client github.Client, repo github.Reposito
 	}
 	if len(files) == 0 {
 		res.Reason = "no job in this repository is on a mapped GitHub-hosted label"
+		if only != nil {
+			res.Reason = "no job in the workflow files you chose here is on a mapped GitHub-hosted label"
+		}
 		return res
 	}
 
@@ -448,12 +483,19 @@ func poolOptions(pools []*store.Pool) []MigrationPoolOption {
 	return out
 }
 
-// migrationRepos resolves the repositories a request names, or lists what the
-// installation can see when it names none.
-func migrationRepos(ctx context.Context, client github.Client, named []string, limit int) ([]github.Repository, bool, error) {
+// migrationRepos resolves the repositories a request names, or one page of
+// what the installation can see when it names none.
+//
+// It returns the page, the cursor for the page after it -- empty when there is
+// none -- and how many repositories the installation can see in total, so the
+// wizard can say which slice of an organisation is on screen and go and get
+// the next one. Paging rather than one big scan is deliberate: reading every
+// workflow file in a thousand repositories is the most expensive thing Zoomies
+// asks GitHub for, and it spends the quota the scheduler shares.
+func migrationRepos(ctx context.Context, client github.Client, named []string, cursor string, limit int) ([]github.Repository, string, int, error) {
 	all, err := client.ListRepositories(ctx, 0)
 	if err != nil {
-		return nil, false, err
+		return nil, "", 0, err
 	}
 	byName := make(map[string]github.Repository, len(all))
 	for _, r := range all {
@@ -472,18 +514,77 @@ func migrationRepos(ctx context.Context, client github.Client, named []string, l
 				// A repository the App cannot see is named, not silently
 				// dropped: the operator picked it, and it disappearing from the
 				// results with no explanation is worse than a failure.
-				return nil, false, fmt.Errorf("%w: this installation cannot see %s; check the App is installed on it", github.ErrNotFound, want)
+				return nil, "", 0, fmt.Errorf("%w: this installation cannot see %s; check the App is installed on it", github.ErrNotFound, want)
 			}
 			out = append(out, repo)
 		}
-		return out, false, nil
+		return out, "", len(out), nil
 	}
 
 	sort.Slice(all, func(i, j int) bool { return all[i].FullName < all[j].FullName })
-	if len(all) > limit {
-		return all[:limit], true, nil
+	total := len(all)
+
+	// The cursor is a name rather than an offset, so a repository added or
+	// removed between two pages shifts nothing: the next page is whatever
+	// sorts after the last name the operator has already seen.
+	if after := strings.ToLower(strings.TrimSpace(cursor)); after != "" {
+		i := sort.Search(len(all), func(i int) bool { return strings.ToLower(all[i].FullName) > after })
+		all = all[i:]
 	}
-	return all, false, nil
+	if len(all) > limit {
+		return all[:limit], all[limit-1].FullName, total, nil
+	}
+	return all, "", total, nil
+}
+
+// workflowSelection turns the apply request's per-repository workflow paths
+// into a lookup, refusing anything that is not a file GitHub would run.
+//
+// A path that is not a workflow is a client bug, and accepting it silently
+// would mean a repository whose pull request quietly changes nothing.
+func workflowSelection(in map[string][]string) (map[string]map[string]bool, error) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]map[string]bool, len(in))
+	for repo, paths := range in {
+		repo = strings.ToLower(strings.TrimSpace(repo))
+		if repo == "" {
+			continue
+		}
+		set := make(map[string]bool, len(paths))
+		for _, p := range paths {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			if !migrate.IsWorkflowPath(p) {
+				return nil, fmt.Errorf("%w: %q is not one", ErrNotAWorkflow, p)
+			}
+			set[p] = true
+		}
+		if len(set) == 0 {
+			return nil, fmt.Errorf("%w: %s named none, so leave it out to migrate every file the mapping covers", ErrNotAWorkflow, repo)
+		}
+		out[repo] = set
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
+// selectWorkflows keeps only the files the operator chose, so the pull request
+// body still reports the jobs left behind in the files it did touch.
+func selectWorkflows(plan migrate.RepoPlan, only map[string]bool) migrate.RepoPlan {
+	out := plan
+	out.Workflows = make([]migrate.WorkflowPlan, 0, len(plan.Workflows))
+	for _, wf := range plan.Workflows {
+		if only[wf.Path] {
+			out.Workflows = append(out.Workflows, wf)
+		}
+	}
+	return out
 }
 
 // workflowSource is one repository's workflows, or why they could not be read.

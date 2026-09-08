@@ -1422,6 +1422,12 @@ paths:
                   description: >-
                     Hosted label to the runs-on value that replaces it, e.g.
                     {"ubuntu-latest": "zoomies-linux-x64"}. Empty asks the server to propose one.
+                cursor:
+                  type: string
+                  description: >-
+                    The page of repositories to read: the `next_cursor` a previous plan
+                    returned, which is the full name of the last repository it listed.
+                    Empty starts at the first page. Ignored when `repos` names repositories.
       responses:
         "200":
           description: The plan
@@ -1466,6 +1472,16 @@ paths:
                 mapping:
                   type: object
                   additionalProperties: { type: string }
+                workflows:
+                  type: object
+                  additionalProperties:
+                    type: array
+                    items: { type: string }
+                  description: >-
+                    Narrows a repository to these workflow files, keyed by repository, e.g.
+                    {"acme/widgets": [".github/workflows/ci.yml"]}. A repository left out of
+                    the map gets every file the mapping would change. A path that is not
+                    directly under .github/workflows is rejected.
                 title: { type: string, description: Overrides the default pull request title. }
                 body: { type: string, description: Overrides the generated body, which lists what moved and what was left alone. }
                 commit_message: { type: string, description: Overrides the default commit message. }
@@ -2280,6 +2296,10 @@ components:
         sha: { type: string, description: The blob SHA the plan was computed against. }
         rewrites: { type: array, items: { $ref: "#/components/schemas/MigrationRewrite" } }
         skips: { type: array, items: { $ref: "#/components/schemas/MigrationSkip" } }
+        hosted_labels:
+          type: array
+          items: { type: string }
+          description: The hosted-runner labels this file asks for, mapped or not.
         diff: { type: string, description: A unified diff of the change, empty when the file is untouched. }
 
     MigrationRepo:
@@ -2328,7 +2348,9 @@ components:
           description: Hosted labels no pool was proposed for. Jobs on these are left where they are.
         pools: { type: array, items: { $ref: "#/components/schemas/MigrationPoolOption" } }
         counts: { $ref: "#/components/schemas/MigrationCounts" }
-        truncated: { type: boolean, description: True when the installation has more repositories than one plan reads.  }
+        truncated: { type: boolean, description: True when there are more repositories after this page. }
+        next_cursor: { type: string, description: Send as `cursor` to read the next page of repositories. Absent on the last page. }
+        total_repos: { type: integer, description: How many repositories the installation can see in total, of which this is one page. }
         missing_permissions:
           type: array
           items: { type: string }

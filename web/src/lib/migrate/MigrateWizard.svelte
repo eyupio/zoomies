@@ -22,7 +22,12 @@
     openMigrationPullRequests,
     planMigration,
   } from '$lib/api/client';
-  import type { Installation, MigrationOutcome, MigrationPlan } from '$lib/api/types';
+  import type {
+    Installation,
+    MigrationOutcome,
+    MigrationPlan,
+    MigrationRepo,
+  } from '$lib/api/types';
   import { toasts } from '$lib/state/toasts.svelte';
   import Button from '$lib/components/Button.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
@@ -77,7 +82,20 @@
   /* -- the plan ------------------------------------------------------------ */
 
   let plan = $state<MigrationPlan | null>(null);
-  let chosen = $state<string[]>([]);
+  /**
+   * Repository -> the workflow paths chosen in it.
+   *
+   * A repository is chosen when it has at least one path here, which is what
+   * lets a repository with a dozen workflow files send only the two that should
+   * move. The apply call carries the same shape, so what is committed is what
+   * was ticked rather than "everything in that repository that happens to
+   * match" -- including a workflow file somebody added since the scan.
+   */
+  let selection = $state<Record<string, string[]>>({});
+  /** The cursor for the page of repositories after the ones on screen. */
+  let nextCursor = $state('');
+  /** How many repositories the installation can see, of which those are a page. */
+  let totalRepos = $state(0);
   /** Hosted label -> the runs-on value replacing it. "" means "leave it alone". */
   let mapping = $state<Record<string, string>>({});
   /** True once the operator has edited the mapping, so a re-scan stops overwriting it. */
@@ -107,12 +125,26 @@
 
   const target = $derived(installations.find((i) => i.id === selected));
 
-  const changedRepos = $derived(
-    (plan?.repositories ?? []).filter((r) =>
-      (r.workflows ?? []).some((w) => (w.rewrites ?? []).length > 0),
-    ),
-  );
-  const selectedChanged = $derived(changedRepos.filter((r) => chosen.includes(r.repo ?? '')));
+  const chosen = $derived(Object.keys(selection));
+
+  /**
+   * The repositories the review step shows, narrowed to the chosen files.
+   *
+   * Narrowing here rather than in the review means the diffs, the counts and
+   * the pull requests all come from one decision: a file nobody ticked is not
+   * shown, not counted, and not committed.
+   */
+  const selectedChanged = $derived.by(() => {
+    const out: MigrationRepo[] = [];
+    for (const repo of plan?.repositories ?? []) {
+      const paths = selection[repo.repo ?? ''] ?? [];
+      if (paths.length === 0) continue;
+      const workflows = (repo.workflows ?? []).filter((w) => paths.includes(w.path ?? ''));
+      if (!workflows.some((w) => (w.rewrites ?? []).length > 0)) continue;
+      out.push({ ...repo, workflows });
+    }
+    return out;
+  });
   const blockedByPermissions = $derived((plan?.missing_permissions ?? []).length > 0);
 
   const canAdvance = $derived.by(() => {
@@ -138,40 +170,41 @@
   /**
    * Ask the server what it would change.
    *
-   * `repos` is left empty on the first scan so the operator sees the whole
+   * `repos` is left empty on the first scan so the operator sees the
    * organisation and chooses from it; every scan after that is narrowed to what
    * they chose, which is both faster and a smaller slice of the installation's
    * GitHub quota.
+   *
+   * `cursor` reads the next page of an organisation too large to read at once.
+   * A page is merged into the plan rather than replacing it, because the point
+   * of paging is to end up looking at one list of everything you have looked
+   * at, with the choices you made on the way still ticked.
    */
-  async function scan(repos: string[]): Promise<boolean> {
+  async function scan(repos: string[], cursor = ''): Promise<boolean> {
     busy = true;
     failure = '';
     try {
       const result = await planMigration({
         installation_id: selected,
         ...(repos.length > 0 ? { repos } : {}),
+        ...(cursor !== '' ? { cursor } : {}),
         ...(mappingEdited ? { mapping } : {}),
       });
-      plan = result;
+      const narrowed = repos.length > 0;
+      plan = narrowed ? mergeNarrowed(plan, result) : mergePage(plan, result, cursor !== '');
+      if (!narrowed) {
+        nextCursor = result.next_cursor ?? '';
+        totalRepos = result.total_repos ?? (plan?.repositories ?? []).length;
+      }
       if (!mappingEdited) {
         // The server's proposal, plus an explicit blank for every label it
         // could not place, so the mapping step lists all of them.
         const next: Record<string, string> = {};
-        for (const label of result.hosted_labels ?? []) next[label] = '';
+        for (const label of plan?.hosted_labels ?? []) next[label] = '';
         Object.assign(next, result.mapping ?? {});
         mapping = next;
       }
-      if (repos.length === 0) {
-        // Default to every repository that asks for a rented runner, not only
-        // the ones the server's provisional mapping already rewrites. The
-        // mapping is chosen on the step after this one, so ticking on
-        // "would change right now" would hide from an operator the very
-        // repositories they came here to map.
-        chosen = (result.repositories ?? [])
-          .filter((r) => !r.error && (r.hosted_labels ?? []).length > 0)
-          .map((r) => r.repo ?? '')
-          .filter(Boolean);
-      }
+      if (!narrowed) chooseByDefault(result.repositories ?? []);
       return true;
     } catch (cause) {
       report(cause, 'The repositories could not be read.');
@@ -179,6 +212,73 @@
     } finally {
       busy = false;
     }
+  }
+
+  /** A fresh scan, or the page after the one on screen appended to it. */
+  function mergePage(
+    current: MigrationPlan | null,
+    page: MigrationPlan,
+    append: boolean,
+  ): MigrationPlan {
+    if (!append || !current) return page;
+    const seen = new Set((current.repositories ?? []).map((r) => r.repo));
+    return {
+      ...page,
+      repositories: [
+        ...(current.repositories ?? []),
+        ...(page.repositories ?? []).filter((r) => !seen.has(r.repo)),
+      ],
+      hosted_labels: [
+        ...new Set([...(current.hosted_labels ?? []), ...(page.hosted_labels ?? [])]),
+      ].sort(),
+    };
+  }
+
+  /**
+   * A re-scan of the chosen repositories, folded back into the whole list.
+   *
+   * The repositories nobody chose keep the plan they were read with. Their diff
+   * is stale under a mapping that has since changed, which is why the step that
+   * shows a diff shows only the repositories that were chosen and re-read.
+   */
+  function mergeNarrowed(current: MigrationPlan | null, fresh: MigrationPlan): MigrationPlan {
+    if (!current) return fresh;
+    const byName = new Map((fresh.repositories ?? []).map((r) => [r.repo, r]));
+    const kept = (current.repositories ?? []).map((r) => byName.get(r.repo) ?? r);
+    for (const repo of fresh.repositories ?? []) {
+      if (!kept.some((r) => r.repo === repo.repo)) kept.push(repo);
+    }
+    return { ...fresh, repositories: kept };
+  }
+
+  /**
+   * Ticks every workflow file that asks for a rented runner, in the
+   * repositories a scan has just brought in.
+   *
+   * On the labels, not on "would change under the mapping so far": the mapping
+   * is chosen on the step after this one, so ticking on what the server's
+   * provisional mapping already rewrites would hide from an operator the very
+   * files they came here to map. Choices already made elsewhere in the list are
+   * left alone.
+   */
+  function chooseByDefault(repos: readonly MigrationRepo[]): void {
+    const next = { ...selection };
+    for (const repo of repos) {
+      const name = repo.repo ?? '';
+      if (!name || name in next || repo.error) continue;
+      const paths = (repo.workflows ?? [])
+        .filter((w) => (w.hosted_labels ?? []).length > 0)
+        .map((w) => w.path ?? '')
+        .filter(Boolean);
+      if (paths.length > 0) next[name] = paths;
+    }
+    selection = next;
+  }
+
+  /** The next page of the organisation, appended to what is on screen. */
+  async function loadMore(): Promise<void> {
+    if (nextCursor === '') return;
+    await scan([], nextCursor);
   }
 
   async function next(): Promise<void> {
@@ -213,7 +313,9 @@
   function restart(): void {
     outcome = null;
     plan = null;
-    chosen = [];
+    selection = {};
+    nextCursor = '';
+    totalRepos = 0;
     mapping = {};
     mappingEdited = false;
     failure = '';
@@ -229,10 +331,20 @@
       for (const [label, to] of Object.entries(mapping)) {
         if (to !== '') chosenMapping[label] = to;
       }
+      // The files, not just the repositories: a repository where only two of
+      // its five workflows were ticked must get a pull request touching two.
+      const workflows: Record<string, string[]> = {};
+      for (const repo of selectedChanged) {
+        workflows[repo.repo ?? ''] = (repo.workflows ?? [])
+          .filter((w) => (w.rewrites ?? []).length > 0)
+          .map((w) => w.path ?? '')
+          .filter(Boolean);
+      }
       const result = await openMigrationPullRequests({
         installation_id: selected,
         repos: selectedChanged.map((r) => r.repo ?? '').filter(Boolean),
         mapping: chosenMapping,
+        workflows,
       });
       // Assigned only once the call has returned, because assigning it is what
       // swaps the wizard for the results.
@@ -303,7 +415,14 @@
       {#if index === 0}
         <StepTarget {installations} bind:selected />
       {:else if index === 1}
-        <StepRepositories {plan} bind:chosen />
+        <StepRepositories
+          {plan}
+          bind:selection
+          total={totalRepos}
+          hasMore={nextCursor !== ''}
+          {busy}
+          onloadmore={loadMore}
+        />
       {:else if index === 2}
         <StepMapping {plan} {mapping} onchange={onMappingChange} />
       {:else}

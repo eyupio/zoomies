@@ -25,6 +25,12 @@ type WorkflowPlan struct {
 	SHA      string    `json:"sha"`
 	Rewrites []Rewrite `json:"rewrites"`
 	Skips    []Skip    `json:"skips"`
+	// HostedLabels are the hosted-runner labels this file asks for, mapped or
+	// not. It is per file for the same reason the repository carries it: the
+	// wizard lets a repository be chosen file by file, and "would change under
+	// the mapping so far" is the wrong question on the step before the mapping
+	// is made.
+	HostedLabels []string `json:"hosted_labels"`
 	// Diff is the unified diff of the change, for the review step.
 	Diff string `json:"diff"`
 	// After is the rewritten file. It is not serialised: the browser has no
@@ -97,17 +103,18 @@ func PlanRepo(repo, defaultBranch string, workflows []Workflow, m Mapping) RepoP
 	for _, w := range workflows {
 		res := File(w.Content, m)
 		plan := WorkflowPlan{
-			Path:     w.Path,
-			SHA:      w.SHA,
-			Rewrites: res.Rewrites,
-			Skips:    res.Skips,
-			After:    res.Content,
+			Path:         w.Path,
+			SHA:          w.SHA,
+			Rewrites:     res.Rewrites,
+			Skips:        res.Skips,
+			HostedLabels: HostedLabelsIn(w.Content),
+			After:        res.Content,
 		}
 		if plan.Changed() {
 			plan.Diff = Diff(w.Path, w.Content, res.Content)
 		}
 		out.Workflows = append(out.Workflows, plan)
-		for _, l := range HostedLabelsIn(w.Content) {
+		for _, l := range plan.HostedLabels {
 			if !seen[l] {
 				seen[l] = true
 				out.HostedLabels = append(out.HostedLabels, l)

@@ -1,11 +1,22 @@
 <!--
-  Step two: which repositories.
+  Step two: which repositories, and which of their workflow files.
 
   Every repository the installation can see is listed, including the ones with
   nothing to migrate. That is deliberate: "acme/docs has no workflows" and
   "acme/infra is already on self-hosted runners" are both answers an operator
   wants, and a list that silently omitted them would look like the scan had
-  missed something.
+  missed something. They are hidden by default all the same, with a count and a
+  switch: in an organisation they are most of the list, and this step is for
+  the ones that can move.
+
+  The repositories that can move often have several workflow files, of which a
+  release or a nightly is exactly the one to leave where it is, so a repository
+  with more than one can be opened up and picked through file by file.
+
+  An organisation is read a page at a time, because reading every workflow file
+  in a thousand repositories is the most expensive thing Zoomies asks GitHub
+  for. A page is appended to this list rather than replacing it, so a choice
+  made on the way survives to the review.
 
   What can be ticked is "this repository asks for a rented runner", not "this
   repository would change under the mapping the server has guessed so far". The
@@ -20,17 +31,46 @@
   be mistaken for a broken control.
 -->
 <script lang="ts">
-  import type { MigrationPlan, MigrationRepo } from '$lib/api/types';
+  import type { MigrationPlan, MigrationRepo, MigrationWorkflow } from '$lib/api/types';
+  import Button from '$lib/components/Button.svelte';
   import Checkbox from '$lib/components/Checkbox.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
-  import { AlertTriangle, ExternalLink, FolderGit2 } from '@lucide/svelte';
+  import Switch from '$lib/components/Switch.svelte';
+  import {
+    AlertTriangle,
+    ChevronDown,
+    ChevronRight,
+    ExternalLink,
+    FolderGit2,
+  } from '@lucide/svelte';
 
   interface Props {
     plan: MigrationPlan | null;
-    chosen?: string[];
+    /** Repository -> the workflow paths chosen in it. A repository with none is unchosen. */
+    selection?: Record<string, string[]>;
+    /** How many repositories the installation can see, of which this list is a page. */
+    total?: number;
+    /** Set when there is another page to read. */
+    hasMore?: boolean;
+    busy?: boolean;
+    onloadmore?: () => void;
   }
 
-  let { plan, chosen = $bindable([]) }: Props = $props();
+  let {
+    plan,
+    selection = $bindable({}),
+    total = 0,
+    hasMore = false,
+    busy = false,
+    onloadmore,
+  }: Props = $props();
+
+  /** One workflow file that asks for a runner somebody else operates. */
+  interface File {
+    path: string;
+    jobs: number;
+    skips: number;
+  }
 
   interface Row {
     repo: string;
@@ -38,6 +78,8 @@
     workflows: number;
     skipped: number;
     note: string;
+    /** The files that could move, which are what a repository is chosen by. */
+    files: File[];
     migratable: boolean;
     unreadable: boolean;
   }
@@ -65,32 +107,86 @@
               ? `Nothing to move; ${skipped} left alone`
               : 'Nothing to move';
 
+    // On the labels a file asks for, not on what the provisional mapping
+    // already rewrites: the mapping is made on the next step, so a file with
+    // nothing to rewrite yet is still one the operator came here to choose.
+    const files = workflows
+      .filter((w: MigrationWorkflow) => (w.hosted_labels ?? []).length > 0)
+      .map((w: MigrationWorkflow) => ({
+        path: w.path ?? '',
+        jobs: (w.rewrites ?? []).length,
+        skips: (w.skips ?? []).length,
+      }));
+
     return {
       repo: repo.repo ?? '',
       jobs,
       workflows: changed,
       skipped,
       note,
+      files,
       migratable: !repo.error && labels.length > 0,
       unreadable: Boolean(repo.error),
     };
   }
 
+  /**
+   * Hiding what cannot move is the default.
+   *
+   * The rest are still worth being able to see -- a repository the App cannot
+   * read, and one whose jobs already point somewhere deliberate, are both
+   * answers -- but they are not what this step is for, and in an organisation
+   * they are most of it.
+   */
+  let onlyMigratable = $state(true);
+
+  /** Which repositories have their file list open. */
+  let expanded = $state<Record<string, boolean>>({});
+
   const rows = $derived((plan?.repositories ?? []).map(rowOf));
   const migratable = $derived(rows.filter((r) => r.migratable));
   const unreadable = $derived(rows.filter((r) => r.unreadable));
   const missingPermissions = $derived(plan?.missing_permissions ?? []);
-  const allChosen = $derived(
-    migratable.length > 0 && migratable.every((r) => chosen.includes(r.repo)),
-  );
-  const someChosen = $derived(migratable.some((r) => chosen.includes(r.repo)));
+  const hidden = $derived(onlyMigratable ? rows.length - migratable.length : 0);
+  const visible = $derived(onlyMigratable ? migratable : rows);
 
-  function toggle(repo: string, on: boolean): void {
-    chosen = on ? [...chosen, repo] : chosen.filter((r) => r !== repo);
+  const chosenIn = (repo: string): string[] => selection[repo] ?? [];
+  const chosenCount = $derived(migratable.filter((r) => chosenIn(r.repo).length > 0).length);
+  const allChosen = $derived(
+    migratable.length > 0 &&
+      migratable.every((r) => r.files.every((f) => chosenIn(r.repo).includes(f.path))),
+  );
+  const someChosen = $derived(migratable.some((r) => chosenIn(r.repo).length > 0));
+
+  /** Replaces a repository's chosen files, dropping the key when none are left. */
+  function set(repo: string, paths: string[]): void {
+    const next = { ...selection };
+    if (paths.length === 0) delete next[repo];
+    else next[repo] = paths;
+    selection = next;
+  }
+
+  function toggle(row: Row, on: boolean): void {
+    set(row.repo, on ? row.files.map((f) => f.path) : []);
+  }
+
+  function toggleFile(row: Row, path: string, on: boolean): void {
+    const current = chosenIn(row.repo);
+    set(row.repo, on ? [...current, path] : current.filter((p) => p !== path));
   }
 
   function toggleAll(on: boolean): void {
-    chosen = on ? migratable.map((r) => r.repo) : [];
+    if (!on) {
+      selection = {};
+      return;
+    }
+    const next: Record<string, string[]> = { ...selection };
+    for (const row of migratable) next[row.repo] = row.files.map((f) => f.path);
+    selection = next;
+  }
+
+  function expand(repo: string): void {
+    expanded = { ...expanded, [repo]: !expanded[repo] };
   }
 </script>
 
@@ -104,7 +200,9 @@
   <p class="lede">
     {migratable.length} of {rows.length}
     {rows.length === 1 ? 'repository has' : 'repositories have'} jobs on a rented runner — GitHub's own,
-    or a vendor's — that a pool here could take. The rest are listed so you can see they were looked at.
+    or a vendor's — that a pool here could take. The rest are hidden, and the switch below shows them
+    again so you can see they were looked at. A repository with several workflow files can be opened up
+    and picked through one file at a time.
   </p>
 
   {#if unreadable.length > 0}
@@ -145,43 +243,95 @@
       </p>
       <p>
         Nothing can be ticked because no repository on this page asks for a runner somebody else
-        operates. Each row says which of the three reasons applies to it: the App cannot read it, it
-        has no workflows, or its jobs already point somewhere deliberate — a self-hosted fleet, or a
-        label this controller does not recognise as rented.
+        operates. Turn the filter off and each row says which of the three reasons applies to it:
+        the App cannot read it, it has no workflows, or its jobs already point somewhere deliberate
+        — a self-hosted fleet, or a label this controller does not recognise as rented.{hasMore
+          ? ' There are more repositories to read.'
+          : ''}
       </p>
     </div>
   {/if}
 
-  {#if plan?.truncated}
-    <p class="note">
-      This is the first page of the organisation. Migrate these, then run the wizard again for the
-      rest — a batch of pull requests nobody can review is not progress.
-    </p>
-  {/if}
-
-  <div class="head">
+  <div class="controls">
     <Checkbox
       checked={allChosen}
       indeterminate={!allChosen && someChosen}
-      label="Select every repository that could move"
+      label="Select every file that could move"
       onchange={toggleAll}
       disabled={migratable.length === 0}
+    />
+    <Switch
+      checked={onlyMigratable}
+      label="Only repositories with something to move"
+      onchange={(on) => (onlyMigratable = on)}
     />
   </div>
 
   <ul class="repos">
-    {#each rows as row (row.repo)}
+    {#each visible as row (row.repo)}
+      {@const chosen = chosenIn(row.repo)}
       <li class:inert={!row.migratable}>
-        <Checkbox
-          checked={chosen.includes(row.repo)}
-          disabled={!row.migratable}
-          label={row.repo}
-          description={row.note}
-          onchange={(on) => toggle(row.repo, on)}
-        />
+        <div class="repo">
+          <Checkbox
+            checked={chosen.length > 0 && chosen.length === row.files.length}
+            indeterminate={chosen.length > 0 && chosen.length < row.files.length}
+            disabled={!row.migratable}
+            label={row.repo}
+            description={chosen.length > 0 && chosen.length < row.files.length
+              ? `${row.note} — ${chosen.length} of ${row.files.length} files chosen`
+              : row.note}
+            onchange={(on) => toggle(row, on)}
+          />
+          {#if row.files.length > 1}
+            <button
+              type="button"
+              class="disclose"
+              aria-expanded={expanded[row.repo] ?? false}
+              onclick={() => expand(row.repo)}
+            >
+              {#if expanded[row.repo]}
+                <ChevronDown size={13} aria-hidden="true" />
+              {:else}
+                <ChevronRight size={13} aria-hidden="true" />
+              {/if}
+              {row.files.length} files
+            </button>
+          {/if}
+        </div>
+
+        {#if row.files.length > 1 && expanded[row.repo]}
+          <ul class="files">
+            {#each row.files as file (file.path)}
+              <li>
+                <Checkbox
+                  checked={chosen.includes(file.path)}
+                  label={file.path}
+                  description="{file.jobs} {file.jobs === 1 ? 'job' : 'jobs'} to move{file.skips > 0
+                    ? `, ${file.skips} left alone`
+                    : ''}"
+                  onchange={(on) => toggleFile(row, file.path, on)}
+                />
+              </li>
+            {/each}
+          </ul>
+        {/if}
       </li>
     {/each}
   </ul>
+
+  <p class="footer">
+    <span>
+      {chosenCount}
+      {chosenCount === 1 ? 'repository' : 'repositories'} chosen{hidden > 0
+        ? `. ${hidden} that cannot move ${hidden === 1 ? 'is' : 'are'} hidden`
+        : ''}{hasMore && total > rows.length ? `. ${total - rows.length} not read yet` : ''}.
+    </span>
+    {#if hasMore}
+      <Button size="sm" variant="secondary" onclick={onloadmore} disabled={busy} loading={busy}>
+        Read the next page
+      </Button>
+    {/if}
+  </p>
 {/if}
 
 <style>
@@ -191,16 +341,6 @@
     font-size: var(--z-text-base);
     line-height: var(--z-leading-base);
     color: var(--z-text-muted);
-  }
-  .note {
-    margin: 0 0 var(--z-space-3);
-    padding: var(--z-space-3) var(--z-space-4);
-    border: var(--z-border-width) solid var(--z-pending-border);
-    border-radius: var(--z-radius-md);
-    background: var(--z-pending-subtle);
-    color: var(--z-pending);
-    font-size: var(--z-text-xs);
-    line-height: var(--z-leading-xs);
   }
   .problem {
     margin: 0 0 var(--z-space-3);
@@ -241,9 +381,53 @@
     font-family: var(--z-font-mono);
     overflow-wrap: anywhere;
   }
-  .head {
+  .controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--z-space-4);
+    flex-wrap: wrap;
     padding-bottom: var(--z-space-2);
     border-bottom: var(--z-border-width) solid var(--z-border);
+  }
+  .repo {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--z-space-3);
+  }
+  .disclose {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--z-space-1);
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: pointer;
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
+  }
+  .disclose:hover {
+    color: var(--z-accent);
+  }
+  .files {
+    margin: var(--z-space-2) 0 0 var(--z-space-6);
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-2);
+  }
+  .footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--z-space-3);
+    flex-wrap: wrap;
+    margin: var(--z-space-3) 0 0;
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
   }
   .repos {
     margin: 0;
@@ -252,11 +436,11 @@
     max-height: 26rem;
     overflow-y: auto;
   }
-  .repos li {
+  .repos > li {
     padding: var(--z-space-2) 0;
     border-bottom: var(--z-border-width) solid var(--z-border);
   }
-  .repos li.inert {
+  .repos > li.inert {
     opacity: 0.6;
   }
 </style>

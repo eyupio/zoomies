@@ -95,6 +95,8 @@ func (s *Server) migrationFail(w http.ResponseWriter, r *http.Request, doing str
 			[]fieldError{{"installation_id", "no enabled pool belongs to this installation"}})
 	case errors.Is(err, controller.ErrNothingMapped):
 		unprocessable(w, err.Error(), []fieldError{{"mapping", "map at least one label, such as ubuntu-latest, to a pool"}})
+	case errors.Is(err, controller.ErrNotAWorkflow):
+		unprocessable(w, err.Error(), []fieldError{{"workflows", "name workflow files directly under .github/workflows"}})
 	default:
 		s.githubFail(w, r, doing, err)
 	}
