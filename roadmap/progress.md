@@ -55,6 +55,7 @@ evidence.
 | ZF-202 | Actionable day-to-day diagnostics | mixed (substrate exists; no bundle, no per-job explanation) | `not_started` | ZF-102 | | Size L; the failing tie-break test on the code this package extends was fixed as a Phase 0 defect, and `TestAStuckTieNamesTheRunnerWithNoContainer` holds it |
 | ZF-203 | Implement and prove backup and restore | new (prose only today) | `not_started` | ZF-102 for automatic unfencing only | | Size L |
 | ZF-204 | Safe releases, upgrades and version compatibility | mixed (skeleton exists; policy, skew, guards, backup-before-migrate and any upgrade test do not) | `not_started` | ZF-203 for the backup primitive; ZF-003 first | | Size L across small pull requests |
+| ZF-206 | Windows runners | new; the matching vocabulary shipped and nothing behind it did | `not_started` | Gate F attempted first; ZF-105 and ZF-103a, both done | | Size L in four pull requests, and **decision 26 chooses its shape before any of it is written**: process on a Windows host is the recommendation and weakens the ephemeral guarantee to a fresh work directory on a machine that keeps its state; Windows containers keep the guarantee and cost about five times as much. The first pull request is severable and worth taking whenever: `naming.OSWindows` is legal, `windows` is in `store.ImplicitLabels` and `docs/hosts-and-pools.md` used `os=windows` as a pool example, so a pool can declare a platform that matches nothing and says nothing about why. Note `runnerAsset`'s refusal message is wrong today -- it says actions/runner ships for Linux and macOS, and `win-x64` has shipped for years |
 | ZF-205 | Usable telemetry and bounded history | mixed (substrate exists; four series, prune tests, a load fixture and the measurement do not) | `not_started` | ZF-002; ZF-101 and ZF-102 for the real latency series | | Size M in three slices |
 
 ## Phase 3: real use, drills and Gate F
@@ -75,6 +76,25 @@ evidence.
 ## Log
 
 Newest first. One line per event that changed a row.
+
+* 2026-09-08: ZF-206, Windows runners, added at the owner's request, with
+  decision 26 to choose its shape before any of it is written. The reason it
+  needs a decision rather than a start: `process` on a Windows host is the
+  small path and it cannot give a job a container, so the ephemeral guarantee
+  becomes a fresh work directory and a single-use registration on a machine
+  that keeps its state -- the weakening the `process` backend already carries
+  on Linux, which every page claiming "the container is destroyed" would have
+  to stop claiming for those pools. Windows containers keep the guarantee and
+  cost a second image catalogue, a second build matrix and images in
+  gigabytes. Sequenced after Gate F either way, because the support matrix
+  only moves a row right when a test runs on the thing, and a platform added
+  while the project is proving the one it has widens the gate rather than
+  passes it. **What the survey found on the way is that the vocabulary shipped
+  without the platform**: `naming.OSWindows` is legal, `windows` is in
+  `store.ImplicitLabels`, and `docs/hosts-and-pools.md` used `os=windows` as a
+  pool example, so an operator can declare a platform that matches nothing and
+  is told nothing about why. That is the package's first pull request, and it
+  is severable from the decision.
 
 * 2026-09-08: Assignment A is finished. Its last stack merged as #120, and
   this pass reconciled both documents against the code rather than against
