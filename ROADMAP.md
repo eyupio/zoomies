@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.22 · 8 September 2026 · derived from the owner's
+Version 2.23 · 8 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -1757,6 +1757,28 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **8 September 2026 — Version 2.23:** ZF-205 is done, and with it every
+  unblocked package in Phase 2 — ZF-201 waits on the owner's disposable
+  organisation and ZF-206 on Gate F. **Two corrections to the package as
+  written.** The poller's rate-limit pause is *not* fleet-wide and never was:
+  it is keyed by installation, so the gauge carries the installation, and a
+  fleet with two of them, one held, is a fleet half working that the described
+  flag could not have said. And the time zone and freshness the package asked
+  to be rendered from data already were; the window was the only prose, and it
+  was worse than prose — a fetch of `/stats` defaulted to a day and a `stats`
+  frame to an hour, so the Overview's completed counts and wait percentiles
+  changed under the operator a second after every page load while the
+  specification said an hour throughout. **Three findings.** A registry-wide
+  label rule has to read the collectors' descriptors rather than a scrape: a
+  vector with no observations reports nothing at all, so the version that
+  gathered and inspected passed happily with a `repository` label added, and
+  would have failed on the day something first incremented it. The load
+  measurement earned its keep on its first run, finding that the audit log's
+  action filter scanned the one table Zoomies deliberately never prunes. And
+  the bulk prune's announcement, not its deletion, was the reconnect storm:
+  past sixty-four rows it now sends the one frame that already means "fetch
+  the resources again".
 
 * **8 September 2026 — Version 2.22:** ZF-204 is done. Its last pull request
   is the upgrade check nothing else could stand in for: every other tier builds
