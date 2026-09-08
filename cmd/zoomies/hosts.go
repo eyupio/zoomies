@@ -15,6 +15,7 @@ func runHosts(ctx context.Context, e *env, args []string) error {
 	return runGroup(ctx, e, "hosts", "Agents, their capacity, and enrolment.", []*subcommand{
 		{"list", "", "Every host, with health and free capacity", hostsList},
 		{"cordon", "<host-id>", "Keep its runners, accept no new ones", hostsCordon},
+		{"drain", "<host-id>", "Cordon it, then drain every runner on it", hostsDrain},
 		{"uncordon", "<host-id>", "Let it accept new runners again", hostsUncordon},
 		{"delete", "<host-id>", "Forget a host; refused while it still has runners", hostsDelete},
 		{"join-token", "create", "Mint a token that enrols a new host", hostsJoinToken},
@@ -158,6 +159,71 @@ func hostsSetCordon(ctx context.Context, e *env, args []string, cordoned bool) e
 		fmt.Fprintf(e.out, "Uncordoned %s; it can take %d more runner(s).\n", h.Name, h.Free)
 	}
 	return nil
+}
+
+// hostsDrain empties a host: cordon it, then drain what it is already running.
+//
+// It exists because the two halves are always done together and doing them in
+// the wrong order does not work. Draining first leaves the host uncordoned, so
+// the scheduler puts a fresh runner on it while the old ones are still
+// finishing, and an operator watching the count go down and back up concludes
+// the drain failed. This is the composition, in the order that empties a host:
+// stop new work arriving, then let what is here finish.
+//
+// It never forces. A drained runner finishes the job it is on; an operator who
+// wants the machine now has `runners delete --force`, and having to type that
+// separately is the point.
+func hostsDrain(ctx context.Context, e *env, args []string) error {
+	fs := newFlagSet(e, "zoomies hosts drain <host-id>",
+		"Cordon a host and drain every runner on it, so it empties as its jobs finish.")
+	cf := registerClientFlags(fs, false)
+	fs.example("zoomies hosts drain hst_k3f9qz2m")
+	if err := fs.parse(args); err != nil {
+		return err
+	}
+	id, err := fs.oneArg("a host ID, as shown by `zoomies hosts list`")
+	if err != nil {
+		return err
+	}
+	client, err := cf.client()
+	if err != nil {
+		return err
+	}
+
+	// Cordon first, and separately, so that a failure here stops the whole
+	// thing: draining a host that will immediately be given new runners is
+	// worse than doing nothing, because it looks like it worked.
+	var h hostItem
+	if _, err := client.post(ctx, "/hosts/"+url.PathEscape(id)+"/cordon", nil,
+		map[string]any{"cordoned": true}, &h); err != nil {
+		return err
+	}
+	fmt.Fprintf(e.out, "Cordoned %s.\n", dash(h.Name))
+
+	q := url.Values{}
+	q.Set("host_id", id)
+	q.Set("limit", "500")
+	var runners listResponse[runnerItem]
+	if _, err := client.get(ctx, "/runners", q, &runners); err != nil {
+		return err
+	}
+	var ids []string
+	for _, r := range runners.Items {
+		ids = append(ids, r.ID)
+	}
+	if len(ids) == 0 {
+		fmt.Fprintf(e.out, "It had no runners, so it is already empty.\n")
+		return nil
+	}
+	if runners.Total > len(ids) {
+		// The page is 500 and the API's ceiling is the same, so a host with
+		// more than that needs a second pass. Saying so beats draining most
+		// of them and reporting success.
+		fmt.Fprintf(e.out, "It has %d runners and this drains the first %d; run it again for the rest.\n",
+			runners.Total, len(ids))
+	}
+	fmt.Fprintf(e.out, "Draining %s:\n", countOf(len(ids), "runner"))
+	return bulkRunners(ctx, e, client, "drain", ids, false)
 }
 
 func hostsDelete(ctx context.Context, e *env, args []string) error {

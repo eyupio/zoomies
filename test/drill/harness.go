@@ -52,8 +52,8 @@ type fleet struct {
 	// it has just restored.
 	port     int
 	stateDir string
-	// agentWork is the agent's work directory, where the backend lays out
-	// runners. The drill watches this to see a workload appear.
+	// agentWork is the directory inside the agent's state directory where the
+	// backend lays out runners. The drill watches it to see a workload appear.
 	agentWork string
 
 	installationID string
