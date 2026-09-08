@@ -192,3 +192,42 @@ test('an optimistic change that the controller refuses is put back', async ({ pa
   await expect(page.locator('.toast[data-tone="error"]')).toBeVisible();
   await expect(linux, 'the row rolled back').toContainText('Enabled');
 });
+
+test('a scaling decision delivered twice appears once', async ({ page }) => {
+  // A replay overlaps: after a resync, or a reconnect whose buffer reaches back
+  // further than the tab needed, the stream carries decisions the tab already
+  // has. Prepending both used to leave two identical rows -- a scheduler
+  // apparently deciding the same thing twice, which is what a flapping pool
+  // looks like -- and, because the feed is keyed by the decision's id, the
+  // second copy takes the whole panel down rather than merely misleading.
+  await goto(page, '/', 'Overview');
+  const feed = page.getByRole('region', { name: 'Recent scaling', exact: true });
+  await expect(feed).toBeVisible();
+
+  const decision = {
+    id: 'scl_replayed',
+    pool_id: 'pool_replayed',
+    pool_name: 'zoomies-demo-linux-x64',
+    from: 2,
+    to: 3,
+    reason: 'a decision the stream sends twice',
+    created_at: new Date().toISOString(),
+  };
+  const frame = `id: 999998\nevent: scaling\ndata: ${JSON.stringify(decision)}\n\n`;
+  await page.route('**/api/v1/events*', (route) =>
+    route.fulfill({
+      status: 200,
+      headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' },
+      body: frame + frame.replace('999998', '999999'),
+    }),
+  );
+  await plantMarker(page);
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event('offline'));
+    window.dispatchEvent(new Event('online'));
+  });
+
+  const row = feed.getByRole('listitem').filter({ hasText: decision.reason });
+  await expect(row).toHaveCount(1, { timeout: 10_000 });
+  await expectNoReload(page);
+});

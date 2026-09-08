@@ -406,3 +406,38 @@ test("the job panels are this fleet's work, and say so when they are not", async
     'blacksmith',
   );
 });
+
+test('the subtitle names the window the figures actually cover', async ({ page }) => {
+  // The page used to promise that "trends and waits cover the last hour". The
+  // trends do; the waits and the outcomes are computed over the controller's
+  // stats window, a day by default, so the sentence described a figure the page
+  // was not showing. It comes from the payload now, which is the only way it
+  // stays true when the window is not the default.
+  const stats = (await page.request.get('/api/v1/stats').then((r) => r.json())) as Record<
+    string,
+    unknown
+  >;
+  await page.route('**/api/v1/stats*', (route) =>
+    route.fulfill({
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...stats, window: '6h0m0s' }),
+    }),
+  );
+  // And no stream, so the controller's own window cannot arrive and overwrite
+  // the one under test a second later.
+  await page.route('**/api/v1/events*', (route) =>
+    route.fulfill({
+      status: 200,
+      headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' },
+      body: '',
+    }),
+  );
+
+  await goto(page, '/', 'Overview');
+  const subtitle = page.locator('.subtitle').first();
+  await expect(subtitle).toContainText('the last 6 hours');
+  await expect(subtitle, 'the sparklines are still an hour, and say so separately').toContainText(
+    'Trends cover the last hour',
+  );
+});
