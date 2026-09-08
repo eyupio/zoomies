@@ -70,6 +70,26 @@ file:
   heartbeating, so this resolves itself, but the first few minutes will show
   failures for work that had already gone.
 
+## What the controller checks on that first start
+
+Two of the ways a restore goes wrong are caught at startup rather than hours
+later, because both used to fail somewhere that gave no hint of the cause.
+
+* **The database is newer than the binary.** If the copy was written by a later
+  release than the one installed, the controller refuses to start and names the
+  migrations it does not have. See [there is no
+  downgrade](upgrading.md#there-is-no-downgrade).
+* **The key did not come with the database.** If the database holds GitHub App
+  credentials and there is no key file, the controller refuses to start and
+  names the file to put back, rather than generating a fresh key — which is
+  what it does on a genuine first run, and which here would leave every sealed
+  credential unreadable for good.
+
+If a key is present but is the *wrong* one, nothing can be refused at startup —
+a key is only proven by opening something — so it shows up as
+`crypto.key_mismatch` in the problems drawer once the controller is running,
+naming the installations it cannot decrypt.
+
 ## What is not worth backing up
 
 Runner containers, work directories and the runner binary cache are all

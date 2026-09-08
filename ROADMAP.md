@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.12 · 8 September 2026 · derived from the owner's
+Version 2.13 · 8 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -1031,12 +1031,17 @@ integrity check, so no new dependency is needed.
 
 **Do, in four pull requests:**
 
-1. Store primitives and guards (S): `Backup` by `VACUUM INTO` under the write
-   mutex, refusing an existing destination and tightening the copy to owner
-   only; `IntegrityCheck`; a read-only open that skips migration; refuse to
-   start on a ledger with unknown names; refuse to generate a key over a
-   database that holds sealed secrets, and raise `crypto.key_mismatch` when
-   the key cannot open one.
+1. Store primitives and guards (S): **done** — `Backup` by `VACUUM INTO` under
+   the write mutex, refusing an existing destination and tightening the copy to
+   owner only; `IntegrityCheck`; a read-only open that skips migration, taken
+   by the installer's `finished` check and the uninstall's deregistration sweep
+   as the verifier's constraint required; a refusal to start on a ledger with
+   unknown names, which also corrected `docs/upgrading.md`, since it said an
+   older binary against a newer database "will run"; a refusal to generate a
+   key over a database that holds sealed secrets; and `crypto.key_mismatch`
+   when the key cannot open one, which is the *wrong* key rather than a missing
+   one — that case cannot be caught at startup, because a key is proven only by
+   opening something.
 2. `zoomies backup` (M): the copy, its integrity result, and a manifest with
    build identity, the migration ledger, the key's fingerprint and path, the
    secrets the restore will need, and the redacted configuration; `--keep`
@@ -1687,6 +1692,15 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **8 September 2026 — Version 2.13:** ZF-203's first pull request is done, and
+  it sharpened one distinction the package's prose had left implicit: a
+  *missing* encryption key over a sealed database is a startup refusal, and a
+  *wrong* one cannot be, because a key is proven only by opening something.
+  So the two guards live in different places — one in the command that would
+  have generated a key, one as a problem code the drawer raises once the
+  controller is running — and the restore documentation now says which failure
+  looks like which.
 
 * **8 September 2026 — Version 2.12:** the support bundle is done and **ZF-202
   is finished**. Two decisions in it are worth recording. The action is admin

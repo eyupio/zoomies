@@ -113,6 +113,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 
 	gather("hosts", c.hostProblems)
 	gather("installations", c.installationProblems)
+	gather("the encryption key", c.keyProblems)
 	gather("webhook deliveries", c.webhookProblems)
 	gather("jobs", c.jobProblems)
 	out = append(out, c.PoolCapacityProblems()...)
@@ -287,6 +288,47 @@ func (c *Controller) installationProblems(ctx context.Context, out *[]Problem) e
 			TargetKind: "installation", TargetID: i.ID, Since: i.LastCheckedAt,
 		})
 	}
+	return nil
+}
+
+// keyProblems answers "is this the key that sealed what is in the database?".
+//
+// It is a separate code from installation.unhealthy because it is a different
+// fault with a different fix: an installation GitHub has revoked is fixed on
+// GitHub, and a key that does not open its own database is fixed by putting
+// the right key file back. The two are told apart by how many installations
+// fail at once -- all of them, and immediately after a restore -- which is
+// exactly the observation an operator makes last, if at all.
+//
+// It opens rather than compares fingerprints: a fingerprint says which key
+// this is, and only opening says whether it works.
+func (c *Controller) keyProblems(ctx context.Context, out *[]Problem) error {
+	insts, err := c.st.ListInstallations(ctx)
+	if err != nil {
+		return fmt.Errorf("listing installations: %w", err)
+	}
+	var unreadable []string
+	for _, i := range insts {
+		if len(i.PrivateKeyEnc) == 0 {
+			continue
+		}
+		if _, err := c.key.Open(i.PrivateKeyEnc); err != nil {
+			unreadable = append(unreadable, i.Target)
+		}
+	}
+	if len(unreadable) == 0 {
+		return nil
+	}
+	*out = append(*out, Problem{
+		Code:     "crypto.key_mismatch",
+		Severity: config.SeverityError,
+		Setting:  "security.encryption_key_file",
+		Title:    "this instance's encryption key does not open its own database",
+		Detail: fmt.Sprintf("the sealed GitHub App credentials for %s cannot be decrypted with the key this controller is running. "+
+			"Nothing can authenticate to GitHub, so no runner can be created and no job will be claimed.", strings.Join(unreadable, ", ")),
+		Fix: "put the encryption key that was in use when these installations were added back at security.encryption_key_file " +
+			"(or pass it in ZOOMIES_ENCRYPTION_KEY) and restart. If the key is genuinely lost, delete and re-add the installations.",
+	})
 	return nil
 }
 

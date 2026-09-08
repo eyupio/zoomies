@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -780,5 +781,57 @@ func TestARateLimitedInstallationIsNamedRatherThanTheWholePoller(t *testing.T) {
 	h.advance(21 * time.Minute)
 	if contains(h.problemCodes(), "poller.paused") {
 		t.Errorf("an expired hold was still reported: %v", h.problemCodes())
+	}
+}
+
+// A key that does not open its own database is what a restore that brought the
+// database back and left the key behind looks like once the instance is
+// running: every installation fails at once, and the fix is a file rather than
+// anything on GitHub. Reporting it as installation.unhealthy would send the
+// operator to check permissions on an App that is perfectly fine.
+func TestAKeyThatCannotOpenItsOwnDatabaseSaysSo(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+
+	// The database as a restore without its key leaves it: the sealed bytes
+	// are real and this instance's key is not the one that sealed them.
+	other, err := cryptox.GenerateKey()
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	sealed, err := other.SealString("-----BEGIN RSA PRIVATE KEY-----\nother\n-----END RSA PRIVATE KEY-----")
+	if err != nil {
+		t.Fatalf("sealing: %v", err)
+	}
+	inst.PrivateKeyEnc = sealed
+	if err := h.st.UpdateInstallation(h.ctx, inst); err != nil {
+		t.Fatalf("UpdateInstallation: %v", err)
+	}
+
+	codes := h.problemCodes()
+	if !contains(codes, "crypto.key_mismatch") {
+		t.Fatalf("problems = %v, want crypto.key_mismatch", codes)
+	}
+	all, err := h.c.Problems(h.ctx)
+	if err != nil {
+		t.Fatalf("Problems: %v", err)
+	}
+	var p Problem
+	for _, item := range all {
+		if item.Code == "crypto.key_mismatch" {
+			p = item
+		}
+	}
+	// The organisation is in it because an operator with several needs to know
+	// whether this is all of them, which is what distinguishes a lost key from
+	// one App being revoked.
+	if !strings.Contains(p.Detail, "acme") {
+		t.Errorf("the detail does not name the installation: %q", p.Detail)
+	}
+	if !strings.Contains(p.Fix, "encryption key") {
+		t.Errorf("the fix does not name the key to put back: %q", p.Fix)
+	}
+	if p.Severity != config.SeverityError {
+		t.Errorf("severity = %s; nothing can reach GitHub, so this is an error", p.Severity)
 	}
 }
