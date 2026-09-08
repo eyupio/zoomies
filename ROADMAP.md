@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.21 · 8 September 2026 · derived from the owner's
+Version 2.22 · 8 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -1637,7 +1637,7 @@ which is why the assignment could end while three of its gates stayed shut.
 | --- | --- | --- | --- |
 | ZF-002 | A fresh Ubuntu 24.04 LTS amd64 host with `main` deployed natively; its versions recorded in `roadmap/validation/` | Now | Outstanding since Phase 0. Nothing in `roadmap/validation/` records a host, and ZF-002 cannot reach `validated` without one |
 | ZF-301c, Gate F | A disposable organisation, a GitHub App installed on it with one organisation and one repository target, a repository carrying the scenario workflows, secrets in a protected environment, a tunnel or public host for the webhook run | Before Assignment B | Outstanding. Every real-GitHub scenario and Gate F itself waits on it; the fake and the drill tier go no further |
-| ZF-204 | Immutable releases enabled; `v0.1-alpha` marked as a prerelease; the pre-release tag at the end of Assignment A | End of Assignment A | Outstanding on all three parts. No tag has been cut on Assignment A's work, and the new one needs a name of its own because `v0.2-beta` is taken |
+| ZF-204 | Immutable releases enabled; `v0.1-alpha` marked as a prerelease; the pre-release tag at the end of Assignment A | End of Assignment A | Two of three done. Both releases are marked prerelease, and the tag is no longer needed by ZF-204: its upgrade check upgrades from the last published release, which is what people actually have. Immutable releases stay outstanding, though the release workflow now refuses to rebuild a published tag itself |
 | ZF-303 | A second operator for one setup-and-diagnose session | Any time; the drill tier provides the injected failure | Outstanding |
 | Everything | The decisions in section 3 ratified or changed | Now | Records exist for decisions 1 and 2 in `roadmap/decisions/`, both still marked proposed; the rest have been worked to as written without being ratified |
 
@@ -1757,6 +1757,30 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **8 September 2026 — Version 2.22:** ZF-204 is done. Its last pull request
+  is the upgrade check nothing else could stand in for: every other tier builds
+  one binary and asks what it does, and upgrade day asks whether an
+  installation is still an installation once the binary under it is replaced.
+  `make test-upgrade` installs the last published release the way an operator
+  does, swaps this build in over its state, and checks that the version moved,
+  the operator's `zoomies.yaml` did not, the host row is the same row, and the
+  pre-migration copy exists. **Writing it found that `curl … install.sh | sh`
+  did not work at all**: GitHub's /releases/latest only knows about full
+  releases, every Zoomies release so far is a prerelease, and the redirect the
+  installer reads therefore landed on the release index with no tag in it. The
+  documented one-line install has been broken for as long as there have been
+  only prereleases, and nothing could have caught it — the installer's only CI
+  coverage was a syntax check. **This also discharges an owner action**: the
+  package asked for a fresh pre-release tag to upgrade from, and the last
+  published release is a better fixture than a tag cut for the test, because it
+  is what people actually have. **And a drill was written and thrown away**,
+  which is the delivery rule working as intended: an agent-upgrade drill on the
+  runtime tier passed with adoption removed, because the reaping it claimed to
+  prevent sits behind a two-minute constant a separate process cannot move. The
+  wiring is pinned in-process instead, where the clock can be — and the gap it
+  exposed was real, since every existing test called `adoptExisting` directly
+  and none of them noticed the call disappearing from the startup path.
 
 * **8 September 2026 — Version 2.21:** the supply-chain work is done, and it
   found that three of its seven parts had already shipped: the plan's
