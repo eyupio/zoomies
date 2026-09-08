@@ -1,8 +1,7 @@
 ---
 description: >-
-  What to do when a first run does not work and when a job sits in the queue:
-  being locked out, a webhook that never arrives, a pool with nowhere to run,
-  and how to read what the fleet is telling you.
+  The commands to run first when a Zoomies fleet misbehaves, the five things
+  that go wrong on a first run, and what a queued job means.
 ---
 
 # Troubleshooting

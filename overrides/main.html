@@ -24,7 +24,7 @@
   {% set page_title = (page.meta.title if page and page.meta and page.meta.title else (page.title if page else none)) %}
   {% set title = config.site_name %}
   {% if page_title and not page.is_homepage %}
-    {% set title = page_title ~ " -- " ~ config.site_name %}
+    {% set title = page_title ~ " — " ~ config.site_name %}
   {% endif %}
   {#
     A page may name the title it wants to be shared under. The home page needs
@@ -109,7 +109,7 @@
           "installUrl": "{{ config.site_url }}install.sh",
           "codeRepository": "{{ config.repo_url }}",
           "license": "https://www.gnu.org/licenses/agpl-3.0.html",
-          "description": {{ config.site_description | trim | tojson }},
+          "description": {{ description | striptags | trim | tojson }},
           "image": "{{ image }}",
           "featureList": [
             "Ephemeral runners, one job per container",
@@ -135,7 +135,7 @@
           "@id": "{{ config.site_url }}#website",
           "url": "{{ config.site_url }}",
           "name": "{{ config.site_name }}",
-          "description": {{ config.site_description | trim | tojson }},
+          "description": {{ description | striptags | trim | tojson }},
           "inLanguage": "en-GB",
           "about": { "@id": "{{ config.site_url }}#software" },
           "potentialAction": {

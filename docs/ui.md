@@ -1,8 +1,7 @@
 ---
 description: >-
-  A tour of the Zoomies web UI, page by page: the Overview, the problems
-  drawer, pools, runners, jobs, usage, hosts, installations, the migration
-  wizard, the audit log and settings, in light and dark.
+  A tour of the Zoomies web UI page by page: the Overview, pools, runners,
+  jobs, hosts, the migration wizard and settings, light and dark.
 ---
 
 # The UI

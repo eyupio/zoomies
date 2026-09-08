@@ -20,7 +20,7 @@ Single Go binary. SQLite. AGPL-3.0.
 separates what a test has actually run on from what merely builds.*
 
 [![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-2F80ED?labelColor=080808)](LICENSE)
-[![Latest release](https://img.shields.io/github/v/release/eyupio/zoomies?display_name=tag&color=2F80ED&labelColor=080808)](https://github.com/eyupio/zoomies/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/eyupio/zoomies?display_name=tag&include_prereleases&color=2F80ED&labelColor=080808)](https://github.com/eyupio/zoomies/releases)
 [![CI](https://github.com/eyupio/zoomies/actions/workflows/ci.yml/badge.svg)](https://github.com/eyupio/zoomies/actions/workflows/ci.yml)
 [![Website](https://github.com/eyupio/zoomies/actions/workflows/docs.yml/badge.svg)](https://zoomies.sh)
 
@@ -85,8 +85,10 @@ flowchart LR
 * **Actually observable.** SQLite for state, Prometheus metrics, structured
   logs, live log streaming, job history with queue waits, and an audit row for
   every mutating action.
-* **Safe by default.** Loopback bind, auth on, no Docker socket in your jobs, no
-  root. Every deviation is named at startup and in the UI.
+* **Safe defaults.** Loopback bind, auth on, no Docker socket in your jobs, no
+  root, and every deviation named at startup and in the UI. A self-hosted runner
+  still runs your repositories' code —
+  [what that does and does not protect](https://zoomies.sh/security/).
 
 ## Quick start
 

@@ -1,7 +1,8 @@
 ---
+title: The Zoomies API surface
 description: >-
   Every REST, SSE and metrics endpoint the Zoomies controller serves, and the
-  role each one needs -- the contract both generated clients are built from.
+  role each one needs — the contract both generated clients are built from.
 ---
 
 # Zoomies API surface

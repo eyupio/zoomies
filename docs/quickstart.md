@@ -1,7 +1,7 @@
 ---
 description: >-
   Install Zoomies and run your first job on a self-hosted ephemeral runner in
-  about five minutes -- one curl command, one GitHub App, no Kubernetes.
+  about five minutes — one curl command, one GitHub App, no Kubernetes.
 ---
 
 # Quick start

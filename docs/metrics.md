@@ -1,8 +1,7 @@
 ---
 description: >-
   Every Prometheus metric Zoomies exposes, what it measures and what to alert
-  on: the fleet gauges, the job and scaling counters, and the five histograms
-  that say which stage of a runner's startup is slow.
+  on: fleet gauges, job counters and startup histograms.
 ---
 
 # Metrics
