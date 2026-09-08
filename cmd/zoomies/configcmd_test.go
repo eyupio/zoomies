@@ -8,8 +8,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/cryptox"
@@ -277,4 +280,89 @@ func TestUnusableEncryptionKeyNamesTheSetting(t *testing.T) {
 // still exercising the code path that emits it.
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+// secretShaped reports whether a `yaml` name reads like something that must
+// never be printed. A path to a secret is not a secret: an operator debugging
+// a deployment needs to see which file the key is read from, and printing that
+// discloses nothing, so anything ending in _file is deliberately out.
+func secretShaped(name string) bool {
+	if strings.HasSuffix(name, "_file") {
+		return false
+	}
+	for _, word := range []string{"secret", "token", "key", "password"} {
+		if strings.Contains(name, word) {
+			return true
+		}
+	}
+	return false
+}
+
+// blankSecrets is a hand-written list of fields, and the capacity-demand
+// signing secret shows what that costs: it was added to the configuration and
+// not to the list, so `zoomies config print` disclosed it for as long as the
+// feature has existed. Nobody notices a field that is missing from a list.
+//
+// So this test does not check the list. It walks the whole configuration by
+// reflection, puts a distinctive value in every string field whose name reads
+// like a secret, and asserts that none of those values survives the blanking
+// anywhere in the output. A secret added tomorrow fails here on the day it is
+// added, and a secret copied into some other field fails too, which checking
+// the fields one by one would not catch.
+func TestEverySecretShapedFieldIsBlanked(t *testing.T) {
+	var cfg config.Config
+	planted := map[string]string{}
+	plant(t, reflect.ValueOf(&cfg).Elem(), "", planted)
+	if len(planted) < 5 {
+		t.Fatalf("the walk found %d secret-shaped fields, which is fewer than the configuration has: %v", len(planted), planted)
+	}
+
+	printed, err := yaml.Marshal(blankSecrets(&cfg))
+	if err != nil {
+		t.Fatalf("marshalling the blanked configuration: %v", err)
+	}
+	for path, value := range planted {
+		if strings.Contains(string(printed), value) {
+			t.Errorf("%s was printed in full; add it to blankSecrets", path)
+		}
+	}
+	// And the operator can still tell that one is set, which is the whole
+	// reason the placeholder is not an empty string.
+	if !strings.Contains(string(printed), secretPlaceholder) {
+		t.Errorf("nothing says a secret is configured:\n%s", printed)
+	}
+}
+
+// plant fills every secret-shaped string field with a value naming its own
+// path, so a failure says which field leaked rather than only that one did.
+func plant(t *testing.T, v reflect.Value, prefix string, into map[string]string) {
+	t.Helper()
+	if v.Kind() != reflect.Struct {
+		return
+	}
+	for i := range v.NumField() {
+		f := v.Type().Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		name, _, _ := strings.Cut(f.Tag.Get("yaml"), ",")
+		if name == "" || name == "-" {
+			continue
+		}
+		path := name
+		if prefix != "" {
+			path = prefix + "." + name
+		}
+		field := v.Field(i)
+		switch field.Kind() {
+		case reflect.Struct:
+			plant(t, field, path, into)
+		case reflect.String:
+			if secretShaped(name) {
+				value := "planted-secret-" + strings.ReplaceAll(path, ".", "-")
+				field.SetString(value)
+				into[path] = value
+			}
+		}
+	}
 }
