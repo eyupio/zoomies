@@ -135,8 +135,8 @@ ratified.
     target), not the one whose secret verified the delivery, which the code
     deliberately lets be another installation's; jobs no installation covers
     are recorded and marked ineligible with a reason, never rejected; the
-    migration backfills queued and in-progress rows; the rate-limit hold is
-    per installation only; `installation_id` is exposed read-only on the job.
+    migration backfills every unfinished row, waiting as well as queued and
+    in-progress; the rate-limit hold is per installation only; `installation_id` is exposed read-only on the job.
     *Recommend: as stated.*
 14. **ZF-102, how far to go.** No durable task queue (stamp the issue time
     on the row); adopt live workloads on agent start; a state-directory lock
@@ -144,9 +144,12 @@ ratified.
     detects and warns rather than refuses; no resurrection of a terminal row
     when a lost host returns; the existing rate-bounded retry accepted as
     "bounded". *Recommend: as stated.*
-15. **ZF-103, the reservation model.** Split in two, with only 103a before
-    Gate F (agents report resources, the scheduler fits a reservation, the
-    blocked reason says why). A pool that sets no limits reserves its host's
+15. **ZF-103, the reservation model.** Split in two: 103a is the reporting
+    half — agents report their host's CPUs, memory and disk, and the host row
+    carries them beside the operator's reserve — and 103b is the admission
+    half, where the scheduler fits a reservation and the blocked reason says
+    why. Both precede Gate F; the operator-visibility work that finishes the
+    package need not. A pool that sets no limits reserves its host's
     allocatable share per slot, so a host carrying only such pools admits
     exactly what it admitted before the upgrade; a DinD pool is charged
     twice its limits; the host reserve is per host with a small documented
@@ -257,7 +260,18 @@ anything structural.
 7. The schema rule is decision 7: never edit or rename a shipped
    migration; the next file takes the next unused prefix alone; add columns
    by preference; rebuild a table in a new file only when SQLite forces it,
-   saying why in the header.
+   saying why in the header. Two tests are part of that rule rather than a
+   consequence of it. Every new file is appended to `shippedMigrations`
+   (`internal/store/migrations_test.go`), which says so when it fails. One
+   that touches `jobs` must also be added to
+   `TestTheJobsRebuildKeepsEveryRowAndItsIndexes`
+   (`internal/store/store_test.go`): that test recreates `jobs` at the column
+   list 0008 left behind, unwinds the ledger row and the effects of every
+   later migration that touched it, then reopens the database to migrate the
+   fixture forward. The names it unwinds move with each new migration, and
+   every one since the rebuild that touched that table has had to amend it.
+   Forgotten, it fails on a `SELECT` under "the completed row did not survive
+   the rebuild", which blames the rebuild rather than the omission.
 8. Small commits, small pull requests, one behaviour each, an imperative
    sentence in plain prose as the message, British spelling in prose, a test
    that reads as a sentence about the behaviour, and `make lint` and
@@ -277,14 +291,28 @@ anything structural.
     trust check as a recovery shortcut.
 13. A skipped test is not a pass. A harness that cannot run reports "not
     run" or "blocked", and a gate that counts it as passed is lying.
+14. A behavioural test is kept only once it has been run against the code
+    with the rule it asserts removed and seen to fail; an assertion that
+    cannot be made to fail is deleted rather than shipped, and the pull
+    request says which assertions were checked this way. It is what catches
+    what a green suite hides — a check written as `err.Error() == ""`, which
+    no error can satisfy; the two lines that put a host's resource figures on
+    the wire, deletable with everything else still green; a lifecycle drill
+    that passed with the registration deletion it existed to prove commented
+    out.
 
 ### The work-package record
 
 [roadmap/progress.md](roadmap/progress.md) has one row per package with its
 classification, status, dependencies, the session that did it and the
-evidence. Statuses are `not_started`, `in_progress`, `implemented`,
-`validated`, `blocked` and `superseded`; `superseded` links to the thing
-that meets the same criteria and its evidence. Keep it current in the pull
+evidence. Statuses are `not_started`, `in_progress`, `implemented`, `done`,
+`validated`, `blocked` and `superseded`, each defined in the record itself.
+The ladder that decides what is left to do runs `implemented` — merged, CI
+green, tests present — then `done`, every pull request the package names
+merged and its acceptance holding, then `validated`, which needs evidence in
+[roadmap/validation/](roadmap/validation/) that a real run met the criteria
+and which most of Phase 1 cannot reach until the reference deployment exists.
+`superseded` links to the thing that meets the same criteria and its evidence. Keep it current in the pull
 request that changes it. Small design decisions go in
 [roadmap/decisions/](roadmap/decisions/), gate evidence in
 [roadmap/validation/](roadmap/validation/). `IMPLEMENTATION_PLAN.md` is not
@@ -327,9 +355,11 @@ What the reconciliation found that the source roadmap did not expect:
 1. This pull request: the baseline record, the support matrix and
    measurement contract, the progress record, the decision records, and the
    `docs/upgrading.md` correction.
-2. Code, size S: `store.AppliedMigrations` surfaced by `zoomies version
-   --json` (or a `zoomies db status`) with its row in `docs/cli.md`; the
-   `waiting` and `approved` timeline kinds; `Stats` split into succeeded,
+2. Code, size S: `store.AppliedMigrations` surfaced on `GET /readyz` as
+   `schema` — how many migrations have applied and the name of the latest,
+   which is the only schema version there is — with the `/readyz` row in
+   `docs/api-surface.md` saying so; the `waiting` and `approved` timeline
+   kinds; `Stats` split into succeeded,
    failed, cancelled and unknown, rendered on the Overview with the
    definitions in the contract. No migration.
 
@@ -388,7 +418,8 @@ The foundation the beta stands on. The reconciliation moved two of these
 packages a long way from where the source roadmap placed them: ZF-101 is new
 work with a schema change rather than verification, and ZF-102 contains the
 one defect that decides whether a rolling upgrade is real. ZF-103 is split so
-that only its admission half precedes Gate F. ZF-104 is mostly citing tests
+that its reporting half lands first and its admission half — the scheduler
+fit and the blocked reason — still precedes Gate F. ZF-104 is mostly citing tests
 that exist, with two real gaps. ZF-105 opens with a one-line correctness fix
 that ships alone.
 
@@ -415,9 +446,11 @@ warning; the per-repository throttle is documented as not being isolation.
 
 **Do, in three pull requests:**
 
-1. Migration `0012` adds `jobs.installation_id` (with a backfill for queued and
-   in-progress rows by matching the repository to an installation, repository
-   target before organisation target) and `webhook_deliveries.installation_id`.
+1. Migration `0012` adds `jobs.installation_id` (with a backfill over every
+   unfinished row — waiting, queued and in-progress — by matching the
+   repository to an installation, repository target before organisation
+   target, and leaving a repository no installation covers empty) and
+   `webhook_deliveries.installation_id`.
    Add `scheduler.Eligible(pool, job) (bool, reason)`: enabled, then
    installation match, then labels. Replace all four `BestPool` callers. Extend
    the `Plan` with per-job ineligibility reasons so the problems drawer can say
@@ -578,13 +611,19 @@ policy. Pool `resources` are enforced as cgroup limits on Docker and Podman,
 including the DinD sidecar, which carries the same limits and so doubles the
 enforced footprint.
 
-What is missing: the agent reports no host CPU, memory or disk at all (the
-Docker `/info` probe fetches `NCPU` and `MemTotal` and discards them); the host
-row has no allocatable or reserve columns; the scheduler never reads
-`pool.Resources`; the `process` backend enforces none of them and nothing
-says so.
+What is missing, now that the reporting half has landed: the scheduler never
+reads `pool.Resources` — `internal/scheduler` has no CPU, memory or disk logic
+at all, and the host set still seeds its free count from `Host.Free()`, which
+is capacity minus active runners; the host row has no allocatable column; the
+`process` backend enforces none of a pool's limits and nothing says so; and the
+per-host reserve the row now carries can be set only from the store, because
+`SetHostReserve` has no caller outside tests and neither `PATCH /hosts` nor the
+host view mentions it.
 
-**Do, in three pull requests:**
+**Do, in three pull requests. The first has landed and its figures reach the
+host view and the Hosts page; the second is untouched; the third is partly
+done. The [work-package record](roadmap/progress.md) names the pull requests
+that carried each:**
 
 1. Agents report host resources: CPUs, memory and free disk on the work
    directory, from the Docker or Podman `/info` where there is one and from the
@@ -602,22 +641,27 @@ says so.
    Tests: two pools cannot oversubscribe memory in one tick; a 32 GB host
    admits eight 4 GB runners and refuses the ninth; DinD counts the sidecar;
    unknown resources fall back to slots; reservations rebuild from rows.
-3. Operators can see it: the host view carries observed, reserve, allocatable
-   and reserved; `PATCH /hosts` accepts the reserve beside capacity; the Hosts
-   page shows CPU and memory bars and a "resources unknown, upgrade the agent"
-   badge with an info-severity problem code; the pool page says what an
+3. Operators can see it: the host view carries the reserve, the allocatable
+   and the reserved beside the observed figures it already carries;
+   `PATCH /hosts` accepts the reserve beside capacity; the Hosts page already
+   states a host's vCPUs, its memory and its free-of-total disk and marks a
+   disk nearly gone, so what is left there is the reserved against the
+   allocatable, as CPU and memory bars because a bar answers "how full is this
+   host" faster than two numbers do, and a "resources unknown, upgrade the
+   agent" badge with an info-severity problem code; the pool page says what an
    unlimited pool is assumed to reserve; a `pool.resources_unenforced` warning
    for a `process` pool that sets limits; gauges, docs and problem-code rows.
 
-Three things the verifier added for the scheduler pull request: the
-snapshot's runner list includes failed rows while the host's active count
-excludes them, so a reservation rebuilt from rows must filter the same way
-the slot count does; the heartbeat only writes the host row when something
-changed, and free disk changes every beat, so the observed values need a
-tolerance rule or they reintroduce a write per host per heartbeat; and the
-agent already samples each container's enforced memory limit and the
-controller drops it, an observed-versus-reserved signal that is already on
-the wire.
+Three things the verifier added for the scheduler pull request, two of them
+still open. The snapshot's runner list includes failed rows while the host's
+active count excludes them, so a reservation rebuilt from rows must filter the
+same way the slot count does. The agent already samples each container's
+enforced memory limit and the controller drops it, an observed-versus-reserved
+signal that is already on the wire. The third — that the heartbeat writes the
+host row only when something changed, and free disk moves every beat — was
+closed in the first pull request: `diskFreeMoved` is the tolerance rule, a
+fractional band with a floor, a first reading always taken, and a silent agent
+never overwriting what was known.
 
 **Cut from the source package:** CPU topology (reserve in logical CPUs and say
 so); a separate reservations table (the runner row is the reservation, and a
@@ -1105,7 +1149,15 @@ time zone and freshness rendered from data rather than hard-coded prose.
    poller-pause gauge is fleet-wide and named so, because the pause is global
    until ZF-101 makes it per installation.
 2. UI honesty (S, ready now): window, time zone and freshness from the
-   payload; the scaling feed dedupes on event id after a resync.
+   payload; the scaling feed dedupes on event id after a resync. The
+   Overview's subtitle already names the scope it counts and follows the
+   header's "Other runners" switch, so the window replaces the hard-coded
+   half of that sentence and leaves the scope half standing. Both scopes
+   shipped after the reconciliation and are not this package's to revisit:
+   the stats payload carries `fleet` beside the unscoped figures rather than
+   answering a query parameter, because one frame serves every viewer, and
+   migration `0018` records both on every sample. Every new series and the
+   load fixture keep both.
 3. The measurement (L): a test-only generator that writes ten simulated
    hosts and ten thousand historical jobs through the store's single writer,
    never a knob on the demo seed; a harness that runs the paginated reads and
@@ -1185,12 +1237,17 @@ timeout corrected; the README corrected.
 *ZF-301b, the drill tier (L, ready now, the highest-value item):* a package
 behind a `drill` build tag that starts the fake GitHub in process, runs the
 built binary as a controller against it, runs a second binary as a remote
-agent joined by a join token, creates a pool with a stub image, drives jobs
-through the fake, and asserts that a real container appears and disappears
-and the fake's registrations are empty after removal. It is the first
-runtime qualification of the Docker backend, the only place ZF-302's drills
-can run repeatably without credentials, and the fixture ZF-201's
-fail-then-recover spec and the second operator's injected failure can use.
+agent joined by a join token, creates a pool on the `process` backend pinned
+to a staged stub runner, drives jobs through the fake, and asserts that a real
+workload appears on the host and disappears and the fake's registrations are
+empty after removal. It is the first time the product runs as an operator gets
+it — the built binary on both ends of a join, with work landing on a real
+machine — the only place ZF-302's drills can run repeatably without
+credentials, and the fixture ZF-201's fail-then-recover spec and the second
+operator's injected failure can use. It qualifies the `process` backend and
+not Docker: a tier that needed a daemon could not run on every pull request,
+which is the one thing this tier is for, so the default backend's own runtime
+qualification stays outstanding and needs a host that has one.
 On every pull request for the one lifecycle scenario; nightly for the
 drills: kill the controller mid-job and restart; kill the agent mid-job and
 restart; a dead Docker socket then a restored one; a rate limit then its
@@ -1303,49 +1360,83 @@ machines invasive by default.
 
 ## 10. The first sequence
 
-Dependency order, with what is ready today. Slices marked ∥ can run in
-parallel sessions.
+Dependency order. Slices marked ∥ can run in parallel sessions. This section
+says what order the work goes in; where a package has got to is
+[roadmap/progress.md](roadmap/progress.md), which is the only place a status
+lives.
 
-**Assignment A**
+**Assignment A**, from `main` at `6d12a72` to `a829a85`; its last package
+merged in pull request #120. Every step below is merged except where it says
+otherwise.
 
-1. ZF-001 and ZF-002: this pull request, plus its two Phase 0 fixes (the
-   stuck-runner tie-break, the compatibility paragraph) and the small code
-   slice (applied migrations on the CLI, the `waiting` and `approved`
-   timeline kinds, the four-way stats split). Ready.
-2. ZF-003, hygiene. Ready; no dependency.
-3. ZF-105's first pull request, the listing-failure defect. Ready; ships
-   alone.
+1. ZF-001 and ZF-002: the reconciliation pull request that wrote this
+   document, plus its two Phase 0 fixes (the stuck-runner tie-break, the
+   compatibility paragraph) and the small code slice (applied migrations on
+   `/readyz`, the `waiting` and `approved` timeline kinds, the four-way stats
+   split). ZF-002 cannot reach `validated` without the owner's reference host.
+2. ZF-003, hygiene; no dependency.
+3. ZF-105's first pull request, the listing-failure defect; it ships alone.
 4. ZF-101 (first pull request, migration `0012`) ∥ ZF-102 (invariants, lock
-   and lease, log-relay host binding). Both ready.
+   and lease, log-relay host binding).
 5. ZF-301a (the harness's honesty) then ZF-301b (the drill tier with a
-   remote agent). Ready; 301b is the first real-runtime qualification of the
-   Docker backend and the fixture everything after it uses.
+   remote agent), the fixture everything after it uses. It runs the built
+   binary against a fake GitHub on the `process` backend, so what it
+   qualifies is the controller, the agent, the join and the backend seam --
+   not the Docker backend, whose runtime the readiness note records as the
+   largest untested surface.
 6. ZF-102 (adoption on agent start; late reports and the restart table) ∥
    ZF-101 (per-installation freshness and backoff; visibility).
-7. ZF-105 (the rest) ∥ ZF-103a.
+7. ZF-105 (the rest) ∥ ZF-103a, the reporting half alone: an agent reports
+   its host's CPUs, memory and work-directory disk, the `hosts` row gains
+   those columns beside the operator's reserve, and the Hosts page shows the
+   figures. The scheduler still places by slots at the end of it.
 8. ZF-104.
-9. Tag the pre-release (decision 9). Assignment A ends with a readiness
-   note in `roadmap/validation/` saying what Gate F still needs.
+9. **Not done: tag the pre-release (decision 9).** Assignment A ends with a
+   readiness note in `roadmap/validation/` saying what Gate F still needs,
+   and that note is written; the tag is the owner's and has not been cut.
 
 **Assignment B**, issued after A's evidence and the owner actions in
-decision 12: ZF-201, ZF-202, ZF-203, ZF-204, ZF-205 in whichever order the
-sessions are available (203 before 204; 202 after 102), then ZF-301c, ZF-302's
-record and ZF-303.
+decision 12, and not before — the gate is not a formality, because ZF-301c
+and Gate F need the disposable organisation and everything with it, and
+ZF-204's upgrade drill needs the pre-release tag step 9 leaves open. In order:
+ZF-103b first, the half of ZF-103 that changes a placement decision and so the
+half every scheduling-latency and capacity figure taken after it is measured
+against — section 6's second ZF-103 pull request entire, plus what its third
+left behind. Then ZF-201, ZF-202, ZF-203, ZF-204, ZF-205 in whichever order
+the sessions are available (203 before 204; 202 after 102), then ZF-301c,
+ZF-302's record and ZF-303.
 
 ## 11. What the owner provides, and when
 
-| Needed for | What | When |
-| --- | --- | --- |
-| ZF-002 | A fresh Ubuntu 24.04 LTS amd64 host with `main` deployed natively; its versions recorded in `roadmap/validation/` | Now |
-| ZF-301c, Gate F | A disposable organisation, a GitHub App installed on it with one organisation and one repository target, a repository carrying the scenario workflows, secrets in a protected environment, a tunnel or public host for the webhook run | Before Assignment B |
-| ZF-204 | Immutable releases enabled; `v0.1-alpha` marked as a prerelease; the pre-release tag at the end of Assignment A | End of Assignment A |
-| ZF-303 | A second operator for one setup-and-diagnose session | Any time; the drill tier provides the injected failure |
-| Everything | The decisions in section 3 ratified or changed | Now |
+**When** is the commitment as it was set, not a forecast; **State** is where it
+stands. A session that finds one of these done updates the row rather than
+leaving the table to rot. Every row was outstanding at the end of Assignment A,
+which is why the assignment could end while three of its gates stayed shut.
 
-## 12. The coding-agent instruction for Assignment A
+| Needed for | What | When | State |
+| --- | --- | --- | --- |
+| ZF-002 | A fresh Ubuntu 24.04 LTS amd64 host with `main` deployed natively; its versions recorded in `roadmap/validation/` | Now | Outstanding since Phase 0. Nothing in `roadmap/validation/` records a host, and ZF-002 cannot reach `validated` without one |
+| ZF-301c, Gate F | A disposable organisation, a GitHub App installed on it with one organisation and one repository target, a repository carrying the scenario workflows, secrets in a protected environment, a tunnel or public host for the webhook run | Before Assignment B | Outstanding. Every real-GitHub scenario and Gate F itself waits on it; the fake and the drill tier go no further |
+| ZF-204 | Immutable releases enabled; `v0.1-alpha` marked as a prerelease; the pre-release tag at the end of Assignment A | End of Assignment A | Outstanding on all three parts. No tag has been cut on Assignment A's work, and the new one needs a name of its own because `v0.2-beta` is taken |
+| ZF-303 | A second operator for one setup-and-diagnose session | Any time; the drill tier provides the injected failure | Outstanding |
+| Everything | The decisions in section 3 ratified or changed | Now | Records exist for decisions 1 and 2 in `roadmap/decisions/`, both still marked proposed; the rest have been worked to as written without being ratified |
 
-Copy this with the whole document into the session's first message. It
-replaces the source roadmap's section 15.
+## 12. The coding-agent instruction
+
+One instruction per assignment, copied with the whole document into the
+session's first message. It replaces the source roadmap's section 15.
+
+### Assignment A — spent
+
+This is the instruction Assignment A was issued with, kept as the record of
+what was asked for. **Do not copy it into a new session as it stands.**
+Assignment A has run and ended with the readiness note in
+[roadmap/validation/](roadmap/validation/); what it did not reach is section
+10's step 9 and the owner rows in section 11. The commit it names is the one
+sections 5 to 8's classifications were taken against, not the state of `main`,
+so read a classification as history and confirm it against the code before
+acting on it. Everything it says about *how* to work still stands, and the
+Assignment B instruction below inherits it rather than repeating it.
 
 > Work in `eyupio/zoomies` on the follow-on roadmap in `ROADMAP.md`. Read
 > `CLAUDE.md`, `docs/architecture.md` and `docs/upgrading.md` first; there is
@@ -1382,13 +1473,92 @@ replaces the source roadmap's section 15.
 > skipped. Do not add features, refactor or introduce abstractions beyond
 > what a package asks; report anything else you notice as a follow-up.
 
+### Assignment B — not yet issued
+
+Decision 4 holds this until Assignment A's evidence and the owner actions in
+decision 12 are in hand, and section 11 says every one of those rows is still
+outstanding. Do not send it because ZF-201's dependencies inside the repository
+happen to be merged: ZF-201 proves a job through the UI against real GitHub,
+and ZF-204's upgrade drill runs from a tag nobody has cut.
+
+> Work in `eyupio/zoomies` on the follow-on roadmap in `ROADMAP.md`. Read
+> `CLAUDE.md`, `docs/architecture.md` and `docs/upgrading.md` first; there is
+> no `AGENTS.md`. Then read `roadmap/progress.md`, which is the only current
+> record of where each package has got to, and
+> `roadmap/validation/gate-f-readiness-2cc7d9c.md`, which says what Gate F
+> still needs and what has never been run. `main` at `6d12a72` is only the
+> commit sections 5 to 8's classifications were taken against; the whole of
+> Phase 1 has landed since, so confirm a classification against the code
+> before acting on it.
+>
+> This assignment is ZF-103b, then Phase 2 and the rest of Phase 3, in the
+> order section 10 gives, with the decisions in section 3 taken as written
+> unless the owner has changed one in `roadmap/decisions/`. Keep every change
+> in a small pull request with one behaviour and one imperative-sentence
+> message; add the tests the package names; update the OpenAPI document, both
+> generated clients and the docs pages in the same change; keep
+> `roadmap/progress.md` current, including the model and effort that did the
+> work. Migrations take the next unused prefix; never rename a shipped one,
+> and a migration that touches `jobs` is added to the rebuild test as well as
+> to `shippedMigrations`.
+>
+> `make test` and `make lint` are the floor before a push, `make test-ui`
+> when the UI changed, and `make test-drill` alongside them: the drill tier in
+> `test/drill/` is the only place the product runs as two real processes, and
+> CI runs it on every pull request. `make test-e2e-required` is the
+> owner-gated one; without the credentials it records `blocked`, which is not
+> a pass.
+>
+> A behavioural test is kept only once it has been run against the code with
+> its rule removed and seen to fail. An assertion that cannot be made to fail
+> is deleted rather than shipped, and the pull request says which assertions
+> were checked this way. Assignment A found three real defects this way that a
+> green suite hid, and one of its own packages was marked done for a column
+> that had never existed — so before building anything a package describes,
+> check whether it is already there.
+>
+> Do not build for Phases 4 to 8: no schema, configuration keys, RBAC
+> actions, UI or dependencies for them. Do not add a database service,
+> Kubernetes or a distributed architecture. Do not start SSH or cloud
+> provisioning, payments, multi-tenancy or a VM backend.
+>
+> Run real external tests only with the designated disposable resources.
+> Never invent elapsed observation time, real GitHub runs, benchmark results,
+> operator feedback or a completed security review; a skipped test is not a
+> pass. When something needs access or a decision only the owner can give, do
+> everything that does not depend on it, then say exactly what is needed.
+> Report code status separately from gate status, and never announce
+> readiness because CI is green.
+>
+> Before reporting progress, audit each claim against a tool result from this
+> session; report failures with their output and skipped steps as skipped. Do
+> not add features, refactor or introduce abstractions beyond what a package
+> asks; report anything else you notice as a follow-up.
+
 
 ## 13. Change record
 
+* **8 September 2026 — Version 2.3:** Assignment A is finished, and this
+  document is reconciled against the code rather than against itself. Section
+  10 says where the assignment started and ended and which of its steps is
+  still open; section 11 gains a **State** column, because a table of owner
+  actions with no state is a table nobody updates; section 12 becomes one
+  instruction per assignment, with Assignment A's marked spent so that a fresh
+  session cannot re-issue a finished assignment, and Assignment B's written but
+  explicitly not yet sent. Decision 15 and the Phase 1 preamble had ZF-103's
+  two halves the wrong way round against how they shipped: 103a is the
+  reporting half, 103b the admission half, and both precede Gate F. Delivery
+  rule 14 writes down the discipline the whole assignment actually ran on --
+  a test is kept only once it has been seen to fail — and rule 7 names the
+  two tests a migration must be added to. The ZF-002, ZF-101, ZF-103, ZF-205
+  and ZF-301b entries are corrected where they described work that has since
+  landed differently.
+
 * **7 September 2026 — Version 2.2:** the migration prefixes this document
   reserved are stale. `0010` and `0011` shipped from other work between the
-  plan being written and ZF-101 starting, so ZF-101 took `0012` and ZF-103's
-  number is left to be decided when it lands. The schema rule itself is
+  plan being written and ZF-101 starting, so ZF-101 took `0012`, and ZF-103's
+  host resource reporting took `0017` when it landed later the same day. The
+  schema rule itself is
   unchanged: the next file takes the next unused prefix, whatever that is by
   then, which is why the rule and not a number is what this document now
   names.
