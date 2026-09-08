@@ -707,6 +707,28 @@ Every PR that touches the UI should be able to answer yes to all of these:
 
 ---
 
+### Testing a fleet in trouble
+
+The Playwright suite's shared fixture is a fleet with nothing wrong with it,
+and deliberately so: the demo keeps its two starting runners young
+(`freshenDemoRunners`) because an instance left open on somebody's desk must
+not report a fault in a fleet that has no agent to have one. The cost is that
+every page which explains a fault has nothing to render there — the problems
+drawer, both stuck-runner shapes, a pool nothing can place, a job GitHub is
+holding — so all of them went untested.
+
+`ZOOMIES_SEED_STUCK=true`, on top of `ZOOMIES_SEED_DEMO`, is the opt-in that
+breaks three things in that fleet: it ages the demo's two starting runners past
+the point where `runners.not_progressing` says so, adds a pool whose host
+selector nothing answers, and adds a job held for a deployment review. Its rows
+carry demo identifiers, so every guard that keeps a fixture out of a real fleet
+applies to them unchanged.
+
+The `diagnostics` Playwright project runs `tests/diagnostics.spec.ts` against
+its own controller on that fixture. Put a spec there when what it protects is a
+diagnosis — the words an operator reads on their worst day — rather than a
+grid.
+
 ## 8. Screenshots
 
 The screenshots in `docs/screenshots/` — the ones [The UI](ui.md), the site's

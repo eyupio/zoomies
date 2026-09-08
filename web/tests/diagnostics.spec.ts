@@ -1,0 +1,98 @@
+/**
+ * The pages an operator opens on their worst day.
+ *
+ * Every other spec runs against a fleet with nothing wrong with it, and that is
+ * the right fixture for the grids and the wrong one for everything that
+ * explains a fault. The demo deliberately keeps its two starting runners young
+ * so an instance left open never reports a problem it does not have -- which
+ * left the problems drawer, both stuck-runner shapes, a pool nothing can place
+ * and a job GitHub is holding with nothing to render, and so untested. This
+ * project runs against the same fleet with ZOOMIES_SEED_STUCK on top.
+ *
+ * What it protects is the diagnosis rather than the styling. A runner stuck in
+ * `registering` has two unrelated causes and the page has to say which one this
+ * is; a pool nothing can place is a misconfiguration rather than a busy fleet,
+ * and the advice differs; a held job is not this fleet's fault at all.
+ */
+import { expect, test } from '@playwright/test';
+import { goto } from './support/fixtures';
+
+/**
+ * The fixture's two stuck runners, by the ids the seed fixes so a test can go
+ * straight to the page. demo06's container came up and never reached GitHub;
+ * demo07 has no container at all.
+ */
+const STUCK = {
+  neverRegistered: 'run_demo06',
+  noContainer: 'run_demo07',
+  blockedPool: 'pool_demostuckblocked',
+};
+
+test('a runner whose container came up but never registered says exactly that', async ({
+  page,
+}) => {
+  await goto(page, `/runners/${STUCK.neverRegistered}`);
+
+  // Both halves of coming up are separate rows, and it is the second one being
+  // absent that names the cause. A single "Registered" row -- which is what
+  // this page used to show, from started_at -- said the opposite.
+  await expect(page.getByText('Container started', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Registered with GitHub', { exact: true })).toHaveCount(0);
+
+  // "Is the agent even alive?" is the next question, and answering it used to
+  // mean leaving for the Hosts page.
+  await expect(page.getByText('Host last seen', { exact: true })).toBeVisible();
+});
+
+test('a runner with no container yet is the other shape, and looks different', async ({ page }) => {
+  await goto(page, `/runners/${STUCK.noContainer}`);
+
+  // Nothing started, so neither stamp is there. The two pages have to be
+  // distinguishable or the operator cannot tell which fault they have.
+  await expect(page.getByText('Container started', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Registered with GitHub', { exact: true })).toHaveCount(0);
+});
+
+test('the problems drawer names the stuck runners and what to do about them', async ({ page }) => {
+  await goto(page, '/');
+
+  // The Overview never lists a problem itself -- it says how much needs a
+  // person and offers the way in -- so this is the operator's own route.
+  await page.getByRole('button', { name: /^Problems\./ }).click();
+  const drawer = page.getByRole('dialog', { name: 'Problems' });
+  await expect(drawer).toBeVisible();
+
+  await expect(drawer).toContainText(/stuck starting up for over/i);
+  // The detail counts both shapes separately, and the fix answers the one the
+  // oldest runner has. One answer for both shapes would send half the readers
+  // to the wrong place.
+  await expect(drawer).toContainText(/waiting for a container to start/i);
+  await expect(drawer).toContainText(/has not registered/i);
+  await expect(drawer).toContainText(/check the agent log on the host/i);
+
+  // And the pool nothing can place is in the same list, with its own answer.
+  await expect(drawer).toContainText(/cannot start the runners it wants/i);
+});
+
+test('a pool nothing can place says so rather than reading as a busy fleet', async ({ page }) => {
+  await goto(page, `/pools/${STUCK.blockedPool}`);
+
+  // "at capacity" clears itself and "not matching the pool's host selector"
+  // never will. The reason strings keep that distinction and the page shows
+  // the scheduler's own words.
+  await expect(page.getByText(/not matching the pool's host selector/i).first()).toBeVisible();
+  await expect(page.getByText(/relax the pool's host selector/i).first()).toBeVisible();
+});
+
+test('a job GitHub is holding says it is held, and is not charged a queue wait', async ({
+  page,
+}) => {
+  await goto(page, '/jobs');
+
+  await page.getByText('deploy-production').first().click();
+
+  await expect(page.getByText(/holding this job for a deployment review/i)).toBeVisible();
+  // The time a held job spends is GitHub's, not the queue's: a number here
+  // would charge this fleet for a review it cannot influence.
+  await expect(page.getByText('Not queued yet')).toBeVisible();
+});

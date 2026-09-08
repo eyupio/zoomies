@@ -504,6 +504,14 @@ func TestManagedOnlyKeepsThisFleetsWorkAndItsUnclaimedQueue(t *testing.T) {
 		{GitHubJobID: 4, Repo: "acme/widgets", JobName: "hosted", State: JobCompleted,
 			Conclusion: "success", QueuedAt: now, StartedAt: &started, CompletedAt: &done,
 			Labels: StringSlice{"ubuntu-latest"}},
+		// Held by GitHub for a deployment review, and therefore unclaimed: the
+		// claim happens on the approval, so a held job can never be matched
+		// while it is held. It is this fleet's to see for exactly the same
+		// reason an unclaimed queued job is -- nothing has run it -- and
+		// keeping only `queued` hid every one of them from the page by
+		// default, so the operator whose deploy was waiting could not find it.
+		{GitHubJobID: 5, Repo: "acme/widgets", JobName: "held", State: JobWaiting,
+			QueuedAt: now, Labels: StringSlice{"zoomies-linux-x64"}},
 	}
 	for _, j := range jobs {
 		if _, err := s.UpsertJob(ctx, j); err != nil {
@@ -519,13 +527,13 @@ func TestManagedOnlyKeepsThisFleetsWorkAndItsUnclaimedQueue(t *testing.T) {
 	for _, j := range got {
 		names[j.JobName] = true
 	}
-	if total != 3 || len(got) != 3 {
-		t.Fatalf("total = %d, jobs = %d (%v), want the three this fleet has a hand in", total, len(got), names)
+	if total != 4 || len(got) != 4 {
+		t.Fatalf("total = %d, jobs = %d (%v), want the four this fleet has a hand in", total, len(got), names)
 	}
 	if names["hosted"] {
 		t.Error("a job run on a hosted runner is listed as this fleet's")
 	}
-	for _, want := range []string{"claimed", "ran here", "waiting"} {
+	for _, want := range []string{"claimed", "ran here", "waiting", "held"} {
 		if !names[want] {
 			t.Errorf("%q is missing from the managed list", want)
 		}
@@ -537,8 +545,8 @@ func TestManagedOnlyKeepsThisFleetsWorkAndItsUnclaimedQueue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListJobs unfiltered: %v", err)
 	}
-	if all != 4 {
-		t.Fatalf("unfiltered total = %d, want all 4 jobs", all)
+	if all != 5 {
+		t.Fatalf("unfiltered total = %d, want all 5 jobs", all)
 	}
 }
 

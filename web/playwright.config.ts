@@ -14,6 +14,13 @@ const PORT = 8099;
  * literally unreachable under the shared server.
  */
 const FIRST_RUN_PORT = 8098;
+/**
+ * The diagnostics project gets its own controller too, and for the same kind
+ * of reason: the shared fixture is deliberately a fleet with nothing wrong
+ * with it, so the pages that explain a fleet in trouble have nothing to show
+ * there. This one seeds the same fleet and then breaks three things in it.
+ */
+const STUCK_PORT = 8097;
 
 export default defineConfig({
   testDir: './tests',
@@ -33,18 +40,23 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: /first-run\.spec\.ts/,
+      testIgnore: /(first-run|diagnostics)\.spec\.ts/,
     },
     // Read-only monitoring on a phone is a stated requirement, so it is tested.
     {
       name: 'mobile',
       use: { ...devices['Pixel 7'] },
-      testIgnore: /first-run\.spec\.ts/,
+      testIgnore: /(first-run|diagnostics)\.spec\.ts/,
     },
     {
       name: 'first-run',
       testMatch: /first-run\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${FIRST_RUN_PORT}` },
+    },
+    {
+      name: 'diagnostics',
+      testMatch: /diagnostics\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${STUCK_PORT}` },
     },
   ],
   webServer: [
@@ -62,6 +74,14 @@ export default defineConfig({
       // Never reused: the bootstrap route closes for ever once an account
       // exists, so this suite needs a database nobody has touched.
       reuseExistingServer: false,
+      timeout: 60_000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+    {
+      command: `node tests/support/serve-stuck.mjs ${STUCK_PORT}`,
+      url: `http://127.0.0.1:${STUCK_PORT}/healthz`,
+      reuseExistingServer: !process.env.CI,
       timeout: 60_000,
       stdout: 'pipe',
       stderr: 'pipe',
