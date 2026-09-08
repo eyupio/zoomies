@@ -20,12 +20,21 @@ import (
 	"testing"
 )
 
-// The two files that raise problems, and the page that documents them.
+// The files that raise problems, and the page that documents them.
 const (
 	validatorSource  = "../config/validate.go"
 	controllerSource = "../controller/problems.go"
+	viewsSource      = "../controller/views.go"
 	reference        = "../../docs/problem-codes.md"
 )
+
+// controllerSources is every file whose Problem literals count as "raised by
+// the controller" -- problems.go is not the only one: PoolWarnings and
+// cacheSharingWarning live in views.go, next to the view type they attach a
+// pool's warnings to, and a code that only lives there is just as real as one
+// in problems.go. pool.dangerous and pool.cache_shared had no row in
+// docs/problem-codes.md until this list caught up to them.
+var controllerSources = []string{controllerSource, viewsSource}
 
 // codesIn returns every string assigned to a `Code:` field in a Go file.
 //
@@ -78,7 +87,7 @@ func TestEveryProblemCodeIsDocumented(t *testing.T) {
 
 	var missing []string
 	seen := map[string]bool{}
-	for _, source := range []string{validatorSource, controllerSource} {
+	for _, source := range append([]string{validatorSource}, controllerSources...) {
 		for _, code := range codesIn(t, source) {
 			if seen[code] {
 				continue
@@ -112,7 +121,7 @@ func TestTheReferenceDescribesNoCodeThatIsGone(t *testing.T) {
 	}
 
 	real := map[string]bool{}
-	for _, source := range []string{validatorSource, controllerSource} {
+	for _, source := range append([]string{validatorSource}, controllerSources...) {
 		for _, code := range codesIn(t, source) {
 			real[code] = true
 		}
