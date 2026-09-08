@@ -198,6 +198,35 @@ func TestDocsListTheCatalogue(t *testing.T) {
 // generated block would read as a list bolted into a sentence. So it is
 // checked instead: an operator told to name an image needs the list of images
 // beside the setting that takes one.
+// TestTheLandingSurfacesNameEveryVariant holds the two hand-maintained pages
+// that list the catalogue in prose.
+//
+// The generator writes four files and docs/naming.md is the only page among
+// them, so README.md and docs/index.md would otherwise go silently stale the
+// day a variant is added or a version moves -- and both are the first thing a
+// reader meets, which is the worst place to be wrong about what is published.
+// A test rather than a fifth generator target because these are sentences
+// written for a person, not a table: what must not drift is the set of names,
+// not the words around them.
+func TestTheLandingSurfacesNameEveryVariant(t *testing.T) {
+	for _, page := range []string{
+		filepath.Join("..", "..", "README.md"),
+		filepath.Join("..", "..", "docs", "index.md"),
+	} {
+		b, err := os.ReadFile(page)
+		if err != nil {
+			t.Fatalf("reading %s: %v", page, err)
+		}
+		for _, img := range Images() {
+			name := PrettyOS(img.OS) + " " + img.Version
+			if !strings.Contains(string(b), name) {
+				t.Errorf("%s never names %q, so the page a reader meets first no longer says what is published",
+					filepath.Base(page), name)
+			}
+		}
+	}
+}
+
 func TestConfigurationPageNamesEveryVariant(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join("..", "..", "docs", "configuration.md"))
 	if err != nil {
