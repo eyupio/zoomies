@@ -313,6 +313,12 @@ func (c *Controller) demoHeartbeatLoop(ctx context.Context) {
 //
 // Only the seed's own rows are touched, and only while they are still starting.
 func (c *Controller) freshenDemoRunners(ctx context.Context) {
+	// The diagnostics fixture exists to have runners that are stuck, so
+	// keeping them young would undo the one thing it does. It is opt-in and
+	// never on in a demo.
+	if stuckSeedRequested() {
+		return
+	}
 	runners, _, err := c.st.ListRunners(ctx, store.RunnerFilter{
 		States: []store.RunnerState{store.RunnerProvisioning, store.RunnerRegistering},
 	}, store.Page{Limit: 100})

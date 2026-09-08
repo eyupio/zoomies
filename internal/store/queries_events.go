@@ -540,9 +540,18 @@ type JobStats struct {
 // It is a function rather than two copies because the Jobs list and the
 // Overview have to mean the same thing by it. A page that says four jobs are
 // queued beside a list showing five is worse than either number alone.
+// managedJobSQL is the jobs this fleet has a hand in.
+//
+// The last clause is the interesting one, and it covers two states rather than
+// one. A job nothing has claimed is kept when nothing has run it either, which
+// is true while it is queued and equally true while GitHub holds it for a
+// deployment review -- a held job cannot be claimed yet, because the claim
+// happens on the approval. Keeping only `queued` hid every held job from the
+// page by default, so the operator whose deploy was waiting on a review could
+// not find it at all, and the drawer's explanation for one was unreachable.
 func managedJobSQL() string {
-	return `(matched = 1 OR pool_id != '' OR runner_id != '' OR (matched = 0 AND state = '` +
-		string(JobQueued) + `'))`
+	return `(matched = 1 OR pool_id != '' OR runner_id != '' OR (matched = 0 AND state IN ('` +
+		string(JobQueued) + `','` + string(JobWaiting) + `')))`
 }
 
 func failedJobSQL() string {

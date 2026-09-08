@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.8 · 8 September 2026 · derived from the owner's
+Version 2.9 · 8 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -969,9 +969,11 @@ and "host last seen" on the runner facts — which also corrected a mislabel,
 since the panel called `started_at` "Registered" and that is what
 `registered_at` is; and one sentence for a `waiting` job, which was the one
 kind with nothing said about it because every panel explaining a wait keys on
-`queued`. **All of the small half is now done**; what it leaves outstanding is
-the opt-in fixture the acceptance names, without which neither the runner page
-nor the held job can carry a Playwright pin.
+`queued`. **All of the small half is done**, and so is the opt-in fixture the
+acceptance names: `ZOOMIES_SEED_STUCK` breaks three things in the demo fleet on
+request and a `diagnostics` Playwright project runs against it. Building it
+found the defect none of the earlier pull requests could have: a held job is
+unmatched by construction, so the default Jobs view hid every one of them.
 
 *The two new things (M and L):* a support bundle as one JSON document from
 one admin route under a new `diagnostics.read` action, assembled section by
@@ -1676,6 +1678,14 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **8 September 2026 — Version 2.9:** ZF-202's small half and its test fixture
+  are done. The fixture is worth a line of its own because of what it changes
+  about how this package is verified: the suite's shared fleet is deliberately
+  healthy, so every page that explains a fault was unreachable from a test, and
+  three pull requests in a row shipped without a pin for that reason. It found
+  a defect on its first run — a held job is unmatched by construction, and the
+  Jobs page hid every one of them by default.
 
 * **8 September 2026 — Version 2.8:** the poller can be seen. Writing it found
   a stale instruction in this document: ZF-202 asked for `poller.paused` to be
