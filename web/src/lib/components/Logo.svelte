@@ -1,12 +1,20 @@
 <!--
   The Zoomies logo system.
 
-  The v2.1 hierarchy is deliberate:
+  The v2.1 hierarchy is deliberate, and it has four rungs rather than three:
 
   * lockup is the unchanged primary full logo, never below 220px wide, and
     given real room on the screens where it is the only thing on the page;
-  * mark at 48px and above is the secondary head/swish;
+  * mark at 128px and above is the original circular dog, the primary
+    standalone mark, at the guide's minimum size for it;
+  * mark from 48px is the secondary head/swish;
   * mark below 48px is the paw/swish, the official smallest-size shorthand.
+
+  The circular dog is the rung this component used to skip, which left the one
+  slot with room for it -- Settings -> About -- showing the head/swish instead.
+  That matters beyond preference: the head/swish is a restored reconstruction
+  (see ASSET_MANIFEST.json), so it was the only standalone mark in the product
+  that is not approved source artwork.
 
   All artwork is the supplied white reverse on Zoomies Black. Nothing is
   recoloured, cropped or reconstructed in CSS.
@@ -27,7 +35,16 @@
   const { variant = 'full', size = 24, label = 'Zoomies', class: klass = '' }: Props = $props();
 
   const markSrc = $derived(
-    size >= 48 ? '/brand/head-swish-white.png' : '/brand/paw-swish-white.png',
+    size >= 128
+      ? '/brand/mark-white.png'
+      : size >= 48
+        ? '/brand/head-swish-white.png'
+        : '/brand/paw-swish-white.png',
+  );
+  /* Only the circular dog has a 2x copy; the others are drawn far larger than
+     they are ever placed, so the browser already has pixels to spare. */
+  const markSrcset = $derived(
+    size >= 128 ? '/brand/mark-white.png 1x, /brand/mark-white@2x.png 2x' : undefined,
   );
   const wordmarkRatio = 975 / 250;
   const wordHeight = $derived(Math.round(size * 0.62));
@@ -53,7 +70,7 @@
     </span>
   {:else if variant !== 'wordmark'}
     <span class="chip" style="--chip: {size}px">
-      <img src={markSrc} width={size} height={size} alt="" decoding="async" />
+      <img src={markSrc} srcset={markSrcset} width={size} height={size} alt="" decoding="async" />
     </span>
   {/if}
 

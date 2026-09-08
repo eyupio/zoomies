@@ -89,14 +89,25 @@
 
   <!--
     The one place in the product that is allowed to be about the product rather
-    than about the fleet, so the lock-up gets the room the brand guide asks for
-    instead of the favicon-scale paw used by the smallest UI placements.
+    than about the fleet, so the mark gets the room the brand guide asks for
+    instead of the favicon-scale paw used by the smallest UI placements. 128px
+    is the guide's minimum for the circular dog and the reason this slot is
+    where it belongs: it is the only identity placement in the app with the
+    room for the primary mark.
+
+    The description is here rather than only in the panel's header because the
+    header says what the panel is, and somebody who has arrived at a controller
+    a colleague installed is owed one line saying what the thing itself is.
   -->
   <div class="identity">
-    <Logo variant="mark" size={48} label="" />
+    <Logo variant="mark" size={128} label="" />
     <div>
       <p class="name">Zoomies</p>
       <p class="descriptor">Self-hosted Git runners</p>
+      <p class="description">
+        A lightweight fleet controller for GitHub Actions runners. Ephemeral runners by default, on
+        machines you own.
+      </p>
     </div>
   </div>
 
@@ -185,13 +196,22 @@
     font-size: var(--z-text-xs);
     color: var(--z-text-muted);
   }
+  /*
+    Wraps rather than shrinks: the circular dog has a minimum size in the brand
+    guide, so on a narrow screen the text goes under the mark instead of the
+    mark going under its minimum.
+  */
   .identity {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--z-space-4);
     padding: var(--z-space-5);
     border-bottom: var(--z-border-width) solid var(--z-border);
     background: var(--z-surface-sunken);
+  }
+  .identity > div {
+    flex: 1 1 14rem;
   }
   .name {
     margin: 0;
@@ -208,6 +228,13 @@
     letter-spacing: var(--z-tracking-wider);
     text-transform: uppercase;
     color: var(--z-text-subtle);
+  }
+  .description {
+    max-width: 46ch;
+    margin: var(--z-space-3) 0 0;
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text-muted);
   }
   .body {
     display: flex;
