@@ -113,6 +113,25 @@ func WriteKeyFile(path string, k *Key) error {
 	return os.WriteFile(path, []byte(k.Encode()+"\n"), 0o600)
 }
 
+// Fingerprint identifies a key without disclosing it.
+//
+// It is the SHA-256 of the key material, truncated to twelve hex characters --
+// enough for a person to compare two at a glance, and far short of what would
+// help anybody who had one. What it is for is a backup manifest: an operator
+// restoring on a new machine needs to know whether the key file they have is
+// the one that sealed the database in front of them, and the alternative to a
+// fingerprint is finding out when the first GitHub call fails.
+//
+// It hashes the raw key rather than anything the key produced, so two
+// instances configured with the same key agree on it, which is the point.
+func (k *Key) Fingerprint() string {
+	if k == nil {
+		return ""
+	}
+	sum := sha256.Sum256(k.raw)
+	return hex.EncodeToString(sum[:])[:12]
+}
+
 // Encode renders the key as standard base64, the form the installer prints and
 // zoomies.yaml stores.
 func (k *Key) Encode() string { return base64.StdEncoding.EncodeToString(k.raw) }

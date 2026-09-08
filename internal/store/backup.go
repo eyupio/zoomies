@@ -22,6 +22,10 @@ import (
 // The documentation used to send operators to the sqlite3 command line for
 // this. That binary is not in the container image, so the instructions could
 // not be followed by most of the people reading them.
+//
+// It works on a store opened read-only, which is how `zoomies backup` uses it:
+// VACUUM INTO only reads the source, and taking a backup must not be a reason
+// to migrate the database being backed up.
 func (s *Store) Backup(ctx context.Context, dest string) error {
 	if strings.TrimSpace(dest) == "" {
 		return errors.New("store: a backup needs a destination path")

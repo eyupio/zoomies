@@ -247,3 +247,43 @@ func TestTokenHashing(t *testing.T) {
 		t.Fatal("ConstantTimeEqual gave the wrong answer")
 	}
 }
+
+// A fingerprint exists so an operator restoring on a new machine can tell
+// whether the key file in their hand is the one that sealed the database in
+// front of them. What it must never be is a shortcut to the key itself.
+func TestFingerprintIdentifiesAKeyWithoutDisclosingIt(t *testing.T) {
+	a, err := GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first := a.Fingerprint()
+	if first == "" {
+		t.Fatal("a key has no fingerprint, so a manifest has nothing to record")
+	}
+	if again := a.Fingerprint(); again != first {
+		t.Errorf("the same key fingerprints differently twice (%q then %q); comparing two would prove nothing", first, again)
+	}
+	if a.Fingerprint() == b.Fingerprint() {
+		t.Error("two different keys share a fingerprint, so the check would pass on the wrong key")
+	}
+	// The same key material anywhere gives the same answer: two instances
+	// configured alike have to agree, which is the whole point.
+	same, err := ParseKey(a.Encode())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if same.Fingerprint() != a.Fingerprint() {
+		t.Error("a key parsed back from its own encoding fingerprints differently")
+	}
+
+	// It is a hash, not an excerpt. A fingerprint that contained key material
+	// would put a piece of the key in every backup manifest.
+	if strings.Contains(a.Encode(), a.Fingerprint()) || strings.Contains(hex.EncodeToString(a.raw), a.Fingerprint()) {
+		t.Error("the fingerprint appears inside the key itself")
+	}
+}
