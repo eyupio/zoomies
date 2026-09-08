@@ -226,6 +226,23 @@ ratified.
     practical. This profile does not authorise unrelated-customer workloads;
     that remains a Phase 7 isolation question. *Recommend: adopt before
     Phase 4 design begins.*
+26. **Windows runners, and which kind.** Add **ZF-206**, and decide the shape
+    before any of it is written, because the two shapes differ by about five
+    times the work and by the product's central promise. *Process on a Windows
+    host* runs `actions-runner-win-x64` directly on the machine: it is the
+    smaller path, it reuses the backend that already exists, and it cannot
+    give a job a container, so the ephemeral guarantee weakens from "the
+    container is destroyed" to "a fresh work directory and a single-use
+    registration on a machine whose state persists" — the same honest
+    weakening the `process` backend already carries on Linux, and it must be
+    said in the same words. *Windows containers* keeps the guarantee whole and
+    needs a second runner image catalogue on Windows base images, a second
+    build matrix, Docker Engine over a named pipe, and images measured in
+    gigabytes. Neither may start before Gate F: the support matrix's rule is
+    that a row moves right only when a test runs on the thing, and adding a
+    platform while the project is trying to prove the one it has would widen
+    Gate F rather than pass it. *Recommend: process first, containers only if
+    a user asks for the isolation; and neither before Gate F.*
 
 ## 4. Delivery rules
 
@@ -1195,6 +1212,100 @@ scheduling-latency series to consume the real timestamps rather than the
 proxy. Size M overall. Session: Claude Sonnet 5 at `high` for the first two,
 Claude Opus 5 at `xhigh` for the measurement. Decisions: 22.
 
+### ZF-206: Windows runners
+
+**Classification: new, and not authorised before Gate F.** The matching
+vocabulary is already there and nothing behind it is: `naming.OSWindows` is a
+legal operating system, `windows` is in `store.ImplicitLabels`, and
+`docs/hosts-and-pools.md` even uses `os=windows` as a pool example — while no
+Windows binary is built anywhere, no runner image has a Windows base, and the
+`process` backend refuses the platform outright. A pool declaring it today
+matches nothing and says nothing useful about why, which is the first thing
+this package has to stop.
+
+Decision 26 chooses the shape. Everything below is the *process on a Windows
+host* path, because that is the recommendation; the container path is named at
+the end and is a different package if it is ever wanted.
+
+What is missing, and it is more than it looks:
+
+* **The agent does not build for Windows.** `make dist` and CI's build matrix
+  cross-compile linux and darwin on two architectures each, and `install.sh`
+  refuses anything else — it is POSIX shell, so the enrolment path a Windows
+  host would use does not exist either.
+* **The release asset is a `.zip`.** `runnerAsset` knows `.tar.gz` names and
+  `extractTarGz` is the only unpacker; GitHub publishes
+  `actions-runner-win-x64-<version>.zip`. Its refusal message is also simply
+  wrong today — it says "actions/runner ships for Linux and macOS", and
+  `win-x64` and `win-arm64` have shipped for years.
+* **No digests.** `runner_digests.go` is generated from a five-entry platform
+  list with no Windows rows, and the tamper check refuses anything it cannot
+  match — correctly, so this is a generator change and not a bypass.
+* **Process control is a stub.** `process_windows.go` has a no-op
+  `detachRunner` and a `signalRunner` that can only kill: there is no process
+  group to kill a job's children with, and no interrupt to drain with. A job
+  that spawns `msbuild` leaves it behind when the runner dies, which on a
+  machine whose state persists is exactly the leak the container backend does
+  not have.
+* **A locked file cannot be deleted.** Cleanup on Windows meets open handles
+  where POSIX meets none, so removing a work directory is a retry-with-backoff
+  problem rather than one `RemoveAll`, and ZF-105's convergence target has to
+  survive that.
+* **Host resources report nothing.** `diskSpace` is `syscall.Statfs` behind a
+  `linux || darwin` tag, and Windows falls to `disk_other.go`, which honestly
+  answers "cannot measure". ZF-103a's design already handles that — the host
+  keeps what was known and the badge says resources are unknown — so this is
+  the one gap that is already survivable, and it stays survivable until
+  somebody writes `GetDiskFreeSpaceEx`.
+
+**Do, in four pull requests:**
+
+1. Tell the truth about what is not supported. Correct `runnerAsset`'s message
+   to name the platform Zoomies does not ship for rather than a platform
+   actions/runner does not have; make a pool that declares `os=windows` refuse
+   at the API with a sentence naming this package; and replace the `os=windows`
+   example in `docs/hosts-and-pools.md`. No behaviour is added, and the product
+   stops implying a platform it has not got. It is worth doing whether or not
+   the rest of this package is ever authorised.
+2. Build and enrol. `windows/amd64` in `make dist` and the CI build matrix, a
+   PowerShell counterpart to `zoomies agent join` that writes the service
+   through the Windows service manager as the installer does through systemd,
+   and the compatibility rows in `docs/upgrading.md`. Tests: the join token
+   path is the same code, so what is new is the template and the argument
+   quoting, and both are unit-testable without a Windows host.
+3. Run a runner. The `.zip` asset name, a zip unpacker with the same
+   path-traversal refusal `extractTarGz` has, the generator's platform list,
+   and a job object so that killing a runner kills what it started. Drain
+   stays a kill on Windows and the docs say so.
+4. Cleanup that converges. Retry the work-directory removal against open
+   handles, with the same `runners.cleanup_failed` record when it does not,
+   so ZF-105's five-minute convergence target means the same thing on both
+   platforms.
+
+**Deliberately not in this package:** Windows containers, and therefore the
+ephemeral guarantee. A Windows `process` pool gives a job a fresh work
+directory and a single-use registration on a machine that keeps its state, and
+every page that says "one job per runner, then the container is gone" has to
+say so where that is not what happens — the same treatment
+`docs/security.md` already gives the `process` backend on Linux. Also not
+here: Windows on arm64, a second image catalogue, and any change to what
+`:latest` means.
+
+**Accept when:** a Windows host joins a fleet from a fresh machine using only
+the documented commands; a queued job with a Windows pool's label runs on it
+and the runner and its children are gone afterwards; a pool declaring
+`os=windows` on a fleet with no Windows host is refused with a reason naming
+what to add; the support matrix carries a Windows row that says shape and
+runtime separately, like every other row; and no page claims the ephemeral
+guarantee for it.
+
+Depends on Gate F being attempted first — this widens the platform surface and
+the project is trying to prove the one it has. Also on ZF-105 for the cleanup
+record and ZF-103a for the unknown-resources badge, both of which are done.
+Size L. Session: Claude Opus 5 at `xhigh` for the third pull request, which is
+the one where a wrong answer leaves processes on somebody's machine; `high`
+for the rest. Decisions: 26.
+
 ## 8. Phase 3: real use, drills and Gate F
 
 The harness, the drills and the readiness record. Gate F's targets, as
@@ -1406,6 +1517,14 @@ left behind. Then ZF-201, ZF-202, ZF-203, ZF-204, ZF-205 in whichever order
 the sessions are available (203 before 204; 202 after 102), then ZF-301c,
 ZF-302's record and ZF-303.
 
+**After Gate F**, and not before it: ZF-206, Windows runners. It is sequenced
+here rather than in Assignment B because it widens the platform surface, and
+the support matrix's rule — a row moves right only when a test runs on the
+thing — means a platform added while the project is still proving the one it
+has would widen Gate F rather than pass it. Its first pull request is the
+exception and can be taken at any time: it only stops the product implying a
+platform it has not got.
+
 ## 11. What the owner provides, and when
 
 **When** is the commitment as it was set, not a forecast; **State** is where it
@@ -1537,6 +1656,13 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **8 September 2026 — Version 2.4:** **ZF-206, Windows runners**, added to
+  Phase 2 with decision 26 choosing its shape, and sequenced after Gate F in
+  section 10. The vocabulary for it already shipped — `naming.OSWindows` is a
+  legal operating system and `docs/hosts-and-pools.md` used `os=windows` as a
+  pool example — while nothing behind it did, which is the gap the package's
+  first pull request closes on its own.
 
 * **8 September 2026 — Version 2.3:** Assignment A is finished, and this
   document is reconciled against the code rather than against itself. Section

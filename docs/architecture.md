@@ -49,7 +49,7 @@ flowchart LR
 
     ctrl["zoomies controller<br/>API, UI, scheduler, SQLite,<br/>and an embedded agent on a single VM"]
 
-    subgraph gh["GitHub -- github.com or Enterprise Server"]
+    subgraph gh["GitHub"]
         ghapi["REST API"]
         ghq["Actions job queue"]
     end
