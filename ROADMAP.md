@@ -955,8 +955,8 @@ this pull request as a Phase 0 defect.
 
 **Do, in two halves:**
 
-*The small fixes that make what exists trustworthy (S each):* all but one
-**done** — partial failure tolerance in the problems aggregator with a
+*The small fixes that make what exists trustworthy (S each):* **done** —
+partial failure tolerance in the problems aggregator with a
 `controller.problems_partial` entry naming what could not be gathered; the
 missing secret blanked with a reflective test that every secret-shaped config
 field is; and a last-poll stamp and pause state in `/meta` with `poller.paused`
@@ -967,7 +967,11 @@ container-started and registered
 stamps on the runner view, the stage labels rendered on the runner timeline,
 and "host last seen" on the runner facts — which also corrected a mislabel,
 since the panel called `started_at` "Registered" and that is what
-`registered_at` is; **outstanding** — one sentence for a `waiting` job.
+`registered_at` is; and one sentence for a `waiting` job, which was the one
+kind with nothing said about it because every panel explaining a wait keys on
+`queued`. **All of the small half is now done**; what it leaves outstanding is
+the opt-in fixture the acceptance names, without which neither the runner page
+nor the held job can carry a Playwright pin.
 
 *The two new things (M and L):* a support bundle as one JSON document from
 one admin route under a new `diagnostics.read` action, assembled section by
