@@ -906,8 +906,14 @@ func runnerAsset(goos, goarch, version string) (string, error) {
 		osPart = "linux"
 	case "darwin":
 		osPart = "osx"
+	case "windows":
+		// actions/runner has shipped win-x64 and win-arm64 for years, so the
+		// missing half is ours: no agent is built for Windows, the asset is a
+		// .zip nothing here unpacks, and there are no digests to check it
+		// against. Saying so names the thing an operator could change.
+		return "", errors.New("backend: Zoomies has no Windows support yet -- actions/runner ships a Windows build, but nothing here downloads, verifies or supervises it; run this agent on a Linux or macOS host")
 	default:
-		return "", fmt.Errorf("backend: the process backend does not support %s; actions/runner ships for Linux and macOS, so use the docker backend on this host", goos)
+		return "", fmt.Errorf("backend: Zoomies has no runner for %s; run this agent on a Linux or macOS host", goos)
 	}
 
 	var archPart string

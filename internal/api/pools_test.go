@@ -913,3 +913,66 @@ func TestTheHostCountRespectsThePoolsPlatform(t *testing.T) {
 		t.Errorf("no warning about there being no host: %+v", verdict.Warnings)
 	}
 }
+
+// The matching vocabulary for Windows shipped before the platform did:
+// `windows` is a known operating system and one of the labels every
+// actions/runner advertises, and a host selector may match what the agent
+// reports directly. So `os=windows` was a pool an operator could create, and
+// it then matched nothing -- the fleet reported itself short of capacity for a
+// platform Zoomies has never had, with nothing anywhere saying so. The refusal
+// has to arrive while the operator is still choosing, and both the create and
+// the wizard's dry run have to give it.
+func TestPoolRefusesAWindowsHostSelector(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	h.host("vm-1")
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	for _, value := range []string{"windows", "Windows"} {
+		body := poolBody(inst.ID)
+		body["host_selector"] = map[string]string{"os": value}
+
+		created := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: body})
+		created.mustStatus(t, http.StatusUnprocessableEntity, "create")
+		var env errorEnvelope
+		created.into(t, &env)
+		found := ""
+		for _, fe := range env.Errors {
+			if fe.Field == "host_selector" {
+				found = fe.Message
+			}
+		}
+		if found == "" {
+			t.Fatalf("os=%s was accepted: %+v", value, env.Errors)
+		}
+		if !strings.Contains(found, "no Windows agent yet") {
+			t.Errorf("the refusal must say why no host will ever match: %q", found)
+		}
+		if !strings.Contains(found, "would not help") {
+			t.Errorf("the refusal must stop the operator adding a host to fix it: %q", found)
+		}
+
+		validate := h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: cookie, body: body})
+		validate.mustStatus(t, http.StatusOK, "validate")
+		var verdict validatePoolResponse
+		validate.into(t, &verdict)
+		if verdict.Valid {
+			t.Errorf("the wizard's review step accepted os=%s", value)
+		}
+	}
+
+	// A selector on the platform Zoomies does have is untouched.
+	body := poolBody(inst.ID)
+	body["host_selector"] = map[string]string{"os": "linux"}
+	ok := h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: cookie, body: body})
+	ok.mustStatus(t, http.StatusOK, "validate")
+	var verdict validatePoolResponse
+	ok.into(t, &verdict)
+	if !verdict.Valid {
+		t.Fatalf("os=linux was refused: %+v", verdict.Errors)
+	}
+	if pools, err := h.st.ListPools(h.ctx); err != nil || len(pools) != 0 {
+		t.Fatalf("a refused pool was created anyway: %v %v", pools, err)
+	}
+}
