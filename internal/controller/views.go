@@ -321,9 +321,17 @@ type RunnerView struct {
 	CPUPercent     float64           `json:"cpu_percent,omitempty"`
 	MemoryBytes    int64             `json:"memory_bytes,omitempty"`
 	CreatedAt      time.Time         `json:"created_at"`
-	StartedAt      *time.Time        `json:"started_at"`
-	LastIdleAt     *time.Time        `json:"last_idle_at"`
-	FinishedAt     *time.Time        `json:"finished_at"`
+	// ContainerStartedAt and RegisteredAt are the two halves of coming up, and
+	// they are on the view because the gap between them is the whole diagnosis
+	// of a runner stuck in `registering`: a container that never started is a
+	// backend or image problem on the host, and a container that started and
+	// never registered is a credential, network or GitHub one. Without both, a
+	// stuck runner has one symptom and two unrelated causes.
+	ContainerStartedAt *time.Time `json:"container_started_at,omitempty"`
+	RegisteredAt       *time.Time `json:"registered_at,omitempty"`
+	StartedAt          *time.Time `json:"started_at"`
+	LastIdleAt         *time.Time `json:"last_idle_at"`
+	FinishedAt         *time.Time `json:"finished_at"`
 	// CleanupError and its companions describe a runner Zoomies could not
 	// finish taking away. An empty error is the normal case; a non-empty one
 	// means something is still on a host or on GitHub.
@@ -380,33 +388,35 @@ func (c *Controller) RunnerRenderer(ctx context.Context, runners []*store.Runner
 // View renders one runner.
 func (v *RunnerRenderer) View(r *store.Runner) RunnerView {
 	out := RunnerView{
-		ID:              r.ID,
-		Name:            r.Name,
-		PoolID:          r.PoolID,
-		PoolName:        v.pools[r.PoolID],
-		HostID:          r.HostID,
-		HostName:        v.hosts[r.HostID],
-		State:           r.State,
-		GitHubRunnerID:  r.GitHubRunnerID,
-		ContainerID:     r.ContainerID,
-		Ephemeral:       r.Ephemeral,
-		Labels:          emptySlice(r.Labels),
-		Image:           r.Image,
-		ImageDigest:     r.ImageDigest,
-		RunnerVersion:   r.RunnerVersion,
-		CurrentJobID:    r.CurrentJobID,
-		Message:         r.Message,
-		JobsHandled:     r.JobsHandled,
-		CPUPercent:      r.CPUPercent,
-		MemoryBytes:     r.MemoryBytes,
-		CreatedAt:       r.CreatedAt,
-		StartedAt:       r.StartedAt,
-		LastIdleAt:      r.LastIdleAt,
-		FinishedAt:      r.FinishedAt,
-		CleanupError:    r.CleanupError,
-		CleanupFailedAt: r.CleanupFailedAt,
-		CleanupAttempts: r.CleanupAttempts,
-		CleanedUpAt:     r.CleanedUpAt,
+		ID:                 r.ID,
+		Name:               r.Name,
+		PoolID:             r.PoolID,
+		PoolName:           v.pools[r.PoolID],
+		HostID:             r.HostID,
+		HostName:           v.hosts[r.HostID],
+		State:              r.State,
+		GitHubRunnerID:     r.GitHubRunnerID,
+		ContainerID:        r.ContainerID,
+		Ephemeral:          r.Ephemeral,
+		Labels:             emptySlice(r.Labels),
+		Image:              r.Image,
+		ImageDigest:        r.ImageDigest,
+		RunnerVersion:      r.RunnerVersion,
+		CurrentJobID:       r.CurrentJobID,
+		Message:            r.Message,
+		JobsHandled:        r.JobsHandled,
+		CPUPercent:         r.CPUPercent,
+		MemoryBytes:        r.MemoryBytes,
+		CreatedAt:          r.CreatedAt,
+		ContainerStartedAt: r.ContainerStartedAt,
+		RegisteredAt:       r.RegisteredAt,
+		StartedAt:          r.StartedAt,
+		LastIdleAt:         r.LastIdleAt,
+		FinishedAt:         r.FinishedAt,
+		CleanupError:       r.CleanupError,
+		CleanupFailedAt:    r.CleanupFailedAt,
+		CleanupAttempts:    r.CleanupAttempts,
+		CleanedUpAt:        r.CleanedUpAt,
 	}
 	if j := v.jobs[r.CurrentJobID]; j != nil {
 		job := NewJobView(j, v.pools[j.PoolID])

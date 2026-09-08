@@ -2065,6 +2065,16 @@ export interface components {
             memory_bytes?: number;
             /** Format: date-time */
             created_at?: string;
+            /**
+             * Format: date-time
+             * @description When the runner's container (or process) started on its host. With registered_at it is what tells the two causes of a stuck runner apart: a container that never started is a backend or image problem on the host, and one that started and never registered is a credential, network or GitHub problem.
+             */
+            container_started_at?: string;
+            /**
+             * Format: date-time
+             * @description When the runner registered itself with GitHub.
+             */
+            registered_at?: string;
             /** Format: date-time */
             started_at?: string | null;
             /** Format: date-time */

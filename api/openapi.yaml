@@ -2723,6 +2723,18 @@ components:
         cpu_percent: { type: number, format: double }
         memory_bytes: { type: integer, format: int64 }
         created_at: { type: string, format: date-time }
+        container_started_at:
+          type: string
+          format: date-time
+          description: >-
+            When the runner's container (or process) started on its host. With registered_at
+            it is what tells the two causes of a stuck runner apart: a container that never
+            started is a backend or image problem on the host, and one that started and never
+            registered is a credential, network or GitHub problem.
+        registered_at:
+          type: string
+          format: date-time
+          description: When the runner registered itself with GitHub.
         started_at: { type: [string, "null"], format: date-time }
         last_idle_at: { type: [string, "null"], format: date-time }
         finished_at: { type: [string, "null"], format: date-time }
