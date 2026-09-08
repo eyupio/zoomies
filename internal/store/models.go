@@ -1306,3 +1306,63 @@ func NormalizeLabels(in []string) []string {
 	slices.Sort(out)
 	return out
 }
+
+// The floors under a host's reserve. An operator's reserve is what to hold
+// back from placement for the machine's own sake, and zero is not a safe
+// answer for two of the three resources. A host with no memory left over for
+// the kernel and its page cache does not run jobs slowly, it has one of them
+// killed; a work directory with nothing left on it fails a checkout before a
+// job's first step. Both failures land on a job rather than on the machine, so
+// the operator who did not set a reserve never learns it was theirs to set.
+//
+// CPU has no floor, because a CPU reservation is a share of the one resource
+// that is never exhausted, only contended: an oversubscribed machine is slow,
+// and a slow machine still finishes the job.
+const (
+	MinHostReserveMemoryMB int64 = 512
+	MinHostReserveDiskMB   int64 = 2048
+)
+
+// HostAllocation is what the scheduler may hand out on a host: the machine as
+// its agent measured it, less what its operator and the floors above hold
+// back.
+//
+// Each figure carries whether it is known, and that is the whole point of the
+// type. Zero means two different things on a host row -- "the agent measured
+// none left" and "no agent ever measured it" -- and reading the second as the
+// first would empty a fleet the moment it upgraded, which is the failure the
+// reporting half of this work was careful to avoid.
+type HostAllocation struct {
+	CPUs     float64
+	MemoryMB int64
+	DiskMB   int64
+
+	CPUsKnown   bool
+	MemoryKnown bool
+	DiskKnown   bool
+}
+
+// Allocatable is the machine less its reserve, floored at zero.
+//
+// A measured host that is smaller than its own reserve allocates nothing, and
+// that is the right answer rather than a bug: it is a machine with no room to
+// run a job in, and it says so instead of accepting one and killing it.
+func (h *Host) Allocatable() HostAllocation {
+	a := HostAllocation{
+		CPUsKnown:   h.CPUs > 0,
+		MemoryKnown: h.MemoryMB > 0,
+		// A host that reports a total but no free space has measured a full
+		// disk; one that reports neither has measured nothing.
+		DiskKnown: h.DiskTotalMB > 0,
+	}
+	if a.CPUsKnown {
+		a.CPUs = max(float64(h.CPUs-h.ReserveCPUs), 0)
+	}
+	if a.MemoryKnown {
+		a.MemoryMB = max(h.MemoryMB-max(h.ReserveMemoryMB, MinHostReserveMemoryMB), 0)
+	}
+	if a.DiskKnown {
+		a.DiskMB = max(h.DiskFreeMB-max(h.ReserveDiskMB, MinHostReserveDiskMB), 0)
+	}
+	return a
+}

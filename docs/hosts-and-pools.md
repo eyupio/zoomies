@@ -202,7 +202,7 @@ pool naming one is warned about the same way.
 ## How a runner is placed
 
 Every scheduler pass takes a snapshot — pools, runners, queued jobs, hosts — and
-decides where new runners go. A host is eligible for a pool when all five of
+decides where new runners go. A host is eligible for a pool when all six of
 these hold:
 
 ```mermaid
@@ -218,7 +218,9 @@ flowchart TD
     b -->|no| no
     b -->|yes| s{"matches the<br/>host selector?"}
     s -->|no| no
-    s -->|yes| ok["eligible"]
+    s -->|yes| r{"CPU, memory and disk<br/>left for one runner?"}
+    r -->|no| no
+    r -->|yes| ok["eligible"]
     ok --> pick["the eligible host with<br/>the most room wins"]
 ```
 
@@ -231,6 +233,46 @@ Two ceilings apply at once, and both are hard: a pool never exceeds its
 `max_runners`, and a host never exceeds its capacity. A pool's `max_runners`
 is therefore only as real as the capacity available on the hosts it can select;
 setting it to 20 across two hosts of capacity 4 buys nothing.
+
+### What a runner reserves
+
+A slot is a count, and a count does not know that eight runners of a pool that
+asks for 4 GB each do not fit on a 16 GB machine. So each runner is also
+charged against what its host reported, and a host that cannot cover the charge
+takes no more work however many slots it has left.
+
+What one runner is charged is the pool's own `resources`. A pool with
+`docker_mode: dind` is charged twice: the build runs inside the sidecar, which
+the backend gives the same limits, so the pool's footprint on the host really is
+two of everything it asked for. A field the pool leaves unset is charged one
+slot's worth of the host instead — a host with 30 GB allocatable and a capacity
+of 6 charges 5 GB — which is what keeps a fleet of pools with no limits admitting
+exactly what its slot counts admitted before. The reservation is worked out from
+the runner rows on every pass; nothing stores it, so a restart recovers it and a
+runner that fails stops being charged for as soon as its row says so.
+
+Held back before any of that: `reserve_cpus`, `reserve_memory_mb` and
+`reserve_disk_mb` on the host, which are the operator's the way capacity is —
+an agent reports what it measured and never writes these. Both memory and disk
+have a floor, applied when the operator has set nothing: **512 MB** of memory
+and **2 GB** of disk. Neither is generous, and both exist because a machine with
+nothing left over does not run jobs slowly, it has one of them killed or fails a
+checkout before its first step. CPU has no floor: a CPU reservation is a share
+of the one resource that is never exhausted, only contended, and a contended
+machine still finishes the job.
+
+Free disk is a gate rather than a budget. A host at or below its disk reserve
+takes no new runner at all, whatever the pool asks for; nothing is evicted to
+make room, because a runner's caches outlive it on purpose. Two things follow:
+disk is the one shortage that no job finishing will clear, and a pool that sets
+`resources.disk_gb` is charged it against what is free right now.
+
+A host whose agent never reported its size is placed by slots alone, exactly as
+before, which is what stops an upgrade emptying a fleet. Note also what a
+reservation is not: it is a promise the fleet accounts for, and what actually
+binds a runner is the cgroup limit the container backends apply from the same
+`resources`. The `process` backend applies none, so on a `process` pool the
+reservation is bookkeeping and nothing enforces it.
 
 ### When nothing can be placed
 
@@ -250,6 +292,9 @@ Read the counts, because they name the fix:
 | `unhealthy` | The agent is not heartbeating. Check that it is running on that machine and can reach this controller. |
 | `without the docker backend` | Fix the socket on that host, or point the pool at a backend your hosts already offer. When every other host is out for that reason, the sentence carries the agent's own words about the socket, and names the backends it could move to. |
 | `not matching the pool's host selector` | Relax the selector, or label a host to match. |
+| `too small for this pool's limits` | The machine could not hold one runner of this pool even when empty. Lower the pool's CPU or memory limits, or add a bigger host. Waiting will not help. |
+| `short of memory`, `short of CPU` | The host is the right size and has already promised what it has to the runners on it. Wait, lower the pool's limits, or add a host. |
+| `low on disk` | The work directory's filesystem is at or below the host's disk reserve. Free space on it, lower the pool's `disk_gb`, or add a host — no job finishing will return this, because a runner leaves its caches behind on purpose. |
 
 The distinction the reasons keep is between a fleet that is merely **full**,
 which clears itself, and one that is **misconfigured**, which never will.
