@@ -213,8 +213,10 @@ for: Contents (write), Pull requests (write) and Workflows (write).
 
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
-| POST | `/api/v1/migrations/plan` | operator | `{installation_id, repos?, mapping?, cursor?}`. Returns the rewrites, the skips and a unified diff per file. With no mapping, proposes one from the pools that exist. Repositories come a page at a time: pass the response's `next_cursor` back as `cursor` for the next one. |
-| POST | `/api/v1/migrations/pull-requests` | operator | `{installation_id, repos, mapping, workflows?, title?, body?, commit_message?}`. One pull request per repository, each on its own branch. `workflows` narrows a repository to the files named for it. Re-plans from the repository's current contents rather than trusting the client. |
+| POST | `/api/v1/migrations/plan` | operator | `{installation_id, repos?, mapping?, overrides?, cursor?}`. Returns the rewrites, the skips and a unified diff per file. With no mapping, proposes one from the pools that exist. Repositories come a page at a time: pass the response's `next_cursor` back as `cursor` for the next one. |
+| POST | `/api/v1/migrations/pull-requests` | operator | `{installation_id, repos, mapping?, overrides?, workflows?, title?, body?, commit_message?}`. One pull request per repository, each on its own branch. `workflows` narrows a repository to the files named for it. Re-plans from the repository's current contents rather than trusting the client. |
+
+`mapping` is one answer per hosted-runner label for every repository. `overrides` are the exceptions to it: each is `{repo, path, job, to}` naming one job in one workflow file, with a `to` of `""` meaning that job stays on the runner it names today. Either one alone is enough to open a pull request.
 
 ## Audit
 

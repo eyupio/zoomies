@@ -36,10 +36,18 @@ type Rewrite struct {
 	// Job is the workflow job the line belongs to, as far as indentation can
 	// tell. Empty when it could not be attributed.
 	Job string `json:"job,omitempty"`
+	// Label is the hosted-runner label being replaced. It is set only when the
+	// value asks for exactly one, which -- together with a Job -- is what makes
+	// this line something an Override can name.
+	Label string `json:"label,omitempty"`
 	// From and To are the `runs-on` values, rendered as they appear in the
 	// file: "ubuntu-latest", "[self-hosted, linux]".
 	From string `json:"from"`
 	To   string `json:"to"`
+	// Overridden says To came from an Override naming this job rather than from
+	// the consolidated label mapping, so the review step can show which lines
+	// were decided one at a time.
+	Overridden bool `json:"overridden,omitempty"`
 }
 
 // Skip is a `runs-on` this package deliberately left alone, and why.
@@ -48,8 +56,14 @@ type Rewrite struct {
 // has to look at: a matrix expression whose values are computed elsewhere, a
 // job already pointing at a self-hosted runner, a hosted label nobody mapped.
 type Skip struct {
-	Line   int    `json:"line"`
-	Job    string `json:"job,omitempty"`
+	Line int    `json:"line"`
+	Job  string `json:"job,omitempty"`
+	// Label is the hosted-runner label this job asks for, set only when the
+	// value asks for exactly one. A skip carrying both a Job and a Label is one
+	// an Override can settle -- nothing is mapped to that label yet, or the
+	// operator pinned this job where it is. A skip carrying neither cannot be:
+	// there is no single label to replace, or no stable job to name.
+	Label  string `json:"label,omitempty"`
 	Value  string `json:"value"`
 	Reason string `json:"reason"`
 }
@@ -66,14 +80,61 @@ type Result struct {
 // Changed reports whether the file needs to be committed at all.
 func (r Result) Changed() bool { return len(r.Rewrites) > 0 }
 
+// Override sends one job to a pool of its own, whatever the consolidated
+// mapping says.
+//
+// One answer per hosted-runner label is the right default: a fleet usually does
+// want every `ubuntu-latest` job on the same Linux pool, and answering that once
+// is the difference between a wizard and a spreadsheet. But "usually" is not
+// "always" -- one repository's integration tests need the big host, one job
+// needs the pool with a GPU, one repository is being moved a job at a time --
+// and the answer to those is not a second consolidated mapping. It is an
+// exception, named as one.
+//
+// An override names exactly one place: a job, in a workflow file, in a
+// repository. Nothing about it is a pattern. A pattern would quietly match more
+// than the operator read in the review step, and reviewing the exact change is
+// the whole reason this wizard exists.
+type Override struct {
+	// Repo is "owner/name", compared case-insensitively as GitHub does.
+	Repo string `json:"repo"`
+	// Path is the workflow file, repository-relative:
+	// ".github/workflows/ci.yml".
+	Path string `json:"path"`
+	// Job is the job key inside that file. A `runs-on` the job tracker could not
+	// attribute has no stable name, so it cannot be overridden -- there would be
+	// nothing to key on that survives the file being read again at apply time.
+	Job string `json:"job"`
+	// To is the runs-on value this job gets. Empty means leave it on the rented
+	// runner it names today: a decision the operator made, not the absence of
+	// one, and it is reported with a different reason for exactly that reason.
+	To string `json:"to"`
+}
+
 // Mapping decides what a hosted `runs-on` label becomes.
 //
 // The zero Mapping rewrites nothing, which is the safe default: a wizard that
 // guessed would open pull requests pointing jobs at pools that do not exist.
 type Mapping struct {
 	// Labels maps one hosted label ("ubuntu-latest") to the runs-on value that
-	// replaces it ("zoomies-linux-x64"). Keys are compared lowercased.
+	// replaces it ("zoomies-linux-x64"). Keys are compared lowercased. This is
+	// the consolidated answer, and it decides everywhere no override does.
 	Labels map[string]string
+
+	// Overrides are the exceptions to Labels, each naming one job in one file in
+	// one repository.
+	//
+	// They are resolved by In, which narrows a Mapping to the file it is about
+	// to rewrite; File reads only what In resolved. That is deliberate: a caller
+	// that forgets to narrow gets the consolidated mapping, which is the answer
+	// it would have got before overrides existed -- never one repository's
+	// exception applied to another repository's job.
+	Overrides []Override
+
+	// jobs is the narrowed view In builds: job key -> the runs-on it was sent
+	// to. A present entry holding "" means "leave this job where it is", which
+	// is why presence and value are read separately everywhere below.
+	jobs map[string]string
 }
 
 // To returns the replacement for a hosted label, and whether there is one.
@@ -86,6 +147,38 @@ func (m Mapping) To(label string) (string, bool) {
 		return "", false
 	}
 	return to, true
+}
+
+// In narrows a mapping to one workflow file, resolving the overrides that name
+// a job inside it. It is what File has to be given for an override to apply.
+func (m Mapping) In(repo, path string) Mapping {
+	out := Mapping{Labels: m.Labels, Overrides: m.Overrides}
+	for _, o := range m.Overrides {
+		job := strings.TrimSpace(o.Job)
+		if job == "" ||
+			!strings.EqualFold(strings.TrimSpace(o.Repo), strings.TrimSpace(repo)) ||
+			strings.TrimSpace(o.Path) != strings.TrimSpace(path) {
+			continue
+		}
+		if out.jobs == nil {
+			out.jobs = make(map[string]string, len(m.Overrides))
+		}
+		out.jobs[job] = strings.TrimSpace(o.To)
+	}
+	return out
+}
+
+// decide answers where one job asking for one hosted-runner label goes. An
+// override wins over the consolidated mapping, including an override that says
+// the job stays where it is.
+func (m Mapping) decide(job, label string) (to string, overridden bool) {
+	if job != "" {
+		if to, ok := m.jobs[job]; ok {
+			return to, true
+		}
+	}
+	to, _ = m.To(label)
+	return to, false
 }
 
 // HostedLabels are the runner labels GitHub itself provides, as of the runner
@@ -210,26 +303,30 @@ func File(content string, m Mapping) Result {
 		//
 		// which is the one form whose value is not on this line.
 		if strings.TrimSpace(value) == "" {
-			consumed, rewritten, outcome := rewriteBlockSequence(lines, i, m)
+			consumed, rewritten, out := rewriteBlockSequence(lines, i, job, m)
 			switch {
-			case outcome.err != "":
-				res.Skips = append(res.Skips, Skip{Line: lineNo, Job: job, Value: outcome.from, Reason: outcome.err})
+			case out.reason != "":
+				res.Skips = append(res.Skips, Skip{Line: lineNo, Job: job, Label: out.label, Value: out.from, Reason: out.reason})
 			case rewritten:
-				res.Rewrites = append(res.Rewrites, Rewrite{Line: lineNo, Job: job, From: outcome.from, To: outcome.to})
+				res.Rewrites = append(res.Rewrites, Rewrite{
+					Line: lineNo, Job: job, Label: out.label,
+					From: out.from, To: out.to, Overridden: out.overridden,
+				})
 			}
 			i += consumed
 			continue
 		}
 
-		to, reason := rewriteValue(value, m)
+		out := rewriteValue(job, value, m)
 		switch {
-		case reason != "":
-			res.Skips = append(res.Skips, Skip{Line: lineNo, Job: job, Value: strings.TrimSpace(value), Reason: reason})
-		case to != value:
-			lines[i].text = prefix + to + comment
+		case out.reason != "":
+			res.Skips = append(res.Skips, Skip{Line: lineNo, Job: job, Label: out.label, Value: strings.TrimSpace(value), Reason: out.reason})
+		case out.to != value:
+			lines[i].text = prefix + out.to + comment
 			res.Rewrites = append(res.Rewrites, Rewrite{
-				Line: lineNo, Job: job,
-				From: strings.TrimSpace(value), To: strings.TrimSpace(to),
+				Line: lineNo, Job: job, Label: out.label,
+				From: strings.TrimSpace(value), To: strings.TrimSpace(out.to),
+				Overridden: out.overridden,
 			})
 		}
 	}
@@ -238,26 +335,46 @@ func File(content string, m Mapping) Result {
 	return res
 }
 
-// rewriteValue maps an inline `runs-on` value. It returns the replacement, or
-// a reason the value was left alone.
-func rewriteValue(value string, m Mapping) (string, string) {
+// outcome is what deciding one `runs-on` produced: where it goes, what hosted
+// label it was asking for, and -- when it goes nowhere -- why.
+//
+// The label is carried even for a value that was left alone, because a skip
+// naming both a job and a label is one the operator can settle with an override,
+// and one naming neither is not.
+type outcome struct {
+	// from is the value as it reads in the file. Only the block-sequence form
+	// sets it; an inline value is already in the caller's hand.
+	from       string
+	to         string
+	label      string
+	reason     string
+	overridden bool
+}
+
+// rewriteValue maps an inline `runs-on` value.
+func rewriteValue(job, value string, m Mapping) outcome {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
-		return value, "the runs-on value is empty"
+		return outcome{reason: "the runs-on value is empty"}
 	}
 	if expression.MatchString(trimmed) {
-		return value, "the value is a ${{ }} expression, so what it resolves to is decided elsewhere in this workflow"
+		return outcome{reason: expressionReason}
 	}
 
 	if inner, ok := flowSequence(trimmed); ok {
 		items := splitFlowItems(inner)
 		if len(items) == 0 {
-			return value, "the runs-on list is empty"
+			return outcome{reason: "the runs-on list is empty"}
 		}
-		return rewriteLabelSet(items, m)
+		return rewriteLabelSet(job, items, m)
 	}
-	return rewriteLabelSet([]string{trimmed}, m)
+	return rewriteLabelSet(job, []string{trimmed}, m)
 }
+
+// expressionReason is one sentence in two places -- an inline value and a block
+// sequence reach it by different routes -- and an operator comparing two skips
+// should not have to work out whether the difference in wording means anything.
+const expressionReason = "the value is a ${{ }} expression, so what it resolves to is decided elsewhere in this workflow"
 
 // rewriteLabelSet maps a whole `runs-on` label set at once.
 //
@@ -265,7 +382,7 @@ func rewriteValue(value string, m Mapping) (string, string) {
 // [ubuntu-latest]" and "runs-on: [self-hosted, linux, x64]" are both one
 // decision about where a job runs, and rewriting half of one -- leaving, say,
 // "x64" beside a Zoomies label -- would produce a set that matches nothing.
-func rewriteLabelSet(items []string, m Mapping) (string, string) {
+func rewriteLabelSet(job string, items []string, m Mapping) outcome {
 	var (
 		hosted  []string
 		unquote = func(s string) string { return strings.Trim(strings.TrimSpace(s), `"'`) }
@@ -283,29 +400,31 @@ func rewriteLabelSet(items []string, m Mapping) (string, string) {
 		// already made: a self-hosted fleet, a runner group, a label an
 		// organisation invented. Migrating it would be guessing.
 		if strings.EqualFold(item, "self-hosted") {
-			return "", "this job already runs on a self-hosted runner"
+			return outcome{reason: "this job already runs on a self-hosted runner"}
 		}
-		return "", fmt.Sprintf("%q is not a hosted-runner label, so this job is already pointed somewhere deliberate", item)
+		return outcome{reason: fmt.Sprintf("%q is not a hosted-runner label, so this job is already pointed somewhere deliberate", item)}
 	}
 	if len(hosted) == 0 {
-		return "", "no hosted-runner label to migrate"
+		return outcome{reason: "no hosted-runner label to migrate"}
 	}
 	if len(hosted) > 1 {
-		return "", fmt.Sprintf("%d hosted labels on one job (%s) is not a combination that resolves to one runner, so it is left for a person to read",
-			len(hosted), strings.Join(hosted, ", "))
+		return outcome{reason: fmt.Sprintf("%d hosted labels on one job (%s) is not a combination that resolves to one runner, so it is left for a person to read",
+			len(hosted), strings.Join(hosted, ", "))}
 	}
-	to, ok := m.To(hosted[0])
-	if !ok {
-		return "", fmt.Sprintf("%q is not mapped to a pool", hosted[0])
-	}
-	return to, ""
-}
 
-// blockOutcome is what rewriting a block sequence produced.
-type blockOutcome struct {
-	from string
-	to   string
-	err  string
+	label := hosted[0]
+	to, overridden := m.decide(job, label)
+	switch {
+	case to != "":
+		return outcome{to: to, label: label, overridden: overridden}
+	case overridden:
+		// The operator looked at this job and chose to leave it where it is.
+		// Saying "not mapped" here would invite them to fix something that is
+		// not broken.
+		return outcome{label: label, reason: fmt.Sprintf("this job is set to stay on %s", label)}
+	default:
+		return outcome{label: label, reason: fmt.Sprintf("%q is not mapped to a pool", label)}
+	}
 }
 
 // rewriteBlockSequence handles the multi-line form of runs-on. It returns how
@@ -315,7 +434,7 @@ type blockOutcome struct {
 // The rewrite collapses the sequence onto the `runs-on:` line, because a single
 // branded label is what replaces it and a one-item block sequence spread over
 // two lines would be a strange thing to leave behind.
-func rewriteBlockSequence(lines []line, at int, m Mapping) (int, bool, blockOutcome) {
+func rewriteBlockSequence(lines []line, at int, job string, m Mapping) (int, bool, outcome) {
 	keyIndent := indentOf(lines[at].text)
 	var (
 		items    []string
@@ -334,8 +453,8 @@ func rewriteBlockSequence(lines []line, at int, m Mapping) (int, bool, blockOutc
 			// and say so rather than guess. When nothing of the sequence
 			// follows, the line belongs to whatever comes next.
 			if sequenceContinues(lines, j, keyIndent) {
-				return consumed, false, blockOutcome{from: "[" + strings.Join(items, ", ") + "]",
-					err: "the runs-on list has a comment or a blank line inside it, which collapsing the list would delete; move it above runs-on, or change this job by hand"}
+				return consumed, false, outcome{from: "[" + strings.Join(items, ", ") + "]",
+					reason: "the runs-on list has a comment or a blank line inside it, which collapsing the list would delete; move it above runs-on, or change this job by hand"}
 			}
 			break
 		}
@@ -353,24 +472,24 @@ func rewriteBlockSequence(lines []line, at int, m Mapping) (int, bool, blockOutc
 		consumed = j - at
 	}
 	if len(items) == 0 {
-		return 0, false, blockOutcome{err: "the runs-on key has no value on its line and no list under it"}
+		return 0, false, outcome{reason: "the runs-on key has no value on its line and no list under it"}
 	}
 	from := "[" + strings.Join(items, ", ") + "]"
 	if expression.MatchString(from) {
-		return consumed, false, blockOutcome{from: from,
-			err: "the value is a ${{ }} expression, so what it resolves to is decided elsewhere in this workflow"}
+		return consumed, false, outcome{from: from, reason: expressionReason}
 	}
-	to, reason := rewriteLabelSet(items, m)
-	if reason != "" {
-		return consumed, false, blockOutcome{from: from, err: reason}
+	out := rewriteLabelSet(job, items, m)
+	out.from = from
+	if out.reason != "" {
+		return consumed, false, out
 	}
 	if commented != "" {
 		// The comment was about the item, and the item is what the rewrite
 		// replaces; carrying it onto the collapsed line would leave it
 		// describing something that is no longer there. This is the same rule
 		// as a comment line inside the list, and the same way out.
-		return consumed, false, blockOutcome{from: from,
-			err: fmt.Sprintf("the list item %q carries a comment, which collapsing the list would delete; move it above runs-on, or change this job by hand", commented)}
+		out.reason = fmt.Sprintf("the list item %q carries a comment, which collapsing the list would delete; move it above runs-on, or change this job by hand", commented)
+		return consumed, false, out
 	}
 
 	// Collapse: the key line carries the value, and the item lines go.
@@ -379,11 +498,11 @@ func rewriteBlockSequence(lines []line, at int, m Mapping) (int, bool, blockOutc
 	if match != nil {
 		comment = match[3]
 	}
-	lines[at].text = strings.TrimRight(lines[at].text[:strings.Index(lines[at].text, ":")+1], " \t") + " " + to + comment
+	lines[at].text = strings.TrimRight(lines[at].text[:strings.Index(lines[at].text, ":")+1], " \t") + " " + out.to + comment
 	for j := at + 1; j <= at+consumed; j++ {
 		lines[j].dropped = true
 	}
-	return consumed, true, blockOutcome{from: from, to: to}
+	return consumed, true, out
 }
 
 // sequenceContinues reports whether a block sequence under a key indented at
@@ -587,9 +706,17 @@ func splitFlowItems(s string) []string {
 
 // jobTracker names the job a `runs-on` belongs to by watching indentation.
 //
-// It is deliberately approximate: it exists so the wizard can say "build" next
-// to a change rather than "line 34", and a wrong guess costs a label in a
-// review screen, not a wrong rewrite. Nothing downstream branches on it.
+// It is deliberately approximate. It exists so the wizard can say "build" next
+// to a change rather than "line 34", and so an Override has something to name
+// -- but a wrong guess still cannot produce a wrong rewrite, because the diff
+// the operator approves is built by this same attribution. An override that
+// lands on a job the tracker misread shows up as a diff on that job, on the
+// screen, before anything is written.
+//
+// It is also why an override keys on a job name rather than a line number. The
+// apply step re-reads the file from GitHub, and a name that no longer exists
+// simply falls back to the consolidated mapping, where a line that has shifted
+// would point somewhere new.
 type jobTracker struct {
 	inJobs     bool
 	jobsIndent int

@@ -1402,6 +1402,11 @@ paths:
         same operating system and architecture. A label with no plausible pool
         is left unmapped rather than mapped approximately, and appears in
         `unmapped`.
+
+        `mapping` is one answer per label for every repository, which is what
+        most fleets want. `overrides` are the exceptions to it: each names one
+        job in one workflow file in one repository and sends it somewhere else,
+        or -- with an empty `to` -- leaves that one job on GitHub's runners.
       x-zoomies-role: operator
       requestBody:
         required: true
@@ -1422,6 +1427,13 @@ paths:
                   description: >-
                     Hosted label to the runs-on value that replaces it, e.g.
                     {"ubuntu-latest": "zoomies-linux-x64"}. Empty asks the server to propose one.
+                overrides:
+                  type: array
+                  items: { $ref: "#/components/schemas/MigrationOverride" }
+                  description: >-
+                    Exceptions to `mapping`, each naming one job in one workflow file in one
+                    repository. Empty is the common case: most fleets want one answer per
+                    hosted-runner label everywhere.
                 cursor:
                   type: string
                   description: >-
@@ -1462,7 +1474,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [installation_id, repos, mapping]
+              required: [installation_id, repos]
               properties:
                 installation_id: { type: string }
                 repos:
@@ -1472,6 +1484,13 @@ paths:
                 mapping:
                   type: object
                   additionalProperties: { type: string }
+                overrides:
+                  type: array
+                  items: { $ref: "#/components/schemas/MigrationOverride" }
+                  description: >-
+                    Exceptions to `mapping`. A request with no mapped label is accepted when at
+                    least one override carries a `to`, because pointing three jobs at a pool by
+                    name is a migration too.
                 workflows:
                   type: object
                   additionalProperties:
@@ -2268,14 +2287,44 @@ components:
         last_delivery_at: { type: [string, "null"], format: date-time }
 
     # --- migrations -------------------------------------------------------
+    MigrationOverride:
+      type: object
+      description: |
+        One job sent somewhere other than the consolidated `mapping` says.
+
+        It names exactly one place -- a job, in a workflow file, in a repository
+        -- and nothing about it is a pattern: a pattern would match more than
+        the operator read in the review step. A job the plan could not attribute
+        to a name cannot be overridden, because there would be nothing stable to
+        key on when the apply step re-reads the file.
+      required: [repo, path, job]
+      properties:
+        repo: { type: string, examples: ["acme/widgets"], description: Compared case-insensitively, as GitHub does. }
+        path: { type: string, examples: [".github/workflows/ci.yml"] }
+        job: { type: string, examples: ["integration"] }
+        to:
+          type: string
+          examples: ["zoomies-linux-arm64"]
+          description: >-
+            The runs-on value this job gets. Empty leaves this one job on the rented runner it
+            names today - a decision, reported with its own reason rather than as an unmapped
+            label.
+
     MigrationRewrite:
       type: object
       description: One runs-on value a migration would change.
       properties:
         line: { type: integer, description: The 1-based line in the file as it is today. }
         job: { type: string, description: The workflow job the line belongs to, where indentation could tell. }
+        label:
+          type: string
+          examples: ["ubuntu-latest"]
+          description: >-
+            The hosted-runner label being replaced, set only where the value asks for exactly
+            one. A line carrying both a job and a label is one an override can name.
         from: { type: string, examples: ["ubuntu-latest"] }
         to: { type: string, examples: ["zoomies-linux-x64"] }
+        overridden: { type: boolean, description: True when `to` came from an override rather than from the consolidated mapping. }
 
     MigrationSkip:
       type: object
@@ -2286,6 +2335,12 @@ components:
       properties:
         line: { type: integer }
         job: { type: string }
+        label:
+          type: string
+          description: >-
+            The hosted-runner label this job asks for, set only where the value asks for exactly
+            one. A skip carrying both a job and a label is one an override can settle; a
+            ${{ }} expression carries neither, because no override can decide it.
         value: { type: string }
         reason: { type: string }
 
@@ -2342,6 +2397,12 @@ components:
           type: object
           additionalProperties: { type: string }
           description: What was applied - the request's mapping, or the one the server proposed.
+        overrides:
+          type: array
+          items: { $ref: "#/components/schemas/MigrationOverride" }
+          description: >-
+            The exceptions that were applied on top of the mapping, echoed back so a plan
+            describes itself.
         unmapped:
           type: array
           items: { type: string }

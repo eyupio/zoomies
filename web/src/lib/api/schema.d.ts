@@ -1009,6 +1009,11 @@ export interface paths {
          *     same operating system and architecture. A label with no plausible pool
          *     is left unmapped rather than mapped approximately, and appears in
          *     `unmapped`.
+         *
+         *     `mapping` is one answer per label for every repository, which is what
+         *     most fleets want. `overrides` are the exceptions to it: each names one
+         *     job in one workflow file in one repository and sends it somewhere else,
+         *     or -- with an empty `to` -- leaves that one job on GitHub's runners.
          */
         post: operations["planMigration"];
         delete?: never;
@@ -1636,16 +1641,48 @@ export interface components {
             /** Format: date-time */
             last_delivery_at?: string | null;
         };
+        /**
+         * @description One job sent somewhere other than the consolidated `mapping` says.
+         *
+         *     It names exactly one place -- a job, in a workflow file, in a repository
+         *     -- and nothing about it is a pattern: a pattern would match more than
+         *     the operator read in the review step. A job the plan could not attribute
+         *     to a name cannot be overridden, because there would be nothing stable to
+         *     key on when the apply step re-reads the file.
+         */
+        MigrationOverride: {
+            /**
+             * @description Compared case-insensitively
+             * @example acme/widgets
+             */
+            repo: string;
+            /** @example .github/workflows/ci.yml */
+            path: string;
+            /** @example integration */
+            job: string;
+            /**
+             * @description The runs-on value this job gets. Empty leaves this one job on the rented runner it names today - a decision, reported with its own reason rather than as an unmapped label.
+             * @example zoomies-linux-arm64
+             */
+            to?: string;
+        };
         /** @description One runs-on value a migration would change. */
         MigrationRewrite: {
             /** @description The 1-based line in the file as it is today. */
             line?: number;
             /** @description The workflow job the line belongs to */
             job?: string;
+            /**
+             * @description The hosted-runner label being replaced, set only where the value asks for exactly one. A line carrying both a job and a label is one an override can name.
+             * @example ubuntu-latest
+             */
+            label?: string;
             /** @example ubuntu-latest */
             from?: string;
             /** @example zoomies-linux-x64 */
             to?: string;
+            /** @description True when `to` came from an override rather than from the consolidated mapping. */
+            overridden?: boolean;
         };
         /**
          * @description A runs-on the migration deliberately left alone, and why. A skip is not
@@ -1655,6 +1692,8 @@ export interface components {
         MigrationSkip: {
             line?: number;
             job?: string;
+            /** @description The hosted-runner label this job asks for, set only where the value asks for exactly one. A skip carrying both a job and a label is one an override can settle; a ${{ }} expression carries neither, because no override can decide it. */
+            label?: string;
             value?: string;
             reason?: string;
         };
@@ -1703,6 +1742,8 @@ export interface components {
             mapping?: {
                 [key: string]: string;
             };
+            /** @description The exceptions that were applied on top of the mapping, echoed back so a plan describes itself. */
+            overrides?: components["schemas"]["MigrationOverride"][];
             /** @description Hosted labels no pool was proposed for. Jobs on these are left where they are. */
             unmapped?: string[];
             pools?: components["schemas"]["MigrationPoolOption"][];
@@ -4150,6 +4191,8 @@ export interface operations {
                     mapping?: {
                         [key: string]: string;
                     };
+                    /** @description Exceptions to `mapping`, each naming one job in one workflow file in one repository. Empty is the common case: most fleets want one answer per hosted-runner label everywhere. */
+                    overrides?: components["schemas"]["MigrationOverride"][];
                     /** @description The page of repositories to read: the `next_cursor` a previous plan returned, which is the full name of the last repository it listed. Empty starts at the first page. Ignored when `repos` names repositories. */
                     cursor?: string;
                 };
@@ -4181,9 +4224,11 @@ export interface operations {
                     installation_id: string;
                     /** @description The repositories to open pull requests on. Required; this endpoint never defaults to every repository an App can see. */
                     repos: string[];
-                    mapping: {
+                    mapping?: {
                         [key: string]: string;
                     };
+                    /** @description Exceptions to `mapping`. A request with no mapped label is accepted when at least one override carries a `to`, because pointing three jobs at a pool by name is a migration too. */
+                    overrides?: components["schemas"]["MigrationOverride"][];
                     /** @description Narrows a repository to these workflow files, keyed by repository, e.g. {"acme/widgets": [".github/workflows/ci.yml"]}. A repository left out of the map gets every file the mapping would change. A path that is not directly under .github/workflows is rejected. */
                     workflows?: {
                         [key: string]: string[];

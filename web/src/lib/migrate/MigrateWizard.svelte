@@ -1,11 +1,12 @@
 <!--
   Moving a repository's CI onto this fleet.
 
-  Five steps, and the fourth one is the point: nothing is written until an
+  Five steps, and the last one is the point: nothing is written until an
   operator has read the exact diff that is about to appear in somebody else's
-  repository. The first three exist to make that diff correct, and the last
-  reports what actually happened, repository by repository, with a link to
-  every pull request.
+  repository. The first four exist to make that diff correct -- one answer per
+  label for the whole organisation, then the jobs that need a different one --
+  and the results screen reports what actually happened, repository by
+  repository, with a link to every pull request.
 
   The wizard holds one plan at a time and re-fetches it whenever an answer that
   changes it changes. That is a round trip per edit, but the alternative --
@@ -25,6 +26,7 @@
   import type {
     Installation,
     MigrationOutcome,
+    MigrationOverride,
     MigrationPlan,
     MigrationRepo,
   } from '$lib/api/types';
@@ -37,6 +39,7 @@
   import StepTarget from './StepTarget.svelte';
   import StepRepositories from './StepRepositories.svelte';
   import StepMapping from './StepMapping.svelte';
+  import StepOverrides from './StepOverrides.svelte';
   import StepReview from './StepReview.svelte';
   import StepOutcome from './StepOutcome.svelte';
 
@@ -49,18 +52,25 @@
   let { installationId = '', oncancel }: Props = $props();
 
   /**
-   * Four steps, not five: the outcome is not a step.
+   * Five steps, not six: the outcome is not a step.
    *
    * A results screen with a Back button invites an operator to walk back into a
    * review of work that is already open, and it would make the wizard's Next
    * mean "open the pull requests" on one step and "go forward" on the others.
    * Review is the last step, its button says exactly what it does, and the
    * results replace the wizard once there are any.
+   *
+   * Labels and Exceptions are two steps rather than one screen because they are
+   * two different questions. Labels is the one nearly every fleet answers and
+   * nobody should have to scroll past; Exceptions is a list of jobs that is as
+   * long as the organisation, and burying the first inside the second would
+   * make the common case the hard one.
    */
   const STEPS: readonly WizardStep[] = [
     { id: 'target', title: 'Installation', description: 'Whose repositories.' },
     { id: 'repos', title: 'Repositories', description: 'Which ones to migrate.' },
     { id: 'mapping', title: 'Labels', description: 'What each GitHub label becomes.' },
+    { id: 'overrides', title: 'Exceptions', description: 'Any job that needs a different pool.' },
     { id: 'review', title: 'Review', description: 'The exact change, before it is opened.' },
   ];
 
@@ -100,8 +110,13 @@
   let mapping = $state<Record<string, string>>({});
   /** True once the operator has edited the mapping, so a re-scan stops overwriting it. */
   let mappingEdited = false;
+  /**
+   * The exceptions to that mapping, one per job. Empty is the normal state:
+   * a fleet that wants one answer per label never touches this.
+   */
+  let overrides = $state<MigrationOverride[]>([]);
 
-  /* -- step five ----------------------------------------------------------- */
+  /* -- the outcome --------------------------------------------------------- */
 
   let outcome = $state<MigrationOutcome | null>(null);
 
@@ -128,23 +143,46 @@
   const chosen = $derived(Object.keys(selection));
 
   /**
+   * Every chosen file, whether or not it currently changes.
+   *
+   * The exceptions step works from this rather than from `selectedChanged`: a
+   * repository whose only label is unmapped changes nothing yet, and pointing
+   * one of its jobs at a pool by hand is exactly what that step is for. It is
+   * still narrowed to the ticked files, because a file nobody chose is not one
+   * an exception could reach.
+   */
+  const selectedFiles = $derived.by(() => {
+    const out: MigrationRepo[] = [];
+    for (const repo of plan?.repositories ?? []) {
+      const paths = selection[repo.repo ?? ''] ?? [];
+      if (paths.length === 0) continue;
+      out.push({
+        ...repo,
+        workflows: (repo.workflows ?? []).filter((w) => paths.includes(w.path ?? '')),
+      });
+    }
+    return out;
+  });
+
+  /**
+   * Exceptions for files still in the selection. Untick a file and its
+   * exceptions stop being sent -- they are not forgotten, so ticking it again
+   * brings them back, but nothing the operator cannot see can reach a commit.
+   */
+  const liveOverrides = $derived(
+    overrides.filter((o) => (selection[o.repo ?? ''] ?? []).includes(o.path ?? '')),
+  );
+
+  /**
    * The repositories the review step shows, narrowed to the chosen files.
    *
    * Narrowing here rather than in the review means the diffs, the counts and
    * the pull requests all come from one decision: a file nobody ticked is not
    * shown, not counted, and not committed.
    */
-  const selectedChanged = $derived.by(() => {
-    const out: MigrationRepo[] = [];
-    for (const repo of plan?.repositories ?? []) {
-      const paths = selection[repo.repo ?? ''] ?? [];
-      if (paths.length === 0) continue;
-      const workflows = (repo.workflows ?? []).filter((w) => paths.includes(w.path ?? ''));
-      if (!workflows.some((w) => (w.rewrites ?? []).length > 0)) continue;
-      out.push({ ...repo, workflows });
-    }
-    return out;
-  });
+  const selectedChanged = $derived(
+    selectedFiles.filter((r) => (r.workflows ?? []).some((w) => (w.rewrites ?? []).length > 0)),
+  );
   const blockedByPermissions = $derived((plan?.missing_permissions ?? []).length > 0);
 
   const canAdvance = $derived.by(() => {
@@ -155,8 +193,13 @@
       case 1:
         return chosen.length > 0;
       case 2:
-        return Object.values(mapping).some((v) => v !== '');
+        // An operator who maps nothing here can still point individual jobs at
+        // a pool on the next step, so this is the one step Next does not gate:
+        // it gates the pull requests, on the last step, where it matters.
+        return true;
       case 3:
+        return true;
+      case 4:
         return selectedChanged.length > 0 && !blockedByPermissions;
       default:
         return true;
@@ -189,6 +232,7 @@
         ...(repos.length > 0 ? { repos } : {}),
         ...(cursor !== '' ? { cursor } : {}),
         ...(mappingEdited ? { mapping } : {}),
+        ...(liveOverrides.length > 0 ? { overrides: liveOverrides } : {}),
       });
       const narrowed = repos.length > 0;
       plan = narrowed ? mergeNarrowed(plan, result) : mergePage(plan, result, cursor !== '');
@@ -287,11 +331,13 @@
         if (!(await scan([]))) step -= 1;
         return;
       }
-      case 2: {
-        // The mapping changed, so every diff downstream is stale. A scan
-        // that failed leaves the old plan in place, and the review must not
-        // show it as if it were the new mapping's -- the pull requests it
-        // would open are built from the mapping, not from what is on screen.
+      case 2:
+      case 3: {
+        // The mapping or the exceptions changed, so every diff downstream is
+        // stale. A scan that failed leaves the old plan in place, and the next
+        // step must not show it as if it were the new answer's -- what the
+        // pull requests would contain is built from those, not from what is on
+        // screen.
         if (!(await scan(chosen))) step -= 1;
         return;
       }
@@ -303,6 +349,16 @@
   function onMappingChange(label: string, to: string): void {
     mappingEdited = true;
     mapping = { ...mapping, [label]: to };
+  }
+
+  /**
+   * One job's exception. `to` of null is "follow the label mapping", which is
+   * the absence of an exception rather than an exception to nothing -- so it
+   * drops the entry instead of storing an empty one.
+   */
+  function onOverrideChange(repo: string, path: string, job: string, to: string | null): void {
+    const rest = overrides.filter((o) => !(o.repo === repo && o.path === path && o.job === job));
+    overrides = to === null ? rest : [...rest, { repo, path, job, to }];
   }
 
   async function rescan(): Promise<void> {
@@ -318,6 +374,7 @@
     totalRepos = 0;
     mapping = {};
     mappingEdited = false;
+    overrides = [];
     failure = '';
     step = 0;
   }
@@ -344,6 +401,7 @@
         installation_id: selected,
         repos: selectedChanged.map((r) => r.repo ?? '').filter(Boolean),
         mapping: chosenMapping,
+        overrides: liveOverrides,
         workflows,
       });
       // Assigned only once the call has returned, because assigning it is what
@@ -425,6 +483,14 @@
         />
       {:else if index === 2}
         <StepMapping {plan} {mapping} onchange={onMappingChange} />
+      {:else if index === 3}
+        <StepOverrides
+          {plan}
+          repos={selectedFiles}
+          {mapping}
+          overrides={liveOverrides}
+          onchange={onOverrideChange}
+        />
       {:else}
         <StepReview
           {plan}
@@ -437,7 +503,7 @@
     {/snippet}
   </Wizard>
 
-  {#if step === 3 && plan}
+  {#if step === 4 && plan}
     <p class="summary">
       <GitPullRequest size={14} aria-hidden="true" />
       {selectedChanged.length}

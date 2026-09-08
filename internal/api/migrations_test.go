@@ -394,6 +394,169 @@ func TestMigrationIsClosedToViewers(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Overrides
+// ---------------------------------------------------------------------------
+
+// The mapping is one answer per label for every repository. An override is the
+// exception, and it reaches exactly one job: the same label, the same job name,
+// in another repository, still gets the consolidated answer.
+func TestMigrationPlanAppliesAnOverrideToOneJob(t *testing.T) {
+	h, inst, cookie := migrationHarness(t)
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/migrations/plan", cookie: cookie,
+		body: map[string]any{
+			"installation_id": inst.ID,
+			"repos":           []string{"acme/widgets", "acme/api"},
+			"mapping":         map[string]string{"ubuntu-latest": "zoomies-linux-x64"},
+			"overrides": []map[string]any{
+				// Nothing in this fleet runs Windows, so windows-latest is
+				// unmapped -- and this is the operator saying they know where
+				// this one job should go anyway.
+				{"repo": "acme/widgets", "path": ".github/workflows/ci.yml", "job": "windows", "to": "zoomies-windows"},
+				// And the other direction: one job stays where it is.
+				{"repo": "acme/widgets", "path": ".github/workflows/ci.yml", "job": "build", "to": ""},
+			},
+		}})
+	resp.mustStatus(t, http.StatusOK, "plan with overrides")
+
+	var plan migrationPlanResponse
+	resp.into(t, &plan)
+	if len(plan.Overrides) != 2 {
+		t.Fatalf("overrides = %+v, want both echoed back so the plan describes itself", plan.Overrides)
+	}
+
+	ci := workflowPlan(t, repoPlan(t, plan, "acme/widgets"), ".github/workflows/ci.yml")
+	if len(ci.Rewrites) != 1 || ci.Rewrites[0].Job != "windows" {
+		t.Fatalf("rewrites = %+v, want only the overridden Windows job", ci.Rewrites)
+	}
+	if ci.Rewrites[0].To != "zoomies-windows" || !ci.Rewrites[0].Overridden {
+		t.Errorf("windows = %+v, want the override, marked as one", ci.Rewrites[0])
+	}
+	// build was pinned to GitHub, and the reason says so rather than sending
+	// the operator off to fix a mapping that is fine.
+	var build migrate.Skip
+	for _, sk := range ci.Skips {
+		if sk.Job == "build" {
+			build = sk
+		}
+	}
+	if build.Job == "" {
+		t.Fatalf("skips = %+v, want the pinned build job", ci.Skips)
+	}
+	// The reason names the label rather than a vendor: a pinned job may be on
+	// GitHub's runners or on somebody else's.
+	if strings.Contains(build.Reason, "not mapped") || !strings.Contains(build.Reason, "stay on ubuntu-latest") {
+		t.Errorf("reason = %q, want it to name the operator's decision", build.Reason)
+	}
+
+	// The other repository has a build job on ubuntu-latest and a windows job
+	// on windows-latest too, and neither override touches it.
+	api := workflowPlan(t, repoPlan(t, plan, "acme/api"), ".github/workflows/ci.yml")
+	if len(api.Rewrites) != 1 || api.Rewrites[0].Job != "build" || api.Rewrites[0].Overridden {
+		t.Fatalf("acme/api rewrites = %+v, want just the consolidated mapping's build job", api.Rewrites)
+	}
+}
+
+// A fleet that has mapped no label at all, but has pointed one job at a pool by
+// hand, has asked for a real migration. Refusing it because `mapping` is empty
+// would make the per-job answer a second-class one.
+func TestMigrationOpensAPullRequestFromOverridesAlone(t *testing.T) {
+	h, inst, cookie := migrationHarness(t)
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/migrations/pull-requests", cookie: cookie,
+		body: map[string]any{
+			"installation_id": inst.ID,
+			"repos":           []string{"acme/widgets"},
+			"overrides": []map[string]any{
+				{"repo": "acme/widgets", "path": ".github/workflows/ci.yml", "job": "build", "to": "zoomies-big"},
+			},
+		}})
+	resp.mustStatus(t, http.StatusOK, "pull requests from overrides")
+
+	var out migrationApplyResponse
+	resp.into(t, &out)
+	if out.Opened != 1 {
+		t.Fatalf("outcome = %+v, want the one pull request", out)
+	}
+	if r := result(t, out, "acme/widgets"); r.Jobs != 1 || r.Workflows != 1 {
+		t.Errorf("acme/widgets changed %d jobs in %d files, want 1 and 1", r.Jobs, r.Workflows)
+	}
+
+	got, _ := h.gh.FileContent("acme/widgets", ".github/workflows/ci.yml")
+	if !strings.Contains(got, "runs-on: zoomies-big      # the cheap one") {
+		t.Errorf("the overridden job did not reach the committed file:\n%s", got)
+	}
+	// release.yml is on ubuntu-22.04, which nothing mapped and no override
+	// named, so it is exactly as it was.
+	if committed, _ := h.gh.FileContent("acme/widgets", ".github/workflows/release.yml"); committed != releaseBefore {
+		t.Errorf("a file no override named was committed:\n%s", committed)
+	}
+}
+
+// Still nothing to do is still a refusal: an override that pins a job to GitHub
+// is a decision, but it is not a reason to open a pull request.
+func TestMigrationRefusesOverridesThatWriteNothing(t *testing.T) {
+	h, inst, cookie := migrationHarness(t)
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/migrations/pull-requests", cookie: cookie,
+		body: map[string]any{
+			"installation_id": inst.ID,
+			"repos":           []string{"acme/widgets"},
+			"overrides": []map[string]any{
+				{"repo": "acme/widgets", "path": ".github/workflows/ci.yml", "job": "build", "to": ""},
+			},
+		}})
+	resp.mustStatus(t, http.StatusUnprocessableEntity, "overrides that write nothing")
+	if msg := resp.errorMessage(t); !strings.Contains(msg, "nothing would change") {
+		t.Errorf("message = %q", msg)
+	}
+}
+
+// An override that names nothing is refused rather than dropped. The operator
+// picked that job, and quietly sending it to the consolidated pool instead is
+// the kind of surprise this whole wizard is shaped to avoid.
+func TestMigrationRefusesAMalformedOverride(t *testing.T) {
+	h, inst, cookie := migrationHarness(t)
+
+	cases := []struct {
+		name     string
+		override map[string]any
+		wantWord string
+	}{
+		{"no job", map[string]any{"repo": "acme/widgets", "path": ".github/workflows/ci.yml", "to": "zoomies-big"}, "job"},
+		{"no repository", map[string]any{"path": ".github/workflows/ci.yml", "job": "build", "to": "zoomies-big"}, "repo"},
+		{"not a workflow file", map[string]any{"repo": "acme/widgets", "path": "Makefile", "job": "build", "to": "zoomies-big"}, "path"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			resp := h.do(request{method: http.MethodPost, path: "/api/v1/migrations/plan", cookie: cookie,
+				body: map[string]any{
+					"installation_id": inst.ID,
+					"repos":           []string{"acme/widgets"},
+					"overrides":       []map[string]any{c.override},
+				}})
+			resp.mustStatus(t, http.StatusUnprocessableEntity, c.name)
+			if msg := resp.errorMessage(t); !strings.Contains(msg, "names one job") {
+				t.Errorf("message = %q, want it to say what an override names", msg)
+			}
+		})
+	}
+
+	// The same job answered twice is a bug in whatever built the request, and
+	// picking one of the two silently would hide it.
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/migrations/plan", cookie: cookie,
+		body: map[string]any{
+			"installation_id": inst.ID,
+			"repos":           []string{"acme/widgets"},
+			"overrides": []map[string]any{
+				{"repo": "acme/widgets", "path": ".github/workflows/ci.yml", "job": "build", "to": "zoomies-big"},
+				{"repo": "acme/widgets", "path": ".github/workflows/ci.yml", "job": "build", "to": "zoomies-linux-x64"},
+			},
+		}})
+	resp.mustStatus(t, http.StatusUnprocessableEntity, "the same job twice")
+}
+
+// ---------------------------------------------------------------------------
 
 func repoPlan(t *testing.T, plan migrationPlanResponse, repo string) migrate.RepoPlan {
 	t.Helper()
