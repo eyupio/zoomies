@@ -6,10 +6,11 @@ description: >-
 
 # The UI
 
-Ten pages, one job each. Everything on them is live — there is no refresh
-button anywhere, because every page updates in place from the controller's
-event stream — and nothing is reachable from the UI that is not reachable from
-the [REST API](api-surface.md). Light and dark follow your system until you
+Ten pages, one job each. Everything on them is live — every page updates in
+place from the controller's event stream, so you never have to press refresh,
+though the same button sits at the top of each one for when you want to be sure
+— and nothing is reachable from the UI that is not reachable from the
+[REST API](api-surface.md). Light and dark follow your system until you
 choose one, and the screenshots below follow this site's.
 
 The fleet in them is the demo fixture the Playwright suite runs against: two

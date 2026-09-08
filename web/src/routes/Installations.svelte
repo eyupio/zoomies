@@ -48,22 +48,36 @@
   // watches during their first job blink its content away -- which reads as the
   // page being broken. The last known truth is better than a blank panel.
   let loadedOnce = false;
+
+  /**
+   * The list, and each App's quota behind it. A function rather than an inline
+   * effect body so the refresh button can await exactly the work the page does
+   * on arrival, quota reads included -- those are one request per installation
+   * and are the slow half.
+   */
+  async function load(signal: AbortSignal): Promise<void> {
+    loading = !loadedOnce;
+    try {
+      const result = await listInstallations(signal);
+      installations = result.items ?? [];
+      loadedOnce = true;
+      error = null;
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === 'AbortError') return;
+      error = cause;
+      return;
+    } finally {
+      if (!signal.aborted) loading = false;
+    }
+    // Deliberately after the cards are on screen: a quota read is one request
+    // per installation and must not hold the list behind a skeleton.
+    await readRateLimits(installations, signal);
+  }
+
   $effect(() => {
     void reload;
     const controller = new AbortController();
-    loading = !loadedOnce;
-    void listInstallations(controller.signal)
-      .then((result) => {
-        installations = result.items ?? [];
-        loadedOnce = true;
-        error = null;
-        void readRateLimits(installations, controller.signal);
-      })
-      .catch((cause: unknown) => {
-        if (cause instanceof DOMException && cause.name === 'AbortError') return;
-        error = cause;
-      })
-      .finally(() => (loading = false));
+    void load(controller.signal);
     return () => controller.abort();
   });
 
@@ -182,6 +196,7 @@
 <PageHeader
   title="Installations"
   subtitle="The GitHub App connections Zoomies uses to create runners and read queued jobs."
+  onrefresh={() => load(new AbortController().signal)}
 >
   {#snippet meta()}
     {#if installations.length > 0}

@@ -173,6 +173,7 @@
 <PageHeader
   title="Usage"
   subtitle="This fleet's runner capacity and job activity over a range of days. Jobs GitHub ran on its own hosted runners are not counted: they used no runner here."
+  onrefresh={() => load(query)}
 >
   <Button
     variant="secondary"

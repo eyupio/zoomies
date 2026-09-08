@@ -161,11 +161,23 @@
   }
 
   const targets = $derived(runner ? [runner] : []);
+
+  /**
+   * Fetch this runner again. The detail response carries the host, the pool and
+   * the timeline with it, so one request answers for the whole page -- and for
+   * a runner that has gone since, the 404 is the honest answer to "is it still
+   * there?", which is usually why somebody pressed it.
+   */
+  function refreshPage(): Promise<void> {
+    if (id === '') return Promise.resolve();
+    return load(id, new AbortController().signal);
+  }
 </script>
 
 <PageHeader
   title={runner?.name ?? (loading ? 'Runner' : 'Runner not found')}
   breadcrumb={[{ label: 'Runners', href: '/runners' }, { label: runner?.name ?? 'Runner' }]}
+  onrefresh={refreshPage}
 >
   {#snippet meta()}
     {#if runner}

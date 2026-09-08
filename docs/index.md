@@ -55,8 +55,9 @@ without Kubernetes and without a database server.
 ![The Overview: four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words](screenshots/overview-dark.webp#only-dark){ .zoomies-shot }
 ![The Overview: four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words](screenshots/overview-light.webp#only-light){ .zoomies-shot }
 
-The Overview, on a fleet part-way through a morning — every number live, no
-refresh button anywhere. [See all ten pages, in both themes](ui.md).
+The Overview, on a fleet part-way through a morning — every number live, and
+nothing to press to keep it that way. [See all ten pages, in both
+themes](ui.md).
 { .zoomies-shot-caption }
 
 ## How it works
@@ -86,8 +87,9 @@ flowchart LR
 
 ### A live web UI
 Ten pages, one job each, and every one of them updates in place from the
-controller's event stream — there is no refresh button anywhere. Light and dark,
-a command palette, and a log viewer built for a hundred thousand lines.
+controller's event stream — you never have to press refresh, though there is a
+button where you want to be sure. Light and dark, a command palette, and a log
+viewer built for a hundred thousand lines.
 [See every page](ui.md).
 </div>
 

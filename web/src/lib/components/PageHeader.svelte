@@ -3,10 +3,17 @@
 
   It owns the `<h1>` that route navigation moves focus to, so a keyboard user
   lands on the page name rather than back at the top of the navigation.
+
+  It also owns where refresh lives. A page that can be fetched again passes
+  `onrefresh`, and the control appears in the same place on every one of them --
+  first in the actions row, ahead of whatever this page's own actions are. That
+  uniformity is the point: the gesture is worth nothing if it has to be found.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { ChevronRight } from '@lucide/svelte';
+  import type { RefreshHandler } from '../state/refresh.svelte';
+  import RefreshButton from './RefreshButton.svelte';
 
   export interface Crumb {
     label: string;
@@ -19,12 +26,27 @@
     breadcrumb?: readonly Crumb[];
     /** Status badges and counts, under the title. */
     meta?: Snippet;
+    /**
+     * What this page does when it is asked to refresh. Renders the refresh
+     * button and becomes what the `R` shortcut does while the page is open.
+     * Pages with nothing to fetch -- a wizard, the not-found page -- omit it
+     * and get no button.
+     */
+    onrefresh?: RefreshHandler;
     /** The primary action, and any secondary ones beside it. */
     children?: Snippet;
     class?: string;
   }
 
-  let { title, subtitle, breadcrumb, meta, children, class: className = '' }: Props = $props();
+  let {
+    title,
+    subtitle,
+    breadcrumb,
+    meta,
+    onrefresh,
+    children,
+    class: className = '',
+  }: Props = $props();
 </script>
 
 <header class="page-header {className}">
@@ -49,8 +71,11 @@
       {#if subtitle}<p class="subtitle">{subtitle}</p>{/if}
       {#if meta}<div class="meta">{@render meta()}</div>{/if}
     </div>
-    {#if children}
-      <div class="actions">{@render children()}</div>
+    {#if onrefresh || children}
+      <div class="actions">
+        {#if onrefresh}<RefreshButton {onrefresh} />{/if}
+        {#if children}{@render children()}{/if}
+      </div>
     {/if}
   </div>
 </header>

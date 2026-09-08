@@ -1,8 +1,8 @@
 /**
  * The pages keep themselves current.
  *
- * There is no refresh button anywhere in Zoomies, and this is what protects
- * the promise behind that: a change made somewhere else -- another operator's
+ * Refreshing is a thing an operator may do, never a thing they must, and this
+ * protects the second half: a change made somewhere else -- another operator's
  * tab, the CLI, an automation -- appears on the page that is already open,
  * without anyone pressing anything. Each test makes the change over the API,
  * the way any other client would, and watches the page it is looking at.
@@ -128,9 +128,10 @@ test('a new risk on a pool reaches the problems bell on whatever page is open', 
 test('a dropped stream says so, and the page catches up by itself when it returns', async ({
   page,
 }) => {
-  // The promise behind having no refresh button is that a page which cannot
-  // hear the controller says so rather than quietly showing stale numbers, and
-  // that it reconciles once it can hear again. Nothing tested either half.
+  // A page which cannot hear the controller has to say so rather than quietly
+  // showing stale numbers, and has to reconcile once it can hear again. The
+  // refresh button is not the answer to either: nobody watching a dashboard is
+  // there to press it. Nothing tested either half.
   await goto(page, '/runners', 'Runners');
   const rows = dataRows(grid(page, 'Runners'));
   await expect(rows.first()).toBeVisible();

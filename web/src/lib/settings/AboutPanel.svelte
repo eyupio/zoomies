@@ -56,6 +56,17 @@
     },
   ];
 
+  interface Props {
+    /**
+     * Bumped by the page's refresh button. Read inside the fetch effect, which
+     * is what makes one press at the top of Settings re-read whichever panel is
+     * open rather than only the tab the operator happens to be looking past.
+     */
+    reloadKey?: number;
+  }
+
+  let { reloadKey = 0 }: Props = $props();
+
   let settings = $state<Settings | null>(null);
   let loading = $state(true);
   let error = $state<unknown>(null);
@@ -63,6 +74,7 @@
 
   $effect(() => {
     void reload;
+    void reloadKey;
     const controller = new AbortController();
     loading = true;
     void getSettings(controller.signal)

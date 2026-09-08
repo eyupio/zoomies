@@ -26,11 +26,12 @@
   answered -- and where a runner that died under a job is called the fleet's
   failure rather than the workflow's.
 
-  Nothing on this page polls, and nothing on it can be refreshed by hand. The
-  fleet cache subscribes to `stats`, `scaling`, `problems.updated`, `runner.*`,
-  `pool.*` and `host.*`; the panels below add `job.updated` for the running
-  jobs and the recent outcomes. A reconnect ends in one reconciling fetch,
-  which is the only fetch that ever happens twice.
+  Nothing on this page polls. The fleet cache subscribes to `stats`, `scaling`,
+  `problems.updated`, `runner.*`, `pool.*` and `host.*`; the panels below add
+  `job.updated` for the running jobs and the recent outcomes. A reconnect ends
+  in one reconciling fetch. Refreshing by hand asks for that same fetch: it is
+  never how the numbers keep up, only how an operator settles the question of
+  whether they have.
 -->
 <script lang="ts">
   import ErrorState from '$lib/components/ErrorState.svelte';
@@ -71,6 +72,7 @@
   subtitle={(others
     ? 'What is happening across every runner GitHub reports on, this fleet\u2019s and everybody else\u2019s.'
     : 'What this fleet is doing right now.') + ' Trends and waits cover the last hour.'}
+  onrefresh={() => fleet.reconcile()}
 >
   <Switch label="Other runners" checked={others} onchange={(on) => (prefs.otherRunners = on)} />
 </PageHeader>

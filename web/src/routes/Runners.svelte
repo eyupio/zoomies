@@ -5,10 +5,12 @@
   view -- "busy runners on host-2" -- is a URL somebody can paste into a chat
   window and land on exactly what you were looking at.
 
-  It stays live without a refresh button: the fleet cache applies runner.*
+  It stays live without anything being pressed: the fleet cache applies runner.*
   events as they arrive, the grid refetches off its version counter, and the
   state cell reads the cached runner first so a badge flips the moment the
-  event lands rather than when the next page of rows does.
+  event lands rather than when the next page of rows does. Refreshing by hand
+  reconciles that cache, which bumps the same counter, so one gesture brings
+  both the cache and the page of rows up to date.
 -->
 <script lang="ts">
   import { CircleSlash, Search, Trash2 } from '@lucide/svelte';
@@ -421,6 +423,7 @@
 <PageHeader
   title="Runners"
   subtitle="Every runner the controller knows about right now, and what it is doing."
+  onrefresh={() => fleet.reconcile()}
 />
 
 <div class="filters">

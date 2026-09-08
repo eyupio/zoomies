@@ -5,9 +5,9 @@
  * protects is the promise that looking at it is enough: four numbers with an
  * hour of shape behind them, everything that needs a person listed with the
  * fix beside it, which pools cannot grow, and the scheduler's own words for
- * why runners appeared. It also protects the absence of a refresh button --
- * "you never have to press anything" is a product promise, and a refresh
- * button anywhere on this page would break it.
+ * why runners appeared. The refresh button is here too, but what is protected
+ * about it is that it is never load-bearing: the numbers arrive on their own,
+ * and pressing it changes nothing about what the page says.
  */
 import { expect, test } from '@playwright/test';
 import { browserOverride, FIXTURE, goto } from './support/fixtures';
@@ -313,13 +313,24 @@ test('the scaling feed sits beside the pools and the running jobs, never under t
   expect(scrolled, 'the panel itself scrolls to reach the oldest').toBeGreaterThan(0);
 });
 
-test('there is no refresh button anywhere on the Overview', async ({ page }) => {
-  // The page is fed by one SSE connection; nothing on it can be refreshed by
-  // hand, and offering the gesture would suggest the numbers are stale.
-  const refreshy = /refresh|reload|update now|check again|fetch/i;
-  await expect(page.getByRole('button', { name: refreshy })).toHaveCount(0);
-  await expect(page.getByRole('link', { name: refreshy })).toHaveCount(0);
-  await expect(page.locator('[title*="efresh" i]')).toHaveCount(0);
+test('refreshing the Overview leaves it saying exactly what it said', async ({ page }) => {
+  // The gesture exists for the operator who wants to be sure, so the thing
+  // worth protecting is that it is not how the page keeps up: a press must not
+  // blank the tiles, re-run their skeletons, or change a single number that
+  // the stream had already put there.
+  const live = page.getByRole('link', { name: /^Live runners/ });
+  await expect(live).toBeVisible();
+  const before = await live.textContent();
+
+  const refresh = page.getByRole('button', { name: 'Refresh' });
+  await expect(refresh).toBeVisible();
+  await refresh.click();
+
+  // Nothing goes behind a skeleton on the way through: the last known truth
+  // stays on screen while the reconcile is in flight.
+  await expect(live).toBeVisible();
+  await expect(refresh).not.toHaveAttribute('aria-busy', 'true');
+  await expect(live).toHaveText(before ?? '');
 });
 
 /*

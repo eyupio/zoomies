@@ -8,8 +8,8 @@ description: >-
 
 The Zoomies web UI is meant to be left open on a second monitor all day. That is
 the bar every decision below is measured against: it should be calm when nothing
-is happening, unmistakable when something is wrong, and never make the operator
-click *refresh*.
+is happening, unmistakable when something is wrong, and never *need* the
+operator to click refresh.
 
 This document is the contract. If you are adding a component, take the tokens
 from here rather than inventing values.
@@ -481,7 +481,8 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 | --- | --- |
 | `DataGrid` | TanStack Table core + our own markup. Server-side pagination, sorting and filtering; column show/hide persisted per grid; sticky header; row selection with a bulk action bar; full keyboard navigation (`↑ ↓` rows, `Enter` opens, `Space` selects, `Shift+↑/↓` range) |
 | `FilterBar` | chips for active filters, each individually removable, plus a clear-all |
-| `PageHeader` | title, subtitle, breadcrumb, primary action |
+| `PageHeader` | title, subtitle, breadcrumb, primary action, and the refresh button where the page passes `onrefresh` |
+| `RefreshButton` | the one refresh: registers the page's handler so the button, `R` and the palette all run it; turning icon while it works |
 | `MetricTile` | number, label, delta, sparkline |
 | `LogViewer` | `lib/logs/`. xterm.js with search, follow/pause, wrap toggle, download, and a line counter |
 | `RunnerTimeline` | `lib/runners/`. One row per state with how long the runner stayed there, reconstructed from the four timestamps a runner row carries -- and it says so, rather than letting an operator read it as an audit trail |
@@ -505,13 +506,13 @@ addon handles the rendering; the constraints on our side are:
 
 ### Real time
 
-There is no refresh button. A single SSE connection to `/api/v1/events` feeds a
-client-side cache; each page subscribes to the event kinds it cares about. On
-reconnect the client sends `Last-Event-ID` and the server replays what it
-buffered, then the page does one reconciling fetch; frames that land while that
-fetch is in flight are held and applied on top of its result, because they are
-newer than it. The connection state is visible in the top bar: a quiet dot when
-live, an explicit "reconnecting…" when not — never a silent stall.
+A single SSE connection to `/api/v1/events` feeds a client-side cache; each
+page subscribes to the event kinds it cares about. On reconnect the client
+sends `Last-Event-ID` and the server replays what it buffered, then the page
+does one reconciling fetch; frames that land while that fetch is in flight are
+held and applied on top of its result, because they are newer than it. The
+connection state is visible in the top bar: a quiet dot when live, an explicit
+"reconnecting…" when not — never a silent stall.
 
 A grid that fetches its rows from the server refetches on the cache's *shape*
 — a runner appearing, changing state, pool, host or job — not on every frame,
@@ -524,6 +525,33 @@ the new machine it fetches its own join token every few seconds, because
 credentials are deliberately not on the stream. Even there the stream is the
 fast path — a host's first frame is the cue to ask at once — and the page says
 in words that it is waiting and how.
+
+### Refresh
+
+Refreshing is never how the screen keeps up — the stream is — but it is how an
+operator settles the question of whether it has. Some things genuinely do not
+arrive over the stream: join tokens, users, API tokens, the configuration, and a
+host that has only just been enrolled.
+
+So the control is one control, in one place, everywhere it means anything:
+
+* `PageHeader` renders it, first in the actions row, ahead of the page's own
+  actions. It is a `secondary` button, never the primary one — the primary
+  action changes the fleet, not the view of it.
+* A page declares what refreshing means for it by passing `onrefresh`, and
+  `RefreshButton` registers that with `lib/state/refresh.svelte.ts`, which is
+  also what the `R` shortcut and the palette entry run. The button and the key
+  cannot drift apart, because there is only one handler.
+* A page with nothing to fetch — a wizard mid-flight, the not-found page —
+  passes nothing and shows no button. A control that succeeds at nothing is
+  worse than no control.
+* One at a time: a second press joins the refresh in flight rather than starting
+  another, so a page that fans out to five requests cannot be made to send
+  fifteen.
+* The icon turns while the fetch runs and for a beat after it, because a refresh
+  answered out of a warm cache in twenty milliseconds otherwise looks like
+  nothing happened. The label does not move; `aria-busy` and one polite
+  announcement say the same thing without the animation.
 
 ### Optimistic updates
 
@@ -573,11 +601,12 @@ filter it is "no unmatched jobs", which is good news and says so.
 Everything reachable, in a sensible order, with a visible focus ring
 (`2px` `--z-accent`, `2px` offset — never removed). `Cmd/Ctrl+K` palette,
 `g` then `o/p/r/j/u/h/i/m/a/s` to jump between sections, `/` focuses the current
-page's search, `?` opens the shortcut sheet, `Esc` closes the topmost layer.
-While a dialog, drawer, menu or the palette is open, `Esc` is the only one of
-these the shell answers; the rest belong to the overlay, so a `g r` typed into a
-confirmation cannot navigate away from the thing being confirmed. Tab stays
-inside the innermost open overlay, and everything outside it is `inert`.
+page's search, `R` refreshes it, `?` opens the shortcut sheet, `Esc` closes the
+topmost layer. While a dialog, drawer, menu or the palette is open, `Esc` is
+the only one of these the shell answers; the rest belong to the overlay, so a
+`g r` typed into a confirmation cannot navigate away from the thing being
+confirmed. Tab stays inside the innermost open overlay, and everything outside
+it is `inert`.
 
 ### Responsive
 

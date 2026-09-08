@@ -6,6 +6,12 @@
   keeps a host from taking work -- cordoned, unhealthy, no capacity left, a
   backend that is not available -- is said in words on the card, because that is
   the question this page exists to answer.
+
+  Two things on this page do not arrive over the stream, though, and that is
+  what refreshing is for here: a host enrolled a moment ago, which the
+  controller announces only once it has heard from the agent, and the join
+  tokens, which move when somebody mints or spends one rather than when the
+  fleet does.
 -->
 <script lang="ts">
   import { Plus, Server } from '@lucide/svelte';
@@ -70,6 +76,16 @@
   let deleting = $state<Host | null>(null);
   let deleteOpen = $state(false);
 
+  /**
+   * Fetch both halves of this page again: the fleet, and the tokens beside it.
+   * The token list reports its own progress in place, so the button follows the
+   * reconcile -- the slower and more interesting of the two.
+   */
+  async function refreshPage(): Promise<void> {
+    tokensReload += 1;
+    await fleet.reconcile();
+  }
+
   async function cordon(host: Host, cordoned: boolean): Promise<void> {
     if (!host.id) return;
     const name = host.name || host.id;
@@ -104,6 +120,7 @@
 <PageHeader
   title="Hosts"
   subtitle="The machines that run runners, and how much room each one has left."
+  onrefresh={refreshPage}
 >
   {#snippet meta()}
     {#if fleet.loaded && hosts.length > 0}

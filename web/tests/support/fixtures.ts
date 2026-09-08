@@ -108,8 +108,8 @@ export const FIXTURE = {
  * Plant something a reload would lose, then check it is still there.
  *
  * A page that got its new numbers by reloading itself would pass a weaker
- * test and still be the bug: there is no refresh button anywhere in Zoomies,
- * and every page is expected to update in place.
+ * test and still be the bug: every page is expected to update in place, with
+ * nobody pressing anything.
  */
 export async function plantMarker(page: Page): Promise<void> {
   await page.evaluate(() => {

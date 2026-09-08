@@ -68,8 +68,9 @@ flowchart LR
 ```
 
 * **A live web UI.** Ten pages, one job each, all updating in place from the
-  controller's event stream — there is no refresh button anywhere. Light and
-  dark, a command palette, and a log viewer built for a hundred thousand lines.
+  controller's event stream — you never have to press refresh, though there is a
+  button where you want to be sure. Light and dark, a command palette, and a log
+  viewer built for a hundred thousand lines.
   [See every page](https://zoomies.sh/ui/).
 * **Ephemeral by default.** One job per runner. Nothing leaks from one workflow
   run to the next.

@@ -353,7 +353,13 @@
   {#if row.ip}<span class="mono">{row.ip}</span>{:else}<span class="none">--</span>{/if}
 {/snippet}
 
-<PageHeader title="Audit" subtitle="Every change made through this controller, and who made it." />
+<PageHeader
+  title="Audit"
+  subtitle="Every change made through this controller, and who made it."
+  onrefresh={() => {
+    liveKey += 1;
+  }}
+/>
 
 <div class="content">
   <FilterBar {chips} onclear={anyFilter ? clearFilters : undefined}>
