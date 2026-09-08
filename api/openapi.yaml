@@ -3192,6 +3192,15 @@ components:
             nothing else: its runners keep working and are drained as normal. Refusing its
             heartbeat instead would restart every agent in the fleet at once.
         incompatible_reason: { type: string, description: What to do about it, naming both protocol versions. }
+        version_skew:
+          type: string
+          enum: [behind, ahead, differs]
+          description: >-
+            How this host's release stands to the controller's, absent when they match.
+            `differs` is the honest answer for a pair the controller cannot order -- a
+            development build, a fork's tag -- because a wrong order would send an operator
+            to upgrade the wrong side. Two builds of one tag are the same release and are
+            not skew.
         healthy: { type: boolean }
         last_heartbeat: { type: string, format: date-time }
         created_at: { type: string, format: date-time }

@@ -718,10 +718,16 @@ func availableKinds(infos []backend.Info) []string {
 }
 
 func (a *Agent) warnSkew(controllerVersion string) {
-	// The controller sends version.Short(), which carries the commit, so it is
-	// compared with the agent's Short(): comparing it with the bare Version
-	// made every release build warn on every join.
-	if controllerVersion == "" || controllerVersion == version.Short() {
+	// Releases are compared, not commits.
+	//
+	// This used to compare version.Short(), which carries the commit, against
+	// the controller's -- so two builds of one tag warned here while the host
+	// row, which stores the bare version, said the fleet matched. The agent
+	// and the Hosts page disagreed, and one of them had to be wrong. Two
+	// builds of one tag are the same release: it is worth knowing in a bug
+	// report and it is not skew.
+	skew := version.CompareBuilds(version.Version, bareVersion(controllerVersion))
+	if skew == version.SkewNone {
 		return
 	}
 	a.mu.Lock()
@@ -729,9 +735,20 @@ func (a *Agent) warnSkew(controllerVersion string) {
 	a.warnedSkew = true
 	a.mu.Unlock()
 	if first {
-		a.log.Warn("controller and agent versions differ; upgrade both to the same release before reporting a bug",
-			"controller_version", controllerVersion, "agent_version", version.Short())
+		a.log.Warn("this agent is a different release from its controller",
+			"skew", string(skew),
+			"controller_version", controllerVersion, "agent_version", version.Short(),
+			"fix", "upgrade the controller first, then its agents; an agent ahead of its controller is the direction nobody tests")
 	}
+}
+
+// bareVersion strips the commit the controller sends beside its version, so
+// the two sides compare the same thing: "v1.2.3 (abc1234)" is release v1.2.3.
+func bareVersion(s string) string {
+	if i := strings.IndexByte(s, ' '); i >= 0 {
+		return s[:i]
+	}
+	return s
 }
 
 // jitter takes a random slice off the end of a backoff, up to a quarter of it.

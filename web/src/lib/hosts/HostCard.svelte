@@ -40,6 +40,23 @@
   }: Props = $props();
 
   const status = $derived(hostStatus({ healthy: host.healthy, cordoned: host.cordoned }));
+
+  // How this host's release stands to the controller's, and whether its agent
+  // speaks a protocol the controller understands at all. Both come from the
+  // controller: it is the side that knows its own version, and computing skew
+  // here would give a different answer from the one the agent logs about
+  // itself.
+  const skew = $derived(host.version_skew ?? '');
+  const skewLabel = $derived(
+    skew === 'behind' ? 'Behind' : skew === 'ahead' ? 'Ahead' : skew ? 'Different build' : '',
+  );
+  const skewHint = $derived(
+    skew === 'ahead'
+      ? 'This agent is a later release than the controller, which is the direction nothing is tested in. Upgrade the controller first.'
+      : skew === 'behind'
+        ? 'This agent is an earlier release than the controller. It is placing work as normal; upgrade it when convenient.'
+        : 'This agent is a build the controller cannot order against its own. Both are running; check which is which before reporting a bug.',
+  );
   // The host's own count, not one derived from the cached runner list: the cache
   // holds a page of runners, so counting it would undercount a busy host.
   const active = $derived(host.active_runners ?? 0);
@@ -123,6 +140,22 @@
       <h3 id="host-{host.id}-name">{host.name || host.id}</h3>
       <div class="badges">
         <Badge {status} size="sm" title={status.hint} />
+        {#if host.incompatible}
+          <Badge
+            tone="danger"
+            label="Incompatible"
+            size="sm"
+            dot={false}
+            title={host.incompatible_reason ||
+              'This agent speaks a protocol the controller does not, so no new runner is placed here.'}
+          />
+        {:else if skewLabel}
+          <!-- neutral, not a status colour: a host on another release is not
+               in a state, it is a fact worth knowing. The status palette is a
+               fixed mapping and reusing one here would teach it a second
+               meaning. -->
+          <Badge tone="neutral" label={skewLabel} size="sm" dot={false} title={skewHint} />
+        {/if}
         {#if host.embedded}
           <Badge
             tone="accent"
@@ -158,7 +191,15 @@
     {/if}
   </p>
 
-  {#if host.cordoned}
+  {#if host.incompatible}
+    <!-- The controller's own sentence, which already names both protocol
+         versions and what happens to the work here. Appending one of our own
+         produced a run-on paragraph saying the same thing twice. -->
+    <p class="cordoned">
+      {host.incompatible_reason ||
+        'This agent speaks a protocol the controller does not, so no new runner is placed here. Its running work finishes and is drained as normal.'}
+    </p>
+  {:else if host.cordoned}
     <p class="cordoned">
       Cordoned. Its running work finishes; no new runner is placed here until it is uncordoned.
     </p>

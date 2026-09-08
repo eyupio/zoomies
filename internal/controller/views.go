@@ -12,6 +12,7 @@ import (
 	"github.com/eyupio/zoomies/internal/migrate"
 	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/version"
 )
 
 // The views are the resources as the API documents them: a host with its
@@ -91,12 +92,19 @@ type HostView struct {
 	// host is excluded from placement exactly as a cordoned one is, so the
 	// Hosts page has to say which of the two it is: nothing is broken, the
 	// host is up and heartbeating, and it has quietly stopped taking work.
-	ProtocolVersion    int       `json:"protocol_version,omitempty"`
-	Incompatible       bool      `json:"incompatible"`
-	IncompatibleReason string    `json:"incompatible_reason,omitempty"`
-	Healthy            bool      `json:"healthy"`
-	LastHeartbeat      time.Time `json:"last_heartbeat"`
-	CreatedAt          time.Time `json:"created_at"`
+	ProtocolVersion    int    `json:"protocol_version,omitempty"`
+	Incompatible       bool   `json:"incompatible"`
+	IncompatibleReason string `json:"incompatible_reason,omitempty"`
+	// VersionSkew is how this host's release stands to the controller's:
+	// "behind", "ahead", "differs", or absent when they match. It is computed
+	// here rather than in the browser because the controller is the side that
+	// knows its own version, and because the agent's own warning comes from
+	// the same comparison -- the two used to disagree for two builds of one
+	// tag, and a badge that contradicts a log line is worse than neither.
+	VersionSkew   string    `json:"version_skew,omitempty"`
+	Healthy       bool      `json:"healthy"`
+	LastHeartbeat time.Time `json:"last_heartbeat"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // HostView renders a host as the API returns it.
@@ -134,6 +142,7 @@ func (c *Controller) HostView(h *store.Host) HostView {
 		ProtocolVersion:    h.ProtocolVersion,
 		Incompatible:       h.Incompatible,
 		IncompatibleReason: incompatibleReason(h),
+		VersionSkew:        string(version.CompareBuilds(h.Version, version.Version)),
 		Healthy:            h.Healthy(c.Now()),
 		LastHeartbeat:      h.LastHeartbeat,
 		CreatedAt:          h.CreatedAt,
