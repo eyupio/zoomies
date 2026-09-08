@@ -1,16 +1,25 @@
 <!--
-  What the fleet is doing about a job that is still queued.
+  What the fleet is doing about a job that is still waiting.
 
-  A queued job's row says how long it has waited; this says why. The pool that
-  claimed it is read from the live fleet cache, so the counts move as runners
-  come up, and the scheduler's own reason for not placing more -- no host with
-  room, the pool at its ceiling -- is printed in its words rather than
-  paraphrased.
+  The counts are this pool's, live from the fleet cache, and they stay here:
+  they are facts about the pool and the panel is where an operator reads them.
+
+  The sentence is not. It used to be worked out here from those same counts,
+  which could see how many runners a pool had and not the one thing that
+  decides whether it can have another -- whether any host will take it. So a
+  pool whose selector matched nothing read as a fleet that was merely busy, and
+  the advice was to wait for something that would never happen. It also
+  disagreed with the CLI, which reasoned its way to a different paragraph for
+  the same question.
+
+  It now comes from GET /jobs/{id}/explanation, which is computed from the last
+  scheduler plan and the fleet around the job, and is the same answer
+  `zoomies jobs get` prints.
 -->
 <script lang="ts">
-  import type { Job } from '$lib/api/types';
+  import type { Job, JobExplanation } from '$lib/api/types';
+  import { getJobExplanation } from '$lib/api/client';
   import { fleet } from '$lib/state/fleet.svelte';
-  import { pluralise } from '$lib/format';
   import Duration from '$lib/components/Duration.svelte';
 
   interface Props {
@@ -25,36 +34,40 @@
   const warming = $derived((counts?.provisioning ?? 0) + (counts?.registering ?? 0));
   const idle = $derived(counts?.idle ?? 0);
   const busy = $derived(counts?.busy ?? 0);
-  const atCeiling = $derived(
-    pool !== undefined && (counts?.live ?? 0) >= (pool.max_runners ?? Number.POSITIVE_INFINITY),
-  );
-  const blocked = $derived((pool?.warnings ?? []).filter((w) => w.code === 'pool.no_capacity'));
 
-  const summary = $derived.by(() => {
-    if (!pool) return 'The pool that claimed it is not in view yet.';
-    if (warming > 0) {
-      return `${pluralise(warming, 'runner is', 'runners are')} starting for this pool; the job goes to the first one GitHub sees.`;
-    }
-    if (idle > 0) {
-      return `${pluralise(idle, 'runner is', 'runners are')} idle in this pool, so GitHub should hand it over any moment.`;
-    }
-    if (atCeiling) {
-      return `The pool is at its ceiling of ${pluralise(pool.max_runners ?? 0, 'runner')}, all busy. The job waits for one to finish.`;
-    }
-    if (blocked.length > 0) return 'The scheduler wants a runner for it and cannot place one.';
-    return 'No runner is free and none is starting yet. The scheduler decides on its next pass.';
+  let why = $state<JobExplanation | null>(null);
+
+  // Refetched whenever the drawer is given a different job and whenever the
+  // event stream replaces this one: the answer is about the fleet around the
+  // job, so it goes stale for reasons the job row does not show.
+  $effect(() => {
+    const id = job.id;
+    void job.state;
+    if (!id) return;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        why = await getJobExplanation(id, controller.signal);
+      } catch {
+        // A diagnostic that is down is not the drawer's news to break: the
+        // counts below are still true, and they are most of the answer.
+        why = null;
+      }
+    })();
+    return () => controller.abort();
   });
 </script>
 
 <div class="waiting {className}" role="status" aria-label="What is happening to this job">
   <p class="line">
-    <span class="lead">Waiting</span>
+    <span class="lead" class:blocked={why?.blocked}>{why?.blocked ? 'Blocked' : 'Waiting'}</span>
     <span class="tabular"><Duration from={job.queued_at} live /></span>
     {#if pool}
       <span>in <a href="/pools/{pool.id}">{pool.name ?? pool.id}</a></span>
     {/if}
   </p>
-  <p class="summary">{summary}</p>
+  <p class="summary">{why?.summary ?? 'Working out what the fleet is doing about it…'}</p>
+  {#if why?.detail}<p class="summary detail">{why.detail}</p>{/if}
   {#if counts}
     <dl class="counts">
       <div>
@@ -75,9 +88,9 @@
       </div>
     </dl>
   {/if}
-  {#each blocked as problem (problem.title)}
-    <p class="blocked">{problem.title}{problem.fix ? ` ${problem.fix}` : ''}</p>
-  {/each}
+  {#if why?.fix}
+    <p class="blocked"><span class="fixLabel">Fix</span> {why.fix}</p>
+  {/if}
 </div>
 
 <style>
@@ -115,6 +128,15 @@
   }
   .blocked {
     color: var(--z-danger);
+  }
+  .detail {
+    color: var(--z-text-muted);
+  }
+  .lead.blocked {
+    color: var(--z-danger);
+  }
+  .fixLabel {
+    font-weight: var(--z-weight-medium);
   }
   .counts {
     display: flex;

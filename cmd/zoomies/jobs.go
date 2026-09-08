@@ -182,18 +182,21 @@ func jobsGet(ctx context.Context, e *env, args []string) error {
 		rows = append(rows, [2]string{"on github", j.HTMLURL})
 	}
 	p.keyValues(rows)
-	if !j.Matched && j.State == "queued" {
-		// The labels are only the answer when this fleet could have run the
-		// job at all. A repository no installation covers is refused before
-		// its labels are read, and sending somebody to their runs-on for that
-		// would waste the afternoon the message was meant to save.
-		if j.InstallationID == "" {
-			fmt.Fprintf(p.out, "\nNo GitHub App installation here covers %s, so no pool can claim this job\n", j.Repo)
-			fmt.Fprintln(p.out, "whatever its labels say, and it will never start.")
-			fmt.Fprintln(p.out, "Install the App on that organisation or repository, then add it with `zoomies installations list`.")
-		} else {
-			fmt.Fprintln(p.out, "\nNo enabled pool claims this job's labels, so it will never start.")
-			fmt.Fprintln(p.out, "Check the runs-on in the workflow against `zoomies pools list`.")
+
+	// Why the job is where it is, from the controller rather than worked out
+	// here. This used to be a paragraph the CLI reasoned its way to on its own,
+	// which could see the job row and nothing else -- not the scheduler's own
+	// reason for failing to place a runner, and not the host under the runner.
+	// The drawer had a different paragraph for the same question.
+	var why explanationItem
+	if _, eerr := client.get(ctx, "/jobs/"+url.PathEscape(id)+"/explanation", nil, &why); eerr == nil && why.Summary != "" {
+		fmt.Fprintln(p.out)
+		fmt.Fprintln(p.out, why.Summary)
+		if why.Detail != "" {
+			fmt.Fprintln(p.out, why.Detail)
+		}
+		if why.Fix != "" {
+			fmt.Fprintln(p.out, p.paint(colourYellow, "Fix: ")+why.Fix)
 		}
 	}
 

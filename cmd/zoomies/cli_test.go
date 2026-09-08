@@ -408,41 +408,53 @@ func TestUsersPasswdTakesTheSecretFromStandardInputNotAFlag(t *testing.T) {
 	}
 }
 
-// `zoomies jobs get` is the third surface that has to tell the two reasons a
-// queued job goes unclaimed apart, alongside the Jobs page and the job's
-// timeline. Sending somebody to their runs-on when the App is not installed on
-// that target would waste the afternoon the message exists to save.
-func TestJobsGetSaysWhichReasonAQueuedJobIsUnclaimedFor(t *testing.T) {
+// `zoomies jobs get` prints the controller's explanation rather than reasoning
+// its way to one.
+//
+// It used to have a paragraph of its own for a queued job nothing claims, which
+// could see the job row and nothing else -- not the scheduler's reason for
+// failing to place a runner, and not the host under the runner. The web UI had
+// a different paragraph for the same question. This replaces that test: the two
+// cases it covered are still told apart, and now by the side that can see the
+// fleet, so the two surfaces cannot disagree.
+func TestJobsGetPrintsTheControllersExplanation(t *testing.T) {
 	tests := []struct {
-		name           string
-		installationID string
-		want           string
-		notWant        string
+		name        string
+		explanation string
+		want        []string
+		notWant     string
 	}{
 		{
-			name:           "no installation covers the repository",
-			installationID: "",
-			want:           "No GitHub App installation here covers acme/widgets",
-			notWant:        "runs-on",
+			name: "no installation covers the repository",
+			explanation: `{"summary":"No pool in this fleet claims this job.",
+				"detail":"No GitHub App installation here covers acme/widgets.",
+				"fix":"install the App on that organisation, then add it.","waiting":true,"blocked":true}`,
+			want:    []string{"No pool in this fleet claims this job.", "No GitHub App installation here covers acme/widgets.", "install the App on that organisation"},
+			notWant: "runs-on",
 		},
 		{
-			name:           "an installation covers it and no pool wants the labels",
-			installationID: "ins_acme",
-			want:           "No enabled pool claims this job's labels",
-			notWant:        "GitHub App installation",
+			name: "the scheduler cannot place a runner",
+			explanation: `{"summary":"The scheduler wants a runner for this job and cannot place one.",
+				"detail":"no host can take a new docker runner (2 not matching the pool's host selector)",
+				"fix":"relax the pool's host selector.","waiting":true,"blocked":true}`,
+			want:    []string{"cannot place one", "not matching the pool's host selector", "relax the pool's host selector"},
+			notWant: "No enabled pool claims",
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
-				if strings.HasSuffix(r.URL.Path, "/events") {
+				switch {
+				case strings.HasSuffix(r.URL.Path, "/explanation"):
+					_, _ = w.Write([]byte(tc.explanation))
+				case strings.HasSuffix(r.URL.Path, "/events"):
 					_, _ = w.Write([]byte(`{"items":[],"total":0,"limit":50,"offset":0}`))
-					return
+				default:
+					_, _ = fmt.Fprint(w, `{"id":"job_1","repo":"acme/widgets","workflow":"CI","job_name":"build",
+						"labels":["self-hosted","linux","x64"],"state":"queued","matched":false,
+						"queued_at":"2026-04-01T11:00:00Z","steps":[]}`)
 				}
-				_, _ = fmt.Fprintf(w, `{"id":"job_1","repo":"acme/widgets","workflow":"CI","job_name":"build",
-					"labels":["self-hosted","linux","x64"],"state":"queued","matched":false,
-					"installation_id":%q,"queued_at":"2026-04-01T11:00:00Z","steps":[]}`, tc.installationID)
 			}))
 			defer srv.Close()
 
@@ -452,11 +464,15 @@ func TestJobsGetSaysWhichReasonAQueuedJobIsUnclaimedFor(t *testing.T) {
 			}); code != exitOK {
 				t.Fatalf("exit code = %d\n%s", code, errOut)
 			}
-			if !strings.Contains(out.String(), tc.want) {
-				t.Errorf("output does not say %q:\n%s", tc.want, out)
+			for _, want := range tc.want {
+				if !strings.Contains(out.String(), want) {
+					t.Errorf("output does not carry %q from the explanation:\n%s", want, out)
+				}
 			}
+			// The CLI must not still be writing its own answer beside the
+			// controller's; two answers is what this replaced.
 			if strings.Contains(out.String(), tc.notWant) {
-				t.Errorf("output should not mention %q here:\n%s", tc.notWant, out)
+				t.Errorf("output still carries the CLI's own reasoning %q:\n%s", tc.notWant, out)
 			}
 		})
 	}

@@ -65,6 +65,7 @@ export type PoolUpdate = Schemas['PoolUpdate'];
 export type Runner = Schemas['Runner'];
 export type RunnerDetail = Schemas['RunnerDetail'];
 export type TimelineEntry = Schemas['TimelineEntry'];
+export type JobExplanation = Schemas['JobExplanation'];
 export type Job = Schemas['Job'];
 export type JobStep = Schemas['JobStep'];
 export type JobEvent = Schemas['JobEvent'];

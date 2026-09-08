@@ -343,6 +343,9 @@ export const getJobFacets = (signal?: AbortSignal) =>
 export const getJobEvents = (id: string, signal?: AbortSignal) =>
   api.get<Result<'getJobEvents'>>(`/jobs/${enc(id)}/events`, { signal });
 
+export const getJobExplanation = (id: string, signal?: AbortSignal) =>
+  api.get<Result<'getJobExplanation'>>(`/jobs/${enc(id)}/explanation`, { signal });
+
 /* -- hosts ---------------------------------------------------------------- */
 
 export const listHosts = (signal?: AbortSignal) =>

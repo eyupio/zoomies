@@ -172,6 +172,17 @@ type jobEventItem struct {
 	At         time.Time `json:"at"`
 }
 
+// explanationItem is GET /jobs/{id}/explanation: why this job is where it is,
+// worked out on the controller. The CLI renders it rather than reasoning for
+// itself, so it and the web UI cannot give an operator two different answers.
+type explanationItem struct {
+	Summary string `json:"summary"`
+	Detail  string `json:"detail"`
+	Fix     string `json:"fix"`
+	Waiting bool   `json:"waiting"`
+	Blocked bool   `json:"blocked"`
+}
+
 type backendInfo struct {
 	Kind      string `json:"kind"`
 	Available bool   `json:"available"`
