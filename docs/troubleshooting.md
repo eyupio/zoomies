@@ -147,6 +147,15 @@ flowchart TB
     workload the agent is not seeing -- which is what the two branches above
     are asking about.
 
+    **The runner's own page answers which branch it is**, without going
+    anywhere else. Its facts panel carries **Container started** and
+    **Registered with GitHub** separately: the first present and the second
+    missing is the second branch, and neither present is the first. Beside them
+    is **Host last seen**, because a runner that is not progressing is often a
+    host whose agent has gone quiet, and that is the cheapest thing to rule out
+    first. The timeline names the same stages in order rather than showing two
+    rows that both say "Registering".
+
 A host whose Docker daemon was not up when the agent started re-probes as it
 runs, so it starts taking work within a heartbeat of the daemon appearing. What
 each host can currently run, and why it cannot run the rest, is on the Hosts

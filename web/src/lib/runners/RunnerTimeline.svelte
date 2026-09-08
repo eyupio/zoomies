@@ -25,6 +25,23 @@
 
   let { entries, running = false, class: className = '' }: Props = $props();
 
+  /**
+   * What a stage is called on the page. Two consecutive rows both labelled
+   * "Registering" tell an operator nothing, and those two rows are exactly the
+   * diagnosis of a stuck runner: a container that never started is a problem on
+   * the host, and one that started and never registered is a problem between
+   * the runner and GitHub.
+   */
+  const STAGES: Readonly<Record<string, string>> = {
+    image_pulling: 'Pulling the image',
+    container_started: 'Container started',
+    registered: 'Registered with GitHub',
+  };
+
+  function label(entry: TimelineEntry, fallback: string): string {
+    return (entry.stage && STAGES[entry.stage]) || fallback;
+  }
+
   const total = $derived(
     entries.reduce((sum, entry) => sum + Math.max(0, entry.duration_ms ?? 0), 0),
   );
@@ -50,7 +67,7 @@
         <span class="marker" aria-hidden="true"><StatusDot {status} size="sm" /></span>
         <div class="body">
           <div class="head">
-            <span class="state">{status.label}</span>
+            <span class="state">{label(entry, status.label)}</span>
             <span class="spent tabular">
               {#if last && running}
                 <Duration from={entry.at} live />
