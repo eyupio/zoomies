@@ -146,3 +146,18 @@ func (s *Server) handleJobFacets(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, out)
 }
+
+// handleJobExplanation answers GET /api/v1/jobs/{id}/explanation.
+//
+// It is its own endpoint rather than a field on the job, because the answer is
+// computed from the last scheduler plan and the fleet around the job rather
+// than from the row -- so it would be wrong on every cached copy of a job the
+// event stream has already delivered.
+func (s *Server) handleJobExplanation(w http.ResponseWriter, r *http.Request) {
+	out, err := s.ctrl.ExplainJob(r.Context(), chiURLParam(r, "id"))
+	if err != nil {
+		s.fail(w, r, "explaining the job", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}

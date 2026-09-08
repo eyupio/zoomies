@@ -1177,6 +1177,28 @@ paths:
                     items: { $ref: "#/components/schemas/JobEvent" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /jobs/{id}/explanation:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: getJobExplanation
+      tags: [jobs]
+      summary: Why this job is where it is
+      description: >-
+        One answer to "why is this job not running?", computed on the controller from the
+        last scheduler plan, the pool it was claimed by, and the runner and host behind
+        it. It is a separate endpoint rather than a field on the job because it is
+        computed from the fleet around the job rather than from its row, so a cached copy
+        of the job delivered by the event stream would carry a stale one. The drawer, the
+        CLI and the support bundle render this same answer, so they cannot disagree.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobExplanation" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /jobs/facets:
     get:
       operationId: getJobFacets
@@ -2768,6 +2790,30 @@ components:
             pool: { $ref: "#/components/schemas/Pool" }
             timeline: { type: array, items: { $ref: "#/components/schemas/TimelineEntry" } }
             logs_available: { type: boolean, description: False when the runner's host is unreachable, so the UI can say why rather than showing an empty log. }
+
+    JobExplanation:
+      type: object
+      required: [job_id, state, summary, waiting, blocked, computed_at]
+      properties:
+        job_id: { type: string }
+        state: { $ref: "#/components/schemas/JobState" }
+        summary:
+          type: string
+          description: >-
+            The sentence. Always set, including for a job that is running or finished:
+            "nothing is wrong" is an answer to the question.
+        detail: { type: string, description: What the summary leaves out, in the scheduler's own words where it has any. }
+        fix: { type: string, description: What to do. Absent means there is nothing to do, which is different from not knowing. }
+        waiting: { type: boolean, description: Whether the job is still waiting on something. }
+        blocked:
+          type: boolean
+          description: >-
+            Whether waiting will not on its own end it. A fleet that is merely busy clears;
+            a pool nothing can place never will, and the two need different advice.
+        pool_id: { type: string }
+        runner_id: { type: string }
+        host_id: { type: string }
+        computed_at: { type: string, format: date-time }
 
     TimelineEntry:
       type: object
