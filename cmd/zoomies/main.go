@@ -98,6 +98,7 @@ func commands() []*command {
 
 		{"init", groupSetup, "Set this host up: service, backend, GitHub App, first admin", runInit},
 		{"uninstall", groupSetup, "Remove Zoomies from this host", runUninstall},
+		{"backup", groupSetup, "Copy this host's database, with a manifest saying what it needs", runBackup},
 		{"config", groupSetup, "Check a configuration file, or print the effective one", runConfig},
 		{"healthcheck", groupSetup, "Probe a controller's /healthz; the container HEALTHCHECK", runHealthcheck},
 		{"version", groupSetup, "Print the version", runVersion},

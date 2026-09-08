@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.13 · 8 September 2026 · derived from the owner's
+Version 2.14 · 8 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -1042,10 +1042,18 @@ integrity check, so no new dependency is needed.
    when the key cannot open one, which is the *wrong* key rather than a missing
    one — that case cannot be caught at startup, because a key is proven only by
    opening something.
-2. `zoomies backup` (M): the copy, its integrity result, and a manifest with
-   build identity, the migration ledger, the key's fingerprint and path, the
-   secrets the restore will need, and the redacted configuration; `--keep`
-   retention; the key excluded unless `--include-key` is passed.
+2. `zoomies backup` (M): **done** — the copy, its integrity result, and a
+   manifest with build identity, the migration ledger, the key's fingerprint
+   and path, the secrets the restore will need, and the redacted
+   configuration; `--keep` retention, which only ever removes a directory this
+   command made; the key excluded unless `--include-key` is passed, and the
+   summary says which of the two backups was taken **every** time rather than
+   only when something is wrong. One backup is one timestamped directory
+   rather than a pair of files, which is what makes retention deletable and
+   restore a single argument. The backup page's `sqlite3` instructions are
+   replaced, resolving the inconsistency the verifier found: the key is kept
+   once, wherever secrets are kept, and the manifest's fingerprint is what
+   says the two belong together.
 3. `zoomies restore` (M): refuses a corrupt copy, a newer ledger and a wrong
    key fingerprint; never overwrites the only working database without
    `--replace`, and then takes a pre-restore copy first; deletes every
@@ -1692,6 +1700,14 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **8 September 2026 — Version 2.14:** `zoomies backup` is done. Two shapes
+  settled while writing it. A backup is one directory rather than a database
+  file beside a manifest file: retention has something whole to delete, and
+  `zoomies restore` will take one argument. And the summary states the key's
+  presence or absence on every run, not only on the dangerous one — an
+  operator who reads "backed up" and stops is exactly the person the sentence
+  is for.
 
 * **8 September 2026 — Version 2.13:** ZF-203's first pull request is done, and
   it sharpened one distinction the package's prose had left implicit: a

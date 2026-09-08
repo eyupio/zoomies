@@ -156,6 +156,7 @@ It needs an admin token, because the document contains the settings section.
 | --- | --- |
 | `zoomies init` | Set this host up: how it runs, backend, listener, GitHub App and the first administrator. `--answers` takes a file and implies `--non-interactive`; `--print-answers` writes one out from an interactive run so the next host can be identical. |
 | `zoomies uninstall` | Remove the service or container, the database, the encryption key and the configuration. |
+| `zoomies backup [--dir path] [--keep N] [--include-key]` | Take a consistent copy of this host's database into a timestamped directory, with a manifest recording the build, the migration ledger, the encryption key's fingerprint, what that key is needed for, and the blanked configuration. Reads the database file directly, so it works when the controller will not start. See [Backup and restore](backup-and-restore.md). |
 | `zoomies config check [--config path]` | Validate a file without starting anything. Warnings print and exit 0; errors exit 1. |
 | `zoomies config print [--config path]` | The effective configuration — file, environment and defaults combined — with secrets blanked. `--output` is `yaml` or `json` here, and defaults to `yaml`. |
 | `zoomies healthcheck --url <url>` | Probe a controller's `/healthz`. Exit 0 when it answers. This is what the container image's `HEALTHCHECK` runs. |
