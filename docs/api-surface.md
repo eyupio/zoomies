@@ -41,7 +41,7 @@ Conventions:
 | --- | --- | --- | --- |
 | GET | `/healthz` | — | Liveness. Always 200 once the process is serving. |
 | GET | `/readyz` | — | Readiness: database reachable, migrations applied. `schema` says which: how many, and the name of the latest, which is the only schema version there is. |
-| GET | `/api/v1/meta` | — | Version, whether bootstrap is needed, whether OIDC is enabled, feature flags. Safe to call before login — it is what the login page uses to decide what to render. |
+| GET | `/api/v1/meta` | — | Version, whether bootstrap is needed, whether OIDC is enabled, feature flags, and the fallback poller's state (`poller_enabled`, and `poller_last_poll_at` once it has completed a sweep). Safe to call before login — it is what the login page uses to decide what to render. |
 | GET | `/metrics` | viewer¹ | Prometheus text format. ¹Unauthenticated when `metrics.public` is true. |
 | GET | `/api/openapi.yaml` | — | The spec this document describes. |
 | GET | `/robots.txt` | — | Declines crawling unless `server.allow_indexing` is on. Rendered per request, because it has to name this controller's own address. |

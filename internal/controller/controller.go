@@ -127,6 +127,11 @@ type Controller struct {
 	// says out loud because a fleet scaling on the poller looks healthy until
 	// somebody wonders why it is slow.
 	pollingOnly atomic.Bool
+	// lastPollAt is when a poller sweep last finished, as UnixNano, or zero if
+	// none has. It is what says the safety net is still there: a poller that
+	// has stopped sweeping looks exactly like a poller with nothing to do, and
+	// on a fleet whose webhooks are also broken the difference is every job.
+	lastPollAt atomic.Int64
 	// githubMu guards githubPaused, which is a map rather than one deadline
 	// because GitHub's quota is per installation: one organisation spending
 	// its hour must not stop the fleet polling another's, which is the whole
@@ -502,6 +507,21 @@ func (c *Controller) Nudge() {
 // PollingOnly reports whether scaling is running on the fallback poller
 // because no webhook has ever been received.
 func (c *Controller) PollingOnly() bool { return c.pollingOnly.Load() }
+
+// PollerEnabled reports whether the fallback poller is running at all. It is
+// off by configuration, never by failure, so a fleet with no safety net is a
+// choice somebody made and the UI should say which.
+func (c *Controller) PollerEnabled() bool { return c.cfg().GitHub.PollFallback }
+
+// LastPollAt is when the fallback poller last completed a sweep, or the zero
+// time if it has not completed one since this controller started.
+func (c *Controller) LastPollAt() time.Time {
+	ns := c.lastPollAt.Load()
+	if ns == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, ns)
+}
 
 // schedulerInterval is the reconcile period, with a floor so that a
 // misconfigured zero does not spin the loop.

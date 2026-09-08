@@ -2100,6 +2100,8 @@ components:
         external_url: { type: string }
         webhook_url: { type: string }
         polling_only: { type: boolean, description: True when no webhook has ever been received and the poller is doing the work. }
+        poller_enabled: { type: boolean, description: True when the fallback poller is running. It is off only by configuration, never by failure. }
+        poller_last_poll_at: { type: string, format: date-time, nullable: true, description: When the fallback poller last completed a sweep, or absent if it has not completed one since this controller started. }
 
     # --- overview ---------------------------------------------------------
     Stats:

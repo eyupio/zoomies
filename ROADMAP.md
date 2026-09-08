@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.7 · 8 September 2026 · derived from the owner's
+Version 2.8 · 8 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -957,14 +957,15 @@ this pull request as a Phase 0 defect.
 
 *The small fixes that make what exists trustworthy (S each):* **done** —
 partial failure tolerance in the problems aggregator with a
-`controller.problems_partial` entry naming what could not be gathered, and the
+`controller.problems_partial` entry naming what could not be gathered; the
 missing secret blanked with a reflective test that every secret-shaped config
-field is; **outstanding** — container-started and registered
+field is; and a last-poll stamp and pause state in `/meta` with `poller.paused`
+and `poller.stale` problems — **not** both attributed to the whole poller as
+this said, because ZF-101 has since made the rate-limit hold per installation,
+so `poller.paused` names the installation it is holding;
+**outstanding** — container-started and registered
 stamps on the runner view, the stage labels rendered on the runner timeline,
-and "host last seen" on the runner facts; a last-poll stamp
-and pause state in `/meta` with `poller.paused` and `poller.stale` problems,
-both attributed to the whole poller because the pause is fleet-wide until
-ZF-101 changes it;
+and "host last seen" on the runner facts;
 one sentence for a `waiting` job.
 
 *The two new things (M and L):* a support bundle as one JSON document from
@@ -1670,6 +1671,13 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **8 September 2026 — Version 2.8:** the poller can be seen. Writing it found
+  a stale instruction in this document: ZF-202 asked for `poller.paused` to be
+  attributed to the whole poller "because the pause is fleet-wide until ZF-101
+  changes it", and ZF-101 changed it — the hold has been per installation since
+  its second pull request. The entry names the installation, and the package's
+  text is corrected rather than left to instruct the next session wrongly.
 
 * **8 September 2026 — Version 2.7:** the two of ZF-202's small fixes that
   need no API shape are done, and one of them was a disclosure rather than a

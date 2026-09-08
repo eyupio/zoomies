@@ -120,6 +120,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	out = append(out, c.leaseProblems()...)
 	out = append(out, c.loopProblems()...)
 	out = append(out, c.updateProblems()...)
+	gather("polling", c.pollerProblems)
 	gather("runners", c.runnerProblems)
 	gather("runner cleanup", c.cleanupProblems)
 	gather("stuck runners", c.notProgressingProblems)
@@ -692,6 +693,85 @@ func (c *Controller) loopProblems() []Problem {
 		})
 	}
 	return out
+}
+
+// pollerProblems says whether the safety net is still there.
+//
+// The fallback poller is what catches a fleet whose webhooks have stopped
+// arriving, and its two failure modes are silent by construction: a sweep that
+// has stopped happening looks exactly like a sweep with nothing to find, and an
+// installation standing down from GitHub's rate limit looks exactly like an
+// installation with no queued jobs. Both are only visible in the log, and
+// nobody reads the log of a fleet that appears to be fine.
+func (c *Controller) pollerProblems(ctx context.Context, out *[]Problem) error {
+	if !c.PollerEnabled() {
+		// Off is a choice, and the configuration validator already names it.
+		// Saying it twice would be the drawer disagreeing with itself.
+		return nil
+	}
+	now := c.Now()
+
+	// Two intervals of grace, the same window pollOnce uses to decide an
+	// installation's webhooks are fresh: one missed tick is a slow query, and
+	// a threshold that fires on one would cry wolf on every busy controller.
+	if last := c.LastPollAt(); !last.IsZero() && now.Sub(last) > 2*c.pollInterval()+c.pollInterval()/2 {
+		since := last
+		*out = append(*out, Problem{
+			Code:     "poller.stale",
+			Severity: config.SeverityWarning,
+			Setting:  "github.poll_interval",
+			Title:    "the fallback poller has stopped sweeping",
+			Detail: fmt.Sprintf("the last sweep finished %s ago, and the interval is %s. Until it resumes, a job is only noticed if its webhook arrives.",
+				formatAge(now.Sub(last)), c.pollInterval()),
+			Fix:   "check the controller's log for the error that ended the sweep; a controller that cannot reach GitHub or its own database logs it there.",
+			Since: &since,
+		})
+	}
+
+	// The hold is per installation -- GitHub's quota is -- so this names the
+	// installation rather than the fleet. One organisation spending its hour
+	// does not stop the others being polled, and an operator told "the poller
+	// is paused" would go looking for a fleet-wide fault that is not there.
+	held := c.heldInstallations(now)
+	if len(held) == 0 {
+		return nil
+	}
+	insts, err := c.st.ListInstallations(ctx)
+	if err != nil {
+		return fmt.Errorf("listing installations to name the ones being held: %w", err)
+	}
+	targets := make(map[string]string, len(insts))
+	for _, i := range insts {
+		targets[i.ID] = i.Target
+	}
+	for _, id := range slices.Sorted(maps.Keys(held)) {
+		name := targets[id]
+		if name == "" {
+			name = id
+		}
+		*out = append(*out, Problem{
+			Code:       "poller.paused",
+			Severity:   config.SeverityWarning,
+			Title:      "GitHub is rate-limiting " + name,
+			Detail:     "every background sweep is standing down from this installation until " + held[id].UTC().Format(time.RFC3339) + ". Webhooks still arrive; nothing polls for what they miss until then.",
+			Fix:        "nothing to do -- it clears itself. If it keeps happening, the App is spending its hourly quota: raise github.poll_interval, or narrow what this installation covers.",
+			TargetKind: "installation",
+			TargetID:   id,
+		})
+	}
+	return nil
+}
+
+// formatAge renders a duration the way an operator says one out loud.
+func formatAge(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return plural(int(d.Seconds()), "second")
+	case d < time.Hour:
+		return plural(int(d.Minutes()), "minute")
+	default:
+		return plural(int(d.Hours()), "hour")
+	}
 }
 
 func (c *Controller) runnerProblems(ctx context.Context, out *[]Problem) error {

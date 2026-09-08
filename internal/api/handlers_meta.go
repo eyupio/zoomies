@@ -33,6 +33,12 @@ type metaResponse struct {
 	ExternalURL       string `json:"external_url,omitempty"`
 	WebhookURL        string `json:"webhook_url,omitempty"`
 	PollingOnly       bool   `json:"polling_only"`
+	// PollerEnabled and PollerLastPollAt say whether the safety net is there
+	// and when it last ran. They sit beside polling_only because they are the
+	// same class of fact about this deployment, and none of the three tells an
+	// unauthenticated visitor anything they could act on.
+	PollerEnabled    bool       `json:"poller_enabled"`
+	PollerLastPollAt *time.Time `json:"poller_last_poll_at,omitempty"`
 }
 
 // handleMeta answers GET /api/v1/meta.
@@ -51,6 +57,10 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		ExternalURL:       s.cfg().Server.ExternalURL,
 		WebhookURL:        s.cfg().WebhookURL(),
 		PollingOnly:       s.ctrl.PollingOnly(),
+		PollerEnabled:     s.ctrl.PollerEnabled(),
+	}
+	if last := s.ctrl.LastPollAt(); !last.IsZero() {
+		out.PollerLastPollAt = &last
 	}
 	if out.OIDCEnabled {
 		out.OIDCLabel = oidcLabel(s.cfg().OIDC.Issuer)
