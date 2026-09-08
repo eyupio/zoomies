@@ -13,6 +13,14 @@ test.use(browserOverride);
 
 test.skip(({ isMobile }) => isMobile, 'the wizard is a desktop task');
 
+/**
+ * The `build` job of one repository on the exceptions step. Every demo
+ * repository has the same workflow, so the repository has to be named.
+ */
+function buildJob(page: import('@playwright/test').Page) {
+  return page.getByLabel('Where build in .github/workflows/ci.yml runs, in acme/widgets');
+}
+
 /** Walk to a step, leaving the wizard on it. */
 async function walkTo(page: import('@playwright/test').Page, step: number): Promise<void> {
   await goto(page, '/migrate', 'Migrate repositories');
@@ -54,8 +62,52 @@ test('the mapping step proposes the pool that matches the hosted label', async (
   await expect(select.getByRole('option', { name: /Leave it alone/ })).toHaveCount(1);
 });
 
-test('the review step shows the diff and the jobs it will not touch', async ({ page }) => {
+test('the exceptions step offers a pool for one job without touching the rest', async ({
+  page,
+}) => {
   await walkTo(page, 3);
+
+  await expect(page.getByRole('heading', { level: 2, name: 'Exceptions' })).toBeVisible();
+
+  // The default is the answer the label mapping already gave, so an operator
+  // who wants one answer everywhere reads past this step and changes nothing.
+  const build = buildJob(page);
+  await expect(build).toHaveValue('');
+  await expect(
+    build.getByRole('option', { name: `Use the label mapping — ${FIXTURE.linuxPool}` }),
+  ).toHaveCount(1);
+  // Every pool is a choice for this one job, and so is staying on GitHub.
+  await expect(build.getByRole('option', { name: `${FIXTURE.armPool} — the` })).toHaveCount(1);
+  await expect(build.getByRole('option', { name: 'Leave this job on GitHub' })).toHaveCount(1);
+
+  // The matrix job cannot be pointed anywhere from here: what it resolves to is
+  // decided elsewhere in the file, so it is listed with the reason rather than
+  // as a select that would quietly do nothing.
+  await expect(page.getByText('${{ }} expression').first()).toBeVisible();
+  await expect(page.getByLabel(/Where matrix in/)).toHaveCount(0);
+});
+
+test('an exception reaches the diff, and reaches only that job', async ({ page }) => {
+  await walkTo(page, 3);
+
+  await buildJob(page).selectOption(FIXTURE.armPool);
+  await page.getByRole('button', { name: 'Next' }).click();
+
+  await expect(page.getByRole('heading', { level: 2, name: 'Review' })).toBeVisible();
+  // One repository got the exception. The other two have the same job on the
+  // same label and still get the label mapping's answer, which is the whole
+  // point of the step being per job rather than a second mapping.
+  const diffs = page.getByRole('group', { name: 'The change to this file' });
+  await expect(diffs.filter({ hasText: `+    runs-on: ${FIXTURE.armPool}` })).toHaveCount(1);
+  await expect(diffs.filter({ hasText: `+    runs-on: ${FIXTURE.linuxPool}` })).toHaveCount(2);
+
+  // And the review says which line was decided by hand, so a diff that does not
+  // match the label mapping is never a surprise.
+  await expect(page.getByText(`build → ${FIXTURE.armPool}`)).toBeVisible();
+});
+
+test('the review step shows the diff and the jobs it will not touch', async ({ page }) => {
+  await walkTo(page, 4);
 
   await expect(page.getByRole('heading', { level: 2, name: 'Review' })).toBeVisible();
 
@@ -76,7 +128,7 @@ test('the review step shows the diff and the jobs it will not touch', async ({ p
 });
 
 test('an App without the permissions is stopped here, not halfway through', async ({ page }) => {
-  await walkTo(page, 3);
+  await walkTo(page, 4);
 
   const blocker = page.getByRole('alert');
   await expect(blocker).toContainText('cannot open a pull request yet');

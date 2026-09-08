@@ -291,3 +291,181 @@ func TestEmptyFile(t *testing.T) {
 		t.Fatalf("an empty file produced %+v", got)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Overrides
+// ---------------------------------------------------------------------------
+
+// The consolidated mapping is the default, and an override is the exception to
+// it. A fleet answers "where does ubuntu-latest go" once; a job that needs
+// somewhere else says so by name.
+func TestOverrideBeatsTheConsolidatedMappingForOneJob(t *testing.T) {
+	in := "jobs:\n  build:\n    runs-on: ubuntu-latest\n  integration:\n    runs-on: ubuntu-latest\n"
+	m := zoomies
+	m.Overrides = []Override{{
+		Repo: "acme/widgets", Path: ".github/workflows/ci.yml", Job: "integration", To: "zoomies-big",
+	}}
+
+	got := File(in, m.In("acme/widgets", ".github/workflows/ci.yml"))
+	if len(got.Rewrites) != 2 {
+		t.Fatalf("rewrites = %+v, want both jobs", got.Rewrites)
+	}
+	if got.Rewrites[0].To != "zoomies-linux-x64" || got.Rewrites[0].Overridden {
+		t.Errorf("build = %+v, want the consolidated mapping", got.Rewrites[0])
+	}
+	if got.Rewrites[1].To != "zoomies-big" || !got.Rewrites[1].Overridden {
+		t.Errorf("integration = %+v, want the override, marked as one", got.Rewrites[1])
+	}
+	if !strings.Contains(got.Content, "    runs-on: zoomies-big\n") {
+		t.Errorf("the override did not reach the file:\n%s", got.Content)
+	}
+}
+
+// An override belongs to one place. The same job name in another repository or
+// another file is a different job, and quietly migrating it would be a change
+// nobody reviewed.
+func TestOverrideNamesExactlyOnePlace(t *testing.T) {
+	in := "jobs:\n  build:\n    runs-on: ubuntu-latest\n"
+	m := zoomies
+	m.Overrides = []Override{{
+		Repo: "acme/widgets", Path: ".github/workflows/ci.yml", Job: "build", To: "zoomies-big",
+	}}
+
+	elsewhere := []struct{ name, repo, path string }{
+		{"another repository", "acme/other", ".github/workflows/ci.yml"},
+		{"another file", "acme/widgets", ".github/workflows/release.yml"},
+	}
+	for _, c := range elsewhere {
+		t.Run(c.name, func(t *testing.T) {
+			got := File(in, m.In(c.repo, c.path))
+			if len(got.Rewrites) != 1 || got.Rewrites[0].To != "zoomies-linux-x64" {
+				t.Fatalf("rewrites = %+v, want the consolidated mapping untouched", got.Rewrites)
+			}
+			if got.Rewrites[0].Overridden {
+				t.Error("a job in another place was reported as overridden")
+			}
+		})
+	}
+	// Repository names are case-insensitive on GitHub, and an operator who
+	// typed "ACME/Widgets" meant the same repository.
+	if got := File(in, m.In("ACME/Widgets", ".github/workflows/ci.yml")); got.Rewrites[0].To != "zoomies-big" {
+		t.Errorf("to = %q, want the override to survive a difference in case", got.Rewrites[0].To)
+	}
+}
+
+// An override can point a job at a pool for a label the consolidated mapping
+// left alone. That is the whole reason it is per job rather than per label: a
+// fleet with no Windows pool can still move the one Windows job it has room for.
+func TestOverrideMigratesALabelNobodyMapped(t *testing.T) {
+	in := "jobs:\n  windows:\n    runs-on: windows-latest\n"
+	m := zoomies
+	m.Overrides = []Override{{
+		Repo: "acme/widgets", Path: ".github/workflows/ci.yml", Job: "windows", To: "zoomies-windows-x64",
+	}}
+
+	got := File(in, m.In("acme/widgets", ".github/workflows/ci.yml"))
+	if len(got.Rewrites) != 1 || got.Rewrites[0].To != "zoomies-windows-x64" {
+		t.Fatalf("rewrites = %+v, want the Windows job on the override's pool", got.Rewrites)
+	}
+	if got.Rewrites[0].Label != "windows-latest" {
+		t.Errorf("label = %q, want the hosted label it replaced", got.Rewrites[0].Label)
+	}
+}
+
+// The other direction: everything moves except one job, which an operator has a
+// reason to leave where it is. An empty target is a decision, and it says so.
+func TestOverrideCanPinAJobToGitHub(t *testing.T) {
+	in := "jobs:\n  build:\n    runs-on: ubuntu-latest\n  flaky:\n    runs-on: ubuntu-latest\n"
+	m := zoomies
+	m.Overrides = []Override{{
+		Repo: "acme/widgets", Path: ".github/workflows/ci.yml", Job: "flaky", To: "",
+	}}
+
+	got := File(in, m.In("acme/widgets", ".github/workflows/ci.yml"))
+	if len(got.Rewrites) != 1 || got.Rewrites[0].Job != "build" {
+		t.Fatalf("rewrites = %+v, want only the job that was not pinned", got.Rewrites)
+	}
+	if len(got.Skips) != 1 || got.Skips[0].Job != "flaky" {
+		t.Fatalf("skips = %+v, want the pinned job", got.Skips)
+	}
+	// "not mapped" would send the operator off to fix a mapping that is fine.
+	if strings.Contains(got.Skips[0].Reason, "not mapped") {
+		t.Errorf("reason = %q, want it to say the job was left on GitHub deliberately", got.Skips[0].Reason)
+	}
+	if !strings.Contains(got.Skips[0].Reason, "stay on GitHub") {
+		t.Errorf("reason = %q, want it to name the decision", got.Skips[0].Reason)
+	}
+}
+
+// A mapping that was never narrowed carries its overrides but has applied none
+// of them. It must fall back to the consolidated answer rather than reach for
+// somebody else's exception.
+func TestOverridesDoNothingUntilTheMappingIsNarrowed(t *testing.T) {
+	in := "jobs:\n  build:\n    runs-on: ubuntu-latest\n"
+	m := zoomies
+	m.Overrides = []Override{{
+		Repo: "acme/widgets", Path: ".github/workflows/ci.yml", Job: "build", To: "zoomies-big",
+	}}
+	if got := File(in, m); got.Rewrites[0].To != "zoomies-linux-x64" {
+		t.Fatalf("to = %q, want the consolidated mapping", got.Rewrites[0].To)
+	}
+}
+
+// The block-sequence form is rewritten through the same path, so an override
+// has to reach it too.
+func TestOverrideReachesABlockSequence(t *testing.T) {
+	in := "jobs:\n  build:\n    runs-on:\n      - ubuntu-latest\n    steps: []\n"
+	m := zoomies
+	m.Overrides = []Override{{
+		Repo: "acme/widgets", Path: ".github/workflows/ci.yml", Job: "build", To: "zoomies-big",
+	}}
+
+	got := File(in, m.In("acme/widgets", ".github/workflows/ci.yml"))
+	want := "jobs:\n  build:\n    runs-on: zoomies-big\n    steps: []\n"
+	if got.Content != want {
+		t.Fatalf("content = %q, want %q", got.Content, want)
+	}
+	if !got.Rewrites[0].Overridden {
+		t.Error("a block sequence rewritten by an override is not marked as one")
+	}
+}
+
+// A skip carries the label it asked for only when there is exactly one, which is
+// what tells the wizard whether choosing a pool for that job would settle it. A
+// ${{ }} expression is not a decision an override can make.
+func TestSkipsSayWhetherAnOverrideCouldSettleThem(t *testing.T) {
+	in := `jobs:
+  unmapped:
+    runs-on: windows-latest
+  computed:
+    runs-on: ${{ matrix.os }}
+  taken:
+    runs-on: [self-hosted, linux]
+`
+	got := File(in, zoomies)
+	if len(got.Skips) != 3 {
+		t.Fatalf("skips = %+v, want three", got.Skips)
+	}
+	byJob := map[string]Skip{}
+	for _, s := range got.Skips {
+		byJob[s.Job] = s
+	}
+	if byJob["unmapped"].Label != "windows-latest" {
+		t.Errorf("the unmapped job carries label %q, want the one an override would replace", byJob["unmapped"].Label)
+	}
+	for _, job := range []string{"computed", "taken"} {
+		if byJob[job].Label != "" {
+			t.Errorf("%s carries label %q, want none: no override can settle it", job, byJob[job].Label)
+		}
+	}
+}
+
+// An override needs a job to name. A runs-on the tracker could not attribute has
+// no stable key, and one with an empty job would otherwise match every such line
+// in the file.
+func TestAnOverrideWithNoJobIsIgnored(t *testing.T) {
+	m := Mapping{Overrides: []Override{{Repo: "acme/widgets", Path: "p.yml", Job: "  ", To: "zoomies-big"}}}
+	if got := m.In("acme/widgets", "p.yml"); len(got.jobs) != 0 {
+		t.Fatalf("jobs = %v, want an override with no job to be dropped", got.jobs)
+	}
+}

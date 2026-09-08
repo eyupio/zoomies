@@ -72,6 +72,7 @@ export type MigrationRepo = Schemas['MigrationRepo'];
 export type MigrationWorkflow = Schemas['MigrationWorkflow'];
 export type MigrationRewrite = Schemas['MigrationRewrite'];
 export type MigrationSkip = Schemas['MigrationSkip'];
+export type MigrationOverride = Schemas['MigrationOverride'];
 export type MigrationPoolOption = Schemas['MigrationPoolOption'];
 export type MigrationOutcome = Schemas['MigrationOutcome'];
 export type MigrationResult = Schemas['MigrationResult'];

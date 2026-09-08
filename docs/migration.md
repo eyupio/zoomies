@@ -14,12 +14,15 @@ Open it at **Migrate** in the navigation, or `g` then `m`.
 2. **Proposes.** For every GitHub-hosted label it found — `ubuntu-latest`,
    `ubuntu-24.04-arm`, `macos-14` — it proposes the pool that promises the same
    operating system and architecture.
-3. **Shows you.** A unified diff of every file it would change, and every job it
+3. **Lets you make exceptions.** One answer per label is the default and usually
+   the whole answer. Where it is not, any single job can be pointed somewhere
+   else — see [one job at a time](#one-job-at-a-time).
+4. **Shows you.** A unified diff of every file it would change, and every job it
    would not, with the reason.
-4. **Opens.** One pull request per repository, each on its own branch, changing
+5. **Opens.** One pull request per repository, each on its own branch, changing
    only the `runs-on` lines you reviewed.
 
-Nothing before step four writes anything.
+Nothing before step five writes anything.
 
 ## What it changes, and what it will not
 
@@ -67,6 +70,39 @@ about *which* fleet, and breaks as soon as two pools share an architecture.
 Every pool also answers to `zoomies`, so `runs-on: zoomies` means "any runner
 this fleet has". That is the line to write in a repository nobody has decided a
 pool for yet.
+
+## One job at a time
+
+The **Labels** step answers "where does `ubuntu-latest` go" once, for every
+repository at once. That is what a fleet nearly always wants, and it is the
+default every job starts on.
+
+"Nearly always" is not always. The **Exceptions** step lists every job the scan
+found, with the answer the label mapping already gave it, and changing one
+changes only that job:
+
+| You want | You do |
+| --- | --- |
+| The integration suite on the big host | Point `acme/widgets` → `ci.yml` → `integration` at that pool. |
+| One job left on GitHub while everything else moves | Point it at **Leave this job on GitHub**. |
+| A repository moved a job at a time | Leave the mapping empty and point the jobs you are ready for. |
+| One Windows job moved, with no Windows pool proposed | Point it at the pool you know can take it. |
+
+An exception names exactly one place — a job, in a workflow file, in a
+repository. There are no patterns and no wildcards, because a pattern would
+match jobs you did not read in the review step, and reading the exact change is
+what this wizard is for. Two repositories with a job called `build` are two
+jobs.
+
+Doing nothing here is the normal outcome. Every row starts on **Use the label
+mapping**, and the review step marks the ones that do not, so a diff that
+disagrees with the mapping always says why.
+
+The jobs in the table above are listed too, greyed, with the same reason: a
+`runs-on: ${{ matrix.os }}` is not a decision an exception can make either, so it
+is not offered as one. So is a `runs-on` the scan could not attribute to a job
+name — there would be nothing stable to pin the exception to when the pull
+request step re-reads the file.
 
 ## Permissions
 
@@ -127,9 +163,22 @@ curl -sS -X POST https://zoomies.example.com/api/v1/migrations/pull-requests \
   -d '{
         "installation_id": "ins_...",
         "repos": ["acme/widgets"],
-        "mapping": {"ubuntu-latest": "zoomies-linux-x64"}
+        "mapping": {"ubuntu-latest": "zoomies-linux-x64"},
+        "overrides": [
+          {"repo": "acme/widgets", "path": ".github/workflows/ci.yml",
+           "job": "integration", "to": "zoomies-linux-arm64"},
+          {"repo": "acme/widgets", "path": ".github/workflows/ci.yml",
+           "job": "flaky", "to": ""}
+        ]
       }'
 ```
+
+`overrides` is the Exceptions step, and it is optional on both endpoints. Each
+entry needs `repo`, `path` and `job`; a `to` of `""` leaves that one job on
+GitHub's runners. A request that maps no label at all is accepted as long as one
+override carries a `to` — pointing three jobs at a pool by name is a migration
+too. An override that names a job the plan could not attribute, or a path that
+is not a workflow GitHub runs, is refused rather than dropped.
 
 Both need the operator role. `plan` costs a burst of the installation's GitHub
 quota — the same quota the scheduler uses — which is why a viewer cannot spend

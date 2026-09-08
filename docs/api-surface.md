@@ -143,8 +143,10 @@ for: Contents (write), Pull requests (write) and Workflows (write).
 
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
-| POST | `/api/v1/migrations/plan` | operator | `{installation_id, repos?, mapping?}`. Returns the rewrites, the skips and a unified diff per file. With no mapping, proposes one from the pools that exist. |
-| POST | `/api/v1/migrations/pull-requests` | operator | `{installation_id, repos, mapping, title?, body?, commit_message?}`. One pull request per repository, each on its own branch. Re-plans from the repository's current contents rather than trusting the client. |
+| POST | `/api/v1/migrations/plan` | operator | `{installation_id, repos?, mapping?, overrides?}`. Returns the rewrites, the skips and a unified diff per file. With no mapping, proposes one from the pools that exist. |
+| POST | `/api/v1/migrations/pull-requests` | operator | `{installation_id, repos, mapping?, overrides?, title?, body?, commit_message?}`. One pull request per repository, each on its own branch. Re-plans from the repository's current contents rather than trusting the client. |
+
+`mapping` is one answer per GitHub-hosted label for every repository. `overrides` are the exceptions to it: each is `{repo, path, job, to}` naming one job in one workflow file, with a `to` of `""` meaning that job stays on GitHub's runners. Either one alone is enough to open a pull request.
 
 ## Audit
 

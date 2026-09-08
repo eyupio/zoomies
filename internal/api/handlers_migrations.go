@@ -59,13 +59,18 @@ type migrationPlanRequest struct {
 	// Mapping is hosted label -> the runs-on value that replaces it. Empty asks
 	// the server to propose one from the pools that exist.
 	Mapping map[string]string `json:"mapping"`
+	// Overrides are the exceptions to Mapping, each naming one job in one file
+	// in one repository. Empty is the common case: most fleets want one answer
+	// per hosted label everywhere.
+	Overrides []migrate.Override `json:"overrides"`
 }
 
 // migrationApplyRequest opens the pull requests a plan described.
 type migrationApplyRequest struct {
-	InstallationID string            `json:"installation_id"`
-	Repos          []string          `json:"repos"`
-	Mapping        map[string]string `json:"mapping"`
+	InstallationID string             `json:"installation_id"`
+	Repos          []string           `json:"repos"`
+	Mapping        map[string]string  `json:"mapping"`
+	Overrides      []migrate.Override `json:"overrides"`
 	// Title, Body and CommitMessage override the defaults. They are here
 	// because the pull request lands in somebody else's repository, and an
 	// organisation with a pull-request template or a commit convention should
@@ -104,6 +109,10 @@ type migrationPlanResponse struct {
 	// Mapping is what was applied -- the request's, or the proposal the server
 	// made from the pools that exist.
 	Mapping map[string]string `json:"mapping"`
+	// Overrides is what was applied on top of it, echoed back so that a plan
+	// describes itself: every `to` under Repositories came either from Mapping
+	// or from one of these.
+	Overrides []migrate.Override `json:"overrides"`
 	// Unmapped are the hosted labels no pool was proposed for. They are the
 	// operator's decision, and the reason a plan can be empty.
 	Unmapped []string `json:"unmapped"`
@@ -176,6 +185,12 @@ func (s *Server) handleMigrationPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	overrides, bad := normalizeOverrides(req.Overrides)
+	if len(bad) > 0 {
+		unprocessable(w, overrideProblem, bad)
+		return
+	}
+
 	repos, truncated, err := s.migrationRepos(ctx, client, req.Repos, maxPlanRepos)
 	if err != nil {
 		s.githubFail(w, r, "listing the repositories this installation can see", err)
@@ -194,6 +209,7 @@ func (s *Server) handleMigrationPlan(w http.ResponseWriter, r *http.Request) {
 	if len(mapping) == 0 {
 		mapping = migrate.Suggest(pools, hosted)
 	}
+	m := migrate.Mapping{Labels: mapping, Overrides: overrides}
 
 	plans := make([]migrate.RepoPlan, 0, len(sources))
 	for _, src := range sources {
@@ -201,7 +217,7 @@ func (s *Server) handleMigrationPlan(w http.ResponseWriter, r *http.Request) {
 			plans = append(plans, migrate.RepoPlan{Repo: src.repo.FullName, DefaultBranch: src.repo.DefaultBranch, Error: src.err})
 			continue
 		}
-		plans = append(plans, migrate.PlanRepo(src.repo.FullName, src.repo.DefaultBranch, src.workflows, migrate.Mapping{Labels: mapping}))
+		plans = append(plans, migrate.PlanRepo(src.repo.FullName, src.repo.DefaultBranch, src.workflows, m))
 	}
 
 	var unmapped []string
@@ -217,6 +233,7 @@ func (s *Server) handleMigrationPlan(w http.ResponseWriter, r *http.Request) {
 		Repositories:       plans,
 		HostedLabels:       hosted,
 		Mapping:            mapping,
+		Overrides:          emptySlice(overrides),
 		Unmapped:           emptySlice(unmapped),
 		Pools:              poolOptions(pools),
 		Counts:             migrate.Count(plans),
@@ -272,11 +289,20 @@ func (s *Server) handleMigrationApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mapping := normalizeMapping(req.Mapping)
-	if len(mapping) == 0 {
-		unprocessable(w, "nothing would change: no hosted label is mapped to a pool",
-			[]fieldError{{"mapping", "map at least one label, such as ubuntu-latest, to a pool"}})
+	overrides, bad := normalizeOverrides(req.Overrides)
+	if len(bad) > 0 {
+		unprocessable(w, overrideProblem, bad)
 		return
 	}
+	// An operator who mapped no label at all but pointed three jobs at a pool by
+	// hand has asked for something real, so the check is "would anything move",
+	// not "is there a mapping".
+	if len(mapping) == 0 && !anyOverrideWrites(overrides) {
+		unprocessable(w, "nothing would change: no hosted label is mapped to a pool, and no job is pointed at one by name",
+			[]fieldError{{"mapping", "map at least one label, such as ubuntu-latest, to a pool, or send an override with a runs-on value"}})
+		return
+	}
+	m := migrate.Mapping{Labels: mapping, Overrides: overrides}
 
 	repos, _, err := s.migrationRepos(ctx, client, req.Repos, maxApplyRepos)
 	if err != nil {
@@ -296,7 +322,7 @@ func (s *Server) handleMigrationApply(w http.ResponseWriter, r *http.Request) {
 		if err := ctx.Err(); err != nil {
 			break
 		}
-		out.Results = append(out.Results, s.migrateRepo(ctx, client, repo, mapping, branch, title, req.Body, commit))
+		out.Results = append(out.Results, s.migrateRepo(ctx, client, repo, m, branch, title, req.Body, commit))
 	}
 	for _, res := range out.Results {
 		switch res.Status {
@@ -311,13 +337,14 @@ func (s *Server) handleMigrationApply(w http.ResponseWriter, r *http.Request) {
 
 	s.auth.Auditor().Act(ctx, Identity(ctx), "migration.pull_requests", "installation", inst.ID, map[string]any{
 		"repos": len(out.Results), "opened": out.Opened, "failed": out.Failed, "branch": branch,
+		"overrides": len(overrides),
 	})
 	writeJSON(w, http.StatusOK, out)
 }
 
 // migrateRepo plans and opens the pull request for one repository.
 func (s *Server) migrateRepo(ctx context.Context, client github.Client, repo github.Repository,
-	mapping map[string]string, branch, title, body, commit string) migrationResult {
+	m migrate.Mapping, branch, title, body, commit string) migrationResult {
 
 	res := migrationResult{Repo: repo.FullName, Status: "skipped"}
 	if repo.Archived {
@@ -335,7 +362,7 @@ func (s *Server) migrateRepo(ctx context.Context, client github.Client, repo git
 		return res
 	}
 
-	plan := migrate.PlanRepo(repo.FullName, repo.DefaultBranch, asMigrateWorkflows(workflows), migrate.Mapping{Labels: mapping})
+	plan := migrate.PlanRepo(repo.FullName, repo.DefaultBranch, asMigrateWorkflows(workflows), m)
 	var files []github.FileChange
 	for _, wf := range plan.Workflows {
 		if !wf.Changed() {
@@ -580,6 +607,69 @@ func hostedLabelsAcross(sources []workflowSource) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// overrideProblem is the sentence that goes with any malformed override.
+const overrideProblem = "an override names one job in one workflow file in one repository, and one of these names something else"
+
+// normalizeOverrides trims the overrides a request carries and reports the ones
+// that name nothing.
+//
+// A malformed override is refused rather than dropped. The operator picked that
+// job on the review screen, and a migration that quietly ignored the exception
+// they asked for -- sending the job to the consolidated pool instead -- is the
+// kind of surprise every other decision in this file is shaped to avoid.
+func normalizeOverrides(in []migrate.Override) ([]migrate.Override, []fieldError) {
+	var (
+		out   = make([]migrate.Override, 0, len(in))
+		bad   []fieldError
+		seen  = make(map[string]bool, len(in))
+		field = func(i int, name string) string { return fmt.Sprintf("overrides[%d].%s", i, name) }
+	)
+	for i, o := range in {
+		o = migrate.Override{
+			Repo: strings.TrimSpace(o.Repo),
+			Path: strings.TrimSpace(o.Path),
+			Job:  strings.TrimSpace(o.Job),
+			To:   strings.TrimSpace(o.To),
+		}
+		switch {
+		case o.Repo == "":
+			bad = append(bad, fieldError{field(i, "repo"), "name the repository this job is in, as owner/name"})
+			continue
+		case o.Job == "":
+			// Not every runs-on can be attributed to a job, and one that cannot
+			// has no name that survives the file being read again at apply time.
+			bad = append(bad, fieldError{field(i, "job"), "name the job; a runs-on the plan could not attribute to one cannot be overridden"})
+			continue
+		case !migrate.IsWorkflowPath(o.Path):
+			bad = append(bad, fieldError{field(i, "path"), "name a workflow file GitHub runs, such as .github/workflows/ci.yml"})
+			continue
+		}
+		key := strings.ToLower(o.Repo) + "\x00" + o.Path + "\x00" + o.Job
+		if seen[key] {
+			// Two answers for one job is not a preference, it is a bug in
+			// whatever built the request, and picking one of them silently would
+			// hide it.
+			bad = append(bad, fieldError{field(i, "job"), fmt.Sprintf("%s in %s is overridden twice", o.Job, o.Path)})
+			continue
+		}
+		seen[key] = true
+		out = append(out, o)
+	}
+	return out, bad
+}
+
+// anyOverrideWrites reports whether any override would actually move a job. One
+// that says "stay on GitHub" is a decision, but it is not a reason to open a
+// pull request.
+func anyOverrideWrites(in []migrate.Override) bool {
+	for _, o := range in {
+		if o.To != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // normalizeMapping lowercases the keys and drops the entries the browser sends
