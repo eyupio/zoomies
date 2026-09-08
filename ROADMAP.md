@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.14 · 8 September 2026 · derived from the owner's
+Version 2.15 · 8 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -1054,11 +1054,19 @@ integrity check, so no new dependency is needed.
    replaced, resolving the inconsistency the verifier found: the key is kept
    once, wherever secrets are kept, and the manifest's fingerprint is what
    says the two belong together.
-3. `zoomies restore` (M): refuses a corrupt copy, a newer ledger and a wrong
-   key fingerprint; never overwrites the only working database without
-   `--replace`, and then takes a pre-restore copy first; deletes every
-   session and unused join token, with flags to revoke API tokens and to
-   reset agent tokens; sets the fence; writes an audit row.
+3. `zoomies restore` (M): **done** — refuses a corrupt copy, a newer ledger and
+   a wrong key fingerprint, all three *before anything is moved*, which is the
+   property that matters: each is otherwise found after the controller is
+   running on the restored data; never overwrites the only working database
+   without `--replace`, and then moves it aside with its `-wal` and `-shm`
+   rather than copying it, since leaving those beside the restored file would
+   replay one database's log into another; deletes every session and unused
+   join token while keeping the redeemed ones, which are history; flags to
+   revoke API tokens and to reset agent tokens; sets the fence; writes an audit
+   row. The fence is a row in the database's own `settings` table rather than a
+   line in `zoomies.yaml`, because it belongs to the data: a restored database
+   is fenced wherever it is put, and a copy carried to a second machine arrives
+   fenced too.
 4. The fence (M): a `recovery.fenced` setting the controller reads at start;
    reconcile still snapshots and decides so the UI shows what it would do,
    but applies nothing, reaps nothing and creates nothing from the poller;
@@ -1700,6 +1708,16 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **8 September 2026 — Version 2.15:** `zoomies restore` is done, and it fixed
+  the fence's home. `recovery.fenced` is a row in the restored database's own
+  `settings` table — the one the verifier noted shares a name with the settings
+  API and none of its data — rather than a line in `zoomies.yaml`. The fence
+  belongs to the data: a restored database is fenced wherever it is put, and a
+  copy carried to a second machine arrives fenced too, which is the case the
+  fence exists for. An unparseable value reads as fenced, because the fence is
+  the safe side of its own question and a half-finished restore is exactly what
+  writes one.
 
 * **8 September 2026 — Version 2.14:** `zoomies backup` is done. Two shapes
   settled while writing it. A backup is one directory rather than a database
