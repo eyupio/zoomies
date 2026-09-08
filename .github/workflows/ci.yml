@@ -70,6 +70,18 @@ jobs:
       - name: Run the lifecycle drill
         run: make test-drill
 
+      # The load measurement runs here too, for its assertions rather than its
+      # figures: every read still answers, and a deep page is still a page of
+      # rows, with a month of history under it. The timings go to the job
+      # summary and nowhere else -- a runner's p95 is not a gate, and the
+      # recorded evidence is written by `make measure` on a known machine.
+      - name: Measure the reads a page makes
+        run: make measure LOAD_RECORD=$RUNNER_TEMP/load.md
+
+      - name: Load record
+        if: always()
+        run: cat "$RUNNER_TEMP/load.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
       # The record is the deliverable, not just the exit code: it says what was
       # observed and whether anything was left for a person to clean up.
       - name: Drill record

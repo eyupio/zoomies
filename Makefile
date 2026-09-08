@@ -106,6 +106,18 @@ test-upgrade: build-nogui ## Install the last published release, then upgrade it
 	sh install.sh --no-init --yes --prefix $(UPGRADE_DIR)/old
 	sh test/upgrade/upgrade-check.sh $(UPGRADE_DIR)/old/zoomies $(UPGRADE_DIR)/new/zoomies
 
+# The load measurement writes evidence, not an exit code: the figures are
+# recorded and compared with the last run, never turned into a threshold a
+# slower runner would fail a pull request on.
+# Absolute, because `go test` runs in the package's own directory.
+LOAD_RECORD ?= $(CURDIR)/roadmap/validation/load-$(shell git rev-parse --short HEAD).md
+
+.PHONY: measure
+measure: ## Build a fleet with a month of history and time the reads a page makes
+	ZOOMIES_LOAD_RECORD=$(LOAD_RECORD) \
+		$(GO) test -count=1 -v -tags load -timeout 20m ./test/load/...
+	@echo "record: $(LOAD_RECORD)"
+
 E2E_RESULTS ?= roadmap/validation/e2e
 
 .PHONY: test-e2e-required

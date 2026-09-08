@@ -446,9 +446,7 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 		if err != nil {
 			return nil, fmt.Errorf("replacing the previous registration of host %s: %w", name, err)
 		}
-		for _, id := range dropped {
-			c.publishRunnerDeleted(id)
-		}
+		c.publishRunnersDeleted(dropped)
 		h.Embedded = existing.Embedded || embedded
 		h.Cordoned = existing.Cordoned
 		// The reserve is the operator's, and a re-join is something the agent

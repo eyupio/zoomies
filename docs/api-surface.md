@@ -319,6 +319,14 @@ again -- the first frame on the new connection is `resync`, and the client
 should fetch the resources again rather than trust what it holds. The UI does
 exactly that.
 
+`resync` also arrives **mid-stream** when more than 64 runner rows are removed
+at once, which is what the hourly prune does to everything past the retention
+window. Announcing thousands of deletions one at a time overruns every
+subscriber's 256-deep queue, and a subscriber that falls behind is dropped: the
+stream ends, every open tab reconnects and refetches everything. One `resync`
+carries the same news for the cost of one frame. A `resync` frame from the bus
+carries an `id` like any other, and its payload names the reason.
+
 Three rules are what make the stream enough to keep a page current, so that no
 client ever has to poll or ask the operator to reload:
 

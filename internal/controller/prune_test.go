@@ -111,3 +111,45 @@ func TestAPrunedRunnerIsAnnounced(t *testing.T) {
 		t.Fatal("the pruned runner was never announced; every open Runners page still shows it")
 	}
 }
+
+// A prune that takes thousands of rows must not take every open tab with it.
+//
+// A subscriber's queue is 256 deep and the bus drops a subscriber that falls
+// behind. The hourly prune deletes everything past the retention window in one
+// pass, and announcing each row filled that queue several times over: every
+// tab was cut off, showed itself as disconnected, reconnected and refetched six
+// endpoints. The storm was the announcement rather than the deletion, so the
+// announcement is bounded.
+func TestABulkPruneAnnouncesOnceRatherThanDroppingEverySubscriber(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+
+	for i := range announceEach + 5 {
+		r := h.runnerRow(pool, host, store.RunnerIdle)
+		if _, err := h.st.TransitionRunner(h.ctx, r.ID, store.RunnerRemoved, "removed"); err != nil {
+			t.Fatalf("TransitionRunner %d: %v", i, err)
+		}
+	}
+
+	sub := h.listen(events.KindRunnerDeleted, events.KindResync)
+	h.c.UpdateConfig(func(c *config.Config) {
+		c.Retention = config.Retention{Runners: time.Hour}
+	})
+	h.advance(2 * time.Hour)
+	h.c.prune(h.ctx)
+
+	// One frame, and it is the one that means "fetch the resources again".
+	select {
+	case ev := <-sub.C:
+		if ev.Kind != events.KindResync {
+			t.Fatalf("the first frame was %q; a row-by-row announcement of a bulk prune fills every subscriber's queue and cuts it off", ev.Kind)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a bulk prune announced nothing at all, so every open page keeps showing rows that are gone")
+	}
+	select {
+	case ev := <-sub.C:
+		t.Fatalf("a second frame (%q) followed the resync; one is the whole point", ev.Kind)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
