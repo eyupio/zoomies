@@ -13,7 +13,8 @@
     title?: string;
     /** Overrides the message derived from the error. */
     description?: string;
-    /** Offered only after a failure -- Zoomies has no refresh button. */
+    /** The way back from a failure. Distinct from the page's refresh button:
+        this one exists because something went wrong, and says so. */
     onretry?: () => void;
     retryLabel?: string;
     compact?: boolean;

@@ -21,6 +21,12 @@
     full?: boolean;
     icon?: LucideIcon;
     iconAfter?: LucideIcon;
+    /**
+     * Turn the leading icon. For an action whose whole effect is to bring what
+     * is already on screen up to date: the label stays readable while it runs,
+     * which `loading` deliberately does not do.
+     */
+    iconSpin?: boolean;
     title?: string;
     ariaLabel?: string;
     ariaExpanded?: boolean;
@@ -41,6 +47,7 @@
     full = false,
     icon: Icon,
     iconAfter: IconAfter,
+    iconSpin = false,
     title,
     ariaLabel,
     ariaExpanded,
@@ -56,7 +63,10 @@
 
 {#snippet body()}
   <span class="content" class:hidden={loading}>
-    {#if Icon}<Icon size={iconSize} aria-hidden="true" />{/if}
+    {#if Icon}
+      <span class="lead" class:spinning={iconSpin}><Icon size={iconSize} aria-hidden="true" /></span
+      >
+    {/if}
     <span class="label">{@render children()}</span>
     {#if IconAfter}<IconAfter size={iconSize} aria-hidden="true" />{/if}
   </span>
@@ -86,7 +96,7 @@
     class:full
     disabled={disabled || loading}
     aria-label={ariaLabel}
-    aria-busy={loading ? 'true' : undefined}
+    aria-busy={loading || iconSpin ? 'true' : undefined}
     aria-expanded={ariaExpanded}
     aria-controls={ariaControls}
     aria-haspopup={ariaHaspopup}
@@ -177,6 +187,12 @@
   .label {
     display: inline-block;
   }
+  .lead {
+    display: inline-flex;
+  }
+  .lead.spinning {
+    animation: spin calc(var(--z-motion-slow) * 2) linear infinite;
+  }
 
   .spinner {
     position: absolute;
@@ -196,8 +212,10 @@
   }
   @media (prefers-reduced-motion: reduce) {
     /* The ring still reads as "working"; the label is replaced and `aria-busy`
-       says so. Nobody has to watch something spin to learn that. */
-    .spinner {
+       says so. Nobody has to watch something spin to learn that, and the same
+       goes for a turning icon. */
+    .spinner,
+    .lead.spinning {
       animation: none;
     }
   }

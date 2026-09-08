@@ -7,11 +7,11 @@
   operator watches when nothing is wrong -- where the capacity is going, and
   what the scheduler decided -- and finally the work itself.
 
-  Nothing on this page polls, and nothing on it can be refreshed by hand. The
-  fleet cache subscribes to `stats`, `scaling`, `problems.updated`, `runner.*`,
-  `pool.*` and `host.*`; the panels below add `job.updated` for the running
-  jobs. A reconnect ends in one reconciling fetch, which is the only fetch that
-  ever happens twice.
+  Nothing on this page polls. The fleet cache subscribes to `stats`, `scaling`,
+  `problems.updated`, `runner.*`, `pool.*` and `host.*`; the panels below add
+  `job.updated` for the running jobs. A reconnect ends in one reconciling fetch.
+  Refreshing by hand asks for that same fetch: it is never how the numbers keep
+  up, only how an operator settles the question of whether they have.
 -->
 <script lang="ts">
   import ErrorState from '$lib/components/ErrorState.svelte';
@@ -33,6 +33,7 @@
 <PageHeader
   title="Overview"
   subtitle="What the fleet is doing right now. Trends and waits cover the last hour."
+  onrefresh={() => fleet.reconcile()}
 />
 
 {#if failed}

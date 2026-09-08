@@ -11,6 +11,7 @@
   import { installShortcuts, focusSearch } from '$lib/keys';
   import { router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
+  import { refresh } from '$lib/state/refresh.svelte';
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
@@ -50,6 +51,7 @@
         // search everything.
         if (!focusSearch()) paletteOpen = true;
       },
+      refresh: () => void refresh.run(),
       go: (path) => router.navigate(path),
     });
   });

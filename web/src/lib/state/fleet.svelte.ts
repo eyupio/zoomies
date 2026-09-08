@@ -139,7 +139,8 @@ class Fleet {
         // Every reconnect ends with one reconciling fetch, because the replay
         // buffer is finite and we cannot know whether it covered the gap. A
         // first load that failed is retried the same way: the controller that
-        // was restarting under it is back, and there is no refresh button.
+        // was restarting under it is back, and nobody should have to press
+        // anything to find that out.
         const stale = this.#loaded || this.#error !== null;
         if (status === 'live' && wasBroken && stale) void this.reconcile();
       }),
@@ -201,8 +202,9 @@ class Fleet {
   }
 
   /**
-   * One authoritative fetch. Called at start-up and after every reconnect;
-   * concurrent callers share the in-flight promise rather than stampeding.
+   * One authoritative fetch. Called at start-up, after every reconnect, and by
+   * the refresh button on the pages that read this cache; concurrent callers
+   * share the in-flight promise rather than stampeding.
    */
   reconcile(): Promise<void> {
     if (this.#reconciling) return this.#reconciling;

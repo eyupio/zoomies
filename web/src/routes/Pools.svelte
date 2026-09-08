@@ -427,6 +427,7 @@
 <PageHeader
   title="Pools"
   subtitle="A pool decides what labels your runners answer to, and how many of them exist."
+  onrefresh={() => fleet.reconcile()}
 >
   {#if canOperate}
     <Button variant="primary" icon={Plus} href="/pools/new">Create a pool</Button>

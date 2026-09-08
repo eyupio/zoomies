@@ -1,10 +1,11 @@
 /**
  * One shared connection to /api/v1/events for the whole application.
  *
- * There is no refresh button in Zoomies, so this is the only thing standing
- * between the operator and a stale screen. It therefore never throws: a dead
- * connection is a state the top bar renders, not an exception a page has to
- * catch.
+ * This, and not the refresh button, is what stands between the operator and a
+ * stale screen: refreshing is a thing somebody chooses to do, and a dashboard
+ * on a second monitor has nobody choosing anything. It therefore never throws:
+ * a dead connection is a state the top bar renders, not an exception a page has
+ * to catch.
  *
  * Reconnection has two paths, deliberately:
  *

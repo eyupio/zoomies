@@ -88,20 +88,34 @@
   let pageRows = $state<Job[]>([]);
   let liveKey = $state(0);
 
+  async function loadFacets(signal: AbortSignal): Promise<void> {
+    try {
+      facets = await getJobFacets(signal);
+    } catch {
+      // The menus fall back to what is on the page. A failed facet request is
+      // not worth a toast: the grid itself will have reported the outage.
+    }
+  }
+
   $effect(() => {
     const controller = new AbortController();
-    void getJobFacets(controller.signal)
-      .then((result) => (facets = result))
-      .catch(() => {
-        // The menus fall back to what is on the page. A failed facet request is
-        // not worth a toast: the grid itself will have reported the outage.
-      });
+    void loadFacets(controller.signal);
     return () => controller.abort();
   });
 
   // A job changing state anywhere refetches the current page, debounced by the
-  // grid. There is no refresh button because there is never anything to press.
+  // grid, so in the ordinary case there is never anything to press.
   $effect(() => events.subscribe('job.updated', () => (liveKey += 1)));
+
+  /**
+   * Refreshing fetches both halves: the grid follows `liveKey`, and the facet
+   * menus are re-read here so a repository that has just run its first job
+   * appears in the filter rather than only in the rows.
+   */
+  async function refreshPage(): Promise<void> {
+    liveKey += 1;
+    await loadFacets(new AbortController().signal);
+  }
 
   /** Labels worth offering in the filter: what the pools answer to, plus what this page asked for. */
   const labelOptions = $derived.by(() => {
@@ -273,7 +287,11 @@
   />
 {/snippet}
 
-<PageHeader title="Jobs" subtitle="Every workflow job GitHub has told this controller about." />
+<PageHeader
+  title="Jobs"
+  subtitle="Every workflow job GitHub has told this controller about."
+  onrefresh={refreshPage}
+/>
 
 <div class="content">
   <JobFilters

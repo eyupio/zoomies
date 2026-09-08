@@ -42,21 +42,34 @@
   let reload = $state(0);
   let rates = $state<Record<string, RateLimit>>({});
 
+  /**
+   * The list, and each App's quota behind it. Written as a function rather than
+   * inline so the refresh button can await the same work the page does on
+   * arrival, quota reads included -- those are one request per installation and
+   * are the slow half.
+   */
+  async function load(signal: AbortSignal): Promise<void> {
+    loading = true;
+    try {
+      const result = await listInstallations(signal);
+      installations = result.items ?? [];
+      error = null;
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === 'AbortError') return;
+      error = cause;
+      return;
+    } finally {
+      if (!signal.aborted) loading = false;
+    }
+    // Deliberately after the cards are on screen: a quota read is one request
+    // per installation and must not hold the list behind a skeleton.
+    await readRateLimits(installations, signal);
+  }
+
   $effect(() => {
     void reload;
     const controller = new AbortController();
-    loading = true;
-    void listInstallations(controller.signal)
-      .then((result) => {
-        installations = result.items ?? [];
-        error = null;
-        void readRateLimits(installations, controller.signal);
-      })
-      .catch((cause: unknown) => {
-        if (cause instanceof DOMException && cause.name === 'AbortError') return;
-        error = cause;
-      })
-      .finally(() => (loading = false));
+    void load(controller.signal);
     return () => controller.abort();
   });
 
@@ -173,6 +186,7 @@
 <PageHeader
   title="Installations"
   subtitle="The GitHub App connections Zoomies uses to create runners and read queued jobs."
+  onrefresh={() => load(new AbortController().signal)}
 >
   {#snippet meta()}
     {#if installations.length > 0}

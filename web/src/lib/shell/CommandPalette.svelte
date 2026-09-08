@@ -16,6 +16,7 @@
     Moon,
     Plug,
     Plus,
+    RotateCw,
     ScrollText,
     Search,
     Server,
@@ -26,6 +27,7 @@
   import { layers, trapFocus } from '../keys';
   import { router } from '../router';
   import { fleet } from '../state/fleet.svelte';
+  import { refresh } from '../state/refresh.svelte';
   import { session } from '../state/session.svelte';
   import { theme } from '../state/theme.svelte';
   import { toasts } from '../state/toasts.svelte';
@@ -135,6 +137,19 @@
         run: () => theme.cycle(),
       },
     ];
+
+    // Offered only where it does something. A palette entry that quietly
+    // succeeds at nothing is how an operator stops trusting the palette.
+    if (refresh.available) {
+      out.push({
+        id: 'refresh',
+        group: 'Action',
+        label: 'Refresh this page',
+        detail: 'R',
+        icon: RotateCw,
+        run: () => void refresh.run(),
+      });
+    }
 
     if (canOperate) {
       out.push({

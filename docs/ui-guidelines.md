@@ -2,8 +2,8 @@
 
 The Zoomies web UI is meant to be left open on a second monitor all day. That is
 the bar every decision below is measured against: it should be calm when nothing
-is happening, unmistakable when something is wrong, and never make the operator
-click *refresh*.
+is happening, unmistakable when something is wrong, and never *need* the
+operator to click refresh.
 
 This document is the contract. If you are adding a component, take the tokens
 from here rather than inventing values.
@@ -277,7 +277,8 @@ no stores except for genuinely global state.
 | --- | --- |
 | `DataGrid` | TanStack Table core + our own markup. Server-side pagination, sorting and filtering; column show/hide persisted per grid; sticky header; row selection with a bulk action bar; full keyboard navigation (`↑ ↓` rows, `Enter` opens, `Space` selects, `Shift+↑/↓` range) |
 | `FilterBar` | chips for active filters, each individually removable, plus a clear-all |
-| `PageHeader` | title, subtitle, breadcrumb, primary action |
+| `PageHeader` | title, subtitle, breadcrumb, primary action, and the refresh button where the page passes `onrefresh` |
+| `RefreshButton` | the one refresh: registers the page's handler so the button, `R` and the palette all run it; turning icon while it works |
 | `MetricTile` | number, label, delta, sparkline |
 | `LogViewer` | xterm.js with search, follow/pause, wrap toggle, download, and a line counter |
 | `Timeline` | runner state history with durations between transitions |
@@ -301,12 +302,38 @@ addon handles the rendering; the constraints on our side are:
 
 ### Real time
 
-There is no refresh button. A single SSE connection to `/api/v1/events` feeds a
-client-side cache; each page subscribes to the event kinds it cares about. On
-reconnect the client sends `Last-Event-ID` and the server replays what it
-buffered, then the page does one reconciling fetch. The connection state is
-visible in the top bar: a quiet dot when live, an explicit "reconnecting…" when
-not — never a silent stall.
+A single SSE connection to `/api/v1/events` feeds a client-side cache; each page
+subscribes to the event kinds it cares about. On reconnect the client sends
+`Last-Event-ID` and the server replays what it buffered, then the page does one
+reconciling fetch. The connection state is visible in the top bar: a quiet dot
+when live, an explicit "reconnecting…" when not — never a silent stall.
+
+### Refresh
+
+Refreshing is never how the screen keeps up — the stream is — but it is how an
+operator settles the question of whether it has. Some things genuinely do not
+arrive over the stream: join tokens, users, API tokens, the configuration, and a
+host that has only just been enrolled.
+
+So the control is one control, in one place, everywhere it means anything:
+
+* `PageHeader` renders it, first in the actions row, ahead of the page's own
+  actions. It is a `secondary` button, never the primary one — the primary
+  action changes the fleet, not the view of it.
+* A page declares what refreshing means for it by passing `onrefresh`, and
+  `RefreshButton` registers that with `lib/state/refresh.svelte.ts`, which is
+  also what the `R` shortcut and the palette entry run. The button and the key
+  cannot drift apart, because there is only one handler.
+* A page with nothing to fetch — a wizard mid-flight, the not-found page —
+  passes nothing and shows no button. A control that succeeds at nothing is
+  worse than no control.
+* One at a time: a second press joins the refresh in flight rather than starting
+  another, so a page that fans out to five requests cannot be made to send
+  fifteen.
+* The icon turns while the fetch runs and for a beat after it, because a refresh
+  answered out of a warm cache in twenty milliseconds otherwise looks like
+  nothing happened. The label does not move; `aria-busy` and one polite
+  announcement say the same thing without the animation.
 
 ### Optimistic updates
 
@@ -346,7 +373,8 @@ action inline:
 Everything reachable, in a sensible order, with a visible focus ring
 (`2px` `--z-accent`, `2px` offset — never removed). `Cmd/Ctrl+K` palette,
 `g` then `o/p/r/j/h/i/a/s` to jump between sections, `/` focuses the current
-page's search, `?` opens the shortcut sheet, `Esc` closes the topmost layer.
+page's search, `R` refreshes it, `?` opens the shortcut sheet, `Esc` closes the
+topmost layer.
 
 ### Responsive
 

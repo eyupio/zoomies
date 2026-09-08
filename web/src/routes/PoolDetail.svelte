@@ -163,6 +163,19 @@
 
   /* -- actions ----------------------------------------------------------------- */
 
+  /**
+   * Everything this page reads, at once: the pool itself, the fleet cache the
+   * runner list comes from, the recent jobs, and the scaling history. Three of
+   * the four are fed by the stream in the ordinary case; asking for all four is
+   * what makes one press answer for the whole page rather than a quarter of it.
+   */
+  function refreshPage(): Promise<void> {
+    attempt += 1;
+    jobsAttempt += 1;
+    scalingAttempt += 1;
+    return fleet.reconcile();
+  }
+
   function setEnabled(enabled: boolean): void {
     if (!pool?.id) return;
     const poolId = pool.id;
@@ -230,6 +243,7 @@
   title={pool?.name ?? 'Pool'}
   breadcrumb={[{ label: 'All pools', href: '/pools' }, { label: pool?.name ?? 'Pool' }]}
   subtitle={editing ? 'Change what this pool makes, and how many of them.' : undefined}
+  onrefresh={refreshPage}
 >
   {#snippet meta()}
     {#if pool}

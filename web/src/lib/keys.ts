@@ -159,6 +159,7 @@ export const SHORTCUTS: readonly ShortcutGroup[] = [
     items: [
       { keys: [modKey, 'K'], description: 'Open the command palette' },
       { keys: ['/'], description: 'Focus the search on this page' },
+      { keys: ['R'], description: 'Refresh this page' },
       { keys: ['?'], description: 'Open this list' },
       { keys: ['Esc'], description: 'Close the topmost dialog, drawer or menu' },
     ],
@@ -183,6 +184,8 @@ export interface ShortcutActions {
   palette: () => void;
   help: () => void;
   search: () => void;
+  /** Fetch the current page again. A no-op on a page with nothing to fetch. */
+  refresh: () => void;
   go: (path: string) => void;
 }
 
@@ -241,6 +244,13 @@ export function installShortcuts(actions: ShortcutActions): () => void {
     if (e.key === '/') {
       e.preventDefault();
       actions.search();
+      return;
+    }
+    // Bare, and after the `g` chord has had its turn, so `g r` is still
+    // Runners rather than a refresh of wherever you happened to be.
+    if (e.key === 'r' || e.key === 'R') {
+      e.preventDefault();
+      actions.refresh();
       return;
     }
     if (e.key === '?') {
