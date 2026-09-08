@@ -75,7 +75,7 @@ the work is to make the code and its tests match it.
 
 | Work | Effort |
 | --- | --- |
-| ZF-103 implementation after the reservation decision record is accepted | `high` |
+| ZF-103's host reporting and the operator's view of it | `high`; the reservation decision and the scheduler's fit predicate are Fable tier, as ZF-103's session line in the plan says |
 | ZF-105, cleanup, retention and bounded retry | `xhigh`: retry and cleanup interact with the reconciliation invariants from ZF-102 |
 | ZF-201, the first-job journey in Svelte and its Playwright coverage | `high` |
 | ZF-202, diagnostics and the support bundle | `high` |

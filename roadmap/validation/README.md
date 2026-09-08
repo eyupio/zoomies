@@ -1,6 +1,8 @@
 # Validation evidence
 
-One file per gate or per measured baseline, named for the commit it describes.
+One file per gate or per measured baseline, named for the commit it describes —
+with one exception, the drill record, which is a running log rather than a
+snapshot and is named for what writes it.
 A file here is a record of what was run, on what, with what result, and what
 was not run. It is not a summary of what should be true.
 
@@ -26,6 +28,7 @@ Files:
 | --- | --- |
 | [baseline-6d12a72.md](baseline-6d12a72.md) | The reconciled baseline for the follow-on roadmap: what was run against `main` at `6d12a72` on 6 September 2026 and what was not. |
 | [gate-f-readiness-2cc7d9c.md](gate-f-readiness-2cc7d9c.md) | What Gate F still needs at the end of Assignment A: which of its targets can be measured at all, what has never run, and what is the owner's to supply. |
+| `drills.md` (untracked) | One row per drill run, appended by `make test-drill` and read back into the CI job summary. It is neither committed nor ignored, so a checkout holds only the runs made in that checkout — carrying the history across runs is ZF-302's record work. |
 
 Gate F, when it is attempted, gets a file of its own here, with the counts the
 roadmap asks for and the exclusions listed beside them.
