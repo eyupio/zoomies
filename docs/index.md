@@ -208,7 +208,7 @@ promising a platform it has never run on.
 | | Where it runs |
 | --- | --- |
 | **The controller and the agents** | Linux on x86-64 and arm64. macOS builds every release and is fine for running a controller while you develop against it. |
-| **The runners** | Ubuntu 24.04, Ubuntu 22.04, Debian 12, Fedora 42 and Rocky Linux 9, from `ghcr.io/eyupio/zoomies-runner`. Every image is built for x86-64 and arm64 except Ubuntu 22.04, which is x86-64 only. [The catalogue](naming.md#the-runner-image) is generated from one table in the code, so these docs cannot drift from what is published. |
+| **The runners** | Ubuntu 24.04, Ubuntu 22.04, Debian 12, Fedora 42 and Rocky Linux 9, from `ghcr.io/eyupio/zoomies-runner`. Every image is built for x86-64 and arm64 except Ubuntu 22.04, which is x86-64 only. [The catalogue](naming.md#the-runner-image) is generated from one table in the code, and a test holds this page to it, so neither can drift from what is published. |
 | **The backends** | `docker` — the default — `podman`, including rootless, and `process`, which runs the runner straight on the host without a container. |
 
 A pool names the machine its runners need, and the scheduler will not place it
