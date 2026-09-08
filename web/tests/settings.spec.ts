@@ -140,3 +140,30 @@ test('the chosen tab is in the address bar, so a settings page is a link', async
   await page.reload();
   await expect(tab(page, 'Appearance')).toHaveAttribute('aria-selected', 'true');
 });
+
+/**
+ * The About tab is the product's own identity card, and the two things it says
+ * about the product itself are easy to get wrong in opposite directions.
+ *
+ * The mark: the brand guide ranks the original circular dog above the
+ * head/swish, and the head/swish is a restored reconstruction rather than
+ * approved source artwork, so serving it here is serving the wrong dog. 128px
+ * is the guide's minimum for the circular mark and the reason this is the slot
+ * that carries it.
+ *
+ * The description: most people meet a controller somebody else installed, and
+ * the panel header says what the panel is rather than what Zoomies is.
+ */
+test('the About tab carries the primary mark and says what Zoomies is', async ({ page }) => {
+  await goto(page, '/settings?tab=about', 'Settings');
+
+  // The mark is decorative, so nothing in the accessibility tree names it and
+  // the served file is the only observable that distinguishes one from another.
+  const mark = page.locator('.identity img');
+  await expect(mark).toHaveAttribute('src', '/brand/mark-white.png');
+  await expect(mark).toHaveJSProperty('naturalWidth', 128);
+
+  await expect(
+    page.getByText(/lightweight fleet controller for GitHub Actions runners/),
+  ).toBeVisible();
+});

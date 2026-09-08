@@ -77,6 +77,11 @@ actually serves: `favicon.ico` (16/32/48), `favicon-16.png`, `favicon-32.png`,
 `apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, the dedicated
 `maskable-icon-512.png`, and the nine web UI assets under `brand/`.
 
+`brand/mark-white.png` and its `@2x` copy are the circular dog at the 128px
+minimum and at twice it, which is why that mark can be served at its minimum and
+no larger: those are the sizes in the directory, and enlarging a 256px raster to
+fill a bigger slot is the sort of thing this page tells other people not to do.
+
 `brand/app-logo.png` is the original-dog GitHub avatar with circular-crop safe
 space. An App manifest cannot carry a logo, so the connect flow hands the
 operator this file and a link to the page that takes it; without it the App
@@ -106,12 +111,14 @@ contains it, so a phone shrinks the lockup rather than overflowing. The artwork
 carries its own clear space, so the shape is deliberately larger than the dog
 inside it -- that padding is part of the supplied file and is not cropped away.
 
-The secondary head/swish carries spacious product identity slots at 48px, such
-as Settings → About. The paw/swish carries the navbar, where the detailed dog
-does not read clearly, plus genuinely tiny placements such as the mobile top
-bar, page footer and command palette. Both use the supplied white reverse
-artwork on a Zoomies Black chip, so the artwork is unchanged and remains
-legible in either theme.
+The original circular dog carries Settings → About at 128px, its minimum size —
+the one identity slot in the signed-in product with room for the primary mark,
+and the page that is about the product rather than about the fleet. The
+secondary head/swish carries identity slots between 48px and that minimum. The
+paw/swish carries the navbar, where the detailed dog does not read clearly, plus
+genuinely tiny placements such as the mobile top bar, page footer and command
+palette. All three use the supplied white reverse artwork on a Zoomies Black
+chip, so the artwork is unchanged and remains legible in either theme.
 
 Once somebody is signed in, the identity is carried in these quieter places:
 
@@ -121,7 +128,7 @@ Once somebody is signed in, the identity is carried in these quieter places:
 | The top bar, on a phone | Paw/swish, because the masthead is not on screen there |
 | The foot of every page | Paw/swish, name, running version and descriptor |
 | The command palette | Paw/swish and name beside the key hints |
-| Settings → About | 48px head/swish beside the name and descriptor |
+| Settings → About | 128px circular dog beside the name, descriptor and a one-line description of the product |
 
 The descriptor is set in Inter -- small, uppercase, letter-spaced -- rather than
 cropped out of the wordmark artwork, whose own descriptor line is drawn for
