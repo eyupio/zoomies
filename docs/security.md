@@ -173,7 +173,7 @@ re-encryption in v1.
 | --- | --- |
 | **viewer** | Read pools, runners, jobs, hosts, the audit log and metrics. Never sees a secret value. |
 | **operator** | Everything a viewer may, plus act on the fleet: create and edit pools, drain/delete/restart runners, cordon hosts. |
-| **admin** | Everything an operator may, plus manage users, API tokens, installations, join tokens and settings. |
+| **admin** | Everything an operator may, plus manage users, API tokens, installations, join tokens and settings, and take a support bundle. |
 
 The mapping from every individual API action to its minimum role is a table in
 `internal/auth/rbac.go`, and a test walks the full action list — so a new

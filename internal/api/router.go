@@ -216,6 +216,10 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionTokensWrite)).Post("/", s.handleCreateToken)
 			r.With(s.require(auth.ActionTokensWrite)).Delete("/{id}", s.handleRevokeToken)
 		})
+		// Diagnostics: the whole instance in one document, for a bug report.
+		// It is admin because it contains the settings section, which is.
+		r.With(s.require(auth.ActionDiagnosticsRead)).Get("/diagnostics/bundle", s.handleDiagnosticsBundle)
+
 		r.With(s.require(auth.ActionSettingsRead)).Get("/settings", s.handleGetSettings)
 		r.With(s.require(auth.ActionSettingsWrite)).Patch("/settings", s.handleUpdateSettings)
 	})

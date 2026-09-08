@@ -1221,6 +1221,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/diagnostics/bundle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A support bundle for this instance
+         * @description Everything a bug report needs about this controller in one JSON document: the build and the process, the effective configuration and its findings, the current problems, the fleet's installations, pools, hosts and runners, the work in flight with the controller's own explanation for each of it, and the recent scheduler decisions. It is assembled from the same renderings the other routes serve, so a section that is secret-free on its own route is secret-free here.
+         *
+         *     It never carries workflow log bodies. There is no redaction pass for them and there cannot be a reliable one, so the bundle carries runner ids and the download route instead and an operator attaches logs deliberately.
+         *
+         *     Assembly is section by section: a section that fails costs its own contents and lands in `errors` rather than failing the whole document, because the moment a bundle is taken is the moment a query is most likely to fail. Sections are capped by row count and the whole document by bytes; anything shortened says so in `truncated`.
+         */
+        get: operations["getSupportBundle"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/settings": {
         parameters: {
             query?: never;
@@ -2141,6 +2165,91 @@ export interface components {
             host_id?: string;
             /** Format: date-time */
             computed_at: string;
+        };
+        SupportBundle: {
+            /** @description The shape's own number, so a reader given a bundle out of context knows what it is looking at. It moves when a section is removed or renamed, not when one is added. */
+            bundle_version: number;
+            /** Format: date-time */
+            generated_at: string;
+            instance: components["schemas"]["BundleInstance"];
+            /** @description The effective configuration, the same key-by-key rendering /settings serves. */
+            config?: {
+                [key: string]: unknown;
+            };
+            /** @description The configuration validator's findings, the same list /settings carries. */
+            findings?: components["schemas"]["Problem"][];
+            /** @description Everything currently wrong, the same shape /problems serves. */
+            problems?: {
+                ok: boolean;
+                items: components["schemas"]["Problem"][];
+            };
+            stats?: components["schemas"]["Stats"];
+            installations?: components["schemas"]["Installation"][];
+            pools?: components["schemas"]["Pool"][];
+            hosts?: components["schemas"]["Host"][];
+            runners?: components["schemas"]["Runner"][];
+            /** @description The work in flight rather than the history. A bundle is taken because something is stuck, and finished jobs would be most of the bytes while answering none of it. */
+            jobs?: components["schemas"]["Job"][];
+            /** @description The controller's own answer for each unfinished job, the same one the drawer and the CLI render. */
+            explanations?: components["schemas"]["JobExplanation"][];
+            scaling_events?: components["schemas"]["ScalingEvent"][];
+            logs?: components["schemas"]["BundleLogs"];
+            /** @description Why a section is missing. A bundle with nine sections and a named failure is worth more than a 500. */
+            errors: components["schemas"]["BundleError"][];
+            truncated?: components["schemas"]["BundleTruncation"][];
+        };
+        /** @description What this process is and how it is doing -- the half of a bug report that is never in the fleet's own rows. */
+        BundleInstance: {
+            version?: string;
+            commit?: string;
+            build_date?: string;
+            go?: string;
+            os?: string;
+            arch?: string;
+            cpus?: number;
+            goroutines?: number;
+            /** Format: int64 */
+            heap_in_use_bytes?: number;
+            config_path?: string;
+            database_path?: string;
+            schema_applied?: number;
+            schema_latest?: string;
+            event_subscribers?: number;
+            polling_only?: boolean;
+            poller_enabled?: boolean;
+            /** Format: date-time */
+            poller_last_poll_at?: string;
+            /** @description The one fact here that is always a bug in Zoomies. A loop that panicked was restarted and the fleet carried on, so nothing else in a bundle would show it. */
+            loop_panics?: {
+                loop?: string;
+                count?: number;
+                last?: string;
+                /** Format: date-time */
+                at?: string;
+            }[];
+        };
+        /** @description Where the logs are, rather than the logs. */
+        BundleLogs: {
+            /** @description Why the bodies are not here. */
+            note?: string;
+            runners?: {
+                runner_id?: string;
+                name?: string;
+                state?: components["schemas"]["RunnerState"];
+                pool_id?: string;
+                /** @description The route that fetches this runner's log. */
+                download?: string;
+            }[];
+        };
+        BundleError: {
+            section: string;
+            error: string;
+        };
+        BundleTruncation: {
+            section: string;
+            /** @description How many rows survived */
+            kept?: number;
+            reason: string;
         };
         TimelineEntry: {
             state?: components["schemas"]["RunnerState"];
@@ -4641,6 +4750,26 @@ export interface operations {
                 content?: never;
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    getSupportBundle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportBundle"];
+                };
+            };
         };
     };
     getSettings: {

@@ -96,6 +96,13 @@ const (
 	ActionEventsRead    Action = "events.read"
 	ActionLogsRead      Action = "logs.read"
 	ActionStatsRead     Action = "stats.read"
+	// ActionDiagnosticsRead covers the support bundle, which is every other
+	// read gathered into one document. It is admin rather than viewer because
+	// the weakest role that covers all of it is the strongest role inside it:
+	// the bundle carries the settings section, and settings.read is admin. A
+	// viewer-readable bundle would hand out the one section this project has
+	// always kept behind an admin.
+	ActionDiagnosticsRead Action = "diagnostics.read"
 )
 
 // actionRoles is the authorisation policy in one table.
@@ -148,6 +155,8 @@ var actionRoles = map[Action]store.Role{
 	ActionEventsRead:    store.RoleViewer,
 	ActionLogsRead:      store.RoleViewer,
 	ActionStatsRead:     store.RoleViewer,
+
+	ActionDiagnosticsRead: store.RoleAdmin,
 }
 
 // AllActions returns every action, sorted. The UI's token editor lists the

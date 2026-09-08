@@ -243,6 +243,28 @@ for: Contents (write), Pull requests (write) and Workflows (write).
 | GET | `/api/v1/settings` | admin | Effective config with every secret blanked, plus the validator's findings. |
 | PATCH | `/api/v1/settings` | admin | The subset that is safe to change at runtime: retention, scheduler tunables, poll interval, log level. Anything requiring a restart is rejected with a message saying so. |
 
+## Diagnostics
+
+| Method | Path | Role | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/diagnostics/bundle` | admin | This instance in one JSON document, for a bug report. Admin because it contains the settings section, which is. |
+
+The bundle is assembled from the same renderings the routes above serve, so a
+section that is secret-free on its own route is secret-free here; the
+configuration in particular is the key-by-key rendering `/settings` uses, which
+a secret added to `config.Config` tomorrow cannot appear in by default.
+
+It never carries workflow log bodies. There is no redaction pass for them and
+there cannot be a reliable one — a log holds whatever a workflow printed — so
+the document carries runner IDs and the `/logs/download` route instead, and an
+operator attaches logs deliberately.
+
+Assembly is section by section: a section that fails costs its own contents and
+lands in `errors` rather than failing the whole document, because the moment a
+bundle is taken is the moment a query is most likely to fail. Sections are
+capped by row count and the whole document by bytes; anything shortened says so
+in `truncated`. `zoomies diagnostics` is the wrapper that writes it to a file.
+
 ## Webhooks
 
 | Method | Path | Role | Notes |
