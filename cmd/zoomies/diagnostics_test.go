@@ -104,7 +104,7 @@ func TestStructuredOutputEmitsTheBundleRatherThanWritingAFile(t *testing.T) {
 		t.Fatalf("exit code = %d\n%s", code, errOut)
 	}
 	var got map[string]any
-	if err := json.Unmarshal([]byte(out.String()), &got); err != nil {
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
 		t.Fatalf("--output json did not emit the document: %v\n%s", err, out)
 	}
 	entries, err := os.ReadDir(dir)
