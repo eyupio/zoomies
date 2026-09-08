@@ -45,8 +45,48 @@ test('the scan lists every repository and says what each one would get', async (
     // Each is ticked, because each has a job that would move.
     await expect(page.getByRole('checkbox', { name: repo, exact: false })).toBeChecked();
   }
-  // The count is the scan's own, not a guess: one job per repository.
+  // The count is the scan's own, not a guess.
   await expect(page.getByText('1 job in 1 file').first()).toBeVisible();
+});
+
+test('a repository with nothing to move is hidden, and can be shown', async ({ page }) => {
+  await walkTo(page, 1);
+
+  // The default: the repositories that would change, and a count of what that
+  // hides -- not a list of an organisation's documentation repositories.
+  const quiet = page.getByRole('checkbox', { name: FIXTURE.quietRepo, exact: false });
+  await expect(quiet).toBeHidden();
+  await expect(page.getByText('that cannot move')).toBeVisible();
+
+  await page.getByRole('switch', { name: 'Only repositories with something to move' }).click();
+  await expect(quiet).toBeVisible();
+  // It is listed so the operator can see it was looked at, and it cannot be
+  // chosen, because there is nothing in it to choose.
+  await expect(quiet).toBeDisabled();
+  await expect(page.getByText('No workflows')).toBeVisible();
+});
+
+test('a repository with several workflows is chosen file by file', async ({ page }) => {
+  await walkTo(page, 1);
+
+  const repo = page.getByRole('checkbox', { name: FIXTURE.multiWorkflowRepo, exact: false });
+  await expect(repo).toBeChecked();
+
+  await page.getByRole('button', { name: '2 files' }).click();
+  const release = page.getByRole('checkbox', { name: '.github/workflows/release.yml' });
+  await expect(release).toBeChecked();
+  await release.click();
+
+  // The repository is now partly chosen, and says so.
+  await expect(repo).not.toBeChecked();
+  await expect(page.getByText('1 of 2 files chosen')).toBeVisible();
+
+  // And the review only offers to change the file that is still ticked.
+  // Three steps on: labels, exceptions, review.
+  for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Review' })).toBeVisible();
+  await expect(page.getByText('.github/workflows/release.yml')).toBeHidden();
+  await expect(page.getByText('.github/workflows/ci.yml').first()).toBeVisible();
 });
 
 test('the mapping step proposes the pool that matches the hosted label', async ({ page }) => {
@@ -78,7 +118,7 @@ test('the exceptions step offers a pool for one job without touching the rest', 
   ).toHaveCount(1);
   // Every pool is a choice for this one job, and so is staying on GitHub.
   await expect(build.getByRole('option', { name: `${FIXTURE.armPool} — the` })).toHaveCount(1);
-  await expect(build.getByRole('option', { name: 'Leave this job on GitHub' })).toHaveCount(1);
+  await expect(build.getByRole('option', { name: 'Leave this job where it is' })).toHaveCount(1);
 
   // The matrix job cannot be pointed anywhere from here: what it resolves to is
   // decided elsewhere in the file, so it is listed with the reason rather than
@@ -94,12 +134,20 @@ test('an exception reaches the diff, and reaches only that job', async ({ page }
   await page.getByRole('button', { name: 'Next' }).click();
 
   await expect(page.getByRole('heading', { level: 2, name: 'Review' })).toBeVisible();
-  // One repository got the exception. The other two have the same job on the
-  // same label and still get the label mapping's answer, which is the whole
-  // point of the step being per job rather than a second mapping.
+  // One file got the exception. Every other file has a job on the same label
+  // and still gets the label mapping's answer, which is the whole point of the
+  // step being per job rather than a second mapping.
+  //
+  // Counted against the total rather than a number, so that a repository or a
+  // workflow added to the fixture later does not silently make this weaker.
+  // Each file in the fixture carries one job that would move.
   const diffs = page.getByRole('group', { name: 'The change to this file' });
+  const total = await diffs.count();
+  expect(total).toBeGreaterThan(1);
   await expect(diffs.filter({ hasText: `+    runs-on: ${FIXTURE.armPool}` })).toHaveCount(1);
-  await expect(diffs.filter({ hasText: `+    runs-on: ${FIXTURE.linuxPool}` })).toHaveCount(2);
+  await expect(diffs.filter({ hasText: `+    runs-on: ${FIXTURE.linuxPool}` })).toHaveCount(
+    total - 1,
+  );
 
   // And the review says which line was decided by hand, so a diff that does not
   // match the label mapping is never a surprise.

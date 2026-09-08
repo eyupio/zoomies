@@ -164,7 +164,7 @@
     grid-template-columns: minmax(0, 15rem) minmax(0, 1fr);
     gap: var(--z-space-2) var(--z-space-4);
     padding: var(--z-space-3) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   .row.has-findings {
     background: var(--z-surface-sunken);

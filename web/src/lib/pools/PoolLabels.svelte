@@ -10,10 +10,16 @@
     labels?: readonly string[];
     /** Show at most this many chips; the rest are summarised. */
     max?: number;
+    /**
+     * Let the chips wrap onto more lines. Off in a grid, where three long
+     * labels wrapped one per line made every row in the table that tall; on
+     * wherever the full set is being shown deliberately.
+     */
+    wrap?: boolean;
     class?: string;
   }
 
-  let { labels = [], max = 4, class: className = '' }: Props = $props();
+  let { labels = [], max = 4, wrap = false, class: className = '' }: Props = $props();
 
   const shown = $derived(labels.slice(0, max));
   const hidden = $derived(labels.slice(max));
@@ -22,7 +28,7 @@
 {#if labels.length === 0}
   <span class="none {className}">No labels</span>
 {:else}
-  <span class="labels {className}">
+  <span class="labels {className}" class:wrap>
     {#each shown as label (label)}
       <code class="chip">{label}</code>
     {/each}
@@ -45,7 +51,7 @@
     display: inline-block;
     max-width: 22ch;
     padding: 0 var(--z-space-2);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     color: var(--z-text);
@@ -56,6 +62,19 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     vertical-align: middle;
+  }
+  /* One line unless asked otherwise, and the counter is never the thing that
+     gets pushed out: it is the only sign that there is more to see. */
+  .labels:not(.wrap) {
+    flex-wrap: nowrap;
+    overflow: hidden;
+  }
+  .labels:not(.wrap) .chip {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .labels:not(.wrap) .more {
+    flex: none;
   }
   .more {
     font-size: var(--z-text-2xs);

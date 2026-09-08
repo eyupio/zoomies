@@ -37,6 +37,14 @@
     icon?: LucideIcon;
     danger?: boolean;
     /**
+     * This action opens something rather than doing something to a set, so it
+     * only makes sense for one row. It is offered whatever is selected, and
+     * disabled with a reason while more than one row is ticked -- an operator
+     * who ticked a row to act on it should not have to work out that the
+     * button they want is on a menu somewhere else.
+     */
+    single?: boolean;
+    /**
      * Act on the selected ids. Once it settles the selection is cleared, so
      * the same rows cannot be acted on twice by accident; resolve `false` to
      * keep it -- a confirmation the operator cancelled, say.
@@ -98,7 +106,11 @@
     onopen?: (row: T) => void;
     /** Called with every page as it lands, for warming the fleet cache. */
     onrows?: (rows: T[], total: number) => void;
-    /** Bump to refetch -- pages pass the fleet version so SSE keeps the grid live. */
+    /**
+     * Bump to refetch. Pages pass the fleet's `shape`, so SSE keeps the grid
+     * live without a round trip for every heartbeat; the grid itself refreshes
+     * at most about once a second however fast the key moves.
+     */
     liveKey?: number;
     noun?: string;
     emptyTitle?: string;
@@ -141,7 +153,6 @@
   const request = $derived({
     query: { limit, offset, sort, order } satisfies GridQuery,
     filterKey: JSON.stringify(filters ?? null),
-    liveKey,
   });
 
   let rows = $state<T[]>([]);
@@ -158,8 +169,76 @@
   let error = $state<unknown>(null);
   let lastFilterKey = '';
 
-  /** A short debounce so a burst of live events costs one request, not forty. */
+  /** A short debounce so a burst of changes costs one request, not forty. */
   const DEBOUNCE_MS = 120;
+  /**
+   * How often a live refresh may run, and how long the grid will go without
+   * one while frames keep arriving. A trailing debounce alone was reset by
+   * every frame, so a stream busier than one frame per 120ms -- a crash loop,
+   * a busy fleet's heartbeats -- meant the timer never fired and the page
+   * never refreshed; below that rate it was a round trip per frame.
+   */
+  const LIVE_EVERY_MS = 1000;
+
+  /** The request in flight, so a newer one can end it. */
+  let inflight: AbortController | null = null;
+  /** The query the rows on screen answer, for a live refresh to repeat. */
+  let current: GridQuery | null = null;
+  let liveTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastLiveAt = 0;
+  /** A live change landed while a fetch was in flight: refresh once it lands. */
+  let liveAgain = false;
+
+  function fetchNow(query: GridQuery): void {
+    inflight?.abort();
+    const controller = new AbortController();
+    inflight = controller;
+    loading = true;
+    void (async () => {
+      try {
+        const page = await fetcher(query, controller.signal);
+        if (controller.signal.aborted) return;
+        rows = page.items;
+        total = page.total;
+        error = null;
+        onrows?.(page.items, page.total);
+      } catch (cause) {
+        if (controller.signal.aborted) return;
+        if (cause instanceof DOMException && cause.name === 'AbortError') return;
+        error = cause;
+      } finally {
+        if (!controller.signal.aborted) {
+          loading = false;
+          settled = true;
+          if (inflight === controller) inflight = null;
+          if (liveAgain) {
+            liveAgain = false;
+            scheduleLive();
+          }
+        }
+      }
+    })();
+  }
+
+  /**
+   * Refresh for a live change: soon, but not more than once a second, and
+   * never by abandoning a request that is already on its way -- under a
+   * sustained stream that would be a page that never finishes loading.
+   */
+  function scheduleLive(): void {
+    if (liveTimer !== null) return;
+    const wait = Math.max(DEBOUNCE_MS, lastLiveAt + LIVE_EVERY_MS - Date.now());
+    liveTimer = setTimeout(() => {
+      liveTimer = null;
+      if (!current) return;
+      if (inflight) {
+        liveAgain = true;
+        return;
+      }
+      lastLiveAt = Date.now();
+      fetchNow(current);
+    }, wait);
+  }
 
   $effect(() => {
     const { query, filterKey } = request;
@@ -174,37 +253,41 @@
       }
     }
     lastFilterKey = filterKey;
+    current = query;
 
-    const controller = new AbortController();
-    let cancelled = false;
+    // A live refresh waiting for the old query would answer the wrong
+    // question; the fetch below covers it.
+    if (liveTimer !== null) {
+      clearTimeout(liveTimer);
+      liveTimer = null;
+    }
     loading = true;
-    const timer = setTimeout(() => {
-      void (async () => {
-        try {
-          const page = await fetcher(query, controller.signal);
-          if (cancelled) return;
-          rows = page.items;
-          total = page.total;
-          error = null;
-          onrows?.(page.items, page.total);
-        } catch (cause) {
-          if (cancelled) return;
-          if (cause instanceof DOMException && cause.name === 'AbortError') return;
-          error = cause;
-        } finally {
-          if (!cancelled) {
-            loading = false;
-            settled = true;
-          }
-        }
-      })();
-    }, DEBOUNCE_MS);
-
+    const timer = setTimeout(() => fetchNow(query), DEBOUNCE_MS);
     return () => {
-      cancelled = true;
       clearTimeout(timer);
-      controller.abort();
+      // The rows on screen must never answer a query the operator has left.
+      inflight?.abort();
+      inflight = null;
     };
+  });
+
+  // The first value of liveKey is the one the initial fetch already answers;
+  // every later change is a live event worth a refresh.
+  let liveSeen = false;
+  $effect(() => {
+    void liveKey;
+    untrack(() => {
+      if (!liveSeen) {
+        liveSeen = true;
+        return;
+      }
+      scheduleLive();
+    });
+  });
+
+  $effect(() => () => {
+    if (liveTimer !== null) clearTimeout(liveTimer);
+    inflight?.abort();
   });
 
   /* -- the table model ------------------------------------------------------ */
@@ -325,6 +408,11 @@
   }
 
   function onBodyKeydown(event: KeyboardEvent): void {
+    // Only the row itself. A link, a copy button or a menu inside a cell has
+    // its own meaning for Enter, Space and the arrows, and swallowing them
+    // here opened the row instead of the link and moved the grid's focus
+    // while a menu was open.
+    if (!(event.target instanceof HTMLTableRowElement)) return;
     const index = focused;
     switch (event.key) {
       case 'ArrowDown':
@@ -395,10 +483,13 @@
       <div class="bulk" role="group" aria-label="Actions for the selected {noun}">
         <span class="bulk-count tabular">{selected.length} selected</span>
         {#each bulkActions as action (action.id)}
+          {@const tooMany = action.single === true && selected.length > 1}
           <Button
             size="sm"
             variant={action.danger ? 'danger' : 'secondary'}
             icon={action.icon}
+            disabled={tooMany}
+            title={tooMany ? `${action.label} works on one ${noun} at a time` : undefined}
             onclick={() => void runBulk(action)}
           >
             {action.label}
@@ -434,9 +525,16 @@
   </div>
 
   <div class="scroll">
+    <!--
+      aria-rowcount is the server's total, not this page's length, so every row
+      has to say which of that total it is. Without aria-rowindex a screen
+      reader announces "row 3 of 1,284" for the third row of page nine, and the
+      count it was given becomes noise. The header is row 1, so the data starts
+      at offset + 2.
+    -->
     <table role="grid" aria-label={label} aria-rowcount={total} onkeydown={onBodyKeydown}>
       <thead>
-        <tr>
+        <tr aria-rowindex={1}>
           {#if selectable}
             <th class="pick" scope="col">
               <Checkbox
@@ -475,8 +573,10 @@
       <tbody bind:this={body}>
         {#if !settled}
           {#each Array.from({ length: 8 }, (_, i) => i) as line (line)}
-            <tr class="skeleton-row">
-              {#if selectable}<td class="pick"><Skeleton width="15px" height="15px" /></td>{/if}
+            <tr class="skeleton-row" aria-rowindex={offset + line + 2}>
+              {#if selectable}<td class="pick"
+                  ><Skeleton width="var(--z-control-box)" height="var(--z-control-box)" /></td
+                >{/if}
               {#each visibleColumns as column (column.id)}
                 <td><Skeleton width={column.align === 'end' ? '3rem' : '70%'} height="0.9rem" /></td
                 >
@@ -487,6 +587,7 @@
           {#each modelRows as row, index (row.id)}
             <tr
               data-row={index}
+              aria-rowindex={offset + index + 2}
               tabindex={index === focused || (focused === -1 && index === 0) ? 0 : -1}
               class:selected={isSelected(row.id)}
               class:clickable={Boolean(onopen)}
@@ -519,11 +620,18 @@
                 </td>
               {/if}
               {#each visibleColumns as column (column.id)}
+                {@const plain = column.cell ? '' : (column.value?.(row.original) ?? '')}
                 <td class:end={column.align === 'end'}>
                   {#if column.cell}
                     {@render column.cell(row.original)}
                   {:else}
-                    {column.value ? column.value(row.original) : ''}
+                    <!--
+                      One line and an ellipsis, with the whole value in a title.
+                      A column has a width, and a hyphenated name with nothing
+                      stopping it wraps one segment per line -- which makes
+                      every row in the grid as tall as the longest name in it.
+                    -->
+                    <span class="plain" title={plain || undefined}>{plain}</span>
                   {/if}
                 </td>
               {/each}
@@ -552,7 +660,7 @@
   .grid {
     display: flex;
     flex-direction: column;
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
     min-width: 0;
@@ -563,7 +671,7 @@
     justify-content: space-between;
     gap: var(--z-space-3);
     padding: var(--z-space-2) var(--z-space-3);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
     min-height: var(--z-space-10);
   }
   .bulk {
@@ -571,6 +679,7 @@
     align-items: center;
     gap: var(--z-space-2);
   }
+
   .bulk-count {
     font-size: var(--z-text-xs);
     font-weight: var(--z-weight-medium);
@@ -591,7 +700,7 @@
     gap: var(--z-space-2);
     min-width: 190px;
     padding: var(--z-space-3);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface-raised);
     box-shadow: var(--z-shadow-md);
@@ -621,14 +730,14 @@
     top: 0;
     z-index: var(--z-layer-sticky);
     padding: var(--z-space-2) var(--z-space-4);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
     background: var(--z-surface-sunken);
     color: var(--z-text-muted);
     font-size: var(--z-text-2xs);
     font-weight: var(--z-weight-medium);
     text-align: left;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     white-space: nowrap;
   }
   th.end,
@@ -659,13 +768,19 @@
   }
   .arrow {
     display: inline-block;
-    min-width: 8px;
+    min-width: var(--z-space-2);
   }
   tbody td {
     padding: var(--z-space-3) var(--z-space-4);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
     color: var(--z-text);
     vertical-align: middle;
+  }
+  .plain {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   tbody tr:last-child td {
     border-bottom: 0;
@@ -680,8 +795,8 @@
     background: var(--z-accent-subtle);
   }
   tbody tr:focus-visible {
-    outline: 2px solid var(--z-accent);
-    outline-offset: -2px;
+    outline: var(--z-focus-width) solid var(--z-focus-colour);
+    outline-offset: calc(-1 * var(--z-focus-offset));
   }
   .skeleton-row td {
     padding: var(--z-space-3) var(--z-space-4);

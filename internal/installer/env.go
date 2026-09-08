@@ -12,6 +12,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/cryptox"
+	"github.com/eyupio/zoomies/internal/machine"
 )
 
 // EnvFileName is the environment file a compose deployment reads. Compose
@@ -58,6 +59,11 @@ type EnvSpec struct {
 	Backend    string
 	DockerHost string
 	Capacity   int
+	// Network is the container network runner containers are attached to:
+	// the one the deployment declares. Left unset, the agent would put them
+	// on the daemon's default bridge, whatever the compose file's comment
+	// promises.
+	Network string
 
 	WorkDir string
 	DBPath  string
@@ -174,7 +180,7 @@ func (s EnvSpec) Config() *config.Config {
 	cfg.Agent.ControllerURL = s.ControllerURL
 	cfg.Agent.AgentToken = s.AgentToken
 	if cfg.Agent.Name == "" {
-		cfg.Agent.Name = hostname()
+		cfg.Agent.Name = machine.DefaultHostName()
 	}
 
 	cfg.Log.Format = s.LogFormat
@@ -274,6 +280,8 @@ func RenderEnv(spec EnvSpec) (string, error) {
 		"The socket runner containers are created on. This is Zoomies' own access to the runtime -- it is NOT pool.docker_mode=host-socket, which would hand the socket to your jobs.")
 	w.set("ZOOMIES_AGENT_CAPACITY", strconv.Itoa(s.Capacity),
 		"The most runners this host may hold at once. A pool's max_runners can be lower than this, never higher.")
+	w.set("ZOOMIES_AGENT_NETWORK", s.Network,
+		"The container network runner containers are attached to -- the one this deployment declares -- so they stay off the daemon's default bridge.")
 	w.set("ZOOMIES_WORK_DIR", s.WorkDir,
 		"Scratch space for runner work directories. It is inside the volume, so it survives the container being replaced.")
 

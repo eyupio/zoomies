@@ -13,6 +13,7 @@
  *    grid's body rows -- and each of those is commented at the point of use.
  *    The tests cannot add `data-testid`: the Svelte source is not theirs.
  */
+import { readFileSync } from 'node:fs';
 import { expect, type Locator, type Page } from '@playwright/test';
 
 /**
@@ -23,6 +24,23 @@ import { expect, type Locator, type Page } from '@playwright/test';
  * chromium`), leaves `PLAYWRIGHT_CHROMIUM` unset, and therefore gets `{}` --
  * no override at all. Every spec applies it with `test.use(browserOverride)`.
  */
+/**
+ * Where the first-run fixture leaves the setup token it saw the controller
+ * print.
+ *
+ * The bootstrap route asks for that token: an empty database is not proof that
+ * whoever is filling the first-run form deployed this controller, and being
+ * able to read its log is. A test is in the same position as the operator, so
+ * it fetches the token the same way -- out of the output. The path is defined
+ * here and handed to the fixture on its command line, so the two cannot drift.
+ */
+export const SETUP_TOKEN_FILE = 'test-results/firstrun-setup-token';
+
+/** The token the running first-run controller printed. */
+export function setupToken(): string {
+  return readFileSync(SETUP_TOKEN_FILE, 'utf8').trim();
+}
+
 export const browserOverride = process.env.PLAYWRIGHT_CHROMIUM
   ? { launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM } }
   : {};
@@ -39,6 +57,7 @@ export const SECTIONS = [
   { path: '/pools', label: 'Pools' },
   { path: '/runners', label: 'Runners' },
   { path: '/jobs', label: 'Jobs' },
+  { path: '/usage', label: 'Usage' },
   { path: '/hosts', label: 'Hosts' },
   { path: '/installations', label: 'Installations' },
   { path: '/migrate', label: 'Migrate', heading: 'Migrate repositories' },
@@ -55,16 +74,55 @@ export function sectionHeading(section: (typeof SECTIONS)[number]): string {
 export const FIXTURE = {
   linuxPool: 'zoomies-demo-linux-x64',
   armPool: 'zoomies-demo-linux-arm64',
-  /** A runner that is busy in the fixture, so it is never reaped mid-run. */
-  busyRunner: 'zoomies-demo0000',
+  /**
+   * A runner that is busy in the fixture, so it is never reaped mid-run.
+   *
+   * The shape is its pool's, the word is from the kennel and `demo00` is the
+   * index rather than a random token, because a fixture has to be the same
+   * every time. See demoRunnerName in internal/controller/seed.go.
+   */
+  busyRunner: 'zoomies-2vcpu-4gb-ubuntu-2404-banjo-demo00',
   /** Its id, which the seed fixes so a test can go straight to its page. */
   busyRunnerId: 'run_demo00',
   repos: ['acme/api', 'acme/site', 'acme/widgets'],
+  /** Has no workflows, so the migration wizard hides it by default. */
+  quietRepo: 'acme/docs',
+  /** Has two workflow files, so the wizard can be made to choose between them. */
+  multiWorkflowRepo: 'acme/widgets',
   /** Every job the seed writes; nothing adds more, since no webhook arrives. */
-  totalJobs: 50,
-  /** Jobs in acme/api: the seed cycles three repositories over fifty jobs. */
+  totalJobs: 51,
+  /**
+   * What the Jobs page shows by default: everything except the one job the seed
+   * runs on a hosted-runner vendor, which this fleet had no hand in.
+   */
+  managedJobs: 49,
+  /**
+   * Jobs in acme/api: the seed cycles three repositories over fifty jobs. The
+   * hosted-runner job the default view hides belongs to acme/widgets, so this
+   * count is the same in either view.
+   */
   apiJobs: 17,
 } as const;
+
+/**
+ * Plant something a reload would lose, then check it is still there.
+ *
+ * A page that got its new numbers by reloading itself would pass a weaker
+ * test and still be the bug: there is no refresh button anywhere in Zoomies,
+ * and every page is expected to update in place.
+ */
+export async function plantMarker(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    (window as unknown as { __zoomiesStayedPut: boolean }).__zoomiesStayedPut = true;
+  });
+}
+
+export async function expectNoReload(page: Page): Promise<void> {
+  const stayed = await page.evaluate(
+    () => (window as unknown as { __zoomiesStayedPut?: boolean }).__zoomiesStayedPut === true,
+  );
+  expect(stayed, 'the page updated in place rather than reloading').toBe(true);
+}
 
 /** The page's `<h1>`, optionally by name. */
 export function pageHeading(page: Page, name?: string): Locator {
@@ -89,7 +147,7 @@ export async function reload(page: Page, heading?: string): Promise<void> {
   await expect(pageHeading(page, heading)).toBeVisible();
 }
 
-/** The left navigation. */
+/** The persistent navigation: the left sidebar, or the phone's bottom bar. */
 export function nav(page: Page): Locator {
   return page.getByRole('navigation', { name: 'Sections' });
 }
@@ -97,13 +155,71 @@ export function nav(page: Page): Locator {
 /**
  * One navigation entry, by the path it points at.
  *
- * Deliberately not by accessible name: at the phone breakpoint the label span
- * is `display: none`, which empties the name (see the note in a11y.spec.ts),
- * and this helper has to work in both projects. Scoped to the list so the
- * brand mark, which also points at "/", is not one of the entries.
+ * By href rather than by accessible name, because the sidebar empties the name
+ * of its own labels when it is collapsed (see the note in a11y.spec.ts) and
+ * this helper has to work in both projects. Scoped to the list so the brand
+ * mark, which also points at "/", is not one of the entries.
+ *
+ * On a phone the bar carries only the four primary sections; the rest are in
+ * the side menu, so reach those with `menuEntry`.
  */
 export function navEntry(page: Page, path: string): Locator {
   return nav(page).getByRole('listitem').locator(`a[href="${path}"]`);
+}
+
+/** The paths the phone's bottom bar carries itself, from `lib/shell/sections.ts`. */
+export const PRIMARY_SECTIONS: readonly string[] = ['/', '/pools', '/runners', '/jobs'];
+
+/** The phone's side menu, once it is open. */
+export function navMenu(page: Page): Locator {
+  return page.getByRole('dialog', { name: 'All sections' });
+}
+
+/** Press "More" in the bottom bar and wait for the side menu it opens. */
+export async function openNavMenu(page: Page): Promise<Locator> {
+  await nav(page).getByRole('button', { name: 'More' }).click();
+  const menu = navMenu(page);
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+/** One entry of the side menu, by the path it points at. */
+export function menuEntry(page: Page, path: string): Locator {
+  return navMenu(page).getByRole('listitem').locator(`a[href="${path}"]`);
+}
+
+/**
+ * Go to a section the way an operator would at this width.
+ *
+ * The sidebar lists all ten; the phone's bar lists four and keeps the rest in
+ * the side menu. Which of those a test is looking at is not the thing under
+ * test in most specs, so they ask for the section and get there.
+ */
+export async function openSection(page: Page, path: string): Promise<void> {
+  if ((await navEntry(page, path).count()) > 0) {
+    await navEntry(page, path).click();
+    return;
+  }
+  await openNavMenu(page);
+  await menuEntry(page, path).click();
+  await expect(navMenu(page)).toHaveCount(0);
+}
+
+/**
+ * That the navigation marks this section as the one being looked at -- and
+ * marks exactly one, since a mark two entries carry means nothing.
+ */
+export async function expectCurrentSection(page: Page, path: string): Promise<void> {
+  if ((await navEntry(page, path).count()) > 0) {
+    await expect(navEntry(page, path)).toHaveAttribute('aria-current', 'page');
+    await expect(nav(page).locator('[aria-current="page"]')).toHaveCount(1);
+    return;
+  }
+  const menu = await openNavMenu(page);
+  await expect(menuEntry(page, path)).toHaveAttribute('aria-current', 'page');
+  await expect(menu.locator('[aria-current="page"]')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(navMenu(page)).toHaveCount(0);
 }
 
 /** A DataGrid by its accessible name: "Runners", "Pools", "Jobs". */
@@ -200,14 +316,13 @@ export async function readTheme(
   }));
 }
 
-/**
- * The top bar's command-palette hint.
- *
- * Below 1180px the words are hidden and only the shortcut is left, so the
- * accessible name shrinks from "Search or jump to Ctrl K" to "Ctrl K".
- */
+/** The top bar's command-palette hint. */
 export function paletteOpener(page: Page): Locator {
-  return page.getByRole('button', { name: /(Ctrl|⌘)\s*K/ });
+  // By its own label, not by the key cap inside it. The cap is hidden on a
+  // phone -- it names a key that is not there -- and the words beside it are
+  // hidden below the sidebar breakpoint, so the button carries the name itself
+  // and it is the same at every width.
+  return page.getByRole('button', { name: 'Search or jump to' });
 }
 
 /** The top bar's theme control. Its label says where a press will take you. */

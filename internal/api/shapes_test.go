@@ -1,14 +1,17 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -285,6 +288,205 @@ func TestSecretsAreNeverInAResponse(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestSecretsAreNeverInAFailure is the other side of the coin from
+// TestSecretsAreNeverInAResponse, which walks seven admin reads on the success
+// path. A response that succeeded has been thought about; the ones that leak
+// are the ones nobody was looking at.
+//
+// It covers what a refusal answers with, what the fleet's own resources carry,
+// what goes out on the event stream, what /metrics exposes, the audit rows
+// written when something fails, and the controller's own log -- which is read
+// by more people than the API is, shipped to wherever logs are shipped, and
+// outlives the request that produced it.
+func TestSecretsAreNeverInAFailure(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("root", store.RoleAdmin)
+	cookie := h.session(admin)
+
+	// Distinctive plaintexts, so that a hit is a leak and not a coincidence.
+	const (
+		appKey     = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAtheAppKeyNobodyMayEverSee\n-----END RSA PRIVATE KEY-----"
+		keyMarker  = "theAppKeyNobodyMayEverSee"
+		hookSecret = "webhook-hmac-nobody-may-ever-see"
+		password   = "the-operators-own-password-12345"
+	)
+
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/installations", cookie: cookie,
+		body: map[string]any{
+			"app_id": h.gh.AppID(), "installation_id": h.gh.InstallationID(),
+			"target": "acme", "target_type": "org", "api_base_url": h.gh.URL(),
+			"private_key": appKey, "webhook_secret": hookSecret,
+		}})
+	created.mustStatus(t, http.StatusCreated, "create installation")
+	var inst struct {
+		ID string `json:"id"`
+	}
+	created.into(t, &inst)
+
+	pool := h.pool(&store.Installation{ID: inst.ID}, "linux-x64")
+	hostID, agentToken := h.agentToken("vm-1")
+	host, err := h.st.GetHost(h.ctx, hostID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	run := h.runner(pool, host, store.RunnerBusy)
+	apiToken := h.token("ci", store.RoleAdmin)
+
+	joinResp := h.do(request{method: http.MethodPost, path: "/api/v1/join-tokens", cookie: cookie,
+		body: map[string]any{"ttl": "15m", "capacity": 2}})
+	joinResp.mustStatus(t, http.StatusCreated, "create join token")
+	var join createJoinTokenResponse
+	joinResp.into(t, &join)
+
+	// Spent here, so that the probe below is refused rather than quietly
+	// enrolling a host and asserting nothing.
+	spend := h.do(request{method: http.MethodPost, path: "/api/v1/agent/join",
+		body: map[string]any{"protocol_version": 1, "join_token": join.Token, "name": "vm-spender",
+			"capacity": 1, "os": "linux", "arch": "amd64", "version": "test"}})
+	spend.mustStatus(t, http.StatusOK, "spending the join token")
+
+	secrets := []struct {
+		what  string
+		value string
+	}{
+		{"the App private key", keyMarker},
+		{"the installation's webhook secret", hookSecret},
+		{"an operator's password", password},
+		{"a host's agent token", agentToken},
+		// The hash as well as the credential. A hash is as good as the token
+		// to anyone who can replay it against the store's own lookup, and it
+		// is the form that is actually on the row -- so it is what leaks when
+		// a store row is rendered where a view belongs.
+		{"a host's agent token hash", cryptox.HashToken(agentToken)},
+		{"an API token", apiToken},
+		{"a join token", join.Token},
+		{"the instance encryption key", testKey},
+	}
+	seen := func(t *testing.T, what string, body []byte) {
+		t.Helper()
+		for _, secret := range secrets {
+			if secret.value != "" && strings.Contains(string(body), secret.value) {
+				t.Errorf("%s carries %s", what, secret.what)
+			}
+		}
+	}
+
+	// --- What a refusal answers with. -----------------------------------
+	t.Run("error bodies", func(t *testing.T) {
+		// GitHub refusing everything, so the paths that talk to it fail.
+		h.gh.SetError("/", http.StatusUnauthorized, "the App is not installed here")
+		t.Cleanup(h.gh.ClearErrors)
+
+		for _, probe := range []struct {
+			what string
+			req  request
+			// reportsInBody marks the routes that answer 200 and describe the
+			// failure in the payload rather than refusing outright. Verify is
+			// one: "we asked GitHub and GitHub said no" is a successful check
+			// with a bad answer, and the answer is where a quoted credential
+			// would end up.
+			reportsInBody bool
+		}{
+			// The key is in the request that is refused, which is the case
+			// most likely to echo it back: a validator quoting what it was
+			// given is an ordinary and helpful thing to write.
+			{"a rejected installation carrying a key", request{method: http.MethodPost, path: "/api/v1/installations", cookie: cookie,
+				body: map[string]any{"app_id": 0, "installation_id": 0, "target": "", "target_type": "",
+					"private_key": appKey, "webhook_secret": hookSecret}}, false},
+			{"a failed verify", request{method: http.MethodPost, path: "/api/v1/installations/" + inst.ID + "/verify", cookie: cookie}, true},
+			{"a wrong setup token", request{method: http.MethodPost, path: "/api/v1/auth/bootstrap",
+				body: map[string]any{"username": "mallory", "password": password,
+					"setup_token": h.setupToken() + "-wrong"}}, false},
+			{"a wrong password", request{method: http.MethodPost, path: "/api/v1/auth/login",
+				body: map[string]any{"username": "root", "password": password}}, false},
+			{"a spent join token", request{method: http.MethodPost, path: "/api/v1/agent/join",
+				body: map[string]any{"protocol_version": 1, "join_token": join.Token, "name": "vm-2",
+					"capacity": 1, "os": "linux", "arch": "amd64", "version": "test"}}, false},
+			{"an unrecognised agent token", request{method: http.MethodPost, path: "/api/v1/agent/heartbeat",
+				token: agentToken + "-tampered", body: map[string]any{"protocol_version": 1}}, false},
+			{"an unparseable settings patch", request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
+				rawBody: `{"scaling":{"max_runners":"` + appKey + `"}}`,
+				headers: map[string]string{"Content-Type": "application/json"}}, false},
+		} {
+			resp := h.do(probe.req)
+			switch {
+			case probe.reportsInBody:
+				if resp.status != http.StatusOK || !strings.Contains(string(resp.body), `"ok":false`) {
+					t.Errorf("%s answered %d and did not report a failure, so this probe is not exercising one: %s",
+						probe.what, resp.status, truncate(resp.body))
+				}
+			case resp.status < 400:
+				t.Errorf("%s answered %d, so this probe is not exercising a failure path: %s",
+					probe.what, resp.status, truncate(resp.body))
+			}
+			seen(t, probe.what+" ("+strconv.Itoa(resp.status)+")", resp.body)
+		}
+	})
+
+	// --- What the fleet's own resources carry. ---------------------------
+	t.Run("fleet resources", func(t *testing.T) {
+		for _, path := range []string{
+			"/api/v1/hosts", "/api/v1/hosts/" + hostID,
+			"/api/v1/runners", "/api/v1/runners/" + run.ID,
+			"/api/v1/pools", "/api/v1/pools/" + pool.ID,
+			"/api/v1/jobs", "/api/v1/stats", "/api/v1/problems", "/api/v1/scaling-events",
+		} {
+			resp := h.do(request{method: http.MethodGet, path: path, cookie: cookie})
+			resp.mustStatus(t, http.StatusOK, path)
+			seen(t, path, resp.body)
+		}
+	})
+
+	// --- What goes out on the event stream. ------------------------------
+	t.Run("an event frame", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		frames, resp := h.openStream(t, ctx, "/api/v1/events", cookie, nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("event stream status %d", resp.StatusCode)
+		}
+
+		// A host update is the frame most likely to carry a host's credential,
+		// because the row it is rendered from holds the token hash.
+		patched := h.do(request{method: http.MethodPatch, path: "/api/v1/hosts/" + hostID, cookie: cookie,
+			body: map[string]any{"labels": map[string]string{"role": "rebuilt"}}})
+		patched.mustStatus(t, http.StatusOK, "patch host")
+
+		frame := await(t, frames, "a host frame", func(f sseFrame) bool {
+			return strings.HasPrefix(f.event, "host.")
+		})
+		seen(t, "the "+frame.event+" frame", []byte(frame.data))
+	})
+
+	// --- What /metrics exposes. ------------------------------------------
+	t.Run("metrics", func(t *testing.T) {
+		resp := h.do(request{method: http.MethodGet, path: "/metrics", token: apiToken})
+		resp.mustStatus(t, http.StatusOK, "metrics")
+		seen(t, "/metrics", resp.body)
+	})
+
+	// --- The audit rows the failures above wrote. ------------------------
+	t.Run("audit rows written on failure", func(t *testing.T) {
+		resp := h.do(request{method: http.MethodGet, path: "/api/v1/audit?limit=200", cookie: cookie})
+		resp.mustStatus(t, http.StatusOK, "audit")
+		seen(t, "the audit log", resp.body)
+		// And it is not empty, or it would have nothing to leak: the failed
+		// sign-in above is the row that has to be there.
+		if !strings.Contains(string(resp.body), "auth.login_failed") {
+			t.Errorf("no sign-in was audited, so this asserted nothing: %s", truncate(resp.body))
+		}
+	})
+
+	// --- The controller's own log, across everything above. ---------------
+	t.Run("the controller log", func(t *testing.T) {
+		logged := h.logs.text()
+		if logged == "" {
+			t.Fatal("nothing was logged, so this asserted nothing")
+		}
+		seen(t, "the controller log", []byte(logged))
+	})
 }
 
 // TestTokenIsShownExactlyOnce is the other half of that: the value exists in a

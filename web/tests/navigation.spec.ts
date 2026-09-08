@@ -13,9 +13,11 @@ import {
   browserOverride,
   chooseTheme,
   clearStoredPreferences,
+  expectCurrentSection,
   goto,
   nav,
   navEntry,
+  openSection,
   pageHeading,
   readTheme,
   reload,
@@ -34,26 +36,47 @@ test('every navigation entry routes to its page and is marked as current', async
   await goto(page, '/', 'Overview');
 
   for (const section of SECTIONS) {
-    const entry = navEntry(page, section.path);
-    await entry.click();
+    // Whichever way this width offers the section: the sidebar lists all ten,
+    // the phone's bar lists four and the side menu holds the rest.
+    await openSection(page, section.path);
 
     await expect(page).toHaveURL(new RegExp(`${section.path.replace(/\//g, '\\/')}$`));
     await expect(pageHeading(page, sectionHeading(section))).toBeVisible();
-    await expect(entry, `${section.label} is marked as the current page`).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
-    // Exactly one entry claims to be current, or the mark means nothing.
-    await expect(nav(page).locator('[aria-current="page"]')).toHaveCount(1);
+    await expectCurrentSection(page, section.path);
   }
+});
+
+test('every page ends in a footer that says which product this is and who makes it', async ({
+  page,
+}) => {
+  // A signed-in screenshot is usually the first anyone outside the team sees
+  // of Zoomies, and the footer is the one line on it that says what it is,
+  // where the docs are and who builds it. docs/ui-guidelines.md promises all
+  // three, and promises that the credit is the one link in the shell that
+  // leaves the product -- so it opens a new tab and hands over no referrer.
+  await goto(page, '/runners', 'Runners');
+
+  const footer = page.getByRole('contentinfo');
+  await expect(footer.getByText('Zoomies', { exact: true })).toBeVisible();
+  await expect(footer.getByRole('link', { name: 'Docs' })).toHaveAttribute(
+    'href',
+    'https://zoomies.sh/quickstart/',
+  );
+
+  const credit = footer.getByRole('link', { name: 'EyUp.io' });
+  await expect(credit).toBeVisible();
+  await expect(footer.getByText(/Developed by/)).toBeVisible();
+  await expect(credit).toHaveAttribute('href', 'https://eyup.io');
+  await expect(credit).toHaveAttribute('target', '_blank');
+  await expect(credit).toHaveAttribute('rel', /noopener/);
 });
 
 test('the browser back button returns to the previous page', async ({ page }) => {
   await goto(page, '/', 'Overview');
-  await navEntry(page, '/runners').click();
+  await openSection(page, '/runners');
   await expect(pageHeading(page, 'Runners')).toBeVisible();
 
-  await navEntry(page, '/jobs').click();
+  await openSection(page, '/jobs');
   await expect(pageHeading(page, 'Jobs')).toBeVisible();
 
   await page.goBack();
@@ -120,4 +143,190 @@ test('an unknown address renders the not-found page, not a blank screen', async 
 
   await page.getByRole('link', { name: 'Go to the overview', exact: true }).click();
   await expect(pageHeading(page, 'Overview')).toBeVisible();
+});
+
+test('a page whose code does not arrive recovers without the operator doing anything', async ({
+  page,
+}) => {
+  await goto(page, '/', 'Overview');
+
+  // A phone on a flaky link loses the request for the route's chunk; an
+  // upgraded controller answers 404 for it. Both look like this, and neither
+  // should leave "That page could not be loaded" on the screen when the very
+  // next attempt would have worked.
+  // Reached with openSection rather than navEntry: the phone's bottom bar
+  // carries only the four primary sections, and Hosts is not one of them, so
+  // clicking the bar entry directly waits for a link that is in the side menu.
+  let dropped = 0;
+  await page.route(/\/assets\/Hosts\.[^/]*\.js$/, async (route) => {
+    if (dropped === 0) {
+      dropped += 1;
+      await route.abort('connectionfailed');
+      return;
+    }
+    await route.fallback();
+  });
+
+  await openSection(page, '/hosts');
+
+  await expect(pageHeading(page, 'Hosts')).toBeVisible();
+  expect(dropped, 'the chunk request really was dropped once').toBe(1);
+  await expect(page.getByText('That page could not be loaded')).toHaveCount(0);
+});
+
+test('a page whose code never arrives says so rather than reloading forever', async ({ page }) => {
+  await goto(page, '/', 'Overview');
+
+  // Every attempt fails, including the ones after a recovery reload. The
+  // operator gets an explanation and a button, not a tab that reloads itself
+  // in a loop.
+  await page.route(/\/assets\/Hosts\.[^/]*\.js$/, (route) => route.abort('connectionfailed'));
+
+  await openSection(page, '/hosts');
+
+  await expect(page.getByText('That page could not be loaded')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
+  // The shell survives, so the rest of the fleet is still one click away.
+  await expect(nav(page)).toBeVisible();
+});
+
+/*
+ * A tab left open across a deployment goes on running the build it loaded. The
+ * chunk recovery below catches the loud half of that -- a route whose code is
+ * gone 404s and the tab reloads -- but a tab that already holds every chunk it
+ * needs never fails, so it can serve an old page for as long as it stays open.
+ * On a phone, backgrounded for days rather than closed, that is the ordinary
+ * case: the fleet moves on and the screen in somebody's pocket does not.
+ */
+test('a tab that has been open across an upgrade moves to the new build', async ({ page }) => {
+  await goto(page, '/', 'Overview');
+
+  // Something to lose, so the reload is provable rather than assumed: a
+  // client-side navigation keeps this, a full page load cannot.
+  await page.evaluate(() => ((window as unknown as { marker?: string }).marker = 'same-document'));
+
+  // The controller is upgraded under the tab. Nothing has failed to load --
+  // this tab holds every chunk it has asked for -- so only the build being
+  // different says anything is out of date.
+  // A different build every time it is asked, which is what a rollout part way
+  // through looks like -- or two controllers behind one address.
+  let asked = 0;
+  await page.route('**/api/v1/meta', async (route) => {
+    asked += 1;
+    const response = await route.fetch();
+    const body = (await response.json()) as Record<string, unknown>;
+    await route.fulfill({
+      response,
+      json: { ...body, version: `build-${asked}`, commit: `commit${asked}` },
+    });
+  });
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+
+  await openSection(page, '/hosts');
+  await expect(pageHeading(page, 'Hosts')).toBeVisible({ timeout: 20_000 });
+
+  const marker = await page.evaluate(() => (window as unknown as { marker?: string }).marker);
+  expect(
+    marker,
+    'the navigation stayed in the same document, so the tab is still the old build',
+  ).toBeUndefined();
+
+  // Once per tab, though. The version is still moving under it -- the stub
+  // answers with a new build on every request -- so without a limit every
+  // navigation from here becomes a page load, for as long as the rollout takes.
+  await page.evaluate(() => ((window as unknown as { marker?: string }).marker = 'second'));
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await openSection(page, '/jobs');
+  await expect(pageHeading(page, 'Jobs')).toBeVisible({ timeout: 20_000 });
+  expect(
+    await page.evaluate(() => (window as unknown as { marker?: string }).marker),
+    'the tab reloaded a second time for the same upgrade',
+  ).toBe('second');
+});
+
+// A tab with nowhere to record that it has already moved cannot know it has,
+// so it must not move at all: an old page is a smaller problem than a tab that
+// reloads itself on every navigation and never settles.
+test('a tab that cannot remember a reload does not spend one', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'sessionStorage', {
+      configurable: true,
+      get() {
+        throw new DOMException('denied', 'SecurityError');
+      },
+    });
+  });
+  await goto(page, '/', 'Overview');
+  await page.evaluate(() => ((window as unknown as { marker?: string }).marker = 'kept'));
+
+  await page.route('**/api/v1/meta', async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as Record<string, unknown>;
+    await route.fulfill({ response, json: { ...body, version: 'a-newer-build' } });
+  });
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+
+  await openSection(page, '/hosts');
+  await expect(pageHeading(page, 'Hosts')).toBeVisible({ timeout: 20_000 });
+  expect(
+    await page.evaluate(() => (window as unknown as { marker?: string }).marker),
+    'the tab reloaded with no way to record that it had',
+  ).toBe('kept');
+});
+
+test('an upgrade under an open tab reloads even just after another failure', async ({ page }) => {
+  await goto(page, '/', 'Overview');
+
+  // The cooldown exists so a chunk that is *broken* cannot loop the tab. It was
+  // also stopping the one case a reload certainly fixes: the controller was
+  // upgraded, so every chunk name this tab holds is gone from the new build.
+  // A tab that had any failure in the previous thirty seconds -- a dropped
+  // request on a train, say -- then sat on "That page could not be loaded" for
+  // a page a single reload would have fixed, and went on running code the
+  // fleet had moved past everywhere else.
+  //
+  // The controller says which build it is, so an upgrade is something the tab
+  // can recognise rather than guess at.
+  //
+  // Nothing here stubs the route that answers with the build. An earlier
+  // version of this test did, and so it went on passing while the endpoint it
+  // asked -- liveness, which answers `{"ok":true}` and nothing else -- gave an
+  // empty version every time, leaving the upgrade case dead in the shipped
+  // binary. The identity below therefore comes from the running controller.
+  await page.evaluate(() => {
+    sessionStorage.setItem('zoomies.chunk-reload', String(Date.now()));
+    sessionStorage.setItem('zoomies.chunk-reload-version', 'the-build-this-tab-started-on');
+  });
+
+  // The chunk is gone, the way an upgrade leaves it, until the tab reloads.
+  let served = false;
+  await page.route(/\/assets\/Hosts\.[^/]*\.js$/, async (route) => {
+    if (!served) {
+      served = true;
+      await route.fulfill({ status: 404, body: 'not found' });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await openSection(page, '/hosts');
+
+  await expect(pageHeading(page, 'Hosts')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText('That page could not be loaded')).toHaveCount(0);
+
+  // And the reload is spent against the build the controller actually reports,
+  // so the same upgrade cannot reload the tab twice. Comparing against what the
+  // server says, rather than a constant, is what makes this fail if the client
+  // ever asks a route that has no build to give.
+  const identity = await page.evaluate(async () => {
+    const meta = (await (await fetch('/api/v1/meta')).json()) as {
+      version?: string;
+      commit?: string;
+    };
+    return [meta.version, meta.commit].filter((v) => typeof v === 'string' && v !== '').join(' ');
+  });
+  expect(identity, 'the controller must report a build the tab can recognise').not.toBe('');
+  expect(await page.evaluate(() => sessionStorage.getItem('zoomies.chunk-reload-version'))).toBe(
+    identity,
+  );
 });

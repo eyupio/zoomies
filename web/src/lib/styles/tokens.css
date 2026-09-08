@@ -28,13 +28,20 @@
   --z-brand-mid-grey: #666a73;
   --z-brand-runner-blue: #2f80ed;
   --z-brand-fast-cyan: #22d3ee;
+  --z-brand-paw-black: #000000;
+  /* Two of these are the record rather than a value anything reads. Mid Grey
+     is the brand's light-theme secondary text, but --z-text-muted darkens it
+     to #5b6069 for the same reason the accent is darkened below: at 13px on
+     white the brand value is 5.4:1, and body text that an operator reads all
+     day should be past 7:1. Paw Black is the favicon artwork, which is a PNG,
+     not a colour any rule sets. */
 
   /* ---------------------------------------------------------------------
    * Neutrals. A cool near-black spine, per the brand palette.
    * ------------------------------------------------------------------ */
   --z-bg: #f6f7f9;
-  --z-surface: #ffffff;
-  --z-surface-raised: #ffffff;
+  --z-surface: var(--z-brand-white);
+  --z-surface-raised: var(--z-brand-white);
   --z-surface-sunken: #eef0f3;
   --z-surface-hover: #f1f3f6;
   --z-border: #e2e5ea;
@@ -97,8 +104,21 @@
   --z-chart-5: #b32218;
   --z-chart-6: #5e636d;
 
-  /* Focus ---------------------------------------------------------------- */
-  --z-focus-ring: 0 0 0 2px var(--z-bg), 0 0 0 4px var(--z-accent);
+  /* Focus ----------------------------------------------------------------
+   * One look, two mechanisms. `outline` is the global rule in app.css and is
+   * what almost everything gets. `--z-focus-ring` draws the same ring as a
+   * box-shadow, for the controls whose outline a scrolling or clipping parent
+   * would cut off -- the command palette's input inside its rounded container
+   * is the one that made this necessary. A consumer on a raised surface
+   * overrides --z-focus-gap so the ring's inner gap matches what it sits on.
+   * ------------------------------------------------------------------ */
+  --z-focus-width: var(--z-border-width-thick);
+  --z-focus-offset: 2px;
+  --z-focus-colour: var(--z-accent);
+  --z-focus-gap: var(--z-surface);
+  --z-focus-ring:
+    0 0 0 var(--z-focus-offset) var(--z-focus-gap),
+    0 0 0 calc(var(--z-focus-offset) + var(--z-focus-width)) var(--z-focus-colour);
 
   /* Type ----------------------------------------------------------------
    * Inter, per the brand. Base is 13px, not 16px: this is a dense operational
@@ -153,6 +173,72 @@
   --z-radius-lg: 12px;
   --z-radius-full: 9999px;
 
+  /* Borders --------------------------------------------------------------
+   * Two weights, and the choice between them is meaning rather than taste:
+   * the hairline separates things that belong together, the thick edge marks
+   * the one that is selected, focused or wrong. A third weight would only
+   * make the second one quieter.
+   * ------------------------------------------------------------------ */
+  --z-border-width: 1px;
+  --z-border-width-thick: 2px;
+  /* The rail down the side of a problem, a disabled pool or a failed step.
+     Thicker than an edge because it is a flag, not a boundary. */
+  --z-border-width-rail: 3px;
+
+  /* Optical nudges -------------------------------------------------------
+   * Below the 4px spacing grid on purpose. A checkbox aligned to the grid
+   * sits visibly low against a 13px line, and the gap between a label and the
+   * hint under it wants to be tighter than the smallest grid step. Anything
+   * that can be on the spacing scale is on the spacing scale.
+   * ------------------------------------------------------------------ */
+  --z-nudge-1: 1px;
+  --z-nudge-2: 2px;
+  --z-nudge-3: 3px;
+
+  /* Widths ---------------------------------------------------------------
+   * Dialogs and drawers are cut to their content's comfortable measure, not
+   * to the viewport, so each has three sizes and they are the three shapes we
+   * actually put in one: a confirmation, a form, a table.
+   * ------------------------------------------------------------------ */
+  --z-width-dialog-sm: 400px;
+  --z-width-dialog-md: 560px;
+  --z-width-dialog-lg: 820px;
+  --z-width-drawer-sm: 360px;
+  --z-width-drawer-md: 520px;
+  --z-width-drawer-lg: 760px;
+
+  /* Controls -------------------------------------------------------------
+   * The drawn controls -- the checkbox box, the switch thumb, the icon in a
+   * button -- are sized to sit optically on a 13px line rather than on the
+   * 4px spacing grid, so they get their own names. Everything larger (field
+   * and button heights) is on the spacing scale and stays there.
+   * ------------------------------------------------------------------ */
+  --z-control-box: 15px;
+  --z-control-thumb: 14px;
+  --z-control-icon: 14px;
+  /* iOS zooms the page when a focused field's text is under 16px, so under
+     the phone breakpoint every text control steps up to this. */
+  --z-control-font-touch: 16px;
+
+  /* Tracking -------------------------------------------------------------
+   * Uppercase text needs air or it sets as a block; display text at 28px and
+   * up needs the opposite. Body text is left alone.
+   * ------------------------------------------------------------------ */
+  --z-tracking-tight: -0.01em;
+  --z-tracking-wide: 0.04em;
+  --z-tracking-wider: 0.08em;
+
+  /* Breakpoints ----------------------------------------------------------
+   * Two, and only two: phone below 768, sidebar above 1180. These are the
+   * one place a raw px is unavoidable, because `@media (max-width: var(…))`
+   * is not valid CSS -- a media query is evaluated before custom properties
+   * exist. They are declared here so the number has a home, and so the few
+   * places that need the same threshold in JavaScript can read it rather
+   * than repeat it.
+   * ------------------------------------------------------------------ */
+  --z-bp-md: 768px;
+  --z-bp-lg: 1180px;
+
   /* Elevation -- cool-tinted and restrained; in dark mode elevation is
      carried mostly by surface colour rather than shadow. ------------------ */
   --z-shadow-sm: 0 1px 2px rgb(8 12 20 / 0.06);
@@ -164,6 +250,21 @@
   --z-motion-base: 200ms;
   --z-motion-slow: 320ms;
   --z-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* Scrollbars ----------------------------------------------------------
+   * The one control the browser draws for us, and so the one that is easiest
+   * to leave too faint to find. The thumb borrows the weakest text colour,
+   * which is never below 4.1:1 light or 4.8:1 dark on any surface it can sit
+   * on -- past the 3:1 bar for a control -- and the column is wide enough to
+   * aim at. The track is a tint rather than a colour so it reads on a white
+   * card and a sunken well alike.
+   * ------------------------------------------------------------------ */
+  --z-scrollbar-size: 14px;
+  --z-scrollbar-inset: 3px;
+  --z-scrollbar-thumb: var(--z-text-subtle);
+  --z-scrollbar-thumb-hover: var(--z-text-muted);
+  --z-scrollbar-thumb-active: var(--z-text);
+  --z-scrollbar-track: rgb(8 12 20 / 0.06);
 
   /* Layout --------------------------------------------------------------- */
   --z-nav-width: 232px;
@@ -199,7 +300,7 @@
     --z-border: #262a31;
     --z-border-strong: #363b44;
     --z-text: #f4f5f7;
-    --z-text-muted: #b9bcc2;
+    --z-text-muted: var(--z-brand-cool-grey);
     --z-text-subtle: #868b94;
     --z-text-inverse: #0b0c0e;
 
@@ -247,6 +348,8 @@
     --z-shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.6);
     --z-shadow-lg: 0 16px 40px -8px rgb(0 0 0 / 0.7);
 
+    --z-scrollbar-track: rgb(255 255 255 / 0.07);
+
     color-scheme: dark;
   }
 }
@@ -260,7 +363,7 @@
   --z-border: #262a31;
   --z-border-strong: #363b44;
   --z-text: #f4f5f7;
-  --z-text-muted: #b9bcc2;
+  --z-text-muted: var(--z-brand-cool-grey);
   --z-text-subtle: #868b94;
   --z-text-inverse: #0b0c0e;
 
@@ -307,6 +410,8 @@
   --z-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);
   --z-shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.6);
   --z-shadow-lg: 0 16px 40px -8px rgb(0 0 0 / 0.7);
+
+  --z-scrollbar-track: rgb(255 255 255 / 0.07);
 
   color-scheme: dark;
 }

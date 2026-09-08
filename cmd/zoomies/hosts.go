@@ -72,11 +72,12 @@ func hostsList(ctx context.Context, e *env, args []string) error {
 			fmt.Sprintf("%d/%d", h.ActiveRunners, h.Capacity),
 			p.bar(used, 10),
 			dash(strings.Join(h.Backends, ",")),
-			dash(h.OS + "/" + h.Arch),
+			dash(hostPlatform(h)),
+			dash(hostSize(h)),
 			p.relTime(h.LastHeartbeat),
 		})
 	}
-	p.table([]string{"name", "id", "state", "runners", "used", "backends", "platform", "last seen"}, rows)
+	p.table([]string{"name", "id", "state", "runners", "used", "backends", "platform", "size", "last seen"}, rows)
 
 	// A host with no usable backend is connected, healthy and completely
 	// useless: no pool matches it, so its jobs queue with nothing to say why.
@@ -94,6 +95,29 @@ func hostsList(ctx context.Context, e *env, args []string) error {
 		}
 	}
 	return nil
+}
+
+// hostPlatform is what this machine is, in the terms a pool asks in. The
+// controller sends the sentence already rendered; the kernel and architecture
+// are the fallback for an agent too old to report a distribution.
+func hostPlatform(h hostItem) string {
+	if h.PlatformLabel != "" {
+		return h.PlatformLabel
+	}
+	return strings.Trim(h.OS+"/"+h.Arch, "/")
+}
+
+// hostSize is how much machine it is, which is the other half of the answer to
+// "why is this host full".
+func hostSize(h hostItem) string {
+	if h.CPUs <= 0 {
+		return ""
+	}
+	out := fmt.Sprintf("%d vCPU", h.CPUs)
+	if h.MemoryMB > 0 {
+		out += fmt.Sprintf(", %d GB", h.MemoryMB/1024)
+	}
+	return out
 }
 
 func hostsCordon(ctx context.Context, e *env, args []string) error {
@@ -176,12 +200,14 @@ func joinTokenCreate(ctx context.Context, e *env, args []string) error {
 		"Mint a single-use join token. The token is shown once; only its hash is stored.")
 	cf := registerClientFlags(fs, true)
 	ttl := fs.Duration("ttl", 15*time.Minute, "how long the token may be redeemed for")
-	capacity := fs.Int("capacity", 2, "the capacity the new host starts with")
+	capacity := fs.Int("capacity", 2, "the capacity the new host starts with; 0 lets the agent decide from its CPU count")
 	labels := kvValue{}
 	fs.Var(labels, "labels", "labels for the new host, e.g. arch=arm64")
+	controllerURL := fs.String("controller", "", "the address the new host should join on, when it is not server.external_url")
 	fs.example(
 		"zoomies hosts join-token create",
 		"zoomies hosts join-token create --ttl 1h --capacity 8 --labels arch=arm64",
+		"zoomies hosts join-token create --controller https://zoomies.internal:8443",
 	)
 	if err := fs.parse(args); err != nil {
 		return err
@@ -201,6 +227,9 @@ func joinTokenCreate(ctx context.Context, e *env, args []string) error {
 	body := map[string]any{"ttl": ttl.String(), "capacity": *capacity}
 	if len(labels) > 0 {
 		body["labels"] = map[string]string(labels)
+	}
+	if u := strings.TrimSpace(*controllerURL); u != "" {
+		body["controller_url"] = u
 	}
 	var token joinTokenItem
 	raw, err := client.post(ctx, "/join-tokens", nil, body, &token)

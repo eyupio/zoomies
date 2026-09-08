@@ -149,7 +149,7 @@
   .blocker {
     margin: 0 0 var(--z-space-4);
     padding: var(--z-space-3) var(--z-space-4);
-    border: 1px solid var(--z-danger-border);
+    border: var(--z-border-width) solid var(--z-danger-border);
     border-radius: var(--z-radius-md);
     background: var(--z-danger-subtle);
     color: var(--z-danger);
@@ -219,7 +219,7 @@
      status palette means something else everywhere in this UI. */
   .exception {
     padding: 0 var(--z-space-2);
-    border: 1px dashed var(--z-border);
+    border: var(--z-border-width) dashed var(--z-border);
     border-radius: var(--z-radius-sm);
     font-family: var(--z-font-mono);
     font-size: var(--z-text-2xs);

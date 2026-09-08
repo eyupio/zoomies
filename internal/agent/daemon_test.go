@@ -111,6 +111,15 @@ func createTask(id, runnerID string) Task {
 	}
 }
 
+func TestCreatePropagatesBackendDigest(t *testing.T) {
+	h := newHarness(t, 1)
+	h.tr.tasks <- []Task{createTask("digest-task", "digest-runner")}
+	res := h.nextResult()
+	if !res.OK || res.Digest != "sha256:resolved" {
+		t.Fatalf("create result = %+v, want resolved backend digest", res)
+	}
+}
+
 func TestJoinPersistsCredentials(t *testing.T) {
 	a, tr, _, _ := newAgent(t, 1)
 	if err := a.Join(context.Background(), "join-token"); err != nil {
@@ -436,6 +445,7 @@ func TestNewValidatesOptions(t *testing.T) {
 		"transport": func(o *Options) { o.Transport = nil },
 		"backend":   func(o *Options) { o.DefaultBackend = store.BackendKind("kubernetes") },
 		"heartbeat": func(o *Options) { o.HeartbeatInterval = time.Millisecond },
+		"retention": func(o *Options) { o.FinishedRetention = -time.Minute },
 	}
 	for name, break_ := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -556,5 +566,52 @@ func TestAgentDoesNotReprobeOnEveryHeartbeatWhenHealthy(t *testing.T) {
 		case <-deadline:
 			t.Fatalf("no probe within 5s of %s passing", backendProbeInterval)
 		}
+	}
+}
+
+// A container runner's scratch space is its own filesystem, never the agent's
+// work directory: that directory is shared by every runner on the host, owned
+// by the wrong account for the image, and -- when the agent is itself a
+// container -- a path the host daemon cannot even see. Mounting it produced a
+// runner whose first job failed on an empty root-owned _work.
+func TestCreateTaskDoesNotHandTheAgentsWorkDirToTheBackend(t *testing.T) {
+	h := newHarness(t, 1)
+	h.tr.tasks <- []Task{createTask("task-1", "runner-1")}
+	if res := h.nextResult(); !res.OK {
+		t.Fatalf("create failed: %+v", res)
+	}
+
+	h.be.mu.Lock()
+	defer h.be.mu.Unlock()
+	if len(h.be.created) != 1 {
+		t.Fatalf("created %d runners, want 1", len(h.be.created))
+	}
+	if got := h.be.created[0].WorkDir; got != "" {
+		t.Fatalf("the backend was given work dir %q; the runner should use its own filesystem", got)
+	}
+}
+
+// Delivery is at-least-once: a create whose result was lost is offered again
+// once its lease expires. The backend's Create begins by removing a workload of
+// the same name, so the redelivery used to destroy a runner that might be
+// mid-job and rebuild it with a JIT configuration GitHub had already used.
+func TestARedeliveredCreateReportsTheRunnerThatAlreadyExists(t *testing.T) {
+	h := newHarness(t, 2)
+	h.tr.tasks <- []Task{createTask("task-1", "runner-1")}
+	first := h.nextResult()
+	if !first.OK || first.Handle == "" {
+		t.Fatalf("first create: %+v", first)
+	}
+
+	h.tr.tasks <- []Task{createTask("task-1-again", "runner-1")}
+	again := h.nextResult()
+	if !again.OK || again.TaskID != "task-1-again" || again.RunnerID != "runner-1" {
+		t.Fatalf("redelivered create: %+v", again)
+	}
+	if again.Handle != first.Handle {
+		t.Fatalf("the redelivery reported handle %q, want the existing %q", again.Handle, first.Handle)
+	}
+	if created, _, _ := h.be.counts(); created != 1 {
+		t.Fatalf("Create called %d times, want the one that made the runner", created)
 	}
 }

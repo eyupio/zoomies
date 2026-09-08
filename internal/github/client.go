@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -25,9 +26,81 @@ var ErrNotFound = errors.New("github: not found")
 // The caller backs off rather than hammering.
 var ErrRateLimited = errors.New("github: rate limited")
 
+// RateLimitedError is a refusal that says when to come back.
+//
+// GitHub sends the answer on every rate-limited response -- a reset instant on
+// the primary limit, a retry-after duration on the secondary one -- and it used
+// to be formatted straight into the message and lost, leaving every caller to
+// guess a fixed wait. Guessing long wastes quota that came back minutes ago;
+// guessing short spends the next window on refusals. So the number is carried.
+//
+// It wraps ErrRateLimited, so the callers that only ask "was this a rate limit"
+// keep working through errors.Is and only the ones that want the time reach for
+// errors.As.
+type RateLimitedError struct {
+	// ResetAt is when the quota refills, zero when GitHub did not say.
+	ResetAt time.Time
+	// RetryAfter is the secondary limit's answer, which is a duration rather
+	// than an instant. Zero when unset.
+	RetryAfter time.Duration
+	Detail     string
+}
+
+func (e *RateLimitedError) Error() string {
+	switch {
+	case !e.ResetAt.IsZero():
+		return fmt.Sprintf("%s: quota exhausted until %s%s",
+			ErrRateLimited, e.ResetAt.UTC().Format(time.RFC3339), e.Detail)
+	case e.RetryAfter > 0:
+		return fmt.Sprintf("%s: secondary rate limit, retry after %s%s",
+			ErrRateLimited, e.RetryAfter, e.Detail)
+	}
+	return ErrRateLimited.Error() + e.Detail
+}
+
+func (e *RateLimitedError) Unwrap() error { return ErrRateLimited }
+
+// RetryAt is when a caller may try this installation again, given the time it
+// is asking at, and whether GitHub said anything at all.
+//
+// A reset already in the past is no answer -- clocks drift, and a response can
+// sit in a queue -- so it is reported as unknown and the caller keeps its own
+// default rather than resuming into the same refusal.
+func (e *RateLimitedError) RetryAt(now time.Time) (time.Time, bool) {
+	if e == nil {
+		return time.Time{}, false
+	}
+	if e.RetryAfter > 0 {
+		return now.Add(e.RetryAfter), true
+	}
+	if !e.ResetAt.IsZero() && e.ResetAt.After(now) {
+		return e.ResetAt, true
+	}
+	return time.Time{}, false
+}
+
+// RetryAfterRateLimit reports when err says an installation may be used again.
+//
+// It answers false for anything that is not a rate limit and for a rate limit
+// GitHub said nothing useful about, which is the same thing to a caller: fall
+// back to your own wait.
+func RetryAfterRateLimit(err error, now time.Time) (time.Time, bool) {
+	var rl *RateLimitedError
+	if !errors.As(err, &rl) {
+		return time.Time{}, false
+	}
+	return rl.RetryAt(now)
+}
+
 // ErrForbidden is returned for a 403 that is not a rate limit, usually meaning
 // the App installation is missing a permission.
 var ErrForbidden = errors.New("github: forbidden")
+
+// ErrInvalid is GitHub refusing a request as invalid rather than unauthorised:
+// a runner name already taken, a label it will not accept. The detail carries
+// the field-by-field reason, which is the part worth reading -- the message on
+// a 422 is always "Validation Failed".
+var ErrInvalid = errors.New("github: refused as invalid")
 
 // JITRequest asks GitHub for a just-in-time runner configuration.
 type JITRequest struct {
@@ -224,16 +297,22 @@ type Factory interface {
 	For(ctx context.Context, inst *store.Installation, privateKeyPEM []byte) (Client, error)
 }
 
-// RunnerName mints the name one runner registers under: the brand and a short
-// random suffix, "zoomies-k3f9qz2m".
+// RunnerName mints the name one runner of this pool registers under:
+// "zoomies-4vcpu-ubuntu-2404-biscuit-a3f9qz2m".
 //
-// GitHub requires the name to be unique within a target and shows it in the
-// runner list, in the job header and in the "Set up job" step of every log. It
-// used to carry the pool name as well, which made the common case --
-// "zoomies-linux-x64-a3f9q" -- long enough that the brand was what got
-// truncated in GitHub's own tables. Which pool a runner belongs to is a click
-// away in Zoomies and is on the runner's labels either way.
-func RunnerName() string { return store.NewRunnerName() }
+// This is the one name Zoomies puts in somebody else's account, so GitHub's
+// constraints on it are worth stating where the registration is made. The name
+// must be unique within the target -- two runners answering to one name is one
+// registration being taken over, not two runners -- which is what the random
+// token at the end is for, and why nothing may truncate it away. GitHub also
+// shows it in three places a reader arrives at knowing nothing: the runner list,
+// the job header, and the "Set up job" step of every log. That is what the shape
+// in the middle answers, and store.NewRunnerName explains why it is worth the
+// characters.
+//
+// The 64-character limit GitHub enforces is internal/naming's MaxNameLength, so
+// a name is trimmed to fit here rather than refused by the API at registration.
+func RunnerName(pool *store.Pool) string { return store.NewRunnerName(pool) }
 
 // SplitTarget parses "owner" or "owner/repo" into its parts.
 func SplitTarget(target string) (owner, repo string, kind store.TargetType) {
@@ -247,19 +326,11 @@ func SplitTarget(target string) (owner, repo string, kind store.TargetType) {
 // go-github expects: an absolute URL ending in a slash, with /api/v3 appended
 // for a bare GHES hostname.
 func NormalizeAPIBaseURL(raw string) (string, error) {
-	s := strings.TrimSpace(raw)
-	if s == "" || s == "https://github.com" || s == "https://api.github.com" {
-		return "https://api.github.com/", nil
-	}
-	if !strings.Contains(s, "://") {
-		s = "https://" + s
-	}
-	s = strings.TrimRight(s, "/")
-	if !strings.HasSuffix(s, "/api/v3") && !strings.HasSuffix(s, "/api/uploads") &&
-		!strings.Contains(s, "api.github.com") {
-		s += "/api/v3"
-	}
-	return s + "/", nil
+	// The rule lives in config so that zoomies.yaml is normalised by the same
+	// code as an installation row: the docs promise a bare GHES hostname works
+	// in both places, and two copies of the rule had already let the config
+	// side refuse what this side accepted.
+	return config.NormalizeGitHubAPIBaseURL(raw)
 }
 
 // IsEnterprise reports whether an API base URL points at GitHub Enterprise

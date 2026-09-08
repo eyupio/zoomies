@@ -4,7 +4,7 @@
   Step three answers "where does ubuntu-latest go" once, for the whole
   organisation, which is what a fleet nearly always wants. This step is where
   "nearly" stops being good enough: the integration suite that needs the big
-  host, the one job that has to stay on GitHub until somebody fixes it, the
+  host, the one job that has to stay where it is until somebody fixes it, the
   repository being moved a job at a time.
 
   So every job is listed with the answer step three already gave it, and
@@ -34,10 +34,10 @@
   /** Follow the consolidated mapping. The empty value, because it is the default. */
   const CONSOLIDATED = '';
   /**
-   * Pin this one job to GitHub. It needs a value of its own because an override
-   * to "" is a real decision, and "" already means "no override at all".
-   * A pool's runs-on is a GitHub runner label -- lowercase letters, digits and
-   * hyphens -- so no pool can ever collide with this.
+   * Pin this one job to the rented runner it names today. It needs a value of
+   * its own because an override to "" is a real decision, and "" already means
+   * "no override at all". A pool's runs-on is a runner label -- lowercase
+   * letters, digits and hyphens -- so no pool can ever collide with this.
    */
   const STAY = '__github__';
 
@@ -93,10 +93,10 @@
 
   const options = $derived([
     ...pools.map((p) => ({ value: p.runs_on ?? '', label: `${p.runs_on} — the ${p.name} pool` })),
-    { value: STAY, label: 'Leave this job on GitHub' },
+    { value: STAY, label: 'Leave this job where it is' },
   ]);
 
-  /** What step three decided for a label, or "" for "left on GitHub". */
+  /** What step three decided for a label, or "" for "left where it is". */
   function consolidated(label: string): string {
     return mapping[label] ?? '';
   }
@@ -106,7 +106,7 @@
     return [
       {
         value: CONSOLIDATED,
-        label: to ? `Use the label mapping — ${to}` : 'Use the label mapping — stays on GitHub',
+        label: to ? `Use the label mapping — ${to}` : 'Use the label mapping — stays where it is',
       },
       ...options,
     ];
@@ -239,7 +239,7 @@
   }
   .label {
     padding: var(--z-space-1) var(--z-space-2);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     font-size: var(--z-text-xs);

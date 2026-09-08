@@ -292,3 +292,55 @@ func TestAuditorHandlesAMissingIdentity(t *testing.T) {
 		t.Errorf("actor kind = %q; want %q", rows[0].ActorKind, KindSystem)
 	}
 }
+
+// A password typed into the username field is a real and common slip, and the
+// audit log is readable by every viewer on the instance. An attempt against a
+// username nobody recognises is therefore recorded as a fingerprint, which is
+// still enough to see that the same wrong value is being tried repeatedly.
+func TestAuditLoginFailureDoesNotStoreUnknownUsernames(t *testing.T) {
+	s, st, _ := newService(t)
+	addUser(t, st, "alice", store.RoleViewer, nil)
+	ctx := t.Context()
+
+	s.AuditLoginFailure(ctx, "correct horse battery staple", "10.0.0.1", ErrInvalidCredentials)
+	s.AuditLoginFailure(ctx, "alice", "10.0.0.1", ErrInvalidCredentials)
+
+	rows, _, err := st.ListAudit(ctx, store.AuditFilter{}, store.Page{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("audit rows = %d; want 2", len(rows))
+	}
+	for _, row := range rows {
+		if strings.Contains(row.ActorName, "battery staple") || strings.Contains(row.After, "battery staple") {
+			t.Fatalf("the audit log stored an unrecognised username verbatim: %+v", row)
+		}
+	}
+	// An account that does exist is still named, because that is the thing an
+	// operator investigating a burst of failures actually needs.
+	var named bool
+	for _, row := range rows {
+		if row.ActorName == "alice" {
+			named = true
+		}
+	}
+	if !named {
+		t.Error("a failure against a real account should record its username")
+	}
+}
+
+// The fingerprint has to be stable, or repeated attempts against one bad value
+// look like many different ones and the correlation it exists for is lost.
+func TestLoginFingerprintIsStableAndShort(t *testing.T) {
+	a := fingerprint("Hunter2 ")
+	if a != fingerprint("hunter2") {
+		t.Error("the fingerprint should ignore case and padding, as username lookup does")
+	}
+	if a == fingerprint("hunter3") {
+		t.Error("different values should fingerprint differently")
+	}
+	if len(a) != 8 {
+		t.Errorf("fingerprint = %q (%d chars); want 8", a, len(a))
+	}
+}

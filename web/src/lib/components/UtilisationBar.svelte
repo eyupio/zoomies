@@ -15,6 +15,16 @@
     label?: string;
     /** Show the "3 of 4 busy" line under the bar. */
     showText?: boolean;
+    /**
+     * What the filled part means.
+     *
+     * `busy` is runners executing a job, and takes the status colour operators
+     * have learnt for exactly that. `capacity` is slots occupied on a host,
+     * which is a different fact -- a slot holds an idle runner just as much as
+     * a working one -- so it takes a neutral fill. Spending the busy hue on
+     * both put two different meanings in the same colour on one screen.
+     */
+    tone?: 'busy' | 'capacity';
     height?: number;
     class?: string;
   }
@@ -26,6 +36,7 @@
     max,
     label = 'Utilisation',
     showText = true,
+    tone = 'busy',
     height = 8,
     class: className = '',
   }: Props = $props();
@@ -46,7 +57,7 @@
   );
 </script>
 
-<div class="bar-wrap {className}">
+<div class="bar-wrap {className}" class:capacity={tone === 'capacity'}>
   <div class="track" style="height: {height}px" role="img" aria-label={summary}>
     <span class="live" style="width: {livePct}%"></span>
     <span class="busy" style="width: {busyPct}%"></span>
@@ -89,15 +100,18 @@
   }
   .live {
     background: var(--z-idle-subtle);
-    border: 1px solid var(--z-idle-border);
+    border: var(--z-border-width) solid var(--z-idle-border);
   }
   .busy {
     background: var(--z-busy);
   }
+  .capacity .busy {
+    background: var(--z-neutral);
+  }
   .tick {
     position: absolute;
     inset-block: -2px;
-    width: 2px;
+    width: var(--z-nudge-2);
     background: var(--z-text-subtle);
     transform: translateX(-1px);
   }
@@ -106,7 +120,7 @@
   }
   .tick.max.reached {
     background: var(--z-pending);
-    width: 3px;
+    width: var(--z-nudge-3);
   }
   .text {
     margin: 0;

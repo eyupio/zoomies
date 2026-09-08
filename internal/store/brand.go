@@ -1,6 +1,10 @@
 package store
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/eyupio/zoomies/internal/naming"
+)
 
 // The brand, as it appears on GitHub.
 //
@@ -20,15 +24,25 @@ const (
 	// belongs in.
 	BrandLabel = Brand
 
+	// BrandPrefix is what every name this fleet puts in front of somebody
+	// else's eyes starts with: a pool's name, and the runner names derived
+	// from it.
+	BrandPrefix = Brand + "-"
+
 	// RunnerNamePrefix is what every name NewRunnerName mints starts with. The
 	// reaper uses it to tell a registration Zoomies created from one somebody
 	// else registered by hand, so it must not appear in front of anything else.
-	RunnerNamePrefix = Brand + "-"
+	RunnerNamePrefix = BrandPrefix
 
 	// runnerNameEntropy is how many random bytes go into a runner name. Five
 	// encodes to eight base32 characters, which is a name a person can read
 	// back over a call and still leaves a collision within one target
 	// vanishingly unlikely.
+	//
+	// The kennel word beside it does not reduce this. Thirty-two words is five
+	// bits, which makes two runners share a word about as often as two people
+	// in a room of eight share a birthday -- fine for something an operator
+	// says out loud, useless as the thing GitHub relies on for uniqueness.
 	runnerNameEntropy = 5
 
 	// maxLabelSegment bounds the part of a label derived from something an
@@ -37,15 +51,43 @@ const (
 	maxLabelSegment = 40
 )
 
-// NewRunnerName mints the name one runner registers under: "zoomies-" and
-// eight random characters.
+// NewRunnerName mints the name one runner of this pool registers under: the
+// brand, the pool's shape, a word from the kennel, and a token.
 //
-// It deliberately says nothing else. GitHub shows this name in the runner list
-// and in every job's log header, where the useful facts -- which pool, which
-// host, which job -- are either already on screen or one click away in Zoomies.
-// Encoding them in the name made it long enough that the brand was the part
-// that got truncated.
-func NewRunnerName() string { return RunnerNamePrefix + NewSecret(runnerNameEntropy) }
+// This used to be the brand and eight random characters, on the argument that
+// GitHub shows a runner name in narrow columns and the useful facts are a click
+// away in Zoomies. The argument was wrong about where the reader is. Somebody
+// looking at GitHub's runner list, or at the "Set up job" line of a log, is
+// there precisely because they do not yet know which pool they are looking at;
+// asking them to go and find out is asking them to leave. What made the old
+// name too long was carrying the pool's *invented* name as well as the brand,
+// and naming/RunnerName solves that by dropping shape segments rather than the
+// brand when a name will not fit.
+//
+// A nil pool -- a runner Zoomies is naming before it knows where it goes -- gets
+// the brand and the discriminator, which is exactly the old name plus a word.
+func NewRunnerName(p *Pool) string {
+	return naming.RunnerName(runnerBase(p), naming.KennelWord()+"-"+NewSecret(runnerNameEntropy))
+}
+
+// runnerBase is the part of a runner's name that says what it is.
+//
+// The pool's shape wins over the pool's name because the shape is the half a
+// reader on GitHub cannot get anywhere else: "4vcpu-ubuntu-2404" answers the
+// question they are asking, where "biscuit" is a handle for a thing they are
+// not looking at. A pool that has no shape to report -- no resources, no
+// platform, which is what a pool created before either was recorded looks like
+// -- falls back to its own name, because a name that says something an operator
+// chose beats a name that says nothing at all.
+func runnerBase(p *Pool) string {
+	if p == nil {
+		return Brand
+	}
+	if spec := p.Spec(); !spec.Empty() {
+		return spec.String()
+	}
+	return p.Name
+}
 
 // IsRunnerName reports whether name looks like one NewRunnerName minted, which
 // is as much as anything outside this package can know about a registration it
@@ -79,6 +121,36 @@ func BrandedLabel(name string) string {
 	default:
 		return RunnerNamePrefix + s
 	}
+}
+
+// BrandedName returns a pool name carrying the brand, which every pool name
+// has to.
+//
+// A pool's name is not private to Zoomies. It is what BrandedLabel turns into
+// the label a workflow's `runs-on` spells out, it is the word in an audit line
+// somebody reads months later, and it is how the pool is named in the runner
+// list of an account that also has runners nobody here registered. A pool
+// called "gpu" makes all of those say something that could have come from
+// anywhere, and renaming it afterwards does not un-write the workflows already
+// pointing at it -- so a name arriving without the brand gains it here rather
+// than being refused, which is the treatment BrandLabels already gives a label
+// list, for the same reason.
+//
+// An empty name is returned unchanged: "a pool needs a name" is a better thing
+// for an operator to be told than a pool called "zoomies-".
+func BrandedName(name string) string {
+	s := strings.TrimSpace(name)
+	if s == "" || IsBrandedName(s) {
+		return s
+	}
+	return BrandPrefix + strings.TrimLeft(s, "-")
+}
+
+// IsBrandedName reports whether name already carries the brand, comparing the
+// way GitHub compares labels so that "Zoomies-GPU" is not given a second one.
+func IsBrandedName(name string) bool {
+	s := NormalizeLabel(name)
+	return s == Brand || strings.HasPrefix(s, BrandPrefix)
 }
 
 // SanitizeLabel reduces an arbitrary string to the characters GitHub accepts in

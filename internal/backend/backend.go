@@ -8,9 +8,11 @@ package backend
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/store"
@@ -26,6 +28,16 @@ var ErrUnavailable = errors.New("backend: not available on this host")
 // Handle identifies one runner workload on a host. For containers it is the
 // container ID; for the process backend it is the runner's work directory.
 type Handle string
+
+// CreateResult separates time spent fetching container images from the work
+// needed to create and start the workload. ImagePullDuration is nil when a
+// backend cannot observe an image pull (notably the process backend).
+type CreateResult struct {
+	Handle            Handle         `json:"handle"`
+	Digest            string         `json:"digest,omitempty"`
+	ImagePullDuration *time.Duration `json:"image_pull_duration,omitempty"`
+	CreateDuration    time.Duration  `json:"create_duration"`
+}
 
 // Phase is the backend's view of a workload, which is coarser than the runner
 // state machine: the backend knows whether the process is alive, not whether
@@ -45,6 +57,12 @@ const (
 	// PhaseGone means the workload no longer exists.
 	PhaseGone Phase = "gone"
 )
+
+// Live reports whether the workload still exists and may yet do work. It is
+// the question a caller asks before deciding a container is safe to delete,
+// and starting counts: a workload created moments ago has not failed, it has
+// not finished starting.
+func (p Phase) Live() bool { return p == PhaseStarting || p == PhaseRunning }
 
 // Status is a point-in-time report on one workload.
 type Status struct {
@@ -83,6 +101,14 @@ type Info struct {
 	// HostSocketPath is where the host daemon's socket lives, for pools that
 	// have explicitly opted into host-socket mode.
 	HostSocketPath string `json:"host_socket_path,omitempty"`
+	// CPUs and MemoryMB are the machine the daemon is running on, as the
+	// daemon sees it. They are the honest bound for what this host can run,
+	// which the agent's own view is not: a containerised agent is held to its
+	// cgroup, and the runners it starts through this daemon are siblings on the
+	// host rather than children inside that cgroup. Zero where the daemon did
+	// not say, which includes every backend that is not a container runtime.
+	CPUs     int   `json:"cpus,omitempty"`
+	MemoryMB int64 `json:"memory_mb,omitempty"`
 }
 
 // Credentials carry whatever the runner needs to attach itself to GitHub.
@@ -112,11 +138,17 @@ type Spec struct {
 	PoolID   string `json:"pool_id"`
 	PoolName string `json:"pool_name"`
 
-	Image       string            `json:"image"`
+	Image string `json:"image"`
+	// PullPolicy controls preparation of Image for this individual runner. An
+	// empty value is accepted for tasks produced by older controllers and lets
+	// the container backend use its configured compatibility default.
+	PullPolicy  store.PullPolicy  `json:"pull_policy,omitempty"`
 	Credentials Credentials       `json:"credentials"`
 	Env         map[string]string `json:"env,omitempty"`
 	Ephemeral   bool              `json:"ephemeral"`
 	Resources   store.Resources   `json:"resources"`
+	Cache       store.CacheConfig `json:"cache"`
+	Repository  string            `json:"repository,omitempty"`
 	DockerMode  store.DockerMode  `json:"docker_mode"`
 	// RunAsRoot keeps the container's default user instead of dropping to the
 	// unprivileged "runner" account.
@@ -144,7 +176,23 @@ func (s *Spec) Validate() error {
 	if !s.DockerMode.Valid() {
 		return fmt.Errorf("backend: %q is not a docker mode", s.DockerMode)
 	}
+	if s.PullPolicy != "" && !s.PullPolicy.Valid() {
+		return fmt.Errorf("backend: %q is not a pool pull policy", s.PullPolicy)
+	}
+	if s.PullPolicy == store.PullPinnedOnly && !isDigestImageReference(s.Image) {
+		return errors.New("backend: pinned-only requires an image digest")
+	}
 	return nil
+}
+
+func isDigestImageReference(ref string) bool {
+	const marker = "@sha256:"
+	i := strings.LastIndex(ref, marker)
+	if i <= 0 || len(ref[i+len(marker):]) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(ref[i+len(marker):])
+	return err == nil
 }
 
 // LogOptions controls a log stream.
@@ -193,6 +241,19 @@ type Backend interface {
 	List(ctx context.Context) ([]Workload, error)
 }
 
+// TimedCreator is implemented by backends that expose creation timing. It is
+// optional so third-party and older backends retain the explicit unavailable
+// path rather than fabricating an image-pull duration.
+type TimedCreator interface {
+	CreateWithResult(context.Context, Spec) (CreateResult, error)
+}
+
+// ImagePrewarmer is implemented by container backends. It prepares an image
+// without starting a runner and returns the immutable digest actually present.
+type ImagePrewarmer interface {
+	PrewarmImage(ctx context.Context, image string, policy store.PullPolicy) (string, error)
+}
+
 // Workload pairs a handle with the Zoomies identity recorded on it, so an agent
 // restarting into a host full of containers can work out what it owns.
 type Workload struct {
@@ -201,6 +262,17 @@ type Workload struct {
 	RunnerID string `json:"runner_id"`
 	PoolID   string `json:"pool_id"`
 	Status   Status `json:"status"`
+	// Sidecar marks a supporting container -- today only the docker-in-docker
+	// daemon a pool can ask for -- rather than a runner. A backend only lists
+	// one once the runner it served has gone, so it is always something to
+	// clean up and never something to manage.
+	//
+	// It carries its runner's id, because that is the only thing that says
+	// whose leftovers these are. Anything that finds a runner by id must
+	// therefore skip it: binding a runner's slot to its sidecar would stop the
+	// sidecar when the controller asked for the runner and leave the real
+	// container running somebody's job unattended.
+	Sidecar bool `json:"sidecar,omitempty"`
 }
 
 // LabelPrefix namespaces the container labels Zoomies writes.
@@ -212,8 +284,12 @@ const (
 	LabelRunnerID = LabelPrefix + "runner-id"
 	LabelPoolID   = LabelPrefix + "pool-id"
 	LabelPoolName = LabelPrefix + "pool-name"
-	LabelName     = LabelPrefix + "name"
-	LabelCreated  = LabelPrefix + "created-at"
+	// Cache diagnostics identify the shared volume and the size limit enforced
+	// against it between one runner and the next.
+	LabelCacheVolume    = LabelPrefix + "cache-volume"
+	LabelCacheSizeLimit = LabelPrefix + "cache-size-limit"
+	LabelName           = LabelPrefix + "name"
+	LabelCreated        = LabelPrefix + "created-at"
 )
 
 // Labels returns the label set to stamp on a workload built from spec.

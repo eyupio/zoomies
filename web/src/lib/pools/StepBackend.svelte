@@ -1,13 +1,24 @@
 <!--
-  Step three: how a runner is actually run, and how much Docker a job gets.
+  Step three: what a runner is made of, how it is run, and how much Docker a job
+  gets.
 
-  The two dangerous answers in the whole wizard live here, so both are spelled
-  out in the consequence rather than in a footnote, and the host-socket option
-  cannot be left selected without a deliberate confirmation.
+  The operating system is first because it is the answer with the widest blast
+  radius: it picks the image every runner boots and it keeps them off hosts
+  running something else. It is a list rather than a text field because it is
+  served from the images Zoomies actually publishes, and a pool that names one
+  we do not publish is a pool that validates and then never starts a runner.
+
+  Architecture is not asked here. The Hosts step already asks, and the image
+  reference does not change with it: every variant is published as a manifest
+  covering both, so a host pulls its own.
+
+  The two dangerous answers in the whole wizard also live here, so both are
+  spelled out in the consequence rather than in a footnote, and the host-socket
+  option cannot be left selected without a deliberate confirmation.
 -->
 <script lang="ts">
   import { ServerOff, ShieldAlert } from '@lucide/svelte';
-  import type { BackendKind, DockerMode } from '$lib/api/types';
+  import type { BackendKind, DockerMode, Host, PoolPlatform } from '$lib/api/types';
   import { pluralise } from '$lib/format';
   import Button from '$lib/components/Button.svelte';
   import RemedyText from '$lib/components/RemedyText.svelte';
@@ -15,11 +26,13 @@
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
   import RadioGroup from '$lib/components/RadioGroup.svelte';
+  import Select from '$lib/components/Select.svelte';
   import {
     BACKENDS,
     DOCKER_MODES,
     backendLabel,
     backendUnavailable,
+    platformKey,
   } from './PoolVocabulary.svelte';
   import type { BackendOffer } from './PoolVocabulary.svelte';
   import type { PoolDraft } from './PoolWizardForm.svelte';
@@ -31,6 +44,12 @@
     offers: readonly BackendOffer[];
     /** False until the fleet cache has landed, so we do not cry wolf about hosts. */
     hostsKnown: boolean;
+    /** The operating systems a runner image is published for. */
+    platforms: readonly PoolPlatform[];
+    /** Every connected host, so the step can say how many match the platform. */
+    hosts: readonly Host[];
+    /** True when the pool is kept to some of the fleet, so the counts are of those. */
+    restricted?: boolean;
     socketConfirmed?: boolean;
   }
 
@@ -40,6 +59,9 @@
     touch,
     offers,
     hostsKnown,
+    platforms,
+    hosts,
+    restricted = false,
     socketConfirmed = $bindable(false),
   }: Props = $props();
 
@@ -51,12 +73,16 @@
     if (!hostsKnown) return '';
     const found = offer(kind);
     if (!found) return '';
+    // "matching" rather than "connected" once the pool is kept to some of the
+    // fleet: the count is of the hosts it may actually land on.
+    const noun = restricted ? 'matching host' : 'connected host';
     if (found.hosts === 0) {
+      const none = `No ${noun} offers it`;
       return found.detail
-        ? `No connected host offers it: ${found.detail}`
-        : 'No connected host offers it, so this pool would never place a runner.';
+        ? `${none}: ${found.detail}`
+        : `${none}, so this pool would never place a runner.`;
     }
-    return `Offered by ${pluralise(found.hosts, 'connected host')}.`;
+    return `Offered by ${pluralise(found.hosts, noun)}.`;
   }
 
   const backendOptions = $derived(
@@ -71,7 +97,7 @@
 
   // Why this pool could not run as chosen, in the same sentence that stops the
   // wizard advancing, plus the backends it could move to.
-  const unavailable = $derived(backendUnavailable(draft.backend, offers, hostsKnown));
+  const unavailable = $derived(backendUnavailable(draft.backend, offers, hostsKnown, restricted));
   const runnable = $derived(
     offers.filter((entry) => entry.kind !== draft.backend && entry.hosts > 0),
   );
@@ -88,6 +114,101 @@
 
   const usesImage = $derived(draft.backend !== 'process');
 
+  /* -- platform ----------------------------------------------------------- */
+
+  const osOptions = $derived([
+    { value: '', label: 'Any — use the default image' },
+    ...platforms.map((p) => ({
+      value: platformKey(p.os, p.os_version),
+      label: p.default ? `${p.label} (default)` : (p.label ?? ''),
+    })),
+  ]);
+
+  const chosenOS = $derived(platformKey(draft.platform_os, draft.platform_os_version));
+
+  const chosen = $derived(
+    platforms.find((p) => platformKey(p.os, p.os_version) === chosenOS) ?? undefined,
+  );
+
+  /**
+   * The image this pool will actually boot. A pool that names its own image
+   * keeps it; otherwise the platform picks one, and saying which turns an
+   * abstract choice into a concrete one.
+   */
+  const effectiveImage = $derived(draft.image.trim() || chosen?.image || '');
+
+  /**
+   * How many connected hosts run this operating system. A pool that matches
+   * none of them will never start a runner, and finding that out here is far
+   * better than finding it out from an empty Runners page.
+   *
+   * Architecture is not counted here: the Hosts step asks for it, and the
+   * image reference does not change with it -- every variant is published as a
+   * manifest covering both, so the host pulls its own.
+   */
+  const matchingHosts = $derived(
+    hosts.filter((host) => {
+      if (draft.platform_os && host.platform?.os && host.platform.os !== draft.platform_os)
+        return false;
+      if (
+        draft.platform_os_version &&
+        host.platform?.os_version &&
+        host.platform.os_version !== draft.platform_os_version
+      )
+        return false;
+      return true;
+    }).length,
+  );
+
+  function chooseOS(value: string): void {
+    const found = platforms.find((p) => platformKey(p.os, p.os_version) === value);
+    draft.platform_os = found?.os ?? '';
+    draft.platform_os_version = found?.os_version ?? '';
+    touch('platform.os');
+  }
+
+  // A pool's docker_mode gives its jobs a daemon; the image has to bring the
+  // client. The stock runner image carries none on purpose, so a pool that
+  // asks for a daemon while on it under a moving tag is switched to the stock
+  // image's Docker variant -- the same image plus a client, under the same
+  // tag -- as it is saved. Say so on the step that decides it, so the image
+  // the pool's page shows afterwards is not a surprise; the review step shows
+  // the image the server answers with, which covers an empty field as well.
+  //
+  // What is not switched is said too, each for its own reason. A pinned tag
+  // is a deliberate choice of one build, and the variant exists only for the
+  // tags published since it was added, so it stays and the line says which
+  // tag to pin instead. A digest names one exact image. An image that merely
+  // looks like the stock one -- a mirror, or one built on it -- may or may not
+  // carry a client, and the server cannot know. An image of somebody's own
+  // gets no line at all: nagging about it would teach them to ignore this
+  // line.
+  const DOCKER_IMAGE = 'ghcr.io/eyupio/zoomies-runner-docker';
+  const STOCK_MOVING = /^ghcr\.io\/eyupio\/zoomies-runner(:(latest|main))?$/;
+  const STOCK_PINNED = /^ghcr\.io\/eyupio\/zoomies-runner:[^@]+$/;
+  const STOCK_DIGEST = /^ghcr\.io\/eyupio\/zoomies-runner(:[^@]+)?@/;
+  const LOOKALIKE_IMAGE = /(^|\/)zoomies-runner(:|$)/;
+
+  const imageNotice = $derived.by((): string | undefined => {
+    if (!usesImage || (draft.docker_mode ?? 'none') === 'none') return undefined;
+    const image = draft.image?.trim() ?? '';
+    if (image === '') return undefined;
+    const tag = image.includes(':') ? image.slice(image.indexOf(':')) : '';
+    if (STOCK_MOVING.test(image)) {
+      return `The stock runner image has no Docker client, so this pool will run ${DOCKER_IMAGE}${tag} instead. Saving the pool records that image.`;
+    }
+    if (STOCK_PINNED.test(image)) {
+      return `A pinned tag is kept as it is, and the stock runner image has no Docker client. Pin ${DOCKER_IMAGE}${tag} instead; the variant is published beside every runner tag since it was added.`;
+    }
+    if (STOCK_DIGEST.test(image)) {
+      return `A digest names one exact image, and this one has no Docker client. Pin a digest of ${DOCKER_IMAGE} instead.`;
+    }
+    if (LOOKALIKE_IMAGE.test(image)) {
+      return 'This looks like the stock runner image, which has no Docker client, and it is not one Zoomies switches for you. Jobs that run docker fail on it even with a daemon attached, unless docker is installed in it.';
+    }
+    return undefined;
+  });
+
   function chooseBackend(value: string): void {
     draft.backend = value as BackendKind;
     touch('backend');
@@ -101,6 +222,38 @@
     touch('docker_mode');
   }
 </script>
+
+{#if usesImage}
+  <Field
+    label="Operating system"
+    error={errors['platform.os'] ?? errors['platform.os_version']}
+    hint="Picks the zoomies-runner image these runners boot, and keeps them off hosts running something else."
+  >
+    {#snippet children({ id, describedBy, invalid })}
+      <Select
+        value={chosenOS}
+        options={osOptions}
+        {id}
+        {describedBy}
+        {invalid}
+        onchange={chooseOS}
+      />
+    {/snippet}
+  </Field>
+
+  <p class="platform-note">
+    {#if effectiveImage}
+      Runners boot <code>{effectiveImage}</code>.
+    {:else}
+      Runners boot the controller's default image.
+    {/if}
+    {#if hostsKnown}
+      {matchingHosts === 0
+        ? ' No connected host matches, so this pool would never place a runner.'
+        : ` ${pluralise(matchingHosts, 'connected host')} match.`}
+    {/if}
+  </p>
+{/if}
 
 <RadioGroup
   name="pool-backend"
@@ -120,7 +273,7 @@
   <div class="unrunnable" role="group" aria-labelledby="backend-unrunnable">
     <p class="unrunnable-title" id="backend-unrunnable">
       <ServerOff size={16} aria-hidden="true" />
-      No connected host can run a {backendLabel(draft.backend)} pool
+      No {restricted ? 'matching' : 'connected'} host can run a {backendLabel(draft.backend)} pool
     </p>
     <p class="unrunnable-body"><RemedyText text={unavailable} /></p>
     <div class="unrunnable-actions">
@@ -137,7 +290,8 @@
   <Field
     label="Image"
     error={errors['image']}
-    hint="The container image runners are built from. Leave it empty to use the controller's default."
+    hint="Override the image the operating system above selects. Leave it empty unless you build your own."
+    notice={imageNotice}
   >
     {#snippet children({ id, describedBy, invalid })}
       <Input
@@ -146,7 +300,7 @@
         {describedBy}
         {invalid}
         mono
-        placeholder="ghcr.io/actions/actions-runner:latest"
+        placeholder={chosen?.image ?? 'ghcr.io/eyupio/zoomies-runner:latest'}
         autocomplete="off"
         onblur={() => touch('image')}
       />
@@ -214,11 +368,19 @@
 />
 
 <style>
+  .platform-note {
+    margin: calc(var(--z-space-3) * -1) 0 0;
+    color: var(--z-text-muted);
+    font-size: var(--z-text-sm);
+  }
+  .platform-note code {
+    font-family: var(--z-font-mono);
+  }
   .unrunnable {
     margin-top: var(--z-space-4);
     padding: var(--z-space-4);
-    border: 1px solid var(--z-danger-border, var(--z-border));
-    border-left: 3px solid var(--z-danger);
+    border: var(--z-border-width) solid var(--z-danger-border, var(--z-border));
+    border-left: var(--z-border-width-rail) solid var(--z-danger);
     border-radius: var(--z-radius-md);
     background: var(--z-danger-subtle);
   }
@@ -252,7 +414,7 @@
   }
   .danger {
     padding: var(--z-space-4);
-    border: 2px solid var(--z-danger-border);
+    border: var(--z-border-width-thick) solid var(--z-danger-border);
     border-radius: var(--z-radius-md);
     background: var(--z-danger-subtle);
   }

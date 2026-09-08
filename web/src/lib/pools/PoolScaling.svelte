@@ -77,7 +77,7 @@
     align-items: baseline;
     gap: var(--z-space-3);
     padding: var(--z-space-2) 0;
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
     font-size: var(--z-text-sm);
   }
   .row:last-child {
@@ -88,7 +88,7 @@
     align-items: center;
     gap: var(--z-space-1);
     padding: 0 var(--z-space-2);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     font-family: var(--z-font-mono);

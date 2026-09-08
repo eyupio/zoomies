@@ -279,3 +279,94 @@ func TestNewHTTPTransportValidatesItsOptions(t *testing.T) {
 		})
 	}
 }
+
+// The agent's token rides on every request, and a create task carries a JIT
+// runner configuration -- a live registration credential for the organisation's
+// runner group. Neither may cross the network in the clear by accident, so a
+// plaintext controller URL is refused rather than warned about.
+func TestHTTPTransportRefusesPlaintextToARemoteController(t *testing.T) {
+	cases := []struct {
+		url     string
+		allow   bool
+		wantErr bool
+	}{
+		{url: "https://zoomies.example.com:8080"},
+		{url: "http://127.0.0.1:8080"},
+		{url: "http://[::1]:8080"},
+		{url: "http://localhost:8080"},
+		{url: "http://zoomies.example.com:8080", wantErr: true},
+		{url: "http://10.0.0.5:8080", wantErr: true},
+		// An operator who has decided the hop is already private can say so.
+		{url: "http://zoomies.example.com:8080", allow: true},
+	}
+	for _, tc := range cases {
+		name := tc.url
+		if tc.allow {
+			name += " (opted in)"
+		}
+		t.Run(name, func(t *testing.T) {
+			_, err := NewHTTPTransport(HTTPOptions{ControllerURL: tc.url, AllowInsecureHTTP: tc.allow})
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("NewHTTPTransport(%q) = %v; want error=%v", tc.url, err, tc.wantErr)
+			}
+			if tc.wantErr && !strings.Contains(err.Error(), "allow_insecure_http") {
+				t.Errorf("the refusal should name the way out: %v", err)
+			}
+		})
+	}
+}
+
+// The session is what makes a duplicated credential visible, and it is only
+// any use if the agent sends it on every authenticated call: a duplicate that
+// only ever polled for tasks would go unseen if the header rode on heartbeats
+// alone. It must also be stable for the life of the process -- an id that
+// changed under a running agent would look exactly like the duplicate it
+// exists to find -- and absent from join, which is what mints the credentials
+// the session belongs to.
+func TestTheAgentSendsOneStableSessionOnEveryAuthenticatedCall(t *testing.T) {
+	var mu sync.Mutex
+	seen := map[string]http.Header{}
+	mux := http.NewServeMux()
+	record := func(path string, body any) {
+		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			seen[path] = r.Header.Clone()
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(body)
+		})
+	}
+	record(PathJoin, JoinResponse{HostID: "host-1", AgentToken: "agent-token"})
+	record(PathHeartbeat, HeartbeatResponse{OK: true})
+	record(PathResults, struct{}{})
+	record(PathReport, struct{}{})
+
+	tr, _ := newTestTransport(t, mux)
+	ctx := context.Background()
+	if _, err := tr.Join(ctx, JoinRequest{Name: "h"}); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if _, err := tr.Heartbeat(ctx, HeartbeatRequest{Capacity: 2}); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+	if err := tr.ReportResult(ctx, TaskResult{TaskID: "t1", OK: true}); err != nil {
+		t.Fatalf("ReportResult: %v", err)
+	}
+	if err := tr.ReportRunners(ctx, []RunnerReport{{RunnerID: "run_1"}}); err != nil {
+		t.Fatalf("ReportRunners: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if got := seen[PathJoin].Get(HeaderAgentSession); got != "" {
+		t.Fatalf("join sent %s = %q; join is what mints the credentials the session belongs to", HeaderAgentSession, got)
+	}
+	first := seen[PathHeartbeat].Get(HeaderAgentSession)
+	if first == "" {
+		t.Fatalf("the heartbeat sent no %s", HeaderAgentSession)
+	}
+	for _, path := range []string{PathResults, PathReport} {
+		if got := seen[path].Get(HeaderAgentSession); got != first {
+			t.Fatalf("%s %s = %q, want the same session as the heartbeat (%q)", path, HeaderAgentSession, got, first)
+		}
+	}
+}

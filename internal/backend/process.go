@@ -60,7 +60,12 @@ const (
 )
 
 // DefaultRunnerVersion is used when neither the pool nor the agent pins one.
-const DefaultRunnerVersion = "2.328.0"
+//
+// It is the same release deploy/Dockerfile.runner and the Makefile pin, and
+// the digests in runner_digests.go are its digests: bump all of them together
+// (.github/workflows/runner-version.yml does), or the process backend will
+// refuse to install the version it defaults to.
+const DefaultRunnerVersion = "2.337.0"
 
 // defaultRunnerDownloadURL is where actions/runner releases live.
 const defaultRunnerDownloadURL = "https://github.com/actions/runner/releases/download"
@@ -70,15 +75,6 @@ const configureTimeout = 3 * time.Minute
 
 // tailPoll is how often a followed log file is re-read. See followReader.
 const tailPoll = 250 * time.Millisecond
-
-// knownRunnerSHA256 holds digests Zoomies ships for the runner releases it has
-// been tested against, keyed "<version>/<asset file name>".
-//
-// It is deliberately empty in the source tree rather than filled with digests
-// that would go stale: an operator who pins a version supplies its digest with
-// ProcessOptions.RunnerSHA256, and a release of Zoomies that pins a default
-// runner version adds the entry here at the same time.
-var knownRunnerSHA256 = map[string]string{}
 
 // ProcessOptions configures the process backend.
 type ProcessOptions struct {
@@ -115,8 +111,12 @@ type ProcessBackend struct {
 
 	// mu guards running, which holds the children this agent started so that
 	// exactly one goroutine waits on each of them.
-	mu      sync.Mutex
-	running map[string]*exec.Cmd
+	mu sync.Mutex
+	// running maps a runner's directory to the child there and to a channel
+	// closed once the goroutine reaping it has finished writing. Removal waits
+	// on that: the reaper records the exit code in the very directory the
+	// remove is deleting, and the two used to race.
+	running map[string]*child
 	// installing serialises release downloads so two concurrent creates do not
 	// fetch the same archive twice.
 	installing sync.Mutex
@@ -160,7 +160,7 @@ func NewProcess(opts ProcessOptions) (*ProcessBackend, error) {
 		baseURL:         base,
 		http:            client,
 		log:             log.With("backend", string(store.BackendProcess)),
-		running:         make(map[string]*exec.Cmd),
+		running:         make(map[string]*child),
 	}, nil
 }
 
@@ -187,6 +187,10 @@ func (b *ProcessBackend) Probe(ctx context.Context) Info {
 	}
 	if err := b.checkWritable(); err != nil {
 		info.Detail = err.Error()
+		return info
+	}
+	if !HasShell() {
+		info.Detail = noShellDetail
 		return info
 	}
 	if err := checkICU(); err != nil {
@@ -216,6 +220,24 @@ func (b *ProcessBackend) checkWritable() error {
 	return nil
 }
 
+// noShellDetail is why the process backend is unavailable on a host with no
+// shell, in the words the Hosts page shows.
+const noShellDetail = "no shell is installed (sh is not in PATH), so nothing actions/runner starts could run here; " +
+	"the published Zoomies image is built without one on purpose -- from a container, use the docker or podman backend, " +
+	"and use the process backend only on a host with a shell, tar and libicu"
+
+// HasShell reports whether this host has a shell, which the runner's config.sh
+// and every `run:` step need.
+//
+// It is checked before ICU because it decides what kind of host this is. The
+// published Zoomies image is distroless -- no shell at all, on purpose -- so an
+// agent running in it can never use this backend, and telling that operator to
+// apt-get install libicu, into an image with no apt, sends them the wrong way.
+func HasShell() bool {
+	_, err := exec.LookPath("sh")
+	return err == nil
+}
+
 // checkICU looks for the ICU libraries the runner's .NET runtime needs.
 func checkICU() error {
 	if runtime.GOOS != "linux" {
@@ -242,11 +264,17 @@ func checkICU() error {
 
 // Create lays out one runner directory, registers it and starts it.
 func (b *ProcessBackend) Create(ctx context.Context, spec Spec) (Handle, error) {
+	r, err := b.CreateWithResult(ctx, spec)
+	return r.Handle, err
+}
+
+func (b *ProcessBackend) CreateWithResult(ctx context.Context, spec Spec) (CreateResult, error) {
+	started := time.Now()
 	if err := spec.Validate(); err != nil {
-		return "", err
+		return CreateResult{}, err
 	}
 	if spec.DockerMode == store.DockerDinD {
-		return "", fmt.Errorf("backend: pool %q asks for docker-in-docker, which the process backend cannot provide; move the pool to the docker backend", spec.PoolName)
+		return CreateResult{}, fmt.Errorf("backend: pool %q asks for docker-in-docker, which the process backend cannot provide; move the pool to the docker backend", spec.PoolName)
 	}
 
 	version := strings.TrimPrefix(strings.TrimSpace(spec.RunnerVersion), "v")
@@ -255,43 +283,46 @@ func (b *ProcessBackend) Create(ctx context.Context, spec Spec) (Handle, error) 
 	}
 	tools, err := b.ensureRelease(ctx, version)
 	if err != nil {
-		return "", err
+		return CreateResult{}, err
 	}
 
 	dir := b.runnerDir(spec.Name)
 	if err := b.wipe(ctx, dir); err != nil {
-		return "", err
+		return CreateResult{}, err
 	}
 	if err := os.MkdirAll(filepath.Join(dir, runnerWorkDir), 0o750); err != nil {
-		return "", fmt.Errorf("backend: creating the runner directory %s: %w", dir, err)
+		return CreateResult{}, fmt.Errorf("backend: creating the runner directory %s: %w", dir, err)
 	}
 	// Each runner needs its own copy of the tree, because the runner keeps its
 	// credentials and its state next to the binary. Files are hard-linked where
 	// the filesystem allows it, so the copy costs inodes rather than gigabytes.
 	if err := cloneTree(tools, dir); err != nil {
 		_ = os.RemoveAll(dir)
-		return "", fmt.Errorf("backend: laying out the runner in %s: %w", dir, err)
+		return CreateResult{}, fmt.Errorf("backend: laying out the runner in %s: %w", dir, err)
 	}
 
 	env := b.childEnv(spec, dir)
 	args := []string{"run"}
 	if jit := spec.Credentials.JITConfig; jit != "" {
-		// The JIT config goes on the command line because that is the interface
-		// the runner offers. It is single-use and expires in minutes, which is
-		// what makes a value visible in ps acceptable here; a registration token
-		// is not, and neither is anything else Zoomies holds.
-		args = append(args, "--jitconfig", jit)
+		// In the environment rather than on the command line. The runner reads
+		// ACTIONS_RUNNER_INPUT_<ARG> as a fallback for every --arg, which is
+		// how the container backends already hand it over, and it is the
+		// difference between a credential in /proc/<pid>/cmdline, which every
+		// local user can read, and one in /proc/<pid>/environ, which only this
+		// account and root can. Short-lived and single-use is a reason to
+		// worry less, not a reason to publish it.
+		env = append(env, EnvUpstreamJITConfig+"="+jit)
 	} else if err := b.configure(ctx, dir, spec, env); err != nil {
 		_ = os.RemoveAll(dir)
-		return "", err
+		return CreateResult{}, err
 	}
 
 	if err := b.start(dir, args, env, spec, version); err != nil {
 		_ = os.RemoveAll(dir)
-		return "", err
+		return CreateResult{}, err
 	}
 	b.log.Info("runner process started", "runner", spec.Name, "pool", spec.PoolName, "dir", dir, "runner_version", version)
-	return Handle(dir), nil
+	return CreateResult{Handle: Handle(dir), CreateDuration: time.Since(started)}, nil
 }
 
 // configure runs config.sh for the registration-token path, which is how a
@@ -355,6 +386,7 @@ func (b *ProcessBackend) start(dir string, args, env []string, spec Spec, versio
 	cmd.Env = env
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
+	detachRunner(cmd)
 	if err := cmd.Start(); err != nil {
 		_ = logFile.Close()
 		return fmt.Errorf("backend: starting the runner in %s: %w", dir, err)
@@ -382,10 +414,12 @@ func (b *ProcessBackend) start(dir string, args, env []string, spec Spec, versio
 	}
 
 	b.mu.Lock()
-	b.running[dir] = cmd
+	reaped := make(chan struct{})
+	b.running[dir] = &child{cmd: cmd, reaped: reaped}
 	b.mu.Unlock()
 
 	go func() {
+		defer close(reaped)
 		err := cmd.Wait()
 		_ = logFile.Close()
 		code := 0
@@ -405,6 +439,18 @@ func (b *ProcessBackend) start(dir string, args, env []string, spec Spec, versio
 	}()
 	return nil
 }
+
+// child is a runner process and the signal that everything written on its
+// behalf has been written.
+type child struct {
+	cmd    *exec.Cmd
+	reaped chan struct{}
+}
+
+// reapGrace is how long a removal waits for the exit record to be written
+// before deleting the directory anyway. It is a bound on a handover that takes
+// microseconds, not an expectation.
+const reapGrace = 5 * time.Second
 
 // abandon kills a child we have decided not to keep and reaps it, so that a
 // half-failed create leaves no zombie behind.
@@ -567,21 +613,46 @@ func (b *ProcessBackend) Stop(ctx context.Context, h Handle, timeout time.Durati
 	if err != nil {
 		return nil
 	}
-	if err := proc.Signal(os.Interrupt); err != nil && !errors.Is(err, os.ErrProcessDone) {
+	if runtime.GOOS == "windows" {
+		// Windows does not support sending os.Interrupt to arbitrary processes.
+		return b.kill(ctx, proc, dir)
+	}
+	// The whole group, not the listener alone: the job runs in a worker the
+	// listener spawned, and it is the worker that has to be told to stop.
+	if err := signalRunner(proc, syscall.SIGINT); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		b.log.Warn("could not interrupt the runner; killing it", "dir", dir, "pid", pid, "error", err)
-		return b.kill(proc, dir)
+		return b.kill(ctx, proc, dir)
 	}
 	if waitFor(ctx, func() bool { return !processAlive(pid) }, timeout, 200*time.Millisecond) {
 		return nil
 	}
 
 	b.log.Warn("runner did not exit after SIGINT; killing it", "dir", dir, "pid", pid, "timeout", timeout)
-	return b.kill(proc, dir)
+	return b.kill(ctx, proc, dir)
 }
 
-func (b *ProcessBackend) kill(proc *os.Process, dir string) error {
-	if err := proc.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return fmt.Errorf("backend: killing the runner process %d in %s: %w", proc.Pid, dir, err)
+// killGrace is how long to wait for a killed runner to actually be gone.
+//
+// SIGKILL cannot be refused, so this is not a negotiation; it is the time the
+// kernel takes to tear a process tree down, which on a loaded machine is not
+// zero.
+const killGrace = 5 * time.Second
+
+func (b *ProcessBackend) kill(ctx context.Context, proc *os.Process, dir string) error {
+	if err := signalRunner(proc, syscall.SIGKILL); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		// The group could not be signalled; the leader alone is better than
+		// nothing, and is all Windows can do anyway.
+		if err := proc.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			return fmt.Errorf("backend: killing the runner process %d in %s: %w", proc.Pid, dir, err)
+		}
+	}
+	// SIGKILL is delivered, not applied. Returning here says the runner has
+	// stopped when it is still running, and the caller's next move is usually
+	// to delete the directory it is running in -- which fails, or worse
+	// half-succeeds, while the process still has files open there. The SIGINT
+	// path above already waits; this one has to as well.
+	if !waitFor(ctx, func() bool { return !processAlive(proc.Pid) }, killGrace, 20*time.Millisecond) {
+		b.log.Warn("a killed runner is still there", "dir", dir, "pid", proc.Pid, "waited", killGrace)
 	}
 	return nil
 }
@@ -601,9 +672,28 @@ func (b *ProcessBackend) wipe(ctx context.Context, dir string) error {
 			b.log.Warn("could not stop the runner before removing it", "dir", dir, "error", err)
 		}
 	}
+	// The process being gone is not the end of the writing. The goroutine
+	// reaping it records the exit code in this very directory, and it gets
+	// there a moment after the process it was waiting on disappears -- which
+	// is a moment this function is already spending inside RemoveAll. The walk
+	// deletes what it found, the exit record lands behind it, and the rmdir
+	// meets a directory that is not empty. So the removal waits for the
+	// reaper, and there is nobody left writing here when it starts.
 	b.mu.Lock()
+	c := b.running[dir]
 	delete(b.running, dir)
 	b.mu.Unlock()
+	if c != nil && !waitFor(ctx, func() bool {
+		select {
+		case <-c.reaped:
+			return true
+		default:
+			return false
+		}
+	}, reapGrace, 10*time.Millisecond) {
+		b.log.Warn("a runner's exit was still being recorded when its directory was removed",
+			"dir", dir, "waited", reapGrace)
+	}
 
 	if err := os.RemoveAll(dir); err != nil {
 		return fmt.Errorf("backend: removing the runner directory %s: %w", dir, err)
@@ -611,8 +701,28 @@ func (b *ProcessBackend) wipe(ctx context.Context, dir string) error {
 	return nil
 }
 
+// abandonedGrace is how long a runner directory carrying no usable metadata
+// has to sit untouched before List will call it abandoned.
+//
+// Create makes the directory and clones the tools tree into it before it
+// writes the metadata, so a directory without metadata is either one being
+// made right now or one whose agent died in that window. The two are told
+// apart by whether anything is still writing: the clone touches the directory
+// with every file it lays down, so a modification time this old means nobody
+// is. Generous on purpose -- the cost of waiting is disk, and the cost of
+// being wrong is deleting a runner while it is being built.
+const abandonedGrace = 15 * time.Minute
+
 // List walks the runners directory, so an agent that restarted still finds the
 // runners it started before.
+//
+// A directory whose metadata cannot be read is reported as a workload that is
+// gone rather than skipped. Skipping it was a leak: nothing else walks this
+// tree, so a directory the reaper never hears about is a copy of the runner
+// tools -- hundreds of megabytes -- left on the host until somebody notices
+// the disk. Reported, it becomes an orphan like any other, and the agent
+// removes it under the same grace and the same "only after a successful poll"
+// rule as a container nothing claims.
 func (b *ProcessBackend) List(ctx context.Context) ([]Workload, error) {
 	root := filepath.Join(b.root, runnersDirName)
 	entries, err := os.ReadDir(root)
@@ -631,6 +741,9 @@ func (b *ProcessBackend) List(ctx context.Context) ([]Workload, error) {
 		dir := filepath.Join(root, e.Name())
 		meta, err := readMeta(dir)
 		if err != nil {
+			if w, ok := abandonedDir(dir, e); ok {
+				out = append(out, w)
+			}
 			continue
 		}
 		st, err := b.Status(ctx, Handle(dir))
@@ -646,6 +759,24 @@ func (b *ProcessBackend) List(ctx context.Context) ([]Workload, error) {
 		})
 	}
 	return out, nil
+}
+
+// abandonedDir reports a runner directory that has no usable metadata and has
+// not been written to for abandonedGrace.
+//
+// It carries no runner ID because there is nothing to read one from, which is
+// exactly right: the agent's orphan path removes the workload and reports
+// nothing, so no row moves on the strength of a directory nobody can identify.
+func abandonedDir(dir string, e os.DirEntry) (Workload, bool) {
+	info, err := e.Info()
+	if err != nil || time.Since(info.ModTime()) < abandonedGrace {
+		return Workload{}, false
+	}
+	return Workload{
+		Handle: Handle(dir),
+		Name:   e.Name(),
+		Status: Status{Handle: Handle(dir), Phase: PhaseGone},
+	}, true
 }
 
 func (b *ProcessBackend) runnerDir(name string) string {
@@ -826,6 +957,12 @@ func extractTarGz(archive, dest string) error {
 		if err != nil {
 			return err
 		}
+		// A symlink extracted earlier must not become a path component now:
+		// "lib -> /etc" followed by "lib/cron.d/x" is the second half of the
+		// classic escape, and safeJoin sees only the text of the name.
+		if err := noSymlinkParents(dest, target); err != nil {
+			return err
+		}
 
 		switch hdr.Typeflag {
 		case tar.TypeDir:
@@ -848,6 +985,13 @@ func extractTarGz(archive, dest string) error {
 				return err
 			}
 		case tar.TypeSymlink:
+			// filepath.Join cleans "/etc" to "etc" under the entry's directory,
+			// which is why an absolute target used to pass the check below;
+			// it is refused outright, since nothing in a runner release links
+			// to an absolute path.
+			if filepath.IsAbs(hdr.Linkname) || strings.HasPrefix(hdr.Linkname, `\`) {
+				return fmt.Errorf("archive entry %q links to the absolute path %q", hdr.Name, hdr.Linkname)
+			}
 			if _, err := safeJoin(dest, filepath.Join(filepath.Dir(hdr.Name), hdr.Linkname)); err != nil {
 				return fmt.Errorf("archive entry %q links outside the archive", hdr.Name)
 			}
@@ -860,6 +1004,35 @@ func extractTarGz(archive, dest string) error {
 			}
 		}
 	}
+}
+
+// noSymlinkParents refuses to write through a symlink: every directory between
+// root and target that already exists must be a real directory. The archive is
+// extracted into a fresh directory, so the only way one of them is a symlink is
+// that an earlier entry of the same archive made it so.
+func noSymlinkParents(root, target string) error {
+	rel, err := filepath.Rel(root, filepath.Dir(target))
+	if err != nil {
+		return err
+	}
+	dir := root
+	for _, part := range strings.Split(rel, string(os.PathSeparator)) {
+		if part == "." || part == "" {
+			continue
+		}
+		dir = filepath.Join(dir, part)
+		info, err := os.Lstat(dir)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("archive entry %q would be written through the symlink %q", target, dir)
+		}
+	}
+	return nil
 }
 
 // safeJoin resolves name under root, rejecting anything that escapes it. A

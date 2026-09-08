@@ -14,22 +14,23 @@ import (
 // ---------------------------------------------------------------------------
 
 const jobCols = `id, github_job_id, github_run_id, repo, workflow, job_name, labels, state,
-	conclusion, pool_id, runner_id, runner_name, html_url, queued_at, started_at,
-	completed_at, matched`
+	conclusion, installation_id, pool_id, runner_id, runner_name, html_url, queued_at,
+	started_at, completed_at, matched, eligible_at, head_branch, head_sha, run_attempt, steps, runner_fault`
 
 func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
 	var j Job
 	var queued int64
-	var started, completed sql.NullInt64
+	var started, completed, eligible sql.NullInt64
 	var matched int
 	err := sc.Scan(&j.ID, &j.GitHubJobID, &j.GitHubRunID, &j.Repo, &j.Workflow, &j.JobName,
-		&j.Labels, &j.State, &j.Conclusion, &j.PoolID, &j.RunnerID, &j.RunnerName,
-		&j.HTMLURL, &queued, &started, &completed, &matched)
+		&j.Labels, &j.State, &j.Conclusion, &j.InstallationID, &j.PoolID, &j.RunnerID,
+		&j.RunnerName, &j.HTMLURL, &queued, &started, &completed, &matched, &eligible,
+		&j.HeadBranch, &j.HeadSHA, &j.RunAttempt, &j.Steps, &j.RunnerFault)
 	if err != nil {
 		return nil, err
 	}
 	j.QueuedAt = at(queued)
-	j.StartedAt, j.CompletedAt = atp(started), atp(completed)
+	j.StartedAt, j.CompletedAt, j.EligibleAt = atp(started), atp(completed), atp(eligible)
 	j.Matched = matched == 1
 	return &j, nil
 }
@@ -40,7 +41,19 @@ func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
 // merges rather than overwrites: a late "queued" delivery must not resurrect a
 // job that has already completed.
 func (s *Store) UpsertJob(ctx context.Context, j *Job) (*Job, error) {
+	out, _, err := s.ApplyJob(ctx, j)
+	return out, err
+}
+
+// ApplyJob is UpsertJob that also says what changed.
+//
+// The change is worked out inside the write transaction, against the row as it
+// was, so two deliveries for the same job arriving together cannot both be
+// told they moved it: exactly one of them did. That is what lets the caller
+// write a job's timeline from deliveries GitHub may send twice.
+func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 	var out *Job
+	var change JobChange
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		row := tx.QueryRowContext(ctx, `SELECT `+jobCols+` FROM jobs WHERE github_job_id = ?`, j.GitHubJobID)
 		existing, err := scanJob(row)
@@ -53,88 +66,198 @@ func (s *Store) UpsertJob(ctx context.Context, j *Job) (*Job, error) {
 				j.QueuedAt = s.Now()
 			}
 			j.Labels = NormalizeLabels(j.Labels)
+			// A job that arrives already claimed is eligible from the moment
+			// it is first seen: there was no earlier moment to record.
+			if j.Matched && j.EligibleAt == nil {
+				now := s.Now()
+				j.EligibleAt = &now
+			}
 			_, err := tx.ExecContext(ctx, `INSERT INTO jobs (`+jobCols+`)
-				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 				j.ID, j.GitHubJobID, j.GitHubRunID, j.Repo, j.Workflow, j.JobName, j.Labels,
-				string(j.State), j.Conclusion, j.PoolID, j.RunnerID, j.RunnerName, j.HTMLURL,
-				ms(j.QueuedAt), msp(j.StartedAt), msp(j.CompletedAt), boolInt(j.Matched))
+				string(j.State), j.Conclusion, j.InstallationID, j.PoolID, j.RunnerID,
+				j.RunnerName, j.HTMLURL, ms(j.QueuedAt), msp(j.StartedAt), msp(j.CompletedAt),
+				boolInt(j.Matched), msp(j.EligibleAt), j.HeadBranch, j.HeadSHA, j.RunAttempt,
+				j.Steps, j.RunnerFault)
 			if err != nil {
 				return err
 			}
 			out = j
+			change = JobChange{Created: true, StateChanged: true, Claimed: j.Matched, RunnerLinked: j.RunnerID != ""}
 			return nil
 		case err != nil:
 			return err
 		}
 
 		// Merge: never move a job backwards through its lifecycle.
+		//
+		// A delivery that is current -- at or past the row's state -- may
+		// change anything it carries. A stale one -- a "queued" arriving after
+		// "completed" -- may only fill in what the row does not have yet: it
+		// is old news about the same job, so a label set or a runner name it
+		// carries is at best what the row already says and at worst what was
+		// true before the job moved on. The steps are the sharpest case: an
+		// "in_progress" that arrives after "completed" would put every step
+		// back to "queued".
 		merged := *existing
-		if jobRank(j.State) >= jobRank(existing.State) {
+		current := jobRank(j.State) >= jobRank(existing.State)
+		if current {
 			merged.State = j.State
+			if len(j.Steps) > 0 {
+				merged.Steps = j.Steps
+			}
 		}
-		if j.Conclusion != "" {
-			merged.Conclusion = j.Conclusion
+		text := func(dst *string, v string) {
+			if v != "" && (current || *dst == "") {
+				*dst = v
+			}
 		}
-		if j.GitHubRunID != 0 {
+		text(&merged.HeadBranch, j.HeadBranch)
+		text(&merged.HeadSHA, j.HeadSHA)
+		text(&merged.RunnerFault, j.RunnerFault)
+		text(&merged.Conclusion, j.Conclusion)
+		text(&merged.Repo, j.Repo)
+		text(&merged.Workflow, j.Workflow)
+		text(&merged.JobName, j.JobName)
+		text(&merged.InstallationID, j.InstallationID)
+		text(&merged.PoolID, j.PoolID)
+		text(&merged.RunnerID, j.RunnerID)
+		text(&merged.RunnerName, j.RunnerName)
+		text(&merged.HTMLURL, j.HTMLURL)
+		if j.RunAttempt != 0 && (current || merged.RunAttempt == 0) {
+			merged.RunAttempt = j.RunAttempt
+		}
+		if j.GitHubRunID != 0 && (current || merged.GitHubRunID == 0) {
 			merged.GitHubRunID = j.GitHubRunID
 		}
-		if j.Repo != "" {
-			merged.Repo = j.Repo
-		}
-		if j.Workflow != "" {
-			merged.Workflow = j.Workflow
-		}
-		if j.JobName != "" {
-			merged.JobName = j.JobName
-		}
-		if len(j.Labels) > 0 {
+		if len(j.Labels) > 0 && (current || len(merged.Labels) == 0) {
 			merged.Labels = NormalizeLabels(j.Labels)
-		}
-		if j.PoolID != "" {
-			merged.PoolID = j.PoolID
-		}
-		if j.RunnerID != "" {
-			merged.RunnerID = j.RunnerID
-		}
-		if j.RunnerName != "" {
-			merged.RunnerName = j.RunnerName
-		}
-		if j.HTMLURL != "" {
-			merged.HTMLURL = j.HTMLURL
 		}
 		if j.StartedAt != nil && merged.StartedAt == nil {
 			merged.StartedAt = j.StartedAt
 		}
-		if j.CompletedAt != nil {
+		if j.CompletedAt != nil && (current || merged.CompletedAt == nil) {
 			merged.CompletedAt = j.CompletedAt
 		}
 		merged.Matched = merged.Matched || j.Matched
+		// Stamped on the transition, not on every delivery that finds the job
+		// matched: this is the moment the fleet could first have acted, and a
+		// later delivery saying the same thing is not a new one.
+		if merged.Matched && merged.EligibleAt == nil {
+			now := s.Now()
+			merged.EligibleAt = &now
+		}
 
 		_, err = tx.ExecContext(ctx, `UPDATE jobs SET github_run_id=?, repo=?, workflow=?,
-			job_name=?, labels=?, state=?, conclusion=?, pool_id=?, runner_id=?, runner_name=?,
-			html_url=?, started_at=?, completed_at=?, matched=? WHERE id=?`,
+			job_name=?, labels=?, state=?, conclusion=?, installation_id=?, pool_id=?,
+			runner_id=?, runner_name=?, html_url=?, started_at=?, completed_at=?, matched=?,
+			eligible_at=?, head_branch=?, head_sha=?, run_attempt=?, steps=?,
+			runner_fault=? WHERE id=?`,
 			merged.GitHubRunID, merged.Repo, merged.Workflow, merged.JobName, merged.Labels,
-			string(merged.State), merged.Conclusion, merged.PoolID, merged.RunnerID,
-			merged.RunnerName, merged.HTMLURL, msp(merged.StartedAt), msp(merged.CompletedAt),
-			boolInt(merged.Matched), merged.ID)
+			string(merged.State), merged.Conclusion, merged.InstallationID, merged.PoolID,
+			merged.RunnerID, merged.RunnerName, merged.HTMLURL, msp(merged.StartedAt),
+			msp(merged.CompletedAt), boolInt(merged.Matched), msp(merged.EligibleAt),
+			merged.HeadBranch, merged.HeadSHA, merged.RunAttempt, merged.Steps,
+			merged.RunnerFault, merged.ID)
 		if err != nil {
 			return err
 		}
 		out = &merged
+		change = JobChange{
+			PreviousState: existing.State,
+			StateChanged:  merged.State != existing.State,
+			Claimed:       !existing.Matched && merged.Matched,
+			RunnerLinked:  existing.RunnerID == "" && merged.RunnerID != "",
+		}
 		return nil
 	})
-	return out, err
+	return out, change, err
+}
+
+// SetJobRunnerFault records what the runner executing a job said when it
+// stopped before GitHub reported the job over, and returns the job as it now
+// is, along with whether this call is the one that recorded the fault.
+//
+// Only the first fault is kept. The agent may report the same exit more than
+// once -- a runner report and then a task result -- and the first message is
+// the one closest to the event. The flag is what lets the caller write the
+// timeline entry and count the metric exactly once, decided inside the write
+// rather than by a read that two reports could both make first.
+func (s *Store) SetJobRunnerFault(ctx context.Context, jobID, fault string) (*Job, bool, error) {
+	var out *Job
+	var recorded bool
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `UPDATE jobs SET runner_fault=? WHERE id=? AND runner_fault=''`, fault, jobID)
+		if err != nil {
+			return err
+		}
+		if n, err := res.RowsAffected(); err == nil && n > 0 {
+			recorded = true
+		}
+		j, err := scanJob(tx.QueryRowContext(ctx, `SELECT `+jobCols+` FROM jobs WHERE id = ?`, jobID))
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("job %s: %w", jobID, ErrNotFound)
+		}
+		out = j
+		return err
+	})
+	return out, recorded, err
+}
+
+// ---------------------------------------------------------------------------
+// Job timeline
+// ---------------------------------------------------------------------------
+
+const jobEventCols = `id, job_id, at, kind, source, message, runner_id, runner_name`
+
+// AppendJobEvent adds one entry to a job's timeline.
+func (s *Store) AppendJobEvent(ctx context.Context, e *JobEvent) error {
+	if e.ID == "" {
+		e.ID = NewID(PrefixJobEvent)
+	}
+	if e.At.IsZero() {
+		e.At = s.Now()
+	}
+	_, err := s.exec(ctx, `INSERT INTO job_events (`+jobEventCols+`) VALUES (?,?,?,?,?,?,?,?)`,
+		e.ID, e.JobID, ms(e.At), string(e.Kind), e.Source, e.Message, e.RunnerID, e.RunnerName)
+	return err
+}
+
+// ListJobEvents returns a job's timeline, oldest first.
+func (s *Store) ListJobEvents(ctx context.Context, jobID string) ([]*JobEvent, error) {
+	// Two entries written in the same millisecond -- "queued" and then
+	// "claimed", every time -- keep the order they were written in, which
+	// the rowid records and a random ID would not.
+	rows, err := s.read.QueryContext(ctx, `SELECT `+jobEventCols+` FROM job_events
+		WHERE job_id = ? ORDER BY at, rowid`, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*JobEvent
+	for rows.Next() {
+		var e JobEvent
+		var at64 int64
+		if err := rows.Scan(&e.ID, &e.JobID, &at64, &e.Kind, &e.Source, &e.Message, &e.RunnerID, &e.RunnerName); err != nil {
+			return nil, err
+		}
+		e.At = at(at64)
+		out = append(out, &e)
+	}
+	return out, rows.Err()
 }
 
 // jobRank orders job states so a stale webhook cannot rewind one.
 func jobRank(s JobState) int {
 	switch s {
-	case JobQueued:
+	case JobWaiting:
 		return 1
-	case JobInProgress:
+	case JobQueued:
 		return 2
-	case JobCompleted:
+	case JobInProgress:
 		return 3
+	case JobCompleted:
+		return 4
 	}
 	return 0
 }
@@ -172,8 +295,28 @@ type JobFilter struct {
 	Search      string
 	Since       *time.Time
 	Until       *time.Time
-	// UnmatchedOnly surfaces queued jobs that no pool claims.
+	// UnmatchedOnly surfaces queued jobs that no pool claims. It is deliberately
+	// narrower than "matched = 0": a job that has already started or finished
+	// was run by something -- another fleet, a hosted-runner vendor, GitHub
+	// itself -- and calling it unmatched would report a fleet-wide fault every
+	// time somebody kept one repository on runners this controller does not own.
 	UnmatchedOnly bool
+	// ManagedOnly narrows the list to jobs this controller has a hand in: one an
+	// enabled pool claimed, or one that ran on a runner this fleet started.
+	// GitHub tells us about every job in an installed repository, most of which
+	// are somebody else's hosted runners, and a Jobs page that mixes the two
+	// answers "why is my fleet slow?" with somebody else's numbers. Queued jobs
+	// no pool claims stay in: nothing ran them, so they are this fleet's
+	// problem to see, which is also why UnmatchedOnly wins over this flag.
+	ManagedOnly bool
+	// FailedOnly keeps the jobs that went wrong, on either side: a conclusion
+	// GitHub counts as a failure, or a runner that stopped under the job. A
+	// job whose runner died while GitHub still thinks it is running is
+	// included -- that is the case an operator most wants to find.
+	FailedOnly bool
+	// FaultedOnly keeps only the jobs whose runner stopped under them. This is
+	// the fleet's own failure rate, as distinct from the workflows'.
+	FaultedOnly bool
 }
 
 var jobSortCols = map[string]string{
@@ -241,10 +384,11 @@ func jobWhere(f JobFilter) (string, []any) {
 		cond = append(cond, `state IN (`+strings.Join(ph, ",")+`)`)
 	}
 	// Labels are stored as a JSON array; a LIKE on the quoted label is exact
-	// enough because NormalizeLabels guarantees no embedded quotes.
+	// because NormalizeLabels guarantees no embedded quotes and likeEscape
+	// keeps an underscore in the label meaning an underscore.
 	for _, l := range NormalizeLabels(f.Labels) {
-		cond = append(cond, `labels LIKE ?`)
-		args = append(args, `%"`+l+`"%`)
+		cond = append(cond, `labels LIKE ? ESCAPE '\'`)
+		args = append(args, `%"`+likeEscape(l)+`"%`)
 	}
 	if f.Since != nil {
 		cond = append(cond, `queued_at >= ?`)
@@ -255,11 +399,19 @@ func jobWhere(f JobFilter) (string, []any) {
 		args = append(args, ms(*f.Until))
 	}
 	if f.UnmatchedOnly {
-		cond = append(cond, `matched = 0`)
+		cond = append(cond, `matched = 0 AND state = ?`)
+		args = append(args, string(JobQueued))
+	} else if f.ManagedOnly {
+		cond = append(cond, managedJobSQL())
+	}
+	if f.FaultedOnly {
+		cond = append(cond, `runner_fault != ''`)
+	} else if f.FailedOnly {
+		cond = append(cond, failedJobSQL())
 	}
 	if q := strings.TrimSpace(f.Search); q != "" {
-		cond = append(cond, `(repo LIKE ? OR workflow LIKE ? OR job_name LIKE ? OR runner_name LIKE ?)`)
-		like := "%" + q + "%"
+		cond = append(cond, `(repo LIKE ? ESCAPE '\' OR workflow LIKE ? ESCAPE '\' OR job_name LIKE ? ESCAPE '\' OR runner_name LIKE ? ESCAPE '\')`)
+		like := likePattern(q)
 		args = append(args, like, like, like, like)
 	}
 	if len(cond) == 0 {
@@ -273,6 +425,45 @@ func jobWhere(f JobFilter) (string, []any) {
 func (s *Store) ListQueuedJobs(ctx context.Context) ([]*Job, error) {
 	rows, err := s.read.QueryContext(ctx, `SELECT `+jobCols+` FROM jobs
 		WHERE state = 'queued' ORDER BY queued_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Job
+	for rows.Next() {
+		j, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, j)
+	}
+	return out, rows.Err()
+}
+
+// ListRunningJobsForRunner returns the jobs GitHub says are executing on one
+// runner, which is how a caller asks whether a workload still has work in it.
+//
+// The runner row cannot answer that: it clears current_job_id the moment the
+// runner goes terminal, so a runner failed as lost has forgotten what it was
+// running by the time anybody needs to know. The job keeps its side of the
+// link, so the question is asked from here.
+//
+// The equality on state is load-bearing, and not only as a filter. There is no
+// index on runner_id and there should not be one for this: the state predicate
+// is what lets the planner seek idx_jobs_state_queued straight to the
+// in-progress rows -- of which a fleet has at most as many as it has busy
+// runners -- and scan runner_id across that handful. Drop it and the query
+// walks a jobs table that grows without bound, on every heartbeat.
+// runningJobsForRunnerSQL is a const so the query-plan test pins the statement
+// that actually ships rather than a copy of it that can drift away from it.
+var runningJobsForRunnerSQL = `SELECT ` + jobCols + ` FROM jobs
+	WHERE state = 'in_progress' AND runner_id = ? ORDER BY queued_at`
+
+func (s *Store) ListRunningJobsForRunner(ctx context.Context, runnerID string) ([]*Job, error) {
+	if runnerID == "" {
+		return nil, nil
+	}
+	rows, err := s.read.QueryContext(ctx, runningJobsForRunnerSQL, runnerID)
 	if err != nil {
 		return nil, err
 	}
@@ -317,29 +508,81 @@ func (s *Store) JobDistinct(ctx context.Context, column string, limit int) ([]st
 
 // JobStats summarises a time window for the Overview cards.
 type JobStats struct {
-	Queued        int           `json:"queued"`
-	Running       int           `json:"running"`
-	CompletedLast int           `json:"completed"`
-	Failed        int           `json:"failed"`
-	MedianWait    time.Duration `json:"-"`
-	P95Wait       time.Duration `json:"-"`
-	MedianWaitMS  int64         `json:"median_wait_ms"`
-	P95WaitMS     int64         `json:"p95_wait_ms"`
+	Queued        int `json:"queued"`
+	Running       int `json:"running"`
+	CompletedLast int `json:"completed"`
+	// The four ways a completed job ended, which add up to CompletedLast.
+	// Succeeded is a success GitHub reported with no fault of the fleet's;
+	// Failed is FailedConclusions or a runner fault; Cancelled is a person or
+	// a rule stopping it; Unknown is everything else, including a job GitHub
+	// stopped reporting and one with no conclusion at all, because a rate
+	// that counted those as successes would be a rate nobody should trust.
+	Succeeded    int           `json:"succeeded"`
+	Failed       int           `json:"failed"`
+	Cancelled    int           `json:"cancelled"`
+	Unknown      int           `json:"unknown"`
+	MedianWait   time.Duration `json:"-"`
+	P95Wait      time.Duration `json:"-"`
+	MedianWaitMS int64         `json:"median_wait_ms"`
+	P95WaitMS    int64         `json:"p95_wait_ms"`
 }
 
 // StatsSince computes queue and outcome statistics over a rolling window.
-func (s *Store) StatsSince(ctx context.Context, since time.Time) (JobStats, error) {
+// failedJobSQL is the SQL spelling of Job.Failed, built from the same list, so
+// the Overview's failed count and the Jobs page's failed filter cannot drift
+// apart again: one used to count "failure" alone while the other added the
+// timeouts and the runner faults, and the tile said 1 where the page showed 3.
+// managedJobSQL is the predicate behind "jobs this fleet has a hand in": one an
+// enabled pool claimed, one that ran on a runner this fleet started, or one
+// still queued that no pool claims -- unclaimed rather than somebody else's,
+// and the fault the Jobs page exists to show.
+//
+// It is a function rather than two copies because the Jobs list and the
+// Overview have to mean the same thing by it. A page that says four jobs are
+// queued beside a list showing five is worse than either number alone.
+func managedJobSQL() string {
+	return `(matched = 1 OR pool_id != '' OR runner_id != '' OR (matched = 0 AND state = '` +
+		string(JobQueued) + `'))`
+}
+
+func failedJobSQL() string {
+	quoted := make([]string, len(FailedConclusions))
+	for i, c := range FailedConclusions {
+		quoted[i] = "'" + c + "'"
+	}
+	return `(conclusion IN (` + strings.Join(quoted, ",") + `) OR runner_fault != '')`
+}
+
+// StatsSince counts the jobs behind the Overview.
+//
+// managedOnly narrows every count and both percentiles to the jobs this fleet
+// has a hand in. GitHub reports every job in an installed repository, and on an
+// organisation that also uses hosted runners most of them are somebody else's:
+// a queue depth that counts those answers "why is my fleet slow?" with a number
+// the fleet cannot act on, and a median wait computed from them is somebody
+// else's queue.
+func (s *Store) StatsSince(ctx context.Context, since time.Time, managedOnly bool) (JobStats, error) {
+	scope := ""
+	if managedOnly {
+		scope = " AND " + managedJobSQL()
+	}
 	var st JobStats
 	err := s.read.QueryRowContext(ctx, `SELECT
-		(SELECT COUNT(*) FROM jobs WHERE state='queued'),
-		(SELECT COUNT(*) FROM jobs WHERE state='in_progress'),
-		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND completed_at >= ?),
-		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND conclusion='failure' AND completed_at >= ?)`,
-		ms(since), ms(since)).Scan(&st.Queued, &st.Running, &st.CompletedLast, &st.Failed)
+		(SELECT COUNT(*) FROM jobs WHERE state='queued'`+scope+`),
+		(SELECT COUNT(*) FROM jobs WHERE state='in_progress'`+scope+`),
+		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND completed_at >= ?`+scope+`),
+		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND `+failedJobSQL()+` AND completed_at >= ?`+scope+`),
+		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND conclusion = 'success' AND runner_fault = '' AND completed_at >= ?`+scope+`),
+		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND conclusion IN ('cancelled','skipped') AND runner_fault = '' AND completed_at >= ?`+scope+`)`,
+		ms(since), ms(since), ms(since), ms(since)).Scan(&st.Queued, &st.Running, &st.CompletedLast, &st.Failed, &st.Succeeded, &st.Cancelled)
 	if err != nil {
 		return st, err
 	}
-	waits, err := s.queueWaits(ctx, since)
+	// The residual is neither a success, a failure nor a cancellation: stale,
+	// empty, neutral, action_required. It is counted rather than dropped so
+	// the four always add up to the completed total.
+	st.Unknown = st.CompletedLast - st.Failed - st.Succeeded - st.Cancelled
+	waits, err := s.queueWaits(ctx, since, managedOnly)
 	if err != nil {
 		return st, err
 	}
@@ -350,9 +593,13 @@ func (s *Store) StatsSince(ctx context.Context, since time.Time) (JobStats, erro
 	return st, nil
 }
 
-func (s *Store) queueWaits(ctx context.Context, since time.Time) ([]time.Duration, error) {
+func (s *Store) queueWaits(ctx context.Context, since time.Time, managedOnly bool) ([]time.Duration, error) {
+	scope := ""
+	if managedOnly {
+		scope = " AND " + managedJobSQL()
+	}
 	rows, err := s.read.QueryContext(ctx, `SELECT started_at - queued_at FROM jobs
-		WHERE started_at IS NOT NULL AND queued_at >= ? ORDER BY 1`, ms(since))
+		WHERE started_at IS NOT NULL AND queued_at >= ?`+scope+` ORDER BY 1`, ms(since))
 	if err != nil {
 		return nil, err
 	}
@@ -380,13 +627,30 @@ func percentile(sorted []time.Duration, p float64) time.Duration {
 	return sorted[i]
 }
 
-// PruneJobs deletes completed jobs older than the cutoff.
+// PruneJobs deletes jobs older than the cutoff, and their timelines with them:
+// an event whose job is gone answers nothing.
+//
+// A job that finished is aged from when it finished. One that never did -- a
+// completed delivery that was lost, a repository deleted while its job was
+// queued -- is aged from when it was queued, so that it cannot sit in the
+// table for ever as demand nothing will ever meet; the controller marks such
+// a job stale long before this, and this is the backstop.
 func (s *Store) PruneJobs(ctx context.Context, before time.Time) (int64, error) {
-	res, err := s.exec(ctx, `DELETE FROM jobs WHERE state='completed' AND completed_at < ?`, ms(before))
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
+	const old = `(state = 'completed' AND completed_at < ?) OR (state != 'completed' AND queued_at < ?)`
+	var pruned int64
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM job_events WHERE job_id IN
+			(SELECT id FROM jobs WHERE `+old+`)`, ms(before), ms(before)); err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, `DELETE FROM jobs WHERE `+old, ms(before), ms(before))
+		if err != nil {
+			return err
+		}
+		pruned, err = res.RowsAffected()
+		return err
+	})
+	return pruned, err
 }
 
 // ---------------------------------------------------------------------------
@@ -461,8 +725,8 @@ func (s *Store) ListAudit(ctx context.Context, f AuditFilter, p Page) ([]*AuditE
 		args = append(args, ms(*f.Until))
 	}
 	if q := strings.TrimSpace(f.Search); q != "" {
-		cond = append(cond, `(actor_name LIKE ? OR action LIKE ? OR target_id LIKE ?)`)
-		like := "%" + q + "%"
+		cond = append(cond, `(actor_name LIKE ? ESCAPE '\' OR action LIKE ? ESCAPE '\' OR target_id LIKE ? ESCAPE '\')`)
+		like := likePattern(q)
 		args = append(args, like, like, like)
 	}
 	where := ""
@@ -584,8 +848,10 @@ func (s *Store) RecordDelivery(ctx context.Context, d *WebhookDelivery) error {
 		d.ReceivedAt = s.Now()
 	}
 	_, err := s.exec(ctx, `INSERT INTO webhook_deliveries
-		(id, delivery_id, event, action, repo, status, error, received_at) VALUES (?,?,?,?,?,?,?,?)`,
-		d.ID, d.DeliveryID, d.Event, d.Action, d.Repo, d.Status, d.Error, ms(d.ReceivedAt))
+		(id, delivery_id, event, action, repo, status, error, installation_id, received_at)
+		VALUES (?,?,?,?,?,?,?,?,?)`,
+		d.ID, d.DeliveryID, d.Event, d.Action, d.Repo, d.Status, d.Error,
+		d.InstallationID, ms(d.ReceivedAt))
 	return err
 }
 
@@ -595,7 +861,8 @@ func (s *Store) ListDeliveries(ctx context.Context, status string, limit int) ([
 	if limit <= 0 || limit > 500 {
 		limit = 50
 	}
-	q := `SELECT id, delivery_id, event, action, repo, status, error, received_at FROM webhook_deliveries`
+	q := `SELECT id, delivery_id, event, action, repo, status, error, installation_id, received_at
+		FROM webhook_deliveries`
 	var args []any
 	if status != "" {
 		q += ` WHERE status = ?`
@@ -613,7 +880,7 @@ func (s *Store) ListDeliveries(ctx context.Context, status string, limit int) ([
 		var d WebhookDelivery
 		var recv int64
 		if err := rows.Scan(&d.ID, &d.DeliveryID, &d.Event, &d.Action, &d.Repo,
-			&d.Status, &d.Error, &recv); err != nil {
+			&d.Status, &d.Error, &d.InstallationID, &recv); err != nil {
 			return nil, err
 		}
 		d.ReceivedAt = at(recv)
@@ -645,6 +912,66 @@ func (s *Store) LastAcceptedDeliveryAt(ctx context.Context) (time.Time, error) {
 	return s.lastDeliveryAt(ctx, "accepted")
 }
 
+// InstallationsFreshSince returns the installations a webhook has verified for
+// since a cutoff: the ones whose deliveries are arriving.
+//
+// A delivery is credited to the installation that owns its repository, by the
+// same precedence FindInstallationByTarget uses -- deliberately not to the one
+// whose secret verified it, which verification allows to be another's. An
+// installation whose secrets have drifted is exactly the one whose webhooks
+// are not arriving, and crediting its neighbour's delivery to it would tell
+// the poller to stand down over the fleet's most broken installation.
+//
+// It answers "which installations are fresh" rather than "when was each one
+// last fresh", because the cutoff is what lets the index do the work. Asking
+// for the last delivery per installation groups over every accepted row ever
+// kept -- a week of them by default, rescanned on every sweep. With the cutoff
+// the plan is a range over idx_webhook_status and touches only the deliveries
+// inside the window. The caller asks nothing else, and an installation absent
+// from the set is one to poll.
+//
+// One query rather than one per installation: the caller has the whole list in
+// hand and asks on every sweep.
+//
+// Where an organisation installation and a repository installation both cover
+// a repository, only the repository one is credited, because that is the
+// precedence everything else here uses. An organisation whose only traffic is
+// for a repository-scoped sibling therefore looks silent and keeps being
+// polled, which is the direction to be wrong in.
+func (s *Store) InstallationsFreshSince(ctx context.Context, since time.Time) (map[string]bool, error) {
+	rows, err := s.read.QueryContext(ctx, `
+		SELECT DISTINCT (
+			SELECT i.id FROM installations i
+			 WHERE (i.target_type = 'repo' AND i.target = d.repo)
+			    OR (i.target_type = 'org'  AND i.target = CASE
+			            WHEN instr(d.repo, '/') > 1
+			            THEN substr(d.repo, 1, instr(d.repo, '/') - 1)
+			            ELSE d.repo END)
+			 ORDER BY CASE i.target_type WHEN 'repo' THEN 0 ELSE 1 END
+			 LIMIT 1
+		) AS owner
+		  FROM webhook_deliveries d
+		 WHERE d.status = 'accepted' AND d.received_at >= ? AND d.repo != ''`, ms(since))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var id sql.NullString
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		// A repository no installation covers is nobody's freshness, and a
+		// delivery that verified against a secret belonging to some other
+		// installation does not make that one's webhooks work.
+		if id.Valid && id.String != "" {
+			out[id.String] = true
+		}
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) lastDeliveryAt(ctx context.Context, status string) (time.Time, error) {
 	var v sql.NullInt64
 	var err error
@@ -674,12 +1001,19 @@ func (s *Store) PruneDeliveries(ctx context.Context, before time.Time) (int64, e
 
 // FleetSample is one point on the Overview's sparklines.
 type FleetSample struct {
-	At           time.Time `json:"at"`
-	QueuedJobs   int       `json:"queued_jobs"`
-	RunningJobs  int       `json:"running_jobs"`
-	IdleRunners  int       `json:"idle_runners"`
-	BusyRunners  int       `json:"busy_runners"`
-	TotalRunners int       `json:"total_runners"`
+	At          time.Time `json:"at"`
+	QueuedJobs  int       `json:"queued_jobs"`
+	RunningJobs int       `json:"running_jobs"`
+	// FleetQueuedJobs and FleetRunningJobs are the same minute narrowed to the
+	// jobs this fleet has a hand in, so the sparkline can follow the Overview's
+	// "other runners" toggle instead of always plotting somebody else's queue.
+	// Samples taken before this existed carry 0: there is no honest way to work
+	// out now what the fleet's own queue was then.
+	FleetQueuedJobs  int `json:"fleet_queued_jobs"`
+	FleetRunningJobs int `json:"fleet_running_jobs"`
+	IdleRunners      int `json:"idle_runners"`
+	BusyRunners      int `json:"busy_runners"`
+	TotalRunners     int `json:"total_runners"`
 }
 
 // RecordSample stores one fleet sample, replacing any sample for the same
@@ -687,18 +1021,24 @@ type FleetSample struct {
 func (s *Store) RecordSample(ctx context.Context, f FleetSample) error {
 	minute := f.At.UTC().Truncate(time.Minute)
 	_, err := s.exec(ctx, `INSERT INTO fleet_samples
-		(at, queued_jobs, running_jobs, idle_runners, busy_runners, total_runners)
-		VALUES (?,?,?,?,?,?)
+		(at, queued_jobs, running_jobs, fleet_queued_jobs, fleet_running_jobs,
+		 idle_runners, busy_runners, total_runners)
+		VALUES (?,?,?,?,?,?,?,?)
 		ON CONFLICT(at) DO UPDATE SET queued_jobs=excluded.queued_jobs,
-			running_jobs=excluded.running_jobs, idle_runners=excluded.idle_runners,
+			running_jobs=excluded.running_jobs,
+			fleet_queued_jobs=excluded.fleet_queued_jobs,
+			fleet_running_jobs=excluded.fleet_running_jobs,
+			idle_runners=excluded.idle_runners,
 			busy_runners=excluded.busy_runners, total_runners=excluded.total_runners`,
-		ms(minute), f.QueuedJobs, f.RunningJobs, f.IdleRunners, f.BusyRunners, f.TotalRunners)
+		ms(minute), f.QueuedJobs, f.RunningJobs, f.FleetQueuedJobs, f.FleetRunningJobs,
+		f.IdleRunners, f.BusyRunners, f.TotalRunners)
 	return err
 }
 
 // ListSamples returns fleet samples since a cutoff, oldest first.
 func (s *Store) ListSamples(ctx context.Context, since time.Time) ([]FleetSample, error) {
-	rows, err := s.read.QueryContext(ctx, `SELECT at, queued_jobs, running_jobs, idle_runners,
+	rows, err := s.read.QueryContext(ctx, `SELECT at, queued_jobs, running_jobs,
+		fleet_queued_jobs, fleet_running_jobs, idle_runners,
 		busy_runners, total_runners FROM fleet_samples WHERE at >= ? ORDER BY at`, ms(since))
 	if err != nil {
 		return nil, err
@@ -708,7 +1048,8 @@ func (s *Store) ListSamples(ctx context.Context, since time.Time) ([]FleetSample
 	for rows.Next() {
 		var f FleetSample
 		var t int64
-		if err := rows.Scan(&t, &f.QueuedJobs, &f.RunningJobs, &f.IdleRunners,
+		if err := rows.Scan(&t, &f.QueuedJobs, &f.RunningJobs,
+			&f.FleetQueuedJobs, &f.FleetRunningJobs, &f.IdleRunners,
 			&f.BusyRunners, &f.TotalRunners); err != nil {
 			return nil, err
 		}

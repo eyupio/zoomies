@@ -72,6 +72,8 @@ type fakeJob struct {
 // fakeFailure makes matching requests fail, so tests can exercise the error
 // paths without a network.
 type fakeFailure struct {
+	// method narrows the failure to one HTTP verb. Empty matches any.
+	method  string
 	pattern string
 	status  int
 	message string
@@ -210,6 +212,8 @@ func (f *FakeGitHub) AddQueuedJob(repo, workflow, jobName string, labels []strin
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.addRepoLocked(repo)
+	// A queued job usually follows a push; the poller sorts on it.
+	f.repoLocked(repo).pushedAt = time.Now().UTC()
 	j := &fakeJob{
 		QueuedJob: QueuedJob{
 			ID:           f.nextJobID,
@@ -279,6 +283,19 @@ func (f *FakeGitHub) SetError(pattern string, status int, message string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.failures = append(f.failures, fakeFailure{pattern: pattern, status: status, message: message})
+}
+
+// SetMethodError is SetError narrowed to one HTTP method.
+//
+// Several verbs share a path: an orphan sweep lists an installation's runners
+// and then deletes them at the same one, so a test about a refused delete
+// cannot afford to refuse the listing that finds them too.
+func (f *FakeGitHub) SetMethodError(method, pattern string, status int, message string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failures = append(f.failures, fakeFailure{
+		method: method, pattern: pattern, status: status, message: message,
+	})
 }
 
 // ClearErrors removes every failure injected with SetError.
@@ -357,6 +374,9 @@ func (f *FakeGitHub) middleware(next http.Handler) http.Handler {
 		rate := f.rateLimit
 		var hit *fakeFailure
 		for i := range f.failures {
+			if f.failures[i].method != "" && f.failures[i].method != r.Method {
+				continue
+			}
 			if f.failures[i].pattern == "" || strings.Contains(path, f.failures[i].pattern) {
 				hit = &f.failures[i]
 				break
@@ -466,6 +486,7 @@ func (f *FakeGitHub) listInstallationRepos(w http.ResponseWriter, _ *http.Reques
 			"private":        true,
 			"archived":       false,
 			"html_url":       "https://github.com/" + full,
+			"pushed_at":      f.repoLocked(full).pushedAt.UTC().Format(time.RFC3339),
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(repos), "repositories": repos})

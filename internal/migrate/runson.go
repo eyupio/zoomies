@@ -36,7 +36,7 @@ type Rewrite struct {
 	// Job is the workflow job the line belongs to, as far as indentation can
 	// tell. Empty when it could not be attributed.
 	Job string `json:"job,omitempty"`
-	// Label is the GitHub-hosted label being replaced. It is set only when the
+	// Label is the hosted-runner label being replaced. It is set only when the
 	// value asks for exactly one, which -- together with a Job -- is what makes
 	// this line something an Override can name.
 	Label string `json:"label,omitempty"`
@@ -58,10 +58,10 @@ type Rewrite struct {
 type Skip struct {
 	Line int    `json:"line"`
 	Job  string `json:"job,omitempty"`
-	// Label is the GitHub-hosted label this job asks for, set only when the
+	// Label is the hosted-runner label this job asks for, set only when the
 	// value asks for exactly one. A skip carrying both a Job and a Label is one
 	// an Override can settle -- nothing is mapped to that label yet, or the
-	// operator pinned this job to GitHub. A skip carrying neither cannot be:
+	// operator pinned this job where it is. A skip carrying neither cannot be:
 	// there is no single label to replace, or no stable job to name.
 	Label  string `json:"label,omitempty"`
 	Value  string `json:"value"`
@@ -83,9 +83,9 @@ func (r Result) Changed() bool { return len(r.Rewrites) > 0 }
 // Override sends one job to a pool of its own, whatever the consolidated
 // mapping says.
 //
-// One answer per hosted label is the right default: a fleet usually does want
-// every `ubuntu-latest` job on the same Linux pool, and answering that once is
-// the difference between a wizard and a spreadsheet. But "usually" is not
+// One answer per hosted-runner label is the right default: a fleet usually does
+// want every `ubuntu-latest` job on the same Linux pool, and answering that once
+// is the difference between a wizard and a spreadsheet. But "usually" is not
 // "always" -- one repository's integration tests need the big host, one job
 // needs the pool with a GPU, one repository is being moved a job at a time --
 // and the answer to those is not a second consolidated mapping. It is an
@@ -105,9 +105,9 @@ type Override struct {
 	// attribute has no stable name, so it cannot be overridden -- there would be
 	// nothing to key on that survives the file being read again at apply time.
 	Job string `json:"job"`
-	// To is the runs-on value this job gets. Empty means leave it on GitHub's
-	// runners: a decision the operator made, not the absence of one, and it is
-	// reported with a different reason for exactly that reason.
+	// To is the runs-on value this job gets. Empty means leave it on the rented
+	// runner it names today: a decision the operator made, not the absence of
+	// one, and it is reported with a different reason for exactly that reason.
 	To string `json:"to"`
 }
 
@@ -132,8 +132,8 @@ type Mapping struct {
 	Overrides []Override
 
 	// jobs is the narrowed view In builds: job key -> the runs-on it was sent
-	// to. A present entry holding "" means "leave this job on GitHub", which is
-	// why presence and value are read separately everywhere below.
+	// to. A present entry holding "" means "leave this job where it is", which
+	// is why presence and value are read separately everywhere below.
 	jobs map[string]string
 }
 
@@ -168,9 +168,9 @@ func (m Mapping) In(repo, path string) Mapping {
 	return out
 }
 
-// decide answers where one job asking for one hosted label goes. An override
-// wins over the consolidated mapping, including an override that says the job
-// stays on GitHub.
+// decide answers where one job asking for one hosted-runner label goes. An
+// override wins over the consolidated mapping, including an override that says
+// the job stays where it is.
 func (m Mapping) decide(job, label string) (to string, overridden bool) {
 	if job != "" {
 		if to, ok := m.jobs[job]; ok {
@@ -204,6 +204,51 @@ func IsHostedLabel(label string) bool {
 	}
 	for _, p := range hostedPrefixes {
 		if strings.HasPrefix(l, strings.ToLower(p)) {
+			return true
+		}
+	}
+	return false
+}
+
+// managedPrefixes are the label shapes of the hosted-runner vendors that sit in
+// front of GitHub Actions -- Blacksmith, BuildJet, WarpBuild, Namespace, Depot
+// and Ubicloud.
+//
+// They belong here for the same reason GitHub's own labels do. A repository on
+// "blacksmith-4vcpu-ubuntu-2404" is renting somebody else's machines by the
+// minute, which is exactly the bill this fleet exists to replace, so a wizard
+// that called that label "already pointed somewhere deliberate" would offer an
+// operator nothing to migrate and no reason why. Their labels encode the same
+// two facts GitHub's do -- an operating system and a size -- so mapping one to
+// a pool is the same decision, with the same review step in front of it.
+//
+// A prefix list again, and for the same reason: every one of these vendors
+// keeps adding sizes, and an exact list would go quietly blind as they do.
+var managedPrefixes = []string{
+	"blacksmith",
+	"buildjet-",
+	"warp-",
+	"namespace-profile-",
+	"nscloud-",
+	"depot-",
+	"ubicloud",
+}
+
+// IsManagedLabel reports whether label names a runner somebody else operates:
+// GitHub's own, or one of the vendors in managedPrefixes.
+//
+// This, not IsHostedLabel, is what the wizard migrates. The distinction the
+// operator cares about is not "GitHub or not" but "rented or ours".
+func IsManagedLabel(label string) bool {
+	l := strings.ToLower(strings.TrimSpace(label))
+	if l == "" {
+		return false
+	}
+	if IsHostedLabel(l) {
+		return true
+	}
+	for _, p := range managedPrefixes {
+		if strings.HasPrefix(l, p) {
 			return true
 		}
 	}
@@ -347,23 +392,23 @@ func rewriteLabelSet(job string, items []string, m Mapping) outcome {
 		if item == "" {
 			continue
 		}
-		if IsHostedLabel(item) {
+		if IsManagedLabel(item) {
 			hosted = append(hosted, item)
 			continue
 		}
-		// Anything that is not one of GitHub's own labels is a deliberate
-		// choice somebody already made: a self-hosted fleet, a larger runner
-		// group, a label from another vendor. Migrating it would be guessing.
+		// Anything that is not a rented runner is a deliberate choice somebody
+		// already made: a self-hosted fleet, a runner group, a label an
+		// organisation invented. Migrating it would be guessing.
 		if strings.EqualFold(item, "self-hosted") {
 			return outcome{reason: "this job already runs on a self-hosted runner"}
 		}
-		return outcome{reason: fmt.Sprintf("%q is not one of GitHub's hosted labels, so this job is already pointed somewhere deliberate", item)}
+		return outcome{reason: fmt.Sprintf("%q is not a hosted-runner label, so this job is already pointed somewhere deliberate", item)}
 	}
 	if len(hosted) == 0 {
-		return outcome{reason: "no GitHub-hosted label to migrate"}
+		return outcome{reason: "no hosted-runner label to migrate"}
 	}
 	if len(hosted) > 1 {
-		return outcome{reason: fmt.Sprintf("%d hosted labels on one job (%s) is not a combination GitHub runs, so it is left for a person to read",
+		return outcome{reason: fmt.Sprintf("%d hosted labels on one job (%s) is not a combination that resolves to one runner, so it is left for a person to read",
 			len(hosted), strings.Join(hosted, ", "))}
 	}
 
@@ -373,9 +418,10 @@ func rewriteLabelSet(job string, items []string, m Mapping) outcome {
 	case to != "":
 		return outcome{to: to, label: label, overridden: overridden}
 	case overridden:
-		// The operator looked at this job and chose GitHub. Saying "not mapped"
-		// here would invite them to fix something that is not broken.
-		return outcome{label: label, reason: fmt.Sprintf("this job is set to stay on GitHub's %s runners", label)}
+		// The operator looked at this job and chose to leave it where it is.
+		// Saying "not mapped" here would invite them to fix something that is
+		// not broken.
+		return outcome{label: label, reason: fmt.Sprintf("this job is set to stay on %s", label)}
 	default:
 		return outcome{label: label, reason: fmt.Sprintf("%q is not mapped to a pool", label)}
 	}
@@ -393,22 +439,36 @@ func rewriteBlockSequence(lines []line, at int, job string, m Mapping) (int, boo
 	var (
 		items    []string
 		consumed int
+		// commented is the first item that carries a comment of its own.
+		commented string
 	)
 	for j := at + 1; j < len(lines); j++ {
 		text := lines[j].text
-		if strings.TrimSpace(text) == "" || strings.HasPrefix(strings.TrimSpace(text), "#") {
-			// A blank line or a comment inside the sequence: stop rather than
-			// guess, since collapsing would delete it.
+		trimmed := strings.TrimSpace(text)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			// A blank line or a comment line. When the sequence carries on
+			// below it, the line sits inside the list, and collapsing the list
+			// would delete it -- or collapse the items above it and leave the
+			// ones below dangling under a flow value, which is not YAML. Stop
+			// and say so rather than guess. When nothing of the sequence
+			// follows, the line belongs to whatever comes next.
+			if sequenceContinues(lines, j, keyIndent) {
+				return consumed, false, outcome{from: "[" + strings.Join(items, ", ") + "]",
+					reason: "the runs-on list has a comment or a blank line inside it, which collapsing the list would delete; move it above runs-on, or change this job by hand"}
+			}
 			break
 		}
 		if indentOf(text) <= keyIndent {
 			break
 		}
-		item := strings.TrimSpace(text)
-		if !strings.HasPrefix(item, "- ") && item != "-" {
+		if !strings.HasPrefix(trimmed, "- ") && trimmed != "-" {
 			break
 		}
-		items = append(items, strings.TrimSpace(strings.TrimPrefix(item, "-")))
+		item, comment := splitItemComment(strings.TrimPrefix(trimmed, "-"))
+		if comment != "" && commented == "" {
+			commented = item
+		}
+		items = append(items, item)
 		consumed = j - at
 	}
 	if len(items) == 0 {
@@ -421,6 +481,14 @@ func rewriteBlockSequence(lines []line, at int, job string, m Mapping) (int, boo
 	out := rewriteLabelSet(job, items, m)
 	out.from = from
 	if out.reason != "" {
+		return consumed, false, out
+	}
+	if commented != "" {
+		// The comment was about the item, and the item is what the rewrite
+		// replaces; carrying it onto the collapsed line would leave it
+		// describing something that is no longer there. This is the same rule
+		// as a comment line inside the list, and the same way out.
+		out.reason = fmt.Sprintf("the list item %q carries a comment, which collapsing the list would delete; move it above runs-on, or change this job by hand", commented)
 		return consumed, false, out
 	}
 
@@ -437,8 +505,46 @@ func rewriteBlockSequence(lines []line, at int, job string, m Mapping) (int, boo
 	return consumed, true, out
 }
 
-// HostedLabelsIn returns every GitHub-hosted label a workflow's runs-on lines
-// name, in the order they first appear.
+// sequenceContinues reports whether a block sequence under a key indented at
+// keyIndent has more items after line at, looking past blank and comment
+// lines, which is what decides whether such a line is inside the list or
+// after it.
+func sequenceContinues(lines []line, at, keyIndent int) bool {
+	for j := at + 1; j < len(lines); j++ {
+		trimmed := strings.TrimSpace(lines[j].text)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		return indentOf(lines[j].text) > keyIndent && (strings.HasPrefix(trimmed, "- ") || trimmed == "-")
+	}
+	return false
+}
+
+// splitItemComment separates a sequence item from the comment that follows it
+// on the same line. YAML starts a comment at a # preceded by whitespace and
+// outside quotes, so a # inside a quoted label stays part of the label. Both
+// halves come back trimmed.
+func splitItemComment(item string) (string, string) {
+	var quote byte
+	for i := 0; i < len(item); i++ {
+		c := item[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '#' && (i == 0 || item[i-1] == ' ' || item[i-1] == '\t'):
+			return strings.TrimSpace(item[:i]), strings.TrimSpace(item[i:])
+		}
+	}
+	return strings.TrimSpace(item), ""
+}
+
+// HostedLabelsIn returns every hosted-runner label a workflow's runs-on lines
+// name, in the order they first appear -- GitHub's own and the vendor labels
+// IsManagedLabel recognises.
 //
 // This is what the wizard's mapping step is built from: an operator maps the
 // labels their own workflows actually use, not the twenty GitHub publishes.
@@ -447,7 +553,7 @@ func HostedLabelsIn(content string) []string {
 	seen := map[string]bool{}
 	add := func(raw string) {
 		l := strings.ToLower(strings.Trim(strings.TrimSpace(raw), `"'`))
-		if l == "" || seen[l] || !IsHostedLabel(l) {
+		if l == "" || seen[l] || !IsManagedLabel(l) {
 			return
 		}
 		seen[l] = true
@@ -465,10 +571,19 @@ func HostedLabelsIn(content string) []string {
 			keyIndent := indentOf(lines[i].text)
 			for j := i + 1; j < len(lines); j++ {
 				item := strings.TrimSpace(lines[j].text)
-				if item == "" || indentOf(lines[j].text) <= keyIndent || !strings.HasPrefix(item, "-") {
+				if item == "" || strings.HasPrefix(item, "#") {
+					// Not an item; the indent of the next real line says
+					// whether the list goes on.
+					continue
+				}
+				if indentOf(lines[j].text) <= keyIndent || !strings.HasPrefix(item, "-") {
 					break
 				}
-				add(strings.TrimPrefix(item, "-"))
+				// The label is the item without the comment that may follow
+				// it, or the wizard offers "ubuntu-latest # pinned" as a
+				// label to map.
+				label, _ := splitItemComment(strings.TrimPrefix(item, "-"))
+				add(label)
 			}
 			continue
 		}

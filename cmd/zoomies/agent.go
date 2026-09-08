@@ -78,6 +78,7 @@ func runAgentDaemon(ctx context.Context, e *env, args []string) error {
 		ClientCertFile:     cfg.Agent.ClientCertFile,
 		ClientKeyFile:      cfg.Agent.ClientKeyFile,
 		InsecureSkipVerify: cfg.Agent.InsecureSkipVerify,
+		AllowInsecureHTTP:  cfg.Agent.AllowInsecureHTTP,
 		Logger:             log,
 	})
 	if err != nil {
@@ -93,6 +94,7 @@ func runAgentDaemon(ctx context.Context, e *env, args []string) error {
 		DefaultBackend:    store.BackendKind(cfg.Agent.Backend),
 		Transport:         transport,
 		HeartbeatInterval: cfg.Agent.HeartbeatInterval,
+		FinishedRetention: cfg.Agent.FinishedRetention,
 		Logger:            log,
 	})
 	if err != nil {
@@ -138,6 +140,7 @@ func runAgentJoin(ctx context.Context, e *env, args []string) error {
 	clientCert := fs.String("client-cert", "", "client certificate for mutual TLS to the controller")
 	clientKey := fs.String("client-key", "", "client key for mutual TLS to the controller")
 	insecure := fs.Bool("insecure", false, "do not verify the controller's certificate (prefer --ca-file: this trusts anything on the path)")
+	allowHTTP := fs.Bool("allow-insecure-http", false, "allow a plain http:// controller URL that is not on loopback (this agent's token and every runner's registration credentials then cross the network in the clear)")
 	noService := fs.Bool("no-service", false, "join only; do not install or start a service")
 	serviceUser := fs.String("service-user", "", "the account the agent service runs as")
 	configDir := fs.String("config-dir", "", "where to write the agent's configuration (default: "+config.ConfigDir()+")")
@@ -177,6 +180,7 @@ func runAgentJoin(ctx context.Context, e *env, args []string) error {
 		ClientCertFile:     *clientCert,
 		ClientKeyFile:      *clientKey,
 		InsecureSkipVerify: *insecure,
+		AllowInsecureHTTP:  *allowHTTP,
 		ConfigDir:          *configDir,
 		StateDir:           *stateDir,
 		ServiceUser:        *serviceUser,

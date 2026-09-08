@@ -6,8 +6,14 @@
   dangerous switched on -- is answerable without opening a row.
 -->
 <script lang="ts">
-  import { Pause, Pencil, Play, Plus, Search, Trash2 } from '@lucide/svelte';
-  import { deletePool, disablePool, enablePool, listPools } from '$lib/api/client';
+  import { Pencil, Plug, Plus, Power, PowerOff, Search, Trash2 } from '@lucide/svelte';
+  import {
+    deletePool,
+    disablePool,
+    enablePool,
+    listInstallations,
+    listPools,
+  } from '$lib/api/client';
   import type { Pool } from '$lib/api/types';
   import { formatGoDuration, formatNumber, parseGoDuration, pluralise } from '$lib/format';
   import { registerSearch } from '$lib/keys';
@@ -16,7 +22,7 @@
   import { fleet } from '$lib/state/fleet.svelte';
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
-  import Badge from '$lib/components/Badge.svelte';
+  import StateCell from '$lib/components/StateCell.svelte';
   import Button from '$lib/components/Button.svelte';
   import Checkbox from '$lib/components/Checkbox.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
@@ -37,9 +43,30 @@
   import UtilisationBar from '$lib/components/UtilisationBar.svelte';
   import PoolLabels from '$lib/pools/PoolLabels.svelte';
   import PoolRiskBadge from '$lib/pools/PoolRiskBadge.svelte';
-  import { backendLabel, dockerModeLabel } from '$lib/pools/PoolVocabulary.svelte';
+  import {
+    backendLabel,
+    dockerModeLabel,
+    platformLabelOrAny,
+  } from '$lib/pools/PoolVocabulary.svelte';
+  import { deletionConsequences } from '$lib/pools/consequences';
 
   const canOperate = $derived(session.can('operator'));
+
+  /**
+   * Whether a pool is even possible yet.
+   *
+   * The wizard's first step already refuses without an installation; knowing it
+   * here means the page can offer the step that unblocks it rather than the one
+   * that cannot be completed. Null while the answer is unknown, so neither
+   * button flickers into the wrong label on load.
+   */
+  let installationCount = $state<number | null>(null);
+  const noInstallation = $derived(installationCount === 0);
+  $effect(() => {
+    void listInstallations()
+      .then((result) => (installationCount = (result.items ?? []).length))
+      .catch(() => (installationCount = null));
+  });
 
   /* -- filters, kept in the URL so a view can be pasted to a colleague ------ */
 
@@ -97,6 +124,8 @@
         return (a.installation_target ?? '').localeCompare(b.installation_target ?? '');
       case 'backend':
         return (a.backend ?? '').localeCompare(b.backend ?? '');
+      case 'platform':
+        return platformLabelOrAny(a.platform).localeCompare(platformLabelOrAny(b.platform));
       case 'live':
         return (a.counts?.live ?? 0) - (b.counts?.live ?? 0);
       case 'queued':
@@ -130,10 +159,11 @@
    * Warm the fleet cache with the page on screen, so the command palette can
    * find a pool the operator is looking at.
    *
-   * Only when it would actually change something: ingesting bumps the fleet's
-   * version, and the fleet's version is this grid's `liveKey`, so warming the
-   * cache on every page unconditionally has the grid refetching itself for
-   * ever -- and, with no pools at all, never settling on the empty state.
+   * Only when it would actually change something: ingesting a row that differs
+   * bumps the fleet's shape, and the fleet's shape is this grid's `liveKey`,
+   * so warming the cache on every page unconditionally has the grid
+   * refetching itself for ever -- and, with no pools at all, never settling
+   * on the empty state.
    * Identity is what the palette needs, so identity is what is compared;
    * the live counts move on their own and are not worth a round trip.
    */
@@ -186,14 +216,29 @@
           {
             id: 'enable',
             label: 'Enable',
-            icon: Play,
+            icon: Power,
             run: (ids) => bulkSetEnabled(ids, true),
           },
           {
             id: 'disable',
             label: 'Disable',
-            icon: Pause,
+            icon: PowerOff,
             run: (ids) => bulkSetEnabled(ids, false),
+          },
+          {
+            // Editing is the third thing an operator wants from a ticked row,
+            // and it was only on the row's own menu -- so having ticked a pool
+            // to disable it, changing its image meant untick, find the row
+            // again, open the menu. One at a time, because there is nothing
+            // sensible to show for five pools at once.
+            id: 'edit',
+            label: 'Edit',
+            icon: Pencil,
+            single: true,
+            run: (ids) => {
+              const id = ids[0];
+              if (id) navigate(`/pools/${id}?edit=1`);
+            },
           },
         ]
       : [],
@@ -206,13 +251,13 @@
         ? {
             id: 'disable',
             label: 'Disable',
-            icon: Pause,
+            icon: PowerOff,
             onSelect: () => setEnabled(pool, false),
           }
         : {
             id: 'enable',
             label: 'Enable',
-            icon: Play,
+            icon: Power,
             onSelect: () => setEnabled(pool, true),
           },
       {
@@ -244,28 +289,9 @@
     deleteOpen = true;
   }
 
-  const doomedConsequences = $derived.by(() => {
-    const pool = doomed;
-    if (!pool) return [];
-    const live = pool.counts?.live ?? 0;
-    const busy = pool.counts?.busy ?? 0;
-    const lines = [
-      live === 0
-        ? 'It has no runners right now, so nothing is interrupted.'
-        : forceDelete
-          ? `${pluralise(live, 'runner')} will be destroyed immediately.`
-          : `${pluralise(live, 'runner')} will be drained, then removed.`,
-    ];
-    if (busy > 0) {
-      lines.push(
-        forceDelete
-          ? `${pluralise(busy, 'job')} running right now will be interrupted.`
-          : `${pluralise(busy, 'job')} running right now will be allowed to finish first.`,
-      );
-    }
-    lines.push('The runners are deregistered from GitHub either way.');
-    return lines;
-  });
+  const doomedConsequences = $derived(
+    doomed ? deletionConsequences(doomed.counts ?? {}, forceDelete) : [],
+  );
 
   async function confirmDelete(): Promise<void> {
     const pool = doomed;
@@ -319,11 +345,17 @@
         value: (row) => backendLabel(row.backend),
       },
       {
+        id: 'platform',
+        header: 'Platform',
+        sortable: true,
+        value: (row) => platformLabelOrAny(row.platform),
+      },
+      {
         id: 'live',
         header: 'Runners',
         sortable: true,
         width: '13rem',
-        value: (row) => String(row.counts?.live ?? 0),
+        value: (row) => formatNumber(row.counts?.live ?? 0),
         cell: runnersCell,
       },
       {
@@ -381,7 +413,9 @@
 </script>
 
 {#snippet nameCell(pool: Pool)}
-  <a class="pool-name" href="/pools/{pool.id}">{pool.name ?? 'unnamed'}</a>
+  <a class="pool-name" href="/pools/{pool.id}" title={pool.name ?? undefined}>
+    {pool.name ?? 'unnamed'}
+  </a>
 {/snippet}
 
 {#snippet riskCell(pool: Pool)}
@@ -411,7 +445,7 @@
 {/snippet}
 
 {#snippet statusCell(pool: Pool)}
-  <Badge status={poolStatus(pool)} size="sm" />
+  <StateCell status={poolStatus(pool)} />
 {/snippet}
 
 {#snippet actionsCell(pool: Pool)}
@@ -429,7 +463,14 @@
   subtitle="A pool decides what labels your runners answer to, and how many of them exist."
 >
   {#if canOperate}
-    <Button variant="primary" icon={Plus} href="/pools/new">Create a pool</Button>
+    {#if noInstallation}
+      <!-- A pool registers its runners with a GitHub App installation, so the
+           wizard's first step refuses without one. Offering the answer here
+           beats offering a button whose first screen is a refusal. -->
+      <Button variant="primary" icon={Plug} href="/installations">Connect GitHub</Button>
+    {:else}
+      <Button variant="primary" icon={Plus} href="/pools/new">Create a pool</Button>
+    {/if}
   {/if}
 </PageHeader>
 
@@ -475,18 +516,22 @@
   defaultOrder="asc"
   selectable={canOperate}
   {bulkActions}
-  liveKey={fleet.version}
+  liveKey={fleet.shape}
   noun="pools"
   onopen={(row) => navigate(`/pools/${row.id ?? ''}`)}
   onrows={takeRows}
   emptyTitle={filtering ? 'No pools match those filters' : 'No pools yet'}
   emptyDescription={filtering
     ? 'Every pool is hidden by the search or the status filter currently applied.'
-    : 'A pool decides what labels your runners answer to and how many of them exist.'}
+    : noInstallation
+      ? 'A pool decides what labels your runners answer to and how many of them exist. It registers those runners with a GitHub App installation, so that comes first.'
+      : 'A pool decides what labels your runners answer to and how many of them exist.'}
 >
   {#snippet emptyAction()}
     {#if filtering}
       <Button onclick={clearFilters}>Clear filters</Button>
+    {:else if canOperate && noInstallation}
+      <Button variant="primary" icon={Plug} href="/installations">Connect GitHub</Button>
     {:else if canOperate}
       <Button variant="primary" icon={Plus} href="/pools/new">Create a pool</Button>
     {:else}
@@ -525,7 +570,14 @@
   .status-filter {
     width: 10rem;
   }
+  /* Pool names are hyphenated, so without this they set one segment per line
+     and the whole row grows to fit. The full name is in the title. */
   .pool-name {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     color: var(--z-accent);
     font-weight: var(--z-weight-medium);
     text-decoration: none;

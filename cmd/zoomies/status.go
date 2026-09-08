@@ -88,8 +88,8 @@ func printStatus(p *printer, base string, meta metaResponse, stats statsResponse
 
 	window := prettyWindow(stats.Window)
 	p.keyValues([][2]string{
-		{"jobs", fmt.Sprintf("%d queued, %d running   (%d completed, %d failed in %s)",
-			stats.QueuedJobs, stats.RunningJobs, stats.Completed, stats.Failed, window)},
+		{"jobs", fmt.Sprintf("%d queued, %d running   (%d completed in %s: %d succeeded, %d failed, %d cancelled, %d unknown)",
+			stats.QueuedJobs, stats.RunningJobs, stats.Completed, window, stats.Succeeded, stats.Failed, stats.Cancelled, stats.Unknown)},
 		{"queue wait", fmt.Sprintf("median %s, p95 %s", millis(stats.MedianWaitMS), millis(stats.P95WaitMS))},
 		{"runners", fmt.Sprintf("%d live: %d busy, %d idle, %d starting, %d draining, %d failed",
 			stats.Runners.Total, stats.Runners.Busy, stats.Runners.Idle,

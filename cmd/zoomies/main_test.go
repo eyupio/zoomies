@@ -262,3 +262,24 @@ func TestInitPrintAnswersWritesAnExampleAndTouchesNothing(t *testing.T) {
 		t.Errorf("--print-answers wrote to the host: %v", entries)
 	}
 }
+
+// Error messages that name a command are a promise that the command exists.
+// Two of them named `zoomies users passwd` before there was one, and one named
+// `zoomies hosts token` where the command is `hosts join-token create`.
+func TestEveryCommandNamedInAnErrorMessageExists(t *testing.T) {
+	e, out, _ := newTestEnv(t)
+	if code := dispatch(context.Background(), e, []string{"users", "--help"}); code != exitOK {
+		t.Fatalf("users --help exited %d", code)
+	}
+	if !strings.Contains(out.String(), "passwd") {
+		t.Errorf("`zoomies users` offers no passwd command:\n%s", out)
+	}
+
+	e, out, _ = newTestEnv(t)
+	if code := dispatch(context.Background(), e, []string{"hosts", "--help"}); code != exitOK {
+		t.Fatalf("hosts --help exited %d", code)
+	}
+	if !strings.Contains(out.String(), "join-token") {
+		t.Errorf("`zoomies hosts` offers no join-token command:\n%s", out)
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -56,7 +57,15 @@ type harness struct {
 	key     *cryptox.Key
 	cfg     *config.Config
 	ctx     context.Context
+	// offset is added to the wall clock the controller reads, in nanoseconds.
+	// It is zero unless a test calls advance, so time still passes normally
+	// for everything that does not ask; a lease that has to expire is the one
+	// thing a test cannot wait out honestly.
+	offset *atomic.Int64
 }
+
+// advance moves the controller's clock forward without moving the test's.
+func (h *harness) advance(d time.Duration) { h.offset.Add(int64(d)) }
 
 // testConfig is a configuration that validates without a single warning, so a
 // test asserting "Problems is empty" is asserting about the fleet rather than
@@ -97,6 +106,7 @@ func newHarness(t *testing.T) *harness {
 	cfg := testConfig(t)
 	bus := events.New()
 	factory := &fakeFactory{gh: gh}
+	offset := new(atomic.Int64)
 
 	c, err := New(Options{
 		Store:  st,
@@ -106,16 +116,26 @@ func newHarness(t *testing.T) *harness {
 		Events: bus,
 		GitHub: factory,
 		Logger: slog.New(slog.DiscardHandler),
-		Clock:  time.Now,
+		Clock:  func() time.Time { return time.Now().Add(time.Duration(offset.Load())) },
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	return &harness{t: t, c: c, st: st, gh: gh, factory: factory, key: key, cfg: cfg, ctx: ctx}
+	return &harness{t: t, c: c, st: st, gh: gh, factory: factory, key: key, cfg: cfg, ctx: ctx, offset: offset}
 }
 
-// installation seeds a GitHub App installation with a sealed webhook secret.
+// installation seeds a GitHub App installation on the "acme" organisation with
+// a sealed webhook secret.
 func (h *harness) installation() *store.Installation {
+	h.t.Helper()
+	return h.installationOn("acme", store.TargetOrg)
+}
+
+// installationOn seeds an installation on a named target, so that a test can
+// have two of them and prove work does not cross between them. One fake GitHub
+// backs both: its client is built per target, which is the distinction that
+// matters here.
+func (h *harness) installationOn(target string, kind store.TargetType) *store.Installation {
 	h.t.Helper()
 	pem, err := h.key.SealString("-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----")
 	if err != nil {
@@ -128,8 +148,8 @@ func (h *harness) installation() *store.Installation {
 	inst := &store.Installation{
 		AppID:            h.gh.AppID(),
 		InstallationID:   h.gh.InstallationID(),
-		Target:           "acme",
-		TargetType:       store.TargetOrg,
+		Target:           target,
+		TargetType:       kind,
 		APIBaseURL:       h.gh.URL(),
 		PrivateKeyEnc:    pem,
 		WebhookSecretEnc: secret,
@@ -204,6 +224,18 @@ type jobEvent struct {
 	RunnerName string
 	Conclusion string
 	QueuedAt   time.Time
+	// Steps, when set, are rendered as GitHub's steps array.
+	Steps []map[string]any
+}
+
+// failingSteps renders the steps of a job that failed on its second step, which
+// is the shape a completed delivery with a failure has.
+func failingSteps() []map[string]any {
+	return []map[string]any{
+		{"number": 1, "name": "Checkout", "status": "completed", "conclusion": "success"},
+		{"number": 2, "name": "Run tests", "status": "completed", "conclusion": "failure"},
+		{"number": 3, "name": "Upload", "status": "completed", "conclusion": "skipped"},
+	}
 }
 
 func (e jobEvent) body() []byte {
@@ -234,6 +266,9 @@ func (e jobEvent) body() []byte {
 	if e.Action == "completed" {
 		job["completed_at"] = e.QueuedAt.Add(2 * time.Minute).Format(time.RFC3339)
 		job["conclusion"] = e.Conclusion
+	}
+	if e.Steps != nil {
+		job["steps"] = e.Steps
 	}
 	b, _ := json.Marshal(map[string]any{
 		"action":       e.Action,
@@ -327,6 +362,38 @@ func (h *harness) runners() []*store.Runner {
 }
 
 // onlyRunner asserts there is exactly one runner and returns it.
+// restart builds a fresh controller over the same store, which is what a
+// process restart actually is: every row survives and every in-memory
+// structure -- the task queue above all -- does not.
+func (h *harness) restart() *Controller {
+	h.t.Helper()
+	bus := events.New()
+	c, err := New(Options{
+		Store:  h.st,
+		Config: h.cfg,
+		Key:    h.key,
+		Auth:   auth.New(h.st, h.cfg, bus),
+		Events: bus,
+		GitHub: h.factory,
+		Logger: slog.New(slog.DiscardHandler),
+		Clock:  func() time.Time { return time.Now().Add(time.Duration(h.offset.Load())) },
+	})
+	if err != nil {
+		h.t.Fatalf("restarting the controller: %v", err)
+	}
+	return c
+}
+
+// runnerByID re-reads one runner, for a test that has to see a column change.
+func (h *harness) runnerByID(t *testing.T, id string) *store.Runner {
+	t.Helper()
+	r, err := h.st.GetRunner(h.ctx, id)
+	if err != nil {
+		t.Fatalf("GetRunner %s: %v", id, err)
+	}
+	return r
+}
+
 func (h *harness) onlyRunner() *store.Runner {
 	h.t.Helper()
 	rs := h.runners()

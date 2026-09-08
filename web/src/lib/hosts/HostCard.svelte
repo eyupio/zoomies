@@ -10,7 +10,7 @@
 <script lang="ts">
   import { Pencil, ServerCog, Trash2 } from '@lucide/svelte';
   import type { Host } from '$lib/api/types';
-  import { formatNumber, pluralise } from '$lib/format';
+  import { formatNumber } from '$lib/format';
   import { hostStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import DropdownMenu from '$lib/components/DropdownMenu.svelte';
@@ -46,7 +46,49 @@
   const capacity = $derived(host.capacity ?? 0);
   const free = $derived(host.free ?? Math.max(0, capacity - active));
   const labels = $derived(Object.entries(host.labels ?? {}));
-  const platform = $derived([host.os, host.arch].filter(Boolean).join('/'));
+  // What this machine is, in the terms a pool asks in. The controller renders
+  // the sentence; the kernel and architecture are the fallback for an agent too
+  // old to report a distribution.
+  const platform = $derived(host.platform_label || [host.os, host.arch].filter(Boolean).join('/'));
+
+  // How much machine it is, which is the other half of the answer to "why is
+  // this host full".
+  const size = $derived.by(() => {
+    const cpus = host.cpus ?? 0;
+    if (cpus <= 0) return '';
+    const memory = host.memory_mb ?? 0;
+    return memory > 0
+      ? `${formatNumber(cpus)} vCPU · ${formatNumber(Math.round(memory / 1024))} GB`
+      : `${formatNumber(cpus)} vCPU`;
+  });
+
+  /**
+   * The disk behind the work directory, where a runner's checkout and its
+   * caches land.
+   *
+   * It is the resource that runs out first and says nothing when it does: a
+   * host with slots free and no space starts a job that fails part-way
+   * through, which reads as a flaky build rather than a full disk. Free is
+   * what a runner may actually write to -- the filesystem's reserve is root's,
+   * and a runner is not root.
+   *
+   * Zero total means the agent did not measure it, which is not a full disk,
+   * so nothing is shown rather than "0 GB free".
+   */
+  const disk = $derived.by(() => {
+    const total = host.disk_total_mb ?? 0;
+    if (total <= 0) return '';
+    const free = host.disk_free_mb ?? 0;
+    const gb = (mb: number) => formatNumber(Math.round(mb / 1024));
+    return `${gb(free)} GB free of ${gb(total)}`;
+  });
+
+  /** Below this, the disk is the reason a job will fail rather than a detail. */
+  const DISK_LOW = 0.1;
+  const diskLow = $derived.by(() => {
+    const total = host.disk_total_mb ?? 0;
+    return total > 0 && (host.disk_free_mb ?? 0) / total < DISK_LOW;
+  });
 
   const actions = $derived<MenuItem[]>([
     {
@@ -96,7 +138,13 @@
   </header>
 
   <p class="meta">
-    {#if platform}<span class="mono">{platform}</span>{/if}
+    {#if platform}<span>{platform}</span>{/if}
+    {#if size}<span class="tabular">{size}</span>{/if}
+    {#if disk}<span
+        class="tabular"
+        class:low={diskLow}
+        title="Disk on the filesystem holding the work directory">{disk}</span
+      >{/if}
     {#if host.version}<span>agent {host.version}</span>{/if}
     {#if host.address}<span class="mono">{host.address}</span>{/if}
   </p>
@@ -112,8 +160,7 @@
 
   {#if host.cordoned}
     <p class="cordoned">
-      Cordoned. Its {pluralise(active, 'runner')} keep going and finish their jobs; no new runner is placed
-      here until it is uncordoned.
+      Cordoned. Its running work finishes; no new runner is placed here until it is uncordoned.
     </p>
   {/if}
 
@@ -121,6 +168,7 @@
     <UtilisationBar
       busy={active}
       live={capacity}
+      tone="capacity"
       label="Runner slots in use on {host.name || host.id}"
       showText={false}
     />
@@ -155,7 +203,7 @@
     flex-direction: column;
     gap: var(--z-space-3);
     padding: var(--z-space-5);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
     min-width: 0;
@@ -193,6 +241,13 @@
     font-size: var(--z-text-xs);
     color: var(--z-text-subtle);
   }
+  /* A disk this close to full is the reason the next job fails, not a detail:
+     it takes the pending colour so it reads as something to attend to before
+     it becomes an incident. */
+  .meta .low {
+    color: var(--z-pending);
+    font-weight: var(--z-weight-medium);
+  }
   .health {
     margin: 0;
     font-size: var(--z-text-xs);
@@ -205,7 +260,7 @@
   .cordoned {
     margin: 0;
     padding: var(--z-space-2) var(--z-space-3);
-    border: 1px solid var(--z-draining-border);
+    border: var(--z-border-width) solid var(--z-draining-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-draining-subtle);
     font-size: var(--z-text-xs);
@@ -234,13 +289,13 @@
     flex-direction: column;
     gap: var(--z-space-2);
     padding-top: var(--z-space-3);
-    border-top: 1px solid var(--z-border);
+    border-top: var(--z-border-width) solid var(--z-border);
   }
   h4 {
     margin: 0;
     font-size: var(--z-text-2xs);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     color: var(--z-text-muted);
     font-weight: var(--z-weight-medium);
   }
@@ -254,7 +309,7 @@
   }
   .labels li {
     padding: 0 var(--z-space-1);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     color: var(--z-text-muted);

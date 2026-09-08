@@ -9,6 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/events"
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -29,7 +32,7 @@ const (
 // The fixtures have no GitHub behind them, so the two places that would
 // otherwise reach out on their behalf -- the credential prober and the
 // registration reaper -- check this and skip. Without it a demo or a UI test
-// run fills the problems panel with "this installation is not usable" and the
+// run fills the problems drawer with "this installation is not usable" and the
 // log with parse failures, none of which says anything about the fleet.
 func IsDemoID(id string) bool {
 	_, rest, ok := strings.Cut(id, "_")
@@ -46,9 +49,48 @@ func IsDemoID(id string) bool {
 // demo installation reports to the migration wizard.
 var demoRepos = []string{"acme/widgets", "acme/api", "acme/site"}
 
+// demoQuietRepos have no workflows at all. They exist only for the migration
+// wizard, which has to show that a repository was looked at and had nothing to
+// move -- and has to be able to hide it again.
+var demoQuietRepos = []string{"acme/docs"}
+
 var demoPoolNames = []string{
 	"zoomies-demo-linux-x64", "zoomies-demo-linux-arm64",
 	"demo-linux-x64", "demo-linux-arm64",
+}
+
+// refuseSeedOnRealState is the second half of SeedDemo's guard: anything in the
+// database that is not a demo fixture means this is somebody's fleet.
+func (c *Controller) refuseSeedOnRealState(ctx context.Context) error {
+	refuse := func(what string) error {
+		return fmt.Errorf("refusing to seed demo data: this instance already has %s, and demo fixtures must never appear in a real fleet; unset %s", what, SeedEnvVar)
+	}
+	insts, err := c.st.ListInstallations(ctx)
+	if err != nil {
+		return fmt.Errorf("checking whether this instance is empty: %w", err)
+	}
+	for _, inst := range insts {
+		if !IsDemoID(inst.ID) {
+			return refuse(fmt.Sprintf("the installation %q", inst.Target))
+		}
+	}
+	hosts, err := c.st.ListHosts(ctx)
+	if err != nil {
+		return fmt.Errorf("checking whether this instance is empty: %w", err)
+	}
+	for _, h := range hosts {
+		if !IsDemoID(h.ID) {
+			return refuse(fmt.Sprintf("the host %q", h.Name))
+		}
+	}
+	n, err := c.st.CountUsers(ctx)
+	if err != nil {
+		return fmt.Errorf("checking whether this instance is empty: %w", err)
+	}
+	if n > 0 {
+		return refuse(plural(n, "account"))
+	}
+	return nil
 }
 
 // SeedDemo writes a deterministic fixture fleet: one installation, two pools, a
@@ -81,6 +123,14 @@ func (c *Controller) SeedDemo(ctx context.Context) error {
 	if seeded {
 		c.log.Debug("demo fixtures are already present")
 		return nil
+	}
+	// A pool is what seeding writes, but it is not the only sign of a real
+	// deployment. A controller with an installation, a host or an account and
+	// no pool yet is the state every fresh production install passes through,
+	// and a compose file that kept ZOOMIES_SEED_DEMO from a trial run must not
+	// be able to drop a fixture fleet into it.
+	if err := c.refuseSeedOnRealState(ctx); err != nil {
+		return err
 	}
 
 	// Everything is placed relative to one instant so the fixture reads as a
@@ -156,23 +206,33 @@ func (c *Controller) seedInstallation(ctx context.Context) error {
 func (c *Controller) seedHosts(ctx context.Context, now time.Time) ([]*store.Host, error) {
 	specs := []struct {
 		id, name, arch string
+		distro, osVer  string
+		cpus           int
+		memoryMB       int64
+		diskMB, freeMB int64
 		capacity       int
 		embedded       bool
 		cordoned       bool
 		silentFor      time.Duration
 	}{
-		{demoHostPrefix + "a", "demo-builder-1", "amd64", 6, true, false, 0},
-		{demoHostPrefix + "b", "demo-builder-2", "amd64", 4, false, false, 0},
-		// One cordoned host, so the Hosts page and the problems panel both
-		// have something real to render.
-		{demoHostPrefix + "c", "demo-arm-1", "arm64", 2, false, true, 0},
+		{demoHostPrefix + "a", "demo-builder-1", "amd64", "ubuntu", "24.04", 16, 32768, 1_048_576, 734_003, 6, true, false, 0},
+		// A second distribution, so the Hosts page shows the platform column
+		// doing something and a pool's platform has a host it must not land on.
+		{demoHostPrefix + "b", "demo-builder-2", "amd64", "debian", "12", 8, 16384, 524_288, 31_457, 4, false, false, 0},
+		// One cordoned host, so the Hosts page and the problems drawer both
+		// have something real to render. The second builder is nearly out of
+		// disk, which is the state that stops jobs while every slot still
+		// reads as free -- the Hosts page has to show it.
+		{demoHostPrefix + "c", "demo-arm-1", "arm64", "ubuntu", "24.04", 8, 16384, 262_144, 190_054, 2, false, true, 0},
 	}
 	out := make([]*store.Host, 0, len(specs))
-	for _, s := range specs {
+	for i, s := range specs {
 		h := &store.Host{
-			ID:       s.id,
-			Name:     s.name,
-			Address:  "10.0.0." + s.id[len(s.id)-1:],
+			ID:   s.id,
+			Name: s.name,
+			// An address that reads as one; the last character of the ID
+			// gave the demo fleet a host at 10.0.0.a.
+			Address:  fmt.Sprintf("10.0.0.%d", 10+i),
 			Embedded: s.embedded,
 			Capacity: s.capacity,
 			Backends: store.StringSlice{"docker"},
@@ -183,11 +243,17 @@ func (c *Controller) seedHosts(ctx context.Context, now time.Time) ([]*store.Hos
 				// what the UI is looked at with, so it has to show what an
 				// operator actually gets when a backend is missing.
 				{Kind: store.BackendPodman, Detail: "no socket at /run/user/1000/podman/podman.sock; " +
-					"if Podman is installed, its API socket is off by default -- enable it with `systemctl --user enable --now podman.socket`"},
+					"if Podman is installed, its API socket is off by default — enable it with `systemctl --user enable --now podman.socket`"},
 			},
 			Labels:        store.StringMap{"arch": s.arch, "zone": "demo"},
 			OS:            "linux",
+			Distro:        s.distro,
+			OSVersion:     s.osVer,
 			Arch:          s.arch,
+			CPUs:          s.cpus,
+			MemoryMB:      s.memoryMB,
+			DiskTotalMB:   s.diskMB,
+			DiskFreeMB:    s.freeMB,
 			Version:       "demo",
 			Cordoned:      s.cordoned,
 			LastHeartbeat: now.Add(-s.silentFor),
@@ -200,6 +266,107 @@ func (c *Controller) seedHosts(ctx context.Context, now time.Time) ([]*store.Hos
 	return out, nil
 }
 
+// demoHeartbeatInterval keeps the seeded hosts inside store.HeartbeatTimeout
+// with room to spare.
+const demoHeartbeatInterval = 30 * time.Second
+
+// demoStartingAge is how far into starting up the demo's two unfinished runners
+// are held: long enough that the grid shows a plausible age rather than zero,
+// and far short of the point at which a fleet would call them stuck.
+const demoStartingAge = 20 * time.Second
+
+// demoHeartbeatLoop keeps the demo fleet's hosts alive.
+//
+// A seeded host has no agent behind it, so its heartbeat is a timestamp written
+// once and never touched again -- and ninety seconds later every host in the
+// demo fleet is unhealthy, every pool "has nowhere to run", and the fleet an
+// operator opened the UI to look at has gone dark while they were reading it.
+// The same ninety seconds is why a long Playwright run saw a different Pools
+// page from a short one.
+//
+// This runs only when the demo seed was requested, and only for hosts the seed
+// created, so nothing it does can reach a real fleet.
+func (c *Controller) demoHeartbeatLoop(ctx context.Context) {
+	ticker := time.NewTicker(demoHeartbeatInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			c.beatDemoHosts(ctx)
+			c.freshenDemoRunners(ctx)
+		}
+	}
+}
+
+// freshenDemoRunners keeps the seeded runners that are still starting up from
+// ageing into runners that are stuck.
+//
+// The fixture holds one runner in `provisioning` and one in `registering` so
+// that both states appear in the grid and in the screenshots. On a real fleet
+// those states last seconds, and `runners.not_progressing` says so once one has
+// lasted half the provision timeout -- so a demo instance left open would start
+// reporting a fault in a fleet that has no agent to have one. It is the same
+// lie as a heartbeat written once: correct at the instant it was seeded and
+// wrong a few minutes later.
+//
+// Only the seed's own rows are touched, and only while they are still starting.
+func (c *Controller) freshenDemoRunners(ctx context.Context) {
+	runners, _, err := c.st.ListRunners(ctx, store.RunnerFilter{
+		States: []store.RunnerState{store.RunnerProvisioning, store.RunnerRegistering},
+	}, store.Page{Limit: 100})
+	if err != nil {
+		c.log.Warn("demo refresh could not list runners that are starting up", "error", err)
+		return
+	}
+	now := c.Now()
+	for _, r := range runners {
+		if !IsDemoID(r.ID) {
+			continue
+		}
+		// A registering runner's clock runs from its container; a provisioning
+		// one has no container yet, so its age is all it has.
+		fresh := now.Add(-demoStartingAge)
+		var err error
+		if r.ContainerStartedAt != nil {
+			err = c.st.SetRunnerStartup(ctx, r.ID, r.ImagePullDuration, &fresh)
+			r.ContainerStartedAt = &fresh
+		} else {
+			err = c.st.SetRunnerCreatedAt(ctx, r.ID, fresh)
+			r.CreatedAt = fresh
+		}
+		if err != nil {
+			c.log.Warn("demo refresh failed", "runner", r.ID, "error", err)
+			continue
+		}
+		// A page already open holds the row it was sent, so without this the
+		// age on screen keeps climbing and then jumps back on a reload. The
+		// host beat publishes for the same reason.
+		c.publishRunner(ctx, events.KindRunnerUpdated, r)
+	}
+}
+
+func (c *Controller) beatDemoHosts(ctx context.Context) {
+	hosts, err := c.st.ListHosts(ctx)
+	if err != nil {
+		c.log.Warn("demo heartbeat could not list hosts", "error", err)
+		return
+	}
+	now := c.Now()
+	for _, h := range hosts {
+		if !IsDemoID(h.ID) {
+			continue
+		}
+		if err := c.st.Heartbeat(ctx, h.ID, now); err != nil {
+			c.log.Warn("demo heartbeat failed", "host", h.ID, "error", err)
+			continue
+		}
+		h.LastHeartbeat = now
+		c.PublishHost(h)
+	}
+}
+
 func (c *Controller) seedPools(ctx context.Context) (*store.Pool, *store.Pool, error) {
 	linux := &store.Pool{
 		ID:             demoPoolLinuxID,
@@ -207,15 +374,17 @@ func (c *Controller) seedPools(ctx context.Context) (*store.Pool, *store.Pool, e
 		InstallationID: demoInstallationID,
 		Labels:         store.StringSlice(store.BrandLabels([]string{"linux", "x64", "zoomies-demo-linux-x64"})),
 		Backend:        store.BackendDocker,
-		Image:          c.cfg.GitHub.RunnerImage,
-		MinRunners:     1,
-		MaxRunners:     8,
-		IdleTimeout:    store.Duration(5 * time.Minute),
-		Ephemeral:      true,
-		DockerMode:     store.DockerNone,
-		Resources:      store.Resources{CPUs: 2, MemoryMB: 4096},
-		HostSelector:   store.StringMap{"arch": "amd64"},
-		Enabled:        true,
+		// No image: the platform picks the variant, which is what a pool
+		// created today does and what the Pools page should demonstrate.
+		Platform:     store.Platform{OS: "ubuntu", OSVersion: "24.04", Arch: "amd64"},
+		MinRunners:   1,
+		MaxRunners:   8,
+		IdleTimeout:  store.Duration(5 * time.Minute),
+		Ephemeral:    true,
+		DockerMode:   store.DockerNone,
+		Resources:    store.Resources{CPUs: 2, MemoryMB: 4096},
+		HostSelector: store.StringMap{"arch": "amd64"},
+		Enabled:      true,
 	}
 	arm := &store.Pool{
 		ID:             demoPoolArmID,
@@ -223,11 +392,15 @@ func (c *Controller) seedPools(ctx context.Context) (*store.Pool, *store.Pool, e
 		InstallationID: demoInstallationID,
 		Labels:         store.StringSlice(store.BrandLabels([]string{"linux", "arm64", "zoomies-demo-linux-arm64"})),
 		Backend:        store.BackendDocker,
-		Image:          c.cfg.GitHub.RunnerImage,
-		MinRunners:     0,
-		MaxRunners:     4,
-		IdleTimeout:    store.Duration(10 * time.Minute),
-		// Persistent runners, so the problems panel has a dangerous setting to
+		Platform:       store.Platform{OS: "ubuntu", OSVersion: "24.04", Arch: "arm64"},
+		// The image a pool that gives its jobs a daemon actually runs, written
+		// here as the API would write it, so the demo does not show the one
+		// combination the wizard and the migration exist to remove.
+		Image:       config.RunnerImageFor(c.cfg().GitHub.RunnerImage, true),
+		MinRunners:  0,
+		MaxRunners:  4,
+		IdleTimeout: store.Duration(10 * time.Minute),
+		// Persistent runners, so the problems drawer has a dangerous setting to
 		// show and the UI's warning styling is exercised.
 		Ephemeral:    false,
 		DockerMode:   store.DockerDinD,
@@ -241,6 +414,21 @@ func (c *Controller) seedPools(ctx context.Context) (*store.Pool, *store.Pool, e
 		return nil, nil, fmt.Errorf("seeding pool %s: %w", arm.Name, err)
 	}
 	return linux, arm, nil
+}
+
+// demoRunnerName is the name a demo runner would have been given, in the
+// grammar a real one is: its pool's shape, a word from the kennel, and a
+// discriminator.
+//
+// The discriminator is the index rather than a random token, because the demo
+// is a fixture. A screenshot taken today has to match one taken last week, and
+// a Playwright test navigates to a name it was told at build time; both break
+// on a name that is different every time the controller starts. "demo" in it
+// is not decoration either -- somebody looking at a screenshot should be able
+// to tell it from a fleet.
+func demoRunnerName(pool *store.Pool, i int) string {
+	word := naming.Kennel[i%len(naming.Kennel)]
+	return naming.RunnerName(pool.Spec().String(), fmt.Sprintf("%s-demo%02d", word, i))
 }
 
 // seedRunners writes a dozen runners spread over every state the UI renders
@@ -279,7 +467,7 @@ func (c *Controller) seedRunners(ctx context.Context, now time.Time, pools []*st
 			ID:             fmt.Sprintf("run_demo%02d", i),
 			PoolID:         pool.ID,
 			HostID:         host.ID,
-			Name:           fmt.Sprintf("%sdemo%04d", store.RunnerNamePrefix, i),
+			Name:           demoRunnerName(pool, i),
 			State:          s.state,
 			Ephemeral:      pool.Ephemeral,
 			Labels:         pool.Labels,
@@ -294,6 +482,19 @@ func (c *Controller) seedRunners(ctx context.Context, now time.Time, pools []*st
 		if s.state != store.RunnerProvisioning {
 			started := created.Add(20 * time.Second)
 			r.StartedAt = &started
+			// The store stamps created_at itself, so the backend timings are
+			// placed relative to the seeding instant rather than to `created`:
+			// a few seconds to a running container, a few more to a registered
+			// runner, varying by runner so the p50 and p95 differ. Without them
+			// the Overview's startup and registration tiles both read 0ms, and
+			// a demo that says the fleet starts runners in no time at all is
+			// lying about the one number an operator sizing a pool asks for.
+			containerStarted := now.Add(time.Duration(3+i%5) * time.Second)
+			r.ContainerStartedAt = &containerStarted
+			if s.state != store.RunnerRegistering {
+				registered := containerStarted.Add(time.Duration(6+(i*3)%9) * time.Second)
+				r.RegisteredAt = &registered
+			}
 		}
 		if s.state == store.RunnerIdle {
 			idle := now.Add(-time.Duration(s.ageMin/2) * time.Minute)
@@ -330,21 +531,27 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 		}
 	}
 
+	branches := []string{"main", "main", "main", "feature/faster-builds", "release/2.4", "renovate/deps"}
+
 	for i := range 50 {
 		pool := pools[i%len(pools)]
 		queued := now.Add(-time.Duration(6*60-i*7) * time.Minute)
 		j := &store.Job{
-			ID:          fmt.Sprintf("job_demo%03d", i),
-			GitHubJobID: int64(80000 + i),
-			GitHubRunID: int64(40000 + i/2),
-			Repo:        repos[i%len(repos)],
-			Workflow:    workflows[i%len(workflows)],
-			JobName:     jobNames[i%len(jobNames)],
-			Labels:      pool.Labels,
-			PoolID:      pool.ID,
-			Matched:     true,
-			QueuedAt:    queued,
-			HTMLURL:     fmt.Sprintf("https://github.com/%s/actions/runs/%d", repos[i%len(repos)], 40000+i/2),
+			ID:             fmt.Sprintf("job_demo%03d", i),
+			GitHubJobID:    int64(80000 + i),
+			GitHubRunID:    int64(40000 + i/2),
+			Repo:           repos[i%len(repos)],
+			Workflow:       workflows[i%len(workflows)],
+			JobName:        jobNames[i%len(jobNames)],
+			Labels:         pool.Labels,
+			InstallationID: pool.InstallationID,
+			PoolID:         pool.ID,
+			Matched:        true,
+			QueuedAt:       queued,
+			HTMLURL:        fmt.Sprintf("https://github.com/%s/actions/runs/%d", repos[i%len(repos)], 40000+i/2),
+			HeadBranch:     branches[i%len(branches)],
+			HeadSHA:        fmt.Sprintf("%040x", 0xC0FFEE+i*7919),
+			RunAttempt:     1 + i%7/6,
 		}
 
 		switch {
@@ -359,20 +566,41 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 			completed := started.Add(time.Duration(40+rng.IntN(600)) * time.Second)
 			j.State = store.JobCompleted
 			j.Conclusion = conclusions[i%len(conclusions)]
+			// One failure the fleet owns: the runner died under the job, which
+			// is what the "runner lost" badge, the timeline entry and the
+			// problems drawer entry all have as their fixture. It is the most
+			// recent finished job, so that it falls inside the hour the
+			// problems drawer looks back over.
+			lostRunner := i == 43
+			if lostRunner {
+				j.Conclusion = "failure"
+			}
 			j.StartedAt, j.CompletedAt = &started, &completed
-			j.RunnerName = fmt.Sprintf("%sdemo%04d", store.RunnerNamePrefix, i%12)
+			r := runners[i%12]
+			j.RunnerID, j.RunnerName = r.ID, r.Name
+			j.Steps = demoSteps(j.JobName, j.Conclusion, started, completed)
+			if lostRunner {
+				j.RunnerFault = fmt.Sprintf("runner %s stopped while this job was running: runner exited with code 137: the container was killed for exceeding its memory limit", r.Name)
+			}
 		case i < 47 && len(busy) > 0:
 			// Running right now, on one of the busy runners.
 			r := busy[i%len(busy)]
 			started := now.Add(-time.Duration(2+i%5) * time.Minute)
+			// Queued moments before it started, as on a fleet that is keeping
+			// up. Left in its historical slot the job would carry a forty-minute
+			// wait, and the three running jobs are most of what the Overview's
+			// one-hour median sees -- so the headline number would say the
+			// fleet is drowning while every other panel says it is fine.
+			j.QueuedAt = started.Add(-time.Duration(12+7*(i%3)) * time.Second)
 			j.State = store.JobInProgress
 			j.StartedAt = &started
 			j.RunnerID, j.RunnerName = r.ID, r.Name
+			j.Steps = demoSteps(j.JobName, "", started, time.Time{})
 		case i < 49:
 			j.State = store.JobQueued
 			j.QueuedAt = now.Add(-time.Duration(20+i) * time.Second)
 		default:
-			// One job nothing claims, so the problems panel has its
+			// One job nothing claims, so the problems drawer has its
 			// "no pool wants this" entry.
 			j.State = store.JobQueued
 			j.QueuedAt = now.Add(-4 * time.Minute)
@@ -380,9 +608,55 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 			j.PoolID, j.Matched = "", false
 		}
 
-		if _, err := c.st.UpsertJob(ctx, j); err != nil {
+		// One repository still on a hosted-runner vendor, which is what a fleet
+		// looks like part-way through a migration. Its jobs carry labels no pool
+		// here claims and they run anyway, so they are the case that must never
+		// be reported as "nothing will run this".
+		if i == 12 {
+			j.Labels = store.StringSlice{"blacksmith-4vcpu-ubuntu-2404"}
+			j.PoolID, j.Matched = "", false
+			j.RunnerID, j.RunnerName = "", "blacksmith-4vcpu-ubuntu-2404-9f2c"
+		}
+
+		saved, change, err := c.st.ApplyJob(ctx, j)
+		if err != nil {
 			return fmt.Errorf("seeding job %d: %w", i, err)
 		}
+		if err := c.seedJobTimeline(ctx, saved, change); err != nil {
+			return err
+		}
+	}
+
+	// The vendor repository's other job: one running right now, on a machine
+	// this fleet has never seen. GitHub reports it because the installation
+	// covers the repository, and the Overview's panels must not count it as
+	// what the fleet is doing -- which is exactly what they did.
+	vendorStarted := now.Add(-3 * time.Minute)
+	vendor := &store.Job{
+		ID:             "job_demo050",
+		GitHubJobID:    80050,
+		GitHubRunID:    40025,
+		Repo:           repos[2],
+		Workflow:       "CI",
+		JobName:        "images",
+		Labels:         store.StringSlice{"blacksmith-4vcpu-ubuntu-2404"},
+		InstallationID: demoInstallationID,
+		State:          store.JobInProgress,
+		QueuedAt:       vendorStarted.Add(-9 * time.Second),
+		StartedAt:      &vendorStarted,
+		RunnerName:     "blacksmith-4vcpu-ubuntu-2404-3a71",
+		HTMLURL:        fmt.Sprintf("https://github.com/%s/actions/runs/%d", repos[2], 40025),
+		HeadBranch:     "main",
+		HeadSHA:        fmt.Sprintf("%040x", 0xC0FFEE+50*7919),
+		RunAttempt:     1,
+		Steps:          demoSteps("images", "", vendorStarted, time.Time{}),
+	}
+	saved, change, err := c.st.ApplyJob(ctx, vendor)
+	if err != nil {
+		return fmt.Errorf("seeding the vendor job: %w", err)
+	}
+	if err := c.seedJobTimeline(ctx, saved, change); err != nil {
+		return err
 	}
 
 	// Link the busy runners to the jobs they are running, so the Runners page
@@ -399,18 +673,108 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 	return nil
 }
 
+// demoSteps renders the steps a job of this name would have, concluded the way
+// the job was: a failure fails on the step that does the work and skips the
+// rest, a cancellation stops there, and a job still running is part-way through
+// it.
+func demoSteps(jobName, conclusion string, started, completed time.Time) store.JobSteps {
+	work := map[string]string{"build": "Build", "test": "Run tests", "lint": "Lint", "package": "Package artefacts"}[jobName]
+	if work == "" {
+		work = "Run " + jobName
+	}
+	names := []string{"Set up job", "Checkout", "Set up toolchain", work, "Post checkout", "Complete job"}
+	steps := make(store.JobSteps, 0, len(names))
+	span := completed.Sub(started)
+	if completed.IsZero() {
+		span = 4 * time.Minute
+	}
+	// The working step takes most of the time; the rest are seconds each.
+	cuts := []float64{0, 0.02, 0.05, 0.12, 0.96, 0.98, 1}
+	for i, name := range names {
+		at := started.Add(time.Duration(cuts[i] * float64(span)))
+		end := started.Add(time.Duration(cuts[i+1] * float64(span)))
+		step := store.JobStep{Number: i + 1, Name: name, Status: "completed", Conclusion: "success", StartedAt: &at, CompletedAt: &end}
+		switch {
+		case conclusion == "" && i == 3:
+			step.Status, step.Conclusion, step.CompletedAt = "in_progress", "", nil
+		case conclusion == "" && i > 3:
+			step.Status, step.Conclusion, step.StartedAt, step.CompletedAt = "queued", "", nil, nil
+		case (conclusion == "failure" || conclusion == "cancelled") && i == 3:
+			step.Conclusion = conclusion
+		case (conclusion == "failure" || conclusion == "cancelled") && i == 4:
+			step.Conclusion = "skipped"
+		}
+		steps = append(steps, step)
+	}
+	return steps
+}
+
+// seedJobTimeline writes the entries a seeded job would have earned had its
+// deliveries really arrived, stamped at the times the job's own timestamps say
+// they happened rather than at seeding time.
+func (c *Controller) seedJobTimeline(ctx context.Context, j *store.Job, change store.JobChange) error {
+	if !change.Created {
+		return nil
+	}
+	add := func(kind store.JobEventKind, source, message string, at time.Time, runner bool) error {
+		e := &store.JobEvent{JobID: j.ID, Kind: kind, Source: source, Message: message, At: at}
+		if runner {
+			e.RunnerID, e.RunnerName = j.RunnerID, j.RunnerName
+		}
+		return c.st.AppendJobEvent(ctx, e)
+	}
+	if err := add(store.JobEventQueued, sourceWebhook, fmt.Sprintf("GitHub queued %s in %s, asking for [%s]",
+		jobTitle(j), j.Repo, strings.Join(j.Labels, ", ")), j.QueuedAt, false); err != nil {
+		return err
+	}
+	if err := add(c.claimKind(j), sourceWebhook, c.claimMessage(ctx, j), j.QueuedAt.Add(time.Second), false); err != nil {
+		return err
+	}
+	if j.StartedAt != nil {
+		if err := add(store.JobEventStarted, sourceWebhook, c.startMessage(ctx, j, nil), *j.StartedAt, true); err != nil {
+			return err
+		}
+	}
+	if j.RunnerFault != "" && j.CompletedAt != nil {
+		if err := add(store.JobEventRunnerLost, sourceAgent,
+			j.RunnerFault+"; GitHub will report the job failed once the runner's absence is noticed",
+			j.CompletedAt.Add(-20*time.Second), true); err != nil {
+			return err
+		}
+	}
+	if j.CompletedAt != nil {
+		if err := add(store.JobEventCompleted, sourceWebhook, completionMessage(j), *j.CompletedAt, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (c *Controller) seedScaling(ctx context.Context, now time.Time, linux, arm *store.Pool) error {
 	// The reason quotes the pool by name, exactly as the scheduler writes it,
 	// so the fixture cannot drift from the pool it describes when the pools are
 	// renamed.
+	//
+	// Ten of them, on purpose: that is as many as the Overview shows, and more
+	// than fit beside a fleet of two pools, so the fixture exercises the feed
+	// being cut to its column rather than stretching the page. The scheduler
+	// keeps deciding over this fleet once it is seeded, and each decision it
+	// records pushes the oldest line here off the Overview -- so the lines the
+	// UI tests quote are kept well clear of the old end, and the wind-down
+	// before them is what gets displaced.
 	events := []struct {
 		pool     *store.Pool
 		from, to int
 		why      string
 		agoMin   int
 	}{
+		{linux, 6, 4, "2 runners idle > 5m", 165},
+		{linux, 4, 2, "2 runners idle > 5m", 150},
+		{linux, 2, 1, "1 runner idle > 5m", 140},
 		{linux, 1, 4, "3 jobs queued > 30s", 95},
 		{linux, 4, 6, "2 jobs queued > 30s", 70},
+		{arm, 0, 1, "1 job queued > 30s", 62},
+		{arm, 1, 0, "1 runner idle > 10m", 48},
 		{linux, 6, 4, "2 runners idle > 5m", 40},
 		{arm, 0, 1, "1 job queued > 30s", 30},
 		{linux, 4, 5, "1 job queued > 30s", 8},
@@ -508,12 +872,18 @@ func (c *Controller) seedSamples(ctx context.Context, now time.Time, rng *rand.R
 		}
 
 		if err := c.st.RecordSample(ctx, store.FleetSample{
-			At:           at,
-			QueuedJobs:   queued,
-			RunningJobs:  running,
-			IdleRunners:  idle,
-			BusyRunners:  busy,
-			TotalRunners: total,
+			At:          at,
+			QueuedJobs:  queued,
+			RunningJobs: running,
+			// Every job the demo seeds belongs to one of its own pools, so the
+			// fleet's own figures are the same figures. Leaving them at zero
+			// would give the Overview a flat sparkline in its default view and
+			// make the demo look broken.
+			FleetQueuedJobs:  queued,
+			FleetRunningJobs: running,
+			IdleRunners:      idle,
+			BusyRunners:      busy,
+			TotalRunners:     total,
 		}); err != nil {
 			return fmt.Errorf("seeding the fleet sample for %s: %w", at.Format(time.RFC3339), err)
 		}

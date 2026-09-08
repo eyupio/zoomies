@@ -36,6 +36,7 @@ func runController(ctx context.Context, e *env, args []string) error {
 	fs := newFlagSet(e, "zoomies controller [--config path]",
 		"Run the control plane: the scheduler, the API, the web UI and the webhook endpoint.")
 	cfgPath := fs.String("config", "", "path to zoomies.yaml (default: "+config.DefaultConfigFile()+", and a missing file is not an error)")
+	takeover := fs.Bool("takeover", false, "start even though another controller holds this database's lease, and take it from them")
 	fs.example(
 		"zoomies controller --config /etc/zoomies/zoomies.yaml",
 		"ZOOMIES_BIND=0.0.0.0:8080 zoomies controller     # no file at all: defaults plus environment",
@@ -59,11 +60,40 @@ func runController(ctx context.Context, e *env, args []string) error {
 
 	log, level := setupLogging(cfg)
 
+	// One controller per database, checked before the store opens.
+	//
+	// Two schedulers over one database both mint runner credentials, both
+	// reclaim hosts they think are lost, and both reap the workloads the other
+	// created; every symptom of it looks like a bug somewhere else. The lock
+	// catches a second process on this host and the lease catches a copy on a
+	// shared filesystem or another machine, which no lock here can see.
+	unlock, err := store.Lock(cfg.Database.Path)
+	if err != nil {
+		if errors.Is(err, store.ErrLocked) {
+			return fmt.Errorf("another controller is already running against %s on this host; "+
+				"stop it before starting this one", cfg.Database.Path)
+		}
+		return err
+	}
+	defer func() { _ = unlock() }()
+
 	st, err := store.Open(ctx, store.Options{Path: cfg.Database.Path})
 	if err != nil {
 		return err
 	}
 	defer st.Close()
+
+	lease, err := takeControllerLease(ctx, st, *takeover)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		// Handed back on a clean stop so the next controller starts at once
+		// rather than waiting out a lease nobody holds.
+		if err := st.ReleaseControllerLease(context.WithoutCancel(ctx), lease.Holder); err != nil {
+			log.Warn("could not hand the controller lease back", "error", err)
+		}
+	}()
 
 	key, err := loadOrCreateKey(cfg, log)
 	if err != nil {
@@ -88,6 +118,8 @@ func runController(ctx context.Context, e *env, args []string) error {
 		Key:      key,
 		Backends: backends,
 		Logger:   log,
+		LogLevel: level,
+		Lease:    lease,
 	})
 	if err != nil {
 		return err
@@ -101,8 +133,14 @@ func runController(ctx context.Context, e *env, args []string) error {
 	// SIGHUP re-reads the log level and nothing else. Everything else in the
 	// configuration is either safe to change through PATCH /settings or needs
 	// the process restarted, and pretending otherwise -- rebinding a listener
-	// under live connections, say -- is how a reload becomes an outage.
-	stopHUP := watchSIGHUP(ctx, *cfgPath, level, log)
+	// under live connections, say -- is how a reload becomes an outage. The
+	// level goes through the controller's live configuration, the same way a
+	// PATCH does, so the settings page shows the level the process is at.
+	stopHUP := watchSIGHUP(ctx, *cfgPath, func(level string) string {
+		var previous string
+		ctrl.UpdateConfig(func(c *config.Config) { previous, c.Log.Level = c.Log.Level, level })
+		return previous
+	}, log)
 	defer stopHUP()
 
 	if err := ctrl.Start(ctx); err != nil {
@@ -126,7 +164,34 @@ func runController(ctx context.Context, e *env, args []string) error {
 	}
 
 	printBanner(e.out, cfg, backends)
+	printSetupToken(ctx, e.out, ctrl, log)
 	return srv.ListenAndServe(ctx)
+}
+
+// takeControllerLease claims this database for this controller, or refuses to
+// start and says who has it.
+//
+// The message is the whole point of the lease: an operator who has just been
+// refused needs to know which machine to go and look at, and "the database is
+// locked" would send them to the wrong one.
+func takeControllerLease(ctx context.Context, st *store.Store, takeover bool) (*store.ControllerLease, error) {
+	host, _ := os.Hostname()
+	lease := &store.ControllerLease{
+		Holder:  store.NewID(store.PrefixController),
+		Host:    host,
+		PID:     os.Getpid(),
+		Version: version.Version,
+	}
+	held, err := st.AcquireControllerLease(ctx, lease, controller.LeaseTTL, takeover)
+	if errors.Is(err, store.ErrConflict) {
+		return nil, fmt.Errorf("another controller holds this database: %s, last seen %s ago. "+
+			"Stop it, or start this one with --takeover if you know it is gone",
+			held.Describe(), time.Since(held.RenewedAt).Round(time.Second))
+	}
+	if err != nil {
+		return nil, fmt.Errorf("taking the controller lease: %w", err)
+	}
+	return lease, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -138,7 +203,7 @@ func runController(ctx context.Context, e *env, args []string) error {
 // and the API have already captured.
 func setupLogging(cfg *config.Config) (*slog.Logger, *slog.LevelVar) {
 	level := new(slog.LevelVar)
-	level.Set(parseLevel(cfg.Log.Level))
+	level.Set(config.ParseLogLevel(cfg.Log.Level))
 
 	// The inner handler is built at debug so that it never filters anything
 	// out itself; the wrapper below is the only gate, and it is the one whose
@@ -168,22 +233,10 @@ func (h *levelHandler) WithGroup(name string) slog.Handler {
 	return &levelHandler{Handler: h.Handler.WithGroup(name), level: h.level}
 }
 
-func parseLevel(s string) slog.Level {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "debug":
-		return slog.LevelDebug
-	case "warn", "warning":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	default:
-		return slog.LevelInfo
-	}
-}
-
-// watchSIGHUP re-reads the configuration on SIGHUP and applies the log level
-// from it. It returns a function that stops watching.
-func watchSIGHUP(ctx context.Context, cfgPath string, level *slog.LevelVar, log *slog.Logger) func() {
+// watchSIGHUP re-reads the configuration on SIGHUP and hands the log level from
+// it to apply, which sets it and returns the level that was in force. It
+// returns a function that stops watching.
+func watchSIGHUP(ctx context.Context, cfgPath string, apply func(level string) (previous string), log *slog.Logger) func() {
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
 
@@ -205,9 +258,8 @@ func watchSIGHUP(ctx context.Context, cfgPath string, level *slog.LevelVar, log 
 						"error", err, "fix", "correct the file and send SIGHUP again")
 					continue
 				}
-				was := level.Level()
-				now := parseLevel(fresh.Log.Level)
-				level.Set(now)
+				was := config.ParseLogLevel(apply(fresh.Log.Level))
+				now := config.ParseLogLevel(fresh.Log.Level)
 				if was == now {
 					log.Info("SIGHUP: log level re-read and unchanged", "log_level", now.String())
 				} else {
@@ -269,6 +321,16 @@ func loadOrCreateKey(cfg *config.Config, log *slog.Logger) (*cryptox.Key, error)
 	return key, nil
 }
 
+// socketExists reports whether a unix socket path is present. A TCP endpoint
+// has no path and is taken on trust.
+func socketExists(path string) bool {
+	if path == "" {
+		return true
+	}
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 // buildBackends prepares the runner backends this host can use.
 //
 // Construction does not contact a daemon -- that is Probe's job -- so a host
@@ -277,29 +339,58 @@ func loadOrCreateKey(cfg *config.Config, log *slog.Logger) (*cryptox.Key, error)
 func buildBackends(ctx context.Context, cfg *config.Config, log *slog.Logger) (*backend.Registry, error) {
 	var backends []backend.Backend
 	opts := backend.DockerOptions{
-		Host:    cfg.Agent.DockerHost,
-		Network: cfg.Agent.Network,
-		WorkDir: cfg.Agent.WorkDir,
-		Logger:  log,
+		Network:      cfg.Agent.Network,
+		WorkDir:      cfg.Agent.WorkDir,
+		RegistryAuth: cfg.Agent.RegistryAuth,
+		Logger:       log,
 	}
-	if b, err := backend.NewDocker(opts); err == nil {
-		backends = append(backends, b)
-	} else {
+	// An explicit agent.docker_host belongs to the backend it was configured
+	// for; the other container backend keeps autodetecting its own socket.
+	// Handing one socket to both made the Hosts page report the same denial
+	// twice -- once as docker, once as "podman" at /var/run/docker.sock -- and,
+	// once the socket was reachable, made a Docker host claim it offered Podman
+	// too, since the two speak the same API.
+	hostFor := func(kind store.BackendKind) string {
+		if cfg.Agent.Backend == "" || cfg.Agent.Backend == string(kind) {
+			return cfg.Agent.DockerHost
+		}
+		return ""
+	}
+	// A backend nobody configured is registered only when the host visibly
+	// has it: a socket that exists, a shell to run the runner with. The
+	// configured one is registered regardless, so that a daemon which is not
+	// up yet is still re-probed and reported on. Registering the rest anyway
+	// put a red row with install advice on every Docker host's Hosts page --
+	// "install Podman", "apt-get install libicu" into a distroless image --
+	// when the honest answer is that the host does not offer them.
+	configured := func(kind store.BackendKind) bool {
+		return cfg.Agent.Backend == "" || cfg.Agent.Backend == string(kind)
+	}
+	docker := opts
+	docker.Host = hostFor(store.BackendDocker)
+	if b, err := backend.NewDocker(docker); err != nil {
 		log.Debug("the Docker backend is not available on this host", "error", err)
-	}
-	if b, err := backend.NewPodman(opts); err == nil {
+	} else if configured(b.Kind()) || socketExists(b.SocketPath()) {
 		backends = append(backends, b)
-	} else {
+	}
+	podman := opts
+	podman.Host = hostFor(store.BackendPodman)
+	if b, err := backend.NewPodman(podman); err != nil {
 		log.Debug("the Podman backend is not available on this host", "error", err)
+	} else if configured(b.Kind()) || socketExists(b.SocketPath()) {
+		backends = append(backends, b)
 	}
 	if b, err := backend.NewProcess(backend.ProcessOptions{
-		WorkDir:       cfg.Agent.WorkDir,
-		RunnerVersion: cfg.GitHub.RunnerVersion,
-		Logger:        log,
-	}); err == nil {
-		backends = append(backends, b)
-	} else {
+		WorkDir:                 cfg.Agent.WorkDir,
+		RunnerVersion:           cfg.GitHub.RunnerVersion,
+		RunnerSHA256:            cfg.Agent.RunnerSHA256,
+		AllowUnverifiedDownload: cfg.Agent.AllowUnverifiedRunnerDownload,
+		DownloadBaseURL:         cfg.Agent.RunnerDownloadURL,
+		Logger:                  log,
+	}); err != nil {
 		log.Debug("the process backend could not be prepared", "error", err)
+	} else if configured(b.Kind()) || backend.HasShell() {
+		backends = append(backends, b)
 	}
 
 	reg := backend.NewRegistry(backends...)
@@ -373,6 +464,33 @@ func printBanner(w io.Writer, cfg *config.Config, backends *backend.Registry) {
 	} {
 		fmt.Fprintf(w, "  %-14s %s\n", row[0], row[1])
 	}
+	fmt.Fprintln(w)
+}
+
+// printSetupToken shows the credential the first-run form asks for, but only
+// while there is nobody to sign in as.
+//
+// It goes to both the banner and the log: an operator watching a terminal sees
+// it there, and one who ran `docker compose up -d` finds it with
+// `docker compose logs`. Printing it on every start while the instance is empty
+// is deliberate -- an operator who lost the first one should not have to reset
+// anything, and once an account exists the line stops appearing for good.
+func printSetupToken(ctx context.Context, w io.Writer, ctrl *controller.Controller, log *slog.Logger) {
+	svc := ctrl.Auth()
+	need, err := svc.NeedsBootstrap(ctx)
+	if err != nil {
+		log.Warn("could not check whether this instance has any accounts", "error", err)
+		return
+	}
+	if !need {
+		return
+	}
+	token := svc.SetupToken()
+	log.Info("setup token: "+token,
+		"why", "this instance has no accounts yet; the first-run page asks for this token",
+		"note", "it changes on every restart, and this line stops once an account exists")
+	fmt.Fprintf(w, "  %-14s %s\n", "setup token", token)
+	fmt.Fprintf(w, "  %-14s %s\n", "", "paste this into the first-run page to create the first administrator")
 	fmt.Fprintln(w)
 }
 
