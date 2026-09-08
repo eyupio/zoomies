@@ -853,6 +853,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/jobs/{id}/explanation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Why this job is where it is
+         * @description One answer to "why is this job not running?", computed on the controller from the last scheduler plan, the pool it was claimed by, and the runner and host behind it. It is a separate endpoint rather than a field on the job because it is computed from the fleet around the job rather than from its row, so a cached copy of the job delivered by the event stream would carry a stale one. The drawer, the CLI and the support bundle render this same answer, so they cannot disagree.
+         */
+        get: operations["getJobExplanation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/jobs/facets": {
         parameters: {
             query?: never;
@@ -2099,6 +2122,25 @@ export interface components {
             timeline?: components["schemas"]["TimelineEntry"][];
             /** @description False when the runner's host is unreachable */
             logs_available?: boolean;
+        };
+        JobExplanation: {
+            job_id: string;
+            state: components["schemas"]["JobState"];
+            /** @description The sentence. Always set, including for a job that is running or finished: "nothing is wrong" is an answer to the question. */
+            summary: string;
+            /** @description What the summary leaves out */
+            detail?: string;
+            /** @description What to do. Absent means there is nothing to do */
+            fix?: string;
+            /** @description Whether the job is still waiting on something. */
+            waiting: boolean;
+            /** @description Whether waiting will not on its own end it. A fleet that is merely busy clears; a pool nothing can place never will, and the two need different advice. */
+            blocked: boolean;
+            pool_id?: string;
+            runner_id?: string;
+            host_id?: string;
+            /** Format: date-time */
+            computed_at: string;
         };
         TimelineEntry: {
             state?: components["schemas"]["RunnerState"];
@@ -3906,6 +3948,30 @@ export interface operations {
                     "application/json": {
                         items?: components["schemas"]["JobEvent"][];
                     };
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getJobExplanation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobExplanation"];
                 };
             };
             404: components["responses"]["NotFound"];

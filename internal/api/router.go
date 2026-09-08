@@ -170,6 +170,7 @@ func (s *Server) apiRoutes() chi.Router {
 			r.Get("/facets", s.handleJobFacets)
 			r.Get("/{id}", s.handleGetJob)
 			r.Get("/{id}/events", s.handleJobEvents)
+			r.Get("/{id}/explanation", s.handleJobExplanation)
 		})
 
 		// Hosts and enrolment.

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"net/http"
 	"testing"
 	"time"
 
@@ -144,4 +145,53 @@ func TestAJobCarriesTheInstallationItBelongsTo(t *testing.T) {
 	if out.InstallationID != inst.ID {
 		t.Fatalf("installation_id = %q, want %q", out.InstallationID, inst.ID)
 	}
+}
+
+// The explanation is its own route rather than a field on the job, so this is
+// the check that it is reachable, authorised like the rest of the jobs surface,
+// and carries the shape the drawer and the CLI will both render.
+func TestTheJobExplanationIsItsOwnRoute(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	h.host("vm-1")
+	pool := h.pool(inst, "linux-x64")
+	_ = pool
+
+	job, err := h.st.UpsertJob(h.ctx, &store.Job{
+		GitHubJobID: 7001, Repo: "acme/widgets", Workflow: "CI", JobName: "build",
+		Labels: store.NormalizeLabels([]string{"self-hosted", "cuda12"}),
+		State:  store.JobQueued, QueuedAt: time.Now().Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+
+	u, _ := h.user("viewer", store.RoleViewer)
+	resp := h.do(request{method: http.MethodGet, path: "/api/v1/jobs/" + job.ID + "/explanation", cookie: h.session(u)})
+	resp.mustStatus(t, http.StatusOK, "explanation")
+	var out struct {
+		JobID   string `json:"job_id"`
+		State   string `json:"state"`
+		Summary string `json:"summary"`
+		Fix     string `json:"fix"`
+		Waiting bool   `json:"waiting"`
+		Blocked bool   `json:"blocked"`
+	}
+	resp.into(t, &out)
+
+	if out.JobID != job.ID || out.State != string(store.JobQueued) {
+		t.Errorf("the explanation is not about the job asked for: %+v", out)
+	}
+	// A viewer can read it, and what they read is an answer rather than an
+	// empty string they have to interpret.
+	if out.Summary == "" {
+		t.Error("the explanation has no summary; the page that renders it would show nothing")
+	}
+	if !out.Blocked || out.Fix == "" {
+		t.Errorf("a job no pool claims should be blocked with something to do: %+v", out)
+	}
+
+	// A job that does not exist is a 404 rather than an explanation of nothing.
+	missing := h.do(request{method: http.MethodGet, path: "/api/v1/jobs/job_nope/explanation", cookie: h.session(u)})
+	missing.mustStatus(t, http.StatusNotFound, "explanation for a missing job")
 }

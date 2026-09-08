@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.9 · 8 September 2026 · derived from the owner's
+Version 2.10 · 8 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -975,7 +975,11 @@ request and a `diagnostics` Playwright project runs against it. Building it
 found the defect none of the earlier pull requests could have: a held job is
 unmatched by construction, so the default Jobs view hid every one of them.
 
-*The two new things (M and L):* a support bundle as one JSON document from
+*The two new things (M and L):* **the explanation is done** — `GET
+/jobs/{id}/explanation` returns one answer computed from the last plan, the
+pool, the runner and the host, and separates `waiting` from `blocked` because
+the two need different advice; what remains of it is the drawer and the CLI
+rendering it instead of reasoning for themselves. **Outstanding:** a support bundle as one JSON document from
 one admin route under a new `diagnostics.read` action, assembled section by
 section so a failing section lands in an `errors` array rather than failing
 the whole, size-capped, secret-free by the shared blanking, never carrying
@@ -1678,6 +1682,13 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **8 September 2026 — Version 2.10:** `GET /jobs/{id}/explanation` is done.
+  The shape it settled on is worth recording because the rest of the package
+  will render it: one summary that is always set, a detail in the scheduler's
+  own words where it has any, a fix that is absent when there is nothing to do,
+  and `waiting` separated from `blocked` — a fleet that is merely busy clears
+  itself and a pool nothing can place never will.
 
 * **8 September 2026 — Version 2.9:** ZF-202's small half and its test fixture
   are done. The fixture is worth a line of its own because of what it changes
