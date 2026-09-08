@@ -62,6 +62,17 @@ func (c *Controller) HostFit(ctx context.Context, p *store.Pool) (HostFit, error
 			fit.PlatformMismatch++
 			continue
 		}
+		// A host that could never hold one runner of this pool cannot run it,
+		// and saying so before the pool exists is the whole point of the
+		// wizard's count. It goes in the same sentence the backend probe uses,
+		// because it has the same shape: a machine that is there and cannot
+		// take the work, with the reason attached.
+		if !scheduler.HostFits(h, p) {
+			if fit.Detail == "" {
+				fit.Detail = h.Name + " is too small for this pool's CPU or memory limits."
+			}
+			continue
+		}
 		fit.Count++
 	}
 	for _, kind := range []store.BackendKind{store.BackendDocker, store.BackendPodman, store.BackendProcess} {

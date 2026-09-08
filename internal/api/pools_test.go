@@ -976,3 +976,53 @@ func TestPoolRefusesAWindowsHostSelector(t *testing.T) {
 		t.Fatalf("a refused pool was created anyway: %v %v", pools, err)
 	}
 }
+
+// The wizard's count is the scheduler's own placement rule asked early, so a
+// pool that could never be placed has to read as zero hosts before it is
+// created rather than as a healthy pool that never starts a runner. A machine
+// too small to hold one runner of the pool is exactly that case, and it is one
+// an operator can only meet by typing a limit their fleet cannot cover.
+func TestTheWizardDoesNotCountAHostTooSmallForThePool(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	host := h.host("vm-1")
+	host.CPUs, host.MemoryMB = 4, 8192
+	host.DiskTotalMB, host.DiskFreeMB = 200_000, 100_000
+	if err := h.st.UpdateHost(h.ctx, host); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	body := poolBody(inst.ID)
+	body["resources"] = map[string]any{"memory_mb": 64 * 1024}
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: cookie, body: body})
+	resp.mustStatus(t, http.StatusOK, "validate")
+	var verdict validatePoolResponse
+	resp.into(t, &verdict)
+	if verdict.MatchingHosts != 0 {
+		t.Errorf("matching_hosts = %d for a 64 GB pool on an 8 GB host, want 0", verdict.MatchingHosts)
+	}
+	found := false
+	for _, w := range verdict.Warnings {
+		if w.Code == "pool.no_matching_hosts" {
+			found = true
+			if !strings.Contains(w.Detail, "too small") {
+				t.Errorf("the warning does not say the host is too small: %+v", w)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no warning that nothing can run this pool: %+v", verdict.Warnings)
+	}
+
+	// A limit the fleet can cover still counts the host, which is what says the
+	// zero above came from the size and not from the resources field itself.
+	body["resources"] = map[string]any{"memory_mb": 2048}
+	ok := h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: cookie, body: body})
+	ok.mustStatus(t, http.StatusOK, "validate")
+	ok.into(t, &verdict)
+	if verdict.MatchingHosts != 1 {
+		t.Errorf("matching_hosts = %d for a 2 GB pool on an 8 GB host, want 1", verdict.MatchingHosts)
+	}
+}

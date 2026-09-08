@@ -231,7 +231,7 @@ func Decide(s Snapshot) Plan {
 	t := &tick{
 		now:                s.Now,
 		policy:             s.Policy,
-		hosts:              newHostSet(s.Hosts, s.Now),
+		hosts:              newHostSet(s.Hosts, pools, s.Runners, s.Now),
 		budget:             s.Policy.MaxCreatesPerTick,
 		activeByRepository: s.ActiveByRepository,
 		poolCount:          len(pools),
@@ -699,18 +699,64 @@ func (t *tick) action(kind ActionKind, p *store.Pool, r *store.Runner, reason st
 // Host selection
 // ---------------------------------------------------------------------------
 
-// hostSet tracks the capacity left on each host as the plan is built, so that
-// two pools cannot both be promised the last free slot on the same host.
+// hostSet tracks what is left on each host as the plan is built, so that two
+// pools cannot both be promised the last free slot -- or the last four
+// gigabytes -- on the same host.
 type hostSet struct {
 	hosts []*store.Host
 	free  map[string]int
+	// left is the room still unpromised on each host, and alloc what the host
+	// had to begin with. They are separate because the second says which
+	// figures were measured at all, and an unmeasured figure constrains
+	// nothing.
+	left  map[string]Reservation
+	alloc map[string]store.HostAllocation
 	now   time.Time
 }
 
-func newHostSet(hosts []*store.Host, now time.Time) *hostSet {
-	hs := &hostSet{hosts: sortedHosts(hosts), free: make(map[string]int, len(hosts)), now: now}
+// newHostSet seeds each host with its allocatable resources less what the
+// runners already on it have been promised.
+//
+// Only live runners count, exactly as the slot count does: the snapshot keeps
+// failed rows so the Runners page can show them, and charging a host for a
+// runner that is gone would shrink the fleet every time one failed.
+//
+// Disk is the exception, and deliberately: free disk is a measurement of the
+// filesystem as it is now, so what the runners already there have written is
+// in the number already. Subtracting their reservations too would charge the
+// same bytes twice. It is charged only for the runners this pass adds, which
+// have written nothing yet.
+func newHostSet(hosts []*store.Host, pools []*store.Pool, runners map[string][]*store.Runner, now time.Time) *hostSet {
+	hs := &hostSet{
+		hosts: sortedHosts(hosts),
+		free:  make(map[string]int, len(hosts)),
+		left:  make(map[string]Reservation, len(hosts)),
+		alloc: make(map[string]store.HostAllocation, len(hosts)),
+		now:   now,
+	}
+	byID := make(map[string]*store.Host, len(hs.hosts))
 	for _, h := range hs.hosts {
 		hs.free[h.ID] = h.Free()
+		a := h.Allocatable()
+		hs.alloc[h.ID] = a
+		hs.left[h.ID] = Reservation{CPUs: a.CPUs, MemoryMB: a.MemoryMB, DiskMB: a.DiskMB}
+		byID[h.ID] = h
+	}
+	for _, p := range pools {
+		if p == nil {
+			continue
+		}
+		for _, r := range runners[p.ID] {
+			h := byID[r.HostID]
+			if h == nil || !r.State.Live() {
+				continue
+			}
+			res := Reserve(p, h)
+			l := hs.left[h.ID]
+			l.CPUs -= res.CPUs
+			l.MemoryMB -= res.MemoryMB
+			hs.left[h.ID] = l
+		}
 	}
 	return hs
 }
@@ -725,6 +771,12 @@ func (hs *hostSet) place(p *store.Pool, n int) []string {
 			break
 		}
 		hs.free[h.ID]--
+		res := Reserve(p, h)
+		l := hs.left[h.ID]
+		l.CPUs -= res.CPUs
+		l.MemoryMB -= res.MemoryMB
+		l.DiskMB -= res.DiskMB
+		hs.left[h.ID] = l
 		out = append(out, h.ID)
 	}
 	return out
@@ -747,18 +799,24 @@ func (hs *hostSet) pick(p *store.Pool) *store.Host {
 }
 
 func (hs *hostSet) eligible(h *store.Host, p *store.Pool) bool {
-	return hs.free[h.ID] > 0 && HostCanRun(h, p, hs.now)
+	return hs.free[h.ID] > 0 && hs.hasRoom(h, p) && HostCanRun(h, p, hs.now)
+}
+
+// hasRoom reports whether what is still unpromised on the host covers one more
+// runner of this pool.
+func (hs *hostSet) hasRoom(h *store.Host, p *store.Pool) bool {
+	return fits(hs.left[h.ID], Reserve(p, h), hs.alloc[h.ID])
 }
 
 // HostCanRun is the placement rule, in one place: a host may take a runner for
 // a pool when it is available, offers the pool's backend and satisfies the
-// pool's host selector. The wizard's "matching hosts" count, the capacity-demand
-// signal and image prewarming all ask this same question, and each used to
-// answer it with a copy of its own that a new rule here would have left
-// behind. Room on the host is the scheduler's own accounting and is checked
-// separately.
+// pool's host selector, and is a machine one of its runners would fit on at
+// all. The wizard's "matching hosts" count, the capacity-demand signal and
+// image prewarming all ask this same question, and each used to answer it with
+// a copy of its own that a new rule here would have left behind. Room left on
+// the host is the scheduler's own accounting and is checked separately.
 func HostCanRun(h *store.Host, p *store.Pool, now time.Time) bool {
-	return HostAvailable(h, now) && HostOffers(h, p) && HostIsPlatform(h, p) && HostSelects(h, p)
+	return HostAvailable(h, now) && HostOffers(h, p) && HostIsPlatform(h, p) && HostSelects(h, p) && HostFits(h, p)
 }
 
 // HostIsPlatform reports whether a host is the machine the pool asked for.
@@ -826,7 +884,8 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 			fix:  "run 'zoomies agent' on a machine that can host runners, using a join token from the Hosts page",
 		}
 	}
-	var unhealthy, cordoned, backend, platform, selector, full int
+	var unhealthy, cordoned, backend, platform, selector, tooSmall, full int
+	var shortCPU, shortMemory, lowDisk int
 	var detail string
 	for _, h := range hs.hosts {
 		switch {
@@ -849,8 +908,35 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 			platform++
 		case !HostSelects(h, p):
 			selector++
-		default:
+		case hs.alloc[h.ID].DiskKnown && hs.alloc[h.ID].DiskMB <= 0:
+			// The disk gate is asked before the sizing one, because a host at
+			// its reserve refuses every pool and "too small for this pool's
+			// limits" would send the operator to change limits that were never
+			// the problem.
+			lowDisk++
+		case !HostFits(h, p):
+			// The machine itself is too small for one runner of this pool, so
+			// nothing finishing on it will ever make room. That is a different
+			// answer from "wait", and an operator told to wait for it would
+			// wait for ever.
+			tooSmall++
+		case hs.free[h.ID] <= 0:
 			full++
+		default:
+			// It has a slot and is the right kind of machine, so what is left
+			// on it is what ran out. Naming which resource is the difference
+			// between adding memory and adding a host.
+			left, alloc, want := hs.left[h.ID], hs.alloc[h.ID], Reserve(p, h)
+			switch {
+			case alloc.DiskKnown && (alloc.DiskMB <= 0 || left.DiskMB < want.DiskMB):
+				lowDisk++
+			case alloc.MemoryKnown && left.MemoryMB < want.MemoryMB:
+				shortMemory++
+			case alloc.CPUsKnown && left.CPUs+cpuEpsilon < want.CPUs:
+				shortCPU++
+			default:
+				full++
+			}
 		}
 	}
 	var parts []string
@@ -864,6 +950,10 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 	add(backend, "without the "+string(p.Backend)+" backend")
 	add(platform, "not "+p.Platform.Describe())
 	add(selector, "not matching the pool's host selector")
+	add(tooSmall, "too small for this pool's limits")
+	add(shortMemory, "short of memory")
+	add(shortCPU, "short of CPU")
+	add(lowDisk, "low on disk")
 	add(full, "at capacity")
 	b := blockage{
 		what: fmt.Sprintf("no host can take a new %s runner (%s)",
@@ -878,6 +968,15 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 	switch {
 	case b.atCapacity:
 		b.fix = "wait for a job to finish, raise a host's capacity, or add a host"
+	case lowDisk > 0 && lowDisk+unhealthy+cordoned == len(hs.hosts):
+		// Disk is the one of the three that no job finishing will return: a
+		// runner that exits leaves its caches behind on purpose, so telling an
+		// operator to wait here is telling them to wait for nothing.
+		b.fix = "free space on those hosts' work directories, lower the pool's disk request, or add a host"
+	case tooSmall > 0 && tooSmall+unhealthy+cordoned == len(hs.hosts):
+		b.fix = "lower this pool's CPU or memory limits, or add a host large enough to run one"
+	case shortMemory+shortCPU > 0 && shortMemory+shortCPU+unhealthy+cordoned == len(hs.hosts):
+		b.fix = "wait for a runner to finish, lower this pool's limits, or add a host"
 	case unhealthy == len(hs.hosts):
 		b.fix = "check that the zoomies agent is running on those hosts and can reach this controller"
 	case platform > 0 && platform+unhealthy+cordoned == len(hs.hosts):

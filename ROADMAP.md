@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.5 · 8 September 2026 · derived from the owner's
+Version 2.6 · 8 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -637,9 +637,9 @@ per-host reserve the row now carries can be set only from the store, because
 `SetHostReserve` has no caller outside tests and neither `PATCH /hosts` nor the
 host view mentions it.
 
-**Do, in three pull requests. The first has landed and its figures reach the
-host view and the Hosts page; the second is untouched; the third is partly
-done. The [work-package record](roadmap/progress.md) names the pull requests
+**Do, in three pull requests. The first two have landed -- the figures reach
+the host view and the Hosts page, and the scheduler now places by them; the
+third is partly done. The [work-package record](roadmap/progress.md) names the pull requests
 that carried each:**
 
 1. Agents report host resources: CPUs, memory and free disk on the work
@@ -648,7 +648,7 @@ that carried each:**
    stays 1). Its migration adds the observed columns and a per-host reserve
    to `hosts`; heartbeats write the observed values and never the reserve,
    mirroring how capacity is the operator's today.
-2. The scheduler fits a reservation: a pure `Reservation(pool, host)` that is
+2. **Done.** The scheduler fits a reservation: a pure `Reservation(pool, host)` that is
    the pool's resources, doubled for DinD, or the fallback profile for a pool
    that sets none; the host set tracks free CPU and memory seeded from
    allocatable minus live runners' reservations; `eligible()` also requires
@@ -669,16 +669,26 @@ that carried each:**
    unlimited pool is assumed to reserve; a `pool.resources_unenforced` warning
    for a `process` pool that sets limits; gauges, docs and problem-code rows.
 
-Three things the verifier added for the scheduler pull request, two of them
-still open. The snapshot's runner list includes failed rows while the host's
-active count excludes them, so a reservation rebuilt from rows must filter the
-same way the slot count does. The agent already samples each container's
-enforced memory limit and the controller drops it, an observed-versus-reserved
-signal that is already on the wire. The third — that the heartbeat writes the
+Three things the verifier added for the scheduler pull request. The first is
+closed with that pull request: the reservation is rebuilt only from rows in a
+live state, which is the same filter the slot count uses. The second is still
+open: the agent already samples each container's enforced memory limit and the
+controller drops it, an observed-versus-reserved signal that is already on the
+wire. The third — that the heartbeat writes the
 host row only when something changed, and free disk moves every beat — was
 closed in the first pull request: `diskFreeMoved` is the tolerance rule, a
 fractional band with a floor, a first reading always taken, and a silent agent
 never overwriting what was known.
+
+**Chosen while building the second, and not in the plan:** a field a pool
+leaves unset is charged one slot's worth of the host rather than nothing, which
+is what makes decision 15's "admits exactly what it admitted before" true when
+an unlimited pool shares a host with a limited one; free disk is charged only
+for the runners a pass adds, because it is a measurement that already contains
+what the runners already there have written; and decision 15's "small
+documented floor" under the reserve is 512 MB of memory and 2 GB of disk, with
+no CPU floor, because CPU is the one resource that is contended rather than
+exhausted.
 
 **Cut from the source package:** CPU topology (reserve in logical CPUs and say
 so); a separate reservations table (the runner row is the reservation, and a
@@ -1660,6 +1670,19 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **8 September 2026 — Version 2.6:** ZF-103b is done, so Phase 1 is complete
+  as code: every placement decision now costs a reservation, and the figures
+  ZF-103a taught agents to report are read by something. Two choices the
+  package did not name are worth keeping in front of the third pull request,
+  because they decide what its numbers mean: the fallback share (a field a pool
+  leaves unset costs one slot's worth of the host) is what makes the upgrade
+  admit exactly what it admitted before, and free disk is charged only for the
+  runners a pass adds, because the measurement already contains what the
+  runners already there have written. The floors under a host's reserve are
+  documented in section 6 and in `docs/hosts-and-pools.md`, and until the third
+  pull request gives the reserve a route they are the only thing holding
+  anything back.
 
 * **8 September 2026 — Version 2.5:** ZF-206's first pull request is done, and
   it is the only part of that package this document authorises before decision
