@@ -52,7 +52,7 @@ evidence.
 | ID | Package | Classification | Status | Depends on | Session | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
 | ZF-201 | Prove the first successful job through the UI | existing, needs validation, with two narrow extensions | `not_started` | ZF-101 | | Size M |
-| ZF-202 | Actionable day-to-day diagnostics | mixed (substrate exists; no bundle, no per-job explanation) | `not_started` | ZF-102 | | Size L; the failing tie-break test on the code this package extends was fixed as a Phase 0 defect, and `TestAStuckTieNamesTheRunnerWithNoContainer` holds it |
+| ZF-202 | Actionable day-to-day diagnostics | mixed (substrate exists; no bundle, no per-job explanation) | `in_progress` | ZF-102 | first two small fixes: Claude Opus 5, `high`, one session | **Two of the small fixes are done**, the ones that make what already exists trustworthy and need no API shape. The problems drawer now survives a section it cannot gather: every section is gathered on its own and a failure costs its own contents, with `controller.problems_partial` naming which sections are short. What it replaces is worse than an error -- one failing query returned a 500, and a drawer that will not load is indistinguishable from a fleet with nothing wrong. And the capacity-demand signing secret, the one the plan says the blanking misses, is blanked: it is what proves a notification came from this controller, so `zoomies config print` disclosed a forging key for as long as that feature has existed. The reflective test the plan asked for is what will catch the next one -- it walks the whole configuration, plants a value in every field whose name reads like a secret, and fails naming the field, so a secret added tomorrow fails on the day it is added rather than when somebody rereads a hand-written list. **Still owed from the small half**: the runner view's container-started and registered stamps with the stage labels and "host last seen"; a last-poll stamp and pause state in `/meta` with `poller.paused` and `poller.stale`; one sentence for a `waiting` job -- all three need an OpenAPI change and both generated clients, which is why they are not in this pull request. **And the two new things entire**: the support bundle under `diagnostics.read`, and `GET /jobs/{id}/explanation`. Size L; the failing tie-break test on the code this package extends was fixed as a Phase 0 defect, and `TestAStuckTieNamesTheRunnerWithNoContainer` holds it |
 | ZF-203 | Implement and prove backup and restore | new (prose only today) | `not_started` | ZF-102 for automatic unfencing only | | Size L |
 | ZF-204 | Safe releases, upgrades and version compatibility | mixed (skeleton exists; policy, skew, guards, backup-before-migrate and any upgrade test do not) | `not_started` | ZF-203 for the backup primitive; ZF-003 first | | Size L across small pull requests |
 | ZF-206 | Windows runners | new; the matching vocabulary shipped and nothing behind it did | `in_progress` | Gate F attempted first; ZF-105 and ZF-103a, both done | first pull request: Claude Opus 5, `high`, one session | **The first pull request is done**, the severable one that adds no behaviour and stops the product implying a platform it has not got: `runnerAsset` now names Zoomies as the half that is missing rather than claiming actions/runner has no Windows build, a pool whose `host_selector` says `os=windows` is refused at create and at the wizard's review step with a reason that says adding a host would not help, and `docs/hosts-and-pools.md` no longer uses `os=windows` as an example. Both rules were seen to fail with the rule removed. **The other three are not authorised**: decision 26 chooses the package's shape first, and section 10 sequences them after Gate F. Size L in four pull requests: process on a Windows host is the recommendation and weakens the ephemeral guarantee to a fresh work directory on a machine that keeps its state; Windows containers keep the guarantee and cost about five times as much |
@@ -76,6 +76,23 @@ evidence.
 ## Log
 
 Newest first. One line per event that changed a row.
+
+* 2026-09-08: ZF-202's first two small fixes. Both are about a diagnostic
+  telling the truth when something else has already gone wrong. The problems
+  drawer returned a 500 if any single query behind it failed, so the page an
+  operator opens *because* something is wrong was the page that would not load
+  -- and an empty drawer reads as a healthy fleet, which is the one thing it
+  must never say by accident. Each section is now gathered on its own and
+  `controller.problems_partial` names what is missing. The second is a
+  disclosure: `capacity_demand.signing_secret` is what proves a notification
+  came from this controller, and `zoomies config print` printed it in full for
+  as long as that feature has existed, because `blankSecrets` is a
+  hand-written list and nobody notices a field missing from a list. It is
+  blanked, and the test that guards it no longer reads the list: it walks the
+  configuration, plants a value in every secret-shaped field and fails naming
+  the one that leaked. The rest of the small half needs an OpenAPI change and
+  both generated clients, and the two new things -- the support bundle and the
+  job explanation -- are untouched.
 
 * 2026-09-08: ZF-103b, the admission half, merged. Placement now costs
   something: a runner is charged the pool's `resources` against what its host

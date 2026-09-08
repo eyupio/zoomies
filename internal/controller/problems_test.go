@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -655,6 +656,51 @@ func TestAStuckTieNamesTheRunnerWithNoContainer(t *testing.T) {
 		}
 		if !strings.Contains(p.Fix, "agent log") {
 			t.Fatalf("pass %d: fix = %q, want the host-side fix", i, p.Fix)
+		}
+	}
+}
+
+// The drawer is read at the moment something is wrong, so the one thing it
+// must never do is come back empty because it could not look. It used to
+// return a 500 for any single failing query, and a drawer that will not load
+// is indistinguishable from a fleet with nothing wrong.
+//
+// A cancelled context fails every store query at once, which is the strongest
+// version of the case: the sections that need the database are all lost, the
+// ones that do not are still there, and the list says out loud that it is
+// incomplete.
+func TestProblemsSurvivesASectionItCannotGather(t *testing.T) {
+	h := newHarness(t)
+	h.cfg.Security.DisableAuth = true
+
+	ctx, cancel := context.WithCancel(h.ctx)
+	cancel()
+
+	got, err := h.c.Problems(ctx)
+	if err != nil {
+		t.Fatalf("Problems returned an error rather than what it could gather: %v", err)
+	}
+	codes := make([]string, 0, len(got))
+	for _, p := range got {
+		codes = append(codes, p.Code)
+	}
+	// What does not need the database is still reported.
+	if !slices.Contains(codes, "auth.disabled") {
+		t.Errorf("a configuration warning was lost with the database sections: %v", codes)
+	}
+	// And the operator is told the list is short, rather than being left to
+	// read it as a clean fleet.
+	i := slices.Index(codes, "controller.problems_partial")
+	if i < 0 {
+		t.Fatalf("an incomplete list did not say so: %v", codes)
+	}
+	if got[i].Severity != config.SeverityError {
+		t.Errorf("the incomplete-list entry is %q; a list that cannot be trusted is an error", got[i].Severity)
+	}
+	// Naming the sections is what makes it actionable rather than alarming.
+	for _, section := range []string{"hosts", "jobs", "runners"} {
+		if !strings.Contains(got[i].Detail, section) {
+			t.Errorf("the detail does not name the %s section: %q", section, got[i].Detail)
 		}
 	}
 }

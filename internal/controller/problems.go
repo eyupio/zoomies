@@ -53,6 +53,12 @@ const problemWindow = time.Hour
 //
 // It returns an empty slice rather than nil when there is nothing to say,
 // because the UI renders "nothing needs your attention" from exactly that.
+//
+// A section it cannot gather is reported *in* the list, as
+// controller.problems_partial, rather than returned as an error: this is the
+// page an operator opens when something is wrong, and one failing query used
+// to turn the whole of it into a 500. An empty drawer reads as a healthy
+// fleet, which is the one thing it must never say by accident.
 func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	out := make([]Problem, 0, 8)
 
@@ -71,51 +77,66 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 		})
 	}
 
-	pools, err := c.st.ListPools(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("listing pools: %w", err)
-	}
-	insts, err := c.st.ListInstallations(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("listing installations: %w", err)
-	}
-	installations := make(map[string]*store.Installation, len(insts))
-	for _, i := range insts {
-		installations[i.ID] = i
-	}
-	for _, p := range pools {
-		// The same sentences the pool's own page shows, from the same place.
-		out = append(out, PoolWarnings(p, installations[p.InstallationID])...)
+	// Every section below is gathered on its own, and a section that fails
+	// costs its own contents and nothing else. The alternative -- what this
+	// used to do -- is that one failing query returns a 500 and the operator
+	// sees an empty problems drawer at the moment they most need it, which
+	// reads as "nothing is wrong" rather than as "I could not look".
+	var missing []string
+	gather := func(what string, fn func(context.Context, *[]Problem) error) {
+		if err := fn(ctx, &out); err != nil {
+			missing = append(missing, what)
+			c.log.Warn("a section of the problems list could not be gathered",
+				"section", what, "error", err)
+		}
 	}
 
-	if err := c.hostProblems(ctx, &out); err != nil {
-		return nil, err
-	}
-	if err := c.installationProblems(ctx, &out); err != nil {
-		return nil, err
-	}
-	if err := c.webhookProblems(ctx, &out); err != nil {
-		return nil, err
-	}
-	if err := c.jobProblems(ctx, &out); err != nil {
-		return nil, err
-	}
+	gather("pool settings", func(ctx context.Context, out *[]Problem) error {
+		pools, err := c.st.ListPools(ctx)
+		if err != nil {
+			return fmt.Errorf("listing pools: %w", err)
+		}
+		insts, err := c.st.ListInstallations(ctx)
+		if err != nil {
+			return fmt.Errorf("listing installations: %w", err)
+		}
+		installations := make(map[string]*store.Installation, len(insts))
+		for _, i := range insts {
+			installations[i.ID] = i
+		}
+		for _, p := range pools {
+			// The same sentences the pool's own page shows, from the same place.
+			*out = append(*out, PoolWarnings(p, installations[p.InstallationID])...)
+		}
+		return nil
+	})
+
+	gather("hosts", c.hostProblems)
+	gather("installations", c.installationProblems)
+	gather("webhook deliveries", c.webhookProblems)
+	gather("jobs", c.jobProblems)
 	out = append(out, c.PoolCapacityProblems()...)
 	out = append(out, c.PoolRunnerGroupProblems()...)
 	out = append(out, c.leaseProblems()...)
 	out = append(out, c.loopProblems()...)
 	out = append(out, c.updateProblems()...)
-	if err := c.runnerProblems(ctx, &out); err != nil {
-		return nil, err
-	}
-	if err := c.cleanupProblems(ctx, &out); err != nil {
-		return nil, err
-	}
-	if err := c.notProgressingProblems(ctx, &out); err != nil {
-		return nil, err
-	}
-	if err := c.capacityDeliveryProblems(ctx, &out); err != nil {
-		return nil, err
+	gather("runners", c.runnerProblems)
+	gather("runner cleanup", c.cleanupProblems)
+	gather("stuck runners", c.notProgressingProblems)
+	gather("capacity-demand deliveries", c.capacityDeliveryProblems)
+
+	// An incomplete list says so, at the top, in the same shape as everything
+	// else on it. A list that quietly drops a section is worse than an error,
+	// because it is indistinguishable from a healthy fleet.
+	if len(missing) > 0 {
+		out = append(out, Problem{
+			Code:     "controller.problems_partial",
+			Severity: config.SeverityError,
+			Title:    "this list is incomplete",
+			Detail: "the controller could not read " + strings.Join(missing, ", ") +
+				", so problems from " + section(len(missing)) + " are missing here.",
+			Fix: "check the controller log for the query that failed, and that the database is readable and not out of disk.",
+		})
 	}
 
 	// Errors first, then warnings, then a stable order so the list does not
@@ -483,6 +504,15 @@ func (c *Controller) PoolCapacityProblems() []Problem {
 
 // plural writes "1 job" and "3 jobs". Titles are read as headings in the
 // problems drawer, so "job(s)" is not an option there.
+// section keeps the incomplete-list sentence grammatical without a plural
+// helper that takes two nouns, which nothing else here needs.
+func section(n int) string {
+	if n == 1 {
+		return "that section"
+	}
+	return "those sections"
+}
+
 func plural(n int, noun string) string {
 	if n == 1 {
 		return "1 " + noun

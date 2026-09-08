@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.6 · 8 September 2026 · derived from the owner's
+Version 2.7 · 8 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -955,13 +955,13 @@ this pull request as a Phase 0 defect.
 
 **Do, in two halves:**
 
-*The small fixes that make what exists trustworthy (S each):* partial
-failure tolerance in the problems aggregator with a `controller.problems_partial`
-entry naming what could not be gathered; container-started and registered
+*The small fixes that make what exists trustworthy (S each):* **done** —
+partial failure tolerance in the problems aggregator with a
+`controller.problems_partial` entry naming what could not be gathered, and the
+missing secret blanked with a reflective test that every secret-shaped config
+field is; **outstanding** — container-started and registered
 stamps on the runner view, the stage labels rendered on the runner timeline,
-and "host last seen" on the runner facts; the missing secret blanked and a
-reflective test that every secret-shaped config field is (today's test
-checks two of five); a last-poll stamp
+and "host last seen" on the runner facts; a last-poll stamp
 and pause state in `/meta` with `poller.paused` and `poller.stale` problems,
 both attributed to the whole poller because the pause is fleet-wide until
 ZF-101 changes it;
@@ -1670,6 +1670,14 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **8 September 2026 — Version 2.7:** the two of ZF-202's small fixes that
+  need no API shape are done, and one of them was a disclosure rather than a
+  gap: `zoomies config print` has printed `capacity_demand.signing_secret` in
+  full for as long as that feature has existed, because the blanking is a
+  hand-written list. The replacement guard does not read the list. Nothing in
+  the plan changed; the package's entry now says which half of its small fixes
+  remains and why (an OpenAPI change and both generated clients).
 
 * **8 September 2026 — Version 2.6:** ZF-103b is done, so Phase 1 is complete
   as code: every placement decision now costs a reservation, and the figures
