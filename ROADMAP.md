@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.20 · 8 September 2026 · derived from the owner's
+Version 2.21 · 8 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -1180,14 +1180,23 @@ re-uploaded two days after tagging; and there is no upgrade test of any kind.
    here deletes, and a rule that kept "the last two" in a directory somebody
    points `zoomies backup --dir` at would eventually take one of theirs.
    Nothing is copied on a first start or a restart with nothing pending.
-5. Supply chain: every action pinned to a commit with its version in a
-   comment; a Dependabot configuration for actions, Go modules, npm and
-   images, weekly and grouped; `govulncheck` in CI and on a weekly schedule;
-   build-provenance attestations for binaries and image digests; OCI labels
-   on the images; a release-workflow guard that refuses to re-run on a
-   published tag and marks a tag with a hyphen as a prerelease; a
-   GitHub-hosted runner path for the release and site workflows selectable by
-   dispatch input.
+5. Supply chain: **done. Three of its seven parts had already landed** —
+   every action is pinned to a commit with its version in a comment, the
+   Dependabot configuration covers actions, Go modules, npm and images weekly
+   and grouped, and `govulncheck` runs in CI and on a weekly schedule; the
+   plan's reconciliation predates them. **What was missing is now in**:
+   build-provenance attestations for the binaries and the controller image's
+   digest; OCI labels on both images, including the version, revision and
+   creation date the runner images carried none of; a guard that refuses to
+   rebuild a published tag; prerelease marking for a tag with a hyphen; and a
+   GitHub-hosted path selectable by dispatch on the release and site
+   workflows. **Two of the verifier's findings went with it**: the release
+   workflow granted `contents: write` to every job and now grants each what it
+   needs, and it had no dispatch trigger, so the runner-selection input now
+   arrives with the tag it needs. **The pinning rule was a claim, not a
+   check** -- CLAUDE.md said CI enforced it and nothing did; `internal/docs`
+   tests it now, along with the permissions rule and the release workflow's
+   own guards.
 6. One upgrade job in CI: install the latest published release into a
    temporary prefix with the process backend, start it, stop it, start the
    freshly built binary on the same state, and assert the version changed,
@@ -1196,18 +1205,20 @@ re-uploaded two days after tagging; and there is no upgrade test of any kind.
    per-runner drain.
 
 Six details from the verifier for the pull requests above: the runner and
-runner-docker images are built with no version, commit or date build
-arguments at all, so build identity is worse for them than for the
-controller image; the agent's cordon flag from the heartbeat was log-only
+runner-docker images were built with no version, commit or date build
+arguments at all, so build identity was worse for them than for the
+controller image -- **fixed in pull request 5**, which also gave the
+controller image the OCI labels it had none of; the agent's cordon flag from the heartbeat was log-only
 and did not gate anything, which the incompatible-host design reuses and had
 to make real first -- **fixed in pull request 1**, by refusing creates alone
 rather than gating the poll loop, since a cordoned host still has runners to
-drain and an agent that stopped polling would strand every one of them; the release workflow has no dispatch trigger, so
-the runner-selection input needs a dispatch path that takes a tag; the agent
+drain and an agent that stopped polling would strand every one of them; the release workflow had no dispatch trigger, so
+the runner-selection input needed a dispatch path that takes a tag --
+**both done in pull request 5**; the agent
 compares the short version with commit while the host row stores the bare
 version, so a skew badge and the agent's own warning disagree for two
-builds of one tag; `contents: write` is granted to both release jobs when
-only one needs it; and nothing tests the agent's re-adoption of a workload
+builds of one tag; `contents: write` was granted to both release jobs when
+only one needed it -- **fixed in pull request 5**, and now tested; and nothing tests the agent's re-adoption of a workload
 after its own restart, on which "a binary swap is non-disruptive" rests.
 
 **Cut from the source package:** capability negotiation and multiple
@@ -1746,6 +1757,18 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **8 September 2026 — Version 2.21:** the supply-chain work is done, and it
+  found that three of its seven parts had already shipped: the plan's
+  reconciliation predates the action pinning, the Dependabot configuration and
+  the govulncheck workflow. The finding worth keeping from the rest is that
+  **the pinning rule was a claim rather than a check** — CLAUDE.md has said CI
+  enforces it for some time and nothing did. It is tested now, with the
+  permissions rule and the release workflow's own guards. The image builds are
+  written twice, once per runner vendor, rather than once with a swapped
+  action: this workflow runs only on a tag, so CI cannot tell anybody it has
+  been broken until the moment somebody needs a release, and the path that
+  works today therefore stays byte for byte what it was.
 
 * **8 September 2026 — Version 2.20:** backup-before-migrate is done, and the
   interaction it uncovered is worth recording: `zoomies restore` opens the

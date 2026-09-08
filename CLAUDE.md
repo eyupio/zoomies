@@ -119,8 +119,9 @@ has a CI job that diffs them:
   on every change and weekly against `main`, so a module found vulnerable after
   it merged still gets reported.
 * Every `uses:` in `.github/workflows` is pinned to a commit with its release
-  in a comment. Dependabot moves the two together; a new action gets the same
-  treatment.
+  in a comment, and a workflow with more than one job grants no `write`
+  permission at the top. Both are tested in `internal/docs`; Dependabot moves a
+  pin and its comment together, and a new action gets the same treatment.
 * `mkdocs build --strict` — a docs link that points nowhere fails the build. The
   site workflow also checks that `sitemap.xml` and `llms.txt` came out of it,
   both generated (by `overrides/sitemap.xml` and `hooks/seo.py`) rather than

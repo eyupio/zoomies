@@ -193,6 +193,32 @@ Take your own as well before an upgrade you are unsure about: the automatic one
 is beside the database, and a disk that fails takes both.
 [Backup and restore](backup-and-restore.md) is the subject.
 
+## What a release carries
+
+Every published binary and the controller image carry a **build-provenance
+attestation**: a signed statement that these bytes were built by this
+repository's release workflow, from this commit. `install.sh` already checks
+the checksum, which says the bytes match what the release names; provenance
+says where they came from.
+
+```sh
+gh attestation verify zoomies_linux_amd64 --repo eyupio/zoomies
+gh attestation verify oci://ghcr.io/eyupio/zoomies:v1.2.3 --repo eyupio/zoomies
+```
+
+Every image says what it is without being started, in the standard OCI labels —
+`org.opencontainers.image.version`, `.revision` and `.created`. That includes
+the runner images, which until recently carried no version at all.
+
+A tag with a hyphen in it — `v0.1-alpha`, `v1.0-rc1` — is published as a
+**prerelease**, so it stays out of "latest" and `install.sh` does not offer it
+by default.
+
+A tag whose release is already published cannot be rebuilt: the release
+workflow refuses. A released tag is a promise about specific bytes, and
+replacing them behind people who have already downloaded them is not an upgrade
+anyone can reason about.
+
 ## Upgrading a container deployment
 
 ```sh

@@ -24,6 +24,12 @@ on:
       - "install.sh"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
+    inputs:
+      runner:
+        description: "Where to build. github is the escape hatch from a single vendor."
+        type: choice
+        default: blacksmith
+        options: [blacksmith, github]
 
 permissions:
   contents: read
@@ -35,7 +41,10 @@ concurrency:
 jobs:
   build:
     name: Build
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # The site is a mkdocs build with no vendor-specific step in it, so the
+    # escape hatch here is one expression: publishing documentation must not be
+    # impossible because a runner vendor is having a bad day.
+    runs-on: ${{ inputs.runner == 'github' && 'ubuntu-latest' || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -96,7 +105,7 @@ jobs:
     # site to prove it still builds, and publishes nothing.
     if: github.event.repository.has_pages && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: build
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner == 'github' && 'ubuntu-latest' || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       pages: write
       id-token: write
