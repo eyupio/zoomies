@@ -717,8 +717,10 @@ resolve_version() {
         # per address and shared with everyone else behind the same NAT.
         *) VERSION=$(newest_release_tag) ;;
     esac
-    [ -n "$VERSION" ] && [ "$VERSION" != latest ] ||
-        die "could not work out the latest release. Pass --version v1.2.3, or check that $BASE_URL is reachable."
+    case "$VERSION" in
+        ""|latest)
+            die "could not work out the latest release. Pass --version v1.2.3, or check that $BASE_URL is reachable." ;;
+    esac
     RESOLVED_LATEST=1
     ok "latest is $VERSION"
 }
