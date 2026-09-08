@@ -7,7 +7,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1163,5 +1165,78 @@ func TestProcessChildEnvironmentPassesTheAllowlistThrough(t *testing.T) {
 		if kv == "PATH=" {
 			t.Error("an empty PATH was passed through instead of the fallback")
 		}
+	}
+}
+
+// TestAnAbandonedRunnerDirectoryIsListedSoItCanBeReaped closes a leak with
+// nothing else watching it.
+//
+// Create makes the runner's directory and clones the tools tree into it --
+// hundreds of megabytes -- before it writes the metadata. An agent killed in
+// that window leaves the tree behind, and List used to skip a directory whose
+// metadata would not read. Nothing else walks this tree, so the copy stayed on
+// the host until somebody went looking for the disk.
+func TestAnAbandonedRunnerDirectoryIsListedSoItCanBeReaped(t *testing.T) {
+	b, workDir := newStubProcessBackend(t)
+	root := filepath.Join(workDir, runnersDirName)
+
+	// The shape Create leaves behind when it dies between MkdirAll and
+	// writeMeta: a directory, some of the tree, and no runner.json.
+	dir := filepath.Join(root, "zoomies-abandoned")
+	if err := os.MkdirAll(filepath.Join(dir, "bin"), 0o750); err != nil {
+		t.Fatalf("staging the abandoned directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bin", "Runner.Listener"), []byte("stub"), 0o750); err != nil {
+		t.Fatalf("staging the tools copy: %v", err)
+	}
+
+	// Still being written: nothing may touch it yet.
+	fresh, err := b.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	for _, w := range fresh {
+		if string(w.Handle) == dir {
+			t.Fatal("a directory written moments ago was reported as abandoned; " +
+				"a create in progress would be removed out from under itself")
+		}
+	}
+
+	// Nothing has written to it for longer than a create could take.
+	old := time.Now().Add(-abandonedGrace - time.Minute)
+	if err := os.Chtimes(dir, old, old); err != nil {
+		t.Fatalf("ageing the directory: %v", err)
+	}
+
+	listed, err := b.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	var found *Workload
+	for i, w := range listed {
+		if string(w.Handle) == dir {
+			found = &listed[i]
+		}
+	}
+	if found == nil {
+		t.Fatal("an abandoned runner directory was not listed, so nothing will ever remove it")
+	}
+	if found.Status.Phase != PhaseGone {
+		t.Errorf("phase = %q, want %q: there is no process here to be anything else",
+			found.Status.Phase, PhaseGone)
+	}
+	// No runner ID, because there is nothing to read one from. The agent's
+	// orphan path removes the workload and reports nothing, so no row moves on
+	// the strength of a directory nobody can identify.
+	if found.RunnerID != "" {
+		t.Errorf("runner = %q, want none: the metadata is what carries it and it is unreadable", found.RunnerID)
+	}
+
+	// And it can actually be removed, which is the whole point of listing it.
+	if err := b.Remove(context.Background(), found.Handle); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the directory is still there after Remove: %v", err)
 	}
 }

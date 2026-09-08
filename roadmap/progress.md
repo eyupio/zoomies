@@ -42,9 +42,9 @@ evidence.
 | --- | --- | --- | --- | --- | --- | --- |
 | ZF-101 | Enforce GitHub target boundaries everywhere | new (jobs carry no installation identity; label-only matching on all four paths) | `done` | ZF-002 | PR1 and PR2: Claude Opus 5, `ultracode`; one orchestration of 8 subsystem mappers and 8 adversarial verifiers for PR1, a smaller one of 3 and 3 for PR2, each followed by one session | PR1 merged as #99: a job carries the installation covering its repository, `scheduler.Eligible` asks enabled, then installation, then labels, and all four matching paths go through it. Migration `0012` (not `0010`: 0010 and 0011 shipped since the plan was written). PR2 merged as #100: poll freshness and the rate-limit hold are both per installation, freshness credited by the delivery's repository rather than by the secret that verified it. PR3 done: the runner-group fallback is a `pool.runner_group_unresolved` warning on the drawer and the pool's own page instead of a log line, and `docs/hosts-and-pools.md` says a pool belongs to one installation and that GitHub, not Zoomies, makes the final dispatch decision inside an organisation. Every behavioural test was run against the code with its rule removed and confirmed to fail first. All three pull requests are done: the two-installation tests pass on every path, and ineligible work carries its reason on the Jobs page through the drawer's note |
 | ZF-102 | Make runner and agent reconciliation convergent | mixed (mechanics exist; adoption on restart and a controller lock do not; the log-relay host check landed with the security review) | `done` | ZF-002; N02 needs `main` deployed | PR1: Claude Fable 5.1, `xhigh`, one session. PR2: Claude Opus 5, `ultracode`; one orchestration of 3 subsystem mappers and 3 adversarial verifiers, then one session | PR1 and PR2 of 4 done. PR1: the "Reconciliation invariants" section in `docs/architecture.md` with `internal/controller/invariants_test.go`. PR2: a database lock and a controller lease, with `--takeover` and `controller.lease_lost`. **Half of PR2 was already done**: the log relay has checked the authenticated host since PR #90's security review, with a test (`TestLogRelayRefusesAnotherHostsStream`), so only the lock and lease were outstanding. PR3 done: an agent adopts every runner already on its host before its loops start, and the controller answers each heartbeat with the runners it has no row for so that only those are reaped. `docs/upgrading.md` no longer hedges: a restart keeps its runners on a single-VM install too. PR4 done: late reports settle the workload without resurrecting a terminal row, `task_issued_at` survives the queue a restart drops, `host.duplicate_agent` detects a shared credential by session alternation, and the restart-boundary table covers seven boundaries. All four pull requests are done |
-| ZF-103 | Reserve host resources and enforce bounded admission | extension (slot model complete; no host resource reporting) | `not_started` | ZF-102 | | Size L; 103a before Gate F, 103b after |
-| ZF-104 | Verify control-plane access and secret boundaries | mixed (matrix and most tests exist; log relay unscoped to host; streams never re-check credentials) | `not_started` | ZF-101, ZF-102 | | Size M |
-| ZF-105 | Bound cleanup, retention and external failure handling | mixed (local cleanup exists; failure invisible; one listing-failure defect) | `in_progress` | ZF-102, except the first pull request | first slice: Claude Fable 5.1, `high`, one session, 1 review round | Size M; the listing-failure defect is fixed in its own pull request with a test that reproduces it on the old code |
+| ZF-103 | Reserve host resources and enforce bounded admission | extension (slot model complete; no host resource reporting) | `in_progress` | ZF-102 | 103a: Claude Opus 5, `ultracode`; one orchestration of 30 reviewers over the diff | 103a done and merged as #115: an agent reports its host's CPUs, memory and the disk behind its work directory, sized by the daemon that will run the runners rather than by the agent's own cgroup share, and a re-join keeps the operator's reserve. Migrations `0016` and `0017`. Its own adversarial review then found three test gaps in it, all confirmed by mutation and closed in #118: the byte-to-MB conversion was unpinned (raw bytes into `disk_total_mb` passed the suite), nothing connected measuring a host to reporting it (the two lines that put the figures on the wire could be deleted with everything green), and `f_bavail` versus `f_bfree` had no test. The figures reach the Hosts page in #118. 103b, the admission half, remains |
+| ZF-104 | Verify control-plane access and secret boundaries | mixed (matrix and most tests exist; log relay unscoped to host; streams never re-check credentials) | `done` | ZF-101, ZF-102 | Claude Opus 5, `ultracode`; one orchestration of 10 surveyors over the nine assertions of PR1, then one session per pull request | All five done. PR1 merged as #116 (the walks and the secret searches). **PR2 was already implemented**: the log relay has bound to the authenticated host since ZF-102, with a test -- what was missing was that the test's indistinguishability check could not fail, and it now can. PR5 merged as #118 with the proxy fix and the join limiter. PR3 and PR4 in #119. Every behavioural test was run against the code with its rule removed and confirmed to fail; two assertions that could not be made to fail were deleted rather than shipped. `docs/security.md` §7 now names the test behind each claim |
+| ZF-105 | Bound cleanup, retention and external failure handling | mixed (local cleanup exists; failure invisible; one listing-failure defect) | `done` | ZF-102, except the first pull request | first slice: Claude Fable 5.1, `high`, one session, 1 review round | All six pull requests done: the listing-failure defect, the cleanup record on the runner row with `runners.cleanup_failed` (migration `0015`), orphaned sidecars, the cache prune guard, the drain timeout (migration `0016`), and the typed rate-limited error with a per-installation hold. Of the verifier's three extra findings for the second: the work-directory leak is closed on the backend where it is reachable, the GitHub-failure-during-cleanup one is what `runners.cleanup_failed` answers, and the third is stale -- there is no poll-interval channel in the protocol to leave unset |
 
 ## Phase 2: operable and usable
 
@@ -75,6 +75,92 @@ evidence.
 
 Newest first. One line per event that changed a row.
 
+* 2026-09-07: the Gate F readiness note, which is what section 10 says ends
+  Assignment A. Phase 1 is complete -- ZF-101 through ZF-105 are all done -- and
+  the note says which of Gate F's eight targets can be measured at all today.
+  **Writing it found a code gap inside Assignment A's own
+  scope, and closed it**: the scheduling-latency target had no start. The
+  measurement contract said `Job.EligibleAt` landed with ZF-101 and ZF-101 was
+  marked done, but what ZF-101 delivered was `scheduler.Eligible` as a function
+  -- the definition of eligibility, not the moment it was reached. The column
+  exists now (migration `0019`), stamped the first time an enabled pool claims
+  the job's labels and never moved afterwards, so the interval no longer starts
+  at `queued_at` and no longer charges the platform for a job that was
+  ineligible, held for a deployment review, or waiting on a scale-up delay it
+  was configured to wait for. The end of that interval (`Runner.TaskIssuedAt`)
+  and both ends of cleanup convergence (`Runner.CleanedUpAt`) already existed.
+  The series that consumes it is ZF-205's, in Assignment B. The note also records that the largest
+  untested surface is the Docker backend at runtime -- nothing in this
+  repository has ever started a container -- and that the drill record is
+  written to a file no run ever commits, so the history its own comment exists
+  for does not accumulate.
+* 2026-09-07: ZF-105 done. Five of its six pull requests had already landed in
+  earlier sessions -- the cleanup record, sidecars, the cache guard, the drain
+  timeout and the rate-limit hold are all in the code, which the package's own
+  status had not caught up with. What was genuinely outstanding was one of the
+  verifier's extra findings for the second: a work directory that leaks when its
+  workload goes away out of band. **Half of that finding is not reachable**: the
+  Docker backend learns the directory from the container's label, so losing the
+  container loses the path, but nothing sets `Spec.WorkDir`, so the backend
+  never creates one and there is nothing to leak. The process backend's half is
+  live and is fixed here. Create makes the runner's directory and clones the
+  tools tree into it -- hundreds of megabytes -- before it writes the metadata,
+  and `List` skipped any directory whose metadata would not read, so an agent
+  killed in that window left the tree on the host with nothing that would ever
+  look at it again. Such a directory is now listed as a workload that is gone,
+  and the agent's existing orphan path removes it under the same grace and the
+  same "only after a successful poll" rule as a container nothing claims. It is
+  reported only once nothing has written to it for fifteen minutes, which is
+  what tells an abandoned clone from one in progress: the clone touches the
+  directory with every file it lays down. Both halves are pinned -- skipping the
+  directory fails the test, and so does dropping the grace.
+* 2026-09-07: ZF-104 done, in four pull requests rather than five. The package
+  was seventy percent "tests that already exist", so the first work was finding
+  out which of its claims anything actually held up: ten surveyors over the nine
+  assertions of PR1 found that **PR2 was already implemented** -- the log relay
+  has bound to the authenticated host since ZF-102 -- and that its test's
+  indistinguishability check was `err.Error() == ""`, which is never true for a
+  non-nil error. The agent route walk covered three of five routes, leaving the
+  task poll and the log relay with no negative test; the scoped-token gate had
+  one test across sixty-six routes, and that one was really testing a handler's
+  second check on its body; secret absence was proved for seven admin reads on
+  the success path only. All of it is now walked, with a coverage guard on each
+  table so a new route or action that arrives without a row fails rather than
+  ships. Two departures from "tests only", both stated in the pull requests: a
+  body over the limit now answers 413 rather than 400, which is what the webhook
+  endpoint has always answered for the same condition, and the test harness
+  captures the controller's log because the secret-absence claim names it and
+  there was no seam. **Two assertions were deleted rather than shipped**: a
+  needle matched against marshalled JSON cannot match a PEM whose newlines the
+  encoder escaped, and "the log relay is exempt from the body limit" was
+  unfalsifiable where it was first written, because the relay answers 404 before
+  it reads a byte. PR5's proxy bug was real: `X-Forwarded-For` has always been
+  believed only from a trusted proxy and `X-Forwarded-Proto` was believed from
+  anyone, in three places, which let a caller decide whether an `https://` Origin
+  counted as same-origin and whether the response carried HSTS. One deliberate
+  deviation: the package says to reuse the login limiter on the join route, and
+  it got a counter of its own at the same setting instead -- sharing would let an
+  attacker hammering `/agent/join` lock the administrators out of the page they
+  would use to stop it. PR3 and PR4 close the last two: a live stream re-checks
+  its credential on every heartbeat and ends when it no longer stands, and a
+  Playwright spec proves a name carrying markup is text and a runner's output
+  cannot retitle the page, clear it or open a dialog. **Not tested**: the log
+  viewer's link predicate (the terminal draws to a canvas and there is no UI unit
+  runner) and the client's `end` listener (the shipped heartbeat is twenty
+  seconds); both are named in #119 rather than glossed.
+* 2026-09-07: two reported UI defects, both of which turned out to be one layer
+  deeper than the page. The Overview's tiles counted every job GitHub reported
+  because `StatsSince` had no scope at all, while the panels below them already
+  filtered and already carried the switch -- so the two halves of one page were
+  answering different questions. The usage report had the same hole, and its own
+  comment acknowledged the hosted-runner jobs as the reason for a `COALESCE`.
+  Both now share `managedJobSQL()` with the Jobs page, so a repository's
+  runner-hours and its job list are about the same jobs. The Overview keeps a
+  switch; usage does not, because it answers what this fleet consumed and
+  somebody else's hosted runner has no answer to contribute. Both scopes travel
+  in one stats payload rather than behind a query parameter, because the same
+  numbers arrive over the event stream and that is one frame for every viewer;
+  migration `0018` records both on every sample for the same reason.
 * 2026-09-07: ZF-301b, the drill tier, and the first time anything in this
   repository has run the product as an operator gets it: the built binary as a
   controller, a second copy of it as a remote agent that joined with a join

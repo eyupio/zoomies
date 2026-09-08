@@ -21,6 +21,18 @@ func newTestStore(t *testing.T) *Store {
 	return s
 }
 
+// newTestStoreAt is newTestStore with the clock in the test's hands, for the
+// rows whose value is a moment rather than a fact.
+func newTestStoreAt(t *testing.T, now func() time.Time) *Store {
+	t.Helper()
+	s, err := Open(context.Background(), Options{Path: ":memory:", Now: now})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	return s
+}
+
 func seedPool(t *testing.T, s *Store) (*Installation, *Pool, *Host) {
 	t.Helper()
 	ctx := context.Background()
@@ -628,7 +640,8 @@ func TestTheJobsRebuildKeepsEveryRowAndItsIndexes(t *testing.T) {
 	done := now.Add(time.Minute)
 	for _, stmt := range []string{
 		`DELETE FROM schema_migrations WHERE name IN
-			('0009_jobs_waiting_state.sql', '0012_job_installation.sql')`,
+			('0009_jobs_waiting_state.sql', '0012_job_installation.sql',
+			 '0019_job_eligible_at.sql')`,
 		`ALTER TABLE webhook_deliveries DROP COLUMN installation_id`,
 		`DROP TABLE jobs`,
 		`CREATE TABLE jobs (

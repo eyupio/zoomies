@@ -701,8 +701,28 @@ func (b *ProcessBackend) wipe(ctx context.Context, dir string) error {
 	return nil
 }
 
+// abandonedGrace is how long a runner directory carrying no usable metadata
+// has to sit untouched before List will call it abandoned.
+//
+// Create makes the directory and clones the tools tree into it before it
+// writes the metadata, so a directory without metadata is either one being
+// made right now or one whose agent died in that window. The two are told
+// apart by whether anything is still writing: the clone touches the directory
+// with every file it lays down, so a modification time this old means nobody
+// is. Generous on purpose -- the cost of waiting is disk, and the cost of
+// being wrong is deleting a runner while it is being built.
+const abandonedGrace = 15 * time.Minute
+
 // List walks the runners directory, so an agent that restarted still finds the
 // runners it started before.
+//
+// A directory whose metadata cannot be read is reported as a workload that is
+// gone rather than skipped. Skipping it was a leak: nothing else walks this
+// tree, so a directory the reaper never hears about is a copy of the runner
+// tools -- hundreds of megabytes -- left on the host until somebody notices
+// the disk. Reported, it becomes an orphan like any other, and the agent
+// removes it under the same grace and the same "only after a successful poll"
+// rule as a container nothing claims.
 func (b *ProcessBackend) List(ctx context.Context) ([]Workload, error) {
 	root := filepath.Join(b.root, runnersDirName)
 	entries, err := os.ReadDir(root)
@@ -721,6 +741,9 @@ func (b *ProcessBackend) List(ctx context.Context) ([]Workload, error) {
 		dir := filepath.Join(root, e.Name())
 		meta, err := readMeta(dir)
 		if err != nil {
+			if w, ok := abandonedDir(dir, e); ok {
+				out = append(out, w)
+			}
 			continue
 		}
 		st, err := b.Status(ctx, Handle(dir))
@@ -736,6 +759,24 @@ func (b *ProcessBackend) List(ctx context.Context) ([]Workload, error) {
 		})
 	}
 	return out, nil
+}
+
+// abandonedDir reports a runner directory that has no usable metadata and has
+// not been written to for abandonedGrace.
+//
+// It carries no runner ID because there is nothing to read one from, which is
+// exactly right: the agent's orphan path removes the workload and reports
+// nothing, so no row moves on the strength of a directory nobody can identify.
+func abandonedDir(dir string, e os.DirEntry) (Workload, bool) {
+	info, err := e.Info()
+	if err != nil || time.Since(info.ModTime()) < abandonedGrace {
+		return Workload{}, false
+	}
+	return Workload{
+		Handle: Handle(dir),
+		Name:   e.Name(),
+		Status: Status{Handle: Handle(dir), Phase: PhaseGone},
+	}, true
 }
 
 func (b *ProcessBackend) runnerDir(name string) string {

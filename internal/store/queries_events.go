@@ -15,22 +15,22 @@ import (
 
 const jobCols = `id, github_job_id, github_run_id, repo, workflow, job_name, labels, state,
 	conclusion, installation_id, pool_id, runner_id, runner_name, html_url, queued_at,
-	started_at, completed_at, matched, head_branch, head_sha, run_attempt, steps, runner_fault`
+	started_at, completed_at, matched, eligible_at, head_branch, head_sha, run_attempt, steps, runner_fault`
 
 func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
 	var j Job
 	var queued int64
-	var started, completed sql.NullInt64
+	var started, completed, eligible sql.NullInt64
 	var matched int
 	err := sc.Scan(&j.ID, &j.GitHubJobID, &j.GitHubRunID, &j.Repo, &j.Workflow, &j.JobName,
 		&j.Labels, &j.State, &j.Conclusion, &j.InstallationID, &j.PoolID, &j.RunnerID,
-		&j.RunnerName, &j.HTMLURL, &queued, &started, &completed, &matched,
+		&j.RunnerName, &j.HTMLURL, &queued, &started, &completed, &matched, &eligible,
 		&j.HeadBranch, &j.HeadSHA, &j.RunAttempt, &j.Steps, &j.RunnerFault)
 	if err != nil {
 		return nil, err
 	}
 	j.QueuedAt = at(queued)
-	j.StartedAt, j.CompletedAt = atp(started), atp(completed)
+	j.StartedAt, j.CompletedAt, j.EligibleAt = atp(started), atp(completed), atp(eligible)
 	j.Matched = matched == 1
 	return &j, nil
 }
@@ -66,12 +66,19 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 				j.QueuedAt = s.Now()
 			}
 			j.Labels = NormalizeLabels(j.Labels)
+			// A job that arrives already claimed is eligible from the moment
+			// it is first seen: there was no earlier moment to record.
+			if j.Matched && j.EligibleAt == nil {
+				now := s.Now()
+				j.EligibleAt = &now
+			}
 			_, err := tx.ExecContext(ctx, `INSERT INTO jobs (`+jobCols+`)
-				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 				j.ID, j.GitHubJobID, j.GitHubRunID, j.Repo, j.Workflow, j.JobName, j.Labels,
 				string(j.State), j.Conclusion, j.InstallationID, j.PoolID, j.RunnerID,
 				j.RunnerName, j.HTMLURL, ms(j.QueuedAt), msp(j.StartedAt), msp(j.CompletedAt),
-				boolInt(j.Matched), j.HeadBranch, j.HeadSHA, j.RunAttempt, j.Steps, j.RunnerFault)
+				boolInt(j.Matched), msp(j.EligibleAt), j.HeadBranch, j.HeadSHA, j.RunAttempt,
+				j.Steps, j.RunnerFault)
 			if err != nil {
 				return err
 			}
@@ -133,16 +140,25 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 			merged.CompletedAt = j.CompletedAt
 		}
 		merged.Matched = merged.Matched || j.Matched
+		// Stamped on the transition, not on every delivery that finds the job
+		// matched: this is the moment the fleet could first have acted, and a
+		// later delivery saying the same thing is not a new one.
+		if merged.Matched && merged.EligibleAt == nil {
+			now := s.Now()
+			merged.EligibleAt = &now
+		}
 
 		_, err = tx.ExecContext(ctx, `UPDATE jobs SET github_run_id=?, repo=?, workflow=?,
 			job_name=?, labels=?, state=?, conclusion=?, installation_id=?, pool_id=?,
 			runner_id=?, runner_name=?, html_url=?, started_at=?, completed_at=?, matched=?,
-			head_branch=?, head_sha=?, run_attempt=?, steps=?, runner_fault=? WHERE id=?`,
+			eligible_at=?, head_branch=?, head_sha=?, run_attempt=?, steps=?,
+			runner_fault=? WHERE id=?`,
 			merged.GitHubRunID, merged.Repo, merged.Workflow, merged.JobName, merged.Labels,
 			string(merged.State), merged.Conclusion, merged.InstallationID, merged.PoolID,
 			merged.RunnerID, merged.RunnerName, merged.HTMLURL, msp(merged.StartedAt),
-			msp(merged.CompletedAt), boolInt(merged.Matched), merged.HeadBranch, merged.HeadSHA,
-			merged.RunAttempt, merged.Steps, merged.RunnerFault, merged.ID)
+			msp(merged.CompletedAt), boolInt(merged.Matched), msp(merged.EligibleAt),
+			merged.HeadBranch, merged.HeadSHA, merged.RunAttempt, merged.Steps,
+			merged.RunnerFault, merged.ID)
 		if err != nil {
 			return err
 		}

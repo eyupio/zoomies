@@ -245,6 +245,29 @@
     return on ? '\x1b[?7h' : '\x1b[?7l';
   }
 
+  /**
+   * Whether a link a runner printed may be followed, and where to.
+   *
+   * A workflow's output is somebody else's data. A terminal turns an OSC 8
+   * sequence into a clickable link, and the target is whatever the job wrote:
+   * a `javascript:` URL runs in this page, a `data:` one can carry a document
+   * that looks like ours, and either is a job the fleet ran deciding what the
+   * operator's browser does next.
+   *
+   * Only http and https, and only as an absolute URL -- a relative one would
+   * resolve against the controller's own origin, which is the one place a link
+   * in somebody's build output has no business pointing.
+   */
+  function followableLink(uri: string): URL | null {
+    try {
+      const url = new URL(uri);
+      return url.protocol === 'http:' || url.protocol === 'https:' ? url : null;
+    } catch {
+      // Not a URL at all, which includes every relative one.
+      return null;
+    }
+  }
+
   /** Hide the cursor -- this is somebody else's output, not a prompt -- and set wrapping. */
   function prepare(target: Terminal): void {
     target.write(`\x1b[?25l${wrapMode(wrap)}`);
@@ -439,6 +462,17 @@
         // Guarantees AA for whatever colours a workflow decides to print.
         minimumContrastRatio: 4.5,
         theme: palette(),
+        // Activation is ours rather than the terminal's default, so what a
+        // runner's output can do with a link is decided here. noreferrer as
+        // well as noopener: the new tab gets no window handle back and is not
+        // told which controller the operator was looking at.
+        linkHandler: {
+          activate: (_event: MouseEvent, uri: string) => {
+            const url = followableLink(uri);
+            if (!url) return;
+            window.open(url.href, '_blank', 'noopener,noreferrer');
+          },
+        },
       });
       const fitAddon = new Fit();
       const searchAddon = new Finder();

@@ -2080,6 +2080,11 @@ export interface components {
             html_url?: string;
             /** @description False when no enabled pool claims this job's labels. On a job that is not queued this only says the job ran somewhere else. */
             matched?: boolean;
+            /**
+             * Format: date-time
+             * @description When this fleet could first have acted on the job - an enabled pool claiming its labels. The start of the scheduling-latency interval, and deliberately not queued_at: the wait before anything could run the job is not this fleet's. Absent on a job nothing has claimed.
+             */
+            eligible_at?: string;
             /** @description True when every label names GitHub's own runners or a hosted-runner vendor's, so a job no pool here claims is theirs to run rather than stuck. */
             hosted?: boolean;
             /** @description The branch the run was for. */
