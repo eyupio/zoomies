@@ -160,6 +160,18 @@ class EventStream {
       this.#armWatchdog();
     };
     source.onmessage = (e) => this.#dispatch('heartbeat', e);
+    // The controller saying "stop": the credential this stream was opened with
+    // has been signed out, revoked, disabled or has expired. Without this the
+    // stream still ends -- the response closes and the retry's session probe
+    // eventually asks -- but the tab spends a reconnect cycle looking merely
+    // unlucky first, and the probe is what has to notice. Acting on the frame
+    // asks straight away, and stops the retry that would otherwise reopen a
+    // stream the server has just refused.
+    source.addEventListener('end', () => {
+      this.#close();
+      this.#setStatus('reconnecting');
+      void this.#probeSession();
+    });
     source.onerror = () => {
       // readyState CONNECTING means the browser is retrying by itself and will
       // resend Last-Event-ID; leave it to do that and just report the state.

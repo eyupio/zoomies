@@ -25,14 +25,43 @@ const collectTimeout = 5 * time.Second
 type metrics struct {
 	reg *prometheus.Registry
 
-	jobsTotal         *prometheus.CounterVec
-	queueWait         prometheus.Histogram
-	jobDuration       prometheus.Histogram
-	scalingEvents     *prometheus.CounterVec
-	webhookDeliveries *prometheus.CounterVec
-	githubRequests    *prometheus.CounterVec
-	reconcileDuration prometheus.Histogram
-	buildInfo         *prometheus.GaugeVec
+	jobsTotal                                                                                    *prometheus.CounterVec
+	jobsRunnerLost                                                                               *prometheus.CounterVec
+	queueWait                                                                                    prometheus.Histogram
+	jobDuration                                                                                  prometheus.Histogram
+	queuedToCreate, createToContainer, containerToRegistered, registeredToReady, queuedToStarted *prometheus.HistogramVec
+	scalingEvents                                                                                *prometheus.CounterVec
+	webhookDeliveries                                                                            *prometheus.CounterVec
+	githubRequests                                                                               *prometheus.CounterVec
+	reconcileDuration                                                                            prometheus.Histogram
+	buildInfo                                                                                    *prometheus.GaugeVec
+}
+
+// UnmatchedPool is the `pool` label for work no pool here claims.
+//
+// A literal rather than an empty string, because Prometheus has no notion of an
+// absent label value and a blank one is indistinguishable from a bug. A real
+// pool named `unmatched` would merge with it; that is a price worth naming in
+// the docs rather than designing around.
+const UnmatchedPool = "unmatched"
+
+// poolLabel is the `pool` label value for a pool id, and it is the only place
+// that decides what one looks like.
+//
+// Names, not ids. Every other pool-labelled metric uses the name, and
+// zoomies_jobs_total used the id -- so a PromQL query joining a pool's job
+// count against its runner count on `pool` silently matched nothing, which is
+// the worst kind of wrong for a dashboard.
+func (c *Controller) poolLabel(id string) string {
+	if id == "" {
+		return UnmatchedPool
+	}
+	if p, err := c.st.GetPool(context.Background(), id); err == nil && p.Name != "" {
+		return p.Name
+	}
+	// A pool deleted between the job finishing and this call still has to be
+	// counted somewhere, and its id is the only name left.
+	return id
 }
 
 func newMetrics(c *Controller) *metrics {
@@ -42,6 +71,10 @@ func newMetrics(c *Controller) *metrics {
 			Name: "zoomies_jobs_total",
 			Help: "Workflow jobs Zoomies has seen complete, by pool and conclusion.",
 		}, []string{"pool", "conclusion"}),
+		jobsRunnerLost: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_jobs_runner_lost_total",
+			Help: "Jobs whose runner stopped before GitHub reported the job over, by pool. These are the fleet's failures rather than the workflows'.",
+		}, []string{"pool"}),
 		queueWait: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name: "zoomies_job_queue_wait_seconds",
 			Help: "How long jobs waited between being queued and a runner picking them up.",
@@ -54,6 +87,11 @@ func newMetrics(c *Controller) *metrics {
 			Help:    "How long jobs took to run once they started.",
 			Buckets: []float64{10, 30, 60, 300, 600, 1800, 3600, 7200, 21600},
 		}),
+		queuedToCreate:        startupHistogram("zoomies_runner_queued_to_create_seconds", "Time from a queued job to runner creation."),
+		createToContainer:     startupHistogram("zoomies_runner_create_to_container_started_seconds", "Time from runner creation to its container starting."),
+		containerToRegistered: startupHistogram("zoomies_runner_container_started_to_registered_seconds", "Time from container start to GitHub registration."),
+		registeredToReady:     startupHistogram("zoomies_runner_registered_to_ready_seconds", "Time from registration to the runner becoming idle or busy."),
+		queuedToStarted:       startupHistogram("zoomies_runner_queued_to_job_started_seconds", "Total time from queueing to job start."),
 		scalingEvents: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "zoomies_scaling_events_total",
 			Help: "Scheduler decisions that changed a pool's size, by direction.",
@@ -79,13 +117,27 @@ func newMetrics(c *Controller) *metrics {
 	m.buildInfo.WithLabelValues(version.Version, version.Commit).Set(1)
 
 	m.reg.MustRegister(
-		m.jobsTotal, m.queueWait, m.jobDuration, m.scalingEvents,
+		m.jobsTotal, m.jobsRunnerLost, m.queueWait, m.jobDuration, m.scalingEvents,
 		m.webhookDeliveries, m.githubRequests, m.reconcileDuration, m.buildInfo,
+		m.queuedToCreate, m.createToContainer, m.containerToRegistered, m.registeredToReady, m.queuedToStarted,
 		&fleetCollector{c: c},
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
 	return m
+}
+
+func startupHistogram(name, help string) *prometheus.HistogramVec {
+	return prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: name, Help: help,
+		Buckets: []float64{.1, .5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800}}, []string{"pool", "backend"})
+}
+
+func observeDuration(h *prometheus.HistogramVec, pool, backend string, from, to time.Time) bool {
+	if from.IsZero() || to.IsZero() || to.Before(from) {
+		return false
+	}
+	h.WithLabelValues(pool, backend).Observe(to.Sub(from).Seconds())
+	return true
 }
 
 // Registry returns the Prometheus registry the API serves at the configured
@@ -169,7 +221,7 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 		gauge(descJobsQueued, float64(queuedByPool[p.ID]), p.Name)
 	}
 	// Jobs no pool claimed still have to be visible somewhere.
-	gauge(descJobsQueued, float64(queuedByPool[""]), "unmatched")
+	gauge(descJobsQueued, float64(queuedByPool[""]), UnmatchedPool)
 
 	var healthy, unhealthy, cordoned, capacity, used int
 	now := f.c.Now()

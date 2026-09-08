@@ -98,7 +98,7 @@
   }
   .from {
     padding: var(--z-space-1) var(--z-space-2);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     font-family: var(--z-font-mono);
@@ -112,7 +112,7 @@
   .warn {
     margin: var(--z-space-4) 0 0;
     padding: var(--z-space-3) var(--z-space-4);
-    border: 1px solid var(--z-pending-border);
+    border: var(--z-border-width) solid var(--z-pending-border);
     border-radius: var(--z-radius-md);
     background: var(--z-pending-subtle);
     color: var(--z-pending);

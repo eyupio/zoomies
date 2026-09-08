@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/events"
@@ -60,12 +60,14 @@ func startSSE(w http.ResponseWriter, r *http.Request) *sseWriter {
 	return s
 }
 
-// event writes one named event with its id and JSON payload.
-func (s *sseWriter) event(kind string, id uint64, data []byte) error {
+// event writes one named event with its id and JSON payload. An empty id
+// leaves the client's last id where it was, which is what a heartbeat or a
+// log chunk wants.
+func (s *sseWriter) event(kind string, id string, data []byte) error {
 	var b strings.Builder
-	if id > 0 {
+	if id != "" {
 		b.WriteString("id: ")
-		b.WriteString(strconv.FormatUint(id, 10))
+		b.WriteString(id)
 		b.WriteByte('\n')
 	}
 	if kind != "" {
@@ -116,16 +118,42 @@ func (s *sseWriter) flush() { _ = s.rc.Flush() }
 // GET /api/v1/events
 // ---------------------------------------------------------------------------
 
+// endIfRevoked re-resolves the credential this stream was opened with and, when
+// it no longer stands, ends the stream with a frame saying so.
+//
+// A live stream is authorised once, at the moment it is opened, and then held
+// for as long as the tab is. Without this, signing out, revoking the token,
+// disabling the account or letting the session expire leaves the stream running
+// -- the fleet's every movement still arriving at a browser whose credential
+// the operator has just taken away, until something else happens to break the
+// connection. Every other route re-checks on every request; a stream's
+// heartbeat is the closest thing it has to one, so it re-checks there.
+//
+// The reason is deliberately the same whichever way the credential failed: an
+// ended stream tells a client to stop and sign in again, and which of the four
+// happened is not something the far end can do anything different about.
+func (s *Server) endIfRevoked(stream *sseWriter, r *http.Request, action auth.Action) bool {
+	id, err := s.resolveIdentity(r)
+	if err == nil && auth.Allowed(id, action) {
+		return false
+	}
+	_ = stream.event("end", "", []byte(`{"reason":"this stream's credential is no longer valid; sign in again"}`))
+	return true
+}
+
 // handleEvents streams every change the operator would want to see.
 //
 // There is no polling anywhere in the UI, so this endpoint is the whole of the
 // dashboard's liveness. It replays from Last-Event-ID on reconnect, which is
 // what makes a dropped connection invisible rather than a hole in the history.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	bus := s.ctrl.Events()
+	replay, sameEpoch := lastEventID(r, bus)
 	opts := events.SubscribeOptions{
 		Kinds:       parseKinds(r.URL.Query().Get("kinds")),
 		TopicPrefix: strings.TrimSpace(r.URL.Query().Get("topic")),
-		Replay:      lastEventID(r),
+		Replay:      replay,
+		Incomplete:  replay > 0 && !sameEpoch,
 	}
 
 	ctx := r.Context()
@@ -137,7 +165,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	// including a write failure to a browser that has already gone.
 	subCtx, unsubscribe := context.WithCancel(ctx)
 	defer unsubscribe()
-	sub := s.ctrl.Events().Subscribe(subCtx, opts)
+	sub := bus.Subscribe(subCtx, opts)
 
 	stream := startSSE(w, r)
 	_ = stream.retry(2 * time.Second)
@@ -146,8 +174,17 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	if err := stream.comment("connected"); err != nil {
 		return
 	}
+	if !sub.Complete {
+		// The client asked to resume from an id the ring no longer reaches
+		// back to, or from another run of this process. Saying so is what
+		// lets it fetch afresh instead of quietly showing a fleet that has
+		// moved on; the frame carries no id, so the client's own stays put.
+		if err := stream.event(string(events.KindResync), "", []byte(`{"reason":"the events since your last id could not all be replayed; fetch the resources again"}`)); err != nil {
+			return
+		}
+	}
 
-	ticker := time.NewTicker(heartbeatInterval)
+	ticker := time.NewTicker(s.streamHeartbeat)
 	defer ticker.Stop()
 
 	for {
@@ -162,17 +199,20 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				// ID and catch up, which is better than silently going stale.
 				return
 			}
-			if err := stream.event(string(ev.Kind), ev.ID, ev.Data); err != nil {
+			if err := stream.event(string(ev.Kind), bus.WireID(ev.ID), ev.Data); err != nil {
 				return
 			}
 		case <-ticker.C:
+			if s.endIfRevoked(stream, r, auth.ActionEventsRead) {
+				return
+			}
 			if err := stream.comment("heartbeat"); err != nil {
 				return
 			}
 			// The UI's watchdog is driven by heartbeat *events*, not comment
 			// frames, so one is sent as well; it carries the server's clock,
 			// which is what the top bar's "live" indicator shows.
-			if err := stream.event(string(events.KindHeartbeat), 0, heartbeatPayload(s)); err != nil {
+			if err := stream.event(string(events.KindHeartbeat), "", heartbeatPayload(s)); err != nil {
 				return
 			}
 		}
@@ -183,28 +223,28 @@ func heartbeatPayload(s *Server) []byte {
 	return []byte(`{"at":"` + s.ctrl.Now().Format(time.RFC3339) + `"}`)
 }
 
-// lastEventID reads where a reconnecting client left off.
+// lastEventID reads where a reconnecting client left off, and whether that
+// place is in this process's sequence at all.
 //
 // The header is what the browser's own EventSource retry sends. The query
 // parameter is what the UI sends when it has given up and opened a fresh
 // EventSource, which cannot carry the header; honouring both is what makes a
-// reconnect seamless either way.
-func lastEventID(r *http.Request) uint64 {
+// reconnect seamless either way. A malformed id means "start from now" rather
+// than an error: the alternative is a client that can never reconnect until it
+// is reloaded by hand.
+func lastEventID(r *http.Request, bus *events.Bus) (id uint64, sameEpoch bool) {
 	raw := strings.TrimSpace(r.Header.Get("Last-Event-ID"))
 	if raw == "" {
 		raw = strings.TrimSpace(r.URL.Query().Get("last_event_id"))
 	}
 	if raw == "" {
-		return 0
+		return 0, true
 	}
-	n, err := strconv.ParseUint(raw, 10, 64)
-	if err != nil {
-		// A malformed id means "start from now" rather than an error: the
-		// alternative is a client that can never reconnect until it is
-		// reloaded by hand.
-		return 0
+	id, sameEpoch = bus.ParseWireID(raw)
+	if id == 0 && !sameEpoch {
+		return 0, true
 	}
-	return n
+	return id, sameEpoch
 }
 
 func parseKinds(raw string) []events.Kind {
@@ -258,7 +298,7 @@ func (s *Server) handleRunnerLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ticker := time.NewTicker(heartbeatInterval)
+	ticker := time.NewTicker(s.streamHeartbeat)
 	defer ticker.Stop()
 
 	for {
@@ -271,13 +311,16 @@ func (s *Server) handleRunnerLogs(w http.ResponseWriter, r *http.Request) {
 				// means the job is over. Say so and end the response, rather
 				// than leaving the browser holding a connection that will never
 				// carry another byte.
-				_ = stream.event("end", 0, []byte(`{"reason":"the runner's output ended"}`))
+				_ = stream.event("end", "", []byte(`{"reason":"the runner's output ended"}`))
 				return
 			}
-			if err := stream.event(logChunkKind, 0, jsonString(string(chunk))); err != nil {
+			if err := stream.event(logChunkKind, "", jsonString(string(chunk))); err != nil {
 				return
 			}
 		case <-ticker.C:
+			if s.endIfRevoked(stream, r, auth.ActionLogsRead) {
+				return
+			}
 			if err := stream.comment("heartbeat"); err != nil {
 				return
 			}

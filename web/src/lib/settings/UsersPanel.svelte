@@ -18,6 +18,8 @@
     updateUser,
   } from '$lib/api/client';
   import type { Role, User } from '$lib/api/types';
+  import { MIN_PASSWORD_LENGTH } from '$lib/passwords';
+  import { ROLE_OPTIONS, roleLabel } from '$lib/roles';
   import { accountStatus } from '$lib/status';
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
@@ -34,18 +36,6 @@
   import RadioGroup from '$lib/components/RadioGroup.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
-
-  const ROLE_OPTIONS = [
-    { value: 'viewer', label: 'Viewer', description: 'Reads everything except secrets.' },
-    { value: 'operator', label: 'Operator', description: 'Acts on the fleet and manages pools.' },
-    {
-      value: 'admin',
-      label: 'Administrator',
-      description: 'Also manages accounts, tokens, installations and settings.',
-    },
-  ];
-
-  const MIN_PASSWORD = 12;
 
   interface Props {
     /**
@@ -116,8 +106,8 @@
   const passwordError = $derived(
     newPassword === '' && passwordOptional
       ? ''
-      : newPassword.length < MIN_PASSWORD
-        ? `At least ${MIN_PASSWORD} characters. This one has ${newPassword.length}.`
+      : newPassword.length < MIN_PASSWORD_LENGTH
+        ? `At least ${MIN_PASSWORD_LENGTH} characters. This one has ${newPassword.length}.`
         : '',
   );
 
@@ -226,8 +216,8 @@
   let resetErrors = $state<Record<string, string>>({});
 
   const resetError = $derived(
-    resetPassword.length > 0 && resetPassword.length < MIN_PASSWORD
-      ? `At least ${MIN_PASSWORD} characters. This one has ${resetPassword.length}.`
+    resetPassword.length > 0 && resetPassword.length < MIN_PASSWORD_LENGTH
+      ? `At least ${MIN_PASSWORD_LENGTH} characters. This one has ${resetPassword.length}.`
       : '',
   );
 
@@ -240,7 +230,7 @@
 
   async function doReset(): Promise<void> {
     const user = resetting;
-    if (!user?.id || resetPassword.length < MIN_PASSWORD) return;
+    if (!user?.id || resetPassword.length < MIN_PASSWORD_LENGTH) return;
     resetBusy = true;
     resetErrors = {};
     try {
@@ -378,7 +368,7 @@
                 {#if user.oidc_subject}<span class="second">Single sign-on</span>{/if}
               </td>
               <td>
-                {ROLE_OPTIONS.find((r) => r.value === user.role)?.label ?? user.role}
+                {roleLabel(user.role)}
               </td>
               <td>
                 <Badge status={accountStatus(user.disabled)} size="sm" />
@@ -434,8 +424,8 @@
     <Field
       label="Password"
       hint={passwordOptional
-        ? `At least ${MIN_PASSWORD} characters. Leave it empty for an account that signs in through single sign-on.`
-        : `At least ${MIN_PASSWORD} characters.`}
+        ? `At least ${MIN_PASSWORD_LENGTH} characters. Leave it empty for an account that signs in through single sign-on.`
+        : `At least ${MIN_PASSWORD_LENGTH} characters.`}
       error={createErrors.password ?? passwordError}
     >
       {#snippet children({ id, describedBy, invalid })}
@@ -502,7 +492,7 @@
   <div class="form">
     <Field
       label="New password"
-      hint="At least {MIN_PASSWORD} characters. Send it to them over something private; it is not emailed."
+      hint="At least {MIN_PASSWORD_LENGTH} characters. Send it to them over something private; it is not emailed."
       error={resetErrors.new_password ?? resetError}
     >
       {#snippet children({ id, describedBy, invalid })}
@@ -523,7 +513,7 @@
     <Button
       variant="primary"
       loading={resetBusy}
-      disabled={resetPassword.length < MIN_PASSWORD}
+      disabled={resetPassword.length < MIN_PASSWORD_LENGTH}
       onclick={doReset}
     >
       Reset password
@@ -549,7 +539,7 @@
 
 <style>
   .panel {
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }
@@ -559,7 +549,7 @@
     justify-content: space-between;
     gap: var(--z-space-4);
     padding: var(--z-space-4) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   h2 {
     margin: 0;
@@ -579,7 +569,7 @@
     gap: var(--z-space-3);
     margin: var(--z-space-4) var(--z-space-5) 0;
     padding: var(--z-space-4);
-    border: 1px solid var(--z-pending-border);
+    border: var(--z-border-width) solid var(--z-pending-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-pending-subtle);
   }
@@ -606,6 +596,12 @@
   }
   .scroll {
     overflow-x: auto;
+    /* The table is wider than a phone and scrolls inside this box, but a
+       mobile browser still counts what it clips towards the page's width,
+       grows the layout viewport to fit, and the fixed bottom navigation grows
+       with it -- so the whole page scrolls sideways. Paint containment says
+       what is clipped here stays here. */
+    contain: paint;
   }
   table {
     width: 100%;
@@ -615,18 +611,18 @@
   }
   th {
     padding: var(--z-space-2) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
     color: var(--z-text-muted);
     font-size: var(--z-text-2xs);
     font-weight: var(--z-weight-medium);
     text-align: left;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     white-space: nowrap;
   }
   td {
     padding: var(--z-space-3) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
     color: var(--z-text);
     vertical-align: top;
   }
@@ -657,7 +653,7 @@
   .warn {
     margin: 0;
     padding: var(--z-space-3);
-    border: 1px solid var(--z-pending-border);
+    border: var(--z-border-width) solid var(--z-pending-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-pending-subtle);
     font-size: var(--z-text-base);

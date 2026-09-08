@@ -19,7 +19,10 @@ function refreshButton(page: Page) {
   return page.getByRole('button', { name: 'Refresh', exact: true });
 }
 
-/** Sections whose pages fetch something, and therefore have the button. */
+/**
+ * Sections whose pages fetch something, and therefore have the button. Migrate
+ * is the exception: it holds a flow rather than a view of the fleet.
+ */
 const REFRESHABLE = SECTIONS.filter((section) => section.path !== '/migrate');
 
 for (const section of REFRESHABLE) {
@@ -53,12 +56,22 @@ test('a page with nothing to fetch offers nothing to press', async ({ page }) =>
 test('the refresh sits before the action that changes the fleet, not after it', async ({
   page,
 }) => {
-  // Reading order is the whole affordance. If refresh drifts to the right of
-  // "Add a host" on one page and the left of it on another, an operator stops
-  // reaching for it without looking -- which is the only reason it is uniform.
+  // Reading order is the whole affordance. If refresh drifts past "Add a host"
+  // on one page and not on another, an operator stops reaching for it without
+  // looking -- which is the only reason it is uniform. Document order rather
+  // than coordinates, because the row wraps on a phone and the claim is the
+  // same either way.
   await goto(page, '/hosts', 'Hosts');
-  const actions = page.getByRole('button', { name: /^(Refresh|Add a host)$/ });
-  await expect(actions.first()).toHaveAccessibleName('Refresh');
+  const refresh = refreshButton(page);
+  const add = page.getByRole('link', { name: 'Add a host' });
+  await expect(refresh).toBeVisible();
+  await expect(add).toBeVisible();
+
+  const refreshFirst = await refresh.evaluate(
+    (el, other) => Boolean(el.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING),
+    await add.elementHandle(),
+  );
+  expect(refreshFirst, "refresh comes before the page's own action").toBe(true);
 });
 
 test('R refreshes the page, without taking the letter from anything else', async ({ page }) => {

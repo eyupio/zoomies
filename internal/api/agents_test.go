@@ -8,23 +8,86 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/agent"
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
 )
+
+// agentRoute is one of the five routes behind s.agentAuth. The bodies are the
+// smallest thing each handler will accept, because what is under test is the
+// middleware in front of them and not the handler's own validation.
+type agentRoute struct {
+	name   string
+	method string
+	path   string
+	body   any
+	// raw is the log relay's body, which is a byte stream rather than JSON.
+	raw string
+}
+
+// agentRoutes is written out by hand rather than read off the router for the
+// same reason routeTable is: a list derived from the thing it checks would
+// agree with a mistake. Its length is asserted against the router below.
+func agentRoutesUnderTest() []agentRoute {
+	return []agentRoute{
+		{name: "heartbeat", method: http.MethodPost, path: "/api/v1/agent/heartbeat",
+			body: agent.HeartbeatRequest{ProtocolVersion: 1, Capacity: 2, Version: "test"}},
+		// The long poll is given the shortest wait it will honour, so a
+		// refused call costs nothing and an accepted one returns promptly.
+		{name: "tasks", method: http.MethodGet, path: "/api/v1/agent/tasks?wait=1"},
+		{name: "results", method: http.MethodPost, path: "/api/v1/agent/results",
+			body: agent.TaskResult{TaskID: "tsk_nosuchtask"}},
+		{name: "report", method: http.MethodPost, path: "/api/v1/agent/report",
+			body: []agent.RunnerReport{}},
+		{name: "logs", method: http.MethodPost, path: "/api/v1/agent/logs/log_nosuchstream",
+			raw: "chunk"},
+	}
+}
 
 // TestAgentRoutesRefuseAUserCredential is the separation the whole agent
 // surface rests on: an agent token reaches /api/v1/agent/* and nothing else,
 // and a user token does not reach the agent routes at all.
+//
+// It walks all five authenticated agent routes. The earlier version of this
+// test walked three, which left the task poll and the log relay -- the two
+// that carry a runner's work and a runner's output -- with no negative test
+// at all.
 func TestAgentRoutesRefuseAUserCredential(t *testing.T) {
 	h := newHarness(t)
 	adminToken := h.token("admin", store.RoleAdmin)
+	admin, _ := h.user("root", store.RoleAdmin)
+	adminCookie := h.session(admin)
 	_, agentToken := h.agentToken("vm-1")
 
-	for _, path := range []string{"/api/v1/agent/heartbeat", "/api/v1/agent/results", "/api/v1/agent/report"} {
-		anon := h.do(request{method: http.MethodPost, path: path, body: map[string]any{}})
-		anon.mustStatus(t, http.StatusUnauthorized, "unauthenticated "+path)
+	callers := []struct {
+		name  string
+		apply func(*request)
+	}{
+		{"anonymous", func(*request) {}},
+		{"an admin API token", func(r *request) { r.token = adminToken }},
+		{"an admin browser session", func(r *request) { r.cookie = adminCookie }},
+		{"a made-up bearer", func(r *request) { r.token = "zag_notarealtokenatall" }},
+	}
 
-		asUser := h.do(request{method: http.MethodPost, path: path, token: adminToken, body: map[string]any{}})
-		asUser.mustStatus(t, http.StatusUnauthorized, "admin token on "+path)
+	for _, rt := range agentRoutesUnderTest() {
+		for _, caller := range callers {
+			t.Run(rt.name+"/"+caller.name, func(t *testing.T) {
+				req := request{method: rt.method, path: rt.path, body: rt.body, rawBody: rt.raw}
+				caller.apply(&req)
+				resp := h.do(req)
+				resp.mustStatus(t, http.StatusUnauthorized, caller.name+" on "+rt.path)
+			})
+		}
+
+		// The positive half of the same walk: the host's own token is not
+		// refused anywhere, which is what makes the four refusals above about
+		// the credential rather than about the route being broken.
+		t.Run(rt.name+"/its own agent token", func(t *testing.T) {
+			resp := h.do(request{method: rt.method, path: rt.path, body: rt.body,
+				rawBody: rt.raw, token: agentToken})
+			if resp.status == http.StatusUnauthorized {
+				t.Fatalf("the host's own agent token was refused on %s: %s", rt.path, truncate(resp.body))
+			}
+		})
 	}
 
 	// And the agent's own credential is refused on the user API.
@@ -32,6 +95,67 @@ func TestAgentRoutesRefuseAUserCredential(t *testing.T) {
 	onUserAPI.mustStatus(t, http.StatusUnauthorized, "agent token on the user API")
 	if !strings.Contains(onUserAPI.errorMessage(t), "agent token") {
 		t.Errorf("the refusal does not say what kind of credential it was: %q", onUserAPI.errorMessage(t))
+	}
+}
+
+// TestAgentRoutesUnderTestCoverTheRouter keeps the walk above honest: a sixth
+// authenticated agent route added without a row here would otherwise ship with
+// no negative test, which is exactly how tasks and logs came to be missing.
+func TestAgentRoutesUnderTestCoverTheRouter(t *testing.T) {
+	// PathJoin is deliberately absent: it is the one anonymous agent route,
+	// and it is walked by TestAgentJoinRefusesASpentToken instead.
+	want := map[string]bool{
+		agent.PathHeartbeat: false,
+		agent.PathTasks:     false,
+		agent.PathResults:   false,
+		agent.PathReport:    false,
+		agent.PathLogs:      false,
+	}
+	for _, rt := range agentRoutesUnderTest() {
+		path, _, _ := strings.Cut(rt.path, "?")
+		matched := false
+		for known := range want {
+			if path == known || strings.HasPrefix(path, known+"/") {
+				want[known] = true
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			t.Errorf("%s is not one of the agent paths the transport declares", rt.path)
+		}
+	}
+	for path, covered := range want {
+		if !covered {
+			t.Errorf("%s has no row in agentRoutesUnderTest, so nothing proves it refuses a user credential", path)
+		}
+	}
+}
+
+// TestADeletedHostsAgentTokenIsRefused covers revocation on the agent side.
+//
+// A host's token hash lives on the host row, so removing the host is how an
+// operator revokes a machine's access to the fleet. Every agent route has to
+// honour that, not only the heartbeat that happens to notice first.
+func TestADeletedHostsAgentTokenIsRefused(t *testing.T) {
+	h := newHarness(t)
+	hostID, agentToken := h.agentToken("vm-doomed")
+
+	if _, err := h.st.DeleteHost(h.ctx, hostID); err != nil {
+		t.Fatalf("DeleteHost: %v", err)
+	}
+
+	for _, rt := range agentRoutesUnderTest() {
+		t.Run(rt.name, func(t *testing.T) {
+			resp := h.do(request{method: rt.method, path: rt.path, body: rt.body,
+				rawBody: rt.raw, token: agentToken})
+			resp.mustStatus(t, http.StatusUnauthorized, "a deleted host's token on "+rt.path)
+			// The message has to name the fix, because the agent operator is
+			// the only person who can carry it out.
+			if !strings.Contains(resp.errorMessage(t), "re-join") {
+				t.Errorf("the refusal does not tell the operator to re-join: %q", resp.errorMessage(t))
+			}
+		})
 	}
 }
 
@@ -63,7 +187,7 @@ func TestAgentJoinAndHeartbeat(t *testing.T) {
 
 	// A host deleted under a running agent must answer 404, not 500: the
 	// agent's transport reads that specific status as "you no longer exist".
-	if err := h.st.DeleteHost(h.ctx, hostID); err != nil {
+	if _, err := h.st.DeleteHost(h.ctx, hostID); err != nil {
 		t.Fatalf("DeleteHost: %v", err)
 	}
 	gone := h.do(request{method: http.MethodPost, path: "/api/v1/agent/heartbeat", token: token,
@@ -183,4 +307,63 @@ func TestAgentLogPostForAnUnknownStream(t *testing.T) {
 	resp := h.do(request{method: http.MethodPost, path: "/api/v1/agent/logs/log_nobody", token: token,
 		rawBody: "some output", headers: map[string]string{"Content-Type": "application/octet-stream"}})
 	resp.mustStatus(t, http.StatusNotFound, "log post for an unknown stream")
+}
+
+// The two halves of the agent protocol are the same binary at different
+// versions while an upgrade rolls across a fleet. A newer agent that adds one
+// optional field to its heartbeat used to be answered 400 by an older
+// controller, and stopped heartbeating -- every host unhealthy at once, for a
+// change ProtocolVersion was never meant to cover.
+func TestAgentRoutesTolerateFieldsTheyDoNotKnow(t *testing.T) {
+	h := newHarness(t)
+	_, token := h.agentToken("vm-1")
+
+	beat := h.do(request{method: http.MethodPost, path: "/api/v1/agent/heartbeat", token: token,
+		body: map[string]any{"protocol_version": 1, "capacity": 2, "version": "test", "load_average": 0.42}})
+	beat.mustStatus(t, http.StatusOK, "a heartbeat carrying a field this controller does not know")
+
+	// The user API keeps its strictness: there the unknown field is a typo
+	// that would otherwise be silently ignored.
+	admin, _ := h.user("root", store.RoleAdmin)
+	typo := h.do(request{method: http.MethodPost, path: "/api/v1/users", cookie: h.session(admin),
+		body: map[string]any{"username": "sam", "password": "correct-horse-battery", "rolle": "viewer"}})
+	typo.mustStatus(t, http.StatusBadRequest, "a typo in a user API field")
+}
+
+// TestAgentJoinIsRateLimited closes the last unauthenticated route that says
+// whether the credential it was handed was right.
+//
+// A join token is a bearer credential with nothing else in front of it, so
+// without a limit a guess costs an attacker one request and the only thing
+// standing in the way is the token's entropy. A machine joins once, so a limit
+// generous enough that no operator ever meets it still costs every attempt.
+func TestAgentJoinIsRateLimited(t *testing.T) {
+	// One attempt, so the second is refused and the test does not depend on
+	// the shipped default.
+	h := newHarness(t, func(c *config.Config) { c.Security.RateLimitLogins = 1 })
+
+	body := map[string]any{
+		"protocol_version": 1, "join_token": "zjoin_a_guess", "name": "vm-guess",
+		"capacity": 1, "os": "linux", "arch": "amd64", "version": "test",
+	}
+
+	first := h.do(request{method: http.MethodPost, path: "/api/v1/agent/join", body: body})
+	if first.status == http.StatusTooManyRequests {
+		t.Fatalf("the first attempt was rate limited: %s", truncate(first.body))
+	}
+
+	second := h.do(request{method: http.MethodPost, path: "/api/v1/agent/join", body: body})
+	second.mustStatus(t, http.StatusTooManyRequests, "a second join attempt from the same address")
+	if second.header.Get("Retry-After") == "" {
+		t.Error("the refusal carries no Retry-After, so an agent's backoff has nothing to read")
+	}
+
+	// The limiter is the join route's own. An attacker hammering enrolment
+	// must not be able to lock the operators out of the page they would use to
+	// stop it, which sharing the login counter would do.
+	admin, _ := h.user("root", store.RoleAdmin)
+	_ = admin
+	login := h.do(request{method: http.MethodPost, path: "/api/v1/auth/login",
+		body: map[string]any{"username": "root", "password": testPassword}})
+	login.mustStatus(t, http.StatusOK, "signing in while enrolment is rate limited")
 }

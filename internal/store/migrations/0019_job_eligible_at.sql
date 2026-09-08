@@ -1,0 +1,13 @@
+-- The start of the scheduling-latency interval, which the measurement contract
+-- asks for and nothing recorded: the moment a job first became something this
+-- fleet could act on -- an enabled pool claiming its labels, under a healthy
+-- installation.
+--
+-- Without it the only figure available runs from jobs.queued_at, which charges
+-- the platform for a job that was ineligible, held for a deployment review, or
+-- waiting on a scale-up delay it was configured to wait for.
+--
+-- Null on every existing row, and on any job no pool has ever claimed. Null is
+-- "not eligible yet, or eligible before this column existed", never zero: a
+-- zero here would read as 1970 and make every historical latency enormous.
+ALTER TABLE jobs ADD COLUMN eligible_at INTEGER;

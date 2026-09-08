@@ -26,7 +26,6 @@
   import LoadingBoundary from '$lib/components/LoadingBoundary.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
-  import AddHostDialog from '$lib/hosts/AddHostDialog.svelte';
   import HostCard from '$lib/hosts/HostCard.svelte';
   import HostDeleteDialog from '$lib/hosts/HostDeleteDialog.svelte';
   import HostEditDialog from '$lib/hosts/HostEditDialog.svelte';
@@ -72,7 +71,6 @@
 
   /* -- actions ----------------------------------------------------------------- */
 
-  let addOpen = $state(false);
   let editing = $state<Host | null>(null);
   let editOpen = $state(false);
   let deleting = $state<Host | null>(null);
@@ -133,7 +131,7 @@
     {/if}
   {/snippet}
   {#if canAdmin}
-    <Button variant="primary" icon={Plus} onclick={() => (addOpen = true)}>Add a host</Button>
+    <Button variant="primary" icon={Plus} href="/hosts/new">Add a host</Button>
   {/if}
 </PageHeader>
 
@@ -168,7 +166,7 @@
         description="A host is a machine running the Zoomies agent, and it is where runners are created. The controller can run one itself, or you can enrol another."
       >
         {#if canAdmin}
-          <Button variant="primary" icon={Plus} onclick={() => (addOpen = true)}>Add a host</Button>
+          <Button variant="primary" icon={Plus} href="/hosts/new">Add a host</Button>
         {:else}
           <p class="need-admin">An administrator can enrol one.</p>
         {/if}
@@ -191,17 +189,19 @@
 
   {#if canAdmin}
     <section class="panel" aria-labelledby="join-tokens-heading">
+      <!--
+        No button of its own. "Add a host" is already the page's primary
+        action, in the header, and two of the same button on one screen is a
+        question about which one is the real one rather than a convenience.
+      -->
       <header>
         <div>
           <h2 id="join-tokens-heading">Join tokens</h2>
           <p>
-            Each one enrols a single host, then is spent. Revoke any that were minted and never
-            used.
+            Each one enrols a single host, then is spent. Adding a host mints one; revoke any that
+            were minted and never used.
           </p>
         </div>
-        <Button variant="secondary" icon={Plus} onclick={() => (addOpen = true)}>
-          Mint a join token
-        </Button>
       </header>
       <div class="panel-body">
         <LoadingBoundary
@@ -219,7 +219,6 @@
   {/if}
 </div>
 
-<AddHostDialog bind:open={addOpen} oncreated={() => (tokensReload += 1)} />
 <HostEditDialog bind:open={editOpen} host={editing} onclose={() => (editing = null)} />
 <HostDeleteDialog bind:open={deleteOpen} host={deleting} onclose={() => (deleting = null)} />
 
@@ -245,12 +244,12 @@
     flex-direction: column;
     gap: var(--z-space-3);
     padding: var(--z-space-5);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }
   .panel {
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }
@@ -260,7 +259,7 @@
     justify-content: space-between;
     gap: var(--z-space-4);
     padding: var(--z-space-4) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   h2 {
     margin: 0;

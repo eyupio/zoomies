@@ -7,7 +7,9 @@ SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 .DEFAULT_GOAL := help
 
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+# Without the leading v: the tag is v1.2.3, the version the binary reports is
+# 1.2.3, and the release workflow stamps the images the same way.
+VERSION ?= $(patsubst v%,%,$(shell git describe --tags --always --dirty 2>/dev/null || echo dev))
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
@@ -86,14 +88,31 @@ test-ui: ## Run the Playwright suite (builds the binary first)
 
 .PHONY: test-e2e
 test-e2e: ## Docker-based end-to-end test; needs GitHub credentials, skipped without
-	$(GO) test -count=1 -tags e2e -timeout 20m ./test/e2e/...
+	$(GO) test -count=1 -tags e2e -timeout 30m ./test/e2e/...
+
+.PHONY: test-drill
+test-drill: build-nogui ## Runtime drills: the built binary as a real controller and agent, against a fake GitHub
+	$(GO) test -count=1 -v -tags drill -timeout 10m ./test/drill/...
+
+E2E_RESULTS ?= roadmap/validation/e2e
+
+.PHONY: test-e2e-required
+test-e2e-required: ## The same run, but a missing prerequisite is a failure and every scenario must pass
+	rm -rf $(E2E_RESULTS)
+	ZOOMIES_E2E_REQUIRED=1 ZOOMIES_E2E_RESULTS_DIR=$(E2E_RESULTS) \
+	  $(GO) test -count=1 -v -tags e2e -timeout 30m ./test/e2e/... || true
+	$(GO) run ./test/e2e/verify -dir $(E2E_RESULTS)
+
+.PHONY: screenshots
+screenshots: build ## Recapture docs/screenshots from the real UI (needs Pillow: pip install pillow)
+	cd $(UI_DIR) && node tests/support/screenshots.mjs
 
 ##@ Quality
 
 .PHONY: lint
 lint: ## Vet, format check, and staticcheck when available
 	$(GO) vet ./...
-	@out=$$(gofmt -l . | grep -v '^web/' || true); \
+	@out=$$(gofmt -l $$(git ls-files '*.go')); \
 	 if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
 	@if command -v staticcheck >/dev/null 2>&1; then staticcheck ./...; \
 	 else echo "  staticcheck not installed, skipping"; fi
@@ -124,30 +143,84 @@ dev: build-nogui ## Run a controller with auth off, for local UI development
 .PHONY: image
 image: ## Build the controller/agent image
 	docker build -f deploy/Dockerfile --target controller \
-		--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) \
+		--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --build-arg DATE=$(DATE) \
 		-t ghcr.io/eyupio/zoomies:$(VERSION) -t ghcr.io/eyupio/zoomies:latest .
 
+# The runner image's variants. Each one is a base image, the package family
+# deploy/Dockerfile.runner installs with, and the platform it claims to be.
+#
+# The rows below are generated from internal/naming's catalogue, which is the
+# one place an operating system is added or swapped. Do not edit them by hand:
+# run `make generate` and commit what it writes.
+RUNNER_IMAGE   ?= ghcr.io/eyupio/zoomies-runner
+RUNNER_VARIANT ?= $(RUNNER_VARIANT_DEFAULT)
+
+# zoomies:catalogue-begin
+RUNNER_VARIANTS := ubuntu-2404 ubuntu-2204 debian-12 fedora-42 rocky-9
+RUNNER_VARIANT_DEFAULT := ubuntu-2404
+
+# base | family | os | version
+variant.ubuntu-2404 := ubuntu:24.04 apt ubuntu 24.04
+variant.ubuntu-2204 := ubuntu:22.04 apt ubuntu 22.04
+variant.debian-12   := debian:12-slim apt debian 12
+variant.fedora-42   := fedora:42 dnf fedora 42
+variant.rocky-9     := rockylinux/rockylinux:9 dnf rocky 9
+# zoomies:catalogue-end
+
+# variant-args renders one variant's row as docker build arguments.
+variant-args = \
+	--build-arg BASE=$(word 1,$(variant.$(1))) \
+	--build-arg OS_FAMILY=$(word 2,$(variant.$(1))) \
+	--build-arg OS_ID=$(word 3,$(variant.$(1))) \
+	--build-arg OS_VERSION=$(word 4,$(variant.$(1)))
+
+.PHONY: check-variant
+check-variant:
+	@if [ -z "$(variant.$(RUNNER_VARIANT))" ]; then \
+		echo "unknown RUNNER_VARIANT '$(RUNNER_VARIANT)'; one of: $(RUNNER_VARIANTS)" >&2; \
+		exit 1; \
+	fi
+
 .PHONY: image-runner
-image-runner: ## Build the runner image for the host architecture
+image-runner: check-variant ## Build one runner variant for the host architecture (RUNNER_VARIANT=debian-12)
 	docker build -f deploy/Dockerfile.runner \
 		--build-arg RUNNER_VERSION=$(RUNNER_VERSION) \
-		-t ghcr.io/eyupio/zoomies-runner:$(RUNNER_VERSION) \
-		-t ghcr.io/eyupio/zoomies-runner:latest .
+		$(call variant-args,$(RUNNER_VARIANT)) \
+		-t $(RUNNER_IMAGE):$(RUNNER_VARIANT) .
+
+.PHONY: images-runner
+images-runner: ## Build every runner variant for the host architecture
+	@for v in $(RUNNER_VARIANTS); do \
+		echo "  building $(RUNNER_IMAGE):$$v"; \
+		$(MAKE) --no-print-directory image-runner RUNNER_VARIANT=$$v; \
+	done
+
+.PHONY: image-runner-multiarch
+image-runner-multiarch: check-variant ## Build one runner variant for amd64 and arm64 (needs buildx)
+	docker buildx build --platform linux/amd64,linux/arm64 \
+		-f deploy/Dockerfile.runner --build-arg RUNNER_VERSION=$(RUNNER_VERSION) \
+		$(call variant-args,$(RUNNER_VARIANT)) \
+		-t $(RUNNER_IMAGE):$(RUNNER_VARIANT) .
 
 .PHONY: images-multiarch
-images-multiarch: ## Build both images for amd64 and arm64 (needs buildx)
+images-multiarch: ## Build the controller and every runner variant for amd64 and arm64 (needs buildx)
 	docker buildx build --platform linux/amd64,linux/arm64 \
 		-f deploy/Dockerfile --target controller \
 		--build-arg VERSION=$(VERSION) -t ghcr.io/eyupio/zoomies:$(VERSION) .
-	docker buildx build --platform linux/amd64,linux/arm64 \
-		-f deploy/Dockerfile.runner --build-arg RUNNER_VERSION=$(RUNNER_VERSION) \
-		-t ghcr.io/eyupio/zoomies-runner:$(RUNNER_VERSION) .
+	@for v in $(RUNNER_VARIANTS); do \
+		echo "  building $(RUNNER_IMAGE):$$v for amd64 and arm64"; \
+		$(MAKE) --no-print-directory image-runner-multiarch RUNNER_VARIANT=$$v; \
+	done
 
 ##@ Housekeeping
 
 .PHONY: openapi
-openapi: build-nogui ## Regenerate the TypeScript client from api/openapi.yaml
+openapi: ## Regenerate the TypeScript client from api/openapi.yaml
 	cd $(UI_DIR) && $(NPM) run generate:api
+
+.PHONY: generate
+generate: ## Rewrite everything generated from internal/naming's image catalogue
+	go run internal/naming/gen_catalogue.go
 
 .PHONY: clean
 clean: ## Remove build output

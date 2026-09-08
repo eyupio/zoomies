@@ -101,7 +101,7 @@
     align-items: flex-start;
     gap: var(--z-space-3);
     padding: var(--z-space-3);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
   }
   .results li.opened {
@@ -131,7 +131,7 @@
   .repo a {
     display: inline-flex;
     align-items: center;
-    gap: 2px;
+    gap: var(--z-nudge-2);
     color: var(--z-accent);
     font-size: var(--z-text-xs);
   }

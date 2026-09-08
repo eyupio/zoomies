@@ -5,7 +5,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { X } from '@lucide/svelte';
-  import { layers, lockScroll, trapFocus } from '../keys';
+  import { layers, lockScroll, pageInert, trapFocus } from '../keys';
   import IconButton from './IconButton.svelte';
 
   interface Props {
@@ -13,6 +13,8 @@
     title: string;
     description?: string;
     width?: 'sm' | 'md' | 'lg';
+    /** Drop the body padding, for lists that draw their own full-width rows. */
+    flush?: boolean;
     onclose?: () => void;
     footer?: Snippet;
     class?: string;
@@ -24,6 +26,7 @@
     title,
     description,
     width = 'md',
+    flush = false,
     onclose,
     footer,
     class: className = '',
@@ -39,20 +42,25 @@
     onclose?.();
   }
 
+  let backdrop = $state<HTMLDivElement | null>(null);
+
   $effect(() => {
     if (!open) return;
     const layer = layers.push('drawer', close);
     const unlock = lockScroll();
+    const uninert = pageInert(backdrop);
     return () => {
       layers.remove(layer);
       unlock();
+      uninert();
     };
   });
 </script>
 
 {#if open}
-  <div class="backdrop">
-    <button type="button" class="scrim" tabindex="-1" aria-hidden="true" onclick={close}></button>
+  <div class="backdrop" bind:this={backdrop}>
+    <!-- A div, not a focusable-but-aria-hidden button. See Dialog.svelte. -->
+    <div class="scrim" aria-hidden="true" onclick={close}></div>
     <div
       class="panel {width} {className}"
       role="dialog"
@@ -68,7 +76,7 @@
         </div>
         <IconButton icon={X} label="Close" size="sm" onclick={close} />
       </header>
-      <div class="body">{@render children()}</div>
+      <div class="body" class:flush>{@render children()}</div>
       {#if footer}<footer>{@render footer()}</footer>{/if}
     </div>
   </div>
@@ -99,7 +107,7 @@
     flex-direction: column;
     width: 100%;
     height: 100%;
-    border-left: 1px solid var(--z-border);
+    border-left: var(--z-border-width) solid var(--z-border);
     background: var(--z-surface);
     box-shadow: var(--z-shadow-lg);
     animation: slide var(--z-motion-slow) var(--z-ease);
@@ -108,13 +116,13 @@
     outline: none;
   }
   .sm {
-    max-width: 360px;
+    max-width: var(--z-width-drawer-sm);
   }
   .md {
-    max-width: 520px;
+    max-width: var(--z-width-drawer-md);
   }
   .lg {
-    max-width: 760px;
+    max-width: var(--z-width-drawer-lg);
   }
   header {
     display: flex;
@@ -122,7 +130,7 @@
     justify-content: space-between;
     gap: var(--z-space-4);
     padding: var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   h2 {
     margin: 0;
@@ -139,16 +147,19 @@
     padding: var(--z-space-5);
     overflow-y: auto;
   }
+  .body.flush {
+    padding: 0;
+  }
   footer {
     display: flex;
     justify-content: flex-end;
     gap: var(--z-space-2);
     padding: var(--z-space-4) var(--z-space-5);
-    border-top: 1px solid var(--z-border);
+    border-top: var(--z-border-width) solid var(--z-border);
   }
   @keyframes slide {
     from {
-      transform: translateX(16px);
+      transform: translateX(var(--z-space-4));
       opacity: 0;
     }
   }

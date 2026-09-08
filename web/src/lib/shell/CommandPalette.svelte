@@ -8,6 +8,7 @@
 <script lang="ts">
   import {
     Boxes,
+    ChartNoAxesCombined,
     CircleSlash,
     GitPullRequestArrow,
     HardDrive,
@@ -21,16 +22,19 @@
     Search,
     Server,
     Settings,
+    TriangleAlert,
   } from '@lucide/svelte';
   import type { LucideIcon } from '@lucide/svelte';
   import { cordonHost, drainRunner } from '../api/client';
   import { layers, trapFocus } from '../keys';
   import { router } from '../router';
   import { fleet } from '../state/fleet.svelte';
+  import { notifications } from '../state/notifications.svelte';
   import { refresh } from '../state/refresh.svelte';
   import { session } from '../state/session.svelte';
   import { theme } from '../state/theme.svelte';
   import { toasts } from '../state/toasts.svelte';
+  import { pluralise } from '../format';
   import { runnerStatus } from '../status';
   import EmptyState from '../components/EmptyState.svelte';
   import Logo from '../components/Logo.svelte';
@@ -94,6 +98,13 @@
         run: () => router.navigate('/jobs'),
       },
       {
+        id: 'go-usage',
+        group: 'Go to',
+        label: 'Usage',
+        icon: ChartNoAxesCombined,
+        run: () => router.navigate('/usage'),
+      },
+      {
         id: 'go-hosts',
         group: 'Go to',
         label: 'Hosts',
@@ -129,6 +140,17 @@
         run: () => router.navigate('/settings'),
       },
       {
+        id: 'problems',
+        group: 'Action',
+        label: 'Show problems',
+        detail:
+          notifications.active.length === 0
+            ? 'nothing needs your attention'
+            : pluralise(notifications.active.length, 'problem'),
+        icon: TriangleAlert,
+        run: () => (notifications.open = true),
+      },
+      {
         id: 'theme',
         group: 'Action',
         label: 'Switch the theme',
@@ -152,13 +174,32 @@
     }
 
     if (canOperate) {
-      out.push({
-        id: 'create-pool',
-        group: 'Action',
-        label: 'Create a pool',
-        icon: Plus,
-        run: () => router.navigate('/pools/new'),
-      });
+      // The three things a fresh controller needs doing, in the order it needs
+      // them. The palette advertises itself as the fastest path to everything,
+      // and on a new install the only action it offered was the second step.
+      out.push(
+        {
+          id: 'connect-github',
+          group: 'Action',
+          label: 'Connect GitHub',
+          icon: Plug,
+          run: () => router.navigate('/installations'),
+        },
+        {
+          id: 'add-host',
+          group: 'Action',
+          label: 'Add a host',
+          icon: HardDrive,
+          run: () => router.navigate('/hosts/new'),
+        },
+        {
+          id: 'create-pool',
+          group: 'Action',
+          label: 'Create a pool',
+          icon: Plus,
+          run: () => router.navigate('/pools/new'),
+        },
+      );
     }
 
     for (const pool of fleet.pools.slice(0, ENTITY_LIMIT)) {
@@ -272,7 +313,11 @@
   });
 
   $effect(() => {
-    // Reading `results` keeps the highlight inside the list as it narrows.
+    // Reading `results` keeps the highlight inside the list as it narrows --
+    // but only while the palette is on screen. Unguarded, this effect read the
+    // whole command list on every fleet change, and the list is derived from
+    // every pool, host and route in the product.
+    if (!open) return;
     if (active >= results.length) active = Math.max(0, results.length - 1);
   });
 
@@ -326,13 +371,13 @@
 
 {#if open}
   <div class="backdrop">
-    <button
-      type="button"
-      class="scrim"
-      tabindex="-1"
-      aria-hidden="true"
-      onclick={() => (open = false)}
-    ></button>
+    <!--
+      A plain element, as in Dialog: a <button> that is aria-hidden is a
+      focusable thing the accessibility tree has been told does not exist, and
+      the keyboard already has two ways out -- Escape, and tabbing inside the
+      trap to the palette's own controls.
+    -->
+    <div class="scrim" aria-hidden="true" onclick={() => (open = false)}></div>
     <div class="palette" role="dialog" aria-modal="true" aria-label="Command palette" use:trapFocus>
       <div class="search">
         <Search size={15} aria-hidden="true" />
@@ -391,7 +436,7 @@
         <span><kbd>Esc</kbd> to close</span>
         <!-- The palette floats clear of the page, so it is the one surface that
              has to say for itself whose it is. -->
-        <span class="brand"><Logo variant="mark" size={14} label="" /> Zoomies</span>
+        <span class="brand"><Logo variant="mark" size={16} label="" /> Zoomies</span>
       </footer>
     </div>
   </div>
@@ -425,7 +470,7 @@
     width: 100%;
     max-width: 620px;
     max-height: 70vh;
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-lg);
     background: var(--z-surface-raised);
     box-shadow: var(--z-shadow-lg);
@@ -435,13 +480,24 @@
   .palette:focus {
     outline: none;
   }
+  /*
+    The search row carries the ring for the input inside it, because the input
+    is borderless by design and an outline on it would be drawn inside the
+    palette's rounded top corners. --z-focus-gap is overridden because this sits
+    on a raised surface, not on the page ground.
+  */
   .search {
     display: flex;
     align-items: center;
     gap: var(--z-space-3);
     padding: var(--z-space-3) var(--z-space-4);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
     color: var(--z-text-subtle);
+  }
+  .search:focus-within {
+    --z-focus-gap: var(--z-surface-raised);
+    box-shadow: var(--z-focus-ring);
+    border-radius: var(--z-radius-lg) var(--z-radius-lg) 0 0;
   }
   input {
     flex: 1;
@@ -486,7 +542,7 @@
     min-width: 62px;
     font-size: var(--z-text-2xs);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     color: var(--z-text-subtle);
   }
   .label {
@@ -506,7 +562,7 @@
     align-items: center;
     gap: var(--z-space-4);
     padding: var(--z-space-2) var(--z-space-4);
-    border-top: 1px solid var(--z-border);
+    border-top: var(--z-border-width) solid var(--z-border);
     background: var(--z-surface-sunken);
     font-size: var(--z-text-2xs);
     color: var(--z-text-subtle);
@@ -519,7 +575,7 @@
     font-weight: var(--z-weight-semibold);
     color: var(--z-text-muted);
   }
-  @media (max-width: 560px) {
+  @media (max-width: 768px) {
     /* The three key hints are the working part of this bar; the signature is
        the first thing to go when the row stops fitting. */
     .brand {
@@ -527,9 +583,9 @@
     }
   }
   kbd {
-    margin-right: 2px;
+    margin-right: var(--z-nudge-2);
     padding: 0 var(--z-space-1);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface);
     font-family: var(--z-font-mono);

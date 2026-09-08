@@ -13,11 +13,27 @@
 #   ZOOMIES_RUNNER_GROUP   runner group name
 #   ZOOMIES_EPHEMERAL      "true" to pass --ephemeral
 #
+# The image also bakes in what platform it is, which the startup line prints:
+#
+#   ZOOMIES_RUNNER_OS          the distribution this image was built from
+#   ZOOMIES_RUNNER_OS_VERSION  its release
+#   ZOOMIES_RUNNER_VERSION     the actions/runner release it carries
+#
+# A pool with a docker_mode also gets DOCKER_HOST, pointing at a
+# docker-in-docker sidecar or at the host's mounted socket:
+#
+#   ZOOMIES_DOCKER_WAIT    seconds to wait for that daemon (default 30)
+#
 set -euo pipefail
 
 cd /home/runner
 
 log() { printf '%s zoomies-runner: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+
+# Say what this image is before doing anything else. A pool pointed at the
+# wrong variant is otherwise only discovered when a job fails on a missing
+# package, several minutes and one confusing log later.
+log "image: ${ZOOMIES_RUNNER_OS:-unknown} ${ZOOMIES_RUNNER_OS_VERSION:-} on $(uname -m), actions/runner ${ZOOMIES_RUNNER_VERSION:-unknown}"
 
 # The runner treats SIGINT as "finish the current job, then exit", which is
 # exactly what a Zoomies drain means. Forward it rather than letting the shell
@@ -32,6 +48,53 @@ forward() {
 }
 trap 'forward INT'  INT
 trap 'forward TERM' TERM
+
+# A pool whose docker_mode is dind or host-socket hands the runner a daemon and
+# nothing else. If the image has no client, every step that shells out to docker
+# dies with "Unable to locate executable file: docker" -- an error that names the
+# missing binary and not the reason, halfway through somebody's workflow. Say the
+# reason here instead, in the log the operator already downloads.
+if [ -n "${DOCKER_HOST:-}" ] || [ -S /var/run/docker.sock ]; then
+  if ! command -v docker >/dev/null 2>&1; then
+    log "this pool provides a docker daemon, but this image has no docker client,"
+    log "so jobs that run docker, buildx or compose will fail on it."
+    log "a current controller switches a pool on the stock runner image to"
+    log "ghcr.io/eyupio/zoomies-runner-docker when it asks for a daemon; if this is"
+    log "the stock image, upgrade the controller or set that image on the pool."
+    log "an image of your own needs docker-ce-cli installed in it."
+  fi
+fi
+
+# The other half of that contract: the backend waits for the sidecar *container*
+# to be running, and leaves waiting for dockerd inside it to this script, since
+# only the image knows when its first docker command runs. Absorb the daemon's
+# boot here, before GitHub can hand this runner a job, rather than letting a
+# workflow's first docker step race it and fail with "Cannot connect to the
+# Docker daemon".
+#
+# A daemon that never answers is not fatal. The runner still takes jobs that do
+# not touch Docker, and one that does gets the client's own error, which says
+# more than anything this script could invent.
+wait_for_docker() {
+  local waited=0
+  local limit=${ZOOMIES_DOCKER_WAIT:-30}
+  while [ "$waited" -lt "$limit" ]; do
+    if docker version >/dev/null 2>&1; then
+      [ "$waited" -gt 0 ] && log "the docker daemon answered after ${waited}s"
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  log "warning: no docker daemon answered at ${DOCKER_HOST:-/var/run/docker.sock} within ${limit}s."
+  log "jobs that run docker will fail until it comes up."
+}
+
+if [ -n "${DOCKER_HOST:-}" ] || [ -S /var/run/docker.sock ]; then
+  if command -v docker >/dev/null 2>&1; then
+    wait_for_docker
+  fi
+fi
 
 if [ -n "${ZOOMIES_JITCONFIG:-}" ]; then
   log "starting with a just-in-time configuration (ephemeral, single use)"
@@ -55,12 +118,16 @@ elif [ -n "${ZOOMIES_RUNNER_TOKEN:-}" ]; then
 
   ./config.sh "${args[@]}"
 
-  # Deregister on the way out so a crashed container does not leave a ghost
-  # runner in the GitHub UI. Ephemeral runners deregister themselves, so this
-  # only matters on the persistent path.
+  # Best effort, and only that: a registration token expires an hour after it
+  # was minted, so this succeeds for a runner that lived less than an hour and
+  # quietly fails for one that lived longer. What actually keeps the GitHub
+  # runner list clean is the controller, which deletes a persistent runner's
+  # registration by name when it removes the runner, and whose reaper deletes
+  # any offline registration of a runner it knows to be gone. Ephemeral
+  # runners deregister themselves.
   # shellcheck disable=SC2317  # invoked by trap, which shellcheck cannot see
   cleanup() {
-    log "removing this runner's registration"
+    log "removing this runner's registration, if the token is still good"
     ./config.sh remove --token "${ZOOMIES_RUNNER_TOKEN}" >/dev/null 2>&1 || true
   }
   trap cleanup EXIT

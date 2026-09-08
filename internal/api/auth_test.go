@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,7 @@ func TestBootstrapCreatesTheFirstAdmin(t *testing.T) {
 
 	resp := h.do(request{method: http.MethodPost, path: "/api/v1/auth/bootstrap", body: map[string]any{
 		"username": "root", "password": testPassword, "email": "root@example.com",
+		"setup_token": h.setupToken(),
 	}})
 	resp.mustStatus(t, http.StatusCreated, "bootstrap")
 
@@ -44,7 +46,7 @@ func TestBootstrapCreatesTheFirstAdmin(t *testing.T) {
 	session.mustStatus(t, http.StatusOK, "session after bootstrap")
 
 	again := h.do(request{method: http.MethodPost, path: "/api/v1/auth/bootstrap", body: map[string]any{
-		"username": "second", "password": testPassword,
+		"username": "second", "password": testPassword, "setup_token": h.setupToken(),
 	}})
 	again.mustStatus(t, http.StatusConflict, "second bootstrap")
 	if code := again.errorCode(t); code != codeConflict {
@@ -61,7 +63,7 @@ func TestBootstrapCreatesTheFirstAdmin(t *testing.T) {
 func TestBootstrapRejectsAShortPassword(t *testing.T) {
 	h := newHarness(t)
 	resp := h.do(request{method: http.MethodPost, path: "/api/v1/auth/bootstrap", body: map[string]any{
-		"username": "root", "password": "short",
+		"username": "root", "password": "short", "setup_token": h.setupToken(),
 	}})
 	resp.mustStatus(t, http.StatusUnprocessableEntity, "bootstrap with a short password")
 
@@ -142,6 +144,12 @@ func TestLoginIsRateLimited(t *testing.T) {
 	last.mustStatus(t, http.StatusTooManyRequests, "login after too many attempts")
 	if code := last.errorCode(t); code != codeRateLimited {
 		t.Errorf("error code = %q, want %q", code, codeRateLimited)
+	}
+	// The helper always promised the header and the handler always passed
+	// zero, so a client that honoured it retried immediately.
+	secs, err := strconv.Atoi(last.header.Get("Retry-After"))
+	if err != nil || secs <= 0 || secs > 60 {
+		t.Errorf("Retry-After = %q, want the seconds left of the one-minute window", last.header.Get("Retry-After"))
 	}
 }
 
@@ -252,6 +260,62 @@ func TestCSRF(t *testing.T) {
 	read.mustStatus(t, http.StatusOK, "cross-origin GET")
 }
 
+// TestCSRFRefusesACrossOriginLogin covers the one claim the csrf middleware's
+// own doc comment makes and nothing asserted: the check runs on the whole
+// /api/v1 subtree rather than only on cookie-authenticated routes, because a
+// login CSRF -- signing the victim into the attacker's account, so that
+// everything they then do is in a session the attacker can read -- is worth
+// refusing too. Scoping the middleware to authenticated routes would look like
+// a tidy-up and would silently reopen it.
+func TestCSRFRefusesACrossOriginLogin(t *testing.T) {
+	h := newHarness(t)
+	h.user("alice", store.RoleAdmin)
+
+	credentials := map[string]any{"username": "alice", "password": testPassword}
+
+	foreign := h.do(request{
+		method: http.MethodPost, path: "/api/v1/auth/login",
+		origin: "https://evil.example.com", body: credentials,
+	})
+	foreign.mustStatus(t, http.StatusForbidden, "login posted from a foreign origin")
+	if !strings.Contains(foreign.errorMessage(t), "evil.example.com") {
+		t.Errorf("the refusal does not name the origin: %q", foreign.errorMessage(t))
+	}
+	// The refusal has to happen before the credentials are checked, or a
+	// foreign page still learns whether the password was right -- and the
+	// cookie must not have been minted whatever the answer was.
+	if foreign.cookie != nil {
+		t.Errorf("a cross-origin login still set a session cookie: %+v", foreign.cookie)
+	}
+
+	// Bootstrap mints the first admin, so a forged one is worse still.
+	bootstrap := h.do(request{
+		method: http.MethodPost, path: "/api/v1/auth/bootstrap",
+		origin: "https://evil.example.com",
+		body:   map[string]any{"username": "mallory", "password": testPassword, "setup_token": "whatever"},
+	})
+	bootstrap.mustStatus(t, http.StatusForbidden, "bootstrap posted from a foreign origin")
+
+	// And the counterpart that keeps the check from being a blanket ban: a
+	// plain client with no browser headers and no cookie is not a forged
+	// request, it is curl, and it is about to be asked for credentials anyway.
+	headless := h.do(request{
+		method: http.MethodPost, path: "/api/v1/auth/login",
+		noOrigin: true, body: credentials,
+	})
+	if headless.status == http.StatusForbidden {
+		t.Fatalf("a non-browser login was refused as cross-origin: %s", truncate(headless.body))
+	}
+	headless.mustStatus(t, http.StatusOK, "non-browser login")
+
+	// The ordinary browser login from the controller's own page still works.
+	sameOrigin := h.do(request{method: http.MethodPost, path: "/api/v1/auth/login", body: credentials})
+	sameOrigin.mustStatus(t, http.StatusOK, "same-origin login")
+	if sameOrigin.cookie == nil {
+		t.Error("a same-origin login minted no session cookie")
+	}
+}
+
 func TestAllowedOriginsPermitsAConfiguredOrigin(t *testing.T) {
 	h := newHarness(t, func(c *config.Config) {
 		c.Server.AllowedOrigins = []string{"https://ops.example.com"}
@@ -308,4 +372,280 @@ func TestChangeOwnPassword(t *testing.T) {
 	old.mustStatus(t, http.StatusUnauthorized, "the old session after a password change")
 	fresh := h.do(request{method: http.MethodGet, path: "/api/v1/auth/session", cookie: ok.cookie.Value})
 	fresh.mustStatus(t, http.StatusOK, "the new session after a password change")
+}
+
+// ---------------------------------------------------------------------------
+// Single sign-on
+// ---------------------------------------------------------------------------
+
+// The OIDC state is minted server-side and remembered in a cookie on the
+// browser that began the handshake. Without that binding, a state an attacker
+// obtained by signing in as themselves is one this controller would accept from
+// anybody's browser -- and the victim would end up signed in as the attacker.
+//
+// The provider here is a bare value: Enabled() only asks whether there is one,
+// and the state check happens before anything touches it, which is the point.
+func TestOIDCCallbackRefusesAStateThisBrowserDidNotStart(t *testing.T) {
+	h := newHarness(t)
+	h.api.oidc = &auth.OIDCProvider{}
+
+	cases := []struct {
+		name   string
+		cookie string
+		state  string
+	}{
+		{name: "no cookie at all", state: "state-from-somewhere-else"},
+		{name: "a state from another browser", cookie: "ours", state: "theirs"},
+		{name: "a cookie but no state", cookie: "ours"},
+		{name: "neither"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := request{method: http.MethodGet, path: "/api/v1/auth/oidc/callback?code=abc&state=" + tc.state}
+			if tc.cookie != "" {
+				req.headers = map[string]string{"Cookie": oidcStateCookie + "=" + tc.cookie}
+			}
+			resp := h.do(req)
+			resp.mustStatus(t, http.StatusFound, "callback with "+tc.name)
+			if loc := resp.header.Get("Location"); !strings.HasPrefix(loc, "/login?error=") {
+				t.Fatalf("Location = %q; want a redirect back to the login page", loc)
+			}
+			if resp.cookie != nil && resp.cookie.Value != "" {
+				t.Fatal("a refused callback issued a session")
+			}
+		})
+	}
+}
+
+// Whatever the outcome, the state cookie is spent: leaving it in place would
+// let the same callback be replayed against this browser.
+func TestOIDCCallbackClearsTheStateCookie(t *testing.T) {
+	h := newHarness(t)
+	h.api.oidc = &auth.OIDCProvider{}
+
+	resp := h.do(request{
+		method:  http.MethodGet,
+		path:    "/api/v1/auth/oidc/callback?code=abc&state=theirs",
+		headers: map[string]string{"Cookie": oidcStateCookie + "=ours"},
+	})
+	resp.mustStatus(t, http.StatusFound, "refused callback")
+
+	var cleared bool
+	for _, c := range resp.header.Values("Set-Cookie") {
+		if strings.HasPrefix(c, oidcStateCookie+"=;") || strings.Contains(c, oidcStateCookie+"=;") {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Fatalf("the state cookie was not cleared: %v", resp.header.Values("Set-Cookie"))
+	}
+}
+
+// The bootstrap route has to be open on a fresh install and closed to everybody
+// who is not the operator, and "no account exists yet" does not tell those two
+// apart. The setup token does: it is printed in this controller's log, so
+// holding it means having deployed the thing.
+func TestBootstrapNeedsTheSetupToken(t *testing.T) {
+	h := newHarness(t)
+
+	cases := []struct {
+		name string
+		body map[string]any
+	}{
+		{name: "no token at all", body: map[string]any{"username": "root", "password": testPassword}},
+		{name: "an empty token", body: map[string]any{"username": "root", "password": testPassword, "setup_token": "  "}},
+		{name: "somebody else's guess", body: map[string]any{"username": "root", "password": testPassword, "setup_token": "zoo-not-the-token"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := h.do(request{method: http.MethodPost, path: "/api/v1/auth/bootstrap", body: tc.body})
+			resp.mustStatus(t, http.StatusUnprocessableEntity, "bootstrap with "+tc.name)
+
+			var env errorEnvelope
+			resp.into(t, &env)
+			if len(env.Errors) == 0 || env.Errors[0].Field != "setup_token" {
+				t.Fatalf("expected a field error on setup_token, got %+v", env)
+			}
+			if resp.cookie != nil && resp.cookie.Value != "" {
+				t.Fatal("a refused bootstrap issued a session")
+			}
+		})
+	}
+
+	// Nothing was created, so the instance is still waiting for its first
+	// account rather than quietly belonging to whoever tried.
+	if meta := h.do(request{method: http.MethodGet, path: "/api/v1/meta"}); meta.json(t)["bootstrap_required"] != true {
+		t.Fatal("a refused bootstrap created an account")
+	}
+	users, err := h.st.ListUsers(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(users) != 0 {
+		t.Fatalf("accounts = %d after refused bootstraps; want none", len(users))
+	}
+}
+
+// The compose deployment is https on the outside and plain http inside, and an
+// operator checking the container by IP before DNS exists would otherwise
+// create the one administrator and lose the session in the same second: the
+// browser will not keep a Secure cookie from an insecure page, and the endpoint
+// that made the account has closed for good. The browser's Origin is the one
+// fact that says which page the request came from.
+func TestBootstrapRefusesAPageThatWouldDropTheSecureCookie(t *testing.T) {
+	secure := true
+	h := newHarness(t, func(c *config.Config) {
+		c.Server.ExternalURL = "https://zoomies.test"
+		c.Server.AllowedOrigins = []string{"http://10.0.0.5"}
+		c.Security.CookieSecure = &secure
+	})
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/auth/bootstrap", origin: "http://10.0.0.5",
+		body: map[string]any{"username": "root", "password": testPassword, "setup_token": h.setupToken()}})
+	resp.mustStatus(t, http.StatusBadRequest, "bootstrap from a plain-http page")
+	for _, want := range []string{"http://10.0.0.5", "https://zoomies.test", "Secure", "ZOOMIES_COOKIE_SECURE=false"} {
+		if !strings.Contains(resp.errorMessage(t), want) {
+			t.Errorf("the refusal does not say %q: %s", want, resp.errorMessage(t))
+		}
+	}
+
+	// Nothing was created by the refused request: the same account can still
+	// be made from the https page.
+	ok := h.do(request{method: http.MethodPost, path: "/api/v1/auth/bootstrap", origin: "https://zoomies.test",
+		body: map[string]any{"username": "root", "password": testPassword, "setup_token": h.setupToken()}})
+	ok.mustStatus(t, http.StatusCreated, "bootstrap from the https page")
+	if ok.cookie == nil || !ok.cookie.Secure {
+		t.Fatal("the session cookie from the https page is not Secure")
+	}
+}
+
+// Login gets the same refusal, and a loopback page does not: browsers treat
+// localhost as a secure context and keep the cookie there, which is how a
+// developer runs this over plain http on purpose.
+func TestLoginRefusesAPageThatWouldDropTheSecureCookieButNotLocalhost(t *testing.T) {
+	secure := true
+	h := newHarness(t, func(c *config.Config) {
+		c.Server.ExternalURL = "https://zoomies.test"
+		c.Server.AllowedOrigins = []string{"http://10.0.0.5", "http://localhost:8080"}
+		c.Security.CookieSecure = &secure
+	})
+	h.user("alice", store.RoleAdmin)
+
+	refused := h.do(request{method: http.MethodPost, path: "/api/v1/auth/login", origin: "http://10.0.0.5",
+		body: map[string]any{"username": "alice", "password": testPassword}})
+	refused.mustStatus(t, http.StatusBadRequest, "login from a plain-http page")
+
+	local := h.do(request{method: http.MethodPost, path: "/api/v1/auth/login", origin: "http://localhost:8080",
+		body: map[string]any{"username": "alice", "password": testPassword}})
+	local.mustStatus(t, http.StatusOK, "login from localhost")
+}
+
+// A database that stops answering used to come back through the anonymous
+// routes as a 422 quoting the driver's error, as though the caller had typed
+// something wrong; it never reached the error log either, because the 422
+// path does not log. The cause belongs in the log and the caller gets a
+// request ID to quote.
+func TestDatabaseFailuresAreInternalErrorsNotValidationMessages(t *testing.T) {
+	h := newHarness(t)
+	if err := h.st.Close(); err != nil {
+		t.Fatalf("closing the store: %v", err)
+	}
+
+	boot := h.do(request{method: http.MethodPost, path: "/api/v1/auth/bootstrap", body: map[string]any{
+		"username": "root", "password": testPassword, "setup_token": h.setupToken(),
+	}})
+	boot.mustStatus(t, http.StatusInternalServerError, "bootstrap against a closed database")
+	if msg := boot.errorMessage(t); strings.Contains(strings.ToLower(msg), "sql") || strings.Contains(msg, "closed") {
+		t.Fatalf("the database error reached an anonymous caller: %q", msg)
+	}
+
+	ready := h.do(request{method: http.MethodGet, path: "/readyz"})
+	ready.mustStatus(t, http.StatusServiceUnavailable, "readiness against a closed database")
+	body := ready.json(t)
+	if msg, _ := body["message"].(string); strings.Contains(strings.ToLower(msg), "sql") || strings.Contains(msg, "closed") {
+		t.Fatalf("the readiness probe quoted the database error: %q", msg)
+	}
+}
+
+// TestForwardedProtoIsBelievedOnlyFromATrustedProxy is the header's side of the
+// rule X-Forwarded-For has always followed.
+//
+// The scheme is not decoration. It decides whether an https:// Origin counts as
+// this controller's own -- which is a CSRF check -- and whether the response
+// carries HSTS. Believing a header any client can set let a caller choose the
+// answer to both.
+func TestForwardedProtoIsBelievedOnlyFromATrustedProxy(t *testing.T) {
+	// The harness's requests come from loopback, so a loopback CIDR is what
+	// makes this test server "behind a proxy".
+	const loopback = "127.0.0.0/8"
+
+	secureOrigin := func(h *harness) string {
+		return "https://" + strings.TrimPrefix(h.srv.URL, "http://")
+	}
+
+	t.Run("a forged header does not make an https origin same-origin", func(t *testing.T) {
+		h := newHarness(t)
+		u, _ := h.user("operator", store.RoleOperator)
+
+		resp := h.do(request{
+			method: http.MethodPost, path: "/api/v1/pools/validate",
+			cookie: h.session(u), origin: secureOrigin(h),
+			headers: map[string]string{"X-Forwarded-Proto": "https"},
+			body:    map[string]any{"name": "x"},
+		})
+		resp.mustStatus(t, http.StatusForbidden, "a cookie POST claiming https over a plain connection")
+	})
+
+	t.Run("the same header from a trusted proxy is believed", func(t *testing.T) {
+		h := newHarness(t, func(c *config.Config) {
+			c.Server.TrustedProxies = []string{loopback}
+		})
+		u, _ := h.user("operator", store.RoleOperator)
+
+		resp := h.do(request{
+			method: http.MethodPost, path: "/api/v1/pools/validate",
+			cookie: h.session(u), origin: secureOrigin(h),
+			headers: map[string]string{"X-Forwarded-Proto": "https"},
+			body:    map[string]any{"name": "x"},
+		})
+		if resp.status == http.StatusForbidden {
+			t.Fatalf("a request through a configured proxy was refused: %s", truncate(resp.body))
+		}
+	})
+
+	t.Run("HSTS is not emitted because a client asked for it", func(t *testing.T) {
+		h := newHarness(t)
+		resp := h.do(request{method: http.MethodGet, path: "/api/v1/meta",
+			headers: map[string]string{"X-Forwarded-Proto": "https"}})
+		if got := resp.header.Get("Strict-Transport-Security"); got != "" {
+			t.Errorf("Strict-Transport-Security = %q on a plain connection; anyone who can reach "+
+				"the listener could pin this host in a browser for a year", got)
+		}
+	})
+
+	t.Run("HSTS is emitted behind a proxy that terminates TLS", func(t *testing.T) {
+		h := newHarness(t, func(c *config.Config) {
+			c.Server.TrustedProxies = []string{loopback}
+		})
+		resp := h.do(request{method: http.MethodGet, path: "/api/v1/meta",
+			headers: map[string]string{"X-Forwarded-Proto": "https"}})
+		if got := resp.header.Get("Strict-Transport-Security"); got == "" {
+			t.Error("no Strict-Transport-Security behind a configured TLS-terminating proxy, " +
+				"which is the deployment the header exists for")
+		}
+	})
+
+	// A chain appends, and the entries after the first are hops inside the
+	// operator's own network. The client's own scheme is the left-most one, so
+	// a plain request that crossed an internal TLS hop is still plain.
+	t.Run("a chain is read left to right", func(t *testing.T) {
+		h := newHarness(t, func(c *config.Config) {
+			c.Server.TrustedProxies = []string{loopback}
+		})
+		resp := h.do(request{method: http.MethodGet, path: "/api/v1/meta",
+			headers: map[string]string{"X-Forwarded-Proto": "http, https"}})
+		if got := resp.header.Get("Strict-Transport-Security"); got != "" {
+			t.Errorf("Strict-Transport-Security = %q, though the client reached the first proxy over http", got)
+		}
+	})
 }

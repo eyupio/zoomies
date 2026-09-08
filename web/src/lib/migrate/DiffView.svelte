@@ -61,7 +61,7 @@
     max-height: 22rem;
     overflow: auto;
     padding: var(--z-space-2) 0;
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface-sunken);
     font-family: var(--z-font-mono);
@@ -73,8 +73,8 @@
     margin: 0;
   }
   .diff:focus-visible {
-    outline: 2px solid var(--z-accent);
-    outline-offset: 1px;
+    outline: var(--z-focus-width) solid var(--z-focus-colour);
+    outline-offset: var(--z-border-width);
   }
   .line {
     display: block;

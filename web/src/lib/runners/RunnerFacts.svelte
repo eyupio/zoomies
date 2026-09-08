@@ -45,8 +45,13 @@
   </div>
 
   <div class="row">
-    <dt>Image</dt>
+    <dt>Requested image</dt>
     <dd class="mono break">{runner.image || '--'}</dd>
+  </div>
+
+  <div class="row">
+    <dt>Resolved digest</dt>
+    <dd class="mono break">{runner.image_digest || 'Not reported'}</dd>
   </div>
 
   <div class="row">
@@ -128,6 +133,19 @@
       <dd><RelativeTime value={runner.finished_at} /></dd>
     </div>
   {/if}
+
+  <!--
+    Cleaned up is a different fact from finished, and the gap between them is
+    the interesting part: finished is when the runner stopped working, cleaned
+    up is when nothing of it was left. A terminal runner with no cleaned-up
+    time has something still on a host or on GitHub.
+  -->
+  {#if runner.cleaned_up_at}
+    <div class="row">
+      <dt>Cleaned up</dt>
+      <dd><RelativeTime value={runner.cleaned_up_at} /></dd>
+    </div>
+  {/if}
 </dl>
 
 <style>
@@ -147,7 +165,7 @@
     font-size: var(--z-text-2xs);
     font-weight: var(--z-weight-medium);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     color: var(--z-text-subtle);
   }
   dd {
@@ -184,7 +202,7 @@
   }
   .labels li {
     padding: 0 var(--z-space-2);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     font-size: var(--z-text-2xs);

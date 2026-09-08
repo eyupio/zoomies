@@ -1,18 +1,23 @@
 <!--
-  The Zoomies mark and wordmark.
+  The Zoomies logo system.
 
-  Two different techniques, for a reason each:
+  The v2.1 hierarchy is deliberate, and it has four rungs rather than three:
 
-  * The mark is monochrome line art with white outlines, drawn to sit on a dark
-    ground. Only about two per cent of its pixels are fully opaque -- it is
-    outlines, not a silhouette -- so recolouring or inverting it does not work.
-    The brand guide sanctions the white knockout over a dark surface, so that is
-    what this does: the supplied asset on a small Zoomies Black chip. One asset,
-    correct in both themes, legible at 24px, circular shape intact.
+  * lockup is the unchanged primary full logo, never below 220px wide, and
+    given real room on the screens where it is the only thing on the page;
+  * mark at 128px and above is the original circular dog, the primary
+    standalone mark, at the guide's minimum size for it;
+  * mark from 48px is the secondary head/swish;
+  * mark below 48px is the paw/swish, the official smallest-size shorthand.
 
-  * The wordmark IS a solid shape, so it is applied as a CSS mask over
-    `currentColor`. That gives a crisp, correctly themed wordmark from a single
-    white PNG, instead of shipping a light and a dark copy and swapping them.
+  The circular dog is the rung this component used to skip, which left the one
+  slot with room for it -- Settings -> About -- showing the head/swish instead.
+  That matters beyond preference: the head/swish is a restored reconstruction
+  (see ASSET_MANIFEST.json), so it was the only standalone mark in the product
+  that is not approved source artwork.
+
+  All artwork is the supplied white reverse on Zoomies Black. Nothing is
+  recoloured, cropped or reconstructed in CSS.
 
   See docs/brand.md.
 -->
@@ -29,15 +34,21 @@
 
   const { variant = 'full', size = 24, label = 'Zoomies', class: klass = '' }: Props = $props();
 
-  // The lock-up uses the full wordmark, which carries the descriptor line; the
-  // nav uses the compact one, where that line would be too small to read.
-  const wordmarkSrc = $derived(
-    variant === 'lockup' ? '/brand/wordmark-white.png' : '/brand/wordmark-compact-white.png',
+  const markSrc = $derived(
+    size >= 128
+      ? '/brand/mark-white.png'
+      : size >= 48
+        ? '/brand/head-swish-white.png'
+        : '/brand/paw-swish-white.png',
   );
-  const wordmarkRatio = $derived(variant === 'lockup' ? 320 / 82 : 260 / 44);
-  const wordHeight = $derived(
-    variant === 'lockup' ? Math.round(size * 0.34) : Math.round(size * 0.62),
+  /* Only the circular dog has a 2x copy; the others are drawn far larger than
+     they are ever placed, so the browser already has pixels to spare. */
+  const markSrcset = $derived(
+    size >= 128 ? '/brand/mark-white.png 1x, /brand/mark-white@2x.png 2x' : undefined,
   );
+  const wordmarkRatio = 975 / 250;
+  const wordHeight = $derived(Math.round(size * 0.62));
+  const lockupWidth = $derived(Math.max(220, Math.round(size * 3.1)));
 </script>
 
 <span
@@ -46,23 +57,27 @@
   aria-label={label || undefined}
   aria-hidden={label ? undefined : 'true'}
 >
-  {#if variant !== 'wordmark'}
-    <span class="chip" style="--chip: {size}px">
+  {#if variant === 'lockup'}
+    <span class="lockup-frame" style="--lockup-width: {lockupWidth}px">
       <img
-        src="/brand/mark-white.png"
-        srcset="/brand/mark-white.png 1x, /brand/mark-white@2x.png 2x"
-        width={size}
-        height={size}
+        class="primary"
+        src="/brand/logo-white.png"
+        width={lockupWidth}
+        height={lockupWidth}
         alt=""
         decoding="async"
       />
     </span>
+  {:else if variant !== 'wordmark'}
+    <span class="chip" style="--chip: {size}px">
+      <img src={markSrc} srcset={markSrcset} width={size} height={size} alt="" decoding="async" />
+    </span>
   {/if}
 
-  {#if variant !== 'mark'}
+  {#if variant !== 'mark' && variant !== 'lockup'}
     <span
       class="wordmark"
-      style="--mark-src: url({wordmarkSrc}); --word-h: {wordHeight}px; --word-w: {Math.round(
+      style="--mark-src: url('/brand/wordmark-white.png'); --word-h: {wordHeight}px; --word-w: {Math.round(
         wordHeight * wordmarkRatio,
       )}px"
     ></span>
@@ -77,27 +92,40 @@
     color: var(--z-text);
     line-height: 0;
   }
+  /*
+    The frame is square and capped at the container rather than fixed, so asking
+    for a bigger lockup on a sign-in card cannot push the card wider than the
+    phone it is being read on. The artwork keeps its supplied padding -- the
+    brand guide forbids cropping it -- so the frame is deliberately larger than
+    the dog inside it.
+  */
   .logo.lockup {
-    flex-direction: column;
-    gap: var(--z-space-4);
+    display: flex;
+    width: 100%;
+    justify-content: center;
   }
-
+  .lockup-frame {
+    display: grid;
+    width: min(100%, var(--lockup-width));
+    aspect-ratio: 1;
+    place-items: center;
+    border-radius: var(--z-radius-lg);
+    background: var(--z-brand-black);
+  }
   .chip {
     display: inline-grid;
+    width: var(--chip);
+    height: var(--chip);
     place-items: center;
-    /* The mark's own artwork already carries generous internal margin, so the
-       chip only needs a hairline of breathing room around it. */
-    padding: calc(var(--chip) * 0.06);
     border-radius: var(--z-radius-md);
     background: var(--z-mark-chip);
   }
-  .logo.lockup .chip {
-    border-radius: var(--z-radius-lg);
-  }
+  .primary,
   .chip img {
     display: block;
-    width: var(--chip);
-    height: var(--chip);
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
   }
 
   /* The wordmark is a mask over currentColor, so it inherits the theme's text
@@ -115,9 +143,5 @@
     mask-size: contain;
     -webkit-mask-position: left center;
     mask-position: left center;
-  }
-  .logo.lockup .wordmark {
-    -webkit-mask-position: center;
-    mask-position: center;
   }
 </style>

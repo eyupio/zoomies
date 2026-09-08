@@ -1,7 +1,10 @@
 package controller
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -135,8 +138,8 @@ func TestUnansweredTasksAreRequeuedThenDropped(t *testing.T) {
 			t.Fatalf("attempt %d: took %d tasks, want 1", attempt, len(got))
 		}
 		requeued, dropped := q.sweep(now.Add(createLease + time.Minute))
-		if requeued != 1 || dropped != 0 {
-			t.Fatalf("attempt %d: requeued %d, dropped %d; want 1 and 0", attempt, requeued, dropped)
+		if requeued != 1 || len(dropped) != 0 {
+			t.Fatalf("attempt %d: requeued %d, dropped %d; want 1 and 0", attempt, requeued, len(dropped))
 		}
 	}
 
@@ -144,8 +147,8 @@ func TestUnansweredTasksAreRequeuedThenDropped(t *testing.T) {
 		t.Fatal("the final attempt was not offered")
 	}
 	requeued, dropped := q.sweep(now.Add(createLease + time.Minute))
-	if requeued != 0 || dropped != 1 {
-		t.Fatalf("requeued %d, dropped %d; want 0 and 1 after %d attempts", requeued, dropped, maxTaskAttempts)
+	if requeued != 0 || len(dropped) != 1 {
+		t.Fatalf("requeued %d, dropped %d; want 0 and 1 after %d attempts", requeued, len(dropped), maxTaskAttempts)
 	}
 }
 
@@ -159,8 +162,8 @@ func TestLogTasksAreNeverRequeued(t *testing.T) {
 	now := time.Now()
 	q.take(10, now)
 	requeued, dropped := q.sweep(now.Add(24 * time.Hour))
-	if requeued != 0 || dropped != 0 {
-		t.Fatalf("requeued %d, dropped %d; a log task should simply sit until its result arrives", requeued, dropped)
+	if requeued != 0 || len(dropped) != 0 {
+		t.Fatalf("requeued %d, dropped %d; a log task should simply sit until its result arrives", requeued, len(dropped))
 	}
 }
 
@@ -216,6 +219,177 @@ func TestAHostCannotReportOnAnotherHostsRunner(t *testing.T) {
 	}
 }
 
+// The task result is the other half of the same rule, and the stricter half:
+// a runner report that names somebody else's runner is dropped with a warning,
+// but a result carries a state transition, a container handle and a startup
+// timing, so the wrong host being believed here would rewrite another machine's
+// accounting. The check exists; until now only the report path had a test, so
+// deleting it would have gone unnoticed.
+func TestAHostCannotReportATaskResultForAnotherHostsRunner(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	other := h.host("vm-2")
+	r := h.runnerRow(pool, host, store.RunnerRegistering)
+
+	err := h.c.ReportResult(h.ctx, other.ID, agent.TaskResult{
+		TaskID:   "tsk_whatever",
+		Kind:     agent.TaskCreateRunner,
+		RunnerID: r.ID,
+		OK:       false,
+		State:    store.RunnerFailed,
+		Error:    "a failure this host did not witness",
+		Handle:   "container-the-intruder-picked",
+	})
+	if err == nil {
+		t.Fatal("a result for another host's runner was accepted")
+	}
+	// The message names both hosts and the runner: an operator reading it has
+	// to be able to tell which machine is confused about what.
+	for _, want := range []string{other.ID, host.ID, r.ID} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not name %q: %v", want, err)
+		}
+	}
+
+	after, err := h.st.GetRunner(h.ctx, r.ID)
+	if err != nil {
+		t.Fatalf("GetRunner: %v", err)
+	}
+	if after.State != store.RunnerRegistering {
+		t.Errorf("state = %q; a result from the wrong host moved a runner", after.State)
+	}
+	if after.ContainerID == "container-the-intruder-picked" {
+		t.Errorf("a result from the wrong host set the runner's workload handle to %q", after.ContainerID)
+	}
+	if after.Message != "" {
+		t.Errorf("message = %q; a result from the wrong host wrote onto a runner", after.Message)
+	}
+
+	// The owning host is still believed, so this is a refusal of the caller
+	// and not a runner that the attempt left unwritable.
+	if err := h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{
+		TaskID: "tsk_whatever", Kind: agent.TaskCreateRunner, RunnerID: r.ID,
+		OK: false, State: store.RunnerFailed, Error: "the real failure",
+	}); err != nil {
+		t.Fatalf("the owning host was refused after the intruder tried: %v", err)
+	}
+	owned, err := h.st.GetRunner(h.ctx, r.ID)
+	if err != nil {
+		t.Fatalf("GetRunner: %v", err)
+	}
+	if owned.State != store.RunnerFailed {
+		t.Errorf("state = %q, want the owning host's result to have been applied", owned.State)
+	}
+}
+
+// TestACreateTaskCarriesNoControllerSecret walks the whole task over the wire
+// the way an agent receives it.
+//
+// A task is the one thing the controller hands a machine it does not otherwise
+// trust: an agent may be a shared builder, an imported host, or somebody's
+// laptop. It has to carry the runner's own registration credential and nothing
+// else. The App private key would let the holder mint runners in every
+// repository the installation covers, and the webhook secret would let it forge
+// job events -- neither is anywhere near what running one job requires.
+//
+// The check is on the marshalled bytes rather than the struct, because a field
+// added to backend.Spec or backend.Credentials is a wire change whether or not
+// anyone reads it on the far side.
+func TestACreateTaskCarriesNoControllerSecret(t *testing.T) {
+	h := newHarness(t)
+
+	// Distinctive plaintexts, so a hit is a real leak rather than the word
+	// "test" occurring somewhere legitimate.
+	const (
+		appPrivateKey = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAtheAppKeyNobodyOutsideTheControllerMayHold\n-----END RSA PRIVATE KEY-----"
+		hookSecret    = "webhook-hmac-nobody-outside-the-controller-may-hold"
+	)
+	pem, err := h.key.SealString(appPrivateKey)
+	if err != nil {
+		t.Fatalf("sealing the private key: %v", err)
+	}
+	sealed, err := h.key.SealString(hookSecret)
+	if err != nil {
+		t.Fatalf("sealing the webhook secret: %v", err)
+	}
+	inst := &store.Installation{
+		AppID:            h.gh.AppID(),
+		InstallationID:   h.gh.InstallationID(),
+		Target:           "acme",
+		TargetType:       store.TargetOrg,
+		APIBaseURL:       h.gh.URL(),
+		PrivateKeyEnc:    pem,
+		WebhookSecretEnc: sealed,
+	}
+	if err := h.st.CreateInstallation(h.ctx, inst); err != nil {
+		t.Fatalf("CreateInstallation: %v", err)
+	}
+
+	pool := h.pool(inst, "linux-x64")
+	host := h.host("vm-1")
+
+	h.deliver("workflow_job", jobEvent{Action: "queued", JobID: 42,
+		Labels: []string{"self-hosted", "linux", "x64", "demo"}}.body(), hookSecret)
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	task := h.taskOfKind(host.ID, agent.TaskCreateRunner)
+	wire, err := json.Marshal(task)
+	if err != nil {
+		t.Fatalf("marshalling the task: %v", err)
+	}
+
+	// Searched over the decoded values rather than the raw bytes: JSON escapes
+	// a PEM's newlines and base64s a []byte, so a needle matched against the
+	// wire directly would quietly never match and the test would pass however
+	// badly the task leaked.
+	values := stringsIn(t, wire)
+	for _, secret := range []struct {
+		what  string
+		value string
+	}{
+		{"the App private key", appPrivateKey},
+		{"the webhook secret", hookSecret},
+	} {
+		for _, v := range values {
+			if strings.Contains(v, secret.value) {
+				t.Errorf("a create task carries %s in %q", secret.what, truncateValue(v))
+			}
+		}
+	}
+	// The sealed forms are checked against the raw bytes instead. A ciphertext
+	// is not valid UTF-8, so it cannot survive a JSON string field to be found
+	// among the values above -- but a []byte field added to the spec would
+	// marshal it as base64, and that is a task handing out something the
+	// instance key turns back into the plaintext, on an install where every
+	// agent has been given that key.
+	for _, secret := range []struct {
+		what  string
+		value []byte
+	}{
+		{"the sealed private key", pem},
+		{"the sealed webhook secret", sealed},
+	} {
+		if bytes.Contains(wire, secret.value) ||
+			bytes.Contains(wire, []byte(base64.StdEncoding.EncodeToString(secret.value))) {
+			t.Errorf("a create task carries %s on the wire", secret.what)
+		}
+	}
+
+	// And the task is not empty of credentials, or "carry nothing" would pass
+	// every assertion above while breaking every runner.
+	if task.Spec == nil {
+		t.Fatal("the create task carries no spec at all")
+	}
+	if task.Spec.Credentials.JITConfig == "" && task.Spec.Credentials.RegistrationToken == "" {
+		t.Fatalf("the create task carries no registration credential: %+v", task.Spec.Credentials)
+	}
+	if pool.Ephemeral && !bytes.Contains(wire, []byte(task.Spec.Credentials.JITConfig)) {
+		t.Fatal("the runner's own JIT configuration did not survive marshalling")
+	}
+}
+
 // A host going quiet is not a state anybody polls for: the flip publishes an
 // event and shows up in Problems.
 func TestSilentHostBecomesAProblem(t *testing.T) {
@@ -243,6 +417,146 @@ func contains(list []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// ---------------------------------------------------------------------------
+// Join: what a join token is and is not enough for
+// ---------------------------------------------------------------------------
+
+// joinToken mints one the way an operator would, with the labels and capacity
+// they chose for the host they are enrolling.
+func (h *harness) joinToken(t *testing.T, labels map[string]string, capacity int) string {
+	t.Helper()
+	_, plaintext, err := h.c.Auth().CreateJoinToken(h.ctx, time.Hour, labels, capacity, "usr_test")
+	if err != nil {
+		t.Fatalf("CreateJoinToken: %v", err)
+	}
+	return plaintext
+}
+
+func joinRequest(name, token string) agent.JoinRequest {
+	return agent.JoinRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		JoinToken:       token,
+		Name:            name,
+		Capacity:        1,
+		OS:              "linux",
+		Arch:            "amd64",
+		Backends:        []backend.Info{{Kind: store.BackendDocker, Available: true}},
+	}
+}
+
+// Host labels are what the scheduler matches a pool's host selector against, so
+// they decide which pools' work -- and which pools' runner registrations -- a
+// host is offered. The operator minting the join token chooses them; the agent
+// describing itself must not be able to overrule that choice.
+func TestJoinTokenLabelsBeatTheAgentsOwn(t *testing.T) {
+	h := newHarness(t)
+	token := h.joinToken(t, map[string]string{"tier": "untrusted", "site": "dc1"}, 0)
+
+	req := joinRequest("vm-9", token)
+	req.Labels = map[string]string{"tier": "release", "gpu": "yes"}
+
+	resp, err := h.c.Join(h.ctx, req, "10.0.0.9")
+	if err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	host, err := h.st.GetHost(h.ctx, resp.HostID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if host.Labels["tier"] != "untrusted" {
+		t.Errorf("tier = %q; the join token pinned it to untrusted", host.Labels["tier"])
+	}
+	if host.Labels["site"] != "dc1" {
+		t.Errorf("site = %q; the token's labels should all be applied", host.Labels["site"])
+	}
+	// Labels the token says nothing about are still the agent's to declare:
+	// the operator constrains, it does not have to enumerate.
+	if host.Labels["gpu"] != "yes" {
+		t.Errorf("gpu = %q; an agent may still describe what the token did not pin", host.Labels["gpu"])
+	}
+}
+
+// Re-joining by name destroys the previous host's runner records and inherits
+// its ID and cordon state. A join token is handed to whoever is enrolling a
+// machine, which is a wider circle than the admins who mint them, so it cannot
+// be enough on its own to take over a machine somebody else is running.
+func TestJoinWillNotTakeOverAnotherHostByName(t *testing.T) {
+	h := newHarness(t)
+	_, _, existing := h.fleet()
+
+	resp, err := h.c.Join(h.ctx, joinRequest(existing.Name, h.joinToken(t, nil, 0)), "10.0.0.7")
+	if err == nil {
+		t.Fatalf("a stranger took over host %q and got %+v", existing.Name, resp)
+	}
+	// The refusal has to say what to do about it, because a genuinely rebuilt
+	// machine whose credentials are gone lands here too.
+	for _, want := range []string{existing.ID, "hosts delete"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal should mention %q: %v", want, err)
+		}
+	}
+	// Nothing was touched: the row, its token and its runners are all intact.
+	after, err := h.st.GetHost(h.ctx, existing.ID)
+	if err != nil {
+		t.Fatalf("the existing host was deleted by a refused join: %v", err)
+	}
+	if after.TokenHash != existing.TokenHash {
+		t.Error("a refused join rotated the existing host's token")
+	}
+}
+
+// The machine itself is a different matter: it still holds the token it was
+// issued, and that is what a rebuild-in-place proves ownership with.
+func TestJoinReclaimsItsOwnHostWithThePreviousToken(t *testing.T) {
+	h := newHarness(t)
+
+	first, err := h.c.Join(h.ctx, joinRequest("vm-rebuilt", h.joinToken(t, nil, 0)), "10.0.0.3")
+	if err != nil {
+		t.Fatalf("first join: %v", err)
+	}
+
+	req := joinRequest("vm-rebuilt", h.joinToken(t, nil, 0))
+	req.PreviousToken = first.AgentToken
+	second, err := h.c.Join(h.ctx, req, "10.0.0.3")
+	if err != nil {
+		t.Fatalf("re-join with the previous token: %v", err)
+	}
+	if second.HostID != first.HostID {
+		t.Errorf("host ID = %s; a re-join should keep the row (%s) so audit rows and bookmarks resolve", second.HostID, first.HostID)
+	}
+	if second.AgentToken == first.AgentToken {
+		t.Error("a re-join should issue a fresh agent token")
+	}
+
+	// A wrong one proves nothing, even though a host of that name is this
+	// agent's own -- the token is the whole proof.
+	stale := joinRequest("vm-rebuilt", h.joinToken(t, nil, 0))
+	stale.PreviousToken = first.AgentToken
+	if _, err := h.c.Join(h.ctx, stale, "10.0.0.3"); err == nil {
+		t.Error("a superseded agent token was accepted as proof of ownership")
+	}
+}
+
+// The embedded agent is exempt: the caller is this same process, so there is no
+// remote identity to prove, and requiring one would stop a controller whose
+// state file was wiped from ever starting again.
+func TestEmbeddedJoinMayStillReclaimItsHost(t *testing.T) {
+	h := newHarness(t)
+	tr := h.c.EmbeddedTransport()
+
+	first, err := tr.Join(h.ctx, agent.JoinRequest{ProtocolVersion: agent.ProtocolVersion, Name: "embedded-1", Capacity: 1})
+	if err != nil {
+		t.Fatalf("first embedded join: %v", err)
+	}
+	second, err := tr.Join(h.ctx, agent.JoinRequest{ProtocolVersion: agent.ProtocolVersion, Name: "embedded-1", Capacity: 1})
+	if err != nil {
+		t.Fatalf("second embedded join with no credentials to show: %v", err)
+	}
+	if second.HostID != first.HostID {
+		t.Errorf("host ID = %s; want the same row (%s)", second.HostID, first.HostID)
+	}
 }
 
 // A host that came up before its container daemon joins with nothing usable,
@@ -425,4 +739,454 @@ func TestHeartbeatLeavesCapacityToTheOperator(t *testing.T) {
 	if after.LastHeartbeat.IsZero() {
 		t.Fatalf("last heartbeat was not recorded")
 	}
+}
+
+// A compose deployment joined under whatever hostname Docker gave its first
+// container, before the compose file set one, and kept that random name for
+// life: the identity is the persisted credential, so the row is renamed rather
+// than joined again. Unless something else already has the name.
+func TestAdoptingEmbeddedCredentialsRenamesTheHostToItsConfiguredName(t *testing.T) {
+	h := newHarness(t)
+	host := h.host("7096d9a9b798")
+
+	h.c.renameEmbeddedHost(h.ctx, host, "zoomies")
+	got, err := h.st.GetHost(h.ctx, host.ID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if got.Name != "zoomies" {
+		t.Fatalf("name = %q, want the configured one", got.Name)
+	}
+
+	// Two hosts called zoomies would be worse than one called by its
+	// container ID, so a name that is taken stays where it is.
+	other := h.host("build-box")
+	h.c.renameEmbeddedHost(h.ctx, other, "zoomies")
+	if got, _ := h.st.GetHost(h.ctx, other.ID); got.Name != "build-box" {
+		t.Fatalf("name = %q; a taken name must not be duplicated", got.Name)
+	}
+}
+
+// A host that has been silent past the grace is presumed gone, and the runners
+// recorded on it with it: until they are failed they count as capacity, so a
+// pool pinned at its maximum by a dead host would create nothing for ever
+// while looking healthy. The job a busy one was running is the fleet's
+// failure, and is marked as such.
+func TestRunnersOnAHostSilentPastTheGraceAreFailedAndTheirJobMarkedLost(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	host := h.host("vm-1")
+	idle := h.runnerRow(pool, host, store.RunnerIdle)
+	busy := h.runnerRow(pool, host, store.RunnerRegistering)
+	mustReportRunning(t, h, host.ID, busy.ID)
+	h.deliverJob(jobEvent{Action: "in_progress", JobID: 7007, Labels: []string{"linux-x64"}, RunnerName: busy.Name})
+
+	host.LastHeartbeat = time.Now().Add(-hostLostAfter - time.Minute)
+	if err := h.st.UpdateHost(h.ctx, host); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+	h.c.checkHostHealth(h.ctx)
+
+	for _, id := range []string{idle.ID, busy.ID} {
+		after, err := h.st.GetRunner(h.ctx, id)
+		if err != nil {
+			t.Fatalf("GetRunner: %v", err)
+		}
+		if after.State != store.RunnerFailed {
+			t.Fatalf("runner %s is %q after its host went silent, want %q", id, after.State, store.RunnerFailed)
+		}
+		if !strings.Contains(after.Message, "vm-1") || !strings.Contains(after.Message, "heartbeat") {
+			t.Fatalf("message %q does not say which host went quiet", after.Message)
+		}
+	}
+	job, err := h.st.GetJobByGitHubID(h.ctx, 7007)
+	if err != nil {
+		t.Fatalf("GetJobByGitHubID: %v", err)
+	}
+	if job.RunnerFault == "" {
+		t.Fatal("the job the busy runner was running was not marked as lost by the fleet")
+	}
+}
+
+// Unhealthy is not gone. An agent restarting, a daemon being upgraded or a
+// network blip all outlast the health timeout, and a host in that state keeps
+// its runners until the longer grace has passed.
+func TestAHostThatIsMerelyLateKeepsItsRunners(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	host := h.host("vm-1")
+	r := h.runnerRow(pool, host, store.RunnerIdle)
+
+	host.LastHeartbeat = time.Now().Add(-2 * store.HeartbeatTimeout)
+	if err := h.st.UpdateHost(h.ctx, host); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+	h.c.checkHostHealth(h.ctx)
+
+	after, err := h.st.GetRunner(h.ctx, r.ID)
+	if err != nil {
+		t.Fatalf("GetRunner: %v", err)
+	}
+	if after.State != store.RunnerIdle {
+		t.Fatalf("runner is %q on a host that is late but not lost, want %q", after.State, store.RunnerIdle)
+	}
+}
+
+// A stop the host never confirms would leave the runner draining for ever,
+// counted against its pool's maximum and holding a slot on its host. Once the
+// task has been given up on, the runner is too.
+func TestAStopTheHostNeverConfirmedFailsTheRunner(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	host := h.host("vm-1")
+	r := h.runnerRow(pool, host, store.RunnerIdle)
+	if _, err := h.c.DrainRunner(h.ctx, r.ID, "operator asked"); err != nil {
+		t.Fatalf("DrainRunner: %v", err)
+	}
+	if !h.hasTaskOfKind(host.ID, agent.TaskStopRunner) {
+		t.Fatal("draining did not queue a stop task")
+	}
+
+	q := h.c.queues.get(host.ID)
+	now := time.Now()
+	for attempt := 1; attempt <= maxTaskAttempts; attempt++ {
+		if got := q.take(10, now); len(got) != 1 {
+			t.Fatalf("attempt %d: took %d tasks, want the stop", attempt, len(got))
+		}
+		now = now.Add(stopLease + time.Minute)
+		h.c.sweepTasks(h.ctx, now)
+	}
+
+	after, err := h.st.GetRunner(h.ctx, r.ID)
+	if err != nil {
+		t.Fatalf("GetRunner: %v", err)
+	}
+	if after.State != store.RunnerFailed {
+		t.Fatalf("runner is %q after its stop was given up on, want %q", after.State, store.RunnerFailed)
+	}
+	if !strings.Contains(after.Message, "never confirmed") {
+		t.Fatalf("message %q does not say the stop was never confirmed", after.Message)
+	}
+}
+
+// joinedHost joins a host reporting the given disk figures and returns the
+// transport, already carrying its credentials, with the host's ID.
+func joinedHost(t *testing.T, h *harness, totalMB, freeMB int64) (agent.Transport, string) {
+	t.Helper()
+	tr := h.c.EmbeddedTransport()
+	resp, err := tr.Join(h.ctx, agent.JoinRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		Name:            "vm-1",
+		Capacity:        4,
+		DiskTotalMB:     totalMB,
+		DiskFreeMB:      freeMB,
+		Backends:        []backend.Info{{Kind: store.BackendDocker, Available: true}},
+	})
+	if err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	tr.SetCredentials(resp.HostID, resp.AgentToken)
+	return tr, resp.HostID
+}
+
+func hostDisk(t *testing.T, h *harness, id string) (totalMB, freeMB int64) {
+	t.Helper()
+	host, err := h.st.GetHost(h.ctx, id)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	return host.DiskTotalMB, host.DiskFreeMB
+}
+
+// A host's disk is what decides whether a runner's checkout and its caches
+// have anywhere to go, and until now the agent measured none of it.
+func TestAHostReportsTheDiskItsRunnersWillUse(t *testing.T) {
+	h := newHarness(t)
+	_, id := joinedHost(t, h, 500_000, 200_000)
+
+	total, free := hostDisk(t, h, id)
+	if total != 500_000 || free != 200_000 {
+		t.Fatalf("disk = %d total, %d free; want what the agent reported", total, free)
+	}
+}
+
+// Free space is the one figure an agent reports that moves on its own: a job
+// unpacking a cache changes it, and so does the job next door. A heartbeat
+// arrives every thirty seconds per host, so recording every difference turns a
+// fleet's heartbeats into one row write per host per beat for a number that is
+// never exactly the same twice.
+func TestASmallChangeInFreeDiskIsNotWorthAWrite(t *testing.T) {
+	h := newHarness(t)
+	tr, id := joinedHost(t, h, 500_000, 200_000)
+
+	// One percent down, which is what a job starting looks like.
+	if _, err := tr.Heartbeat(h.ctx, agent.HeartbeatRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		DiskTotalMB:     500_000,
+		DiskFreeMB:      198_000,
+	}); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+
+	if _, free := hostDisk(t, h, id); free != 200_000 {
+		t.Fatalf("free = %d; a drift this small must not rewrite the row", free)
+	}
+}
+
+// Far enough is another matter: a host filling up is exactly what an operator
+// needs to see, and what placement will need to read.
+func TestADiskThatHasReallyMovedIsRecorded(t *testing.T) {
+	h := newHarness(t)
+	tr, id := joinedHost(t, h, 500_000, 200_000)
+
+	if _, err := tr.Heartbeat(h.ctx, agent.HeartbeatRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		DiskTotalMB:     500_000,
+		DiskFreeMB:      40_000,
+	}); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+
+	if _, free := hostDisk(t, h, id); free != 40_000 {
+		t.Fatalf("free = %d, want the 40000 the agent reported", free)
+	}
+}
+
+// An agent too old to measure disk, or one on a platform with no portable way
+// to ask, sends nothing. Nothing must not overwrite something: a zero read as
+// a full disk would take a host out of service on an upgrade, which is the
+// opposite of what reporting more about a host is for.
+func TestAnAgentThatCannotMeasureDiskDoesNotEraseWhatIsKnown(t *testing.T) {
+	h := newHarness(t)
+	tr, id := joinedHost(t, h, 500_000, 200_000)
+
+	// The beat carries a new version, so the row is rewritten for a reason
+	// that has nothing to do with the disk. Without a beat that writes at all,
+	// this would pass on the tolerance alone and say nothing about whether a
+	// silent agent's zero can reach the row.
+	if _, err := tr.Heartbeat(h.ctx, agent.HeartbeatRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		Version:         "0.3-beta",
+	}); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+	after, err := h.st.GetHost(h.ctx, id)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if after.Version != "0.3-beta" {
+		t.Fatalf("version = %q; the beat has to have rewritten the row for this to mean anything", after.Version)
+	}
+
+	total, free := hostDisk(t, h, id)
+	if total != 500_000 || free != 200_000 {
+		t.Fatalf("disk = %d total, %d free; a silent agent erased what was known", total, free)
+	}
+}
+
+// The first measurement always lands, however small the number, because going
+// from "not measured" to a figure is the difference between a host that can be
+// placed on by disk and one that cannot.
+func TestTheFirstDiskMeasurementIsAlwaysRecorded(t *testing.T) {
+	h := newHarness(t)
+	// The total is already known, so only the free figure is new. Letting the
+	// total change too would carry the write on its own and say nothing about
+	// how a first free-space measurement is treated.
+	tr, id := joinedHost(t, h, 500_000, 0)
+
+	if _, err := tr.Heartbeat(h.ctx, agent.HeartbeatRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		DiskTotalMB:     500_000,
+		DiskFreeMB:      10,
+	}); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+
+	if _, free := hostDisk(t, h, id); free != 10 {
+		t.Fatalf("free = %d; a first measurement is smaller than any tolerance and must still land", free)
+	}
+}
+
+// The tolerance itself, branch by branch. The heartbeat tests above prove the
+// wiring; this proves the rule, including the two cases whose only effect is a
+// row write that does not happen -- which nothing outside this package can see.
+func TestWhenFreeDiskIsWorthAWrite(t *testing.T) {
+	tests := []struct {
+		name     string
+		was, now int64
+		measured bool
+		want     bool
+	}{
+		{"a first measurement, however small", 0, 10, true, true},
+		{"an agent that cannot measure says nothing", 200_000, 0, false, false},
+		{"neither figure known", 0, 0, false, false},
+		{"a job starting, on a large disk", 200_000, 198_000, true, false},
+		{"a disk filling up", 200_000, 40_000, true, true},
+		{"freed by a cache eviction", 40_000, 200_000, true, true},
+		{"a small disk, drifting under the floor", 1_000, 900, true, false},
+		{"a small disk, past the floor", 1_000, 700, true, true},
+		// The pair that cannot share an encoding. A host with nothing left is
+		// the one state where being out of date does real harm, and it reads
+		// as the same zero an agent too old to look sends.
+		{"a disk that has actually filled up", 200_000, 0, true, true},
+		{"a full disk that is still full", 0, 0, true, false},
+		{"the first space freed on a full disk", 0, 5_000, true, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := diskFreeMoved(tc.was, tc.now, tc.measured); got != tc.want {
+				t.Fatalf("diskFreeMoved(%d, %d, measured=%v) = %v, want %v",
+					tc.was, tc.now, tc.measured, got, tc.want)
+			}
+		})
+	}
+}
+
+// The state an operator most needs to see, end to end: an agent reporting a
+// disk with nothing left on it, which reads as the same zero that an agent too
+// old to measure sends. Getting these two the same way round leaves a full host
+// describing itself with the last comfortable figure it ever reported.
+func TestAFullDiskIsRecordedRatherThanReadAsSilence(t *testing.T) {
+	h := newHarness(t)
+	tr, id := joinedHost(t, h, 500_000, 200_000)
+
+	if _, err := tr.Heartbeat(h.ctx, agent.HeartbeatRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		DiskTotalMB:     500_000,
+		DiskFreeMB:      0,
+	}); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+
+	total, free := hostDisk(t, h, id)
+	if free != 0 {
+		t.Fatalf("free = %d MB on a host that reported none left", free)
+	}
+	if total != 500_000 {
+		t.Fatalf("total = %d MB; the size is what says the reading happened", total)
+	}
+}
+
+// The reserve is the operator's, like capacity. An agent reports what it sees
+// and never writes this, or a host could talk its way out of the room its
+// operator held back for it.
+func TestAHeartbeatNeverWritesTheOperatorsReserve(t *testing.T) {
+	h := newHarness(t)
+	tr, id := joinedHost(t, h, 500_000, 200_000)
+
+	if err := h.st.SetHostReserve(h.ctx, id, 2, 4096, 50_000); err != nil {
+		t.Fatalf("SetHostReserve: %v", err)
+	}
+
+	if _, err := tr.Heartbeat(h.ctx, agent.HeartbeatRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		DiskTotalMB:     500_000,
+		DiskFreeMB:      40_000,
+	}); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+
+	after, err := h.st.GetHost(h.ctx, id)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if after.ReserveCPUs != 2 || after.ReserveMemoryMB != 4096 || after.ReserveDiskMB != 50_000 {
+		t.Fatalf("reserve = %d cpus, %d MB, %d MB disk; a heartbeat overwrote the operator's",
+			after.ReserveCPUs, after.ReserveMemoryMB, after.ReserveDiskMB)
+	}
+	// And the observation it carried did land, so this is not passing because
+	// the whole write was skipped.
+	if _, free := hostDisk(t, h, id); free != 40_000 {
+		t.Fatalf("free = %d; the heartbeat's own observation was lost", free)
+	}
+}
+
+// A re-join is the agent's doing -- a rebuilt machine reclaiming its row, or an
+// embedded agent whose credentials no longer match -- and it replaces the row
+// wholesale. Letting the reserve drop there would be the agent writing it after
+// all, by the back door and silently: the row keeps its id, its cordon and its
+// labels, so nothing looks wrong until the controller places into the space the
+// operator held back.
+func TestARejoinKeepsTheOperatorsReserve(t *testing.T) {
+	h := newHarness(t)
+	tr, id := joinedHost(t, h, 500_000, 200_000)
+	_ = tr
+
+	if err := h.st.SetHostReserve(h.ctx, id, 2, 4096, 50_000); err != nil {
+		t.Fatalf("SetHostReserve: %v", err)
+	}
+	before, err := h.st.GetHost(h.ctx, id)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	before.Cordoned = true
+	if err := h.st.UpdateHost(h.ctx, before); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+
+	// The same machine, joining again under its own name with a fresh token.
+	again := h.c.EmbeddedTransport()
+	resp, err := again.Join(h.ctx, agent.JoinRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		Name:            "vm-1",
+		Capacity:        4,
+		Backends:        []backend.Info{{Kind: store.BackendDocker, Available: true}},
+	})
+	if err != nil {
+		t.Fatalf("re-Join: %v", err)
+	}
+
+	after, err := h.st.GetHost(h.ctx, resp.HostID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if after.ReserveCPUs != 2 || after.ReserveMemoryMB != 4096 || after.ReserveDiskMB != 50_000 {
+		t.Fatalf("reserve = %d cpus, %d MB, %d MB disk after a re-join; the operator's must survive it",
+			after.ReserveCPUs, after.ReserveMemoryMB, after.ReserveDiskMB)
+	}
+	// The cordon is carried across for the same reason and is the proof that
+	// this row really was replaced rather than left alone.
+	if !after.Cordoned {
+		t.Fatal("the cordon did not survive the re-join either, so this is not testing what it claims")
+	}
+}
+
+// stringsIn returns every string in a marshalled JSON document, keys included,
+// so a secret is found wherever it was put and whatever escaping it picked up
+// on the way.
+func stringsIn(t *testing.T, doc []byte) []string {
+	t.Helper()
+	var v any
+	if err := json.Unmarshal(doc, &v); err != nil {
+		t.Fatalf("unmarshalling to walk it: %v", err)
+	}
+	var out []string
+	var walk func(any)
+	walk = func(n any) {
+		switch n := n.(type) {
+		case string:
+			out = append(out, n)
+		case []any:
+			for _, e := range n {
+				walk(e)
+			}
+		case map[string]any:
+			for k, e := range n {
+				out = append(out, k)
+				walk(e)
+			}
+		}
+	}
+	walk(v)
+	return out
+}
+
+func truncateValue(s string) string {
+	if len(s) > 120 {
+		return s[:120] + "..."
+	}
+	return s
 }

@@ -80,17 +80,25 @@ func (c *Controller) OpenLogStream(ctx context.Context, runnerID string, opts ba
 // subscribe attaches a viewer, starting the stream if this is the first one.
 func (lr *logRelay) subscribe(r *store.Runner, opts backend.LogOptions) (<-chan []byte, func(), error) {
 	lr.mu.Lock()
-	streamID, ok := lr.byRunner[r.ID]
 	var s *logStream
-	if ok {
-		s = lr.streams[streamID]
+	var streamID string
+	fresh := true
+	if opts.Follow {
+		if curID, ok := lr.byRunner[r.ID]; ok {
+			s = lr.streams[curID]
+			if s != nil && !s.isClosed() {
+				streamID = curID
+				fresh = false
+			}
+		}
 	}
-	fresh := s == nil
 	if fresh {
 		streamID = "log_" + store.NewSecret(8)
 		s = &logStream{id: streamID, runnerID: r.ID, hostID: r.HostID, subs: map[int]chan []byte{}}
 		lr.streams[streamID] = s
-		lr.byRunner[r.ID] = streamID
+		if opts.Follow {
+			lr.byRunner[r.ID] = streamID
+		}
 	}
 	lr.mu.Unlock()
 
@@ -123,6 +131,8 @@ func (lr *logRelay) unsubscribe(s *logStream, subID int) {
 	lr.mu.Lock()
 	if lr.streams[s.id] == s {
 		delete(lr.streams, s.id)
+	}
+	if lr.byRunner[s.runnerID] == s.id {
 		delete(lr.byRunner, s.runnerID)
 	}
 	lr.mu.Unlock()
@@ -140,13 +150,40 @@ func (lr *logRelay) unsubscribe(s *logStream, subID int) {
 
 // AcceptLogStream consumes the agent's outbound chunked POST and fans it out.
 // It returns when the agent closes the body or the stream is torn down.
-func (c *Controller) AcceptLogStream(streamID string, r io.Reader) error {
+//
+// hostID is the host the request authenticated as, and it must be the host the
+// stream was opened for: whatever arrives here is shown to operators as that
+// runner's output, so a stream another agent could write into would let one
+// host put words in another's mouth. Every other agent endpoint checks the same
+// thing against the runner's host; this one checks it against the stream's.
+func (c *Controller) AcceptLogStream(hostID, streamID string, r io.Reader) error {
 	c.relay.mu.Lock()
 	s := c.relay.streams[streamID]
 	c.relay.mu.Unlock()
 	if s == nil {
 		return fmt.Errorf("%w: %s", ErrStreamUnknown, streamID)
 	}
+	if s.hostID != hostID {
+		c.log.Warn("a host tried to write into another host's log stream",
+			"host", hostID, "stream", streamID, "owner", s.hostID)
+		// Deliberately the same answer a closed stream gets: an agent probing
+		// for streams it does not own learns nothing from the difference.
+		return fmt.Errorf("%w: %s", ErrStreamUnknown, streamID)
+	}
+
+	// Clean up registration on any exit path (error, viewer cancellation, EOF)
+	// so closed streams are never leaked in relay maps.
+	defer func() {
+		c.relay.mu.Lock()
+		if c.relay.streams[streamID] == s {
+			delete(c.relay.streams, streamID)
+		}
+		if c.relay.byRunner[s.runnerID] == streamID {
+			delete(c.relay.byRunner, s.runnerID)
+		}
+		c.relay.mu.Unlock()
+		s.close()
+	}()
 
 	buf := make([]byte, logReadChunk)
 	for {
@@ -162,24 +199,17 @@ func (c *Controller) AcceptLogStream(streamID string, r io.Reader) error {
 			}
 		}
 		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
+			if !errors.Is(err, io.EOF) {
+				// The agent's connection dropped mid-stream -- the job ended
+				// and the container with it, or the network went. The output
+				// up to here was delivered, the viewer sees the stream end,
+				// and nothing needs a 500 in the log every time a job
+				// finishes under a watcher.
+				c.log.Debug("a log stream ended before its EOF", "stream", streamID, "runner", s.runnerID, "error", err)
 			}
-			s.close()
-			return fmt.Errorf("log stream %s ended: %w", streamID, err)
+			break
 		}
 	}
-
-	// The runner's output has finished, which for an ephemeral runner means
-	// the job is over. Closing the subscriber channels is what ends the SSE
-	// responses rather than leaving browsers holding an open connection.
-	c.relay.mu.Lock()
-	if c.relay.streams[streamID] == s {
-		delete(c.relay.streams, streamID)
-		delete(c.relay.byRunner, s.runnerID)
-	}
-	c.relay.mu.Unlock()
-	s.close()
 	return nil
 }
 
@@ -262,4 +292,11 @@ func (s *logStream) close() {
 		delete(s.subs, id)
 		close(ch)
 	}
+}
+
+// isClosed reports whether the stream has already ended.
+func (s *logStream) isClosed() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closed
 }

@@ -10,6 +10,7 @@
 package scheduler
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"slices"
@@ -31,10 +32,55 @@ type Snapshot struct {
 	// Jobs holds queued and in-progress jobs. Only queued jobs create demand:
 	// an in-progress job is already represented by the busy runner running it.
 	Jobs []*store.Job
+	// ActiveByRepository and QueuedByRepository make repository fair-share
+	// state explicit at the scheduler boundary rather than hiding database reads
+	// inside the policy engine.
+	ActiveByRepository map[string]int
+	QueuedByRepository map[string]int
 	// Hosts is every registered agent host, with ActiveRunners filled in.
-	Hosts  []*store.Host
-	Policy Policy
+	Hosts []*store.Host
+	// Installations is every configured GitHub App installation. Eligibility
+	// is decided from the identifiers a pool and a job already carry, so this
+	// is here only so that an explanation can name the organisation or
+	// repository an operator recognises instead of an opaque identifier.
+	Installations []*store.Installation
+	Policy        Policy
+	// Jitter spreads the start-failure backoff, keyed by pool ID and redrawn
+	// on every pass. It arrives here rather than being drawn here for the same
+	// reason Now does: the scheduler reads no clock and no random source, so a
+	// decision is reproducible from its inputs alone and a test can place a
+	// pool exactly either side of its wait.
+	//
+	// Values outside [0,1) are clamped, and a pool with no entry gets none --
+	// a caller that has not thought about jitter keeps the old behaviour.
+	Jitter map[string]float64
 }
+
+const (
+	// failedRetention is how long a failed runner stays on the Runners page
+	// before the reap removes it. Removing it at once, as the scheduler used
+	// to, freed nothing -- a failed runner holds no host slot -- and took the
+	// only record of why it failed off the page within a second of it
+	// appearing. Ten minutes is long enough to read, and the failures still
+	// on the page are also what the start backoff below is decided on.
+	failedRetention = 10 * time.Minute
+
+	// startBackoff is how long a pool waits after a runner fails to start
+	// before it creates another; each further failure doubles the wait, up to
+	// maxStartBackoff. Without it a runner that dies on creation is replaced
+	// in the same pass that notices, and a pool whose image cannot be pulled
+	// creates, fails and removes a runner every second -- two GitHub API
+	// calls a time, until the installation's hourly quota is spent on nothing.
+	startBackoff    = 10 * time.Second
+	maxStartBackoff = 5 * time.Minute
+
+	// startBackoffJitter is how much of a pool's wait may be added to it, at
+	// most. Without it every pool broken by the same thing -- a daemon that
+	// went down, a registry that stopped answering -- counts the same doubling
+	// from the same failure and retries in the same second, so the recovery
+	// arrives as the same thundering herd that broke it.
+	startBackoffJitter = 0.2
+)
 
 // Policy carries the tunables from config.Scheduler.
 //
@@ -44,14 +90,24 @@ type Policy struct {
 	// ScaleUpDelay is how long a job must have been queued before it counts as
 	// demand, which damps churn when jobs arrive in bursts.
 	ScaleUpDelay time.Duration
-	// MaxRunnerLifetime drains a runner that has lived this long, which catches
-	// runners wedged by a hung job.
+	// MaxRunnerLifetime drains a runner that has lived this long, the next
+	// time it is not busy. It bounds how long a persistent runner's state and
+	// credentials live; reap never drains a busy runner, so it is no answer to
+	// a hung job.
 	MaxRunnerLifetime time.Duration
 	// ProvisionTimeout fails a runner that never finished registering.
 	ProvisionTimeout time.Duration
+	// DrainTimeout fails a runner that has been draining this long with no job
+	// left on it. The agent task queue is in memory by design, so a controller
+	// restart drops a stop that was already issued; without this the row stays
+	// in draining, holds its host slot and leaves its pool one runner short for
+	// as long as the controller runs. A runner still finishing a job is never
+	// touched by it -- that wait is what a drain is -- so this bounds only the
+	// drain that has nothing to wait for. Zero leaves a drain unbounded.
+	DrainTimeout time.Duration
 	// MaxCreatesPerTick caps creates across the whole fleet in one pass, so a
 	// thundering herd of queued jobs cannot fill every host at once. Pools are
-	// served in name order until the budget runs out; zero means no cap.
+	// shared fairly among pools at the same priority; zero means no cap.
 	MaxCreatesPerTick int
 }
 
@@ -96,6 +152,18 @@ type PoolPlan struct {
 	// QueuedMatched counts every queued job this pool claims, including jobs
 	// still inside ScaleUpDelay and therefore not yet driving a create.
 	QueuedMatched int `json:"queued_matched"`
+	// QuotaDeferredJobs counts queued jobs which did not contribute to desired
+	// capacity because their repository reached the pool's best-effort scale-up
+	// limit. It is separate from Blocked because admitted work may still scale.
+	QuotaDeferredJobs int `json:"quota_deferred_jobs,omitempty"`
+	// QuotaDeferredRepositories names the repositories represented by those
+	// deferred jobs, in stable order.
+	QuotaDeferredRepositories []string `json:"quota_deferred_repositories,omitempty"`
+	// eligible is the number of queued jobs that drove Desired: past the
+	// scale-up delay and admitted by the repository limit. The scale-up reason
+	// is written from it, so it names the jobs the pool is scaling for rather
+	// than every job on the queue.
+	eligible int
 	// Reason is the sentence shown in the UI, e.g.
 	// "scaled linux-x64 2 -> 4: 3 jobs queued > 30s". It is empty when the
 	// pool's size did not change.
@@ -103,14 +171,14 @@ type PoolPlan struct {
 	// Blocked is set when this pool needed runners and the fleet had nowhere to
 	// put them: no host offers its backend, matches its host selector, or has
 	// room left. It holds the sentence naming which, and it is what the
-	// problems panel reports -- a pool in this state looks completely healthy
+	// problems drawer reports -- a pool in this state looks completely healthy
 	// while its jobs queue forever, so it has to be said out loud somewhere.
 	//
 	// It stays empty when the shortfall was only this tick's create budget,
 	// which the next pass clears on its own and which no operator can act on.
 	Blocked string `json:"blocked,omitempty"`
 	// BlockedFix is what to change to unblock it, kept apart from Blocked
-	// because the problems panel shows the two differently.
+	// because the problems drawer shows the two differently.
 	BlockedFix string `json:"blocked_fix,omitempty"`
 	// BlockedAtCapacity distinguishes a fleet that is merely full -- every host
 	// could run this pool and all of them are busy, which the next finished job
@@ -121,9 +189,15 @@ type PoolPlan struct {
 	// already offer. "Point this pool at a backend they already offer" is half
 	// the fix for a pool blocked on its backend, and an operator cannot act on
 	// it without being told which backend that is -- so the answer travels with
-	// the reason, to the problems panel, the pool page and the CLI.
+	// the reason, to the problems drawer, the pool page and the CLI.
 	BlockedAlternatives []string `json:"blocked_alternatives,omitempty"`
-	Actions             []Action `json:"actions,omitempty"`
+	// Failing is set when the pool's recent runners died before they ever
+	// registered and the scheduler is holding off creating more for a while.
+	// It says how many failed, the latest reason and when the next attempt
+	// is, because a pool in this state has jobs waiting on runners that keep
+	// failing, and the problems drawer has to be able to say why.
+	Failing string   `json:"failing,omitempty"`
+	Actions []Action `json:"actions,omitempty"`
 }
 
 // Plan is one tick's worth of decisions.
@@ -131,9 +205,20 @@ type Plan struct {
 	Pools []PoolPlan `json:"pools"`
 	// Actions is every pool's actions flattened, in execution order.
 	Actions []Action `json:"actions,omitempty"`
-	// Unmatched holds queued jobs no enabled pool claims. They will never run,
-	// so the UI surfaces them as a configuration problem.
-	Unmatched []*store.Job `json:"unmatched,omitempty"`
+	// Unmatched holds queued jobs no pool will run, each with the reason the
+	// nearest pool refused it. They will never run, so the UI surfaces them as
+	// a configuration problem.
+	Unmatched []UnmatchedJob `json:"unmatched,omitempty"`
+}
+
+// UnmatchedJob is a queued job no pool claimed, and why.
+type UnmatchedJob struct {
+	Job *store.Job `json:"job"`
+	// Reason is empty when the job's labels simply match no pool here, which
+	// is the case the Jobs page already explains on its own. It is set when
+	// something less obvious refused the job -- a pool that advertises exactly
+	// those labels but belongs to another GitHub App installation.
+	Reason string `json:"reason,omitempty"`
 }
 
 // Decide turns a snapshot of the fleet into the actions that move it towards
@@ -141,13 +226,16 @@ type Plan struct {
 // yields the same plan, down to the order of the actions.
 func Decide(s Snapshot) Plan {
 	pools := sortedPools(s.Pools)
-	demand, unmatched := assign(pools, s.Jobs)
+	demand, unmatched := assign(pools, s.Jobs, targetsOf(s.Installations))
 
 	t := &tick{
-		now:    s.Now,
-		policy: s.Policy,
-		hosts:  newHostSet(s.Hosts, s.Now),
-		budget: s.Policy.MaxCreatesPerTick,
+		now:                s.Now,
+		policy:             s.Policy,
+		hosts:              newHostSet(s.Hosts, s.Now),
+		budget:             s.Policy.MaxCreatesPerTick,
+		activeByRepository: s.ActiveByRepository,
+		poolCount:          len(pools),
+		jitter:             s.Jitter,
 	}
 	if t.budget <= 0 {
 		// An unset cap must not stall the fleet; host capacity still bounds us.
@@ -158,6 +246,11 @@ func Decide(s Snapshot) Plan {
 	for _, p := range pools {
 		pp := t.decidePool(p, s.Runners[p.ID], demand[p.ID])
 		plan.Pools = append(plan.Pools, pp)
+	}
+	t.allocate(pools, plan.Pools, s.Runners, demand)
+	// Pool plans remain in name order, and their actions are flattened in that
+	// same stable order even though capacity was granted round by round.
+	for _, pp := range plan.Pools {
 		plan.Actions = append(plan.Actions, pp.Actions...)
 	}
 	return plan
@@ -166,29 +259,47 @@ func Decide(s Snapshot) Plan {
 // tick is the mutable state of a single Decide call: capacity handed out so
 // far, and the create budget left for the pools that have not been served yet.
 type tick struct {
-	now    time.Time
-	policy Policy
-	hosts  *hostSet
-	budget int
+	now                time.Time
+	policy             Policy
+	hosts              *hostSet
+	budget             int
+	activeByRepository map[string]int
+	poolCount          int
+	jitter             map[string]float64
 }
 
 // assign maps every queued job onto the pool that will run it, and collects the
-// ones nothing claims.
-func assign(pools []*store.Pool, jobs []*store.Job) (map[string][]*store.Job, []*store.Job) {
+// ones nothing claims, each with the reason it went unclaimed.
+func assign(pools []*store.Pool, jobs []*store.Job, targets map[string]string) (map[string][]*store.Job, []UnmatchedJob) {
 	demand := make(map[string][]*store.Job, len(pools))
-	var unmatched []*store.Job
+	var unmatched []UnmatchedJob
 	for _, j := range sortedJobs(jobs) {
 		if j.State != store.JobQueued {
 			continue
 		}
-		p := BestPool(pools, j.Labels)
+		p, reason := bestPool(pools, j, targets)
 		if p == nil {
-			unmatched = append(unmatched, j)
+			unmatched = append(unmatched, UnmatchedJob{Job: j, Reason: reason})
 			continue
 		}
 		demand[p.ID] = append(demand[p.ID], j)
 	}
 	return demand, unmatched
+}
+
+// targetsOf indexes installations by identifier so that an explanation can
+// name the organisation or repository one manages.
+func targetsOf(insts []*store.Installation) map[string]string {
+	if len(insts) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(insts))
+	for _, i := range insts {
+		if i != nil {
+			out[i.ID] = i.Target
+		}
+	}
+	return out
 }
 
 // decidePool applies the reap, scale-up and scale-down rules to one pool.
@@ -198,13 +309,16 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 	actions, remaining := t.reap(p, sortedRunners(runners))
 	plan.Actions = actions
 
-	live, busy := 0, 0
+	live, busy, draining := 0, 0, 0
 	for _, r := range remaining {
 		if r.State.Live() {
 			live++
 		}
-		if r.State == store.RunnerBusy {
+		switch r.State {
+		case store.RunnerBusy:
 			busy++
+		case store.RunnerDraining:
+			draining++
 		}
 	}
 	plan.Current = live
@@ -215,23 +329,238 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 	}
 
 	eligible := 0
+	quotaRepositories := map[string]bool{}
+	admitted := map[string]int{}
 	for _, j := range queued {
+		if p.RepositoryScaleUpLimit > 0 && t.activeByRepository[p.ID+"\x00"+j.Repo]+admitted[j.Repo] >= p.RepositoryScaleUpLimit {
+			plan.QuotaDeferredJobs++
+			quotaRepositories[j.Repo] = true
+			continue
+		}
 		if t.now.Sub(j.QueuedAt) >= t.policy.ScaleUpDelay {
 			eligible++
+			admitted[j.Repo]++
 		}
 	}
+	for repo := range quotaRepositories {
+		plan.QuotaDeferredRepositories = append(plan.QuotaDeferredRepositories, repo)
+	}
+	slices.Sort(plan.QuotaDeferredRepositories)
 	// Idle runners are already counted in live, so subtracting live from the
 	// target is what stops the scheduler from creating a runner for a job an
-	// idle one will pick up within the second.
-	plan.Desired = clamp(max(p.MinRunners, busy+eligible), p.MinRunners, p.MaxRunners)
+	// idle one will pick up within the second. A draining runner is counted on
+	// both sides: it still holds a slot on its host until it is gone, which is
+	// what keeps the pool under its maximum, but it will never take a job, so
+	// it must not stand in for the runner a queued job is waiting on.
+	plan.Desired = clamp(max(p.MinRunners, busy+draining+eligible), p.MinRunners, p.MaxRunners)
+	plan.eligible = eligible
+	plan.Failing = t.holdAfterStartFailures(p, runners)
 
 	switch {
-	case plan.Desired > live:
-		t.scaleUp(p, &plan, live, busy, eligible)
 	case plan.Desired < live:
 		t.scaleDown(p, &plan, remaining, live)
 	}
 	return plan
+}
+
+// holdAfterStartFailures decides whether a pool's recent failures should stop
+// it creating for now, and returns the sentence that says so, or "" when it
+// may go ahead.
+//
+// Only runners that died before registering count: they are evidence that
+// the pool cannot start a runner at the moment -- an image that will not
+// pull, a host that cannot reach GitHub -- whereas a runner that ran jobs
+// and then failed says nothing about the next create. The wait doubles with
+// each failure still on the page, so a broken pool settles at one attempt
+// every few minutes rather than one a second; it recovers on its own, because
+// a pass that creates nothing adds no failure and the wait simply runs out.
+func (t *tick) holdAfterStartFailures(p *store.Pool, runners []*store.Runner) string {
+	failed := startFailures(runners, t.now)
+	if len(failed) == 0 {
+		return ""
+	}
+	wait := maxStartBackoff
+	if shift := len(failed) - 1; shift < 8 && startBackoff<<shift < maxStartBackoff {
+		wait = startBackoff << shift
+	}
+	wait = jittered(wait, t.jitter[p.ID])
+	since := t.now.Sub(failedAt(failed[0]))
+	if since >= wait {
+		return ""
+	}
+	which := "the last runner"
+	if len(failed) > 1 {
+		which = "the last " + plural(len(failed), "runner")
+	}
+	return fmt.Sprintf("%s failed to start, most recently %s ago (%s); trying again in %s",
+		which, formatDuration(since.Truncate(time.Second)), summarise(failed[0].Message),
+		formatDuration((wait - since).Round(time.Second)))
+}
+
+// jittered lengthens a wait by up to startBackoffJitter of itself.
+//
+// It only ever adds. Shortening a backoff would let the pool that is failing
+// hardest come back soonest, which is the opposite of what the doubling is
+// for; spreading the herd is worth a little extra wait and nothing else.
+func jittered(d time.Duration, f float64) time.Duration {
+	if f <= 0 {
+		return d
+	}
+	if f > 1 {
+		f = 1
+	}
+	return d + time.Duration(float64(d)*startBackoffJitter*f)
+}
+
+// startFailures returns the runners that failed before ever registering and
+// whose failure is still on the page, newest first.
+func startFailures(runners []*store.Runner, now time.Time) []*store.Runner {
+	var out []*store.Runner
+	for _, r := range runners {
+		if r.State == store.RunnerFailed && r.RegisteredAt == nil && now.Sub(failedAt(r)) < failedRetention {
+			out = append(out, r)
+		}
+	}
+	slices.SortStableFunc(out, func(a, b *store.Runner) int {
+		return failedAt(b).Compare(failedAt(a))
+	})
+	return out
+}
+
+// failedAt is when a runner failed. The store stamps finished_at on the
+// transition; a row without one falls back to its creation, which is the
+// conservative reading for a failure of unknown age.
+// drainingFor is how long a runner has been draining.
+//
+// A row written before the column existed has no draining_since, and its age
+// is the only clock left. That over-counts -- a long-lived runner drained a
+// moment ago looks overdue at once -- but the alternative is a drain from
+// before the upgrade that no timeout can ever reach, which is the state this
+// rule exists to end.
+func drainingFor(r *store.Runner, now time.Time) time.Duration {
+	if r.DrainingSince != nil {
+		return now.Sub(*r.DrainingSince)
+	}
+	return r.Age(now)
+}
+
+func failedAt(r *store.Runner) time.Time {
+	if r.FinishedAt != nil {
+		return *r.FinishedAt
+	}
+	return r.CreatedAt
+}
+
+// summarise keeps a runner's failure message to one clause of a sentence. The
+// full text is on the Runners page; here it is the hint, not the report.
+func summarise(message string) string {
+	message = strings.Join(strings.Fields(message), " ")
+	if message == "" {
+		return "no reason was recorded"
+	}
+	const limit = 160
+	if len(message) > limit {
+		return message[:limit-1] + "…"
+	}
+	return message
+}
+
+// allocate shares creation capacity after every pool's desired size has been
+// calculated. Priority tiers are exhausted from highest to lowest; within a
+// tier each backlogged pool receives one slot per round.
+func (t *tick) allocate(pools []*store.Pool, plans []PoolPlan, runners map[string][]*store.Runner, demand map[string][]*store.Job) {
+	tiers := append([]*store.Pool(nil), pools...)
+	slices.SortStableFunc(tiers, func(a, b *store.Pool) int { return cmp.Compare(b.Priority, a.Priority) })
+	byID := make(map[string]*PoolPlan, len(plans))
+	for i := range plans {
+		byID[plans[i].PoolID] = &plans[i]
+	}
+
+	for start := 0; start < len(tiers); {
+		end := start + 1
+		for end < len(tiers) && tiers[end].Priority == tiers[start].Priority {
+			end++
+		}
+		active := append([]*store.Pool(nil), tiers[start:end]...)
+		for len(active) > 0 && t.budget > 0 {
+			next := active[:0]
+			for _, p := range active {
+				pp := byID[p.ID]
+				if !p.Enabled || pp.Desired <= pp.Current+creates(pp.Actions) {
+					continue
+				}
+				if pp.Failing != "" {
+					// Held back, not blocked: there is somewhere to put a
+					// runner, and the pool will try again on its own once the
+					// wait is out. The reason still says what went unserved.
+					pp.Reason = cannotScale(p.Name, pp.Current, pp.Desired, pp.Failing)
+					continue
+				}
+				if !t.grant(p, pp, runners[p.ID], demand[p.ID]) {
+					continue
+				}
+				if pp.Desired > pp.Current+creates(pp.Actions) {
+					next = append(next, p)
+				}
+				if t.budget == 0 {
+					break
+				}
+			}
+			active = next
+		}
+		start = end
+		if t.budget == 0 {
+			break
+		}
+	}
+	for _, p := range pools {
+		pp := byID[p.ID]
+		got := creates(pp.Actions)
+		if !p.Enabled || pp.Desired <= pp.Current+got || pp.Blocked != "" || pp.Failing != "" {
+			continue
+		}
+		why := fmt.Sprintf("this tick's global limit of %s is exhausted; the next pass will continue", plural(t.policy.MaxCreatesPerTick, "new runner"))
+		pp.Reason = cannotScale(p.Name, pp.Current+got, pp.Desired, why)
+	}
+}
+
+func creates(actions []Action) int {
+	n := 0
+	for _, a := range actions {
+		if a.Kind == ActionCreate {
+			n++
+		}
+	}
+	return n
+}
+
+func (t *tick) grant(p *store.Pool, plan *PoolPlan, runners []*store.Runner, queued []*store.Job) bool {
+	hosts := t.hosts.place(p, 1)
+	if len(hosts) == 0 {
+		b := t.hosts.why(p)
+		plan.Reason = cannotScale(p.Name, plan.Current+creates(plan.Actions), plan.Desired, sentence(b.what, b.fix))
+		plan.Blocked, plan.BlockedFix = b.what, b.fix
+		plan.BlockedAtCapacity, plan.BlockedAlternatives = b.atCapacity, b.alternatives
+		return false
+	}
+	busy := 0
+	for _, r := range runners {
+		if r.State == store.RunnerBusy {
+			busy++
+		}
+	}
+	// The reason counts the jobs the pool is scaling for. Counting the queue
+	// here instead used to say "3 jobs queued" for a pool the repository
+	// limit let scale for one of them, which reads as a shortfall.
+	reason := upReason(p, busy, plan.eligible, t.policy.ScaleUpDelay)
+	if plan.QuotaDeferredJobs > 0 {
+		reason += fmt.Sprintf(" (%s deferred by the repository limit for %s)",
+			plural(plan.QuotaDeferredJobs, "job"), strings.Join(plan.QuotaDeferredRepositories, ", "))
+	}
+	plan.Actions = append(plan.Actions, Action{Kind: ActionCreate, PoolID: p.ID, PoolName: p.Name, HostID: hosts[0], Reason: reason})
+	t.budget--
+	plan.Reason = scaled(p.Name, plan.Current, plan.Current+creates(plan.Actions), reason)
+	return true
 }
 
 // reap removes from consideration the runners the scheduler can no longer count
@@ -244,18 +573,47 @@ func (t *tick) reap(p *store.Pool, runners []*store.Runner) (actions []Action, r
 		switch {
 		case r.State == store.RunnerRemoved:
 			// Already gone; it neither costs capacity nor needs an action.
+			// Whatever it left on its host is the agent's to clean up, and
+			// it does so on its own once the retention window has passed.
 		case r.State == store.RunnerFailed:
-			removes = append(removes, t.action(ActionRemove, p, r,
-				"runner failed; removing it to free host capacity"))
+			// A failed runner holds no host slot, so there is nothing to free
+			// by removing it quickly, and everything to lose: the message on
+			// it is the only record of why it failed. It stays on the page
+			// for the retention, then goes.
+			if t.now.Sub(failedAt(r)) >= failedRetention {
+				removes = append(removes, t.action(ActionRemove, p, r, fmt.Sprintf(
+					"runner failed %s ago; its failure has been on the Runners page long enough",
+					formatDuration(t.now.Sub(failedAt(r)).Truncate(time.Minute)))))
+			}
 		case starting(r.State) && t.policy.ProvisionTimeout > 0 && age > t.policy.ProvisionTimeout:
 			fails = append(fails, t.action(ActionFail, p, r, fmt.Sprintf(
 				"stuck in %s for %s, past the %s provision timeout; check the host's agent log",
 				r.State, formatDuration(age), formatDuration(t.policy.ProvisionTimeout))))
+		case r.State == store.RunnerDraining && r.CurrentJobID == "" &&
+			t.policy.DrainTimeout > 0 && drainingFor(r, t.now) > t.policy.DrainTimeout:
+			// Only a drain with nothing left to wait for. A runner draining
+			// with a job still on it is doing exactly what a drain asks, for
+			// as long as that job takes; there is no maximum job duration in
+			// this system by design, and inventing one here would kill
+			// somebody's build from the wrong end of the fleet.
+			fails = append(fails, t.action(ActionFail, p, r, fmt.Sprintf(
+				"draining with no job for %s, past the %s drain timeout; its stop was never carried out, so the slot is being taken back",
+				formatDuration(drainingFor(r, t.now)), formatDuration(t.policy.DrainTimeout))))
 		case t.policy.MaxRunnerLifetime > 0 && age > t.policy.MaxRunnerLifetime &&
 			r.State != store.RunnerBusy && r.State != store.RunnerDraining:
 			retires = append(retires, t.action(ActionDrain, p, r, fmt.Sprintf(
 				"runner reached the %s maximum lifetime",
 				formatDuration(t.policy.MaxRunnerLifetime))))
+		case staleImage(p, r) && r.State != store.RunnerBusy && r.State != store.RunnerDraining:
+			// The pool's page says one image and this runner was made from
+			// another. A warm runner kept from before the change would take
+			// the next job onto the old image -- for a pool that just gained
+			// a Docker daemon, onto an image with no client for it -- while
+			// every page says the pool is fixed. It is replaced instead; the
+			// scale-up rules below make a new one from the right image in the
+			// same tick when the pool still wants it.
+			retires = append(retires, t.action(ActionDrain, p, r, fmt.Sprintf(
+				"pool image is now %s; this runner was made from %s", p.Image, r.Image)))
 		default:
 			remaining = append(remaining, r)
 		}
@@ -266,6 +624,14 @@ func (t *tick) reap(p *store.Pool, runners []*store.Runner) (actions []Action, r
 	actions = append(actions, fails...)
 	actions = append(actions, retires...)
 	return actions, remaining
+}
+
+// staleImage reports whether a runner was made from an image other than the
+// one its pool now names. A pool with no image of its own runs the instance
+// default, which the runner row records and the pool row does not, so those
+// are never compared.
+func staleImage(p *store.Pool, r *store.Runner) bool {
+	return p.Image != "" && r.Image != "" && r.Image != p.Image
 }
 
 // disable drains a disabled pool to zero. Its busy runners are left alone, so
@@ -283,37 +649,6 @@ func (t *tick) disable(p *store.Pool, plan *PoolPlan, remaining []*store.Runner,
 	if n > 0 {
 		plan.Reason = scaled(p.Name, live, live-n, "pool is disabled")
 	}
-}
-
-// scaleUp emits the creates that close the gap to Desired, within the tick's
-// create budget and whatever capacity the hosts have left.
-func (t *tick) scaleUp(p *store.Pool, plan *PoolPlan, live, busy, eligible int) {
-	want := plan.Desired - live
-	reason := upReason(p, busy, eligible, t.policy.ScaleUpDelay)
-	if want > t.budget {
-		want = t.budget
-	}
-	if want == 0 {
-		plan.Reason = cannotScale(p.Name, live, plan.Desired, fmt.Sprintf(
-			"this tick's limit of %s is used up; the next pass will continue",
-			plural(t.policy.MaxCreatesPerTick, "new runner")))
-		return
-	}
-	hosts := t.hosts.place(p, want)
-	if len(hosts) == 0 {
-		b := t.hosts.why(p)
-		plan.Reason = cannotScale(p.Name, live, plan.Desired, sentence(b.what, b.fix))
-		plan.Blocked, plan.BlockedFix = b.what, b.fix
-		plan.BlockedAtCapacity, plan.BlockedAlternatives = b.atCapacity, b.alternatives
-		return
-	}
-	for _, hostID := range hosts {
-		plan.Actions = append(plan.Actions, Action{
-			Kind: ActionCreate, PoolID: p.ID, PoolName: p.Name, HostID: hostID, Reason: reason,
-		})
-	}
-	t.budget -= len(hosts)
-	plan.Reason = scaled(p.Name, live, live+len(hosts), reason)
 }
 
 // scaleDown drains surplus runners that have been idle for longer than the
@@ -412,15 +747,54 @@ func (hs *hostSet) pick(p *store.Pool) *store.Host {
 }
 
 func (hs *hostSet) eligible(h *store.Host, p *store.Pool) bool {
-	return hs.free[h.ID] > 0 && h.Healthy(hs.now) && !h.Cordoned &&
-		slices.Contains(h.Backends, string(p.Backend)) && selects(p.HostSelector, h.Labels)
+	return hs.free[h.ID] > 0 && HostCanRun(h, p, hs.now)
 }
 
-// selects reports whether every key and value of the selector is present on the
-// host. An empty selector means "any host".
-func selects(selector, labels store.StringMap) bool {
-	for k, v := range selector {
-		if labels[k] != v {
+// HostCanRun is the placement rule, in one place: a host may take a runner for
+// a pool when it is available, offers the pool's backend and satisfies the
+// pool's host selector. The wizard's "matching hosts" count, the capacity-demand
+// signal and image prewarming all ask this same question, and each used to
+// answer it with a copy of its own that a new rule here would have left
+// behind. Room on the host is the scheduler's own accounting and is checked
+// separately.
+func HostCanRun(h *store.Host, p *store.Pool, now time.Time) bool {
+	return HostAvailable(h, now) && HostOffers(h, p) && HostIsPlatform(h, p) && HostSelects(h, p)
+}
+
+// HostIsPlatform reports whether a host is the machine the pool asked for.
+//
+// It is separate from HostSelects because it is not a selector: a selector is
+// something an operator writes about their own fleet, and this is a promise the
+// pool makes about what its runners are -- the same promise that picks the
+// runner image. An empty field on either side constrains nothing, so a pool
+// with no platform still goes anywhere and a host whose agent has not reported
+// one is never ruled out.
+func HostIsPlatform(h *store.Host, p *store.Pool) bool {
+	return p.Platform.Matches(h.Platform())
+}
+
+// HostAvailable reports whether a host may take new runners at all: its agent
+// is heartbeating and an operator has not cordoned it.
+func HostAvailable(h *store.Host, now time.Time) bool {
+	return h.Healthy(now) && !h.Cordoned
+}
+
+// HostOffers reports whether a host's agent offers the pool's backend.
+func HostOffers(h *store.Host, p *store.Pool) bool {
+	return slices.Contains(h.Backends, string(p.Backend))
+}
+
+// HostSelects reports whether a host satisfies the pool's host selector: every
+// key of the selector answers with the value the selector asks for, and an
+// empty selector means "any host".
+//
+// A host answers for its own labels and, for `os` and `arch`, for what its
+// agent reported about the machine -- see Host.SelectorValue. So a pool may ask
+// for arm64 or windows across a fleet nobody has labelled, which is the case
+// this indirection exists for.
+func HostSelects(h *store.Host, p *store.Pool) bool {
+	for k, v := range p.HostSelector {
+		if h.SelectorValue(k) != v {
 			return false
 		}
 	}
@@ -443,7 +817,7 @@ type blockage struct {
 
 // why explains why no host could take a runner for p, naming the counts an
 // operator can act on. It is split into what is true and what to change,
-// because the problems panel shows those as two different things; sentence
+// because the problems drawer shows those as two different things; sentence
 // joins them for the one-line scaling reason.
 func (hs *hostSet) why(p *store.Pool) blockage {
 	if len(hs.hosts) == 0 {
@@ -452,7 +826,7 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 			fix:  "run 'zoomies agent' on a machine that can host runners, using a join token from the Hosts page",
 		}
 	}
-	var unhealthy, cordoned, backend, selector, full int
+	var unhealthy, cordoned, backend, platform, selector, full int
 	var detail string
 	for _, h := range hs.hosts {
 		switch {
@@ -471,7 +845,9 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 					detail = h.Name + " reports: " + info.Detail
 				}
 			}
-		case !selects(p.HostSelector, h.Labels):
+		case !HostIsPlatform(h, p):
+			platform++
+		case !HostSelects(h, p):
 			selector++
 		default:
 			full++
@@ -486,6 +862,7 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 	add(unhealthy, "unhealthy")
 	add(cordoned, "cordoned")
 	add(backend, "without the "+string(p.Backend)+" backend")
+	add(platform, "not "+p.Platform.Describe())
 	add(selector, "not matching the pool's host selector")
 	add(full, "at capacity")
 	b := blockage{
@@ -503,6 +880,13 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 		b.fix = "wait for a job to finish, raise a host's capacity, or add a host"
 	case unhealthy == len(hs.hosts):
 		b.fix = "check that the zoomies agent is running on those hosts and can reach this controller"
+	case platform > 0 && platform+unhealthy+cordoned == len(hs.hosts):
+		// Naming the platform is the difference between an operator adding a
+		// host and adding the *right* one: a pool that wants Ubuntu 24.04
+		// arm64 will keep failing to place on the amd64 box they just built
+		// unless the message says so.
+		b.fix = fmt.Sprintf("add a %s host, or change this pool's platform to one your fleet already has",
+			p.Platform.Describe())
 	case backend > 0 && backend+unhealthy+cordoned == len(hs.hosts):
 		// Only a pool blocked on its backend can be unblocked by changing it,
 		// so that is the only case that carries alternatives. Offering them for
@@ -530,7 +914,7 @@ var backendOrder = []store.BackendKind{store.BackendDocker, store.BackendPodman,
 func (hs *hostSet) otherBackends(p *store.Pool) []string {
 	offered := map[string]int{}
 	for _, h := range hs.hosts {
-		if hs.free[h.ID] <= 0 || !h.Healthy(hs.now) || h.Cordoned || !selects(p.HostSelector, h.Labels) {
+		if hs.free[h.ID] <= 0 || !h.Healthy(hs.now) || h.Cordoned || !HostSelects(h, p) {
 			continue
 		}
 		for _, kind := range h.Backends {
@@ -551,7 +935,7 @@ func (hs *hostSet) otherBackends(p *store.Pool) []string {
 // switchTo turns the alternatives into the second half of the fix, or into an
 // honest full stop when there is no second half: a fleet that offers nothing
 // else needs a daemon fixed, and saying "or use another backend" to an operator
-// who has none is how a problems panel stops being believed.
+// who has none is how a problems drawer stops being believed.
 func (hs *hostSet) switchTo(p *store.Pool, alternatives []string) string {
 	switch len(alternatives) {
 	case 0:
@@ -573,7 +957,7 @@ func (hs *hostSet) offering(p *store.Pool, kind string) int {
 	n := 0
 	for _, h := range hs.hosts {
 		if hs.free[h.ID] > 0 && h.Healthy(hs.now) && !h.Cordoned &&
-			slices.Contains(h.Backends, kind) && selects(p.HostSelector, h.Labels) {
+			slices.Contains(h.Backends, kind) && HostSelects(h, p) {
 			n++
 		}
 	}
