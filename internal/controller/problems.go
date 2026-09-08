@@ -114,6 +114,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	gather("hosts", c.hostProblems)
 	gather("installations", c.installationProblems)
 	gather("the encryption key", c.keyProblems)
+	gather("host versions", c.hostSkewProblems)
 	out = append(out, c.fenceProblems()...)
 	gather("webhook deliveries", c.webhookProblems)
 	gather("jobs", c.jobProblems)
@@ -268,6 +269,71 @@ func (c *Controller) hostProblems(ctx context.Context, out *[]Problem) error {
 			})
 		}
 	}
+	return nil
+}
+
+// hostSkewProblems names the hosts running a different release from this
+// controller.
+//
+// It is a warning rather than an error, and that is the judgement: a fleet
+// mid-upgrade is *supposed* to look like this for a while, and an error for
+// every host between two releases would train an operator to ignore the list.
+// What it protects against is the fleet that stays this way -- a host somebody
+// forgot, running last quarter's agent, whose odd behaviour has an explanation
+// nobody has thought to look for.
+//
+// A host ahead of its controller gets its own sentence, because the fix is the
+// other machine: that is the direction the policy calls unsupported, and
+// telling an operator to upgrade the agent would be telling them to make it
+// worse.
+func (c *Controller) hostSkewProblems(ctx context.Context, out *[]Problem) error {
+	hosts, err := c.st.ListHosts(ctx)
+	if err != nil {
+		return fmt.Errorf("listing hosts: %w", err)
+	}
+	var behind, ahead, differs []string
+	for _, h := range hosts {
+		// An incompatible host has a louder problem of its own, and saying
+		// both would be two entries about one machine.
+		if h.Incompatible {
+			continue
+		}
+		switch version.CompareBuilds(h.Version, version.Version) {
+		case version.SkewBehind:
+			behind = append(behind, h.Name)
+		case version.SkewAhead:
+			ahead = append(ahead, h.Name)
+		case version.SkewDiffers:
+			differs = append(differs, h.Name)
+		}
+	}
+	if len(behind)+len(ahead)+len(differs) == 0 {
+		return nil
+	}
+
+	var detail []string
+	if len(behind) > 0 {
+		detail = append(detail, fmt.Sprintf("%s behind: %s", plural(len(behind), "host"), strings.Join(behind, ", ")))
+	}
+	if len(ahead) > 0 {
+		detail = append(detail, fmt.Sprintf("%s ahead of this controller: %s", plural(len(ahead), "host"), strings.Join(ahead, ", ")))
+	}
+	if len(differs) > 0 {
+		detail = append(detail, fmt.Sprintf("%s on a build this controller cannot order against its own: %s",
+			plural(len(differs), "host"), strings.Join(differs, ", ")))
+	}
+	fix := "upgrade the agent on those hosts to " + version.Version + "; the protocol still matches, so they are placing work as normal in the meantime."
+	if len(ahead) > 0 {
+		fix = "upgrade this controller to the newest release in the fleet, then the agents: an agent ahead of its controller is the direction nothing is tested in. " + fix
+	}
+	*out = append(*out, Problem{
+		Code:     "host.version_behind",
+		Severity: config.SeverityWarning,
+		Title:    "some hosts are running a different release from this controller",
+		Detail: strings.Join(detail, "; ") + ". This controller is " + version.Version +
+			". A fleet part-way through an upgrade looks like this and clears itself; one that stays this way has a host somebody has forgotten.",
+		Fix: fix,
+	})
 	return nil
 }
 

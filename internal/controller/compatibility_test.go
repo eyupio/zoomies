@@ -5,7 +5,9 @@ import (
 	"testing"
 
 	"github.com/eyupio/zoomies/internal/agent"
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/scheduler"
+	"github.com/eyupio/zoomies/internal/version"
 )
 
 // The protocol was checked at join and nowhere else, so an agent that joined
@@ -147,4 +149,97 @@ func TestAFailureOnAnUnknownTaskKindLeavesTheRunnerAlone(t *testing.T) {
 			t.Errorf("lifecycleTask(%q) = %v, want %v", tc.kind, got, tc.want)
 		}
 	}
+}
+
+// A fleet part-way through an upgrade is supposed to look like this for a
+// while, so it is a warning: an error for every host between two releases
+// would train an operator to ignore the list. What it protects against is the
+// fleet that stays this way.
+func TestHostsOnAnotherReleaseAreNamedWithTheDirection(t *testing.T) {
+	// A test binary's version is "dev", which is deliberately unorderable, so
+	// every comparison would answer "differs" and the direction -- the thing
+	// worth testing -- would never be exercised.
+	asRelease(t, "v1.2.0")
+	h := newHarness(t)
+	behind := h.host("vm-behind")
+	behind.Version = "v0.0.1"
+	if err := h.st.UpdateHost(h.ctx, behind); err != nil {
+		t.Fatal(err)
+	}
+	ahead := h.host("vm-ahead")
+	ahead.Version = "v99.0.0"
+	if err := h.st.UpdateHost(h.ctx, ahead); err != nil {
+		t.Fatal(err)
+	}
+
+	all, err := h.c.Problems(h.ctx)
+	if err != nil {
+		t.Fatalf("Problems: %v", err)
+	}
+	var p Problem
+	for _, item := range all {
+		if item.Code == "host.version_behind" {
+			p = item
+		}
+	}
+	if p.Code == "" {
+		t.Fatalf("version skew is not on the problems list: %v", h.problemCodes())
+	}
+	if p.Severity != config.SeverityWarning {
+		t.Errorf("severity = %s; a fleet mid-upgrade is not an error", p.Severity)
+	}
+	// Both hosts, and which way round each one is: an operator sent to upgrade
+	// the agent on a host that is ahead would be told to make it worse.
+	for _, want := range []string{"vm-behind", "vm-ahead", "ahead of this controller"} {
+		if !strings.Contains(p.Detail, want) {
+			t.Errorf("the detail does not mention %q: %q", want, p.Detail)
+		}
+	}
+	if !strings.Contains(p.Fix, "upgrade this controller") {
+		t.Errorf("the fix does not say to upgrade the controller for a host that is ahead: %q", p.Fix)
+	}
+}
+
+// An incompatible host has a louder problem of its own. Two entries about one
+// machine is how a list stops being read.
+func TestAnIncompatibleHostIsNotAlsoReportedAsSkew(t *testing.T) {
+	h := newHarness(t)
+	host := h.host("vm-1")
+	host.Version = "v0.0.1"
+	host.Incompatible = true
+	host.ProtocolVersion = agent.ProtocolVersion + 1
+	if err := h.st.UpdateHost(h.ctx, host); err != nil {
+		t.Fatal(err)
+	}
+	if contains(h.problemCodes(), "host.version_behind") {
+		t.Error("an incompatible host is reported twice, once for the protocol and once for the release")
+	}
+}
+
+// The badge and the agent's own warning come from one comparison, so they
+// cannot disagree. They used to: the agent compared the version with its
+// commit while the host row stores the bare version, so two builds of one tag
+// warned in the log and matched on the page.
+func TestTheHostViewReportsTheSameSkewTheAgentWouldWarnAbout(t *testing.T) {
+	asRelease(t, "v1.2.0")
+	h := newHarness(t)
+	host := h.host("vm-1")
+
+	host.Version = version.Version
+	if got := h.c.HostView(host).VersionSkew; got != "" {
+		t.Errorf("a host on this build reports skew %q", got)
+	}
+	host.Version = "v0.0.1"
+	if got := h.c.HostView(host).VersionSkew; got != string(version.SkewBehind) {
+		t.Errorf("skew = %q, want behind", got)
+	}
+}
+
+// asRelease pretends this build is a tagged release for the duration of one
+// test, so the ordering the comparison exists for can be exercised at all.
+func asRelease(t *testing.T, v string) {
+	t.Helper()
+	was := version.Version
+	version.Version = v
+	t.Cleanup(func() { version.Version = was })
 }

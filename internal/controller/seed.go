@@ -9,10 +9,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/version"
 )
 
 // Identifiers for the demo fixtures. They are fixed rather than random so that
@@ -245,18 +247,23 @@ func (c *Controller) seedHosts(ctx context.Context, now time.Time) ([]*store.Hos
 				{Kind: store.BackendPodman, Detail: "no socket at /run/user/1000/podman/podman.sock; " +
 					"if Podman is installed, its API socket is off by default — enable it with `systemctl --user enable --now podman.socket`"},
 			},
-			Labels:        store.StringMap{"arch": s.arch, "zone": "demo"},
-			OS:            "linux",
-			Distro:        s.distro,
-			OSVersion:     s.osVer,
-			Arch:          s.arch,
-			CPUs:          s.cpus,
-			MemoryMB:      s.memoryMB,
-			DiskTotalMB:   s.diskMB,
-			DiskFreeMB:    s.freeMB,
-			Version:       "demo",
-			Cordoned:      s.cordoned,
-			LastHeartbeat: now.Add(-s.silentFor),
+			Labels:      store.StringMap{"arch": s.arch, "zone": "demo"},
+			OS:          "linux",
+			Distro:      s.distro,
+			OSVersion:   s.osVer,
+			Arch:        s.arch,
+			CPUs:        s.cpus,
+			MemoryMB:    s.memoryMB,
+			DiskTotalMB: s.diskMB,
+			DiskFreeMB:  s.freeMB,
+			// This build's own version, not a literal: a demo host on some
+			// other string is a host on another release, and the fleet would
+			// correctly report skew on every one of them. The demo exists to
+			// look like a fleet with nothing wrong.
+			Version:         version.Version,
+			ProtocolVersion: agent.ProtocolVersion,
+			Cordoned:        s.cordoned,
+			LastHeartbeat:   now.Add(-s.silentFor),
 		}
 		if err := c.st.CreateHost(ctx, h); err != nil {
 			return nil, fmt.Errorf("seeding host %s: %w", s.name, err)

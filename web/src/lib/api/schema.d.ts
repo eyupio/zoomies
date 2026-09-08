@@ -2474,6 +2474,11 @@ export interface components {
             incompatible?: boolean;
             /** @description What to do about it */
             incompatible_reason?: string;
+            /**
+             * @description How this host's release stands to the controller's, absent when they match. `differs` is the honest answer for a pair the controller cannot order -- a development build, a fork's tag -- because a wrong order would send an operator to upgrade the wrong side. Two builds of one tag are the same release and are not skew.
+             * @enum {string}
+             */
+            version_skew?: "behind" | "ahead" | "differs";
             healthy?: boolean;
             /** Format: date-time */
             last_heartbeat?: string;

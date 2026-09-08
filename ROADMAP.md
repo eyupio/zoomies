@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.17 · 8 September 2026 · derived from the owner's
+Version 2.18 · 8 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -1148,8 +1148,17 @@ re-uploaded two days after tagging; and there is no upgrade test of any kind.
    numbers; what it enforces is that the protocol matches, and lag beyond that
    is a fact the Hosts page shows rather than a rule. The badge for it is
    pull request 2.
-2. Skew visible: a derived `host.version_behind` problem and a badge on the
-   host card, with its row on the problem-codes page.
+2. Skew visible: **done** — a derived `host.version_behind` problem and a badge
+   on the host card, with its row on the problem-codes page. **The verifier's
+   finding that the two sides disagreed is fixed by making both use one
+   comparison**: the agent compared its version *with the commit* against the
+   controller's while the host row stores the bare version, so two builds of
+   one tag warned in the agent's log and matched on the Hosts page. Releases
+   are compared now, not commits -- a rebuild of one tag is the same release --
+   and `version.CompareBuilds` is the single answer both use. It refuses to
+   order what it cannot parse rather than guessing, because a wrong order
+   sends an operator to upgrade the wrong side; a host *ahead* of its
+   controller gets its own sentence for exactly that reason.
 3. Schema safety: **the first half landed early, in ZF-203** — the store
    already refuses to open a database whose ledger names a migration the
    binary does not embed, because a safe restore needed it first; **no
@@ -1727,6 +1736,16 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **8 September 2026 — Version 2.18:** ZF-204's second pull request is done.
+  The distinction it settled is what "skew" means: a *release* difference, not
+  a commit difference. Two builds of one tag are the same release — worth
+  knowing in a bug report, and not skew — and treating a rebuild as skew was
+  what made the agent's log and the Hosts page disagree. The comparison behind
+  both refuses to order what it cannot parse, because a wrong order would send
+  an operator to upgrade the wrong side, and a host ahead of its controller is
+  called out separately for the same reason: there the fix is the other
+  machine.
 
 * **8 September 2026 — Version 2.17:** ZF-204's first pull request is done, and
   it corrected two things in this plan. "An agent may lag by one minor release"
