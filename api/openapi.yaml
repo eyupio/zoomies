@@ -83,6 +83,8 @@ tags:
     description: Who did what.
   - name: admin
     description: Users, API tokens and settings.
+  - name: diagnostics
+    description: One document describing this instance, for a bug report.
   - name: agent
     description: Routes used by agents. Not for general clients.
 
@@ -1756,6 +1758,38 @@ paths:
         "204": { description: Revoked }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /diagnostics/bundle:
+    get:
+      operationId: getSupportBundle
+      tags: [diagnostics]
+      summary: A support bundle for this instance
+      description: >-
+        Everything a bug report needs about this controller in one JSON document: the
+        build and the process, the effective configuration and its findings, the current
+        problems, the fleet's installations, pools, hosts and runners, the work in flight
+        with the controller's own explanation for each of it, and the recent scheduler
+        decisions. It is assembled from the same renderings the other routes serve, so a
+        section that is secret-free on its own route is secret-free here.
+
+
+        It never carries workflow log bodies. There is no redaction pass for them and
+        there cannot be a reliable one, so the bundle carries runner ids and the download
+        route instead and an operator attaches logs deliberately.
+
+
+        Assembly is section by section: a section that fails costs its own contents and
+        lands in `errors` rather than failing the whole document, because the moment a
+        bundle is taken is the moment a query is most likely to fail. Sections are capped
+        by row count and the whole document by bytes; anything shortened says so in
+        `truncated`.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SupportBundle" }
+
   /settings:
     get:
       operationId: getSettings
@@ -2814,6 +2848,136 @@ components:
         runner_id: { type: string }
         host_id: { type: string }
         computed_at: { type: string, format: date-time }
+
+    SupportBundle:
+      type: object
+      required: [bundle_version, generated_at, instance, errors]
+      properties:
+        bundle_version:
+          type: integer
+          description: >-
+            The shape's own number, so a reader given a bundle out of context knows what
+            it is looking at. It moves when a section is removed or renamed, not when one
+            is added.
+        generated_at: { type: string, format: date-time }
+        instance: { $ref: "#/components/schemas/BundleInstance" }
+        config:
+          type: object
+          additionalProperties: true
+          description: The effective configuration, the same key-by-key rendering /settings serves.
+        findings:
+          type: array
+          description: The configuration validator's findings, the same list /settings carries.
+          items: { $ref: "#/components/schemas/Problem" }
+        problems:
+          type: object
+          description: Everything currently wrong, the same shape /problems serves.
+          required: [ok, items]
+          properties:
+            ok: { type: boolean }
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/Problem" }
+        stats: { $ref: "#/components/schemas/Stats" }
+        installations:
+          type: array
+          items: { $ref: "#/components/schemas/Installation" }
+        pools:
+          type: array
+          items: { $ref: "#/components/schemas/Pool" }
+        hosts:
+          type: array
+          items: { $ref: "#/components/schemas/Host" }
+        runners:
+          type: array
+          items: { $ref: "#/components/schemas/Runner" }
+        jobs:
+          type: array
+          description: >-
+            The work in flight rather than the history. A bundle is taken because
+            something is stuck, and finished jobs would be most of the bytes while
+            answering none of it.
+          items: { $ref: "#/components/schemas/Job" }
+        explanations:
+          type: array
+          description: The controller's own answer for each unfinished job, the same one the drawer and the CLI render.
+          items: { $ref: "#/components/schemas/JobExplanation" }
+        scaling_events:
+          type: array
+          items: { $ref: "#/components/schemas/ScalingEvent" }
+        logs: { $ref: "#/components/schemas/BundleLogs" }
+        errors:
+          type: array
+          description: Why a section is missing. A bundle with nine sections and a named failure is worth more than a 500.
+          items: { $ref: "#/components/schemas/BundleError" }
+        truncated:
+          type: array
+          items: { $ref: "#/components/schemas/BundleTruncation" }
+
+    BundleInstance:
+      type: object
+      description: What this process is and how it is doing -- the half of a bug report that is never in the fleet's own rows.
+      properties:
+        version: { type: string }
+        commit: { type: string }
+        build_date: { type: string }
+        go: { type: string }
+        os: { type: string }
+        arch: { type: string }
+        cpus: { type: integer }
+        goroutines: { type: integer }
+        heap_in_use_bytes: { type: integer, format: int64 }
+        config_path: { type: string }
+        database_path: { type: string }
+        schema_applied: { type: integer }
+        schema_latest: { type: string }
+        event_subscribers: { type: integer }
+        polling_only: { type: boolean }
+        poller_enabled: { type: boolean }
+        poller_last_poll_at: { type: string, format: date-time }
+        loop_panics:
+          type: array
+          description: >-
+            The one fact here that is always a bug in Zoomies. A loop that panicked was
+            restarted and the fleet carried on, so nothing else in a bundle would show it.
+          items:
+            type: object
+            properties:
+              loop: { type: string }
+              count: { type: integer }
+              last: { type: string }
+              at: { type: string, format: date-time }
+
+    BundleLogs:
+      type: object
+      description: Where the logs are, rather than the logs.
+      properties:
+        note: { type: string, description: Why the bodies are not here. }
+        runners:
+          type: array
+          items:
+            type: object
+            properties:
+              runner_id: { type: string }
+              name: { type: string }
+              state: { $ref: "#/components/schemas/RunnerState" }
+              pool_id: { type: string }
+              download: { type: string, description: The route that fetches this runner's log. }
+
+    BundleError:
+      type: object
+      required: [section, error]
+      properties:
+        section: { type: string }
+        error: { type: string }
+
+    BundleTruncation:
+      type: object
+      required: [section, reason]
+      properties:
+        section: { type: string }
+        kept: { type: integer, description: How many rows survived, where the cap was a row count. }
+        reason: { type: string }
 
     TimelineEntry:
       type: object

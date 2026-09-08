@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 )
@@ -371,4 +372,43 @@ type metaResponse struct {
 	ExternalURL       string `json:"external_url"`
 	WebhookURL        string `json:"webhook_url"`
 	PollingOnly       bool   `json:"polling_only"`
+}
+
+// bundleResponse is GET /diagnostics/bundle, decoded only as far as the
+// summary needs.
+//
+// The document itself is written to the file byte for byte from the server's
+// response, so a section added to the bundle tomorrow reaches a support case
+// today; this type exists so the terminal can say what went in it and what did
+// not, which is the one thing an operator has to check before attaching it.
+type bundleResponse struct {
+	BundleVersion int       `json:"bundle_version"`
+	GeneratedAt   time.Time `json:"generated_at"`
+	Instance      struct {
+		Version    string `json:"version"`
+		OS         string `json:"os"`
+		Arch       string `json:"arch"`
+		Goroutines int    `json:"goroutines"`
+	} `json:"instance"`
+	Findings      []problemItem     `json:"findings"`
+	Problems      problemsResponse  `json:"problems"`
+	Installations []json.RawMessage `json:"installations"`
+	Pools         []json.RawMessage `json:"pools"`
+	Hosts         []json.RawMessage `json:"hosts"`
+	Runners       []json.RawMessage `json:"runners"`
+	Jobs          []json.RawMessage `json:"jobs"`
+	Explanations  []json.RawMessage `json:"explanations"`
+	ScalingEvents []json.RawMessage `json:"scaling_events"`
+	Logs          struct {
+		Runners []json.RawMessage `json:"runners"`
+	} `json:"logs"`
+	Errors []struct {
+		Section string `json:"section"`
+		Error   string `json:"error"`
+	} `json:"errors"`
+	Truncated []struct {
+		Section string `json:"section"`
+		Kept    int    `json:"kept"`
+		Reason  string `json:"reason"`
+	} `json:"truncated"`
 }

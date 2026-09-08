@@ -123,6 +123,21 @@ the first thing to run when registration starts failing.
 the last few (`--limit`, `10`) and then follows the live stream until you
 interrupt it.
 
+### `zoomies diagnostics`
+
+Collects a support bundle — this instance, its fleet, its configuration and
+everything currently wrong, in one JSON document — and writes it to a file
+named after the instant the controller took it. `--file` names the file
+yourself, `--stdout` (or `--output json`) sends it to a pipe instead.
+
+The terminal summary is there so you know what you are about to attach: how
+many pools, hosts, runners and unfinished jobs went in, which sections the
+controller could not gather, and which were shortened. No workflow log is in
+it — the bundle names the runners whose logs a support case is likely to want
+and the route that fetches each, so you choose what leaves the fleet.
+
+It needs an admin token, because the document contains the settings section.
+
 ### `zoomies users` and `zoomies tokens`
 
 | Command | What it does |

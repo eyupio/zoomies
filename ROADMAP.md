@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.11 · 8 September 2026 · derived from the owner's
+Version 2.12 · 8 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -980,15 +980,19 @@ unmatched by construction, so the default Jobs view hid every one of them.
 pool, the runner and the host, and separates `waiting` from `blocked` because
 the two need different advice; and the drawer and the CLI render it
 instead of reasoning for themselves, so the explanation is complete.
-**Outstanding:** a support bundle as one JSON document from
-one admin route under a new `diagnostics.read` action, assembled section by
-section so a failing section lands in an `errors` array rather than failing
-the whole, size-capped, secret-free by the shared blanking, never carrying
-workflow log bodies (runner ids and the existing download route instead),
-with a thin `zoomies diagnostics` wrapper; and a server-side explanation,
-`GET /jobs/{id}/explanation`, computed once from the last plan, the pool's
-warnings, the runner's stamps and the host's heartbeat, and rendered
-identically by the drawer, the CLI and the bundle.
+**And the bundle is done**, which finishes the package: `GET
+/diagnostics/bundle` under a new `diagnostics.read` action, assembled section
+by section so a failing section lands in an `errors` array rather than failing
+the whole, capped by row count per section and by bytes overall, and
+secret-free because every section is a rendering the API already serves --
+the configuration in it is `/settings`' own key-by-key one, where a secret is
+absent rather than blanked. It carries no workflow log body: runner ids and
+the existing download route instead. `zoomies diagnostics` writes it to a
+file and says what went in. **The action is admin, not viewer, and the
+reasoning is worth keeping**: the weakest role that covers a bundle is the
+strongest role inside it, because the bundle contains the settings section
+and `settings.read` is admin -- a document assembled from admin-only material
+does not become viewer material by being assembled.
 
 **Cut from the source package:** request-id propagation into the agent
 protocol; a delivery-id migration until a support case asks; any new
@@ -1683,6 +1687,16 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **8 September 2026 — Version 2.12:** the support bundle is done and **ZF-202
+  is finished**. Two decisions in it are worth recording. The action is admin
+  rather than viewer, because the weakest role that covers a bundle is the
+  strongest role inside it — it carries the settings section, and that has
+  always been admin. And the byte cap sheds sections rather than refusing the
+  request: explanations first because they are recomputable from the jobs
+  beside them, then the scaling history, then jobs and runners; the fleet's own
+  shape is what a bundle is for and never goes. A short bundle answers some
+  questions and a 500 answers none.
 
 * **8 September 2026 — Version 2.11:** the explanation is finished: the drawer
   and the CLI render it rather than reasoning for themselves, which is the

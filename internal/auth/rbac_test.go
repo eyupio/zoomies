@@ -54,6 +54,7 @@ func TestEveryActionHasARole(t *testing.T) {
 		ActionTokensRead, ActionTokensWrite,
 		ActionSettingsRead, ActionSettingsWrite,
 		ActionMetricsRead, ActionEventsRead, ActionLogsRead, ActionJoinsWrite,
+		ActionDiagnosticsRead,
 	} {
 		if !required.Known() {
 			t.Errorf("%s is missing from the RBAC table", required)
@@ -90,7 +91,10 @@ func TestRoleAuthority(t *testing.T) {
 func TestSecretsStayWithAdmins(t *testing.T) {
 	// Reading a user list, a token list, a join token or the settings can
 	// expose credentials or their metadata, so none of them is a viewer read.
-	for _, a := range []Action{ActionUsersRead, ActionTokensRead, ActionJoinsRead, ActionSettingsRead} {
+	// The bundle is on that list because it contains the settings section: a
+	// document assembled from admin-only material does not become viewer
+	// material by being assembled.
+	for _, a := range []Action{ActionUsersRead, ActionTokensRead, ActionJoinsRead, ActionSettingsRead, ActionDiagnosticsRead} {
 		if a.MinRole() != store.RoleAdmin {
 			t.Errorf("%s needs %s; want admin", a, a.MinRole())
 		}

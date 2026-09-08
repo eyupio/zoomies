@@ -92,6 +92,7 @@ func commands() []*command {
 		{"hosts", groupFleet, "Agents, their capacity, and enrolment", runHosts},
 		{"installations", groupFleet, "GitHub App installations", runInstallations},
 		{"audit", groupFleet, "Who did what", runAudit},
+		{"diagnostics", groupFleet, "Collect a support bundle for a bug report", runDiagnostics},
 		{"users", groupFleet, "User accounts", runUsers},
 		{"tokens", groupFleet, "API tokens", runTokens},
 

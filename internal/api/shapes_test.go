@@ -233,6 +233,12 @@ func TestResponsesMatchTheSpecShapes(t *testing.T) {
 		assertShape(t, doc, "Settings", resp.body)
 	})
 
+	t.Run("SupportBundle", func(t *testing.T) {
+		resp := h.do(request{method: http.MethodGet, path: "/api/v1/diagnostics/bundle", cookie: cookie})
+		resp.mustStatus(t, http.StatusOK, "support bundle")
+		assertShape(t, doc, "SupportBundle", resp.body)
+	})
+
 	t.Run("ErrorEnvelope", func(t *testing.T) {
 		resp := h.do(request{method: http.MethodGet, path: "/api/v1/pools/pool_nope", cookie: cookie})
 		resp.mustStatus(t, http.StatusNotFound, "missing pool")
@@ -271,6 +277,11 @@ func TestSecretsAreNeverInAResponse(t *testing.T) {
 		"/api/v1/users",
 		"/api/v1/settings",
 		"/api/v1/audit",
+		// The bundle is on this list because it is the others put together:
+		// a document assembled from secret-free sections is only secret-free
+		// while every section still is, and this is what notices when one
+		// stops being.
+		"/api/v1/diagnostics/bundle",
 	}
 	for _, path := range paths {
 		resp := h.do(request{method: http.MethodGet, path: path, cookie: cookie})
@@ -291,7 +302,7 @@ func TestSecretsAreNeverInAResponse(t *testing.T) {
 }
 
 // TestSecretsAreNeverInAFailure is the other side of the coin from
-// TestSecretsAreNeverInAResponse, which walks seven admin reads on the success
+// TestSecretsAreNeverInAResponse, which walks eight admin reads on the success
 // path. A response that succeeded has been thought about; the ones that leak
 // are the ones nobody was looking at.
 //

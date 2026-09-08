@@ -161,6 +161,31 @@ runs, so it starts taking work within a heartbeat of the daemon appearing. What
 each host can currently run, and why it cannot run the rest, is on the Hosts
 page.
 
+## Reporting a bug
+
+`zoomies diagnostics` writes a support bundle: this instance's build and
+process, its effective configuration and the validator's findings, everything
+currently wrong, the fleet's installations, pools, hosts and runners, the work
+in flight with the controller's own explanation for each of it, and the recent
+scheduler decisions — one JSON file to attach to an issue.
+
+Two things about it are worth knowing before you attach one.
+
+It carries no secret. Every section is a rendering the API already serves, and
+the configuration in it is the same key-by-key rendering the settings page
+uses, where a secret is absent rather than blanked.
+
+It carries no workflow log. There is no redaction pass for log bodies and there
+cannot be a reliable one, because a log holds whatever a workflow printed — so
+the bundle names the runners whose logs are likely to matter and the route that
+fetches each one, and you attach the ones you have read.
+
+A section the controller could not gather lands in the document's `errors`
+array rather than taking the whole document with it, and the terminal summary
+says which. That is deliberate: the moment a bundle is worth taking is the
+moment a query is most likely to fail, and a bundle short one section is worth
+more than no bundle at all.
+
 ## What Zoomies cleans up, and what it leaves
 
 Most of the time cleanup is invisible, which is the point. What follows is what
