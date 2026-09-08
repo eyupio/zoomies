@@ -1,7 +1,7 @@
 ---
 description: >-
   How Zoomies is put together: one Go binary, SQLite, a pure scheduler and
-  outbound-only agents -- and why a self-hosted runner controller needs no
+  outbound-only agents — and why a self-hosted runner controller needs no
   Kubernetes.
 ---
 

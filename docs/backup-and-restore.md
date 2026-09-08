@@ -1,8 +1,7 @@
 ---
 description: >-
-  What to back up and what to leave: the database, the encryption key without
-  which its secrets are unreadable, and how to bring a controller back on a new
-  machine.
+  The two files a Zoomies controller is made of, how to copy them safely, and
+  how to bring the fleet back on another machine.
 ---
 
 # Backup and restore

@@ -1,4 +1,5 @@
 ---
+title: Move workflows onto self-hosted GitHub Actions runners
 description: >-
   Move workflows off GitHub-hosted runners: the migration wizard rewrites
   runs-on across repositories and opens one pull request each, showing the

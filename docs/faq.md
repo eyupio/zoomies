@@ -1,9 +1,8 @@
 ---
 title: Frequently asked questions
 description: >-
-  Answers to what people ask before self-hosting GitHub Actions runners: cost,
-  Kubernetes, ARC, ephemeral runners, scaling to zero, public repositories, and
-  what Zoomies needs to run.
+  What Zoomies costs, what it needs, which platforms it runs on, and what
+  self-hosted runners will and will not protect you from.
 ---
 
 # Frequently asked questions

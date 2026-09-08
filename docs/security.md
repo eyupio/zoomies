@@ -1,8 +1,7 @@
 ---
 description: >-
-  What Zoomies protects, what it does not, and what each dangerous setting
-  costs: ephemeral runners, the Docker socket, disabled authentication, and
-  the warnings they raise.
+  The Zoomies threat model, what a self-hosted runner exposes, and what each
+  setting that weakens the safe defaults actually costs.
 ---
 
 # Zoomies security

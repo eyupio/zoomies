@@ -1,8 +1,7 @@
 ---
 description: >-
-  How to write the service on the other end of `capacity_demand`: the signed
-  JSON Zoomies posts when a pool is blocked for want of a host, its retries,
-  and how deliveries are deduplicated.
+  The advisory contract that tells another system a Zoomies pool is short of
+  capacity, and what a receiver must do to be safe.
 ---
 
 # Capacity-demand receiver

@@ -2,9 +2,8 @@
 title: Give your GitHub Actions runners the Zoomies.
 social_title: Zoomies — free, open-source self-hosted GitHub Actions runners
 description: >-
-  Free, open-source self-hosted GitHub Actions runners: a fresh ephemeral runner
-  for every job, autoscaling across your own hosts, and the whole fleet on one
-  live page.
+  Free, open-source self-hosted GitHub Actions runners: a fresh ephemeral
+  runner for every job, autoscaling across your own hosts.
 hide:
   - navigation
   - toc
@@ -137,9 +136,11 @@ history with queue waits, and an audit row for every mutating action.
 <div markdown>
 :material-shield-check-outline:{ .icon }
 
-### Safe by default
+### Safe defaults
 Loopback bind, authentication on, no Docker socket in your jobs, no root. Every
-deviation is named at startup and in the UI's problems drawer.
+deviation is named at startup and in the UI's problems drawer. A self-hosted
+runner still runs your repositories' code — [what this protects, and what it
+does not](security.md).
 </div>
 
 <div class="wide" markdown>
