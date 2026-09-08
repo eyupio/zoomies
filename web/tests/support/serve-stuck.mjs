@@ -18,5 +18,15 @@ serveController({
     // Ages the demo's two starting runners past the point where the fleet
     // calls them stuck, and adds the blocked pool and the held job.
     ZOOMIES_SEED_STUCK: 'true',
+    // Four hours, so the fixture does not depend on when the spec runs.
+    //
+    // A runner is "stuck" after half the provision timeout and is failed after
+    // the whole of it, so with the five-minute default the window is between
+    // 2m30s and 5m -- and this project runs last in a serial suite, roughly
+    // ten minutes after its server booted. Both runners had been failed and
+    // replaced by then, and the drawer showed "3 runners in the failed state"
+    // instead of two stuck ones. The window is now hours wide, so it does not
+    // matter how long the suite before it takes.
+    ZOOMIES_PROVISION_TIMEOUT: '4h',
   },
 });
