@@ -119,6 +119,25 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	if n := len(applied); n > 0 {
 		body["schema"] = map[string]any{"applied": n, "latest": applied[n-1].Name}
 	}
+	// A fenced fleet is not ready, and saying so is the point: it is serving,
+	// it is deciding, and it is doing none of it, which from outside looks
+	// exactly like a healthy fleet with nothing queued. A load balancer taking
+	// it out of rotation is the correct outcome, and so is a deployment that
+	// refuses to go green until somebody has looked.
+	//
+	// Liveness is deliberately unaffected: the container's health check is
+	// /healthz, so a fenced controller is not restarted by its own runtime --
+	// which would achieve nothing and lose the operator's session.
+	if f := s.ctrl.Fenced(); f.Fenced {
+		body["ok"] = false
+		body["fenced"] = true
+		body["message"] = "this fleet is held for recovery and is applying nothing; the problems drawer says what to check before lifting the fence"
+		if f.Reason != "" {
+			body["reason"] = f.Reason
+		}
+		writeJSON(w, http.StatusServiceUnavailable, body)
+		return
+	}
 	writeJSON(w, http.StatusOK, body)
 }
 

@@ -68,8 +68,13 @@ func (c *Controller) pollLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			c.pollOnce(ctx)
-			c.polls.Add(1)
+			// The poller exists to find work this fleet should run. A fenced
+			// fleet is not going to run any, and sweeping would spend the
+			// installation's GitHub quota to learn something it cannot act on.
+			if !c.Fenced().Fenced {
+				c.pollOnce(ctx)
+				c.polls.Add(1)
+			}
 		case <-c.settingsChanged:
 			// github.poll_interval is a runtime setting. The timer was built
 			// from the old value, so it is rebuilt here rather than left to

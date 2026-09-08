@@ -243,6 +243,25 @@ for: Contents (write), Pull requests (write) and Workflows (write).
 | GET | `/api/v1/settings` | admin | Effective config with every secret blanked, plus the validator's findings. |
 | PATCH | `/api/v1/settings` | admin | The subset that is safe to change at runtime: retention, scheduler tunables, poll interval, log level. Anything requiring a restart is rejected with a message saying so. |
 
+## Recovery
+
+| Method | Path | Role | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/recovery` | viewer | Whether this fleet is held for recovery, and why. |
+| POST | `/api/v1/recovery/unfence` | admin | Lift it. Audited under its own action; lifting an unfenced instance succeeds and changes nothing. |
+
+`zoomies restore` marks a restored database for recovery, and a controller
+reading that mark decides as normal and applies none of it: no runner is
+created, drained or removed, nothing is reaped from GitHub, and the fallback
+poller does not sweep. The plan is still computed and published, so the
+Overview shows exactly what would happen the moment the fence is lifted — the
+difference between "nothing to do" and "not allowed to".
+
+`/readyz` answers 503 while the fence is on, so a load balancer takes the
+instance out of rotation and a deployment does not go green. Liveness is
+deliberately unaffected: the container image's health check is `/healthz`, so a
+fenced controller is not restarted by its own runtime.
+
 ## Diagnostics
 
 | Method | Path | Role | Notes |
