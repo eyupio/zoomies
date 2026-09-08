@@ -97,11 +97,14 @@ func Count(plans []RepoPlan) Counts {
 }
 
 // PlanRepo applies a mapping to one repository's workflows.
+//
+// The mapping is narrowed per file, which is what turns a flat list of
+// overrides into "this job, in this file, in this repository".
 func PlanRepo(repo, defaultBranch string, workflows []Workflow, m Mapping) RepoPlan {
 	out := RepoPlan{Repo: repo, DefaultBranch: defaultBranch}
 	seen := map[string]bool{}
 	for _, w := range workflows {
-		res := File(w.Content, m)
+		res := File(w.Content, m.In(repo, w.Path))
 		plan := WorkflowPlan{
 			Path:         w.Path,
 			SHA:          w.SHA,

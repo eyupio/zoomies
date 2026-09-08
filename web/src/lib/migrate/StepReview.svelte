@@ -1,5 +1,5 @@
 <!--
-  Step four: the exact change.
+  Step five: the exact change.
 
   Everything before this was a guess about what the operator wants. This is the
   diff that is about to appear in somebody else's repository, so it is shown in
@@ -31,15 +31,17 @@
     let files = 0;
     let jobs = 0;
     let skips = 0;
+    let exceptions = 0;
     for (const repo of repos) {
       for (const wf of repo.workflows ?? []) {
-        const rewrites = (wf.rewrites ?? []).length;
-        if (rewrites > 0) files += 1;
-        jobs += rewrites;
+        const rewrites = wf.rewrites ?? [];
+        if (rewrites.length > 0) files += 1;
+        jobs += rewrites.length;
+        exceptions += rewrites.filter((r) => r.overridden).length;
         skips += (wf.skips ?? []).length;
       }
     }
-    return { files, jobs, skips };
+    return { files, jobs, skips, exceptions };
   });
 </script>
 
@@ -78,6 +80,11 @@
     {totals.jobs === 1 ? 'job' : 'jobs'} across {totals.files}
     {totals.files === 1 ? 'file' : 'files'} in {repos.length}
     {repos.length === 1 ? 'repository' : 'repositories'}{target ? ` on ${target}` : ''}.
+    {#if totals.exceptions > 0}
+      {totals.exceptions}
+      {totals.exceptions === 1 ? 'is an exception you set' : 'are exceptions you set'} rather than the
+      label mapping's answer, marked below.
+    {/if}
     {#if totals.skips > 0}
       {totals.skips} other {totals.skips === 1 ? 'job stays' : 'jobs stay'} on GitHub's runners; each
       one says why below.
@@ -99,6 +106,9 @@
                   >{(wf.rewrites ?? []).length}
                   {(wf.rewrites ?? []).length === 1 ? 'job' : 'jobs'}</span
                 >
+                {#each (wf.rewrites ?? []).filter((r) => r.overridden) as ex (ex.line)}
+                  <span class="exception">{ex.job || `line ${ex.line}`} → {ex.to}</span>
+                {/each}
               </p>
               <DiffView diff={wf.diff ?? ''} />
             </article>
@@ -204,6 +214,16 @@
   }
   .count {
     color: var(--z-text-subtle);
+  }
+  /* An exception is not a warning, so it is marked rather than coloured: the
+     status palette means something else everywhere in this UI. */
+  .exception {
+    padding: 0 var(--z-space-2);
+    border: var(--z-border-width) dashed var(--z-border);
+    border-radius: var(--z-radius-sm);
+    font-family: var(--z-font-mono);
+    font-size: var(--z-text-2xs);
+    color: var(--z-text-muted);
   }
   details summary {
     cursor: pointer;

@@ -94,7 +94,9 @@ func (s *Server) migrationFail(w http.ResponseWriter, r *http.Request, doing str
 		unprocessable(w, err.Error()+". Create one on the Pools page first, then come back.",
 			[]fieldError{{"installation_id", "no enabled pool belongs to this installation"}})
 	case errors.Is(err, controller.ErrNothingMapped):
-		unprocessable(w, err.Error(), []fieldError{{"mapping", "map at least one label, such as ubuntu-latest, to a pool"}})
+		unprocessable(w, err.Error(), []fieldError{{"mapping", "map at least one label, such as ubuntu-latest, to a pool, or send an override with a runs-on value"}})
+	case errors.Is(err, controller.ErrBadOverride):
+		unprocessable(w, err.Error(), []fieldError{{"overrides", "each override needs a repo, a workflow path under .github/workflows, and a job name"}})
 	case errors.Is(err, controller.ErrNotAWorkflow):
 		unprocessable(w, err.Error(), []fieldError{{"workflows", "name workflow files directly under .github/workflows"}})
 	default:

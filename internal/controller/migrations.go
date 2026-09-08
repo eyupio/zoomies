@@ -54,12 +54,16 @@ var (
 	// ErrNoMigrationPool means the installation has no enabled pool, so there
 	// is nowhere to send a job and nothing to plan.
 	ErrNoMigrationPool = errors.New("there is nowhere to migrate to: this installation has no enabled pool")
-	// ErrNothingMapped means the apply request maps no hosted label to a pool,
-	// so no workflow would change.
-	ErrNothingMapped = errors.New("nothing would change: no hosted label is mapped to a pool")
+	// ErrNothingMapped means the apply request maps no hosted label to a pool
+	// and points no single job at one either, so no workflow would change.
+	ErrNothingMapped = errors.New("nothing would change: no hosted label is mapped to a pool, and no job is pointed at one by name")
 	// ErrNotAWorkflow means the apply request named a file GitHub would never
 	// run, which would be a pull request that quietly changed nothing.
 	ErrNotAWorkflow = errors.New("only files directly under .github/workflows can be migrated")
+	// ErrBadOverride means an override named something other than one job in
+	// one workflow file in one repository, so there is no single place for it
+	// to apply to.
+	ErrBadOverride = errors.New("an override names one job in one workflow file in one repository")
 )
 
 // ---------------------------------------------------------------------------
@@ -75,6 +79,10 @@ type MigrationPlanRequest struct {
 	// Mapping is hosted label -> the runs-on value that replaces it. Empty asks
 	// the server to propose one from the pools that exist.
 	Mapping map[string]string `json:"mapping"`
+	// Overrides are the exceptions to Mapping, each naming one job in one file
+	// in one repository. Empty is the common case: most fleets want one answer
+	// per hosted-runner label everywhere.
+	Overrides []migrate.Override `json:"overrides"`
 	// Cursor asks for the page of repositories after this one. It is the full
 	// name of the last repository the previous page returned, because the
 	// listing is sorted by name: a name is stable when the App gains or loses
@@ -87,6 +95,10 @@ type MigrationApplyRequest struct {
 	InstallationID string            `json:"installation_id"`
 	Repos          []string          `json:"repos"`
 	Mapping        map[string]string `json:"mapping"`
+	// Overrides are the exceptions to Mapping. They sit alongside Workflows
+	// rather than inside it: Workflows says which files move at all, and an
+	// override says where one job in one of them lands.
+	Overrides []migrate.Override `json:"overrides"`
 	// Workflows narrows a repository to the workflow files named here, keyed by
 	// repository. A repository absent from the map gets every file the mapping
 	// would change, which is what a client that does not know about the field
@@ -131,6 +143,10 @@ type MigrationPlan struct {
 	// Mapping is what was applied -- the request's, or the proposal the server
 	// made from the pools that exist.
 	Mapping map[string]string `json:"mapping"`
+	// Overrides is what was applied on top of it, echoed back so that a plan
+	// describes itself: every `to` under Repositories came either from Mapping
+	// or from one of these.
+	Overrides []migrate.Override `json:"overrides"`
 	// Unmapped are the hosted labels no pool was proposed for. They are the
 	// operator's decision, and the reason a plan can be empty.
 	Unmapped []string `json:"unmapped"`
@@ -206,6 +222,10 @@ func (c *Controller) PlanMigration(ctx context.Context, req MigrationPlanRequest
 	if len(pools) == 0 {
 		return nil, ErrNoMigrationPool
 	}
+	overrides, err := normaliseOverrides(req.Overrides)
+	if err != nil {
+		return nil, err
+	}
 
 	repos, next, total, err := migrationRepos(ctx, client, req.Repos, req.Cursor, MaxPlanRepos)
 	if err != nil {
@@ -224,6 +244,7 @@ func (c *Controller) PlanMigration(ctx context.Context, req MigrationPlanRequest
 	if len(mapping) == 0 {
 		mapping = migrate.Suggest(pools, hosted)
 	}
+	m := migrate.Mapping{Labels: mapping, Overrides: overrides}
 
 	plans := make([]migrate.RepoPlan, 0, len(sources))
 	for _, src := range sources {
@@ -231,7 +252,7 @@ func (c *Controller) PlanMigration(ctx context.Context, req MigrationPlanRequest
 			plans = append(plans, migrate.RepoPlan{Repo: src.repo.FullName, DefaultBranch: src.repo.DefaultBranch, Error: src.err})
 			continue
 		}
-		plans = append(plans, migrate.PlanRepo(src.repo.FullName, src.repo.DefaultBranch, src.workflows, migrate.Mapping{Labels: mapping}))
+		plans = append(plans, migrate.PlanRepo(src.repo.FullName, src.repo.DefaultBranch, src.workflows, m))
 	}
 
 	var unmapped []string
@@ -247,6 +268,7 @@ func (c *Controller) PlanMigration(ctx context.Context, req MigrationPlanRequest
 		Repositories:       plans,
 		HostedLabels:       hosted,
 		Mapping:            mapping,
+		Overrides:          emptySlice(overrides),
 		Unmapped:           emptySlice(unmapped),
 		Pools:              poolOptions(pools),
 		Counts:             migrate.Count(plans),
@@ -286,9 +308,17 @@ func (c *Controller) PlanMigration(ctx context.Context, req MigrationPlanRequest
 // ErrNothingMapped.
 func (c *Controller) ApplyMigration(ctx context.Context, req MigrationApplyRequest) (*MigrationOutcome, error) {
 	mapping := normaliseMapping(req.Mapping)
-	if len(mapping) == 0 {
+	overrides, err := normaliseOverrides(req.Overrides)
+	if err != nil {
+		return nil, err
+	}
+	// An operator who mapped no label at all but pointed three jobs at a pool
+	// by hand has asked for something real, so the question is "would anything
+	// move", not "is there a mapping".
+	if len(mapping) == 0 && !anyOverrideWrites(overrides) {
 		return nil, ErrNothingMapped
 	}
+	m := migrate.Mapping{Labels: mapping, Overrides: overrides}
 	only, err := workflowSelection(req.Workflows)
 	if err != nil {
 		return nil, err
@@ -314,7 +344,7 @@ func (c *Controller) ApplyMigration(ctx context.Context, req MigrationApplyReque
 		if err := ctx.Err(); err != nil {
 			break
 		}
-		out.Results = append(out.Results, migrateRepo(ctx, client, repo, mapping, only[strings.ToLower(repo.FullName)], branch, title, req.Body, commit))
+		out.Results = append(out.Results, migrateRepo(ctx, client, repo, m, only[strings.ToLower(repo.FullName)], branch, title, req.Body, commit))
 	}
 	for _, res := range out.Results {
 		switch res.Status {
@@ -334,7 +364,7 @@ func (c *Controller) ApplyMigration(ctx context.Context, req MigrationApplyReque
 // only, when not nil, is the set of workflow paths the operator chose in this
 // repository; every other file is left where it is.
 func migrateRepo(ctx context.Context, client github.Client, repo github.Repository,
-	mapping map[string]string, only map[string]bool, branch, title, body, commit string) MigrationResult {
+	m migrate.Mapping, only map[string]bool, branch, title, body, commit string) MigrationResult {
 
 	res := MigrationResult{Repo: repo.FullName, Status: "skipped"}
 	if repo.Archived {
@@ -352,7 +382,7 @@ func migrateRepo(ctx context.Context, client github.Client, repo github.Reposito
 		return res
 	}
 
-	plan := migrate.PlanRepo(repo.FullName, repo.DefaultBranch, asMigrateWorkflows(workflows), migrate.Mapping{Labels: mapping})
+	plan := migrate.PlanRepo(repo.FullName, repo.DefaultBranch, asMigrateWorkflows(workflows), m)
 	if only != nil {
 		plan = selectWorkflows(plan, only)
 	}
@@ -660,6 +690,58 @@ func hostedLabelsAcross(sources []workflowSource) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// normaliseOverrides trims the overrides a request carries and refuses the ones
+// that name nothing.
+//
+// A malformed override is refused rather than dropped. The operator picked that
+// job on the review screen, and a migration that quietly ignored the exception
+// they asked for -- sending the job to the consolidated pool instead -- is the
+// kind of surprise every other decision in this file is shaped to avoid.
+func normaliseOverrides(in []migrate.Override) ([]migrate.Override, error) {
+	out := make([]migrate.Override, 0, len(in))
+	seen := make(map[string]bool, len(in))
+	for i, o := range in {
+		o = migrate.Override{
+			Repo: strings.TrimSpace(o.Repo),
+			Path: strings.TrimSpace(o.Path),
+			Job:  strings.TrimSpace(o.Job),
+			To:   strings.TrimSpace(o.To),
+		}
+		switch {
+		case o.Repo == "":
+			return nil, fmt.Errorf("%w, and override %d names no repository", ErrBadOverride, i+1)
+		case o.Job == "":
+			// Not every runs-on can be attributed to a job, and one that cannot
+			// has no name that survives the file being read again at apply time.
+			return nil, fmt.Errorf("%w, and override %d names no job; a runs-on the plan could not attribute to one cannot be overridden", ErrBadOverride, i+1)
+		case !migrate.IsWorkflowPath(o.Path):
+			return nil, fmt.Errorf("%w, and override %d names %q, which is not a workflow file GitHub runs", ErrBadOverride, i+1, o.Path)
+		}
+		key := strings.ToLower(o.Repo) + "\x00" + o.Path + "\x00" + o.Job
+		if seen[key] {
+			// Two answers for one job is not a preference, it is a bug in
+			// whatever built the request, and picking one of them silently
+			// would hide it.
+			return nil, fmt.Errorf("%w, and %s in %s is overridden twice", ErrBadOverride, o.Job, o.Path)
+		}
+		seen[key] = true
+		out = append(out, o)
+	}
+	return out, nil
+}
+
+// anyOverrideWrites reports whether any override would actually move a job. One
+// that says "stay where you are" is a decision, but it is not a reason to open
+// a pull request.
+func anyOverrideWrites(in []migrate.Override) bool {
+	for _, o := range in {
+		if o.To != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // normaliseMapping lowercases the keys and drops the entries the browser sends
