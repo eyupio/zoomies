@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.2 · 7 September 2026 · derived from the owner's
+Version 2.5 · 8 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -1260,13 +1260,16 @@ What is missing, and it is more than it looks:
 
 **Do, in four pull requests:**
 
-1. Tell the truth about what is not supported. Correct `runnerAsset`'s message
-   to name the platform Zoomies does not ship for rather than a platform
-   actions/runner does not have; make a pool that declares `os=windows` refuse
-   at the API with a sentence naming this package; and replace the `os=windows`
-   example in `docs/hosts-and-pools.md`. No behaviour is added, and the product
-   stops implying a platform it has not got. It is worth doing whether or not
-   the rest of this package is ever authorised.
+1. **Done.** Tell the truth about what is not supported. `runnerAsset`'s
+   message named a platform actions/runner does not have; it now names the one
+   Zoomies does not ship for. A pool whose `host_selector` declares
+   `os=windows` is refused at create and at the wizard's review step, with a
+   reason that says adding a host would not help — the failure it replaces was
+   a pool that matched nothing and read as a fleet short of capacity. The
+   `os=windows` example is out of `docs/hosts-and-pools.md`. No behaviour was
+   added, and the product stops implying a platform it has not got. It was
+   worth doing whether or not the rest of this package is ever authorised, and
+   the rest still waits on decision 26 and on Gate F.
 2. Build and enrol. `windows/amd64` in `make dist` and the CI build matrix, a
    PowerShell counterpart to `zoomies agent join` that writes the service
    through the Windows service manager as the installer does through systemd,
@@ -1521,9 +1524,10 @@ ZF-302's record and ZF-303.
 here rather than in Assignment B because it widens the platform surface, and
 the support matrix's rule — a row moves right only when a test runs on the
 thing — means a platform added while the project is still proving the one it
-has would widen Gate F rather than pass it. Its first pull request is the
-exception and can be taken at any time: it only stops the product implying a
-platform it has not got.
+has would widen Gate F rather than pass it. Its first pull request was the
+exception and **has been taken**: it added no behaviour and only stopped the
+product implying a platform it has not got. The other three stay where this
+paragraph puts them, and decision 26 comes before any of them.
 
 ## 11. What the owner provides, and when
 
@@ -1656,6 +1660,12 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **8 September 2026 — Version 2.5:** ZF-206's first pull request is done, and
+  it is the only part of that package this document authorises before decision
+  26 and Gate F. Nothing about the plan changed; what changed is that three
+  places no longer imply Windows support. The package entry and section 10 say
+  so, and the rest of ZF-206 is untouched.
 
 * **8 September 2026 — Version 2.4:** **ZF-206, Windows runners**, added to
   Phase 2 with decision 26 choosing its shape, and sequenced after Gate F in

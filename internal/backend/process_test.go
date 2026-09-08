@@ -442,8 +442,18 @@ func TestRunnerAsset(t *testing.T) {
 		}
 	}
 
-	if _, err := runnerAsset("windows", "amd64", "2.3.4"); err == nil || !strings.Contains(err.Error(), "docker backend") {
-		t.Errorf("windows should be refused with an alternative, got %v", err)
+	// The refusal has to name the platform Zoomies does not ship for, not one
+	// actions/runner does not have: win-x64 has existed for years, and an
+	// operator told otherwise goes looking for a GitHub problem that is ours.
+	_, err := runnerAsset("windows", "amd64", "2.3.4")
+	if err == nil {
+		t.Fatal("windows must be refused")
+	}
+	if !strings.Contains(err.Error(), "Zoomies has no Windows support yet") {
+		t.Errorf("the refusal must say whose gap it is, got %v", err)
+	}
+	if strings.Contains(err.Error(), "actions/runner ships for Linux and macOS") {
+		t.Errorf("the refusal must not claim actions/runner has no Windows build, got %v", err)
 	}
 	if _, err := runnerAsset("linux", "riscv64", "2.3.4"); err == nil {
 		t.Error("an unsupported architecture must be refused")

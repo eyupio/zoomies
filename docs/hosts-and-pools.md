@@ -73,7 +73,7 @@ connection runs that way round.
 | Capacity | `agent.capacity`, `--capacity`, or half the CPU count | A hard ceiling the scheduler respects, per host. |
 | Backends | Probed by the agent at startup, and again as sockets appear | A pool is only placed on a host that offers its backend. |
 | Labels | `agent.labels` or `--labels` | What a pool's `host_selector` matches against. |
-| OS, arch, version | The agent | Shown in **Hosts**. A pool's `host_selector` can match `os` and `arch` directly, so keeping work on arm64 or on Windows needs no labelling at all. |
+| OS, arch, version | The agent | Shown in **Hosts**. A pool's `host_selector` can match `os` and `arch` directly, so keeping work on arm64 needs no labelling at all. |
 | Health | A heartbeat every `agent.heartbeat_interval` | A host silent for 90 seconds — three times the default interval — is unhealthy, and takes no new runners until it checks in again. After five minutes of silence it is presumed gone: the runners still recorded on it are failed so the pool can replace them, and a job one of them was running is marked as lost by the fleet. |
 
 A host that offers no backend is connected, healthy and useless: nothing will
@@ -120,7 +120,7 @@ second when a job needs something the first cannot give it:
 
 * **A different machine.** GPU boxes, arm64 builders, a host in another region.
   Architecture and operating system need nothing set up — `arch=arm64` or
-  `os=windows` matches what the agent already reports. Anything else is a label
+  `os=linux` matches what the agent already reports. Anything else is a label
   on the hosts and the same key in the pool's `host_selector`.
 * **A different runtime.** A pool whose jobs build images needs a
   `docker_mode`, which most pools should not have; asking for one switches the
@@ -305,10 +305,16 @@ zoomies pools create --name zoomies-arm --labels zoomies-arm \
   --installation ins_k3f9qz2m --host-selector arch=arm64 --max 4
 ```
 
-`os` works the same way, so a Windows pool is `--host-selector os=windows`. Both
-are matched against what the agent reports, and a label of the same name on a
-host still wins — which is the escape hatch if you want a machine to answer for
-an architecture it does not have.
+`os` works the same way — `--host-selector os=linux` keeps a pool off the macOS
+box somebody runs a controller on. Both are matched against what the agent
+reports, and a label of the same name on a host still wins, which is the escape
+hatch if you want a machine to answer for an architecture it does not have.
+
+`os=windows` is refused when you create the pool. There is no Windows agent to
+join a host with, so such a pool would match nothing however many machines you
+added, and a pool that matches nothing reports itself as a fleet short of
+capacity rather than as a platform Zoomies has not got. Windows runners are
+[not supported](faq.md#which-platforms-does-it-run-on).
 
 **Separating a noisy repository.** Give it a pool with its own labels and its own
 `max_runners`. Note the limit of `repository_scale_up_limit` on a shared pool: it

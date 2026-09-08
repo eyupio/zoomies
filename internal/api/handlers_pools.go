@@ -451,6 +451,18 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 			break
 		}
 	}
+	// The vocabulary for Windows shipped and the platform did not: `windows`
+	// is a known operating system and an implicit runner label, no agent is
+	// built for it, and the process backend refuses it. A pool asking for one
+	// was accepted and then matched nothing, so the fleet reported itself
+	// short of capacity for a platform it has never had. Refusing at the point
+	// the operator can still choose something else is the honest answer.
+	for k, v := range p.HostSelector {
+		if strings.EqualFold(strings.TrimSpace(k), "os") && strings.EqualFold(strings.TrimSpace(v), naming.OSWindows) {
+			add("host_selector", "Zoomies has no Windows agent yet, so os=windows matches no host and adding one would not help; select a Linux or macOS host, or leave the job on a GitHub-hosted Windows runner")
+			break
+		}
+	}
 	return errs
 }
 

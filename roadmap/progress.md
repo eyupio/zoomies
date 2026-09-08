@@ -55,7 +55,7 @@ evidence.
 | ZF-202 | Actionable day-to-day diagnostics | mixed (substrate exists; no bundle, no per-job explanation) | `not_started` | ZF-102 | | Size L; the failing tie-break test on the code this package extends was fixed as a Phase 0 defect, and `TestAStuckTieNamesTheRunnerWithNoContainer` holds it |
 | ZF-203 | Implement and prove backup and restore | new (prose only today) | `not_started` | ZF-102 for automatic unfencing only | | Size L |
 | ZF-204 | Safe releases, upgrades and version compatibility | mixed (skeleton exists; policy, skew, guards, backup-before-migrate and any upgrade test do not) | `not_started` | ZF-203 for the backup primitive; ZF-003 first | | Size L across small pull requests |
-| ZF-206 | Windows runners | new; the matching vocabulary shipped and nothing behind it did | `not_started` | Gate F attempted first; ZF-105 and ZF-103a, both done | | Size L in four pull requests, and **decision 26 chooses its shape before any of it is written**: process on a Windows host is the recommendation and weakens the ephemeral guarantee to a fresh work directory on a machine that keeps its state; Windows containers keep the guarantee and cost about five times as much. The first pull request is severable and worth taking whenever: `naming.OSWindows` is legal, `windows` is in `store.ImplicitLabels` and `docs/hosts-and-pools.md` used `os=windows` as a pool example, so a pool can declare a platform that matches nothing and says nothing about why. Note `runnerAsset`'s refusal message is wrong today -- it says actions/runner ships for Linux and macOS, and `win-x64` has shipped for years |
+| ZF-206 | Windows runners | new; the matching vocabulary shipped and nothing behind it did | `in_progress` | Gate F attempted first; ZF-105 and ZF-103a, both done | first pull request: Claude Opus 5, `high`, one session | **The first pull request is done**, the severable one that adds no behaviour and stops the product implying a platform it has not got: `runnerAsset` now names Zoomies as the half that is missing rather than claiming actions/runner has no Windows build, a pool whose `host_selector` says `os=windows` is refused at create and at the wizard's review step with a reason that says adding a host would not help, and `docs/hosts-and-pools.md` no longer uses `os=windows` as an example. Both rules were seen to fail with the rule removed. **The other three are not authorised**: decision 26 chooses the package's shape first, and section 10 sequences them after Gate F. Size L in four pull requests: process on a Windows host is the recommendation and weakens the ephemeral guarantee to a fresh work directory on a machine that keeps its state; Windows containers keep the guarantee and cost about five times as much |
 | ZF-205 | Usable telemetry and bounded history | mixed (substrate exists; four series, prune tests, a load fixture and the measurement do not) | `not_started` | ZF-002; ZF-101 and ZF-102 for the real latency series | | Size M in three slices |
 
 ## Phase 3: real use, drills and Gate F
@@ -76,6 +76,21 @@ evidence.
 ## Log
 
 Newest first. One line per event that changed a row.
+
+* 2026-09-08: ZF-206's first pull request, the severable one. It adds no
+  behaviour: it stops three places implying Windows support. `runnerAsset`'s
+  refusal said "actions/runner ships for Linux and macOS", which sends an
+  operator looking for a GitHub gap that is ours -- `win-x64` and `win-arm64`
+  have shipped for years, and what is missing is on this side: no agent binary,
+  a `.zip` nothing unpacks, no digests to verify it against. A pool whose
+  `host_selector` asked for `os=windows` was accepted and then matched nothing,
+  so a fleet with no Windows host reported itself short of capacity for a
+  platform it has never had; it is refused now at create and at the wizard's
+  review step, with a reason that says adding a host would not help, and the
+  `os=windows` example is out of `docs/hosts-and-pools.md`. Both rules were run
+  with the rule removed and seen to fail. **The rest of ZF-206 is not
+  authorised**: decision 26 has not been taken and section 10 sequences the
+  other three pull requests after Gate F.
 
 * 2026-09-08: ZF-206, Windows runners, added at the owner's request, with
   decision 26 to choose its shape before any of it is written. The reason it
