@@ -95,7 +95,7 @@ func runController(ctx context.Context, e *env, args []string) error {
 		}
 	}()
 
-	key, err := loadOrCreateKey(cfg, log)
+	key, err := loadOrCreateKey(ctx, st, cfg, log)
 	if err != nil {
 		return err
 	}
@@ -284,7 +284,14 @@ func watchSIGHUP(ctx context.Context, cfgPath string, apply func(level string) (
 // Generating rather than refusing is deliberate: a first run should work. What
 // must not happen is a key appearing silently, so the path it went to and the
 // fact that it is the only copy are logged at warning level, once.
-func loadOrCreateKey(cfg *config.Config, log *slog.Logger) (*cryptox.Key, error) {
+//
+// It takes the store because "a first run" is a question about the database
+// rather than about the key file. A restore that brought the database back and
+// left the key behind looks identical from here -- no key file, so generate one
+// -- and the instance it produces starts, reports itself healthy, and fails
+// inside its first GitHub call with a decryption error. Asking whether anything
+// is sealed turns that into a refusal at startup that names the missing file.
+func loadOrCreateKey(ctx context.Context, st *store.Store, cfg *config.Config, log *slog.Logger) (*cryptox.Key, error) {
 	if raw := strings.TrimSpace(cfg.Security.EncryptionKey); raw != "" {
 		key, err := cryptox.ParseKey(raw)
 		if err != nil {
@@ -305,6 +312,17 @@ func loadOrCreateKey(cfg *config.Config, log *slog.Logger) (*cryptox.Key, error)
 		return key, nil
 	case !errors.Is(err, os.ErrNotExist):
 		return nil, err
+	}
+
+	// The one check that separates a first run from a restore missing its key.
+	sealed, serr := st.HasSealedSecrets(ctx)
+	if serr != nil {
+		return nil, serr
+	}
+	if sealed {
+		return nil, fmt.Errorf("this database holds GitHub App credentials sealed with an encryption key, and %s does not exist: "+
+			"generating a new key here would leave them unreadable. Restore the key file from your backup, "+
+			"or pass the key in ZOOMIES_ENCRYPTION_KEY; if the key is genuinely lost, delete and re-add the installations", path)
 	}
 
 	key, err = cryptox.GenerateKey()

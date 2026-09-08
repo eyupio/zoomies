@@ -146,9 +146,16 @@ every pool on it belongs to that installation.
 ## There is no downgrade
 
 **Migrations are one-way.** There are no down migrations, and there is no
-command that removes one. An older binary started against a newer database will
-run — SQLite does not object to columns nobody reads — but it is not a
-supported state, and any behaviour that depended on the new schema is gone.
+command that removes one.
+
+An older binary started against a newer database **refuses to start**, and says
+which migrations it does not have. SQLite itself does not object — it has no
+opinion about columns nobody reads — which is exactly why the check exists:
+without it, the older binary comes up, looks healthy, reads columns whose
+meaning it does not know and writes rows the newer one will not accept, and
+does all of it silently. Rolling a release back is a thing people do under
+pressure, and this is the moment to be told that the database went forward
+with it.
 
 So the rollback plan is a copy of the database from before the upgrade, which
 is the subject of [Backup and restore](backup-and-restore.md). Take one before

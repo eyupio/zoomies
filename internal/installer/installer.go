@@ -1348,7 +1348,9 @@ func finished(ctx context.Context, dbPath string) bool {
 	if dbPath == "" || !exists(dbPath) {
 		return false
 	}
-	st, err := store.Open(ctx, store.Options{Path: dbPath})
+	// Read-only: this only looks, and a read-write open would migrate the
+	// database as a side effect of asking whether the install had finished.
+	st, err := store.Open(ctx, store.Options{Path: dbPath, ReadOnly: true})
 	if err != nil {
 		return false
 	}

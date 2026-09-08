@@ -446,7 +446,10 @@ func maybeDeregister(ctx context.Context, opts UninstallOptions, u *ui, log *slo
 	if err != nil {
 		return err
 	}
-	st, err := store.Open(ctx, store.Options{Path: dbPath})
+	// Read-only: an uninstall reads this database to find the registrations
+	// GitHub still holds, and has no business migrating the schema of a
+	// deployment on its way out.
+	st, err := store.Open(ctx, store.Options{Path: dbPath, ReadOnly: true})
 	if err != nil {
 		return fmt.Errorf("opening %s: %w", dbPath, err)
 	}
