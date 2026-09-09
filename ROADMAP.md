@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.28 · 9 September 2026 · derived from the owner's
+Version 2.29 · 9 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -1757,6 +1757,22 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **9 September 2026 — Version 2.29:** the first two fault drills, and what
+  they found. Both inject their fault while a job is actually running: killing
+  the controller leaves the work running and the fleet finishes it after the
+  restart, and killing the agent leaves the work running and the agent comes
+  back as the same host rather than as a second one. **The finding is the
+  agent's:** the exit code is written by the parent that reaped the process, so
+  an agent restarted mid-job finds its adopted runner gone with nothing recorded
+  and calls that a failure — racing the removal the finished job set off, so the
+  same successful build is recorded `removed` on one run and `failed` on the
+  next. That is a decision rather than a bug fix, and it is now a row in the
+  drill record with the fleet's own accounting named as what is at stake.
+  Two smaller things worth keeping: a drill that checked a directory was
+  satisfied by a runner that had died, because the marker file outlives the
+  process, and a drill that checked once was satisfied by a process that was
+  already doomed — a death that follows its parent's arrives a beat later.
 
 * **9 September 2026 — Version 2.28:** ZF-302 starts with the piece the plan
   says has to come first: keeping the drill rows. They were written to

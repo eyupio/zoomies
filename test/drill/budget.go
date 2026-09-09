@@ -23,6 +23,10 @@ const (
 	// assertion looser than that would be satisfied by the backstop instead of
 	// by the code under test.
 	waitPromptCleanup = 15 * time.Second
+	// waitStaysUp is how long a fault drill watches a runner it expects to have
+	// survived. Short, because it is watching for a death that has already been
+	// set in motion rather than for one that might happen later.
+	waitStaysUp = 3 * time.Second
 	// waitRecovery is what a fault drill allows for the fleet to come back
 	// after something is killed. It is the longest wait here because a
 	// restarted controller has to re-derive its task queue from the rows.
@@ -31,4 +35,4 @@ const (
 
 // drillBudget is the longest one drill may legitimately take.
 const drillBudget = waitProcessUp + waitRunnerCreated + waitWorkloadUp +
-	waitJobDone + waitRunnerGone + waitPromptCleanup + waitRecovery
+	waitJobDone + waitRunnerGone + waitPromptCleanup + waitRecovery + waitStaysUp

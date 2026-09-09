@@ -98,6 +98,41 @@ is left. While a job is still queued the scheduler is entitled to put a
 replacement on the host immediately, and a drill that counted would fail on
 correct behaviour — or, worse, pass or fail on which happened first.
 
+## The fault drills
+
+Two of the six the roadmap names are here. Both inject their fault while a job
+is actually running, because that is the only moment at which any of this is
+interesting: a fleet with nothing in flight recovers from anything.
+
+`TestKillingTheControllerMidJobLeavesTheWorkRunning` kills the controller and
+starts another on the same address and the same database. The runner keeps
+running -- a control plane that takes the work down with it is worse than one
+that simply stops -- the fleet still has the runner when it comes back, and the
+job finishes and is cleaned up afterwards, which it can only do if the agent
+found its way back on its own. Recovery is measured to the cleanup rather than
+to the API answering: a fleet is not recovered when its API is up, it is
+recovered when work is moving through it.
+
+`TestKillingTheAgentMidJobLeavesTheWorkRunning` kills the agent and starts it
+again with no join token. The runner survives -- `detachRunner` puts it in its
+own process group, and the agent's death is not its own -- and the agent comes
+back as the same host from the credentials in its work directory rather than as
+a second one.
+
+**Its finding, and the reason a drill tier earns its runtime:** the exit code is
+written by the parent that reaped the process, so an agent restarted mid-job
+finds its adopted runner gone with nothing recorded and calls that a failure.
+It is racing the removal the completed job set off, so the same successful build
+ends up recorded as `removed` on one run and `failed` on the next. The drill
+asserts what is true either way and puts the rest in the record's last column,
+because a drill that asserted one of the two would be a flaky test pretending to
+be a rule.
+
+Both watch the runner for a few seconds after the fault rather than checking it
+once. A death that follows its parent's arrives a beat later, and the stub's
+marker file outlives the process that wrote it -- so the check is the pid file
+and signal 0, not the directory.
+
 ## Why they take about a minute each
 
 The agent compares the host against what it is tracking on a fixed thirty-second
@@ -108,13 +143,16 @@ not configurable — nor should it be made configurable to speed a test up.
 ## The record
 
 Every run appends a row to `roadmap/validation/drills.md`: when, the commit,
-the drill, the outcome, what it proves, what was observed, recovery time for a
-fault drill, and **whether a person has to do anything**. That last column is
+the run that wrote it, the drill, the outcome, what it proves, what was
+observed, recovery time for a fault drill, and **whether a person has to do
+anything**. That last column is
 the one to read first: a drill that recovers on its own and one that leaves a
 container for somebody to delete are different findings.
 
-The file is appended rather than replaced. A drill that has recovered cleanly
-forty times and then did not is a finding that only exists if the forty are
-there to compare against.
+The file is appended rather than replaced, and the drill job commits it from
+the default branch, so the history outlives the run that produced it. A drill
+that has recovered cleanly forty times and then did not is a finding that only
+exists if the forty are there to compare against. A pull request's rows stay in
+its own job summary: they describe a commit that may never exist.
 
 Set `ZOOMIES_DRILL_RECORD_DIR` to write it somewhere else.
