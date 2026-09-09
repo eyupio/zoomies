@@ -2717,7 +2717,15 @@ components:
         resources: { $ref: "#/components/schemas/Resources" }
         cache: { $ref: "#/components/schemas/CacheConfig" }
         host_selector: { type: object, additionalProperties: { type: string } }
-        env: { type: object, additionalProperties: { type: string } }
+        env:
+          type: object
+          additionalProperties: { type: string }
+          description: >-
+            The environment injected into every runner this pool creates.
+            Readable in full by operators and administrators; a viewer is sent
+            the keys with empty values, because this is where a registry or
+            proxy credential ends up and setting one is an operator action.
+            The same applies to the pool.created and pool.updated events.
         run_as_root: { type: boolean }
         enabled: { type: boolean }
         created_at: { type: string, format: date-time }

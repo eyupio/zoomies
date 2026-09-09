@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/events"
@@ -24,6 +25,20 @@ import (
 type poolResponse = controller.PoolView
 
 // handleListPools answers GET /api/v1/pools.
+// poolFor renders a pool for the caller in front of it.
+//
+// Everything on the view is a viewer's to see except the environment a pool
+// injects into its runners, which is where a registry password ends up if one
+// is anywhere. Setting a pool's env is an operator action, so reading the
+// values back is one too; a viewer gets the keys, which is all the pool page
+// draws.
+func poolFor(r *http.Request, v controller.PoolView) controller.PoolView {
+	if auth.Allowed(Identity(r.Context()), auth.ActionPoolsWrite) {
+		return v
+	}
+	return v.WithoutEnvValues()
+}
+
 func (s *Server) handleListPools(w http.ResponseWriter, r *http.Request) {
 	pools, err := s.ctrl.Store().ListPools(r.Context())
 	if err != nil {
@@ -37,7 +52,7 @@ func (s *Server) handleListPools(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]poolResponse, 0, len(pools))
 	for _, p := range pools {
-		out = append(out, view.View(p))
+		out = append(out, poolFor(r, view.View(p)))
 	}
 	writeJSON(w, http.StatusOK, newList(out))
 }
@@ -54,7 +69,7 @@ func (s *Server) handleGetPool(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, "reading the pool", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, view.View(p))
+	writeJSON(w, http.StatusOK, poolFor(r, view.View(p)))
 }
 
 // ---------------------------------------------------------------------------
@@ -535,7 +550,7 @@ func (s *Server) handleCreatePool(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, "reading the pool back", err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, view.View(p))
+	writeJSON(w, http.StatusCreated, poolFor(r, view.View(p)))
 }
 
 // validatePoolResponse is the wizard's review step: the errors that would stop
@@ -740,7 +755,7 @@ func (s *Server) handleUpdatePool(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, "reading the pool back", verr)
 		return
 	}
-	writeJSON(w, http.StatusOK, view.View(&updated))
+	writeJSON(w, http.StatusOK, poolFor(r, view.View(&updated)))
 }
 
 func (s *Server) handlePrewarmPool(w http.ResponseWriter, r *http.Request) {
@@ -866,7 +881,7 @@ func (s *Server) setPoolEnabled(w http.ResponseWriter, r *http.Request, enabled 
 		s.internal(w, r, "reading the pool back", verr)
 		return
 	}
-	writeJSON(w, http.StatusOK, view.View(p))
+	writeJSON(w, http.StatusOK, poolFor(r, view.View(p)))
 }
 
 // emptySlice and emptyMap keep a JSON response from carrying null where the UI

@@ -305,6 +305,32 @@ func (s *Store) RevokeAPIToken(ctx context.Context, id string) error {
 	return affected(res, "api token", id)
 }
 
+// RevokeAPITokensForUser revokes every token an account owns, and reports how
+// many it revoked.
+//
+// It is what makes disabling or deleting an account mean something. A session
+// dies with the row it points at, but a token is a bearer credential with its
+// own role on it: nothing about the account is consulted when one is presented,
+// so a departed administrator's token outlived the account it was issued to
+// until this was called alongside.
+//
+// Tokens with no owner -- the empty user_id a token created out of band
+// carries -- belong to nobody and are left alone.
+func (s *Store) RevokeAPITokensForUser(ctx context.Context, userID string) (int64, error) {
+	if userID == "" {
+		return 0, nil
+	}
+	res, err := s.exec(ctx, `UPDATE api_tokens SET revoked=1 WHERE user_id=? AND revoked=0`, userID)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, nil
+	}
+	return n, nil
+}
+
 // DeleteAPIToken removes a token row entirely.
 func (s *Store) DeleteAPIToken(ctx context.Context, id string) error {
 	res, err := s.exec(ctx, `DELETE FROM api_tokens WHERE id = ?`, id)

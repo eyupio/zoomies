@@ -2034,6 +2034,7 @@ export interface components {
             host_selector?: {
                 [key: string]: string;
             };
+            /** @description The environment injected into every runner this pool creates. Readable in full by operators and administrators; a viewer is sent the keys with empty values, because this is where a registry or proxy credential ends up and setting one is an operator action. The same applies to the pool.created and pool.updated events. */
             env?: {
                 [key: string]: string;
             };

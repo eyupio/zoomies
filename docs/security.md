@@ -112,7 +112,7 @@ on its own runners, and cannot read pools, jobs, users or the audit log.
 | OIDC client secret | config / `settings` | Sealed when stored in the database |
 | User passwords | `users.password_hash` | argon2id, 64 MiB × 2 passes × 4 lanes, 16-byte salt |
 | Session cookies | `sessions.token_hash` | SHA-256 of a 32-byte random token |
-| API tokens | `api_tokens.token_hash` | SHA-256; the plaintext is shown exactly once |
+| API tokens | `api_tokens.token_hash` | SHA-256; the plaintext is shown exactly once. Revoked with the account they belong to: disabling or deleting a user revokes their tokens, and one whose owner is disabled or gone is refused even if it was not |
 | Agent tokens | `hosts.token_hash` | SHA-256; issued once at join |
 | Join tokens | `join_tokens.token_hash` | SHA-256, single-use, short TTL |
 | JIT runner configs | Never stored | Passed to the agent in a task and to the container in its environment |
@@ -171,7 +171,7 @@ re-encryption in v1.
 
 | Role | May |
 | --- | --- |
-| **viewer** | Read pools, runners, jobs, hosts, the audit log and metrics. Never sees a secret value. |
+| **viewer** | Read pools, runners, jobs, hosts, the audit log and metrics. Never sees a secret value — including a pool's `env`, where a registry or proxy credential ends up: a viewer is sent the variable names with empty values, on the API and on the event stream alike. |
 | **operator** | Everything a viewer may, plus act on the fleet: create and edit pools, drain/delete/restart runners, cordon hosts. |
 | **admin** | Everything an operator may, plus manage users, API tokens, installations, join tokens and settings, and take a support bundle. |
 

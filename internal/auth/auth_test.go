@@ -790,3 +790,130 @@ func TestRefusalsSayWhatKindTheyAre(t *testing.T) {
 		t.Fatalf("a bad join token = %v; want ErrInvalidInput", err)
 	}
 }
+
+// TestDisablingAnAccountStopsItsAPITokens covers the half of "revoke this
+// person's access" that a session deletion does not reach.
+//
+// A token carries its own role and is looked up by its own hash, so nothing on
+// the authentication path consulted the account it was issued to. Disabling an
+// account ended its cookies and left its tokens answering with full authority
+// -- which is the whole of what an administrator thinks they have just taken
+// away from a departing colleague.
+func TestDisablingAnAccountStopsItsAPITokens(t *testing.T) {
+	s, _, _ := newService(t)
+	ctx := t.Context()
+
+	// An administrator has to remain, or disabling this one is refused for its
+	// own good reason and this proves nothing.
+	if _, err := s.CreateUser(ctx, NewUser{Username: "keeper", Password: "correct horse battery staple", Role: store.RoleAdmin}); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	u, err := s.CreateUser(ctx, NewUser{Username: "leaver", Password: "correct horse battery staple", Role: store.RoleAdmin})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	_, plaintext, err := s.CreateAPIToken(ctx, NewToken{Name: "laptop", Role: store.RoleAdmin, UserID: u.ID})
+	if err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+
+	// It works while the account does.
+	if _, err := s.Authenticate(ctx, AuthInput{Authorization: "Bearer " + plaintext}); err != nil {
+		t.Fatalf("the token does not work before the account is disabled: %v", err)
+	}
+
+	if err := s.SetUserDisabled(ctx, u.ID, true); err != nil {
+		t.Fatalf("SetUserDisabled: %v", err)
+	}
+
+	_, err = s.Authenticate(ctx, AuthInput{Authorization: "Bearer " + plaintext})
+	if err == nil {
+		t.Fatal("the token still authenticates after its owner was disabled")
+	}
+	// Revoked is the state it is left in, so the refusal an operator sees names
+	// the thing they can act on either way.
+	if !errors.Is(err, ErrTokenRevoked) && !errors.Is(err, ErrTokenOwnerDisabled) {
+		t.Errorf("err = %v, want it to say the token is revoked or its owner disabled", err)
+	}
+}
+
+// TestDeletingAnAccountStopsItsAPITokens is the same rule for the harder case:
+// api_tokens has no foreign key to users, so deleting the account cascades to
+// its sessions and to nothing else, and a token left behind is a working
+// credential belonging to somebody who no longer exists.
+func TestDeletingAnAccountStopsItsAPITokens(t *testing.T) {
+	s, _, _ := newService(t)
+	ctx := t.Context()
+
+	// An administrator has to remain, or the delete is refused for its own
+	// good reason and this proves nothing.
+	if _, err := s.CreateUser(ctx, NewUser{Username: "keeper", Password: "correct horse battery staple", Role: store.RoleAdmin}); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	u, err := s.CreateUser(ctx, NewUser{Username: "leaver", Password: "correct horse battery staple", Role: store.RoleAdmin})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	_, plaintext, err := s.CreateAPIToken(ctx, NewToken{Name: "laptop", Role: store.RoleAdmin, UserID: u.ID})
+	if err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+	if _, err := s.Authenticate(ctx, AuthInput{Authorization: "Bearer " + plaintext}); err != nil {
+		t.Fatalf("the token does not work before the account is deleted: %v", err)
+	}
+
+	if err := s.DeleteUser(ctx, u.ID); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+
+	if _, err := s.Authenticate(ctx, AuthInput{Authorization: "Bearer " + plaintext}); err == nil {
+		t.Fatal("the token still authenticates after its owner was deleted")
+	}
+}
+
+// TestATokenWhoseOwnerVanishedIsRefused covers the belt to the braces above.
+//
+// The revocation at disable and delete time is what an operator sees in the
+// token list; this is the check that does not depend on it having run -- a row
+// written by an older build, or an account removed by any route that did not
+// go through DeleteUser.
+func TestATokenWhoseOwnerVanishedIsRefused(t *testing.T) {
+	s, st, _ := newService(t)
+	ctx := t.Context()
+
+	u, err := s.CreateUser(ctx, NewUser{Username: "ghost", Password: "correct horse battery staple", Role: store.RoleOperator})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	_, plaintext, err := s.CreateAPIToken(ctx, NewToken{Name: "ci", Role: store.RoleOperator, UserID: u.ID})
+	if err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+
+	// Straight past the service, so the token is left behind exactly as an
+	// older build would have left it.
+	if err := st.DeleteUser(ctx, u.ID); err != nil {
+		t.Fatalf("store.DeleteUser: %v", err)
+	}
+
+	_, err = s.Authenticate(ctx, AuthInput{Authorization: "Bearer " + plaintext})
+	if !errors.Is(err, ErrTokenOrphaned) {
+		t.Errorf("err = %v, want ErrTokenOrphaned", err)
+	}
+}
+
+// TestATokenWithNoOwnerStillWorks is the limit of the rule above: a token
+// created out of band carries no user_id, belongs to nobody, and must not be
+// refused for having no account to check.
+func TestATokenWithNoOwnerStillWorks(t *testing.T) {
+	s, _, _ := newService(t)
+	ctx := t.Context()
+
+	_, plaintext, err := s.CreateAPIToken(ctx, NewToken{Name: "bootstrap", Role: store.RoleAdmin})
+	if err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+	if _, err := s.Authenticate(ctx, AuthInput{Authorization: "Bearer " + plaintext}); err != nil {
+		t.Errorf("an ownerless token was refused: %v", err)
+	}
+}

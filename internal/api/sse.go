@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -169,6 +170,13 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 
 	stream := startSSE(w, r)
 	_ = stream.retry(2 * time.Second)
+	// Decided once, for this connection. A pool frame carries the same shape
+	// the GET does, and the GET withholds env values from a caller who could
+	// not have set them; a stream that handed the same operator's registry
+	// password to a viewer would just be the longer way round to the same
+	// disclosure.
+	redactPoolEnv := !auth.Allowed(Identity(r.Context()), auth.ActionPoolsWrite)
+
 	// An immediate heartbeat lets the client start its stall watchdog without
 	// waiting twenty seconds to learn the stream works.
 	if err := stream.comment("connected"); err != nil {
@@ -199,7 +207,11 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				// ID and catch up, which is better than silently going stale.
 				return
 			}
-			if err := stream.event(string(ev.Kind), bus.WireID(ev.ID), ev.Data); err != nil {
+			data := ev.Data
+			if redactPoolEnv && (ev.Kind == events.KindPoolCreated || ev.Kind == events.KindPoolUpdated) {
+				data = withoutEnvValues(data)
+			}
+			if err := stream.event(string(ev.Kind), bus.WireID(ev.ID), data); err != nil {
 				return
 			}
 		case <-ticker.C:
@@ -425,4 +437,44 @@ func jsonString(s string) []byte {
 		return []byte(`""`)
 	}
 	return b
+}
+
+// withoutEnvValues blanks the env values in an already-rendered pool frame,
+// keeping every key.
+//
+// It works on the encoded bytes because that is what the bus carries: a frame
+// is rendered once and fanned out to every subscriber, so the alternative --
+// rendering per connection -- would make one viewer's presence cost every
+// other subscriber a re-render. Only a viewer's connection pays for this, and
+// only on a pool frame.
+//
+// A payload that does not parse is passed through untouched rather than
+// dropped: it cannot be a pool view, and swallowing frames would be a worse
+// failure than the one this guards against.
+func withoutEnvValues(data []byte) []byte {
+	var frame map[string]json.RawMessage
+	if err := json.Unmarshal(data, &frame); err != nil {
+		return data
+	}
+	raw, ok := frame["env"]
+	if !ok {
+		return data
+	}
+	var env map[string]string
+	if err := json.Unmarshal(raw, &env); err != nil || len(env) == 0 {
+		return data
+	}
+	for k := range env {
+		env[k] = ""
+	}
+	blanked, err := json.Marshal(env)
+	if err != nil {
+		return data
+	}
+	frame["env"] = blanked
+	out, err := json.Marshal(frame)
+	if err != nil {
+		return data
+	}
+	return out
 }
