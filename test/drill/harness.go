@@ -244,6 +244,85 @@ func (f *fleet) startAgent() {
 	})
 }
 
+// startBrokenDockerAgent joins a second agent whose Docker socket is not there.
+//
+// It is a second machine rather than a reconfigured first one, because that is
+// the shape of the fault in a real fleet: one host's daemon is down and the
+// others are fine, and what matters is whether the fleet says which. The name
+// is set explicitly because both agents are on this machine and would
+// otherwise claim the same host row.
+func (f *fleet) startBrokenDockerAgent(name string) *process {
+	t := f.t
+	t.Helper()
+	var token struct {
+		Token string `json:"token"`
+	}
+	f.api.post("/join-tokens", map[string]any{"capacity": 2}, &token)
+	if token.Token == "" {
+		t.Fatal("the join token came back empty")
+	}
+	dir := t.TempDir()
+	work := filepath.Join(dir, "work")
+	if err := os.MkdirAll(work, 0o750); err != nil {
+		t.Fatalf("creating the work directory: %v", err)
+	}
+	return f.spawn("docker-agent", []string{"agent"}, append(baseEnv(dir),
+		"ZOOMIES_CONTROLLER_URL="+f.baseURL,
+		"ZOOMIES_JOIN_TOKEN="+token.Token,
+		"ZOOMIES_AGENT_NAME="+name,
+		"ZOOMIES_AGENT_BACKEND=docker",
+		// A socket that is not there is what a stopped daemon looks like from
+		// the outside, and it is the one version of this fault a tier with no
+		// daemon can produce honestly.
+		"ZOOMIES_DOCKER_HOST=unix:///nonexistent/zoomies-drill-docker.sock",
+		"ZOOMIES_AGENT_CAPACITY=2",
+		"ZOOMIES_WORK_DIR="+work,
+		"ZOOMIES_AGENT_ALLOW_INSECURE_HTTP=true",
+		"ZOOMIES_AGENT_RUNNER_DOWNLOAD_URL=http://127.0.0.1:1/never",
+	))
+}
+
+// hostViews is the fleet's hosts as the API renders them, which is where a
+// backend says whether it is usable and why not.
+func (f *fleet) hostViews() []hostView {
+	f.t.Helper()
+	var out struct {
+		Items []hostView `json:"items"`
+	}
+	f.api.get("/hosts", &out)
+	return out.Items
+}
+
+type hostView struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	BackendInfo []struct {
+		Kind      string `json:"kind"`
+		Available bool   `json:"available"`
+		Endpoint  string `json:"endpoint"`
+		Detail    string `json:"detail"`
+	} `json:"backend_info"`
+}
+
+// problems is the problems drawer's own list, which is where an operator meets
+// a pool that cannot place anything.
+func (f *fleet) problems() []problemView {
+	f.t.Helper()
+	var out struct {
+		Items []problemView `json:"items"`
+	}
+	f.api.get("/problems", &out)
+	return out.Items
+}
+
+type problemView struct {
+	Code     string `json:"code"`
+	Severity string `json:"severity"`
+	Title    string `json:"title"`
+	Detail   string `json:"detail"`
+	Fix      string `json:"fix"`
+}
+
 // restartAgent starts the agent again as the host it already is, which is what
 // an operator's `systemctl restart zoomies-agent` does.
 func (f *fleet) restartAgent() {
@@ -363,6 +442,31 @@ func (f *fleet) deliverJob(action string, job github.QueuedJob, runnerName, conc
 // drillWebhookSecret signs the drill's deliveries. It is a fixed string
 // because both ends of the signature are this test.
 const drillWebhookSecret = "drill-webhook-secret"
+
+// createPoolOn makes a pool on a named backend. The runner version is pinned to
+// the staged stub either way: a pool that went looking for a download would
+// hang rather than say what is wrong with the host.
+func (f *fleet) createPoolOn(name, backend string, labels ...string) string {
+	f.t.Helper()
+	var pool struct {
+		ID string `json:"id"`
+	}
+	f.api.post("/pools", map[string]any{
+		"installation_id": f.installationID,
+		"name":            name,
+		"labels":          labels,
+		"backend":         backend,
+		"min_runners":     0,
+		"max_runners":     1,
+		"idle_timeout":    "1m",
+		"ephemeral":       true,
+		"runner_version":  stubVersion,
+	}, &pool)
+	if pool.ID == "" {
+		f.t.Fatal("the pool came back without an ID")
+	}
+	return pool.ID
+}
 
 // createPool makes a pool on the process backend, pinned to the staged stub.
 func (f *fleet) createPool(name string, labels ...string) string {
