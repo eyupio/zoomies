@@ -11,6 +11,9 @@ import (
 )
 
 // poolBody is a valid pool definition, which each test then breaks in one way.
+// poolBody is a create request with a name that does not carry the brand,
+// because that is what an operator types and the server is what makes every
+// pool name branded.
 func poolBody(instID string) map[string]any {
 	return map[string]any{
 		"name":            "linux-x64",
@@ -60,8 +63,8 @@ func TestPoolRoundTrip(t *testing.T) {
 	created.mustStatus(t, http.StatusCreated, "create")
 	var pool poolResponse
 	created.into(t, &pool)
-	if pool.ID == "" || pool.Name != "linux-x64" {
-		t.Fatalf("created pool = %+v", pool)
+	if pool.ID == "" || pool.Name != "zoomies-linux-x64" {
+		t.Fatalf("created pool = %+v, want the name branded on the way in", pool)
 	}
 	if pool.InstallationTarget != "acme" {
 		t.Errorf("installation_target = %q, want acme", pool.InstallationTarget)
@@ -87,7 +90,7 @@ func TestPoolRoundTrip(t *testing.T) {
 		t.Errorf("max_runners = %d, want 8", updated.MaxRunners)
 	}
 	// Four labels as asked for, plus the brand every pool answers to.
-	if updated.Name != "linux-x64" || len(updated.Labels) != 5 {
+	if updated.Name != "zoomies-linux-x64" || len(updated.Labels) != 5 {
 		t.Errorf("a partial update lost fields: %+v", updated)
 	}
 	if !slices.Contains(updated.Labels, store.BrandLabel) {
@@ -155,6 +158,20 @@ func TestPoolValidationNamesTheField(t *testing.T) {
 		{"bad duration", func(b map[string]any) { b["idle_timeout"] = "5 munutes" }, "idle_timeout", "5m"},
 		{"unknown installation", func(b map[string]any) { b["installation_id"] = "ins_nope" }, "installation_id", "no installation"},
 		{"docker on the process backend", func(b map[string]any) { b["backend"] = "process"; b["docker_mode"] = "dind" }, "docker_mode", "process backend"},
+		{"repository cache without a repository", func(b map[string]any) {
+			b["cache"] = map[string]any{"enabled": true, "scope": "repository"}
+		}, "cache.repository", "acme/name"},
+		{"repository cache under another owner", func(b map[string]any) {
+			b["cache"] = map[string]any{"enabled": true, "scope": "repository", "repository": "other/widgets"}
+		}, "cache.repository", "under that owner"},
+		{"repository cache that is not a repository", func(b map[string]any) {
+			b["cache"] = map[string]any{"enabled": true, "scope": "repository", "repository": "acme"}
+		}, "cache.repository", "owner/name"},
+		// A limit the fleet cannot keep is refused rather than accepted and
+		// forgotten: there is no directory to measure inside a named volume.
+		{"size limit on a named volume", func(b map[string]any) {
+			b["cache"] = map[string]any{"enabled": true, "scope": "pool", "size_limit": 1 << 30, "source": "zoomies-cache"}
+		}, "cache.size_limit", "absolute host path"},
 	}
 
 	for _, tc := range cases {
@@ -195,6 +212,69 @@ func TestPoolValidationNamesTheField(t *testing.T) {
 				t.Errorf("validate reported %d errors, create reported %d", len(verdict.Errors), len(env.Errors))
 			}
 		})
+	}
+}
+
+// The review step is where an operator decides, so the dry run has to carry
+// the warning that a repository cache under an organisation installation is
+// only as private as the pool's labels -- the installation is the harness's,
+// which targets an organisation.
+func TestPoolValidateWarnsThatARepositoryCacheIsOnlyAsPrivateAsItsLabels(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	h.host("vm-1")
+	u, _ := h.user("operator", store.RoleOperator)
+
+	body := poolBody(inst.ID)
+	body["cache"] = map[string]any{"enabled": true, "scope": "repository", "repository": "acme/widgets"}
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: h.session(u), body: body})
+	resp.mustStatus(t, http.StatusOK, "validate")
+	var verdict validatePoolResponse
+	resp.into(t, &verdict)
+	if !verdict.Valid {
+		t.Fatalf("a repository cache under an organisation installation is allowed: %+v", verdict.Errors)
+	}
+	found := false
+	for _, w := range verdict.Warnings {
+		if w.Code == "pool.cache_shared" {
+			found = true
+			if !strings.Contains(w.Detail, "acme") || w.Fix == "" {
+				t.Errorf("the warning should name the organisation and say what to do: %+v", w)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no shared-cache warning in %+v", verdict.Warnings)
+	}
+}
+
+// An organisation-wide installation is the ordinary deployment -- one app, one
+// fleet -- and it must not cost every repository its own cache. Naming the
+// repository is what the installation cannot do for itself.
+func TestARepositoryCacheIsAllowedUnderAnOrganisationInstallation(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	h.host("vm-1")
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	body := poolBody(inst.ID)
+	body["cache"] = map[string]any{
+		"enabled": true, "scope": "repository", "repository": "acme/widgets",
+		"source": "/var/lib/zoomies/cache", "size_limit": 1 << 30,
+	}
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: body})
+	created.mustStatus(t, http.StatusCreated, "create")
+	var pool poolResponse
+	created.into(t, &pool)
+
+	stored, err := h.st.GetPool(h.ctx, pool.ID)
+	if err != nil {
+		t.Fatalf("GetPool: %v", err)
+	}
+	if stored.Cache.Repository != "acme/widgets" || stored.Cache.Scope != store.CacheScopeRepository {
+		t.Fatalf("cache = %+v, want a repository cache for acme/widgets", stored.Cache)
 	}
 }
 
@@ -366,5 +446,583 @@ func TestPoolResponseCarriesWhyItCannotScale(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("warnings = %+v, want one saying the pool has nowhere to run", out.Warnings)
+	}
+}
+
+// A pool's name is in every runner it registers and in the label a workflow
+// asks for, so renaming one to something that says nothing about this fleet is
+// not something the API lets an operator do by accident: the name is branded on
+// the way in, and what comes back is the name that was stored.
+func TestARenameCannotDropTheBrand(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	h.host("vm-1")
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: poolBody(inst.ID)})
+	created.mustStatus(t, http.StatusCreated, "create")
+	var pool poolResponse
+	created.into(t, &pool)
+
+	renamed := h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + pool.ID, cookie: cookie,
+		body: map[string]any{"name": "gpu"}})
+	renamed.mustStatus(t, http.StatusOK, "rename")
+	var updated poolResponse
+	renamed.into(t, &updated)
+	if updated.Name != "zoomies-gpu" {
+		t.Fatalf("name = %q, want the rename branded", updated.Name)
+	}
+
+	stored, err := h.st.GetPool(h.ctx, pool.ID)
+	if err != nil {
+		t.Fatalf("GetPool: %v", err)
+	}
+	if stored.Name != "zoomies-gpu" {
+		t.Fatalf("stored name = %q, want the response and the database to agree", stored.Name)
+	}
+}
+
+// The two fields the API accepts for a pool and used to forget: a PATCH that
+// set them answered 200 with a body that did not show them, and nothing ever
+// read them back -- not GET, not the event stream, not the CLI.
+func TestPoolResponsesCarryTheRepositoryLimitAndTheCostRate(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+
+	body := poolBody(inst.ID)
+	body["repository_scale_up_limit"] = 2
+	body["cost_per_runner_hour"] = 0.25
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: h.session(u), body: body})
+	created.mustStatus(t, http.StatusCreated, "create pool")
+	got := created.json(t)
+	if got["repository_scale_up_limit"] != float64(2) || got["cost_per_runner_hour"] != 0.25 {
+		t.Fatalf("create response: repository_scale_up_limit=%v cost_per_runner_hour=%v, want 2 and 0.25",
+			got["repository_scale_up_limit"], got["cost_per_runner_hour"])
+	}
+
+	fetched := h.do(request{method: http.MethodGet, path: "/api/v1/pools/" + got["id"].(string), cookie: h.session(u)})
+	fetched.mustStatus(t, http.StatusOK, "get pool")
+	again := fetched.json(t)
+	if again["repository_scale_up_limit"] != float64(2) || again["cost_per_runner_hour"] != 0.25 {
+		t.Fatalf("GET: repository_scale_up_limit=%v cost_per_runner_hour=%v, want 2 and 0.25",
+			again["repository_scale_up_limit"], again["cost_per_runner_hour"])
+	}
+}
+
+// Prewarming pulls an image onto every host that matches the pool: minutes of
+// somebody else's network and disk, started by one request. It was the only
+// mutating operator route that wrote no audit row, against the security page's
+// promise that every one of them does.
+func TestPrewarmingAPoolIsAudited(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	h.host("vm-1")
+	token := h.token("ops", store.RoleOperator)
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/pools/" + pool.ID + "/prewarm", token: token})
+	resp.mustStatus(t, http.StatusAccepted, "prewarm")
+
+	rows, _, err := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{"pool.prewarm"}}, store.Page{Limit: 10})
+	if err != nil {
+		t.Fatalf("ListAudit: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("audit rows = %d, want the prewarm recorded once", len(rows))
+	}
+	if rows[0].TargetID != pool.ID || rows[0].TargetKind != "pool" {
+		t.Fatalf("audit row = %+v, want it to name the pool", rows[0])
+	}
+	// The image is what was pulled, and the row is the only record of which
+	// one, since the pool's image can change afterwards.
+	if !strings.Contains(rows[0].After, pool.Image) {
+		t.Fatalf("audit detail = %q, want the image %q", rows[0].After, pool.Image)
+	}
+}
+
+// A pool's own name is not a name that is taken.
+//
+// The wizard's review step is the same form whether it is creating a pool or
+// editing one, and it calls /pools/validate either way. Without saying which
+// pool it is editing, the name check compared the pool against every pool
+// including itself: opening a pool, changing its image and pressing on was
+// refused with "a pool called linux-x64 already exists" -- about itself -- and
+// the only way to save any edit was to rename the pool as well.
+func TestValidatingAnEditDoesNotClashWithThePoolBeingEdited(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	h.host("vm-1")
+	existing := h.pool(inst, "linux-x64")
+	other := h.pool(inst, "arm64")
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	body := poolBody(inst.ID)
+	body["image"] = "ghcr.io/eyupio/zoomies-runner:next"
+
+	for _, tc := range []struct {
+		name      string
+		query     string
+		wantValid bool
+		wantErr   string
+	}{
+		{"editing itself", "?id=" + existing.ID, true, ""},
+		{"creating another with the same name", "", false, "already exists"},
+		{"editing a different pool into a taken name", "?id=" + other.ID, false, "already exists"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res := h.do(request{method: http.MethodPost,
+				path: "/api/v1/pools/validate" + tc.query, cookie: cookie, body: body})
+			res.mustStatus(t, http.StatusOK, "validate")
+			var verdict validatePoolResponse
+			res.into(t, &verdict)
+			if verdict.Valid != tc.wantValid {
+				t.Fatalf("valid = %v, want %v (errors: %+v)", verdict.Valid, tc.wantValid, verdict.Errors)
+			}
+			if tc.wantErr == "" {
+				return
+			}
+			var found bool
+			for _, e := range verdict.Errors {
+				if e.Field == "name" && strings.Contains(e.Message, tc.wantErr) {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("no name error mentioning %q: %+v", tc.wantErr, verdict.Errors)
+			}
+		})
+	}
+}
+
+// A pool that gives its jobs a daemon needs an image with a Docker client, and
+// the stock runner image has none. Asking the operator to remember both halves
+// was the mistake everybody made -- the daemon came up, the job died at its
+// first docker step -- so the server makes the second half itself: the stock
+// image becomes its Docker variant as the pool is saved, and the response
+// shows it. What it must not do is undo an operator's own choice, or reverse
+// itself when the daemon goes away again.
+func TestAPoolThatGivesJobsADaemonIsSavedOnTheDockerImage(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	h.host("vm-1")
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	// The stock image with a daemon: swapped, and the tag survives.
+	body := poolBody(inst.ID)
+	body["image"] = "ghcr.io/eyupio/zoomies-runner:latest"
+	body["docker_mode"] = "dind"
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: body})
+	created.mustStatus(t, http.StatusCreated, "create")
+	var pool poolResponse
+	created.into(t, &pool)
+	if pool.Image != "ghcr.io/eyupio/zoomies-runner-docker:latest" {
+		t.Fatalf("image = %q, want the stock image's Docker variant under the same tag", pool.Image)
+	}
+
+	// Taking the daemon away does not take the client away: the swap is not
+	// reversed, because the image still runs everything the stock one does,
+	// and may be in use against a DOCKER_HOST of the pool's own.
+	patched := h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + pool.ID, cookie: cookie,
+		body: map[string]any{"docker_mode": "none"}})
+	patched.mustStatus(t, http.StatusOK, "patch to none")
+	patched.into(t, &pool)
+	if pool.Image != "ghcr.io/eyupio/zoomies-runner-docker:latest" {
+		t.Fatalf("image = %q after dropping the daemon, want it left alone", pool.Image)
+	}
+
+	// Putting the stock image back on a pool without a daemon stores it as
+	// typed; asking for a daemon again swaps it again.
+	patched = h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + pool.ID, cookie: cookie,
+		body: map[string]any{"image": "ghcr.io/eyupio/zoomies-runner:latest"}})
+	patched.mustStatus(t, http.StatusOK, "patch the stock image back")
+	patched.into(t, &pool)
+	if pool.Image != "ghcr.io/eyupio/zoomies-runner:latest" {
+		t.Fatalf("image = %q on a pool with no daemon, want the stock image as typed", pool.Image)
+	}
+	patched = h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + pool.ID, cookie: cookie,
+		body: map[string]any{"docker_mode": "host-socket"}})
+	patched.mustStatus(t, http.StatusOK, "patch to host-socket")
+	patched.into(t, &pool)
+	if pool.Image != "ghcr.io/eyupio/zoomies-runner-docker:latest" {
+		t.Fatalf("image = %q after asking for the host socket, want the Docker variant", pool.Image)
+	}
+
+	// "Correcting" the image back to the stock one on the edit page, with
+	// the daemon still on, is the same request with the same answer.
+	patched = h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + pool.ID, cookie: cookie,
+		body: map[string]any{"image": "ghcr.io/eyupio/zoomies-runner:latest"}})
+	patched.mustStatus(t, http.StatusOK, "patch the stock image onto a daemon pool")
+	patched.into(t, &pool)
+	if pool.Image != "ghcr.io/eyupio/zoomies-runner-docker:latest" {
+		t.Fatalf("image = %q after typing the stock image onto a daemon pool, want the Docker variant", pool.Image)
+	}
+
+	// A pinned tag is a deliberate choice of one build, and the variant may
+	// not exist for it, so it is kept exactly as typed.
+	patched = h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + pool.ID, cookie: cookie,
+		body: map[string]any{"image": "ghcr.io/eyupio/zoomies-runner:sha-b966fb6"}})
+	patched.mustStatus(t, http.StatusOK, "patch a pinned stock tag")
+	patched.into(t, &pool)
+	if pool.Image != "ghcr.io/eyupio/zoomies-runner:sha-b966fb6" {
+		t.Fatalf("image = %q, want a pinned tag left as typed", pool.Image)
+	}
+
+	// An image of the operator's own is theirs, daemon or not.
+	patched = h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + pool.ID, cookie: cookie,
+		body: map[string]any{"image": "registry.example.com/ci/runner:latest"}})
+	patched.mustStatus(t, http.StatusOK, "patch an own image")
+	patched.into(t, &pool)
+	if pool.Image != "registry.example.com/ci/runner:latest" {
+		t.Fatalf("image = %q, want an operator's own image left alone", pool.Image)
+	}
+
+	// The wizard's dry run is the same code path, and says which image the
+	// pool would run, so the review step can show the pool the server will
+	// make rather than the one that was typed.
+	body = poolBody(inst.ID)
+	body["name"] = "review"
+	body["image"] = "ghcr.io/eyupio/zoomies-runner:latest"
+	body["docker_mode"] = "dind"
+	validate := h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: cookie, body: body})
+	validate.mustStatus(t, http.StatusOK, "validate")
+	var verdict validatePoolResponse
+	validate.into(t, &verdict)
+	if !verdict.Valid || verdict.Image != "ghcr.io/eyupio/zoomies-runner-docker:latest" {
+		t.Fatalf("verdict = %+v, want a valid pool on the Docker variant", verdict)
+	}
+	if pools, err := h.st.ListPools(h.ctx); err != nil || len(pools) != 1 {
+		t.Fatalf("the dry run created a pool: %v %v", pools, err)
+	}
+
+	// Every swap the server made is in the audit trail as an image change,
+	// where an operator looking for why the pool's image is not what they
+	// typed will find it.
+	audit := h.do(request{method: http.MethodGet, path: "/api/v1/audit?target_kind=pool", cookie: cookie})
+	audit.mustStatus(t, http.StatusOK, "audit")
+	var events page[store.AuditEvent]
+	audit.into(t, &events)
+	found := false
+	for _, e := range events.Items {
+		if e.Action == "pool.create" && strings.Contains(e.After, "zoomies-runner-docker:latest") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no pool.create audit row records the Docker variant; rows: %d", len(events.Items))
+	}
+}
+
+// A pool that names a platform gets the matching runner image without anyone
+// having to keep the two in step, and the API says which image that is.
+func TestAPoolsPlatformPicksItsImage(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	body := poolBody(inst.ID)
+	body["name"] = "zoomies-4vcpu-debian-12"
+	body["labels"] = []string{"zoomies-4vcpu-debian-12"}
+	delete(body, "image")
+	body["platform"] = map[string]any{"os": "debian", "os_version": "12", "arch": "amd64"}
+
+	res := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: body})
+	res.mustStatus(t, http.StatusCreated, "create")
+	var pool poolResponse
+	res.into(t, &pool)
+
+	if pool.Image != "" {
+		t.Errorf("image = %q; a pool that names none should stay unpinned", pool.Image)
+	}
+	if want := "ghcr.io/eyupio/zoomies-runner:debian-12"; pool.EffectiveImage != want {
+		t.Errorf("effective_image = %q, want %q", pool.EffectiveImage, want)
+	}
+	if pool.Platform.OS != "debian" || pool.Platform.OSVersion != "12" || pool.Platform.Arch != "amd64" {
+		t.Errorf("platform = %+v", pool.Platform)
+	}
+}
+
+// A pool with no platform and no image of its own falls back to the instance
+// default, which is what every pool created before platforms existed does.
+func TestAPoolWithNoPlatformFallsBackToTheInstanceDefault(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	body := poolBody(inst.ID)
+	delete(body, "image")
+	res := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: body})
+	res.mustStatus(t, http.StatusCreated, "create")
+	var pool poolResponse
+	res.into(t, &pool)
+	if pool.EffectiveImage != h.cfg.GitHub.RunnerImage {
+		t.Errorf("effective_image = %q, want the instance default %q",
+			pool.EffectiveImage, h.cfg.GitHub.RunnerImage)
+	}
+}
+
+// A platform nothing is published for is refused at creation, where it can
+// still be fixed, rather than at every create, where it cannot.
+func TestAPoolCannotAskForAPlatformNothingPublishes(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	cases := []struct {
+		name     string
+		platform map[string]any
+		field    string
+		contains string
+	}{
+		{
+			name:     "an operating system Zoomies does not know",
+			platform: map[string]any{"os": "plan9"},
+			field:    "platform.os",
+			contains: "Ubuntu 24.04",
+		},
+		{
+			name:     "a release nothing is published for",
+			platform: map[string]any{"os": "ubuntu", "os_version": "20.04"},
+			field:    "platform.os_version",
+			contains: "no runner image is published",
+		},
+		{
+			name:     "an architecture Zoomies does not run on",
+			platform: map[string]any{"os": "ubuntu", "arch": "riscv64"},
+			field:    "platform.arch",
+			contains: "amd64 or arm64",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := poolBody(inst.ID)
+			delete(req, "image")
+			req["platform"] = c.platform
+			res := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: req})
+			res.mustStatus(t, http.StatusUnprocessableEntity, "create")
+			body := string(res.body)
+			if !strings.Contains(body, c.field) || !strings.Contains(body, c.contains) {
+				t.Errorf("the error does not name %s or explain the fix: %s", c.field, body)
+			}
+		})
+	}
+}
+
+// Naming an image is an explicit override: an operator who has built their own
+// is not second-guessed about which platform it is.
+func TestAnExplicitImageOverridesThePlatform(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	body := poolBody(inst.ID)
+	body["image"] = "ghcr.io/acme/our-own-runner:v3"
+	body["platform"] = map[string]any{"os": "ubuntu", "os_version": "20.04"}
+
+	res := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: body})
+	res.mustStatus(t, http.StatusCreated, "create")
+	var pool poolResponse
+	res.into(t, &pool)
+	if pool.EffectiveImage != "ghcr.io/acme/our-own-runner:v3" {
+		t.Errorf("effective_image = %q, want the image the operator named", pool.EffectiveImage)
+	}
+}
+
+// The Hosts page has to be able to say what a machine is, not just what it is
+// called, and to offer the name it would be given today.
+func TestHostsReportWhatMachineTheyAre(t *testing.T) {
+	h := newHarness(t)
+	u, _ := h.user("viewer", store.RoleViewer)
+	cookie := h.session(u)
+
+	host := h.host("build01")
+	host.Distro, host.OSVersion, host.CPUs, host.MemoryMB = "ubuntu", "24.04", 16, 32768
+	if err := h.st.UpdateHost(h.ctx, host); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+
+	res := h.do(request{method: http.MethodGet, path: "/api/v1/hosts/" + host.ID, cookie: cookie})
+	res.mustStatus(t, http.StatusOK, "get host")
+	var got hostResponse
+	res.into(t, &got)
+
+	if got.PlatformLabel != "Ubuntu 24.04, amd64" {
+		t.Errorf("platform_label = %q", got.PlatformLabel)
+	}
+	if got.CanonicalName != "zoomies-16vcpu-32gb-ubuntu-2404-build01" {
+		t.Errorf("canonical_name = %q", got.CanonicalName)
+	}
+	if got.CPUs != 16 || got.MemoryMB != 32768 {
+		t.Errorf("size = %d vCPU / %d MB", got.CPUs, got.MemoryMB)
+	}
+}
+
+// The wizard's review step must not promise hosts the scheduler will then
+// refuse to place on: both go through controller.HostFit, which applies the
+// scheduler's own placement rule, platform included.
+func TestTheHostCountRespectsThePoolsPlatform(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	// One Ubuntu 24.04 amd64 host, which is what h.host builds plus a distro.
+	host := h.host("build01")
+	host.Distro, host.OSVersion = "ubuntu", "24.04"
+	if err := h.st.UpdateHost(h.ctx, host); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+
+	body := poolBody(inst.ID)
+	delete(body, "image")
+
+	// A pool that asks for nothing sees the host.
+	res := h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: cookie, body: body})
+	res.mustStatus(t, http.StatusOK, "validate")
+	var verdict validatePoolResponse
+	res.into(t, &verdict)
+	if verdict.MatchingHosts != 1 {
+		t.Fatalf("matching_hosts = %d, want 1", verdict.MatchingHosts)
+	}
+
+	// A pool that asks for Debian does not, and the warning says what to add.
+	body["platform"] = map[string]any{"os": "debian", "os_version": "12"}
+	res = h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: cookie, body: body})
+	res.mustStatus(t, http.StatusOK, "validate")
+	res.into(t, &verdict)
+	if verdict.MatchingHosts != 0 {
+		t.Errorf("matching_hosts = %d; the only host is Ubuntu", verdict.MatchingHosts)
+	}
+	found := false
+	for _, w := range verdict.Warnings {
+		if w.Code == "pool.no_matching_hosts" {
+			found = true
+			if !strings.Contains(w.Fix, "Debian 12") {
+				t.Errorf("the fix does not name the machine to add: %q", w.Fix)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("no warning about there being no host: %+v", verdict.Warnings)
+	}
+}
+
+// The matching vocabulary for Windows shipped before the platform did:
+// `windows` is a known operating system and one of the labels every
+// actions/runner advertises, and a host selector may match what the agent
+// reports directly. So `os=windows` was a pool an operator could create, and
+// it then matched nothing -- the fleet reported itself short of capacity for a
+// platform Zoomies has never had, with nothing anywhere saying so. The refusal
+// has to arrive while the operator is still choosing, and both the create and
+// the wizard's dry run have to give it.
+func TestPoolRefusesAWindowsHostSelector(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	h.host("vm-1")
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	for _, value := range []string{"windows", "Windows"} {
+		body := poolBody(inst.ID)
+		body["host_selector"] = map[string]string{"os": value}
+
+		created := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: body})
+		created.mustStatus(t, http.StatusUnprocessableEntity, "create")
+		var env errorEnvelope
+		created.into(t, &env)
+		found := ""
+		for _, fe := range env.Errors {
+			if fe.Field == "host_selector" {
+				found = fe.Message
+			}
+		}
+		if found == "" {
+			t.Fatalf("os=%s was accepted: %+v", value, env.Errors)
+		}
+		if !strings.Contains(found, "no Windows agent yet") {
+			t.Errorf("the refusal must say why no host will ever match: %q", found)
+		}
+		if !strings.Contains(found, "would not help") {
+			t.Errorf("the refusal must stop the operator adding a host to fix it: %q", found)
+		}
+
+		validate := h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: cookie, body: body})
+		validate.mustStatus(t, http.StatusOK, "validate")
+		var verdict validatePoolResponse
+		validate.into(t, &verdict)
+		if verdict.Valid {
+			t.Errorf("the wizard's review step accepted os=%s", value)
+		}
+	}
+
+	// A selector on the platform Zoomies does have is untouched.
+	body := poolBody(inst.ID)
+	body["host_selector"] = map[string]string{"os": "linux"}
+	ok := h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: cookie, body: body})
+	ok.mustStatus(t, http.StatusOK, "validate")
+	var verdict validatePoolResponse
+	ok.into(t, &verdict)
+	if !verdict.Valid {
+		t.Fatalf("os=linux was refused: %+v", verdict.Errors)
+	}
+	if pools, err := h.st.ListPools(h.ctx); err != nil || len(pools) != 0 {
+		t.Fatalf("a refused pool was created anyway: %v %v", pools, err)
+	}
+}
+
+// The wizard's count is the scheduler's own placement rule asked early, so a
+// pool that could never be placed has to read as zero hosts before it is
+// created rather than as a healthy pool that never starts a runner. A machine
+// too small to hold one runner of the pool is exactly that case, and it is one
+// an operator can only meet by typing a limit their fleet cannot cover.
+func TestTheWizardDoesNotCountAHostTooSmallForThePool(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	host := h.host("vm-1")
+	host.CPUs, host.MemoryMB = 4, 8192
+	host.DiskTotalMB, host.DiskFreeMB = 200_000, 100_000
+	if err := h.st.UpdateHost(h.ctx, host); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	body := poolBody(inst.ID)
+	body["resources"] = map[string]any{"memory_mb": 64 * 1024}
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: cookie, body: body})
+	resp.mustStatus(t, http.StatusOK, "validate")
+	var verdict validatePoolResponse
+	resp.into(t, &verdict)
+	if verdict.MatchingHosts != 0 {
+		t.Errorf("matching_hosts = %d for a 64 GB pool on an 8 GB host, want 0", verdict.MatchingHosts)
+	}
+	found := false
+	for _, w := range verdict.Warnings {
+		if w.Code == "pool.no_matching_hosts" {
+			found = true
+			if !strings.Contains(w.Detail, "too small") {
+				t.Errorf("the warning does not say the host is too small: %+v", w)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no warning that nothing can run this pool: %+v", verdict.Warnings)
+	}
+
+	// A limit the fleet can cover still counts the host, which is what says the
+	// zero above came from the size and not from the resources field itself.
+	body["resources"] = map[string]any{"memory_mb": 2048}
+	ok := h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: cookie, body: body})
+	ok.mustStatus(t, http.StatusOK, "validate")
+	ok.into(t, &verdict)
+	if verdict.MatchingHosts != 1 {
+		t.Errorf("matching_hosts = %d for a 2 GB pool on an 8 GB host, want 1", verdict.MatchingHosts)
 	}
 }

@@ -13,7 +13,8 @@
     title?: string;
     /** Overrides the message derived from the error. */
     description?: string;
-    /** Offered only after a failure -- Zoomies has no refresh button. */
+    /** The way back from a failure. Distinct from the page's refresh button:
+        this one exists because something went wrong, and says so. */
     onretry?: () => void;
     retryLabel?: string;
     compact?: boolean;
@@ -73,7 +74,7 @@
     align-items: flex-start;
     gap: var(--z-space-3);
     padding: var(--z-space-5);
-    border: 1px solid var(--z-danger-border);
+    border: var(--z-border-width) solid var(--z-danger-border);
     border-radius: var(--z-radius-md);
     background: var(--z-danger-subtle);
   }
@@ -90,7 +91,7 @@
     min-width: 0;
   }
   .title {
-    margin: 0 0 2px;
+    margin: 0 0 var(--z-nudge-2);
     font-size: var(--z-text-base);
     font-weight: var(--z-weight-semibold);
     color: var(--z-text);

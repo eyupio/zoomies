@@ -26,15 +26,18 @@ export function skipsIn(repo: MigrationRepo): number {
 }
 
 /**
- * Whether a pull request could actually be opened against this repository.
+ * Whether this repository is one the operator can choose.
  *
- * Being archived is the case worth spelling out: an archived repository can
- * have any number of rewritable jobs in it, so counting the jobs alone would
- * tick it, walk the operator through the whole wizard, and only then report
- * that GitHub refuses every write to it.
+ * The test is "it asks for a runner somebody else operates", not "it would
+ * change under the mapping guessed so far" -- the labels are mapped on the
+ * next step. Being archived is the exception worth spelling out: an archived
+ * repository can ask for as many rented runners as it likes, and GitHub still
+ * refuses every write to it, so counting its labels alone would tick it, walk
+ * the operator through mapping and review, and only then report that nothing
+ * could be opened.
  */
 export function isMigratable(repo: MigrationRepo): boolean {
-  return !repo.archived && jobsIn(repo) > 0;
+  return !repo.error && !repo.archived && (repo.hosted_labels ?? []).length > 0;
 }
 
 /**
@@ -43,8 +46,9 @@ export function isMigratable(repo: MigrationRepo): boolean {
  *
  * The order is the order an operator needs the answers in: a repository that
  * could not be read explains itself first, one that cannot be written to next,
- * and only then the several different ways of having nothing to do. "Already
- * on Zoomies" and "nothing to move" look identical in a plan and mean opposite
+ * then what would change, then what was found but not yet mapped -- and only
+ * then the several different ways of having nothing to do. "Already on
+ * Zoomies" and "nothing to move" look identical in a plan and mean opposite
  * things -- finished work, and work nobody has started -- so they are never
  * collapsed into one sentence.
  */
@@ -55,10 +59,14 @@ export function noteFor(repo: MigrationRepo): string {
   const jobs = jobsIn(repo);
   const files = filesIn(repo);
   const skipped = skipsIn(repo);
+  const labels = repo.hosted_labels ?? [];
 
   if (jobs > 0) {
     const moved = `${jobs} ${jobs === 1 ? 'job' : 'jobs'} in ${files} ${files === 1 ? 'file' : 'files'}`;
     return repo.on_zoomies ? `${moved}; the rest already on Zoomies` : moved;
+  }
+  if (labels.length > 0) {
+    return `Runs on ${labels.join(', ')}; choose what those become on the next step`;
   }
   if ((repo.workflows ?? []).length === 0) return 'No workflows';
   if (repo.on_zoomies) {

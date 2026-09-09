@@ -170,6 +170,12 @@
       selectionBackground: resolve('--z-accent-subtle'),
       selectionForeground: foreground,
       selectionInactiveBackground: resolve('--z-neutral-subtle'),
+      // xterm draws its own scrollbar rather than the browser's, so the theme's
+      // thumb has to be handed over; left alone it is a fifth of the foreground,
+      // the same faint sliver the rest of the UI has stopped drawing.
+      scrollbarSliderBackground: resolve('--z-scrollbar-thumb'),
+      scrollbarSliderHoverBackground: resolve('--z-scrollbar-thumb-hover'),
+      scrollbarSliderActiveBackground: resolve('--z-scrollbar-thumb-active'),
     };
     for (const [name, token] of Object.entries(ANSI)) {
       const colour = resolve(token);
@@ -237,6 +243,29 @@
   /** DECAWM. With it off a long line stops at the right edge instead of wrapping. */
   function wrapMode(on: boolean): string {
     return on ? '\x1b[?7h' : '\x1b[?7l';
+  }
+
+  /**
+   * Whether a link a runner printed may be followed, and where to.
+   *
+   * A workflow's output is somebody else's data. A terminal turns an OSC 8
+   * sequence into a clickable link, and the target is whatever the job wrote:
+   * a `javascript:` URL runs in this page, a `data:` one can carry a document
+   * that looks like ours, and either is a job the fleet ran deciding what the
+   * operator's browser does next.
+   *
+   * Only http and https, and only as an absolute URL -- a relative one would
+   * resolve against the controller's own origin, which is the one place a link
+   * in somebody's build output has no business pointing.
+   */
+  function followableLink(uri: string): URL | null {
+    try {
+      const url = new URL(uri);
+      return url.protocol === 'http:' || url.protocol === 'https:' ? url : null;
+    } catch {
+      // Not a URL at all, which includes every relative one.
+      return null;
+    }
   }
 
   /** Hide the cursor -- this is somebody else's output, not a prompt -- and set wrapping. */
@@ -433,6 +462,17 @@
         // Guarantees AA for whatever colours a workflow decides to print.
         minimumContrastRatio: 4.5,
         theme: palette(),
+        // Activation is ours rather than the terminal's default, so what a
+        // runner's output can do with a link is decided here. noreferrer as
+        // well as noopener: the new tab gets no window handle back and is not
+        // told which controller the operator was looking at.
+        linkHandler: {
+          activate: (_event: MouseEvent, uri: string) => {
+            const url = followableLink(uri);
+            if (!url) return;
+            window.open(url.href, '_blank', 'noopener,noreferrer');
+          },
+        },
       });
       const fitAddon = new Fit();
       const searchAddon = new Finder();
@@ -673,7 +713,7 @@
     min-width: 0;
     min-height: 0;
     height: 100%;
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
     overflow: hidden;
@@ -687,7 +727,7 @@
     flex-wrap: wrap;
     gap: var(--z-space-3);
     padding: var(--z-space-2) var(--z-space-3);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   .meter {
     display: flex;
@@ -773,8 +813,8 @@
   }
   .probe {
     position: absolute;
-    width: 1px;
-    height: 1px;
+    width: var(--z-border-width);
+    height: var(--z-border-width);
     overflow: hidden;
     pointer-events: none;
   }
@@ -798,7 +838,7 @@
     gap: var(--z-space-2);
     height: var(--z-space-8);
     padding: 0 var(--z-space-4);
-    border: 1px solid var(--z-accent-border);
+    border: var(--z-border-width) solid var(--z-accent-border);
     border-radius: var(--z-radius-full);
     background: var(--z-accent-subtle);
     color: var(--z-accent);
@@ -820,7 +860,7 @@
     gap: var(--z-space-2);
     margin: 0;
     padding: var(--z-space-3);
-    border-top: 1px solid var(--z-border);
+    border-top: var(--z-border-width) solid var(--z-border);
     font-size: var(--z-text-xs);
     color: var(--z-text-muted);
   }

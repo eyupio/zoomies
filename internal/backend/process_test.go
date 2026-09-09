@@ -7,7 +7,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +17,7 @@ import (
 	"runtime"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -27,6 +30,8 @@ const stubVersion = "9.9.9"
 // for the SIGINT that Stop sends and exits cleanly, the way the real runner
 // finishes its job and leaves.
 const stubListener = `#!/bin/sh
+echo "$@" > listener-args.txt
+printf '%s' "${ACTIONS_RUNNER_INPUT_JITCONFIG:-}" > listener-jitconfig.txt
 echo "listener started with $1"
 trap 'echo "interrupted"; exit 0' INT
 i=0
@@ -140,10 +145,14 @@ func TestProcessCreateLayout(t *testing.T) {
 	b, root := newStubProcessBackend(t)
 	ctx := context.Background()
 
-	h, err := b.Create(ctx, processSpec())
+	result, err := b.CreateWithResult(ctx, processSpec())
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
+	if result.ImagePullDuration != nil {
+		t.Fatalf("process backend invented an image pull duration: %v", *result.ImagePullDuration)
+	}
+	h := result.Handle
 	t.Cleanup(func() { _ = b.Remove(context.Background(), h) })
 
 	dir := string(h)
@@ -394,8 +403,28 @@ func TestProcessProbe(t *testing.T) {
 	}
 	// Availability depends on the host: on Linux without libicu the runner
 	// cannot start, and the detail has to say which of the two it is.
-	if !info.Available && !strings.Contains(info.Detail, "libicu") && !strings.Contains(info.Detail, "does not support") && !strings.Contains(info.Detail, "work directory") {
+	if !info.Available && !strings.Contains(info.Detail, "libicu") && !strings.Contains(info.Detail, "does not support") && !strings.Contains(info.Detail, "work directory") && !strings.Contains(info.Detail, "shell") {
 		t.Fatalf("unavailable for an unexplained reason: %q", info.Detail)
+	}
+}
+
+// The published image is distroless. An agent in it probing the process
+// backend used to be told to apt-get install libicu -- into an image with no
+// apt, no shell and no way to run the runner at all -- when the honest answer
+// is that this backend is not for containers.
+func TestProcessProbeWithoutAShellSaysSoBeforeAnythingElse(t *testing.T) {
+	b, _ := newStubProcessBackend(t)
+	t.Setenv("PATH", t.TempDir())
+
+	info := b.Probe(context.Background())
+	if info.Available {
+		t.Fatal("a host with no shell cannot run the runner")
+	}
+	if !strings.Contains(info.Detail, "no shell is installed") || !strings.Contains(info.Detail, "docker or podman backend") {
+		t.Fatalf("detail = %q, want the missing shell and the backend to use instead", info.Detail)
+	}
+	if strings.Contains(info.Detail, "apt-get") {
+		t.Fatalf("a package manager is no use in an image without one: %q", info.Detail)
 	}
 }
 
@@ -413,8 +442,18 @@ func TestRunnerAsset(t *testing.T) {
 		}
 	}
 
-	if _, err := runnerAsset("windows", "amd64", "2.3.4"); err == nil || !strings.Contains(err.Error(), "docker backend") {
-		t.Errorf("windows should be refused with an alternative, got %v", err)
+	// The refusal has to name the platform Zoomies does not ship for, not one
+	// actions/runner does not have: win-x64 has existed for years, and an
+	// operator told otherwise goes looking for a GitHub problem that is ours.
+	_, err := runnerAsset("windows", "amd64", "2.3.4")
+	if err == nil {
+		t.Fatal("windows must be refused")
+	}
+	if !strings.Contains(err.Error(), "Zoomies has no Windows support yet") {
+		t.Errorf("the refusal must say whose gap it is, got %v", err)
+	}
+	if strings.Contains(err.Error(), "actions/runner ships for Linux and macOS") {
+		t.Errorf("the refusal must not claim actions/runner has no Windows build, got %v", err)
 	}
 	if _, err := runnerAsset("linux", "riscv64", "2.3.4"); err == nil {
 		t.Error("an unsupported architecture must be refused")
@@ -795,5 +834,419 @@ func TestProcessDownloadMissingVersion(t *testing.T) {
 	_, err = b.ensureRelease(context.Background(), "0.0.1")
 	if err == nil || !strings.Contains(err.Error(), "pinned runner version") {
 		t.Fatalf("got %v, want a message about the pinned version", err)
+	}
+}
+
+// The runner leads a process group of its own. Without that, interrupting the
+// listener orphaned the worker running the job, and a service manager stopping
+// the agent's unit took every runner in the cgroup down with it -- the
+// opposite of "restarting an agent must never kill a job".
+func TestProcessRunnerLeadsItsOwnProcessGroup(t *testing.T) {
+	requireUnix(t)
+	b, _ := newStubProcessBackend(t)
+	ctx := context.Background()
+
+	h, err := b.Create(ctx, processSpec())
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Remove(ctx, h) })
+	waitForPhase(t, b, h, PhaseRunning, 5*time.Second)
+
+	pid := readPID(string(h))
+	if pid <= 0 {
+		t.Fatal("no pid recorded")
+	}
+	pgid, err := syscall.Getpgid(pid)
+	if err != nil {
+		t.Fatalf("Getpgid: %v", err)
+	}
+	if pgid != pid {
+		t.Fatalf("the runner's process group is %d, want its own pid %d; it is sharing the agent's group", pgid, pid)
+	}
+}
+
+// The runner image verifies its download against digests written into the
+// Dockerfile, and the process backend against the generated table. They are
+// the same release, so they had better be the same numbers; the bump workflow
+// copies them from the table, and this is what catches a hand edit of one.
+func TestTheRunnerImagePinsTheSameDigestsAsTheProcessBackend(t *testing.T) {
+	dockerfile, err := os.ReadFile(filepath.Join("..", "..", "deploy", "Dockerfile.runner"))
+	if err != nil {
+		t.Fatalf("reading the runner Dockerfile: %v", err)
+	}
+	for arch, arg := range map[string]string{"x64": "RUNNER_SHA256_X64", "arm64": "RUNNER_SHA256_ARM64"} {
+		want := knownRunnerSHA256[DefaultRunnerVersion+"/actions-runner-linux-"+arch+"-"+DefaultRunnerVersion+".tar.gz"]
+		if want == "" {
+			t.Fatalf("the digest table has no linux-%s entry for %s", arch, DefaultRunnerVersion)
+		}
+		if !strings.Contains(string(dockerfile), "ARG "+arg+"="+want) {
+			t.Fatalf("deploy/Dockerfile.runner does not pin %s to the table's digest %s for %s", arg, want, DefaultRunnerVersion)
+		}
+	}
+	if !strings.Contains(string(dockerfile), "ARG RUNNER_VERSION="+DefaultRunnerVersion) {
+		t.Fatalf("deploy/Dockerfile.runner pins a different runner version from DefaultRunnerVersion %s", DefaultRunnerVersion)
+	}
+}
+
+// The JIT config is a credential. On the command line it is in
+// /proc/<pid>/cmdline, which every account on the host can read; the runner
+// takes it from the environment just as happily, and the container backends
+// already hand it over that way.
+func TestProcessKeepsTheJITConfigOffTheCommandLine(t *testing.T) {
+	requireUnix(t)
+	b, _ := newStubProcessBackend(t)
+	ctx := context.Background()
+
+	spec := processSpec()
+	h, err := b.Create(ctx, spec)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Remove(context.Background(), h) })
+
+	dir := string(h)
+	waitForLog(t, dir, "listener started", 5*time.Second)
+
+	args, err := os.ReadFile(filepath.Join(dir, "listener-args.txt"))
+	if err != nil {
+		t.Fatalf("reading the listener's arguments: %v", err)
+	}
+	if got := strings.TrimSpace(string(args)); got != "run" {
+		t.Fatalf("listener arguments = %q, want just \"run\"", got)
+	}
+	if strings.Contains(string(args), spec.Credentials.JITConfig) {
+		t.Fatal("the JIT config is on the command line, where ps can read it")
+	}
+
+	jit, err := os.ReadFile(filepath.Join(dir, "listener-jitconfig.txt"))
+	if err != nil {
+		t.Fatalf("reading the listener's environment: %v", err)
+	}
+	if string(jit) != spec.Credentials.JITConfig {
+		t.Fatalf("%s = %q, want the JIT config", EnvUpstreamJITConfig, jit)
+	}
+}
+
+// stubDeaf ignores the interrupt Stop sends first, so that stopping it has to
+// go through the kill, which is the path this file's other tests never take.
+const stubDeaf = `#!/bin/sh
+echo "listener started with $1"
+trap '' INT
+i=0
+while [ $i -lt 120 ]; do
+  sleep 1
+  i=$((i + 1))
+done
+`
+
+// SIGKILL is delivered, not applied: the process is still there, with its files
+// still open, for as long as the kernel takes to tear it down. Stop used to
+// return the moment the signal was sent, and what the caller does next is
+// delete the directory the runner is running in -- so a create replacing a
+// runner could fail on a directory that would not stay empty, and a remove
+// could half-succeed against a process still writing into it.
+func TestStoppingARunnerThatIgnoresTheInterruptWaitsForItToDie(t *testing.T) {
+	requireUnix(t)
+	root := t.TempDir()
+	installStubRunner(t, root, stubVersion, stubDeaf, stubConfigOK)
+	b, err := NewProcess(ProcessOptions{WorkDir: root, RunnerVersion: stubVersion, Logger: quietLogger()})
+	if err != nil {
+		t.Fatalf("NewProcess: %v", err)
+	}
+	ctx := context.Background()
+
+	h, err := b.Create(ctx, processSpec())
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	waitForPhase(t, b, h, PhaseRunning, 5*time.Second)
+	waitForLog(t, string(h), "listener started", 5*time.Second)
+	pid := readPID(string(h))
+	if pid <= 0 || !processAlive(pid) {
+		t.Fatalf("the runner is not running to begin with, pid = %d", pid)
+	}
+
+	// A short interrupt timeout, so the kill is reached quickly. The runner
+	// ignores the interrupt, so this is the only thing that ends it.
+	if err := b.Stop(ctx, h, 300*time.Millisecond); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+
+	if processAlive(pid) {
+		t.Fatal("Stop returned while the runner it killed was still running")
+	}
+	// And the directory it was running in can now be removed, which is what
+	// the caller does next.
+	if err := b.Remove(ctx, h); err != nil {
+		t.Fatalf("removing a runner that has just been killed: %v", err)
+	}
+}
+
+// The process being gone is not the end of the writing: the goroutine reaping
+// it records the exit code in the runner's own directory, and it gets there a
+// moment after the process disappears -- a moment the removal is already
+// spending inside RemoveAll. The walk deletes what it found, the exit record
+// lands behind it, and the rmdir meets a directory that is not empty. CI found
+// this as "directory not empty" from a create replacing an existing runner,
+// which is a fleet failing to start a runner rather than a test being unlucky.
+//
+// Staged rather than raced: a reaper that never finishes, so that whether the
+// removal waits for one is the only thing being measured. Waiting for a real
+// exit to be recorded takes microseconds, and a test that hopes to land inside
+// those is a test that passes whatever the code does.
+func TestRemovingARunnerWaitsForItsExitToBeRecorded(t *testing.T) {
+	requireUnix(t)
+	b, _ := newStubProcessBackend(t)
+
+	dir := b.runnerDir("zoomies-host-a1b2")
+	if err := os.MkdirAll(filepath.Join(dir, runnerWorkDir), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	b.mu.Lock()
+	b.running[dir] = &child{reaped: make(chan struct{})}
+	b.mu.Unlock()
+
+	// The context is what ends the wait, since this reaper never will. Without
+	// a wait at all the removal returns in microseconds.
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	if err := b.Remove(ctx, Handle(dir)); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if waited := time.Since(started); waited < 200*time.Millisecond {
+		t.Fatalf("Remove returned after %s, so it deleted the directory while the exit was still being recorded into it", waited)
+	}
+	// And it still removes the directory: a reaper that will not finish is a
+	// reason to wait, not a reason to leave a runner on the host for ever.
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("the runner directory is still there: %v", err)
+	}
+}
+
+// The same sequence the CI failure came from, run enough times that the window
+// between the process exiting and its exit record landing is hit rather than
+// hoped past.
+func TestReplacingARunnerRepeatedlyNeverTripsOverItsOwnExitRecord(t *testing.T) {
+	requireUnix(t)
+	b, _ := newStubProcessBackend(t)
+	ctx := context.Background()
+
+	for i := range 12 {
+		h, err := b.Create(ctx, processSpec())
+		if err != nil {
+			t.Fatalf("create %d: %v", i, err)
+		}
+		waitForPhase(t, b, h, PhaseRunning, 5*time.Second)
+		waitForLog(t, string(h), "listener started", 5*time.Second)
+	}
+	if err := b.Remove(ctx, Handle(b.runnerDir(processSpec().Name))); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+}
+
+// TestProcessChildEnvironmentIsBuiltNotInherited is the process backend's
+// side of the isolation the container backends get from the container. A
+// job's steps run as ordinary processes on the agent's machine, so anything
+// left in the agent's environment would be readable by every workflow the
+// fleet runs -- and on a single-VM install the agent is inside the controller,
+// whose environment holds the database path, the encryption key and the GitHub
+// App's private key.
+//
+// The parent is poisoned with the things that would actually be there.
+func TestProcessChildEnvironmentIsBuiltNotInherited(t *testing.T) {
+	b := &ProcessBackend{}
+
+	poison := map[string]string{
+		"ZOOMIES_ENCRYPTION_KEY":        "3d5f0a1b-the-key-that-decrypts-every-installation",
+		"ZOOMIES_GITHUB_PRIVATE_KEY":    "-----BEGIN RSA PRIVATE KEY-----\nMIIEow...\n",
+		"ZOOMIES_GITHUB_WEBHOOK_SECRET": "the-webhook-hmac-secret",
+		"ZOOMIES_DATABASE":              "/var/lib/zoomies/zoomies.db",
+		"ZOOMIES_AGENT_TOKEN":           "zag_this_hosts_own_credential",
+		"GITHUB_TOKEN":                  "ghp_a_token_the_operator_exported",
+		"AWS_SECRET_ACCESS_KEY":         "an-unrelated-secret-that-happened-to-be-there",
+		"SSH_AUTH_SOCK":                 "/tmp/ssh-agent.sock",
+	}
+	for k, v := range poison {
+		t.Setenv(k, v)
+	}
+	// The agent's own home must not become the runner's: the runner writes its
+	// credentials and state next to it.
+	t.Setenv("HOME", "/root")
+
+	dir := t.TempDir()
+	spec := Spec{Name: "zoomies-runner-1", Ephemeral: true, Env: map[string]string{
+		"RUNNER_ALLOW_RUNASROOT": "1",
+		"ZOOMIES_POOL":           "linux-x64",
+	}}
+	env := b.childEnv(spec, dir)
+
+	got := map[string]string{}
+	for _, kv := range env {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok {
+			t.Fatalf("childEnv produced %q, which is not a KEY=VALUE pair", kv)
+		}
+		got[k] = v
+	}
+
+	for k, v := range poison {
+		if _, present := got[k]; present {
+			t.Errorf("the runner's environment carries %s from the agent's", k)
+		}
+		// Not merely absent under that name: absent as a value, so a rename
+		// or a well-meaning "pass the proxy settings through" that widened
+		// the allowlist would still be caught.
+		for _, kv := range env {
+			if strings.Contains(kv, v) {
+				t.Errorf("%s's value reached the runner as %q", k, kv)
+			}
+		}
+	}
+
+	if got["HOME"] != dir {
+		t.Errorf("HOME = %q, want the runner's own directory %q", got["HOME"], dir)
+	}
+	if got["ZOOMIES_POOL"] != "linux-x64" {
+		t.Errorf("the controller's own spec.Env did not reach the runner: %v", got)
+	}
+}
+
+// TestProcessChildEnvironmentPassesTheAllowlistThrough is the other half: the
+// allowlist exists because a runner behind a corporate proxy or in a non-UTC
+// timezone needs those settings, and dropping them would make the backend
+// unusable rather than safe. Both halves have to be asserted, or "return nil"
+// would pass the test above.
+func TestProcessChildEnvironmentPassesTheAllowlistThrough(t *testing.T) {
+	b := &ProcessBackend{}
+
+	allowed := map[string]string{
+		"LANG":                                  "en_GB.UTF-8",
+		"LC_ALL":                                "en_GB.UTF-8",
+		"TZ":                                    "Europe/London",
+		"HTTP_PROXY":                            "http://proxy.example.com:3128",
+		"HTTPS_PROXY":                           "http://proxy.example.com:3128",
+		"NO_PROXY":                              "localhost,10.0.0.0/8",
+		"http_proxy":                            "http://proxy.example.com:3128",
+		"https_proxy":                           "http://proxy.example.com:3128",
+		"no_proxy":                              "localhost,10.0.0.0/8",
+		"DOTNET_SYSTEM_GLOBALIZATION_INVARIANT": "1",
+	}
+	for k, v := range allowed {
+		t.Setenv(k, v)
+	}
+	t.Setenv("PATH", "/opt/toolcache/bin:/usr/bin")
+
+	env := b.childEnv(Spec{Name: "zoomies-runner-1"}, t.TempDir())
+	got := map[string]string{}
+	for _, kv := range env {
+		k, v, _ := strings.Cut(kv, "=")
+		got[k] = v
+	}
+
+	for k, want := range allowed {
+		if got[k] != want {
+			t.Errorf("%s = %q, want %q -- a runner needs the agent's proxy and locale settings", k, got[k], want)
+		}
+	}
+	if got["PATH"] != "/opt/toolcache/bin:/usr/bin" {
+		t.Errorf("PATH = %q, want the agent's -- it is how the runner finds its toolchain", got["PATH"])
+	}
+
+	// A variable on the allowlist that the agent does not have is left unset
+	// rather than set empty: an empty TZ is not the same as no TZ, and the
+	// runner's own defaulting is better than a blank.
+	t.Setenv("TZ", "Europe/London") // registers the cleanup that restores it
+	os.Unsetenv("TZ")
+	withoutTZ := map[string]string{}
+	for _, kv := range b.childEnv(Spec{Name: "zoomies-runner-1"}, t.TempDir()) {
+		k, v, _ := strings.Cut(kv, "=")
+		withoutTZ[k] = v
+	}
+	if v, present := withoutTZ["TZ"]; present {
+		t.Errorf("TZ = %q was invented for a runner whose agent has no TZ set", v)
+	}
+
+	// And PATH is the one variable with a fallback, because a runner with no
+	// PATH finds no tools at all -- not even the ones it downloaded.
+	t.Setenv("PATH", "")
+	for _, kv := range b.childEnv(Spec{Name: "zoomies-runner-1"}, t.TempDir()) {
+		if kv == "PATH=" {
+			t.Error("an empty PATH was passed through instead of the fallback")
+		}
+	}
+}
+
+// TestAnAbandonedRunnerDirectoryIsListedSoItCanBeReaped closes a leak with
+// nothing else watching it.
+//
+// Create makes the runner's directory and clones the tools tree into it --
+// hundreds of megabytes -- before it writes the metadata. An agent killed in
+// that window leaves the tree behind, and List used to skip a directory whose
+// metadata would not read. Nothing else walks this tree, so the copy stayed on
+// the host until somebody went looking for the disk.
+func TestAnAbandonedRunnerDirectoryIsListedSoItCanBeReaped(t *testing.T) {
+	b, workDir := newStubProcessBackend(t)
+	root := filepath.Join(workDir, runnersDirName)
+
+	// The shape Create leaves behind when it dies between MkdirAll and
+	// writeMeta: a directory, some of the tree, and no runner.json.
+	dir := filepath.Join(root, "zoomies-abandoned")
+	if err := os.MkdirAll(filepath.Join(dir, "bin"), 0o750); err != nil {
+		t.Fatalf("staging the abandoned directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bin", "Runner.Listener"), []byte("stub"), 0o750); err != nil {
+		t.Fatalf("staging the tools copy: %v", err)
+	}
+
+	// Still being written: nothing may touch it yet.
+	fresh, err := b.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	for _, w := range fresh {
+		if string(w.Handle) == dir {
+			t.Fatal("a directory written moments ago was reported as abandoned; " +
+				"a create in progress would be removed out from under itself")
+		}
+	}
+
+	// Nothing has written to it for longer than a create could take.
+	old := time.Now().Add(-abandonedGrace - time.Minute)
+	if err := os.Chtimes(dir, old, old); err != nil {
+		t.Fatalf("ageing the directory: %v", err)
+	}
+
+	listed, err := b.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	var found *Workload
+	for i, w := range listed {
+		if string(w.Handle) == dir {
+			found = &listed[i]
+		}
+	}
+	if found == nil {
+		t.Fatal("an abandoned runner directory was not listed, so nothing will ever remove it")
+	}
+	if found.Status.Phase != PhaseGone {
+		t.Errorf("phase = %q, want %q: there is no process here to be anything else",
+			found.Status.Phase, PhaseGone)
+	}
+	// No runner ID, because there is nothing to read one from. The agent's
+	// orphan path removes the workload and reports nothing, so no row moves on
+	// the strength of a directory nobody can identify.
+	if found.RunnerID != "" {
+		t.Errorf("runner = %q, want none: the metadata is what carries it and it is unreadable", found.RunnerID)
+	}
+
+	// And it can actually be removed, which is the whole point of listing it.
+	if err := b.Remove(context.Background(), found.Handle); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the directory is still there after Remove: %v", err)
 	}
 }

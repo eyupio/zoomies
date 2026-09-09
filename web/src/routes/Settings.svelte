@@ -43,11 +43,27 @@
   function select(id: string): void {
     router.setQuery({ tab: id === (canAdmin ? 'users' : 'appearance') ? null : id });
   }
+
+  /*
+    Nothing on this page arrives over the stream: users, tokens and the
+    configuration change when an administrator changes them, possibly in another
+    browser. Refreshing re-reads whichever panel is open -- through a counter
+    rather than by remounting it, so a half-typed form is not thrown away by
+    somebody wanting to be sure the list is current -- and asks who we are
+    again, which is how a role granted a minute ago starts to apply.
+  */
+  let reloadKey = $state(0);
+
+  async function refreshPage(): Promise<void> {
+    reloadKey += 1;
+    await session.refresh();
+  }
 </script>
 
 <PageHeader
   title="Settings"
   subtitle="Accounts, credentials, appearance and what this controller is running with."
+  onrefresh={refreshPage}
 />
 
 <div class="content">
@@ -63,15 +79,15 @@
   <Tabs value={active} {tabs} label="Settings sections" onchange={select}>
     {#snippet children(current)}
       {#if current === 'users'}
-        <UsersPanel />
+        <UsersPanel {reloadKey} />
       {:else if current === 'tokens'}
-        <TokensPanel />
+        <TokensPanel {reloadKey} />
       {:else if current === 'appearance'}
         <AppearancePanel />
       {:else if current === 'configuration'}
-        <ConfigurationPanel />
+        <ConfigurationPanel {reloadKey} />
       {:else}
-        <AboutPanel />
+        <AboutPanel {reloadKey} />
       {/if}
     {/snippet}
   </Tabs>
@@ -87,7 +103,7 @@
     margin: 0;
     max-width: 80ch;
     padding: var(--z-space-3) var(--z-space-4);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     font-size: var(--z-text-base);

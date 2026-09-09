@@ -34,7 +34,14 @@
   let { draft, body, editing, installationLabel, verdict, validating, error, ongoto }: Props =
     $props();
 
-  const preview = $derived<Pool>({ ...body, installation_target: installationLabel });
+  // The image is the server's answer where there is one: a pool that gives
+  // its jobs a daemon runs the stock image's Docker variant, and this step
+  // exists to show the pool that will be made rather than the one typed.
+  const preview = $derived<Pool>({
+    ...body,
+    image: verdict?.image ?? body.image,
+    installation_target: installationLabel,
+  });
 
   const fieldErrors = $derived(verdict?.errors ?? []);
   const warnings = $derived(verdict?.warnings ?? []);
@@ -176,12 +183,12 @@
   }
   .hosts {
     padding: var(--z-space-3) var(--z-space-4);
-    border: 1px solid var(--z-idle-border);
+    border: var(--z-border-width) solid var(--z-idle-border);
     border-radius: var(--z-radius-md);
     background: var(--z-idle-subtle);
   }
   .hosts.none {
-    border: 2px solid var(--z-danger-border);
+    border: var(--z-border-width-thick) solid var(--z-danger-border);
     background: var(--z-danger-subtle);
   }
   .hosts-title {
@@ -215,7 +222,7 @@
   }
   .errors {
     padding: var(--z-space-3) var(--z-space-4);
-    border: 1px solid var(--z-danger-border);
+    border: var(--z-border-width) solid var(--z-danger-border);
     border-radius: var(--z-radius-md);
     background: var(--z-danger-subtle);
   }

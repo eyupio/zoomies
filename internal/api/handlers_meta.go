@@ -33,6 +33,12 @@ type metaResponse struct {
 	ExternalURL       string `json:"external_url,omitempty"`
 	WebhookURL        string `json:"webhook_url,omitempty"`
 	PollingOnly       bool   `json:"polling_only"`
+	// PollerEnabled and PollerLastPollAt say whether the safety net is there
+	// and when it last ran. They sit beside polling_only because they are the
+	// same class of fact about this deployment, and none of the three tells an
+	// unauthenticated visitor anything they could act on.
+	PollerEnabled    bool       `json:"poller_enabled"`
+	PollerLastPollAt *time.Time `json:"poller_last_poll_at,omitempty"`
 }
 
 // handleMeta answers GET /api/v1/meta.
@@ -46,14 +52,18 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		Version:           version.Short(),
 		Commit:            version.Commit,
 		BootstrapRequired: needsBootstrap,
-		AuthDisabled:      s.cfg.Security.DisableAuth,
+		AuthDisabled:      s.cfg().Security.DisableAuth,
 		OIDCEnabled:       s.oidc.Enabled(),
-		ExternalURL:       s.cfg.Server.ExternalURL,
-		WebhookURL:        s.cfg.WebhookURL(),
+		ExternalURL:       s.cfg().Server.ExternalURL,
+		WebhookURL:        s.cfg().WebhookURL(),
 		PollingOnly:       s.ctrl.PollingOnly(),
+		PollerEnabled:     s.ctrl.PollerEnabled(),
+	}
+	if last := s.ctrl.LastPollAt(); !last.IsZero() {
+		out.PollerLastPollAt = &last
 	}
 	if out.OIDCEnabled {
-		out.OIDCLabel = oidcLabel(s.cfg.OIDC.Issuer)
+		out.OIDCLabel = oidcLabel(s.cfg().OIDC.Issuer)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -91,15 +101,44 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	ctx, cancel := contextWithTimeout(r, 5*time.Second)
 	defer cancel()
-	if _, err := s.ctrl.Store().CountUsers(ctx); err != nil {
+	// The ledger is the readiness question itself: a database that answers
+	// and has taken every migration is one this build can serve. It is also
+	// what "schema version" means here, so the probe says which.
+	applied, err := s.ctrl.Store().AppliedMigrations(ctx)
+	if err != nil {
+		// The cause goes to the log. This route is anonymous, and a database
+		// error names paths and drivers that are nobody else's business.
 		s.logger(r).Warn("readiness probe failed", "error", err)
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"ok":      false,
-			"message": "the database is not answering: " + err.Error(),
+			"message": "the database is not answering; the cause is in the controller's log",
 		})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "version": version.Short()})
+	body := map[string]any{"ok": true, "version": version.Short()}
+	if n := len(applied); n > 0 {
+		body["schema"] = map[string]any{"applied": n, "latest": applied[n-1].Name}
+	}
+	// A fenced fleet is not ready, and saying so is the point: it is serving,
+	// it is deciding, and it is doing none of it, which from outside looks
+	// exactly like a healthy fleet with nothing queued. A load balancer taking
+	// it out of rotation is the correct outcome, and so is a deployment that
+	// refuses to go green until somebody has looked.
+	//
+	// Liveness is deliberately unaffected: the container's health check is
+	// /healthz, so a fenced controller is not restarted by its own runtime --
+	// which would achieve nothing and lose the operator's session.
+	if f := s.ctrl.Fenced(); f.Fenced {
+		body["ok"] = false
+		body["fenced"] = true
+		body["message"] = "this fleet is held for recovery and is applying nothing; the problems drawer says what to check before lifting the fence"
+		if f.Reason != "" {
+			body["reason"] = f.Reason
+		}
+		writeJSON(w, http.StatusServiceUnavailable, body)
+		return
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 // ---------------------------------------------------------------------------
@@ -157,14 +196,14 @@ func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
 // names appear in the label set and an unauthenticated /metrics publishes the
 // shape of somebody's engineering organisation. metrics.public turns the check
 // off for a Prometheus that cannot hold a token; the configuration validator
-// warns about it, and so does the problems panel.
+// warns about it, and so does the problems drawer.
 func (s *Server) metricsHandler() http.Handler {
 	h := promhttp.HandlerFor(s.ctrl.Registry(), promhttp.HandlerOpts{
 		ErrorLog:          promLogger{s.log},
 		ErrorHandling:     promhttp.ContinueOnError,
 		EnableOpenMetrics: true,
 	})
-	if s.cfg.Metrics.Public {
+	if s.cfg().Metrics.Public {
 		return h
 	}
 	return s.authenticate(s.require(auth.ActionMetricsRead)(h))

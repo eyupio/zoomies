@@ -6,7 +6,7 @@
   expects it to.
 -->
 <script lang="ts">
-  import { Pause, Pencil, Play, Trash2 } from '@lucide/svelte';
+  import { Download, Pencil, Power, PowerOff, Trash2 } from '@lucide/svelte';
   import {
     deletePool,
     disablePool,
@@ -14,6 +14,7 @@
     getPool,
     listJobs,
     listScalingEvents,
+    prewarmPool,
   } from '$lib/api/client';
   import { events } from '$lib/api/sse';
   import type { BackendKind, Job, Pool, Problem, ScalingEvent } from '$lib/api/types';
@@ -37,8 +38,10 @@
   import PoolRunners from '$lib/pools/PoolRunners.svelte';
   import PoolScaling from '$lib/pools/PoolScaling.svelte';
   import PoolWarnings from '$lib/pools/PoolWarnings.svelte';
+  import RunsOnPreview from '$lib/pools/RunsOnPreview.svelte';
   import PoolWizardForm from '$lib/pools/PoolWizardForm.svelte';
   import { backendLabel } from '$lib/pools/PoolVocabulary.svelte';
+  import { deletionConsequences } from '$lib/pools/consequences';
 
   const JOB_LIMIT = 10;
   const SCALING_LIMIT = 20;
@@ -79,6 +82,10 @@
   // The cache is live over SSE, so prefer it and fall back to our own fetch --
   // which is what a deep link into a cold tab actually hits.
   const pool = $derived(fleet.pool(id) ?? fetched);
+  /** Migrate reads installation_id, so it opens already scoped to this pool's App. */
+  const migrateHref = $derived(
+    pool?.installation_id ? `/migrate?installation_id=${pool.installation_id}` : '/migrate',
+  );
   const runners = $derived(fleet.runnersInPool(id));
   const counts = $derived(pool?.counts ?? {});
 
@@ -163,6 +170,19 @@
 
   /* -- actions ----------------------------------------------------------------- */
 
+  /**
+   * Everything this page reads, at once: the pool itself, the fleet cache the
+   * runner list comes from, the recent jobs, and the scaling history. Three of
+   * the four are fed by the stream in the ordinary case; asking for all four is
+   * what makes one press answer for the whole page rather than a quarter of it.
+   */
+  function refreshPage(): Promise<void> {
+    attempt += 1;
+    jobsAttempt += 1;
+    scalingAttempt += 1;
+    return fleet.reconcile();
+  }
+
   function setEnabled(enabled: boolean): void {
     if (!pool?.id) return;
     const poolId = pool.id;
@@ -174,29 +194,20 @@
     );
   }
 
+  async function prewarm(): Promise<void> {
+    if (!pool?.id) return;
+    try {
+      const result = await prewarmPool(pool.id);
+      toasts.success('Image prewarm queued', `${result.queued ?? 0} matching host(s).`);
+    } catch (cause) {
+      toasts.fromError(cause, 'The image was not prewarmed');
+    }
+  }
+
   let deleteOpen = $state(false);
   let forceDelete = $state(false);
 
-  const consequences = $derived.by(() => {
-    const live = counts.live ?? 0;
-    const busy = counts.busy ?? 0;
-    const lines = [
-      live === 0
-        ? 'It has no runners right now, so nothing is interrupted.'
-        : forceDelete
-          ? `${pluralise(live, 'runner')} will be destroyed immediately.`
-          : `${pluralise(live, 'runner')} will be drained, then removed.`,
-    ];
-    if (busy > 0) {
-      lines.push(
-        forceDelete
-          ? `${pluralise(busy, 'job')} running right now will be interrupted.`
-          : `${pluralise(busy, 'job')} running right now will be allowed to finish first.`,
-      );
-    }
-    lines.push('The runners are deregistered from GitHub either way.');
-    return lines;
-  });
+  const consequences = $derived(deletionConsequences(counts, forceDelete));
 
   async function confirmDelete(): Promise<void> {
     if (!pool?.id) return;
@@ -230,6 +241,7 @@
   title={pool?.name ?? 'Pool'}
   breadcrumb={[{ label: 'All pools', href: '/pools' }, { label: pool?.name ?? 'Pool' }]}
   subtitle={editing ? 'Change what this pool makes, and how many of them.' : undefined}
+  onrefresh={refreshPage}
 >
   {#snippet meta()}
     {#if pool}
@@ -246,10 +258,11 @@
   {/snippet}
 
   {#if pool && canOperate && !editing}
+    <Button icon={Download} onclick={prewarm}>Prewarm image</Button>
     {#if pool.enabled === false}
-      <Button icon={Play} onclick={() => setEnabled(true)}>Enable</Button>
+      <Button icon={Power} onclick={() => setEnabled(true)}>Enable</Button>
     {:else}
-      <Button icon={Pause} onclick={() => setEnabled(false)}>Disable</Button>
+      <Button icon={PowerOff} onclick={() => setEnabled(false)}>Disable</Button>
     {/if}
     <Button variant="primary" icon={Pencil} onclick={startEditing}>Edit</Button>
     <Button variant="danger" icon={Trash2} onclick={() => (deleteOpen = true)}>Delete</Button>
@@ -317,6 +330,23 @@
     </div>
 
     <div class="side">
+      <!--
+        The last mile, and it used to be missing. RunsOnPreview appeared only on
+        step two of the wizard and vanished the moment the pool existed -- so an
+        operator who had just created their first pool was told runners would
+        appear "as soon as a job asks for these labels" without being told what
+        to write. This is the line they copy into a workflow.
+      -->
+      <section class="panel" aria-labelledby="runs-on-heading">
+        <div class="panel-head">
+          <h2 id="runs-on-heading">Point a workflow here</h2>
+        </div>
+        <div class="panel-body">
+          <RunsOnPreview labels={pool.labels ?? []} />
+          <a class="migrate-link" href={migrateHref}>Rewrite runs-on across repositories</a>
+        </div>
+      </section>
+
       <section class="panel" aria-labelledby="warnings-heading">
         <div class="panel-head">
           <h2 id="warnings-heading">Warnings</h2>
@@ -394,9 +424,19 @@
   }
   .panel {
     padding: var(--z-space-5);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
+  }
+  .panel-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-3);
+    padding: var(--z-space-4) var(--z-space-5);
+  }
+  .migrate-link {
+    font-size: var(--z-text-xs);
+    color: var(--z-accent);
   }
   .panel-head {
     display: flex;

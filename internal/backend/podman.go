@@ -37,8 +37,10 @@ func podmanFlavor() flavor {
 	f.displayName = "Podman"
 	f.supportsDinD = false
 	// :z relabels the host path so an SELinux-enforcing host lets the container
-	// read it. It is shared rather than private (:Z) because a host socket may
-	// legitimately be mounted into more than one container.
+	// read it. It is shared rather than private (:Z) because the cache is
+	// mounted into one runner after another. It applies to the directories
+	// Zoomies creates -- the work and cache binds -- and never to the host
+	// socket, which is the system's file to label.
 	f.mountSuffix = ":z"
 	return f
 }
@@ -70,7 +72,7 @@ func (b *PodmanBackend) Probe(ctx context.Context) Info {
 	info.Kind = store.BackendPodman
 	info.SupportsDinD = false
 	if !info.Available {
-		info.Detail += "; if Podman is installed, its API socket is off by default -- enable it with `systemctl --user enable --now podman.socket`"
+		info.Detail += "; if Podman is installed, its API socket is off by default — enable it with `systemctl --user enable --now podman.socket`"
 	}
 	return info
 }
@@ -81,4 +83,8 @@ func (b *PodmanBackend) Create(ctx context.Context, spec Spec) (Handle, error) {
 		return "", fmt.Errorf("backend: pool %q asks for docker-in-docker, which the podman backend does not support; either move the pool to the docker backend, or drop docker_mode to none and let jobs use podman's own nested container support inside the runner image", spec.PoolName)
 	}
 	return b.DockerBackend.Create(ctx, spec)
+}
+
+func (b *PodmanBackend) CreateWithResult(ctx context.Context, spec Spec) (CreateResult, error) {
+	return b.DockerBackend.CreateWithResult(ctx, spec)
 }

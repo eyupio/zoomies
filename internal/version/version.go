@@ -15,21 +15,36 @@ var (
 )
 
 func init() {
-	if Commit != "" {
-		return
+	if info, ok := debug.ReadBuildInfo(); ok {
+		Commit, Date = fill(Commit, Date, info.Settings)
 	}
-	info, ok := debug.ReadBuildInfo()
-	if !ok {
-		return
+}
+
+// fill decides the commit and the date, taking each from the link-time stamp
+// when there is one and from the build information Go embeds otherwise.
+//
+// Each independently, which is the point: this used to give up entirely the
+// moment a commit had been stamped, so a build that passed one and not the
+// other -- the container image, which had no DATE build argument -- reported
+// no date at all, and `zoomies version` on a compose install was quieter than
+// the same release installed natively.
+func fill(commit, date string, settings []debug.BuildSetting) (string, string) {
+	if commit != "" && date != "" {
+		return commit, date
 	}
-	for _, s := range info.Settings {
+	for _, s := range settings {
 		switch s.Key {
 		case "vcs.revision":
-			Commit = s.Value
+			if commit == "" {
+				commit = s.Value
+			}
 		case "vcs.time":
-			Date = s.Value
+			if date == "" {
+				date = s.Value
+			}
 		}
 	}
+	return commit, date
 }
 
 // Short returns a compact "v1.2.3 (abc1234)" style identifier.

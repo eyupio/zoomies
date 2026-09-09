@@ -269,8 +269,23 @@ export const getPool = (id: string, signal?: AbortSignal) =>
 export const createPool = (body: Body<'createPool'>) =>
   api.post<Result<'createPool'>>('/pools', { body });
 
-export const validatePool = (body: Body<'validatePool'>, signal?: AbortSignal) =>
-  api.post<Result<'validatePool'>>('/pools/validate', { body, signal });
+/**
+ * Dry-run a pool definition. Pass the pool's id when this is an edit, so the
+ * server does not report the pool's own name as a name that is taken.
+ */
+export const validatePool = (body: Body<'validatePool'>, id?: string, signal?: AbortSignal) =>
+  api.post<Result<'validatePool'>>('/pools/validate', {
+    body,
+    query: id ? { id } : undefined,
+    signal,
+  });
+
+/**
+ * The operating systems a pool may ask for. Served rather than hard-coded so
+ * the wizard cannot offer one no runner image is published for.
+ */
+export const listPoolPlatforms = (signal?: AbortSignal) =>
+  api.get<Result<'listPoolPlatforms'>>('/pools/platforms', { signal });
 
 export const updatePool = (id: string, body: Body<'updatePool'>) =>
   api.patch<Result<'updatePool'>>(`/pools/${enc(id)}`, { body });
@@ -283,6 +298,9 @@ export const enablePool = (id: string) =>
 
 export const disablePool = (id: string) =>
   api.post<Result<'disablePool'>>(`/pools/${enc(id)}/disable`, {});
+
+export const prewarmPool = (id: string) =>
+  api.post<Result<'prewarmPool'>>(`/pools/${enc(id)}/prewarm`, {});
 
 /* -- runners -------------------------------------------------------------- */
 
@@ -322,6 +340,12 @@ export const getJob = (id: string, signal?: AbortSignal) =>
 export const getJobFacets = (signal?: AbortSignal) =>
   api.get<Result<'getJobFacets'>>('/jobs/facets', { signal });
 
+export const getJobEvents = (id: string, signal?: AbortSignal) =>
+  api.get<Result<'getJobEvents'>>(`/jobs/${enc(id)}/events`, { signal });
+
+export const getJobExplanation = (id: string, signal?: AbortSignal) =>
+  api.get<Result<'getJobExplanation'>>(`/jobs/${enc(id)}/explanation`, { signal });
+
 /* -- hosts ---------------------------------------------------------------- */
 
 export const listHosts = (signal?: AbortSignal) =>
@@ -344,6 +368,9 @@ export const listJoinTokens = (signal?: AbortSignal) =>
 
 export const createJoinToken = (body: Body<'createJoinToken'>) =>
   api.post<Result<'createJoinToken'>>('/join-tokens', { body });
+
+export const getJoinToken = (id: string, signal?: AbortSignal) =>
+  api.get<Result<'getJoinToken'>>(`/join-tokens/${enc(id)}`, { signal });
 
 export const deleteJoinToken = (id: string) =>
   api.del<Result<'deleteJoinToken'>>(`/join-tokens/${enc(id)}`);
@@ -429,6 +456,20 @@ export const createToken = (body: Body<'createToken'>) =>
   api.post<Result<'createToken'>>('/tokens', { body });
 
 export const revokeToken = (id: string) => api.del<Result<'revokeToken'>>(`/tokens/${enc(id)}`);
+
+/* -- usage ---------------------------------------------------------------- */
+
+export const getUsage = (query: Query<'getUsage'>, signal?: AbortSignal) =>
+  api.get<Result<'getUsage'>>('/usage', { query, signal });
+
+/**
+ * Where the browser goes for the CSV. A full navigation rather than a fetch,
+ * because the point is the browser's own download, not a string in memory.
+ */
+export const usageCsvUrl = (query: Query<'getUsage'>) =>
+  `${BASE}/usage.csv${toQuery(query as QueryInput)}`;
+
+/* -- settings ------------------------------------------------------------- */
 
 export const getSettings = (signal?: AbortSignal) =>
   api.get<Result<'getSettings'>>('/settings', { signal });

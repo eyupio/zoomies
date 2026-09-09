@@ -3,47 +3,166 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # The manual path exists for the day the usual one cannot be taken: a tag
+  # whose run was cancelled, or a runner vendor that is down. It takes the tag
+  # rather than assuming the ref, because a dispatch runs from a branch.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The tag to release, e.g. v1.2.3. It has to exist already."
+        required: true
+        type: string
+      runner:
+        description: "Where to build. github is the escape hatch from a single vendor."
+        type: choice
+        default: blacksmith
+        options: [blacksmith, github]
 
+# Nothing by default. Each job asks for what it needs and no more: only the
+# binaries job writes a release, and only the image jobs write packages, so
+# granting both to both -- which this used to -- gave the image builds the
+# ability to publish a release they have no business touching.
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 env:
   GO_VERSION: "1.26"
   NODE_VERSION: "22"
 
 jobs:
-  binaries:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+  # One place decides what is being released and where it is built, so no two
+  # jobs can disagree about the version they stamp into a binary and an image.
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+      runs-on: ${{ steps.release.outputs.runs-on }}
     steps:
-      - uses: actions/checkout@v7
-        with: { fetch-depth: 0 }
-      - uses: actions/setup-go@v7
-        with: { go-version: "1.26", cache: true }
-      - uses: actions/setup-node@v7
+      - id: release
+        env:
+          # The dispatch input when there is one, else the tag that was pushed.
+          TAG: ${{ inputs.tag || github.ref_name }}
+          RUNNER: ${{ inputs.runner || 'blacksmith' }}
+        run: |
+          set -eu
+          case "$TAG" in
+            v*) ;;
+            *) echo "::error::$TAG is not a release tag; they begin with v" && exit 1 ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          # The tag is v1.2.3 and the version a binary reports is 1.2.3.
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          # A hyphen is what this project's own tags use to say "not finished":
+          # v0.1-alpha, v1.0-rc1. Publishing one as a full release is how an
+          # installer's "latest" points at something nobody meant to ship.
+          case "$TAG" in
+            *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;;
+            *)   echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+          if [ "$RUNNER" = "github" ]; then
+            echo "runs-on=ubuntu-latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "runs-on=blacksmith-4vcpu-ubuntu-2404" >> "$GITHUB_OUTPUT"
+          fi
+
+      # A tag whose release is already published is a released artefact, and
+      # rebuilding one is how "v0.1-alpha" came to have assets two days newer
+      # than the commit it names. A draft is fair game: it has not been
+      # promised to anybody yet.
+      - name: Refuse to rebuild a published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -eu
+          state=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft \
+            --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo "none")
+          case "$state" in
+            published)
+              echo "::error::$TAG is already published. A released tag is a promise; " \
+                   "cut a new tag rather than replacing what people have already downloaded."
+              exit 1 ;;
+            draft) echo "$TAG has an unpublished draft; it will be replaced." ;;
+            none)  echo "$TAG has no release yet." ;;
+          esac
+
+  binaries:
+    needs: setup
+    runs-on: ${{ needs.setup.outputs.runs-on }}
+    permissions:
+      contents: write
+      # What signs the provenance: an attestation says these bytes came from
+      # this workflow at this commit, which is the claim install.sh's checksum
+      # alone cannot make.
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { fetch-depth: 0, ref: "${{ needs.setup.outputs.tag }}" }
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with: { go-version: "${{ env.GO_VERSION }}", cache: true }
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - run: make dist VERSION=${GITHUB_REF_NAME#v}
-      # install.sh verifies the checksum of what it downloads, so this file is
-      # part of the security story, not just a convenience.
-      - uses: softprops/action-gh-release@v2
+      - run: make dist VERSION=${{ needs.setup.outputs.version }}
+
+      # What the checksum file cannot say. install.sh verifies that the bytes
+      # it downloaded are the bytes this release names; an attestation says
+      # those bytes were built by this workflow, from this commit, and nowhere
+      # else. `gh attestation verify` checks it against the release.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
+          subject-path: "dist/zoomies_*"
+
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: ${{ needs.setup.outputs.tag }}
           files: |
             dist/zoomies_*
             dist/checksums.txt
           generate_release_notes: true
           draft: true
+          # A tag with a hyphen -- v0.1-alpha, v1.0-rc1 -- is this project
+          # saying the release is not finished. Marked as a prerelease, GitHub
+          # keeps it out of "latest", which is what install.sh asks for.
+          prerelease: ${{ needs.setup.outputs.prerelease == 'true' }}
 
   images:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: setup
+    runs-on: ${{ needs.setup.outputs.runs-on }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      BLACKSMITH: ${{ needs.setup.outputs.runs-on != 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-qemu-action@v3
-      - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v1
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: "${{ needs.setup.outputs.tag }}" }
+      - uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
+
+      # Two builders, one of which runs. The vendor's is the fast path and the
+      # standard one is the escape hatch: a release must not be impossible
+      # because a runner vendor is having a bad day. Only the setup differs --
+      # both leave a buildx builder that the same build step drives.
+      - name: Set up the builder (Blacksmith)
+        if: env.BLACKSMITH == 'true'
+        uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2.2.0
+        with:
+          # The same key as ci.yml's controller image on purpose: a tagged build
+          # should reuse the layers main has already built rather than start cold.
+          cache-key: deploy/Dockerfile
+          nofallback: true
+      - name: Set up the builder (GitHub-hosted)
+        if: env.BLACKSMITH != 'true'
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -51,7 +170,16 @@ jobs:
           # GitHub reserves the GITHUB_ prefix for secret names, so referring to
           # it this way keeps the workflow clear of that namespace entirely.
           password: ${{ github.token }}
-      - uses: useblacksmith/build-push-action@v2
+      - id: release
+        run: echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      # The build is written twice rather than once with a swapped action,
+      # because the path that works today has to stay byte for byte what it
+      # was: this workflow only ever runs on a tag, so CI cannot tell anybody
+      # it has been broken until the moment somebody needs a release.
+      - id: build
+        if: env.BLACKSMITH == 'true'
+        uses: useblacksmith/build-push-action@9b0579bbec7a6cad2f171596c57e7ac1e7658850 # v2.3.0
         with:
           context: .
           file: deploy/Dockerfile
@@ -59,17 +187,181 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            VERSION=${{ github.ref_name }}
+            VERSION=${{ needs.setup.outputs.version }}
             COMMIT=${{ github.sha }}
+            DATE=${{ steps.release.outputs.date }}
           tags: |
-            ghcr.io/eyupio/zoomies:${{ github.ref_name }}
+            ghcr.io/eyupio/zoomies:${{ needs.setup.outputs.tag }}
             ghcr.io/eyupio/zoomies:latest
-      - uses: useblacksmith/build-push-action@v2
+      - id: build-github
+        if: env.BLACKSMITH != 'true'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: deploy/Dockerfile
+          target: controller
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            VERSION=${{ needs.setup.outputs.version }}
+            COMMIT=${{ github.sha }}
+            DATE=${{ steps.release.outputs.date }}
+          tags: |
+            ghcr.io/eyupio/zoomies:${{ needs.setup.outputs.tag }}
+            ghcr.io/eyupio/zoomies:latest
+
+      # Against the digest rather than a tag: a tag is a name somebody can move,
+      # and the claim being made is about the bytes.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/eyupio/zoomies
+          subject-digest: ${{ steps.build.outputs.digest || steps.build-github.outputs.digest }}
+          push-to-registry: true
+
+  # One job per operating system in internal/naming's catalogue, each building
+  # both of deploy/Dockerfile.runner's targets. Keep the two lists in step:
+  # a variant published here that the catalogue does not list is an image no
+  # pool can ask for, and a catalogue row with no job here is a pool whose
+  # runners will not start. TestWorkflowMatricesCoverTheCatalogue fails if they
+  # drift apart.
+  runner-images:
+    name: Runner image (${{ matrix.tag }})
+    needs: setup
+    runs-on: ${{ needs.setup.outputs.runs-on }}
+    permissions:
+      contents: read
+      packages: write
+    env:
+      BLACKSMITH: ${{ needs.setup.outputs.runs-on != 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Generated from internal/naming's catalogue by `make generate`. Adding
+        # or swapping an operating system is a row there, not here.
+        # zoomies:catalogue-begin
+        include:
+          - { tag: ubuntu-2404, base: "ubuntu:24.04",            family: apt, os: ubuntu, version: "24.04", platforms: "linux/amd64,linux/arm64", default: true }
+          - { tag: ubuntu-2204, base: "ubuntu:22.04",            family: apt, os: ubuntu, version: "22.04", platforms: "linux/amd64" }
+          - { tag: debian-12,   base: "debian:12-slim",          family: apt, os: debian, version: "12",    platforms: "linux/amd64,linux/arm64" }
+          - { tag: fedora-42,   base: "fedora:42",               family: dnf, os: fedora, version: "42",    platforms: "linux/amd64,linux/arm64" }
+          - { tag: rocky-9,     base: "rockylinux/rockylinux:9", family: dnf, os: rocky,  version: "9",     platforms: "linux/amd64,linux/arm64" }
+        # zoomies:catalogue-end
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: "${{ needs.setup.outputs.tag }}" }
+      - uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
+
+      - name: Set up the builder (Blacksmith)
+        if: env.BLACKSMITH == 'true'
+        uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2.2.0
+        with:
+          cache-key: deploy/Dockerfile.runner-${{ matrix.tag }}
+          nofallback: true
+      - name: Set up the builder (GitHub-hosted)
+        if: env.BLACKSMITH != 'true'
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - id: release
+        run: echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      # Only the default variant carries the unqualified tags. Anything else
+      # would mean a pool that named no operating system got whichever variant
+      # this matrix happened to finish last.
+      - id: tags
+        name: Work out the tags
+        env:
+          IS_DEFAULT: ${{ matrix.default && 'true' || 'false' }}
+          TAG: ${{ matrix.tag }}
+          REF: ${{ needs.setup.outputs.tag }}
+        run: |
+          set -eu
+          for image in zoomies-runner zoomies-runner-docker; do
+            {
+              echo "${image}<<EOF"
+              echo "ghcr.io/eyupio/$image:$TAG"
+              echo "ghcr.io/eyupio/$image:$TAG-$REF"
+              if [ "$IS_DEFAULT" = "true" ]; then
+                echo "ghcr.io/eyupio/$image:$REF"
+                echo "ghcr.io/eyupio/$image:latest"
+              fi
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          done
+
+      - if: env.BLACKSMITH == 'true'
+        uses: useblacksmith/build-push-action@9b0579bbec7a6cad2f171596c57e7ac1e7658850 # v2.3.0
         with:
           context: .
           file: deploy/Dockerfile.runner
-          platforms: linux/amd64,linux/arm64
+          target: runner
+          platforms: ${{ matrix.platforms }}
           push: true
-          tags: |
-            ghcr.io/eyupio/zoomies-runner:${{ github.ref_name }}
-            ghcr.io/eyupio/zoomies-runner:latest
+          build-args: |
+            BASE=${{ matrix.base }}
+            OS_FAMILY=${{ matrix.family }}
+            OS_ID=${{ matrix.os }}
+            OS_VERSION=${{ matrix.version }}
+            VERSION=${{ needs.setup.outputs.version }}
+            COMMIT=${{ github.sha }}
+            DATE=${{ steps.release.outputs.date }}
+          tags: ${{ steps.tags.outputs.zoomies-runner }}
+      - if: env.BLACKSMITH != 'true'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: deploy/Dockerfile.runner
+          target: runner
+          platforms: ${{ matrix.platforms }}
+          push: true
+          build-args: |
+            BASE=${{ matrix.base }}
+            OS_FAMILY=${{ matrix.family }}
+            OS_ID=${{ matrix.os }}
+            OS_VERSION=${{ matrix.version }}
+            VERSION=${{ needs.setup.outputs.version }}
+            COMMIT=${{ github.sha }}
+            DATE=${{ steps.release.outputs.date }}
+          tags: ${{ steps.tags.outputs.zoomies-runner }}
+
+      # The same file's other target: the runner plus a Docker CLI, for pools
+      # whose docker_mode gives jobs a daemon to talk to. It shares every layer
+      # below the client, so the second build is cheap.
+      - if: env.BLACKSMITH == 'true'
+        uses: useblacksmith/build-push-action@9b0579bbec7a6cad2f171596c57e7ac1e7658850 # v2.3.0
+        with:
+          context: .
+          file: deploy/Dockerfile.runner
+          target: runner-docker
+          platforms: ${{ matrix.platforms }}
+          push: true
+          build-args: |
+            BASE=${{ matrix.base }}
+            OS_FAMILY=${{ matrix.family }}
+            OS_ID=${{ matrix.os }}
+            OS_VERSION=${{ matrix.version }}
+            VERSION=${{ needs.setup.outputs.version }}
+            COMMIT=${{ github.sha }}
+            DATE=${{ steps.release.outputs.date }}
+          tags: ${{ steps.tags.outputs.zoomies-runner-docker }}
+      - if: env.BLACKSMITH != 'true'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: deploy/Dockerfile.runner
+          target: runner-docker
+          platforms: ${{ matrix.platforms }}
+          push: true
+          build-args: |
+            BASE=${{ matrix.base }}
+            OS_FAMILY=${{ matrix.family }}
+            OS_ID=${{ matrix.os }}
+            OS_VERSION=${{ matrix.version }}
+            VERSION=${{ needs.setup.outputs.version }}
+            COMMIT=${{ github.sha }}
+            DATE=${{ steps.release.outputs.date }}
+          tags: ${{ steps.tags.outputs.zoomies-runner-docker }}

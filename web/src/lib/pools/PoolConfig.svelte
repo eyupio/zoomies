@@ -11,7 +11,7 @@
   import { formatGoDuration, formatMegabytes, formatNumber } from '$lib/format';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import PoolLabels from './PoolLabels.svelte';
-  import { backendLabel, dockerModeLabel } from './PoolVocabulary.svelte';
+  import { backendLabel, dockerModeLabel, platformLabelOrAny } from './PoolVocabulary.svelte';
 
   interface Props {
     pool: Pool;
@@ -23,6 +23,7 @@
   let { pool, showId = true, class: className = '' }: Props = $props();
 
   const resources = $derived(pool.resources ?? {});
+  const dind = $derived((pool.docker_mode ?? 'none') === 'dind');
   const hasResources = $derived(
     resources.cpus !== undefined ||
       resources.memory_mb !== undefined ||
@@ -36,7 +37,7 @@
 <dl class="config {className}">
   <div class="pair">
     <dt>Labels</dt>
-    <dd><PoolLabels labels={pool.labels ?? []} max={12} /></dd>
+    <dd><PoolLabels labels={pool.labels ?? []} max={12} wrap /></dd>
   </div>
 
   <div class="pair">
@@ -52,6 +53,11 @@
   <div class="pair">
     <dt>Backend</dt>
     <dd>{backendLabel(pool.backend)}</dd>
+  </div>
+
+  <div class="pair">
+    <dt>Platform</dt>
+    <dd>{platformLabelOrAny(pool.platform)}</dd>
   </div>
 
   <div class="pair">
@@ -80,6 +86,9 @@
     <dd class="tabular">
       {formatNumber(pool.min_runners ?? 0)} minimum, {formatNumber(pool.max_runners ?? 0)} maximum
     </dd>
+
+    <dt>Priority</dt>
+    <dd>{formatNumber(pool.priority ?? 0)}</dd>
   </div>
 
   <div class="pair">
@@ -87,12 +96,22 @@
     <dd>{formatGoDuration(pool.idle_timeout) || 'Not set'}</dd>
   </div>
 
-  {#if pool.image}
+  {#if pool.image || pool.effective_image}
     <div class="pair">
       <dt>Image</dt>
-      <dd><code>{pool.image}</code></dd>
+      <dd>
+        <code>{pool.image || pool.effective_image}</code>
+        {#if !pool.image}
+          <span class="note">Chosen by the platform above.</span>
+        {/if}
+      </dd>
     </div>
   {/if}
+
+  <div class="pair">
+    <dt>Pull policy</dt>
+    <dd><code>{pool.pull_policy ?? 'if-not-present'}</code></dd>
+  </div>
 
   {#if pool.runner_version}
     <div class="pair">
@@ -101,10 +120,10 @@
     </div>
   {/if}
 
-  {#if hasResources}
-    <div class="pair">
-      <dt>Resources per runner</dt>
-      <dd class="tabular">
+  <div class="pair">
+    <dt>Resources per runner</dt>
+    <dd class="tabular">
+      {#if hasResources}
         {#if resources.cpus !== undefined}<span>{formatNumber(resources.cpus)} CPU</span>{/if}
         {#if resources.memory_mb !== undefined}<span>{formatMegabytes(resources.memory_mb)}</span
           >{/if}
@@ -113,9 +132,28 @@
         {#if resources.pids_limit !== undefined}<span
             >{formatNumber(resources.pids_limit)} processes</span
           >{/if}
-      </dd>
-    </div>
-  {/if}
+      {:else}
+        <span class="assumed">None set</span>
+      {/if}
+    </dd>
+  </div>
+  <!-- What a pool that sets nothing is charged, which is not nothing: a field
+       left unset is charged one slot's worth of whatever host the runner lands
+       on. Saying so here is what stops "no limits" reading as "no reservation",
+       which is the difference between a fleet that admits what it always did
+       and one an operator thinks is unbounded. -->
+  <p class="note">
+    {#if hasResources}
+      A runner is charged this against its host, and a field left unset is charged one slot's worth
+      of that machine instead.{#if dind}
+        A docker-in-docker pool is charged twice over: the build runs in a sidecar the backend gives
+        the same limits.{/if}
+    {:else}
+      This pool sets no limits, so each runner is still charged one slot's worth of whatever host it
+      lands on — a host with 30 GB allocatable and a capacity of 6 charges 5 GB. That is what keeps
+      a fleet of unlimited pools admitting exactly what its slot counts always admitted.
+    {/if}
+  </p>
 
   {#if selector.length > 0}
     <div class="pair">
@@ -183,7 +221,7 @@
   }
   code {
     padding: 0 var(--z-space-2);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     font-size: var(--z-text-xs);

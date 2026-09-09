@@ -13,6 +13,14 @@ test.use(browserOverride);
 
 test.skip(({ isMobile }) => isMobile, 'the wizard is a desktop task');
 
+/**
+ * The `build` job of one repository on the exceptions step. Every demo
+ * repository has the same workflow, so the repository has to be named.
+ */
+function buildJob(page: import('@playwright/test').Page) {
+  return page.getByLabel('Where build in .github/workflows/ci.yml runs, in acme/widgets');
+}
+
 /** Walk to a step, leaving the wizard on it. */
 async function walkTo(page: import('@playwright/test').Page, step: number): Promise<void> {
   await goto(page, '/migrate', 'Migrate repositories');
@@ -37,37 +45,83 @@ test('the scan lists every repository and says what each one would get', async (
     // Each is ticked, because each has a job that would move.
     await expect(page.getByRole('checkbox', { name: repo, exact: false })).toBeChecked();
   }
-  // The count is the scan's own, not a guess: one job per repository.
+  // The count is the scan's own, not a guess.
   await expect(page.getByText('1 job in 1 file').first()).toBeVisible();
+});
+
+test('a repository with nothing to move is hidden, and can be shown', async ({ page }) => {
+  await walkTo(page, 1);
+
+  // The default: the repositories that would change, and a count of what that
+  // hides -- not a list of an organisation's documentation repositories.
+  const quiet = page.getByRole('checkbox', { name: FIXTURE.quietRepo, exact: false });
+  await expect(quiet).toBeHidden();
+  await expect(page.getByText('that cannot move')).toBeVisible();
+
+  await page.getByRole('switch', { name: 'Only repositories with something to move' }).click();
+  await expect(quiet).toBeVisible();
+  // It is listed so the operator can see it was looked at, and it cannot be
+  // chosen, because there is nothing in it to choose.
+  await expect(quiet).toBeDisabled();
+  await expect(page.getByText('No workflows')).toBeVisible();
 });
 
 test('a repository nothing could be opened against cannot be chosen', async ({ page }) => {
   await walkTo(page, 1);
 
-  // Archived is the one that used to get all the way to the results before
-  // saying no: GitHub refuses every write to it, however many jobs it holds.
+  // Both are hidden with everything else that cannot move.
   const archived = page.getByRole('checkbox', { name: FIXTURE.archivedRepo, exact: false });
+  const migrated = page.getByRole('checkbox', { name: FIXTURE.migratedRepo, exact: false });
+  await expect(archived).toBeHidden();
+  await expect(migrated).toBeHidden();
+
+  await page.getByRole('switch', { name: 'Only repositories with something to move' }).click();
+
+  // Archived is the one that used to be ticked and walked all the way to the
+  // results before saying no: GitHub refuses every write to it.
   await expect(archived).toBeDisabled();
   await expect(archived).not.toBeChecked();
   await expect(page.getByText('Archived — accepts no pull requests')).toBeVisible();
 
   // Already migrated is a different answer from "nothing to move", and the
-  // list says which it is rather than leaving an operator to guess.
-  const migrated = page.getByRole('checkbox', { name: FIXTURE.migratedRepo, exact: false });
+  // list says which it is rather than leaving an operator to guess. Anchored,
+  // because the row above the list says the same words.
   await expect(migrated).toBeDisabled();
   await expect(migrated).not.toBeChecked();
-  // Anchored, because the summary line above the list says the same words.
   await expect(page.getByText(/^Already on Zoomies/)).toBeVisible();
 
   // Ticking everything still leaves them alone. The wizard builds the
   // pull-request call from the same rule the list disables rows with, so
   // neither of them can reach it.
-  const all = page.getByRole('checkbox', { name: 'Select every repository that would change' });
+  const all = page.getByRole('checkbox', { name: 'Select every file that could move' });
   await all.click(); // clears the default selection
   await all.click(); // and selects everything on offer
   await expect(page.getByRole('checkbox', { name: FIXTURE.repos[0], exact: false })).toBeChecked();
   await expect(archived).not.toBeChecked();
   await expect(migrated).not.toBeChecked();
+});
+
+test('a repository with several workflows is chosen file by file', async ({ page }) => {
+  await walkTo(page, 1);
+
+  const repo = page.getByRole('checkbox', { name: FIXTURE.multiWorkflowRepo, exact: false });
+  await expect(repo).toBeChecked();
+
+  await page.getByRole('button', { name: '2 files' }).click();
+  const release = page.getByRole('checkbox', { name: '.github/workflows/release.yml' });
+  await expect(release).toBeChecked();
+  await release.click();
+
+  // The repository is now partly chosen, and says so.
+  await expect(repo).not.toBeChecked();
+  await expect(page.getByText('1 of 2 files chosen')).toBeVisible();
+
+  // And the review only offers to change the file that is still ticked.
+  // Three steps on: labels, exceptions, review.
+  for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Review' })).toBeVisible();
+  await expect(page.getByText('.github/workflows/release.yml')).toBeHidden();
+  await expect(page.getByText('.github/workflows/ci.yml').first()).toBeVisible();
 });
 
 test('the mapping step proposes the pool that matches the hosted label', async ({ page }) => {
@@ -83,8 +137,60 @@ test('the mapping step proposes the pool that matches the hosted label', async (
   await expect(select.getByRole('option', { name: /Leave it alone/ })).toHaveCount(1);
 });
 
-test('the review step shows the diff and the jobs it will not touch', async ({ page }) => {
+test('the exceptions step offers a pool for one job without touching the rest', async ({
+  page,
+}) => {
   await walkTo(page, 3);
+
+  await expect(page.getByRole('heading', { level: 2, name: 'Exceptions' })).toBeVisible();
+
+  // The default is the answer the label mapping already gave, so an operator
+  // who wants one answer everywhere reads past this step and changes nothing.
+  const build = buildJob(page);
+  await expect(build).toHaveValue('');
+  await expect(
+    build.getByRole('option', { name: `Use the label mapping — ${FIXTURE.linuxPool}` }),
+  ).toHaveCount(1);
+  // Every pool is a choice for this one job, and so is staying on GitHub.
+  await expect(build.getByRole('option', { name: `${FIXTURE.armPool} — the` })).toHaveCount(1);
+  await expect(build.getByRole('option', { name: 'Leave this job where it is' })).toHaveCount(1);
+
+  // The matrix job cannot be pointed anywhere from here: what it resolves to is
+  // decided elsewhere in the file, so it is listed with the reason rather than
+  // as a select that would quietly do nothing.
+  await expect(page.getByText('${{ }} expression').first()).toBeVisible();
+  await expect(page.getByLabel(/Where matrix in/)).toHaveCount(0);
+});
+
+test('an exception reaches the diff, and reaches only that job', async ({ page }) => {
+  await walkTo(page, 3);
+
+  await buildJob(page).selectOption(FIXTURE.armPool);
+  await page.getByRole('button', { name: 'Next' }).click();
+
+  await expect(page.getByRole('heading', { level: 2, name: 'Review' })).toBeVisible();
+  // One file got the exception. Every other file has a job on the same label
+  // and still gets the label mapping's answer, which is the whole point of the
+  // step being per job rather than a second mapping.
+  //
+  // Counted against the total rather than a number, so that a repository or a
+  // workflow added to the fixture later does not silently make this weaker.
+  // Each file in the fixture carries one job that would move.
+  const diffs = page.getByRole('group', { name: 'The change to this file' });
+  const total = await diffs.count();
+  expect(total).toBeGreaterThan(1);
+  await expect(diffs.filter({ hasText: `+    runs-on: ${FIXTURE.armPool}` })).toHaveCount(1);
+  await expect(diffs.filter({ hasText: `+    runs-on: ${FIXTURE.linuxPool}` })).toHaveCount(
+    total - 1,
+  );
+
+  // And the review says which line was decided by hand, so a diff that does not
+  // match the label mapping is never a surprise.
+  await expect(page.getByText(`build → ${FIXTURE.armPool}`)).toBeVisible();
+});
+
+test('the review step shows the diff and the jobs it will not touch', async ({ page }) => {
+  await walkTo(page, 4);
 
   await expect(page.getByRole('heading', { level: 2, name: 'Review' })).toBeVisible();
 
@@ -105,7 +211,7 @@ test('the review step shows the diff and the jobs it will not touch', async ({ p
 });
 
 test('an App without the permissions is stopped here, not halfway through', async ({ page }) => {
-  await walkTo(page, 3);
+  await walkTo(page, 4);
 
   const blocker = page.getByRole('alert');
   await expect(blocker).toContainText('cannot open a pull request yet');

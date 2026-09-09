@@ -61,6 +61,9 @@ func TestQueuedJobWebhookProducesARunnerAndACreateTask(t *testing.T) {
 	if task.Spec.Name != r.Name || task.Backend != pool.Backend {
 		t.Fatalf("spec = %+v, want name %s on the %s backend", task.Spec, r.Name, pool.Backend)
 	}
+	if task.Spec.PullPolicy != pool.PullPolicy {
+		t.Fatalf("create task pull policy = %q, want pool policy %q", task.Spec.PullPolicy, pool.PullPolicy)
+	}
 }
 
 func TestWebhookWithABadSignatureIsRejectedAndRecorded(t *testing.T) {
@@ -215,5 +218,23 @@ func TestInProgressDeliveryLinksTheRunner(t *testing.T) {
 	}
 	if after.CurrentJobID != job.ID {
 		t.Fatalf("runner.CurrentJobID = %q, want %q", after.CurrentJobID, job.ID)
+	}
+}
+
+// A delivery that verifies but is not a workflow_job event this controller can
+// read is not a failure on this side. It used to be answered with a 500, which
+// is the status that asks GitHub to redeliver, so a malformed body came back
+// for ever.
+func TestAMalformedWorkflowJobIsRejectedNotRetried(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+
+	rec := h.deliver("workflow_job", []byte(`{"action":"queued","workflow_job":"not an object"}`), testWebhookSecret)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d so GitHub does not redeliver", rec.Code, http.StatusBadRequest)
+	}
+	ds := h.deliveries()
+	if len(ds) != 1 || ds[0].Status != "rejected" || ds[0].Error == "" {
+		t.Fatalf("deliveries = %+v, want one rejected delivery that says why", ds)
 	}
 }

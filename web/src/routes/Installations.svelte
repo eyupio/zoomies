@@ -30,6 +30,7 @@
   import ConnectDialog from '$lib/installations/ConnectDialog.svelte';
   import InstallationCard from '$lib/installations/InstallationCard.svelte';
   import type { RateLimit } from '$lib/installations/InstallationCard.svelte';
+  import ReplaceKeyDialog from '$lib/installations/ReplaceKeyDialog.svelte';
   import VerifyDialog from '$lib/installations/VerifyDialog.svelte';
   import WebhookHealth from '$lib/installations/WebhookHealth.svelte';
 
@@ -42,27 +43,50 @@
   let reload = $state(0);
   let rates = $state<Record<string, RateLimit>>({});
 
+  // First load and refetch are different things. `reload` bumps on every
+  // `installation.updated` event, after every verify and after every delete, so
+  // swapping the cards for skeletons each time made the one page an operator
+  // watches during their first job blink its content away -- which reads as the
+  // page being broken. The last known truth is better than a blank panel.
+  let loadedOnce = false;
+
+  /**
+   * The list, and each App's quota behind it. A function rather than an inline
+   * effect body so the refresh button can await exactly the work the page does
+   * on arrival, quota reads included -- those are one request per installation
+   * and are the slow half.
+   */
+  async function load(signal: AbortSignal): Promise<void> {
+    loading = !loadedOnce;
+    try {
+      const result = await listInstallations(signal);
+      installations = result.items ?? [];
+      loadedOnce = true;
+      error = null;
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === 'AbortError') return;
+      error = cause;
+      return;
+    } finally {
+      if (!signal.aborted) loading = false;
+    }
+    // Deliberately after the cards are on screen: a quota read is one request
+    // per installation and must not hold the list behind a skeleton.
+    await readRateLimits(installations, signal);
+  }
+
   $effect(() => {
     void reload;
     const controller = new AbortController();
-    loading = true;
-    void listInstallations(controller.signal)
-      .then((result) => {
-        installations = result.items ?? [];
-        error = null;
-        void readRateLimits(installations, controller.signal);
-      })
-      .catch((cause: unknown) => {
-        if (cause instanceof DOMException && cause.name === 'AbortError') return;
-        error = cause;
-      })
-      .finally(() => (loading = false));
+    void load(controller.signal);
     return () => controller.abort();
   });
 
   // An installation going unhealthy is news; the list reloads rather than
   // patching one row, because pool counts move with it.
-  $effect(() => events.subscribe('installation.updated', () => (reload += 1)));
+  $effect(() =>
+    events.subscribe(['installation.updated', 'installation.deleted'], () => (reload += 1)),
+  );
 
   /**
    * Read each App's remaining quota.
@@ -139,6 +163,11 @@
     }
   }
 
+  /* -- replace the key ----------------------------------------------------------- */
+
+  let replaceOpen = $state(false);
+  let replaceTarget = $state<Installation | null>(null);
+
   /* -- delete -------------------------------------------------------------------- */
 
   let deleteOpen = $state(false);
@@ -173,6 +202,7 @@
 <PageHeader
   title="Installations"
   subtitle="The GitHub App connections Zoomies uses to create runners and read queued jobs."
+  onrefresh={() => load(new AbortController().signal)}
 >
   {#snippet meta()}
     {#if installations.length > 0}
@@ -232,6 +262,10 @@
           {canOperate}
           {canAdmin}
           onverify={(target) => void verify(target)}
+          onreplacekey={(target) => {
+            replaceTarget = target;
+            replaceOpen = true;
+          }}
           ondelete={askDelete}
         />
       {/each}
@@ -247,7 +281,20 @@
   initialState={returnedState}
   initialInstallationId={returnedInstallationId}
   oncreated={() => (reload += 1)}
+  onexchanged={() => router.setQuery({ code: null, state: null })}
   onclose={clearReturnedParams}
+/>
+
+<ReplaceKeyDialog
+  bind:open={replaceOpen}
+  installation={replaceTarget}
+  onreplaced={(target) => {
+    // Straight into a verify: the operator replaced the key to fix something,
+    // and "it is stored" is not the answer they came for.
+    reload += 1;
+    void verify(target);
+  }}
+  onclose={() => (replaceTarget = null)}
 />
 
 <VerifyDialog
@@ -270,7 +317,7 @@
     'this target'}, and the sealed App credentials are deleted with it."
   consequences={[
     `${pluralise(deleteTarget?.pool_count ?? 0, 'pool')} built on this installation will be deleted.`,
-    'Their runners are drained and deregistered from GitHub.',
+    'Their runners are removed now and deregistered from GitHub. A job running on one is interrupted; drain the pools first if that matters.',
     'The App itself stays on GitHub; uninstall it there if you want it gone.',
   ]}
   confirmLabel="Disconnect"
@@ -303,7 +350,7 @@
     flex-direction: column;
     gap: var(--z-space-3);
     padding: var(--z-space-5);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }

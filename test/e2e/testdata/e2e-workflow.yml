@@ -12,15 +12,22 @@ on:
         description: A value the test asserts on, so concurrent runs do not confuse each other.
         required: true
         type: string
+      label:
+        description: >-
+          The label of the pool this run created. Each run makes its own, so two
+          runs against one organisation cannot take each other's jobs.
+        required: true
+        type: string
 
 jobs:
   smoke:
-    runs-on: [self-hosted, zoomies-e2e]
+    runs-on: [self-hosted, "${{ inputs.label }}"]
     timeout-minutes: 5
     steps:
       - name: Prove we are on a Zoomies runner
         run: |
           echo "marker=${{ inputs.marker }}"
+          echo "label=${{ inputs.label }}"
           echo "runner=${RUNNER_NAME}"
           test -n "${RUNNER_NAME}"
           case "${RUNNER_NAME}" in

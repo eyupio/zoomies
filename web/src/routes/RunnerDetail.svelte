@@ -31,7 +31,7 @@
   import RunnerConfirm from '$lib/runners/RunnerConfirm.svelte';
   import RunnerFacts from '$lib/runners/RunnerFacts.svelte';
   import RunnerJob from '$lib/runners/RunnerJob.svelte';
-  import RunnerPanel from '$lib/runners/RunnerPanel.svelte';
+  import Panel from '$lib/components/Panel.svelte';
   import RunnerResources from '$lib/runners/RunnerResources.svelte';
   import RunnerTimeline from '$lib/runners/RunnerTimeline.svelte';
 
@@ -161,11 +161,23 @@
   }
 
   const targets = $derived(runner ? [runner] : []);
+
+  /**
+   * Fetch this runner again. The detail response carries the host, the pool and
+   * the timeline with it, so one request answers for the whole page -- and for
+   * a runner that has gone since, the 404 is the honest answer to "is it still
+   * there?", which is usually why somebody pressed it.
+   */
+  function refreshPage(): Promise<void> {
+    if (id === '') return Promise.resolve();
+    return load(id, new AbortController().signal);
+  }
 </script>
 
 <PageHeader
   title={runner?.name ?? (loading ? 'Runner' : 'Runner not found')}
   breadcrumb={[{ label: 'Runners', href: '/runners' }, { label: runner?.name ?? 'Runner' }]}
+  onrefresh={refreshPage}
 >
   {#snippet meta()}
     {#if runner}
@@ -215,6 +227,26 @@
   </p>
 {/if}
 
+<!--
+  A cleanup failure is a different thing from a failed runner, and it is shown
+  even on a removed one -- especially on a removed one. A failed runner is a job
+  that did not run; this is something still on a host or on somebody's
+  organisation, and the row it belongs to is the only place it is written down.
+  Zoomies keeps retrying, so the wording says that rather than asking for an
+  action that may already be unnecessary.
+-->
+{#if runner?.cleanup_error}
+  <p class="callout pending">
+    <TriangleAlert size={15} aria-hidden="true" />
+    <span>
+      Zoomies could not finish taking this runner away{runner.cleanup_attempts
+        ? ` after ${runner.cleanup_attempts} ${runner.cleanup_attempts === 1 ? 'attempt' : 'attempts'}`
+        : ''}: {runner.cleanup_error}. Something is left behind — a container on its host, or a
+      registration on GitHub. Zoomies keeps retrying, and this clears when it succeeds.
+    </span>
+  </p>
+{/if}
+
 {#if error}
   <ErrorState
     {error}
@@ -239,33 +271,33 @@
 {:else if runner}
   <div class="layout">
     <div class="column">
-      <RunnerPanel
+      <Panel
         title="Current job"
         description="What this runner is working on right now, and the run it belongs to."
       >
         <RunnerJob job={runner.current_job} idle={liveState === 'idle' || liveState === 'busy'} />
-      </RunnerPanel>
+      </Panel>
 
-      <RunnerPanel
+      <Panel
         title="Timeline"
         description="How long it spent in each state. This is a summary of the runner's life rather than an audit trail: a runner that went idle, busy and idle again shows only the most recent of those."
       >
         <RunnerTimeline entries={timeline} {running} />
-      </RunnerPanel>
+      </Panel>
     </div>
 
     <div class="column">
-      <RunnerPanel title="Details">
+      <Panel title="Details">
         <RunnerFacts {runner} />
-      </RunnerPanel>
+      </Panel>
 
-      <RunnerPanel title="Resource usage" description="As the host's agent last reported it.">
+      <Panel title="Resource usage" description="As the host's agent last reported it.">
         <RunnerResources
           cpuPercent={runner.cpu_percent}
           memoryBytes={runner.memory_bytes}
           limits={runner.pool?.resources}
         />
-      </RunnerPanel>
+      </Panel>
     </div>
   </div>
 
@@ -320,7 +352,7 @@
     gap: var(--z-space-2);
     margin: 0 0 var(--z-space-4);
     padding: var(--z-space-3) var(--z-space-4);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     font-size: var(--z-text-base);
     line-height: var(--z-leading-base);
@@ -334,6 +366,14 @@
     border-color: var(--z-neutral-border);
     background: var(--z-neutral-subtle);
     color: var(--z-text-muted);
+  }
+  /* Pending rather than danger: something is left behind, but Zoomies is still
+     retrying and it usually clears itself. Red here would compete with a real
+     failure on the same page. */
+  .callout.pending {
+    border-color: var(--z-pending-border);
+    background: var(--z-pending-subtle);
+    color: var(--z-text);
   }
   .layout {
     display: grid;
@@ -375,7 +415,7 @@
     min-width: 0;
   }
   .unavailable {
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }

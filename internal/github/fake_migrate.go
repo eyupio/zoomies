@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 )
 
 // The fake's half of the migration surface: repository contents, refs and pull
@@ -25,6 +26,8 @@ import (
 
 // fakeRepo is one repository's contents, as far as the migration cares.
 type fakeRepo struct {
+	// pushedAt is what the poller sorts repositories by; a queued job bumps it.
+	pushedAt      time.Time
 	defaultBranch string
 	// archived makes the repository read-only, as GitHub does: every write
 	// answers 403. It is here so a test can prove the migration never gets

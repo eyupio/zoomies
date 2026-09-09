@@ -82,7 +82,7 @@
     font-size: var(--z-text-base);
     color: var(--z-text);
     background: var(--z-surface);
-    border: 1px solid var(--z-border-strong);
+    border: var(--z-border-width) solid var(--z-border-strong);
     border-radius: var(--z-radius-sm);
     cursor: pointer;
   }
@@ -108,5 +108,23 @@
     right: var(--z-space-2);
     color: var(--z-text-subtle);
     pointer-events: none;
+  }
+
+  /*
+    16px on a phone, and only on a phone.
+
+    The base control size is 14px, which is right for a dense operator UI on a
+    desktop -- but mobile Safari zooms the whole viewport whenever a focused
+    control's font-size is under 16px, and the viewport meta deliberately does
+    not set maximum-scale. So every field tap on the first-run screens jumped
+    the 360px page to roughly 410px effective width and ran the card off both
+    edges, once per field. Height comes from the space scale, so nothing
+    reflows; only the glyphs grow.
+  */
+  @media (max-width: 768px) {
+    .sm select,
+    .md select {
+      font-size: var(--z-control-font-touch);
+    }
   }
 </style>

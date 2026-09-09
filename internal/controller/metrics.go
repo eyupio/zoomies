@@ -25,14 +25,46 @@ const collectTimeout = 5 * time.Second
 type metrics struct {
 	reg *prometheus.Registry
 
-	jobsTotal         *prometheus.CounterVec
-	queueWait         prometheus.Histogram
-	jobDuration       prometheus.Histogram
-	scalingEvents     *prometheus.CounterVec
-	webhookDeliveries *prometheus.CounterVec
-	githubRequests    *prometheus.CounterVec
-	reconcileDuration prometheus.Histogram
-	buildInfo         *prometheus.GaugeVec
+	jobsTotal                                                                                    *prometheus.CounterVec
+	jobsRunnerLost                                                                               *prometheus.CounterVec
+	queueWait                                                                                    prometheus.Histogram
+	jobDuration                                                                                  prometheus.Histogram
+	queuedToCreate, createToContainer, containerToRegistered, registeredToReady, queuedToStarted *prometheus.HistogramVec
+	scalingEvents                                                                                *prometheus.CounterVec
+	webhookDeliveries                                                                            *prometheus.CounterVec
+	githubRequests                                                                               *prometheus.CounterVec
+	reconcileDuration                                                                            prometheus.Histogram
+	reconcileErrors                                                                              prometheus.Counter
+	cleanups                                                                                     *prometheus.CounterVec
+	pollsShed                                                                                    prometheus.Counter
+	buildInfo                                                                                    *prometheus.GaugeVec
+}
+
+// UnmatchedPool is the `pool` label for work no pool here claims.
+//
+// A literal rather than an empty string, because Prometheus has no notion of an
+// absent label value and a blank one is indistinguishable from a bug. A real
+// pool named `unmatched` would merge with it; that is a price worth naming in
+// the docs rather than designing around.
+const UnmatchedPool = "unmatched"
+
+// poolLabel is the `pool` label value for a pool id, and it is the only place
+// that decides what one looks like.
+//
+// Names, not ids. Every other pool-labelled metric uses the name, and
+// zoomies_jobs_total used the id -- so a PromQL query joining a pool's job
+// count against its runner count on `pool` silently matched nothing, which is
+// the worst kind of wrong for a dashboard.
+func (c *Controller) poolLabel(id string) string {
+	if id == "" {
+		return UnmatchedPool
+	}
+	if p, err := c.st.GetPool(context.Background(), id); err == nil && p.Name != "" {
+		return p.Name
+	}
+	// A pool deleted between the job finishing and this call still has to be
+	// counted somewhere, and its id is the only name left.
+	return id
 }
 
 func newMetrics(c *Controller) *metrics {
@@ -42,6 +74,10 @@ func newMetrics(c *Controller) *metrics {
 			Name: "zoomies_jobs_total",
 			Help: "Workflow jobs Zoomies has seen complete, by pool and conclusion.",
 		}, []string{"pool", "conclusion"}),
+		jobsRunnerLost: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_jobs_runner_lost_total",
+			Help: "Jobs whose runner stopped before GitHub reported the job over, by pool. These are the fleet's failures rather than the workflows'.",
+		}, []string{"pool"}),
 		queueWait: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name: "zoomies_job_queue_wait_seconds",
 			Help: "How long jobs waited between being queued and a runner picking them up.",
@@ -54,6 +90,11 @@ func newMetrics(c *Controller) *metrics {
 			Help:    "How long jobs took to run once they started.",
 			Buckets: []float64{10, 30, 60, 300, 600, 1800, 3600, 7200, 21600},
 		}),
+		queuedToCreate:        startupHistogram("zoomies_runner_queued_to_create_seconds", "Time from a queued job to runner creation."),
+		createToContainer:     startupHistogram("zoomies_runner_create_to_container_started_seconds", "Time from runner creation to its container starting."),
+		containerToRegistered: startupHistogram("zoomies_runner_container_started_to_registered_seconds", "Time from container start to GitHub registration."),
+		registeredToReady:     startupHistogram("zoomies_runner_registered_to_ready_seconds", "Time from registration to the runner becoming idle or busy."),
+		queuedToStarted:       startupHistogram("zoomies_runner_queued_to_job_started_seconds", "Total time from queueing to job start."),
 		scalingEvents: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "zoomies_scaling_events_total",
 			Help: "Scheduler decisions that changed a pool's size, by direction.",
@@ -71,6 +112,31 @@ func newMetrics(c *Controller) *metrics {
 			Help:    "How long one reconcile pass took, including the GitHub calls it made.",
 			Buckets: []float64{.01, .05, .1, .25, .5, 1, 2.5, 5, 10, 30},
 		}),
+		// A pass that failed observes no duration, so the histogram's count is
+		// the number of passes that *worked* and this is the rest. Without it a
+		// controller whose every pass fails looks like one that is simply not
+		// busy: the duration series goes quiet either way.
+		reconcileErrors: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "zoomies_reconcile_errors_total",
+			Help: "Reconcile passes that failed. The loop carries on, so a rising count is a fleet deciding nothing while looking idle.",
+		}),
+		// Taking a runner away is the half of the lifecycle that leaves
+		// something behind when it goes wrong, and it goes wrong on the host
+		// rather than in the fleet -- so it is invisible in every other series
+		// here, which count what the fleet decided rather than what the host
+		// managed.
+		cleanups: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_runner_cleanups_total",
+			Help: "Attempts to take a runner off its host, by outcome: succeeded, or failed and recorded on the row.",
+		}, []string{"outcome"}),
+		// A shed poll is the only sign the controller is holding more agent
+		// connections than it wants to: the fleet keeps working, each host
+		// just hears about its tasks a little later, so nothing else here
+		// moves.
+		pollsShed: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "zoomies_agent_polls_shed_total",
+			Help: "Task polls answered with a backoff because the controller was holding too many at once.",
+		}),
 		buildInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "zoomies_build_info",
 			Help: "Always 1; the version and commit are in the labels.",
@@ -79,13 +145,27 @@ func newMetrics(c *Controller) *metrics {
 	m.buildInfo.WithLabelValues(version.Version, version.Commit).Set(1)
 
 	m.reg.MustRegister(
-		m.jobsTotal, m.queueWait, m.jobDuration, m.scalingEvents,
-		m.webhookDeliveries, m.githubRequests, m.reconcileDuration, m.buildInfo,
+		m.jobsTotal, m.jobsRunnerLost, m.queueWait, m.jobDuration, m.scalingEvents,
+		m.webhookDeliveries, m.githubRequests, m.reconcileDuration, m.reconcileErrors, m.cleanups, m.pollsShed, m.buildInfo,
+		m.queuedToCreate, m.createToContainer, m.containerToRegistered, m.registeredToReady, m.queuedToStarted,
 		&fleetCollector{c: c},
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
 	return m
+}
+
+func startupHistogram(name, help string) *prometheus.HistogramVec {
+	return prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: name, Help: help,
+		Buckets: []float64{.1, .5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800}}, []string{"pool", "backend"})
+}
+
+func observeDuration(h *prometheus.HistogramVec, pool, backend string, from, to time.Time) bool {
+	if from.IsZero() || to.IsZero() || to.Before(from) {
+		return false
+	}
+	h.WithLabelValues(pool, backend).Observe(to.Sub(from).Seconds())
+	return true
 }
 
 // Registry returns the Prometheus registry the API serves at the configured
@@ -105,6 +185,32 @@ var (
 		"Total runner slots across healthy, uncordoned hosts.", nil, nil)
 	descHostCapacityUsed = prometheus.NewDesc("zoomies_host_capacity_used",
 		"Runner slots currently occupied.", nil, nil)
+	// Slots say how many runners a fleet will take; these say whether the
+	// machines can carry them. A fleet with slots free and no memory left is
+	// the case the slot gauges cannot describe, and it is the one an operator
+	// is looking for when the queue is not draining.
+	descAllocatableCPUs = prometheus.NewDesc("zoomies_host_allocatable_cpus",
+		"CPUs across healthy, uncordoned hosts, less each host's reserve.", nil, nil)
+	descAllocatableMemory = prometheus.NewDesc("zoomies_host_allocatable_memory_bytes",
+		"Memory across healthy, uncordoned hosts, less each host's reserve.", nil, nil)
+	descReservedCPUs = prometheus.NewDesc("zoomies_host_reserved_cpus",
+		"CPUs the live runners on those hosts have promised away, as of the last scheduling pass.", nil, nil)
+	descReservedMemory = prometheus.NewDesc("zoomies_host_reserved_memory_bytes",
+		"Memory the live runners on those hosts have promised away, as of the last scheduling pass.", nil, nil)
+	// The backlog's depth and its age answer different questions: ten jobs
+	// queued for four seconds is a fleet working, and one job queued for forty
+	// minutes is a fleet that has stopped, and `zoomies_jobs_queued` cannot
+	// tell them apart. This is the one an alert should use.
+	descQueueAge = prometheus.NewDesc("zoomies_job_queue_age_seconds",
+		"How long the oldest job still waiting has been waiting, by pool. Zero when nothing is waiting.",
+		[]string{"pool"}, nil)
+	// Rate-limit backoff is per installation and always has been, so this
+	// carries the installation rather than being the fleet-wide flag the plan
+	// described. A fleet with two installations, one of them held, is a fleet
+	// half working -- and the fleet-wide version could not say which half.
+	descGitHubPaused = prometheus.NewDesc("zoomies_github_paused",
+		"1 while an installation is inside its GitHub rate-limit backoff and every background sweep is standing down from it, 0 otherwise.",
+		[]string{"installation"}, nil)
 )
 
 // fleetCollector reads the fleet's shape from the database on each scrape.
@@ -116,6 +222,12 @@ func (f *fleetCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- descHosts
 	ch <- descHostCapacity
 	ch <- descHostCapacityUsed
+	ch <- descQueueAge
+	ch <- descGitHubPaused
+	ch <- descAllocatableCPUs
+	ch <- descAllocatableMemory
+	ch <- descReservedCPUs
+	ch <- descReservedMemory
 }
 
 func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
@@ -143,9 +255,26 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 		return
 	}
 
+	installations, err := f.c.st.ListInstallations(ctx)
+	if err != nil {
+		f.c.log.Warn("could not read installations for the metrics endpoint", "error", err)
+		return
+	}
+
+	now := f.c.Now()
 	queuedByPool := map[string]int{}
+	// The oldest wait per pool, from the moment GitHub queued the job: that is
+	// the wait somebody is actually sitting through, and it is the same clock
+	// `zoomies_job_queue_wait_seconds` measures once the job finally starts.
+	oldestByPool := map[string]float64{}
 	for _, j := range queued {
 		queuedByPool[j.PoolID]++
+		if j.QueuedAt.IsZero() {
+			continue
+		}
+		if age := now.Sub(j.QueuedAt).Seconds(); age > oldestByPool[j.PoolID] {
+			oldestByPool[j.PoolID] = age
+		}
 	}
 
 	gauge := func(d *prometheus.Desc, v float64, labels ...string) {
@@ -167,12 +296,25 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 			gauge(descRunners, float64(n), p.Name, string(state))
 		}
 		gauge(descJobsQueued, float64(queuedByPool[p.ID]), p.Name)
+		gauge(descQueueAge, oldestByPool[p.ID], p.Name)
 	}
 	// Jobs no pool claimed still have to be visible somewhere.
-	gauge(descJobsQueued, float64(queuedByPool[""]), "unmatched")
+	gauge(descJobsQueued, float64(queuedByPool[""]), UnmatchedPool)
+	gauge(descQueueAge, oldestByPool[""], UnmatchedPool)
+
+	// Every installation reports, held or not: a series that only exists while
+	// something is wrong cannot be alerted on with a threshold, and an operator
+	// reading the endpoint by hand learns nothing from an absent line.
+	held := f.c.heldInstallations(now)
+	for _, inst := range installations {
+		v := 0.0
+		if _, ok := held[inst.ID]; ok {
+			v = 1
+		}
+		gauge(descGitHubPaused, v, inst.ID)
+	}
 
 	var healthy, unhealthy, cordoned, capacity, used int
-	now := f.c.Now()
 	for _, h := range hosts {
 		switch {
 		case !h.Healthy(now):
@@ -187,6 +329,29 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 		}
 		used += h.ActiveRunners
 	}
+	// Only the hosts that can actually take work, which is the same set
+	// descHostCapacity counts: a cordoned host's memory is not the fleet's to
+	// place into, and counting it would say the fleet has room it will not use.
+	var allocCPUs, reservedCPUs float64
+	var allocMemory, reservedMemory int64
+	for _, h := range hosts {
+		if !h.Healthy(now) || h.Cordoned {
+			continue
+		}
+		a := h.Allocatable()
+		allocCPUs += a.CPUs
+		allocMemory += a.MemoryMB
+		if r, ok := f.c.reservedOn(h.ID); ok {
+			reservedCPUs += r.CPUs
+			reservedMemory += r.MemoryMB
+		}
+	}
+	const mb = 1 << 20
+	gauge(descAllocatableCPUs, allocCPUs)
+	gauge(descAllocatableMemory, float64(allocMemory)*mb)
+	gauge(descReservedCPUs, reservedCPUs)
+	gauge(descReservedMemory, float64(reservedMemory)*mb)
+
 	gauge(descHosts, float64(healthy), "healthy")
 	gauge(descHosts, float64(unhealthy), "unhealthy")
 	gauge(descHosts, float64(cordoned), "cordoned")

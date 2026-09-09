@@ -446,13 +446,20 @@ func maybeDeregister(ctx context.Context, opts UninstallOptions, u *ui, log *slo
 	if err != nil {
 		return err
 	}
-	st, err := store.Open(ctx, store.Options{Path: dbPath})
+	// Read-only: an uninstall reads this database to find the registrations
+	// GitHub still holds, and has no business migrating the schema of a
+	// deployment on its way out.
+	st, err := store.Open(ctx, store.Options{Path: dbPath, ReadOnly: true})
 	if err != nil {
 		return fmt.Errorf("opening %s: %w", dbPath, err)
 	}
 	defer st.Close()
 
 	installations, err := st.ListInstallations(ctx)
+	if err != nil {
+		return err
+	}
+	local, err := allRunners(ctx, st)
 	if err != nil {
 		return err
 	}
@@ -474,14 +481,7 @@ func maybeDeregister(ctx context.Context, opts UninstallOptions, u *ui, log *slo
 			u.warn(fmt.Sprintf("cannot list runners for %s: %s", inst.Target, err))
 			continue
 		}
-		for _, r := range runners {
-			// Only runners this fleet created are touched. Everything Zoomies
-			// registers is named by github.RunnerName, which is where the
-			// prefix comes from; a runner somebody else set up by hand keeps
-			// working.
-			if !strings.HasPrefix(r.Name, "zoomies-") {
-				continue
-			}
+		for _, r := range fleetRunners(runners, local) {
 			if err := client.DeleteRunner(ctx, r.ID); err != nil {
 				u.warn(fmt.Sprintf("could not deregister %s: %s", r.Name, err))
 				continue
@@ -496,6 +496,50 @@ func maybeDeregister(ctx context.Context, opts UninstallOptions, u *ui, log *slo
 		u.note("no runners of this fleet were still registered with GitHub.")
 	}
 	return nil
+}
+
+// allRunners reads every runner row this database has, removed ones included:
+// a registration GitHub still holds for a runner this fleet has already
+// removed is exactly the orphan the uninstall is here to clean up.
+func allRunners(ctx context.Context, st *store.Store) ([]*store.Runner, error) {
+	var out []*store.Runner
+	for offset := 0; ; {
+		page, _, err := st.ListRunners(ctx, store.RunnerFilter{IncludeRemoved: true}, store.Page{Limit: 500, Offset: offset})
+		if err != nil {
+			return nil, fmt.Errorf("listing this fleet's runners: %w", err)
+		}
+		out = append(out, page...)
+		if len(page) < 500 {
+			return out, nil
+		}
+		offset += len(page)
+	}
+}
+
+// fleetRunners returns the registrations that are this fleet's to delete: the
+// ones whose GitHub ID or name the local database has a row for.
+//
+// Runner names carry no instance identity -- a second controller on the same
+// organisation names its runners the same way -- so the "zoomies-" prefix
+// alone had uninstalling a staging controller delete a production
+// controller's idle runners. A registration the database has never heard of
+// is left alone, whatever it is called.
+func fleetRunners(remote []github.Runner, local []*store.Runner) []github.Runner {
+	ids := make(map[int64]bool, len(local))
+	names := make(map[string]bool, len(local))
+	for _, r := range local {
+		if r.GitHubRunnerID != 0 {
+			ids[r.GitHubRunnerID] = true
+		}
+		names[r.Name] = true
+	}
+	var out []github.Runner
+	for _, r := range remote {
+		if ids[r.ID] || names[r.Name] {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // serviceUserToRemove decides whether there is an account to remove.

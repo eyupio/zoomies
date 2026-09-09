@@ -68,9 +68,15 @@
 
   interface Props {
     class?: string;
+    /**
+     * Bumped by the page's refresh button. Read inside the fetch effect, which
+     * is what makes one press at the top of Settings re-read whichever panel is
+     * open rather than only the tab the operator happens to be looking past.
+     */
+    reloadKey?: number;
   }
 
-  let { class: className = '' }: Props = $props();
+  let { class: className = '', reloadKey = 0 }: Props = $props();
 
   let settings = $state<Settings | null>(null);
   let loading = $state(true);
@@ -79,6 +85,7 @@
 
   $effect(() => {
     void reload;
+    void reloadKey;
     const controller = new AbortController();
     loading = true;
     void getSettings(controller.signal)
@@ -260,13 +267,13 @@
 
 <style>
   .panel {
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }
   header {
     padding: var(--z-space-4) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   h2 {
     margin: 0;
@@ -290,13 +297,13 @@
     flex-wrap: wrap;
     gap: var(--z-space-6);
     padding: var(--z-space-4) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   .meta-label {
     display: block;
     font-size: var(--z-text-2xs);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     color: var(--z-text-muted);
     margin-bottom: var(--z-space-1);
   }
@@ -306,7 +313,7 @@
   }
   .general {
     padding: var(--z-space-4) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
     background: var(--z-surface-sunken);
   }
   .general ul {
@@ -336,7 +343,7 @@
   }
   .section-head {
     padding: var(--z-space-4) var(--z-space-5) var(--z-space-2);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
     background: var(--z-surface-sunken);
   }
   h3 {

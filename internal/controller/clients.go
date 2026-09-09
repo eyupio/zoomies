@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -51,11 +50,6 @@ func (c *Controller) ClientFor(ctx context.Context, installationID string) (gith
 	if err != nil {
 		return nil, err
 	}
-	if IsDemoID(inst.ID) {
-		// The demo fixtures have no GitHub App behind them; answer from
-		// demoClient rather than failing every read the UI makes.
-		return newDemoClient(inst), nil
-	}
 	return c.clients.get(ctx, inst)
 }
 
@@ -74,6 +68,15 @@ func (c *Controller) ClientForRepo(ctx context.Context, repoFullName string) (gi
 func (cc *clientCache) get(ctx context.Context, inst *store.Installation) (github.Client, error) {
 	if inst == nil {
 		return nil, errors.New("controller: no installation given")
+	}
+	// The demo fixtures have no GitHub App behind them, so every real client
+	// path would fail on the placeholder key they carry. The check lives here
+	// rather than at one call site because it was at one call site: `ClientFor`
+	// had it and `ProbeInstallation` did not, so pressing Verify on the demo
+	// installation answered "the stored private key is not a PEM-encoded RSA
+	// key" -- on the one page a new operator is most likely to press it.
+	if IsDemoID(inst.ID) {
+		return newDemoClient(inst), nil
 	}
 	cc.mu.Lock()
 	if e, ok := cc.entries[inst.ID]; ok && e.updatedAt.Equal(inst.UpdatedAt) {
@@ -116,15 +119,31 @@ func (cc *clientCache) forget(id string) {
 
 // Forget drops the cached client for an installation. The API calls it after
 // deleting or re-keying one, so the next call rebuilds from the stored row.
-func (c *Controller) Forget(installationID string) { c.clients.forget(installationID) }
+func (c *Controller) Forget(installationID string) {
+	c.clients.forget(installationID)
+	// Its rate-limit hold goes with it. The hold is read only when the
+	// installation comes round on a sweep, so a stale entry changes nothing --
+	// but an installation that is gone should leave nothing behind, and one
+	// re-added under the same identifier would inherit a stand-down it never
+	// earned.
+	c.githubMu.Lock()
+	delete(c.githubPaused, installationID)
+	c.githubMu.Unlock()
+}
 
 // runnerGroupID resolves a runner group name to the ID the JIT config API
 // wants. An empty or unknown name falls back to 0, which the github package
 // turns into the Default group every target has.
-func (cc *clientCache) runnerGroupID(ctx context.Context, inst *store.Installation, client github.Client, name string) int64 {
+//
+// The second return value is why the fallback happened, empty when it did not.
+// Falling back is not a detail: Default is the group every repository the
+// installation covers can reach, so a pool that asked to be fenced into one
+// group and quietly landed in Default is running its jobs somewhere wider than
+// its operator asked for. The caller turns it into a standing warning.
+func (cc *clientCache) runnerGroupID(ctx context.Context, inst *store.Installation, client github.Client, name string) (int64, string) {
 	name = strings.TrimSpace(name)
 	if name == "" || strings.EqualFold(name, "default") {
-		return 0
+		return 0, ""
 	}
 
 	cc.mu.Lock()
@@ -132,18 +151,32 @@ func (cc *clientCache) runnerGroupID(ctx context.Context, inst *store.Installati
 	if e != nil && e.groups != nil {
 		if id, ok := e.groups[strings.ToLower(name)]; ok {
 			cc.mu.Unlock()
-			return id
+			return id, ""
 		}
 	}
 	cc.mu.Unlock()
 
+	// Runner groups are an organisation concept, so a pool on a
+	// repository-target installation cannot have one whatever it names. Said
+	// separately because the fix is the opposite: drop the group from the
+	// pool, rather than create it on GitHub.
+	if inst.TargetType == store.TargetRepo {
+		cc.c.log.Warn("a repository target has no runner groups; using the default group",
+			"installation", inst.ID, "target", inst.Target, "group", name)
+		return 0, "runner groups belong to an organisation, and " + inst.Target + " is a repository"
+	}
+
+	// A name that resolved to nothing is deliberately not cached, so that the
+	// next create asks again. It costs one call per runner on a pool that is
+	// misconfigured, and it is what lets the warning clear by itself the
+	// moment an operator creates the group GitHub was missing.
 	groups, err := client.ListRunnerGroups(ctx)
 	if err != nil {
 		// A pool naming a group Zoomies cannot list still deserves a runner;
 		// GitHub will place it in Default and the operator sees the warning.
 		cc.c.log.Warn("could not list runner groups; falling back to the default group",
 			"installation", inst.ID, "group", name, "error", err)
-		return 0
+		return 0, "GitHub would not say which runner groups exist on " + inst.Target
 	}
 
 	found := int64(0)
@@ -154,7 +187,6 @@ func (cc *clientCache) runnerGroupID(ctx context.Context, inst *store.Installati
 			found = g.ID
 		}
 	}
-
 	cc.mu.Lock()
 	if e := cc.entries[inst.ID]; e != nil {
 		e.groups = m
@@ -164,8 +196,9 @@ func (cc *clientCache) runnerGroupID(ctx context.Context, inst *store.Installati
 	if found == 0 {
 		cc.c.log.Warn("the pool names a runner group that does not exist on the target; using the default group",
 			"installation", inst.ID, "target", inst.Target, "group", name)
+		return 0, "the group " + name + " does not exist on " + inst.Target
 	}
-	return found
+	return found, ""
 }
 
 // probeLoop re-checks every installation's credentials on an interval, so a
@@ -243,10 +276,21 @@ func (c *Controller) ProbeInstallation(ctx context.Context, installationID strin
 	if serr := c.st.SetInstallationHealth(ctx, inst.ID, msg); serr != nil {
 		c.log.Error("could not record installation health", "installation", inst.ID, "error", serr)
 	}
+	// The probe is the only place the App's slug is learned for an installation
+	// that was added by hand, and every link to the App on GitHub is built from
+	// it -- including the settings page where its avatar is uploaded, which is
+	// the one setup step a manifest cannot do.
+	if info != nil && info.Slug != "" && info.Slug != inst.AppSlug {
+		if serr := c.st.SetInstallationAppSlug(ctx, inst.ID, info.Slug); serr != nil {
+			c.log.Error("could not record the App's slug", "installation", inst.ID, "error", serr)
+		} else {
+			inst.AppSlug = info.Slug
+		}
+	}
 	inst.LastError = msg
 	now := c.Now()
 	inst.LastCheckedAt = &now
-	c.publish(events.KindInstallation, "installation:"+inst.ID, inst)
+	c.publishInstallation(ctx, inst)
 
 	if err != nil {
 		return nil, err

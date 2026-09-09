@@ -5,22 +5,56 @@ import { gzipSync } from 'node:zlib';
 import { resolve } from 'node:path';
 
 /**
- * The app shell budget from docs/ui-guidelines.md, in bytes gzipped.
+ * The budgets from docs/ui-guidelines.md §5, in bytes gzipped.
  *
- * This is enforced rather than aspirational: an operator dashboard that takes a
- * second to appear on a slow VPN is a dashboard people stop opening. Route
- * chunks are excluded because they load on demand.
+ * They are enforced rather than aspirational: an operator dashboard that takes
+ * a second to appear on a slow VPN is a dashboard people stop opening.
  */
 const SHELL_BUDGET = 200 * 1024;
+const ROUTE_BUDGET = 80 * 1024;
 
-function shellBudget(): Plugin {
+/**
+ * Route chunks allowed past the route budget, with the number each is allowed.
+ *
+ * Named here rather than waved through: xterm.js is a terminal emulator, it is
+ * what it costs, and it loads only on the two pages that show a runner's
+ * output. An entry appearing in this map is a decision somebody made; a route
+ * quietly growing past the budget is not.
+ */
+const ROUTE_ALLOWANCES: Record<string, number> = {
+  xterm: 96 * 1024,
+};
+
+/** The chunk name without Vite's content hash: `assets/xterm.ScmBfeDI.js` -> `xterm`. */
+function chunkName(file: string): string {
+  return file.replace(/^.*\//, '').replace(/\.[^.]+\.(js|css)$/, '');
+}
+
+function budgets(): Plugin {
   return {
-    name: 'zoomies-shell-budget',
+    name: 'zoomies-budgets',
     apply: 'build',
     generateBundle(_options, bundle) {
+      // The shell is the entry chunk, everything it imports statically, and
+      // the CSS those import. A route is reached by a dynamic import and is
+      // not in this set -- which is the fix for a shell number that used to
+      // charge every route's stylesheet to the first paint.
+      const shellFiles = new Set<string>();
+      const walk = (file: string): void => {
+        const chunk = bundle[file];
+        if (!chunk || chunk.type !== 'chunk' || shellFiles.has(file)) return;
+        shellFiles.add(file);
+        for (const css of chunk.viteMetadata?.importedCss ?? []) shellFiles.add(css);
+        for (const imported of chunk.imports) walk(imported);
+      };
+      for (const [file, chunk] of Object.entries(bundle)) {
+        if (chunk.type === 'chunk' && chunk.isEntry) walk(file);
+      }
+
       let shell = 0;
       const rows: Array<[string, number]> = [];
-      for (const [name, chunk] of Object.entries(bundle)) {
+      const overweight: string[] = [];
+      for (const [file, chunk] of Object.entries(bundle)) {
         const source =
           chunk.type === 'chunk'
             ? chunk.code
@@ -29,14 +63,21 @@ function shellBudget(): Plugin {
               : '';
         if (!source) continue;
         const size = gzipSync(Buffer.from(source)).length;
-        // The entry chunk and every CSS file are the shell; everything else is
-        // a lazily loaded route.
-        const isShell = (chunk.type === 'chunk' && chunk.isEntry) || name.endsWith('.css');
-        if (isShell) shell += size;
-        rows.push([`${isShell ? 'shell ' : 'route '}${name}`, size]);
+        const isShell = shellFiles.has(file);
+        if (isShell) {
+          shell += size;
+        } else {
+          const name = chunkName(file);
+          const allowed = ROUTE_ALLOWANCES[name] ?? ROUTE_BUDGET;
+          if (size > allowed) {
+            overweight.push(
+              `${file} is ${kb(size)} gzipped, over the ${kb(allowed)} a route may be`,
+            );
+          }
+        }
+        rows.push([`${isShell ? 'shell ' : 'route '}${file}`, size]);
       }
       rows.sort((a, b) => b[1] - a[1]);
-      const kb = (n: number) => `${(n / 1024).toFixed(1)} KB`;
       this.info(
         `gzipped sizes:\n${rows.map(([n, s]) => `  ${kb(s).padStart(9)}  ${n}`).join('\n')}`,
       );
@@ -48,12 +89,21 @@ function shellBudget(): Plugin {
             `budget deliberately in both places.`,
         );
       }
+      if (overweight.length > 0) {
+        this.error(
+          `${overweight.join('\n')}\n` +
+            `The route budget is in docs/ui-guidelines.md. Split the route, or name it in ` +
+            `ROUTE_ALLOWANCES with what it is allowed and why.`,
+        );
+      }
     },
   };
 }
 
+const kb = (n: number): string => `${(n / 1024).toFixed(1)} KB`;
+
 export default defineConfig({
-  plugins: [tailwindcss(), svelte(), shellBudget()],
+  plugins: [tailwindcss(), svelte(), budgets()],
   resolve: {
     alias: { $lib: resolve(import.meta.dirname, 'src/lib') },
   },

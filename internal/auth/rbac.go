@@ -30,14 +30,17 @@ const (
 // Runner actions. Draining is separated from deleting because draining never
 // interrupts a running job and deleting can.
 const (
-	ActionRunnersRead   Action = "runners.read"
-	ActionRunnersCreate Action = "runners.create"
+	ActionRunnersRead Action = "runners.read"
+	// There is no runners.create: a runner is created by the scheduler, in
+	// response to a queued job, and no route asks for one. A scope nothing
+	// checks is a scope an operator can grant believing it does something.
 	ActionRunnersDrain  Action = "runners.drain"
 	ActionRunnersDelete Action = "runners.delete"
 )
 
 // Job actions. Jobs are observed, never mutated, so there is only a read.
 const ActionJobsRead Action = "jobs.read"
+const ActionUsageRead Action = "usage.read"
 
 // Host actions.
 const (
@@ -93,6 +96,19 @@ const (
 	ActionEventsRead    Action = "events.read"
 	ActionLogsRead      Action = "logs.read"
 	ActionStatsRead     Action = "stats.read"
+	// ActionDiagnosticsRead covers the support bundle, which is every other
+	// read gathered into one document. It is admin rather than viewer because
+	// the weakest role that covers all of it is the strongest role inside it:
+	// the bundle carries the settings section, and settings.read is admin. A
+	// viewer-readable bundle would hand out the one section this project has
+	// always kept behind an admin.
+	ActionDiagnosticsRead Action = "diagnostics.read"
+	// ActionRecoveryWrite lifts the fence a restore sets. It is its own action
+	// rather than settings.write because it is not a setting: it is a promise
+	// that somebody has looked at a recovered fleet and decided it may act on
+	// the world again, and it wants to be visible in an audit log under a name
+	// that says so.
+	ActionRecoveryWrite Action = "recovery.write"
 )
 
 // actionRoles is the authorisation policy in one table.
@@ -108,11 +124,11 @@ var actionRoles = map[Action]store.Role{
 	ActionPoolsDelete: store.RoleOperator,
 
 	ActionRunnersRead:   store.RoleViewer,
-	ActionRunnersCreate: store.RoleOperator,
 	ActionRunnersDrain:  store.RoleOperator,
 	ActionRunnersDelete: store.RoleOperator,
 
-	ActionJobsRead: store.RoleViewer,
+	ActionJobsRead:  store.RoleViewer,
+	ActionUsageRead: store.RoleViewer,
 
 	ActionHostsRead:   store.RoleViewer,
 	ActionHostsWrite:  store.RoleOperator,
@@ -145,6 +161,9 @@ var actionRoles = map[Action]store.Role{
 	ActionEventsRead:    store.RoleViewer,
 	ActionLogsRead:      store.RoleViewer,
 	ActionStatsRead:     store.RoleViewer,
+
+	ActionDiagnosticsRead: store.RoleAdmin,
+	ActionRecoveryWrite:   store.RoleAdmin,
 }
 
 // AllActions returns every action, sorted. The UI's token editor lists the

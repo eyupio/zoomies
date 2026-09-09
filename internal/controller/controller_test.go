@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -205,5 +206,95 @@ func TestNewFillsInDefaults(t *testing.T) {
 	}
 	if c.Registry() == nil {
 		t.Fatal("New built no metrics registry")
+	}
+}
+
+// A loop that panicked used to stay dead while /readyz went on answering 200:
+// one bad snapshot in the scheduler and every job queued for good, with
+// nothing on the problems drawer to say why. The loop is restarted and the
+// crash is reported.
+func TestAPanickingLoopIsRestartedAndReported(t *testing.T) {
+	h := newHarness(t)
+	h.c.loopRestartDelay = time.Millisecond
+	var runs atomic.Int32
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	h.c.spawn("flaky", ctx, func(ctx context.Context) {
+		if runs.Add(1) < 3 {
+			panic("a nil pointer where a pool should be")
+		}
+		<-ctx.Done()
+	})
+
+	eventually(t, 5*time.Second, "the loop to be restarted twice", func() bool {
+		return runs.Load() >= 3
+	})
+	panics := h.c.LoopPanics()
+	if panics["flaky"].Count != 2 || !strings.Contains(panics["flaky"].Last, "nil pointer") {
+		t.Fatalf("recorded panics = %+v, want two with the last message", panics["flaky"])
+	}
+	problems, err := h.c.Problems(h.ctx)
+	if err != nil {
+		t.Fatalf("Problems: %v", err)
+	}
+	var found *Problem
+	for i := range problems {
+		if problems[i].Code == "controller.loop_panicked" {
+			found = &problems[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("problems = %v, want the crashed loop reported", codesOf(problems))
+	}
+	if found.Severity != config.SeverityError || !strings.Contains(found.Title, "flaky") || !strings.Contains(found.Title, "2 times") {
+		t.Fatalf("problem = %+v, want an error naming the loop and the count", found)
+	}
+
+	cancel()
+	done := make(chan struct{})
+	go func() { h.c.wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the restarted loop did not stop with its context")
+	}
+}
+
+func codesOf(problems []Problem) []string {
+	out := make([]string, 0, len(problems))
+	for _, p := range problems {
+		out = append(out, p.Code)
+	}
+	return out
+}
+
+// Verifying the demo installation must not report a broken key.
+//
+// The demo fixtures carry a placeholder credential, so every real client path
+// fails on them -- and the shortcut that answers from the demo client lived at
+// one call site. `ClientFor` had it and `ProbeInstallation` did not, so an
+// operator pressing Verify on the seeded installation, which is the one a new
+// fleet has, was told "the stored private key is not a PEM-encoded RSA key".
+func TestVerifyingTheDemoInstallationAnswersFromTheFixture(t *testing.T) {
+	h := newHarness(t)
+	inst := &store.Installation{
+		ID: demoInstallationID, AppID: 123456, InstallationID: 654321,
+		Target: "acme", TargetType: store.TargetOrg, AppSlug: "zoomies-demo",
+		PrivateKeyEnc: []byte("not a key"), WebhookSecretEnc: []byte("not a secret"),
+	}
+	if err := h.st.CreateInstallation(h.ctx, inst); err != nil {
+		t.Fatalf("CreateInstallation: %v", err)
+	}
+
+	info, err := h.c.ProbeInstallation(h.ctx, inst.ID)
+	if err != nil {
+		t.Fatalf("probing the demo installation: %v", err)
+	}
+	if info == nil || info.Slug != "zoomies-demo" {
+		t.Fatalf("probe returned %+v, want the demo fixture's App", info)
+	}
+	if missing := info.MissingRequirements(store.TargetOrg); len(missing) > 0 {
+		t.Errorf("the demo fixture reports missing permissions %v; the page it is seeded for would show a fault that is not there", missing)
 	}
 }

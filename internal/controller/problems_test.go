@@ -1,12 +1,15 @@
 package controller
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/cryptox"
+	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -49,6 +52,19 @@ func TestProblemsReportsEachCategory(t *testing.T) {
 		}
 		if !contains(h.problemCodes(), "pool.dangerous") {
 			t.Fatalf("problems = %v, want the dangerous-pool warning", h.problemCodes())
+		}
+	})
+
+	t.Run("repository cache under an organisation installation", func(t *testing.T) {
+		h := newHarness(t)
+		inst := h.installation()
+		p := h.pool(inst, "widgets")
+		p.Cache = store.CacheConfig{Enabled: true, Scope: store.CacheScopeRepository, Repository: "acme/widgets"}
+		if err := h.st.UpdatePool(h.ctx, p); err != nil {
+			t.Fatalf("UpdatePool: %v", err)
+		}
+		if !contains(h.problemCodes(), "pool.cache_shared") {
+			t.Fatalf("problems = %v, want the shared-cache warning", h.problemCodes())
 		}
 	})
 
@@ -121,15 +137,17 @@ func TestProblemsReportsEachCategory(t *testing.T) {
 	})
 }
 
-// A job whose labels no pool advertises will never run, and saying so is the
-// only way an operator finds out.
+// A job whose labels no pool here advertises is not going to run here, and
+// once it has waited long enough to mean something, saying so is the only way
+// an operator finds out.
 func TestUnmatchedJobIsRecordedAndReported(t *testing.T) {
 	h := newHarness(t)
 	h.fleet()
 
 	h.deliverJob(jobEvent{
 		Action: "queued", JobID: 909,
-		Labels: []string{"self-hosted", "linux", "gpu", "cuda12"},
+		Labels:   []string{"self-hosted", "linux", "gpu", "cuda12"},
+		QueuedAt: time.Now().Add(-unmatchedGrace - time.Minute),
 	})
 
 	job, err := h.st.GetJobByGitHubID(h.ctx, 909)
@@ -289,6 +307,25 @@ func TestPoolWithNoHostToRunItIsReported(t *testing.T) {
 	}
 }
 
+func TestRepositoryScaleUpDeferralIsAccurateInProblemsDrawer(t *testing.T) {
+	h := newHarness(t)
+	h.c.setLastPlan(scheduler.Plan{Pools: []scheduler.PoolPlan{{
+		PoolID: "pool_shared", PoolName: "shared", QueuedMatched: 3,
+		QuotaDeferredJobs: 2, QuotaDeferredRepositories: []string{"acme/api", "acme/web"},
+	}}})
+
+	ps := h.c.PoolCapacityProblems()
+	if len(ps) != 1 || ps[0].Code != "pool.repository_scale_up_deferred" {
+		t.Fatalf("problems = %+v, want one scale-up deferral", ps)
+	}
+	if ps[0].Severity != config.SeverityWarning || !strings.Contains(ps[0].Detail, "Compatible idle runners may still accept") {
+		t.Fatalf("problem = %+v, want best-effort GitHub assignment caveat", ps[0])
+	}
+	if !strings.Contains(ps[0].Detail, "acme/api, acme/web") || !strings.Contains(ps[0].Fix, "repository-specific pools") {
+		t.Fatalf("problem = %+v, want affected repositories and strict-isolation guidance", ps[0])
+	}
+}
+
 // The same pool, once a host can run it, drops off the panel: a problem that
 // never clears is one an operator learns to ignore.
 func TestPoolProblemClearsWhenAHostCanRunIt(t *testing.T) {
@@ -351,5 +388,450 @@ func TestAFullFleetIsAWarningRatherThanAnOutage(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("problems = %v, want the pool waiting on capacity", h.problemCodes())
+	}
+}
+
+// The installation's webhooks cover every job in its repositories, most of
+// which this fleet never touches. A job on GitHub's own runners is theirs to
+// run however long it queues, and a job no pool here claims may be another
+// provider's, about to start there; neither is a problem for this fleet, and
+// the dev instance once showed fifty of them as jobs that would never run.
+func TestAHostedOrFreshUnmatchedJobIsNotAProblem(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+
+	h.deliverJob(jobEvent{
+		Action: "queued", JobID: 910,
+		Labels:   []string{"ubuntu-latest"},
+		QueuedAt: time.Now().Add(-time.Hour),
+	})
+	h.deliverJob(jobEvent{
+		Action: "queued", JobID: 911,
+		Labels:   []string{"blacksmith-4vcpu-ubuntu-2404"},
+		QueuedAt: time.Now().Add(-time.Hour),
+	})
+	h.deliverJob(jobEvent{
+		Action: "queued", JobID: 912,
+		Labels: []string{"self-hosted", "arc-runner-set"},
+		// Fresh: another provider's scale-up delay has not run out.
+	})
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if contains(h.problemCodes(), "jobs.unmatched") {
+		t.Fatalf("problems = %v; hosted and freshly queued jobs are not this fleet's", h.problemCodes())
+	}
+
+	// The view says which jobs are hosted, so the UI can badge them rather
+	// than warn about them.
+	hosted, err := h.st.GetJobByGitHubID(h.ctx, 910)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := NewJobView(hosted, ""); !v.Hosted || v.Matched {
+		t.Fatalf("view = %+v, want hosted and unmatched", v)
+	}
+	own, err := h.st.GetJobByGitHubID(h.ctx, 912)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := NewJobView(own, ""); v.Hosted {
+		t.Fatalf("a self-hosted label counted as hosted: %+v", v)
+	}
+}
+
+// A cordoned host used to be blamed for every queued job in the fleet, pools it
+// never offered included, which sent an operator to uncordon a machine that
+// would have changed nothing.
+func TestACordonedHostIsOnlyBlamedForWorkItCouldRun(t *testing.T) {
+	h := newHarness(t)
+	inst, _, host := h.fleet()
+	if err := h.st.SetHostCordoned(h.ctx, host.ID, true); err != nil {
+		t.Fatalf("SetHostCordoned: %v", err)
+	}
+	// A pool this host never offered: it runs bare processes, and the host's
+	// agent speaks Docker.
+	bare := h.pool(inst, "bare", "self-hosted", "bare")
+	bare.Backend = store.BackendProcess
+	if err := h.st.UpdatePool(h.ctx, bare); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	h.deliverJob(jobEvent{Action: "queued", JobID: 3, Labels: []string{"self-hosted", "bare"}})
+	if contains(h.problemCodes(), "host.cordoned_with_work") {
+		t.Fatalf("problems = %v; the queued job is for a backend this host does not offer", h.problemCodes())
+	}
+
+	h.deliverJob(jobEvent{Action: "queued", JobID: 4, Labels: []string{"self-hosted", "linux", "x64", "demo"}})
+	if !contains(h.problemCodes(), "host.cordoned_with_work") {
+		t.Fatalf("problems = %v, want the cordoned-host warning for a job it could run", h.problemCodes())
+	}
+}
+
+// The failed-runner count came from a page of at most a hundred rows, so a
+// fleet having a bad day was told it had a hundred failures however many it had.
+func TestTheFailedRunnerCountIsNotAPage(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	const failed = 120
+	for i := 0; i < failed; i++ {
+		r := h.runnerRow(pool, host, store.RunnerProvisioning)
+		if _, err := h.st.TransitionRunner(h.ctx, r.ID, store.RunnerFailed, "the image could not be pulled"); err != nil {
+			t.Fatalf("TransitionRunner: %v", err)
+		}
+	}
+	ps, err := h.c.Problems(h.ctx)
+	if err != nil {
+		t.Fatalf("Problems: %v", err)
+	}
+	for _, p := range ps {
+		if p.Code == "runners.failed" {
+			if want := "120 runners in the failed state"; p.Title != want {
+				t.Fatalf("title = %q, want %q", p.Title, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("problems = %v, want runners.failed", ps)
+}
+
+// findProblem returns the problem with a code, or fails saying what was there.
+func findProblem(t *testing.T, h *harness, code string) Problem {
+	t.Helper()
+	ps, err := h.c.Problems(h.ctx)
+	if err != nil {
+		t.Fatalf("Problems: %v", err)
+	}
+	for _, p := range ps {
+		if p.Code == code {
+			return p
+		}
+	}
+	t.Fatalf("problems = %v, want %s", codesOf(ps), code)
+	return Problem{}
+}
+
+// A runner that is still starting up normally must not raise anything. This is
+// the expensive half of the behaviour to get wrong: a warning that appears
+// every time a pool creates a runner is a warning nobody reads by the end of
+// the week.
+func TestARunnerThatIsStillComingUpIsNotAProblem(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	h.runnerRow(pool, host, store.RunnerRegistering)
+
+	if got := h.problemCodes(); contains(got, "runners.not_progressing") {
+		t.Fatalf("problems = %v, want nothing about a runner that was created a moment ago", got)
+	}
+}
+
+// The distinction this problem exists to make: a container that started and a
+// runner that has not registered is the runner process failing to reach GitHub,
+// and the fix says to read that runner's own logs.
+func TestARunnerWhoseContainerStartedButNeverRegisteredNamesItsOwnLogs(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+
+	started := time.Now()
+	r := h.runnerRow(pool, host, store.RunnerRegistering)
+	if err := h.st.SetRunnerStartup(h.ctx, r.ID, nil, &started); err != nil {
+		t.Fatalf("SetRunnerStartup: %v", err)
+	}
+	// Past half the provision timeout, but not yet past the timeout itself:
+	// the whole point is to say something while there is still time to look.
+	h.c.clock = func() time.Time { return started.Add(3 * time.Minute) }
+
+	p := findProblem(t, h, "runners.not_progressing")
+	if !strings.Contains(p.Fix, "has not registered") || !strings.Contains(p.Fix, "github.com") {
+		t.Fatalf("fix = %q, want the runner-side causes", p.Fix)
+	}
+	if !strings.Contains(p.Detail, r.Name) {
+		t.Fatalf("detail = %q, want the runner named", p.Detail)
+	}
+	if p.TargetID != r.ID || p.TargetKind != "runner" {
+		t.Fatalf("target = %s/%s, want the runner itself", p.TargetKind, p.TargetID)
+	}
+}
+
+// The other shape, and the reason one code is not enough on its own: nothing
+// has reported a workload at all, which is a problem on the host rather than
+// inside the runner.
+func TestARunnerWithNoContainerYetPointsAtTheHost(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerProvisioning)
+
+	h.c.clock = func() time.Time { return r.CreatedAt.Add(3 * time.Minute) }
+
+	p := findProblem(t, h, "runners.not_progressing")
+	if !strings.Contains(p.Fix, "agent log") || !strings.Contains(p.Fix, "image") {
+		t.Fatalf("fix = %q, want the host-side causes", p.Fix)
+	}
+	if !strings.Contains(p.Detail, host.Name) {
+		t.Fatalf("detail = %q, want the host named when they are all on one", p.Detail)
+	}
+}
+
+// The threshold is half the provision timeout rather than a number of its own,
+// so an operator who allows longer for a slow image pull is not then told their
+// runners are stuck while they are still within the time they allowed.
+func TestTheStuckThresholdFollowsTheProvisionTimeout(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerRegistering)
+	h.c.clock = func() time.Time { return r.CreatedAt.Add(3 * time.Minute) }
+
+	if got := h.problemCodes(); !contains(got, "runners.not_progressing") {
+		t.Fatalf("problems = %v, want the default 5m timeout to have raised it by 3m", got)
+	}
+
+	h.cfg.Scheduler.ProvisionTimeout = 20 * time.Minute
+	if got := h.problemCodes(); contains(got, "runners.not_progressing") {
+		t.Fatalf("problems = %v, want silence three minutes into a twenty-minute allowance", got)
+	}
+
+	// Off means off: a fleet that has switched the timeout off has said that
+	// runners may take as long as they take.
+	h.cfg.Scheduler.ProvisionTimeout = 0
+	h.c.clock = func() time.Time { return r.CreatedAt.Add(24 * time.Hour) }
+	if got := h.problemCodes(); contains(got, "runners.not_progressing") {
+		t.Fatalf("problems = %v, want nothing when provision_timeout is off", got)
+	}
+}
+
+// The detail names one runner and the fix tells you what to do about it, so on
+// a mixed fleet the two must describe the same runner. They used to be chosen
+// separately -- the example was the oldest, the fix was whichever shape there
+// were more of -- so an even split named a runner with no container and then
+// told the operator to go and read that container's logs.
+func TestTheFixDescribesTheRunnerTheDetailNames(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+
+	// Oldest first and still waiting for a container, then a younger one whose
+	// container started: one of each, so no bucket is the larger.
+	waiting := h.runnerRow(pool, host, store.RunnerProvisioning)
+	started := h.runnerRow(pool, host, store.RunnerRegistering)
+	// The younger one's clock starts a second after the older one's, not at
+	// the wall clock: the two rows are written within a millisecond of each
+	// other, and a container stamped with the same millisecond as the other
+	// runner's creation is not younger by anyone's clock.
+	at := waiting.CreatedAt.Add(time.Second)
+	if err := h.st.SetRunnerStartup(h.ctx, started.ID, nil, &at); err != nil {
+		t.Fatalf("SetRunnerStartup: %v", err)
+	}
+	h.c.clock = func() time.Time { return waiting.CreatedAt.Add(3 * time.Minute) }
+
+	p := findProblem(t, h, "runners.not_progressing")
+	if !strings.Contains(p.Detail, waiting.Name) {
+		t.Fatalf("detail = %q, want the oldest runner %s", p.Detail, waiting.Name)
+	}
+	if !strings.Contains(p.Fix, "agent log") {
+		t.Fatalf("fix = %q, want the host-side fix that matches a runner with no container", p.Fix)
+	}
+	if !strings.Contains(p.Detail, "1 runner waiting for a container") {
+		t.Fatalf("detail = %q, want both counts named", p.Detail)
+	}
+}
+
+// Runners created in one scheduler pass share a millisecond, and the problem
+// used to pick whichever the store returned first, so the same fleet could be
+// described two ways on two passes. A tie names the runner with no container,
+// whichever order the rows come back in.
+func TestAStuckTieNamesTheRunnerWithNoContainer(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+
+	started := h.runnerRow(pool, host, store.RunnerRegistering)
+	waiting := h.runnerRow(pool, host, store.RunnerProvisioning)
+	// The container came up at the exact moment the other runner was created.
+	at := waiting.CreatedAt
+	if err := h.st.SetRunnerStartup(h.ctx, started.ID, nil, &at); err != nil {
+		t.Fatalf("SetRunnerStartup: %v", err)
+	}
+	h.c.clock = func() time.Time { return waiting.CreatedAt.Add(3 * time.Minute) }
+
+	for i := 0; i < 5; i++ {
+		p := findProblem(t, h, "runners.not_progressing")
+		if !strings.Contains(p.Detail, waiting.Name) {
+			t.Fatalf("pass %d: detail = %q, want the runner with no container, %s", i, p.Detail, waiting.Name)
+		}
+		if !strings.Contains(p.Fix, "agent log") {
+			t.Fatalf("pass %d: fix = %q, want the host-side fix", i, p.Fix)
+		}
+	}
+}
+
+// The drawer is read at the moment something is wrong, so the one thing it
+// must never do is come back empty because it could not look. It used to
+// return a 500 for any single failing query, and a drawer that will not load
+// is indistinguishable from a fleet with nothing wrong.
+//
+// A cancelled context fails every store query at once, which is the strongest
+// version of the case: the sections that need the database are all lost, the
+// ones that do not are still there, and the list says out loud that it is
+// incomplete.
+func TestProblemsSurvivesASectionItCannotGather(t *testing.T) {
+	h := newHarness(t)
+	h.cfg.Security.DisableAuth = true
+
+	ctx, cancel := context.WithCancel(h.ctx)
+	cancel()
+
+	got, err := h.c.Problems(ctx)
+	if err != nil {
+		t.Fatalf("Problems returned an error rather than what it could gather: %v", err)
+	}
+	codes := make([]string, 0, len(got))
+	for _, p := range got {
+		codes = append(codes, p.Code)
+	}
+	// What does not need the database is still reported.
+	if !slices.Contains(codes, "auth.disabled") {
+		t.Errorf("a configuration warning was lost with the database sections: %v", codes)
+	}
+	// And the operator is told the list is short, rather than being left to
+	// read it as a clean fleet.
+	i := slices.Index(codes, "controller.problems_partial")
+	if i < 0 {
+		t.Fatalf("an incomplete list did not say so: %v", codes)
+	}
+	if got[i].Severity != config.SeverityError {
+		t.Errorf("the incomplete-list entry is %q; a list that cannot be trusted is an error", got[i].Severity)
+	}
+	// Naming the sections is what makes it actionable rather than alarming.
+	for _, section := range []string{"hosts", "jobs", "runners"} {
+		if !strings.Contains(got[i].Detail, section) {
+			t.Errorf("the detail does not name the %s section: %q", section, got[i].Detail)
+		}
+	}
+}
+
+// The fallback poller is the safety net for a fleet whose webhooks have stopped
+// arriving, and both of its failure modes are silent by construction: a sweep
+// that has stopped happening looks exactly like a sweep with nothing to find.
+// Until now both were visible only in the log, and nobody reads the log of a
+// fleet that appears to be fine.
+func TestTheProblemsListSaysWhenThePollerHasStoppedSweeping(t *testing.T) {
+	h := newHarness(t)
+	h.cfg.GitHub.PollFallback = true
+	h.cfg.GitHub.PollInterval = 30 * time.Second
+
+	// A poller that has never swept says nothing: a controller that started
+	// ten seconds ago is not a controller with a broken poller.
+	if contains(h.problemCodes(), "poller.stale") {
+		t.Fatalf("a controller that has not polled yet reported a stale poller: %v", h.problemCodes())
+	}
+
+	h.c.lastPollAt.Store(h.c.Now().UnixNano())
+	if contains(h.problemCodes(), "poller.stale") {
+		t.Fatalf("a poller that has just swept was called stale: %v", h.problemCodes())
+	}
+
+	// One missed tick is a slow query, not a fault, so the grace is more than
+	// one interval and the entry must not fire inside it.
+	h.advance(45 * time.Second)
+	if contains(h.problemCodes(), "poller.stale") {
+		t.Errorf("one missed tick was reported as a stopped poller: %v", h.problemCodes())
+	}
+
+	h.advance(2 * time.Minute)
+	got := h.problem(t, "poller.stale")
+	if got.Severity != config.SeverityWarning {
+		t.Errorf("severity = %q, want a warning", got.Severity)
+	}
+	if !strings.Contains(got.Detail, "webhook") {
+		t.Errorf("the detail does not say what is lost while it is stopped: %q", got.Detail)
+	}
+
+	// Off is a choice the configuration validator already names, and saying it
+	// twice would be the drawer disagreeing with itself.
+	h.cfg.GitHub.PollFallback = false
+	if contains(h.problemCodes(), "poller.stale") {
+		t.Errorf("a deliberately disabled poller was reported as broken: %v", h.problemCodes())
+	}
+}
+
+// GitHub's quota is per installation, so a hold on one is not a fleet-wide
+// fault -- and an operator told "the poller is paused" would go looking for
+// one. ZF-101 made the hold per installation; this is the entry catching up
+// with it.
+func TestARateLimitedInstallationIsNamedRatherThanTheWholePoller(t *testing.T) {
+	h := newHarness(t)
+	h.cfg.GitHub.PollFallback = true
+	inst := h.installation()
+
+	until := h.c.Now().Add(20 * time.Minute)
+	h.c.holdGitHub(inst.ID, until)
+
+	got := h.problem(t, "poller.paused")
+	if got.TargetKind != "installation" || got.TargetID != inst.ID {
+		t.Errorf("the entry does not point at the installation being held: %+v", got)
+	}
+	// The organisation, not the opaque identifier: an operator recognises one
+	// of those.
+	if !strings.Contains(got.Title, "acme") {
+		t.Errorf("the title does not name the installation an operator would recognise: %q", got.Title)
+	}
+	if !strings.Contains(got.Detail, until.UTC().Format(time.RFC3339)) {
+		t.Errorf("the detail does not say when it clears: %q", got.Detail)
+	}
+
+	// It clears itself, and the entry has to go with it or an operator is left
+	// chasing a hold that expired an hour ago.
+	h.advance(21 * time.Minute)
+	if contains(h.problemCodes(), "poller.paused") {
+		t.Errorf("an expired hold was still reported: %v", h.problemCodes())
+	}
+}
+
+// A key that does not open its own database is what a restore that brought the
+// database back and left the key behind looks like once the instance is
+// running: every installation fails at once, and the fix is a file rather than
+// anything on GitHub. Reporting it as installation.unhealthy would send the
+// operator to check permissions on an App that is perfectly fine.
+func TestAKeyThatCannotOpenItsOwnDatabaseSaysSo(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+
+	// The database as a restore without its key leaves it: the sealed bytes
+	// are real and this instance's key is not the one that sealed them.
+	other, err := cryptox.GenerateKey()
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	sealed, err := other.SealString("-----BEGIN RSA PRIVATE KEY-----\nother\n-----END RSA PRIVATE KEY-----")
+	if err != nil {
+		t.Fatalf("sealing: %v", err)
+	}
+	inst.PrivateKeyEnc = sealed
+	if err := h.st.UpdateInstallation(h.ctx, inst); err != nil {
+		t.Fatalf("UpdateInstallation: %v", err)
+	}
+
+	codes := h.problemCodes()
+	if !contains(codes, "crypto.key_mismatch") {
+		t.Fatalf("problems = %v, want crypto.key_mismatch", codes)
+	}
+	all, err := h.c.Problems(h.ctx)
+	if err != nil {
+		t.Fatalf("Problems: %v", err)
+	}
+	var p Problem
+	for _, item := range all {
+		if item.Code == "crypto.key_mismatch" {
+			p = item
+		}
+	}
+	// The organisation is in it because an operator with several needs to know
+	// whether this is all of them, which is what distinguishes a lost key from
+	// one App being revoked.
+	if !strings.Contains(p.Detail, "acme") {
+		t.Errorf("the detail does not name the installation: %q", p.Detail)
+	}
+	if !strings.Contains(p.Fix, "encryption key") {
+		t.Errorf("the fix does not name the key to put back: %q", p.Fix)
+	}
+	if p.Severity != config.SeverityError {
+		t.Errorf("severity = %s; nothing can reach GitHub, so this is an error", p.Severity)
 	}
 }

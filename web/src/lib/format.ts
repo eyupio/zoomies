@@ -198,6 +198,38 @@ export function formatGoDuration(input: string | null | undefined): string {
   return ms === null ? (input ?? '--') : formatDuration(ms);
 }
 
+/**
+ * A Go duration, as a period a sentence can name: "24h0m0s" becomes
+ * "24 hours".
+ *
+ * The API says what window a figure covers and the page used to claim one of
+ * its own in prose, which is how the Overview came to promise waits "over the
+ * last hour" for figures the controller computes over a day. Returns an empty
+ * string for anything it cannot read, so a caller leaves the claim out
+ * altogether rather than making a worse one.
+ */
+export function describeWindow(input: string | null | undefined): string {
+  const ms = parseGoDuration(input);
+  if (ms === null || ms <= 0) return '';
+  const units: [number, string, number][] = [
+    // A day only once there is more than one of them: the default window is a
+    // day, and "the last 24 hours" is how an operator says it -- "the last 1
+    // day" is how nothing says it.
+    [86_400_000, 'day', 2],
+    [3_600_000, 'hour', 1],
+    [60_000, 'minute', 1],
+    [1000, 'second', 1],
+  ];
+  for (const [size, name, least] of units) {
+    if (ms < size * least) continue;
+    // Only whole units read as a period; 90 minutes is not "1 hour", and
+    // rounding it to one would be the same lie in a smaller font.
+    if (ms % size !== 0) continue;
+    return pluralise(ms / size, name);
+  }
+  return formatDuration(ms);
+}
+
 /* -- numbers -------------------------------------------------------------- */
 
 const NUMBER = new Intl.NumberFormat();

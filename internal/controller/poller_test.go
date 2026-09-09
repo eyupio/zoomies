@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -45,8 +46,11 @@ func TestPollerStandsDownWhenWebhooksAreRecent(t *testing.T) {
 	h.fleet()
 	h.gh.AddQueuedJob("acme/widgets", "CI", "build", []string{"self-hosted", "linux", "x64", "demo"})
 
+	// The repository is what credits the delivery to an installation, and a
+	// real workflow_job delivery always carries one.
 	if err := h.st.RecordDelivery(h.ctx, &store.WebhookDelivery{
-		DeliveryID: "recent", Event: "workflow_job", Status: "accepted", ReceivedAt: time.Now(),
+		DeliveryID: "recent", Event: "workflow_job", Repo: "acme/widgets",
+		Status: "accepted", ReceivedAt: time.Now(),
 	}); err != nil {
 		t.Fatalf("RecordDelivery: %v", err)
 	}
@@ -91,14 +95,14 @@ func TestPollerKeepsGoingWhenDeliveriesAreRejected(t *testing.T) {
 // spend the quota the webhook path's own calls need.
 func TestPollerBacksOffWhenRateLimited(t *testing.T) {
 	h := newHarness(t)
-	h.fleet()
+	inst, _, _ := h.fleet()
 	reset := time.Now().Add(time.Hour)
 	h.gh.SetRateLimit(5000, 0, reset)
 	h.gh.SetError("/installation/repositories", 403, "API rate limit exceeded")
 
 	h.c.pollOnce(h.ctx)
 
-	if h.c.pollPausedUntil.Load() == 0 {
+	if !h.c.githubHeld(inst.ID, time.Now()) {
 		t.Fatal("the poller did not back off after GitHub reported a rate limit")
 	}
 
@@ -106,5 +110,79 @@ func TestPollerBacksOffWhenRateLimited(t *testing.T) {
 	h.c.pollOnce(h.ctx)
 	if after := len(h.gh.Requests()); after != before {
 		t.Fatalf("the poller made %d more calls while backed off", after-before)
+	}
+}
+
+// A flat fifteen minutes is either most of a window wasted or most of a window
+// spent rediscovering the same refusal. GitHub says when the quota returns, so
+// the fixed wait is only what to do when it did not.
+func TestAStandDownLastsAsLongAsGitHubAsked(t *testing.T) {
+	now := time.Date(2025, 3, 4, 12, 0, 0, 0, time.UTC)
+	reset := now.Add(2 * time.Minute)
+
+	got := rateLimitHold(&github.RateLimitedError{ResetAt: reset}, now)
+
+	// A little past the reset: resuming on the exact second races GitHub's own
+	// accounting and buys another refusal.
+	if !got.After(reset) {
+		t.Fatalf("hold = %v; it must clear the reset at %v", got, reset)
+	}
+	if got.Sub(reset) > time.Minute {
+		t.Fatalf("hold = %v, which is far past the reset at %v", got, reset)
+	}
+	if got.Sub(now) >= rateLimitBackoff {
+		t.Fatalf("hold of %s is no better than the flat %s it replaces", got.Sub(now), rateLimitBackoff)
+	}
+}
+
+// GitHub does not always say -- an older enterprise server, a proxy that drops
+// the headers -- and the fixed wait is what that case still gets.
+func TestAStandDownFallsBackToTheFixedWaitWhenGitHubSaysNothing(t *testing.T) {
+	now := time.Date(2025, 3, 4, 12, 0, 0, 0, time.UTC)
+
+	got := rateLimitHold(&github.RateLimitedError{}, now)
+
+	if !got.Equal(now.Add(rateLimitBackoff)) {
+		t.Fatalf("hold = %v, want the fixed %s", got, rateLimitBackoff)
+	}
+}
+
+// A reset days away is a clock out of step or a proxy inventing a header.
+// Believing it would take an installation out of service until somebody
+// noticed, which is a worse failure than one more refused call.
+func TestAnAbsurdResetDoesNotParkAnInstallationForEver(t *testing.T) {
+	now := time.Date(2025, 3, 4, 12, 0, 0, 0, time.UTC)
+
+	got := rateLimitHold(&github.RateLimitedError{ResetAt: now.Add(72 * time.Hour)}, now)
+
+	if got.Sub(now) > maxRateLimitBackoff {
+		t.Fatalf("hold of %s exceeds the %s cap", got.Sub(now), maxRateLimitBackoff)
+	}
+}
+
+// The stamp is the only evidence that the safety net is still sweeping, so the
+// thing to pin is that a sweep writes it -- the failure being designed out is a
+// stamp nothing ever moves, which reads as a poller that stopped the moment the
+// controller started and would make poller.stale permanent.
+func TestACompletedSweepStampsWhenItFinished(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+
+	if !h.c.LastPollAt().IsZero() {
+		t.Fatal("a controller that has not swept reported a last poll")
+	}
+
+	before := h.c.Now()
+	h.c.pollOnce(h.ctx)
+	first := h.c.LastPollAt()
+	if first.Before(before) {
+		t.Fatalf("a completed sweep did not stamp: LastPollAt = %v, sweep started %v", first, before)
+	}
+
+	// And it moves with each sweep, or the second one is invisible.
+	h.advance(time.Minute)
+	h.c.pollOnce(h.ctx)
+	if !h.c.LastPollAt().After(first) {
+		t.Errorf("a second sweep left the stamp at %v", first)
 	}
 }

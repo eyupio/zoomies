@@ -1,10 +1,13 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -64,6 +67,70 @@ func TestUserLifecycle(t *testing.T) {
 	gone.mustStatus(t, http.StatusNotFound, "get a deleted user")
 }
 
+// TestDisablingAUserEndsItsSessionsAtTheAPI proves the teardown that actually
+// runs in production. The auth service has SetUserDisabled, which deletes the
+// sessions and is what the service-level test covers, but nothing calls it: the
+// only way an account is disabled is this PATCH, which saves the row and then
+// ends the sessions itself. Deleting that second step would break the property
+// and break no test.
+//
+// A 401 on its own would not prove it, either. Authentication refuses a
+// disabled account whatever its sessions look like, so the cookie stops
+// working the moment the flag is set. What has to be shown is that the rows
+// are gone -- because an account that is re-enabled must not find its old
+// cookies waiting, and because a session left behind is a live credential for
+// as long as it has not expired.
+func TestDisablingAUserEndsItsSessionsAtTheAPI(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("root", store.RoleAdmin)
+	adminCookie := h.session(admin)
+	// Two sessions, because the teardown is per-account and not per-cookie:
+	// signing out the laptop is no use if the phone is still signed in.
+	bob, laptop := h.user("bob", store.RoleOperator)
+	phone := h.session(bob)
+
+	for _, c := range []struct {
+		name   string
+		cookie string
+	}{{"laptop", laptop}, {"phone", phone}} {
+		probe := h.do(request{method: http.MethodGet, path: "/api/v1/auth/session", cookie: c.cookie})
+		probe.mustStatus(t, http.StatusOK, "bob's "+c.name+" before being disabled")
+	}
+
+	disable := h.do(request{method: http.MethodPatch, path: "/api/v1/users/" + bob.ID,
+		cookie: adminCookie, body: map[string]any{"disabled": true}})
+	disable.mustStatus(t, http.StatusOK, "disable bob")
+
+	// The rows themselves are gone, not merely refused. This is the assertion
+	// the 401 cannot make.
+	for _, c := range []struct {
+		name   string
+		cookie string
+	}{{"laptop", laptop}, {"phone", phone}} {
+		_, _, err := h.st.GetSessionByTokenHash(h.ctx, cryptox.HashToken(c.cookie))
+		if !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("bob's %s session survived being disabled: %v", c.name, err)
+		}
+	}
+
+	// And re-enabling the account does not bring them back, which is what an
+	// operator disabling somebody for an hour is relying on.
+	enable := h.do(request{method: http.MethodPatch, path: "/api/v1/users/" + bob.ID,
+		cookie: adminCookie, body: map[string]any{"disabled": false}})
+	enable.mustStatus(t, http.StatusOK, "re-enable bob")
+	for _, c := range []struct {
+		name   string
+		cookie string
+	}{{"laptop", laptop}, {"phone", phone}} {
+		probe := h.do(request{method: http.MethodGet, path: "/api/v1/auth/session", cookie: c.cookie})
+		probe.mustStatus(t, http.StatusUnauthorized, "bob's "+c.name+" after he was re-enabled")
+	}
+
+	// Nobody else was signed out: the teardown is scoped to the one account.
+	stillIn := h.do(request{method: http.MethodGet, path: "/api/v1/auth/session", cookie: adminCookie})
+	stillIn.mustStatus(t, http.StatusOK, "the admin who did the disabling")
+}
+
 // TestSettings covers what may be changed at runtime and what may not.
 func TestSettings(t *testing.T) {
 	h := newHarness(t)
@@ -98,8 +165,8 @@ func TestSettings(t *testing.T) {
 	if retention["jobs"] != "48h0m0s" {
 		t.Errorf("retention.jobs = %v, want 48h0m0s", retention["jobs"])
 	}
-	if h.cfg.Retention.Jobs.String() != "48h0m0s" {
-		t.Errorf("the running configuration was not changed: %s", h.cfg.Retention.Jobs)
+	if h.ctrl.Config().Retention.Jobs.String() != "48h0m0s" {
+		t.Errorf("the running configuration was not changed: %s", h.ctrl.Config().Retention.Jobs)
 	}
 
 	// A setting that needs a restart is refused with a message that says so.
@@ -114,7 +181,7 @@ func TestSettings(t *testing.T) {
 	if !strings.Contains(env.Errors[0].Message, "restart") {
 		t.Errorf("the message does not say a restart is needed: %q", env.Errors[0].Message)
 	}
-	if h.cfg.Server.Bind == "0.0.0.0:9000" {
+	if h.ctrl.Config().Server.Bind == "0.0.0.0:9000" {
 		t.Error("a refused setting was applied anyway")
 	}
 
@@ -138,11 +205,11 @@ func TestSettings(t *testing.T) {
 	mixed := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
 		body: map[string]any{"retention.jobs": "1h", "log.level": "bogus"}})
 	mixed.mustStatus(t, http.StatusUnprocessableEntity, "patch a good key beside a bad one")
-	if h.cfg.Retention.Jobs.String() != "48h0m0s" {
-		t.Errorf("retention.jobs = %s after a refused request, want it left at 48h0m0s", h.cfg.Retention.Jobs)
+	if h.ctrl.Config().Retention.Jobs.String() != "48h0m0s" {
+		t.Errorf("retention.jobs = %s after a refused request, want it left at 48h0m0s", h.ctrl.Config().Retention.Jobs)
 	}
-	if h.cfg.Log.Level != "debug" {
-		t.Errorf("log.level = %q after a refused request, want it left at debug", h.cfg.Log.Level)
+	if h.ctrl.Config().Log.Level != "debug" {
+		t.Errorf("log.level = %q after a refused request, want it left at debug", h.ctrl.Config().Log.Level)
 	}
 	if n := countAudit(); n != audited {
 		t.Errorf("a refused request wrote %d audit rows", n-audited)
@@ -181,6 +248,96 @@ func TestJoinTokenLifecycle(t *testing.T) {
 	bad := h.do(request{method: http.MethodPost, path: "/api/v1/join-tokens", cookie: cookie,
 		body: map[string]any{"ttl": "soon"}})
 	bad.mustStatus(t, http.StatusUnprocessableEntity, "create with a bad ttl")
+}
+
+// TestJoinTokenCanBeWatchedUntilAHostUsesIt is the contract behind the
+// Add-a-host page: it polls one token and learns which host redeemed it, so
+// the operator sees the machine arrive without leaving the page.
+func TestJoinTokenCanBeWatchedUntilAHostUsesIt(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("root", store.RoleAdmin)
+	cookie := h.session(admin)
+
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/join-tokens", cookie: cookie,
+		body: map[string]any{"ttl": "1h", "capacity": 0}})
+	created.mustStatus(t, http.StatusCreated, "create join token")
+	var minted createJoinTokenResponse
+	created.into(t, &minted)
+
+	before := h.do(request{method: http.MethodGet, path: "/api/v1/join-tokens/" + minted.ID, cookie: cookie})
+	before.mustStatus(t, http.StatusOK, "get an unused token")
+	var pending joinTokenResponse
+	before.into(t, &pending)
+	if !pending.Usable || pending.UsedAt != nil || pending.UsedByID != "" {
+		t.Fatalf("an unused token reads as %+v", pending)
+	}
+	if strings.Contains(string(before.body), minted.Token) {
+		t.Fatal("reading a join token back returned its secret")
+	}
+
+	join := h.do(request{method: http.MethodPost, path: "/api/v1/agent/join", body: map[string]any{
+		"protocol_version": 1, "join_token": minted.Token, "name": "build-box-7",
+		"capacity": 3, "os": "linux", "arch": "arm64", "version": "test",
+		"backends": []map[string]any{{"kind": "docker", "available": true}},
+	}})
+	join.mustStatus(t, http.StatusOK, "agent join")
+	var joined struct {
+		HostID string `json:"host_id"`
+	}
+	join.into(t, &joined)
+
+	after := h.do(request{method: http.MethodGet, path: "/api/v1/join-tokens/" + minted.ID, cookie: cookie})
+	after.mustStatus(t, http.StatusOK, "get a spent token")
+	var spent joinTokenResponse
+	after.into(t, &spent)
+	if spent.Usable || spent.UsedAt == nil {
+		t.Errorf("a redeemed token still reads as unused: %+v", spent)
+	}
+	if spent.UsedByID != joined.HostID {
+		t.Errorf("used_by_id = %q, want the host that joined, %q", spent.UsedByID, joined.HostID)
+	}
+	// Capacity 0 on the token means the agent's own number stands, which is
+	// what "let the agent decide" has to mean for the page's default.
+	host := h.do(request{method: http.MethodGet, path: "/api/v1/hosts/" + joined.HostID, cookie: cookie})
+	host.mustStatus(t, http.StatusOK, "get the joined host")
+	var view hostResponse
+	host.into(t, &view)
+	if view.Capacity != 3 {
+		t.Errorf("host capacity = %d, want the agent's 3 when the token left it to the agent", view.Capacity)
+	}
+
+	missing := h.do(request{method: http.MethodGet, path: "/api/v1/join-tokens/join_nothing", cookie: cookie})
+	missing.mustStatus(t, http.StatusNotFound, "get a token that never existed")
+}
+
+// TestJoinTokenCommandUsesTheAddressTheCallerGave covers the UI sending the
+// address the browser reached the controller on, so the pasted command never
+// carries a loopback URL or a placeholder.
+func TestJoinTokenCommandUsesTheAddressTheCallerGave(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("root", store.RoleAdmin)
+	cookie := h.session(admin)
+
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/join-tokens", cookie: cookie,
+		body: map[string]any{"controller_url": "https://zoomies.internal:8443/"}})
+	created.mustStatus(t, http.StatusCreated, "create with a controller_url")
+	var minted createJoinTokenResponse
+	created.into(t, &minted)
+	if !strings.Contains(minted.Command, "--controller https://zoomies.internal:8443 ") {
+		t.Errorf("the command does not carry the given address, without its trailing slash: %q", minted.Command)
+	}
+	if strings.Contains(minted.Command, "<this-controller>") {
+		t.Errorf("the command still carries the placeholder: %q", minted.Command)
+	}
+
+	for _, bad := range []string{"zoomies.internal", "ftp://zoomies.internal", "https://", "https://user:pw@zoomies.internal"} {
+		resp := h.do(request{method: http.MethodPost, path: "/api/v1/join-tokens", cookie: cookie,
+			body: map[string]any{"controller_url": bad}})
+		resp.mustStatus(t, http.StatusUnprocessableEntity, "create with controller_url "+bad)
+		if !strings.Contains(string(resp.body), `"controller_url"`) {
+			t.Errorf("the refusal of %q does not name the field: %s", bad, resp.body)
+		}
+	}
 }
 
 // TestHostCordonAndDelete covers taking a machine out of the fleet safely.
@@ -364,6 +521,54 @@ func TestAuditListAndFilters(t *testing.T) {
 		if e.Action != "pool.create" {
 			t.Errorf("the action filter let %q through", e.Action)
 		}
+	}
+}
+
+// TestStatsCarryTheFleetsOwnFigures is what lets the Overview default to this
+// fleet's numbers.
+//
+// GitHub reports every job in an installed repository, so on an organisation
+// that also uses hosted runners the unscoped counts are mostly somebody else's,
+// and a queue depth built from them answers "why is my fleet slow?" with a
+// number nobody here can act on. Both scopes travel in one payload rather than
+// being chosen by a query parameter, because the same numbers arrive over the
+// event stream -- one frame for every viewer -- so a per-request scope would be
+// right until the next frame overwrote it.
+func TestStatsCarryTheFleetsOwnFigures(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	h.job(pool, store.JobQueued)
+
+	// Somebody else's: reported by GitHub, claimed by no pool, run by no
+	// runner here, and already under way so it cannot be counted as the
+	// unclaimed-queued case the fleet does own.
+	started := time.Now().Add(-time.Minute)
+	if _, err := h.st.UpsertJob(h.ctx, &store.Job{
+		GitHubJobID: 987654, GitHubRunID: 2, Repo: "acme/widgets", Workflow: "ci",
+		JobName: "hosted", State: store.JobInProgress,
+		QueuedAt: time.Now().Add(-2 * time.Minute), StartedAt: &started,
+	}); err != nil {
+		t.Fatalf("seeding a hosted job: %v", err)
+	}
+
+	viewer, _ := h.user("viewer", store.RoleViewer)
+	resp := h.do(request{method: http.MethodGet, path: "/api/v1/stats", cookie: h.session(viewer)})
+	resp.mustStatus(t, http.StatusOK, "stats")
+	body := resp.json(t)
+
+	if body["running_jobs"] != float64(1) {
+		t.Errorf("running_jobs = %v, want the hosted job counted in the unscoped figure", body["running_jobs"])
+	}
+	fleet, ok := body["fleet"].(map[string]any)
+	if !ok {
+		t.Fatalf("the stats payload carries no fleet figures: %s", truncate(resp.body))
+	}
+	if fleet["running_jobs"] != float64(0) {
+		t.Errorf("fleet.running_jobs = %v, want 0: the only running job is somebody else's", fleet["running_jobs"])
+	}
+	if fleet["queued_jobs"] != float64(1) {
+		t.Errorf("fleet.queued_jobs = %v, want the pool's own queued job", fleet["queued_jobs"])
 	}
 }
 

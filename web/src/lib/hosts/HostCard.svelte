@@ -10,7 +10,7 @@
 <script lang="ts">
   import { Pencil, ServerCog, Trash2 } from '@lucide/svelte';
   import type { Host } from '$lib/api/types';
-  import { formatNumber, pluralise } from '$lib/format';
+  import { formatMegabytes, formatNumber } from '$lib/format';
   import { hostStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import DropdownMenu from '$lib/components/DropdownMenu.svelte';
@@ -18,6 +18,7 @@
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import UtilisationBar from '$lib/components/UtilisationBar.svelte';
   import BackendList from './BackendList.svelte';
+  import ResourceBar from './ResourceBar.svelte';
 
   interface Props {
     host: Host;
@@ -40,13 +41,119 @@
   }: Props = $props();
 
   const status = $derived(hostStatus({ healthy: host.healthy, cordoned: host.cordoned }));
+
+  // How this host's release stands to the controller's, and whether its agent
+  // speaks a protocol the controller understands at all. Both come from the
+  // controller: it is the side that knows its own version, and computing skew
+  // here would give a different answer from the one the agent logs about
+  // itself.
+  const skew = $derived(host.version_skew ?? '');
+  const skewLabel = $derived(
+    skew === 'behind' ? 'Behind' : skew === 'ahead' ? 'Ahead' : skew ? 'Different build' : '',
+  );
+  const skewHint = $derived(
+    skew === 'ahead'
+      ? 'This agent is a later release than the controller, which is the direction nothing is tested in. Upgrade the controller first.'
+      : skew === 'behind'
+        ? 'This agent is an earlier release than the controller. It is placing work as normal; upgrade it when convenient.'
+        : 'This agent is a build the controller cannot order against its own. Both are running; check which is which before reporting a bug.',
+  );
   // The host's own count, not one derived from the cached runner list: the cache
   // holds a page of runners, so counting it would undercount a busy host.
   const active = $derived(host.active_runners ?? 0);
   const capacity = $derived(host.capacity ?? 0);
   const free = $derived(host.free ?? Math.max(0, capacity - active));
   const labels = $derived(Object.entries(host.labels ?? {}));
-  const platform = $derived([host.os, host.arch].filter(Boolean).join('/'));
+  // What this machine is, in the terms a pool asks in. The controller renders
+  // the sentence; the kernel and architecture are the fallback for an agent too
+  // old to report a distribution.
+  const platform = $derived(host.platform_label || [host.os, host.arch].filter(Boolean).join('/'));
+
+  // How much machine it is, which is the other half of the answer to "why is
+  // this host full".
+  const size = $derived.by(() => {
+    const cpus = host.cpus ?? 0;
+    if (cpus <= 0) return '';
+    const memory = host.memory_mb ?? 0;
+    return memory > 0
+      ? `${formatNumber(cpus)} vCPU · ${formatNumber(Math.round(memory / 1024))} GB`
+      : `${formatNumber(cpus)} vCPU`;
+  });
+
+  /**
+   * The disk behind the work directory, where a runner's checkout and its
+   * caches land.
+   *
+   * It is the resource that runs out first and says nothing when it does: a
+   * host with slots free and no space starts a job that fails part-way
+   * through, which reads as a flaky build rather than a full disk. Free is
+   * what a runner may actually write to -- the filesystem's reserve is root's,
+   * and a runner is not root.
+   *
+   * Zero total means the agent did not measure it, which is not a full disk,
+   * so nothing is shown rather than "0 GB free".
+   */
+  const disk = $derived.by(() => {
+    const total = host.disk_total_mb ?? 0;
+    if (total <= 0) return '';
+    const free = host.disk_free_mb ?? 0;
+    const gb = (mb: number) => formatNumber(Math.round(mb / 1024));
+    return `${gb(free)} GB free of ${gb(total)}`;
+  });
+
+  /**
+   * What this host has already promised away, against what may be placed on it.
+   *
+   * Slots answer "will the fleet take another runner here"; this answers
+   * "can the machine carry it", and they are different questions -- a host with
+   * three slots free and no memory left takes nothing, and the slot bar above
+   * cannot say why. The figures are the scheduler's own, as of its last pass:
+   * a number here that disagreed with the one it placed against would be worse
+   * than none, because it would be believed.
+   */
+  const resources = $derived.by(() => {
+    if (!host.resources_known || !host.reserved_known) return null;
+    const rows: { label: string; used: number; total: number; text: string; hint: string }[] = [];
+    const cpuTotal = host.allocatable_cpus ?? 0;
+    if (cpuTotal > 0) {
+      const used = host.reserved_cpus ?? 0;
+      rows.push({
+        label: 'CPU',
+        used,
+        total: cpuTotal,
+        text: `${round(used)} of ${round(cpuTotal)}`,
+        hint: host.reserve_cpus
+          ? `${formatNumber(host.reserve_cpus)} held back for the machine`
+          : '',
+      });
+    }
+    const memTotal = host.allocatable_memory_mb ?? 0;
+    if (memTotal > 0) {
+      const used = host.reserved_memory_mb ?? 0;
+      rows.push({
+        label: 'Memory',
+        used,
+        total: memTotal,
+        text: `${formatMegabytes(used)} of ${formatMegabytes(memTotal)}`,
+        hint: host.reserve_memory_mb
+          ? `${formatMegabytes(host.reserve_memory_mb)} held back for the machine`
+          : '',
+      });
+    }
+    return rows.length > 0 ? rows : null;
+  });
+
+  /** One decimal at most: a CPU share of 3.75 is a fact, 3.7500000001 is not. */
+  function round(n: number): string {
+    return formatNumber(Math.round(n * 10) / 10);
+  }
+
+  /** Below this, the disk is the reason a job will fail rather than a detail. */
+  const DISK_LOW = 0.1;
+  const diskLow = $derived.by(() => {
+    const total = host.disk_total_mb ?? 0;
+    return total > 0 && (host.disk_free_mb ?? 0) / total < DISK_LOW;
+  });
 
   const actions = $derived<MenuItem[]>([
     {
@@ -81,6 +188,34 @@
       <h3 id="host-{host.id}-name">{host.name || host.id}</h3>
       <div class="badges">
         <Badge {status} size="sm" title={status.hint} />
+        {#if host.incompatible}
+          <Badge
+            tone="danger"
+            label="Incompatible"
+            size="sm"
+            dot={false}
+            title={host.incompatible_reason ||
+              'This agent speaks a protocol the controller does not, so no new runner is placed here.'}
+          />
+        {:else if skewLabel}
+          <!-- neutral, not a status colour: a host on another release is not
+               in a state, it is a fact worth knowing. The status palette is a
+               fixed mapping and reusing one here would teach it a second
+               meaning. -->
+          <Badge tone="neutral" label={skewLabel} size="sm" dot={false} title={skewHint} />
+        {/if}
+        {#if !host.resources_known}
+          <!-- Not a fault: an agent too old to measure its machine is placed by
+               slots alone, exactly as every host was before it could. Saying so
+               is what stops a card with every figure missing reading as broken. -->
+          <Badge
+            tone="neutral"
+            label="Size unknown"
+            size="sm"
+            dot={false}
+            title="This agent has not reported the machine's CPUs, memory or disk, so this host is placed by its slot count alone. Upgrade the agent and the figures appear on its next heartbeat."
+          />
+        {/if}
         {#if host.embedded}
           <Badge
             tone="accent"
@@ -96,7 +231,13 @@
   </header>
 
   <p class="meta">
-    {#if platform}<span class="mono">{platform}</span>{/if}
+    {#if platform}<span>{platform}</span>{/if}
+    {#if size}<span class="tabular">{size}</span>{/if}
+    {#if disk}<span
+        class="tabular"
+        class:low={diskLow}
+        title="Disk on the filesystem holding the work directory">{disk}</span
+      >{/if}
     {#if host.version}<span>agent {host.version}</span>{/if}
     {#if host.address}<span class="mono">{host.address}</span>{/if}
   </p>
@@ -110,10 +251,17 @@
     {/if}
   </p>
 
-  {#if host.cordoned}
+  {#if host.incompatible}
+    <!-- The controller's own sentence, which already names both protocol
+         versions and what happens to the work here. Appending one of our own
+         produced a run-on paragraph saying the same thing twice. -->
     <p class="cordoned">
-      Cordoned. Its {pluralise(active, 'runner')} keep going and finish their jobs; no new runner is placed
-      here until it is uncordoned.
+      {host.incompatible_reason ||
+        'This agent speaks a protocol the controller does not, so no new runner is placed here. Its running work finishes and is drained as normal.'}
+    </p>
+  {:else if host.cordoned}
+    <p class="cordoned">
+      Cordoned. Its running work finishes; no new runner is placed here until it is uncordoned.
     </p>
   {/if}
 
@@ -121,6 +269,7 @@
     <UtilisationBar
       busy={active}
       live={capacity}
+      tone="capacity"
       label="Runner slots in use on {host.name || host.id}"
       showText={false}
     />
@@ -129,6 +278,23 @@
       <span class="muted">· {formatNumber(free)} free</span>
     </p>
   </div>
+
+  {#if resources}
+    <section class="block" aria-label="Resources committed on {host.name || host.id}">
+      <h4>Committed</h4>
+      <div class="resources">
+        {#each resources as row (row.label)}
+          <ResourceBar
+            label={row.label}
+            used={row.used}
+            total={row.total}
+            text={row.text}
+            hint={row.hint}
+          />
+        {/each}
+      </div>
+    </section>
+  {/if}
 
   <section class="block" aria-label="Backends on {host.name || host.id}">
     <h4>Backends</h4>
@@ -155,7 +321,7 @@
     flex-direction: column;
     gap: var(--z-space-3);
     padding: var(--z-space-5);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
     min-width: 0;
@@ -193,6 +359,13 @@
     font-size: var(--z-text-xs);
     color: var(--z-text-subtle);
   }
+  /* A disk this close to full is the reason the next job fails, not a detail:
+     it takes the pending colour so it reads as something to attend to before
+     it becomes an incident. */
+  .meta .low {
+    color: var(--z-pending);
+    font-weight: var(--z-weight-medium);
+  }
   .health {
     margin: 0;
     font-size: var(--z-text-xs);
@@ -205,7 +378,7 @@
   .cordoned {
     margin: 0;
     padding: var(--z-space-2) var(--z-space-3);
-    border: 1px solid var(--z-draining-border);
+    border: var(--z-border-width) solid var(--z-draining-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-draining-subtle);
     font-size: var(--z-text-xs);
@@ -234,15 +407,20 @@
     flex-direction: column;
     gap: var(--z-space-2);
     padding-top: var(--z-space-3);
-    border-top: 1px solid var(--z-border);
+    border-top: var(--z-border-width) solid var(--z-border);
   }
   h4 {
     margin: 0;
     font-size: var(--z-text-2xs);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     color: var(--z-text-muted);
     font-weight: var(--z-weight-medium);
+  }
+  .resources {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-2);
   }
   .labels {
     display: flex;
@@ -254,7 +432,7 @@
   }
   .labels li {
     padding: 0 var(--z-space-1);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     color: var(--z-text-muted);

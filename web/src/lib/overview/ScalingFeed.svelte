@@ -10,13 +10,11 @@
   import type { LucideIcon } from '@lucide/svelte';
   import type { ScalingEvent } from '$lib/api/types';
   import { fleet } from '$lib/state/fleet.svelte';
-  import { session } from '$lib/state/session.svelte';
   import { toMillis } from '$lib/format';
-  import Button from '$lib/components/Button.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
-  import Panel from './Panel.svelte';
+  import Panel from '$lib/components/Panel.svelte';
 
   interface Props {
     loading?: boolean;
@@ -67,11 +65,13 @@
       .map(decide),
   );
 
-  const canCreate = $derived(session.can('operator'));
   const hasPools = $derived(fleet.pools.length > 0);
 </script>
 
-<Panel title="Recent scaling" description="Newest first." class={className} flush>
+<!-- `scroll`: on a desktop the Overview cuts this panel to the height of the
+     column beside it, and the decisions that do not fit are a scroll away
+     rather than a screen of blank space under the pools. -->
+<Panel title="Recent scaling" description="Newest first." class={className} flush scroll>
   {#if loading}
     <p class="sr-only">Loading recent scaling decisions.</p>
     <ul class="feed" aria-hidden="true">
@@ -90,12 +90,10 @@
       icon={History}
       compact
       title="No scaling decisions yet"
-      description="The scheduler writes a line here every time it creates or removes runners, and says why."
-    >
-      {#if canCreate && !hasPools}
-        <Button variant="primary" href="/pools/new">Create a pool</Button>
-      {/if}
-    </EmptyState>
+      description={hasPools
+        ? 'The scheduler writes a line here every time it creates or removes runners, and says why.'
+        : 'Once a pool exists, the scheduler writes a line here every time it creates or removes runners, and says why.'}
+    />
   {:else}
     <ul class="feed">
       {#each decisions as decision (decision.key)}
@@ -137,7 +135,7 @@
     align-items: flex-start;
     gap: var(--z-space-3);
     padding: var(--z-space-3) var(--z-space-5);
-    border-bottom: 1px solid var(--z-border);
+    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   .item:last-child {
     border-bottom: 0;

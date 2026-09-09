@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -49,6 +50,10 @@ func (d *demoClient) Probe(context.Context) (*github.AppInfo, error) {
 			"metadata":                         "read",
 		},
 		Events: []string{"workflow_job"},
+		// The demo fixture is a fleet with nothing wrong, and an installation
+		// on "selected" would read as one of the two setup mistakes the verify
+		// dialog exists to name.
+		RepositorySelection: "all",
 	}, nil
 }
 
@@ -95,36 +100,91 @@ func (d *demoClient) WebURL() string { return "https://github.com/" + d.target }
 // would be worse than a refusal that says why.
 
 func (d *demoClient) ListRepositories(context.Context, int) ([]github.Repository, error) {
-	out := make([]github.Repository, 0, len(demoMigrationRepos))
-	for _, r := range demoMigrationRepos {
+	names := append(append([]string{}, demoRepos...), demoQuietRepos...)
+	names = append(append(names, demoMigratedRepos...), demoArchivedRepos...)
+	out := make([]github.Repository, 0, len(names))
+	for _, name := range names {
 		out = append(out, github.Repository{
-			FullName:      r.name,
+			FullName:      name,
 			DefaultBranch: "main",
 			Private:       true,
-			Archived:      r.archived,
-			HTMLURL:       "https://github.com/" + r.name,
+			Archived:      slices.Contains(demoArchivedRepos, name),
+			HTMLURL:       "https://github.com/" + name,
 		})
 	}
 	return out, nil
 }
 
+// ListWorkflows gives the fixture the answers a real organisation gives: a
+// repository with one workflow, a repository with several -- so the wizard's
+// per-file choice has something to choose between -- a repository with no
+// workflows at all, which is what the "hide repositories with nothing to move"
+// filter exists for, and one that has already been migrated, which has nothing
+// to move for the opposite reason.
 func (d *demoClient) ListWorkflows(_ context.Context, repo string) ([]github.WorkflowFile, error) {
-	content := demoWorkflow
-	for _, r := range demoMigrationRepos {
-		if r.name == repo && r.onZoomies {
-			content = demoMigratedWorkflow
+	for _, quiet := range demoQuietRepos {
+		if repo == quiet {
+			return nil, fmt.Errorf("%s: %w", repo, github.ErrNoWorkflows)
 		}
 	}
-	return []github.WorkflowFile{{
+	sha := "demo" + strings.ReplaceAll(repo, "/", "")
+	if slices.Contains(demoMigratedRepos, repo) {
+		return []github.WorkflowFile{{
+			Path:    ".github/workflows/ci.yml",
+			SHA:     sha,
+			Content: demoMigratedWorkflow,
+		}}, nil
+	}
+	out := []github.WorkflowFile{{
 		Path:    ".github/workflows/ci.yml",
-		SHA:     "demo" + strings.ReplaceAll(repo, "/", ""),
-		Content: content,
-	}}, nil
+		SHA:     sha,
+		Content: demoWorkflow,
+	}}
+	if repo == demoRepos[0] {
+		out = append(out, github.WorkflowFile{
+			Path:    ".github/workflows/release.yml",
+			SHA:     sha + "release",
+			Content: demoReleaseWorkflow,
+		})
+	}
+	return out, nil
 }
 
 func (d *demoClient) OpenPullRequest(context.Context, github.PullRequestRequest) (*github.PullRequest, error) {
 	return nil, fmt.Errorf("%w, so it cannot open a pull request; connect a real installation to migrate a repository", ErrDemoFixture)
 }
+
+// demoMigratedWorkflow is a repository somebody has already moved. It reads as
+// "nothing to do" in exactly the same way as a repository nobody has touched,
+// which is why the wizard has to tell the two apart by name.
+const demoMigratedWorkflow = `name: CI
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: zoomies-demo-linux-x64
+    steps:
+      - uses: actions/checkout@v4
+      - run: make build
+`
+
+// demoReleaseWorkflow is the fixture's second workflow file in one repository:
+// a release is exactly the workflow an operator might want to leave on GitHub's
+// runners while the rest of the repository moves.
+const demoReleaseWorkflow = `name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make release
+`
 
 // demoWorkflow is a workflow with one job the wizard can migrate and one it
 // must refuse to touch, so a demo shows both halves of the review step.
@@ -145,19 +205,4 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - run: make test
-`
-
-// demoMigratedWorkflow is a repository somebody has already moved. It reads as
-// "nothing to do" in exactly the same way as a repository nobody has touched,
-// which is why the wizard has to tell the two apart by name.
-const demoMigratedWorkflow = `name: CI
-
-on: [push]
-
-jobs:
-  build:
-    runs-on: zoomies-demo-linux-x64
-    steps:
-      - uses: actions/checkout@v4
-      - run: make build
 `

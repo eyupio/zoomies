@@ -121,6 +121,12 @@ func blankSecrets(cfg *config.Config) *config.Config {
 	c.OIDC.ClientSecret = blank(c.OIDC.ClientSecret)
 	c.Agent.JoinToken = blank(c.Agent.JoinToken)
 	c.Agent.AgentToken = blank(c.Agent.AgentToken)
+	// The capacity-demand signing secret is what proves a notification came
+	// from this controller, so anyone holding it can forge one. It was missed
+	// when that feature landed, which is the failure TestEverySecretShapedField
+	// exists to stop repeating: this list is written by hand and a new secret
+	// joins the configuration without joining it.
+	c.CapacityDemand.SigningSecret = blank(c.CapacityDemand.SigningSecret)
 	return &c
 }
 

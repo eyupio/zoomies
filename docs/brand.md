@@ -1,3 +1,9 @@
+---
+description: >-
+  The Zoomies identity: the cocker spaniel mark, the wordmark, the colour
+  tokens, and the rules for placing them.
+---
+
 # Zoomies brand
 
 <img src="brand/logo-master-dark.png" alt="The Zoomies logo: a black-and-white cocker spaniel curling through a circular motion path, above the Zoomies wordmark and the line SELF-HOSTED GIT RUNNERS" width="360">
@@ -9,9 +15,12 @@ why the mark is never rotated: the circular movement already communicates speed.
 
 Personality: fast, playful, capable, technical, friendly.
 
-**[Zoomies_Brand_Guide.pdf](brand/Zoomies_Brand_Guide.pdf) is the authority.**
+**[Branding Guide v2.1](brand/BRANDING_GUIDE.md) is the authority.**
 This page records what the product actually does with it, and
 [ui-guidelines.md](ui-guidelines.md) is where the derived design tokens live.
+The older PDF remains in the repository as a historical source, not as current
+guidance. Asset provenance is recorded in
+[`ASSET_MANIFEST.json`](brand/ASSET_MANIFEST.json).
 
 ## Colour
 
@@ -26,6 +35,7 @@ logo stays monochrome, always.
 | Mid Grey | `#666A73` | Secondary text in the light theme |
 | Runner Blue | `#2F80ED` | The interactive accent — see the note below |
 | Fast Cyan | `#22D3EE` | The *busy* runner state, and nothing else |
+| Paw Black | `#000000` | The official favicon and smallest-size artwork |
 
 They are available in `brand/brand-tokens.json` and as CSS custom properties
 (`--z-brand-black`, `--z-brand-runner-blue`, …) at the top of
@@ -44,65 +54,112 @@ sparingly. In an operations dashboard the single most valuable "look here"
 signal is *this runner is executing a job right now*, so that is what Fast Cyan
 marks, and nothing else does.
 
-## Logo files
+## Logo system
 
-Everything in `docs/brand/` is derived from the approved master. The
-full-resolution originals live in the brand pack.
+Use the artwork in this order. Moving down the list is a response to less
+available space; it is not a choice between interchangeable logos.
 
 | File | Use |
 | --- | --- |
-| `brand/logo-master-dark.png` | The approved master, on Zoomies Black |
-| `brand/logo-white-transparent.png` | White knockout, for any dark or coloured ground |
-| `brand/mark-white-transparent.png` | The dog and circle alone — avatars, favicons, compact navigation |
+| `brand/logo-master-dark.png` | Primary full logo on Zoomies Black or another dark ground |
+| `brand/logo-light-background.png` | Primary full logo on white or a very light ground |
+| `brand/logo-white-transparent.png` | Transparent white primary logo on a dark or coloured ground |
+| `brand/mark-dark.png`, `brand/mark-white-transparent.png` | Original circular dog mark where the name is already visible |
+| `brand/head-swish-black.png`, `brand/head-swish-white.png` | Compact navigation, badges and app UI at 48px and above |
+| `brand/paw-swish-black.png`, `brand/paw-swish-white.png` | Favicons and equivalent tiny UI marks from 16–64px only |
 | `brand/wordmark-dark.png`, `brand/wordmark-white-transparent.png` | The wordmark alone |
-| `brand/social-card.png` | 1200×630, for the repository's social preview |
+| `brand/github-avatar.png` | Original-dog artwork with safe space for GitHub's circular crop |
+| `brand/github-social-preview.png` | 1280×640 GitHub social preview |
+| `brand/social-card.png` | 1200×630 Open Graph sharing image |
 
 The product's own copies live in `web/public/` and are the sizes the app
 actually serves: `favicon.ico` (16/32/48), `favicon-16.png`, `favicon-32.png`,
-`apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, and
-`brand/mark-white.png`, `brand/wordmark-white.png`, `brand/logo-white.png`, and
-`brand/app-logo.png` — a 512px square of the mark on Zoomies Black, which is
-what an operator uploads as their GitHub App's avatar. An App manifest cannot
-carry a logo, so the connect flow hands them this file and a link to the page
-that takes it; without it the App wears GitHub's grey default and signs every
-"Set up job" line in the organisation's logs anonymously.
+`apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, the dedicated
+`maskable-icon-512.png`, and the nine web UI assets under `brand/`.
 
-## Using the mark in the product
+`brand/mark-white.png` and its `@2x` copy are the circular dog at the 128px
+minimum and at twice it, which is why that mark can be served at its minimum and
+no larger: those are the sizes in the directory, and enlarging a 256px raster to
+fill a bigger slot is the sort of thing this page tells other people not to do.
 
-The mark is monochrome line art with white outlines, drawn to sit on a dark
-ground. Inverting it for a light theme washes it out, and at 24px in a sidebar
-the detail disappears either way.
+`brand/app-logo.png` is the original-dog GitHub avatar with circular-crop safe
+space. An App manifest cannot carry a logo, so the connect flow hands the
+operator this file and a link to the page that takes it; without it the App
+wears GitHub's grey default and signs every "Set up job" line anonymously.
 
-So the UI does the thing the brand guide sanctions — the white knockout over a
-dark surface — and draws it on a small Zoomies Black chip
-(`--z-mark-chip`) with a `--z-radius-md` corner. One asset, correct in both
-themes, legible at 24px, and it keeps the circular shape intact.
+That is one step in a wizard somebody sees once, so it is also on every
+installation's card on the Installations page, with the same download and the
+same link, until it is dismissed. Whether an App has an avatar is not something
+GitHub will tell us -- its API serves a generated identicon for an App without
+one, indistinguishable from an upload -- so the reminder is offered rather than
+detected, and the operator is the one who says it is done.
 
-The full lock-up appears on the sign-in, first-run and boot screens, and on the
-one that says the controller cannot be reached -- the four screens that are
-nothing but the lock-up, where there is room for it at its 240px minimum.
+To set it by hand: open the App's settings (**Installations -> the connection ->
+Open the App's settings**, or `https://github.com/organizations/<org>/settings/apps/<app>`
+for an organisation App and `https://github.com/settings/apps/<app>` for a
+personal one) and upload `brand/github-avatar.png` under **Display
+information**. GitHub crops it to a circle, which the file already allows for.
 
-Once somebody is signed in, the identity is carried in five quieter places:
+## Using the system in the product
+
+The full primary logo appears on the sign-in, first-run, boot and connection
+failure screens. It is the identity, and on those screens it is the only thing
+on the page, so it is given room: about 300px on the sign-in and first-run
+screens, 250px on the two transient ones, and never below the 220px minimum. The
+holding shape is Zoomies Black, and it is capped at the width of whatever
+contains it, so a phone shrinks the lockup rather than overflowing. The artwork
+carries its own clear space, so the shape is deliberately larger than the dog
+inside it -- that padding is part of the supplied file and is not cropped away.
+
+The original circular dog carries Settings → About at 128px, its minimum size —
+the one identity slot in the signed-in product with room for the primary mark,
+and the page that is about the product rather than about the fleet. The
+secondary head/swish carries identity slots between 48px and that minimum. The
+paw/swish carries the navbar, where the detailed dog does not read clearly, plus
+genuinely tiny placements such as the mobile top bar, page footer and command
+palette. All three use the supplied white reverse artwork on a Zoomies Black
+chip, so the artwork is unchanged and remains legible in either theme.
+
+Once somebody is signed in, the identity is carried in these quieter places:
 
 | Where | What |
 | --- | --- |
-| The navigation masthead | Mark and wordmark, over the descriptor; the mark alone when collapsed |
-| The top bar, on a phone | The mark alone, because the masthead is not on screen there |
-| The foot of every page | The mark, the name, the running version and the descriptor, in a hairline |
-| The command palette | The mark and the name, in the footer beside the key hints |
-| Settings → About | The mark at 44px beside the name and the descriptor |
+| The navigation masthead | 32px paw/swish beside the name and descriptor; icon alone when collapsed |
+| The top bar, on a phone | Paw/swish, because the masthead is not on screen there |
+| The foot of every page | Paw/swish, name, running version and descriptor |
+| The command palette | Paw/swish and name beside the key hints |
+| Settings → About | 128px circular dog beside the name, descriptor and a one-line description of the product |
 
 The descriptor is set in Inter -- small, uppercase, letter-spaced -- rather than
 cropped out of the wordmark artwork, whose own descriptor line is drawn for
 240px and is a smudge at sidebar width.
 
+### Names from the kennel
+
+The mark is a cocker spaniel, so the names the product invents come from one.
+The pool wizard opens with a name already filled in: the brand, a spaniel from
+`web/src/lib/pools/names.ts`, and what the pool will actually run on --
+`zoomies-truffle-docker-linux`. The kennel half is what makes one pool tellable
+from another in a list; the infrastructure half is what an operator wants to
+know before sending a job to it.
+
+The `zoomies-` prefix is not decoration and is never dropped: in GitHub's own
+runner settings it is the only thing distinguishing our runners from anyone
+else's. So the name is offered and the prefix is not. The dice roll another
+name and a name typed over is left alone, but a name given without the brand
+gains it -- in the wizard's field as soon as it loses focus, and again in the
+store, so that a pool created from the CLI, the API or an answer file is
+branded exactly as one created from the wizard is.
+
 ## Clear space and minimum sizes
 
-* Clear space: roughly the height of the lowercase **o** in *Zoomies*. Nothing
-  crowds the dog circle.
-* Full logo: 240px wide minimum.
-* Mark: 32px minimum, 64px or more where there is room.
-* Favicon: the supplied ICO, or the 32×32 PNG.
+* Full logo clear space: the height of the **O** in the wordmark on every side.
+* Standalone mark clear space: at least 12.5% of its longest dimension. The
+  supplied square icon files already include this padding; do not crop it away.
+* Primary full logo: 220px wide minimum.
+* Circular dog mark: 128px square minimum.
+* Head/swish: 48px square minimum.
+* Paw/swish: 16px square minimum and 64px maximum.
 
 ## Do and do not
 
@@ -110,8 +167,10 @@ cropped out of the wordmark artwork, whose own descriptor line is drawn for
 
 * Use the dark master on dark surfaces.
 * Use the white knockout over dark photography or a coloured UI.
-* Use the mark alone for avatars, favicons, app icons and compact navigation.
-* Keep the circular motion shape intact.
+* Use the original circular dog for avatars, touch icons, PWA icons and social artwork.
+* Use the head/swish for compact UI at 48px and above.
+* Use the paw/swish only for favicons and equivalent tiny UI marks.
+* Keep every mark's supplied swish and safe padding intact.
 
 **Do not**
 
@@ -120,6 +179,7 @@ cropped out of the wordmark artwork, whose own descriptor line is drawn for
 * Add a shadow, gradient or glow.
 * Put the dark master on a busy background.
 * Rotate the mark.
+* Promote the paw/swish into a primary or social logo.
 
 ## Typography
 
@@ -137,9 +197,10 @@ not try to set it in type.
 | Descriptor | Self-hosted Git runners |
 | CLI | `zoomies` |
 | Service | `zoomies` (controller), `zoomies-agent` (agent) |
-| Config directory | `/etc/zoomies`, or `.zoomies/` for a per-user install |
-| Container images | `ghcr.io/eyupio/zoomies`, `ghcr.io/eyupio/zoomies-runner` |
-| Runner names | `zoomies-k3f9qz2m` — the brand and eight random characters |
+| Config directory | `/etc/zoomies` as root, `~/.config/zoomies` otherwise; see [Where things live](configuration.md#where-things-live) |
+| Container images | `ghcr.io/eyupio/zoomies`, `ghcr.io/eyupio/zoomies-runner`, `ghcr.io/eyupio/zoomies-runner-docker` |
+| Runner names | `zoomies-4vcpu-ubuntu-2404-biscuit-a3f9qz2m` — the brand, the pool's shape, a kennel word and a token |
+| Pool names | `zoomies-truffle-docker-linux`; a name given without the prefix gains one |
 | Pool labels | `zoomies-linux-x64`, `zoomies-gpu`; every pool also answers to `zoomies` |
 | Migration branch | `zoomies/migrate-runners-<timestamp>` |
 
@@ -148,16 +209,43 @@ not try to set it in type.
 Two of those names are read far more often outside Zoomies than inside it: the
 runner name, which GitHub prints in its runner list and in every job's "Set up
 job" step, and the pool label, which has to be written into `runs-on` in every
-workflow in the organisation. Both are short, both start with the product name,
-and neither carries anything a reader would have to decode. The runner name used
-to carry the pool as well — `zoomies-linux-x64-a3f9q` — which made the brand the
-part GitHub truncated.
+workflow in the organisation. Both start with the product name, and neither
+carries anything a reader would have to decode. The runner name carries the
+pool's *shape* rather than the name somebody invented for it, because a reader
+on GitHub is there precisely because they do not yet know what they are looking
+at — and when it will not fit, the shape is what gives way rather than the
+brand. See [Naming and platforms](naming.md#runner-names).
 
 `internal/store/brand.go` is the one place these are spelled out;
 `web/src/lib/brand.ts` is the browser's copy of it.
 
+## Sharing and discovery
+
+Most people meet Zoomies on somebody else's screen: a controller their
+colleague installed, or a link pasted into a chat window. Two places carry the
+identity outwards, and both are part of the brand rather than an afterthought.
+
+**A controller's own page.** `web/index.html` carries Open Graph and Twitter
+card tags, `brand/social-card.png` as the card image, and one hairline link to
+[zoomies.sh](https://zoomies.sh) in the sign-in colophon and the footer of every
+signed-in page, beside the credit *Developed by [EyUp.io](https://eyup.io)*.
+Both addresses come from `web/src/lib/links.ts`, and the site's footer prints
+the same credit from `extra.developer` in `mkdocs.yml`, so the product and the
+site say the same thing about where they came from. `og:url` and `og:image` have to be absolute for a preview to
+render at all -- the service fetching the page is not a browser and has no base
+to resolve a relative path against -- so the controller substitutes
+`server.external_url` into them when it starts. An instance that has not been
+told its own address keeps relative paths rather than guessing at one.
+
+**The site.** `overrides/main.html` extends the Material theme with the same
+tags, derived per page, plus a `SoftwareApplication` description in JSON-LD on
+the home page. Material's own social plugin is not used: it renders a card
+image per page with Cairo and Pillow, which is two native libraries in the docs
+build for a picture the brand pack already supplies.
+
 ## For print, signage or merchandise
 
 The SVG files in the original pack are raster wrappers, not true vector
-redraws. Commission a proper redraw from the approved master rather than
-enlarging them.
+redraws. The secondary head/swish is a restored reconstruction because its
+approved source binary was not available. For large-format work, commission a
+proper vector redraw from the approved masters rather than enlarging them.

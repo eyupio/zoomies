@@ -19,6 +19,15 @@ import (
 	_ "modernc.org/sqlite" // pure-Go driver: no cgo, so the binary stays static
 )
 
+// The migrations run in lexical order of their full file name, and the ledger
+// that records what has been applied is keyed by that full name too. Two
+// things follow, and a test holds both. A shipped file's name is immutable:
+// renaming one re-applies its DDL on every existing database, which fails or
+// worse. And a new file takes the next unused numeric prefix, alone: two files
+// sharing a prefix sort on what follows the underscore, which is a fact about
+// spelling and not about the order the schema needs. Two such pairs already
+// shipped (0005 and 0006) and stay as they are, because of the first rule.
+//
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
@@ -30,6 +39,29 @@ var ErrConflict = errors.New("already exists")
 
 // ErrInvalidTransition is returned when a runner state change is not legal.
 var ErrInvalidTransition = errors.New("invalid state transition")
+
+// ErrSchemaNewer is returned by Open when the database's migration ledger
+// names migrations this build does not have.
+//
+// It is a refusal rather than a warning because the alternative is worse than
+// stopping: an older binary against a newer schema reads columns whose meaning
+// it does not know and writes rows the newer one will not accept, and it does
+// it silently. Rolling a release back is a thing operators do under pressure,
+// and this is the moment to tell them the database went forward with it.
+var ErrSchemaNewer = errors.New("database is newer than this build of Zoomies")
+
+// ErrReadOnly is returned when a write is attempted on a store opened with
+// Options.ReadOnly.
+var ErrReadOnly = errors.New("store: this database was opened read-only")
+
+// ErrJoinTokenUsed and ErrJoinTokenExpired are the two ways a join token that
+// exists can still be refused. They are sentinels rather than prose so the
+// caller can tell a refusal, which is the agent operator's to act on, from a
+// failure of the database, which is not.
+var (
+	ErrJoinTokenUsed    = errors.New("join token has already been used")
+	ErrJoinTokenExpired = errors.New("join token has expired")
+)
 
 // Store is the single owner of the SQLite database.
 //
@@ -44,6 +76,10 @@ type Store struct {
 	wmu   sync.Mutex
 	path  string
 	now   func() time.Time
+	// readOnly refuses writes here rather than letting SQLite refuse them,
+	// because "attempt to write a readonly database" names the file and not
+	// the decision that made it read-only.
+	readOnly bool
 }
 
 // Options configures Open.
@@ -52,6 +88,16 @@ type Options struct {
 	Path string
 	// Now overrides the clock; tests set this for deterministic timestamps.
 	Now func() time.Time
+	// ReadOnly opens the file without writing to it and without migrating.
+	//
+	// Migration is the reason this exists. Opening a database read-write
+	// applies every pending migration as a side effect, so a command that only
+	// wanted to look -- has this install finished, which runners does GitHub
+	// still hold -- upgraded the schema on the way past. That is the wrong
+	// moment for it in the ordinary case and the wrong thing entirely when the
+	// file is a backup somebody is verifying, which must come back exactly as
+	// it was written.
+	ReadOnly bool
 }
 
 // Open opens (creating if necessary) the database at path and applies all
@@ -65,8 +111,23 @@ func Open(ctx context.Context, opts Options) (*Store, error) {
 	}
 
 	memory := opts.Path == ":memory:" || strings.HasPrefix(opts.Path, "file::memory:")
+	if opts.ReadOnly && memory {
+		return nil, errors.New("store: a read-only in-memory database has nothing in it to read")
+	}
 	var dsn string
-	if !memory {
+	if opts.ReadOnly {
+		abs, err := filepath.Abs(opts.Path)
+		if err != nil {
+			return nil, fmt.Errorf("store: resolving %q: %w", opts.Path, err)
+		}
+		// No journal_mode and no synchronous: both are writes to the file, and
+		// setting them is how a "read-only" open silently touches the copy it
+		// was asked to leave alone.
+		dsn = "file:" + abs + "?" + url.Values{
+			"mode":    []string{"ro"},
+			"_pragma": []string{"busy_timeout(10000)", "foreign_keys(1)"},
+		}.Encode()
+	} else if !memory {
 		abs, err := filepath.Abs(opts.Path)
 		if err != nil {
 			return nil, fmt.Errorf("store: resolving %q: %w", opts.Path, err)
@@ -123,7 +184,15 @@ func Open(ctx context.Context, opts Options) (*Store, error) {
 	if err := write.PingContext(ctx); err != nil {
 		read.Close()
 		write.Close()
-		if !memory {
+		switch {
+		case opts.ReadOnly:
+			// A read-only open is not asking for a writable directory, so the
+			// hint below would send the reader to check the wrong thing. What
+			// it is usually looking at is a file that is not a database, or is
+			// one that has been damaged -- which is precisely the case
+			// `zoomies restore` opens a backup to find out about.
+			return nil, fmt.Errorf("store: reading %s (is it a Zoomies database, and is it intact?): %w", opts.Path, err)
+		case !memory:
 			// The overwhelmingly common cause is a directory the running user
 			// cannot write to -- a container volume owned by root, say. SQLite
 			// will not say so, so say it here.
@@ -132,7 +201,24 @@ func Open(ctx context.Context, opts Options) (*Store, error) {
 		return nil, fmt.Errorf("store: connecting to %s: %w", opts.Path, err)
 	}
 
-	s := &Store{read: read, write: write, path: opts.Path, now: opts.Now}
+	s := &Store{read: read, write: write, path: opts.Path, now: opts.Now, readOnly: opts.ReadOnly}
+	if opts.ReadOnly {
+		// Not migrating is the point, so the ledger check that migrate would
+		// have made is made here instead: a caller reading a database from a
+		// newer build is reading rows whose meaning it does not know.
+		if err := s.checkLedger(ctx); err != nil {
+			s.Close()
+			return nil, err
+		}
+		return s, nil
+	}
+	// Before migrating, not during: migrate holds the write lock and so does
+	// Backup, and unlocking around the copy to get past that would be a
+	// deadlock waiting for the first caller who does not read the comment.
+	if err := s.backupIfMigrationsPending(ctx); err != nil {
+		s.Close()
+		return nil, err
+	}
 	if err := s.migrate(ctx); err != nil {
 		s.Close()
 		return nil, err
@@ -188,6 +274,117 @@ func loadMigrations() ([]migration, error) {
 	return out, nil
 }
 
+// checkLedger refuses a database written by a newer build.
+//
+// A missing ledger table is not a newer database, it is an empty one, so it
+// passes: Open creates the table a moment later.
+func (s *Store) checkLedger(ctx context.Context) error {
+	rows, err := s.read.QueryContext(ctx, `SELECT name FROM schema_migrations ORDER BY name`)
+	if err != nil {
+		// The table does not exist yet on a database this build is about to
+		// create, and a real failure to read it will be reported by the next
+		// query rather than swallowed: nothing here depends on having read it.
+		return nil
+	}
+	defer rows.Close()
+	var applied []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return fmt.Errorf("store: reading migration ledger: %w", err)
+		}
+		applied = append(applied, n)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("store: reading migration ledger: %w", err)
+	}
+	return unknownMigrations(applied)
+}
+
+// unknownMigrations names the applied migrations this build does not embed.
+func unknownMigrations(applied []string) error {
+	migs, err := loadMigrations()
+	if err != nil {
+		return fmt.Errorf("store: loading embedded migrations: %w", err)
+	}
+	known := make(map[string]bool, len(migs))
+	for _, m := range migs {
+		known[m.name] = true
+	}
+	var unknown []string
+	for _, name := range applied {
+		if !known[name] {
+			unknown = append(unknown, name)
+		}
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	return fmt.Errorf("store: %w: its ledger names %s, which this build does not have; "+
+		"run the release that wrote it, or restore a backup taken with this one",
+		ErrSchemaNewer, strings.Join(unknown, ", "))
+}
+
+// backupIfMigrationsPending copies the database before any migration touches
+// it, when there is both something pending and something to lose.
+//
+// Migrations are one-way and the binary that wrote this database will refuse
+// to open it afterwards, so this is the one moment a rollback is most likely
+// to be wanted and least likely to have been prepared for: an operator
+// upgrading is not thinking about backups. It costs a file copy once per
+// release.
+//
+// A database being created has no ledger to read, which is how "nothing to
+// lose" is recognised: a fresh install gets no empty copy beside it.
+func (s *Store) backupIfMigrationsPending(ctx context.Context) error {
+	if s.readOnly || s.path == "" {
+		return nil
+	}
+	rows, err := s.read.QueryContext(ctx, `SELECT name FROM schema_migrations`)
+	if err != nil {
+		// No ledger: this database is being created.
+		return nil
+	}
+	applied := map[string]bool{}
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			rows.Close()
+			return fmt.Errorf("store: reading migration ledger: %w", err)
+		}
+		applied[n] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("store: reading migration ledger: %w", err)
+	}
+	if len(applied) == 0 {
+		return nil
+	}
+
+	migs, err := loadMigrations()
+	if err != nil {
+		return fmt.Errorf("store: loading embedded migrations: %w", err)
+	}
+	var pending []string
+	for _, m := range migs {
+		if !applied[m.name] {
+			pending = append(pending, m.name)
+		}
+	}
+	dest, err := s.backupBeforeMigrate(ctx, pending)
+	if err != nil {
+		return fmt.Errorf("store: copying the database before migrating it: %w "+
+			"(the upgrade has not started; free space beside the database, or move the old copies out of the way)", err)
+	}
+	if dest != "" {
+		slog.Info("copied the database before migrating it",
+			"copy", dest, "migrations", len(pending),
+			"detail", "migrations are one-way; this is what an older release could be restored onto")
+	}
+	return nil
+}
+
 func (s *Store) migrate(ctx context.Context) error {
 	s.wmu.Lock()
 	defer s.wmu.Unlock()
@@ -216,11 +413,35 @@ func (s *Store) migrate(ctx context.Context) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
+	// Before applying anything: a database that has been further than this
+	// build can go is not one to migrate forward.
+	names := make([]string, 0, len(applied))
+	for n := range applied {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	if err := unknownMigrations(names); err != nil {
+		return err
+	}
 
 	migs, err := loadMigrations()
 	if err != nil {
 		return fmt.Errorf("store: loading embedded migrations: %w", err)
 	}
+
+	return s.applyMigrations(ctx, migs, applied)
+}
+
+// applyMigrations runs the ones not already in the ledger, each in its own
+// transaction.
+//
+// It is separate from migrate so a test can hand it a migration that fails:
+// what happens then is the behaviour that matters, and it cannot be exercised
+// through the embedded set, every member of which works. The rule it holds is
+// that a failure stops startup and leaves the ledger clean, so the same
+// migration is tried again on the next start rather than being skipped as
+// though it had worked.
+func (s *Store) applyMigrations(ctx context.Context, migs []migration, applied map[string]bool) error {
 	for _, m := range migs {
 		if applied[m.name] {
 			continue
@@ -252,7 +473,40 @@ func (s *Store) migrate(ctx context.Context) error {
 // ---------------------------------------------------------------------------
 
 // exec runs a write statement under the single-writer lock.
+// AppliedMigration is one row of the ledger: which migration, and when this
+// database took it.
+type AppliedMigration struct {
+	Name      string    `json:"name"`
+	AppliedAt time.Time `json:"applied_at"`
+}
+
+// AppliedMigrations lists the ledger in the order the migrations apply, which
+// is the lexical order of their file names. It is what a readiness probe, a
+// bug report or a backup manifest means by "schema version": there is no
+// number, only the names, and the last one is the one that matters.
+func (s *Store) AppliedMigrations(ctx context.Context) ([]AppliedMigration, error) {
+	rows, err := s.read.QueryContext(ctx, `SELECT name, applied_at FROM schema_migrations ORDER BY name`)
+	if err != nil {
+		return nil, fmt.Errorf("store: reading migration ledger: %w", err)
+	}
+	defer rows.Close()
+	var out []AppliedMigration
+	for rows.Next() {
+		var m AppliedMigration
+		var applied int64
+		if err := rows.Scan(&m.Name, &applied); err != nil {
+			return nil, fmt.Errorf("store: reading migration ledger: %w", err)
+		}
+		m.AppliedAt = at(applied)
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) exec(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	if s.readOnly {
+		return nil, ErrReadOnly
+	}
 	s.wmu.Lock()
 	defer s.wmu.Unlock()
 	return s.write.ExecContext(ctx, query, args...)
@@ -260,6 +514,9 @@ func (s *Store) exec(ctx context.Context, query string, args ...any) (sql.Result
 
 // tx runs fn inside a write transaction under the single-writer lock.
 func (s *Store) tx(ctx context.Context, fn func(*sql.Tx) error) error {
+	if s.readOnly {
+		return ErrReadOnly
+	}
 	s.wmu.Lock()
 	defer s.wmu.Unlock()
 	t, err := s.write.BeginTx(ctx, nil)

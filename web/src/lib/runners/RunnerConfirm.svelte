@@ -200,7 +200,12 @@
     if (ids.length === 0) return;
     const ok = single && first ? await runSingle(first) : await runBulk(ids);
     void fleet.reconcile();
+    // The dialog closes either way, so the caller is told either way. A refusal
+    // used to report nothing at all, which left the grid's bulk action awaiting
+    // a promise nobody would ever settle: the rows stayed ticked, the toolbar
+    // stayed busy, and the only way out was a reload.
     if (ok) ondone?.();
+    else oncancel?.();
   }
 </script>
 
