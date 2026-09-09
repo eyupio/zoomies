@@ -90,10 +90,11 @@ export const FIXTURE = {
   /** Has two workflow files, so the wizard can be made to choose between them. */
   multiWorkflowRepo: 'acme/widgets',
   /** Every job the seed writes; nothing adds more, since no webhook arrives. */
-  totalJobs: 51,
+  totalJobs: 52,
   /**
-   * What the Jobs page shows by default: everything except the one job the seed
-   * runs on a hosted-runner vendor, which this fleet had no hand in.
+   * What the Jobs page shows by default: everything except the three jobs the
+   * seed runs on a hosted-runner vendor -- one finished, one running and one
+   * still queued -- which this fleet had no hand in.
    */
   managedJobs: 49,
   /**

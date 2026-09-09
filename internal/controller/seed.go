@@ -672,6 +672,34 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 		return err
 	}
 
+	// And its third: one queued, in the seconds between GitHub reporting it and
+	// the vendor picking it up. It is here because it is the case the default
+	// view got wrong -- a job nothing here claims is normally this fleet's to
+	// see, and this one never was.
+	queuedVendor := &store.Job{
+		ID:             "job_demo051",
+		GitHubJobID:    80051,
+		GitHubRunID:    40026,
+		Repo:           repos[2],
+		Workflow:       "CI",
+		JobName:        "package",
+		Labels:         store.StringSlice{"blacksmith-4vcpu-ubuntu-2404"},
+		InstallationID: demoInstallationID,
+		State:          store.JobQueued,
+		QueuedAt:       now.Add(-11 * time.Second),
+		HTMLURL:        fmt.Sprintf("https://github.com/%s/actions/runs/%d", repos[2], 40026),
+		HeadBranch:     "main",
+		HeadSHA:        fmt.Sprintf("%040x", 0xC0FFEE+51*7919),
+		RunAttempt:     1,
+	}
+	saved, change, err = c.st.ApplyJob(ctx, queuedVendor)
+	if err != nil {
+		return fmt.Errorf("seeding the queued vendor job: %w", err)
+	}
+	if err := c.seedJobTimeline(ctx, saved, change); err != nil {
+		return err
+	}
+
 	// Link the busy runners to the jobs they are running, so the Runners page
 	// can show what each one is doing.
 	for i, r := range busy {

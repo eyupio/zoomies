@@ -296,10 +296,14 @@ type JobFilter struct {
 	Since       *time.Time
 	Until       *time.Time
 	// UnmatchedOnly surfaces queued jobs that no pool claims. It is deliberately
-	// narrower than "matched = 0": a job that has already started or finished
-	// was run by something -- another fleet, a hosted-runner vendor, GitHub
-	// itself -- and calling it unmatched would report a fleet-wide fault every
-	// time somebody kept one repository on runners this controller does not own.
+	// narrower than "matched = 0" in two ways, and both are the same mistake:
+	// reporting a fleet-wide fault every time somebody keeps one repository on
+	// runners this controller does not own. A job that has already started or
+	// finished was run by something -- another fleet, a hosted-runner vendor,
+	// GitHub itself -- and a job whose labels all name somebody else's runners
+	// is about to be, however long it sits queued. What is left is the job that
+	// asked this fleet for something no pool here offers, which is the whole
+	// question the filter exists to answer.
 	UnmatchedOnly bool
 	// ManagedOnly narrows the list to jobs this controller has a hand in: one an
 	// enabled pool claimed, or one that ran on a runner this fleet started.
@@ -399,10 +403,10 @@ func jobWhere(f JobFilter) (string, []any) {
 		args = append(args, ms(*f.Until))
 	}
 	if f.UnmatchedOnly {
-		cond = append(cond, `matched = 0 AND state = ?`)
+		cond = append(cond, `matched = 0 AND state = ? AND NOT `+hostedJobSQL("jobs"))
 		args = append(args, string(JobQueued))
 	} else if f.ManagedOnly {
-		cond = append(cond, managedJobSQL())
+		cond = append(cond, managedJobSQL("jobs"))
 	}
 	if f.FaultedOnly {
 		cond = append(cond, `runner_fault != ''`)
@@ -540,7 +544,6 @@ type JobStats struct {
 // It is a function rather than two copies because the Jobs list and the
 // Overview have to mean the same thing by it. A page that says four jobs are
 // queued beside a list showing five is worse than either number alone.
-// managedJobSQL is the jobs this fleet has a hand in.
 //
 // The last clause is the interesting one, and it covers two states rather than
 // one. A job nothing has claimed is kept when nothing has run it either, which
@@ -549,9 +552,17 @@ type JobStats struct {
 // happens on the approval. Keeping only `queued` hid every held job from the
 // page by default, so the operator whose deploy was waiting on a review could
 // not find it at all, and the drawer's explanation for one was unreachable.
-func managedJobSQL() string {
-	return `(matched = 1 OR pool_id != '' OR runner_id != '' OR (matched = 0 AND state IN ('` +
-		string(JobQueued) + `','` + string(JobWaiting) + `')))`
+//
+// A queued job whose labels all name somebody else's runners is the exception
+// to that clause: nothing here has run it, and nothing here ever will, because
+// GitHub or a vendor is about to. Those jobs used to arrive on the page in the
+// seconds before they started -- badged as hosted elsewhere, in a view whose
+// switch for other runners was off -- so an organisation part-way through a
+// migration saw a queue that was not its own and could not turn it off.
+func managedJobSQL(jobs string) string {
+	return `(` + jobs + `.matched = 1 OR ` + jobs + `.pool_id != '' OR ` + jobs + `.runner_id != ''
+		OR (` + jobs + `.matched = 0 AND ` + jobs + `.state IN ('` + string(JobQueued) + `','` +
+		string(JobWaiting) + `') AND NOT ` + hostedJobSQL(jobs) + `))`
 }
 
 func failedJobSQL() string {
@@ -573,7 +584,7 @@ func failedJobSQL() string {
 func (s *Store) StatsSince(ctx context.Context, since time.Time, managedOnly bool) (JobStats, error) {
 	scope := ""
 	if managedOnly {
-		scope = " AND " + managedJobSQL()
+		scope = " AND " + managedJobSQL("jobs")
 	}
 	var st JobStats
 	err := s.read.QueryRowContext(ctx, `SELECT
@@ -605,7 +616,7 @@ func (s *Store) StatsSince(ctx context.Context, since time.Time, managedOnly boo
 func (s *Store) queueWaits(ctx context.Context, since time.Time, managedOnly bool) ([]time.Duration, error) {
 	scope := ""
 	if managedOnly {
-		scope = " AND " + managedJobSQL()
+		scope = " AND " + managedJobSQL("jobs")
 	}
 	rows, err := s.read.QueryContext(ctx, `SELECT started_at - queued_at FROM jobs
 		WHERE started_at IS NOT NULL AND queued_at >= ?`+scope+` ORDER BY 1`, ms(since))

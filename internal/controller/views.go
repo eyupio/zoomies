@@ -9,7 +9,6 @@ import (
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/github"
-	"github.com/eyupio/zoomies/internal/migrate"
 	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
@@ -278,17 +277,10 @@ type JobView struct {
 // webhooks cover every job in its repositories, most of which this fleet never
 // touches, and calling one of those "unmatched" as though it were stuck was
 // alarming and false: it runs where its labels say.
-func hostedJob(labels []string) bool {
-	if len(labels) == 0 {
-		return false
-	}
-	for _, l := range labels {
-		if !migrate.IsManagedLabel(l) {
-			return false
-		}
-	}
-	return true
-}
+//
+// It is store.HostedJob so that the badge on the row and the predicate that
+// decides whether the row is on the page at all cannot answer differently.
+func hostedJob(labels []string) bool { return store.HostedJob(labels) }
 
 // NewJobView renders a job, given the name of the pool that claimed it.
 func NewJobView(j *store.Job, poolName string) JobView {

@@ -4068,9 +4068,9 @@ export interface operations {
                 q?: string;
                 since?: string;
                 until?: string;
-                /** @description Only jobs that are still queued and that no enabled pool claims. A job that already started or finished was run by something else, so it is not included however its labels read. */
+                /** @description Only jobs that are still queued and that no enabled pool claims. A job that already started or finished was run by something else, so it is not included however its labels read, and neither is one whose labels all name GitHub's own runners or a hosted-runner vendor's: those run where their labels say. */
                 unmatched?: boolean;
-                /** @description Only jobs this controller has a hand in: one an enabled pool claims, one that ran on a runner this fleet started, and queued jobs no pool claims -- which nothing ran, so they belong here too. Leave it off to see every job GitHub has reported, including those run on hosted runners this fleet does not own. */
+                /** @description Only jobs this controller has a hand in: one an enabled pool claims, one that ran on a runner this fleet started, and queued jobs no pool claims -- which nothing ran, so they belong here too, unless their labels all name somebody else's runners. Leave it off to see every job GitHub has reported, including those run on hosted runners this fleet does not own. */
                 managed?: boolean;
                 /** @description Only jobs that went wrong, on either side: a conclusion GitHub counts as a failure (failure, timed_out, startup_failure), or a runner of this fleet that stopped under the job -- including one GitHub still believes is running. */
                 failed?: boolean;
