@@ -54,6 +54,54 @@ test('the first screen says what it is, where it sits, and what follows', async 
   await expect(page.locator('input[name="setup-token"]')).toBeFocused();
 });
 
+/**
+ * The phone rules, on one page.
+ *
+ * Bootstrap and sign-in are outside the app shell -- no sidebar, no top bar,
+ * their own card layout -- so every phone-width rule the mobile project checks
+ * on the shell has never been checked on either of them. They are also the two
+ * pages most likely to be opened on a phone: somebody finishing a
+ * `docker compose up` from wherever they happen to be standing.
+ */
+async function expectPhoneSafe(
+  page: import('@playwright/test').Page,
+  where: string,
+): Promise<void> {
+  const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  expect(
+    scrollWidth,
+    `${where} is ${scrollWidth}px wide in a ${clientWidth}px window, so the page scrolls sideways`,
+  ).toBeLessThanOrEqual(clientWidth);
+
+  // Mobile Safari zooms the viewport whenever a focused control's text is under
+  // 16px, and the viewport meta sets no maximum-scale on purpose -- so a field
+  // a pixel under the line throws the card off both edges the moment it is
+  // tapped, which on these two pages is immediately.
+  const small = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('input, select, textarea'))
+      .filter((el) => {
+        const type = el.getAttribute('type');
+        return type !== 'checkbox' && type !== 'radio' && type !== 'hidden';
+      })
+      .map((el) => ({
+        name: el.getAttribute('name') ?? el.getAttribute('type') ?? el.tagName,
+        size: Number.parseFloat(getComputedStyle(el).fontSize),
+      }))
+      .filter((f) => f.size < 16),
+  );
+  expect(small, `${where} has controls whose text is under 16px`).toEqual([]);
+}
+
+test('the first screen fits a phone', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 780 });
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Create the first administrator' })).toBeVisible();
+  await expectPhoneSafe(page, 'the bootstrap page');
+});
+
 test('submitting an empty form moves focus to the field that is missing', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('input[name="setup-token"]')).toBeFocused();
@@ -220,4 +268,11 @@ test('the page behind the connect dialog is inert while it is open', async ({ pa
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
   expect(await navInert()).toBe(false);
+});
+
+test('the sign-in page fits a phone too', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 780 });
+  await page.goto('/login');
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  await expectPhoneSafe(page, 'the sign-in page');
 });

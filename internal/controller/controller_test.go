@@ -268,3 +268,33 @@ func codesOf(problems []Problem) []string {
 	}
 	return out
 }
+
+// Verifying the demo installation must not report a broken key.
+//
+// The demo fixtures carry a placeholder credential, so every real client path
+// fails on them -- and the shortcut that answers from the demo client lived at
+// one call site. `ClientFor` had it and `ProbeInstallation` did not, so an
+// operator pressing Verify on the seeded installation, which is the one a new
+// fleet has, was told "the stored private key is not a PEM-encoded RSA key".
+func TestVerifyingTheDemoInstallationAnswersFromTheFixture(t *testing.T) {
+	h := newHarness(t)
+	inst := &store.Installation{
+		ID: demoInstallationID, AppID: 123456, InstallationID: 654321,
+		Target: "acme", TargetType: store.TargetOrg, AppSlug: "zoomies-demo",
+		PrivateKeyEnc: []byte("not a key"), WebhookSecretEnc: []byte("not a secret"),
+	}
+	if err := h.st.CreateInstallation(h.ctx, inst); err != nil {
+		t.Fatalf("CreateInstallation: %v", err)
+	}
+
+	info, err := h.c.ProbeInstallation(h.ctx, inst.ID)
+	if err != nil {
+		t.Fatalf("probing the demo installation: %v", err)
+	}
+	if info == nil || info.Slug != "zoomies-demo" {
+		t.Fatalf("probe returned %+v, want the demo fixture's App", info)
+	}
+	if missing := info.MissingRequirements(store.TargetOrg); len(missing) > 0 {
+		t.Errorf("the demo fixture reports missing permissions %v; the page it is seeded for would show a fault that is not there", missing)
+	}
+}

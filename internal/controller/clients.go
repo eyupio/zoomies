@@ -50,11 +50,6 @@ func (c *Controller) ClientFor(ctx context.Context, installationID string) (gith
 	if err != nil {
 		return nil, err
 	}
-	if IsDemoID(inst.ID) {
-		// The demo fixtures have no GitHub App behind them; answer from
-		// demoClient rather than failing every read the UI makes.
-		return newDemoClient(inst), nil
-	}
 	return c.clients.get(ctx, inst)
 }
 
@@ -73,6 +68,15 @@ func (c *Controller) ClientForRepo(ctx context.Context, repoFullName string) (gi
 func (cc *clientCache) get(ctx context.Context, inst *store.Installation) (github.Client, error) {
 	if inst == nil {
 		return nil, errors.New("controller: no installation given")
+	}
+	// The demo fixtures have no GitHub App behind them, so every real client
+	// path would fail on the placeholder key they carry. The check lives here
+	// rather than at one call site because it was at one call site: `ClientFor`
+	// had it and `ProbeInstallation` did not, so pressing Verify on the demo
+	// installation answered "the stored private key is not a PEM-encoded RSA
+	// key" -- on the one page a new operator is most likely to press it.
+	if IsDemoID(inst.ID) {
+		return newDemoClient(inst), nil
 	}
 	cc.mu.Lock()
 	if e, ok := cc.entries[inst.ID]; ok && e.updatedAt.Equal(inst.UpdatedAt) {

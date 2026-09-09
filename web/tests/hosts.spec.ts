@@ -212,3 +212,57 @@ test('a reserve that would leave nothing to place on is refused', async ({ page 
   await expect(dialog).toContainText('nothing to place on');
   await expect(dialog.getByRole('button', { name: 'Save changes' })).toBeDisabled();
 });
+
+/**
+ * The three ways a join is refused, at the route an agent calls.
+ *
+ * A token is single-use and lasts an hour by default, so "already used" is an
+ * ordinary failure rather than an edge case -- and the page that mints the
+ * token is where an operator comes back to when it happens. Each refusal is a
+ * sentence rather than a status code.
+ *
+ * Expiry is pinned at the API tier instead: making a token old enough means
+ * forging the row, since `CreateJoinToken` reads a non-positive TTL as "use the
+ * default", and a browser has no way to do that.
+ */
+test('a token that is spent or nonsense is refused with a reason', async ({ page }) => {
+  await goto(page, '/hosts/new', 'Add a host');
+  await page.getByRole('button', { name: 'Get the command' }).click();
+  const token = /--join-token (zoojoin_\S+)/.exec(await installCommand(page).innerText())?.[1];
+  expect(token, 'the command carries the token').toBeTruthy();
+
+  const join = (joinToken: string, name: string) =>
+    page.request.post('/api/v1/agent/join', {
+      data: {
+        protocol_version: 1,
+        join_token: joinToken,
+        name,
+        capacity: 1,
+        os: 'linux',
+        arch: 'amd64',
+        version: 'e2e',
+        backends: [{ kind: 'docker', available: true }],
+      },
+    });
+
+  const name = `e2e-refusal-${Date.now()}`;
+  let hostId = '';
+  try {
+    // Nonsense first, so nothing has been spent: a truncated paste, or the
+    // token id from the Hosts page rather than the secret shown once beside it.
+    const garbage = await join('zoojoin_notatoken', `${name}-garbage`);
+    expect(garbage.status(), 'a token that never existed').toBe(422);
+    expect(JSON.stringify(await garbage.json())).toMatch(/join token/i);
+
+    // Then the real one, which works exactly once.
+    const first = await join(token as string, name);
+    expect(first.ok(), 'the first join succeeded').toBeTruthy();
+    hostId = ((await first.json()) as { host_id: string }).host_id;
+
+    const second = await join(token as string, `${name}-second`);
+    expect(second.status(), 'the same token twice').toBe(422);
+    expect(JSON.stringify(await second.json())).toMatch(/join token/i);
+  } finally {
+    if (hostId) await page.request.delete(`/api/v1/hosts/${hostId}?force=true`);
+  }
+});
