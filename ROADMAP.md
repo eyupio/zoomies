@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.25 · 9 September 2026 · derived from the owner's
+Version 2.26 · 9 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -911,7 +911,7 @@ with the first pull request.
    selection, count and the first names from the installation's repository
    list, rendered in the verify dialog. One spec change, both clients
    regenerated, one docs row.
-3. A standalone fake GitHub for Playwright: a test-only Go program under
+3. **Done.** A standalone fake GitHub for Playwright: a test-only Go program under
    `test/` serving the existing fake on a loopback port, started by the
    Playwright harness and pointed at through the per-installation API base
    URL the connect dialog already accepts. One spec: connect with a wrong key, verify fails, fix
@@ -1757,6 +1757,22 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **9 September 2026 — Version 2.26:** ZF-201 is done. Its last pull request
+  gives the suite's GitHub fake a port, so the connect and verify pages are
+  tested where they live rather than at every layer beneath them, and the suite
+  gains its only fail-then-recover journey outside a wrong password. **That is
+  what exposed the gap**: replacing an installation's private key had a route
+  and no way in, so recovering from the commonest credential mistake there is —
+  pasting the wrong `.pem`, a file GitHub hands over exactly once — meant
+  disconnecting the installation, which takes its pools and their runner rows
+  with it. A key is replaceable; a fleet should not have to be. Two of the
+  harness defects were self-inflicted and worth recording as such: a fixture
+  that published the fake's address *after* the controller answered `/healthz`,
+  so a spec could read a port from the previous run; and a defensive
+  `os.Stdout.Sync()` in the fake, which fails on a pipe and so killed the
+  program the instant it had said where it was. A guard that turns a working
+  program into a dead one is worse than no guard.
 
 * **9 September 2026 — Version 2.25:** ZF-201's first pull request is done, and
   its three defects were all the same kind of thing: the product saying
