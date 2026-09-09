@@ -669,3 +669,48 @@ func TestHostResponseFallsBackToTheKindsAlone(t *testing.T) {
 		t.Errorf("detail = %q, want nothing invented", out.BackendInfo[0].Detail)
 	}
 }
+
+// A viewer must not read admin-only documents out of the audit log.
+//
+// audit.read is a viewer action; users.read, tokens.read, joins.read and
+// settings.read are all admin ones. Returning every row's before/after exactly
+// as stored made the audit log a way around that split: a viewer who was
+// refused GET /users could read a user's email, display name and OIDC subject
+// out of the row that recorded the change to them.
+//
+// The row itself is not the problem and is not withheld. Who did what, to which
+// thing, and when is what a viewer is given the audit log for; it is the
+// document describing the thing that is admin-only.
+func TestTheAuditLogDoesNotLetAViewerReadAdminOnlyDocuments(t *testing.T) {
+	h := newHarness(t)
+	_, adminCookie := h.user("root@example.com", store.RoleAdmin)
+
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/users", cookie: adminCookie,
+		body: map[string]any{"username": "dana", "password": testPassword, "role": "operator",
+			"email": "dana@example.com"}})
+	created.mustStatus(t, http.StatusCreated, "create user")
+
+	// The admin who can call GET /users still sees the whole row.
+	asAdmin := h.do(request{method: http.MethodGet, path: "/api/v1/audit?target_kind=user", cookie: adminCookie})
+	asAdmin.mustStatus(t, http.StatusOK, "audit as admin")
+	if !strings.Contains(string(asAdmin.body), "dana@example.com") {
+		t.Fatalf("an admin lost the document they are allowed to read:\n%s", string(asAdmin.body))
+	}
+
+	_, viewerCookie := h.user("watcher@example.com", store.RoleViewer)
+	asViewer := h.do(request{method: http.MethodGet, path: "/api/v1/audit?target_kind=user", cookie: viewerCookie})
+	asViewer.mustStatus(t, http.StatusOK, "audit as viewer")
+	if strings.Contains(string(asViewer.body), "dana@example.com") {
+		t.Errorf("a viewer read a user's email out of the audit log:\n%s", string(asViewer.body))
+	}
+	// The row is still there, or the viewer has lost the audit trail itself.
+	if !strings.Contains(string(asViewer.body), "user.create") {
+		t.Errorf("the viewer lost the row as well as the document:\n%s", string(asViewer.body))
+	}
+
+	// And the direct route is refused, which is the promise being kept.
+	direct := h.do(request{method: http.MethodGet, path: "/api/v1/users", cookie: viewerCookie})
+	if direct.status != http.StatusForbidden {
+		t.Errorf("GET /users as viewer = %d, want 403", direct.status)
+	}
+}
