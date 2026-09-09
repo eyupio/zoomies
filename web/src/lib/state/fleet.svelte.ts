@@ -237,7 +237,16 @@ class Fleet {
       ),
       events.subscribe('scaling', (event) =>
         this.#live(() => {
-          this.#scaling = [event, ...this.#scaling].slice(0, SCALING_LIMIT);
+          // By id, because the same decision arrives twice whenever a replay
+          // and a reconciling fetch overlap: the fetch already has it and the
+          // stream delivers it again. Two identical rows in the feed read as
+          // the scheduler having decided the same thing twice, which is a
+          // fleet flapping -- and a keyed list with a repeated key is an
+          // error in the framework, not a cosmetic one.
+          const rest = event.id
+            ? this.#scaling.filter((seen) => seen.id !== event.id)
+            : this.#scaling;
+          this.#scaling = [event, ...rest].slice(0, SCALING_LIMIT);
         }),
       ),
       // The server could not replay everything since the last id this tab

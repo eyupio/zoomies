@@ -91,10 +91,25 @@ ARG OS_VERSION=24.04
 # layer of its own, below -- see deploy/runner-extra.sh for why.
 ARG EXTRA_PACKAGES=""
 
+# Which release built this image. These carried no value at all until now:
+# the controller image took VERSION, COMMIT and DATE and these did not, so of
+# the images this project publishes the ones an operator is most likely to be
+# holding when something is wrong were the ones that could not say what they
+# were. `docker inspect` answers it now, and so does a registry listing.
+ARG VERSION=dev
+ARG COMMIT=""
+ARG DATE=""
+
 LABEL org.opencontainers.image.title="zoomies-runner" \
       org.opencontainers.image.description="GitHub Actions runner image for Zoomies" \
       org.opencontainers.image.source="https://github.com/eyupio/zoomies" \
+      org.opencontainers.image.url="https://zoomies.sh" \
+      org.opencontainers.image.documentation="https://zoomies.sh/hosts-and-pools/" \
+      org.opencontainers.image.vendor="EyUp.io" \
       org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.created="${DATE}" \
       org.opencontainers.image.base.name="${BASE}" \
       io.zoomies.runner-version="${RUNNER_VERSION}" \
       io.zoomies.os="${OS_ID}" \
@@ -211,10 +226,19 @@ ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 FROM runner-base AS runner-docker
 ARG OS_FAMILY
 ARG OS_ID
+# Re-declared after FROM, like every other ARG here: the values set before it
+# are out of scope in this stage, and a label written from an ARG that is not
+# in scope is silently empty.
+ARG VERSION=dev
+ARG COMMIT=""
+ARG DATE=""
 USER root
 
 LABEL org.opencontainers.image.title="zoomies-runner-docker" \
-      org.opencontainers.image.description="GitHub Actions runner image for Zoomies, with the Docker CLI"
+      org.opencontainers.image.description="GitHub Actions runner image for Zoomies, with the Docker CLI" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.created="${DATE}"
 
 COPY --chmod=0755 deploy/runner-docker-cli.sh /tmp/runner-docker-cli.sh
 RUN /tmp/runner-docker-cli.sh "${OS_FAMILY}" "${OS_ID}" && rm /tmp/runner-docker-cli.sh

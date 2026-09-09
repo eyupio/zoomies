@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -201,4 +203,177 @@ func contains(haystack []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// preMigrationCopies lists the backups this package took before migrating.
+func preMigrationCopies(t *testing.T, dbPath string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(filepath.Dir(dbPath), PreMigrationDir))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		t.Fatalf("reading the pre-migration directory: %v", err)
+	}
+	var out []string
+	for _, e := range entries {
+		// Only the ones this package names: anything else in there is
+		// somebody's, and counting it would make the retention assertion
+		// below pass or fail on a directory retention never touches.
+		if e.IsDir() && strings.HasPrefix(e.Name(), BackupDirPrefix) {
+			out = append(out, e.Name())
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Migrations are one-way and the binary that wrote a database refuses to open
+// it once a newer one has moved it on. So the moment before a migration is
+// when a rollback is most likely to be wanted and least likely to have been
+// prepared for -- an operator upgrading is not thinking about backups.
+func TestUpgradingCopiesTheDatabaseFirst(t *testing.T) {
+	ctx := context.Background()
+	path := atSchema(t, 1)
+
+	s, err := Open(ctx, Options{Path: path})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	copies := preMigrationCopies(t, path)
+	if len(copies) != 1 {
+		t.Fatalf("the upgrade left %v pre-migration copies, want one", copies)
+	}
+
+	// It is a real database, and the layout `zoomies restore` takes: a copy
+	// nobody can put back without knowing it is special is not a rollback.
+	dir := filepath.Join(filepath.Dir(path), PreMigrationDir, copies[0])
+	old, err := Open(ctx, Options{Path: filepath.Join(dir, BackupDBName), ReadOnly: true})
+	if err != nil {
+		t.Fatalf("the copy does not open: %v", err)
+	}
+	defer old.Close()
+	if err := old.IntegrityCheck(ctx); err != nil {
+		t.Errorf("the copy does not pass its integrity check: %v", err)
+	}
+	// And it is the database as it was *before* the upgrade, which is the
+	// whole point: one migration, not the whole ledger.
+	applied, err := old.AppliedMigrations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(applied) != 1 {
+		t.Errorf("the copy has %d migrations; it was taken after the upgrade, not before it", len(applied))
+	}
+}
+
+// A fresh install has no rows to lose, and putting an empty copy beside every
+// one of them would teach operators that the directory is noise.
+func TestAFirstStartTakesNoCopy(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "zoomies.db")
+	s, err := Open(ctx, Options{Path: path})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	if copies := preMigrationCopies(t, path); len(copies) != 0 {
+		t.Errorf("a first start left %v behind", copies)
+	}
+}
+
+// A ledger that exists and is empty is what a crash between creating the table
+// and applying the first migration leaves behind. There is still nothing to
+// lose, and a copy of an empty database beside every such start would be noise
+// -- so this is a separate case from the fresh file above, which never gets as
+// far as reading the ledger at all.
+func TestAnEmptyLedgerTakesNoCopyEither(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "zoomies.db")
+
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `CREATE TABLE schema_migrations (
+		name TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Open(ctx, Options{Path: path})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	if copies := preMigrationCopies(t, path); len(copies) != 0 {
+		t.Errorf("a database with an empty ledger was copied: %v", copies)
+	}
+}
+
+// Opening a database that is already at head is the ordinary case -- every
+// restart -- and it must not copy the database each time.
+func TestAnOpenWithNothingPendingTakesNoCopy(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "zoomies.db")
+	first, err := Open(ctx, Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	again, err := Open(ctx, Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.Close()
+	if copies := preMigrationCopies(t, path); len(copies) != 0 {
+		t.Errorf("restarting on an up-to-date database copied it: %v", copies)
+	}
+}
+
+// Two is what is worth keeping: the upgrade that just happened, and the one
+// before it -- which is the one an operator reaches for when the first went
+// unnoticed. More would be a copy of the whole database per release, kept
+// forever, on the disk the fleet also needs.
+func TestOnlyTheLastTwoCopiesAreKept(t *testing.T) {
+	ctx := context.Background()
+	path := atSchema(t, 1)
+	root := filepath.Join(filepath.Dir(path), PreMigrationDir)
+
+	// Three upgrades' worth, planted with names a year apart so the order is
+	// unambiguous, plus something that is not ours.
+	for _, stamp := range []string{"20240101-000000", "20250101-000000", "20260101-000000"} {
+		if err := os.MkdirAll(filepath.Join(root, BackupDirPrefix+stamp), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stranger := filepath.Join(root, "notes")
+	if err := os.MkdirAll(stranger, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Open(ctx, Options{Path: path})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	copies := preMigrationCopies(t, path)
+	// The newest two: the one this open just took, and 20260101.
+	if len(copies) != preMigrationKeep {
+		t.Fatalf("kept %v, want %d", copies, preMigrationKeep)
+	}
+	if contains(copies, BackupDirPrefix+"20240101-000000") {
+		t.Errorf("the oldest copy survived: %v", copies)
+	}
+	if _, err := os.Stat(stranger); err != nil {
+		t.Errorf("retention removed a directory this package did not name: %v", err)
+	}
 }

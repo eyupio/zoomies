@@ -446,9 +446,7 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 		if err != nil {
 			return nil, fmt.Errorf("replacing the previous registration of host %s: %w", name, err)
 		}
-		for _, id := range dropped {
-			c.publishRunnerDeleted(id)
-		}
+		c.publishRunnersDeleted(dropped)
 		h.Embedded = existing.Embedded || embedded
 		h.Cordoned = existing.Cordoned
 		// The reserve is the operator's, and a re-join is something the agent
@@ -899,6 +897,7 @@ func cleansUp(kind agent.TaskKind) bool {
 // capacity wrong in order to record a tidying problem. What is wrong is the
 // host, and the row is where that belongs.
 func (c *Controller) noteCleanupFailure(ctx context.Context, r *store.Runner, kind agent.TaskKind, reason string) {
+	c.metrics.cleanups.WithLabelValues("failed").Inc()
 	detail := fmt.Sprintf("%s failed: %s", kind, reason)
 	if err := c.st.RecordCleanupFailure(ctx, r.ID, detail); err != nil {
 		c.log.Warn("could not record a failed cleanup on its runner",
@@ -918,6 +917,10 @@ func (c *Controller) noteCleanupSucceeded(ctx context.Context, r *store.Runner) 
 	if r.CleanupError == "" && r.CleanedUpAt != nil {
 		return
 	}
+	// Counted here rather than at every call site: this is the point at which
+	// the runner is known to be gone from its host, and the early return above
+	// is a repeat report about one that already was.
+	c.metrics.cleanups.WithLabelValues("succeeded").Inc()
 	if err := c.st.ClearCleanupFailure(ctx, r.ID); err != nil {
 		c.log.Warn("could not clear a recorded cleanup failure", "runner", r.ID, "error", err)
 		return

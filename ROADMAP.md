@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.19 · 8 September 2026 · derived from the owner's
+Version 2.23 · 8 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -1170,17 +1170,33 @@ re-uploaded two days after tagging; and there is no upgrade test of any kind.
    now**, not one — `v0.1-alpha` shipped `0001_init.sql` alone and `v0.2-beta`
    shipped through `0010`, so the fixture covers both, which are the two points
    somebody's database is actually sitting at.
-4. Backup before migrate: when the store is file-backed and migrations are
-   pending, `VACUUM INTO` a sibling copy first, keeping the last two, using
-   ZF-203's primitive and file naming rather than a second one.
-5. Supply chain: every action pinned to a commit with its version in a
-   comment; a Dependabot configuration for actions, Go modules, npm and
-   images, weekly and grouped; `govulncheck` in CI and on a weekly schedule;
-   build-provenance attestations for binaries and image digests; OCI labels
-   on the images; a release-workflow guard that refuses to re-run on a
-   published tag and marks a tag with a hyphen as a prerelease; a
-   GitHub-hosted runner path for the release and site workflows selectable by
-   dispatch input.
+4. Backup before migrate: **done** — when the store is file-backed and
+   migrations are pending, `VACUUM INTO` a sibling copy first, keeping the last
+   two, using ZF-203's primitive and file naming. **The naming is shared rather
+   than merely matched**: the two constants moved into `internal/store`, which
+   owns the layout, so a copy taken automatically is restorable by exactly the
+   command that restores one taken by hand. **The copies live in their own
+   `pre-migration/` directory** rather than beside the operator's: retention
+   here deletes, and a rule that kept "the last two" in a directory somebody
+   points `zoomies backup --dir` at would eventually take one of theirs.
+   Nothing is copied on a first start or a restart with nothing pending.
+5. Supply chain: **done. Three of its seven parts had already landed** —
+   every action is pinned to a commit with its version in a comment, the
+   Dependabot configuration covers actions, Go modules, npm and images weekly
+   and grouped, and `govulncheck` runs in CI and on a weekly schedule; the
+   plan's reconciliation predates them. **What was missing is now in**:
+   build-provenance attestations for the binaries and the controller image's
+   digest; OCI labels on both images, including the version, revision and
+   creation date the runner images carried none of; a guard that refuses to
+   rebuild a published tag; prerelease marking for a tag with a hyphen; and a
+   GitHub-hosted path selectable by dispatch on the release and site
+   workflows. **Two of the verifier's findings went with it**: the release
+   workflow granted `contents: write` to every job and now grants each what it
+   needs, and it had no dispatch trigger, so the runner-selection input now
+   arrives with the tag it needs. **The pinning rule was a claim, not a
+   check** -- CLAUDE.md said CI enforced it and nothing did; `internal/docs`
+   tests it now, along with the permissions rule and the release workflow's
+   own guards.
 6. One upgrade job in CI: install the latest published release into a
    temporary prefix with the process backend, start it, stop it, start the
    freshly built binary on the same state, and assert the version changed,
@@ -1189,18 +1205,20 @@ re-uploaded two days after tagging; and there is no upgrade test of any kind.
    per-runner drain.
 
 Six details from the verifier for the pull requests above: the runner and
-runner-docker images are built with no version, commit or date build
-arguments at all, so build identity is worse for them than for the
-controller image; the agent's cordon flag from the heartbeat was log-only
+runner-docker images were built with no version, commit or date build
+arguments at all, so build identity was worse for them than for the
+controller image -- **fixed in pull request 5**, which also gave the
+controller image the OCI labels it had none of; the agent's cordon flag from the heartbeat was log-only
 and did not gate anything, which the incompatible-host design reuses and had
 to make real first -- **fixed in pull request 1**, by refusing creates alone
 rather than gating the poll loop, since a cordoned host still has runners to
-drain and an agent that stopped polling would strand every one of them; the release workflow has no dispatch trigger, so
-the runner-selection input needs a dispatch path that takes a tag; the agent
+drain and an agent that stopped polling would strand every one of them; the release workflow had no dispatch trigger, so
+the runner-selection input needed a dispatch path that takes a tag --
+**both done in pull request 5**; the agent
 compares the short version with commit while the host row stores the bare
 version, so a skew badge and the agent's own warning disagree for two
-builds of one tag; `contents: write` is granted to both release jobs when
-only one needs it; and nothing tests the agent's re-adoption of a workload
+builds of one tag; `contents: write` was granted to both release jobs when
+only one needed it -- **fixed in pull request 5**, and now tested; and nothing tests the agent's re-adoption of a workload
 after its own restart, on which "a binary swap is non-disruptive" rests.
 
 **Cut from the source package:** capability negotiation and multiple
@@ -1619,7 +1637,7 @@ which is why the assignment could end while three of its gates stayed shut.
 | --- | --- | --- | --- |
 | ZF-002 | A fresh Ubuntu 24.04 LTS amd64 host with `main` deployed natively; its versions recorded in `roadmap/validation/` | Now | Outstanding since Phase 0. Nothing in `roadmap/validation/` records a host, and ZF-002 cannot reach `validated` without one |
 | ZF-301c, Gate F | A disposable organisation, a GitHub App installed on it with one organisation and one repository target, a repository carrying the scenario workflows, secrets in a protected environment, a tunnel or public host for the webhook run | Before Assignment B | Outstanding. Every real-GitHub scenario and Gate F itself waits on it; the fake and the drill tier go no further |
-| ZF-204 | Immutable releases enabled; `v0.1-alpha` marked as a prerelease; the pre-release tag at the end of Assignment A | End of Assignment A | Outstanding on all three parts. No tag has been cut on Assignment A's work, and the new one needs a name of its own because `v0.2-beta` is taken |
+| ZF-204 | Immutable releases enabled; `v0.1-alpha` marked as a prerelease; the pre-release tag at the end of Assignment A | End of Assignment A | Two of three done. Both releases are marked prerelease, and the tag is no longer needed by ZF-204: its upgrade check upgrades from the last published release, which is what people actually have. Immutable releases stay outstanding, though the release workflow now refuses to rebuild a published tag itself |
 | ZF-303 | A second operator for one setup-and-diagnose session | Any time; the drill tier provides the injected failure | Outstanding |
 | Everything | The decisions in section 3 ratified or changed | Now | Records exist for decisions 1 and 2 in `roadmap/decisions/`, both still marked proposed; the rest have been worked to as written without being ratified |
 
@@ -1739,6 +1757,71 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **8 September 2026 — Version 2.23:** ZF-205 is done, and with it every
+  unblocked package in Phase 2 — ZF-201 waits on the owner's disposable
+  organisation and ZF-206 on Gate F. **Two corrections to the package as
+  written.** The poller's rate-limit pause is *not* fleet-wide and never was:
+  it is keyed by installation, so the gauge carries the installation, and a
+  fleet with two of them, one held, is a fleet half working that the described
+  flag could not have said. And the time zone and freshness the package asked
+  to be rendered from data already were; the window was the only prose, and it
+  was worse than prose — a fetch of `/stats` defaulted to a day and a `stats`
+  frame to an hour, so the Overview's completed counts and wait percentiles
+  changed under the operator a second after every page load while the
+  specification said an hour throughout. **Three findings.** A registry-wide
+  label rule has to read the collectors' descriptors rather than a scrape: a
+  vector with no observations reports nothing at all, so the version that
+  gathered and inspected passed happily with a `repository` label added, and
+  would have failed on the day something first incremented it. The load
+  measurement earned its keep on its first run, finding that the audit log's
+  action filter scanned the one table Zoomies deliberately never prunes. And
+  the bulk prune's announcement, not its deletion, was the reconnect storm:
+  past sixty-four rows it now sends the one frame that already means "fetch
+  the resources again".
+
+* **8 September 2026 — Version 2.22:** ZF-204 is done. Its last pull request
+  is the upgrade check nothing else could stand in for: every other tier builds
+  one binary and asks what it does, and upgrade day asks whether an
+  installation is still an installation once the binary under it is replaced.
+  `make test-upgrade` installs the last published release the way an operator
+  does, swaps this build in over its state, and checks that the version moved,
+  the operator's `zoomies.yaml` did not, the host row is the same row, and the
+  pre-migration copy exists. **Writing it found that `curl … install.sh | sh`
+  did not work at all**: GitHub's /releases/latest only knows about full
+  releases, every Zoomies release so far is a prerelease, and the redirect the
+  installer reads therefore landed on the release index with no tag in it. The
+  documented one-line install has been broken for as long as there have been
+  only prereleases, and nothing could have caught it — the installer's only CI
+  coverage was a syntax check. **This also discharges an owner action**: the
+  package asked for a fresh pre-release tag to upgrade from, and the last
+  published release is a better fixture than a tag cut for the test, because it
+  is what people actually have. **And a drill was written and thrown away**,
+  which is the delivery rule working as intended: an agent-upgrade drill on the
+  runtime tier passed with adoption removed, because the reaping it claimed to
+  prevent sits behind a two-minute constant a separate process cannot move. The
+  wiring is pinned in-process instead, where the clock can be — and the gap it
+  exposed was real, since every existing test called `adoptExisting` directly
+  and none of them noticed the call disappearing from the startup path.
+
+* **8 September 2026 — Version 2.21:** the supply-chain work is done, and it
+  found that three of its seven parts had already shipped: the plan's
+  reconciliation predates the action pinning, the Dependabot configuration and
+  the govulncheck workflow. The finding worth keeping from the rest is that
+  **the pinning rule was a claim rather than a check** — CLAUDE.md has said CI
+  enforces it for some time and nothing did. It is tested now, with the
+  permissions rule and the release workflow's own guards. The image builds are
+  written twice, once per runner vendor, rather than once with a swapped
+  action: this workflow runs only on a tag, so CI cannot tell anybody it has
+  been broken until the moment somebody needs a release, and the path that
+  works today therefore stays byte for byte what it was.
+
+* **8 September 2026 — Version 2.20:** backup-before-migrate is done, and the
+  interaction it uncovered is worth recording: `zoomies restore` opens the
+  database it restored, so restoring a backup from an *older* release migrates
+  it — and now keeps a copy of it as it was first. Restoring an old backup no
+  longer consumes it. Both pages say so, which they did not before, because
+  until this the migration on restore was invisible.
 
 * **8 September 2026 — Version 2.19:** ZF-204's schema-safety tests are done,
   and writing them corrected the plan's picture twice. There are two releases

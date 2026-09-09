@@ -106,6 +106,7 @@ and `--failed` are the two questions worth a switch of their own.
 | `hosts list` | The hosts that have joined. |
 | `hosts cordon <host-id>` | Stop scheduling new runners onto it. What it already has keeps running. |
 | `hosts uncordon <host-id>` | Let it accept runners again. |
+| `hosts drain <host-id>` | Cordon it, then drain every runner on it, so it empties as its jobs finish. The order matters: draining an uncordoned host means the scheduler puts fresh runners on it while the old ones are still going. It never forces — a drained runner finishes the job it is on. |
 | `hosts delete <host-id>` | Forget it. Refused while it has live runners, unless `--force`. |
 | `hosts join-token create` | Mint a single-use join token: `--ttl` (`15m`), `--capacity` (`2`), `--labels`, `--controller`. Shown once; only its hash is stored. |
 

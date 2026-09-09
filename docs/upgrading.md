@@ -182,9 +182,83 @@ does all of it silently. Rolling a release back is a thing people do under
 pressure, and this is the moment to be told that the database went forward
 with it.
 
-So the rollback plan is a copy of the database from before the upgrade, which
-is the subject of [Backup and restore](backup-and-restore.md). Take one before
-an upgrade you are unsure about. It is one file and it takes a second.
+So the rollback plan is a copy of the database from before the upgrade — and
+**the controller takes one for you**. Whenever it starts and finds migrations
+pending on an existing database, it copies the database to
+`pre-migration/zoomies-<timestamp>/` beside it before applying anything, and
+keeps the last two. It is the same layout `zoomies restore` takes, so putting
+one back is one command.
+
+Take your own as well before an upgrade you are unsure about: the automatic one
+is beside the database, and a disk that fails takes both.
+[Backup and restore](backup-and-restore.md) is the subject.
+
+## What a release carries
+
+Every published binary and the controller image carry a **build-provenance
+attestation**: a signed statement that these bytes were built by this
+repository's release workflow, from this commit. `install.sh` already checks
+the checksum, which says the bytes match what the release names; provenance
+says where they came from.
+
+```sh
+gh attestation verify zoomies_linux_amd64 --repo eyupio/zoomies
+gh attestation verify oci://ghcr.io/eyupio/zoomies:v1.2.3 --repo eyupio/zoomies
+```
+
+Every image says what it is without being started, in the standard OCI labels —
+`org.opencontainers.image.version`, `.revision` and `.created`. That includes
+the runner images, which until recently carried no version at all.
+
+A tag with a hyphen in it — `v0.1-alpha`, `v1.0-rc1` — is published as a
+**prerelease**. GitHub keeps prereleases out of `/releases/latest`, so while
+every release so far is one, `install.sh` with no `--version` asks the API for
+the newest release of any kind instead. Once there is a full release, that is
+what "latest" means and prereleases stop being offered. Either way, name the
+tag with `--version v1.2.3` when it matters which one you get.
+
+A tag whose release is already published cannot be rebuilt: the release
+workflow refuses. A released tag is a promise about specific bytes, and
+replacing them behind people who have already downloaded them is not an upgrade
+anyone can reason about.
+
+## Upgrading an agent host
+
+A controller upgrade is one machine. A fleet is not: each agent host runs jobs
+that belong to somebody, and the sequence below is the difference between an
+upgrade nobody notices and a wave of failed builds.
+
+```sh
+# 1. Stop new work arriving, and let what is here finish.
+zoomies hosts drain hst_k3f9qz2m
+
+# 2. Wait for it to empty. A drained runner finishes its job first, so this
+#    takes as long as the longest job on the host.
+zoomies hosts list
+
+# 3. Swap the binary and restart the unit.
+curl -fsSL https://zoomies.sh/install.sh | sh -s -- --no-init
+sudo systemctl restart zoomies-agent
+
+# 4. Let it take work again.
+zoomies hosts uncordon hst_k3f9qz2m
+```
+
+`hosts drain` cordons before it drains, and the order is the whole point:
+draining a host that still accepts work means the scheduler puts a fresh runner
+on it while the old ones are finishing, and the count goes down and back up
+while an operator watches and concludes the drain failed.
+
+Step 2 is optional, and skipping it is safe rather than merely tolerated: an
+agent that restarts over running work adopts it rather than reaping it, which is
+what makes a binary swap non-disruptive at all. Draining first is what makes it
+*predictable* — a host with nothing on it cannot surprise you — and on a host
+whose jobs are short it costs a few minutes.
+
+An agent that comes back on a release the controller does not recognise is
+excluded rather than refused: it keeps heartbeating, its running work finishes,
+and no new runner is placed on it. The Hosts page says so on the card. See
+[What happens when the protocol stops matching](#what-happens-when-the-protocol-stops-matching).
 
 ## Upgrading a container deployment
 

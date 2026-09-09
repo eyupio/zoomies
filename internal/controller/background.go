@@ -194,9 +194,7 @@ func (c *Controller) prune(ctx context.Context) {
 			// Each pruned row is announced, or the Runners page keeps showing
 			// runners that no longer exist until it is reloaded.
 			ids, err := c.st.PruneRunners(ctx, before)
-			for _, id := range ids {
-				c.publishRunnerDeleted(id)
-			}
+			c.publishRunnersDeleted(ids)
 			return int64(len(ids)), err
 		}},
 		{"fleet samples", r.Samples, c.st.PruneSamples},

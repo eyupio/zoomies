@@ -60,6 +60,7 @@ func (c *Controller) reconcileLoop(ctx context.Context) {
 // transient database or GitHub error must not stop the loop.
 func (c *Controller) reconcileNow(ctx context.Context) {
 	if err := c.Reconcile(ctx); err != nil && ctx.Err() == nil {
+		c.metrics.reconcileErrors.Inc()
 		c.log.Error("reconcile pass failed; the next pass will try again", "error", err)
 	}
 }

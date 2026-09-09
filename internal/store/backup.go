@@ -4,9 +4,37 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+)
+
+// The layout one backup has on disk, shared so that a copy this package takes
+// before a migration is restorable by exactly the command that restores a copy
+// an operator took by hand. Two namings for one thing would mean a
+// pre-migration copy nobody could put back without knowing it was special.
+const (
+	// BackupDirPrefix begins the name of one backup's directory; the rest is
+	// the instant it was taken.
+	BackupDirPrefix = "zoomies-"
+	// BackupDBName is the database inside it.
+	BackupDBName = "zoomies.db"
+	// PreMigrationDir is where this package puts the copy it takes before
+	// applying migrations, beside the database.
+	//
+	// Its own directory rather than the operator's: retention here deletes,
+	// and the directory somebody points `zoomies backup --dir` at is often
+	// shared. A rule that kept "the last two" in there would eventually take
+	// one of theirs.
+	PreMigrationDir = "pre-migration"
+	// preMigrationKeep is how many of these are worth having. One is the
+	// upgrade that just happened; two covers the upgrade before it, which is
+	// the one an operator reaches for when the first went unnoticed. More
+	// would be a copy of the whole database per release, kept forever, on the
+	// disk the fleet also needs.
+	preMigrationKeep = 2
 )
 
 // Backup writes a consistent copy of the database to dest.
@@ -119,4 +147,65 @@ func (s *Store) HasSealedSecrets(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("store: counting sealed secrets: %w", err)
 	}
 	return n > 0, nil
+}
+
+// backupBeforeMigrate copies the database before any migration touches it.
+//
+// It is the one moment a rollback is both most likely to be wanted and least
+// likely to have been prepared for: an operator upgrading is not thinking
+// about backups, migrations are one-way, and an older binary will now refuse
+// to open a database that has moved on. This costs a file copy once per
+// release and buys the only rollback there is.
+//
+// It runs only when there is something to lose. A database being created has
+// no rows and no pending-migration risk worth a copy, and an in-memory one has
+// nowhere to put it.
+func (s *Store) backupBeforeMigrate(ctx context.Context, pending []string) (string, error) {
+	if len(pending) == 0 || s.path == "" {
+		return "", nil
+	}
+	abs, err := filepath.Abs(s.path)
+	if err != nil {
+		return "", err
+	}
+	root := filepath.Join(filepath.Dir(abs), PreMigrationDir)
+	dest := filepath.Join(root, BackupDirPrefix+s.Now().Format("20060102-150405"))
+	if err := s.Backup(ctx, filepath.Join(dest, BackupDBName)); err != nil {
+		return "", err
+	}
+	// Pruning after rather than before: a failure to tidy up must not stop an
+	// upgrade, and the copy that matters most is the one just taken.
+	if err := pruneDirs(root, preMigrationKeep); err != nil {
+		slog.Warn("could not prune old pre-migration copies", "dir", root, "error", err)
+	}
+	return dest, nil
+}
+
+// pruneDirs keeps the newest keep directories under root and removes the rest.
+//
+// It only considers directories this package names, and sorts by that name:
+// the timestamp is in it, so the order does not depend on a modification time
+// that copying between machines rewrites.
+func pruneDirs(root string, keep int) error {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return err
+	}
+	var ours []string
+	for _, e := range entries {
+		if e.IsDir() && strings.HasPrefix(e.Name(), BackupDirPrefix) {
+			ours = append(ours, e.Name())
+		}
+	}
+	sort.Strings(ours)
+	if len(ours) <= keep {
+		return nil
+	}
+	var errs []error
+	for _, name := range ours[:len(ours)-keep] {
+		if err := os.RemoveAll(filepath.Join(root, name)); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }

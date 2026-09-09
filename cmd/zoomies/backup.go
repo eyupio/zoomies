@@ -29,10 +29,14 @@ const backupManifestVersion = 1
 // from the instance, so `zoomies restore` takes a directory and nothing else,
 // and so an operator looking at an unlabelled folder can tell what it is.
 const (
-	backupDBName       = "zoomies.db"
+	// The two the store owns, because it writes this layout itself before a
+	// migration: one naming for one thing, so a copy taken automatically is
+	// restorable by the command that restores a copy taken by hand.
+	backupDBName    = store.BackupDBName
+	backupDirPrefix = store.BackupDirPrefix
+
 	backupManifestName = "manifest.json"
 	backupKeyName      = "encryption.key"
-	backupDirPrefix    = "zoomies-"
 )
 
 // backupManifest is what turns a copy of a database into a backup somebody can

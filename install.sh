@@ -675,6 +675,26 @@ sha256_of() {
     fi
 }
 
+# newest_release_tag names the most recent release, pre-releases included, from
+# the API. It prints nothing when it cannot say, and the caller turns that into
+# the same error a missing redirect gives: a wrong tag here would download some
+# other project's binary.
+newest_release_tag() {
+    # Only the real github.com has this API shape. A ZOOMIES_BASE_URL pointing
+    # somewhere else -- a mirror, a test server -- gets the error instead of a
+    # guess at what its API might be.
+    [ "$BASE_URL" = "https://github.com/${REPO}/releases" ] || return 0
+    api="https://api.github.com/repos/${REPO}/releases?per_page=1"
+    if have curl; then
+        # shellcheck disable=SC2086 # as above
+        body=$(curl -fsSL $CURL_PROTO "$api" 2>/dev/null || printf '')
+    else
+        body=$(wget -qO- "$api" 2>/dev/null || printf '')
+    fi
+    printf '%s\n' "$body" | grep -o '"tag_name"[^,]*' | head -1 |
+        sed 's/.*: *"//; s/".*//'
+}
+
 resolve_version() {
     [ "$VERSION" = latest ] || return 0
     step "Finding the latest release"
@@ -689,7 +709,17 @@ resolve_version() {
     fi
     case "$url" in
         */tag/*) VERSION="${url##*/tag/}" ;;
-        *) die "could not work out the latest release. Pass --version v1.2.3, or check that $BASE_URL is reachable." ;;
+        # No tag in the redirect. GitHub's /releases/latest only knows about
+        # full releases, so while every Zoomies release is a pre-release it
+        # redirects to the release index instead and the tag has to come from
+        # somewhere else. This is the fallback rather than the first choice
+        # because it spends an unauthenticated API call, which is rate limited
+        # per address and shared with everyone else behind the same NAT.
+        *) VERSION=$(newest_release_tag) ;;
+    esac
+    case "$VERSION" in
+        ""|latest)
+            die "could not work out the latest release. Pass --version v1.2.3, or check that $BASE_URL is reachable." ;;
     esac
     RESOLVED_LATEST=1
     ok "latest is $VERSION"

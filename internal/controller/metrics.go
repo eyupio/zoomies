@@ -34,6 +34,8 @@ type metrics struct {
 	webhookDeliveries                                                                            *prometheus.CounterVec
 	githubRequests                                                                               *prometheus.CounterVec
 	reconcileDuration                                                                            prometheus.Histogram
+	reconcileErrors                                                                              prometheus.Counter
+	cleanups                                                                                     *prometheus.CounterVec
 	buildInfo                                                                                    *prometheus.GaugeVec
 }
 
@@ -109,6 +111,23 @@ func newMetrics(c *Controller) *metrics {
 			Help:    "How long one reconcile pass took, including the GitHub calls it made.",
 			Buckets: []float64{.01, .05, .1, .25, .5, 1, 2.5, 5, 10, 30},
 		}),
+		// A pass that failed observes no duration, so the histogram's count is
+		// the number of passes that *worked* and this is the rest. Without it a
+		// controller whose every pass fails looks like one that is simply not
+		// busy: the duration series goes quiet either way.
+		reconcileErrors: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "zoomies_reconcile_errors_total",
+			Help: "Reconcile passes that failed. The loop carries on, so a rising count is a fleet deciding nothing while looking idle.",
+		}),
+		// Taking a runner away is the half of the lifecycle that leaves
+		// something behind when it goes wrong, and it goes wrong on the host
+		// rather than in the fleet -- so it is invisible in every other series
+		// here, which count what the fleet decided rather than what the host
+		// managed.
+		cleanups: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_runner_cleanups_total",
+			Help: "Attempts to take a runner off its host, by outcome: succeeded, or failed and recorded on the row.",
+		}, []string{"outcome"}),
 		buildInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "zoomies_build_info",
 			Help: "Always 1; the version and commit are in the labels.",
@@ -118,7 +137,7 @@ func newMetrics(c *Controller) *metrics {
 
 	m.reg.MustRegister(
 		m.jobsTotal, m.jobsRunnerLost, m.queueWait, m.jobDuration, m.scalingEvents,
-		m.webhookDeliveries, m.githubRequests, m.reconcileDuration, m.buildInfo,
+		m.webhookDeliveries, m.githubRequests, m.reconcileDuration, m.reconcileErrors, m.cleanups, m.buildInfo,
 		m.queuedToCreate, m.createToContainer, m.containerToRegistered, m.registeredToReady, m.queuedToStarted,
 		&fleetCollector{c: c},
 		collectors.NewGoCollector(),
@@ -157,6 +176,20 @@ var (
 		"Total runner slots across healthy, uncordoned hosts.", nil, nil)
 	descHostCapacityUsed = prometheus.NewDesc("zoomies_host_capacity_used",
 		"Runner slots currently occupied.", nil, nil)
+	// The backlog's depth and its age answer different questions: ten jobs
+	// queued for four seconds is a fleet working, and one job queued for forty
+	// minutes is a fleet that has stopped, and `zoomies_jobs_queued` cannot
+	// tell them apart. This is the one an alert should use.
+	descQueueAge = prometheus.NewDesc("zoomies_job_queue_age_seconds",
+		"How long the oldest job still waiting has been waiting, by pool. Zero when nothing is waiting.",
+		[]string{"pool"}, nil)
+	// Rate-limit backoff is per installation and always has been, so this
+	// carries the installation rather than being the fleet-wide flag the plan
+	// described. A fleet with two installations, one of them held, is a fleet
+	// half working -- and the fleet-wide version could not say which half.
+	descGitHubPaused = prometheus.NewDesc("zoomies_github_paused",
+		"1 while an installation is inside its GitHub rate-limit backoff and every background sweep is standing down from it, 0 otherwise.",
+		[]string{"installation"}, nil)
 )
 
 // fleetCollector reads the fleet's shape from the database on each scrape.
@@ -168,6 +201,8 @@ func (f *fleetCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- descHosts
 	ch <- descHostCapacity
 	ch <- descHostCapacityUsed
+	ch <- descQueueAge
+	ch <- descGitHubPaused
 }
 
 func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
@@ -195,9 +230,26 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 		return
 	}
 
+	installations, err := f.c.st.ListInstallations(ctx)
+	if err != nil {
+		f.c.log.Warn("could not read installations for the metrics endpoint", "error", err)
+		return
+	}
+
+	now := f.c.Now()
 	queuedByPool := map[string]int{}
+	// The oldest wait per pool, from the moment GitHub queued the job: that is
+	// the wait somebody is actually sitting through, and it is the same clock
+	// `zoomies_job_queue_wait_seconds` measures once the job finally starts.
+	oldestByPool := map[string]float64{}
 	for _, j := range queued {
 		queuedByPool[j.PoolID]++
+		if j.QueuedAt.IsZero() {
+			continue
+		}
+		if age := now.Sub(j.QueuedAt).Seconds(); age > oldestByPool[j.PoolID] {
+			oldestByPool[j.PoolID] = age
+		}
 	}
 
 	gauge := func(d *prometheus.Desc, v float64, labels ...string) {
@@ -219,12 +271,25 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 			gauge(descRunners, float64(n), p.Name, string(state))
 		}
 		gauge(descJobsQueued, float64(queuedByPool[p.ID]), p.Name)
+		gauge(descQueueAge, oldestByPool[p.ID], p.Name)
 	}
 	// Jobs no pool claimed still have to be visible somewhere.
 	gauge(descJobsQueued, float64(queuedByPool[""]), UnmatchedPool)
+	gauge(descQueueAge, oldestByPool[""], UnmatchedPool)
+
+	// Every installation reports, held or not: a series that only exists while
+	// something is wrong cannot be alerted on with a threshold, and an operator
+	// reading the endpoint by hand learns nothing from an absent line.
+	held := f.c.heldInstallations(now)
+	for _, inst := range installations {
+		v := 0.0
+		if _, ok := held[inst.ID]; ok {
+			v = 1
+		}
+		gauge(descGitHubPaused, v, inst.ID)
+	}
 
 	var healthy, unhealthy, cordoned, capacity, used int
-	now := f.c.Now()
 	for _, h := range hosts {
 		switch {
 		case !h.Healthy(now):

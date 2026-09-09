@@ -199,3 +199,39 @@ func TestResolvingARunnerIgnoresItsSidecar(t *testing.T) {
 		t.Fatalf("resolved to %q, which is the sidecar; a stop would spare the runner", handle)
 	}
 }
+
+// Adoption has to happen on the startup path, not merely exist as a method.
+// The tests above call adoptExisting directly, so removing the one call in Run
+// leaves them all green while every job on a restarting host is destroyed
+// again. This one starts the agent the way its unit does and asks whether the
+// runner that was already here survived the start.
+func TestStartingTheAgentAdoptsWhatIsAlreadyRunning(t *testing.T) {
+	a, _, be, _ := newAgent(t, 4)
+	if err := a.Join(context.Background(), "join-token"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	seedRunning(be, "run_live", "zoomies-live", "wl-live")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Error("agent did not shut down within 10s")
+		}
+	})
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, ok := a.snapshot("run_live"); ok {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the started agent never adopted the runner already on its host, so the reconciler will reap it")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}

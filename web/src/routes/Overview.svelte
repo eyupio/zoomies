@@ -38,6 +38,7 @@
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Switch from '$lib/components/Switch.svelte';
   import { fleet } from '$lib/state/fleet.svelte';
+  import { describeWindow } from '$lib/format';
   import { prefs } from '$lib/state/prefs.svelte';
   import ActiveJobs from '$lib/overview/ActiveJobs.svelte';
   import FirstRun from '$lib/overview/FirstRun.svelte';
@@ -65,13 +66,30 @@
   // the stream may well recover, and the last known truth is better than a
   // blank page. Only a first load that never landed gets one.
   const failed = $derived(!fleet.loaded && fleet.error !== null);
+
+  /**
+   * What period the figures on this page cover, from the payload that carries
+   * them.
+   *
+   * The sentence used to be prose -- "Trends and waits cover the last hour" --
+   * which was true of the frames and not of the first fetch, which covered a
+   * day. That is fixed on the controller; this reads the window off the payload
+   * so it stays true for a controller asked for a different one, and says both
+   * periods only when they are actually two.
+   */
+  const waits = $derived(describeWindow(fleet.stats?.window));
+  const coverage = $derived(
+    !waits || waits === '1 hour'
+      ? ' Trends, waits and outcomes cover the last hour.'
+      : ` Trends cover the last hour; waits and outcomes, the last ${waits}.`,
+  );
 </script>
 
 <PageHeader
   title="Overview"
   subtitle={(others
     ? 'What is happening across every runner GitHub reports on, this fleet\u2019s and everybody else\u2019s.'
-    : 'What this fleet is doing right now.') + ' Trends and waits cover the last hour.'}
+    : 'What this fleet is doing right now.') + coverage}
   onrefresh={() => fleet.reconcile()}
 >
   <Switch label="Other runners" checked={others} onchange={(on) => (prefs.otherRunners = on)} />

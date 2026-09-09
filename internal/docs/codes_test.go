@@ -310,6 +310,10 @@ var (
 // of the repository, so a layout block that omits them is right to.
 var notInLayout = map[string]bool{
 	"node_modules": true, "site": true,
+	// `make` writes binaries here -- release archives, and the pair of builds
+	// `make test-upgrade` installs -- so it exists on a machine that has run a
+	// build and nowhere else.
+	"dist": true, "bin": true,
 }
 
 // A layout block that has drifted is the most quietly misleading kind of

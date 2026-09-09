@@ -49,6 +49,18 @@ memory, so they are always current and never drift.
 | `zoomies_hosts` | gauge | `state` | Agent hosts, by `healthy`, `unhealthy` or `cordoned`. |
 | `zoomies_host_capacity` | gauge | — | Runner slots across healthy, uncordoned hosts. |
 | `zoomies_host_capacity_used` | gauge | — | Slots occupied. Divide by the previous for utilisation. |
+| `zoomies_job_queue_age_seconds` | gauge | `pool` | How long the oldest job still waiting has been waiting. Zero when the pool has nothing queued. |
+| `zoomies_github_paused` | gauge | `installation` | 1 while that installation is inside its GitHub rate-limit backoff and every background sweep is standing down from it. |
+
+**Queue depth and queue age answer different questions.** Ten jobs queued for
+four seconds is a fleet working; one job queued for forty minutes is a fleet
+that has stopped, and `zoomies_jobs_queued` reads lower for the second. Alert on
+the age, and use the depth for capacity planning.
+
+The pause gauge is **per installation**, because the backoff is: a fleet with
+two installations, one of them rate-limited, is a fleet half working, and only
+the label says which half. It reports 0 for every installation that is not held,
+so a threshold rule keeps matching when nothing is wrong.
 
 `zoomies_runners{state}` covers the live states only — `provisioning`,
 `registering`, `idle`, `busy`, `draining` and `failed`. There is no `removed`
@@ -67,6 +79,8 @@ will not fire when the numbers stop arriving altogether.
 | `zoomies_jobs_runner_lost_total` | counter | `pool` | Jobs whose runner died before GitHub reported the job over. These are the fleet's failures rather than the workflow's, and any sustained rate is worth waking up for. |
 | `zoomies_scaling_events_total` | counter | `pool`, `direction` | Scheduler decisions that changed a pool's size, `up` or `down`. Flapping shows up here first. |
 | `zoomies_webhook_deliveries_total` | counter | `status` | Inbound deliveries by `accepted`, `rejected` or `error`. A rising `rejected` count is a signing-secret mismatch or somebody probing. |
+| `zoomies_runner_cleanups_total` | counter | `outcome` | Attempts to take a runner off its host: `succeeded`, or `failed` and recorded on the runner's row. This is the half of a runner's life that goes wrong on the host rather than in the fleet, so it appears in no other series here. |
+| `zoomies_reconcile_errors_total` | counter | — | Reconcile passes that failed. A pass that fails observes no duration, so without this a controller deciding nothing looks exactly like one with nothing to decide. |
 | `zoomies_github_api_requests_total` | counter | `installation`, `result` | GitHub API calls by outcome: `ok`, `rate_limited`, `forbidden`, `not_found`, `error`. Where rate-limiting and a broken installation become visible. |
 
 Every `pool` label is the pool's **name**, so a query can join these against
@@ -111,6 +125,12 @@ being down:
   is the fleet failing at its one job.
 * Any sustained `rate(zoomies_jobs_runner_lost_total[15m])`, because that is
   work being lost rather than failing.
+* `zoomies_job_queue_age_seconds` above the longest wait you would accept,
+  which is the same question as the first rule asked in the units somebody
+  actually complains in.
+* Any sustained `rate(zoomies_reconcile_errors_total[15m])`, or
+  `zoomies_github_paused` stuck at 1: both are the control loop not running,
+  which no gauge about the fleet's shape will show you.
 * `zoomies_hosts{state="unhealthy"}` above zero.
 * `absent(zoomies_runners)`, which catches the case above where the gauges stop
   being reported at all.

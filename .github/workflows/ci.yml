@@ -70,6 +70,18 @@ jobs:
       - name: Run the lifecycle drill
         run: make test-drill
 
+      # The load measurement runs here too, for its assertions rather than its
+      # figures: every read still answers, and a deep page is still a page of
+      # rows, with a month of history under it. The timings go to the job
+      # summary and nowhere else -- a runner's p95 is not a gate, and the
+      # recorded evidence is written by `make measure` on a known machine.
+      - name: Measure the reads a page makes
+        run: make measure LOAD_RECORD=$RUNNER_TEMP/load.md
+
+      - name: Load record
+        if: always()
+        run: cat "$RUNNER_TEMP/load.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
       # The record is the deliverable, not just the exit code: it says what was
       # observed and whether anything was left for a person to clean up.
       - name: Drill record
@@ -78,6 +90,24 @@ jobs:
           if [ -f roadmap/validation/drills.md ]; then
             cat roadmap/validation/drills.md >> "$GITHUB_STEP_SUMMARY"
           fi
+
+  upgrade:
+    name: Upgrade
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # This is the one job that runs two builds of Zoomies: the last published
+      # release, installed the way an operator installs it, and the build under
+      # test on top of it. It is also the only check that install.sh can still
+      # find a release at all -- everything else about the installer is a syntax
+      # check.
+      - name: Upgrade the last published release to this build
+        run: make test-upgrade
 
   staticcheck:
     name: staticcheck
@@ -202,6 +232,8 @@ jobs:
           dash -n install.sh
           shellcheck -s sh install.sh
           shellcheck deploy/runner-entrypoint.sh
+          dash -n test/upgrade/upgrade-check.sh
+          shellcheck -s sh test/upgrade/upgrade-check.sh
           # The runner image's own scripts run under whatever /bin/sh the base
           # image has, which on Debian is not bash. Globbed rather than listed,
           # so a new one is covered by existing.

@@ -47,6 +47,25 @@ RUN install -d -m 0750 /out/state
 
 # ---- Runtime ----------------------------------------------------------------
 FROM gcr.io/distroless/static-debian12:nonroot AS controller
+# Re-declared after FROM: the ones set above are out of scope here, and a label
+# written from an ARG that is not in scope is silently empty.
+ARG VERSION=dev
+ARG COMMIT=""
+ARG DATE=""
+# The image had no labels at all, so a registry listing said nothing about what
+# it was or where it came from, and `docker inspect` could not answer which
+# release a running container was. The binary inside has always known; this is
+# the same fact where a person can reach it without starting anything.
+LABEL org.opencontainers.image.title="zoomies" \
+      org.opencontainers.image.description="Self-hosted GitHub Actions runner fleet controller" \
+      org.opencontainers.image.source="https://github.com/eyupio/zoomies" \
+      org.opencontainers.image.url="https://zoomies.sh" \
+      org.opencontainers.image.documentation="https://zoomies.sh/quickstart/" \
+      org.opencontainers.image.vendor="EyUp.io" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.created="${DATE}"
 COPY --from=build /out/zoomies /usr/local/bin/zoomies
 # The state directory must exist in the image, owned by the user that runs. A
 # VOLUME on a path the image does not have gets created by the container runtime

@@ -9,10 +9,17 @@ import (
 	"github.com/eyupio/zoomies/internal/store"
 )
 
-// defaultStatsWindow is the period the Overview summarises when the caller
-// does not ask for one. A day is long enough for the completed and failed
-// counts to mean something on a fleet that only runs during working hours.
-const defaultStatsWindow = 24 * time.Hour
+// defaultStatsWindow is the period this summarises when the caller does not ask
+// for one.
+//
+// It is statsEventWindow, and has to be: the same numbers arrive by fetch and
+// by `stats` frame, and while these disagreed -- a day for the fetch, an hour
+// for the frame -- an Overview showed a day of completed jobs and a day's wait
+// percentiles for the second or two before its first frame arrived, then
+// silently replaced them with an hour's. Nobody watching could tell which
+// window they were looking at, and the documented default said an hour
+// throughout.
+const defaultStatsWindow = statsEventWindow
 
 // Stats is the Overview payload: what the queue is doing, what the fleet is
 // doing, and how long jobs are waiting.

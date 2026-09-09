@@ -722,6 +722,40 @@ func (c *Controller) publishRunnerDeleted(id string) {
 	c.publish(events.KindRunnerDeleted, "runner:"+id, deletedPayload{ID: id})
 }
 
+// announceEach is the most individual deletions worth putting on the bus in one
+// go.
+//
+// A subscriber's queue is 256 deep and the bus drops a subscriber that falls
+// behind it. The hourly prune deletes everything past the retention window in
+// one pass, which on a busy fleet is thousands of rows -- so announcing each of
+// them cut off every open tab at once, and every one of them reconnected and
+// refetched six endpoints. The storm was the announcement, not the deletion.
+//
+// Sixty-four leaves the queue most of its room for the frames that are actually
+// about the fleet, and is far more precise deletions than a person is watching
+// disappear.
+const announceEach = 64
+
+// publishRunnersDeleted announces a set of deleted runner rows, or -- when
+// there are more than a page can usefully be told about one at a time -- one
+// resync, which is the frame that already means "fetch the resources again".
+//
+// A tab that is told to resync refetches once. A tab that is cut off for
+// falling behind refetches too, but only after showing itself as disconnected,
+// and every other tab does the same thing at the same moment.
+func (c *Controller) publishRunnersDeleted(ids []string) {
+	if len(ids) > announceEach {
+		c.publish(events.KindResync, "", map[string]any{
+			"reason": "many runner rows were removed at once; fetch the resources again",
+			"count":  len(ids),
+		})
+		return
+	}
+	for _, id := range ids {
+		c.publishRunnerDeleted(id)
+	}
+}
+
 // DeletePool removes a pool and announces everything that went with it: each
 // runner row, then the pool. The runners go first so a page that drops them
 // has nothing left to explain when the pool disappears.
@@ -730,9 +764,7 @@ func (c *Controller) DeletePool(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	for _, r := range runners {
-		c.publishRunnerDeleted(r)
-	}
+	c.publishRunnersDeleted(runners)
 	c.PublishPoolDeleted(id)
 	return nil
 }
@@ -743,9 +775,7 @@ func (c *Controller) DeleteHost(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	for _, r := range runners {
-		c.publishRunnerDeleted(r)
-	}
+	c.publishRunnersDeleted(runners)
 	c.PublishHostDeleted(id)
 	return nil
 }
@@ -763,9 +793,7 @@ func (c *Controller) DeleteInstallation(ctx context.Context, id string) error {
 		return err
 	}
 	c.Forget(id)
-	for _, r := range runners {
-		c.publishRunnerDeleted(r)
-	}
+	c.publishRunnersDeleted(runners)
 	for _, p := range pools {
 		if p.InstallationID == id {
 			c.PublishPoolDeleted(p.ID)
