@@ -42,9 +42,30 @@ func IsDemoID(id string) bool {
 // names carried the brand, and is still recognised so that a demo instance
 // seeded by an older build is left alone rather than rejected as a real
 // fleet.
-// demoRepos are the repositories the fixture's jobs come from, and the ones the
-// demo installation reports to the migration wizard.
+// demoRepos are the repositories the fixture's jobs come from.
 var demoRepos = []string{"acme/widgets", "acme/api", "acme/site"}
+
+// demoMigrationRepos are what the demo installation reports to the migration
+// wizard: the three that have jobs, plus one of each kind the wizard cannot
+// offer. A demo whose every row was tickable would show none of the reasons a
+// repository is not on offer, which is most of what that step is for.
+var demoMigrationRepos = []demoMigrationRepo{
+	{name: "acme/widgets"},
+	{name: "acme/api"},
+	{name: "acme/site"},
+	{name: "acme/legacy-api", archived: true},
+	{name: "acme/infra", onZoomies: true},
+}
+
+// demoMigrationRepo is one repository as the migration wizard sees it.
+type demoMigrationRepo struct {
+	name string
+	// archived makes it read-only on GitHub, so no pull request could be
+	// opened against it.
+	archived bool
+	// onZoomies means its jobs already run here, so there is nothing to move.
+	onZoomies bool
+}
 
 var demoPoolNames = []string{
 	"zoomies-demo-linux-x64", "zoomies-demo-linux-arm64",

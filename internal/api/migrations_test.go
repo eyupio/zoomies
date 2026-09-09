@@ -299,3 +299,106 @@ func result(t *testing.T, out migrationApplyResponse, repo string) migrationResu
 	t.Fatalf("%s is not in the results", repo)
 	return migrationResult{}
 }
+
+// An archived repository is read-only on GitHub, so a pull request against it
+// is refused however many rewritable jobs it holds. The plan has to say so on
+// the step where the operator chooses -- discovering it in the results, after
+// they have walked the whole wizard, is the failure this test exists for.
+func TestMigrationPlanMarksAnArchivedRepositoryRatherThanOfferingIt(t *testing.T) {
+	h, inst, cookie := migrationHarness(t)
+	h.gh.AddWorkflow("acme/legacy", ".github/workflows/ci.yml", ciBefore)
+	h.gh.SetArchived("acme/legacy", true)
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/migrations/plan", cookie: cookie,
+		body: map[string]any{"installation_id": inst.ID}})
+	resp.mustStatus(t, http.StatusOK, "plan")
+
+	var plan migrationPlanResponse
+	resp.into(t, &plan)
+
+	legacy := repoPlan(t, plan, "acme/legacy")
+	if !legacy.Archived {
+		t.Error("acme/legacy is not marked archived, so the wizard would offer it")
+	}
+	if legacy.Changed() {
+		t.Error("an archived repository is reported as one that would change")
+	}
+	// Its workflows are never read: nothing could be opened against it, and a
+	// scan that read them anyway would spend GitHub quota on a greyed-out row.
+	if len(legacy.Workflows) != 0 {
+		t.Errorf("workflows = %+v, want an archived repository left unread", legacy.Workflows)
+	}
+	// The headline still counts the two repositories that can actually move.
+	if plan.Counts.Repos != 2 || plan.Counts.Jobs != 3 {
+		t.Errorf("counts = %+v, want the archived repository left out", plan.Counts)
+	}
+}
+
+// A repository somebody has already migrated has nothing to do for the same
+// reason a repository with no workflows has nothing to do, and they need
+// telling apart: one is finished work, the other is work nobody has started.
+func TestMigrationPlanSaysARepositoryIsAlreadyOnThisFleet(t *testing.T) {
+	h, inst, cookie := migrationHarness(t)
+	h.gh.AddWorkflow("acme/infra", ".github/workflows/ci.yml",
+		"jobs:\n  build:\n    runs-on: zoomies-linux-x64\n")
+	// Somebody else's self-hosted runners are not this fleet, and a repository
+	// on them is still one an operator may want to migrate.
+	h.gh.AddWorkflow("acme/elsewhere", ".github/workflows/ci.yml",
+		"jobs:\n  build:\n    runs-on: [self-hosted, linux]\n")
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/migrations/plan", cookie: cookie,
+		body: map[string]any{"installation_id": inst.ID}})
+	resp.mustStatus(t, http.StatusOK, "plan")
+
+	var plan migrationPlanResponse
+	resp.into(t, &plan)
+
+	infra := repoPlan(t, plan, "acme/infra")
+	if !infra.OnZoomies {
+		t.Error("acme/infra runs on this fleet's pool but is not reported as already migrated")
+	}
+	if infra.Changed() {
+		t.Error("a repository already on this fleet would get a pull request")
+	}
+
+	if repoPlan(t, plan, "acme/elsewhere").OnZoomies {
+		t.Error("a repository on somebody else's self-hosted runners was read as already on Zoomies")
+	}
+	// A repository with hosted jobs left is still work, whatever else it runs.
+	if repoPlan(t, plan, "acme/widgets").OnZoomies {
+		t.Error("acme/widgets is entirely on GitHub's runners")
+	}
+}
+
+// The apply endpoint keeps its own guard. The wizard will not name an archived
+// repository, but the endpoint is the API and something else might.
+func TestMigrationSkipsAnArchivedRepositoryWithoutTouchingIt(t *testing.T) {
+	h, inst, cookie := migrationHarness(t)
+	h.gh.AddWorkflow("acme/legacy", ".github/workflows/ci.yml", ciBefore)
+	h.gh.SetArchived("acme/legacy", true)
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/migrations/pull-requests", cookie: cookie,
+		body: map[string]any{
+			"installation_id": inst.ID,
+			"repos":           []string{"acme/widgets", "acme/legacy"},
+			"mapping":         map[string]string{"ubuntu-latest": "zoomies-linux-x64", "ubuntu-22.04": "zoomies-linux-x64"},
+		}})
+	resp.mustStatus(t, http.StatusOK, "pull requests")
+
+	var out migrationApplyResponse
+	resp.into(t, &out)
+	if out.Opened != 1 || out.Skipped != 1 || out.Failed != 0 {
+		t.Fatalf("outcome = %+v, want the archived repository skipped and the other opened", out)
+	}
+	legacy := result(t, out, "acme/legacy")
+	if legacy.Status != "skipped" || !strings.Contains(legacy.Reason, "archived") {
+		t.Errorf("acme/legacy = %+v, want a skip that says it is archived", legacy)
+	}
+	// Skipped means untouched: no branch, and the workflow as it was.
+	if branches := h.gh.Branches("acme/legacy"); len(branches) != 1 {
+		t.Errorf("branches = %v, want only the default branch", branches)
+	}
+	if got, _ := h.gh.FileContent("acme/legacy", ".github/workflows/ci.yml"); got != ciBefore {
+		t.Error("an archived repository's workflow was rewritten")
+	}
+}

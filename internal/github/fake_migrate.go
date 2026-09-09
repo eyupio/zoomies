@@ -26,6 +26,10 @@ import (
 // fakeRepo is one repository's contents, as far as the migration cares.
 type fakeRepo struct {
 	defaultBranch string
+	// archived makes the repository read-only, as GitHub does: every write
+	// answers 403. It is here so a test can prove the migration never gets
+	// that far rather than only that it survives the refusal.
+	archived bool
 	// files maps a repository-relative path to its contents.
 	files map[string]string
 	// branches maps a branch name to the commit it points at.
@@ -55,6 +59,15 @@ func (f *FakeGitHub) SetDefaultBranch(repo, branch string) {
 	head := r.branches[r.defaultBranch]
 	r.defaultBranch = branch
 	r.branches = map[string]string{branch: head}
+}
+
+// SetArchived archives or unarchives a repository, creating it if this is the
+// first thing said about it.
+func (f *FakeGitHub) SetArchived(repo string, archived bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.addRepoLocked(repo)
+	f.repoLocked(repo).archived = archived
 }
 
 // FileContent returns what a repository's file holds now, which is how a test
@@ -138,7 +151,7 @@ func (f *FakeGitHub) getRepo(w http.ResponseWriter, r *http.Request) {
 		"owner":          map[string]any{"login": owner},
 		"default_branch": repo.defaultBranch,
 		"private":        true,
-		"archived":       false,
+		"archived":       repo.archived,
 		"html_url":       "https://github.com/" + full,
 	})
 }
@@ -219,6 +232,10 @@ func (f *FakeGitHub) putContents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	repo := f.repoLocked(full)
+	if repo.archived {
+		writeError(w, http.StatusForbidden, "Repository was archived so is read-only.")
+		return
+	}
 	if body.Branch != "" {
 		if _, ok := repo.branches[body.Branch]; !ok {
 			writeError(w, http.StatusNotFound, "Branch "+body.Branch+" not found")
@@ -289,6 +306,10 @@ func (f *FakeGitHub) createRef(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	repo := f.repoLocked(full)
+	if repo.archived {
+		writeError(w, http.StatusForbidden, "Repository was archived so is read-only.")
+		return
+	}
 	if branch == "" || body.SHA == "" {
 		writeError(w, http.StatusUnprocessableEntity, "ref and sha are required")
 		return
@@ -324,6 +345,10 @@ func (f *FakeGitHub) createPull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	repo := f.repoLocked(full)
+	if repo.archived {
+		writeError(w, http.StatusForbidden, "Repository was archived so is read-only.")
+		return
+	}
 	for _, branch := range []string{body.Head, body.Base} {
 		if _, ok := repo.branches[branch]; !ok {
 			writeError(w, http.StatusUnprocessableEntity, "Branch "+branch+" not found")

@@ -164,3 +164,77 @@ func TestDiffIsUnifiedAndMinimal(t *testing.T) {
 		t.Error("two identical files produced a diff")
 	}
 }
+
+func TestFleetLabelsAreTheOnesThatNameThisFleet(t *testing.T) {
+	pools := []*store.Pool{pool("zoomies-linux-x64", "zoomies-linux-x64", "linux", "x64")}
+	got := FleetLabels(pools)
+
+	for _, want := range []string{"zoomies", "zoomies-linux-x64"} {
+		if !got[want] {
+			t.Errorf("%q is missing; a workflow naming it runs here", want)
+		}
+	}
+	// The labels every self-hosted runner in the world advertises say nothing
+	// about whose fleet a job lands on. Counting them would report a
+	// repository on somebody else's runners as already migrated, and quietly
+	// refuse to offer it.
+	for _, implicit := range []string{"self-hosted", "linux", "x64"} {
+		if got[implicit] {
+			t.Errorf("%q is treated as evidence of this fleet", implicit)
+		}
+	}
+}
+
+func TestFleetLabelsIgnoresDisabledPools(t *testing.T) {
+	p := pool("retired", "zoomies-retired")
+	p.Enabled = false
+	if FleetLabels([]*store.Pool{p})["zoomies-retired"] {
+		t.Error("a disabled pool's label is treated as somewhere a job still runs")
+	}
+}
+
+func TestUsesAnyLabelReadsEveryRunsOnForm(t *testing.T) {
+	fleet := map[string]bool{"zoomies": true, "zoomies-linux-x64": true}
+
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{"bare value", "jobs:\n  a:\n    runs-on: zoomies-linux-x64\n", true},
+		{"quoted", "jobs:\n  a:\n    runs-on: \"zoomies\"\n", true},
+		{"flow sequence", "jobs:\n  a:\n    runs-on: [self-hosted, zoomies-linux-x64]\n", true},
+		{"block sequence", "jobs:\n  a:\n    runs-on:\n      - self-hosted\n      - zoomies\n", true},
+		{"another fleet", "jobs:\n  a:\n    runs-on: [self-hosted, linux]\n", false},
+		{"github hosted", "jobs:\n  a:\n    runs-on: ubuntu-latest\n", false},
+	}
+	for _, tt := range tests {
+		if got := UsesAnyLabel(tt.content, fleet); got != tt.want {
+			t.Errorf("%s: UsesAnyLabel = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+	// No pools means nothing can be said to run here.
+	if UsesAnyLabel("jobs:\n  a:\n    runs-on: zoomies\n", nil) {
+		t.Error("an empty fleet claimed a repository")
+	}
+}
+
+// An archived repository is read-only on GitHub. Whatever its workflows hold,
+// no pull request can be opened against it, so it must not be counted as
+// something the migration would change.
+func TestAnArchivedRepositoryNeverChanges(t *testing.T) {
+	p := PlanRepo("acme/legacy", "main",
+		[]Workflow{{Path: ".github/workflows/ci.yml", Content: "jobs:\n  a:\n    runs-on: ubuntu-latest\n"}},
+		Mapping{Labels: map[string]string{"ubuntu-latest": "zoomies-linux-x64"}})
+
+	if !p.Changed() {
+		t.Fatal("the plan has nothing to rewrite, so this test proves nothing")
+	}
+	p.Archived = true
+	if p.Changed() {
+		t.Error("an archived repository is reported as one that would change")
+	}
+	if c := Count([]RepoPlan{p}); c.Repos != 0 {
+		t.Errorf("counts = %+v, want no repository counted", c)
+	}
+}

@@ -143,7 +143,7 @@ for: Contents (write), Pull requests (write) and Workflows (write).
 
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
-| POST | `/api/v1/migrations/plan` | operator | `{installation_id, repos?, mapping?}`. Returns the rewrites, the skips and a unified diff per file. With no mapping, proposes one from the pools that exist. |
+| POST | `/api/v1/migrations/plan` | operator | `{installation_id, repos?, mapping?}`. Returns the rewrites, the skips and a unified diff per file. With no mapping, proposes one from the pools that exist. Each repository carries `archived` and `on_zoomies`, which are the two reasons it cannot be migrated; an archived one's workflows are not read at all. |
 | POST | `/api/v1/migrations/pull-requests` | operator | `{installation_id, repos, mapping, title?, body?, commit_message?}`. One pull request per repository, each on its own branch. Re-plans from the repository's current contents rather than trusting the client. |
 
 ## Audit

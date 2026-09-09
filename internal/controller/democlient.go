@@ -95,23 +95,30 @@ func (d *demoClient) WebURL() string { return "https://github.com/" + d.target }
 // would be worse than a refusal that says why.
 
 func (d *demoClient) ListRepositories(context.Context, int) ([]github.Repository, error) {
-	out := make([]github.Repository, 0, len(demoRepos))
-	for _, name := range demoRepos {
+	out := make([]github.Repository, 0, len(demoMigrationRepos))
+	for _, r := range demoMigrationRepos {
 		out = append(out, github.Repository{
-			FullName:      name,
+			FullName:      r.name,
 			DefaultBranch: "main",
 			Private:       true,
-			HTMLURL:       "https://github.com/" + name,
+			Archived:      r.archived,
+			HTMLURL:       "https://github.com/" + r.name,
 		})
 	}
 	return out, nil
 }
 
 func (d *demoClient) ListWorkflows(_ context.Context, repo string) ([]github.WorkflowFile, error) {
+	content := demoWorkflow
+	for _, r := range demoMigrationRepos {
+		if r.name == repo && r.onZoomies {
+			content = demoMigratedWorkflow
+		}
+	}
 	return []github.WorkflowFile{{
 		Path:    ".github/workflows/ci.yml",
 		SHA:     "demo" + strings.ReplaceAll(repo, "/", ""),
-		Content: demoWorkflow,
+		Content: content,
 	}}, nil
 }
 
@@ -138,4 +145,19 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - run: make test
+`
+
+// demoMigratedWorkflow is a repository somebody has already moved. It reads as
+// "nothing to do" in exactly the same way as a repository nobody has touched,
+// which is why the wizard has to tell the two apart by name.
+const demoMigratedWorkflow = `name: CI
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: zoomies-demo-linux-x64
+    steps:
+      - uses: actions/checkout@v4
+      - run: make build
 `

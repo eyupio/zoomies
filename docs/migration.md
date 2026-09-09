@@ -50,6 +50,25 @@ Each skip is listed in the review step and again in the pull request body, so
 whoever reviews the change can see which jobs are still running on GitHub after
 they merge it.
 
+## Repositories it will not offer
+
+The **Repositories** step lists everything the installation can see, including
+what it cannot migrate, because "it was looked at and there was nothing to do"
+is an answer and a missing row is not. Two kinds are listed but cannot be
+ticked:
+
+| The row says | What it means |
+| --- | --- |
+| Archived — accepts no pull requests | GitHub has archived the repository, which makes it read-only. Nothing can be committed or opened against it until somebody unarchives it, so its workflows are not even read. |
+| Already on Zoomies | At least one job here already runs on one of this fleet's pools, and no job is left on a hosted label. There is nothing to move. |
+
+A repository that is *partly* migrated is still on offer: it says how many jobs
+would move and that the rest are already here.
+
+"Already on Zoomies" means this fleet, not self-hosted runners in general. A
+repository on somebody else's runners is reported as a skip you can read, and
+stays something you can choose to migrate.
+
 ## The labels it writes
 
 A pool's branded label, on its own:

@@ -1353,6 +1353,10 @@ export interface components {
             hosted_labels?: string[];
             /** @description Set when this repository could not be read; the rest of the plan still stands. */
             error?: string;
+            /** @description The repository is archived and therefore read-only, so no pull request can be opened against it. Its workflows are not read, and it is never counted as something the migration would change. */
+            archived?: boolean;
+            /** @description At least one job in this repository already runs on a pool of this fleet. */
+            on_zoomies?: boolean;
         };
         MigrationPoolOption: {
             id?: string;

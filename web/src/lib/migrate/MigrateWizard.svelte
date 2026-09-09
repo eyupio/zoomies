@@ -29,6 +29,7 @@
   import Skeleton from '$lib/components/Skeleton.svelte';
   import Wizard from '$lib/components/Wizard.svelte';
   import type { WizardStep } from '$lib/components/Wizard.svelte';
+  import { isMigratable } from './eligibility';
   import StepTarget from './StepTarget.svelte';
   import StepRepositories from './StepRepositories.svelte';
   import StepMapping from './StepMapping.svelte';
@@ -107,11 +108,11 @@
 
   const target = $derived(installations.find((i) => i.id === selected));
 
-  const changedRepos = $derived(
-    (plan?.repositories ?? []).filter((r) =>
-      (r.workflows ?? []).some((w) => (w.rewrites ?? []).length > 0),
-    ),
-  );
+  // Everything a pull request could be opened against. Archived repositories
+  // are excluded here rather than at the end: this is what the review step
+  // shows and what the apply call names, so a repository GitHub would refuse
+  // never gets that far.
+  const changedRepos = $derived((plan?.repositories ?? []).filter(isMigratable));
   const selectedChanged = $derived(changedRepos.filter((r) => chosen.includes(r.repo ?? '')));
   const blockedByPermissions = $derived((plan?.missing_permissions ?? []).length > 0);
 
@@ -163,11 +164,20 @@
       }
       if (repos.length === 0) {
         // Default to every repository that would actually change. Repositories
-        // with nothing to do stay visible but unticked.
+        // with nothing to do, and the ones nothing could be opened against,
+        // stay visible but unticked.
         chosen = (result.repositories ?? [])
-          .filter((r) => (r.workflows ?? []).some((w) => (w.rewrites ?? []).length > 0))
+          .filter(isMigratable)
           .map((r) => r.repo ?? '')
           .filter(Boolean);
+      } else {
+        // A re-scan can find that a repository was archived, or migrated by
+        // somebody else, since the operator ticked it. Drop those rather than
+        // carrying a tick the list no longer offers.
+        const eligible = new Set(
+          (result.repositories ?? []).filter(isMigratable).map((r) => r.repo ?? ''),
+        );
+        chosen = chosen.filter((r) => eligible.has(r));
       }
       return true;
     } catch (cause) {

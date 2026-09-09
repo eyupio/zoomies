@@ -41,6 +41,35 @@ test('the scan lists every repository and says what each one would get', async (
   await expect(page.getByText('1 job in 1 file').first()).toBeVisible();
 });
 
+test('a repository nothing could be opened against cannot be chosen', async ({ page }) => {
+  await walkTo(page, 1);
+
+  // Archived is the one that used to get all the way to the results before
+  // saying no: GitHub refuses every write to it, however many jobs it holds.
+  const archived = page.getByRole('checkbox', { name: FIXTURE.archivedRepo, exact: false });
+  await expect(archived).toBeDisabled();
+  await expect(archived).not.toBeChecked();
+  await expect(page.getByText('Archived — accepts no pull requests')).toBeVisible();
+
+  // Already migrated is a different answer from "nothing to move", and the
+  // list says which it is rather than leaving an operator to guess.
+  const migrated = page.getByRole('checkbox', { name: FIXTURE.migratedRepo, exact: false });
+  await expect(migrated).toBeDisabled();
+  await expect(migrated).not.toBeChecked();
+  // Anchored, because the summary line above the list says the same words.
+  await expect(page.getByText(/^Already on Zoomies/)).toBeVisible();
+
+  // Ticking everything still leaves them alone. The wizard builds the
+  // pull-request call from the same rule the list disables rows with, so
+  // neither of them can reach it.
+  const all = page.getByRole('checkbox', { name: 'Select every repository that would change' });
+  await all.click(); // clears the default selection
+  await all.click(); // and selects everything on offer
+  await expect(page.getByRole('checkbox', { name: FIXTURE.repos[0], exact: false })).toBeChecked();
+  await expect(archived).not.toBeChecked();
+  await expect(migrated).not.toBeChecked();
+});
+
 test('the mapping step proposes the pool that matches the hosted label', async ({ page }) => {
   await walkTo(page, 2);
 

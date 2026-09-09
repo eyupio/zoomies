@@ -195,13 +195,30 @@ func (s *Server) handleMigrationPlan(w http.ResponseWriter, r *http.Request) {
 		mapping = migrate.Suggest(pools, hosted)
 	}
 
+	// The labels that mean "this fleet", so a repository somebody already
+	// migrated is reported as finished rather than as having nothing in it.
+	fleet := migrate.FleetLabels(pools)
+
 	plans := make([]migrate.RepoPlan, 0, len(sources))
 	for _, src := range sources {
 		if src.err != "" {
-			plans = append(plans, migrate.RepoPlan{Repo: src.repo.FullName, DefaultBranch: src.repo.DefaultBranch, Error: src.err})
+			plans = append(plans, migrate.RepoPlan{
+				Repo:          src.repo.FullName,
+				DefaultBranch: src.repo.DefaultBranch,
+				Error:         src.err,
+				Archived:      src.repo.Archived,
+			})
 			continue
 		}
-		plans = append(plans, migrate.PlanRepo(src.repo.FullName, src.repo.DefaultBranch, src.workflows, migrate.Mapping{Labels: mapping}))
+		plan := migrate.PlanRepo(src.repo.FullName, src.repo.DefaultBranch, src.workflows, migrate.Mapping{Labels: mapping})
+		plan.Archived = src.repo.Archived
+		for _, wf := range src.workflows {
+			if migrate.UsesAnyLabel(wf.Content, fleet) {
+				plan.OnZoomies = true
+				break
+			}
+		}
+		plans = append(plans, plan)
 	}
 
 	var unmapped []string
@@ -517,9 +534,14 @@ type workflowSource struct {
 // readWorkflows reads every repository's workflows, a few at a time.
 //
 // One repository failing is recorded against that repository rather than
-// failing the scan: in an organisation of any size there is always one archived
-// repository, one the App was removed from, and one with a .github/workflows
-// that is a file rather than a directory.
+// failing the scan: in an organisation of any size there is always one the App
+// was removed from, and one with a .github/workflows that is a file rather
+// than a directory.
+//
+// An archived repository is not read at all. Nothing could be opened against
+// it whatever its workflows say, and a scan of an organisation that has been
+// tidying up for years would otherwise spend most of its GitHub quota on
+// repositories the wizard is about to grey out.
 func (s *Server) readWorkflows(ctx context.Context, client github.Client, repos []github.Repository) []workflowSource {
 	out := make([]workflowSource, len(repos))
 	sem := make(chan struct{}, planConcurrency)
@@ -533,6 +555,9 @@ func (s *Server) readWorkflows(ctx context.Context, client github.Client, repos 
 			defer func() { <-sem }()
 
 			out[i] = workflowSource{repo: repo}
+			if repo.Archived {
+				return
+			}
 			if ctx.Err() != nil {
 				out[i].err = "the request was cancelled before this repository was read"
 				return

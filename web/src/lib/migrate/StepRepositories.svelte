@@ -2,18 +2,20 @@
   Step two: which repositories.
 
   Every repository the installation can see is listed, including the ones with
-  nothing to migrate. That is deliberate: "acme/docs has no workflows" and
-  "acme/infra is already on self-hosted runners" are both answers an operator
-  wants, and a list that silently omitted them would look like the scan had
-  missed something.
+  nothing to migrate. That is deliberate: "acme/docs has no workflows",
+  "acme/infra is already on Zoomies" and "acme/legacy is archived" are all
+  answers an operator wants, and a list that silently omitted them would look
+  like the scan had missed something.
 
-  Only the repositories that would actually change are ticked by default.
+  Only the repositories a pull request could actually be opened against are
+  ticked, and the rest cannot be ticked at all.
 -->
 <script lang="ts">
   import type { MigrationPlan, MigrationRepo } from '$lib/api/types';
   import Checkbox from '$lib/components/Checkbox.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { FolderGit2 } from '@lucide/svelte';
+  import { isMigratable, noteFor } from './eligibility';
 
   interface Props {
     plan: MigrationPlan | null;
@@ -24,38 +26,23 @@
 
   interface Row {
     repo: string;
-    jobs: number;
-    workflows: number;
-    skipped: number;
     note: string;
     migratable: boolean;
   }
 
   function rowOf(repo: MigrationRepo): Row {
-    const workflows = repo.workflows ?? [];
-    const jobs = workflows.reduce((n, w) => n + (w.rewrites ?? []).length, 0);
-    const changed = workflows.filter((w) => (w.rewrites ?? []).length > 0).length;
-    const skipped = workflows.reduce((n, w) => n + (w.skips ?? []).length, 0);
-
-    // What this repository would get out of the migration, in one line. The
-    // order matters: an unreadable repository explains itself first, and
-    // "no workflows" is a different answer from "workflows, but nothing to
-    // move".
-    const note = repo.error
-      ? repo.error
-      : jobs > 0
-        ? `${jobs} ${jobs === 1 ? 'job' : 'jobs'} in ${changed} ${changed === 1 ? 'file' : 'files'}`
-        : workflows.length === 0
-          ? 'No workflows'
-          : skipped > 0
-            ? `Nothing to move; ${skipped} left alone`
-            : 'Nothing to move';
-
-    return { repo: repo.repo ?? '', jobs, workflows: changed, skipped, note, migratable: jobs > 0 };
+    return {
+      repo: repo.repo ?? '',
+      note: noteFor(repo),
+      migratable: isMigratable(repo),
+    };
   }
 
   const rows = $derived((plan?.repositories ?? []).map(rowOf));
   const migratable = $derived(rows.filter((r) => r.migratable));
+  const blocked = $derived(
+    (plan?.repositories ?? []).filter((r) => r.archived || (r.on_zoomies && !isMigratable(r))),
+  );
   const allChosen = $derived(
     migratable.length > 0 && migratable.every((r) => chosen.includes(r.repo)),
   );
@@ -81,6 +68,11 @@
     {migratable.length} of {rows.length}
     {rows.length === 1 ? 'repository has' : 'repositories have'} jobs on a GitHub-hosted runner that a
     pool here could take. The rest are listed so you can see they were looked at.
+    {#if blocked.length > 0}
+      {blocked.length}
+      {blocked.length === 1 ? 'is' : 'are'} archived or already on Zoomies, so
+      {blocked.length === 1 ? 'it cannot be' : 'they cannot be'} chosen.
+    {/if}
   </p>
 
   {#if plan?.truncated}

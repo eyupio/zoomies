@@ -1888,6 +1888,15 @@ components:
           items: { type: string }
           description: The GitHub-hosted labels this repository asks for, mapped or not.
         error: { type: string, description: Set when this repository could not be read; the rest of the plan still stands. }
+        archived:
+          type: boolean
+          description: >-
+            The repository is archived and therefore read-only, so no pull request can be
+            opened against it. Its workflows are not read, and it is never counted as
+            something the migration would change.
+        on_zoomies:
+          type: boolean
+          description: At least one job in this repository already runs on a pool of this fleet.
 
     MigrationPoolOption:
       type: object
