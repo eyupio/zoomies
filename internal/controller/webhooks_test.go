@@ -238,3 +238,122 @@ func TestAMalformedWorkflowJobIsRejectedNotRetried(t *testing.T) {
 		t.Fatalf("deliveries = %+v, want one rejected delivery that says why", ds)
 	}
 }
+
+// TestADeliveryIsNotVerifiedWithAnotherInstallationsSecret covers the boundary
+// between two organisations sharing one controller.
+//
+// Every configured webhook secret is held by somebody: the GitHub admin of each
+// organisation pasted their own into their own App. Trying them all against a
+// delivery whose repository already has an installation meant the holder of one
+// organisation's secret could sign a workflow_job naming another's repository
+// and be believed -- and the job that follows is scheduled on the named
+// organisation's pools and registers a runner in it, using its App credentials,
+// not the sender's.
+func TestADeliveryIsNotVerifiedWithAnotherInstallationsSecret(t *testing.T) {
+	h := newHarness(t)
+	h.fleet() // acme, signing with testWebhookSecret
+
+	// A second organisation on the same controller, with a secret of its own.
+	beta := h.installationOn("beta", store.TargetOrg)
+	const betaSecret = "beta-organisations-own-webhook-secret"
+	sealed, err := h.key.SealString(betaSecret)
+	if err != nil {
+		t.Fatalf("sealing beta's secret: %v", err)
+	}
+	beta.WebhookSecretEnc = sealed
+	if err := h.st.UpdateInstallation(h.ctx, beta); err != nil {
+		t.Fatalf("UpdateInstallation: %v", err)
+	}
+
+	// beta signs a delivery that names one of acme's repositories.
+	rec := h.deliver("workflow_job", jobEvent{
+		Action: "queued", JobID: 5005, Repo: "acme/widgets",
+		Labels: []string{"self-hosted", "linux", "x64", "demo"},
+	}.body(), betaSecret)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d: beta's secret verified a delivery for acme's repository",
+			rec.Code, http.StatusUnauthorized)
+	}
+	if _, err := h.st.GetJobByGitHubID(h.ctx, 5005); err == nil {
+		t.Error("a forged delivery created a job in the other organisation's fleet")
+	}
+	ds := h.deliveries()
+	if len(ds) != 1 || ds[0].Status != "rejected" {
+		t.Fatalf("deliveries = %+v, want one rejected", ds)
+	}
+}
+
+// TestAnOwnedRepositorysDeliveryStillNeedsItsOwnSecret is the same rule stated
+// from the other side, and the one an operator meets: acme's own delivery,
+// signed with a secret that is simply wrong, is refused rather than quietly
+// checked against everything else the controller holds.
+func TestAnOwnedRepositorysDeliveryStillNeedsItsOwnSecret(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+	h.installationOn("beta", store.TargetOrg) // holds testWebhookSecret too
+
+	rec := h.deliver("workflow_job", jobEvent{
+		Action: "queued", JobID: 6006, Repo: "acme/widgets",
+		Labels: []string{"self-hosted", "linux", "x64", "demo"},
+	}.body(), "not-anybodys-secret")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+// TestARejectedDeliveryIsNotProofThatWebhooksWork covers the diagnostic that
+// tells an operator nothing is scaling.
+//
+// The webhook endpoint is public and unauthenticated by necessity, so anybody
+// can put a row in the delivery table. Gating the warning on "a delivery
+// arrived" rather than "a delivery verified" meant one probe from a passing
+// scanner took the message off the screen for the whole retention window --
+// including its error-severity form, which is the only thing that says no
+// queued job will ever be noticed.
+func TestARejectedDeliveryIsNotProofThatWebhooksWork(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+
+	problemPresent := func() bool {
+		t.Helper()
+		ps, err := h.c.Problems(h.ctx)
+		if err != nil {
+			t.Fatalf("Problems: %v", err)
+		}
+		for _, p := range ps {
+			if p.Code == "webhook.never_received" {
+				return true
+			}
+		}
+		return false
+	}
+
+	if !problemPresent() {
+		t.Fatal("a fleet that has never had a webhook does not report webhook.never_received")
+	}
+
+	// A stranger probes the endpoint. It is rejected, and recorded.
+	rec := h.deliver("workflow_job", jobEvent{Action: "queued", JobID: 7007}.body(), "not-the-secret")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("probe status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+	if ds := h.deliveries(); len(ds) != 1 || ds[0].Status != "rejected" {
+		t.Fatalf("deliveries = %+v, want one rejected", ds)
+	}
+
+	if !problemPresent() {
+		t.Error("a rejected delivery silenced webhook.never_received: an unauthenticated stranger can hide the fact that nothing is scaling")
+	}
+
+	// A delivery that actually verifies is what clears it.
+	if rec := h.deliverJob(jobEvent{
+		Action: "queued", JobID: 7008,
+		Labels: []string{"self-hosted", "linux", "x64", "demo"},
+	}); rec.Code != http.StatusAccepted {
+		t.Fatalf("accepted delivery status = %d, want %d (%s)", rec.Code, http.StatusAccepted, rec.Body.String())
+	}
+	if problemPresent() {
+		t.Error("webhook.never_received survived a delivery that verified")
+	}
+}
