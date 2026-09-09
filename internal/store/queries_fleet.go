@@ -706,7 +706,7 @@ const runnerCols = `id, pool_id, host_id, name, state, github_runner_id, contain
 	last_idle_at, finished_at, message, jobs_handled, cpu_percent, memory_bytes,
 	image_pull_ms, container_started_at, registered_at, task_issued_at,
 	cleanup_error, cleanup_failed_at, cleanup_attempts, registration_deleted_at, cleaned_up_at,
-	draining_since`
+	draining_since, create_task_issued_at, host_removed_at, cleanup_estimated_at`
 
 func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 	var r Runner
@@ -714,12 +714,13 @@ func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 	var created int64
 	var started, idle, finished, pullMS, containerStarted, registered, taskIssued sql.NullInt64
 	var cleanupFailed, registrationDeleted, cleanedUp, drainingSince sql.NullInt64
+	var createIssued, hostRemoved, cleanupEstimated sql.NullInt64
 	err := sc.Scan(&r.ID, &r.PoolID, &r.HostID, &r.Name, &r.State, &r.GitHubRunnerID,
 		&r.ContainerID, &ephemeral, &r.Labels, &r.Image, &r.ImageDigest, &r.RunnerVersion, &r.CurrentJobID,
 		&created, &started, &idle, &finished, &r.Message, &r.JobsHandled,
 		&r.CPUPercent, &r.MemoryBytes, &pullMS, &containerStarted, &registered, &taskIssued,
 		&r.CleanupError, &cleanupFailed, &r.CleanupAttempts, &registrationDeleted, &cleanedUp,
-		&drainingSince)
+		&drainingSince, &createIssued, &hostRemoved, &cleanupEstimated)
 	if err != nil {
 		return nil, err
 	}
@@ -735,6 +736,7 @@ func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 	r.CleanupFailedAt, r.RegistrationDeletedAt = atp(cleanupFailed), atp(registrationDeleted)
 	r.CleanedUpAt = atp(cleanedUp)
 	r.DrainingSince = atp(drainingSince)
+	r.CreateTaskIssuedAt, r.HostRemovedAt, r.CleanupEstimatedAt = atp(createIssued), atp(hostRemoved), atp(cleanupEstimated)
 	return &r, nil
 }
 
@@ -748,14 +750,15 @@ func (s *Store) CreateRunner(ctx context.Context, r *Runner) error {
 	}
 	r.CreatedAt = s.Now()
 	_, err := s.exec(ctx, `INSERT INTO runners (`+runnerCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		r.ID, r.PoolID, r.HostID, r.Name, string(r.State), r.GitHubRunnerID, r.ContainerID,
 		boolInt(r.Ephemeral), r.Labels, r.Image, r.ImageDigest, r.RunnerVersion, r.CurrentJobID,
 		ms(r.CreatedAt), msp(r.StartedAt), msp(r.LastIdleAt), msp(r.FinishedAt),
 		r.Message, r.JobsHandled, r.CPUPercent, r.MemoryBytes, durationMS(r.ImagePullDuration),
 		msp(r.ContainerStartedAt), msp(r.RegisteredAt), msp(r.TaskIssuedAt),
 		r.CleanupError, msp(r.CleanupFailedAt), r.CleanupAttempts,
-		msp(r.RegistrationDeletedAt), msp(r.CleanedUpAt), msp(r.DrainingSince))
+		msp(r.RegistrationDeletedAt), msp(r.CleanedUpAt), msp(r.DrainingSince),
+		msp(r.CreateTaskIssuedAt), msp(r.HostRemovedAt), msp(r.CleanupEstimatedAt))
 	return wrapWrite(err)
 }
 
@@ -1091,7 +1094,7 @@ func (s *Store) RecordCleanupFailure(ctx context.Context, id, reason string) err
 	_, err := s.exec(ctx, `UPDATE runners
 		SET host_cleanup_error=?,
 		    cleanup_error=? || CASE WHEN registration_cleanup_error='' THEN '' ELSE '; ' || registration_cleanup_error END,
-		    cleanup_failed_at=?, cleanup_attempts=cleanup_attempts+1, cleaned_up_at=NULL
+		    cleanup_failed_at=?, cleanup_attempts=cleanup_attempts+1, cleaned_up_at=NULL, host_removed_at=NULL
 		WHERE id=?`, reason, reason, s.Now().UnixMilli(), id)
 	return err
 }
@@ -1105,7 +1108,7 @@ func (s *Store) RecordRegistrationCleanupFailure(ctx context.Context, id, reason
 	_, err := s.exec(ctx, `UPDATE runners
 		SET registration_cleanup_error=?,
 		    cleanup_error=CASE WHEN host_cleanup_error='' THEN '' ELSE host_cleanup_error || '; ' END || ?,
-		    cleanup_failed_at=?, cleanup_attempts=cleanup_attempts+1, cleaned_up_at=NULL
+		    cleanup_failed_at=?, cleanup_attempts=cleanup_attempts+1, cleaned_up_at=NULL, registration_deleted_at=NULL
 		WHERE id=?`, reason, reason, s.Now().UnixMilli(), id)
 	return err
 }
@@ -1120,8 +1123,8 @@ func (s *Store) ClearCleanupFailure(ctx context.Context, id string) error {
 	_, err := s.exec(ctx, `UPDATE runners
 		SET host_cleanup_error='', cleanup_error=registration_cleanup_error,
 		    cleanup_failed_at=CASE WHEN registration_cleanup_error='' THEN NULL ELSE cleanup_failed_at END,
-		    cleaned_up_at=CASE WHEN registration_cleanup_error='' THEN COALESCE(cleaned_up_at, ?) ELSE NULL END
-		WHERE id=?`, s.Now().UnixMilli(), id)
+		    cleaned_up_at=CASE WHEN registration_cleanup_error='' THEN cleaned_up_at ELSE NULL END
+		WHERE id=?`, id)
 	return err
 }
 
@@ -1129,13 +1132,43 @@ func (s *Store) ClearCleanupFailure(ctx context.Context, id string) error {
 // registration was gone, and closes the cleanup interval when nothing else is
 // outstanding.
 func (s *Store) RecordRegistrationDeleted(ctx context.Context, id string) error {
-	now := s.Now().UnixMilli()
-	_, err := s.exec(ctx, `UPDATE runners
-		SET registration_deleted_at=COALESCE(registration_deleted_at, ?),
-		    registration_cleanup_error='', cleanup_error=host_cleanup_error,
-		    cleanup_failed_at=CASE WHEN host_cleanup_error='' THEN NULL ELSE cleanup_failed_at END,
-		    cleaned_up_at=CASE WHEN host_cleanup_error='' THEN COALESCE(cleaned_up_at, ?) ELSE NULL END
-		WHERE id=?`, now, now, id)
+	_, err := s.ConfirmRunnerCleanup(ctx, id, false)
+	return err
+}
+
+// ConfirmRunnerCleanup records a positive removal confirmation. Its result is
+// true only for the write which completes both sides, so concurrent reports
+// and retries cannot count the same cleanup twice. Times use the controller's
+// clock rather than a remote host's clock.
+func (s *Store) ConfirmRunnerCleanup(ctx context.Context, id string, host bool) (bool, error) {
+	stamp, otherStamp := "registration_deleted_at", "host_removed_at"
+	errColumn, otherError := "registration_cleanup_error", "host_cleanup_error"
+	if host {
+		stamp, otherStamp = otherStamp, stamp
+		errColumn, otherError = otherError, errColumn
+	}
+	completed := false
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		now := s.Now().UnixMilli()
+		var cleaned sql.NullInt64
+		// All identifiers above are constants chosen here, never caller input.
+		err := tx.QueryRowContext(ctx, `UPDATE runners SET `+stamp+`=?, `+errColumn+`='',
+			cleanup_error=`+otherError+`,
+			cleanup_failed_at=CASE WHEN `+otherError+`='' THEN NULL ELSE cleanup_failed_at END,
+			cleaned_up_at=CASE WHEN `+otherStamp+` IS NOT NULL AND `+otherError+`='' THEN ? ELSE NULL END
+			WHERE id=? AND `+stamp+` IS NULL RETURNING cleaned_up_at`, now, now, id).Scan(&cleaned)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		completed = cleaned.Valid
+		return err
+	})
+	return completed, err
+}
+
+// SetRunnerCreateTaskIssued preserves the first actual delivery, not retries.
+func (s *Store) SetRunnerCreateTaskIssued(ctx context.Context, id string, issued time.Time) error {
+	_, err := s.exec(ctx, `UPDATE runners SET create_task_issued_at=COALESCE(create_task_issued_at, ?) WHERE id=?`, issued.UnixMilli(), id)
 	return err
 }
 

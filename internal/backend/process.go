@@ -519,9 +519,18 @@ func (b *ProcessBackend) Status(ctx context.Context, h Handle) (Status, error) {
 	case processAlive(pid):
 		st.Phase = PhaseRunning
 	default:
+		b.mu.Lock()
+		_, owned := b.running[dir]
+		b.mu.Unlock()
+		if owned {
+			// Our waiter is still recording the exit. Do not turn that tiny
+			// handover into an unknown outcome and lose a real non-zero code.
+			st.Phase = PhaseRunning
+			return st, nil
+		}
 		// No exit file and no process: the agent was restarted while the runner
 		// died, so nobody recorded the code.
-		st.Phase = PhaseFailed
+		st.Phase = PhaseExitUnknown
 		st.ExitCode = -1
 		st.Message = fmt.Sprintf("runner process %d is gone and recorded no exit code; see %s", pid, filepath.Join(dir, runnerLogFile))
 	}

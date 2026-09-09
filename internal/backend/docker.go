@@ -902,23 +902,33 @@ func (b *DockerBackend) Stop(ctx context.Context, h Handle, timeout time.Duratio
 // directory Zoomies created for it. Removing what is already gone is success.
 func (b *DockerBackend) Remove(ctx context.Context, h Handle) error {
 	var name, workDir string
-	if insp, err := b.api.ContainerInspect(ctx, string(h)); err == nil && insp.Config != nil {
+	insp, err := b.api.ContainerInspect(ctx, string(h))
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return fmt.Errorf("backend: inspecting container before removal: %w", err)
+	}
+	if err == nil && insp.Config != nil {
 		name = insp.Config.Labels[LabelName]
 		workDir = insp.Config.Labels[LabelWorkDir]
 	}
 
 	if name != "" {
 		if err := b.removeByName(ctx, dindName(containerName(name))); err != nil {
-			b.log.Warn("could not remove the docker-in-docker sidecar", "runner", name, "error", err)
+			// Keep the parent and its labels so a retry can find the sidecar.
+			return fmt.Errorf("backend: removing docker-in-docker sidecar for %s: %w", name, err)
+		}
+	}
+	if workDir != "" {
+		// Stop writers before removing scratch space, but retain the container
+		// labels until that succeeds. Otherwise its path is lost on a retry.
+		if err := b.Stop(ctx, h, 10*time.Second); err != nil && !errors.Is(err, ErrNotFound) {
+			return err
+		}
+		if err := os.RemoveAll(workDir); err != nil {
+			return fmt.Errorf("backend: removing runner work directory %s: %w", workDir, err)
 		}
 	}
 	if err := b.api.ContainerRemove(ctx, string(h), true); err != nil && !errors.Is(err, ErrNotFound) {
 		return fmt.Errorf("backend: removing container %s: %w", shortID(string(h)), err)
-	}
-	if workDir != "" {
-		if err := os.RemoveAll(workDir); err != nil {
-			b.log.Warn("could not remove the runner work directory", "dir", workDir, "error", err)
-		}
 	}
 	return nil
 }

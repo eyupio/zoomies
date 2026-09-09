@@ -36,6 +36,7 @@ type metrics struct {
 	reconcileDuration                                                                            prometheus.Histogram
 	reconcileErrors                                                                              prometheus.Counter
 	cleanups                                                                                     *prometheus.CounterVec
+	schedulingLatency, cleanupDuration                                                           *prometheus.HistogramVec
 	pollsShed                                                                                    prometheus.Counter
 	buildInfo                                                                                    *prometheus.GaugeVec
 }
@@ -91,6 +92,8 @@ func newMetrics(c *Controller) *metrics {
 			Buckets: []float64{10, 30, 60, 300, 600, 1800, 3600, 7200, 21600},
 		}),
 		queuedToCreate:        startupHistogram("zoomies_runner_queued_to_create_seconds", "Time from a queued job to runner creation."),
+		schedulingLatency:     startupHistogram("zoomies_runner_eligible_to_create_task_seconds", "Time from observed job eligibility to its runner's first create task delivery. Excludes prewarmed runners and unobserved timestamps."),
+		cleanupDuration:       startupHistogram("zoomies_runner_cleanup_duration_seconds", "Time from runner finish to confirmed host and GitHub removal, including retention. Excludes missing confirmations."),
 		createToContainer:     startupHistogram("zoomies_runner_create_to_container_started_seconds", "Time from runner creation to its container starting."),
 		containerToRegistered: startupHistogram("zoomies_runner_container_started_to_registered_seconds", "Time from container start to GitHub registration."),
 		registeredToReady:     startupHistogram("zoomies_runner_registered_to_ready_seconds", "Time from registration to the runner becoming idle or busy."),
@@ -148,6 +151,7 @@ func newMetrics(c *Controller) *metrics {
 		m.jobsTotal, m.jobsRunnerLost, m.queueWait, m.jobDuration, m.scalingEvents,
 		m.webhookDeliveries, m.githubRequests, m.reconcileDuration, m.reconcileErrors, m.cleanups, m.pollsShed, m.buildInfo,
 		m.queuedToCreate, m.createToContainer, m.containerToRegistered, m.registeredToReady, m.queuedToStarted,
+		m.schedulingLatency, m.cleanupDuration,
 		&fleetCollector{c: c},
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),

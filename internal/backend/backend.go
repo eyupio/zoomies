@@ -52,6 +52,9 @@ const (
 	// PhaseExited means the runner process finished. For an ephemeral runner
 	// this is the normal end of life after one job.
 	PhaseExited Phase = "exited"
+	// PhaseExitUnknown means the process is gone but its exit status was
+	// not retained across an agent restart. It is neither success nor failure.
+	PhaseExitUnknown Phase = "exit_unknown"
 	// PhaseFailed means the workload died unexpectedly.
 	PhaseFailed Phase = "failed"
 	// PhaseGone means the workload no longer exists.

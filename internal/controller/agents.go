@@ -630,7 +630,9 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 	}
 
 	if len(req.Runners) > 0 {
-		c.applyReports(ctx, hostID, req.Runners)
+		if err := c.applyReports(ctx, hostID, req.Runners); err != nil {
+			return nil, err
+		}
 	}
 
 	h.LastHeartbeat = now
@@ -839,6 +841,11 @@ func (c *Controller) shed() time.Duration {
 func (c *Controller) stampIssued(ctx context.Context, tasks []agent.Task) {
 	for _, t := range tasks {
 		c.stampTaskIssued(ctx, t)
+		if t.Kind == agent.TaskCreateRunner {
+			if err := c.st.SetRunnerCreateTaskIssued(ctx, t.RunnerID, t.IssuedAt); err != nil {
+				c.log.Warn("could not record the first create delivery", "runner", t.RunnerID, "error", err)
+			}
+		}
 	}
 }
 
@@ -915,12 +922,11 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 			c.noteCleanupFailure(ctx, r, kind, message)
 			return nil
 		}
-	} else if lifecycleTask(kind) && cleansUp(kind) {
-		// A stop or remove settles the host's earlier failure. GitHub's
-		// registration cleanup is independent and may still need a retry.
-		c.noteCleanupSucceeded(ctx, r)
 	}
 	c.applyRunnerState(ctx, r, state, message)
+	if res.OK && cleansUp(kind) {
+		return c.noteCleanupSucceeded(ctx, r, kind == agent.TaskRemoveRunner)
+	}
 	return nil
 }
 
@@ -962,9 +968,21 @@ func (c *Controller) noteCleanupFailure(ctx context.Context, r *store.Runner, ki
 
 // noteCleanupSucceeded clears a recorded failure once the same work has since
 // worked, and closes the runner's cleanup interval.
-func (c *Controller) noteCleanupSucceeded(ctx context.Context, r *store.Runner) {
+func (c *Controller) noteCleanupSucceeded(ctx context.Context, r *store.Runner, removed bool) error {
+	if removed {
+		if err := c.confirmCleanup(ctx, r.ID, true); err != nil {
+			return err
+		}
+		if r.HostRemovedAt == nil {
+			c.metrics.cleanups.WithLabelValues("succeeded").Inc()
+		}
+		if r.RegistrationDeletedAt == nil {
+			c.deleteRegistration(ctx, r, nil)
+		}
+		return nil
+	}
 	if r.CleanupError == "" && r.CleanedUpAt != nil {
-		return
+		return nil
 	}
 	// Counted here rather than at every call site: this is the point at which
 	// the runner is known to be gone from its host, and the early return above
@@ -972,7 +990,7 @@ func (c *Controller) noteCleanupSucceeded(ctx context.Context, r *store.Runner) 
 	c.metrics.cleanups.WithLabelValues("succeeded").Inc()
 	if err := c.st.ClearCleanupFailure(ctx, r.ID); err != nil {
 		c.log.Warn("could not clear a recorded cleanup failure", "runner", r.ID, "error", err)
-		return
+		return err
 	}
 	if r.CleanupError != "" {
 		c.log.Info("a runner that would not clean up has now been cleaned up",
@@ -981,6 +999,7 @@ func (c *Controller) noteCleanupSucceeded(ctx context.Context, r *store.Runner) 
 	if updated, err := c.st.GetRunner(ctx, r.ID); err == nil {
 		c.publishRunner(ctx, events.KindRunnerUpdated, updated)
 	}
+	return nil
 }
 
 // ReportRunners merges an agent's observations outside the heartbeat cycle, so
@@ -989,24 +1008,30 @@ func (c *Controller) ReportRunners(ctx context.Context, hostID string, reports [
 	if hostID == "" {
 		return errors.New("a runner report carried no host ID; the agent must send the identity it was given at join")
 	}
-	c.applyReports(ctx, hostID, reports)
-	return nil
+	return c.applyReports(ctx, hostID, reports)
 }
 
 // applyReports folds each observation into the runner's authoritative state.
-func (c *Controller) applyReports(ctx context.Context, hostID string, reports []agent.RunnerReport) {
+func (c *Controller) applyReports(ctx context.Context, hostID string, reports []agent.RunnerReport) error {
+	var errs []error
 	for _, rep := range reports {
 		if rep.RunnerID == "" {
 			continue
 		}
 		r, err := c.st.GetRunner(ctx, rep.RunnerID)
 		if err != nil {
+			if !errors.Is(err, store.ErrNotFound) {
+				errs = append(errs, err)
+			}
 			continue
 		}
 		if r.HostID != hostID {
 			c.log.Warn("a host reported on a runner it does not own",
 				"host", hostID, "runner", r.ID, "owner", r.HostID)
 			continue
+		}
+		if rep.CleanupError != "" && r.State.Terminal() {
+			c.noteCleanupFailure(ctx, r, agent.TaskRemoveRunner, rep.CleanupError)
 		}
 		if r.State.Terminal() && rep.Phase.Live() {
 			c.reconcileLateReport(ctx, r, rep)
@@ -1031,7 +1056,13 @@ func (c *Controller) applyReports(ctx context.Context, hostID string, reports []
 			state = store.RunnerIdle
 		}
 		c.applyRunnerState(ctx, r, state, rep.Message)
+		if rep.HostRemoved && !rep.Phase.Live() && (r.State.Terminal() || state.Terminal()) {
+			if err := c.noteCleanupSucceeded(ctx, r, true); err != nil {
+				errs = append(errs, err)
+			}
+		}
 	}
+	return errors.Join(errs...)
 }
 
 // reconcileLateReport settles a runner this controller has already written

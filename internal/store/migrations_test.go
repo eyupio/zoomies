@@ -36,6 +36,7 @@ var shippedMigrations = []string{
 	"0020_host_protocol.sql",
 	"0021_audit_action_index.sql",
 	"0022_cleanup_failure_sources.sql",
+	"0023_runner_confirmed_timings.sql",
 }
 
 // The two prefixes shared by files that already shipped. They sort by what

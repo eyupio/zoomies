@@ -283,3 +283,16 @@ fleet is happy with it. If a setting was removed or renamed in the release, the
 validator says so by name at startup rather than ignoring it: an unknown key in
 `zoomies.yaml` is refused, so a setting that silently does nothing is not a
 state this can get into.
+
+## RC1 runner timing and restart reporting
+
+An agent restarted over a process runner may not know its eventual exit code,
+because the process belonged to the old agent. That outcome is now explicit:
+the runner is removed with an unknown-exit message, while GitHub remains the
+source of the job result. An exit code the agent did record still distinguishes
+a clean exit from a failure.
+
+The RC1 migrations retain older cleanup timestamps as estimates. Confirmed
+cleanup needs both host and GitHub observations, so an older row may show
+“Awaiting confirmation” alongside its earlier estimate. Upgrade the agents as
+well as the controller to receive autonomous host-cleanup confirmations.

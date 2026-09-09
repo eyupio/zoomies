@@ -134,13 +134,16 @@ type HeartbeatResponse struct {
 // RunnerReport is the agent's observation of one runner. The controller merges
 // it into the runner's authoritative state.
 type RunnerReport struct {
-	RunnerID string            `json:"runner_id"`
-	State    store.RunnerState `json:"state"`
-	Handle   backend.Handle    `json:"handle,omitempty"`
-	Phase    backend.Phase     `json:"phase,omitempty"`
-	ExitCode int               `json:"exit_code,omitempty"`
-	Message  string            `json:"message,omitempty"`
-	Stats    backend.Stats     `json:"stats,omitempty"`
+	// HostRemoved is positive confirmation that Remove completed, not merely exit.
+	HostRemoved  bool              `json:"host_removed,omitempty"`
+	CleanupError string            `json:"cleanup_error,omitempty"`
+	RunnerID     string            `json:"runner_id"`
+	State        store.RunnerState `json:"state"`
+	Handle       backend.Handle    `json:"handle,omitempty"`
+	Phase        backend.Phase     `json:"phase,omitempty"`
+	ExitCode     int               `json:"exit_code,omitempty"`
+	Message      string            `json:"message,omitempty"`
+	Stats        backend.Stats     `json:"stats,omitempty"`
 	// GitHubRunnerID is filled in once the runner has registered.
 	GitHubRunnerID int64     `json:"github_runner_id,omitempty"`
 	ObservedAt     time.Time `json:"observed_at"`

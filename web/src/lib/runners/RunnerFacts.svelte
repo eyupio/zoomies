@@ -131,6 +131,13 @@
     <dd><RelativeTime value={runner.created_at} /></dd>
   </div>
 
+  {#if runner.create_task_issued_at}
+    <div class="row">
+      <dt>Create issued to host</dt>
+      <dd><RelativeTime value={runner.create_task_issued_at} /></dd>
+    </div>
+  {/if}
+
   {#if runner.container_started_at}
     <div class="row">
       <dt>Container started</dt>
@@ -175,12 +182,35 @@
     Cleaned up is a different fact from finished, and the gap between them is
     the interesting part: finished is when the runner stopped working, cleaned
     up is when nothing of it was left. A terminal runner with no cleaned-up
-    time has something still on a host or on GitHub.
+    time is still awaiting one or both positive confirmations.
   -->
+  {#if runner.host_removed_at}
+    <div class="row">
+      <dt>Removed from host</dt>
+      <dd><RelativeTime value={runner.host_removed_at} /></dd>
+    </div>
+  {/if}
+  {#if runner.registration_deleted_at}
+    <div class="row">
+      <dt>Removed from GitHub</dt>
+      <dd><RelativeTime value={runner.registration_deleted_at} /></dd>
+    </div>
+  {/if}
   {#if runner.cleaned_up_at}
     <div class="row">
       <dt>Cleaned up</dt>
       <dd><RelativeTime value={runner.cleaned_up_at} /></dd>
+    </div>
+  {:else if runner.finished_at}
+    <div class="row">
+      <dt>Cleanup</dt>
+      <dd>Awaiting confirmation</dd>
+    </div>
+  {/if}
+  {#if runner.cleanup_estimated_at}
+    <div class="row">
+      <dt>Earlier cleanup estimate</dt>
+      <dd><RelativeTime value={runner.cleanup_estimated_at} /></dd>
     </div>
   {/if}
 </dl>

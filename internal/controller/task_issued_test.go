@@ -96,3 +96,34 @@ func TestALogTaskDoesNotTouchTheRunnersIssueStamp(t *testing.T) {
 		t.Fatalf("task_issued_at = %v after a log task, want it untouched", got)
 	}
 }
+
+func TestFirstCreateDeliverySurvivesRetriesAndRemoval(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerProvisioning)
+	h.c.enqueueLifecycle(h.ctx, host.ID, agent.Task{Kind: agent.TaskCreateRunner, RunnerID: r.ID})
+	if h.runnerByID(t, r.ID).CreateTaskIssuedAt != nil {
+		t.Fatal("enqueue was counted as delivery to the host")
+	}
+	h.advance(5 * time.Second)
+	batch, err := h.c.PollTasks(h.ctx, host.ID, time.Second)
+	if err != nil || len(batch.Tasks) != 1 {
+		t.Fatalf("PollTasks: %v, batch: %+v", err, batch)
+	}
+	first := h.runnerByID(t, r.ID).CreateTaskIssuedAt
+	if first == nil || !first.Equal(batch.Tasks[0].IssuedAt.Truncate(time.Millisecond)) {
+		t.Fatalf("first delivery = %v, want %v", first, batch.Tasks[0].IssuedAt)
+	}
+	for _, kind := range []agent.TaskKind{agent.TaskCreateRunner, agent.TaskStopRunner, agent.TaskRemoveRunner} {
+		h.advance(time.Minute)
+		issued := h.c.Now()
+		h.c.stampIssued(h.ctx, []agent.Task{{Kind: kind, RunnerID: r.ID, IssuedAt: issued}})
+		got := h.runnerByID(t, r.ID)
+		if got.CreateTaskIssuedAt == nil || !got.CreateTaskIssuedAt.Equal(*first) {
+			t.Fatalf("%s overwrote the first create delivery: %v", kind, got.CreateTaskIssuedAt)
+		}
+		if got.TaskIssuedAt == nil || !got.TaskIssuedAt.Equal(issued.Truncate(time.Millisecond)) {
+			t.Fatal("the retry clock must still advance independently")
+		}
+	}
+}

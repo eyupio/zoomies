@@ -48,6 +48,67 @@ func running(handle backend.Handle, runnerID string) backend.Workload {
 	}
 }
 
+func TestAnUnknownProcessExitDoesNotInventSuccessOrFailure(t *testing.T) {
+	a, _, be, _ := newAgent(t, 2)
+	track(a, "runner-unknown", "wl-unknown", true)
+	w := exited("wl-unknown", "runner-unknown", -1)
+	w.Status.Phase = backend.PhaseExitUnknown
+	be.setWorkloads(w)
+	reports, err := a.ReconcileOnce(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reports) != 1 || reports[0].State != store.RunnerRemoved || reports[0].Phase != backend.PhaseExitUnknown {
+		t.Fatalf("unknown exit must retire the runner without declaring a failure: %+v", reports)
+	}
+	if !strings.Contains(reports[0].Message, "unknown") || strings.Contains(reports[0].Message, "cleanly") {
+		t.Fatalf("the message must disclose the missing exit status: %q", reports[0].Message)
+	}
+}
+
+func TestHostRemovalConfirmationIsRetriedUntilAcknowledged(t *testing.T) {
+	a, tr, be, clock := newAgent(t, 2)
+	a.retention = time.Second
+	reportedAndFinished(t, a, be, "runner-1", "wl-1")
+	clock.advance(2 * time.Second)
+	reports, err := a.ReconcileOnce(context.Background())
+	if err != nil || len(reports) != 1 || !reports[0].HostRemoved {
+		t.Fatalf("removal confirmation: %+v, %v", reports, err)
+	}
+	tr.reportErr = errors.New("controller unavailable")
+	a.sendReports(context.Background(), reports)
+	a.releaseUnknown([]string{"runner-1"})
+	retry, err := a.ReconcileOnce(context.Background())
+	if err != nil || len(retry) != 1 || !retry[0].HostRemoved {
+		t.Fatalf("lost confirmation was not retried: %+v, %v", retry, err)
+	}
+	tr.reportErr = nil
+	a.sendReports(context.Background(), retry)
+	if len(a.Runners()) != 0 {
+		t.Fatal("an acknowledged confirmation remained pending")
+	}
+}
+
+func TestRemovalConfirmsCompanionsEvenWhenTheParentIsGone(t *testing.T) {
+	_, _, be, _ := newAgent(t, 2)
+	companion := running("sidecar-1", "runner-1")
+	companion.Sidecar = true
+	other := running("sidecar-2", "runner-2")
+	other.Sidecar = true
+	be.setWorkloads(companion, other)
+	if err := removeRunnerWorkload(context.Background(), be, "runner-1", ""); err != nil {
+		t.Fatal(err)
+	}
+	left, err := be.List(context.Background())
+	if err != nil || len(left) != 1 || left[0].RunnerID != "runner-2" {
+		t.Fatalf("cleanup must remove only this runner's companion: %+v, %v", left, err)
+	}
+	be.listErr = errors.New("daemon unavailable")
+	if err := removeRunnerWorkload(context.Background(), be, "runner-1", ""); err == nil {
+		t.Fatal("failed inventory was treated as proof of absence")
+	}
+}
+
 func TestReconcileRemovesOrphansOnlyAfterASuccessfulPoll(t *testing.T) {
 	a, _, be, clock := newAgent(t, 2)
 	be.setWorkloads(running("wl-ghost", "runner-ghost"))
@@ -276,11 +337,13 @@ func TestReconcileRemovesAFinishedWorkloadOnceReportedAndRetentionHasPassed(t *t
 	if _, _, removed := be.counts(); removed != 1 {
 		t.Fatalf("Remove called %d times after the retention window, want 1", removed)
 	}
-	// The controller already knows how this runner ended; deleting the
-	// leftovers is not news.
-	if len(reports) != 0 {
-		t.Fatalf("cleaning up produced reports: %+v", reports)
+	if len(reports) != 1 || !reports[0].HostRemoved {
+		t.Fatalf("cleanup did not produce a positive removal confirmation: %+v", reports)
 	}
+	if got := a.Runners(); len(got) != 1 || !got[0].HostRemoved {
+		t.Fatalf("confirmation must remain pending until acknowledged: %+v", got)
+	}
+	a.markReported(reports)
 	if got := a.Runners(); len(got) != 0 {
 		t.Fatalf("still tracking a runner whose workload it just removed: %+v", got)
 	}
@@ -448,9 +511,14 @@ func TestReconcileRetriesAFinishedWorkloadItCouldNotRemove(t *testing.T) {
 	be.mu.Lock()
 	be.removeErr = nil
 	be.mu.Unlock()
-	if _, err := a.ReconcileOnce(ctx); err != nil {
+	reports, err := a.ReconcileOnce(ctx)
+	if err != nil {
 		t.Fatalf("ReconcileOnce: %v", err)
 	}
+	if len(reports) != 1 || !reports[0].HostRemoved {
+		t.Fatalf("recovery did not produce a removal confirmation: %+v", reports)
+	}
+	a.markReported(reports)
 	if _, _, removed := be.counts(); removed != 1 {
 		t.Fatalf("Remove called %d times after the backend recovered, want 1", removed)
 	}

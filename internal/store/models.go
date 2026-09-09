@@ -823,6 +823,11 @@ type Runner struct {
 	// row is indistinguishable from one whose create was issued a second ago,
 	// and the provision timeout is counted from the wrong end.
 	TaskIssuedAt *time.Time `json:"task_issued_at,omitempty"`
+	// CreateTaskIssuedAt is the first delivery to the host, never enqueue or retry.
+	CreateTaskIssuedAt *time.Time `json:"create_task_issued_at,omitempty"`
+	HostRemovedAt      *time.Time `json:"host_removed_at,omitempty"`
+	// CleanupEstimatedAt preserves pre-RC timestamps that did not require both confirmations.
+	CleanupEstimatedAt *time.Time `json:"cleanup_estimated_at,omitempty"`
 	// CleanupError, CleanupFailedAt and CleanupAttempts record a stop or
 	// remove the agent could not complete, or a registration GitHub would not
 	// delete.

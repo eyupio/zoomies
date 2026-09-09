@@ -278,7 +278,7 @@ func TestADeletedRegistrationIsStamped(t *testing.T) {
 	if got.CleanupError != "" {
 		t.Errorf("cleanup_error = %q after a clean removal, want none", got.CleanupError)
 	}
-	if got.CleanedUpAt == nil {
-		t.Error("cleaned_up_at is unset; nothing marks the end of the runner's life")
+	if got.CleanedUpAt != nil {
+		t.Error("registration deletion marked cleanup complete before the host confirmed removal")
 	}
 }

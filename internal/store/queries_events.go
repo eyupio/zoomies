@@ -68,7 +68,7 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 			j.Labels = NormalizeLabels(j.Labels)
 			// A job that arrives already claimed is eligible from the moment
 			// it is first seen: there was no earlier moment to record.
-			if j.Matched && j.EligibleAt == nil {
+			if j.Matched && j.State != JobWaiting && j.EligibleAt == nil {
 				now := s.Now()
 				j.EligibleAt = &now
 			}
@@ -107,6 +107,11 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 				merged.Steps = j.Steps
 			}
 		}
+		if existing.State == JobWaiting && merged.State == JobQueued {
+			// The deployment review ended and the job has actually entered
+			// the queue. Replayed deliveries cannot move this boundary again.
+			merged.QueuedAt = s.Now()
+		}
 		text := func(dst *string, v string) {
 			if v != "" && (current || *dst == "") {
 				*dst = v
@@ -143,7 +148,7 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 		// Stamped on the transition, not on every delivery that finds the job
 		// matched: this is the moment the fleet could first have acted, and a
 		// later delivery saying the same thing is not a new one.
-		if merged.Matched && merged.EligibleAt == nil {
+		if merged.Matched && merged.State != JobWaiting && merged.EligibleAt == nil {
 			now := s.Now()
 			merged.EligibleAt = &now
 		}
@@ -152,13 +157,13 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 			job_name=?, labels=?, state=?, conclusion=?, installation_id=?, pool_id=?,
 			runner_id=?, runner_name=?, html_url=?, started_at=?, completed_at=?, matched=?,
 			eligible_at=?, head_branch=?, head_sha=?, run_attempt=?, steps=?,
-			runner_fault=? WHERE id=?`,
+			runner_fault=?, queued_at=? WHERE id=?`,
 			merged.GitHubRunID, merged.Repo, merged.Workflow, merged.JobName, merged.Labels,
 			string(merged.State), merged.Conclusion, merged.InstallationID, merged.PoolID,
 			merged.RunnerID, merged.RunnerName, merged.HTMLURL, msp(merged.StartedAt),
 			msp(merged.CompletedAt), boolInt(merged.Matched), msp(merged.EligibleAt),
 			merged.HeadBranch, merged.HeadSHA, merged.RunAttempt, merged.Steps,
-			merged.RunnerFault, merged.ID)
+			merged.RunnerFault, ms(merged.QueuedAt), merged.ID)
 		if err != nil {
 			return err
 		}

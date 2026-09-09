@@ -91,29 +91,15 @@ func TestKillingTheAgentMidJobLeavesTheWorkRunning(t *testing.T) {
 	rec.recovered()
 	rec.note("host workloads after the restarted agent finished the job", "0")
 
-	// The finding, and it is a race rather than a wrong answer -- which is
-	// worse, because it means the fleet's record of a successful build depends
-	// on which path lands first. Run this drill repeatedly and the runner ends
-	// `removed` sometimes and `failed` others.
-	//
-	// The reason is in the process backend, which says it in as many words: the
-	// exit code is written by the parent that reaped the process, so an agent
-	// restarted while its runner was running finds the process gone with
-	// nothing recorded and calls that a failure. It cannot know better on its
-	// own -- it is not the process's parent any more -- and it is racing the
-	// removal the completed job set off. Nothing consults the job's own
-	// outcome, which GitHub has already reported as a success.
-	//
-	// So this asserts what is true either way and records the rest for a
-	// person: a drill that asserted one of the two would be a flaky test
-	// pretending to be a rule.
+	// An unknown process exit must not turn a successful job into a failed
+	// runner depending on which report won the race.
 	final := f.runnerByID(runner.ID, poolID)
-	if final.State != "removed" && final.State != "failed" {
-		t.Errorf("runner ended in state %q, want a terminal one", final.State)
+	if final.State != "removed" {
+		t.Errorf("runner ended in state %q after a successful job, want removed", final.State)
 	}
 	rec.note("runner state after the restart finished the job", final.State)
-	rec.finding("decide what a runner whose exit nobody recorded should be called: after an agent restart a successful job's runner ends removed or failed depending on which path lands first, and the fleet's own accounting differs run to run")
-	rec.pass("an agent killed mid-job left the work running, came back as the same host, and the job was finished and cleaned up; what the runner ends up called is the finding")
+
+	rec.pass("an agent killed mid-job left the work running, came back as the same host, and the job was finished and cleaned up; its runner is consistently removed")
 }
 
 // hostIDs is the fleet's own list of hosts, which is how a drill tells a
