@@ -177,7 +177,14 @@ test('draining a runner asks first, names it, and cancelling changes nothing', a
   // Named, and counted: a destructive action must say what it is about.
   await expect(dialog.getByRole('heading', { name: 'Drain runner' })).toBeVisible();
   await expect(dialog).toContainText(name);
-  await expect(dialog).toContainText('Draining never interrupts work in progress.');
+  // This expectation moved deliberately. The dialog used to say draining never
+  // interrupts work in progress, which was not true: the stop task carries a
+  // five-minute timeout and the runner is killed after it. The dialog now says
+  // what it costs, and this asserts the honest sentence rather than the
+  // comfortable one.
+  await expect(dialog).toContainText(
+    'The job it is running now has five minutes to finish. If it takes longer, the runner is stopped and GitHub marks that job failed.',
+  );
 
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(dialog).toBeHidden();

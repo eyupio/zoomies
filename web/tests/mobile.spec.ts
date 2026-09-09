@@ -13,6 +13,7 @@ import {
   browserOverride,
   dataRows,
   documentWidth,
+  FIXTURE,
   goto,
   grid,
   nav,
@@ -183,6 +184,62 @@ test('the grids stay inside the screen instead of overflowing it', async ({ page
     // page around it must not.
     await expectNoSidewaysScroll(page, `the ${heading} grid`);
   }
+});
+
+/*
+ * The grids above were the list pages. A detail page is the other half of the
+ * phone story and had no test at all, which is how this shipped: a pool page
+ * on a 412px phone was 500-odd pixels wide, so the name was cut off mid-word,
+ * the runner cards were clipped on the left, and Delete sat off the right edge
+ * where it could not be pressed.
+ *
+ * The cause was one row shared by every detail page. PageHeader's actions row
+ * is a flex row that never wrapped, and the buttons in it do not wrap their
+ * own labels, so five of them -- refresh, prewarm, disable, edit, delete --
+ * demanded their full width and pushed the document out. Giving it `width:
+ * 100%` on a phone made the row wide without letting it wrap, which is why the
+ * breakpoint that was already there did not save it.
+ *
+ * Every detail page with an actions row is walked, not just the pool one that
+ * was reported, because the row is the same row on all of them.
+ */
+test('a detail page stays inside the screen, actions and all', async ({ page }) => {
+  for (const [path, heading] of [
+    [`/pools`, 'Pools'],
+    [`/runners/${FIXTURE.busyRunnerId}`, FIXTURE.busyRunner],
+  ] as const) {
+    await goto(page, path, heading);
+    await expectNoSidewaysScroll(page, `the ${heading} page`);
+  }
+
+  // The pool page is reached the way an operator reaches it, through the row,
+  // since its id is not fixed by the seed the way the busy runner's is.
+  await goto(page, '/pools', 'Pools');
+  await page.getByRole('link', { name: FIXTURE.linuxPool }).first().click();
+  await expect(pageHeading(page, FIXTURE.linuxPool)).toBeVisible();
+  await expectNoSidewaysScroll(page, `the ${FIXTURE.linuxPool} page`);
+
+  // The document fitting is necessary but not sufficient: a button can still
+  // sit past the right edge of a page that does not scroll, and one that does
+  // is one an operator on a phone cannot press. It was Delete that ended up
+  // there -- last in the row, and the one whose being half off the screen is
+  // worst in both directions. Every visible control is checked rather than
+  // those four by name, since the row is built from whatever the page passes.
+  const width = (await documentWidth(page)).clientWidth;
+  const offscreen = await page.evaluate((limit) => {
+    const out: string[] = [];
+    for (const el of document.querySelectorAll('button, a[href]')) {
+      const box = el.getBoundingClientRect();
+      if (box.width === 0 && box.height === 0) continue;
+      if (box.right > limit + 0.5 || box.left < -0.5) {
+        out.push(
+          `${(el.textContent ?? '').trim() || el.getAttribute('aria-label')} at ${Math.round(box.left)}..${Math.round(box.right)}`,
+        );
+      }
+    }
+    return out;
+  }, width);
+  expect(offscreen, `these controls are outside a ${width}px window`).toEqual([]);
 });
 
 /*
