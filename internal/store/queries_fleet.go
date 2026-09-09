@@ -626,6 +626,33 @@ func (s *Store) UpdateHost(ctx context.Context, h *Host) error {
 	return affected(res, "host", h.ID)
 }
 
+// SetHostReported writes the facts an agent measures about its own machine,
+// and only those.
+//
+// Its own statement for the reason the reserves have one, carried the rest of
+// the way. UpdateHost writes the whole row, and the heartbeat reaches it with a
+// copy of the host read at the top of the request -- so an operator who
+// cordoned the machine, changed its capacity, renamed it or edited its labels
+// in the interval had the pre-edit values written back over their change, with
+// no error and nothing in the log. A cordon is the one that bites: the row goes
+// back to uncordoned, the UI still shows it cordoned because the cordon handler
+// already published its own view, and the scheduler puts new runners on the
+// machine somebody is about to power off.
+//
+// What an agent may say about itself is what it can measure: its backends, its
+// version, its processors, its memory, its disk. Everything else on a host is
+// the operator's.
+func (s *Store) SetHostReported(ctx context.Context, h *Host) error {
+	res, err := s.exec(ctx, `UPDATE hosts SET backends=?, backend_info=?, version=?,
+		cpus=?, memory_mb=?, disk_total_mb=?, disk_free_mb=?, last_heartbeat=? WHERE id=?`,
+		h.Backends, h.BackendInfo, h.Version, h.CPUs, h.MemoryMB,
+		h.DiskTotalMB, h.DiskFreeMB, ms(h.LastHeartbeat), h.ID)
+	if err != nil {
+		return wrapWrite(err)
+	}
+	return affected(res, "host", h.ID)
+}
+
 // SetHostProtocol records what agent protocol a host speaks and whether this
 // controller can work with it.
 //

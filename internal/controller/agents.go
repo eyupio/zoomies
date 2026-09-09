@@ -616,7 +616,11 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 			h.DiskFreeMB = req.DiskFreeMB
 		}
 		h.LastHeartbeat = now
-		if err := c.st.UpdateHost(ctx, h); err != nil {
+		// Only the columns an agent measures. h was read at the top of this
+		// request, so writing the whole row here would put its pre-edit copy of
+		// the operator's fields -- cordoned above all -- back over anything
+		// changed in the interval.
+		if err := c.st.SetHostReported(ctx, h); err != nil {
 			c.log.Warn("could not record what a host reported about itself", "host", hostID, "error", err)
 		} else if backendsChanged {
 			c.log.Info("a host's backends changed", "host", hostID, "name", h.Name,
