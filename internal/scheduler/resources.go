@@ -78,6 +78,42 @@ func share(total float64, capacity int) float64 {
 	return total / float64(capacity)
 }
 
+// Reserved is what the live runners already on h have promised away.
+//
+// It is the same sum newHostSet seeds a pass with, and it is exported because
+// the Hosts page has to show it: an operator can see what a machine is and
+// what it has left, and without this cannot see what the fleet has committed
+// on it -- which is the number that explains why a host with free slots is
+// taking nothing.
+//
+// Only live rows count, exactly as the slot count does: the snapshot keeps
+// failed runners so the Runners page can show them, and charging a host for a
+// runner that is gone would shrink the fleet every time one failed.
+//
+// Disk is deliberately absent. Free disk is a measurement of the filesystem as
+// it is now, so what the runners already there have written is in the figure
+// already; adding their reservations to it would charge the same bytes twice.
+func Reserved(h *store.Host, pools []*store.Pool, runners map[string][]*store.Runner) Reservation {
+	var out Reservation
+	if h == nil {
+		return out
+	}
+	for _, p := range pools {
+		if p == nil {
+			continue
+		}
+		res := Reserve(p, h)
+		for _, r := range runners[p.ID] {
+			if r == nil || r.HostID != h.ID || !r.State.Live() {
+				continue
+			}
+			out.CPUs += res.CPUs
+			out.MemoryMB += res.MemoryMB
+		}
+	}
+	return out
+}
+
 // HostFits reports whether one runner of the pool would fit on an empty host:
 // whether this is the size of machine the pool could ever run on, before
 // anything running on it is counted.

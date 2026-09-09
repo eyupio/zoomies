@@ -155,6 +155,15 @@ type Controller struct {
 	// can report the queued jobs no pool claimed without deciding again.
 	lastPlan   *scheduler.Plan
 	lastPlanAt time.Time
+	// reserved is what each host's live runners had promised away as of the
+	// last pass, keyed by host id.
+	//
+	// It is recorded rather than recomputed for the view, and from the same
+	// snapshot the pass decided on: a page that showed a different figure from
+	// the one the scheduler placed against would be worse than showing none,
+	// because an operator would trust it. It is at most one pass old, which is
+	// the same age as the plan the problems drawer already reports.
+	reserved map[string]scheduler.Reservation
 	// lease is this controller's claim on the database, renewed on a timer.
 	// leaseLost is set when a renewal found somebody else holding it, which is
 	// the fleet's worst state: two schedulers, both certain they are the only
@@ -837,6 +846,32 @@ func (c *Controller) setLastPlan(p scheduler.Plan) {
 	defer c.mu.Unlock()
 	c.lastPlan = &p
 	c.lastPlanAt = c.Now()
+}
+
+// setReserved records what each host had promised away in the snapshot the
+// pass just decided on.
+func (c *Controller) setReserved(snap scheduler.Snapshot) {
+	out := make(map[string]scheduler.Reservation, len(snap.Hosts))
+	for _, h := range snap.Hosts {
+		if h == nil {
+			continue
+		}
+		out[h.ID] = scheduler.Reserved(h, snap.Pools, snap.Runners)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.reserved = out
+}
+
+// reservedOn is what the last pass found already promised away on a host, and
+// whether a pass has run at all: a controller that has not yet decided
+// anything reports nothing rather than zero, which would read as an empty
+// machine.
+func (c *Controller) reservedOn(id string) (scheduler.Reservation, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, ok := c.reserved[id]
+	return r, ok
 }
 
 // runnerGroupNote is a pool whose runners went to the default runner group

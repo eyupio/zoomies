@@ -115,6 +115,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	gather("installations", c.installationProblems)
 	gather("the encryption key", c.keyProblems)
 	gather("host versions", c.hostSkewProblems)
+	gather("host resources", c.hostResourceProblems)
 	out = append(out, c.fenceProblems()...)
 	gather("webhook deliveries", c.webhookProblems)
 	gather("jobs", c.jobProblems)
@@ -334,6 +335,76 @@ func (c *Controller) hostSkewProblems(ctx context.Context, out *[]Problem) error
 			". A fleet part-way through an upgrade looks like this and clears itself; one that stays this way has a host somebody has forgotten.",
 		Fix: fix,
 	})
+	return nil
+}
+
+// hostResourceProblems names the hosts that have never said what machine they
+// are, and the pools whose limits nothing on their backend enforces.
+//
+// The first is a note rather than a warning: a host that reports no CPU, no
+// memory and no disk is placed by slots alone, exactly as every host was before
+// the resource model existed, so nothing is broken -- but every figure on its
+// card is missing and an operator looking at it deserves to be told which of
+// "old agent" and "broken agent" they are looking at.
+//
+// The second is a warning, because it is a promise that is not kept. A pool's
+// `resources` become cgroup limits on Docker and Podman, including the
+// docker-in-docker sidecar, and the process backend applies none of them: a
+// runner there can use the whole machine. The reservation still holds the room
+// -- the fleet does not oversubscribe -- but the room is bookkeeping, and a job
+// that runs away takes the host with it.
+func (c *Controller) hostResourceProblems(ctx context.Context, out *[]Problem) error {
+	hosts, err := c.st.ListHosts(ctx)
+	if err != nil {
+		return fmt.Errorf("listing hosts: %w", err)
+	}
+	var unknown []string
+	for _, h := range hosts {
+		// An incompatible host is already excluded from placement and already
+		// says so; a second entry about the same machine helps nobody.
+		if h.Incompatible {
+			continue
+		}
+		a := h.Allocatable()
+		if !a.CPUsKnown && !a.MemoryKnown && !a.DiskKnown {
+			unknown = append(unknown, h.Name)
+		}
+	}
+	if len(unknown) > 0 {
+		*out = append(*out, Problem{
+			Code:     "host.resources_unknown",
+			Severity: config.SeverityInfo,
+			Title:    "some hosts have not reported what machine they are",
+			Detail: fmt.Sprintf("%s reporting no CPUs, memory or disk: %s. They are placed by slot count alone, which is how every host was placed before agents learnt to measure themselves, so nothing is wrong -- but a pool's resource limits cannot be fitted against a machine nobody has measured.",
+				plural(len(unknown), "host"), strings.Join(unknown, ", ")),
+			Fix: "upgrade the agent on those hosts; the figures appear on the next heartbeat, with no re-join.",
+		})
+	}
+
+	pools, err := c.st.ListPools(ctx)
+	if err != nil {
+		return fmt.Errorf("listing pools: %w", err)
+	}
+	var unenforced []string
+	for _, p := range pools {
+		if p == nil || !p.Enabled || p.Backend != store.BackendProcess {
+			continue
+		}
+		if p.Resources.CPUs > 0 || p.Resources.MemoryMB > 0 || p.Resources.DiskGB > 0 {
+			unenforced = append(unenforced, p.Name)
+		}
+	}
+	for _, name := range unenforced {
+		*out = append(*out, Problem{
+			Code:     "pool.resources_unenforced",
+			Severity: config.SeverityWarning,
+			Title:    "a pool sets resource limits its backend does not apply",
+			Detail: fmt.Sprintf("%s runs on the process backend, which starts a runner as a plain process with no cgroup, so its CPU, memory and disk limits bind nothing. The scheduler still holds that much room on the host, so the fleet does not oversubscribe -- but a job that runs away can take the machine with it.",
+				name),
+			Fix:        "move the pool to the docker or podman backend, where the same limits become cgroup limits, or clear them and rely on the host's capacity.",
+			TargetKind: "pool",
+		})
+	}
 	return nil
 }
 

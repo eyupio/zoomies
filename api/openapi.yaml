@@ -1259,7 +1259,7 @@ paths:
     patch:
       operationId: updateHost
       tags: [hosts]
-      summary: Update a host's capacity or labels
+      summary: Update a host's capacity, labels or reserve
       x-zoomies-role: operator
       requestBody:
         required: true
@@ -1267,9 +1267,18 @@ paths:
           application/json:
             schema:
               type: object
+              description: >-
+                Every field is optional and independent; what is not named is left alone.
+                The reserve is what this machine keeps for itself, in the units the host
+                reports its own figures in. A reserve on a figure the host has never
+                reported, or one that would leave nothing to place on, is refused rather
+                than clamped.
               properties:
                 capacity: { type: integer, minimum: 0 }
                 labels: { type: object, additionalProperties: { type: string } }
+                reserve_cpus: { type: integer, minimum: 0 }
+                reserve_memory_mb: { type: integer, format: int64, minimum: 0 }
+                reserve_disk_mb: { type: integer, format: int64, minimum: 0 }
       responses:
         "200":
           description: OK
@@ -3170,6 +3179,35 @@ components:
         memory_mb: { type: integer, format: int64 }
         disk_total_mb: { type: integer, format: int64, description: The filesystem holding the agent's work directory, where a runner's checkout and caches land. Zero means the agent did not measure it, which is not a full disk. }
         disk_free_mb: { type: integer, format: int64, description: What a runner may write to, which is less than what is unused by the reserve the filesystem keeps for root. }
+        reserve_cpus: { type: integer, description: What the operator holds back from placement for the machine's own sake. Set through PATCH /hosts; a heartbeat never writes it. }
+        reserve_memory_mb: { type: integer, format: int64 }
+        reserve_disk_mb: { type: integer, format: int64 }
+        allocatable_cpus:
+          type: number
+          description: >-
+            The machine less its reserve: what the scheduler may place onto. The documented
+            floors under the reserve -- 512 MB of memory and 2 GB of disk, with no CPU floor --
+            are applied here, so what is shown is what is used.
+        allocatable_memory_mb: { type: integer, format: int64 }
+        allocatable_disk_mb: { type: integer, format: int64 }
+        reserved_cpus:
+          type: number
+          description: >-
+            What the live runners already on this host have promised away, as of the last
+            scheduling pass and from the snapshot that pass decided on. Disk is absent on
+            purpose: free disk already contains what those runners have written, so charging
+            their reservations too would count the same bytes twice.
+        reserved_memory_mb: { type: integer, format: int64 }
+        reserved_known:
+          type: boolean
+          description: >-
+            False until a pass has run, because zero would read as an idle machine rather
+            than as a question nobody has answered yet.
+        resources_known:
+          type: boolean
+          description: >-
+            Whether this host has reported what machine it is at all. An agent too old to say
+            is placed by slots alone, which is what keeps an upgrade from emptying a fleet.
         platform: { $ref: "#/components/schemas/Platform" }
         platform_label: { type: string, examples: ["Ubuntu 24.04, arm64"] }
         canonical_name:

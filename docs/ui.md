@@ -124,8 +124,14 @@ table exports as CSV.
 ## Hosts
 
 Where runners can go. Each machine's heartbeat, its slots in use, the disk its
-runners have left to write into, the backends its agent found — and the exact
-command to run when one is missing — and the labels pools select it by. A cordoned host keeps its runners and takes no new
+runners have left to write into, what the fleet has already committed of its CPU
+and memory against what may be placed on it, the backends its agent found — and
+the exact command to run when one is missing — and the labels pools select it
+by. Slots and the committed bars answer different questions: the first is
+whether the fleet will place another runner here, the second whether the machine
+can carry it, and a host with free slots and no memory left takes nothing.
+*Edit* sets the capacity, the labels and the reserve — what the scheduler leaves
+alone for the machine's own sake. A cordoned host keeps its runners and takes no new
 ones. *Add a host* mints a join token and prints the one line to paste on the
 new machine.
 

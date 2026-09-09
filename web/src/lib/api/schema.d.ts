@@ -931,7 +931,7 @@ export interface paths {
         delete: operations["deleteHost"];
         options?: never;
         head?: never;
-        /** Update a host's capacity or labels */
+        /** Update a host's capacity, labels or reserve */
         patch: operations["updateHost"];
         trace?: never;
     };
@@ -2458,6 +2458,26 @@ export interface components {
              * @description What a runner may write to
              */
             disk_free_mb?: number;
+            /** @description What the operator holds back from placement for the machine's own sake. Set through PATCH /hosts; a heartbeat never writes it. */
+            reserve_cpus?: number;
+            /** Format: int64 */
+            reserve_memory_mb?: number;
+            /** Format: int64 */
+            reserve_disk_mb?: number;
+            /** @description The machine less its reserve: what the scheduler may place onto. The documented floors under the reserve -- 512 MB of memory and 2 GB of disk, with no CPU floor -- are applied here, so what is shown is what is used. */
+            allocatable_cpus?: number;
+            /** Format: int64 */
+            allocatable_memory_mb?: number;
+            /** Format: int64 */
+            allocatable_disk_mb?: number;
+            /** @description What the live runners already on this host have promised away, as of the last scheduling pass and from the snapshot that pass decided on. Disk is absent on purpose: free disk already contains what those runners have written, so charging their reservations too would count the same bytes twice. */
+            reserved_cpus?: number;
+            /** Format: int64 */
+            reserved_memory_mb?: number;
+            /** @description False until a pass has run, because zero would read as an idle machine rather than as a question nobody has answered yet. */
+            reserved_known?: boolean;
+            /** @description Whether this host has reported what machine it is at all. An agent too old to say is placed by slots alone, which is what keeps an upgrade from emptying a fleet. */
+            resources_known?: boolean;
             platform?: components["schemas"]["Platform"];
             /** @example Ubuntu 24.04, arm64 */
             platform_label?: string;
@@ -4253,6 +4273,11 @@ export interface operations {
                     labels?: {
                         [key: string]: string;
                     };
+                    reserve_cpus?: number;
+                    /** Format: int64 */
+                    reserve_memory_mb?: number;
+                    /** Format: int64 */
+                    reserve_disk_mb?: number;
                 };
             };
         };

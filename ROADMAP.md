@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.23 · 8 September 2026 · derived from the owner's
+Version 2.24 · 9 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -637,9 +637,9 @@ per-host reserve the row now carries can be set only from the store, because
 `SetHostReserve` has no caller outside tests and neither `PATCH /hosts` nor the
 host view mentions it.
 
-**Do, in three pull requests. The first two have landed -- the figures reach
-the host view and the Hosts page, and the scheduler now places by them; the
-third is partly done. The [work-package record](roadmap/progress.md) names the pull requests
+**Do, in three pull requests. All three have landed -- the figures reach the
+host view and the Hosts page, the scheduler places by them, and an operator can
+now set the reserve and see what the fleet has promised away. The [work-package record](roadmap/progress.md) names the pull requests
 that carried each:**
 
 1. Agents report host resources: CPUs, memory and free disk on the work
@@ -658,7 +658,7 @@ that carried each:**
    Tests: two pools cannot oversubscribe memory in one tick; a 32 GB host
    admits eight 4 GB runners and refuses the ninth; DinD counts the sidecar;
    unknown resources fall back to slots; reservations rebuild from rows.
-3. Operators can see it: the host view carries the reserve, the allocatable
+3. **Done.** Operators can see it: the host view carries the reserve, the allocatable
    and the reserved beside the observed figures it already carries;
    `PATCH /hosts` accepts the reserve beside capacity; the Hosts page already
    states a host's vCPUs, its memory and its free-of-total disk and marks a
@@ -1757,6 +1757,24 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **9 September 2026 — Version 2.24:** ZF-103's third pull request is done, and
+  with it Phase 1: every package in it is `done`. The reserve had a column, a
+  store statement and no way in — no route, no caller outside tests — so the
+  documented floors were the only reserve any host has ever had. `PATCH /hosts`
+  takes it now, **refused rather than clamped** when it would leave nothing to
+  place on or is held back from a figure the host has never reported, and
+  written by its own statement so a heartbeat can never touch it. The finding
+  worth keeping is about provenance: what the Hosts page shows a host has
+  promised away is *the scheduler's own sum*, recorded from the snapshot each
+  pass decided on rather than recomputed for the page — a figure that
+  disagreed with the one placement used would be worse than none, because it
+  would be believed, and it reads as unknown until a pass has run rather than
+  as zero. `pool.resources_unenforced` says the quiet part: a `process` pool's
+  limits bind nothing, the reservation still holds the room, and the room is
+  bookkeeping. `host.resources_unknown` is a note rather than a warning, because
+  an agent too old to measure its machine is placed by slots exactly as every
+  host was before it could.
 
 * **8 September 2026 — Version 2.23:** ZF-205 is done, and with it every
   unblocked package in Phase 2 — ZF-201 waits on the owner's disposable

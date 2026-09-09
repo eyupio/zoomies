@@ -734,29 +734,21 @@ func newHostSet(hosts []*store.Host, pools []*store.Pool, runners map[string][]*
 		alloc: make(map[string]store.HostAllocation, len(hosts)),
 		now:   now,
 	}
-	byID := make(map[string]*store.Host, len(hs.hosts))
 	for _, h := range hs.hosts {
 		hs.free[h.ID] = h.Free()
 		a := h.Allocatable()
 		hs.alloc[h.ID] = a
 		hs.left[h.ID] = Reservation{CPUs: a.CPUs, MemoryMB: a.MemoryMB, DiskMB: a.DiskMB}
-		byID[h.ID] = h
 	}
-	for _, p := range pools {
-		if p == nil {
-			continue
-		}
-		for _, r := range runners[p.ID] {
-			h := byID[r.HostID]
-			if h == nil || !r.State.Live() {
-				continue
-			}
-			res := Reserve(p, h)
-			l := hs.left[h.ID]
-			l.CPUs -= res.CPUs
-			l.MemoryMB -= res.MemoryMB
-			hs.left[h.ID] = l
-		}
+	for _, h := range hs.hosts {
+		// One sum, shared with the host view: what the page shows a host has
+		// promised away and what a pass starts from must be the same number,
+		// or an operator reads one figure and the scheduler acts on another.
+		res := Reserved(h, pools, runners)
+		l := hs.left[h.ID]
+		l.CPUs -= res.CPUs
+		l.MemoryMB -= res.MemoryMB
+		hs.left[h.ID] = l
 	}
 	return hs
 }

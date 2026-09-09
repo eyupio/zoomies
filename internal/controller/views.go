@@ -77,6 +77,38 @@ type HostView struct {
 	// or a platform with no portable way to ask -- and is not a full disk.
 	DiskTotalMB int64 `json:"disk_total_mb,omitempty"`
 	DiskFreeMB  int64 `json:"disk_free_mb,omitempty"`
+	// ReserveCPUs, ReserveMemoryMB and ReserveDiskMB are what the operator has
+	// held back from placement, for the machine's own sake rather than for any
+	// pool's. They are the operator's alone: a heartbeat never writes them,
+	// exactly as it never writes capacity.
+	ReserveCPUs     int   `json:"reserve_cpus,omitempty"`
+	ReserveMemoryMB int64 `json:"reserve_memory_mb,omitempty"`
+	ReserveDiskMB   int64 `json:"reserve_disk_mb,omitempty"`
+	// AllocatableCPUs, AllocatableMemoryMB and AllocatableDiskMB are the
+	// machine less its reserve: what the scheduler may actually place onto,
+	// which is the figure a "how full is this host" question is asked against.
+	// The floors under the reserve -- 512 MB of memory and 2 GB of disk -- are
+	// applied here too, so what is shown is what is used.
+	AllocatableCPUs     float64 `json:"allocatable_cpus,omitempty"`
+	AllocatableMemoryMB int64   `json:"allocatable_memory_mb,omitempty"`
+	AllocatableDiskMB   int64   `json:"allocatable_disk_mb,omitempty"`
+	// ReservedCPUs and ReservedMemoryMB are what the runners already on this
+	// host have promised away, as of the last scheduling pass and from the
+	// snapshot that pass decided on. Disk is deliberately absent: free disk is
+	// a measurement of the filesystem as it is now, so what those runners have
+	// written is in DiskFreeMB already, and adding their reservations would
+	// charge the same bytes twice.
+	//
+	// ReservedKnown is false until a pass has run, because zero would read as
+	// an idle machine rather than as an unanswered question.
+	ReservedCPUs     float64 `json:"reserved_cpus,omitempty"`
+	ReservedMemoryMB int64   `json:"reserved_memory_mb,omitempty"`
+	ReservedKnown    bool    `json:"reserved_known"`
+	// ResourcesKnown is whether this host has reported what machine it is at
+	// all. An agent too old to say is placed by slots alone, which is what
+	// keeps an upgrade from emptying a fleet -- and the page has to say so,
+	// because a host showing no figures looks broken rather than old.
+	ResourcesKnown bool `json:"resources_known"`
 	// Platform is what this host is in the terms a pool asks in, and
 	// PlatformLabel is the same thing as a sentence: "Ubuntu 24.04, arm64".
 	Platform      store.Platform `json:"platform"`
@@ -134,6 +166,9 @@ func (c *Controller) HostView(h *store.Host) HostView {
 		MemoryMB:           h.MemoryMB,
 		DiskTotalMB:        h.DiskTotalMB,
 		DiskFreeMB:         h.DiskFreeMB,
+		ReserveCPUs:        h.ReserveCPUs,
+		ReserveMemoryMB:    h.ReserveMemoryMB,
+		ReserveDiskMB:      h.ReserveDiskMB,
 		Platform:           h.Platform(),
 		PlatformLabel:      h.Platform().Describe(),
 		CanonicalName:      h.CanonicalName(),
@@ -146,6 +181,16 @@ func (c *Controller) HostView(h *store.Host) HostView {
 		Healthy:            h.Healthy(c.Now()),
 		LastHeartbeat:      h.LastHeartbeat,
 		CreatedAt:          h.CreatedAt,
+	}
+	alloc := h.Allocatable()
+	out.AllocatableCPUs = alloc.CPUs
+	out.AllocatableMemoryMB = alloc.MemoryMB
+	out.AllocatableDiskMB = alloc.DiskMB
+	out.ResourcesKnown = alloc.CPUsKnown || alloc.MemoryKnown || alloc.DiskKnown
+	if res, ok := c.reservedOn(h.ID); ok {
+		out.ReservedCPUs = res.CPUs
+		out.ReservedMemoryMB = res.MemoryMB
+		out.ReservedKnown = true
 	}
 	if len(h.BackendInfo) > 0 {
 		out.BackendInfo = make([]BackendInfoView, 0, len(h.BackendInfo))
