@@ -56,6 +56,11 @@ jobs:
   drill:
     name: Drill
     runs-on: blacksmith-2vcpu-ubuntu-2404
+    # Only this job, and only to append its own rows to the drill record on the
+    # default branch: the record is worth nothing unless a run keeps it, and
+    # every other job here reads.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -67,6 +72,12 @@ jobs:
       # no Docker daemon and no GitHub credentials: the backend is `process`
       # with a stub runner staged on disk, and GitHub is a fake in the test
       # process. That is what makes it something every pull request can afford.
+      # Where the record ends before this run appends to it, so the summary and
+      # the commit below carry this run's rows rather than the whole history.
+      - name: Note where the drill record ends
+        id: record
+        run: echo "lines=$(wc -l < roadmap/validation/drills.md 2>/dev/null || echo 0)" >> "$GITHUB_OUTPUT"
+
       - name: Run the lifecycle drill
         run: make test-drill
 
@@ -83,13 +94,58 @@ jobs:
         run: cat "$RUNNER_TEMP/load.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
 
       # The record is the deliverable, not just the exit code: it says what was
-      # observed and whether anything was left for a person to clean up.
+      # observed and whether anything was left for a person to clean up. The
+      # summary carries this run's rows only -- the history belongs in the file.
       - name: Drill record
         if: always()
         run: |
           if [ -f roadmap/validation/drills.md ]; then
-            cat roadmap/validation/drills.md >> "$GITHUB_STEP_SUMMARY"
+            tail -n +$(( ${{ steps.record.outputs.lines }} + 1 )) roadmap/validation/drills.md >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      # A row that reaches one job summary and nowhere else cannot be compared
+      # with the row before it, and comparison is the whole reason for keeping
+      # these: a drill that recovered cleanly forty times and then did not is a
+      # finding only if the forty are still there. So the rows are committed,
+      # from the default branch only -- a pull request's rows describe a commit
+      # that may never exist.
+      #
+      # A push made with GITHUB_TOKEN starts no workflow run, which is what
+      # stops this step from triggering itself for ever.
+      - name: Keep the rows
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          set -eu
+          rows="$RUNNER_TEMP/rows.md"
+          tail -n +$(( ${{ steps.record.outputs.lines }} + 1 )) roadmap/validation/drills.md > "$rows"
+          if [ ! -s "$rows" ]; then
+            echo "The drills wrote no rows, so there is nothing to keep."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # The rows are held in $rows from here on, so the working tree goes
+          # back to what was checked out -- appending to a file that already
+          # carries this run's rows would write them twice.
+          git reset --hard
+          # Another push can land while the drills run, so the rows are appended
+          # to whatever main is by then rather than to the copy this run started
+          # with. The file is a log: its lines do not conflict, they just follow
+          # whatever is already there.
+          for attempt in 1 2 3; do
+            git fetch --depth=1 origin main
+            git checkout -B drill-record FETCH_HEAD
+            cat "$rows" >> roadmap/validation/drills.md
+            git add roadmap/validation/drills.md
+            git commit -m "Record what the drills observed on ${GITHUB_SHA}"
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            echo "main moved while the drills ran; appending to where it is now (attempt $attempt)."
+            git reset --hard FETCH_HEAD
+          done
+          echo "Could not keep the drill rows after three attempts."
+          exit 1
 
   upgrade:
     name: Upgrade

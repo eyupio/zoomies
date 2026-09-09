@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.27 · 9 September 2026 · derived from the owner's
+Version 2.28 · 9 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -1757,6 +1757,17 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **9 September 2026 — Version 2.28:** ZF-302 starts with the piece the plan
+  says has to come first: keeping the drill rows. They were written to
+  `roadmap/validation/drills.md` and reached one job summary and nowhere else,
+  so the comparison the record exists for — recovered cleanly forty times and
+  then did not — could not be made at all. The drill job now commits the rows it
+  wrote, from the default branch only: a pull request's rows describe a commit
+  that may never exist. Each row gained the run that wrote it, because a row
+  worth keeping a month is one that can be taken back to the logs behind it.
+  Nothing here is a fault drill yet; those are next, and they are worth writing
+  only now that their rows will survive the run that produced them.
 
 * **9 September 2026 — Version 2.27:** ZF-105's last open finding is closed,
   and with it the package. `TaskBatch.Backoff` had been on the wire since the
