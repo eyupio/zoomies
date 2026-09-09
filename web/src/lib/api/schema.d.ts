@@ -681,7 +681,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a runner
-         * @description Without `force` this drains first, so a running job is never interrupted. The registration is removed from GitHub either way.
+         * @description Without `force` this drains first, which still ends a running job after five minutes, so an unforced delete of a busy runner needs `confirm=true`. The registration is removed from GitHub either way.
          */
         delete: operations["deleteRunner"];
         options?: never;
@@ -703,7 +703,7 @@ export interface paths {
         put?: never;
         /**
          * Drain a runner
-         * @description Finish the current job, then exit. Never interrupts work in progress.
+         * @description Stop taking new jobs, finish the current one, then exit. The runner is given five minutes to finish and is then stopped, so draining a runner that is busy ends its job and GitHub marks it failed. That is refused with 409 unless `confirm=true` says the caller accepts it; a runner that is not busy has nothing to lose and drains without it.
          */
         post: operations["drainRunner"];
         delete?: never;
@@ -3940,6 +3940,8 @@ export interface operations {
         parameters: {
             query?: {
                 force?: boolean;
+                /** @description Accept that a job running on this runner will be ended. Needed only for an unforced delete of a busy runner, which drains it; `force` already says the same thing more loudly. */
+                confirm?: boolean;
             };
             header?: never;
             path: {
@@ -3958,11 +3960,23 @@ export interface operations {
                 content?: never;
             };
             404: components["responses"]["NotFound"];
+            /** @description The runner is running a job and neither `force` nor `confirm` was set. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
         };
     };
     drainRunner: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Accept that a job running on this runner will be ended. Required only when the runner is busy. */
+                confirm?: boolean;
+            };
             header?: never;
             path: {
                 /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
@@ -3982,7 +3996,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
-            /** @description The runner is already terminal. */
+            /** @description The runner is already terminal, or it is running a job and `confirm` was not set. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -4033,6 +4047,11 @@ export interface operations {
                     ids: string[];
                     /** @default false */
                     force?: boolean;
+                    /**
+                     * @description Accept that any runner in this batch which is running a job will lose it. Without it a busy runner comes back as its own failed row rather than failing the batch.
+                     * @default false
+                     */
+                    confirm?: boolean;
                 };
             };
         };

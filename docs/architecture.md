@@ -255,8 +255,11 @@ stateDiagram-v2
 * **registering** -- the container is up, the runner has not yet appeared online.
 * **idle** -- registered with GitHub, waiting for a job.
 * **busy** -- executing a job.
-* **draining** -- told to finish and exit. A busy runner in `draining` keeps its
-  job; nothing kills a running job.
+* **draining** -- told to stop taking work and exit. A busy runner in
+  `draining` is given five minutes to finish the job it is on; if it takes
+  longer the runner is stopped and GitHub marks that job failed. That is what
+  lets a drained host actually empty rather than waiting on the longest job
+  somebody started, and it is why draining a busy runner asks first.
 * **removed** / **failed** -- terminal. A failed runner stays on the Runners
   page for ten minutes before it is removed, because its message is the only
   record of why it failed, and the scheduler reads the failures still on the

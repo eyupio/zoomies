@@ -87,7 +87,7 @@ The runners that exist right now.
 | --- | --- |
 | `runners list` | Terminal runners are hidden unless you ask with `--include-removed`. Filter with `--pool`, `--host`, `--state` (repeatable) and `--q`. |
 | `runners get <runner-id>` | One runner, its current job and how it got here. |
-| `runners drain <runner-id>...` | Finish the current job, then exit. A job in flight is never interrupted. |
+| `runners drain <runner-id>...` | Stop taking new work and exit. A job still running is given five minutes to finish; if it takes longer the runner is stopped and GitHub marks that job failed, so draining a busy runner asks first. |
 | `runners delete <runner-id>...` | Remove and deregister from GitHub. Drains first unless `--force`. |
 | `runners logs <runner-id>` | Print the output. `--follow` keeps printing it, `--tail` (`1000`) sets how much history. |
 
@@ -106,7 +106,7 @@ and `--failed` are the two questions worth a switch of their own.
 | `hosts list` | The hosts that have joined. |
 | `hosts cordon <host-id>` | Stop scheduling new runners onto it. What it already has keeps running. |
 | `hosts uncordon <host-id>` | Let it accept runners again. |
-| `hosts drain <host-id>` | Cordon it, then drain every runner on it, so it empties as its jobs finish. The order matters: draining an uncordoned host means the scheduler puts fresh runners on it while the old ones are still going. It never forces — a drained runner finishes the job it is on. |
+| `hosts drain <host-id>` | Cordon it, then drain every runner on it, so it empties as its jobs finish. The order matters: draining an uncordoned host means the scheduler puts fresh runners on it while the old ones are still going. Each runner gets five minutes to finish what it is on; a longer job is stopped, which is what makes the host actually empty. |
 | `hosts delete <host-id>` | Forget it. Refused while it has live runners, unless `--force`. |
 | `hosts join-token create` | Mint a single-use join token: `--ttl` (`15m`), `--capacity` (`2`), `--labels`, `--controller`. Shown once; only its hash is stored. |
 

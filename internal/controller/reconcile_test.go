@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"slices"
 	"strings"
@@ -144,7 +145,7 @@ func TestDrainRunnerQueuesAStopTask(t *testing.T) {
 	_, pool, host := h.fleet()
 	r := h.runnerRow(pool, host, store.RunnerBusy)
 
-	got, err := h.c.DrainRunner(h.ctx, r.ID, "")
+	got, err := h.c.DrainRunner(h.ctx, r.ID, "", true)
 	if err != nil {
 		t.Fatalf("DrainRunner: %v", err)
 	}
@@ -422,7 +423,7 @@ func TestRemovingATokenRegisteredRunnerDeletesItsRegistrationByName(t *testing.T
 	h.gh.AddRunner(r.Name, []string{"self-hosted", "linux"})
 	h.gh.AddRunner("somebody-elses-runner", []string{"self-hosted"})
 
-	if _, err := h.c.RemoveRunner(h.ctx, r.ID, "test", true); err != nil {
+	if _, err := h.c.RemoveRunner(h.ctx, r.ID, "test", true, false); err != nil {
 		t.Fatalf("RemoveRunner: %v", err)
 	}
 	names := make([]string, 0, 1)
@@ -610,5 +611,71 @@ func TestTheReapSkipsAnInstallationThatIsStandingDown(t *testing.T) {
 	}
 	if len(h.gh.Runners()) != 1 {
 		t.Fatal("the registration should still be there; the reap had no business deleting it yet")
+	}
+}
+
+// TestDrainingABusyRunnerNeedsConfirming covers what a drain actually costs.
+//
+// A drain reads as the gentle option, and the CLI and the docs both called it
+// one. It is not: the stop task carries agent.DefaultStopTimeout, so the runner
+// gets five minutes and is then killed. A twenty-minute job drained at minute
+// one dies at minute six and GitHub marks it failed. That is the behaviour an
+// operator draining a host for maintenance needs -- the machine has to actually
+// empty -- but it must not be something they get by accident.
+func TestDrainingABusyRunnerNeedsConfirming(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	busy := h.runnerRow(pool, host, store.RunnerBusy)
+
+	if _, err := h.c.DrainRunner(h.ctx, busy.ID, "operator asked", false); !errors.Is(err, ErrConfirmationRequired) {
+		t.Fatalf("DrainRunner on a busy runner = %v, want ErrConfirmationRequired", err)
+	}
+	// And it did nothing: no state change, no stop task.
+	after, err := h.st.GetRunner(h.ctx, busy.ID)
+	if err != nil {
+		t.Fatalf("GetRunner: %v", err)
+	}
+	if after.State != store.RunnerBusy {
+		t.Errorf("runner state = %q, want busy: the refusal should have changed nothing", after.State)
+	}
+	if h.hasTaskOfKind(host.ID, agent.TaskStopRunner) {
+		t.Error("the refusal still queued a stop task, so the job is being killed anyway")
+	}
+
+	// Confirmed, it goes through.
+	if _, err := h.c.DrainRunner(h.ctx, busy.ID, "operator asked", true); err != nil {
+		t.Fatalf("DrainRunner confirmed: %v", err)
+	}
+	if !h.hasTaskOfKind(host.ID, agent.TaskStopRunner) {
+		t.Error("a confirmed drain did not queue a stop task")
+	}
+}
+
+// TestDrainingAnIdleRunnerNeedsNoConfirmation is the limit of the rule: there is
+// no job to lose, so nothing to accept.
+func TestDrainingAnIdleRunnerNeedsNoConfirmation(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	idle := h.runnerRow(pool, host, store.RunnerIdle)
+
+	if _, err := h.c.DrainRunner(h.ctx, idle.ID, "scaling down", false); err != nil {
+		t.Fatalf("draining an idle runner asked for a confirmation it should not need: %v", err)
+	}
+}
+
+// TestAnUnforcedRemoveOfABusyRunnerNeedsConfirming covers the drain that does
+// not call itself one. DELETE /runners/{id} without force is a drain when the
+// runner is busy, and kills the job on the same five-minute timer.
+func TestAnUnforcedRemoveOfABusyRunnerNeedsConfirming(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	busy := h.runnerRow(pool, host, store.RunnerBusy)
+
+	if _, err := h.c.RemoveRunner(h.ctx, busy.ID, "", false, false); !errors.Is(err, ErrConfirmationRequired) {
+		t.Fatalf("unforced RemoveRunner on a busy runner = %v, want ErrConfirmationRequired", err)
+	}
+	// force is the operator having already accepted it, and must not ask again.
+	if _, err := h.c.RemoveRunner(h.ctx, busy.ID, "", true, false); err != nil {
+		t.Fatalf("a forced remove asked for confirmation: %v", err)
 	}
 }

@@ -409,16 +409,36 @@ func (c *Controller) runnerVersion(p *store.Pool) string {
 // Drain, remove, fail
 // ---------------------------------------------------------------------------
 
-// DrainRunner asks a runner to finish its current job and exit. It never
-// interrupts work in progress: the state change is what the agent's stop task
-// means, and a busy runner keeps its job until the job ends.
-func (c *Controller) DrainRunner(ctx context.Context, runnerID, reason string) (*store.Runner, error) {
+// ErrConfirmationRequired is an operator asking to drain a runner that is
+// running a job, without having said they accept losing it.
+//
+// A drain is not the gentle option it reads as. The stop task carries
+// agent.DefaultStopTimeout, so the runner gets five minutes and is then killed;
+// a twenty-minute job drained at minute one dies at minute six and GitHub marks
+// it failed. That is the behaviour -- an operator draining a host for
+// maintenance needs the machine to actually empty -- but it must not be
+// something they get by accident, so the paths an operator reaches ask first.
+//
+// The scheduler is deliberately not subject to this. It reaches a drain through
+// the unexported drainRunnerID, and never proposes one for a busy runner in the
+// first place; automatic scale-down must not be waiting on anybody to confirm.
+var ErrConfirmationRequired = errors.New("this runner is running a job, and draining it will end that job")
+
+// DrainRunner asks a runner to finish its current job and exit.
+//
+// confirmed is the operator saying they accept that a job in flight will be
+// ended: see ErrConfirmationRequired. It is ignored for a runner that is not
+// busy, because there is nothing to lose.
+func (c *Controller) DrainRunner(ctx context.Context, runnerID, reason string, confirmed bool) (*store.Runner, error) {
 	r, err := c.st.GetRunner(ctx, runnerID)
 	if err != nil {
 		return nil, err
 	}
 	if r.State.Terminal() {
 		return nil, fmt.Errorf("%w: runner %s is already %s", store.ErrInvalidTransition, runnerID, r.State)
+	}
+	if r.State == store.RunnerBusy && !confirmed {
+		return nil, fmt.Errorf("%w: runner %s has five minutes to finish and is then stopped", ErrConfirmationRequired, r.Name)
 	}
 	if reason == "" {
 		reason = "drained by an operator"
@@ -427,8 +447,10 @@ func (c *Controller) DrainRunner(ctx context.Context, runnerID, reason string) (
 }
 
 // RemoveRunner tears a runner down now and deletes its GitHub registration.
-// Without force it drains instead, so a running job is not interrupted.
-func (c *Controller) RemoveRunner(ctx context.Context, runnerID, reason string, force bool) (*store.Runner, error) {
+// Without force it drains instead, which still ends a running job after the
+// stop timeout -- so the unforced path asks for the same acknowledgement a
+// direct drain does.
+func (c *Controller) RemoveRunner(ctx context.Context, runnerID, reason string, force, confirmed bool) (*store.Runner, error) {
 	r, err := c.st.GetRunner(ctx, runnerID)
 	if err != nil {
 		return nil, err
@@ -437,6 +459,9 @@ func (c *Controller) RemoveRunner(ctx context.Context, runnerID, reason string, 
 		reason = "removed by an operator"
 	}
 	if !force && r.State == store.RunnerBusy {
+		if !confirmed {
+			return nil, fmt.Errorf("%w: runner %s has five minutes to finish and is then stopped", ErrConfirmationRequired, r.Name)
+		}
 		return c.drainRunner(ctx, r, reason+" (draining first so the running job finishes)", nil)
 	}
 	if r.State == store.RunnerRemoved {

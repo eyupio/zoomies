@@ -131,7 +131,7 @@ give each repository a cache without an installation per repository.
 | GET | `/api/v1/runners` | viewer | Filters: `pool_id`, `host_id`, `state` (repeatable), `q`, `include_removed`. |
 | GET | `/api/v1/runners/{id}` | viewer | Includes the current job and the host. |
 | GET | `/api/v1/runners/{id}/timeline` | viewer | State transitions with durations, for the detail page. |
-| POST | `/api/v1/runners/{id}/drain` | operator | Finish the current job, then exit. Never kills a running job. |
+| POST | `/api/v1/runners/{id}/drain` | operator | Stop taking new work and exit. A job still running is given five minutes to finish; if it takes longer the runner is stopped and GitHub marks that job failed. Draining a busy runner is therefore refused with `409` unless `?confirm=true` says you accept that. A runner that is not busy drains without it. |
 | DELETE | `/api/v1/runners/{id}` | operator | `?force=true` kills immediately; without it, behaves as drain-then-remove. Deregisters from GitHub. |
 | POST | `/api/v1/runners/bulk` | operator | `{action: "drain"\|"delete", ids: [...], force?: bool}`. Returns per-id results so a partial failure is visible. |
 | GET | `/api/v1/runners/{id}/logs` | viewer | **SSE.** Live log tail relayed from the agent. `?tail=&follow=`. |

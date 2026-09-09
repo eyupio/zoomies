@@ -208,7 +208,7 @@ func latest(base time.Time, others ...*time.Time) time.Time {
 // would leave the operator believing something happened.
 func (s *Server) handleDrainRunner(w http.ResponseWriter, r *http.Request) {
 	id := chiURLParam(r, "id")
-	run, err := s.ctrl.DrainRunner(r.Context(), id, drainReason(r))
+	run, err := s.ctrl.DrainRunner(r.Context(), id, drainReason(r), queryBool(r, "confirm", false))
 	if err != nil {
 		s.fail(w, r, "draining the runner", err)
 		return
@@ -230,7 +230,7 @@ func (s *Server) handleDrainRunner(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteRunner(w http.ResponseWriter, r *http.Request) {
 	id := chiURLParam(r, "id")
 	force := queryBool(r, "force", false)
-	run, err := s.ctrl.RemoveRunner(r.Context(), id, drainReason(r), force)
+	run, err := s.ctrl.RemoveRunner(r.Context(), id, drainReason(r), force, queryBool(r, "confirm", false))
 	if err != nil {
 		s.fail(w, r, "removing the runner", err)
 		return
@@ -255,6 +255,11 @@ type bulkRunnerRequest struct {
 	Action string   `json:"action"`
 	IDs    []string `json:"ids"`
 	Force  bool     `json:"force"`
+	// Confirm is the operator accepting that a runner in this batch which is
+	// running a job will lose it. Without it a busy runner comes back as its own
+	// failed row rather than failing the batch, which is how this endpoint
+	// reports everything else.
+	Confirm bool `json:"confirm"`
 }
 
 type bulkRunnerResult struct {
@@ -313,9 +318,9 @@ func (s *Server) handleBulkRunners(w http.ResponseWriter, r *http.Request) {
 		var err error
 		var run *store.Runner
 		if req.Action == "drain" {
-			run, err = s.ctrl.DrainRunner(r.Context(), runnerID, drainReason(r))
+			run, err = s.ctrl.DrainRunner(r.Context(), runnerID, drainReason(r), req.Confirm)
 		} else {
-			run, err = s.ctrl.RemoveRunner(r.Context(), runnerID, drainReason(r), req.Force)
+			run, err = s.ctrl.RemoveRunner(r.Context(), runnerID, drainReason(r), req.Force, req.Confirm)
 		}
 		if err != nil {
 			results = append(results, bulkRunnerResult{ID: runnerID, Error: err.Error()})

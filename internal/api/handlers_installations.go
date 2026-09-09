@@ -316,7 +316,7 @@ func (s *Server) handleDeleteInstallation(w http.ResponseWriter, r *http.Request
 			}
 			// Runners must be removed and deregistered from GitHub now, while the
 			// installation credentials are still active and before Forget clears them.
-			if _, rerr := s.ctrl.RemoveRunner(r.Context(), run.ID, "installation "+inst.Target+" was removed", true); rerr != nil {
+			if _, rerr := s.ctrl.RemoveRunner(r.Context(), run.ID, "installation "+inst.Target+" was removed", true, true); rerr != nil {
 				s.logger(r).Warn("could not remove a runner while removing its installation",
 					"installation", id, "runner", run.ID, "error", rerr)
 				continue

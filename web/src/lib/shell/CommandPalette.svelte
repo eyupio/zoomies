@@ -235,7 +235,7 @@
           group: 'Action',
           label: `Drain ${runner.name ?? id}`,
           keywords: `drain ${id}`,
-          detail: 'finishes the current job first',
+          detail: 'idle runners only; a busy one is refused here',
           icon: CircleSlash,
           run: () =>
             void fleet.optimistic(

@@ -5,8 +5,9 @@
   distinctions that matter to an operator are stated every time, with the count
   in front of them:
 
-    * draining never interrupts a running job -- the runner finishes what it is
-      on and then exits;
+    * draining stops a runner taking new work and gives the job it is on five
+      minutes to finish, after which the runner is stopped and GitHub marks
+      that job failed;
     * deleting with "destroy immediately" does interrupt it, and GitHub will
       mark that job failed.
 
@@ -77,8 +78,8 @@
       lines.push(
         busy > 0
           ? single
-            ? 'The job it is running now is allowed to finish. Draining never interrupts work in progress.'
-            : `${busy} of them are running a job now. Each one finishes it; draining never interrupts work in progress.`
+            ? 'The job it is running now has five minutes to finish. If it takes longer, the runner is stopped and GitHub marks that job failed.'
+            : `${busy} of them are running a job now. Each has five minutes to finish; any that takes longer is stopped, and GitHub marks that job failed.`
           : single
             ? 'It is not running a job, so it will exit shortly.'
             : 'None of them is running a job, so they will exit shortly.',
@@ -144,15 +145,18 @@
       const result = await fleet.optimistic(
         id,
         { state: 'draining' },
-        () => drainRunner(id),
+        () => drainRunner(id, { confirm: true }),
         'That runner was not drained',
       );
       if (result === undefined) return false;
-      toasts.success(`Draining ${runner.name ?? 'the runner'}`, 'It exits once its job is done.');
+      toasts.success(
+        `Draining ${runner.name ?? 'the runner'}`,
+        'It stops taking work now and exits when its job ends.',
+      );
       return true;
     }
     try {
-      await deleteRunner(id, { force });
+      await deleteRunner(id, { force, confirm: true });
       toasts.success(
         `Deleting ${runner.name ?? 'the runner'}`,
         force ? 'It is being destroyed now.' : 'It exits once its job is done.',
@@ -169,6 +173,7 @@
       const response = await bulkRunners({
         action,
         ids,
+        confirm: true,
         ...(action === 'delete' ? { force } : {}),
       });
       const results = response.results ?? [];

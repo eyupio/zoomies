@@ -834,7 +834,7 @@ func (s *Server) handleDeletePool(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		var rerr error
-		_, rerr = s.ctrl.RemoveRunner(r.Context(), run.ID, "pool "+p.Name+" was deleted", force || !drain)
+		_, rerr = s.ctrl.RemoveRunner(r.Context(), run.ID, "pool "+p.Name+" was deleted", force || !drain, true)
 		if rerr != nil {
 			// One runner that cannot be told to stop must not leave the pool
 			// half-deleted; the row goes either way and the reaper cleans up.

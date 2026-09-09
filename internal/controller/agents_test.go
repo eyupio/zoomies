@@ -843,7 +843,7 @@ func TestAStopTheHostNeverConfirmedFailsTheRunner(t *testing.T) {
 	pool := h.pool(inst, "linux-x64")
 	host := h.host("vm-1")
 	r := h.runnerRow(pool, host, store.RunnerIdle)
-	if _, err := h.c.DrainRunner(h.ctx, r.ID, "operator asked"); err != nil {
+	if _, err := h.c.DrainRunner(h.ctx, r.ID, "operator asked", false); err != nil {
 		t.Fatalf("DrainRunner: %v", err)
 	}
 	if !h.hasTaskOfKind(host.ID, agent.TaskStopRunner) {

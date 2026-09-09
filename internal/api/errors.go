@@ -211,6 +211,12 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, doing string, err 
 		conflict(w, err.Error())
 	case errors.Is(err, controller.ErrStreamUnknown):
 		notFound(w, err.Error())
+	case errors.Is(err, controller.ErrConfirmationRequired):
+		// Not a failure: the operator asked for something whose cost they have
+		// not accepted yet. 409 rather than 422, because the request is well
+		// formed and it is the runner's state that decides.
+		conflict(w, err.Error()+". Send it again with confirm=true to accept that, "+
+			"or wait for the job to finish and drain it then.")
 	default:
 		s.internal(w, r, doing, err)
 	}
