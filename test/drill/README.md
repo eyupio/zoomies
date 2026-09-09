@@ -100,7 +100,7 @@ correct behaviour — or, worse, pass or fail on which happened first.
 
 ## The fault drills
 
-Two of the six the roadmap names are here. Both inject their fault while a job
+Four of the six the roadmap names are here. Both inject their fault while a job
 is actually running, because that is the only moment at which any of this is
 interesting: a fleet with nothing in flight recovers from anything.
 
@@ -128,8 +128,31 @@ asserts what is true either way and puts the rest in the record's last column,
 because a drill that asserted one of the two would be a flaky test pretending to
 be a rule.
 
-Both watch the runner for a few seconds after the fault rather than checking it
-once. A death that follows its parent's arrives a beat later, and the stub's
+`TestAFailingJITEndpointLeavesNothingBehindAndRecovers` makes GitHub refuse to
+mint runner configurations. There is nothing wrong with the fleet, the host or
+the pool, and nothing an operator can do but wait, so what matters is that the
+fleet does not make it worse -- the attempt is recorded as a failed runner with
+GitHub's own message, and nothing is left on the host or registered on GitHub --
+and that it places a runner by itself once the endpoint answers again.
+
+`TestARateLimitedInstallationStandsDownAndComesBack` takes the installation's
+quota away. A fleet out of quota looks exactly like an idle one everywhere
+except `zoomies_github_paused`, so the drill reads the controller's own scrape
+rather than its API, and then watches it start again by itself when the reset
+passes -- a wall-clock deadline the controller keeps for itself, which nothing
+in process can prove.
+
+**It found a defect on its first run.** The stand-down never engaged: GitHub
+refuses the *installation token refresh* first, ghinstallation does that inside
+the transport, and its refusal arrived unclassified -- so the poller kept
+calling every two seconds while the quota was gone and the paused gauge stayed
+at zero. The fix is in `classify`, and only when the refusal's own headers say
+the quota is actually gone: a 403 for a missing permission comes back with
+quota to spare, and standing an installation down for fifteen minutes over that
+would be a wait that fixes nothing.
+
+The restart drills watch the runner for a few seconds after the fault rather
+than checking it once. A death that follows its parent's arrives a beat later, and the stub's
 marker file outlives the process that wrote it -- so the check is the pid file
 and signal 0, not the directory.
 
