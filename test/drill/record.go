@@ -67,7 +67,9 @@ func (r *record) recovered() { r.recoveredAt = time.Now() }
 //
 // One file rather than one per run, because the value of these is the history:
 // a drill that has recovered cleanly forty times and then did not is a finding
-// that only exists if the forty are there to compare against.
+// that only exists if the forty are there to compare against. Appending is all
+// this side does; keeping the file is the workflow's half, and until a run
+// commits it the history is one run long.
 func (r *record) write() {
 	r.t.Helper()
 	dir := recordDir()
@@ -100,8 +102,8 @@ func (r *record) write() {
 		expected = "(the drill did not reach its own statement of what it proves)"
 	}
 
-	row := fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %s | %s |\n",
-		time.Now().UTC().Format(time.RFC3339), commit(), r.name, outcome,
+	row := fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
+		time.Now().UTC().Format(time.RFC3339), commit(), runLink(), r.name, outcome,
 		expected, strings.Join(r.notes, "; "), recovery, human)
 
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
@@ -130,10 +132,17 @@ that only exists if the forty are there to compare against.
 
 **Human action needed** is the column to read first. A drill that recovers on
 its own and one that leaves something for a person to delete are different
-findings, and only the row says which.
+findings, and only the row says which. **Run** is where the row came from, so
+a row that reads oddly a month later can be taken back to the logs that
+produced it; a row written on a developer's machine says so instead.
 
-| When | Commit | Drill | Outcome | What it proves | Observed | Recovery | Human action needed |
-| --- | --- | --- | --- | --- | --- | --- | --- |
+The rows below are appended by the drill job on every push to the default
+branch. A pull request's rows stay in that run's job summary: they describe a
+commit that may never exist, and the comparison this file is for is the
+default branch against itself.
+
+| When | Commit | Run | Drill | Outcome | What it proves | Observed | Recovery | Human action needed |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
 `
 
 func recordDir() string {
@@ -141,6 +150,17 @@ func recordDir() string {
 		return d
 	}
 	return filepath.Join(filepath.Dir(builtBinary()), "roadmap", "validation")
+}
+
+// runLink is where this row came from. A row is worth keeping only if it can
+// be taken back to the run that wrote it: the observations are a summary, and
+// the logs are the rest.
+func runLink() string {
+	server, repo, id := os.Getenv("GITHUB_SERVER_URL"), os.Getenv("GITHUB_REPOSITORY"), os.Getenv("GITHUB_RUN_ID")
+	if server == "" || repo == "" || id == "" {
+		return "local"
+	}
+	return fmt.Sprintf("%s/%s/actions/runs/%s", server, repo, id)
 }
 
 func commit() string {
