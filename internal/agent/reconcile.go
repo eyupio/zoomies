@@ -113,6 +113,14 @@ func (a *Agent) ReconcileOnce(ctx context.Context) ([]RunnerReport, error) {
 	// behind the agent's back -- by an operator with docker rm, or by a daemon
 	// restart with cleanup.
 	for _, r := range a.trackedRunners() {
+		if r.hostRemoved {
+			// Delivery of a completed removal does not depend on the backend
+			// still answering, or on the startup grace for missing workloads.
+			if !seen[r.runnerID] {
+				reports = append(reports, r.report())
+			}
+			continue
+		}
 		if seen[r.runnerID] || unlisted[r.kind] {
 			continue
 		}
@@ -122,8 +130,6 @@ func (a *Agent) ReconcileOnce(ctx context.Context) ([]RunnerReport, error) {
 			continue
 		}
 		if r.terminal {
-			// Its end of life has already been reported and its workload is
-			// gone, so stop carrying it in every heartbeat.
 			a.untrack(r.runnerID)
 			continue
 		}
@@ -147,13 +153,15 @@ func (a *Agent) ReconcileOnce(ctx context.Context) ([]RunnerReport, error) {
 // observe turns one live workload into a report, and decides the fate of one
 // that has stopped.
 func (a *Agent) observe(ctx context.Context, b backend.Backend, r tracked, w backend.Workload, now time.Time) (RunnerReport, bool) {
+	if r.hostRemoved {
+		return r.report(), true
+	}
 	switch w.Status.Phase {
-	case backend.PhaseExited, backend.PhaseFailed, backend.PhaseGone:
+	case backend.PhaseExited, backend.PhaseExitUnknown, backend.PhaseFailed, backend.PhaseGone:
 		if r.terminal {
 			// Its end of life has been reported; what is left is the workload
 			// itself, and it is this agent's job to get rid of it.
-			a.cleanUp(ctx, b, r, w, now)
-			return RunnerReport{}, false
+			return a.cleanUp(ctx, b, r, w, now)
 		}
 		state, msg := terminalOutcome(r, w.Status)
 		a.markTerminal(r.runnerID, state, w.Status.Phase, w.Status.ExitCode, msg, now)
@@ -198,6 +206,10 @@ func (a *Agent) observe(ctx context.Context, b backend.Backend, r tracked, w bac
 // job stops reading the fleet's health at all.
 func terminalOutcome(r tracked, s backend.Status) (store.RunnerState, string) {
 	switch {
+	case s.Phase == backend.PhaseExitUnknown:
+		// Removed describes the runner's lifecycle, not its job's outcome.
+		// GitHub remains authoritative about whether the job succeeded.
+		return store.RunnerRemoved, "runner process exited; its exit status is unknown after an agent restart; check the job's GitHub outcome"
 	case s.ExitCode == 0:
 		if r.ephemeral {
 			return store.RunnerRemoved, "ephemeral runner exited cleanly after its job"
@@ -232,21 +244,21 @@ func terminalOutcome(r tracked, s backend.Status) (store.RunnerState, string) {
 // the controller has heard how it ended takes the code with it, and the row it
 // belongs to would sit in idle or busy until the reconciler declared it
 // vanished, with nothing to say why.
-func (a *Agent) cleanUp(ctx context.Context, b backend.Backend, r tracked, w backend.Workload, now time.Time) {
+func (a *Agent) cleanUp(ctx context.Context, b backend.Backend, r tracked, w backend.Workload, now time.Time) (RunnerReport, bool) {
 	if !r.reported || now.Sub(r.terminalAt) < a.retention {
-		return
+		return RunnerReport{}, false
 	}
 	if ctx.Err() != nil {
 		// The agent is shutting down. A removal started now would hold the
 		// shutdown for as long as the daemon takes; the workload will still
 		// be there for the next agent to find.
-		return
+		return RunnerReport{}, false
 	}
 	// A stop or remove task for this runner may be in flight. The task owns
 	// the workload until it reports, and two removals racing over one
 	// container is exactly what claim exists to prevent.
 	if !a.claim(r.runnerID) {
-		return
+		return RunnerReport{}, false
 	}
 	defer a.release(r.runnerID)
 
@@ -255,15 +267,49 @@ func (a *Agent) cleanUp(ctx context.Context, b backend.Backend, r tracked, w bac
 	// container running for nobody until the next pass.
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), RemoveTimeout)
 	defer cancel()
-	if err := b.Remove(rctx, w.Handle); err != nil && !errors.Is(err, backend.ErrNotFound) {
+	if err := removeRunnerWorkload(rctx, b, r.runnerID, w.Handle); err != nil {
 		a.log.Warn("could not remove a finished runner's workload; it is still taking up disk on this host and will be retried",
 			"runner", r.runnerID, "handle", w.Handle, "backend", r.kind, "error", err)
-		return
+		return RunnerReport{RunnerID: r.runnerID, State: r.state, CleanupError: err.Error(), ObservedAt: now}, true
 	}
-	a.untrack(r.runnerID)
+	a.mu.Lock()
+	if tracked := a.runners[r.runnerID]; tracked != nil {
+		tracked.hostRemoved = true
+		tracked.phase = backend.PhaseGone
+		tracked.observedAt = now
+	}
+	a.mu.Unlock()
 	a.log.Info("removed a finished runner's workload from this host",
 		"runner", r.runnerID, "name", r.name, "handle", w.Handle, "backend", r.kind,
 		"state", r.state, "kept_for", now.Sub(r.terminalAt))
+	return RunnerReport{RunnerID: r.runnerID, State: r.state, Phase: backend.PhaseGone, HostRemoved: true, ObservedAt: now}, true
+}
+
+// A missing parent container does not establish that its DinD sidecar is
+// gone. Verify the managed inventory and remove only companions of this
+// runner before reporting a positive host confirmation.
+func removeRunnerWorkload(ctx context.Context, b backend.Backend, runnerID string, handle backend.Handle) error {
+	if handle != "" {
+		if err := b.Remove(ctx, handle); err != nil && !errors.Is(err, backend.ErrNotFound) {
+			return err
+		}
+	}
+	workloads, err := b.List(ctx)
+	if err != nil {
+		return fmt.Errorf("confirming removal of %s: %w", runnerID, err)
+	}
+	for _, w := range workloads {
+		if w.RunnerID != runnerID {
+			continue
+		}
+		if !w.Sidecar {
+			return fmt.Errorf("runner workload %s is still present after removal", w.Handle)
+		}
+		if err := b.Remove(ctx, w.Handle); err != nil && !errors.Is(err, backend.ErrNotFound) {
+			return fmt.Errorf("removing companion %s: %w", w.Handle, err)
+		}
+	}
+	return nil
 }
 
 // markReported records that the controller has accepted a report carrying
@@ -280,6 +326,9 @@ func (a *Agent) markReported(reports []RunnerReport) {
 		}
 		if r, ok := a.runners[rep.RunnerID]; ok && r.terminal && r.state == rep.State {
 			r.reported = true
+			if rep.HostRemoved && r.hostRemoved {
+				delete(a.runners, rep.RunnerID)
+			}
 		}
 	}
 }
@@ -308,7 +357,13 @@ func (a *Agent) reapOrphan(ctx context.Context, b backend.Backend, kind store.Ba
 		return RunnerReport{}, false
 	}
 
-	if err := b.Remove(ctx, w.Handle); err != nil && !errors.Is(err, backend.ErrNotFound) {
+	var err error
+	if w.Sidecar || w.RunnerID == "" {
+		err = b.Remove(ctx, w.Handle)
+	} else {
+		err = removeRunnerWorkload(ctx, b, w.RunnerID, w.Handle)
+	}
+	if err != nil && !errors.Is(err, backend.ErrNotFound) {
 		// Keep the orphan record so the next pass tries again rather than
 		// restarting the grace period.
 		a.log.Warn("could not remove an orphaned runner workload; it is still consuming capacity on this host",
@@ -335,12 +390,13 @@ func (a *Agent) reapOrphan(ctx context.Context, b backend.Backend, kind store.Ba
 		return RunnerReport{}, false
 	}
 	return RunnerReport{
-		RunnerID:   w.RunnerID,
-		State:      store.RunnerRemoved,
-		Handle:     w.Handle,
-		Phase:      backend.PhaseGone,
-		Message:    fmt.Sprintf("removed orphaned %s workload %s that no task claimed", kind, w.Name),
-		ObservedAt: now,
+		RunnerID:    w.RunnerID,
+		State:       store.RunnerRemoved,
+		Handle:      w.Handle,
+		Phase:       backend.PhaseGone,
+		HostRemoved: true,
+		Message:     fmt.Sprintf("removed orphaned %s workload %s that no task claimed", kind, w.Name),
+		ObservedAt:  now,
 	}, true
 }
 

@@ -8,6 +8,86 @@ import (
 	"github.com/eyupio/zoomies/internal/store"
 )
 
+// The host and GitHub finish independently. One side succeeding must not
+// erase the other side's failure, including when both failed first.
+func TestHostCleanupDoesNotHideARegistrationThatStillExists(t *testing.T) {
+	for _, hostFailsFirst := range []bool{false, true} {
+		name := "registration failure only"
+		if hostFailsFirst {
+			name = "both sides failed"
+		}
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			_, pool, host := h.fleet()
+			r := h.runnerRow(pool, host, store.RunnerIdle)
+			if err := h.st.SetRunnerGitHubID(h.ctx, r.ID, 4242); err != nil {
+				t.Fatal(err)
+			}
+			h.gh.SetError("/actions/runners/4242", 403, "Resource not accessible by integration")
+			if _, err := h.c.removeRunner(h.ctx, h.runnerByID(t, r.ID), "scaling down", pool); err != nil {
+				t.Fatal(err)
+			}
+			if hostFailsFirst {
+				if err := h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{
+					TaskID: "remove_failed", Kind: agent.TaskRemoveRunner, RunnerID: r.ID,
+					OK: false, Error: "container is in use",
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{
+				TaskID: "remove_succeeded", Kind: agent.TaskRemoveRunner, RunnerID: r.ID,
+				OK: true, State: store.RunnerRemoved,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			got := h.runnerByID(t, r.ID)
+			if !strings.Contains(got.CleanupError, "registration") || got.CleanupFailedAt == nil {
+				t.Fatalf("host success hid the registration failure: error=%q failed_at=%v", got.CleanupError, got.CleanupFailedAt)
+			}
+			if got.CleanedUpAt != nil {
+				t.Fatal("cleanup was marked complete while GitHub still refuses deletion")
+			}
+			if !contains(h.problemCodes(), "runners.cleanup_failed") {
+				t.Fatal("the unfinished registration cleanup disappeared from Problems")
+			}
+			h.gh.ClearErrors()
+			h.c.deleteRegistration(h.ctx, got, pool)
+			got = h.runnerByID(t, r.ID)
+			if got.CleanupError != "" || got.CleanupFailedAt != nil {
+				t.Fatalf("successful registration retry did not clear its own failure: %q", got.CleanupError)
+			}
+		})
+	}
+}
+
+func TestRegistrationReapingDoesNotHideAFailedHostRemoval(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerRemoved)
+	h.gh.AddRunner(r.Name, pool.Labels)
+	if err := h.st.RecordRegistrationCleanupFailure(h.ctx, r.ID, "registration deletion refused"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{
+		TaskID: "remove_failed", Kind: agent.TaskRemoveRunner, RunnerID: r.ID,
+		OK: false, Error: "container is in use",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h.c.reap(h.ctx)
+	if len(h.gh.Runners()) != 0 {
+		t.Fatal("the reaper did not delete the registration")
+	}
+	got := h.runnerByID(t, r.ID)
+	if !strings.Contains(got.CleanupError, "container is in use") || strings.Contains(got.CleanupError, "registration") {
+		t.Fatalf("the reaper must clear only its own error: %q", got.CleanupError)
+	}
+	if got.CleanedUpAt != nil || !contains(h.problemCodes(), "runners.cleanup_failed") {
+		t.Fatal("the reaper hid the host's unfinished cleanup")
+	}
+}
+
 // A remove that fails on a runner the fleet has already finished with used to
 // vanish.
 //
@@ -198,7 +278,7 @@ func TestADeletedRegistrationIsStamped(t *testing.T) {
 	if got.CleanupError != "" {
 		t.Errorf("cleanup_error = %q after a clean removal, want none", got.CleanupError)
 	}
-	if got.CleanedUpAt == nil {
-		t.Error("cleaned_up_at is unset; nothing marks the end of the runner's life")
+	if got.CleanedUpAt != nil {
+		t.Error("registration deletion marked cleanup complete before the host confirmed removal")
 	}
 }

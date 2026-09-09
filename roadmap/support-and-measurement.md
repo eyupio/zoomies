@@ -8,6 +8,21 @@ than asserted, and the words *failure* and *severity* defined once.
 Everything here is a proposal for the owner to ratify; the evidence it rests
 on is in [validation/baseline-6d12a72.md](validation/baseline-6d12a72.md).
 
+## RC1 measurement update
+
+The RC1 fixes supersede the earlier measurement gaps below. First create task
+issue is retained as `Runner.CreateTaskIssuedAt`, separately from the retry
+clock. The new scheduling series pairs it with the actual job's eligibility;
+GitHub approval holds are excluded, and an observed approval starts queue time.
+Cleanup requires `HostRemovedAt` and `RegistrationDeletedAt`; its final stamp
+is no longer a lower bound. Older estimates remain separately labelled.
+`docs/metrics.md` defines the new series and the observations they exclude.
+
+The owner has completed live qualification across selected repositories and
+has explicitly removed a written qualification record as an RC1 prerequisite.
+This does not manufacture a recorded seven-day observation window or claim
+that the historical Gate F tables below have been measured.
+
 ## The reference configuration
 
 | | Choice | Why |
@@ -46,24 +61,21 @@ the current answer and the baseline is history.
 | Interval | Start | End | Today |
 | --- | --- | --- | --- |
 | **GitHub queue wait** (not Zoomies' time) | GitHub's `started_at` on the job, absent for a queued job | `Job.QueuedAt` as first seen here | Reported by `JobEvent.Source`; the poller-only case inflates it and must be labelled |
-| **Scheduling latency** (the Gate F p95 ≤ 10 s) | the job became *eligible*: an enabled pool of the job's own installation claims its labels — `scheduler.Eligible`, and no more than that. Installation health and free capacity do not hold the stamp back, so a rate-limit hold or a fleet with no room is time inside the interval rather than before it | the create task was *issued* to an agent | **Both ends are recorded since Assignment A; the series is not, and the end is not exportable.** `Job.EligibleAt` (migration `0019`) is stamped the first time an enabled pool claims the job's labels and is never moved afterwards — not re-set when eligibility is regained, because a later delivery finding the job still matched is not a new moment. It therefore records the first of this row's three clauses and not the other two, which is the honest reading: a job whose fleet is full is one this platform could act on and has not. `Runner.TaskIssuedAt` (migration `0014`, ZF-102's fourth pull request rather than a durable queue — the queue is in memory by design) is stamped when a lifecycle task is handed to an agent, and that means *every* lifecycle task, so on a runner that has been removed the column holds the removal's issue time and not the create's. It is also on no view and in no OpenAPI schema. So the interval cannot be reconstructed from the store after the fact, and `zoomies_runner_queued_to_create_seconds` still measures from `Job.QueuedAt` and must stay labelled a proxy. Both are ZF-205's to close. |
-| **Configured scaling delay** (not Zoomies' time) | eligible | the scheduler's hold expires (`scheduler.scale_up_delay`, the start-failure backoff) | Reasons are in `ScalingEvent`; the delay is subtracted, not counted against the platform |
+| **Scheduling latency** | First observed eligibility after any GitHub approval hold | First create task issued in the host poll response | `Job.EligibleAt` and `Runner.CreateTaskIssuedAt` persist the exact endpoints. The new histogram uses the actual job/runner association; retries do not overwrite the end. Missing and prewarmed intervals are excluded. |
+| **Configured scaling delay** (not Zoomies' time) | eligible | the scheduler's hold expires (`scheduler.scale_up_delay`, the start-failure backoff) | Reasons are in `ScalingEvent`. The new scheduling histogram includes this delay; report it separately when judging platform overhead |
 | **Provisioning** | task issued | `Runner.ContainerStartedAt` | Exists; `Runner.ImagePullDuration` separates the pull where the backend can |
 | **Registration** | `Runner.ContainerStartedAt` | `Runner.RegisteredAt` | Exists |
 | **Assignment** (GitHub's decision, not Zoomies') | `Runner.RegisteredAt` | `Job.StartedAt` | Exists; GitHub may hand the job to a different idle runner, which the contract accepts and reports as *ran elsewhere in the fleet* |
 | **Execution** | `Job.StartedAt` | `Job.CompletedAt` | Exists |
-| **Cleanup convergence** (the Gate F ≤ 5 min) | `Runner.FinishedAt`, or the retention deadline where one applies | the registration is gone from GitHub, the workload is gone from the host, the work directory is gone | **Recorded, and named differently from this contract.** `Runner.CleanedUpAt` (migration `0015`) landed with ZF-105. Two corrections to what this row expected: there is no `cleanup_pending` reason and there never was one — what shipped is `CleanupError`, `CleanupFailedAt` and `CleanupAttempts` on the row, raised to an operator as `runners.cleanup_failed`; and the stamp is not three positive confirmations but the absence of a complaint, set by `RecordRegistrationDeleted` once GitHub confirms the registration is gone and no cleanup error stands, and by `ClearCleanupFailure` when a stop or remove succeeds. Read it as *nothing is known to be left*, which is what a ≤ 5 min convergence target needs. |
+| **Cleanup convergence** | `Runner.FinishedAt`, with configured retention reported separately | Both host removal and GitHub registration absence confirmed | `HostRemovedAt`, `RegistrationDeletedAt` and `CleanedUpAt` provide positive confirmations. Historical `CleanupEstimatedAt` values are estimates only. |
 
 Two smaller gaps the reconciliation found belonged to Phase 0 itself because
 they needed no migration, and the code for both has landed. A job GitHub holds
 for a deployment review is `waiting`, and the hold and its release now have
 timeline kinds of their own — `waiting` and `approved`, written by the existing
 job-change path — so a held job's timeline says whose time the review was. The
-number has not followed the timeline: `QueuedAt` is stamped when the job is
-first seen and never rewritten, so the reported queue wait still spans the
-review, and a fleet whose repositories gate deployments reads high. Moving that
-start to the approval changes a stored moment rather than adding one, so it
-belongs to ZF-205 with the rest of the series work. `Stats` is split four ways
+RC1 change moves the queue start when an observed approval changes a waiting
+job to queued, and keeps that boundary on replays. `Stats` is split four ways
 — succeeded, failed, cancelled and unknown — so a `stale` or empty conclusion
 is no longer counted as a success.
 
@@ -100,7 +112,7 @@ to settle; the counts are what Gate F is computed from.
 | Denominator | "eligible controlled attempts" | completed jobs on non-demo installations whose runner this controller created; `waiting` jobs and jobs GitHub dispatched elsewhere are counted and reported but excluded | The seeded demo installation has no GitHub behind it and must never appear in a count; `retention.runners` defaults to 7 days, so raise it on the reference instance or export evidence daily |
 | Outcome rate | ≥ 99% of eligible attempts reach the expected terminal outcome without a Zoomies-caused failure | same; a Zoomies-caused failure is `Job.RunnerFault` set, or a runner that failed before registration for a job that then ran elsewhere or expired | 200 attempts allows two Zoomies faults; report the count, not only the percentage |
 | Scheduling latency | p95 ≤ 10 s from eligible to create task issued, with capacity and a prepared image | p95 ≤ `scheduler.interval` + 2 s from the later of the delivery's receipt and eligibility to the create task being issued, reported beside the interval it ran at | With the default 10 s interval, the wait for the next tick alone is uniform over 0 to 10 s and its p95 is about 9.5 s before any processing, so the figure as proposed fails by construction or passes by noise. The reference run may use a 5 s interval and keep 10 s if the owner prefers the round number |
-| Cleanup convergence | within 5 min of the retention deadline with dependencies healthy; offline hosts converge within 5 min of recovery | same; convergence is measured to `Runner.CleanedUpAt`, which has landed and which closes at the first cleanup signal rather than the last, so read it as a lower bound | `agent.finished_retention` is the deadline for a finished runner |
+| Cleanup convergence | within 5 min of the retention deadline with dependencies healthy; offline hosts converge within 5 min of recovery | same; use confirmed `Runner.CleanedUpAt`, never the historical estimate | Subtract configured retention from the finish-to-confirmation interval when assessing this target. |
 | Restore | demonstrated on a clean environment; reference target 30 min | same | Record the achieved time and the backup's age |
 | Second operator | completes setup and diagnoses an injected failure from the docs and UI | same | Cannot be produced by the agent; the gate stays pending until a person does it |
 | Defects | zero unresolved critical or high; zero unexplained lost jobs; zero cross-scope access | same | |

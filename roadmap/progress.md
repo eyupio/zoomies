@@ -77,6 +77,15 @@ evidence.
 
 Newest first. One line per event that changed a row.
 
+* 2026-09-09: RC1 triage reproduced cleanup-error loss and separates the
+  failure sources in migration `0022`. At the owner's request the follow-on
+  change also closes the process restart discrepancy and timing gaps:
+  migration `0023` preserves first-create issue and confirmed cleanup times,
+  approval holds no longer inflate observed queue time, and Docker cleanup
+  errors cannot be mistaken for success. [rc1-triage.md](rc1-triage.md) records
+  the fixes and the decision to proceed without a written owner-qualification
+  record. Validation accompanies the pull request.
+
 * 2026-09-09: ZF-201 is done, which leaves ZF-206 as the only Phase 2 package
   outstanding and it is deliberately sequenced after Gate F. The line worth
   keeping is from the last pull request: giving the suite's GitHub fake a port

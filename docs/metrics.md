@@ -122,6 +122,28 @@ before it say which stage owns a regression.
 | `zoomies_runner_registered_to_ready_seconds` | Registered → idle or busy. |
 | `zoomies_runner_queued_to_job_started_seconds` | The whole path. Put this one on the dashboard. |
 
+Two further histograms use the confirmed lifecycle timestamps, with the same
+`pool` and `backend` labels:
+
+| Metric | The interval |
+| --- | --- |
+| `zoomies_runner_eligible_to_create_task_seconds` | Job eligibility → first create task delivered to the job's actual runner host. Observed when the job is linked to its runner, once per job; retries and later stop/remove tasks do not move its end. Includes capacity waits and configured scaling delays after eligibility. GitHub deployment-review holds are excluded. |
+| `zoomies_runner_cleanup_duration_seconds` | Runner finished → both host removal and GitHub registration absence confirmed. Includes the configured retention period; a process exit or successful stop alone does not complete it. Repeated confirmations do not add samples. |
+
+Prewarmed runners, jobs whose eligibility was not observed, older runners with
+no first-delivery timestamp, and cleanup with a missing confirmation do not
+produce a sample. Missing is not zero. Demo installations are excluded. These
+histograms describe observations since the controller started; they are not an
+exact historical percentile or a count of every attempted job.
+
+For exact historical intervals, the runner API exposes `create_task_issued_at`,
+`host_removed_at`, `registration_deleted_at` and `cleaned_up_at`; join the job's
+`runner_id` and `eligible_at`. The runner details show the separate timestamps.
+Older cleanup timestamps are retained as `cleanup_estimated_at`, labelled as
+estimates, and never used as confirmed completion. Compare scheduling figures
+with the scheduler interval and available capacity; compare cleanup duration
+with retention before interpreting either as a delay.
+
 ## Build information
 
 `zoomies_build_info` is a gauge that is always 1, labelled `version` and

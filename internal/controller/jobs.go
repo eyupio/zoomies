@@ -37,6 +37,7 @@ func (c *Controller) recordJobChange(ctx context.Context, j *store.Job, change s
 	if j == nil {
 		return
 	}
+	c.observeScheduling(ctx, j, change, runner)
 	at := c.Now()
 	add := func(kind store.JobEventKind, message string) {
 		e := &store.JobEvent{JobID: j.ID, Kind: kind, Source: source, Message: message, At: at}

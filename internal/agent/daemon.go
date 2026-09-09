@@ -185,7 +185,8 @@ type tracked struct {
 	// terminal records that the end of this runner's life has been reported
 	// once already; reporting it every reconcile would be noise the controller
 	// has to reject.
-	terminal bool
+	terminal    bool
+	hostRemoved bool
 	// terminalAt is when that end of life was observed, which is what the
 	// retention window on its workload counts from.
 	terminalAt time.Time
@@ -205,14 +206,15 @@ type tracked struct {
 
 func (t *tracked) report() RunnerReport {
 	return RunnerReport{
-		RunnerID:   t.runnerID,
-		State:      t.state,
-		Handle:     t.handle,
-		Phase:      t.phase,
-		ExitCode:   t.exitCode,
-		Message:    t.message,
-		Stats:      t.stats,
-		ObservedAt: t.observedAt,
+		RunnerID:    t.runnerID,
+		HostRemoved: t.hostRemoved,
+		State:       t.state,
+		Handle:      t.handle,
+		Phase:       t.phase,
+		ExitCode:    t.exitCode,
+		Message:     t.message,
+		Stats:       t.stats,
+		ObservedAt:  t.observedAt,
 	}
 }
 
@@ -1163,6 +1165,17 @@ func (a *Agent) handleRemove(ctx context.Context, task Task, release func()) {
 			a.reportUnsearchable(ctx, task, err)
 			return
 		}
+		for _, kind := range a.opts.Backends.Kinds() {
+			be, err := a.opts.Backends.Get(kind)
+			if err == nil {
+				err = removeRunnerWorkload(ctx, be, task.RunnerID, "")
+			}
+			if err != nil {
+				release()
+				a.reportUnsearchable(ctx, task, err)
+				return
+			}
+		}
 		// A workload that is already gone is exactly what this task asked for.
 		a.untrack(task.RunnerID)
 		release()
@@ -1173,7 +1186,7 @@ func (a *Agent) handleRemove(ctx context.Context, task Task, release func()) {
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), RemoveTimeout)
 	defer cancel()
 
-	if err := b.Remove(rctx, handle); err != nil && !errors.Is(err, backend.ErrNotFound) {
+	if err := removeRunnerWorkload(rctx, b, task.RunnerID, handle); err != nil {
 		a.log.Error("removing runner failed", "runner", task.RunnerID, "handle", handle, "error", err)
 		release()
 		a.report(ctx, TaskResult{
@@ -1348,7 +1361,11 @@ func (a *Agent) releaseUnknown(runnerIDs []string) {
 	a.mu.Lock()
 	released := make([]string, 0, len(runnerIDs))
 	for _, id := range runnerIDs {
-		if _, ok := a.runners[id]; ok {
+		if r, ok := a.runners[id]; ok {
+			if r.terminal {
+				// Retain the workload through local retention and confirm removal.
+				continue
+			}
 			delete(a.runners, id)
 			released = append(released, id)
 		}

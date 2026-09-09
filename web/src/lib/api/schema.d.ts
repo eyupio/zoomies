@@ -2205,6 +2205,26 @@ export interface components {
             cleanup_attempts?: number;
             /**
              * Format: date-time
+             * @description First create task delivered to the host; never overwritten by redelivery or removal. Absent for older runners.
+             */
+            create_task_issued_at?: string | null;
+            /**
+             * Format: date-time
+             * @description Controller receipt of positive host removal confirmation, including the workload and work directory.
+             */
+            host_removed_at?: string | null;
+            /**
+             * Format: date-time
+             * @description Controller confirmation that the GitHub registration is absent.
+             */
+            registration_deleted_at?: string | null;
+            /**
+             * Format: date-time
+             * @description Historical cleanup estimate from an older build; not confirmation that both sides were removed.
+             */
+            cleanup_estimated_at?: string | null;
+            /**
+             * Format: date-time
              * @description The end of the runner's life: nothing of it left, on the host or on GitHub. The counterpart of `created_at` at the other end.
              */
             cleaned_up_at?: string | null;
@@ -2663,13 +2683,17 @@ export interface components {
             resync_requested?: boolean;
         };
         RunnerReport: {
+            /** @description Positive confirmation that backend removal completed, including its work directory; process exit alone is insufficient. */
+            host_removed?: boolean;
+            /** @description Failure of autonomous host cleanup; retained until its retry succeeds. */
+            cleanup_error?: string;
             runner_id: string;
             /** @description The state the agent asserts, or empty once the workload is up: whether GitHub has handed the runner a job is not the agent's call. */
             state?: components["schemas"]["RunnerState"] | "";
             /** @description The backend's own name for the workload */
             handle?: string;
             /** @enum {string} */
-            phase?: "starting" | "running" | "exited" | "failed" | "gone";
+            phase?: "starting" | "running" | "exited" | "exit_unknown" | "failed" | "gone";
             exit_code?: number;
             message?: string;
             stats?: components["schemas"]["WorkloadStats"];

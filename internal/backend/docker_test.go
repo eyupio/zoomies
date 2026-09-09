@@ -882,6 +882,47 @@ func TestDockerRemoveOfSomethingGone(t *testing.T) {
 	}
 }
 
+func TestDockerRemovalDoesNotHideASidecarFailure(t *testing.T) {
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"GET " + v + "/containers/c1/json": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, ContainerInspect{ID: "c1", Config: &ContainerConfig{
+				Labels: map[string]string{LabelName: "runner-1"},
+			}})
+		},
+		"DELETE " + v + "/containers/runner-1-dind": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusConflict, map[string]string{"message": "sidecar is in use"})
+		},
+		"DELETE " + v + "/containers/c1": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		},
+	})
+	b := dockerBackendFor(t, f, DockerOptions{})
+	if err := b.Remove(context.Background(), "c1"); err == nil || !strings.Contains(err.Error(), "sidecar") {
+		t.Fatalf("sidecar failure must prevent confirmation: %v", err)
+	}
+	if f.request(http.MethodDelete, v+"/containers/c1") != nil {
+		t.Fatal("parent labels were deleted before its sidecar could be removed")
+	}
+}
+
+func TestDockerRemovalDoesNotIgnoreAnInspectionFailure(t *testing.T) {
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"GET " + v + "/containers/c1/json": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "daemon unavailable"})
+		},
+		"DELETE " + v + "/containers/c1": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		},
+	})
+	b := dockerBackendFor(t, f, DockerOptions{})
+	if err := b.Remove(context.Background(), "c1"); err == nil {
+		t.Fatal("unreadable cleanup metadata was treated as successful removal")
+	}
+	if f.request(http.MethodDelete, v+"/containers/c1") != nil {
+		t.Fatal("container was deleted without reading its cleanup metadata")
+	}
+}
+
 func TestDockerStopKillsWhatIgnoresTheStop(t *testing.T) {
 	killed := false
 	f := newFakeEngine(t, map[string]http.HandlerFunc{

@@ -364,11 +364,24 @@ func TestProcessStatusOfAnUnreapedRunner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
-	if st.Phase != PhaseFailed {
-		t.Fatalf("phase = %q, want failed", st.Phase)
+	if st.Phase != PhaseExitUnknown {
+		t.Fatalf("phase = %q, want exit_unknown", st.Phase)
 	}
 	if !strings.Contains(st.Message, runnerLogFile) {
 		t.Fatalf("the message must point at the log: %q", st.Message)
+	}
+	// The same observation while this agent still owns the waiter is not an
+	// unknown exit: the exit record has not landed yet.
+	b.running[dir] = &child{}
+	st, err = b.Status(context.Background(), Handle(dir))
+	if err != nil || st.Phase != PhaseRunning {
+		t.Fatalf("the waiter must finish recording before classification: %+v, %v", st, err)
+	}
+	writeExit(dir, 23)
+	delete(b.running, dir)
+	st, err = b.Status(context.Background(), Handle(dir))
+	if err != nil || st.Phase != PhaseFailed || st.ExitCode != 23 {
+		t.Fatalf("a known failure must not be replaced by unknown: %+v, %v", st, err)
 	}
 }
 

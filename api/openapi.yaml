@@ -2908,6 +2908,10 @@ components:
           description: >-
             How many times cleanup has been tried. It is kept after a success, because how
             many tries it took is the difference between a blip and a host worth looking at.
+        create_task_issued_at: { type: [string, "null"], format: date-time, description: "First create task delivered to the host; never overwritten by redelivery or removal. Absent for older runners." }
+        host_removed_at: { type: [string, "null"], format: date-time, description: "Controller receipt of positive host removal confirmation, including the workload and work directory." }
+        registration_deleted_at: { type: [string, "null"], format: date-time, description: "Controller confirmation that the GitHub registration is absent." }
+        cleanup_estimated_at: { type: [string, "null"], format: date-time, description: "Historical cleanup estimate from an older build; not confirmation that both sides were removed." }
         cleaned_up_at:
           type: [string, "null"]
           format: date-time
@@ -3422,6 +3426,8 @@ components:
       type: object
       required: [runner_id, observed_at]
       properties:
+        host_removed: { type: boolean, description: "Positive confirmation that backend removal completed, including its work directory; process exit alone is insufficient." }
+        cleanup_error: { type: string, description: "Failure of autonomous host cleanup; retained until its retry succeeds." }
         runner_id: { type: string }
         state:
           description: >-
@@ -3431,7 +3437,7 @@ components:
             - $ref: "#/components/schemas/RunnerState"
             - { type: string, const: "" }
         handle: { type: string, description: The backend's own name for the workload, such as a container ID. }
-        phase: { type: string, enum: [starting, running, exited, failed, gone] }
+        phase: { type: string, enum: [starting, running, exited, exit_unknown, failed, gone] }
         exit_code: { type: integer }
         message: { type: string }
         stats: { $ref: "#/components/schemas/WorkloadStats" }

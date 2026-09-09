@@ -534,6 +534,7 @@ func (c *Controller) failRunnerID(ctx context.Context, id, reason string) error 
 // promised to prevent.
 func (c *Controller) deleteRegistration(ctx context.Context, r *store.Runner, pool *store.Pool) {
 	if r.GitHubRunnerID == 0 && !store.IsRunnerName(r.Name) {
+		c.confirmCleanup(ctx, r.ID, false)
 		return
 	}
 	if pool == nil {
@@ -545,6 +546,7 @@ func (c *Controller) deleteRegistration(ctx context.Context, r *store.Runner, po
 	}
 	if IsDemoID(pool.InstallationID) {
 		// Demo fixtures have no GitHub behind them; there is nothing to delete.
+		c.confirmCleanup(ctx, r.ID, false)
 		return
 	}
 	inst, err := c.st.GetInstallation(ctx, pool.InstallationID)
@@ -573,6 +575,7 @@ func (c *Controller) deleteRegistration(ctx context.Context, r *store.Runner, po
 		if id == 0 {
 			// Never registered, or already gone: either way there is nothing
 			// to delete, and nothing worth a warning.
+			c.confirmCleanup(ctx, r.ID, false)
 			return
 		}
 	}
@@ -584,7 +587,7 @@ func (c *Controller) deleteRegistration(ctx context.Context, r *store.Runner, po
 		// a counter are not something an operator finds before the runner list
 		// is full of them. The reap will try again; until it succeeds, the row
 		// says so and runners.cleanup_failed names it.
-		if rerr := c.st.RecordCleanupFailure(ctx, r.ID,
+		if rerr := c.st.RecordRegistrationCleanupFailure(ctx, r.ID,
 			fmt.Sprintf("the GitHub runner registration could not be deleted: %v", err)); rerr != nil {
 			c.log.Warn("could not record a failed registration delete", "runner", r.ID, "error", rerr)
 		}
@@ -592,9 +595,7 @@ func (c *Controller) deleteRegistration(ctx context.Context, r *store.Runner, po
 			"runner", r.ID, "github_runner_id", id, "error", err)
 		return
 	}
-	if err := c.st.RecordRegistrationDeleted(ctx, r.ID); err != nil {
-		c.log.Warn("could not record a deleted registration", "runner", r.ID, "error", err)
-	}
+	c.confirmCleanup(ctx, r.ID, false)
 }
 
 // backendKind names the backend a task should run on. It comes from the pool,
@@ -719,15 +720,7 @@ func (c *Controller) reap(ctx context.Context) {
 			// The reap is the retry for a delete that failed earlier, so it is
 			// also what clears the row's complaint about it.
 			if row, rerr := c.st.GetRunnerByName(ctx, gr.Name); rerr == nil {
-				if err := c.st.RecordRegistrationDeleted(ctx, row.ID); err != nil {
-					c.log.Warn("could not record a reaped registration", "runner", row.ID, "error", err)
-				}
-				if strings.Contains(row.CleanupError, "registration") {
-					if err := c.st.ClearCleanupFailure(ctx, row.ID); err != nil {
-						c.log.Warn("could not clear a registration cleanup failure", "runner", row.ID, "error", err)
-					}
-					c.publishRunnerByID(ctx, row.ID)
-				}
+				c.confirmCleanup(ctx, row.ID, false)
 			}
 		}
 	}
