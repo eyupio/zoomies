@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.31 · 9 September 2026 · derived from the owner's
+Version 2.32 · 9 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -1757,6 +1757,18 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **9 September 2026 — Version 2.32:** the dead-socket drill, in the half a
+  tier with no daemon can do honestly: a second agent joins with its Docker
+  socket missing, and the fleet has to say so. It does, and well — the host
+  names the backend it cannot use and the socket it looked for, and the pool
+  with work waiting raises an error quoting that sentence with a fix. The
+  reason to write it anyway was the failure mode where saying nothing is
+  worst: the jobs still queue and the pool still looks configured, so a fleet
+  that quietly places nothing is indistinguishable from a fleet with nothing to
+  do. What is left of ZF-302 is the two halves that need a machine this tier
+  deliberately has not got — starting a daemon back up, and filling a
+  filesystem — and both belong on the reference host the owner actions ask for.
 
 * **9 September 2026 — Version 2.31:** the restore-and-rollback drill Gate F's
   sixth bullet asks for, in the two tiers its halves belong to, and both were
