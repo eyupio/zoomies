@@ -244,6 +244,15 @@ func (f *fleet) startAgent() {
 	})
 }
 
+// brokenDockerLabel is how a pool asks for the host whose Docker socket is
+// missing, and it exists because the drill's own machine is in the fleet.
+// ZOOMIES_AGENT_BACKEND names an agent's default backend rather than its only
+// one -- every agent probes for all of them and reports what it finds -- so on
+// a CI runner with Docker installed the drill's first agent offers docker too.
+// A docker pool with no selector then places there quite happily, and a drill
+// about a host that cannot run anything silently tests a host that can.
+const brokenDockerLabel = "drill=docker-broken"
+
 // startBrokenDockerAgent joins a second agent whose Docker socket is not there.
 //
 // It is a second machine rather than a reconfigured first one, because that is
@@ -271,6 +280,9 @@ func (f *fleet) startBrokenDockerAgent(name string) *process {
 		"ZOOMIES_JOIN_TOKEN="+token.Token,
 		"ZOOMIES_AGENT_NAME="+name,
 		"ZOOMIES_AGENT_BACKEND=docker",
+		// The label a pool selects it by, so the drill's own machine cannot
+		// answer for it.
+		"ZOOMIES_AGENT_LABELS="+brokenDockerLabel,
 		// A socket that is not there is what a stopped daemon looks like from
 		// the outside, and it is the one version of this fault a tier with no
 		// daemon can produce honestly.
@@ -294,8 +306,9 @@ func (f *fleet) hostViews() []hostView {
 }
 
 type hostView struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Labels      map[string]string `json:"labels"`
 	BackendInfo []struct {
 		Kind      string `json:"kind"`
 		Available bool   `json:"available"`
@@ -443,10 +456,15 @@ func (f *fleet) deliverJob(action string, job github.QueuedJob, runnerName, conc
 // because both ends of the signature are this test.
 const drillWebhookSecret = "drill-webhook-secret"
 
-// createPoolOn makes a pool on a named backend. The runner version is pinned to
-// the staged stub either way: a pool that went looking for a download would
-// hang rather than say what is wrong with the host.
-func (f *fleet) createPoolOn(name, backend string, labels ...string) string {
+// createPoolOn makes a pool on a named backend, kept to the hosts a selector
+// picks out. The runner version is pinned to the staged stub either way: a pool
+// that went looking for a download would hang rather than say what is wrong
+// with the host.
+//
+// The selector is not optional decoration. A drill about one host's fault has
+// to be able to say which host it means, or the fleet's other machine answers
+// for it and the fault is never met.
+func (f *fleet) createPoolOn(name, backend string, selector map[string]string, labels ...string) string {
 	f.t.Helper()
 	var pool struct {
 		ID string `json:"id"`
@@ -456,6 +474,7 @@ func (f *fleet) createPoolOn(name, backend string, labels ...string) string {
 		"name":            name,
 		"labels":          labels,
 		"backend":         backend,
+		"host_selector":   selector,
 		"min_runners":     0,
 		"max_runners":     1,
 		"idle_timeout":    "1m",
