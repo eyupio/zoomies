@@ -10,7 +10,7 @@
 <script lang="ts">
   import { Pencil, ServerCog, Trash2 } from '@lucide/svelte';
   import type { Host } from '$lib/api/types';
-  import { formatNumber } from '$lib/format';
+  import { formatMegabytes, formatNumber } from '$lib/format';
   import { hostStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import DropdownMenu from '$lib/components/DropdownMenu.svelte';
@@ -18,6 +18,7 @@
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import UtilisationBar from '$lib/components/UtilisationBar.svelte';
   import BackendList from './BackendList.svelte';
+  import ResourceBar from './ResourceBar.svelte';
 
   interface Props {
     host: Host;
@@ -100,6 +101,53 @@
     return `${gb(free)} GB free of ${gb(total)}`;
   });
 
+  /**
+   * What this host has already promised away, against what may be placed on it.
+   *
+   * Slots answer "will the fleet take another runner here"; this answers
+   * "can the machine carry it", and they are different questions -- a host with
+   * three slots free and no memory left takes nothing, and the slot bar above
+   * cannot say why. The figures are the scheduler's own, as of its last pass:
+   * a number here that disagreed with the one it placed against would be worse
+   * than none, because it would be believed.
+   */
+  const resources = $derived.by(() => {
+    if (!host.resources_known || !host.reserved_known) return null;
+    const rows: { label: string; used: number; total: number; text: string; hint: string }[] = [];
+    const cpuTotal = host.allocatable_cpus ?? 0;
+    if (cpuTotal > 0) {
+      const used = host.reserved_cpus ?? 0;
+      rows.push({
+        label: 'CPU',
+        used,
+        total: cpuTotal,
+        text: `${round(used)} of ${round(cpuTotal)}`,
+        hint: host.reserve_cpus
+          ? `${formatNumber(host.reserve_cpus)} held back for the machine`
+          : '',
+      });
+    }
+    const memTotal = host.allocatable_memory_mb ?? 0;
+    if (memTotal > 0) {
+      const used = host.reserved_memory_mb ?? 0;
+      rows.push({
+        label: 'Memory',
+        used,
+        total: memTotal,
+        text: `${formatMegabytes(used)} of ${formatMegabytes(memTotal)}`,
+        hint: host.reserve_memory_mb
+          ? `${formatMegabytes(host.reserve_memory_mb)} held back for the machine`
+          : '',
+      });
+    }
+    return rows.length > 0 ? rows : null;
+  });
+
+  /** One decimal at most: a CPU share of 3.75 is a fact, 3.7500000001 is not. */
+  function round(n: number): string {
+    return formatNumber(Math.round(n * 10) / 10);
+  }
+
   /** Below this, the disk is the reason a job will fail rather than a detail. */
   const DISK_LOW = 0.1;
   const diskLow = $derived.by(() => {
@@ -155,6 +203,18 @@
                fixed mapping and reusing one here would teach it a second
                meaning. -->
           <Badge tone="neutral" label={skewLabel} size="sm" dot={false} title={skewHint} />
+        {/if}
+        {#if !host.resources_known}
+          <!-- Not a fault: an agent too old to measure its machine is placed by
+               slots alone, exactly as every host was before it could. Saying so
+               is what stops a card with every figure missing reading as broken. -->
+          <Badge
+            tone="neutral"
+            label="Size unknown"
+            size="sm"
+            dot={false}
+            title="This agent has not reported the machine's CPUs, memory or disk, so this host is placed by its slot count alone. Upgrade the agent and the figures appear on its next heartbeat."
+          />
         {/if}
         {#if host.embedded}
           <Badge
@@ -218,6 +278,23 @@
       <span class="muted">· {formatNumber(free)} free</span>
     </p>
   </div>
+
+  {#if resources}
+    <section class="block" aria-label="Resources committed on {host.name || host.id}">
+      <h4>Committed</h4>
+      <div class="resources">
+        {#each resources as row (row.label)}
+          <ResourceBar
+            label={row.label}
+            used={row.used}
+            total={row.total}
+            text={row.text}
+            hint={row.hint}
+          />
+        {/each}
+      </div>
+    </section>
+  {/if}
 
   <section class="block" aria-label="Backends on {host.name || host.id}">
     <h4>Backends</h4>
@@ -339,6 +416,11 @@
     letter-spacing: var(--z-tracking-wide);
     color: var(--z-text-muted);
     font-weight: var(--z-weight-medium);
+  }
+  .resources {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-2);
   }
   .labels {
     display: flex;

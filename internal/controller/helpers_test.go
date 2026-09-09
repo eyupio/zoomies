@@ -189,12 +189,21 @@ func (h *harness) pool(inst *store.Installation, name string, labels ...string) 
 func (h *harness) host(name string) *store.Host {
 	h.t.Helper()
 	host := &store.Host{
-		Name:          name,
-		Capacity:      4,
-		Backends:      store.StringSlice{"docker"},
-		Labels:        store.StringMap{},
-		OS:            "linux",
-		Arch:          "amd64",
+		Name:     name,
+		Capacity: 4,
+		Backends: store.StringSlice{"docker"},
+		Labels:   store.StringMap{},
+		OS:       "linux",
+		Arch:     "amd64",
+		// A machine large enough that nothing here is refused for want of
+		// room: these tests are about everything except fit, and a fleet whose
+		// hosts report nothing is a fleet of agents too old to measure
+		// themselves -- which raises a note of its own and is not what any of
+		// them mean to describe.
+		CPUs:          16,
+		MemoryMB:      64 * 1024,
+		DiskTotalMB:   500 * 1024,
+		DiskFreeMB:    400 * 1024,
 		LastHeartbeat: time.Now(),
 	}
 	if err := h.st.CreateHost(h.ctx, host); err != nil {

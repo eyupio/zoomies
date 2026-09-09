@@ -23,6 +23,7 @@
   let { pool, showId = true, class: className = '' }: Props = $props();
 
   const resources = $derived(pool.resources ?? {});
+  const dind = $derived((pool.docker_mode ?? 'none') === 'dind');
   const hasResources = $derived(
     resources.cpus !== undefined ||
       resources.memory_mb !== undefined ||
@@ -119,10 +120,10 @@
     </div>
   {/if}
 
-  {#if hasResources}
-    <div class="pair">
-      <dt>Resources per runner</dt>
-      <dd class="tabular">
+  <div class="pair">
+    <dt>Resources per runner</dt>
+    <dd class="tabular">
+      {#if hasResources}
         {#if resources.cpus !== undefined}<span>{formatNumber(resources.cpus)} CPU</span>{/if}
         {#if resources.memory_mb !== undefined}<span>{formatMegabytes(resources.memory_mb)}</span
           >{/if}
@@ -131,9 +132,28 @@
         {#if resources.pids_limit !== undefined}<span
             >{formatNumber(resources.pids_limit)} processes</span
           >{/if}
-      </dd>
-    </div>
-  {/if}
+      {:else}
+        <span class="assumed">None set</span>
+      {/if}
+    </dd>
+  </div>
+  <!-- What a pool that sets nothing is charged, which is not nothing: a field
+       left unset is charged one slot's worth of whatever host the runner lands
+       on. Saying so here is what stops "no limits" reading as "no reservation",
+       which is the difference between a fleet that admits what it always did
+       and one an operator thinks is unbounded. -->
+  <p class="note">
+    {#if hasResources}
+      A runner is charged this against its host, and a field left unset is charged one slot's worth
+      of that machine instead.{#if dind}
+        A docker-in-docker pool is charged twice over: the build runs in a sidecar the backend gives
+        the same limits.{/if}
+    {:else}
+      This pool sets no limits, so each runner is still charged one slot's worth of whatever host it
+      lands on — a host with 30 GB allocatable and a capacity of 6 charges 5 GB. That is what keeps
+      a fleet of unlimited pools admitting exactly what its slot counts always admitted.
+    {/if}
+  </p>
 
   {#if selector.length > 0}
     <div class="pair">

@@ -155,3 +155,60 @@ test('a host says how much disk its runners have, and marks the one that is near
   // And the roomy one is not marked, or the mark says nothing.
   await expect(roomy.locator('.low')).toHaveCount(0);
 });
+
+/**
+ * Slots say whether the fleet will place another runner here; the committed
+ * figures say whether the machine can carry it.
+ *
+ * They are different questions, and only the second one explains a host with
+ * free slots taking nothing. The reservation has decided placement since
+ * ZF-103b and appeared nowhere: an operator could see what a machine was and
+ * what it had left, but not what the fleet had already promised away on it.
+ */
+test('a host shows what the fleet has committed on it, and lets an operator hold some back', async ({
+  page,
+}) => {
+  await goto(page, '/hosts', 'Hosts');
+
+  const card = page.getByRole('article').filter({ hasText: 'demo-builder-1' });
+  const committed = card.getByRole('region', { name: /Resources committed/ });
+  await expect(committed).toBeVisible();
+  // 16 CPUs and 32 GB, less the floors, against what the runners on it hold.
+  await expect(committed).toContainText('CPU');
+  await expect(committed).toContainText('Memory');
+  await expect(committed).toContainText(/of 16/);
+
+  // And the reserve is settable from the same card, against the figures this
+  // host has actually reported.
+  await plantMarker(page);
+  await card.getByRole('button', { name: /Actions for/ }).click();
+  await page.getByRole('menuitem', { name: 'Edit capacity and labels' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  const memory = dialog.getByLabel('Memory (MB)');
+  await expect(memory).toBeVisible();
+  await memory.fill('8192');
+  await dialog.getByRole('button', { name: 'Save changes' }).click();
+  await expect(dialog).not.toBeVisible();
+
+  // 32 GB less the 8 GB held back: the bar is drawn against what may actually
+  // be placed on, not against the machine.
+  await expect(committed).toContainText(/of 24 GB/);
+  await expectNoReload(page);
+});
+
+/**
+ * A reserve larger than the machine leaves nothing placeable, and is what
+ * typing megabytes where you meant gigabytes looks like. It is refused, and
+ * the refusal says what is wrong rather than failing silently on save.
+ */
+test('a reserve that would leave nothing to place on is refused', async ({ page }) => {
+  await goto(page, '/hosts', 'Hosts');
+  const card = page.getByRole('article').filter({ hasText: 'demo-builder-2' });
+  await card.getByRole('button', { name: /Actions for/ }).click();
+  await page.getByRole('menuitem', { name: 'Edit capacity and labels' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Memory (MB)').fill('16384');
+  await expect(dialog).toContainText('nothing to place on');
+  await expect(dialog.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+});

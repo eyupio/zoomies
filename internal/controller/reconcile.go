@@ -79,6 +79,7 @@ func (c *Controller) Reconcile(ctx context.Context) error {
 	}
 	plan := scheduler.Decide(snap)
 	c.setLastPlan(plan)
+	c.setReserved(snap)
 	c.apply(ctx, snap, plan)
 	c.publishCapacitySignals(ctx, snap, plan)
 	// The pass may have changed what the queue and the fleet look like, and

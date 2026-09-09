@@ -253,13 +253,24 @@ runner that fails stops being charged for as soon as its row says so.
 
 Held back before any of that: `reserve_cpus`, `reserve_memory_mb` and
 `reserve_disk_mb` on the host, which are the operator's the way capacity is —
-an agent reports what it measured and never writes these. Both memory and disk
+an agent reports what it measured and never writes these. Set them with
+`PATCH /hosts/{id}` or on the host's card; a reserve on a figure the host has
+never reported, or one that would leave nothing to place on, is refused rather
+than clamped, because an operator who typed megabytes for gigabytes should be
+told and not quietly obeyed. Both memory and disk
 have a floor, applied when the operator has set nothing: **512 MB** of memory
 and **2 GB** of disk. Neither is generous, and both exist because a machine with
 nothing left over does not run jobs slowly, it has one of them killed or fails a
 checkout before its first step. CPU has no floor: a CPU reservation is a share
 of the one resource that is never exhausted, only contended, and a contended
 machine still finishes the job.
+
+A pool's `resources` are enforced as cgroup limits on the `docker` and `podman`
+backends, including the docker-in-docker sidecar. The `process` backend applies
+none of them, and a pool that sets limits on it raises
+`pool.resources_unenforced`: the scheduler still holds the room, so the fleet
+does not oversubscribe, but the room is bookkeeping and a job that runs away
+takes the machine with it.
 
 Free disk is a gate rather than a budget. A host at or below its disk reserve
 takes no new runner at all, whatever the pool asks for; nothing is evicted to

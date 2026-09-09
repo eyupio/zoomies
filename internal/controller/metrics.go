@@ -176,6 +176,18 @@ var (
 		"Total runner slots across healthy, uncordoned hosts.", nil, nil)
 	descHostCapacityUsed = prometheus.NewDesc("zoomies_host_capacity_used",
 		"Runner slots currently occupied.", nil, nil)
+	// Slots say how many runners a fleet will take; these say whether the
+	// machines can carry them. A fleet with slots free and no memory left is
+	// the case the slot gauges cannot describe, and it is the one an operator
+	// is looking for when the queue is not draining.
+	descAllocatableCPUs = prometheus.NewDesc("zoomies_host_allocatable_cpus",
+		"CPUs across healthy, uncordoned hosts, less each host's reserve.", nil, nil)
+	descAllocatableMemory = prometheus.NewDesc("zoomies_host_allocatable_memory_bytes",
+		"Memory across healthy, uncordoned hosts, less each host's reserve.", nil, nil)
+	descReservedCPUs = prometheus.NewDesc("zoomies_host_reserved_cpus",
+		"CPUs the live runners on those hosts have promised away, as of the last scheduling pass.", nil, nil)
+	descReservedMemory = prometheus.NewDesc("zoomies_host_reserved_memory_bytes",
+		"Memory the live runners on those hosts have promised away, as of the last scheduling pass.", nil, nil)
 	// The backlog's depth and its age answer different questions: ten jobs
 	// queued for four seconds is a fleet working, and one job queued for forty
 	// minutes is a fleet that has stopped, and `zoomies_jobs_queued` cannot
@@ -203,6 +215,10 @@ func (f *fleetCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- descHostCapacityUsed
 	ch <- descQueueAge
 	ch <- descGitHubPaused
+	ch <- descAllocatableCPUs
+	ch <- descAllocatableMemory
+	ch <- descReservedCPUs
+	ch <- descReservedMemory
 }
 
 func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
@@ -304,6 +320,29 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 		}
 		used += h.ActiveRunners
 	}
+	// Only the hosts that can actually take work, which is the same set
+	// descHostCapacity counts: a cordoned host's memory is not the fleet's to
+	// place into, and counting it would say the fleet has room it will not use.
+	var allocCPUs, reservedCPUs float64
+	var allocMemory, reservedMemory int64
+	for _, h := range hosts {
+		if !h.Healthy(now) || h.Cordoned {
+			continue
+		}
+		a := h.Allocatable()
+		allocCPUs += a.CPUs
+		allocMemory += a.MemoryMB
+		if r, ok := f.c.reservedOn(h.ID); ok {
+			reservedCPUs += r.CPUs
+			reservedMemory += r.MemoryMB
+		}
+	}
+	const mb = 1 << 20
+	gauge(descAllocatableCPUs, allocCPUs)
+	gauge(descAllocatableMemory, float64(allocMemory)*mb)
+	gauge(descReservedCPUs, reservedCPUs)
+	gauge(descReservedMemory, float64(reservedMemory)*mb)
+
 	gauge(descHosts, float64(healthy), "healthy")
 	gauge(descHosts, float64(unhealthy), "unhealthy")
 	gauge(descHosts, float64(cordoned), "cordoned")

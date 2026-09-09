@@ -47,9 +47,20 @@ func (s *Server) handleGetHost(w http.ResponseWriter, r *http.Request) {
 type hostUpdateRequest struct {
 	Capacity *int               `json:"capacity"`
 	Labels   *map[string]string `json:"labels"`
+	// The reserve: what this machine keeps for itself, in the units its own
+	// figures are reported in. Each is optional and each is separate -- an
+	// operator who holds back memory has said nothing about CPU.
+	ReserveCPUs     *int   `json:"reserve_cpus"`
+	ReserveMemoryMB *int64 `json:"reserve_memory_mb"`
+	ReserveDiskMB   *int64 `json:"reserve_disk_mb"`
 }
 
-// handleUpdateHost changes a host's capacity or labels.
+// reserveGiven reports whether the request asks to change the reserve at all.
+func (r hostUpdateRequest) reserveGiven() bool {
+	return r.ReserveCPUs != nil || r.ReserveMemoryMB != nil || r.ReserveDiskMB != nil
+}
+
+// handleUpdateHost changes a host's capacity, labels or reserve.
 func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 	id := chiURLParam(r, "id")
 	h, err := s.ctrl.Store().GetHost(r.Context(), id)
@@ -83,6 +94,42 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// A reserve larger than the machine is refused rather than clamped: it
+	// leaves nothing placeable, and an operator who typed megabytes where they
+	// meant gigabytes should be told, not quietly obeyed. A reserve on a
+	// figure the host has never reported is refused for the same reason --
+	// there is nothing to hold back a share of, and the scheduler would ignore
+	// it while the page showed it.
+	if req.ReserveCPUs != nil {
+		switch {
+		case *req.ReserveCPUs < 0:
+			fields = append(fields, fieldError{"reserve_cpus", "a reserve cannot be negative"})
+		case h.CPUs <= 0 && *req.ReserveCPUs > 0:
+			fields = append(fields, fieldError{"reserve_cpus", "this host has not reported how many CPUs it has, so there is nothing to hold back; upgrade its agent"})
+		case h.CPUs > 0 && *req.ReserveCPUs >= h.CPUs:
+			fields = append(fields, fieldError{"reserve_cpus", fmt.Sprintf("this host has %d CPUs; a reserve of %d would leave nothing to place on", h.CPUs, *req.ReserveCPUs)})
+		}
+	}
+	if req.ReserveMemoryMB != nil {
+		switch {
+		case *req.ReserveMemoryMB < 0:
+			fields = append(fields, fieldError{"reserve_memory_mb", "a reserve cannot be negative"})
+		case h.MemoryMB <= 0 && *req.ReserveMemoryMB > 0:
+			fields = append(fields, fieldError{"reserve_memory_mb", "this host has not reported how much memory it has, so there is nothing to hold back; upgrade its agent"})
+		case h.MemoryMB > 0 && *req.ReserveMemoryMB >= h.MemoryMB:
+			fields = append(fields, fieldError{"reserve_memory_mb", fmt.Sprintf("this host has %d MB of memory; a reserve of %d would leave nothing to place on", h.MemoryMB, *req.ReserveMemoryMB)})
+		}
+	}
+	if req.ReserveDiskMB != nil {
+		switch {
+		case *req.ReserveDiskMB < 0:
+			fields = append(fields, fieldError{"reserve_disk_mb", "a reserve cannot be negative"})
+		case h.DiskTotalMB <= 0 && *req.ReserveDiskMB > 0:
+			fields = append(fields, fieldError{"reserve_disk_mb", "this host has not reported its work directory's disk, so there is nothing to hold back; upgrade its agent"})
+		case h.DiskTotalMB > 0 && *req.ReserveDiskMB >= h.DiskTotalMB:
+			fields = append(fields, fieldError{"reserve_disk_mb", fmt.Sprintf("this host's work directory has %d MB of disk; a reserve of %d would leave nothing to place on", h.DiskTotalMB, *req.ReserveDiskMB)})
+		}
+	}
 	if len(fields) > 0 {
 		unprocessable(w, "this host cannot be changed as described", fields)
 		return
@@ -99,10 +146,28 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, "saving the host", err)
 		return
 	}
+	// The reserve is written by its own statement, because UpdateHost is the
+	// path a heartbeat takes: a host must not be able to talk its way out of
+	// the room its operator kept for it.
+	if req.reserveGiven() {
+		if req.ReserveCPUs != nil {
+			h.ReserveCPUs = *req.ReserveCPUs
+		}
+		if req.ReserveMemoryMB != nil {
+			h.ReserveMemoryMB = *req.ReserveMemoryMB
+		}
+		if req.ReserveDiskMB != nil {
+			h.ReserveDiskMB = *req.ReserveDiskMB
+		}
+		if err := s.ctrl.Store().SetHostReserve(r.Context(), id, h.ReserveCPUs, h.ReserveMemoryMB, h.ReserveDiskMB); err != nil {
+			s.fail(w, r, "saving the host's reserve", err)
+			return
+		}
+	}
 
 	s.auth.Auditor().Updated(r.Context(), Identity(r.Context()), "host", id, &before, h)
 	s.ctrl.PublishHost(h)
-	// Capacity and labels both decide where runners may be placed.
+	// Capacity, labels and the reserve all decide where runners may be placed.
 	s.ctrl.Nudge()
 	writeJSON(w, http.StatusOK, s.ctrl.HostView(h))
 }

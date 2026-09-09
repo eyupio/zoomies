@@ -49,8 +49,19 @@ memory, so they are always current and never drift.
 | `zoomies_hosts` | gauge | `state` | Agent hosts, by `healthy`, `unhealthy` or `cordoned`. |
 | `zoomies_host_capacity` | gauge | — | Runner slots across healthy, uncordoned hosts. |
 | `zoomies_host_capacity_used` | gauge | — | Slots occupied. Divide by the previous for utilisation. |
+| `zoomies_host_allocatable_cpus` | gauge | — | CPUs across healthy, uncordoned hosts, less each host's reserve. |
+| `zoomies_host_allocatable_memory_bytes` | gauge | — | The same for memory. |
+| `zoomies_host_reserved_cpus` | gauge | — | What the live runners have promised away, as of the last scheduling pass. |
+| `zoomies_host_reserved_memory_bytes` | gauge | — | The same for memory. Divide by the allocatable pair for "how full are the machines", which is a different question from how full the slots are. |
 | `zoomies_job_queue_age_seconds` | gauge | `pool` | How long the oldest job still waiting has been waiting. Zero when the pool has nothing queued. |
 | `zoomies_github_paused` | gauge | `installation` | 1 while that installation is inside its GitHub rate-limit backoff and every background sweep is standing down from it. |
+
+**Slots and resources answer different questions too.** `zoomies_host_capacity`
+counts what the fleet will *take*; the allocatable and reserved pairs say
+whether the machines can carry it. A fleet with slots free and no memory left is
+the case the slot gauges cannot describe, and it is the one somebody is looking
+for when the queue will not drain. Disk is deliberately not in the reserved
+pair: free disk already contains what the runners there have written.
 
 **Queue depth and queue age answer different questions.** Ten jobs queued for
 four seconds is a fleet working; one job queued for forty minutes is a fleet
