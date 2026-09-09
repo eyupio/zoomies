@@ -96,19 +96,38 @@ if [ -n "${DOCKER_HOST:-}" ] || [ -S /var/run/docker.sock ]; then
   fi
 fi
 
-if [ -n "${ZOOMIES_JITCONFIG:-}" ]; then
+# The credentials stop here. They are read into shell variables and the
+# exported ones are removed, so that what starts below inherits neither.
+#
+# run.sh forks every step of every workflow, and a child process inherits the
+# environment its parent was started with. Left exported, a job whose first
+# line was `env` printed the organisation's runner registration token -- good
+# for an hour, and enough to register a self-hosted runner of the reader's own
+# in the organisation, which GitHub then hands other repositories' jobs and
+# their secrets. The workflow is the untrusted party here: that is the whole
+# reason these runners are ephemeral.
+#
+# A shell variable that was never exported is not in a child's environment, so
+# copying them across and unsetting is the whole of it. config.sh and the
+# cleanup trap below read the copies.
+jitconfig="${ZOOMIES_JITCONFIG:-}"
+runner_token="${ZOOMIES_RUNNER_TOKEN:-}"
+runner_url="${ZOOMIES_RUNNER_URL:-}"
+unset ZOOMIES_JITCONFIG ACTIONS_RUNNER_INPUT_JITCONFIG ZOOMIES_RUNNER_TOKEN ZOOMIES_RUNNER_URL
+
+if [ -n "${jitconfig}" ]; then
   log "starting with a just-in-time configuration (ephemeral, single use)"
-  ./run.sh --jitconfig "${ZOOMIES_JITCONFIG}" &
+  ./run.sh --jitconfig "${jitconfig}" &
   child=$!
-elif [ -n "${ZOOMIES_RUNNER_TOKEN:-}" ]; then
-  : "${ZOOMIES_RUNNER_URL:?ZOOMIES_RUNNER_URL is required alongside ZOOMIES_RUNNER_TOKEN}"
-  log "registering ${ZOOMIES_RUNNER_NAME:-unnamed} against ${ZOOMIES_RUNNER_URL}"
+elif [ -n "${runner_token}" ]; then
+  : "${runner_url:?ZOOMIES_RUNNER_URL is required alongside ZOOMIES_RUNNER_TOKEN}"
+  log "registering ${ZOOMIES_RUNNER_NAME:-unnamed} against ${runner_url}"
 
   args=(
     --unattended
     --replace
-    --url "${ZOOMIES_RUNNER_URL}"
-    --token "${ZOOMIES_RUNNER_TOKEN}"
+    --url "${runner_url}"
+    --token "${runner_token}"
     --name "${ZOOMIES_RUNNER_NAME:-$(hostname)}"
     --work /home/runner/_work
   )
@@ -128,7 +147,7 @@ elif [ -n "${ZOOMIES_RUNNER_TOKEN:-}" ]; then
   # shellcheck disable=SC2317  # invoked by trap, which shellcheck cannot see
   cleanup() {
     log "removing this runner's registration, if the token is still good"
-    ./config.sh remove --token "${ZOOMIES_RUNNER_TOKEN}" >/dev/null 2>&1 || true
+    ./config.sh remove --token "${runner_token}" >/dev/null 2>&1 || true
   }
   trap cleanup EXIT
 

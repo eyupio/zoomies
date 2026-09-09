@@ -70,7 +70,7 @@ on its own runners, and cannot read pools, jobs, users or the audit log.
 | --- | --- |
 | A malicious job tries to read another job's secrets or source | Ephemeral runners: the container that ran the previous job no longer exists |
 | A malicious job tries to reach the host | Container isolation, non-root user, dropped capabilities, no `docker.sock` by default |
-| A malicious job steals the runner registration credential and registers its own runner | JIT configurations are single-use and expire; there is no reusable PAT on the host |
+| A malicious job steals the runner registration credential and registers its own runner | JIT configurations are single-use and expire; there is no reusable PAT on the host. The entrypoint also unsets both the JIT configuration and the registration token before it starts `run.sh`, so neither is in the environment a workflow step inherits — which matters most on a pool with `ephemeral: false`, where the credential is an organisation-scoped registration token good for an hour rather than a single-use one |
 | Someone forges a webhook to make Zoomies create runners | HMAC-SHA256 signature verification on every delivery, constant-time comparison |
 | Someone reaches the controller's API | Authentication required by default; the listener binds to loopback unless told otherwise |
 | Someone reaches a freshly deployed controller before its owner does | The first-run endpoint needs the setup token printed in the controller's log, not merely an empty database |
