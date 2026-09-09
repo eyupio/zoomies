@@ -7,20 +7,24 @@
   the page you are looking at. "Why has this not started?" is answered by the
   unmatched filter, which finds the queued jobs no enabled pool claims. A job
   that already ran is never counted there: its labels may name a hosted or vendor
-  runner this controller does not own, and something ran it.
+  runner this controller does not own, and something ran it. Neither is a job
+  whose labels all name such a runner, however long it queues -- a vendor is
+  about to start it, and this fleet was never in the running.
 
   GitHub reports every job in an installed repository, most of which this fleet
   never touches. The page therefore shows Zoomies' own work by default -- jobs a
-  pool claims, jobs its runners ran, and queued jobs nothing claims -- and the
-  "Include other runners" switch widens it to everything GitHub has reported.
+  pool claims, jobs its runners ran, and queued jobs nothing here claims that
+  something here could have -- and the "Include other runners" switch widens it
+  to everything GitHub has reported.
 
   The note explaining unmatched jobs belongs to the filtered view, not to the
   default one. An organisation that also rents runners elsewhere keeps queueing
-  jobs this fleet has no pool for, and they are counted here because nothing
-  here ran them -- so a note above the default grid is a standing red warning
-  about somebody else's work, which is the one thing this page must not do.
-  Discovery is the problems panel's job: `jobs.unmatched` waits out a grace
-  period first, and its link opens this page with the filter already on.
+  jobs this fleet has no pool for, and the ones whose labels leave any doubt are
+  counted here because nothing here ran them -- so a note above the default grid
+  is a standing red warning about somebody else's work, which is the one thing
+  this page must not do. Discovery is the problems panel's job: `jobs.unmatched`
+  waits out a grace period first, and its link opens this page with the filter
+  already on.
 -->
 <script lang="ts">
   import { getJobFacets, listJobs } from '$lib/api/client';

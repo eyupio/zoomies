@@ -550,6 +550,72 @@ func TestManagedOnlyKeepsThisFleetsWorkAndItsUnclaimedQueue(t *testing.T) {
 	}
 }
 
+// The bug this is here for: a repository on a hosted-runner vendor queues a job,
+// GitHub tells us about it seconds before the vendor starts it, and it arrived
+// on a Jobs page whose switch for other runners was off -- badged, in the same
+// row, as hosted elsewhere. Nothing this fleet owns will ever run it and nothing
+// here is waiting on it, so it belongs in the same place its finished siblings
+// do: behind the switch.
+func TestAQueuedJobOnSomebodyElsesRunnersIsNotThisFleetsWork(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Millisecond)
+
+	jobs := []*Job{
+		{GitHubJobID: 1, Repo: "acme/widgets", JobName: "vendor", State: JobQueued,
+			QueuedAt: now, Labels: StringSlice{"blacksmith-4vcpu-ubuntu-2404"}},
+		{GitHubJobID: 2, Repo: "acme/widgets", JobName: "github hosted", State: JobQueued,
+			QueuedAt: now, Labels: StringSlice{"ubuntu-latest"}},
+		// Held for a deployment review, and equally somebody else's to run.
+		{GitHubJobID: 3, Repo: "acme/widgets", JobName: "vendor held", State: JobWaiting,
+			QueuedAt: now, Labels: StringSlice{"buildjet-4vcpu-ubuntu-2204"}},
+		// Asks this fleet for something and gets nothing: the one queued job
+		// with no pool that is genuinely ours to show.
+		{GitHubJobID: 4, Repo: "acme/widgets", JobName: "ours", State: JobQueued,
+			QueuedAt: now, Labels: StringSlice{"self-hosted", "linux", "gpu"}},
+		// Half somebody else's labels is not somebody else's job: only a pool
+		// here could answer "gpu", so this one is still waiting on us.
+		{GitHubJobID: 5, Repo: "acme/widgets", JobName: "mixed", State: JobQueued,
+			QueuedAt: now, Labels: StringSlice{"ubuntu-latest", "gpu"}},
+	}
+	for _, j := range jobs {
+		if _, err := s.UpsertJob(ctx, j); err != nil {
+			t.Fatalf("UpsertJob %s: %v", j.JobName, err)
+		}
+	}
+
+	for _, tc := range []struct {
+		name   string
+		filter JobFilter
+		want   []string
+	}{
+		{"the default view", JobFilter{ManagedOnly: true}, []string{"ours", "mixed"}},
+		// The warning is the sharper case: "nothing will run this" about a job
+		// a vendor is about to run is false, and it is red.
+		{"the unmatched filter", JobFilter{UnmatchedOnly: true}, []string{"ours", "mixed"}},
+		{"both switches off", JobFilter{}, []string{"vendor", "github hosted", "vendor held", "ours", "mixed"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, total, err := s.ListJobs(ctx, tc.filter, Page{})
+			if err != nil {
+				t.Fatalf("ListJobs: %v", err)
+			}
+			names := map[string]bool{}
+			for _, j := range got {
+				names[j.JobName] = true
+			}
+			if total != len(tc.want) || len(got) != len(tc.want) {
+				t.Fatalf("total = %d, jobs = %d (%v), want %v", total, len(got), names, tc.want)
+			}
+			for _, want := range tc.want {
+				if !names[want] {
+					t.Errorf("%q is missing", want)
+				}
+			}
+		})
+	}
+}
+
 // Both flags together must not cancel each other out: the unmatched view is a
 // narrower question about the same fleet, and answering it with an empty page
 // would send an operator looking for a bug that is not there.

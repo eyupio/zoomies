@@ -100,7 +100,7 @@ func (s *Store) Usage(ctx context.Context, from, to time.Time, group UsageGroup)
 	rows, err := s.read.QueryContext(ctx, `SELECT `+expr+`, j.queued_at, j.started_at, j.completed_at
 		FROM jobs j LEFT JOIN pools p ON p.id=j.pool_id
 		WHERE j.queued_at < ? AND COALESCE(j.completed_at, ?) >= ?
-		AND `+managedJobSQL(), ms(to), ms(to), ms(from))
+		AND `+managedJobSQL("j"), ms(to), ms(to), ms(from))
 	if err != nil {
 		return nil, err
 	}

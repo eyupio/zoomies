@@ -152,6 +152,12 @@ test('the unmatched explanation waits to be asked for', async ({ page }) => {
   await expect(page).toHaveURL(/[?&]unmatched=true/);
   await expect(page.getByRole('note')).toContainText('1 queued job has no pool here');
 
+  // One job, and it is the fleet's own. The vendor's queued job is unclaimed
+  // for the same reason and is not one of these: "nothing will run this" is
+  // false about it, and it is the sentence this view exists to say.
+  await expect(rowCount(page)).toContainText('of 1 job');
+  await expect(jobs(page).getByText('blacksmith-4vcpu-ubuntu-2404')).toHaveCount(0);
+
   // The problems panel links straight here with the filter already on, which
   // is how an operator who has not gone looking still finds it.
   await goto(page, '/jobs?unmatched=true', 'Jobs');
@@ -178,6 +184,13 @@ test('other runners are hidden by default and one switch brings them back', asyn
   await expect(page.getByRole('group', { name: 'Filters in effect' })).toContainText(
     'jobs from every runner',
   );
+
+  // Including the one still queued, which is what the switch being off used to
+  // fail to hide: GitHub reports a vendor's job the moment it is queued, and
+  // "nothing here has run it" is true of it for a few seconds.
+  const vendorQueued = dataRows(jobs(page)).filter({ hasText: 'blacksmith-4vcpu-ubuntu-2404' });
+  await expect(vendorQueued.filter({ hasText: 'Queued' })).toHaveCount(1);
+  await expect(vendorQueued.filter({ hasText: 'Queued' })).toContainText('Hosted elsewhere');
 
   // A queued job nothing claims stays in the default view either way: nothing
   // ran it, so it is this fleet's problem to see. The row is how it is seen --

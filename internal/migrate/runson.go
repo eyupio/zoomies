@@ -27,6 +27,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/eyupio/zoomies/internal/store"
 )
 
 // Rewrite is one `runs-on` value this package changed.
@@ -181,79 +183,27 @@ func (m Mapping) decide(job, label string) (to string, overridden bool) {
 	return to, false
 }
 
-// HostedLabels are the runner labels GitHub itself provides, as of the runner
-// images published for github.com.
+// IsHostedLabel reports whether label is one of GitHub's own runner labels.
 //
-// The list matters for two reasons. It is what the wizard offers to map, so an
+// The list it consults lives in internal/store, which is where the same
+// question is asked of the jobs table in SQL; this is the wizard's name for it.
+// It matters here for two reasons. It is what the wizard offers to map, so an
 // operator sees "ubuntu-latest" rather than every string in the file; and it is
 // what tells a label GitHub owns from one an organisation invented, which is
 // the difference between a job that can be migrated and a job that is already
 // pointed somewhere deliberate.
-//
-// It is a prefix list, not an exact one: GitHub keeps adding sizes and
-// versions ("ubuntu-22.04-arm", "windows-11-arm", the larger-runner names an
-// organisation configures), and a wizard that only recognised the exact names
-// it shipped with would go quietly blind as they change.
-var hostedPrefixes = []string{"ubuntu-", "windows-", "macos-", "macOS-"}
-
-// IsHostedLabel reports whether label is one of GitHub's own runner labels.
-func IsHostedLabel(label string) bool {
-	l := strings.ToLower(strings.TrimSpace(label))
-	if l == "" {
-		return false
-	}
-	for _, p := range hostedPrefixes {
-		if strings.HasPrefix(l, strings.ToLower(p)) {
-			return true
-		}
-	}
-	return false
-}
-
-// managedPrefixes are the label shapes of the hosted-runner vendors that sit in
-// front of GitHub Actions -- Blacksmith, BuildJet, WarpBuild, Namespace, Depot
-// and Ubicloud.
-//
-// They belong here for the same reason GitHub's own labels do. A repository on
-// "blacksmith-4vcpu-ubuntu-2404" is renting somebody else's machines by the
-// minute, which is exactly the bill this fleet exists to replace, so a wizard
-// that called that label "already pointed somewhere deliberate" would offer an
-// operator nothing to migrate and no reason why. Their labels encode the same
-// two facts GitHub's do -- an operating system and a size -- so mapping one to
-// a pool is the same decision, with the same review step in front of it.
-//
-// A prefix list again, and for the same reason: every one of these vendors
-// keeps adding sizes, and an exact list would go quietly blind as they do.
-var managedPrefixes = []string{
-	"blacksmith",
-	"buildjet-",
-	"warp-",
-	"namespace-profile-",
-	"nscloud-",
-	"depot-",
-	"ubicloud",
-}
+func IsHostedLabel(label string) bool { return store.IsHostedLabel(label) }
 
 // IsManagedLabel reports whether label names a runner somebody else operates:
-// GitHub's own, or one of the vendors in managedPrefixes.
+// GitHub's own, or one of the hosted-runner vendors.
 //
 // This, not IsHostedLabel, is what the wizard migrates. The distinction the
-// operator cares about is not "GitHub or not" but "rented or ours".
-func IsManagedLabel(label string) bool {
-	l := strings.ToLower(strings.TrimSpace(label))
-	if l == "" {
-		return false
-	}
-	if IsHostedLabel(l) {
-		return true
-	}
-	for _, p := range managedPrefixes {
-		if strings.HasPrefix(l, p) {
-			return true
-		}
-	}
-	return false
-}
+// operator cares about is not "GitHub or not" but "rented or ours": a
+// repository on "blacksmith-4vcpu-ubuntu-2404" is renting somebody else's
+// machines by the minute, which is exactly the bill this fleet exists to
+// replace, so a wizard that called that label "already pointed somewhere
+// deliberate" would offer an operator nothing to migrate and no reason why.
+func IsManagedLabel(label string) bool { return store.IsManagedLabel(label) }
 
 // runsOnKey matches a `runs-on:` key and splits it into the parts that must be
 // preserved byte for byte.
