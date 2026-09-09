@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.29 · 9 September 2026 · derived from the owner's
+Version 2.30 · 9 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -1757,6 +1757,27 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **9 September 2026 — Version 2.30:** two more fault drills, and the second
+  one found a defect in the stand-down ZF-105 built. A rate limit is the fault
+  a real fleet is most likely to meet and the least visible from inside it —
+  nothing has crashed, the fleet simply stops — so the product answers it with
+  a per-installation hold and a gauge saying so. **Neither engaged.** GitHub
+  refuses the *installation token refresh* first, ghinstallation mints that
+  inside its transport, and the refusal reached `classify` unclassified: the
+  poller kept calling every two seconds while the quota was gone, and
+  `zoomies_github_paused` — the signal `docs/metrics.md` tells an operator to
+  alert on — stayed at zero. It is fixed, and deliberately only when the
+  refusal's own headers say the quota is actually gone: a 403 for a permission
+  the App has not been granted comes back with quota to spare, and standing an
+  installation down for fifteen minutes over that is a wait that fixes nothing.
+  The other drill is the failing JIT endpoint, where the whole claim is that
+  the fleet does not make a bad situation worse: the attempt is recorded rather
+  than deleted, nothing is left on the host or on GitHub, and it recovers
+  without anybody restarting anything. This is what a drill tier is for. Both
+  faults have been covered by in-process tests for months; neither test could
+  see that the stand-down was never reached, because in process the call that
+  fails is the one the test makes.
 
 * **9 September 2026 — Version 2.29:** the first two fault drills, and what
   they found. Both inject their fault while a job is actually running: killing

@@ -10,10 +10,13 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/bradleyfalzon/ghinstallation/v2"
 
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -669,5 +672,51 @@ func TestPollStaysWithinItsRequestBudgetAndLooksAtBusyRepositoriesFirst(t *testi
 	}
 	if len(order) < 2 || !strings.Contains(order[0], "acme/busy-") || !strings.Contains(order[1], "acme/busy-") {
 		t.Fatalf("run listings did not start with the busy repositories: %v", order[:min(4, len(order))])
+	}
+}
+
+// A rate limit that lands on the installation token refresh is the one a real
+// fleet meets first: every background sweep mints a token before it does
+// anything else, so the quota usually runs out there rather than on the call
+// the sweep was making. ghinstallation refreshes the token inside the
+// transport, so its refusal arrives as its own error with no go-github
+// response attached -- and until this was classified, the controller's
+// per-installation stand-down never engaged for it.
+func TestARateLimitedTokenRefreshIsStillARateLimit(t *testing.T) {
+	reset := time.Now().Add(12 * time.Minute).Truncate(time.Second)
+	err := classify(nil, fmt.Errorf("listing the queued jobs: %w", tokenRefusal(t, http.StatusForbidden, "0", reset)))
+
+	if !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("classify(a refused token refresh with no quota left) = %v, want a rate limit", err)
+	}
+	var rl *RateLimitedError
+	if !errors.As(err, &rl) || !rl.ResetAt.Equal(reset.UTC()) {
+		t.Fatalf("the rate limit says it resets at %v, want %v: the caller waits exactly as long as GitHub asked",
+			rl.ResetAt, reset.UTC())
+	}
+}
+
+// And the refusal that is not about quota must not be read as one. A 403 for a
+// permission the App has not been granted comes back with its quota intact,
+// and standing the installation down for fifteen minutes over it would be a
+// wait that fixes nothing.
+func TestARefusedTokenRefreshWithQuotaLeftIsNotARateLimit(t *testing.T) {
+	err := classify(nil, tokenRefusal(t, http.StatusForbidden, "4999", time.Now()))
+	if errors.Is(err, ErrRateLimited) {
+		t.Fatalf("classify(a 403 with quota to spare) = %v, want it left alone", err)
+	}
+}
+
+// tokenRefusal is what ghinstallation hands back when GitHub refuses to mint
+// an installation token.
+func tokenRefusal(t *testing.T, status int, remaining string, reset time.Time) error {
+	t.Helper()
+	resp := &http.Response{StatusCode: status, Header: http.Header{}}
+	resp.Header.Set("X-RateLimit-Limit", "5000")
+	resp.Header.Set("X-RateLimit-Remaining", remaining)
+	resp.Header.Set("X-RateLimit-Reset", strconv.FormatInt(reset.Unix(), 10))
+	return &ghinstallation.HTTPError{
+		Message:  fmt.Sprintf("received non 2xx response status %d when fetching the access token", status),
+		Response: resp,
 	}
 }

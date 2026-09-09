@@ -709,6 +709,21 @@ func classify(resp *gh.Response, err error) error {
 		return err
 	}
 
+	// A rate limit that lands on the installation token refresh is still a rate
+	// limit, and it is the one a real fleet meets first: every background sweep
+	// mints a token before it does anything else. ghinstallation does that
+	// inside the transport, so the refusal arrives as its own error with no
+	// go-github response attached and used to fall through this function
+	// unclassified -- which meant the per-installation stand-down never
+	// engaged, and the fleet kept spending a quota it did not have while its
+	// paused gauge read zero.
+	var he *ghinstallation.HTTPError
+	if errors.As(err, &he) && he.Response != nil {
+		if out, ok := rateLimitFromResponse(he.Response); ok {
+			return out
+		}
+	}
+
 	var rl *gh.RateLimitError
 	if errors.As(err, &rl) {
 		return &RateLimitedError{ResetAt: rl.Rate.Reset.Time}
@@ -767,6 +782,31 @@ func classify(resp *gh.Response, err error) error {
 			"matches the App on GitHub", detail(message))
 	}
 	return err
+}
+
+// rateLimitFromResponse reads a refusal's own rate-limit headers, for the
+// failures that never reach go-github's classification.
+//
+// A refusal is only read as a rate limit when the headers say the quota is
+// actually gone: a 403 for a permission the App does not have carries a
+// remaining quota, and calling that a rate limit would stand an installation
+// down for fifteen minutes over something waiting will never fix.
+func rateLimitFromResponse(resp *http.Response) (*RateLimitedError, bool) {
+	if resp.StatusCode != http.StatusForbidden && resp.StatusCode != http.StatusTooManyRequests {
+		return nil, false
+	}
+	remaining, err := strconv.Atoi(resp.Header.Get("X-RateLimit-Remaining"))
+	if err != nil || remaining > 0 {
+		return nil, false
+	}
+	out := &RateLimitedError{}
+	if sec, err := strconv.ParseInt(resp.Header.Get("X-RateLimit-Reset"), 10, 64); err == nil && sec > 0 {
+		out.ResetAt = time.Unix(sec, 0).UTC()
+	}
+	if after, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && after > 0 {
+		out.RetryAfter = time.Duration(after) * time.Second
+	}
+	return out, true
 }
 
 func detail(message string) string {
