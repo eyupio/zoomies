@@ -65,6 +65,10 @@ type spaHandler struct {
 	built   bool
 	modTime time.Time
 	hashes  []string
+	// indexETag is index.html's validator, derived from the bytes actually
+	// served. See serveIndex for why it, rather than a modification time, is
+	// what decides whether a browser may keep the copy it has.
+	indexETag string
 }
 
 // newSPAHandler prepares the embedded UI for serving. externalURL is the
@@ -96,6 +100,12 @@ func newSPAHandler(externalURL string, allowIndexing bool) (*spaHandler, error) 
 		modTime: buildTime(),
 	}
 	h.hashes = inlineScriptHashes(index)
+	// Computed from the substituted bytes, not the embedded ones: two
+	// controllers built from the same commit but pointed at different external
+	// URLs serve different pages, and a validator that said otherwise would let
+	// a browser keep the wrong one.
+	sum := sha256.Sum256(index)
+	h.indexETag = `"` + base64.RawURLEncoding.EncodeToString(sum[:16]) + `"`
 	return h, nil
 }
 
@@ -179,7 +189,26 @@ func (h *spaHandler) serveIndex(w http.ResponseWriter, r *http.Request) {
 	// browser at files that no longer exist after an upgrade.
 	w.Header().Set("Cache-Control", "no-cache, must-revalidate")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	http.ServeContent(w, r, "index.html", h.modTime, bytes.NewReader(h.index))
+	w.Header().Set("ETag", h.indexETag)
+	// The zero time is deliberate, and it is the whole fix: it stops
+	// ServeContent sending Last-Modified and stops it honouring
+	// If-Modified-Since, leaving the ETag above as the only validator.
+	//
+	// buildTime() is a constant, so every build claimed the same
+	// Last-Modified. A browser revalidating this page after an upgrade -- and
+	// it always revalidates, because of the no-cache above -- was answered 304
+	// and kept the previous build's index.html, which names content-hashed
+	// chunks that are no longer in the binary. The shell still booted from its
+	// own immutable cached bundle, so the failure showed up only on the first
+	// route the user had not already visited: its chunk 404s and the page
+	// renders "That page could not be loaded". Reloading did not help either,
+	// because a reload revalidates the same way and is answered 304 again.
+	//
+	// A validator taken from the bytes cannot drift like that, and dropping
+	// Last-Modified is what frees a browser that cached under the old constant:
+	// it has no stored ETag, so it sends only If-Modified-Since, which is now
+	// ignored.
+	http.ServeContent(w, r, "index.html", time.Time{}, bytes.NewReader(h.index))
 }
 
 func (h *spaHandler) setCacheHeaders(w http.ResponseWriter, name string) {

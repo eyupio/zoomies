@@ -133,6 +133,11 @@
   const migratable = $derived(rows.filter((r) => r.migratable));
   const unreadable = $derived(rows.filter((r) => r.unreadable));
   const missingPermissions = $derived(plan?.missing_permissions ?? []);
+  // Either half is enough to say something is wrong: the hint arrives with the
+  // list, but a server that named only one of the two should still be heard.
+  const permissionProblem = $derived(
+    missingPermissions.length > 0 || Boolean(plan?.permission_hint),
+  );
   const hidden = $derived(onlyMigratable ? rows.length - migratable.length : 0);
   const visible = $derived(onlyMigratable ? migratable : rows);
 
@@ -202,6 +207,25 @@
         Their workflows were never looked at, so they cannot be migrated from here whatever they
         contain. The first one says: <span class="mono">{unreadable[0]?.note}</span>
       </p>
+    </div>
+  {/if}
+
+  <!--
+    Its own block, and not a paragraph inside the one above, because the two
+    are not the same problem and do not always arrive together. This is what
+    the App may do, which the server establishes by asking GitHub rather than
+    by inferring it from what failed. Tucked inside the unreadable block it was
+    invisible in the case that needs it most: an App that was never granted
+    Contents gets a 404 for every repository, which reads as "no workflows", so
+    nothing is unreadable, nothing can be migrated, and the one sentence that
+    explains why was hidden behind a count of zero.
+  -->
+  {#if permissionProblem}
+    <div class="problem" role="alert">
+      <p class="problem-title">
+        <AlertTriangle size={15} aria-hidden="true" />
+        The App is missing permissions this wizard needs
+      </p>
       {#if missingPermissions.length > 0}
         <ul>
           {#each missingPermissions as item (item)}
@@ -210,6 +234,10 @@
         </ul>
       {/if}
       {#if plan?.permission_hint}<p>{plan.permission_hint}.</p>{/if}
+      <p>
+        Until they are granted, a repository the App cannot read is indistinguishable from one with
+        no workflows in it, so what is listed below may be an incomplete picture of what could move.
+      </p>
       {#if plan?.settings_url}
         <p>
           <a href={plan.settings_url} target="_blank" rel="noopener noreferrer">

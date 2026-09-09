@@ -90,11 +90,22 @@ func NewFake() *FakeGitHub {
 		appName:             "Zoomies Fake",
 		appOwner:            "acme",
 		repositorySelection: "all",
+		// What a correctly created App is granted, which is what the manifest in
+		// manifest.go asks for. The three migration permissions belong here
+		// because this fake serves repository contents: an App described as
+		// unable to read them, while the fake hands them over anyway, is a
+		// fixture no real installation can be in, and it hid the wizard
+		// reporting an App's missing Contents permission as "these
+		// repositories have no workflows". A test that wants a narrower App
+		// says so with SetPermissions.
 		permissions: map[string]string{
 			"actions":                          "read",
 			"metadata":                         "read",
 			"administration":                   "write",
 			"organization_self_hosted_runners": "write",
+			"contents":                         "write",
+			"pull_requests":                    "write",
+			"workflows":                        "write",
 		},
 		events:       []string{"workflow_job"},
 		nextRunnerID: 1,

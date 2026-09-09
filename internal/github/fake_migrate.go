@@ -165,7 +165,12 @@ func (f *FakeGitHub) getContents(w http.ResponseWriter, r *http.Request) {
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if !slices.Contains(f.repos, full) {
+	// GitHub does not distinguish "you may not see this" from "it is not
+	// there": an App without the Contents permission gets a 404, the same
+	// answer as a repository with no .github/workflows. Answering 403 here
+	// would make the fake kinder than GitHub is, and hide the confusion that
+	// causes.
+	if !slices.Contains(f.repos, full) || !f.canReadContentsLocked() {
 		writeError(w, http.StatusNotFound, "Not Found")
 		return
 	}
@@ -372,4 +377,14 @@ func (f *FakeGitHub) createPull(w http.ResponseWriter, r *http.Request) {
 		"base":     map[string]any{"ref": body.Base},
 		"html_url": fmt.Sprintf("https://github.com/%s/pull/%d", full, number),
 	})
+}
+
+// canReadContentsLocked reports whether the App this fake describes was granted
+// the Contents permission. The caller holds f.mu.
+func (f *FakeGitHub) canReadContentsLocked() bool {
+	switch f.permissions["contents"] {
+	case "read", "write":
+		return true
+	}
+	return false
 }
