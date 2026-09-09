@@ -96,7 +96,7 @@ Conventions:
 | GET | `/api/v1/pools/platforms` | viewer | The runner image catalogue: every operating system and release a `zoomies-runner` image is published for, and the architectures each is built for. Served rather than hard-coded in a client, so a pool cannot be offered a platform no image exists for. |
 | GET | `/api/v1/pools/{id}` | viewer | |
 | PATCH | `/api/v1/pools/{id}` | operator | |
-| DELETE | `/api/v1/pools/{id}` | operator | `?drain=true` (default) drains runners first; `?force=true` removes them immediately. The response says how many runners were affected. |
+| DELETE | `/api/v1/pools/{id}` | operator | `?drain=true` (default) drains runners first; `?force=true` removes them immediately, interrupting their jobs. Deleting a pool deletes its runners' records with it, so it answers `409` while any of them is still finishing — the refusal has already asked them to stop, so call it again once they have gone. A pool whose runners are idle goes in one call, because an idle runner is removed outright rather than drained. The response says how many runners were affected. |
 | POST | `/api/v1/pools/{id}/prewarm` | operator | Queues an image pull on every host the pool could be placed on, so the first job does not pay for it. `202` with the per-host state. |
 | POST | `/api/v1/pools/{id}/enable` | operator | |
 | POST | `/api/v1/pools/{id}/disable` | operator | Existing runners drain; no new ones are made. |

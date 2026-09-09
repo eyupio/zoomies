@@ -577,7 +577,10 @@ export interface paths {
         get: operations["getPool"];
         put?: never;
         post?: never;
-        /** Delete a pool */
+        /**
+         * Delete a pool
+         * @description Deleting a pool deletes its runners' records with it, so it is refused with 409 while any of them is still finishing a job. The refusal still asks them to stop, so the call that follows it is the short one: delete the pool again once they have gone. A pool whose runners are idle is deleted in one call, because an idle runner is removed outright rather than drained.
+         */
         delete: operations["deletePool"];
         options?: never;
         head?: never;
@@ -3745,7 +3748,7 @@ export interface operations {
             query?: {
                 /** @description Let running jobs finish first. The default, and the only safe choice while work is in flight. */
                 drain?: boolean;
-                /** @description Destroy runners immediately, interrupting any job they are running. */
+                /** @description Destroy runners immediately, interrupting any job they are running. Deletes the pool in one call, because nothing is left to wait for. */
                 force?: boolean;
             };
             header?: never;
@@ -3769,6 +3772,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     updatePool: {

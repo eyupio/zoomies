@@ -836,6 +836,13 @@ paths:
       operationId: deletePool
       tags: [pools]
       summary: Delete a pool
+      description: >-
+        Deleting a pool deletes its runners' records with it, so it is refused
+        with 409 while any of them is still finishing a job. The refusal still
+        asks them to stop, so the call that follows it is the short one: delete
+        the pool again once they have gone. A pool whose runners are idle is
+        deleted in one call, because an idle runner is removed outright rather
+        than drained.
       x-zoomies-role: operator
       parameters:
         - name: drain
@@ -844,7 +851,9 @@ paths:
           schema: { type: boolean, default: true }
         - name: force
           in: query
-          description: Destroy runners immediately, interrupting any job they are running.
+          description: >-
+            Destroy runners immediately, interrupting any job they are running.
+            Deletes the pool in one call, because nothing is left to wait for.
           schema: { type: boolean, default: false }
       responses:
         "200":
@@ -856,6 +865,7 @@ paths:
                 properties:
                   runners_affected: { type: integer }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
 
   /pools/{id}/prewarm:
     post:

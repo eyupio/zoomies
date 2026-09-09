@@ -1190,3 +1190,81 @@ func TestWithoutEnvValuesBlanksTheFrameAndNothingElse(t *testing.T) {
 		}
 	}
 }
+
+// TestDeletingAPoolWaitsForItsRunnersToFinish covers a drain the pool did not
+// outlive.
+//
+// Deleting a pool takes its runners' rows with it. Doing that in the same
+// request that started their drain meant the next heartbeat reported runners
+// the controller had no record of, the agent stopped tracking them, and its
+// orphan sweep destroyed the containers about two minutes later -- killing the
+// jobs the drain existed to protect, with no timeline entry, because by then
+// nothing remembered they had been running.
+func TestDeletingAPoolWaitsForItsRunnersToFinish(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	host := h.host("vm-1")
+	runner := h.runner(pool, host, store.RunnerBusy)
+	_, cookie := h.user("operator", store.RoleOperator)
+
+	resp := h.do(request{method: http.MethodDelete, path: "/api/v1/pools/" + pool.ID, cookie: cookie})
+	resp.mustStatus(t, http.StatusConflict, "deleting a pool with a busy runner")
+
+	// The pool is still there, so its runners still have somewhere to belong.
+	if _, err := h.st.GetPool(h.ctx, pool.ID); err != nil {
+		t.Fatalf("the pool was deleted despite the refusal: %v", err)
+	}
+	// And the refusal started the drain rather than merely declining.
+	after, err := h.st.GetRunner(h.ctx, runner.ID)
+	if err != nil {
+		t.Fatalf("GetRunner: %v", err)
+	}
+	if after.State != store.RunnerDraining {
+		t.Errorf("runner state = %q, want draining: the refusal should still have asked it to stop", after.State)
+	}
+
+	// Once the runner has finished, the same call goes through.
+	if _, err := h.st.TransitionRunner(h.ctx, runner.ID, store.RunnerRemoved, "job finished"); err != nil {
+		t.Fatalf("TransitionRunner: %v", err)
+	}
+	again := h.do(request{method: http.MethodDelete, path: "/api/v1/pools/" + pool.ID, cookie: cookie})
+	again.mustStatus(t, http.StatusOK, "deleting the pool once its runners have gone")
+	if _, err := h.st.GetPool(h.ctx, pool.ID); err == nil {
+		t.Error("the pool survived a delete that should have succeeded")
+	}
+}
+
+// TestDeletingAnIdlePoolStillTakesOneCall is the limit of the rule above. A
+// runner that is not busy is removed outright rather than drained, so it is
+// terminal by the time the handler looks and the operator is not asked to come
+// back for a pool with no work on it.
+func TestDeletingAnIdlePoolStillTakesOneCall(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	host := h.host("vm-1")
+	h.runner(pool, host, store.RunnerIdle)
+	_, cookie := h.user("operator", store.RoleOperator)
+
+	resp := h.do(request{method: http.MethodDelete, path: "/api/v1/pools/" + pool.ID, cookie: cookie})
+	resp.mustStatus(t, http.StatusOK, "deleting a pool whose runners are idle")
+}
+
+// TestForceDeletingAPoolDoesNotWait is the escape hatch: an operator who says
+// force has already accepted that the jobs die, and must not then be told to
+// call again.
+func TestForceDeletingAPoolDoesNotWait(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	host := h.host("vm-1")
+	h.runner(pool, host, store.RunnerBusy)
+	_, cookie := h.user("operator", store.RoleOperator)
+
+	resp := h.do(request{method: http.MethodDelete, path: "/api/v1/pools/" + pool.ID + "?force=true", cookie: cookie})
+	resp.mustStatus(t, http.StatusOK, "force-deleting a pool with a busy runner")
+	if _, err := h.st.GetPool(h.ctx, pool.ID); err == nil {
+		t.Error("a forced delete left the pool behind")
+	}
+}
