@@ -393,6 +393,7 @@
   let validateError = $state<unknown>(null);
 
   const reviewStep = WIZARD_STEPS.length - 1;
+  const hostsStep = WIZARD_STEPS.findIndex((step) => step.id === 'hosts');
   // The backend step counts over the hosts this pool is allowed to land on, not
   // the whole fleet: "offered by 3 hosts" is a lie if two of them are the amd64
   // boxes an arm64 pool will never touch. Placement is chosen first for exactly
@@ -583,7 +584,11 @@
   /* -- the server's verdict, before anything is created --------------------- */
 
   $effect(() => {
-    if (current !== reviewStep) return;
+    // From the placement step on, not only at the end. Every step after it
+    // edits something the controller's count depends on -- which hosts, which
+    // backend, how big a runner is -- so the answer belongs beside the setting
+    // that changes it, while there is still a reason to change it.
+    if (current < hostsStep) return;
     const payload = body;
     const controller = new AbortController();
     validating = true;
@@ -697,7 +702,14 @@
       {:else if step.id === 'labels'}
         <StepLabels {draft} {errors} {touch} />
       {:else if step.id === 'hosts'}
-        <StepHosts {draft} {touch} hosts={fleet.hosts} hostsKnown={fleet.loaded} />
+        <StepHosts
+          {draft}
+          {touch}
+          hosts={fleet.hosts}
+          hostsKnown={fleet.loaded}
+          {verdict}
+          {validating}
+        />
       {:else if step.id === 'backend'}
         <StepBackend
           {draft}
@@ -711,7 +723,7 @@
           bind:socketConfirmed
         />
       {:else if step.id === 'scaling'}
-        <StepScaling {draft} {errors} {touch} />
+        <StepScaling {draft} {errors} {touch} {verdict} {validating} />
       {:else}
         <StepReview
           {draft}

@@ -310,7 +310,7 @@ test('the review step shows the server verdict and how many hosts could run it',
   // agent is behind them -- none can, and the wizard says that even louder.
   const verdict = page.getByRole('region', { name: "The controller's check" });
   await expect(verdict).toContainText(
-    /(\d+ connected hosts? can run this pool|No connected host can run this pool)/,
+    /(\d+ connected hosts? can run this pool|\d+ of the \d+ hosts this pool reaches can run it|No connected host can run this pool)/,
     { timeout: 15_000 },
   );
 });
@@ -576,4 +576,37 @@ test('a ticked pool can be edited from the same bar that enables and disables it
   await rows.filter({ hasText: FIXTURE.armPool }).getByRole('checkbox').uncheck();
   await bar.getByRole('button', { name: 'Edit' }).click();
   await expect(nameField(page)).toHaveValue(FIXTURE.linuxPool);
+});
+
+test('the scaling step says which hosts a CPU limit has just cost the pool', async ({ page }) => {
+  // The bug this covers: the hosts step counted every machine the selector
+  // reached, the review step counted fewer, and nothing between them said that
+  // a resource limit was what had happened. The demo fleet is a 16-CPU builder,
+  // an 8-CPU builder and a cordoned arm64 box, so a 12-CPU runner is a request
+  // only one of them can take.
+  await goto(page, '/pools/new', 'Create a pool');
+  await nameField(page).fill('e2e-big');
+  await next(page).click();
+  await addLabel(page, 'gpu');
+  await next(page).click();
+  await next(page).click();
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Scaling' })).toBeVisible();
+
+  await page.getByLabel('CPUs').fill('12');
+
+  // Named host, and the two numbers an operator cannot compare for themselves:
+  // what the machine has, and what one runner of this pool is charged. The
+  // fixture hosts stop heartbeating 90s after the controller starts, and then
+  // the honest reason for the same host is a different one.
+  const fit = page.getByText(/can run (this pool|it)/).locator('..');
+  await expect(fit).toContainText('demo-builder-2');
+  await expect(fit).toContainText(/charged 12|not heartbeating/);
+
+  // A limit the fleet can cover puts the host back, leaving only the cordoned
+  // box -- which is the fleet's state rather than this pool's doing, so the
+  // block stops blaming the limits an operator has already corrected.
+  await page.getByLabel('CPUs').fill('4');
+  await expect(fit).not.toContainText('demo-builder-2');
+  await expect(fit).not.toContainText(/Matching the host selector is not the whole of it/);
 });

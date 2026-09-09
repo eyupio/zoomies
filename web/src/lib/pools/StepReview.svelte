@@ -7,15 +7,14 @@
   at an empty queue.
 -->
 <script lang="ts">
-  import { CircleCheck, ServerOff, TriangleAlert, Wrench } from '@lucide/svelte';
+  import { CircleCheck, TriangleAlert } from '@lucide/svelte';
   import type { Pool, PoolCreate, Result } from '$lib/api/types';
-  import { pluralise } from '$lib/format';
   import Button from '$lib/components/Button.svelte';
   import Checkbox from '$lib/components/Checkbox.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import PoolConfig from './PoolConfig.svelte';
-  import RemedyText from '$lib/components/RemedyText.svelte';
+  import PoolFit from './PoolFit.svelte';
   import PoolWarnings from './PoolWarnings.svelte';
   import { FIELD_LABELS, WIZARD_STEPS, stepForField } from './PoolVocabulary.svelte';
   import type { PoolDraft } from './PoolWizardForm.svelte';
@@ -46,16 +45,17 @@
   const fieldErrors = $derived(verdict?.errors ?? []);
   const warnings = $derived(verdict?.warnings ?? []);
   const matching = $derived(verdict?.matching_hosts);
-  // The server says the same thing as the banner below, only with the detail
-  // the fleet knows: which host is there and what its agent could not reach.
-  // It is shown inside the banner rather than a second time under it.
-  const noHost = $derived(warnings.find((w) => w.code === 'pool.no_matching_hosts'));
+  const excluded = $derived(verdict?.excluded_hosts ?? []);
+  // PoolFit renders this one, with the fleet's own account of which host is
+  // there and what it could not do. Showing it again in the warnings list
+  // below would be the same paragraph twice.
   const otherWarnings = $derived(warnings.filter((w) => w.code !== 'pool.no_matching_hosts'));
   const happy = $derived(
     verdict !== null &&
       verdict.valid &&
       fieldErrors.length === 0 &&
       warnings.length === 0 &&
+      excluded.length === 0 &&
       (matching === undefined || matching > 0),
   );
 
@@ -89,35 +89,7 @@
       <Skeleton lines={2} />
     </div>
   {:else if verdict}
-    {#if matching !== undefined}
-      <div class="hosts" class:none={matching === 0}>
-        {#if matching === 0}
-          <p class="hosts-title">
-            <ServerOff size={15} aria-hidden="true" />
-            No connected host can run this pool
-          </p>
-          <p class="hosts-body">
-            Nothing matches this pool's backend and host selector, so it will never make a runner
-            and every job asking for these labels will sit in the queue. Choose a backend one of
-            your hosts offers, or connect a host that does, before you rely on it.
-          </p>
-          {#if noHost?.detail}
-            <p class="hosts-body"><RemedyText text={noHost.detail} /></p>
-          {/if}
-          {#if noHost?.fix}
-            <p class="hosts-fix">
-              <Wrench size={13} aria-hidden="true" />
-              <span><RemedyText text={noHost.fix} /></span>
-            </p>
-          {/if}
-        {:else}
-          <p class="hosts-title">
-            <CircleCheck size={15} aria-hidden="true" />
-            {pluralise(matching, 'connected host')} can run this pool
-          </p>
-        {/if}
-      </div>
-    {/if}
+    <PoolFit {verdict} {validating} />
 
     {#if fieldErrors.length > 0}
       <div class="errors" role="group" aria-label="What the controller rejected">
@@ -180,45 +152,6 @@
     display: flex;
     flex-direction: column;
     gap: var(--z-space-2);
-  }
-  .hosts {
-    padding: var(--z-space-3) var(--z-space-4);
-    border: var(--z-border-width) solid var(--z-idle-border);
-    border-radius: var(--z-radius-md);
-    background: var(--z-idle-subtle);
-  }
-  .hosts.none {
-    border: var(--z-border-width-thick) solid var(--z-danger-border);
-    background: var(--z-danger-subtle);
-  }
-  .hosts-title {
-    display: flex;
-    align-items: center;
-    gap: var(--z-space-2);
-    margin: 0;
-    font-size: var(--z-text-base);
-    font-weight: var(--z-weight-semibold);
-    color: var(--z-idle);
-  }
-  .hosts.none .hosts-title {
-    color: var(--z-danger);
-  }
-  .hosts-body {
-    margin: var(--z-space-2) 0 0;
-    max-width: 70ch;
-    font-size: var(--z-text-base);
-    line-height: var(--z-leading-base);
-    color: var(--z-text);
-  }
-  .hosts-fix {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--z-space-2);
-    margin: var(--z-space-2) 0 0;
-    max-width: 70ch;
-    font-size: var(--z-text-base);
-    line-height: var(--z-leading-base);
-    color: var(--z-text-muted);
   }
   .errors {
     padding: var(--z-space-3) var(--z-space-4);

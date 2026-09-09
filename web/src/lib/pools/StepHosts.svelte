@@ -9,9 +9,10 @@
 -->
 <script lang="ts">
   import { ServerCog } from '@lucide/svelte';
-  import type { Host } from '$lib/api/types';
+  import type { Host, Result } from '$lib/api/types';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import HostSelectorEditor from './HostSelectorEditor.svelte';
+  import PoolFit from './PoolFit.svelte';
   import type { PoolDraft } from './PoolWizardForm.svelte';
 
   interface Props {
@@ -20,9 +21,18 @@
     hosts: readonly Host[];
     /** False until the fleet cache has landed, so we do not cry wolf. */
     hostsKnown: boolean;
+    /** The controller's own count, which knows the rules this step does not. */
+    verdict: Result<'validatePool'> | null;
+    validating: boolean;
   }
 
-  let { draft, touch, hosts, hostsKnown }: Props = $props();
+  let { draft, touch, hosts, hostsKnown, verdict, validating }: Props = $props();
+
+  // Only when it has something the selector's own count does not. The two agree
+  // on a fleet where every matching host can take the work, and a second box
+  // saying so in different words is noise on the step where the selector is
+  // being typed.
+  const shortfall = $derived((verdict?.excluded_hosts ?? []).length > 0);
 
   function change(next: Record<string, string>): void {
     draft.host_selector = next;
@@ -63,6 +73,9 @@
     onchange={change}
     onrestrict={restrict}
   />
+  {#if shortfall}
+    <PoolFit {verdict} {validating} />
+  {/if}
 {/if}
 
 <style>

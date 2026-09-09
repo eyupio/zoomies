@@ -265,3 +265,54 @@ func onHost(r *store.Runner, hostID string) *store.Runner {
 	r.HostID = hostID
 	return r
 }
+
+// The case that sent an operator to this function: the wizard's placement step
+// counts two Linux amd64 hosts, its review step counts one, and the 12-CPU
+// machine is the one that vanished -- because docker-in-docker charges its
+// sidecar too, so an 8-CPU pool costs 16 and the "8 CPU" on the pool is not a
+// number anything on screen can be compared against.
+func TestTheShortfallNamesTheDoubledDockerInDockerCharge(t *testing.T) {
+	h := sized("host_a", 8, 12, 31*1024, 500*1024)
+	p := limited("builders", 8, 0)
+	p.DockerMode = store.DockerDinD
+
+	got := HostShortfall(h, p)
+	for _, want := range []string{"12 CPU", "charged 16", "sidecar"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("HostShortfall = %q, want it to mention %q", got, want)
+		}
+	}
+	// The same pool without the sidecar fits the same machine, which is what
+	// makes the doubling worth naming rather than describing as a limit.
+	p.DockerMode = store.DockerNone
+	if got := HostShortfall(h, p); got != "" {
+		t.Errorf("HostShortfall = %q for a pool that fits", got)
+	}
+}
+
+// A host that never measured itself constrains nothing, so it is placed by its
+// slot count alone. That is deliberate -- it is what stops an upgrade emptying
+// a fleet -- and the shortfall has to agree with it, or the wizard would name a
+// size problem the scheduler does not have.
+func TestAnUnmeasuredHostHasNoShortfall(t *testing.T) {
+	h := testHost("host_a", 6, 0)
+	p := limited("builders", 64, 512*1024)
+
+	if got := HostShortfall(h, p); got != "" {
+		t.Errorf("HostShortfall = %q for a host that has reported no size", got)
+	}
+}
+
+// Disk is the dimension with no fallback and its own floor, so a pool that asks
+// for more of it than a host has left is refused in the host's terms rather
+// than in the pool's.
+func TestTheShortfallNamesTheDiskAPoolAskedFor(t *testing.T) {
+	h := sized("host_a", 8, 8, 32*1024, 40*1024)
+	p := limited("archivers", 0, 0)
+	p.Resources = store.Resources{DiskGB: 200}
+
+	got := HostShortfall(h, p)
+	if !strings.Contains(got, "disk") || !strings.Contains(got, "charged 200 GB") {
+		t.Errorf("HostShortfall = %q, want the disk the pool asked for", got)
+	}
+}

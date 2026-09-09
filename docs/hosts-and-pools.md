@@ -279,7 +279,19 @@ disk is the one shortage that no job finishing will clear, and a pool that sets
 `resources.disk_gb` is charged it against what is free right now.
 
 A host whose agent never reported its size is placed by slots alone, exactly as
-before, which is what stops an upgrade emptying a fleet. Note also what a
+before, which is what stops an upgrade emptying a fleet — and it is worth
+knowing that this cuts both ways: an unmeasured host accepts a pool its
+measured neighbour refuses, because a figure nobody reported constrains
+nothing. Upgrade the agent and the machine starts answering for its own size.
+
+The number to check a limit against is not the one on the pool. A runner is
+charged what its pool asks for, a field left unset is charged one slot's worth
+of the host instead, and a **docker-in-docker pool is charged twice over**,
+because the backend gives the build's sidecar the same limits as the runner —
+so a pool asking for 8 CPU needs a 16-CPU host, and a 12-CPU machine that
+matches its selector in every other way will never take one. The pool wizard
+says so as the limits are typed: it names each host its selector reaches that
+could not run the pool, and what that host has against what a runner costs. Note also what a
 reservation is not: it is a promise the fleet accounts for, and what actually
 binds a runner is the cgroup limit the container backends apply from the same
 `resources`. The `process` backend applies none, so on a `process` pool the

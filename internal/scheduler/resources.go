@@ -1,6 +1,10 @@
 package scheduler
 
 import (
+	"fmt"
+	"strconv"
+	"strings"
+
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -147,4 +151,75 @@ func fits(left, want Reservation, known store.HostAllocation) bool {
 		return false
 	}
 	return true
+}
+
+// HostShortfall says why one runner of p could not fit on an empty h, in terms
+// an operator can act on: what the machine has to place on, and what this pool
+// is charged for a runner. It is empty when the runner would fit, so it is
+// also the sentence for "why is this host not in the count".
+//
+// The charge is the number worth spelling out, because it is the one nothing
+// on the pool shows. A pool that asks for 8 CPU and gives its jobs Docker in
+// Docker is charged 16 on every host -- the sidecar gets the same limits -- so
+// a 12-CPU machine refuses it, and an operator reading the pool's own "8 CPU"
+// against a "12 vCPU" host card has no way to see why.
+func HostShortfall(h *store.Host, p *store.Pool) string {
+	alloc := h.Allocatable()
+	left := Reservation{CPUs: alloc.CPUs, MemoryMB: alloc.MemoryMB, DiskMB: alloc.DiskMB}
+	want := Reserve(p, h)
+	if fits(left, want, alloc) {
+		return ""
+	}
+	dind := p.DockerMode == store.DockerDinD
+	switch {
+	case alloc.DiskKnown && alloc.DiskMB <= 0:
+		// The reserve floor, not a limit anyone typed. Sending an operator to
+		// lower the pool's disk request would be sending them to the wrong
+		// screen: this host refuses every pool until space is freed on it.
+		return "its work directory is at or below its disk reserve, so it takes no runner of any pool"
+	case alloc.DiskKnown && left.DiskMB < want.DiskMB:
+		return fmt.Sprintf("it has %s of disk free to place on, and one runner of this pool is charged %s%s",
+			formatMB(left.DiskMB), formatMB(want.DiskMB), charged(p.Resources.DiskGB > 0, dind))
+	case alloc.CPUsKnown && left.CPUs+cpuEpsilon < want.CPUs:
+		return fmt.Sprintf("it has %s CPU to place on, and one runner of this pool is charged %s%s",
+			formatCPUs(left.CPUs), formatCPUs(want.CPUs), charged(p.Resources.CPUs > 0, dind))
+	case alloc.MemoryKnown && left.MemoryMB < want.MemoryMB:
+		return fmt.Sprintf("it has %s of memory to place on, and one runner of this pool is charged %s%s",
+			formatMB(left.MemoryMB), formatMB(want.MemoryMB), charged(p.Resources.MemoryMB > 0, dind))
+	}
+	return "it is too small for this pool's limits"
+}
+
+// charged explains the one case where the number an operator sees on the pool
+// is not the number the host is charged. The fallback needs no such sentence:
+// a field left unset is charged a share of the machine it is being compared
+// against, so it cannot be what a host is too small for.
+func charged(set, dind bool) string {
+	if set && dind {
+		return ", twice what it asks for, because a docker-in-docker runner is charged for its sidecar too"
+	}
+	return ""
+}
+
+// formatCPUs writes a CPU count the way the pool form takes one: whole where
+// it is whole, and a share where the host's capacity did not divide evenly.
+// Two decimals is where a share stops being worth reading -- the rounding this
+// absorbs is the same one cpuEpsilon exists for.
+func formatCPUs(v float64) string {
+	s := strings.TrimRight(strings.TrimRight(strconv.FormatFloat(v, 'f', 2, 64), "0"), ".")
+	if s == "" || s == "-" {
+		return "0"
+	}
+	return s
+}
+
+// formatMB writes a size in the unit an operator would say it in.
+func formatMB(mb int64) string {
+	if mb >= 1024 && mb%1024 == 0 {
+		return strconv.FormatInt(mb/1024, 10) + " GB"
+	}
+	if mb >= 1024 {
+		return strconv.FormatFloat(float64(mb)/1024, 'f', 1, 64) + " GB"
+	}
+	return strconv.FormatInt(mb, 10) + " MB"
 }

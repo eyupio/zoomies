@@ -789,6 +789,13 @@ paths:
                   matching_hosts:
                     type: integer
                     description: How many hosts could actually run this pool. Zero is worth saying out loud before the pool is created.
+                  selected_hosts:
+                    type: integer
+                    description: How many hosts this pool's host selector reaches, whatever became of them afterwards. The wizard's placement step counts by the selector alone, so this is the number it shows and matching_hosts is the number its review step shows.
+                  excluded_hosts:
+                    type: array
+                    description: Every host the selector reaches that the fleet could not run this pool on, with the reason. It is what turns "2 hosts match" followed by "1 host can run this pool" from a contradiction into an explanation.
+                    items: { $ref: "#/components/schemas/HostExclusion" }
                   image:
                     type: string
                     description: The image the pool would actually run, which for a pool that gives its jobs a daemon is the stock image's Docker variant rather than the image the request named.
@@ -2171,6 +2178,20 @@ components:
       properties:
         field: { type: string, examples: [labels] }
         message: { type: string, examples: ["a pool needs at least one label your workflows can ask for"] }
+
+    HostExclusion:
+      type: object
+      required: [host, code, reason]
+      properties:
+        host: { type: string, examples: [zoomies-12vcpu-31gb-debian-12] }
+        code:
+          type: string
+          description: Which placement rule turned this host down.
+          enum: [unavailable, backend, platform, size]
+        reason:
+          type: string
+          description: A sentence about the host with its name left out, so a caller can put the name where its own layout wants it.
+          examples: ["it has 12 CPU to place on, and one runner of this pool is charged 16, twice what it asks for, because a docker-in-docker runner is charged for its sidecar too"]
 
     Problem:
       type: object

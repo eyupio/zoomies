@@ -1488,6 +1488,20 @@ export interface components {
             /** @example a pool needs at least one label your workflows can ask for */
             message: string;
         };
+        HostExclusion: {
+            /** @example zoomies-12vcpu-31gb-debian-12 */
+            host: string;
+            /**
+             * @description Which placement rule turned this host down.
+             * @enum {string}
+             */
+            code: "unavailable" | "backend" | "platform" | "size";
+            /**
+             * @description A sentence about the host with its name left out, so a caller can put the name where its own layout wants it.
+             * @example it has 12 CPU to place on, and one runner of this pool is charged 16, twice what it asks for, because a docker-in-docker runner is charged for its sidecar too
+             */
+            reason: string;
+        };
         Problem: {
             /** @example bind.public_no_tls */
             code: string;
@@ -3666,6 +3680,10 @@ export interface operations {
                         warnings?: components["schemas"]["Problem"][];
                         /** @description How many hosts could actually run this pool. Zero is worth saying out loud before the pool is created. */
                         matching_hosts?: number;
+                        /** @description How many hosts this pool's host selector reaches, whatever became of them afterwards. The wizard's placement step counts by the selector alone, so this is the number it shows and matching_hosts is the number its review step shows. */
+                        selected_hosts?: number;
+                        /** @description Every host the selector reaches that the fleet could not run this pool on, with the reason. It is what turns "2 hosts match" followed by "1 host can run this pool" from a contradiction into an explanation. */
+                        excluded_hosts?: components["schemas"]["HostExclusion"][];
                         /** @description The image the pool would actually run, which for a pool that gives its jobs a daemon is the stock image's Docker variant rather than the image the request named. */
                         image?: string;
                     };
