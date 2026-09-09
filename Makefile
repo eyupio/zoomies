@@ -134,6 +134,12 @@ image-runner: ## Build the runner image for the host architecture
 		-t ghcr.io/eyupio/zoomies-runner:$(RUNNER_VERSION) \
 		-t ghcr.io/eyupio/zoomies-runner:latest .
 
+.PHONY: image-nixpacks
+image-nixpacks: ## Build the controller image from source with Nixpacks (needs the nixpacks CLI)
+	@command -v nixpacks >/dev/null 2>&1 || { \
+	  echo "nixpacks is not installed: https://nixpacks.com/docs/install"; exit 1; }
+	nixpacks build . --name ghcr.io/eyupio/zoomies:$(VERSION)-nixpacks
+
 .PHONY: images-multiarch
 images-multiarch: ## Build both images for amd64 and arm64 (needs buildx)
 	docker buildx build --platform linux/amd64,linux/arm64 \

@@ -1,0 +1,80 @@
+# Zoomies built by Nixpacks, for the platforms that use it -- Coolify, Dokploy,
+# Railway, Zeabur, Easypanel -- where you point the platform at this repository
+# and it builds and runs the controller for you.
+#
+# It is the same two-stage build as deploy/Dockerfile: the Svelte UI first,
+# because internal/api embeds internal/api/webdist and //go:embed fails on a
+# directory that is not there yet, then one static Go binary. Nixpacks' own Go
+# and Node providers would each find half of that and neither would wait for
+# the other, so every phase is spelled out here.
+#
+# What this produces is a **controller**, not a fleet. A PaaS gives you no
+# Docker socket, so the embedded agent is off and there is nothing on this host
+# that could start a runner: join agents from machines that do have a container
+# runtime (Hosts -> Add a host). See docs/paas.md.
+#
+# Verify a change to this file with `make image-nixpacks`.
+
+providers = []
+
+[variables]
+# Nixpkgs ships whatever Go it ships, and go.mod asks for a newer one than most
+# channels carry. GOTOOLCHAIN=auto lets the Go in the image fetch the toolchain
+# go.mod names rather than failing the build on a version skew we cannot pin
+# from here.
+GOTOOLCHAIN = "auto"
+# Pure-Go SQLite, so the binary is static and needs nothing from the runtime
+# image.
+CGO_ENABLED = "0"
+NPM_CONFIG_FUND = "false"
+NPM_CONFIG_AUDIT = "false"
+
+# The database, the runners' work area and -- unless you supply
+# ZOOMIES_ENCRYPTION_KEY yourself -- the generated encryption key all live
+# under these. Mount the platform's persistent volume at /data, or point both
+# at wherever it did mount one. Get this wrong and every deploy comes up with
+# an empty database and a new key, which cannot decrypt the GitHub App private
+# key the old one sealed.
+ZOOMIES_STATE_DIR = "/data"
+ZOOMIES_CONFIG_DIR = "/data"
+
+# The platform terminates TLS and proxies to this container in the clear.
+# Zoomies says so at startup; in this deployment that warning is expected. Set
+# ZOOMIES_EXTERNAL_URL to the https address the platform gives you -- it is
+# what the session cookie's Secure flag, the webhook URL and every link in the
+# UI are built from -- and ZOOMIES_TRUSTED_PROXIES to the proxy in front, or
+# the audit log records the proxy's address for every action and the login rate
+# limiter throttles every caller as one.
+ZOOMIES_TLS_MODE = "off"
+
+# No Docker socket here, so a runner started on this host would fail rather
+# than queue. Agents on hosts that do have one connect outbound to this
+# controller.
+ZOOMIES_AGENT_EMBEDDED = "false"
+
+ZOOMIES_LOG_FORMAT = "json"
+
+[phases.setup]
+# git is here for the version stamp below, not for the build.
+nixPkgs = ["go", "nodejs_22", "git", "cacert"]
+
+[phases.install]
+dependsOn = ["setup"]
+cmds = [
+  "npm --prefix web ci",
+  "go mod download",
+]
+
+[phases.build]
+dependsOn = ["install"]
+cmds = [
+  # Writes internal/api/webdist, which the Go build then embeds.
+  "npm --prefix web run build",
+  'go build -trimpath -ldflags "-s -w -X github.com/eyupio/zoomies/internal/version.Version=$(git describe --tags --always --dirty 2>/dev/null || echo nixpacks) -X github.com/eyupio/zoomies/internal/version.Commit=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)" -o /app/zoomies ./cmd/zoomies',
+]
+
+[start]
+# Platforms hand the port to bind in $PORT and expect the process to take it;
+# Zoomies takes ZOOMIES_BIND. An explicit ZOOMIES_BIND still wins, so a
+# platform that publishes a fixed port can just set it.
+cmd = 'ZOOMIES_BIND="${ZOOMIES_BIND:-0.0.0.0:${PORT:-8080}}" /app/zoomies controller'

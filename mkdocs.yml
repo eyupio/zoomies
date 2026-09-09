@@ -106,6 +106,7 @@ nav:
       - Architecture: architecture.md
       - Configuration: configuration.md
       - Migrating repositories: migration.md
+      - Deploying on a PaaS: paas.md
       - Security: security.md
       - API: api-surface.md
   - Reference:

@@ -203,4 +203,5 @@ api/openapi.yaml    the API contract both clients are generated from
 deploy/             images, compose, systemd units
 docs/               the zoomies.sh site, built by mkdocs.yml
 install.sh          the one-line installer, served from the site root
+nixpacks.toml       the build a Nixpacks-based PaaS runs; see docs/paas.md
 ```

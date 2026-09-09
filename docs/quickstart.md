@@ -29,6 +29,11 @@ warning.
 Everything it discovered is handed to `zoomies init`, so the interactive setup
 never asks a question the script already answered.
 
+Not installing on a host you own? A platform that builds with Nixpacks --
+Coolify, Dokploy, Railway, Zeabur -- can deploy the controller from the source
+instead, with agents joined from machines that have a container runtime. See
+[Deploying on a PaaS](paas.md).
+
 ## 2. Choose how it runs
 
 `zoomies init` offers only what your host can do:
@@ -226,6 +231,7 @@ page.
 ## Next
 
 - [Configuration](configuration.md) — every setting, including running behind Cloudflare
+- [Deploying on a PaaS](paas.md) — Coolify, Dokploy, Railway and anything else that builds with Nixpacks
 - [Security](security.md) — the threat model, and what each dangerous toggle costs
 - [Architecture](architecture.md) — how the pieces fit
 - [API](api-surface.md) — the REST surface the UI and CLI both use
