@@ -916,8 +916,8 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 			return nil
 		}
 	} else if lifecycleTask(kind) && cleansUp(kind) {
-		// A stop or remove that worked settles whatever an earlier attempt
-		// left on the row.
+		// A stop or remove settles the host's earlier failure. GitHub's
+		// registration cleanup is independent and may still need a retry.
 		c.noteCleanupSucceeded(ctx, r)
 	}
 	c.applyRunnerState(ctx, r, state, message)

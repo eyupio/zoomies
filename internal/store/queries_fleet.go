@@ -1076,7 +1076,7 @@ func (s *Store) SetRunnerResourceUsage(ctx context.Context, id string, cpu float
 	return err
 }
 
-// RecordCleanupFailure notes that taking this runner away did not work, and
+// RecordCleanupFailure notes that taking this runner away on its host did not work, and
 // counts the attempt.
 //
 // It is deliberately not a state transition. A runner whose remove failed is
@@ -1089,20 +1089,38 @@ func (s *Store) RecordCleanupFailure(ctx context.Context, id, reason string) err
 		reason = "cleanup failed without saying why"
 	}
 	_, err := s.exec(ctx, `UPDATE runners
-		SET cleanup_error=?, cleanup_failed_at=?, cleanup_attempts=cleanup_attempts+1
-		WHERE id=?`, reason, s.Now().UnixMilli(), id)
+		SET host_cleanup_error=?,
+		    cleanup_error=? || CASE WHEN registration_cleanup_error='' THEN '' ELSE '; ' || registration_cleanup_error END,
+		    cleanup_failed_at=?, cleanup_attempts=cleanup_attempts+1, cleaned_up_at=NULL
+		WHERE id=?`, reason, reason, s.Now().UnixMilli(), id)
 	return err
 }
 
-// ClearCleanupFailure records that the cleanup this row was complaining about
-// has since worked, and stamps the end of the runner's life.
+// RecordRegistrationCleanupFailure preserves the host's complaint while
+// recording a failed GitHub deletion. Neither side can settle the other.
+func (s *Store) RecordRegistrationCleanupFailure(ctx context.Context, id, reason string) error {
+	if reason == "" {
+		reason = "the GitHub runner registration could not be deleted"
+	}
+	_, err := s.exec(ctx, `UPDATE runners
+		SET registration_cleanup_error=?,
+		    cleanup_error=CASE WHEN host_cleanup_error='' THEN '' ELSE host_cleanup_error || '; ' END || ?,
+		    cleanup_failed_at=?, cleanup_attempts=cleanup_attempts+1, cleaned_up_at=NULL
+		WHERE id=?`, reason, reason, s.Now().UnixMilli(), id)
+	return err
+}
+
+// ClearCleanupFailure settles the host's complaint alone. A GitHub deletion
+// still outstanding remains visible until its own retry succeeds.
 //
 // The attempt count is kept. How many tries it took is the difference between
 // a blip and a host that needs looking at, and clearing it would erase the
 // only evidence that anything was ever wrong.
 func (s *Store) ClearCleanupFailure(ctx context.Context, id string) error {
 	_, err := s.exec(ctx, `UPDATE runners
-		SET cleanup_error='', cleanup_failed_at=NULL, cleaned_up_at=COALESCE(cleaned_up_at, ?)
+		SET host_cleanup_error='', cleanup_error=registration_cleanup_error,
+		    cleanup_failed_at=CASE WHEN registration_cleanup_error='' THEN NULL ELSE cleanup_failed_at END,
+		    cleaned_up_at=CASE WHEN registration_cleanup_error='' THEN COALESCE(cleaned_up_at, ?) ELSE NULL END
 		WHERE id=?`, s.Now().UnixMilli(), id)
 	return err
 }
@@ -1114,7 +1132,9 @@ func (s *Store) RecordRegistrationDeleted(ctx context.Context, id string) error 
 	now := s.Now().UnixMilli()
 	_, err := s.exec(ctx, `UPDATE runners
 		SET registration_deleted_at=COALESCE(registration_deleted_at, ?),
-		    cleaned_up_at=CASE WHEN cleanup_error='' THEN COALESCE(cleaned_up_at, ?) ELSE cleaned_up_at END
+		    registration_cleanup_error='', cleanup_error=host_cleanup_error,
+		    cleanup_failed_at=CASE WHEN host_cleanup_error='' THEN NULL ELSE cleanup_failed_at END,
+		    cleaned_up_at=CASE WHEN host_cleanup_error='' THEN COALESCE(cleaned_up_at, ?) ELSE NULL END
 		WHERE id=?`, now, now, id)
 	return err
 }
