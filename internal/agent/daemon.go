@@ -894,7 +894,15 @@ func (a *Agent) dispatch(ctx context.Context, task Task) {
 		return
 	}
 
-	if !a.claim(task.RunnerID) {
+	// The claim serialises work on one runner, so it says something only about
+	// a task that names one. A prewarm names none, and keying it on the empty
+	// string made every prewarm in a poll collide with every other: the first
+	// took the key and the rest were dropped, silently and for good, because a
+	// dropped task reports no result and its key stays outstanding on the
+	// controller. Two Docker pools on one host meant one of them was never
+	// prewarmed again.
+	claimed := task.RunnerID != ""
+	if claimed && !a.claim(task.RunnerID) {
 		// The controller redelivers any task it has not seen a result for, so
 		// a duplicate arriving while the first is still running is expected.
 		// Skipping rather than queueing is what stops two creates for one
@@ -908,7 +916,13 @@ func (a *Agent) dispatch(ctx context.Context, task Task) {
 	go func() {
 		defer a.tasks.Done()
 		var releaseOnce sync.Once
-		release := func() { releaseOnce.Do(func() { a.release(task.RunnerID) }) }
+		release := func() {
+			releaseOnce.Do(func() {
+				if claimed {
+					a.release(task.RunnerID)
+				}
+			})
+		}
 		defer release()
 		select {
 		case a.sem <- struct{}{}:

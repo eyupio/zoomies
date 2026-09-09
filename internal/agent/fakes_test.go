@@ -41,6 +41,10 @@ type fakeBackend struct {
 	// which on a containerised agent is larger than the agent's own share.
 	cpus     int
 	memoryMB int64
+	// prewarmed records every image this backend was asked to pull, in order,
+	// so a test can prove a batch of prewarms all arrived rather than only the
+	// first.
+	prewarmed []string
 }
 
 func newFakeBackend(kind store.BackendKind) *fakeBackend {
@@ -48,6 +52,22 @@ func newFakeBackend(kind store.BackendKind) *fakeBackend {
 }
 
 func (f *fakeBackend) Kind() store.BackendKind { return f.kind }
+
+// PrewarmImage makes this backend a backend.ImagePrewarmer, which is what
+// handlePrewarm requires of one.
+func (f *fakeBackend) PrewarmImage(_ context.Context, image string, _ store.PullPolicy) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.prewarmed = append(f.prewarmed, image)
+	return "sha256:" + image, nil
+}
+
+// pulls returns the images prewarmed so far.
+func (f *fakeBackend) pulls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.prewarmed...)
+}
 
 func (f *fakeBackend) Probe(context.Context) backend.Info {
 	f.mu.Lock()
