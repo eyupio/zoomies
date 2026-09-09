@@ -348,7 +348,25 @@ type installationHealthResponse struct {
 	MissingPermissions []string          `json:"missing_permissions,omitempty"`
 	MissingEvents      []string          `json:"missing_events,omitempty"`
 	RateLimitRemaining int               `json:"rate_limit_remaining,omitempty"`
+	// RepositorySelection is GitHub's own word for how much of the target this
+	// installation covers -- "all" or "selected" -- and Repositories is what
+	// that means in practice: how many it can see, and the first few by name.
+	//
+	// It answers the question a verify could not: an App with every permission
+	// correct, installed on "only select repositories" and not on the one
+	// somebody pushes to, is a fleet where nothing ever queues and no page says
+	// why. The names are capped because the point is recognition, not a
+	// listing: an operator looks for the repository they were expecting.
+	RepositorySelection string   `json:"repository_selection,omitempty"`
+	RepositoryCount     int      `json:"repository_count,omitempty"`
+	Repositories        []string `json:"repositories,omitempty"`
+	RepositoriesCapped  bool     `json:"repositories_capped,omitempty"`
 }
+
+// shownRepositories is how many names the dialog lists before it stops. Enough
+// to recognise the set, few enough not to become a directory of an
+// organisation's thousand repositories.
+const shownRepositories = 10
 
 // handleVerifyInstallation probes an installation's credentials end to end.
 //
@@ -387,12 +405,40 @@ func (s *Server) handleVerifyInstallation(w http.ResponseWriter, r *http.Request
 		if rl, rerr := s.rateLimitFor(r.Context(), id); rerr == nil && rl != nil {
 			out.RateLimitRemaining = rl.Remaining
 		}
+		out.RepositorySelection = info.RepositorySelection
+		// A failure here does not fail the verify: the credentials have already
+		// been proven by the probe, and "which repositories" is a detail on top
+		// of that. Losing it costs a line in the dialog rather than the answer
+		// the operator came for.
+		if repos, rerr := s.repositoriesFor(r.Context(), id); rerr != nil {
+			s.logger(r).Warn("could not list the installation's repositories for verify",
+				"installation", id, "error", rerr)
+		} else {
+			out.RepositoryCount = len(repos)
+			for _, repo := range repos {
+				if len(out.Repositories) == shownRepositories {
+					out.RepositoriesCapped = true
+					break
+				}
+				out.Repositories = append(out.Repositories, repo.FullName)
+			}
+		}
 	}
 
 	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "installation.verify", "installation", id, map[string]any{
 		"target": inst.Target, "ok": out.OK, "message": out.Message,
 	})
 	writeJSON(w, http.StatusOK, out)
+}
+
+// repositoriesFor lists what an installation can see, one page's worth.
+func (s *Server) repositoriesFor(ctx context.Context, installationID string) ([]github.Repository, error) {
+	client, err := s.ctrl.ClientFor(ctx, installationID)
+	if err != nil {
+		return nil, err
+	}
+	// One page beyond what is shown, so "10 of many" can be told from "10".
+	return client.ListRepositories(ctx, shownRepositories*10)
 }
 
 // missingEvents reports the webhook events Zoomies needs and the App is not

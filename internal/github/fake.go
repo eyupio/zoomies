@@ -40,7 +40,9 @@ type FakeGitHub struct {
 	appName        string
 	appOwner       string
 	permissions    map[string]string
-	events         []string
+	// repositorySelection is GitHub's "all" or "selected".
+	repositorySelection string
+	events              []string
 
 	nextRunnerID int64
 	runners      []*Runner
@@ -82,11 +84,12 @@ type fakeFailure struct {
 // NewFake starts a fake GitHub and returns it. The caller must Close it.
 func NewFake() *FakeGitHub {
 	f := &FakeGitHub{
-		appID:          12345,
-		installationID: 42,
-		appSlug:        "zoomies-fake",
-		appName:        "Zoomies Fake",
-		appOwner:       "acme",
+		appID:               12345,
+		installationID:      42,
+		appSlug:             "zoomies-fake",
+		appName:             "Zoomies Fake",
+		appOwner:            "acme",
+		repositorySelection: "all",
 		permissions: map[string]string{
 			"actions":                          "read",
 			"metadata":                         "read",
@@ -131,6 +134,15 @@ func (f *FakeGitHub) Client(target string, kind store.TargetType) Client {
 		panic("github: fake: " + err.Error())
 	}
 	return newAppClient(c, c, target, kind, f.installationID, "https://github.com")
+}
+
+// SetRepositorySelection sets GitHub's "all" or "selected", so a test can
+// describe an App installed on a handful of repositories rather than on
+// everything.
+func (f *FakeGitHub) SetRepositorySelection(selection string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.repositorySelection = selection
 }
 
 // SetPermissions replaces what the App reports being granted, so tests can
@@ -451,6 +463,11 @@ func (f *FakeGitHub) getInstallation(w http.ResponseWriter, r *http.Request) {
 		"target_type": "Organization",
 		"permissions": f.permissions,
 		"events":      f.events,
+		// How much of the target the installation covers. GitHub sends it on
+		// every installation, and it is what tells "the App can see everything
+		// you push to" from "the App was installed on three repositories and
+		// yours is not one of them".
+		"repository_selection": f.repositorySelection,
 	})
 }
 

@@ -1710,6 +1710,17 @@ export interface components {
             missing_permissions?: string[];
             missing_events?: string[];
             rate_limit_remaining?: number;
+            /**
+             * @description GitHub's own word for how much of the target this installation covers. An App with every permission correct, installed on "only select repositories" and not on the one somebody pushes to, is a fleet where nothing ever queues and no page says why -- so the verify answer names it.
+             * @enum {string}
+             */
+            repository_selection?: "all" | "selected";
+            /** @description How many repositories the installation can see, up to the scan's own cap. */
+            repository_count?: number;
+            /** @description The first few by name, so an operator can look for the one they expected. */
+            repositories?: string[];
+            /** @description True when there are more than the names listed. */
+            repositories_capped?: boolean;
         };
         WebhookDelivery: {
             id?: string;

@@ -88,3 +88,50 @@ func TestVerifySeparatesAMissingSubscriptionFromABrokenCredential(t *testing.T) 
 		t.Errorf("the message does not say what happens instead: %q", out.Message)
 	}
 }
+
+// Verify says which repositories the installation can actually see.
+//
+// It is the second commonest setup mistake after a missing permission, and the
+// quietest: an App with every permission correct, installed on "only select
+// repositories" and not on the one somebody pushes to, is a fleet where
+// nothing ever queues and no page says why. GitHub knows the answer and
+// Zoomies never asked it.
+func TestVerifySaysWhichRepositoriesTheInstallationCanSee(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	admin, _ := h.user("root", store.RoleAdmin)
+	h.gh.SetRepositorySelection("selected")
+	// What "selected" means on this installation: the three somebody ticked.
+	h.gh.AddRepo("acme/widgets")
+	h.gh.AddRepo("acme/site")
+	h.gh.AddRepo("acme/infra")
+
+	res := h.do(request{method: http.MethodPost, path: "/api/v1/installations/" + inst.ID + "/verify",
+		cookie: h.session(admin)})
+	res.mustStatus(t, http.StatusOK, "verify")
+
+	var out struct {
+		OK                  bool     `json:"ok"`
+		RepositorySelection string   `json:"repository_selection"`
+		RepositoryCount     int      `json:"repository_count"`
+		Repositories        []string `json:"repositories"`
+	}
+	res.into(t, &out)
+	if !out.OK {
+		t.Fatal("a healthy installation failed to verify")
+	}
+	if out.RepositorySelection != "selected" {
+		t.Errorf("repository_selection = %q, want GitHub's own word for it", out.RepositorySelection)
+	}
+	if out.RepositoryCount == 0 || len(out.Repositories) == 0 {
+		t.Fatalf("the installation can see %d repositories and none was named; the dialog has nothing to show",
+			out.RepositoryCount)
+	}
+	// Named, so an operator can look for the one they were expecting rather
+	// than counting.
+	for _, name := range out.Repositories {
+		if !strings.Contains(name, "/") {
+			t.Errorf("repository %q is not an owner/name", name)
+		}
+	}
+}

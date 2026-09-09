@@ -78,7 +78,7 @@ Conventions:
 | GET | `/api/v1/installations/{id}` | viewer | |
 | PATCH | `/api/v1/installations/{id}` | admin | |
 | DELETE | `/api/v1/installations/{id}` | admin | Cascades to its pools, and removes their runners **now**, interrupting any job they are running: the runners have to be deregistered while the installation's credentials still exist, which is before the row goes. The response says how many pools and runners went. Drain the pools first (`DELETE /pools/{id}`) if the jobs matter. |
-| POST | `/api/v1/installations/{id}/verify` | operator | Probes credentials and permissions. On 403 the message names the missing permission. Records the App's slug, which is how a hand-added installation learns it. |
+| POST | `/api/v1/installations/{id}/verify` | operator | Probes credentials and permissions. On 403 the message names the missing permission. Also answers *which repositories these credentials reach* — `repository_selection` is GitHub's own `all` or `selected`, with a count and the first names — because an App with every permission correct, installed on "only select repositories" and not on the one somebody pushes to, is a fleet where nothing ever queues and no page says why. A failure to list them costs that line and not the verify. Records the App's slug, which is how a hand-added installation learns it. |
 | GET | `/api/v1/installations/{id}/runner-groups` | viewer | Populates the pool wizard. |
 | GET | `/api/v1/installations/{id}/rate-limit` | viewer | Remaining GitHub API quota. |
 | POST | `/api/v1/installations/manifest` | admin | Builds the GitHub App manifest and returns the URL to POST it to. |
