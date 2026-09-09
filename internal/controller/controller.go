@@ -106,6 +106,11 @@ type Controller struct {
 	queues  *taskQueues
 	relay   *logRelay
 
+	// pollsInFlight is how many agent task polls are being held right now.
+	// An idle fleet still costs one held connection per host, so this is the
+	// number the controller sheds against -- see shedFor.
+	pollsInFlight atomic.Int64
+
 	// nudges is capacity 1 on purpose: it is a "there is work to look at"
 	// flag, not a queue. Fifty webhooks in a second leave one token behind and
 	// therefore cause one reconcile pass, not fifty.

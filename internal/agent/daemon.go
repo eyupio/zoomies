@@ -797,18 +797,31 @@ func (a *Agent) taskLoop(ctx context.Context) error {
 			a.dispatch(ctx, task)
 		}
 
-		wait := batch.Backoff
-		if wait <= 0 && len(batch.Tasks) == 0 {
-			// Guard against a controller that answers polls instantly: without
-			// this the loop would spin at whatever rate it can dial.
-			if elapsed := a.now().Sub(started); elapsed < minPollInterval {
-				wait = minPollInterval - elapsed
-			}
-		}
-		if wait > 0 && !sleepCtx(ctx, wait) {
+		if wait := pollWait(batch, a.now().Sub(started)); wait > 0 && !sleepCtx(ctx, wait) {
 			return nil
 		}
 	}
+}
+
+// pollWait says how long to wait before polling again, given the batch just
+// received and how long the poll that returned it took.
+//
+// A controller sheds load by asking every agent it is holding to wait, so the
+// wait it asks for is jittered: without that the whole fleet would come back
+// in the same instant and re-form the queue the backoff was spreading out.
+func pollWait(batch *TaskBatch, elapsed time.Duration) time.Duration {
+	if batch.Backoff > 0 {
+		return jitter(batch.Backoff)
+	}
+	if len(batch.Tasks) > 0 {
+		return 0
+	}
+	// Guard against a controller that answers polls instantly: without this
+	// the loop would spin at whatever rate it can dial.
+	if elapsed < minPollInterval {
+		return minPollInterval - elapsed
+	}
+	return 0
 }
 
 // dispatch validates a task and starts it, or reports why it cannot run.

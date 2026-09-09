@@ -13,7 +13,7 @@
   lives here until the operator puts it away.
 -->
 <script lang="ts">
-  import { BadgeCheck, Building2, ExternalLink, Puzzle, Trash2 } from '@lucide/svelte';
+  import { BadgeCheck, Building2, ExternalLink, KeyRound, Puzzle, Trash2 } from '@lucide/svelte';
   import type { Installation } from '$lib/api/types';
   import { formatNumber, pluralise } from '$lib/format';
   import { installationStatus } from '$lib/status';
@@ -39,6 +39,7 @@
     canOperate?: boolean;
     canAdmin?: boolean;
     onverify: (installation: Installation) => void;
+    onreplacekey: (installation: Installation) => void;
     ondelete: (installation: Installation) => void;
     class?: string;
   }
@@ -50,6 +51,7 @@
     canOperate = false,
     canAdmin = false,
     onverify,
+    onreplacekey,
     ondelete,
     class: className = '',
   }: Props = $props();
@@ -109,6 +111,20 @@
         onclick={() => onverify(installation)}
       >
         Verify
+      </Button>
+      <!-- The recovery from the commonest credential mistake there is. The
+           route to replace a key has always existed; nothing surfaced it, so an
+           operator who pasted the wrong .pem could only disconnect and start
+           again -- which takes the installation's pools and runner rows with
+           it. A key is replaceable; a fleet should not have to be. -->
+      <Button
+        size="sm"
+        variant="ghost"
+        icon={KeyRound}
+        disabled={!canAdmin}
+        onclick={() => onreplacekey(installation)}
+      >
+        Replace key
       </Button>
       <Button
         size="sm"

@@ -35,6 +35,19 @@
   }: Props = $props();
 
   const permissions = $derived(Object.entries(health?.permissions ?? {}));
+  /**
+   * What the installation can actually see.
+   *
+   * The second commonest setup mistake after a missing permission, and the
+   * quietest one: an App with every permission correct, installed on "only
+   * select repositories" and not on the one somebody pushes to, is a fleet
+   * where nothing ever queues and no page says why. GitHub knows; until this,
+   * nothing asked it.
+   */
+  const repositories = $derived(health?.repositories ?? []);
+  const selection = $derived(health?.repository_selection ?? '');
+  const repositoryCount = $derived(health?.repository_count ?? 0);
+  const capped = $derived(health?.repositories_capped === true);
   const missingPermissions = $derived(health?.missing_permissions ?? []);
   const missingEvents = $derived(health?.missing_events ?? []);
   const events = $derived(health?.events ?? []);
@@ -162,6 +175,33 @@
         </section>
       {/if}
 
+      {#if selection || repositoryCount > 0}
+        <section aria-labelledby="repositories">
+          <h3 id="repositories">Repositories this installation can see</h3>
+          <p class="scope">
+            {#if selection === 'all'}
+              Every repository in {installation?.target ?? 'the target'}, including ones added
+              later.
+            {:else if selection === 'selected'}
+              Only the {repositoryCount > 0 ? repositoryCount : ''} selected on GitHub. A pool only ever
+              sees jobs from these, so a repository that is not here queues nothing and says nothing.
+            {:else if repositoryCount > 0}
+              {repositoryCount} in reach of these credentials.
+            {/if}
+          </p>
+          {#if repositories.length > 0}
+            <ul class="chips">
+              {#each repositories as name (name)}
+                <li class="mono">{name}</li>
+              {/each}
+              {#if capped}
+                <li class="more">and more</li>
+              {/if}
+            </ul>
+          {/if}
+        </section>
+      {/if}
+
       {#if permissions.length > 0}
         <section aria-labelledby="granted-permissions">
           <h3 id="granted-permissions">Permissions granted</h3>
@@ -200,6 +240,17 @@
 </Dialog>
 
 <style>
+  .scope {
+    margin: 0 0 var(--z-space-2);
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text-muted);
+  }
+  .more {
+    font-size: var(--z-text-2xs);
+    color: var(--z-text-subtle);
+    align-self: center;
+  }
   .stack {
     display: flex;
     flex-direction: column;

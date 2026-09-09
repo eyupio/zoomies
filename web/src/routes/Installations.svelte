@@ -30,6 +30,7 @@
   import ConnectDialog from '$lib/installations/ConnectDialog.svelte';
   import InstallationCard from '$lib/installations/InstallationCard.svelte';
   import type { RateLimit } from '$lib/installations/InstallationCard.svelte';
+  import ReplaceKeyDialog from '$lib/installations/ReplaceKeyDialog.svelte';
   import VerifyDialog from '$lib/installations/VerifyDialog.svelte';
   import WebhookHealth from '$lib/installations/WebhookHealth.svelte';
 
@@ -162,6 +163,11 @@
     }
   }
 
+  /* -- replace the key ----------------------------------------------------------- */
+
+  let replaceOpen = $state(false);
+  let replaceTarget = $state<Installation | null>(null);
+
   /* -- delete -------------------------------------------------------------------- */
 
   let deleteOpen = $state(false);
@@ -256,6 +262,10 @@
           {canOperate}
           {canAdmin}
           onverify={(target) => void verify(target)}
+          onreplacekey={(target) => {
+            replaceTarget = target;
+            replaceOpen = true;
+          }}
           ondelete={askDelete}
         />
       {/each}
@@ -273,6 +283,18 @@
   oncreated={() => (reload += 1)}
   onexchanged={() => router.setQuery({ code: null, state: null })}
   onclose={clearReturnedParams}
+/>
+
+<ReplaceKeyDialog
+  bind:open={replaceOpen}
+  installation={replaceTarget}
+  onreplaced={(target) => {
+    // Straight into a verify: the operator replaced the key to fix something,
+    // and "it is stored" is not the answer they came for.
+    reload += 1;
+    void verify(target);
+  }}
+  onclose={() => (replaceTarget = null)}
 />
 
 <VerifyDialog

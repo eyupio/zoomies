@@ -2364,6 +2364,24 @@ components:
         missing_permissions: { type: array, items: { type: string } }
         missing_events: { type: array, items: { type: string } }
         rate_limit_remaining: { type: integer }
+        repository_selection:
+          type: string
+          enum: [all, selected]
+          description: >-
+            GitHub's own word for how much of the target this installation covers. An App
+            with every permission correct, installed on "only select repositories" and not
+            on the one somebody pushes to, is a fleet where nothing ever queues and no page
+            says why -- so the verify answer names it.
+        repository_count:
+          type: integer
+          description: How many repositories the installation can see, up to the scan's own cap.
+        repositories:
+          type: array
+          items: { type: string }
+          description: The first few by name, so an operator can look for the one they expected.
+        repositories_capped:
+          type: boolean
+          description: True when there are more than the names listed.
 
     WebhookDelivery:
       type: object

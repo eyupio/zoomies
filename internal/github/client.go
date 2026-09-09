@@ -183,6 +183,13 @@ type AppInfo struct {
 	// exactly which permission is missing rather than "403".
 	Permissions map[string]string
 	Events      []string
+	// RepositorySelection is GitHub's own word for how much of the target this
+	// installation covers: "all" or "selected". It is the difference between a
+	// pool that will see every repository somebody pushes to and one that
+	// silently sees none of them -- the second commonest setup mistake after a
+	// missing permission, and the one nothing in Zoomies could previously say
+	// anything about.
+	RepositorySelection string
 }
 
 // RateLimit reports the installation's remaining API quota, which the UI shows

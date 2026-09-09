@@ -233,6 +233,7 @@ func (c *appClient) Probe(ctx context.Context) (*AppInfo, error) {
 	if p := permissionMap(inst.Permissions); len(p) > 0 {
 		info.Permissions = p
 	}
+	info.RepositorySelection = inst.GetRepositorySelection()
 	if len(inst.Events) > 0 {
 		info.Events = inst.Events
 	}

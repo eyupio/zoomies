@@ -49,6 +49,10 @@ func (d *demoClient) Probe(context.Context) (*github.AppInfo, error) {
 			"metadata":                         "read",
 		},
 		Events: []string{"workflow_job"},
+		// The demo fixture is a fleet with nothing wrong, and an installation
+		// on "selected" would read as one of the two setup mistakes the verify
+		// dialog exists to name.
+		RepositorySelection: "all",
 	}, nil
 }
 

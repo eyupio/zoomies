@@ -36,6 +36,7 @@ type metrics struct {
 	reconcileDuration                                                                            prometheus.Histogram
 	reconcileErrors                                                                              prometheus.Counter
 	cleanups                                                                                     *prometheus.CounterVec
+	pollsShed                                                                                    prometheus.Counter
 	buildInfo                                                                                    *prometheus.GaugeVec
 }
 
@@ -128,6 +129,14 @@ func newMetrics(c *Controller) *metrics {
 			Name: "zoomies_runner_cleanups_total",
 			Help: "Attempts to take a runner off its host, by outcome: succeeded, or failed and recorded on the row.",
 		}, []string{"outcome"}),
+		// A shed poll is the only sign the controller is holding more agent
+		// connections than it wants to: the fleet keeps working, each host
+		// just hears about its tasks a little later, so nothing else here
+		// moves.
+		pollsShed: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "zoomies_agent_polls_shed_total",
+			Help: "Task polls answered with a backoff because the controller was holding too many at once.",
+		}),
 		buildInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "zoomies_build_info",
 			Help: "Always 1; the version and commit are in the labels.",
@@ -137,7 +146,7 @@ func newMetrics(c *Controller) *metrics {
 
 	m.reg.MustRegister(
 		m.jobsTotal, m.jobsRunnerLost, m.queueWait, m.jobDuration, m.scalingEvents,
-		m.webhookDeliveries, m.githubRequests, m.reconcileDuration, m.reconcileErrors, m.cleanups, m.buildInfo,
+		m.webhookDeliveries, m.githubRequests, m.reconcileDuration, m.reconcileErrors, m.cleanups, m.pollsShed, m.buildInfo,
 		m.queuedToCreate, m.createToContainer, m.containerToRegistered, m.registeredToReady, m.queuedToStarted,
 		&fleetCollector{c: c},
 		collectors.NewGoCollector(),

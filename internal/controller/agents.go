@@ -37,7 +37,38 @@ const (
 	// maxTasksPerPoll bounds one response so a host that has been offline does
 	// not receive a hundred tasks in one batch.
 	maxTasksPerPoll = 20
+	// pollShedThreshold is how many task polls may be held at once before the
+	// controller starts asking agents to come back less often.
+	//
+	// An idle fleet costs one held connection and one goroutine per host for
+	// up to DefaultPollWait, so the cost of the poll channel is the fleet's
+	// size rather than its workload. The number is far above any single-VM
+	// deployment and below what a controller of the documented shape holds
+	// comfortably, so a fleet that grows past it is asked to spread out
+	// instead of being refused.
+	pollShedThreshold = 256
+	// maxPollShed caps the wait a shed poll is asked for. It is deliberately
+	// short: a task queued the instant after a shed answer waits this long
+	// before the host hears about it, and a runner that starts fifteen seconds
+	// late is a slower fleet, whereas one that starts a minute late is a
+	// broken one.
+	maxPollShed = 15 * time.Second
 )
+
+// shedFor says how long an agent that found no work should wait before polling
+// again, given how many polls the controller is holding. Zero means "come
+// straight back", which is the answer for every fleet below the threshold.
+//
+// The wait rises with the excess rather than switching on, because a step
+// would move the whole fleet between two duty cycles at once and oscillate
+// around the threshold.
+func shedFor(inFlight int64) time.Duration {
+	over := inFlight - pollShedThreshold
+	if over <= 0 {
+		return 0
+	}
+	return min(time.Duration(over)*maxPollShed/pollShedThreshold, maxPollShed)
+}
 
 // taskQueues holds one queue per host.
 //
@@ -763,6 +794,9 @@ func (c *Controller) PollTasks(ctx context.Context, hostID string, wait time.Dur
 	}
 	q := c.queues.get(hostID)
 
+	c.pollsInFlight.Add(1)
+	defer c.pollsInFlight.Add(-1)
+
 	if tasks := q.take(maxTasksPerPoll, c.Now()); len(tasks) > 0 {
 		c.stampIssued(ctx, tasks)
 		return &agent.TaskBatch{Tasks: tasks}, nil
@@ -773,15 +807,30 @@ func (c *Controller) PollTasks(ctx context.Context, hostID string, wait time.Dur
 	select {
 	case <-ctx.Done():
 		// A cancelled long poll is the client hanging up, not an error worth
-		// reporting; the tasks are still queued for the next one.
+		// reporting; the tasks are still queued for the next one. It is also
+		// not evidence about load, so it is never shed.
 		return &agent.TaskBatch{}, nil
 	case <-timer.C:
-		return &agent.TaskBatch{}, nil
+		// Only a poll that found nothing is ever asked to wait. Work is never
+		// delayed to shed load: the whole point of the long poll is that a
+		// task reaches its host in the instant it is queued.
+		return &agent.TaskBatch{Backoff: c.shed()}, nil
 	case <-q.wake:
 		tasks := q.take(maxTasksPerPoll, c.Now())
 		c.stampIssued(ctx, tasks)
 		return &agent.TaskBatch{Tasks: tasks}, nil
 	}
+}
+
+// shed asks for a wait if the controller is holding more polls than it wants
+// to, and counts the ones it asks for so the pressure is visible in a scrape
+// rather than only in a connection count nobody is watching.
+func (c *Controller) shed() time.Duration {
+	wait := shedFor(c.pollsInFlight.Load())
+	if wait > 0 {
+		c.metrics.pollsShed.Inc()
+	}
+	return wait
 }
 
 // stampIssued records the issue time of every lifecycle task in a batch. This
