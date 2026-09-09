@@ -85,6 +85,13 @@ var (
 	ErrTokenExpired = errors.New("this API token has expired; create a new one")
 	// ErrTokenRevoked means the API token was revoked by an administrator.
 	ErrTokenRevoked = errors.New("this API token has been revoked; create a new one")
+	// ErrTokenOwnerDisabled means the token is valid but the account it was
+	// issued to has been disabled.
+	ErrTokenOwnerDisabled = errors.New("the account this API token belongs to is disabled; the token cannot be used")
+	// ErrTokenOrphaned means the account the token was issued to no longer
+	// exists. It is a separate sentence from the one above because it is a
+	// different thing to have to fix.
+	ErrTokenOrphaned = errors.New("the account this API token belonged to has been deleted; the token cannot be used")
 	// ErrAccountDisabled means the account exists but has been switched off.
 	ErrAccountDisabled = errors.New("this account is disabled; ask an administrator to re-enable it")
 	// ErrSSOOnly means the account has no password because it comes from the
@@ -640,6 +647,26 @@ func (s *Service) authenticateToken(ctx context.Context, token, ip string) (*Ide
 	if t.Expired(now) {
 		return nil, ErrTokenExpired
 	}
+	// The owner still has to be somebody, and somebody still allowed in.
+	//
+	// A token carries its own role, so nothing above this line consults the
+	// account it was issued to: disabling an account ended its sessions and
+	// left its tokens answering with full authority, and deleting one left
+	// them answering on behalf of a row that no longer exists -- api_tokens
+	// has no foreign key to users, so the delete cascades nowhere.
+	// SetUserDisabled and DeleteUser now revoke them, and this is the check
+	// that does not depend on having remembered to.
+	if t.UserID != "" {
+		u, err := s.store.GetUser(ctx, t.UserID)
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			return nil, ErrTokenOrphaned
+		case err != nil:
+			return nil, fmt.Errorf("looking up the owner of an API token: %w", err)
+		case u.Disabled:
+			return nil, ErrTokenOwnerDisabled
+		}
+	}
 	s.touch(ctx, t.ID, now)
 	return &Identity{
 		Kind:    KindToken,
@@ -860,6 +887,14 @@ func (s *Service) SetUserDisabled(ctx context.Context, id string, disabled bool)
 		if err := s.store.DeleteUserSessions(ctx, id); err != nil {
 			s.logger.Warn("could not end sessions for disabled account", "user", u.Username, "error", err)
 		}
+		// Nor a live token. A token carries its own role and is not looked up
+		// through the account, so this is the difference between disabling an
+		// account and disabling the access it was given.
+		if n, err := s.store.RevokeAPITokensForUser(ctx, id); err != nil {
+			s.logger.Warn("could not revoke API tokens for disabled account", "user", u.Username, "error", err)
+		} else if n > 0 {
+			s.logger.Info("revoked API tokens for disabled account", "user", u.Username, "tokens", n)
+		}
 	}
 	return nil
 }
@@ -872,6 +907,18 @@ func (s *Service) DeleteUser(ctx context.Context, id string) error {
 	}
 	if err := s.ensureAdminRemains(ctx, u, store.RoleViewer, true); err != nil {
 		return err
+	}
+	// Before the row goes, because api_tokens has no foreign key to users:
+	// the delete cascades to sessions and to nothing else, so a token left
+	// behind here is a working credential belonging to an account that no
+	// longer exists. Revoked rather than deleted, so the audit trail still
+	// says who had it.
+	if n, err := s.store.RevokeAPITokensForUser(ctx, id); err != nil {
+		// Refused rather than logged: carrying on would delete the account and
+		// leave its credentials working, which is the failure this prevents.
+		return fmt.Errorf("revoking the API tokens of %s before deleting the account: %w", u.Username, err)
+	} else if n > 0 {
+		s.logger.Info("revoked API tokens for deleted account", "user", u.Username, "tokens", n)
 	}
 	return s.store.DeleteUser(ctx, id)
 }

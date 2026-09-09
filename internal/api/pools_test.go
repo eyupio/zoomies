@@ -1127,3 +1127,66 @@ func TestTheWizardExplainsAHostItsSelectorReachedThatIsCordoned(t *testing.T) {
 		t.Errorf("reason = %q, want it to say the host is cordoned", verdict.ExcludedHosts[0].Reason)
 	}
 }
+
+// TestAPoolsEnvIsOperatorOnly covers the one field on a pool that is not a
+// viewer's to read.
+//
+// Env is injected into every runner the pool creates, so it is where a registry
+// password or a proxy credential ends up if one is anywhere. Setting it is an
+// operator action; reading the values back had been a viewer one, which made
+// "viewer may read everything except secrets" untrue of pools. The keys stay
+// for both, because the pool page lists names and never values.
+func TestAPoolsEnvIsOperatorOnly(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	pool.Env = store.StringMap{"REGISTRY_PASSWORD": "hunter2", "HTTP_PROXY": "http://proxy:3128"}
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+
+	_, viewer := h.user("looker", store.RoleViewer)
+	_, operator := h.user("doer", store.RoleOperator)
+
+	for _, path := range []string{"/api/v1/pools/" + pool.ID, "/api/v1/pools"} {
+		body := string(h.do(request{method: http.MethodGet, path: path, cookie: viewer}).body)
+		if strings.Contains(body, "hunter2") || strings.Contains(body, "proxy:3128") {
+			t.Errorf("GET %s as a viewer leaked an env value:\n%s", path, body)
+		}
+		// The names are not the secret, and the page needs them.
+		if !strings.Contains(body, "REGISTRY_PASSWORD") {
+			t.Errorf("GET %s as a viewer dropped the env keys as well as the values:\n%s", path, body)
+		}
+	}
+
+	// An operator has to keep getting the values: the edit form reads a pool
+	// and writes it back, so withholding them here would blank an operator's
+	// environment the next time they saved a pool.
+	body := string(h.do(request{method: http.MethodGet, path: "/api/v1/pools/" + pool.ID, cookie: operator}).body)
+	if !strings.Contains(body, "hunter2") {
+		t.Errorf("an operator cannot read back the env they set, so editing this pool would wipe it:\n%s", body)
+	}
+}
+
+// TestWithoutEnvValuesBlanksTheFrameAndNothingElse covers the encoded-bytes
+// path the event stream takes, which is a different one from the view above.
+func TestWithoutEnvValuesBlanksTheFrameAndNothingElse(t *testing.T) {
+	in := []byte(`{"id":"pool_1","name":"linux","env":{"A":"secret","B":"also"},"max_runners":4}`)
+	out := withoutEnvValues(in)
+	if strings.Contains(string(out), "secret") || strings.Contains(string(out), "also") {
+		t.Errorf("env values survived: %s", out)
+	}
+	for _, want := range []string{`"A":""`, `"B":""`, `"pool_1"`, `"max_runners":4`} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("frame lost %s: %s", want, out)
+		}
+	}
+
+	// A frame that is not a pool, and one that is not JSON, go through as they
+	// are rather than being dropped.
+	for _, passthrough := range []string{`{"id":"run_1","state":"idle"}`, `not json at all`} {
+		if got := string(withoutEnvValues([]byte(passthrough))); got != passthrough {
+			t.Errorf("withoutEnvValues(%q) = %q, want it untouched", passthrough, got)
+		}
+	}
+}

@@ -683,6 +683,31 @@ func (v *PoolRenderer) View(p *store.Pool) PoolView {
 	}
 }
 
+// WithoutEnvValues returns the view with every environment value blanked and
+// every key left in place.
+//
+// Env is injected into every runner a pool creates, which makes it the one
+// field on this view an operator may reasonably have put a registry password or
+// a proxy credential in -- and reading a pool is a viewer action while setting
+// one is an operator action, so the two were not the same audience. Viewer is
+// documented as reading everything except secrets; this is what makes that true
+// of pools.
+//
+// The keys stay because they are what the pool page renders -- it lists names
+// and never values -- so a viewer still sees which variables a pool sets, and
+// only the operator who could have written them can read them back.
+func (p PoolView) WithoutEnvValues() PoolView {
+	if len(p.Env) == 0 {
+		return p
+	}
+	env := make(map[string]string, len(p.Env))
+	for k := range p.Env {
+		env[k] = ""
+	}
+	p.Env = env
+	return p
+}
+
 // PoolWarnings renders a pool's dangerous settings as problems.
 //
 // They are the same sentences the UI's problems drawer shows, because an
