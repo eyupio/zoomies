@@ -14,13 +14,35 @@
     variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
     size?: 'sm' | 'md';
     type?: 'button' | 'submit' | 'reset';
+    /**
+     * The id of the form this button submits.
+     *
+     * A dialog pins its actions in a footer outside the scrolling body, so the
+     * primary cannot be a descendant of the form it belongs to. This is how it
+     * stays where it is and still means Enter.
+     */
+    form?: string;
     disabled?: boolean;
     loading?: boolean;
     /** Renders an anchor styled as a button. Use for navigation, not for actions. */
     href?: string;
+    /**
+     * Open the link in a new tab. Only meaningful with `href`, and the rule
+     * for when to use it is simple: a link that leaves the product takes it,
+     * and a link within the product does not. `rel` follows automatically,
+     * and the accessible name gains "(opens in a new tab)", because a tab
+     * appearing under somebody who cannot see it happen is disorienting.
+     */
+    newTab?: boolean;
     full?: boolean;
     icon?: LucideIcon;
     iconAfter?: LucideIcon;
+    /**
+     * Turn the leading icon. For an action whose whole effect is to bring what
+     * is already on screen up to date: the label stays readable while it runs,
+     * which `loading` deliberately does not do.
+     */
+    iconSpin?: boolean;
     title?: string;
     ariaLabel?: string;
     ariaExpanded?: boolean;
@@ -35,12 +57,15 @@
     variant = 'secondary',
     size = 'md',
     type = 'button',
+    form,
     disabled = false,
     loading = false,
     href,
+    newTab = false,
     full = false,
     icon: Icon,
     iconAfter: IconAfter,
+    iconSpin = false,
     title,
     ariaLabel,
     ariaExpanded,
@@ -56,7 +81,10 @@
 
 {#snippet body()}
   <span class="content" class:hidden={loading}>
-    {#if Icon}<Icon size={iconSize} aria-hidden="true" />{/if}
+    {#if Icon}
+      <span class="lead" class:spinning={iconSpin}><Icon size={iconSize} aria-hidden="true" /></span
+      >
+    {/if}
     <span class="label">{@render children()}</span>
     {#if IconAfter}<IconAfter size={iconSize} aria-hidden="true" />{/if}
   </span>
@@ -72,25 +100,46 @@
     {title}
     class="btn {variant} {size} {className}"
     class:full
+    target={newTab ? '_blank' : undefined}
+    rel={newTab ? 'noopener noreferrer' : undefined}
     aria-label={ariaLabel}
     aria-disabled={disabled ? 'true' : undefined}
     data-loading={loading ? '' : undefined}
   >
     {@render body()}
+    {#if newTab}<span class="sr-only"> (opens in a new tab)</span>{/if}
   </a>
 {:else}
+  <!--
+    Loading is `aria-disabled`, not `disabled`.
+
+    Disabling the element the operator has just activated makes the browser
+    blur it, so focus falls to <body>. Inside a Dialog that also disarms the
+    focus trap, which listens on the panel: a Tab pressed from <body> is never
+    intercepted, and the operator walks out of an open modal into the page
+    behind it. aria-disabled keeps the button focused and announced, the
+    pointer is stopped in CSS, and the click handler refuses while busy.
+  -->
   <button
     {type}
+    {form}
     {title}
     class="btn {variant} {size} {className}"
     class:full
-    disabled={disabled || loading}
+    {disabled}
+    aria-disabled={loading ? 'true' : undefined}
     aria-label={ariaLabel}
-    aria-busy={loading ? 'true' : undefined}
+    aria-busy={loading || iconSpin ? 'true' : undefined}
     aria-expanded={ariaExpanded}
     aria-controls={ariaControls}
     aria-haspopup={ariaHaspopup}
-    {onclick}
+    onclick={(event) => {
+      if (loading) {
+        event.preventDefault();
+        return;
+      }
+      onclick?.(event);
+    }}
   >
     {@render body()}
   </button>
@@ -103,7 +152,7 @@
     align-items: center;
     justify-content: center;
     gap: var(--z-space-2);
-    border: 1px solid transparent;
+    border: var(--z-border-width) solid transparent;
     border-radius: var(--z-radius-md);
     font-family: inherit;
     font-weight: var(--z-weight-medium);
@@ -115,6 +164,11 @@
       background-color var(--z-motion-fast) var(--z-ease),
       border-color var(--z-motion-fast) var(--z-ease),
       color var(--z-motion-fast) var(--z-ease);
+  }
+  /* A button that is busy still holds focus, so it must not also be clickable
+     -- otherwise a second press fires the same request again. */
+  .btn[aria-disabled='true'] {
+    pointer-events: none;
   }
   .btn.full {
     width: 100%;
@@ -142,6 +196,11 @@
   .primary:hover:not(:disabled):not([aria-disabled='true']) {
     background: var(--z-accent-hover);
   }
+  /* Held down. Without it a click on a slow action gives no feedback at all
+     until the request comes back. */
+  .primary:active:not(:disabled):not([aria-disabled='true']) {
+    background: var(--z-accent-active);
+  }
   .secondary {
     background: var(--z-surface);
     color: var(--z-text);
@@ -160,7 +219,7 @@
   }
   .danger {
     background: var(--z-danger);
-    color: var(--z-text-inverse);
+    color: var(--z-danger-contrast);
   }
   .danger:hover:not(:disabled):not([aria-disabled='true']) {
     background: var(--z-danger-hover);
@@ -177,14 +236,20 @@
   .label {
     display: inline-block;
   }
+  .lead {
+    display: inline-flex;
+  }
+  .lead.spinning {
+    animation: spin calc(var(--z-motion-slow) * 2) linear infinite;
+  }
 
   .spinner {
     position: absolute;
     inset: 0;
     margin: auto;
-    width: 14px;
-    height: 14px;
-    border: 2px solid currentColor;
+    width: var(--z-control-icon);
+    height: var(--z-control-icon);
+    border: var(--z-border-width-thick) solid currentColor;
     border-top-color: transparent;
     border-radius: var(--z-radius-full);
     animation: spin calc(var(--z-motion-slow) * 2) linear infinite;
@@ -196,8 +261,10 @@
   }
   @media (prefers-reduced-motion: reduce) {
     /* The ring still reads as "working"; the label is replaced and `aria-busy`
-       says so. Nobody has to watch something spin to learn that. */
-    .spinner {
+       says so. Nobody has to watch something spin to learn that, and the same
+       goes for a turning icon. */
+    .spinner,
+    .lead.spinning {
       animation: none;
     }
   }

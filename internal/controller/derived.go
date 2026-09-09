@@ -1,0 +1,116 @@
+package controller
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"time"
+
+	"github.com/eyupio/zoomies/internal/events"
+)
+
+// statsEventWindow is the window a `stats` frame summarises. It is the
+// window GET /stats defaults to and the one the Overview asks for, so a frame
+// arriving over the stream carries the same numbers a fetch would -- a
+// different window here would make the tiles jump on every event.
+const statsEventWindow = time.Hour
+
+// publishDerived sends what is computed rather than stored: the Overview's
+// statistics, the problems list, and any host whose card has moved.
+//
+// Nothing writes a row when a job ages out of the wait percentiles or a host
+// stops sending heartbeats, so nothing in the store can announce those. They
+// are worked out here after every reconcile pass and every housekeeping tick,
+// and published only when the JSON actually differs from what was last sent.
+// Without this the Overview's four numbers and the problems bell were the
+// only parts of the product that stayed as they were until the browser was
+// reloaded.
+//
+// It costs a handful of SQLite queries per pass, so it is skipped when nobody
+// is connected to the stream: a controller nobody is watching should not do
+// the watchers' work.
+func (c *Controller) publishDerived(ctx context.Context) {
+	if c.bus == nil || c.bus.Subscribers() == 0 || ctx.Err() != nil {
+		return
+	}
+
+	c.derivedMu.Lock()
+	defer c.derivedMu.Unlock()
+
+	if stats, err := c.Stats(ctx, statsEventWindow); err != nil {
+		c.log.Warn("could not compute fleet statistics for the event stream", "error", err)
+	} else if raw, changed := c.derivedChanged(&c.lastStats, stats); changed {
+		c.bus.Publish(events.KindStats, "", json.RawMessage(raw))
+	}
+
+	if problems, err := c.Problems(ctx); err != nil {
+		c.log.Warn("could not gather the current problems for the event stream", "error", err)
+	} else if raw, changed := c.derivedChanged(&c.lastProblems, NewProblemsView(problems)); changed {
+		c.bus.Publish(events.KindProblems, "", json.RawMessage(raw))
+	}
+
+	c.publishHostChanges(ctx)
+}
+
+// publishHostChanges announces every host whose rendered view has moved since
+// it was last sent. Called with derivedMu held.
+//
+// The two numbers an operator actually reads off the Hosts page are the two
+// nothing announces. `active_runners` is counted from the runners table when a
+// host is read, so a runner starting moves the "4 of 6 slots in use" bar with
+// no host row written and nothing to publish; and the heartbeat behind "last
+// heartbeat 12s ago" is a bare UPDATE of one column that no publisher watches.
+// Both sat still until the browser reconciled, which is why the page felt dead
+// while the fleet moved underneath it -- the operator was looking at the one
+// screen in the product that was not live.
+//
+// Diffing the rendered view is what stops that becoming a frame per host per
+// pass: a host nobody has touched marshals to the same bytes and says nothing,
+// and a host that is merely alive says something once per heartbeat rather
+// than once per pass. The cost is bounded by how many hosts a fleet has, which
+// is tens -- this is deliberately not how the runners are done, because there
+// are thousands of those and the same idea would be too expensive.
+func (c *Controller) publishHostChanges(ctx context.Context) {
+	hosts, err := c.st.ListHosts(ctx)
+	if err != nil {
+		c.log.Warn("could not read the hosts for the event stream", "error", err)
+		return
+	}
+	if c.lastHosts == nil {
+		c.lastHosts = make(map[string][]byte, len(hosts))
+	}
+	live := make(map[string]struct{}, len(hosts))
+	for _, h := range hosts {
+		live[h.ID] = struct{}{}
+		last := c.lastHosts[h.ID]
+		raw, changed := c.derivedChanged(&last, c.HostView(h))
+		if !changed {
+			continue
+		}
+		c.lastHosts[h.ID] = last
+		c.bus.Publish(events.KindHostUpdated, "host:"+h.ID, json.RawMessage(raw))
+	}
+	// A host that has gone announced itself on the way out. Forgetting it here
+	// only keeps the map from growing for the life of the process.
+	for id := range c.lastHosts {
+		if _, ok := live[id]; !ok {
+			delete(c.lastHosts, id)
+		}
+	}
+}
+
+// derivedChanged marshals v, records it as the last published form, and says
+// whether it differs from the one before. Comparing the bytes rather than the
+// values means a new field is compared the day it is added.
+func (c *Controller) derivedChanged(last *[]byte, v any) ([]byte, bool) {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		c.log.Error("could not marshal a payload for the event stream", "error", err)
+		return nil, false
+	}
+	if bytes.Equal(raw, *last) {
+		return raw, false
+	}
+	*last = raw
+	return raw, true
+}

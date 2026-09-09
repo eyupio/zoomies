@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"net"
 	"os"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/backend"
+	"github.com/eyupio/zoomies/internal/machine"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
 )
@@ -36,13 +37,15 @@ const (
 	defaultReconcileInterval = 30 * time.Second
 	// reportTimeout bounds a result, report or heartbeat POST.
 	reportTimeout = 30 * time.Second
-	// createTimeout has to cover a cold image pull on a slow link, which is
-	// minutes, not seconds.
-	createTimeout = 15 * time.Minute
-	// stopMargin is added to a task's stop timeout so the backend gets to run
+	// CreateTimeout has to cover a cold image pull on a slow link, which is
+	// minutes, not seconds. It, StopMargin and RemoveTimeout are exported for
+	// one reader: the controller's test that every task lease outlasts the
+	// work the agent gives itself for that task.
+	CreateTimeout = 15 * time.Minute
+	// StopMargin is added to a task's stop timeout so the backend gets to run
 	// its own kill path before the context expires.
-	stopMargin    = 30 * time.Second
-	removeTimeout = 2 * time.Minute
+	StopMargin    = 30 * time.Second
+	RemoveTimeout = 2 * time.Minute
 	// resolveTimeout bounds the backend listings used to find a runner the
 	// agent has no record of.
 	resolveTimeout = 30 * time.Second
@@ -90,9 +93,24 @@ type Options struct {
 	// after several missed beats, so shortening it makes failure detection
 	// faster at the cost of more requests.
 	HeartbeatInterval time.Duration
+	// FinishedRetention is how long a runner's workload stays on the host
+	// after the controller has been told how the runner ended: the exited
+	// container with its output, its docker-in-docker sidecar and any scratch
+	// directory, or the process backend's runner directory. The window is
+	// what gives an operator time to read a finished runner's output. Once
+	// it has passed the agent deletes the workload itself, because nothing
+	// else will: a clean exit is the normal end of an ephemeral runner's life
+	// and the controller has no reason to send a task for a runner it already
+	// considers gone. Zero removes a finished workload on the first pass
+	// after it has been reported. The controller's retention.runners is a
+	// different window -- it keeps the row, not the container.
+	FinishedRetention time.Duration
 	Logger            *slog.Logger
 	// Clock is injectable so tests do not have to sleep.
 	Clock func() time.Time
+	// Machine overrides what this agent reports about the host it runs on.
+	// It exists for tests; leaving it nil makes the agent detect for itself.
+	Machine *machine.Facts
 }
 
 // Agent is the half of Zoomies that runs on a host with a container runtime. It
@@ -106,8 +124,11 @@ type Agent struct {
 	tr       Transport
 	clock    func() time.Time
 	heartbtI time.Duration
-	logs     *logRelay
-	notify   *notifier
+	// retention is Options.FinishedRetention: how long a finished runner's
+	// workload outlives its report before the reconciler deletes it.
+	retention time.Duration
+	logs      *logRelay
+	notify    *notifier
 
 	// sem bounds concurrent lifecycle tasks at Capacity, so a burst of creates
 	// from a busy morning cannot fork-bomb the host.
@@ -133,6 +154,11 @@ type Agent struct {
 	probedAt    time.Time
 	// cordoned mirrors the controller's flag, logged when it changes.
 	cordoned bool
+	// incompatible and incompatibleReason are the controller's conclusion
+	// about this binary, kept so a create arriving anyway can be refused with
+	// the sentence the controller wrote rather than one invented here.
+	incompatible       bool
+	incompatibleReason string
 	// warnedSkew keeps a version-skew warning to one line per run.
 	warnedSkew bool
 
@@ -160,6 +186,14 @@ type tracked struct {
 	// once already; reporting it every reconcile would be noise the controller
 	// has to reject.
 	terminal bool
+	// terminalAt is when that end of life was observed, which is what the
+	// retention window on its workload counts from.
+	terminalAt time.Time
+	// reported records that the controller accepted a report carrying the
+	// terminal state. Until it has, the workload stays on the host: removing
+	// it first would take the exit code with it, and leave the controller
+	// holding a live row for a runner that no longer exists.
+	reported bool
 
 	state      store.RunnerState
 	phase      backend.Phase
@@ -222,6 +256,9 @@ func New(opts Options) (*Agent, error) {
 	if interval < minHeartbeatInterval {
 		return nil, fmt.Errorf("agent: heartbeat interval %s is too short to be useful; set agent.heartbeat_interval to at least %s", interval, minHeartbeatInterval)
 	}
+	if opts.FinishedRetention < 0 {
+		return nil, fmt.Errorf("agent: finished retention %s is negative; set agent.finished_retention to how long a finished runner's output should stay readable on the host, or to 0s to remove it as soon as the controller has been told", opts.FinishedRetention)
+	}
 
 	log := opts.Logger
 	if log == nil {
@@ -235,15 +272,16 @@ func New(opts Options) (*Agent, error) {
 	}
 
 	a := &Agent{
-		opts:     opts,
-		log:      log,
-		tr:       opts.Transport,
-		clock:    clock,
-		heartbtI: interval,
-		sem:      make(chan struct{}, opts.Capacity),
-		runners:  make(map[string]*tracked),
-		inflight: make(map[string]bool),
-		orphans:  make(map[backend.Handle]time.Time),
+		opts:      opts,
+		log:       log,
+		tr:        opts.Transport,
+		clock:     clock,
+		heartbtI:  interval,
+		retention: opts.FinishedRetention,
+		sem:       make(chan struct{}, opts.Capacity),
+		runners:   make(map[string]*tracked),
+		inflight:  make(map[string]bool),
+		orphans:   make(map[backend.Handle]time.Time),
 	}
 	a.logs = newLogRelay(opts.Transport, log)
 	return a, nil
@@ -280,11 +318,22 @@ func (a *Agent) Runners() []RunnerReport {
 	return out
 }
 
+// machine is what this agent reports about the host it runs on. Detection is
+// re-run rather than cached so that a host resized in place -- a VM given more
+// cores, a container's cgroup limit raised -- stops describing itself as the
+// machine it used to be on the next heartbeat.
+func (a *Agent) machine() machine.Facts {
+	if a.opts.Machine != nil {
+		return *a.opts.Machine
+	}
+	return machine.Detect()
+}
+
 // Join enrols this host with a controller, redeeming a short-lived join token
 // for the long-lived agent token that every later call carries.
 func (a *Agent) Join(ctx context.Context, joinToken string) error {
 	if strings.TrimSpace(joinToken) == "" {
-		return errors.New("agent: no join token; mint one in the UI under Hosts, or with `zoomies hosts token`, and pass it as --token")
+		return errors.New("agent: no join token; mint one in the UI under Hosts, or with `zoomies hosts join-token create`, and pass it as --token")
 	}
 
 	// Probe first so the controller learns what this host can actually do
@@ -295,16 +344,30 @@ func (a *Agent) Join(ctx context.Context, joinToken string) error {
 	a.probedAt = a.now()
 	a.mu.Unlock()
 
+	m := a.machine()
+	cpus, memoryMB := hostSize(infos, m)
+	total, free := a.workDirSpace()
 	req := JoinRequest{
 		ProtocolVersion: ProtocolVersion,
 		JoinToken:       joinToken,
 		Name:            a.opts.Name,
 		Capacity:        a.opts.Capacity,
-		OS:              runtime.GOOS,
-		Arch:            runtime.GOARCH,
+		OS:              m.OS,
+		Distro:          m.Distro,
+		OSVersion:       m.OSVersion,
+		Arch:            m.Arch,
+		CPUs:            cpus,
+		MemoryMB:        memoryMB,
+		DiskTotalMB:     total,
+		DiskFreeMB:      free,
 		Version:         version.Version,
 		Labels:          a.opts.Labels,
 		Backends:        infos,
+		// A host that has joined before proves it is itself with the token it
+		// still holds, which is what lets it reclaim its own row rather than
+		// being refused as a name collision. A first join has none, and sending
+		// an empty string is exactly right there.
+		PreviousToken: a.previousToken(),
 	}
 	resp, err := a.tr.Join(ctx, req)
 	if err != nil {
@@ -338,6 +401,20 @@ func (a *Agent) Join(ctx context.Context, joinToken string) error {
 		"backends", strings.Join(available, ","),
 		"state_file", path)
 	return nil
+}
+
+// previousToken returns the agent token this host was last issued, or "" when
+// it has never joined or the credentials file is gone.
+//
+// A missing or unreadable file is not an error here: it only means this join
+// cannot claim an existing row of the same name, which the controller says in
+// as many words if there is one.
+func (a *Agent) previousToken() string {
+	creds, err := Load(StatePath(a.opts.WorkDir))
+	if err != nil {
+		return ""
+	}
+	return creds.AgentToken
 }
 
 func (a *Agent) setCredentials(c Credentials) {
@@ -384,7 +461,17 @@ func (a *Agent) Run(ctx context.Context) error {
 		"backends", kindList(kinds),
 		"default_backend", a.opts.DefaultBackend,
 		"heartbeat", a.heartbtI,
+		"finished_retention", a.retention,
 		"version", version.Short())
+
+	// Adopt what is already running before anything can reap it.
+	//
+	// The agent's unit restarts always, and on a single-VM install the agent
+	// lives inside the controller, so an agent starting over live workloads is
+	// an everyday event rather than an edge case. A fresh agent knows nothing,
+	// and the reconciler removes what nothing claims: without this, every job
+	// running on the host is destroyed two minutes after the agent comes back.
+	a.adoptExisting(ctx)
 
 	loopCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -475,16 +562,26 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 
 	infos := a.refreshBackends(ctx)
 	runners := a.Runners()
+	m := a.machine()
+	cpus, memoryMB := hostSize(infos, m)
+	total, free := a.workDirSpace()
 	resp, err := a.tr.Heartbeat(hctx, HeartbeatRequest{
 		ProtocolVersion: ProtocolVersion,
 		Capacity:        a.opts.Capacity,
 		Version:         version.Version,
+		CPUs:            cpus,
+		MemoryMB:        memoryMB,
+		DiskTotalMB:     total,
+		DiskFreeMB:      free,
 		Backends:        infos,
 		Runners:         runners,
 	})
 	if err != nil {
 		return err
 	}
+	// The beat carried every runner the agent tracks, so the controller now
+	// knows how each finished one ended, and its workload may go.
+	a.markReported(runners)
 
 	if !a.ready.Swap(true) {
 		// systemd holds dependent units until this arrives, so it is sent only
@@ -502,8 +599,23 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 
 	a.mu.Lock()
 	changed := a.cordoned != resp.Cordoned
+	incompatibleChanged := a.incompatible != resp.Incompatible
 	a.cordoned = resp.Cordoned
+	a.incompatible = resp.Incompatible
+	a.incompatibleReason = resp.IncompatibleReason
 	a.mu.Unlock()
+	if incompatibleChanged {
+		if resp.Incompatible {
+			// Error rather than warn: nothing is wrong with this machine and
+			// nothing will fix itself. A person has to upgrade a binary, and
+			// until they do this host is quietly out of the fleet.
+			a.log.Error("this agent is not compatible with its controller",
+				"reason", incompatibleSentence(resp),
+				"fix", "upgrade this agent to the controller's release")
+		} else {
+			a.log.Info("this agent is compatible with its controller again; it may take new runners")
+		}
+	}
 	if changed {
 		if resp.Cordoned {
 			a.log.Info("host cordoned; the controller will stop scheduling new runners here")
@@ -511,6 +623,12 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 			a.log.Info("host uncordoned; the controller may schedule runners here again")
 		}
 	}
+
+	// Everything this agent adopted stays tracked, and therefore safe from the
+	// reconciler, until the controller says it does not know it. Releasing
+	// only what it names is what keeps a restart from destroying live jobs
+	// while still clearing up a workload whose runner was deleted meanwhile.
+	a.releaseUnknown(resp.UnknownRunners)
 
 	if resp.ResyncRequested {
 		// The controller restarted and lost its cache, so re-probe rather than
@@ -600,7 +718,16 @@ func availableKinds(infos []backend.Info) []string {
 }
 
 func (a *Agent) warnSkew(controllerVersion string) {
-	if controllerVersion == "" || controllerVersion == version.Version {
+	// Releases are compared, not commits.
+	//
+	// This used to compare version.Short(), which carries the commit, against
+	// the controller's -- so two builds of one tag warned here while the host
+	// row, which stores the bare version, said the fleet matched. The agent
+	// and the Hosts page disagreed, and one of them had to be wrong. Two
+	// builds of one tag are the same release: it is worth knowing in a bug
+	// report and it is not skew.
+	skew := version.CompareBuilds(version.Version, bareVersion(controllerVersion))
+	if skew == version.SkewNone {
 		return
 	}
 	a.mu.Lock()
@@ -608,9 +735,33 @@ func (a *Agent) warnSkew(controllerVersion string) {
 	a.warnedSkew = true
 	a.mu.Unlock()
 	if first {
-		a.log.Warn("controller and agent versions differ; upgrade both to the same release before reporting a bug",
-			"controller_version", controllerVersion, "agent_version", version.Version)
+		a.log.Warn("this agent is a different release from its controller",
+			"skew", string(skew),
+			"controller_version", controllerVersion, "agent_version", version.Short(),
+			"fix", "upgrade the controller first, then its agents; an agent ahead of its controller is the direction nobody tests")
 	}
+}
+
+// bareVersion strips the commit the controller sends beside its version, so
+// the two sides compare the same thing: "v1.2.3 (abc1234)" is release v1.2.3.
+func bareVersion(s string) string {
+	if i := strings.IndexByte(s, ' '); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
+
+// jitter takes a random slice off the end of a backoff, up to a quarter of it.
+//
+// Every agent in a fleet fails the same poll at the same instant when the
+// controller goes down, and without this they all wait exactly the same
+// second and reconnect together -- a thundering herd against a controller
+// that has only just come back up.
+func jitter(d time.Duration) time.Duration {
+	if d <= 0 {
+		return d
+	}
+	return d - time.Duration(rand.Int64N(int64(d)/4+1))
 }
 
 // taskLoop long-polls for work and dispatches it.
@@ -629,8 +780,9 @@ func (a *Agent) taskLoop(ctx context.Context) error {
 			if errors.Is(err, ErrUnauthorized) {
 				return fmt.Errorf("agent: the controller rejected this agent's token while polling for tasks: re-join with `zoomies agent join %s --token <join-token>`: %w", a.tr.Describe(), err)
 			}
-			a.log.Warn("task poll failed; backing off", "error", err, "retry_in", backoff)
-			if !sleepCtx(ctx, backoff) {
+			wait := jitter(backoff)
+			a.log.Warn("task poll failed; backing off", "error", err, "retry_in", wait)
+			if !sleepCtx(ctx, wait) {
 				return nil
 			}
 			backoff = min(backoff*2, maxPollBackoff)
@@ -645,28 +797,86 @@ func (a *Agent) taskLoop(ctx context.Context) error {
 			a.dispatch(ctx, task)
 		}
 
-		wait := batch.Backoff
-		if wait <= 0 && len(batch.Tasks) == 0 {
-			// Guard against a controller that answers polls instantly: without
-			// this the loop would spin at whatever rate it can dial.
-			if elapsed := a.now().Sub(started); elapsed < minPollInterval {
-				wait = minPollInterval - elapsed
-			}
-		}
-		if wait > 0 && !sleepCtx(ctx, wait) {
+		if wait := pollWait(batch, a.now().Sub(started)); wait > 0 && !sleepCtx(ctx, wait) {
 			return nil
 		}
 	}
 }
 
+// pollWait says how long to wait before polling again, given the batch just
+// received and how long the poll that returned it took.
+//
+// A controller sheds load by asking every agent it is holding to wait, so the
+// wait it asks for is jittered: without that the whole fleet would come back
+// in the same instant and re-form the queue the backoff was spreading out.
+func pollWait(batch *TaskBatch, elapsed time.Duration) time.Duration {
+	if batch.Backoff > 0 {
+		return jitter(batch.Backoff)
+	}
+	if len(batch.Tasks) > 0 {
+		return 0
+	}
+	// Guard against a controller that answers polls instantly: without this
+	// the loop would spin at whatever rate it can dial.
+	if elapsed < minPollInterval {
+		return minPollInterval - elapsed
+	}
+	return 0
+}
+
 // dispatch validates a task and starts it, or reports why it cannot run.
 // Silence is the one outcome the controller cannot act on, so every task ends
 // in a result -- including the ones that were malformed.
+// incompatibleSentence prefers the controller's own words -- it is the side
+// that knows both numbers -- and falls back to what this agent can say alone.
+func incompatibleSentence(resp *HeartbeatResponse) string {
+	if strings.TrimSpace(resp.IncompatibleReason) != "" {
+		return resp.IncompatibleReason
+	}
+	return fmt.Sprintf("this agent speaks protocol version %d and the controller speaks %d",
+		ProtocolVersion, resp.ProtocolVersion)
+}
+
+// refuseNewWork returns why this host may not take a new runner, or "" when it
+// may. Incompatibility is named first: it is the one of the two an operator
+// did not choose, and the one whose fix is a version rather than a decision.
+func (a *Agent) refuseNewWork() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	switch {
+	case a.incompatibleReason != "":
+		return a.incompatibleReason
+	case a.incompatible:
+		return "this agent speaks a protocol version the controller does not; upgrade it to the controller's release"
+	case a.cordoned:
+		return "this host is cordoned, so it takes no new runners"
+	}
+	return ""
+}
+
 func (a *Agent) dispatch(ctx context.Context, task Task) {
 	if err := validateTask(task); err != nil {
 		a.log.Warn("rejecting task", "task", task.ID, "kind", task.Kind, "error", err)
 		a.report(ctx, TaskResult{TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: false, Error: err.Error(), CompletedAt: a.now()})
 		return
+	}
+
+	// A host the controller has told to take no new work refuses to create
+	// one, and does everything else as normal.
+	//
+	// This is the belt to the controller's braces: the scheduler already
+	// excludes a cordoned or incompatible host, so a create arriving here is a
+	// controller that has not caught up -- a plan computed before the flag, or
+	// one that does not know about the flag at all. Refusing only creates is
+	// what keeps the rest true: a cordoned host still has runners to drain,
+	// stop and stream logs from, and an agent that stopped polling would
+	// strand every one of them.
+	if task.Kind == TaskCreateRunner {
+		if why := a.refuseNewWork(); why != "" {
+			a.log.Warn("refusing to create a runner", "task", task.ID, "runner", task.RunnerID, "reason", why)
+			a.report(ctx, TaskResult{TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: false, Error: why, CompletedAt: a.now()})
+			return
+		}
 	}
 
 	switch task.Kind {
@@ -747,6 +957,10 @@ func validateTask(task Task) error {
 		if task.StreamID == "" {
 			return errors.New("cancel_logs task has no stream ID")
 		}
+	case TaskPrewarmImage:
+		if task.PoolID == "" || task.Image == "" || !task.PullPolicy.Valid() {
+			return errors.New("prewarm_image task needs a pool, image, and valid pull policy")
+		}
 	default:
 		return fmt.Errorf("unknown task kind %q; this agent speaks protocol version %d, so upgrade it to match the controller", task.Kind, ProtocolVersion)
 	}
@@ -761,7 +975,31 @@ func (a *Agent) runTask(ctx context.Context, task Task, release func()) {
 		a.handleStop(ctx, task, release)
 	case TaskRemoveRunner:
 		a.handleRemove(ctx, task, release)
+	case TaskPrewarmImage:
+		a.handlePrewarm(ctx, task, release)
 	}
+}
+
+func (a *Agent) handlePrewarm(ctx context.Context, task Task, release func()) {
+	b, err := a.opts.Backends.Get(task.Backend)
+	if err != nil {
+		release()
+		a.reportFailure(ctx, task, err.Error())
+		return
+	}
+	p, ok := b.(backend.ImagePrewarmer)
+	if !ok {
+		release()
+		a.reportFailure(ctx, task, fmt.Sprintf("the %s backend does not support image prewarming", task.Backend))
+		return
+	}
+	digest, err := p.PrewarmImage(ctx, task.Image, task.PullPolicy)
+	release()
+	res := TaskResult{TaskID: task.ID, Kind: task.Kind, OK: err == nil, Digest: digest, CompletedAt: a.now()}
+	if err != nil {
+		res.Error = err.Error()
+	}
+	a.report(ctx, res)
 }
 
 func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
@@ -776,29 +1014,68 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 		return
 	}
 
+	// Delivery is at-least-once. A create whose result never reached the
+	// controller comes round again once its lease expires, and the backend's
+	// Create begins by removing any workload of the runner's name -- so a
+	// redelivery used to destroy a runner that may have been mid-job and
+	// rebuild it with a JIT configuration GitHub had already consumed. A
+	// workload this host already has for the runner is the answer to the task.
+	if existing, handle, ok, err := a.resolve(ctx, task.RunnerID); err == nil && ok {
+		state := store.RunnerRegistering
+		a.mu.Lock()
+		if r := a.runners[task.RunnerID]; r != nil && r.state != "" {
+			state = r.state
+		}
+		a.mu.Unlock()
+		a.log.Info("a create task came again for a runner this host already has; reporting the existing workload",
+			"runner", task.RunnerID, "backend", existing.Kind(), "handle", handle)
+		release()
+		now := a.now()
+		a.report(ctx, TaskResult{
+			TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: true,
+			Handle: handle, State: state, CompletedAt: now,
+		})
+		return
+	}
+
 	spec := *task.Spec
 	if spec.RunnerID == "" {
 		spec.RunnerID = task.RunnerID
 	}
-	if spec.WorkDir == "" {
-		spec.WorkDir = a.opts.WorkDir
-	}
+	// The agent's own work directory is deliberately not handed to the
+	// backend as the runner's. For a container backend a spec WorkDir is bind
+	// mounted over the runner's _work, and the agent's directory is the wrong
+	// thing to mount three times over: it is one directory shared by every
+	// concurrent runner on the host; it belongs to the agent's account, which
+	// is not the image's runner uid, so the runner cannot write to it; and
+	// when the agent is itself a container -- the compose deployment -- the
+	// path names a place inside the agent's container, which the host daemon
+	// resolves on the host instead, mounting an empty root-owned directory
+	// that fails the first job. A runner container's own filesystem is the
+	// right scratch space for an ephemeral runner. The process backend keeps
+	// its own per-runner directories under the agent's work directory and
+	// never read this field.
 
 	// Tasks are given a context that shutdown does not cancel: a create that is
 	// half done is worse than one that finishes and is reported.
-	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), createTimeout)
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), CreateTimeout)
 	defer cancel()
 
 	start := a.now()
-	handle, err := b.Create(cctx, spec)
+	var created backend.CreateResult
+	if timed, ok := b.(backend.TimedCreator); ok {
+		created, err = timed.CreateWithResult(cctx, spec)
+	} else {
+		created.Handle, err = b.Create(cctx, spec)
+	}
 	if err != nil {
 		a.log.Error("creating runner failed", "runner", task.RunnerID, "name", spec.Name, "backend", kind, "error", err)
 		release()
 		a.reportFailure(ctx, task, fmt.Sprintf("the %s backend could not create runner %s: %v", kind, spec.Name, err))
 		return
 	}
-
 	now := a.now()
+	handle := created.Handle
 	a.mu.Lock()
 	a.runners[task.RunnerID] = &tracked{
 		runnerID:   task.RunnerID,
@@ -817,13 +1094,17 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 	a.log.Info("runner created", "runner", task.RunnerID, "name", spec.Name, "backend", kind, "handle", handle, "took", now.Sub(start))
 	release()
 	a.report(ctx, TaskResult{
-		TaskID:      task.ID,
-		Kind:        task.Kind,
-		RunnerID:    task.RunnerID,
-		OK:          true,
-		Handle:      handle,
-		State:       store.RunnerRegistering,
-		CompletedAt: now,
+		TaskID:             task.ID,
+		Kind:               task.Kind,
+		RunnerID:           task.RunnerID,
+		OK:                 true,
+		Handle:             handle,
+		ImagePullDuration:  created.ImagePullDuration,
+		CreateDuration:     created.CreateDuration,
+		ContainerStartedAt: &now,
+		Digest:             created.Digest,
+		State:              store.RunnerRegistering,
+		CompletedAt:        now,
 	})
 }
 
@@ -848,7 +1129,7 @@ func (a *Agent) handleStop(ctx context.Context, task Task, release func()) {
 	}
 	a.markStopping(task.RunnerID)
 
-	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout+stopMargin)
+	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout+StopMargin)
 	defer cancel()
 
 	if err := b.Stop(sctx, handle, timeout); err != nil && !errors.Is(err, backend.ErrNotFound) {
@@ -889,7 +1170,7 @@ func (a *Agent) handleRemove(ctx context.Context, task Task, release func()) {
 		return
 	}
 
-	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), removeTimeout)
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), RemoveTimeout)
 	defer cancel()
 
 	if err := b.Remove(rctx, handle); err != nil && !errors.Is(err, backend.ErrNotFound) {
@@ -1041,13 +1322,135 @@ func (a *Agent) resolve(ctx context.Context, runnerID string) (backend.Backend, 
 			continue
 		}
 		for _, w := range workloads {
-			if w.RunnerID == runnerID {
+			// A sidecar shares its runner's id and would answer here first
+			// often enough to matter, sending the stop to the daemon and
+			// leaving the runner holding the job.
+			if w.RunnerID == runnerID && !w.Sidecar {
 				a.adopt(runnerID, k, w)
 				return b, w.Handle, true, nil
 			}
 		}
 	}
 	return nil, "", false, errors.Join(errs...)
+}
+
+// releaseUnknown stops tracking the runners the controller says it has no row
+// for, which hands their workloads back to the reconciler's orphan path.
+//
+// It is the only route out of the tracked set that removal depends on, and it
+// is driven by the controller rather than by anything the agent can decide for
+// itself: the agent cannot tell "the controller deleted this runner" from "the
+// agent has forgotten it", and only one of those should cost somebody a job.
+func (a *Agent) releaseUnknown(runnerIDs []string) {
+	if len(runnerIDs) == 0 {
+		return
+	}
+	a.mu.Lock()
+	released := make([]string, 0, len(runnerIDs))
+	for _, id := range runnerIDs {
+		if _, ok := a.runners[id]; ok {
+			delete(a.runners, id)
+			released = append(released, id)
+		}
+	}
+	a.mu.Unlock()
+	if len(released) > 0 {
+		a.log.Info("the controller has no record of these runners; their workloads will be cleaned up",
+			"runners", strings.Join(released, ","))
+	}
+}
+
+// adoptExisting takes over every runner workload already on this host.
+//
+// It runs before the loops, so the reconciler's first pass sees a tracked set
+// that matches the host rather than an empty one. A backend that cannot be
+// listed is logged and skipped: the reconciler already refuses to conclude
+// anything about a backend it could not list, and starting without adopting
+// from it is the same position an agent is in a moment before its first
+// successful list.
+//
+// Only runner workloads carrying a runner id are adopted. One without is not
+// this controller's to manage under an identity it can name, and the
+// reconciler's orphan path is still the right home for it. A sidecar is
+// skipped although it does carry one: it is not the runner, and adopting it
+// would point that runner's slot at the wrong container for the rest of the
+// agent's life.
+func (a *Agent) adoptExisting(ctx context.Context) {
+	kinds := a.opts.Backends.Kinds()
+	slices.Sort(kinds)
+	adopted := 0
+	for _, kind := range kinds {
+		b, err := a.opts.Backends.Get(kind)
+		if err != nil {
+			a.log.Warn("could not reach a backend to adopt what it is running", "backend", kind, "error", err)
+			continue
+		}
+		workloads, err := b.List(ctx)
+		if err != nil {
+			a.log.Warn("could not list a backend's workloads to adopt them; runners it holds will be adopted "+
+				"when the controller next asks about them", "backend", kind, "error", err)
+			continue
+		}
+		for _, w := range workloads {
+			if w.RunnerID == "" || w.Sidecar {
+				continue
+			}
+			a.adopt(w.RunnerID, kind, w)
+			adopted++
+		}
+	}
+	if adopted > 0 {
+		a.log.Info("adopted runners already on this host", "runners", adopted)
+	}
+}
+
+// hostSize is how much machine this host has for runners, preferring what a
+// container daemon says over what the agent can see of itself.
+//
+// The two differ, and which is right depends on where the runners end up. The
+// agent's own view is clamped to its cgroup, deliberately: an agent in a
+// two-core container should not claim the host's sixty-four. But a runner
+// started through Docker or Podman is a sibling on the host, outside that
+// cgroup entirely, so the agent's share is not the bound on what it can start
+// -- and a containerised controller, which is the usual deployment, would
+// otherwise report a fleet a fraction of its real size and place accordingly.
+// A runner the process backend starts is a child of the agent and is held to
+// that cgroup, so where no daemon answers, the agent's own view is the honest
+// one and is what this falls back to.
+func hostSize(infos []backend.Info, self machine.Facts) (cpus int, memoryMB int64) {
+	cpus, memoryMB = self.CPUs, self.MemoryMB
+	for _, info := range infos {
+		if !info.Available {
+			continue
+		}
+		if info.CPUs > cpus {
+			cpus = info.CPUs
+		}
+		if info.MemoryMB > memoryMB {
+			memoryMB = info.MemoryMB
+		}
+	}
+	return cpus, memoryMB
+}
+
+// workDirSpace measures the filesystem the runners' scratch space lives on, in
+// megabytes, and reports zeroes when it cannot be measured.
+//
+// Megabytes rather than bytes because that is the unit the host row and every
+// other size on the Hosts page already use, and because a figure this coarse is
+// what a placement decision needs -- nobody is choosing a host on the strength
+// of one megabyte.
+//
+// Zero is "not measured" and never "full". A platform with no portable answer,
+// or a work directory that has not been created yet, must not read as a host
+// with no room, or upgrading would empty a fleet.
+func (a *Agent) workDirSpace() (totalMB, freeMB int64) {
+	total, avail, ok := diskSpace(a.opts.WorkDir)
+	if !ok {
+		return 0, 0
+	}
+	const mb = 1 << 20
+	return total / mb, avail / mb
 }
 
 // adopt records a workload the agent found on the host but had no memory of,

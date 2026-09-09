@@ -21,16 +21,44 @@ const ProtocolVersion = 1
 
 // JoinRequest redeems a short-lived join token and enrols a new host.
 type JoinRequest struct {
-	ProtocolVersion int               `json:"protocol_version"`
-	JoinToken       string            `json:"join_token"`
-	Name            string            `json:"name"`
-	Address         string            `json:"address,omitempty"`
-	Capacity        int               `json:"capacity"`
-	OS              string            `json:"os"`
-	Arch            string            `json:"arch"`
-	Version         string            `json:"version"`
-	Labels          map[string]string `json:"labels,omitempty"`
-	Backends        []backend.Info    `json:"backends"`
+	ProtocolVersion int    `json:"protocol_version"`
+	JoinToken       string `json:"join_token"`
+	Name            string `json:"name"`
+	Address         string `json:"address,omitempty"`
+	Capacity        int    `json:"capacity"`
+	OS              string `json:"os"`
+	// Distro and OSVersion say which Linux this is. The controller cannot
+	// place a pool that asks for Ubuntu 24.04 without them, and an agent too
+	// old to send them is simply a host that makes no platform promise.
+	Distro    string `json:"distro,omitempty"`
+	OSVersion string `json:"os_version,omitempty"`
+	Arch      string `json:"arch"`
+	// CPUs and MemoryMB are how much machine this host is, which is not always
+	// how much this agent may use. An agent in a container sees its cgroup's
+	// share, but a Docker runner is a sibling on the host and outside that
+	// cgroup, so the daemon's view of the machine is the one that decides what
+	// can be placed here; the larger of the two is sent. A process-backend
+	// runner is a child inside the cgroup, and there the two are the same.
+	CPUs     int   `json:"cpus,omitempty"`
+	MemoryMB int64 `json:"memory_mb,omitempty"`
+	// DiskTotalMB and DiskFreeMB measure the filesystem holding the work
+	// directory, which is where a runner's checkout and its caches land. Free
+	// is what is available to a runner rather than what is unused: the two
+	// differ by the reserve the filesystem keeps for root, and placing work
+	// into space the job cannot write to is the failure that distinction
+	// exists to prevent. Zero means the agent could not measure it, which is
+	// not the same as a full disk.
+	DiskTotalMB int64             `json:"disk_total_mb,omitempty"`
+	DiskFreeMB  int64             `json:"disk_free_mb,omitempty"`
+	Version     string            `json:"version"`
+	Labels      map[string]string `json:"labels,omitempty"`
+	Backends    []backend.Info    `json:"backends"`
+	// PreviousToken is the agent token this host was issued the last time it
+	// joined, sent when the credentials file still holds one. It is what lets
+	// a rebuilt machine reclaim its own row: without it the controller refuses
+	// to replace an existing host of the same name, because a join token on its
+	// own must not be enough to take over somebody else's machine.
+	PreviousToken string `json:"previous_token,omitempty"`
 }
 
 // JoinResponse hands back the host's identity and its long-lived agent token.
@@ -50,10 +78,22 @@ type HeartbeatRequest struct {
 	// Capacity is the agent's configured value, sent for the log and for
 	// older controllers. The controller does not write it: capacity is set
 	// at join and belongs to the operator after that.
-	Capacity int            `json:"capacity"`
-	Version  string         `json:"version"`
-	Backends []backend.Info `json:"backends,omitempty"`
-	Runners  []RunnerReport `json:"runners,omitempty"`
+	Capacity int `json:"capacity"`
+	// CPUs and MemoryMB are facts about the machine rather than the operator's
+	// choice, so unlike Capacity the controller does record them: a host
+	// resized in place must stop describing itself as the machine it used to be.
+	CPUs     int   `json:"cpus,omitempty"`
+	MemoryMB int64 `json:"memory_mb,omitempty"`
+	// DiskTotalMB and DiskFreeMB are the work directory's filesystem, sent on
+	// every beat because free space is the one of these that moves on its own.
+	// The controller writes them under a tolerance rather than on every
+	// change, or a fleet would take one row write per host per beat for a
+	// figure that is never exactly the same twice.
+	DiskTotalMB int64          `json:"disk_total_mb,omitempty"`
+	DiskFreeMB  int64          `json:"disk_free_mb,omitempty"`
+	Version     string         `json:"version"`
+	Backends    []backend.Info `json:"backends,omitempty"`
+	Runners     []RunnerReport `json:"runners,omitempty"`
 }
 
 // HeartbeatResponse tells the agent whether the controller still recognises it.
@@ -64,9 +104,31 @@ type HeartbeatResponse struct {
 	Cordoned bool `json:"cordoned"`
 	// ControllerVersion is echoed for skew detection.
 	ControllerVersion string `json:"controller_version"`
+	// Incompatible says this agent speaks a protocol the controller does not,
+	// with IncompatibleReason as the sentence to log. It is separate from
+	// Cordoned because they are separate facts -- one is an operator's
+	// decision, the other this controller's conclusion about the binary --
+	// even though the controller sets Cordoned too, so an agent that predates
+	// these fields still stops asking for work.
+	Incompatible       bool   `json:"incompatible,omitempty"`
+	IncompatibleReason string `json:"incompatible_reason,omitempty"`
+	// ProtocolVersion is what the controller speaks, so the agent can say
+	// which way the gap runs rather than only that there is one.
+	ProtocolVersion int `json:"protocol_version,omitempty"`
 	// ResyncRequested asks the agent to send a full runner report next time,
 	// which the controller sets after its own restart.
 	ResyncRequested bool `json:"resync_requested"`
+	// UnknownRunners names the runners this host reported that the controller
+	// has no live row for. They are the ones whose workloads may be removed.
+	//
+	// An agent adopts what it finds running when it starts, so that a restart
+	// does not destroy the jobs on its host. That adoption is also what stops
+	// it recognising genuine litter -- a workload whose runner the controller
+	// deleted while the agent was down -- so the controller answers with the
+	// ones it does not know, and only those are reaped. Additive: an older
+	// controller sends nothing here, and an agent that receives nothing simply
+	// keeps what it adopted, which is the safe direction.
+	UnknownRunners []string `json:"unknown_runners,omitempty"`
 }
 
 // RunnerReport is the agent's observation of one runner. The controller merges
@@ -98,7 +160,8 @@ const (
 	// TaskStreamLogs opens an outbound log relay for a UI viewer.
 	TaskStreamLogs TaskKind = "stream_logs"
 	// TaskCancelLogs closes one.
-	TaskCancelLogs TaskKind = "cancel_logs"
+	TaskCancelLogs   TaskKind = "cancel_logs"
+	TaskPrewarmImage TaskKind = "prewarm_image"
 )
 
 // Task is one unit of work handed to an agent. Tasks are idempotent: the
@@ -114,7 +177,10 @@ type Task struct {
 	// the agent transport requires TLS in any non-loopback deployment.
 	Spec *backend.Spec `json:"spec,omitempty"`
 	// Backend selects which registered backend handles this task.
-	Backend store.BackendKind `json:"backend,omitempty"`
+	Backend    store.BackendKind `json:"backend,omitempty"`
+	PoolID     string            `json:"pool_id,omitempty"`
+	Image      string            `json:"image,omitempty"`
+	PullPolicy store.PullPolicy  `json:"pull_policy,omitempty"`
 	// StopTimeout bounds a graceful stop.
 	StopTimeout time.Duration `json:"stop_timeout,omitempty"`
 	// StreamID identifies a log relay for TaskStreamLogs and TaskCancelLogs.
@@ -137,6 +203,12 @@ type TaskResult struct {
 	OK       bool           `json:"ok"`
 	Error    string         `json:"error,omitempty"`
 	Handle   backend.Handle `json:"handle,omitempty"`
+	// ImagePullDuration is nil when the backend cannot distinguish pulling
+	// from creation. ContainerStartedAt is the end of workload creation.
+	ImagePullDuration  *time.Duration `json:"image_pull_duration,omitempty"`
+	CreateDuration     time.Duration  `json:"create_duration,omitempty"`
+	ContainerStartedAt *time.Time     `json:"container_started_at,omitempty"`
+	Digest             string         `json:"digest,omitempty"`
 	// State is the runner state the agent believes the runner reached.
 	State       store.RunnerState `json:"state,omitempty"`
 	CompletedAt time.Time         `json:"completed_at"`

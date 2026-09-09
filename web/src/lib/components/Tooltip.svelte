@@ -57,7 +57,7 @@
     z-index: var(--z-layer-dropdown);
     max-width: 260px;
     padding: var(--z-space-1) var(--z-space-2);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-raised);
     color: var(--z-text);

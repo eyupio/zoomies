@@ -1,0 +1,895 @@
+package controller
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/github"
+	"github.com/eyupio/zoomies/internal/migrate"
+	"github.com/eyupio/zoomies/internal/naming"
+	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/version"
+)
+
+// The views are the resources as the API documents them: a host with its
+// health worked out, a runner with its pool and host named, a pool with its
+// counts, a job with its waits measured.
+//
+// They live here rather than in internal/api because two transports render
+// them. The REST handlers do, and so does the event stream -- and the stream
+// is fed from this package, at the moment a row changes. When the two rendered
+// different shapes, a `host.updated` frame carried a store row with no
+// `healthy` field, so the one event that exists to say "this agent has gone
+// quiet" repainted the host as healthy. One renderer, used by both, is what
+// stops the cache the UI keeps from being wrong the moment an event lands.
+// controller.Stats and controller.Problem already worked this way; these
+// follow them.
+
+// ---------------------------------------------------------------------------
+// Hosts
+// ---------------------------------------------------------------------------
+
+// BackendInfoView describes one backend a host offers.
+type BackendInfoView struct {
+	Kind      store.BackendKind `json:"kind"`
+	Available bool              `json:"available"`
+	Version   string            `json:"version,omitempty"`
+	Rootless  bool              `json:"rootless"`
+	Endpoint  string            `json:"endpoint,omitempty"`
+	Detail    string            `json:"detail,omitempty"`
+	DinD      bool              `json:"supports_dind"`
+}
+
+// HostView is one agent host and the room it has left.
+type HostView struct {
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	Address       string            `json:"address,omitempty"`
+	Embedded      bool              `json:"embedded"`
+	Capacity      int               `json:"capacity"`
+	ActiveRunners int               `json:"active_runners"`
+	Free          int               `json:"free"`
+	Backends      []string          `json:"backends"`
+	BackendInfo   []BackendInfoView `json:"backend_info"`
+	Labels        map[string]string `json:"labels"`
+	OS            string            `json:"os,omitempty"`
+	Distro        string            `json:"distro,omitempty"`
+	OSVersion     string            `json:"os_version,omitempty"`
+	Arch          string            `json:"arch,omitempty"`
+	// CPUs and MemoryMB are how much machine this host is, as its agent
+	// reported it: the daemon's view of the machine where that is larger than
+	// the agent's own share, because a container runner runs beside the agent
+	// rather than inside its cgroup.
+	CPUs     int   `json:"cpus,omitempty"`
+	MemoryMB int64 `json:"memory_mb,omitempty"`
+	// DiskTotalMB and DiskFreeMB are the filesystem holding the agent's work
+	// directory, which is where a runner's checkout and its caches land -- so
+	// it is the disk that decides whether a job has anywhere to go, and the
+	// answer to "the host has slots free, why did nothing start?".
+	//
+	// Free is what a runner may write to rather than what is unused; the two
+	// differ by the reserve the filesystem keeps for root, and a runner is not
+	// root. Zero on both is "not measured" -- an agent too old to report it,
+	// or a platform with no portable way to ask -- and is not a full disk.
+	DiskTotalMB int64 `json:"disk_total_mb,omitempty"`
+	DiskFreeMB  int64 `json:"disk_free_mb,omitempty"`
+	// ReserveCPUs, ReserveMemoryMB and ReserveDiskMB are what the operator has
+	// held back from placement, for the machine's own sake rather than for any
+	// pool's. They are the operator's alone: a heartbeat never writes them,
+	// exactly as it never writes capacity.
+	ReserveCPUs     int   `json:"reserve_cpus,omitempty"`
+	ReserveMemoryMB int64 `json:"reserve_memory_mb,omitempty"`
+	ReserveDiskMB   int64 `json:"reserve_disk_mb,omitempty"`
+	// AllocatableCPUs, AllocatableMemoryMB and AllocatableDiskMB are the
+	// machine less its reserve: what the scheduler may actually place onto,
+	// which is the figure a "how full is this host" question is asked against.
+	// The floors under the reserve -- 512 MB of memory and 2 GB of disk -- are
+	// applied here too, so what is shown is what is used.
+	AllocatableCPUs     float64 `json:"allocatable_cpus,omitempty"`
+	AllocatableMemoryMB int64   `json:"allocatable_memory_mb,omitempty"`
+	AllocatableDiskMB   int64   `json:"allocatable_disk_mb,omitempty"`
+	// ReservedCPUs and ReservedMemoryMB are what the runners already on this
+	// host have promised away, as of the last scheduling pass and from the
+	// snapshot that pass decided on. Disk is deliberately absent: free disk is
+	// a measurement of the filesystem as it is now, so what those runners have
+	// written is in DiskFreeMB already, and adding their reservations would
+	// charge the same bytes twice.
+	//
+	// ReservedKnown is false until a pass has run, because zero would read as
+	// an idle machine rather than as an unanswered question.
+	ReservedCPUs     float64 `json:"reserved_cpus,omitempty"`
+	ReservedMemoryMB int64   `json:"reserved_memory_mb,omitempty"`
+	ReservedKnown    bool    `json:"reserved_known"`
+	// ResourcesKnown is whether this host has reported what machine it is at
+	// all. An agent too old to say is placed by slots alone, which is what
+	// keeps an upgrade from emptying a fleet -- and the page has to say so,
+	// because a host showing no figures looks broken rather than old.
+	ResourcesKnown bool `json:"resources_known"`
+	// Platform is what this host is in the terms a pool asks in, and
+	// PlatformLabel is the same thing as a sentence: "Ubuntu 24.04, arm64".
+	Platform      store.Platform `json:"platform"`
+	PlatformLabel string         `json:"platform_label,omitempty"`
+	// CanonicalName is the name this machine would be given today. It is shown
+	// beside a host called something that says nothing, so an operator can see
+	// what renaming it would buy them.
+	CanonicalName string `json:"canonical_name,omitempty"`
+	Version       string `json:"version,omitempty"`
+	Cordoned      bool   `json:"cordoned"`
+	// ProtocolVersion is the agent protocol this host reported, and
+	// Incompatible whether this controller can work with it. An incompatible
+	// host is excluded from placement exactly as a cordoned one is, so the
+	// Hosts page has to say which of the two it is: nothing is broken, the
+	// host is up and heartbeating, and it has quietly stopped taking work.
+	ProtocolVersion    int    `json:"protocol_version,omitempty"`
+	Incompatible       bool   `json:"incompatible"`
+	IncompatibleReason string `json:"incompatible_reason,omitempty"`
+	// VersionSkew is how this host's release stands to the controller's:
+	// "behind", "ahead", "differs", or absent when they match. It is computed
+	// here rather than in the browser because the controller is the side that
+	// knows its own version, and because the agent's own warning comes from
+	// the same comparison -- the two used to disagree for two builds of one
+	// tag, and a badge that contradicts a log line is worse than neither.
+	VersionSkew   string    `json:"version_skew,omitempty"`
+	Healthy       bool      `json:"healthy"`
+	LastHeartbeat time.Time `json:"last_heartbeat"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+// HostView renders a host as the API returns it.
+//
+// backend_info is the agent's own probe, which includes the backends it could
+// not use and the sentence explaining why: that sentence is the whole answer to
+// "this host is connected, so why is nothing running on it?". A host that
+// joined an older controller has no probe stored, so its available kinds are
+// rendered as the bare list they are, and nothing is invented about the
+// backends it never reported on.
+func (c *Controller) HostView(h *store.Host) HostView {
+	out := HostView{
+		ID:                 h.ID,
+		Name:               h.Name,
+		Address:            h.Address,
+		Embedded:           h.Embedded,
+		Capacity:           h.Capacity,
+		ActiveRunners:      h.ActiveRunners,
+		Free:               h.Free(),
+		Backends:           emptySlice(h.Backends),
+		Labels:             emptyMap(h.Labels),
+		OS:                 h.OS,
+		Distro:             h.Distro,
+		OSVersion:          h.OSVersion,
+		Arch:               h.Arch,
+		CPUs:               h.CPUs,
+		MemoryMB:           h.MemoryMB,
+		DiskTotalMB:        h.DiskTotalMB,
+		DiskFreeMB:         h.DiskFreeMB,
+		ReserveCPUs:        h.ReserveCPUs,
+		ReserveMemoryMB:    h.ReserveMemoryMB,
+		ReserveDiskMB:      h.ReserveDiskMB,
+		Platform:           h.Platform(),
+		PlatformLabel:      h.Platform().Describe(),
+		CanonicalName:      h.CanonicalName(),
+		Version:            h.Version,
+		Cordoned:           h.Cordoned,
+		ProtocolVersion:    h.ProtocolVersion,
+		Incompatible:       h.Incompatible,
+		IncompatibleReason: incompatibleReason(h),
+		VersionSkew:        string(version.CompareBuilds(h.Version, version.Version)),
+		Healthy:            h.Healthy(c.Now()),
+		LastHeartbeat:      h.LastHeartbeat,
+		CreatedAt:          h.CreatedAt,
+	}
+	alloc := h.Allocatable()
+	out.AllocatableCPUs = alloc.CPUs
+	out.AllocatableMemoryMB = alloc.MemoryMB
+	out.AllocatableDiskMB = alloc.DiskMB
+	out.ResourcesKnown = alloc.CPUsKnown || alloc.MemoryKnown || alloc.DiskKnown
+	if res, ok := c.reservedOn(h.ID); ok {
+		out.ReservedCPUs = res.CPUs
+		out.ReservedMemoryMB = res.MemoryMB
+		out.ReservedKnown = true
+	}
+	if len(h.BackendInfo) > 0 {
+		out.BackendInfo = make([]BackendInfoView, 0, len(h.BackendInfo))
+		for _, b := range h.BackendInfo {
+			out.BackendInfo = append(out.BackendInfo, BackendInfoView{
+				Kind:      b.Kind,
+				Available: b.Available,
+				Version:   b.Version,
+				Rootless:  b.Rootless,
+				Endpoint:  b.Endpoint,
+				Detail:    b.Detail,
+				DinD:      b.SupportsDinD,
+			})
+		}
+		return out
+	}
+	out.BackendInfo = make([]BackendInfoView, 0, len(h.Backends))
+	for _, kind := range h.Backends {
+		out.BackendInfo = append(out.BackendInfo, BackendInfoView{
+			Kind:      store.BackendKind(kind),
+			Available: true,
+		})
+	}
+	return out
+}
+
+// ---------------------------------------------------------------------------
+// Jobs
+// ---------------------------------------------------------------------------
+
+// JobView is one job with its pool named and its waits measured.
+type JobView struct {
+	ID          string         `json:"id"`
+	GitHubJobID int64          `json:"github_job_id"`
+	GitHubRunID int64          `json:"github_run_id"`
+	Repo        string         `json:"repo"`
+	Workflow    string         `json:"workflow"`
+	JobName     string         `json:"job_name"`
+	Labels      []string       `json:"labels"`
+	State       store.JobState `json:"state"`
+	Conclusion  string         `json:"conclusion,omitempty"`
+	// InstallationID is the GitHub App installation covering this job's
+	// repository. It is read-only and derived at ingest; a pool only ever runs
+	// work in its own installation's target, so this is half of why a job is
+	// or is not claimed.
+	InstallationID string `json:"installation_id,omitempty"`
+	PoolID         string `json:"pool_id,omitempty"`
+	PoolName       string `json:"pool_name,omitempty"`
+	RunnerID       string `json:"runner_id,omitempty"`
+	RunnerName     string `json:"runner_name,omitempty"`
+	HTMLURL        string `json:"html_url,omitempty"`
+	Matched        bool   `json:"matched"`
+	// EligibleAt is when this fleet could first have acted on the job: the
+	// moment an enabled pool claimed its labels. It is the start of the
+	// scheduling-latency interval, and it is not queued_at -- the wait
+	// before anything could run the job is not this fleet's to answer for.
+	// Absent on a job nothing has claimed, and on one recorded before the
+	// column existed.
+	EligibleAt *time.Time `json:"eligible_at,omitempty"`
+	// Hosted is true when every label names a runner somebody else operates:
+	// GitHub's own or a hosted-runner vendor's. Such a job is theirs to run,
+	// so it being unmatched here is expected rather than a job going nowhere.
+	Hosted     bool            `json:"hosted"`
+	HeadBranch string          `json:"head_branch,omitempty"`
+	HeadSHA    string          `json:"head_sha,omitempty"`
+	RunAttempt int             `json:"run_attempt,omitempty"`
+	Steps      []store.JobStep `json:"steps"`
+	// FailedStep is the step a failed job stopped at, worked out here from the
+	// steps so that the grid and the drawer name the same one. Null when the
+	// job did not fail on a step it ran.
+	FailedStep *store.JobStep `json:"failed_step"`
+	// RunnerFault is set when the runner executing this job stopped before
+	// GitHub reported the job over: the fleet's own explanation of a failure
+	// GitHub records like any other.
+	RunnerFault string     `json:"runner_fault,omitempty"`
+	QueuedAt    time.Time  `json:"queued_at"`
+	StartedAt   *time.Time `json:"started_at"`
+	CompletedAt *time.Time `json:"completed_at"`
+	QueueWaitMS int64      `json:"queue_wait_ms"`
+	DurationMS  int64      `json:"duration_ms"`
+}
+
+// hostedJob reports whether a job's labels all name runners somebody else
+// operates -- GitHub's own, or a hosted-runner vendor's. The installation's
+// webhooks cover every job in its repositories, most of which this fleet never
+// touches, and calling one of those "unmatched" as though it were stuck was
+// alarming and false: it runs where its labels say.
+func hostedJob(labels []string) bool {
+	if len(labels) == 0 {
+		return false
+	}
+	for _, l := range labels {
+		if !migrate.IsManagedLabel(l) {
+			return false
+		}
+	}
+	return true
+}
+
+// NewJobView renders a job, given the name of the pool that claimed it.
+func NewJobView(j *store.Job, poolName string) JobView {
+	return JobView{
+		ID:             j.ID,
+		GitHubJobID:    j.GitHubJobID,
+		GitHubRunID:    j.GitHubRunID,
+		Repo:           j.Repo,
+		Workflow:       j.Workflow,
+		JobName:        j.JobName,
+		Labels:         emptySlice(j.Labels),
+		State:          j.State,
+		Conclusion:     j.Conclusion,
+		InstallationID: j.InstallationID,
+		PoolID:         j.PoolID,
+		PoolName:       poolName,
+		RunnerID:       j.RunnerID,
+		RunnerName:     j.RunnerName,
+		HTMLURL:        j.HTMLURL,
+		Matched:        j.Matched,
+		EligibleAt:     j.EligibleAt,
+		Hosted:         hostedJob(j.Labels),
+		HeadBranch:     j.HeadBranch,
+		HeadSHA:        j.HeadSHA,
+		RunAttempt:     j.RunAttempt,
+		Steps:          emptySlice([]store.JobStep(j.Steps)),
+		FailedStep:     j.FailedStep(),
+		RunnerFault:    j.RunnerFault,
+		QueuedAt:       j.QueuedAt,
+		StartedAt:      j.StartedAt,
+		CompletedAt:    j.CompletedAt,
+		QueueWaitMS:    millis(j.QueueWait()),
+		DurationMS:     millis(j.Duration()),
+	}
+}
+
+// JobRenderer names pools without a query per job.
+type JobRenderer struct {
+	pools map[string]string
+}
+
+// JobRenderer builds the index a page of jobs is rendered from.
+func (c *Controller) JobRenderer(ctx context.Context) (*JobRenderer, error) {
+	pools, err := c.st.ListPools(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing pools: %w", err)
+	}
+	return &JobRenderer{pools: poolNames(pools)}, nil
+}
+
+// View renders one job.
+func (v *JobRenderer) View(j *store.Job) JobView {
+	return NewJobView(j, v.pools[j.PoolID])
+}
+
+// jobView renders a single job for the event stream. The pool is looked up on
+// its own: an event is one job, and listing every pool to name one of them
+// would cost the busiest moment of a webhook burst the most.
+func (c *Controller) jobView(ctx context.Context, j *store.Job) JobView {
+	name := ""
+	if j.PoolID != "" {
+		if p, err := c.st.GetPool(ctx, j.PoolID); err == nil {
+			name = p.Name
+		}
+	}
+	return NewJobView(j, name)
+}
+
+// ---------------------------------------------------------------------------
+// Runners
+// ---------------------------------------------------------------------------
+
+// RunnerView is one runner, with the pool and host named rather than only
+// referenced: a runner grid that shows two opaque IDs per row is a grid nobody
+// can read.
+type RunnerView struct {
+	ID             string            `json:"id"`
+	Name           string            `json:"name"`
+	PoolID         string            `json:"pool_id"`
+	PoolName       string            `json:"pool_name,omitempty"`
+	HostID         string            `json:"host_id"`
+	HostName       string            `json:"host_name,omitempty"`
+	State          store.RunnerState `json:"state"`
+	GitHubRunnerID int64             `json:"github_runner_id,omitempty"`
+	ContainerID    string            `json:"container_id,omitempty"`
+	Ephemeral      bool              `json:"ephemeral"`
+	Labels         []string          `json:"labels"`
+	Image          string            `json:"image,omitempty"`
+	ImageDigest    string            `json:"image_digest,omitempty"`
+	RunnerVersion  string            `json:"runner_version,omitempty"`
+	CurrentJobID   string            `json:"current_job_id,omitempty"`
+	CurrentJob     *JobView          `json:"current_job,omitempty"`
+	Message        string            `json:"message,omitempty"`
+	JobsHandled    int               `json:"jobs_handled"`
+	CPUPercent     float64           `json:"cpu_percent,omitempty"`
+	MemoryBytes    int64             `json:"memory_bytes,omitempty"`
+	CreatedAt      time.Time         `json:"created_at"`
+	// ContainerStartedAt and RegisteredAt are the two halves of coming up, and
+	// they are on the view because the gap between them is the whole diagnosis
+	// of a runner stuck in `registering`: a container that never started is a
+	// backend or image problem on the host, and a container that started and
+	// never registered is a credential, network or GitHub one. Without both, a
+	// stuck runner has one symptom and two unrelated causes.
+	ContainerStartedAt *time.Time `json:"container_started_at,omitempty"`
+	RegisteredAt       *time.Time `json:"registered_at,omitempty"`
+	StartedAt          *time.Time `json:"started_at"`
+	LastIdleAt         *time.Time `json:"last_idle_at"`
+	FinishedAt         *time.Time `json:"finished_at"`
+	// CleanupError and its companions describe a runner Zoomies could not
+	// finish taking away. An empty error is the normal case; a non-empty one
+	// means something is still on a host or on GitHub.
+	CleanupError    string     `json:"cleanup_error,omitempty"`
+	CleanupFailedAt *time.Time `json:"cleanup_failed_at,omitempty"`
+	CleanupAttempts int        `json:"cleanup_attempts,omitempty"`
+	// CleanedUpAt is the end of the runner's life: nothing of it left, on the
+	// host or on GitHub.
+	CleanedUpAt *time.Time `json:"cleaned_up_at,omitempty"`
+}
+
+// RunnerRenderer names pools and hosts without a query per runner.
+type RunnerRenderer struct {
+	pools map[string]string
+	hosts map[string]string
+	jobs  map[string]*store.Job
+}
+
+// RunnerRenderer builds the index a page of runners is rendered from.
+func (c *Controller) RunnerRenderer(ctx context.Context, runners []*store.Runner) (*RunnerRenderer, error) {
+	pools, err := c.st.ListPools(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing pools: %w", err)
+	}
+	hosts, err := c.st.ListHosts(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing hosts: %w", err)
+	}
+	v := &RunnerRenderer{pools: poolNames(pools), hosts: map[string]string{}, jobs: map[string]*store.Job{}}
+	for _, h := range hosts {
+		v.hosts[h.ID] = h.Name
+	}
+	// Only the runners that are actually executing something need a job, which
+	// on an idle fleet is none of them.
+	for _, run := range runners {
+		if run.CurrentJobID == "" {
+			continue
+		}
+		if _, done := v.jobs[run.CurrentJobID]; done {
+			continue
+		}
+		j, err := c.st.GetJob(ctx, run.CurrentJobID)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				continue
+			}
+			return nil, fmt.Errorf("reading the job a runner is executing: %w", err)
+		}
+		v.jobs[run.CurrentJobID] = j
+	}
+	return v, nil
+}
+
+// View renders one runner.
+func (v *RunnerRenderer) View(r *store.Runner) RunnerView {
+	out := RunnerView{
+		ID:                 r.ID,
+		Name:               r.Name,
+		PoolID:             r.PoolID,
+		PoolName:           v.pools[r.PoolID],
+		HostID:             r.HostID,
+		HostName:           v.hosts[r.HostID],
+		State:              r.State,
+		GitHubRunnerID:     r.GitHubRunnerID,
+		ContainerID:        r.ContainerID,
+		Ephemeral:          r.Ephemeral,
+		Labels:             emptySlice(r.Labels),
+		Image:              r.Image,
+		ImageDigest:        r.ImageDigest,
+		RunnerVersion:      r.RunnerVersion,
+		CurrentJobID:       r.CurrentJobID,
+		Message:            r.Message,
+		JobsHandled:        r.JobsHandled,
+		CPUPercent:         r.CPUPercent,
+		MemoryBytes:        r.MemoryBytes,
+		CreatedAt:          r.CreatedAt,
+		ContainerStartedAt: r.ContainerStartedAt,
+		RegisteredAt:       r.RegisteredAt,
+		StartedAt:          r.StartedAt,
+		LastIdleAt:         r.LastIdleAt,
+		FinishedAt:         r.FinishedAt,
+		CleanupError:       r.CleanupError,
+		CleanupFailedAt:    r.CleanupFailedAt,
+		CleanupAttempts:    r.CleanupAttempts,
+		CleanedUpAt:        r.CleanedUpAt,
+	}
+	if j := v.jobs[r.CurrentJobID]; j != nil {
+		job := NewJobView(j, v.pools[j.PoolID])
+		out.CurrentJob = &job
+	}
+	return out
+}
+
+// runnerView renders a single runner for the event stream: three point reads
+// rather than two list queries, because a reconcile pass publishes one event
+// per runner it touched and the fleet may be large.
+func (c *Controller) runnerView(ctx context.Context, r *store.Runner) RunnerView {
+	v := &RunnerRenderer{pools: map[string]string{}, hosts: map[string]string{}, jobs: map[string]*store.Job{}}
+	if p, err := c.st.GetPool(ctx, r.PoolID); err == nil {
+		v.pools[p.ID] = p.Name
+	}
+	if h, err := c.st.GetHost(ctx, r.HostID); err == nil {
+		v.hosts[h.ID] = h.Name
+	}
+	if r.CurrentJobID != "" {
+		if j, err := c.st.GetJob(ctx, r.CurrentJobID); err == nil {
+			v.jobs[j.ID] = j
+		}
+	}
+	return v.View(r)
+}
+
+// ---------------------------------------------------------------------------
+// Pools
+// ---------------------------------------------------------------------------
+
+// PoolCountsView is a pool's live runner tally, in the shape the OpenAPI
+// document's Pool.counts has.
+type PoolCountsView struct {
+	Provisioning int `json:"provisioning"`
+	Registering  int `json:"registering"`
+	Idle         int `json:"idle"`
+	Busy         int `json:"busy"`
+	Draining     int `json:"draining"`
+	Failed       int `json:"failed"`
+	Live         int `json:"live"`
+}
+
+// PoolView is a pool plus what an operator needs to see next to it: which
+// installation it belongs to, how many runners it has in each state, how much
+// of itself it is using, and every dangerous setting it has in effect.
+type PoolView struct {
+	ID                 string            `json:"id"`
+	Name               string            `json:"name"`
+	InstallationID     string            `json:"installation_id"`
+	InstallationTarget string            `json:"installation_target,omitempty"`
+	Labels             []string          `json:"labels"`
+	RunnerGroup        string            `json:"runner_group,omitempty"`
+	Backend            store.BackendKind `json:"backend"`
+	// Platform is the machine this pool's runners need. It picks the runner
+	// image and restricts which hosts the scheduler may place them on.
+	Platform store.Platform `json:"platform"`
+	Image    string         `json:"image"`
+	// EffectiveImage is the image runners will actually boot: Image when the
+	// pool names one, otherwise the variant its platform selects, otherwise
+	// the instance default. A pool page that showed a blank image field and
+	// nothing else would leave an operator guessing at the single most
+	// important thing about their runners.
+	EffectiveImage string           `json:"effective_image"`
+	PullPolicy     store.PullPolicy `json:"pull_policy"`
+	RunnerVersion  string           `json:"runner_version,omitempty"`
+	MinRunners     int              `json:"min_runners"`
+	MaxRunners     int              `json:"max_runners"`
+	Priority       int              `json:"priority"`
+	// RepositoryScaleUpLimit and CostPerRunnerHour are accepted on the way in,
+	// so they are rendered on the way out: a field the API takes but never
+	// shows again is a field an operator cannot check, edit or explain.
+	RepositoryScaleUpLimit int               `json:"repository_scale_up_limit"`
+	CostPerRunnerHour      *float64          `json:"cost_per_runner_hour"`
+	IdleTimeout            store.Duration    `json:"idle_timeout"`
+	Ephemeral              bool              `json:"ephemeral"`
+	DockerMode             store.DockerMode  `json:"docker_mode"`
+	Resources              store.Resources   `json:"resources"`
+	Cache                  store.CacheConfig `json:"cache"`
+	HostSelector           map[string]string `json:"host_selector"`
+	Env                    map[string]string `json:"env"`
+	RunAsRoot              bool              `json:"run_as_root"`
+	Enabled                bool              `json:"enabled"`
+	CreatedAt              time.Time         `json:"created_at"`
+	UpdatedAt              time.Time         `json:"updated_at"`
+	Counts                 PoolCountsView    `json:"counts"`
+	QueuedJobs             int               `json:"queued_jobs"`
+	Utilisation            float64           `json:"utilisation"`
+	Warnings               []Problem         `json:"warnings,omitempty"`
+}
+
+// PoolRenderer is everything needed to render pools without one query per
+// pool.
+type PoolRenderer struct {
+	counts        map[string]store.PoolCounts
+	installations map[string]*store.Installation
+	queued        map[string]int
+	// blocked holds, per pool, the scheduler's reason for not placing the
+	// runners that pool wanted. It is the answer to the question the pool page
+	// is opened to ask.
+	blocked map[string][]Problem
+	// defaultImage is what a pool that names neither an image nor a platform
+	// will boot, which the renderer needs to resolve EffectiveImage.
+	defaultImage string
+}
+
+// PoolRenderer gathers the per-pool counts, installation targets and queue
+// depths in three queries rather than three per pool.
+func (c *Controller) PoolRenderer(ctx context.Context) (*PoolRenderer, error) {
+	counts, err := c.st.CountRunnersByPool(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("counting runners by pool: %w", err)
+	}
+	insts, err := c.st.ListInstallations(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing installations: %w", err)
+	}
+	installations := make(map[string]*store.Installation, len(insts))
+	for _, i := range insts {
+		installations[i.ID] = i
+	}
+	jobs, err := c.st.ListQueuedJobs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing queued jobs: %w", err)
+	}
+	queued := map[string]int{}
+	for _, j := range jobs {
+		if j.PoolID != "" {
+			queued[j.PoolID]++
+		}
+	}
+	blocked := map[string][]Problem{}
+	for _, p := range c.PoolCapacityProblems() {
+		blocked[p.TargetID] = append(blocked[p.TargetID], p)
+	}
+	// The pool's own page carries the same sentences the drawer does: an
+	// operator who opens a pool because its jobs are going somewhere strange
+	// should not have to find the drawer to be told why.
+	for _, p := range c.PoolRunnerGroupProblems() {
+		blocked[p.TargetID] = append(blocked[p.TargetID], p)
+	}
+	return &PoolRenderer{counts: counts, installations: installations, queued: queued,
+		blocked: blocked, defaultImage: c.cfg().GitHub.RunnerImage}, nil
+}
+
+// image is the image this pool's runners will actually boot, resolved the same
+// way the controller resolves it when it makes one -- including the Docker
+// variant a pool that gives its jobs a daemon gets.
+func (v *PoolRenderer) image(p *store.Pool) string {
+	image := naming.ResolveRunnerImage(p.Image, p.Platform.OS, p.Platform.OSVersion, v.defaultImage)
+	return config.RunnerImageFor(image, p.DockerMode.GivesDaemon())
+}
+
+// View renders one pool.
+func (v *PoolRenderer) View(p *store.Pool) PoolView {
+	cnt := v.counts[p.ID]
+	inst := v.installations[p.InstallationID]
+	target := ""
+	if inst != nil {
+		target = inst.Target
+	}
+	return PoolView{
+		ID:                     p.ID,
+		Name:                   p.Name,
+		InstallationID:         p.InstallationID,
+		InstallationTarget:     target,
+		Labels:                 emptySlice(p.Labels),
+		RunnerGroup:            p.RunnerGroup,
+		Backend:                p.Backend,
+		Platform:               p.Platform,
+		Image:                  p.Image,
+		EffectiveImage:         v.image(p),
+		PullPolicy:             p.PullPolicy,
+		RunnerVersion:          p.RunnerVersion,
+		MinRunners:             p.MinRunners,
+		MaxRunners:             p.MaxRunners,
+		Priority:               p.Priority,
+		RepositoryScaleUpLimit: p.RepositoryScaleUpLimit,
+		CostPerRunnerHour:      p.CostPerRunnerHour,
+		IdleTimeout:            p.IdleTimeout,
+		Ephemeral:              p.Ephemeral,
+		DockerMode:             p.DockerMode,
+		Resources:              p.Resources,
+		Cache:                  p.Cache,
+		HostSelector:           emptyMap(p.HostSelector),
+		Env:                    emptyMap(p.Env),
+		RunAsRoot:              p.RunAsRoot,
+		Enabled:                p.Enabled,
+		CreatedAt:              p.CreatedAt,
+		UpdatedAt:              p.UpdatedAt,
+		Counts: PoolCountsView{
+			Provisioning: cnt.Provisioning, Registering: cnt.Registering,
+			Idle: cnt.Idle, Busy: cnt.Busy, Draining: cnt.Draining, Failed: cnt.Failed,
+			Live: cnt.Live(),
+		},
+		QueuedJobs:  v.queued[p.ID],
+		Utilisation: cnt.Utilisation(),
+		Warnings:    append(PoolWarnings(p, inst), v.blocked[p.ID]...),
+	}
+}
+
+// PoolWarnings renders a pool's dangerous settings as problems.
+//
+// They are the same sentences the UI's problems drawer shows, because an
+// operator should not have to learn that "host-socket" on the pool page and
+// "any job on this pool can become root on the host" on the Overview are the
+// same fact.
+//
+// The installation is there for the one risk a pool cannot see in itself,
+// the repository cache below. Nil when it is unknown, which validation
+// reports on its own.
+func PoolWarnings(p *store.Pool, inst *store.Installation) []Problem {
+	var out []Problem
+	for _, d := range p.Dangerous() {
+		out = append(out, Problem{
+			Code:       "pool.dangerous",
+			Severity:   config.SeverityWarning,
+			Title:      fmt.Sprintf("pool %s: %s", p.Name, d),
+			Detail:     "this pool was configured to weaken the isolation between a workflow job and the host it runs on.",
+			Fix:        fmt.Sprintf("edit the %s pool if this was not deliberate.", p.Name),
+			TargetKind: "pool",
+			TargetID:   p.ID,
+		})
+	}
+	if w, ok := cacheSharingWarning(p, inst); ok {
+		out = append(out, w)
+	}
+	return out
+}
+
+// cacheSharingWarning names the way a repository cache stops being one.
+//
+// Under an organisation installation a pool's runners register to the
+// organisation, and GitHub gives a runner any queued job whose runs-on matches
+// its labels; Zoomies has no say in which repository that job comes from. A
+// cache keyed to one repository is therefore only that repository's for as
+// long as no other repository's workflow asks for this pool's labels -- a
+// discipline kept in other people's workflow files, which is why it is a
+// standing warning rather than a line in the docs. A repository-targeted
+// installation registers runners only that repository's jobs can reach, so
+// there the cache is as private as it looks.
+func cacheSharingWarning(p *store.Pool, inst *store.Installation) (Problem, bool) {
+	if inst == nil || inst.TargetType == store.TargetRepo {
+		return Problem{}, false
+	}
+	if !p.Cache.Enabled || p.Cache.Scope != store.CacheScopeRepository {
+		return Problem{}, false
+	}
+	repo := strings.TrimSpace(p.Cache.Repository)
+	if repo == "" {
+		repo = "the repository"
+	}
+	return Problem{
+		Code:     "pool.cache_shared",
+		Severity: config.SeverityWarning,
+		Title:    fmt.Sprintf("pool %s: the %s cache is only as private as the pool's labels", p.Name, repo),
+		Detail: fmt.Sprintf("runners in this pool register to %s, so GitHub can hand them any repository's job whose runs-on asks for this pool's labels, "+
+			"and that job reads and writes the cache. Nothing in Zoomies stops another repository's workflow doing so.", inst.Target),
+		Fix:        fmt.Sprintf("give the %s pool a branded label that only %s's workflows use in runs-on, and keep it that way.", p.Name, repo),
+		TargetKind: "pool",
+		TargetID:   p.ID,
+	}, true
+}
+
+// ---------------------------------------------------------------------------
+// Installations
+// ---------------------------------------------------------------------------
+
+// InstallationView is a GitHub App installation as the API returns it.
+//
+// The private key and the webhook secret are absent, and there is no field they
+// could be put in: the store keeps them sealed and tagged `json:"-"`, and this
+// type names every field explicitly so that adding one to the domain model
+// cannot leak it here by accident.
+type InstallationView struct {
+	ID             string           `json:"id"`
+	AppID          int64            `json:"app_id"`
+	InstallationID int64            `json:"installation_id"`
+	Target         string           `json:"target"`
+	TargetType     store.TargetType `json:"target_type"`
+	APIBaseURL     string           `json:"api_base_url"`
+	AppSlug        string           `json:"app_slug,omitempty"`
+	WebURL         string           `json:"web_url,omitempty"`
+	// SettingsURL is the App's own settings page on GitHub. It is carried on
+	// every installation, not only on the one the connect flow just created,
+	// because the one thing a manifest cannot do is set the App's avatar --
+	// GitHub takes it as an upload -- and an operator who missed that step
+	// during setup has nowhere else to be told about it. Empty when the slug
+	// is unknown, which is what a hand-added installation looks like.
+	SettingsURL   string     `json:"settings_url,omitempty"`
+	Enterprise    bool       `json:"enterprise"`
+	Healthy       bool       `json:"healthy"`
+	LastError     string     `json:"last_error,omitempty"`
+	LastCheckedAt *time.Time `json:"last_checked_at"`
+	PoolCount     int        `json:"pool_count"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+}
+
+// NewInstallationView renders an installation, given how many pools depend on
+// it.
+func NewInstallationView(i *store.Installation, pools int) InstallationView {
+	return InstallationView{
+		ID:             i.ID,
+		AppID:          i.AppID,
+		InstallationID: i.InstallationID,
+		Target:         i.Target,
+		TargetType:     i.TargetType,
+		APIBaseURL:     i.APIBaseURL,
+		AppSlug:        i.AppSlug,
+		WebURL:         github.WebURLForAPI(i.APIBaseURL),
+		SettingsURL:    github.SettingsURL(i.APIBaseURL, i.AppSlug, settingsOrgOf(i)),
+		Enterprise:     github.IsEnterprise(i.APIBaseURL),
+		Healthy:        i.Healthy(),
+		LastError:      i.LastError,
+		LastCheckedAt:  i.LastCheckedAt,
+		PoolCount:      pools,
+		CreatedAt:      i.CreatedAt,
+		UpdatedAt:      i.UpdatedAt,
+	}
+}
+
+// settingsOrgOf names the organisation an App's settings live under, which is
+// the target for an org App and nothing at all for a repo App: GitHub answers
+// the wrong one with a 404 rather than a redirect.
+func settingsOrgOf(i *store.Installation) string {
+	if i.TargetType == store.TargetOrg {
+		return i.Target
+	}
+	return ""
+}
+
+// PoolCountsByInstallation answers "how much depends on this installation?",
+// which is what makes the delete confirmation honest.
+func (c *Controller) PoolCountsByInstallation(ctx context.Context) (map[string]int, error) {
+	pools, err := c.st.ListPools(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing pools: %w", err)
+	}
+	out := map[string]int{}
+	for _, p := range pools {
+		out[p.InstallationID]++
+	}
+	return out, nil
+}
+
+// installationView renders one installation for the event stream.
+func (c *Controller) installationView(ctx context.Context, inst *store.Installation) InstallationView {
+	counts, err := c.PoolCountsByInstallation(ctx)
+	if err != nil {
+		counts = nil
+	}
+	return NewInstallationView(inst, counts[inst.ID])
+}
+
+// ---------------------------------------------------------------------------
+// Problems
+// ---------------------------------------------------------------------------
+
+// ProblemsView carries the drawer's own "nothing is wrong" flag rather than
+// leaving the UI to infer it from an empty array, so that "we checked and all
+// is well" and "we have not looked yet" cannot be rendered the same way.
+type ProblemsView struct {
+	OK    bool      `json:"ok"`
+	Items []Problem `json:"items"`
+}
+
+// NewProblemsView wraps a problem list. A nil list renders as an empty array,
+// never as null, because the UI reads "nothing needs your attention" from
+// exactly that.
+func NewProblemsView(items []Problem) ProblemsView {
+	if items == nil {
+		items = []Problem{}
+	}
+	return ProblemsView{OK: len(items) == 0, Items: items}
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+func poolNames(pools []*store.Pool) map[string]string {
+	out := make(map[string]string, len(pools))
+	for _, p := range pools {
+		out[p.ID] = p.Name
+	}
+	return out
+}
+
+// emptySlice renders a nil slice as [] rather than null: a client should be
+// able to iterate a list field without a nil check.
+func emptySlice[T any](in []T) []T {
+	if in == nil {
+		return []T{}
+	}
+	return in
+}
+
+func emptyMap(in store.StringMap) map[string]string {
+	if in == nil {
+		return map[string]string{}
+	}
+	return in
+}
+
+func millis(d time.Duration) int64 {
+	if d <= 0 {
+		return 0
+	}
+	return d.Milliseconds()
+}

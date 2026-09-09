@@ -111,6 +111,15 @@ func createTask(id, runnerID string) Task {
 	}
 }
 
+func TestCreatePropagatesBackendDigest(t *testing.T) {
+	h := newHarness(t, 1)
+	h.tr.tasks <- []Task{createTask("digest-task", "digest-runner")}
+	res := h.nextResult()
+	if !res.OK || res.Digest != "sha256:resolved" {
+		t.Fatalf("create result = %+v, want resolved backend digest", res)
+	}
+}
+
 func TestJoinPersistsCredentials(t *testing.T) {
 	a, tr, _, _ := newAgent(t, 1)
 	if err := a.Join(context.Background(), "join-token"); err != nil {
@@ -436,6 +445,7 @@ func TestNewValidatesOptions(t *testing.T) {
 		"transport": func(o *Options) { o.Transport = nil },
 		"backend":   func(o *Options) { o.DefaultBackend = store.BackendKind("kubernetes") },
 		"heartbeat": func(o *Options) { o.HeartbeatInterval = time.Millisecond },
+		"retention": func(o *Options) { o.FinishedRetention = -time.Minute },
 	}
 	for name, break_ := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -556,5 +566,102 @@ func TestAgentDoesNotReprobeOnEveryHeartbeatWhenHealthy(t *testing.T) {
 		case <-deadline:
 			t.Fatalf("no probe within 5s of %s passing", backendProbeInterval)
 		}
+	}
+}
+
+// A container runner's scratch space is its own filesystem, never the agent's
+// work directory: that directory is shared by every runner on the host, owned
+// by the wrong account for the image, and -- when the agent is itself a
+// container -- a path the host daemon cannot even see. Mounting it produced a
+// runner whose first job failed on an empty root-owned _work.
+func TestCreateTaskDoesNotHandTheAgentsWorkDirToTheBackend(t *testing.T) {
+	h := newHarness(t, 1)
+	h.tr.tasks <- []Task{createTask("task-1", "runner-1")}
+	if res := h.nextResult(); !res.OK {
+		t.Fatalf("create failed: %+v", res)
+	}
+
+	h.be.mu.Lock()
+	defer h.be.mu.Unlock()
+	if len(h.be.created) != 1 {
+		t.Fatalf("created %d runners, want 1", len(h.be.created))
+	}
+	if got := h.be.created[0].WorkDir; got != "" {
+		t.Fatalf("the backend was given work dir %q; the runner should use its own filesystem", got)
+	}
+}
+
+// Delivery is at-least-once: a create whose result was lost is offered again
+// once its lease expires. The backend's Create begins by removing a workload of
+// the same name, so the redelivery used to destroy a runner that might be
+// mid-job and rebuild it with a JIT configuration GitHub had already used.
+func TestARedeliveredCreateReportsTheRunnerThatAlreadyExists(t *testing.T) {
+	h := newHarness(t, 2)
+	h.tr.tasks <- []Task{createTask("task-1", "runner-1")}
+	first := h.nextResult()
+	if !first.OK || first.Handle == "" {
+		t.Fatalf("first create: %+v", first)
+	}
+
+	h.tr.tasks <- []Task{createTask("task-1-again", "runner-1")}
+	again := h.nextResult()
+	if !again.OK || again.TaskID != "task-1-again" || again.RunnerID != "runner-1" {
+		t.Fatalf("redelivered create: %+v", again)
+	}
+	if again.Handle != first.Handle {
+		t.Fatalf("the redelivery reported handle %q, want the existing %q", again.Handle, first.Handle)
+	}
+	if created, _, _ := h.be.counts(); created != 1 {
+		t.Fatalf("Create called %d times, want the one that made the runner", created)
+	}
+}
+
+// The controller sheds load by asking every agent it is holding to wait, so it
+// asks them all in the same instant. Waiting exactly as long as it asked would
+// bring the whole fleet back together and re-form the queue the backoff was
+// spreading out, so the wait is jittered.
+func TestAShedBackoffIsSpreadRatherThanWaitedExactly(t *testing.T) {
+	const asked = 10 * time.Second
+	batch := &TaskBatch{Backoff: asked}
+
+	seen := map[time.Duration]bool{}
+	for range 50 {
+		got := pollWait(batch, 0)
+		if got <= 0 || got > asked {
+			t.Fatalf("wait of %s for a %s backoff: it should be shorter, and it should still be a wait", got, asked)
+		}
+		seen[got] = true
+	}
+	if len(seen) == 1 {
+		t.Fatal("every agent asked to wait would return in the same instant, which is the queue the backoff exists to spread")
+	}
+}
+
+// A backoff is the controller's answer, not a suggestion to weigh against the
+// spin guard: an agent that found no work still waits for it.
+func TestABackoffOutranksTheSpinGuard(t *testing.T) {
+	if got := pollWait(&TaskBatch{Backoff: time.Second}, time.Hour); got < 500*time.Millisecond {
+		t.Fatalf("wait = %s after a poll that took an hour, want most of the second the controller asked for", got)
+	}
+}
+
+// A batch with work in it is dispatched and polled again straight away: the
+// spin guard exists for an idle loop, and applying it to a busy one would put
+// a floor under how fast a host can be given its next task.
+func TestABatchWithWorkIsPolledAgainImmediately(t *testing.T) {
+	batch := &TaskBatch{Tasks: []Task{{ID: "t1", Kind: TaskCreateRunner}}}
+	if got := pollWait(batch, 0); got != 0 {
+		t.Fatalf("wait = %s after a batch with work in it, want none", got)
+	}
+}
+
+// An idle poll the controller answered instantly is held off, or the loop
+// would spin at whatever rate it can dial.
+func TestAnInstantIdlePollIsHeldOff(t *testing.T) {
+	if got := pollWait(&TaskBatch{}, 0); got != minPollInterval {
+		t.Fatalf("wait = %s after an instant empty poll, want the %s floor", got, minPollInterval)
+	}
+	if got := pollWait(&TaskBatch{}, minPollInterval); got != 0 {
+		t.Fatalf("wait = %s after a poll that already took the floor, want none", got)
 	}
 }

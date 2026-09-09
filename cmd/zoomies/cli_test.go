@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -368,5 +369,111 @@ func decodeJSON(t *testing.T, r *http.Request, out any) {
 	t.Helper()
 	if err := json.NewDecoder(r.Body).Decode(out); err != nil {
 		t.Fatalf("decoding the request body: %v", err)
+	}
+}
+
+// The password never appears in argv: it is typed at a prompt, or piped in.
+// A --password flag would put a live credential in /proc/<pid>/cmdline, where
+// every account on the host can read it, and in the shell history after that.
+func TestUsersPasswdTakesTheSecretFromStandardInputNotAFlag(t *testing.T) {
+	var body map[string]any
+	var path string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		decodeJSON(t, r, &body)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	e, out, errOut := newTestEnv(t)
+	e.in = strings.NewReader("a-long-enough-password\n")
+	if code := dispatch(context.Background(), e, []string{"users", "passwd", "usr_7f3a", "--url", srv.URL}); code != exitOK {
+		t.Fatalf("exit code = %d\n%s", code, errOut)
+	}
+	if path != "/api/v1/users/usr_7f3a/password" {
+		t.Errorf("path = %q", path)
+	}
+	if body["new_password"] != "a-long-enough-password" {
+		t.Errorf("body = %v, want the password read from stdin", body)
+	}
+	if !strings.Contains(out.String(), "usr_7f3a") {
+		t.Errorf("output = %q, want it to name the account", out)
+	}
+
+	// Nothing piped in and no terminal to prompt on is a usage error, not an
+	// empty password sent to the server.
+	e2, _, _ := newTestEnv(t)
+	if code := dispatch(context.Background(), e2, []string{"users", "passwd", "usr_7f3a", "--url", srv.URL}); code != exitUsage {
+		t.Errorf("exit code with no password = %d, want a usage error", code)
+	}
+}
+
+// `zoomies jobs get` prints the controller's explanation rather than reasoning
+// its way to one.
+//
+// It used to have a paragraph of its own for a queued job nothing claims, which
+// could see the job row and nothing else -- not the scheduler's reason for
+// failing to place a runner, and not the host under the runner. The web UI had
+// a different paragraph for the same question. This replaces that test: the two
+// cases it covered are still told apart, and now by the side that can see the
+// fleet, so the two surfaces cannot disagree.
+func TestJobsGetPrintsTheControllersExplanation(t *testing.T) {
+	tests := []struct {
+		name        string
+		explanation string
+		want        []string
+		notWant     string
+	}{
+		{
+			name: "no installation covers the repository",
+			explanation: `{"summary":"No pool in this fleet claims this job.",
+				"detail":"No GitHub App installation here covers acme/widgets.",
+				"fix":"install the App on that organisation, then add it.","waiting":true,"blocked":true}`,
+			want:    []string{"No pool in this fleet claims this job.", "No GitHub App installation here covers acme/widgets.", "install the App on that organisation"},
+			notWant: "runs-on",
+		},
+		{
+			name: "the scheduler cannot place a runner",
+			explanation: `{"summary":"The scheduler wants a runner for this job and cannot place one.",
+				"detail":"no host can take a new docker runner (2 not matching the pool's host selector)",
+				"fix":"relax the pool's host selector.","waiting":true,"blocked":true}`,
+			want:    []string{"cannot place one", "not matching the pool's host selector", "relax the pool's host selector"},
+			notWant: "No enabled pool claims",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch {
+				case strings.HasSuffix(r.URL.Path, "/explanation"):
+					_, _ = w.Write([]byte(tc.explanation))
+				case strings.HasSuffix(r.URL.Path, "/events"):
+					_, _ = w.Write([]byte(`{"items":[],"total":0,"limit":50,"offset":0}`))
+				default:
+					_, _ = fmt.Fprint(w, `{"id":"job_1","repo":"acme/widgets","workflow":"CI","job_name":"build",
+						"labels":["self-hosted","linux","x64"],"state":"queued","matched":false,
+						"queued_at":"2026-04-01T11:00:00Z","steps":[]}`)
+				}
+			}))
+			defer srv.Close()
+
+			e, out, errOut := newTestEnv(t)
+			if code := dispatch(context.Background(), e, []string{
+				"jobs", "get", "job_1", "--url", srv.URL,
+			}); code != exitOK {
+				t.Fatalf("exit code = %d\n%s", code, errOut)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(out.String(), want) {
+					t.Errorf("output does not carry %q from the explanation:\n%s", want, out)
+				}
+			}
+			// The CLI must not still be writing its own answer beside the
+			// controller's; two answers is what this replaced.
+			if strings.Contains(out.String(), tc.notWant) {
+				t.Errorf("output still carries the CLI's own reasoning %q:\n%s", tc.notWant, out)
+			}
+		})
 	}
 }

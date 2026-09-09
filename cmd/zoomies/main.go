@@ -92,11 +92,14 @@ func commands() []*command {
 		{"hosts", groupFleet, "Agents, their capacity, and enrolment", runHosts},
 		{"installations", groupFleet, "GitHub App installations", runInstallations},
 		{"audit", groupFleet, "Who did what", runAudit},
+		{"diagnostics", groupFleet, "Collect a support bundle for a bug report", runDiagnostics},
 		{"users", groupFleet, "User accounts", runUsers},
 		{"tokens", groupFleet, "API tokens", runTokens},
 
 		{"init", groupSetup, "Set this host up: service, backend, GitHub App, first admin", runInit},
 		{"uninstall", groupSetup, "Remove Zoomies from this host", runUninstall},
+		{"backup", groupSetup, "Copy this host's database, with a manifest saying what it needs", runBackup},
+		{"restore", groupSetup, "Put a backup's database back, and fence the fleet while you check it", runRestore},
 		{"config", groupSetup, "Check a configuration file, or print the effective one", runConfig},
 		{"healthcheck", groupSetup, "Probe a controller's /healthz; the container HEALTHCHECK", runHealthcheck},
 		{"version", groupSetup, "Print the version", runVersion},
@@ -159,6 +162,19 @@ func report(e *env, name string, err error) int {
 		// Ctrl-C on a stream or a long poll. The operator knows; saying
 		// "context canceled" to them would be noise.
 		return exitOK
+	case errors.Is(err, installer.ErrAbortedDirty):
+		// Setup was cancelled, but not before it had done things. Listing them
+		// is the difference between an operator who knows to run `zoomies
+		// uninstall` and one who has been told the machine is untouched.
+		var ab *installer.AbortedError
+		fmt.Fprintln(e.err, "Setup stopped. These are already on this host:")
+		if errors.As(err, &ab) {
+			for _, what := range ab.Written {
+				fmt.Fprintf(e.err, "  - %s\n", what)
+			}
+		}
+		fmt.Fprintln(e.err, "Run `zoomies init` again to carry on, or `zoomies uninstall` to remove them.")
+		return exitError
 	case errors.Is(err, installer.ErrAborted):
 		fmt.Fprintln(e.err, "Nothing was changed.")
 		return exitError
@@ -175,7 +191,12 @@ func report(e *env, name string, err error) int {
 		return exitUsage
 	}
 
-	fmt.Fprintf(e.err, "zoomies %s: %s\n", name, err)
+	// The installer prefixes its own errors with its package name, which reads
+	// correctly in a log line and as a stutter under "zoomies init:" -- and the
+	// first thing an operator does with a mistyped flag is read
+	// `zoomies init: installer: "bogus" is not an install mode`, which looks
+	// like a fault in the tool rather than in the command.
+	fmt.Fprintf(e.err, "zoomies %s: %s\n", name, strings.TrimPrefix(err.Error(), "installer: "))
 	return exitError
 }
 

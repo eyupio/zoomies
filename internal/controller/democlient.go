@@ -49,6 +49,10 @@ func (d *demoClient) Probe(context.Context) (*github.AppInfo, error) {
 			"metadata":                         "read",
 		},
 		Events: []string{"workflow_job"},
+		// The demo fixture is a fleet with nothing wrong, and an installation
+		// on "selected" would read as one of the two setup mistakes the verify
+		// dialog exists to name.
+		RepositorySelection: "all",
 	}, nil
 }
 
@@ -95,8 +99,9 @@ func (d *demoClient) WebURL() string { return "https://github.com/" + d.target }
 // would be worse than a refusal that says why.
 
 func (d *demoClient) ListRepositories(context.Context, int) ([]github.Repository, error) {
-	out := make([]github.Repository, 0, len(demoRepos))
-	for _, name := range demoRepos {
+	names := append(append([]string{}, demoRepos...), demoQuietRepos...)
+	out := make([]github.Repository, 0, len(names))
+	for _, name := range names {
 		out = append(out, github.Repository{
 			FullName:      name,
 			DefaultBranch: "main",
@@ -107,17 +112,53 @@ func (d *demoClient) ListRepositories(context.Context, int) ([]github.Repository
 	return out, nil
 }
 
+// ListWorkflows gives the fixture the three answers a real organisation gives:
+// a repository with one workflow, a repository with several -- so the wizard's
+// per-file choice has something to choose between -- and a repository with no
+// workflows at all, which is what the "hide repositories with nothing to move"
+// filter exists for.
 func (d *demoClient) ListWorkflows(_ context.Context, repo string) ([]github.WorkflowFile, error) {
-	return []github.WorkflowFile{{
+	for _, quiet := range demoQuietRepos {
+		if repo == quiet {
+			return nil, fmt.Errorf("%s: %w", repo, github.ErrNoWorkflows)
+		}
+	}
+	sha := "demo" + strings.ReplaceAll(repo, "/", "")
+	out := []github.WorkflowFile{{
 		Path:    ".github/workflows/ci.yml",
-		SHA:     "demo" + strings.ReplaceAll(repo, "/", ""),
+		SHA:     sha,
 		Content: demoWorkflow,
-	}}, nil
+	}}
+	if repo == demoRepos[0] {
+		out = append(out, github.WorkflowFile{
+			Path:    ".github/workflows/release.yml",
+			SHA:     sha + "release",
+			Content: demoReleaseWorkflow,
+		})
+	}
+	return out, nil
 }
 
 func (d *demoClient) OpenPullRequest(context.Context, github.PullRequestRequest) (*github.PullRequest, error) {
 	return nil, fmt.Errorf("%w, so it cannot open a pull request; connect a real installation to migrate a repository", ErrDemoFixture)
 }
+
+// demoReleaseWorkflow is the fixture's second workflow file in one repository:
+// a release is exactly the workflow an operator might want to leave on GitHub's
+// runners while the rest of the repository moves.
+const demoReleaseWorkflow = `name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make release
+`
 
 // demoWorkflow is a workflow with one job the wizard can migrate and one it
 // must refuse to touch, so a demo shows both halves of the review step.

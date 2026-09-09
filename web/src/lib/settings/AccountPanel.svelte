@@ -9,14 +9,14 @@
 <script lang="ts">
   import { KeyRound } from '@lucide/svelte';
   import { ApiError } from '$lib/api/client';
+  import { MIN_PASSWORD_LENGTH } from '$lib/passwords';
+  import { roleLabel } from '$lib/roles';
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
   import Button from '$lib/components/Button.svelte';
   import Dialog from '$lib/components/Dialog.svelte';
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
-
-  const MIN_PASSWORD = 12;
 
   let open = $state(false);
   let current = $state('');
@@ -26,12 +26,12 @@
   let errors = $state<Record<string, string>>({});
 
   const lengthError = $derived(
-    next.length === 0 || next.length >= MIN_PASSWORD
+    next.length === 0 || next.length >= MIN_PASSWORD_LENGTH
       ? ''
-      : `At least ${MIN_PASSWORD} characters. This one has ${next.length}.`,
+      : `At least ${MIN_PASSWORD_LENGTH} characters. This one has ${next.length}.`,
   );
   const matchError = $derived(repeat.length > 0 && repeat !== next ? 'These do not match.' : '');
-  const ready = $derived(next.length >= MIN_PASSWORD && repeat === next);
+  const ready = $derived(next.length >= MIN_PASSWORD_LENGTH && repeat === next);
 
   function start(): void {
     current = '';
@@ -71,7 +71,7 @@
       {:else if session.mustChangePassword}
         Your password was set by somebody else. Choose your own now.
       {:else}
-        Role: {session.role ?? 'unknown'}.
+        Role: {roleLabel(session.role)}.
       {/if}
     </p>
   </div>
@@ -112,7 +112,7 @@
 
     <Field
       label="New password"
-      hint="At least {MIN_PASSWORD} characters."
+      hint="At least {MIN_PASSWORD_LENGTH} characters."
       error={errors.new_password ?? lengthError}
     >
       {#snippet children({ id, describedBy, invalid })}
@@ -157,7 +157,7 @@
     flex-wrap: wrap;
     gap: var(--z-space-3);
     padding: var(--z-space-3) var(--z-space-5);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }

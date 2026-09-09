@@ -5,16 +5,18 @@
   view -- "busy runners on host-2" -- is a URL somebody can paste into a chat
   window and land on exactly what you were looking at.
 
-  It stays live without a refresh button: the fleet cache applies runner.*
+  It stays live without anything being pressed: the fleet cache applies runner.*
   events as they arrive, the grid refetches off its version counter, and the
   state cell reads the cached runner first so a badge flips the moment the
-  event lands rather than when the next page of rows does.
+  event lands rather than when the next page of rows does. Refreshing by hand
+  reconciles that cache, which bumps the same counter, so one gesture brings
+  both the cache and the page of rows up to date.
 -->
 <script lang="ts">
   import { CircleSlash, Search, Trash2 } from '@lucide/svelte';
   import { listRunners } from '$lib/api/client';
   import { RUNNER_STATES, type Runner, type RunnerState } from '$lib/api/types';
-  import { formatBytes, formatPercent } from '$lib/format';
+  import { formatBytes, formatNumber, formatPercent } from '$lib/format';
   import { registerSearch } from '$lib/keys';
   import { navigate, router } from '$lib/router';
   import { runnerStatus } from '$lib/status';
@@ -39,7 +41,7 @@
   import Select from '$lib/components/Select.svelte';
   import Switch from '$lib/components/Switch.svelte';
   import RunnerConfirm from '$lib/runners/RunnerConfirm.svelte';
-  import RunnerStateCell from '$lib/runners/RunnerStateCell.svelte';
+  import StateCell from '$lib/components/StateCell.svelte';
   import RunnerStateFilter from '$lib/runners/RunnerStateFilter.svelte';
 
   const canOperate = $derived(session.can('operator'));
@@ -163,11 +165,12 @@
    * Warm the fleet cache with the page on screen, so the command palette can
    * find a runner the operator is looking at.
    *
-   * Only when it would actually change something: ingesting bumps the fleet's
-   * version, and the fleet's version is this grid's `liveKey`, so warming the
-   * cache on every page unconditionally would have the grid refetching itself
-   * for ever. Identity is what the palette needs, so identity is what is
-   * compared -- CPU and memory move constantly and are not worth a round trip.
+   * Only when it would actually change something: ingesting a row that differs
+   * bumps the fleet's shape, and the fleet's shape is this grid's `liveKey`,
+   * so warming the cache on every page unconditionally would have the grid
+   * refetching itself for ever. Identity is what the palette needs, so
+   * identity is what is compared -- CPU and memory move constantly and are
+   * not worth a round trip.
    */
   function takeRows(rows: Runner[]): void {
     onScreen = rows;
@@ -320,7 +323,7 @@
         sortable: true,
         align: 'end',
         width: '7rem',
-        value: (row) => String(row.jobs_handled ?? 0),
+        value: (row) => formatNumber(row.jobs_handled ?? 0),
       },
       {
         id: 'cpu',
@@ -359,12 +362,14 @@
 
 {#snippet stateCell(runner: Runner)}
   <!-- The cached runner first: an SSE update lands here before the grid's next fetch. -->
-  <RunnerStateCell status={runnerStatus(fleet.runner(runner.id)?.state ?? runner.state)} />
+  <StateCell status={runnerStatus(fleet.runner(runner.id)?.state ?? runner.state)} />
 {/snippet}
 
 {#snippet nameCell(runner: Runner)}
   <div class="name-cell">
-    <a class="name mono" href="/runners/{runner.id}">{runner.name ?? 'unnamed'}</a>
+    <a class="name mono" href="/runners/{runner.id}" title={runner.name ?? undefined}>
+      {runner.name ?? 'unnamed'}
+    </a>
     <span class="copy" role="presentation" onclick={stopRowClick}>
       <CopyButton value={runner.name ?? ''} label="Copy the runner name" size="sm" />
     </span>
@@ -373,7 +378,12 @@
 
 {#snippet poolCell(runner: Runner)}
   {#if runner.pool_id}
-    <a class="link" href="/pools/{runner.pool_id}" onclick={stopRowClick}>
+    <a
+      class="link"
+      href="/pools/{runner.pool_id}"
+      title={runner.pool_name ?? runner.pool_id}
+      onclick={stopRowClick}
+    >
       {runner.pool_name ?? runner.pool_id}
     </a>
   {:else}
@@ -413,6 +423,7 @@
 <PageHeader
   title="Runners"
   subtitle="Every runner the controller knows about right now, and what it is doing."
+  onrefresh={() => fleet.reconcile()}
 />
 
 <div class="filters">
@@ -474,7 +485,7 @@
   defaultSort="created_at"
   defaultOrder="desc"
   selectable={canOperate}
-  liveKey={fleet.version}
+  liveKey={fleet.shape}
   noun="runners"
   onopen={(row) => navigate(`/runners/${row.id ?? ''}`)}
   onrows={takeRows}
@@ -535,7 +546,21 @@
   .copy {
     display: inline-flex;
   }
+  /*
+    One line, always. Pool and host names are hyphenated, and an inline link
+    with no rule about wrapping breaks at every hyphen: the shipped screenshot
+    has `zoomies-demo-linux-arm64` set as three lines in a cell, which makes
+    every row in the grid that tall. `display: block` is what lets the ellipsis
+    happen at all -- overflow on an inline box does not clip -- and the cell
+    carries the full value in a title, so the part that was cut is still
+    reachable without the copy button.
+  */
   .link {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     color: var(--z-accent);
     text-decoration: none;
   }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +32,16 @@ const (
 	// maxPollRuns caps how many workflow runs one poll inspects across all
 	// repositories, since each run costs a second call to list its jobs.
 	maxPollRuns = 50
+	// maxPollRequests caps the API calls one sweep may make in total: the
+	// repository listing, the two run listings per repository and the job
+	// listing per run. maxPollRuns bounds only the last of those, and a
+	// hundred-repository organisation costs two hundred run listings before
+	// a single job is looked at -- every thirty seconds, in exactly the
+	// failure the poller exists for, which spent the installation's hourly
+	// quota in about ten minutes and then starved JIT minting. Sixty a sweep
+	// at the default interval is 7,200 an hour at the very worst, and the
+	// poller only sweeps at all while no webhook has arrived.
+	maxPollRequests = 60
 	// maxPollRepos caps how many of the installation's repositories one poll
 	// walks. Organisations with more repositories than this rely on webhooks.
 	maxPollRepos = 100
@@ -222,6 +233,7 @@ func (c *appClient) Probe(ctx context.Context) (*AppInfo, error) {
 	if p := permissionMap(inst.Permissions); len(p) > 0 {
 		info.Permissions = p
 	}
+	info.RepositorySelection = inst.GetRepositorySelection()
 	if len(inst.Events) > 0 {
 		info.Events = inst.Events
 	}
@@ -251,10 +263,20 @@ func (a *AppInfo) MissingRequirements(kind store.TargetType) []string {
 	}
 	need("actions", "read", "Actions")
 	need("metadata", "read", "Metadata")
-	if !slices.Contains(a.Events, "workflow_job") {
-		out = append(out, `the App is not subscribed to the "workflow_job" event, so Zoomies will only see queued jobs when the fallback poller runs`)
-	}
 	return out
+}
+
+// SubscribedToJobs reports whether the App will be told about queued jobs.
+//
+// It is deliberately not one of MissingRequirements: every one of those is a
+// permission the fleet cannot work without, and this is a subscription the
+// fleet works without -- more slowly, on the fallback poller, which is a
+// supported way to run. Bundling the two made a probe return an error for an
+// App with every permission it needs, so an installation that was merely slower
+// was recorded as unhealthy and the verify dialog's own "will run on the
+// fallback poller" sentence could never be reached.
+func (a *AppInfo) SubscribedToJobs() bool {
+	return slices.Contains(a.Events, "workflow_job")
 }
 
 func describeLevel(got string) string {
@@ -482,7 +504,8 @@ func (c *appClient) ListRunnerGroups(ctx context.Context) ([]RunnerGroup, error)
 // the installation's hourly quota, which would take the rest of the
 // integration down with it.
 func (c *appClient) ListQueuedJobs(ctx context.Context) ([]QueuedJob, error) {
-	repos, err := c.pollRepos(ctx)
+	requests := maxPollRequests
+	repos, err := c.pollRepos(ctx, &requests)
 	if err != nil {
 		return nil, err
 	}
@@ -491,7 +514,7 @@ func (c *appClient) ListQueuedJobs(ctx context.Context) ([]QueuedJob, error) {
 	var out []QueuedJob
 
 	for _, full := range repos {
-		if budget <= 0 {
+		if budget <= 0 || requests <= 0 {
 			break
 		}
 		owner, name, _ := SplitTarget(full)
@@ -501,12 +524,13 @@ func (c *appClient) ListQueuedJobs(ctx context.Context) ([]QueuedJob, error) {
 		// A run that is in_progress can still hold jobs nobody has picked up,
 		// so both statuses matter.
 		for _, status := range []string{"queued", "in_progress"} {
-			if budget <= 0 {
+			if budget <= 0 || requests <= 0 {
 				break
 			}
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
+			requests--
 			runs, resp, err := c.asInstallation.Actions.ListRepositoryWorkflowRuns(ctx, owner, name,
 				&gh.ListWorkflowRunsOptions{
 					Status:      status,
@@ -522,10 +546,11 @@ func (c *appClient) ListQueuedJobs(ctx context.Context) ([]QueuedJob, error) {
 				return nil, c.decorate("list workflow runs for "+full, e)
 			}
 			for _, run := range runs.WorkflowRuns {
-				if budget <= 0 {
+				if budget <= 0 || requests <= 0 {
 					break
 				}
 				budget--
+				requests--
 				jobs, err := c.queuedJobsForRun(ctx, owner, name, run)
 				if err != nil {
 					return nil, err
@@ -543,17 +568,25 @@ func (c *appClient) ListQueuedJobs(ctx context.Context) ([]QueuedJob, error) {
 	return out, nil
 }
 
-// pollRepos returns the repositories one poll should look at.
-func (c *appClient) pollRepos(ctx context.Context) ([]string, error) {
+// pollRepos returns the repositories one poll should look at, most recently
+// pushed first: a queued job usually follows a push, so when the sweep runs
+// out of requests it is the quiet repositories it has not reached, not the
+// busy ones. Each page listed comes off the request budget.
+func (c *appClient) pollRepos(ctx context.Context, requests *int) ([]string, error) {
 	if !c.isOrg() {
 		return []string{c.target}, nil
 	}
+	type candidate struct {
+		name     string
+		pushedAt time.Time
+	}
 	opts := &gh.ListOptions{PerPage: pollPerPage}
-	var out []string
-	for len(out) < maxPollRepos {
+	var found []candidate
+	for len(found) < maxPollRepos && *requests > 0 {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		*requests--
 		page, resp, err := c.asInstallation.Apps.ListRepos(ctx, opts)
 		if err != nil {
 			return nil, c.fail("list repositories visible to the installation", resp, err)
@@ -562,8 +595,8 @@ func (c *appClient) pollRepos(ctx context.Context) ([]string, error) {
 			if r.GetFullName() == "" {
 				continue
 			}
-			out = append(out, r.GetFullName())
-			if len(out) == maxPollRepos {
+			found = append(found, candidate{name: r.GetFullName(), pushedAt: r.GetPushedAt().Time})
+			if len(found) == maxPollRepos {
 				break
 			}
 		}
@@ -571,6 +604,11 @@ func (c *appClient) pollRepos(ctx context.Context) ([]string, error) {
 			break
 		}
 		opts.Page = resp.NextPage
+	}
+	slices.SortStableFunc(found, func(a, b candidate) int { return b.pushedAt.Compare(a.pushedAt) })
+	out := make([]string, 0, len(found))
+	for _, r := range found {
+		out = append(out, r.name)
 	}
 	return out, nil
 }
@@ -673,14 +711,15 @@ func classify(resp *gh.Response, err error) error {
 
 	var rl *gh.RateLimitError
 	if errors.As(err, &rl) {
-		return fmt.Errorf("%w: quota exhausted until %s", ErrRateLimited, rl.Rate.Reset.Format(time.RFC3339))
+		return &RateLimitedError{ResetAt: rl.Rate.Reset.Time}
 	}
 	var abuse *gh.AbuseRateLimitError
 	if errors.As(err, &abuse) {
+		out := &RateLimitedError{}
 		if abuse.RetryAfter != nil {
-			return fmt.Errorf("%w: secondary rate limit, retry after %s", ErrRateLimited, *abuse.RetryAfter)
+			out.RetryAfter = *abuse.RetryAfter
 		}
-		return fmt.Errorf("%w: secondary rate limit", ErrRateLimited)
+		return out
 	}
 
 	status, message := 0, ""
@@ -702,11 +741,27 @@ func classify(resp *gh.Response, err error) error {
 		// go-github only builds a RateLimitError when GitHub sends the header;
 		// GHES and proxies sometimes do not, so check the parsed rate too.
 		if resp != nil && resp.Rate.Limit > 0 && resp.Rate.Remaining == 0 {
-			return fmt.Errorf("%w: quota exhausted until %s", ErrRateLimited, resp.Rate.Reset.Format(time.RFC3339))
+			return &RateLimitedError{ResetAt: resp.Rate.Reset.Time}
 		}
 		return fmt.Errorf("%w%s", ErrForbidden, detail(message))
+	case http.StatusUnprocessableEntity:
+		// The one status where GitHub says which field it objected to, and the
+		// one that used to fall through as go-github's raw "422 Validation
+		// Failed" -- printed on a runner row as the reason it never started.
+		return fmt.Errorf("%w%s", ErrInvalid, validationDetail(er, message))
 	case http.StatusTooManyRequests:
-		return fmt.Errorf("%w%s", ErrRateLimited, detail(message))
+		// A 429 with no rate headers go-github recognised. The retry-after is
+		// still worth taking when the proxy in front of GitHub sent one.
+		out := &RateLimitedError{Detail: detail(message)}
+		if resp != nil && resp.Response != nil {
+			if after, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && after > 0 {
+				out.RetryAfter = time.Duration(after) * time.Second
+			}
+		}
+		if resp != nil && resp.Rate.Limit > 0 && resp.Rate.Remaining == 0 {
+			out.ResetAt = resp.Rate.Reset.Time
+		}
+		return out
 	case http.StatusUnauthorized:
 		return fmt.Errorf("github: authentication rejected%s: the App ID or private key no longer "+
 			"matches the App on GitHub", detail(message))
@@ -719,4 +774,27 @@ func detail(message string) string {
 		return ""
 	}
 	return ": " + message
+}
+
+// validationDetail renders GitHub's per-field errors on a 422, which say what
+// was actually wrong: "name is already taken" rather than "Validation Failed".
+func validationDetail(er *gh.ErrorResponse, message string) string {
+	if er == nil || len(er.Errors) == 0 {
+		return detail(message)
+	}
+	parts := make([]string, 0, len(er.Errors))
+	for _, e := range er.Errors {
+		switch {
+		case e.Message != "":
+			parts = append(parts, e.Message)
+		case e.Field != "" && e.Code != "":
+			parts = append(parts, strings.TrimSpace(e.Resource+" "+e.Field)+" "+e.Code)
+		case e.Code != "":
+			parts = append(parts, e.Code)
+		}
+	}
+	if len(parts) == 0 {
+		return detail(message)
+	}
+	return ": " + strings.Join(parts, "; ")
 }

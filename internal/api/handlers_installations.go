@@ -9,68 +9,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
 )
 
-// installationResponse is a GitHub App installation as the API returns it.
-//
-// The private key and the webhook secret are absent, and there is no field they
-// could be put in: the store keeps them sealed and tagged `json:"-"`, and this
-// type names every field explicitly so that adding one to the domain model
-// cannot leak it here by accident.
-type installationResponse struct {
-	ID             string           `json:"id"`
-	AppID          int64            `json:"app_id"`
-	InstallationID int64            `json:"installation_id"`
-	Target         string           `json:"target"`
-	TargetType     store.TargetType `json:"target_type"`
-	APIBaseURL     string           `json:"api_base_url"`
-	AppSlug        string           `json:"app_slug,omitempty"`
-	WebURL         string           `json:"web_url,omitempty"`
-	Enterprise     bool             `json:"enterprise"`
-	Healthy        bool             `json:"healthy"`
-	LastError      string           `json:"last_error,omitempty"`
-	LastCheckedAt  *time.Time       `json:"last_checked_at"`
-	PoolCount      int              `json:"pool_count"`
-	CreatedAt      time.Time        `json:"created_at"`
-	UpdatedAt      time.Time        `json:"updated_at"`
-}
-
-func installationResponseOf(i *store.Installation, pools int) installationResponse {
-	return installationResponse{
-		ID:             i.ID,
-		AppID:          i.AppID,
-		InstallationID: i.InstallationID,
-		Target:         i.Target,
-		TargetType:     i.TargetType,
-		APIBaseURL:     i.APIBaseURL,
-		AppSlug:        i.AppSlug,
-		WebURL:         github.WebURLForAPI(i.APIBaseURL),
-		Enterprise:     github.IsEnterprise(i.APIBaseURL),
-		Healthy:        i.Healthy(),
-		LastError:      i.LastError,
-		LastCheckedAt:  i.LastCheckedAt,
-		PoolCount:      pools,
-		CreatedAt:      i.CreatedAt,
-		UpdatedAt:      i.UpdatedAt,
-	}
-}
-
-// poolCountsByInstallation answers "how much depends on this installation?",
-// which is what makes the delete confirmation honest.
-func (s *Server) poolCountsByInstallation(ctx context.Context) (map[string]int, error) {
-	pools, err := s.ctrl.Store().ListPools(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("listing pools: %w", err)
-	}
-	out := map[string]int{}
-	for _, p := range pools {
-		out[p.InstallationID]++
-	}
-	return out, nil
-}
+// installationResponse is the shape GET /installations returns, rendered by
+// the controller so the event stream's installation.updated frames are the
+// same JSON. See controller/views.go for why the renderer lives there.
+type installationResponse = controller.InstallationView
 
 // handleListInstallations answers GET /api/v1/installations.
 func (s *Server) handleListInstallations(w http.ResponseWriter, r *http.Request) {
@@ -79,14 +27,14 @@ func (s *Server) handleListInstallations(w http.ResponseWriter, r *http.Request)
 		s.internal(w, r, "listing installations", err)
 		return
 	}
-	counts, err := s.poolCountsByInstallation(r.Context())
+	counts, err := s.ctrl.PoolCountsByInstallation(r.Context())
 	if err != nil {
 		s.internal(w, r, "listing installations", err)
 		return
 	}
 	out := make([]installationResponse, 0, len(insts))
 	for _, i := range insts {
-		out = append(out, installationResponseOf(i, counts[i.ID]))
+		out = append(out, controller.NewInstallationView(i, counts[i.ID]))
 	}
 	writeJSON(w, http.StatusOK, newList(out))
 }
@@ -98,12 +46,12 @@ func (s *Server) handleGetInstallation(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, "reading the installation", err)
 		return
 	}
-	counts, err := s.poolCountsByInstallation(r.Context())
+	counts, err := s.ctrl.PoolCountsByInstallation(r.Context())
 	if err != nil {
 		s.internal(w, r, "reading the installation", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, installationResponseOf(i, counts[i.ID]))
+	writeJSON(w, http.StatusOK, controller.NewInstallationView(i, counts[i.ID]))
 }
 
 type installationCreateRequest struct {
@@ -159,7 +107,7 @@ func (s *Server) handleCreateInstallation(w http.ResponseWriter, r *http.Request
 		}
 	}
 	if apiBase == "" {
-		apiBase = s.cfg.GitHub.APIBaseURL
+		apiBase = s.cfg().GitHub.APIBaseURL
 	}
 
 	var fields []fieldError
@@ -183,9 +131,20 @@ func (s *Server) handleCreateInstallation(w http.ResponseWriter, r *http.Request
 	if !targetType.Valid() {
 		fields = append(fields, fieldError{"target_type", fmt.Sprintf("%q is not a target type; use org or repo", targetType)})
 	}
-	if privateKey == "" {
+	switch {
+	case privateKey == "" && pending == nil && strings.TrimSpace(req.PrivateKey) == "" && req.AppID > 0:
+		// The manifest flow's last step, arriving after the credentials it
+		// relies on have gone: they live in memory for an hour and do not
+		// survive a restart -- and a restart is exactly what the Hosts page
+		// prescribes for a wrong DOCKER_GID. The operator can still finish,
+		// but not on this tab, and the sentence has to say so.
+		fields = append(fields, fieldError{"private_key", fmt.Sprintf(
+			"this controller no longer holds the credentials from creating App %d: they are kept in memory for an hour and do not survive a restart. "+
+				"Generate a new private key on the App's settings page, set a new webhook secret there, and connect it under \"Use an App you already have\".",
+			req.AppID)})
+	case privateKey == "":
 		fields = append(fields, fieldError{"private_key", "paste the App's PEM private key; GitHub shows it once, when you generate it"})
-	} else if !strings.Contains(privateKey, "PRIVATE KEY") {
+	case !strings.Contains(privateKey, "PRIVATE KEY"):
 		fields = append(fields, fieldError{"private_key", "that does not look like a PEM private key; it should start with -----BEGIN RSA PRIVATE KEY-----"})
 	}
 	normalised, err := github.NormalizeAPIBaseURL(apiBase)
@@ -227,9 +186,10 @@ func (s *Server) handleCreateInstallation(w http.ResponseWriter, r *http.Request
 	s.manifests.forget(req.AppID)
 
 	s.auth.Auditor().Created(r.Context(), Identity(r.Context()), "installation", inst.ID, inst)
+	s.ctrl.PublishInstallation(r.Context(), inst)
 	// A fresh installation may already own queued jobs.
 	s.ctrl.Nudge()
-	writeJSON(w, http.StatusCreated, installationResponseOf(inst, 0))
+	writeJSON(w, http.StatusCreated, controller.NewInstallationView(inst, 0))
 }
 
 type installationUpdateRequest struct {
@@ -308,13 +268,14 @@ func (s *Server) handleUpdateInstallation(w http.ResponseWriter, r *http.Request
 	// call would still use them.
 	s.ctrl.Forget(id)
 	s.auth.Auditor().Updated(r.Context(), Identity(r.Context()), "installation", id, &before, inst)
+	s.ctrl.PublishInstallation(r.Context(), inst)
 
-	counts, cerr := s.poolCountsByInstallation(r.Context())
+	counts, cerr := s.ctrl.PoolCountsByInstallation(r.Context())
 	if cerr != nil {
 		s.internal(w, r, "reading the installation back", cerr)
 		return
 	}
-	writeJSON(w, http.StatusOK, installationResponseOf(inst, counts[id]))
+	writeJSON(w, http.StatusOK, controller.NewInstallationView(inst, counts[id]))
 }
 
 type deleteInstallationResponse struct {
@@ -337,12 +298,13 @@ func (s *Server) handleDeleteInstallation(w http.ResponseWriter, r *http.Request
 		s.internal(w, r, "listing the installation's pools", err)
 		return
 	}
-	deleted, affected := 0, 0
+	affected := 0
+	var deleted []string
 	for _, p := range pools {
 		if p.InstallationID != id {
 			continue
 		}
-		deleted++
+		deleted = append(deleted, p.ID)
 		runners, rerr := s.ctrl.Store().ListRunnersForPool(r.Context(), p.ID)
 		if rerr != nil {
 			s.internal(w, r, "listing a pool's runners", rerr)
@@ -352,25 +314,27 @@ func (s *Server) handleDeleteInstallation(w http.ResponseWriter, r *http.Request
 			if run.State.Terminal() {
 				continue
 			}
-			// Drained rather than killed: removing an installation is an
-			// administrative act, not a reason to interrupt somebody's build.
-			if _, derr := s.ctrl.DrainRunner(r.Context(), run.ID, "installation "+inst.Target+" was removed"); derr != nil {
-				s.logger(r).Warn("could not drain a runner while removing its installation",
-					"installation", id, "runner", run.ID, "error", derr)
+			// Runners must be removed and deregistered from GitHub now, while the
+			// installation credentials are still active and before Forget clears them.
+			if _, rerr := s.ctrl.RemoveRunner(r.Context(), run.ID, "installation "+inst.Target+" was removed", true); rerr != nil {
+				s.logger(r).Warn("could not remove a runner while removing its installation",
+					"installation", id, "runner", run.ID, "error", rerr)
 				continue
 			}
 			affected++
 		}
 	}
 
-	if err := s.ctrl.Store().DeleteInstallation(r.Context(), id); err != nil {
+	// The controller announces everything that went, runners first, then the
+	// pools, then the installation, so a page that drops them in that order
+	// has nothing left to explain at each step.
+	if err := s.ctrl.DeleteInstallation(r.Context(), id); err != nil {
 		s.fail(w, r, "deleting the installation", err)
 		return
 	}
-	s.ctrl.Forget(id)
 	s.auth.Auditor().Deleted(r.Context(), Identity(r.Context()), "installation", id, inst)
 	s.ctrl.Nudge()
-	writeJSON(w, http.StatusOK, deleteInstallationResponse{PoolsDeleted: deleted, RunnersAffected: affected})
+	writeJSON(w, http.StatusOK, deleteInstallationResponse{PoolsDeleted: len(deleted), RunnersAffected: affected})
 }
 
 // installationHealthResponse is what a credential probe found.
@@ -384,7 +348,25 @@ type installationHealthResponse struct {
 	MissingPermissions []string          `json:"missing_permissions,omitempty"`
 	MissingEvents      []string          `json:"missing_events,omitempty"`
 	RateLimitRemaining int               `json:"rate_limit_remaining,omitempty"`
+	// RepositorySelection is GitHub's own word for how much of the target this
+	// installation covers -- "all" or "selected" -- and Repositories is what
+	// that means in practice: how many it can see, and the first few by name.
+	//
+	// It answers the question a verify could not: an App with every permission
+	// correct, installed on "only select repositories" and not on the one
+	// somebody pushes to, is a fleet where nothing ever queues and no page says
+	// why. The names are capped because the point is recognition, not a
+	// listing: an operator looks for the repository they were expecting.
+	RepositorySelection string   `json:"repository_selection,omitempty"`
+	RepositoryCount     int      `json:"repository_count,omitempty"`
+	Repositories        []string `json:"repositories,omitempty"`
+	RepositoriesCapped  bool     `json:"repositories_capped,omitempty"`
 }
+
+// shownRepositories is how many names the dialog lists before it stops. Enough
+// to recognise the set, few enough not to become a directory of an
+// organisation's thousand repositories.
+const shownRepositories = 10
 
 // handleVerifyInstallation probes an installation's credentials end to end.
 //
@@ -423,12 +405,40 @@ func (s *Server) handleVerifyInstallation(w http.ResponseWriter, r *http.Request
 		if rl, rerr := s.rateLimitFor(r.Context(), id); rerr == nil && rl != nil {
 			out.RateLimitRemaining = rl.Remaining
 		}
+		out.RepositorySelection = info.RepositorySelection
+		// A failure here does not fail the verify: the credentials have already
+		// been proven by the probe, and "which repositories" is a detail on top
+		// of that. Losing it costs a line in the dialog rather than the answer
+		// the operator came for.
+		if repos, rerr := s.repositoriesFor(r.Context(), id); rerr != nil {
+			s.logger(r).Warn("could not list the installation's repositories for verify",
+				"installation", id, "error", rerr)
+		} else {
+			out.RepositoryCount = len(repos)
+			for _, repo := range repos {
+				if len(out.Repositories) == shownRepositories {
+					out.RepositoriesCapped = true
+					break
+				}
+				out.Repositories = append(out.Repositories, repo.FullName)
+			}
+		}
 	}
 
 	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "installation.verify", "installation", id, map[string]any{
 		"target": inst.Target, "ok": out.OK, "message": out.Message,
 	})
 	writeJSON(w, http.StatusOK, out)
+}
+
+// repositoriesFor lists what an installation can see, one page's worth.
+func (s *Server) repositoriesFor(ctx context.Context, installationID string) ([]github.Repository, error) {
+	client, err := s.ctrl.ClientFor(ctx, installationID)
+	if err != nil {
+		return nil, err
+	}
+	// One page beyond what is shown, so "10 of many" can be told from "10".
+	return client.ListRepositories(ctx, shownRepositories*10)
 }
 
 // missingEvents reports the webhook events Zoomies needs and the App is not
@@ -500,6 +510,11 @@ func (s *Server) githubFail(w http.ResponseWriter, r *http.Request, doing string
 			Code:    codeInternal,
 			Message: "GitHub refused this request, which usually means the App is missing a permission: " + err.Error(),
 		}})
+	case errors.Is(err, github.ErrInvalid):
+		// GitHub refused the request itself, naming the field. That is the
+		// caller's to fix, not this controller's, so it is a 422 with what
+		// GitHub said rather than a 500 with a request ID.
+		unprocessable(w, err.Error(), nil)
 	case errors.Is(err, github.ErrRateLimited):
 		rateLimited(w, "this installation has used up its GitHub API quota; the counters reset within the hour", 0)
 	default:
@@ -562,6 +577,18 @@ func (m *manifestStates) put(p *pendingApp) {
 	defer m.mu.Unlock()
 	m.sweepLocked()
 	m.items[p.state] = p
+}
+
+// peek finds a handshake without spending it. The exchange looks the state up
+// before it talks to GitHub and spends it only once GitHub has answered: a
+// state taken first and then lost to a transient failure -- no egress yet, a
+// proxy in the way -- would leave the code still valid, the target and API
+// base forgotten, and the retry told to start again.
+func (m *manifestStates) peek(state string) *pendingApp {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sweepLocked()
+	return m.items[state]
 }
 
 func (m *manifestStates) take(state string) *pendingApp {
@@ -655,7 +682,7 @@ func (s *Server) handleCreateManifest(w http.ResponseWriter, r *http.Request) {
 	if !targetType.Valid() {
 		fields = append(fields, fieldError{"target_type", fmt.Sprintf("%q is not a target type; use org or repo", targetType)})
 	}
-	if s.cfg.Server.ExternalURL == "" {
+	if s.cfg().Server.ExternalURL == "" {
 		fields = append(fields, fieldError{"target", "server.external_url is not set, so Zoomies cannot tell GitHub where to deliver webhooks; set it and restart before creating the App"})
 	}
 	if len(fields) > 0 {
@@ -665,7 +692,7 @@ func (s *Server) handleCreateManifest(w http.ResponseWriter, r *http.Request) {
 
 	apiBase := strings.TrimSpace(req.APIBaseURL)
 	if apiBase == "" {
-		apiBase = s.cfg.GitHub.APIBaseURL
+		apiBase = s.cfg().GitHub.APIBaseURL
 	}
 	normalised, err := github.NormalizeAPIBaseURL(apiBase)
 	if err != nil {
@@ -684,13 +711,28 @@ func (s *Server) handleCreateManifest(w http.ResponseWriter, r *http.Request) {
 
 	manifest, err := github.Manifest(github.ManifestOptions{
 		Name:         name,
-		URL:          s.cfg.Server.ExternalURL,
-		WebhookURL:   s.cfg.WebhookURL(),
+		URL:          s.cfg().Server.ExternalURL,
+		WebhookURL:   s.cfg().WebhookURL(),
 		Organization: org,
-		SetupURL:     s.cfg.Server.ExternalURL + "/settings/github/setup",
+		SetupURL:     s.cfg().Server.ExternalURL + "/settings/github/setup",
 	})
 	if err != nil {
 		unprocessable(w, err.Error(), []fieldError{{"name", err.Error()}})
+		return
+	}
+
+	// The browser, not this controller, posts the manifest, and it will only
+	// post where the page's Content-Security-Policy lets it. An Enterprise
+	// host named here but not in the configuration would be refused by the
+	// browser in silence -- a blank tab -- so it is refused here with the
+	// setting that fixes it.
+	postURL := github.ManifestURL(normalised, org)
+	if !s.formAllowed(postURL) {
+		unprocessable(w, "the App manifest could not be built", []fieldError{{"api_base_url", fmt.Sprintf(
+			"the browser is only allowed to post the manifest to %s, and %s is not among them; "+
+				"set github.api_base_url to %s (ZOOMIES_GITHUB_API_BASE_URL) and restart the controller, "+
+				"or connect an App you already have on that GitHub instead",
+			strings.Join(s.formTargets, ", "), formOrigin(postURL), normalised)}})
 		return
 	}
 
@@ -704,7 +746,7 @@ func (s *Server) handleCreateManifest(w http.ResponseWriter, r *http.Request) {
 	})
 
 	writeJSON(w, http.StatusOK, manifestResponse{
-		PostURL:  github.ManifestURL(normalised, org),
+		PostURL:  postURL,
 		Manifest: string(manifest),
 		State:    state,
 	})
@@ -754,20 +796,26 @@ func (s *Server) handleExchangeManifest(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	pending := s.manifests.take(strings.TrimSpace(req.State))
+	state := strings.TrimSpace(req.State)
+	pending := s.manifests.peek(state)
 	apiBase := strings.TrimSpace(req.APIBaseURL)
 	if apiBase == "" && pending != nil {
 		apiBase = pending.apiBaseURL
 	}
 	if apiBase == "" {
-		apiBase = s.cfg.GitHub.APIBaseURL
+		apiBase = s.cfg().GitHub.APIBaseURL
 	}
 
 	creds, err := github.ExchangeManifestCode(r.Context(), apiBase, req.Code)
 	if err != nil {
+		// The handshake is left in place: the code was not spent, and the
+		// retry needs the target and API base it carries.
 		unprocessable(w, err.Error(), []fieldError{{"code", err.Error()}})
 		return
 	}
+	// Spent now, with the code: the state is single use, and reusing it is
+	// either a replay or a mistake.
+	s.manifests.take(state)
 
 	if pending == nil {
 		// The state expired or came from another process. The App exists and
@@ -871,8 +919,8 @@ const webhookProbeTimeout = 5 * time.Second
 // reach it -- and the message says so rather than overclaiming.
 func (s *Server) handleWebhookTest(w http.ResponseWriter, r *http.Request) {
 	out := webhookCheckResponse{
-		URL:              s.cfg.WebhookURL(),
-		PollingAvailable: s.cfg.GitHub.PollFallback,
+		URL:              s.cfg().WebhookURL(),
+		PollingAvailable: s.cfg().GitHub.PollFallback,
 	}
 	last, err := s.ctrl.Store().LastDeliveryAt(r.Context())
 	if err != nil {
@@ -882,7 +930,7 @@ func (s *Server) handleWebhookTest(w http.ResponseWriter, r *http.Request) {
 	out.LastDeliveryAt = timePtr(last)
 
 	switch {
-	case s.cfg.Server.ExternalURL == "":
+	case s.cfg().Server.ExternalURL == "":
 		out.Message = "server.external_url is not set, so Zoomies cannot tell GitHub where to deliver webhooks and cannot test the address."
 		out.Fix = "set server.external_url to the address GitHub should reach this controller on, then restart."
 	case !last.IsZero():

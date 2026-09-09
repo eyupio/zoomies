@@ -183,17 +183,37 @@ func TestClaimsFrom(t *testing.T) {
 		t.Errorf("role = %q; want admin", c.Role)
 	}
 
-	// Providers that send no preferred_username fall back to the email rather
-	// than failing a login nobody can debug.
-	c, err = p.claimsFrom("sub-2", map[string]any{"email": "bob@example.com", "groups": "admins"})
+	// Providers that send no preferred_username fall back to a *verified* email
+	// rather than failing a login nobody can debug.
+	c, err = p.claimsFrom("sub-2", map[string]any{
+		"email": "bob@example.com", "email_verified": true, "groups": "admins",
+	})
 	if err != nil {
 		t.Fatalf("claimsFrom: %v", err)
 	}
 	if c.Username != "bob@example.com" {
-		t.Errorf("username = %q; want the email as a fallback", c.Username)
+		t.Errorf("username = %q; want the verified email as a fallback", c.Username)
 	}
 	if c.Role != store.RoleAdmin {
 		t.Errorf("a groups claim sent as a single string was ignored: %+v", c)
+	}
+
+	// An unverified address is a value the person typed, and accounts are
+	// matched by username -- so it must not become one. The subject does.
+	c, err = p.claimsFrom("sub-3", map[string]any{"email": "root@example.com"})
+	if err != nil {
+		t.Fatalf("claimsFrom: %v", err)
+	}
+	if c.Username != "sub-3" {
+		t.Errorf("username = %q; an unverified email must not be used as the username", c.Username)
+	}
+	// Providers that render the flag as a string still count as verified.
+	c, err = p.claimsFrom("sub-4", map[string]any{"email": "carol@example.com", "email_verified": "true"})
+	if err != nil {
+		t.Fatalf("claimsFrom: %v", err)
+	}
+	if c.Username != "carol@example.com" {
+		t.Errorf("username = %q; email_verified sent as a string should still count", c.Username)
 	}
 
 	if _, err := p.claimsFrom("", map[string]any{"email": "x@example.com"}); err == nil {
@@ -234,9 +254,9 @@ func TestEnsureUser(t *testing.T) {
 		}
 	})
 
-	t.Run("adopts an existing username", func(t *testing.T) {
+	t.Run("adopts an existing username only when the account was made for SSO", func(t *testing.T) {
 		st := newStore(t)
-		want := addUser(t, st, "alice", store.RoleOperator, nil)
+		want := addUser(t, st, "alice", store.RoleOperator, func(u *store.User) { u.PasswordHash = "" })
 
 		got, err := p.EnsureUser(ctx, st, &Claims{Subject: "sub-9", Username: "Alice", Role: store.RoleViewer}, false)
 		if err != nil {
@@ -252,8 +272,30 @@ func TestEnsureUser(t *testing.T) {
 		if stored.OIDCSubject != "sub-9" {
 			t.Error("the link was not persisted")
 		}
-		if stored.PasswordHash == "" {
-			t.Error("adopting an account should not remove its password")
+	})
+
+	// With a provider whose users can influence their own username claim, a
+	// sign-in as "admin" used to inherit the local admin's account and role.
+	t.Run("refuses to take over a password account by name unless told to", func(t *testing.T) {
+		st := newStore(t)
+		local := addUser(t, st, "admin", store.RoleAdmin, nil)
+
+		_, err := p.EnsureUser(ctx, st, &Claims{Subject: "sub-10", Username: "admin"}, true)
+		if err == nil || !strings.Contains(err.Error(), "signs in with a password") || !strings.Contains(err.Error(), "link_by_username") {
+			t.Fatalf("EnsureUser = %v; want a refusal that names the setting", err)
+		}
+		stored, _ := st.GetUser(ctx, local.ID)
+		if stored.OIDCSubject != "" {
+			t.Fatal("the password account was linked anyway")
+		}
+
+		linking := &OIDCProvider{cfg: config.OIDC{LinkByUsername: true}}
+		got, err := linking.EnsureUser(ctx, st, &Claims{Subject: "sub-10", Username: "admin"}, false)
+		if err != nil {
+			t.Fatalf("EnsureUser with link_by_username: %v", err)
+		}
+		if got.ID != local.ID || got.OIDCSubject != "sub-10" || got.PasswordHash == "" {
+			t.Fatalf("user = %+v; want the local account linked, password kept", got)
 		}
 	})
 

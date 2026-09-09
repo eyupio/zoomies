@@ -1,3 +1,10 @@
+---
+description: >-
+  Deploying the Zoomies controller from source on Coolify, Dokploy, Railway or
+  anything else that builds with Nixpacks, and joining the hosts that actually
+  run the jobs.
+---
+
 # Deploying on a PaaS
 
 There is a `nixpacks.toml` in the repository root, so any platform that builds
@@ -67,8 +74,9 @@ sealed. That failure is silent until the next time Zoomies needs to
 authenticate, which is why it is worth getting right before you connect GitHub
 rather than after.
 
-A backup is a copy of that directory, plus the encryption key if it lives
-somewhere else.
+A backup is a copy of that directory, plus the encryption key if you kept it
+somewhere else -- [Backup and restore](backup-and-restore.md) is the whole
+procedure, and it is the same one here.
 
 ## Adding a host that can run jobs
 
@@ -87,6 +95,18 @@ curl -fsSL https://zoomies.sh/install.sh | sh -s -- \
 Agents connect outbound only, so that machine can sit behind NAT with no
 inbound rule -- including on a laptop, a home server, or a box in the office
 the PaaS could never reach.
+
+Then make a pool. This path has no `zoomies init`, so nothing creates one for
+you, and nothing runs until one exists: the **Pools** page, or
+[Hosts and pools](hosts-and-pools.md) for what the settings mean.
+
+## Upgrading
+
+Redeploy. The platform rebuilds from the current `main`, the new binary starts,
+and the first start applies any schema migrations -- there is nothing else to
+run. [Upgrading](upgrading.md) is what that does to work in flight, and how far
+a controller and its agents may drift apart, which matters more here than on a
+single VM because the agents are upgraded separately from the controller.
 
 ## Building the same image yourself
 

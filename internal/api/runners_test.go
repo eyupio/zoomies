@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -241,5 +242,99 @@ func TestRunnerDetailAndTimeline(t *testing.T) {
 	timeline.into(t, &entries)
 	if len(entries.Items) != len(detail.Timeline) {
 		t.Errorf("the timeline endpoint and the detail disagree: %d vs %d", len(entries.Items), len(detail.Timeline))
+	}
+}
+
+// A runner stuck in `registering` has one symptom and two unrelated causes: a
+// container that never started is a backend or image problem on its host, and
+// one that started and never reached GitHub is a credential, network or GitHub
+// problem. The runner page has to tell those apart on its own, or an operator
+// diagnosing one leaves for the Hosts page and guesses.
+func TestARunnerCarriesBothHalvesOfComingUp(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	host := h.host("vm-1")
+	pool := h.pool(inst, "linux-x64")
+	run := h.runner(pool, host, store.RunnerRegistering)
+
+	started := time.Now().Add(-90 * time.Second).UTC().Truncate(time.Millisecond)
+	run.ContainerStartedAt = &started
+	if err := h.st.UpdateRunner(h.ctx, run); err != nil {
+		t.Fatalf("UpdateRunner: %v", err)
+	}
+
+	u, _ := h.user("operator", store.RoleOperator)
+	resp := h.do(request{method: http.MethodGet, path: "/api/v1/runners/" + run.ID, cookie: h.session(u)})
+	resp.mustStatus(t, http.StatusOK, "runner detail")
+	var detail struct {
+		ContainerStartedAt *time.Time `json:"container_started_at"`
+		RegisteredAt       *time.Time `json:"registered_at"`
+		Host               *struct {
+			LastHeartbeat time.Time `json:"last_heartbeat"`
+		} `json:"host"`
+	}
+	resp.into(t, &detail)
+
+	if detail.ContainerStartedAt == nil {
+		t.Error("the container-started stamp is not on the runner, so the page cannot say the container came up")
+	}
+	// The other half is absent, which is the whole diagnosis: it started and
+	// never registered. Absent rather than a zero time, so the page can leave
+	// the row out instead of rendering the year 1.
+	if detail.RegisteredAt != nil {
+		t.Errorf("a runner that never registered reported a registration at %v", detail.RegisteredAt)
+	}
+	// And the host's heartbeat comes with it, because "is the agent even
+	// alive?" is the next question and it used to need another page.
+	if detail.Host == nil || detail.Host.LastHeartbeat.IsZero() {
+		t.Error("the runner detail does not carry its host's last heartbeat")
+	}
+}
+
+// The timeline's two registering rows are the same two halves, and without the
+// stage they render as two rows both labelled "Registering", which tells an
+// operator nothing at all.
+func TestTheTimelineNamesTheStageWithinAState(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	host := h.host("vm-1")
+	pool := h.pool(inst, "linux-x64")
+	run := h.runner(pool, host, store.RunnerRegistering)
+
+	started := time.Now().Add(-2 * time.Minute).UTC().Truncate(time.Millisecond)
+	registered := started.Add(30 * time.Second)
+	run.ContainerStartedAt, run.RegisteredAt = &started, &registered
+	if err := h.st.UpdateRunner(h.ctx, run); err != nil {
+		t.Fatalf("UpdateRunner: %v", err)
+	}
+
+	u, _ := h.user("operator", store.RoleOperator)
+	resp := h.do(request{method: http.MethodGet, path: "/api/v1/runners/" + run.ID + "/timeline", cookie: h.session(u)})
+	resp.mustStatus(t, http.StatusOK, "timeline")
+	var out struct {
+		Items []struct {
+			State string `json:"state"`
+			Stage string `json:"stage"`
+		} `json:"items"`
+	}
+	resp.into(t, &out)
+
+	stages := map[string]bool{}
+	registering := 0
+	for _, e := range out.Items {
+		if e.Stage != "" {
+			stages[e.Stage] = true
+		}
+		if e.State == string(store.RunnerRegistering) {
+			registering++
+		}
+	}
+	if registering < 2 {
+		t.Fatalf("expected both registering rows, got %d: %+v", registering, out.Items)
+	}
+	for _, want := range []string{"container_started", "registered"} {
+		if !stages[want] {
+			t.Errorf("the timeline does not carry the %q stage: %+v", want, out.Items)
+		}
 	}
 }

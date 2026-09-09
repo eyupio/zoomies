@@ -70,7 +70,7 @@ dependsOn = ["install"]
 cmds = [
   # Writes internal/api/webdist, which the Go build then embeds.
   "npm --prefix web run build",
-  'go build -trimpath -ldflags "-s -w -X github.com/eyupio/zoomies/internal/version.Version=$(git describe --tags --always --dirty 2>/dev/null || echo nixpacks) -X github.com/eyupio/zoomies/internal/version.Commit=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)" -o /app/zoomies ./cmd/zoomies',
+  'go build -trimpath -ldflags "-s -w -X github.com/eyupio/zoomies/internal/version.Version=$(git describe --tags --always --dirty 2>/dev/null || echo nixpacks) -X github.com/eyupio/zoomies/internal/version.Commit=$(git rev-parse --short HEAD 2>/dev/null || echo unknown) -X github.com/eyupio/zoomies/internal/version.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o /app/zoomies ./cmd/zoomies',
 ]
 
 [start]

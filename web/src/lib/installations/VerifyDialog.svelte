@@ -8,7 +8,7 @@
   this.
 -->
 <script lang="ts">
-  import { Check, X } from '@lucide/svelte';
+  import { Check, ExternalLink, X } from '@lucide/svelte';
   import type { Installation, InstallationHealth } from '$lib/api/types';
   import { formatNumber, joinWords } from '$lib/format';
   import Button from '$lib/components/Button.svelte';
@@ -35,10 +35,50 @@
   }: Props = $props();
 
   const permissions = $derived(Object.entries(health?.permissions ?? {}));
+  /**
+   * What the installation can actually see.
+   *
+   * The second commonest setup mistake after a missing permission, and the
+   * quietest one: an App with every permission correct, installed on "only
+   * select repositories" and not on the one somebody pushes to, is a fleet
+   * where nothing ever queues and no page says why. GitHub knows; until this,
+   * nothing asked it.
+   */
+  const repositories = $derived(health?.repositories ?? []);
+  const selection = $derived(health?.repository_selection ?? '');
+  const repositoryCount = $derived(health?.repository_count ?? 0);
+  const capped = $derived(health?.repositories_capped === true);
   const missingPermissions = $derived(health?.missing_permissions ?? []);
   const missingEvents = $derived(health?.missing_events ?? []);
   const events = $derived(health?.events ?? []);
   const ok = $derived(health?.ok === true);
+
+  /**
+   * Where the operator actually fixes this.
+   *
+   * The dialog names the missing permission and then says "open the App's
+   * settings on GitHub" -- a page whose URL is not guessable, among however
+   * many Apps the organisation has. Both halves are already in hand:
+   * `installation.web_url` is GitHub's base for this deployment, and
+   * `health.app_slug` names the App.
+   */
+  const settingsURL = $derived.by(() => {
+    const base = installation?.web_url?.replace(/\/+$/, '');
+    const slug = health?.app_slug;
+    if (!base || !slug) return '';
+    return installation?.target_type === 'org'
+      ? `${base}/organizations/${installation.target}/settings/apps/${slug}`
+      : `${base}/settings/apps/${slug}`;
+  });
+
+  /** Where the organisation accepts a permission change the App has requested. */
+  const installationsURL = $derived.by(() => {
+    const base = installation?.web_url?.replace(/\/+$/, '');
+    if (!base || !installation?.target) return '';
+    return installation.target_type === 'org'
+      ? `${base}/organizations/${installation.target}/settings/installations`
+      : `${base}/settings/installations`;
+  });
 </script>
 
 <Dialog
@@ -54,9 +94,12 @@
       <Skeleton lines={4} />
     </div>
   {:else if error}
-    <p class="verdict bad">{error}</p>
+    <p class="verdict bad" role="alert">{error}</p>
   {:else if health}
-    <div class="stack">
+    <!-- role="status": the verdict, the missing lists and the remedy all
+         replace a skeleton with no focus move, so without this the operator who
+         pressed Verify is left holding a Close button and nothing was said. -->
+    <div class="stack" role="status">
       <p class="verdict" class:bad={!ok} class:good={ok}>
         {#if ok}
           <Check size={15} aria-hidden="true" />
@@ -94,6 +137,26 @@
             Open the App's settings on GitHub, grant {joinWords([...missingPermissions])}, then
             accept the updated permissions on the installation.
           </p>
+          {#if settingsURL}
+            <p class="fix-actions">
+              <Button
+                variant="primary"
+                size="sm"
+                href={settingsURL}
+                newTab
+                iconAfter={ExternalLink}
+              >
+                Open the App's settings
+              </Button>
+              {#if installationsURL}
+                <a href={installationsURL} target="_blank" rel="noopener noreferrer">
+                  Accept the change on the installation<span class="sr-only">
+                    (opens in a new tab)</span
+                  >
+                </a>
+              {/if}
+            </p>
+          {/if}
         </section>
       {/if}
 
@@ -109,6 +172,33 @@
             Without {joinWords([...missingEvents])} the controller only learns about jobs when it polls,
             which is slower and uses more of the API quota.
           </p>
+        </section>
+      {/if}
+
+      {#if selection || repositoryCount > 0}
+        <section aria-labelledby="repositories">
+          <h3 id="repositories">Repositories this installation can see</h3>
+          <p class="scope">
+            {#if selection === 'all'}
+              Every repository in {installation?.target ?? 'the target'}, including ones added
+              later.
+            {:else if selection === 'selected'}
+              Only the {repositoryCount > 0 ? repositoryCount : ''} selected on GitHub. A pool only ever
+              sees jobs from these, so a repository that is not here queues nothing and says nothing.
+            {:else if repositoryCount > 0}
+              {repositoryCount} in reach of these credentials.
+            {/if}
+          </p>
+          {#if repositories.length > 0}
+            <ul class="chips">
+              {#each repositories as name (name)}
+                <li class="mono">{name}</li>
+              {/each}
+              {#if capped}
+                <li class="more">and more</li>
+              {/if}
+            </ul>
+          {/if}
         </section>
       {/if}
 
@@ -150,6 +240,17 @@
 </Dialog>
 
 <style>
+  .scope {
+    margin: 0 0 var(--z-space-2);
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text-muted);
+  }
+  .more {
+    font-size: var(--z-text-2xs);
+    color: var(--z-text-subtle);
+    align-self: center;
+  }
   .stack {
     display: flex;
     flex-direction: column;
@@ -167,12 +268,12 @@
     line-height: var(--z-leading-base);
   }
   .verdict.good {
-    border: 1px solid var(--z-idle-border);
+    border: var(--z-border-width) solid var(--z-idle-border);
     background: var(--z-idle-subtle);
     color: var(--z-text);
   }
   .verdict.bad {
-    border: 1px solid var(--z-danger-border);
+    border: var(--z-border-width) solid var(--z-danger-border);
     background: var(--z-danger-subtle);
     color: var(--z-text);
   }
@@ -185,7 +286,7 @@
     margin: 0 0 var(--z-space-2);
     font-size: var(--z-text-2xs);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     font-weight: var(--z-weight-medium);
     color: var(--z-text-muted);
   }
@@ -202,7 +303,7 @@
   }
   .chips li {
     padding: 0 var(--z-space-2);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     color: var(--z-text-muted);
@@ -223,5 +324,16 @@
   }
   .muted {
     color: var(--z-text-subtle);
+  }
+  .fix-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--z-space-3);
+    margin: var(--z-space-3) 0 0;
+  }
+  .fix-actions a {
+    font-size: var(--z-text-xs);
+    color: var(--z-accent);
   }
 </style>

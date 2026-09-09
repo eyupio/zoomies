@@ -439,10 +439,22 @@ func TestProbeReportsMissingPermission(t *testing.T) {
 		t.Fatalf("Probe: %v", err)
 	}
 	missing := strings.Join(info.MissingRequirements(store.TargetOrg), "; ")
-	for _, want := range []string{"Self-hosted runners", "not granted", "Actions", "workflow_job"} {
+	for _, want := range []string{"Self-hosted runners", "not granted", "Actions"} {
 		if !strings.Contains(missing, want) {
 			t.Errorf("missing requirements %q does not mention %q", missing, want)
 		}
+	}
+	// The subscription is not one of them, and must not be: every requirement
+	// here is something the fleet cannot work without, and a fleet with no
+	// `workflow_job` subscription works -- on the fallback poller, more slowly.
+	// While the two were bundled, an App with every permission it needed
+	// probed as an error, was recorded unhealthy, and the verify dialog could
+	// never reach its own sentence about the poller.
+	if strings.Contains(missing, "workflow_job") {
+		t.Errorf("the subscription is listed as a missing requirement: %q", missing)
+	}
+	if info.SubscribedToJobs() {
+		t.Error("an App subscribed only to push reports that it will hear about jobs")
 	}
 	if repo := info.MissingRequirements(store.TargetRepo); !strings.Contains(strings.Join(repo, ";"), "Administration") {
 		t.Errorf("repo requirements = %v", repo)
@@ -618,5 +630,44 @@ func TestFakeServesBothAPILayouts(t *testing.T) {
 		if _, err := c.RateLimit(context.Background()); err != nil {
 			t.Fatalf("RateLimit against %q: %v", base, err)
 		}
+	}
+}
+
+// One sweep of a hundred-repository organisation used to cost two run listings
+// per repository before a single job was looked at -- every thirty seconds, in
+// exactly the failure the poller exists for -- which spent the installation's
+// hourly quota in about ten minutes. The sweep now has a request budget, and
+// spends it on the repositories pushed to most recently.
+func TestPollStaysWithinItsRequestBudgetAndLooksAtBusyRepositoriesFirst(t *testing.T) {
+	f := newFake(t)
+	// Forty quiet repositories the installation can see, added before any job
+	// is queued so they are the least recently pushed.
+	for i := range 40 {
+		f.AddRepo(fmt.Sprintf("acme/quiet-%02d", i))
+	}
+	f.AddQueuedJob("acme/busy-a", "CI", "build", []string{"linux"})
+	f.AddQueuedJob("acme/busy-b", "CI", "build", []string{"linux"})
+
+	jobs, err := f.Client("acme", store.TargetOrg).ListQueuedJobs(context.Background())
+	if err != nil {
+		t.Fatalf("ListQueuedJobs: %v", err)
+	}
+	if len(jobs) != 2 {
+		t.Fatalf("got %d jobs, want the two in the busy repositories: %+v", len(jobs), jobs)
+	}
+	requests := f.Requests()
+	if len(requests) > maxPollRequests {
+		t.Fatalf("the sweep made %d requests, over its budget of %d", len(requests), maxPollRequests)
+	}
+	// The repository listing comes first; the run listings that follow start
+	// with the repositories that were pushed to.
+	var order []string
+	for _, r := range requests {
+		if strings.Contains(r, "/actions/runs") && !strings.Contains(r, "/jobs") {
+			order = append(order, r)
+		}
+	}
+	if len(order) < 2 || !strings.Contains(order[0], "acme/busy-") || !strings.Contains(order[1], "acme/busy-") {
+		t.Fatalf("run listings did not start with the busy repositories: %v", order[:min(4, len(order))])
 	}
 }

@@ -5,7 +5,9 @@
  *
  *  * Route components are loaded with dynamic `import()`, so the grids, the
  *    log viewer and the pool wizard never reach a visitor who only looks at the
- *    Overview. That is most of how the app shell stays under budget.
+ *    Overview. That is most of how the app shell stays under budget. A chunk
+ *    that does not arrive is retried and, if need be, recovered by a reload;
+ *    see `chunks.ts` for why that is worth doing rather than reporting.
  *  * Query state is first class. Every grid keeps its filters and paging in the
  *    URL so a view can be pasted into a chat window, and `setQuery` replaces
  *    them without unmounting the page.
@@ -15,6 +17,8 @@
  */
 import { createSubscriber } from 'svelte/reactivity';
 import type { Component } from 'svelte';
+import { loadChunk, reloadForFailedChunk } from './chunks';
+import { upgrade } from './state/upgrade.svelte';
 import Login from '../routes/Login.svelte';
 import NotFound from '../routes/NotFound.svelte';
 
@@ -66,7 +70,14 @@ export const ROUTES: readonly RouteDef[] = [
     load: () => import('../routes/RunnerDetail.svelte'),
   },
   { name: 'jobs', path: '/jobs', title: 'Jobs', load: () => import('../routes/Jobs.svelte') },
+  { name: 'usage', path: '/usage', title: 'Usage', load: () => import('../routes/Usage.svelte') },
   { name: 'hosts', path: '/hosts', title: 'Hosts', load: () => import('../routes/Hosts.svelte') },
+  {
+    name: 'host-new',
+    path: '/hosts/new',
+    title: 'Add a host',
+    load: () => import('../routes/AddHost.svelte'),
+  },
   {
     name: 'installations',
     path: '/installations',
@@ -169,6 +180,17 @@ let navigationToken = 0;
 /** Bumped on every completed navigation, so pages can key off a fresh mount. */
 let navigationCount = 0;
 
+/**
+ * Route components already fetched, so a revisit is synchronous.
+ *
+ * A dynamic import of a module the browser has already parsed still resolves on
+ * a later microtask, so returning to a page visited a moment ago cleared the
+ * component and set `loading` for one frame -- long enough to paint the
+ * skeleton and replace it again. Between two pages an operator is flipping
+ * between, that is a flicker on every keystroke of `g j`, `g r`, `g j`.
+ */
+const loaded = new Map<RouteDef, Component<Record<string, never>>>();
+
 function changed(): void {
   invalidate?.();
 }
@@ -184,19 +206,27 @@ async function apply(): Promise<void> {
   currentTitle = found.route.title;
   loadError = null;
 
-  if (found.route.component) {
-    currentComponent = found.route.component;
+  const ready = found.route.component ?? loaded.get(found.route);
+  if (ready) {
+    currentComponent = ready;
     loading = false;
   } else if (!sameRoute || currentComponent === null) {
     loading = true;
     currentComponent = null;
     changed();
+    const load = found.route.load;
     try {
-      const module = await found.route.load?.();
+      const module = load ? await loadChunk(load, () => token !== navigationToken) : undefined;
       if (token !== navigationToken) return;
       currentComponent = module?.default ?? null;
+      if (currentComponent) loaded.set(found.route, currentComponent);
     } catch (cause) {
       if (token !== navigationToken) return;
+      // A chunk goes missing for two reasons -- a dropped request, or an
+      // upgrade that renamed it under an open tab -- and a reload fixes both.
+      // While one is on its way, stay on the skeleton: an error that replaces
+      // itself half a second later is worse than no error at all.
+      if (await reloadForFailedChunk()) return;
       loadError =
         cause instanceof Error
           ? cause
@@ -207,7 +237,24 @@ async function apply(): Promise<void> {
 
   navigationCount += 1;
   document.title = currentTitle === 'Overview' ? 'Zoomies' : `${currentTitle} · Zoomies`;
+  setCanonical();
   changed();
+}
+
+/**
+ * Point the page's canonical address at the route being shown.
+ *
+ * Every route is served the same HTML by the Go binary, so without this the
+ * whole app claims to be the root. The query string is deliberately dropped:
+ * grids keep their filters and paging there, and `/runners?state=busy&page=3`
+ * is the runners page, not a page of its own.
+ */
+function setCanonical(): void {
+  const href = location.origin + location.pathname;
+  const link = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+  if (link) link.href = href;
+  const og = document.querySelector<HTMLMetaElement>('meta[property="og:url"]');
+  if (og) og.content = href;
 }
 
 /* -- link interception ------------------------------------------------------ */
@@ -245,6 +292,15 @@ export function navigate(to: string, options: NavigateOptions = {}): void {
   const target = url.pathname + url.search + url.hash;
   const current = location.pathname + location.search + location.hash;
   if (target === current) return;
+  // A tab that has been open across a deployment goes to the new build here.
+  // A navigation discards the page's state anyway, so this costs nothing that
+  // was not already being thrown away, and it is the difference between an
+  // operator seeing the fleet's current UI and seeing whichever one their
+  // phone happened to load last week. See $lib/state/upgrade.
+  if (upgrade.claimReload()) {
+    location.assign(target);
+    return;
+  }
   if (options.replace) history.replaceState({}, '', target);
   else history.pushState({}, '', target);
   if (!options.keepScroll) window.scrollTo(0, 0);

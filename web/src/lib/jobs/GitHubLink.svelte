@@ -65,7 +65,7 @@
   .link.button {
     height: var(--z-space-8);
     padding: 0 var(--z-space-4);
-    border: 1px solid var(--z-border-strong);
+    border: var(--z-border-width) solid var(--z-border-strong);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
     color: var(--z-text);

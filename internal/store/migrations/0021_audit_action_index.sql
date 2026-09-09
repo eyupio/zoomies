@@ -1,0 +1,13 @@
+-- The audit log's action filter had no index to work with.
+--
+-- Every other way of reading the log is served by idx_audit_created: the page
+-- is newest-first, and the index is created_at. Filtering by action was served
+-- by the same index, which means scanning the whole table in date order and
+-- discarding the rows whose action does not match. The load measurement found
+-- it: with five thousand rows the filtered read costs about twice the unfiltered
+-- one, and audit rows are the one history Zoomies deliberately never prunes, so
+-- the table this scans is the one that grows without limit.
+--
+-- Action leads, created_at follows and descends, so the same index answers the
+-- filter and the ordering the page asks for.
+CREATE INDEX idx_audit_action ON audit_events(action, created_at DESC);

@@ -44,9 +44,32 @@
     </dd>
   </div>
 
+  <!--
+    A runner that is not progressing is usually a host that has gone quiet, and
+    until now answering that meant leaving this page for the Hosts page and
+    finding the right row. The heartbeat is the first thing to look at, so it
+    is here, beside the host it belongs to.
+  -->
+  {#if runner.host}
+    <div class="row">
+      <dt>Host last seen</dt>
+      <dd>
+        <RelativeTime value={runner.host.last_heartbeat} />
+        {#if runner.host.healthy === false}
+          <span class="warn">not heartbeating</span>
+        {/if}
+      </dd>
+    </div>
+  {/if}
+
   <div class="row">
-    <dt>Image</dt>
+    <dt>Requested image</dt>
     <dd class="mono break">{runner.image || '--'}</dd>
+  </div>
+
+  <div class="row">
+    <dt>Resolved digest</dt>
+    <dd class="mono break">{runner.image_digest || 'Not reported'}</dd>
   </div>
 
   <div class="row">
@@ -108,9 +131,28 @@
     <dd><RelativeTime value={runner.created_at} /></dd>
   </div>
 
+  {#if runner.container_started_at}
+    <div class="row">
+      <dt>Container started</dt>
+      <dd><RelativeTime value={runner.container_started_at} /></dd>
+    </div>
+  {/if}
+
+  {#if runner.registered_at}
+    <div class="row">
+      <dt>Registered with GitHub</dt>
+      <dd><RelativeTime value={runner.registered_at} /></dd>
+    </div>
+  {/if}
+
+  <!--
+    Not "Registered": that is registered_at above. This is when the workload
+    came up, and labelling it as the registration made a runner whose container
+    started and never reached GitHub look like one that had.
+  -->
   {#if runner.started_at}
     <div class="row">
-      <dt>Registered</dt>
+      <dt>Workload up</dt>
       <dd><RelativeTime value={runner.started_at} /></dd>
     </div>
   {/if}
@@ -126,6 +168,19 @@
     <div class="row">
       <dt>Finished</dt>
       <dd><RelativeTime value={runner.finished_at} /></dd>
+    </div>
+  {/if}
+
+  <!--
+    Cleaned up is a different fact from finished, and the gap between them is
+    the interesting part: finished is when the runner stopped working, cleaned
+    up is when nothing of it was left. A terminal runner with no cleaned-up
+    time has something still on a host or on GitHub.
+  -->
+  {#if runner.cleaned_up_at}
+    <div class="row">
+      <dt>Cleaned up</dt>
+      <dd><RelativeTime value={runner.cleaned_up_at} /></dd>
     </div>
   {/if}
 </dl>
@@ -147,7 +202,7 @@
     font-size: var(--z-text-2xs);
     font-weight: var(--z-weight-medium);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--z-tracking-wide);
     color: var(--z-text-subtle);
   }
   dd {
@@ -161,6 +216,10 @@
   }
   .none {
     color: var(--z-text-subtle);
+  }
+  .warn {
+    margin-left: var(--z-space-2);
+    color: var(--z-danger);
   }
   .with-copy {
     display: flex;
@@ -184,7 +243,7 @@
   }
   .labels li {
     padding: 0 var(--z-space-2);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     font-size: var(--z-text-2xs);

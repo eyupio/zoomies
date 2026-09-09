@@ -529,6 +529,32 @@ func (c *APIClient) ImageInspect(ctx context.Context, ref string) (bool, error) 
 	}
 }
 
+// ImageIdentity resolves ref to the two immutable names an image has: the
+// reference to create containers from, and the digest to record.
+//
+// For a pulled image the registry's manifest digest is what the UI shows and
+// what "the same image as yesterday" means, but it is not a name the daemon
+// resolves on its own: classic Docker looks a bare sha256: up as an image ID,
+// which is the config digest, and answers "No such image". The repository
+// digest reference -- name@sha256:manifest -- is resolvable everywhere, and is
+// what containers are created from. An image the daemon built locally has no
+// repository digest, and its ID serves as both.
+func (c *APIClient) ImageIdentity(ctx context.Context, ref string) (createRef, digest string, err error) {
+	var out struct {
+		ID          string   `json:"Id"`
+		RepoDigests []string `json:"RepoDigests"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/images/"+ref+"/json", nil, nil, &out); err != nil {
+		return "", "", err
+	}
+	if len(out.RepoDigests) > 0 {
+		if i := strings.LastIndex(out.RepoDigests[0], "@"); i >= 0 {
+			return out.RepoDigests[0], out.RepoDigests[0][i+1:], nil
+		}
+	}
+	return out.ID, out.ID, nil
+}
+
 // ContainerCreate creates a container and returns its ID.
 func (c *APIClient) ContainerCreate(ctx context.Context, name string, cfg ContainerCreateRequest) (string, error) {
 	q := url.Values{}
@@ -666,12 +692,14 @@ func (c *APIClient) ContainerLogs(ctx context.Context, id string, opts LogQuery)
 	if err != nil {
 		return nil, err
 	}
-	// Since API 1.42 the daemon states the framing outright; trust it over the
-	// inspect when it does.
-	switch resp.Header.Get("Content-Type") {
-	case "application/vnd.docker.raw-stream":
-		tty = true
-	case "application/vnd.docker.multiplexed-stream":
+	// Since API 1.42 the daemon distinguishes the two framings by content type,
+	// but only one of the values is worth anything. "multiplexed-stream" is
+	// only ever sent for a framed stream, so it can override the inspect.
+	// "raw-stream" cannot: it is what every daemon before 1.42 sends for both
+	// framings, and what Podman's compatibility endpoint sends for a framed
+	// stream today -- believing it left Docker's 8-byte frame headers in the
+	// middle of every line of a downloaded runner log.
+	if resp.Header.Get("Content-Type") == "application/vnd.docker.multiplexed-stream" {
 		tty = false
 	}
 	if tty {

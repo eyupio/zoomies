@@ -4,6 +4,40 @@
  */
 
 export interface paths {
+    "/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Aggregate bounded fleet usage */
+        get: operations["getUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/usage.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export bounded fleet usage as CSV */
+        get: operations["exportUsageCSV"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/meta": {
         parameters: {
             query?: never;
@@ -38,8 +72,14 @@ export interface paths {
         /**
          * Create the first administrator
          * @description Available only while no user exists. Once any account has been created
-         *     this returns 409 forever. That check is the entire security of this
-         *     route, which is why it is unauthenticated.
+         *     this returns 409 forever.
+         *
+         *     It also requires the setup token the controller prints in its log at
+         *     startup while the instance has no accounts. "No account exists yet" is a
+         *     condition a stranger can satisfy too, so on its own it would hand a
+         *     freshly deployed controller to whoever loaded the page first; the token
+         *     is proof that the caller can read the controller's log. It is minted per
+         *     process, so restarting the controller prints a new one.
          */
         post: operations["bootstrap"];
         delete?: never;
@@ -116,6 +156,46 @@ export interface paths {
          * @description Invalidates every other session belonging to this account.
          */
         post: operations["changeOwnPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/oidc/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Begin single sign-on
+         * @description Sends the browser to the identity provider. A browser navigation, not an API call: the answer is a redirect, and the handshake state travels in a short-lived cookie.
+         */
+        get: operations["oidcStart"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/oidc/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Finish single sign-on
+         * @description Where the identity provider sends the browser back. On success the session cookie is set and the browser is redirected into the app; on any failure it is redirected to the login page with the reason in the query string, because whoever is here is a person trying to sign in and that is where they can try again.
+         */
+        get: operations["oidcCallback"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -210,8 +290,12 @@ export interface paths {
          * Live event stream (Server-Sent Events)
          * @description `text/event-stream`. Every state change the operator would want to see.
          *     Honours `Last-Event-ID` on reconnect and replays what the server still
-         *     holds. A `heartbeat` event every 20 seconds keeps proxies from closing
-         *     an idle connection.
+         *     holds. Event ids are `<epoch>.<sequence>`, where the epoch names one
+         *     run of the controller; when the events since the client's last id
+         *     cannot all be replayed -- the buffer has moved on, or the controller
+         *     restarted -- the first frame is a `resync` event telling the client
+         *     to fetch the resources again. A `heartbeat` event every 20 seconds
+         *     keeps proxies from closing an idle connection.
          */
         get: operations["streamEvents"];
         put?: never;
@@ -259,7 +343,7 @@ export interface paths {
         post?: never;
         /**
          * Remove an installation
-         * @description Cascades to its pools. The response says how many pools and runners went with it.
+         * @description Cascades to its pools, and removes their runners now, interrupting any job they are running: a runner has to be deregistered from GitHub while the installation's credentials still exist, which is before the row goes, so there is no drain here. Drain the pools first with `DELETE /pools/{id}` if the running jobs matter. The response says how many pools and runners went with it.
          */
         delete: operations["deleteInstallation"];
         options?: never;
@@ -433,6 +517,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/pools/platforms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The platforms a pool may ask for
+         * @description The runner image catalogue: every operating system and release Zoomies
+         *     publishes a zoomies-runner image for, and the architectures each is
+         *     built for. It is served rather than hard-coded in a client so that a
+         *     pool cannot be offered an operating system no image exists for.
+         */
+        get: operations["listPoolPlatforms"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pools/validate": {
         parameters: {
             query?: never;
@@ -476,6 +583,23 @@ export interface paths {
         head?: never;
         /** Update a pool */
         patch: operations["updatePool"];
+        trace?: never;
+    };
+    "/pools/{id}/prewarm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prewarm the pool image on every matching host */
+        post: operations["prewarmPool"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/pools/{id}/enable": {
@@ -706,6 +830,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/jobs/{id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * A job's timeline
+         * @description What Zoomies observed and did about one job, oldest first, each entry a sentence an operator can read. Entries are written from what each delivery changed rather than from the delivery itself, so GitHub redelivering one adds nothing. Every change to the timeline is accompanied by a `job.updated` frame on the event stream, which is when a client refetches it.
+         */
+        get: operations["getJobEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/{id}/explanation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Why this job is where it is
+         * @description One answer to "why is this job not running?", computed on the controller from the last scheduler plan, the pool it was claimed by, and the runner and host behind it. It is a separate endpoint rather than a field on the job because it is computed from the fleet around the job rather than from its row, so a cached copy of the job delivered by the event stream would carry a stale one. The drawer, the CLI and the support bundle render this same answer, so they cannot disagree.
+         */
+        get: operations["getJobExplanation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/jobs/facets": {
         parameters: {
             query?: never;
@@ -761,7 +931,7 @@ export interface paths {
         delete: operations["deleteHost"];
         options?: never;
         head?: never;
-        /** Update a host's capacity or labels */
+        /** Update a host's capacity, labels or reserve */
         patch: operations["updateHost"];
         trace?: never;
     };
@@ -823,7 +993,13 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Get a join token
+         * @description The token's state, never its secret. Once a host has redeemed it,
+         *     `used_by_id` is that host's id -- which is how the Add-a-host page
+         *     knows the machine it is waiting for has arrived.
+         */
+        get: operations["getJoinToken"];
         put?: never;
         post?: never;
         /** Revoke an unused join token */
@@ -856,6 +1032,11 @@ export interface paths {
          *     same operating system and architecture. A label with no plausible pool
          *     is left unmapped rather than mapped approximately, and appears in
          *     `unmapped`.
+         *
+         *     `mapping` is one answer per label for every repository, which is what
+         *     most fleets want. `overrides` are the exceptions to it: each names one
+         *     job in one workflow file in one repository and sends it somewhere else,
+         *     or -- with an empty `to` -- leaves that one job on GitHub's runners.
          */
         post: operations["planMigration"];
         delete?: never;
@@ -1040,6 +1221,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/recovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether this fleet is held for recovery
+         * @description A restored database is marked for recovery, and a controller that reads that mark decides as normal and applies none of it: no runner is created, drained or removed, nothing is reaped from GitHub, and the fallback poller does not sweep. The plan is still computed and published, so an operator can see exactly what would happen the moment the fence is lifted -- and can tell "nothing to do" from "not allowed to". A fenced instance answers `/readyz` with 503; liveness is unaffected, so its container runtime does not restart it.
+         */
+        get: operations["getRecovery"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/recovery/unfence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Lift the recovery fence
+         * @description A person saying that a recovered fleet has been checked and may act on the world again. It is audited under its own action, because the audit log is where somebody later asks who decided that and when. Lifting an unfenced instance succeeds and changes nothing: two operators recovering one fleet will both press it.
+         */
+        post: operations["unfence"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/diagnostics/bundle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A support bundle for this instance
+         * @description Everything a bug report needs about this controller in one JSON document: the build and the process, the effective configuration and its findings, the current problems, the fleet's installations, pools, hosts and runners, the work in flight with the controller's own explanation for each of it, and the recent scheduler decisions. It is assembled from the same renderings the other routes serve, so a section that is secret-free on its own route is secret-free here.
+         *
+         *     It never carries workflow log bodies. There is no redaction pass for them and there cannot be a reliable one, so the bundle carries runner ids and the download route instead and an operator attaches logs deliberately.
+         *
+         *     Assembly is section by section: a section that fails costs its own contents and lands in `errors` rather than failing the whole document, because the moment a bundle is taken is the moment a query is most likely to fail. Sections are capped by row count and the whole document by bytes; anything shortened says so in `truncated`.
+         */
+        get: operations["getSupportBundle"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/settings": {
         parameters: {
             query?: never;
@@ -1066,6 +1311,120 @@ export interface paths {
         patch: operations["updateSettings"];
         trace?: never;
     };
+    "/agent/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Redeem a join token and enrol a host
+         * @description The one anonymous agent route, because it is the call that mints the credential every other one carries. The join token is single-use and short-lived; the agent token in the response is shown exactly once, and the controller keeps only its hash.
+         */
+        post: operations["agentJoin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/heartbeat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Report that the host is alive, and what its runners are doing */
+        post: operations["agentHeartbeat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Long-poll for work
+         * @description Blocks until the host has work or the wait elapses, so a task reaches an agent the instant it is queued while an idle agent makes two or three requests a minute.
+         */
+        get: operations["agentPollTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/results": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Report the outcome of one task */
+        post: operations["agentReportResult"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report what the host's runners are doing, outside a heartbeat
+         * @description The body is a bare array of runner reports, because that is what the agent sends and the two halves of the protocol must agree.
+         */
+        post: operations["agentReportRunners"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/logs/{stream_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Relay a runner's output to a viewer
+         * @description The inverted half of log streaming. The controller never dials an agent, so a viewer's request makes it queue a stream_logs task, and the agent answers by opening this chunked POST, which stays open for as long as the runner produces output. Exempt from the body-size limit for that reason.
+         */
+        post: operations["agentRelayLogs"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1077,17 +1436,28 @@ export interface components {
         /** @enum {string} */
         BackendKind: "docker" | "podman" | "process";
         /**
+         * @description pinned-only requires an image@sha256 digest and rejects mutable tags.
+         * @default if-not-present
+         * @enum {string}
+         */
+        PullPolicy: "if-not-present" | "always" | "pinned-only";
+        /**
          * @description How much Docker a job on this pool gets.
          *     `none` is the default and the only one that is not a warning.
          *     `dind` gives a private, privileged sidecar daemon.
          *     `host-socket` hands the job the host's daemon, and with it root on the host.
+         *     Either of those switches a pool on the stock `ghcr.io/eyupio/zoomies-runner`
+         *     image under a moving tag (none, `latest` or `main`) to
+         *     `ghcr.io/eyupio/zoomies-runner-docker` under the same tag as it is saved,
+         *     because the stock image has no client for the daemon. A pinned tag, a
+         *     digest, or an image of your own is left as given.
          * @enum {string}
          */
         DockerMode: "none" | "dind" | "host-socket";
         /** @enum {string} */
         RunnerState: "provisioning" | "registering" | "idle" | "busy" | "draining" | "removed" | "failed";
         /** @enum {string} */
-        JobState: "queued" | "in_progress" | "completed";
+        JobState: "waiting" | "queued" | "in_progress" | "completed";
         /** @enum {string} */
         Severity: "error" | "warning" | "info";
         /**
@@ -1105,7 +1475,7 @@ export interface components {
         ErrorEnvelope: {
             error: {
                 /** @enum {string} */
-                code: "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "unprocessable" | "rate_limited" | "internal";
+                code: "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "unprocessable" | "too_large" | "rate_limited" | "internal";
                 /** @description Written for a person to read */
                 message: string;
                 field?: string;
@@ -1157,6 +1527,13 @@ export interface components {
             webhook_url?: string;
             /** @description True when no webhook has ever been received and the poller is doing the work. */
             polling_only?: boolean;
+            /** @description True when the fallback poller is running. It is off only by configuration */
+            poller_enabled?: boolean;
+            /**
+             * Format: date-time
+             * @description When the fallback poller last completed a sweep
+             */
+            poller_last_poll_at?: string | null;
         };
         Stats: {
             /**
@@ -1166,13 +1543,48 @@ export interface components {
             window?: string;
             queued_jobs?: number;
             running_jobs?: number;
-            /** @description Within the requested window. */
+            /** @description Within the requested window. The sum of the four below. */
             completed?: number;
+            /** @description GitHub reported success and the fleet had no fault in it. */
+            succeeded?: number;
+            /** @description A failing conclusion */
             failed?: number;
+            /** @description Cancelled or skipped */
+            cancelled?: number;
+            /** @description None of the above */
+            unknown?: number;
             /** Format: int64 */
             median_wait_ms?: number;
             /** Format: int64 */
             p95_wait_ms?: number;
+            /**
+             * Format: int64
+             * @description Median runner creation-to-container-start latency.
+             */
+            p50_startup_ms?: number;
+            /** Format: int64 */
+            p95_startup_ms?: number;
+            /**
+             * Format: int64
+             * @description Median container-start-to-registration latency.
+             */
+            p50_registration_ms?: number;
+            /** Format: int64 */
+            p95_registration_ms?: number;
+            /** @description The same job figures narrowed to the jobs this fleet has a hand in: one an enabled pool claimed, one that ran on a runner started here, or one still queued that no pool claims. GitHub reports every job in an installed repository, so on an organisation that also uses hosted runners the figures above are mostly somebody else's. Both are carried in one payload because the same numbers arrive over the event stream, which is one frame for every viewer. */
+            fleet?: {
+                queued_jobs?: number;
+                running_jobs?: number;
+                completed?: number;
+                succeeded?: number;
+                failed?: number;
+                cancelled?: number;
+                unknown?: number;
+                /** Format: int64 */
+                median_wait_ms?: number;
+                /** Format: int64 */
+                p95_wait_ms?: number;
+            };
             runners?: {
                 provisioning?: number;
                 registering?: number;
@@ -1207,6 +1619,10 @@ export interface components {
             at?: string;
             queued_jobs?: number;
             running_jobs?: number;
+            /** @description The same minute narrowed to the jobs this fleet has a hand in. Zero on samples taken before this was recorded. */
+            fleet_queued_jobs?: number;
+            /** @description As above */
+            fleet_running_jobs?: number;
             idle_runners?: number;
             busy_runners?: number;
             total_runners?: number;
@@ -1240,6 +1656,11 @@ export interface components {
             api_base_url?: string;
             app_slug?: string;
             web_url?: string;
+            /**
+             * @description The App's own settings page on GitHub, which is the only place its avatar can be uploaded. Absent when the App's slug is unknown.
+             * @example https://github.com/organizations/acme/settings/apps/zoomies-acme
+             */
+            settings_url?: string;
             enterprise?: boolean;
             healthy?: boolean;
             last_error?: string;
@@ -1289,6 +1710,17 @@ export interface components {
             missing_permissions?: string[];
             missing_events?: string[];
             rate_limit_remaining?: number;
+            /**
+             * @description GitHub's own word for how much of the target this installation covers. An App with every permission correct, installed on "only select repositories" and not on the one somebody pushes to, is a fleet where nothing ever queues and no page says why -- so the verify answer names it.
+             * @enum {string}
+             */
+            repository_selection?: "all" | "selected";
+            /** @description How many repositories the installation can see, up to the scan's own cap. */
+            repository_count?: number;
+            /** @description The first few by name, so an operator can look for the one they expected. */
+            repositories?: string[];
+            /** @description True when there are more than the names listed. */
+            repositories_capped?: boolean;
         };
         WebhookDelivery: {
             id?: string;
@@ -1299,6 +1731,8 @@ export interface components {
             /** @enum {string} */
             status?: "accepted" | "rejected" | "error";
             error?: string;
+            /** @description The installation whose webhook secret verified this delivery. It is not necessarily the one covering the repository: when none does, every configured secret is tried, and this says which one answered. Empty on a delivery that verified against none. */
+            installation_id?: string;
             /** Format: date-time */
             received_at?: string;
         };
@@ -1312,16 +1746,48 @@ export interface components {
             /** Format: date-time */
             last_delivery_at?: string | null;
         };
+        /**
+         * @description One job sent somewhere other than the consolidated `mapping` says.
+         *
+         *     It names exactly one place -- a job, in a workflow file, in a repository
+         *     -- and nothing about it is a pattern: a pattern would match more than
+         *     the operator read in the review step. A job the plan could not attribute
+         *     to a name cannot be overridden, because there would be nothing stable to
+         *     key on when the apply step re-reads the file.
+         */
+        MigrationOverride: {
+            /**
+             * @description Compared case-insensitively
+             * @example acme/widgets
+             */
+            repo: string;
+            /** @example .github/workflows/ci.yml */
+            path: string;
+            /** @example integration */
+            job: string;
+            /**
+             * @description The runs-on value this job gets. Empty leaves this one job on the rented runner it names today - a decision, reported with its own reason rather than as an unmapped label.
+             * @example zoomies-linux-arm64
+             */
+            to?: string;
+        };
         /** @description One runs-on value a migration would change. */
         MigrationRewrite: {
             /** @description The 1-based line in the file as it is today. */
             line?: number;
             /** @description The workflow job the line belongs to */
             job?: string;
+            /**
+             * @description The hosted-runner label being replaced, set only where the value asks for exactly one. A line carrying both a job and a label is one an override can name.
+             * @example ubuntu-latest
+             */
+            label?: string;
             /** @example ubuntu-latest */
             from?: string;
             /** @example zoomies-linux-x64 */
             to?: string;
+            /** @description True when `to` came from an override rather than from the consolidated mapping. */
+            overridden?: boolean;
         };
         /**
          * @description A runs-on the migration deliberately left alone, and why. A skip is not
@@ -1331,6 +1797,8 @@ export interface components {
         MigrationSkip: {
             line?: number;
             job?: string;
+            /** @description The hosted-runner label this job asks for, set only where the value asks for exactly one. A skip carrying both a job and a label is one an override can settle; a ${{ }} expression carries neither, because no override can decide it. */
+            label?: string;
             value?: string;
             reason?: string;
         };
@@ -1341,6 +1809,8 @@ export interface components {
             sha?: string;
             rewrites?: components["schemas"]["MigrationRewrite"][];
             skips?: components["schemas"]["MigrationSkip"][];
+            /** @description The hosted-runner labels this file asks for, mapped or not. */
+            hosted_labels?: string[];
             /** @description A unified diff of the change */
             diff?: string;
         };
@@ -1349,7 +1819,7 @@ export interface components {
             repo?: string;
             default_branch?: string;
             workflows?: components["schemas"]["MigrationWorkflow"][];
-            /** @description The GitHub-hosted labels this repository asks for, mapped or not. */
+            /** @description The hosted-runner labels this repository asks for - GitHub's own and the vendors' - mapped or not. */
             hosted_labels?: string[];
             /** @description Set when this repository could not be read; the rest of the plan still stands. */
             error?: string;
@@ -1377,12 +1847,18 @@ export interface components {
             mapping?: {
                 [key: string]: string;
             };
+            /** @description The exceptions that were applied on top of the mapping, echoed back so a plan describes itself. */
+            overrides?: components["schemas"]["MigrationOverride"][];
             /** @description Hosted labels no pool was proposed for. Jobs on these are left where they are. */
             unmapped?: string[];
             pools?: components["schemas"]["MigrationPoolOption"][];
             counts?: components["schemas"]["MigrationCounts"];
-            /** @description True when the installation has more repositories than one plan reads. */
+            /** @description True when there are more repositories after this page. */
             truncated?: boolean;
+            /** @description Send as `cursor` to read the next page of repositories. Absent on the last page. */
+            next_cursor?: string;
+            /** @description How many repositories the installation can see in total */
+            total_repos?: number;
             /** @description What the App still needs before pull requests can be opened. Reported here, in the step before, because discovering it halfway through leaves half the pull requests open. */
             missing_permissions?: string[];
             permission_hint?: string;
@@ -1423,6 +1899,90 @@ export interface components {
             /** Format: int64 */
             pids_limit?: number;
         };
+        /** @description One row of the runner image catalogue. */
+        PoolPlatform: {
+            /** @example ubuntu */
+            os?: string;
+            /** @example 24.04 */
+            os_version?: string;
+            /** @example Ubuntu 24.04 */
+            label?: string;
+            /** @example ghcr.io/eyupio/zoomies-runner:ubuntu-2404 */
+            image?: string;
+            /**
+             * @example [
+             *       "amd64",
+             *       "arm64"
+             *     ]
+             */
+            arches?: string[];
+            /** @description True for the variant :latest points at. */
+            default?: boolean;
+        };
+        /** @description The machine a pool's runners need, or the machine a host is. Every field is optional; an empty field is a promise nobody made and matches anything. A pool's platform selects its runner image and restricts the hosts the scheduler may place its runners on. */
+        Platform: {
+            /**
+             * @description A distribution, not a kernel - "linux" cannot pick a runner image.
+             * @example ubuntu
+             * @enum {string}
+             */
+            os?: "ubuntu" | "debian" | "fedora" | "rocky" | "macos" | "windows";
+            /** @example 24.04 */
+            os_version?: string;
+            /**
+             * @example arm64
+             * @enum {string}
+             */
+            arch?: "amd64" | "arm64";
+        };
+        UsageResponse: {
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            /** @enum {string} */
+            group_by: "installation" | "repository" | "workflow" | "pool";
+            /** @constant */
+            costs_are_estimates: true;
+            /**
+             * @description Whether allocated runner lifetime, and therefore cost, can be
+             *     attributed to this grouping at all. A runner idles on behalf of a
+             *     pool, never on behalf of a repository or a workflow, so it is false
+             *     for the repository and workflow groupings and every row's
+             *     allocated_runner_seconds is null.
+             */
+            allocation_attributable: boolean;
+            items: {
+                key: string;
+                /** @description Job execution time clipped to the reported interval. */
+                job_execution_seconds: number;
+                /** @description Runner lifetime clipped to the interval, or null when the grouping cannot attribute it. Null is not zero. */
+                allocated_runner_seconds: number | null;
+                /** @description Jobs queued within the interval. Counts are additive: adjacent reports sum. */
+                jobs: number;
+                /** @description Jobs whose run began within the interval. */
+                jobs_started: number;
+                /** @description Jobs that finished within the interval. */
+                jobs_completed: number;
+                /** @description Mean wait of the jobs_started jobs, so the denominator is the population with an observed wait. Null when nothing started in the interval. */
+                average_queue_wait_seconds: number | null;
+                peak_concurrency: number;
+                /** @description Estimate from administrator-assigned pool rates; omitted when no rate exists. */
+                estimated_cost?: number;
+            }[];
+        };
+        PoolPrewarm: {
+            pool_id?: string;
+            host_id?: string;
+            host_name?: string;
+            image?: string;
+            /** @enum {string} */
+            state?: "pending" | "succeeded" | "failed";
+            digest?: string;
+            error?: string;
+            /** Format: date-time */
+            updated_at?: string;
+        };
         Pool: {
             id?: string;
             name?: string;
@@ -1431,14 +1991,28 @@ export interface components {
             labels?: string[];
             runner_group?: string;
             backend?: components["schemas"]["BackendKind"];
+            platform?: components["schemas"]["Platform"];
             image?: string;
+            /** @description The image this pool's runners will actually boot: image when the pool names one, otherwise the variant its platform selects, otherwise the instance default -- and then its Docker variant when the pool gives its jobs a daemon. */
+            effective_image?: string;
+            pull_policy?: components["schemas"]["PullPolicy"];
             runner_version?: string;
             min_runners?: number;
             max_runners?: number;
+            /** @description Best-effort per-repository runner creation throttle; zero disables it. This cannot prevent GitHub from assigning work to compatible idle runners and is not a strict execution concurrency cap. */
+            repository_scale_up_limit?: number;
+            /** @description Optional administrator-assigned rate used only for estimates. */
+            cost_per_runner_hour?: number | null;
+            /**
+             * @description Higher-priority pools receive creation capacity before lower-priority pools.
+             * @default 0
+             */
+            priority: number;
             idle_timeout?: components["schemas"]["Duration"];
             ephemeral?: boolean;
             docker_mode?: components["schemas"]["DockerMode"];
             resources?: components["schemas"]["Resources"];
+            cache?: components["schemas"]["CacheConfig"];
             host_selector?: {
                 [key: string]: string;
             };
@@ -1466,19 +2040,50 @@ export interface components {
             /** @description The dangerous settings this pool has in effect, if any. */
             warnings?: components["schemas"]["Problem"][];
         };
+        /** @description Disposable performance cache mounted at /opt/zoomies-cache; it is not persistent workflow storage and may be evicted. */
+        CacheConfig: {
+            /** @default false */
+            enabled: boolean;
+            /**
+             * @description Repository scope gives each repository its own cache. Under an organisation-targeted installation it needs `repository` set, because the installation alone does not say which repository the pool serves.
+             * @default pool
+             * @enum {string}
+             */
+            scope: "pool" | "repository";
+            /**
+             * Format: int64
+             * @description Maximum bytes, enforced between one runner and the next by evicting whole cache entries, least recently modified first. Only a cache in a host directory can be measured, so a non-zero limit requires `source` to be an absolute host path. Zero is unlimited.
+             */
+            size_limit?: number;
+            /** @description Optional absolute host directory or safe named-volume prefix. */
+            source?: string;
+            /** @description The repository a repository-scoped cache belongs to, as owner/name. Required when the pool's installation targets an organisation, and left empty when it targets a single repository, which supplies it. */
+            repository?: string;
+        };
         PoolCreate: {
-            /** @example linux-x64 */
+            /**
+             * @description The pool's name. Every pool name carries the brand, so a name sent without the `zoomies-` prefix is stored with one: `gpu` becomes `zoomies-gpu`. Beyond the brand, Zoomies' own convention is zoomies-<vcpu>vcpu[-<memory>gb]-<os>-<version>[-<arch>], so the name a workflow's runs-on carries says how much machine it is asking for. Any name is accepted.
+             * @example zoomies-4vcpu-ubuntu-2404
+             */
             name: string;
             installation_id: string;
             labels: string[];
             runner_group?: string;
             backend: components["schemas"]["BackendKind"];
+            platform?: components["schemas"]["Platform"];
+            /** @description Leave blank to follow the pool's platform, which selects a published zoomies-runner variant, or the instance default when the pool names no platform. */
             image?: string;
+            pull_policy?: components["schemas"]["PullPolicy"];
             runner_version?: string;
             /** @default 0 */
             min_runners: number;
             /** @default 4 */
             max_runners: number;
+            /** @description Best-effort creation throttle */
+            repository_scale_up_limit?: number;
+            cost_per_runner_hour?: number | null;
+            /** @default 0 */
+            priority: number;
             /** @default 5m */
             idle_timeout: components["schemas"]["Duration"];
             /** @default true */
@@ -1486,6 +2091,7 @@ export interface components {
             /** @default none */
             docker_mode: components["schemas"]["DockerMode"];
             resources?: components["schemas"]["Resources"];
+            cache?: components["schemas"]["CacheConfig"];
             host_selector?: {
                 [key: string]: string;
             };
@@ -1498,20 +2104,29 @@ export interface components {
             enabled: boolean;
         };
         PoolUpdate: {
-            /** @example linux-x64 */
+            /**
+             * @description The pool's name. Every pool name carries the brand, so a name sent without the `zoomies-` prefix is stored with one: `gpu` becomes `zoomies-gpu`.
+             * @example zoomies-linux-x64
+             */
             name?: string;
             installation_id?: string;
             labels?: string[];
             runner_group?: string;
             backend?: components["schemas"]["BackendKind"];
             image?: string;
+            pull_policy?: components["schemas"]["PullPolicy"];
             runner_version?: string;
             min_runners?: number;
             max_runners?: number;
+            /** @description Best-effort creation throttle */
+            repository_scale_up_limit?: number;
+            cost_per_runner_hour?: number | null;
+            priority?: number;
             idle_timeout?: components["schemas"]["Duration"];
             ephemeral?: boolean;
             docker_mode?: components["schemas"]["DockerMode"];
             resources?: components["schemas"]["Resources"];
+            cache?: components["schemas"]["CacheConfig"];
             host_selector?: {
                 [key: string]: string;
             };
@@ -1535,6 +2150,8 @@ export interface components {
             ephemeral?: boolean;
             labels?: string[];
             image?: string;
+            /** @description Immutable digest resolved by the host backend. */
+            image_digest?: string;
             runner_version?: string;
             current_job_id?: string;
             current_job?: components["schemas"]["Job"];
@@ -1546,12 +2163,33 @@ export interface components {
             memory_bytes?: number;
             /** Format: date-time */
             created_at?: string;
+            /**
+             * Format: date-time
+             * @description When the runner's container (or process) started on its host. With registered_at it is what tells the two causes of a stuck runner apart: a container that never started is a backend or image problem on the host, and one that started and never registered is a credential, network or GitHub problem.
+             */
+            container_started_at?: string;
+            /**
+             * Format: date-time
+             * @description When the runner registered itself with GitHub.
+             */
+            registered_at?: string;
             /** Format: date-time */
             started_at?: string | null;
             /** Format: date-time */
             last_idle_at?: string | null;
             /** Format: date-time */
             finished_at?: string | null;
+            /** @description Why Zoomies could not finish taking this runner away: a stop or remove the agent could not complete, or a registration GitHub would not delete. Empty is the normal case. A non-empty value means something is left behind — a container on its host, or a registration on the organisation — and it will not go away on its own. Zoomies retries, and this clears when it succeeds. */
+            cleanup_error?: string;
+            /** Format: date-time */
+            cleanup_failed_at?: string | null;
+            /** @description How many times cleanup has been tried. It is kept after a success, because how many tries it took is the difference between a blip and a host worth looking at. */
+            cleanup_attempts?: number;
+            /**
+             * Format: date-time
+             * @description The end of the runner's life: nothing of it left, on the host or on GitHub. The counterpart of `created_at` at the other end.
+             */
+            cleaned_up_at?: string | null;
         };
         RunnerDetail: components["schemas"]["Runner"] & {
             host?: components["schemas"]["Host"];
@@ -1560,8 +2198,122 @@ export interface components {
             /** @description False when the runner's host is unreachable */
             logs_available?: boolean;
         };
+        JobExplanation: {
+            job_id: string;
+            state: components["schemas"]["JobState"];
+            /** @description The sentence. Always set, including for a job that is running or finished: "nothing is wrong" is an answer to the question. */
+            summary: string;
+            /** @description What the summary leaves out */
+            detail?: string;
+            /** @description What to do. Absent means there is nothing to do */
+            fix?: string;
+            /** @description Whether the job is still waiting on something. */
+            waiting: boolean;
+            /** @description Whether waiting will not on its own end it. A fleet that is merely busy clears; a pool nothing can place never will, and the two need different advice. */
+            blocked: boolean;
+            pool_id?: string;
+            runner_id?: string;
+            host_id?: string;
+            /** Format: date-time */
+            computed_at: string;
+        };
+        Recovery: {
+            fenced: boolean;
+            /** @description Why the fence is on -- normally the backup this database was restored from. */
+            reason?: string;
+        };
+        SupportBundle: {
+            /** @description The shape's own number, so a reader given a bundle out of context knows what it is looking at. It moves when a section is removed or renamed, not when one is added. */
+            bundle_version: number;
+            /** Format: date-time */
+            generated_at: string;
+            instance: components["schemas"]["BundleInstance"];
+            /** @description The effective configuration, the same key-by-key rendering /settings serves. */
+            config?: {
+                [key: string]: unknown;
+            };
+            /** @description The configuration validator's findings, the same list /settings carries. */
+            findings?: components["schemas"]["Problem"][];
+            /** @description Everything currently wrong, the same shape /problems serves. */
+            problems?: {
+                ok: boolean;
+                items: components["schemas"]["Problem"][];
+            };
+            stats?: components["schemas"]["Stats"];
+            installations?: components["schemas"]["Installation"][];
+            pools?: components["schemas"]["Pool"][];
+            hosts?: components["schemas"]["Host"][];
+            runners?: components["schemas"]["Runner"][];
+            /** @description The work in flight rather than the history. A bundle is taken because something is stuck, and finished jobs would be most of the bytes while answering none of it. */
+            jobs?: components["schemas"]["Job"][];
+            /** @description The controller's own answer for each unfinished job, the same one the drawer and the CLI render. */
+            explanations?: components["schemas"]["JobExplanation"][];
+            scaling_events?: components["schemas"]["ScalingEvent"][];
+            logs?: components["schemas"]["BundleLogs"];
+            /** @description Why a section is missing. A bundle with nine sections and a named failure is worth more than a 500. */
+            errors: components["schemas"]["BundleError"][];
+            truncated?: components["schemas"]["BundleTruncation"][];
+        };
+        /** @description What this process is and how it is doing -- the half of a bug report that is never in the fleet's own rows. */
+        BundleInstance: {
+            version?: string;
+            commit?: string;
+            build_date?: string;
+            go?: string;
+            os?: string;
+            arch?: string;
+            cpus?: number;
+            goroutines?: number;
+            /** Format: int64 */
+            heap_in_use_bytes?: number;
+            config_path?: string;
+            database_path?: string;
+            schema_applied?: number;
+            schema_latest?: string;
+            event_subscribers?: number;
+            polling_only?: boolean;
+            poller_enabled?: boolean;
+            /** Format: date-time */
+            poller_last_poll_at?: string;
+            /** @description The one fact here that is always a bug in Zoomies. A loop that panicked was restarted and the fleet carried on, so nothing else in a bundle would show it. */
+            loop_panics?: {
+                loop?: string;
+                count?: number;
+                last?: string;
+                /** Format: date-time */
+                at?: string;
+            }[];
+        };
+        /** @description Where the logs are, rather than the logs. */
+        BundleLogs: {
+            /** @description Why the bodies are not here. */
+            note?: string;
+            runners?: {
+                runner_id?: string;
+                name?: string;
+                state?: components["schemas"]["RunnerState"];
+                pool_id?: string;
+                /** @description The route that fetches this runner's log. */
+                download?: string;
+            }[];
+        };
+        BundleError: {
+            section: string;
+            error: string;
+        };
+        BundleTruncation: {
+            section: string;
+            /** @description How many rows survived */
+            kept?: number;
+            reason: string;
+        };
         TimelineEntry: {
             state?: components["schemas"]["RunnerState"];
+            /**
+             * @description A finer point within the state, when one was observed: the image was pulled, the container started, the runner registered with GitHub.
+             * @enum {string}
+             */
+            stage?: "image_pulling" | "container_started" | "registered";
             /** Format: date-time */
             at?: string;
             /**
@@ -1589,14 +2341,34 @@ export interface components {
              * @example skipped
              */
             conclusion?: string;
+            /** @description The GitHub App installation covering this job's repository, resolved when the job was first recorded. Read-only. A pool only ever runs work in its own installation's target, so a pool whose labels fit is still not eligible unless this matches it. Empty when no installation here covers the repository. */
+            installation_id?: string;
             pool_id?: string;
             pool_name?: string;
             runner_id?: string;
             runner_name?: string;
             /** @description The run on GitHub. */
             html_url?: string;
-            /** @description False when no enabled pool claims this job's labels. */
+            /** @description False when no enabled pool claims this job's labels. On a job that is not queued this only says the job ran somewhere else. */
             matched?: boolean;
+            /**
+             * Format: date-time
+             * @description When this fleet could first have acted on the job - an enabled pool claiming its labels. The start of the scheduling-latency interval, and deliberately not queued_at: the wait before anything could run the job is not this fleet's. Absent on a job nothing has claimed.
+             */
+            eligible_at?: string;
+            /** @description True when every label names GitHub's own runners or a hosted-runner vendor's, so a job no pool here claims is theirs to run rather than stuck. */
+            hosted?: boolean;
+            /** @description The branch the run was for. */
+            head_branch?: string;
+            head_sha?: string;
+            /** @description 1 for a first run; higher when the run was re-run. */
+            run_attempt?: number;
+            /** @description The job's steps as GitHub last reported them. A completed job carries every step with its conclusion; a running one carries them mid-flight. */
+            steps?: components["schemas"]["JobStep"][];
+            /** @description The step a completed job stopped at: the first that did not succeed, whether the job failed there or was cancelled there. Null when every step succeeded or while the job is still running. Worked out by the server so every client names the same step. */
+            failed_step?: components["schemas"]["JobStep"] | null;
+            /** @description Set when the runner of this fleet that was executing the job stopped before GitHub reported the job over -- the fleet's own explanation of a failure GitHub records like any other. Empty when the runner did nothing wrong. */
+            runner_fault?: string;
             /** Format: date-time */
             queued_at?: string;
             /** Format: date-time */
@@ -1608,6 +2380,48 @@ export interface components {
             /** Format: int64 */
             duration_ms?: number;
         };
+        JobStep: {
+            number?: number;
+            name?: string;
+            /**
+             * @example queued
+             * @example in_progress
+             * @example completed
+             */
+            status?: string;
+            /**
+             * @example success
+             * @example failure
+             * @example cancelled
+             * @example skipped
+             */
+            conclusion?: string;
+            /** Format: date-time */
+            started_at?: string | null;
+            /** Format: date-time */
+            completed_at?: string | null;
+        };
+        /**
+         * @description What happened. `runner_lost` is the one entry GitHub cannot produce: the runner stopped under the job, and GitHub will report an ordinary failure. `waiting` and `approved` bracket a deployment review: the time between them is GitHub's, and the queue wait starts at `approved`. `runner_returned` withdraws a `runner_lost`: the host was silent long enough to be given up on, came back with the runner still executing this job, and the job is being left to finish.
+         * @enum {string}
+         */
+        JobEventKind: "queued" | "waiting" | "approved" | "claimed" | "unmatched" | "started" | "completed" | "runner_lost" | "runner_returned";
+        JobEvent: {
+            id?: string;
+            job_id?: string;
+            kind?: components["schemas"]["JobEventKind"];
+            /**
+             * @description Who observed it. A timeline that is all `poller` is a controller no webhook reaches.
+             * @enum {string}
+             */
+            source?: "webhook" | "poller" | "agent" | "controller";
+            /** @description One sentence */
+            message?: string;
+            runner_id?: string;
+            runner_name?: string;
+            /** Format: date-time */
+            at?: string;
+        };
         BackendInfo: {
             kind?: components["schemas"]["BackendKind"];
             available?: boolean;
@@ -1617,6 +2431,8 @@ export interface components {
             /** @description When unavailable */
             detail?: string;
             supports_dind?: boolean;
+            /** @description Where the host daemon's socket lives */
+            host_socket_path?: string;
         };
         Host: {
             id?: string;
@@ -1632,10 +2448,68 @@ export interface components {
             labels?: {
                 [key: string]: string;
             };
+            /** @description The kernel */
             os?: string;
+            /** @description The distribution */
+            distro?: string;
+            /** @description The distribution's release */
+            os_version?: string;
             arch?: string;
+            /** @description How much machine this host is. An agent in a container sees its cgroup's share */
+            cpus?: number;
+            /** Format: int64 */
+            memory_mb?: number;
+            /**
+             * Format: int64
+             * @description The filesystem holding the agent's work directory
+             */
+            disk_total_mb?: number;
+            /**
+             * Format: int64
+             * @description What a runner may write to
+             */
+            disk_free_mb?: number;
+            /** @description What the operator holds back from placement for the machine's own sake. Set through PATCH /hosts; a heartbeat never writes it. */
+            reserve_cpus?: number;
+            /** Format: int64 */
+            reserve_memory_mb?: number;
+            /** Format: int64 */
+            reserve_disk_mb?: number;
+            /** @description The machine less its reserve: what the scheduler may place onto. The documented floors under the reserve -- 512 MB of memory and 2 GB of disk, with no CPU floor -- are applied here, so what is shown is what is used. */
+            allocatable_cpus?: number;
+            /** Format: int64 */
+            allocatable_memory_mb?: number;
+            /** Format: int64 */
+            allocatable_disk_mb?: number;
+            /** @description What the live runners already on this host have promised away, as of the last scheduling pass and from the snapshot that pass decided on. Disk is absent on purpose: free disk already contains what those runners have written, so charging their reservations too would count the same bytes twice. */
+            reserved_cpus?: number;
+            /** Format: int64 */
+            reserved_memory_mb?: number;
+            /** @description False until a pass has run, because zero would read as an idle machine rather than as a question nobody has answered yet. */
+            reserved_known?: boolean;
+            /** @description Whether this host has reported what machine it is at all. An agent too old to say is placed by slots alone, which is what keeps an upgrade from emptying a fleet. */
+            resources_known?: boolean;
+            platform?: components["schemas"]["Platform"];
+            /** @example Ubuntu 24.04, arm64 */
+            platform_label?: string;
+            /**
+             * @description The name this machine would be given today, for a host called something that says nothing.
+             * @example zoomies-16vcpu-32gb-ubuntu-2404-build01
+             */
+            canonical_name?: string;
             version?: string;
             cordoned?: boolean;
+            /** @description The agent protocol this host reported speaking. Absent from an agent old enough not to send one, which is not the same as incompatible -- it is the one case the controller cannot judge. */
+            protocol_version?: number;
+            /** @description Whether this host's agent speaks a protocol the controller does not. An incompatible host is excluded from placement exactly as a cordoned one is, and nothing else: its runners keep working and are drained as normal. Refusing its heartbeat instead would restart every agent in the fleet at once. */
+            incompatible?: boolean;
+            /** @description What to do about it */
+            incompatible_reason?: string;
+            /**
+             * @description How this host's release stands to the controller's, absent when they match. `differs` is the honest answer for a pair the controller cannot order -- a development build, a fork's tag -- because a wrong order would send an operator to upgrade the wrong side. Two builds of one tag are the same release and are not skew.
+             * @enum {string}
+             */
+            version_skew?: "behind" | "ahead" | "differs";
             healthy?: boolean;
             /** Format: date-time */
             last_heartbeat?: string;
@@ -1729,6 +2603,172 @@ export interface components {
             database_path?: string;
             event_subscribers?: number;
         };
+        AgentJoinRequest: {
+            protocol_version: number;
+            /** Format: password */
+            join_token: string;
+            name: string;
+            /** @description How the host reports itself. The controller never dials it. */
+            address?: string;
+            /** @description Concurrent runners the host accepts. 0 lets the join token or the CPU count decide. */
+            capacity: number;
+            os: string;
+            arch: string;
+            /** @description The agent's build version */
+            version: string;
+            labels?: {
+                [key: string]: string;
+            };
+            backends: components["schemas"]["BackendInfo"][];
+        };
+        AgentJoinResponse: {
+            host_id?: string;
+            /** @description Shown once. The controller keeps only its hash. */
+            agent_token?: string;
+            controller_version?: string;
+            heartbeat_interval?: components["schemas"]["Duration"];
+        };
+        AgentHeartbeatRequest: {
+            protocol_version?: number;
+            /** @description The agent's configured value */
+            capacity?: number;
+            version?: string;
+            backends?: components["schemas"]["BackendInfo"][];
+            runners?: components["schemas"]["RunnerReport"][];
+        };
+        AgentHeartbeatResponse: {
+            ok?: boolean;
+            /** @description Mirrors the host's cordon flag so the agent stops asking for work at once. */
+            cordoned?: boolean;
+            controller_version?: string;
+            /** @description Send a full runner report next time. Set after the controller restarts. */
+            resync_requested?: boolean;
+        };
+        RunnerReport: {
+            runner_id: string;
+            /** @description The state the agent asserts, or empty once the workload is up: whether GitHub has handed the runner a job is not the agent's call. */
+            state?: components["schemas"]["RunnerState"] | "";
+            /** @description The backend's own name for the workload */
+            handle?: string;
+            /** @enum {string} */
+            phase?: "starting" | "running" | "exited" | "failed" | "gone";
+            exit_code?: number;
+            message?: string;
+            stats?: components["schemas"]["WorkloadStats"];
+            /**
+             * Format: int64
+             * @description Filled in once the runner has registered.
+             */
+            github_runner_id?: number;
+            /** Format: date-time */
+            observed_at: string;
+        };
+        WorkloadStats: {
+            /** Format: double */
+            cpu_percent?: number;
+            /** Format: int64 */
+            memory_bytes?: number;
+            /** Format: int64 */
+            memory_limit?: number;
+        };
+        /** @enum {string} */
+        AgentTaskKind: "create_runner" | "stop_runner" | "remove_runner" | "stream_logs" | "cancel_logs" | "prewarm_image";
+        /** @description One unit of work for an agent. Tasks are idempotent; the controller may redeliver one after a restart. */
+        AgentTask: {
+            id: string;
+            kind: components["schemas"]["AgentTaskKind"];
+            runner_id?: string;
+            spec?: components["schemas"]["RunnerSpec"];
+            backend?: components["schemas"]["BackendKind"];
+            pool_id?: string;
+            image?: string;
+            pull_policy?: components["schemas"]["PullPolicy"];
+            /**
+             * Format: int64
+             * @description Nanoseconds. Bounds a graceful stop.
+             */
+            stop_timeout?: number;
+            /** @description The log relay a stream_logs or cancel_logs task concerns. */
+            stream_id?: string;
+            log_options?: components["schemas"]["LogOptions"];
+            /** Format: date-time */
+            issued_at: string;
+        };
+        /** @description Everything a backend needs to create one runner. The one place a JIT config crosses the wire, which is why the agent transport requires TLS off loopback. */
+        RunnerSpec: {
+            /** @description The runner name GitHub will know it by. It doubles as the container name. */
+            name?: string;
+            runner_id?: string;
+            pool_id?: string;
+            pool_name?: string;
+            image?: string;
+            pull_policy?: components["schemas"]["PullPolicy"];
+            /** @description The runner's registration credentials. Never logged, never shown. */
+            credentials?: {
+                /** Format: password */
+                jit_config?: string;
+                /** Format: password */
+                registration_token?: string;
+                /** @description The organisation or repository URL the runner registers against. */
+                url?: string;
+                runner_group?: string;
+                labels?: string[];
+            };
+            env?: {
+                [key: string]: string;
+            };
+            ephemeral?: boolean;
+            resources?: components["schemas"]["Resources"];
+            cache?: components["schemas"]["CacheConfig"];
+            repository?: string;
+            docker_mode?: components["schemas"]["DockerMode"];
+            run_as_root?: boolean;
+            network?: string;
+            work_dir?: string;
+            /** @description The actions/runner release the process backend downloads. */
+            runner_version?: string;
+        };
+        /** @description How a log relay reads the workload's output. The names are capitalised on the wire, as the Go type carries no JSON tags. */
+        LogOptions: {
+            Follow?: boolean;
+            /** @description Lines of backlog to send first. 0 means everything. */
+            Tail?: number;
+            /** Format: date-time */
+            Since?: string;
+            Timestamps?: boolean;
+        };
+        AgentTaskResult: {
+            task_id: string;
+            kind?: components["schemas"]["AgentTaskKind"];
+            runner_id?: string;
+            ok: boolean;
+            error?: string;
+            handle?: string;
+            /**
+             * Format: int64
+             * @description Nanoseconds. Absent when the backend cannot tell pulling from creation.
+             */
+            image_pull_duration?: number;
+            /**
+             * Format: int64
+             * @description Nanoseconds.
+             */
+            create_duration?: number;
+            /** Format: date-time */
+            container_started_at?: string;
+            digest?: string;
+            state?: components["schemas"]["RunnerState"];
+            /** Format: date-time */
+            completed_at: string;
+        };
+        AgentTaskBatch: {
+            tasks: components["schemas"]["AgentTask"][];
+            /**
+             * Format: int64
+             * @description Nanoseconds to wait before polling again
+             */
+            backoff?: number;
+        };
     };
     responses: {
         /** @description Not signed in, or the credential was rejected. */
@@ -1778,9 +2818,11 @@ export interface components {
                 };
             };
         };
-        /** @description Too many attempts. */
+        /** @description Too many attempts. Retry-After says how long to wait. */
         RateLimited: {
             headers: {
+                /** @description Seconds until the address is allowed another attempt. */
+                "Retry-After"?: number;
                 [name: string]: unknown;
             };
             content: {
@@ -1803,6 +2845,54 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getUsage: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+                group_by?: "installation" | "repository" | "workflow" | "pool";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Usage totals; monetary values are administrator-configured estimates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UsageResponse"];
+                };
+            };
+        };
+    };
+    exportUsageCSV: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+                group_by?: "installation" | "repository" | "workflow" | "pool";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CSV export */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+        };
+    };
     getMeta: {
         parameters: {
             query?: never;
@@ -1839,6 +2929,8 @@ export interface operations {
                     password: string;
                     /** Format: email */
                     email?: string;
+                    /** @description The setup token from the controller's log, on a line beginning "setup token". */
+                    setup_token: string;
                 };
             };
         };
@@ -1952,6 +3044,61 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             422: components["responses"]["Unprocessable"];
+        };
+    };
+    oidcStart: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redirected to the identity provider. */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Single sign-on is not enabled on this controller. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    oidcCallback: {
+        parameters: {
+            query?: {
+                code?: string;
+                state?: string;
+                error?: string;
+                error_description?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redirected into the app */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Single sign-on is not enabled on this controller. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     getStats: {
@@ -2461,9 +3608,38 @@ export interface operations {
             422: components["responses"]["Unprocessable"];
         };
     };
-    validatePool: {
+    listPoolPlatforms: {
         parameters: {
             query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The catalogue */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["PoolPlatform"][];
+                    };
+                };
+            };
+        };
+    };
+    validatePool: {
+        parameters: {
+            query?: {
+                /**
+                 * @description The pool this would be an edit to. Its own name is then not treated
+                 *     as a clash -- without this, editing anything about a pool is refused
+                 *     because a pool with that name already exists, namely itself.
+                 */
+                id?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2486,6 +3662,8 @@ export interface operations {
                         warnings?: components["schemas"]["Problem"][];
                         /** @description How many hosts could actually run this pool. Zero is worth saying out loud before the pool is created. */
                         matching_hosts?: number;
+                        /** @description The image the pool would actually run, which for a pool that gives its jobs a daemon is the stock image's Docker variant rather than the image the request named. */
+                        image?: string;
                     };
                 };
             };
@@ -2572,6 +3750,33 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    prewarmPool: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tasks queued; hosts contains per-host pending or prior state. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        queued?: number;
+                        hosts?: components["schemas"]["PoolPrewarm"][];
+                    };
+                };
+            };
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -2863,8 +4068,12 @@ export interface operations {
                 q?: string;
                 since?: string;
                 until?: string;
-                /** @description Only jobs no enabled pool claims. These will never run, and are almost always a typo in `runs-on`. */
+                /** @description Only jobs that are still queued and that no enabled pool claims. A job that already started or finished was run by something else, so it is not included however its labels read. */
                 unmatched?: boolean;
+                /** @description Only jobs this controller has a hand in: one an enabled pool claims, one that ran on a runner this fleet started, and queued jobs no pool claims -- which nothing ran, so they belong here too. Leave it off to see every job GitHub has reported, including those run on hosted runners this fleet does not own. */
+                managed?: boolean;
+                /** @description Only jobs that went wrong, on either side: a conclusion GitHub counts as a failure (failure, timed_out, startup_failure), or a runner of this fleet that stopped under the job -- including one GitHub still believes is running. */
+                failed?: boolean;
                 limit?: components["parameters"]["Limit"];
                 offset?: components["parameters"]["Offset"];
                 /** @description A column name. An unknown value falls back to the default rather than erroring, so a stale bookmark does not break the page. */
@@ -2909,6 +4118,56 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Job"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getJobEvents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items?: components["schemas"]["JobEvent"][];
+                    };
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getJobExplanation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobExplanation"];
                 };
             };
             404: components["responses"]["NotFound"];
@@ -3025,6 +4284,11 @@ export interface operations {
                     labels?: {
                         [key: string]: string;
                     };
+                    reserve_cpus?: number;
+                    /** Format: int64 */
+                    reserve_memory_mb?: number;
+                    /** Format: int64 */
+                    reserve_disk_mb?: number;
                 };
             };
         };
@@ -3107,11 +4371,24 @@ export interface operations {
                      * @example 1h
                      */
                     ttl?: string;
-                    /** @default 2 */
+                    /**
+                     * @description 0 lets the agent decide from the host's CPU count.
+                     * @default 2
+                     */
                     capacity?: number;
                     labels?: {
                         [key: string]: string;
                     };
+                    /**
+                     * Format: uri
+                     * @description The address the new host should join on, used in the
+                     *     returned command in place of `server.external_url`. The
+                     *     UI sends the address the browser reached this controller
+                     *     on, which is the one a machine beside it can usually reach
+                     *     too. Must be an absolute http or https URL.
+                     * @example https://zoomies.example.com
+                     */
+                    controller_url?: string;
                 };
             };
         };
@@ -3133,6 +4410,30 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    getJoinToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JoinToken"];
+                };
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     deleteJoinToken: {
@@ -3174,6 +4475,10 @@ export interface operations {
                     mapping?: {
                         [key: string]: string;
                     };
+                    /** @description Exceptions to `mapping`, each naming one job in one workflow file in one repository. Empty is the common case: most fleets want one answer per hosted-runner label everywhere. */
+                    overrides?: components["schemas"]["MigrationOverride"][];
+                    /** @description The page of repositories to read: the `next_cursor` a previous plan returned, which is the full name of the last repository it listed. Empty starts at the first page. Ignored when `repos` names repositories. */
+                    cursor?: string;
                 };
             };
         };
@@ -3203,8 +4508,14 @@ export interface operations {
                     installation_id: string;
                     /** @description The repositories to open pull requests on. Required; this endpoint never defaults to every repository an App can see. */
                     repos: string[];
-                    mapping: {
+                    mapping?: {
                         [key: string]: string;
+                    };
+                    /** @description Exceptions to `mapping`. A request with no mapped label is accepted when at least one override carries a `to`, because pointing three jobs at a pool by name is a migration too. */
+                    overrides?: components["schemas"]["MigrationOverride"][];
+                    /** @description Narrows a repository to these workflow files, keyed by repository, e.g. {"acme/widgets": [".github/workflows/ci.yml"]}. A repository left out of the map gets every file the mapping would change. A path that is not directly under .github/workflows is rejected. */
+                    workflows?: {
+                        [key: string]: string[];
                     };
                     /** @description Overrides the default pull request title. */
                     title?: string;
@@ -3533,6 +4844,66 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    getRecovery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Recovery"];
+                };
+            };
+        };
+    };
+    unfence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Recovery"];
+                };
+            };
+        };
+    };
+    getSupportBundle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportBundle"];
+                };
+            };
+        };
+    };
     getSettings: {
         parameters: {
             query?: never;
@@ -3578,6 +4949,167 @@ export interface operations {
                 };
             };
             422: components["responses"]["Unprocessable"];
+        };
+    };
+    agentJoin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentJoinRequest"];
+            };
+        };
+        responses: {
+            /** @description Enrolled */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentJoinResponse"];
+                };
+            };
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    agentHeartbeat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentHeartbeatRequest"];
+            };
+        };
+        responses: {
+            /** @description Recorded */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentHeartbeatResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description The host was deleted. No amount of retrying brings the row back; the agent re-joins. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    agentPollTasks: {
+        parameters: {
+            query?: {
+                /** @description Seconds to wait for work before answering with an empty batch. */
+                wait?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tasks queued for this host, possibly none. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentTaskBatch"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    agentReportResult: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentTaskResult"];
+            };
+        };
+        responses: {
+            /** @description Applied */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    agentReportRunners: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerReport"][];
+            };
+        };
+        responses: {
+            /** @description Applied */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    agentRelayLogs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The stream named by the stream_logs task. */
+                stream_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description The stream ended. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Nobody is watching this stream any more; the agent stops sending. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
 }
