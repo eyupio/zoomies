@@ -30,6 +30,11 @@ type record struct {
 	// the row can carry a recovery time rather than a total runtime.
 	recoveredAt time.Time
 	faultAt     time.Time
+	// found is what this drill turned up that a person has to decide about. A
+	// drill can pass and still have found something -- that is most of what
+	// they are for -- and until this existed the record could only say "none"
+	// or "something crashed, go and look".
+	found string
 }
 
 func newRecord(t *testing.T, name string) *record {
@@ -54,6 +59,10 @@ func (r *record) note(what, value string) {
 // rather than the start so that the sentence describes what actually held; a
 // drill that fails earlier writes its row without one.
 func (r *record) pass(expected string) { r.expected = expected }
+
+// finding records what this drill turned up for a person to act on, whatever
+// its outcome. It is the last column, and the one the record is read for.
+func (r *record) finding(what string) { r.found = what }
 
 // faultInjected and recovered bracket a fault drill's recovery time.
 func (r *record) faultInjected(what string) {
@@ -94,8 +103,11 @@ func (r *record) write() {
 	// A drill that failed has left this machine in whatever state it failed
 	// in, and saying so is the point of the column.
 	human := "none"
-	if r.t.Failed() {
+	switch {
+	case r.t.Failed():
 		human = "check for a leftover runner directory under the drill's work dir"
+	case r.found != "":
+		human = r.found
 	}
 	expected := r.expected
 	if expected == "" {

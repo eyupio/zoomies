@@ -20,8 +20,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -45,6 +47,10 @@ type fleet struct {
 
 	controller *process
 	agent      *process
+	// agentEnv is what the agent was started with, so a drill can kill it and
+	// start it again as the same host: its credentials are in the work
+	// directory, so a restart needs no second join token.
+	agentEnv []string
 
 	baseURL string
 	// port and stateDir are kept so a drill can stop the controller and start
@@ -208,9 +214,8 @@ func (f *fleet) startAgent() {
 		t.Fatalf("staging the stub runner: %v", err)
 	}
 
-	f.agent = f.spawn("agent", []string{"agent"}, append(baseEnv(dir),
+	f.agentEnv = append(baseEnv(dir),
 		"ZOOMIES_CONTROLLER_URL="+f.baseURL,
-		"ZOOMIES_JOIN_TOKEN="+token.Token,
 		"ZOOMIES_AGENT_BACKEND=process",
 		"ZOOMIES_AGENT_CAPACITY=2",
 		"ZOOMIES_WORK_DIR="+f.agentWork,
@@ -221,7 +226,12 @@ func (f *fleet) startAgent() {
 		// pins its version. Saying so means a drill that somehow reaches for
 		// the network fails here rather than hanging.
 		"ZOOMIES_AGENT_RUNNER_DOWNLOAD_URL=http://127.0.0.1:1/never",
-	))
+	)
+	// The join token is passed to the first start only. A restart that carried
+	// one would prove nothing about a restart: an agent has to come back as the
+	// host it already is, from the credentials it wrote.
+	f.agent = f.spawn("agent", []string{"agent"},
+		append(f.agentEnv, "ZOOMIES_JOIN_TOKEN="+token.Token))
 
 	waitFor(t, waitProcessUp, "the agent to join and appear as a host", func() bool {
 		var out struct {
@@ -232,6 +242,13 @@ func (f *fleet) startAgent() {
 		f.api.get("/hosts", &out)
 		return len(out.Items) > 0
 	})
+}
+
+// restartAgent starts the agent again as the host it already is, which is what
+// an operator's `systemctl restart zoomies-agent` does.
+func (f *fleet) restartAgent() {
+	f.t.Helper()
+	f.agent = f.spawn("agent", []string{"agent"}, f.agentEnv)
 }
 
 // spawn starts the built binary and keeps its output for the failure message.
@@ -429,6 +446,50 @@ func (f *fleet) liveWorkloads() []string {
 		}
 	}
 	return live
+}
+
+// workloadRunning reports whether the runner's process is actually alive,
+// which is a different question from whether its directory is still there.
+//
+// A fault drill has to ask the sharper one: the marker file the stub writes
+// outlives the process that wrote it, so a runner killed along with its agent
+// leaves a directory that looks exactly like a running one.
+func (f *fleet) workloadRunning(name string) bool {
+	f.t.Helper()
+	raw, err := os.ReadFile(filepath.Join(f.runnerDir(name), "runner.pid"))
+	if err != nil {
+		return false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil || pid <= 0 {
+		return false
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	// Signal 0 asks the kernel whether the process is there without touching
+	// it, which is the only way to tell a live runner from a dead one's
+	// leftovers.
+	return proc.Signal(syscall.Signal(0)) == nil
+}
+
+// requireStillRunning fails unless the runner's process is alive now and stays
+// alive for a moment.
+//
+// The moment is the point. A death that follows the agent's own -- a parent
+// death signal, a killed process group -- arrives a beat later, so an
+// assertion made the instant after the fault would be satisfied by a process
+// that is already doomed.
+func (f *fleet) requireStillRunning(name, why string) {
+	f.t.Helper()
+	deadline := time.Now().Add(waitStaysUp)
+	for time.Now().Before(deadline) {
+		if !f.workloadRunning(name) {
+			f.t.Fatalf("the runner process is gone: %s", why)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 // --------------------------------------------------------------------------
