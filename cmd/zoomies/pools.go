@@ -379,6 +379,11 @@ func poolsCreate(ctx context.Context, e *env, args []string) error {
 			} `json:"errors"`
 			Warnings      []problemItem `json:"warnings"`
 			MatchingHosts int           `json:"matching_hosts"`
+			SelectedHosts int           `json:"selected_hosts"`
+			ExcludedHosts []struct {
+				Host   string `json:"host"`
+				Reason string `json:"reason"`
+			} `json:"excluded_hosts"`
 		}
 		raw, err := client.post(ctx, "/pools/validate", nil, body, &verdict)
 		if err != nil {
@@ -393,7 +398,13 @@ func poolsCreate(ctx context.Context, e *env, args []string) error {
 			}
 			return fmt.Errorf("that pool would be refused")
 		}
-		p.note("Valid. %d host(s) could run it.", verdict.MatchingHosts)
+		p.note("Valid. %d of the %d host(s) its selector reaches could run it.",
+			verdict.MatchingHosts, verdict.SelectedHosts)
+		// The gap, host by host. A count alone sends an operator round the whole
+		// fleet looking for the machine that was turned down.
+		for _, ex := range verdict.ExcludedHosts {
+			p.note("  %s: %s", ex.Host, ex.Reason)
+		}
 		printProblems(p, verdict.Warnings, "It would have these dangerous settings:")
 		return nil
 	}

@@ -378,7 +378,9 @@ func TestPoolValidateRepeatsWhatTheHostSaidAboutItsBackend(t *testing.T) {
 	if warning == nil {
 		t.Fatalf("warnings = %+v, want one about no host matching", verdict.Warnings)
 	}
-	if !strings.Contains(warning.Detail, "vm-1 reports:") ||
+	// Named host, then the agent's own words: an operator can go and look at
+	// the machine the warning is about rather than at the whole fleet.
+	if !strings.Contains(warning.Detail, "vm-1") ||
 		!strings.Contains(warning.Detail, "not readable by this agent") {
 		t.Errorf("detail = %q, want the host's own explanation", warning.Detail)
 	}
@@ -1007,8 +1009,17 @@ func TestTheWizardDoesNotCountAHostTooSmallForThePool(t *testing.T) {
 	for _, w := range verdict.Warnings {
 		if w.Code == "pool.no_matching_hosts" {
 			found = true
-			if !strings.Contains(w.Detail, "too small") {
-				t.Errorf("the warning does not say the host is too small: %+v", w)
+			// Both numbers, because the pool's own "64 GB" against a host
+			// card reading "8 GB" is the comparison an operator cannot make
+			// for themselves once docker-in-docker or an unset field has
+			// changed what the runner is actually charged.
+			if !strings.Contains(w.Detail, "vm-1") ||
+				!strings.Contains(w.Detail, "charged 64 GB") ||
+				!strings.Contains(w.Detail, "7.5 GB of memory") {
+				t.Errorf("the warning does not say what the host has and what a runner costs: %+v", w)
+			}
+			if !strings.Contains(w.Fix, "lower this pool's") {
+				t.Errorf("fix = %q, want it to point at the pool's limits", w.Fix)
 			}
 		}
 	}
@@ -1024,5 +1035,95 @@ func TestTheWizardDoesNotCountAHostTooSmallForThePool(t *testing.T) {
 	ok.into(t, &verdict)
 	if verdict.MatchingHosts != 1 {
 		t.Errorf("matching_hosts = %d for a 2 GB pool on an 8 GB host, want 1", verdict.MatchingHosts)
+	}
+}
+
+// The bug this pair of numbers exists for: a fleet of two Linux amd64 hosts,
+// a pool whose selector reaches both, and a review step that says one. Nothing
+// on either screen explained the difference, and the host that disappeared was
+// the larger of the two -- a 12-CPU machine refusing an 8-CPU pool, because
+// docker-in-docker charges the sidecar as well and 16 does not fit in 12.
+func TestTheWizardSaysWhichHostItsSelectorReachedAndCouldNotUse(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	small := h.host("zoomies-12vcpu")
+	small.CPUs, small.MemoryMB = 12, 31*1024
+	small.DiskTotalMB, small.DiskFreeMB = 200_000, 100_000
+	if err := h.st.UpdateHost(h.ctx, small); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+	// The other host is an older agent that never measured itself, so it is
+	// placed by slots alone and this pool still fits on it.
+	h.host("ollama1")
+
+	body := poolBody(inst.ID)
+	body["host_selector"] = map[string]string{"os": "linux", "arch": "amd64"}
+	body["docker_mode"] = "dind"
+	body["resources"] = map[string]any{"cpus": 8}
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: cookie, body: body})
+	resp.mustStatus(t, http.StatusOK, "validate")
+	var verdict validatePoolResponse
+	resp.into(t, &verdict)
+
+	if verdict.SelectedHosts != 2 || verdict.MatchingHosts != 1 {
+		t.Fatalf("selected_hosts = %d, matching_hosts = %d; want the selector to reach two and one to run it",
+			verdict.SelectedHosts, verdict.MatchingHosts)
+	}
+	if len(verdict.ExcludedHosts) != 1 {
+		t.Fatalf("excluded_hosts = %+v, want the one host that could not take a runner", verdict.ExcludedHosts)
+	}
+	got := verdict.ExcludedHosts[0]
+	if got.Host != "zoomies-12vcpu" || got.Code != controller.ExcludedSize {
+		t.Errorf("excluded = %+v, want the 12-CPU host turned down on size", got)
+	}
+	if !strings.Contains(got.Reason, "12 CPU") || !strings.Contains(got.Reason, "charged 16") {
+		t.Errorf("reason = %q, want what the host has against what a runner costs", got.Reason)
+	}
+
+	// Halving the request is the fix the wizard is meant to make findable, and
+	// it puts the host back without anything else changing.
+	body["resources"] = map[string]any{"cpus": 4}
+	ok := h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: cookie, body: body})
+	ok.mustStatus(t, http.StatusOK, "validate")
+	ok.into(t, &verdict)
+	if verdict.MatchingHosts != 2 || len(verdict.ExcludedHosts) != 0 {
+		t.Errorf("matching_hosts = %d with %d excluded, want both hosts back",
+			verdict.MatchingHosts, len(verdict.ExcludedHosts))
+	}
+}
+
+// A cordoned host is reached by the selector and takes no work, and the two
+// facts are shown on different screens. The wizard has to say so itself, or
+// "1 of 2" reads as a fleet that is broken rather than one that is held back.
+func TestTheWizardExplainsAHostItsSelectorReachedThatIsCordoned(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	h.host("build01")
+	off := h.host("build02")
+	off.Cordoned = true
+	if err := h.st.UpdateHost(h.ctx, off); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: cookie, body: poolBody(inst.ID)})
+	resp.mustStatus(t, http.StatusOK, "validate")
+	var verdict validatePoolResponse
+	resp.into(t, &verdict)
+
+	if verdict.SelectedHosts != 2 || verdict.MatchingHosts != 1 {
+		t.Fatalf("selected_hosts = %d, matching_hosts = %d, want 2 and 1", verdict.SelectedHosts, verdict.MatchingHosts)
+	}
+	if len(verdict.ExcludedHosts) != 1 || verdict.ExcludedHosts[0].Code != controller.ExcludedUnavailable {
+		t.Fatalf("excluded_hosts = %+v, want the cordoned host named", verdict.ExcludedHosts)
+	}
+	if !strings.Contains(verdict.ExcludedHosts[0].Reason, "cordoned") {
+		t.Errorf("reason = %q, want it to say the host is cordoned", verdict.ExcludedHosts[0].Reason)
 	}
 }

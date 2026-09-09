@@ -6,18 +6,23 @@
 -->
 <script lang="ts">
   import { formatGoDuration, parseGoDuration } from '$lib/format';
+  import type { Result } from '$lib/api/types';
   import Checkbox from '$lib/components/Checkbox.svelte';
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
+  import PoolFit from './PoolFit.svelte';
   import type { PoolDraft } from './PoolWizardForm.svelte';
 
   interface Props {
     draft: PoolDraft;
     errors: Record<string, string>;
     touch: (field: string) => void;
+    /** What the fleet makes of these limits, asked as they are typed. */
+    verdict: Result<'validatePool'> | null;
+    validating: boolean;
   }
 
-  let { draft, errors, touch }: Props = $props();
+  let { draft, errors, touch, verdict, validating }: Props = $props();
 
   const timeout = $derived(parseGoDuration(draft.idle_timeout));
   const timeoutText = $derived(timeout === null ? '' : formatGoDuration(draft.idle_timeout));
@@ -164,6 +169,14 @@
       {/snippet}
     </Field>
   </div>
+  <!--
+    A limit is a promise about a machine, and it is the one setting in the
+    wizard that can quietly cost a host: a request the fleet cannot cover
+    excludes hosts that match everything else, and the pool still looks
+    healthy. The count belongs here, under the boxes, while it can still be
+    typed differently.
+  -->
+  <PoolFit {verdict} {validating} />
 </fieldset>
 
 <fieldset class="resources">

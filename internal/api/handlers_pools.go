@@ -546,6 +546,14 @@ type validatePoolResponse struct {
 	Errors        []fieldError         `json:"errors"`
 	Warnings      []controller.Problem `json:"warnings"`
 	MatchingHosts int                  `json:"matching_hosts"`
+	// SelectedHosts is how many hosts this pool's host selector reaches, and
+	// ExcludedHosts is every one of those the fleet could not run it on, with
+	// the reason. The wizard's placement step counts hosts by the selector
+	// alone -- it is asked before the backend and the size are known -- so
+	// without these two the review step's smaller number reads as the wizard
+	// contradicting itself two clicks later.
+	SelectedHosts int                        `json:"selected_hosts"`
+	ExcludedHosts []controller.HostExclusion `json:"excluded_hosts"`
 	// Image is the image the pool would actually run, which is not always the
 	// one the request named: a pool that gives its jobs a daemon runs the
 	// stock image's Docker variant, and the review step should show that
@@ -574,6 +582,10 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, "counting the hosts that could run this pool", err)
 		return
 	}
+	excluded := fit.Excluded
+	if excluded == nil {
+		excluded = []controller.HostExclusion{}
+	}
 	// The installation is part of what a warning is about; when it does not
 	// exist, validatePool has already said so in the errors.
 	var inst *store.Installation
@@ -582,23 +594,7 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 	}
 	warnings := controller.PoolWarnings(p, inst)
 	if fit.Count == 0 {
-		why := fmt.Sprintf("no healthy, uncordoned host offers the %s backend and matches this pool's host selector, "+
-			"so every runner it asks for would wait for a host that does not exist.", p.Backend)
-		fix := "add a host with that backend, uncordon one, or relax the host selector."
-		if platform := p.Platform.Describe(); fit.PlatformMismatch > 0 && platform != "" {
-			// A host that is simply not the machine this pool asked for cannot
-			// be fixed by making a backend usable on it, so naming the machine
-			// is the only instruction worth giving.
-			why = fmt.Sprintf("no healthy, uncordoned host is running %s with the %s backend, "+
-				"so every runner this pool asks for would wait for a host that does not exist.", platform, p.Backend)
-			fix = fmt.Sprintf("add a %s host, or change this pool's platform to one your fleet already has.", platform)
-		} else if detail := fit.Detail; detail != "" {
-			// A host is there and its agent already said what is wrong with it,
-			// which is a much shorter route to a working pool than adding a
-			// machine.
-			why += " " + detail
-			fix = fmt.Sprintf("make the %s backend usable on that host%s.", p.Backend, switchTo(fit.Alternatives))
-		}
+		why, fix := noHostWarning(p, fit)
 		warnings = append(warnings, controller.Problem{
 			Code:         "pool.no_matching_hosts",
 			Severity:     config.SeverityWarning,
@@ -619,8 +615,68 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 		Errors:        errs,
 		Warnings:      warnings,
 		MatchingHosts: fit.Count,
+		SelectedHosts: fit.Selected,
+		ExcludedHosts: excluded,
 		Image:         p.Image,
 	})
+}
+
+// noHostWarning says why nothing can run this pool and what to change, choosing
+// the sentence from the rule the hosts actually failed rather than assuming the
+// commonest one. An operator told to "make the docker backend usable" on a host
+// whose only problem is that it has four CPUs goes and looks at a daemon that
+// was working all along.
+func noHostWarning(p *store.Pool, fit controller.HostFit) (why, fix string) {
+	if fit.Selected == 0 {
+		return "no host matches this pool's host selector, so every runner it asks for would wait for a host that does not exist.",
+			"relax the host selector, or label a host to match it."
+	}
+	counts := map[string]int{}
+	for _, ex := range fit.Excluded {
+		counts[ex.Code]++
+	}
+	switch {
+	case counts[controller.ExcludedSize] > 0 && counts[controller.ExcludedSize] == len(fit.Excluded):
+		// The one refusal that is about a number an operator typed rather than
+		// about the fleet, so the numbers go in the sentence.
+		why = fmt.Sprintf("no host this pool's selector reaches is big enough for one of its runners, "+
+			"so every runner it asks for would wait for a machine that does not exist. %s", hostDetail(fit))
+		fix = "lower this pool's CPU, memory or disk request, turn off Docker in Docker if it is not needed, or add a host large enough to run one."
+	case counts[controller.ExcludedPlatform] > 0 && p.Platform.Describe() != "":
+		platform := p.Platform.Describe()
+		why = fmt.Sprintf("no healthy, uncordoned host is running %s with the %s backend, "+
+			"so every runner this pool asks for would wait for a host that does not exist.", platform, p.Backend)
+		fix = fmt.Sprintf("add a %s host, or change this pool's platform to one your fleet already has.", platform)
+	case counts[controller.ExcludedUnavailable] == len(fit.Excluded):
+		why = fmt.Sprintf("every host this pool's selector reaches is cordoned, not heartbeating, or running an agent this "+
+			"controller cannot talk to, so nothing would be placed there. %s", hostDetail(fit))
+		fix = "uncordon a host, check that its agent is running and can reach this controller, or add one that can take work."
+	default:
+		why = fmt.Sprintf("no healthy, uncordoned host offers the %s backend and matches this pool's host selector, "+
+			"so every runner it asks for would wait for a host that does not exist. %s", p.Backend, hostDetail(fit))
+		fix = fmt.Sprintf("make the %s backend usable on that host%s.", p.Backend, switchTo(fit.Alternatives))
+	}
+	return strings.TrimSpace(why), fix
+}
+
+// hostDetail names the hosts that were turned down and why, up to the point
+// where a paragraph stops being read. The names matter: an operator who can see
+// which machine was refused can check it, and a count alone sends them round
+// the whole fleet.
+func hostDetail(fit controller.HostFit) string {
+	const most = 3
+	parts := make([]string, 0, most)
+	for _, ex := range fit.Excluded {
+		if len(parts) == most {
+			parts = append(parts, fmt.Sprintf("and %d more", len(fit.Excluded)-most))
+			break
+		}
+		parts = append(parts, ex.Host+": "+ex.Reason)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, "; ") + "."
 }
 
 // switchTo names the backends a pool could move to instead, or says plainly
