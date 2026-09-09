@@ -7,6 +7,11 @@ import (
 	"testing"
 )
 
+// dockerBackend is named once: the drill asks the host about this backend, the
+// pool runs on it, and the problem has to name it, and those three have to be
+// the same string.
+const dockerBackend = "docker"
+
 // The fifth fault drill: a host whose Docker socket is not there.
 //
 // This is the fault an operator is most likely to cause by accident -- a
@@ -57,7 +62,7 @@ func TestAHostWithNoDockerSocketSaysWhichBackendIsUnusable(t *testing.T) {
 		detail    string
 	}
 	for _, b := range broken.BackendInfo {
-		if b.Kind == "docker" {
+		if b.Kind == dockerBackend {
 			docker.found, docker.available = true, b.Available
 			docker.endpoint, docker.detail = b.Endpoint, b.Detail
 		}
@@ -76,10 +81,19 @@ func TestAHostWithNoDockerSocketSaysWhichBackendIsUnusable(t *testing.T) {
 	}
 	rec.note("host says the backend is unusable", docker.detail)
 
+	// The pool below is kept to this host by that label, so the machine the
+	// drill runs on cannot answer for it. Checking the label arrived first is
+	// what stops a selector that matches nothing looking like a fleet that
+	// placed nothing.
+	key, value, _ := strings.Cut(brokenDockerLabel, "=")
+	if broken.Labels[key] != value {
+		t.Fatalf("the broken host is not labelled %s: %v", brokenDockerLabel, broken.Labels)
+	}
+
 	// A pool on that backend with work waiting is the case that must not be
 	// silent. It is an error rather than a warning because there is nothing
 	// here that time will fix.
-	poolID := f.createPoolOn("drilldocker", "docker", "drill-docker")
+	poolID := f.createPoolOn("drilldocker", dockerBackend, map[string]string{key: value}, "drill-docker")
 	f.gh.AddQueuedJob("acme/api", "CI", "build", []string{"self-hosted", "drill-docker"})
 
 	var problem problemView
@@ -97,6 +111,13 @@ func TestAHostWithNoDockerSocketSaysWhichBackendIsUnusable(t *testing.T) {
 	}
 	if problem.Detail == "" || problem.Fix == "" {
 		t.Errorf("the problem says what is wrong without saying what to do: %+v", problem)
+	}
+	// And it is blocked on the socket rather than on the selector that pinned
+	// it. A drill whose selector matched nothing would raise this same problem
+	// for the wrong reason and pass anyway, which is the failure mode of
+	// testing a fault by arranging a fleet.
+	if !strings.Contains(problem.Detail, "without the "+dockerBackend+" backend") {
+		t.Errorf("the problem does not name the backend the host could not offer: %q", problem.Detail)
 	}
 	rec.note("problem raised", problem.Title+" -- "+problem.Detail)
 
