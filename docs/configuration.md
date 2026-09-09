@@ -388,6 +388,12 @@ actually do:
 Pass `--deployment native|compose|docker` to skip the question. Compose is the
 default when a compose command is present, native otherwise.
 
+There is a fourth way in, for hosts you do not install on at all: a platform
+that builds with Nixpacks reads `nixpacks.toml` from the repository root and
+deploys the controller from the source. It has no Docker socket, so it runs no
+runners itself and agents join it from elsewhere -- [Deploying on a
+PaaS](paas.md) is the whole of it.
+
 The generated `.env` is complete: external URL, a freshly generated encryption
 key, bind address, TLS mode, trusted proxies, backend, capacity, work and
 database paths, log settings, the image tag, the published port, and the host's

@@ -170,6 +170,12 @@ image: ## Build the controller/agent image
 		--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --build-arg DATE=$(DATE) \
 		-t ghcr.io/eyupio/zoomies:$(VERSION) -t ghcr.io/eyupio/zoomies:latest .
 
+.PHONY: image-nixpacks
+image-nixpacks: ## Build the controller image from source with Nixpacks (needs the nixpacks CLI)
+	@command -v nixpacks >/dev/null 2>&1 || { \
+	  echo "nixpacks is not installed: https://nixpacks.com/docs/install"; exit 1; }
+	nixpacks build . --name ghcr.io/eyupio/zoomies:$(VERSION)-nixpacks
+
 # The runner image's variants. Each one is a base image, the package family
 # deploy/Dockerfile.runner installs with, and the platform it claims to be.
 #

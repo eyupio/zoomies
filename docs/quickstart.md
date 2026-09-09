@@ -44,6 +44,11 @@ once. `--yes` and `--non-interactive` skip the question.
 Everything it discovered is handed to `zoomies init`, so the interactive setup
 never asks a question the script already answered.
 
+Not installing on a host you own? A platform that builds with Nixpacks --
+Coolify, Dokploy, Railway, Zeabur -- can deploy the controller from the source
+instead, with agents joined from machines that have a container runtime. See
+[Deploying on a PaaS](paas.md).
+
 ## 2. Choose how it runs
 
 `zoomies init` offers only what your host can do:
@@ -264,6 +269,7 @@ in the queue is telling you.
 - [The UI](ui.md) — every page you now have, in both themes
 - [Hosts and pools](hosts-and-pools.md) — a second machine, a second pool, and how placement is decided
 - [Configuration](configuration.md) — every setting, including running behind Cloudflare
+- [Deploying on a PaaS](paas.md) — Coolify, Dokploy, Railway and anything else that builds with Nixpacks
 - [Troubleshooting](troubleshooting.md) — when a first run does not work, and when a job sits in the queue
 - [Security](security.md) — the threat model, and what each dangerous toggle costs
 - [Upgrading](upgrading.md) — what an upgrade does to work in flight, and why there is no way back

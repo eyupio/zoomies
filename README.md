@@ -201,6 +201,19 @@ client addresses rather than Cloudflare's. Firewall the origin to Cloudflare, or
 use a Tunnel and publish no port at all. See
 [docs/configuration.md](docs/configuration.md#behind-cloudflare-or-any-reverse-proxy).
 
+### On a PaaS, with Nixpacks
+
+There is a `nixpacks.toml` in the repository root, so a platform that builds
+with [Nixpacks](https://nixpacks.com) — Coolify, Dokploy, Railway, Zeabur,
+Easypanel — can deploy Zoomies from the source: point it at this repository,
+set `ZOOMIES_EXTERNAL_URL`, `ZOOMIES_ENCRYPTION_KEY` and
+`ZOOMIES_TRUSTED_PROXIES`, and mount a volume at `/data`.
+
+What you get is a **controller**, not a fleet. A PaaS gives a container no
+Docker socket, so the embedded agent is off and nothing on that host can start
+a runner: join agents from machines that do have a container runtime, exactly
+as below. See [docs/paas.md](docs/paas.md).
+
 ### Add another host
 
 **Hosts → Add a host** comes filled in from what the controller already knows
@@ -445,6 +458,7 @@ roadmap/            what supports it: the work-package record, decision records,
                     gate evidence, the model guidance and the source document
 install.sh          the one-line installer, served from the site root
 mkdocs.yml          how docs/ becomes zoomies.sh
+nixpacks.toml       how a Nixpacks-based PaaS builds and runs the controller
 ```
 
 ## The website

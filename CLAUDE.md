@@ -262,4 +262,5 @@ ROADMAP.md          the follow-on roadmap, and the decisions it asks the owner t
 roadmap/            what supports it: the work-package record, decision records,
                     gate evidence, the model guidance and the source document
 install.sh          the one-line installer, served from the site root
+nixpacks.toml       the build a Nixpacks-based PaaS runs; see docs/paas.md
 ```

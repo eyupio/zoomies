@@ -148,6 +148,7 @@ nav:
       - Configuration: configuration.md
       - Hosts and pools: hosts-and-pools.md
       - Migrating repositories: migration.md
+      - Deploying on a PaaS: paas.md
       - Security: security.md
       - Troubleshooting: troubleshooting.md
       - Upgrading: upgrading.md
