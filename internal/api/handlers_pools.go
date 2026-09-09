@@ -38,6 +38,33 @@ func poolFor(r *http.Request, v controller.PoolView) controller.PoolView {
 	return v.WithoutEnvValues()
 }
 
+// poolForAudit returns the pool as an audit row should record it: every env key
+// kept, every env value gone.
+//
+// auth.Redact cannot do this on its own. It matches names, so it blanks
+// GITHUB_TOKEN and leaves DEPLOY_KEY, NEXUS_PW and REGISTRY_AUTH untouched --
+// an operator names their own variables, and a name is not a reliable signal of
+// what stands behind it. So the values come out here, before the row is
+// written, rather than being trusted to a word list.
+//
+// Unlike poolFor this is not role-based, and that is the point. A response is
+// rendered for one caller and gone; an audit row is kept for the life of the
+// database, is never pruned, and is readable at viewer -- so a secret written
+// into one is readable by every viewer from then on, and no later fix can
+// retract it. The keys stay, because which variable changed is what the row is
+// read for.
+func poolForAudit(p *store.Pool) *store.Pool {
+	if p == nil || len(p.Env) == 0 {
+		return p
+	}
+	blanked := *p
+	blanked.Env = make(store.StringMap, len(p.Env))
+	for k := range p.Env {
+		blanked.Env[k] = ""
+	}
+	return &blanked
+}
+
 // handleListPools answers GET /api/v1/pools.
 func (s *Server) handleListPools(w http.ResponseWriter, r *http.Request) {
 	pools, err := s.ctrl.Store().ListPools(r.Context())
@@ -538,7 +565,7 @@ func (s *Server) handleCreatePool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.auth.Auditor().Created(r.Context(), Identity(r.Context()), "pool", p.ID, p)
+	s.auth.Auditor().Created(r.Context(), Identity(r.Context()), "pool", p.ID, poolForAudit(p))
 	s.ctrl.PublishPool(r.Context(), events.KindPoolCreated, p)
 	// A new pool with a minimum above zero has runners to create; a new pool
 	// with none may still claim jobs that are queued right now.
@@ -736,7 +763,7 @@ func (s *Server) handleUpdatePool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.auth.Auditor().Updated(r.Context(), Identity(r.Context()), "pool", id, &before, &updated)
+	s.auth.Auditor().Updated(r.Context(), Identity(r.Context()), "pool", id, poolForAudit(&before), poolForAudit(&updated))
 	s.ctrl.PublishPool(r.Context(), events.KindPoolUpdated, &updated)
 	// The pool's shape decides how many runners should exist, so the scheduler
 	// should look again rather than wait out its interval.
@@ -872,7 +899,7 @@ func (s *Server) handleDeletePool(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, "deleting the pool", err)
 		return
 	}
-	s.auth.Auditor().Deleted(r.Context(), Identity(r.Context()), "pool", id, p)
+	s.auth.Auditor().Deleted(r.Context(), Identity(r.Context()), "pool", id, poolForAudit(p))
 	s.ctrl.Nudge()
 	writeJSON(w, http.StatusOK, deletePoolResponse{RunnersAffected: affected})
 }
