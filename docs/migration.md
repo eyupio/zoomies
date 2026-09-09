@@ -66,6 +66,19 @@ by default**, with a count of how many, and the switch above the list shows them
 again: "acme/docs has no workflows" is an answer worth being able to check, but
 it is not what this step is for.
 
+Shown or hidden, each says in its own words why it is not on offer. Two are
+worth knowing about before you go looking for a repository you expected:
+
+| The row says | What it means |
+| --- | --- |
+| Archived — accepts no pull requests | GitHub has archived the repository, which makes it read-only. Nothing can be committed or opened against it until somebody unarchives it, so its workflows are not even read. |
+| Already on Zoomies | Its jobs already run on one of this fleet's pools, and none is left on a rented label. There is nothing to move. |
+
+That second one means *this* fleet, not self-hosted runners in general — a
+repository on runners of your own is a different answer, and the section below
+is about it. A repository only *partly* migrated is still on offer, and says how
+many jobs would move and that the rest are already here.
+
 The ones that can move often have several workflow files, and a release or a
 nightly is exactly the one to leave where it is. A repository with more than one
 such file can be opened up and **picked through file by file**; the review step

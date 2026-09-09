@@ -56,6 +56,16 @@ var demoRepos = []string{"acme/widgets", "acme/api", "acme/site"}
 // move -- and has to be able to hide it again.
 var demoQuietRepos = []string{"acme/docs"}
 
+// demoArchivedRepos are archived on GitHub, so no pull request can be opened
+// against them however much their workflows would change. They are here
+// because that is the one row the wizard used to tick and then refuse at the
+// end, and a demo should show it being refused up front.
+var demoArchivedRepos = []string{"acme/legacy-api"}
+
+// demoMigratedRepos already run on this fleet. They have nothing to move for
+// the opposite reason demoQuietRepos do, and the wizard has to say which.
+var demoMigratedRepos = []string{"acme/infra"}
+
 var demoPoolNames = []string{
 	"zoomies-demo-linux-x64", "zoomies-demo-linux-arm64",
 	"demo-linux-x64", "demo-linux-arm64",

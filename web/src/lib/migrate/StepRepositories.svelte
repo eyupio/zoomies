@@ -2,12 +2,12 @@
   Step two: which repositories, and which of their workflow files.
 
   Every repository the installation can see is listed, including the ones with
-  nothing to migrate. That is deliberate: "acme/docs has no workflows" and
-  "acme/infra is already on self-hosted runners" are both answers an operator
-  wants, and a list that silently omitted them would look like the scan had
-  missed something. They are hidden by default all the same, with a count and a
-  switch: in an organisation they are most of the list, and this step is for
-  the ones that can move.
+  nothing to migrate. That is deliberate: "acme/docs has no workflows",
+  "acme/infra is already on Zoomies" and "acme/legacy is archived" are all
+  answers an operator wants, and a list that silently omitted them would look
+  like the scan had missed something. They are hidden by default all the same,
+  with a count and a switch: in an organisation they are most of the list, and
+  this step is for the ones that can move.
 
   The repositories that can move often have several workflow files, of which a
   release or a nightly is exactly the one to leave where it is, so a repository
@@ -36,6 +36,7 @@
   import Checkbox from '$lib/components/Checkbox.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import Switch from '$lib/components/Switch.svelte';
+  import { filesIn, isMigratable, jobsIn, noteFor, skipsIn } from './eligibility';
   import {
     AlertTriangle,
     ChevronDown,
@@ -86,26 +87,11 @@
 
   function rowOf(repo: MigrationRepo): Row {
     const workflows = repo.workflows ?? [];
-    const jobs = workflows.reduce((n, w) => n + (w.rewrites ?? []).length, 0);
-    const changed = workflows.filter((w) => (w.rewrites ?? []).length > 0).length;
-    const skipped = workflows.reduce((n, w) => n + (w.skips ?? []).length, 0);
-    const labels = repo.hosted_labels ?? [];
 
-    // What this repository would get out of the migration, in one line. The
-    // order matters: an unreadable repository explains itself first, then what
-    // would change, then what was found but not yet mapped -- and "no
-    // workflows" is a different answer from "workflows, but nothing to move".
-    const note = repo.error
-      ? repo.error
-      : jobs > 0
-        ? `${jobs} ${jobs === 1 ? 'job' : 'jobs'} in ${changed} ${changed === 1 ? 'file' : 'files'}`
-        : labels.length > 0
-          ? `Runs on ${labels.join(', ')}; choose what those become on the next step`
-          : workflows.length === 0
-            ? 'No workflows'
-            : skipped > 0
-              ? `Nothing to move; ${skipped} left alone`
-              : 'Nothing to move';
+    // What this repository would get out of the migration, or why it is not on
+    // offer. The wizard reads the same two functions, so a row that is greyed
+    // out here cannot end up in the call that opens the pull requests.
+    const note = noteFor(repo);
 
     // On the labels a file asks for, not on what the provisional mapping
     // already rewrites: the mapping is made on the next step, so a file with
@@ -120,12 +106,12 @@
 
     return {
       repo: repo.repo ?? '',
-      jobs,
-      workflows: changed,
-      skipped,
+      jobs: jobsIn(repo),
+      workflows: filesIn(repo),
+      skipped: skipsIn(repo),
       note,
       files,
-      migratable: !repo.error && labels.length > 0,
+      migratable: isMigratable(repo),
       unreadable: Boolean(repo.error),
     };
   }

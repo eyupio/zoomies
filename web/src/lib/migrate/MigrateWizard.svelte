@@ -36,6 +36,7 @@
   import Skeleton from '$lib/components/Skeleton.svelte';
   import Wizard from '$lib/components/Wizard.svelte';
   import type { WizardStep } from '$lib/components/Wizard.svelte';
+  import { isMigratable } from './eligibility';
   import StepTarget from './StepTarget.svelte';
   import StepRepositories from './StepRepositories.svelte';
   import StepMapping from './StepMapping.svelte';
@@ -155,7 +156,10 @@
     const out: MigrationRepo[] = [];
     for (const repo of plan?.repositories ?? []) {
       const paths = selection[repo.repo ?? ''] ?? [];
-      if (paths.length === 0) continue;
+      // A re-scan can find that a repository was archived, or migrated by
+      // somebody else, since its files were ticked. Dropping it here keeps the
+      // review, the counts and the pull requests on one decision.
+      if (paths.length === 0 || !isMigratable(repo)) continue;
       out.push({
         ...repo,
         workflows: (repo.workflows ?? []).filter((w) => paths.includes(w.path ?? '')),
@@ -309,7 +313,10 @@
     const next = { ...selection };
     for (const repo of repos) {
       const name = repo.repo ?? '';
-      if (!name || name in next || repo.error) continue;
+      // isMigratable, not just repo.error: an archived repository is read-only
+      // on GitHub, so ticking its files would walk the operator all the way to
+      // a pull request nothing could open.
+      if (!name || name in next || !isMigratable(repo)) continue;
       const paths = (repo.workflows ?? [])
         .filter((w) => (w.hosted_labels ?? []).length > 0)
         .map((w) => w.path ?? '')

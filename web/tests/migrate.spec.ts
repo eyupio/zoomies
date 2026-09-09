@@ -66,6 +66,41 @@ test('a repository with nothing to move is hidden, and can be shown', async ({ p
   await expect(page.getByText('No workflows')).toBeVisible();
 });
 
+test('a repository nothing could be opened against cannot be chosen', async ({ page }) => {
+  await walkTo(page, 1);
+
+  // Both are hidden with everything else that cannot move.
+  const archived = page.getByRole('checkbox', { name: FIXTURE.archivedRepo, exact: false });
+  const migrated = page.getByRole('checkbox', { name: FIXTURE.migratedRepo, exact: false });
+  await expect(archived).toBeHidden();
+  await expect(migrated).toBeHidden();
+
+  await page.getByRole('switch', { name: 'Only repositories with something to move' }).click();
+
+  // Archived is the one that used to be ticked and walked all the way to the
+  // results before saying no: GitHub refuses every write to it.
+  await expect(archived).toBeDisabled();
+  await expect(archived).not.toBeChecked();
+  await expect(page.getByText('Archived — accepts no pull requests')).toBeVisible();
+
+  // Already migrated is a different answer from "nothing to move", and the
+  // list says which it is rather than leaving an operator to guess. Anchored,
+  // because the row above the list says the same words.
+  await expect(migrated).toBeDisabled();
+  await expect(migrated).not.toBeChecked();
+  await expect(page.getByText(/^Already on Zoomies/)).toBeVisible();
+
+  // Ticking everything still leaves them alone. The wizard builds the
+  // pull-request call from the same rule the list disables rows with, so
+  // neither of them can reach it.
+  const all = page.getByRole('checkbox', { name: 'Select every file that could move' });
+  await all.click(); // clears the default selection
+  await all.click(); // and selects everything on offer
+  await expect(page.getByRole('checkbox', { name: FIXTURE.repos[0], exact: false })).toBeChecked();
+  await expect(archived).not.toBeChecked();
+  await expect(migrated).not.toBeChecked();
+});
+
 test('a repository with several workflows is chosen file by file', async ({ page }) => {
   await walkTo(page, 1);
 

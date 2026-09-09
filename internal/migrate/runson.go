@@ -501,13 +501,48 @@ func splitItemComment(item string) (string, string) {
 func HostedLabelsIn(content string) []string {
 	var out []string
 	seen := map[string]bool{}
-	add := func(raw string) {
-		l := strings.ToLower(strings.Trim(strings.TrimSpace(raw), `"'`))
-		if l == "" || seen[l] || !IsManagedLabel(l) {
+	eachRunsOnLabel(content, func(l string) {
+		if seen[l] || !IsManagedLabel(l) {
 			return
 		}
 		seen[l] = true
 		out = append(out, l)
+	})
+	return out
+}
+
+// UsesAnyLabel reports whether any runs-on in content names one of labels,
+// which are expected already lowercased.
+//
+// It is how the wizard tells a repository somebody has already migrated from
+// one nobody has touched: both have nothing to rewrite, and they mean opposite
+// things.
+func UsesAnyLabel(content string, labels map[string]bool) bool {
+	if len(labels) == 0 {
+		return false
+	}
+	found := false
+	eachRunsOnLabel(content, func(l string) {
+		if labels[l] {
+			found = true
+		}
+	})
+	return found
+}
+
+// eachRunsOnLabel calls fn with every label named by a runs-on in content,
+// lowercased and unquoted, in the order it appears.
+//
+// All three runs-on forms are read -- a bare value, a flow sequence, and a
+// block sequence -- because a scan that understood only the first would report
+// a repository pinned to `- self-hosted` as if nobody had touched it.
+func eachRunsOnLabel(content string, fn func(label string)) {
+	add := func(raw string) {
+		l := strings.ToLower(strings.Trim(strings.TrimSpace(raw), `"'`))
+		if l == "" {
+			return
+		}
+		fn(l)
 	}
 
 	lines := splitLines(content)
@@ -545,7 +580,6 @@ func HostedLabelsIn(content string) []string {
 		}
 		add(value)
 	}
-	return out
 }
 
 // ---------------------------------------------------------------------------

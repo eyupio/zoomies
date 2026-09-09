@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -100,23 +101,26 @@ func (d *demoClient) WebURL() string { return "https://github.com/" + d.target }
 
 func (d *demoClient) ListRepositories(context.Context, int) ([]github.Repository, error) {
 	names := append(append([]string{}, demoRepos...), demoQuietRepos...)
+	names = append(append(names, demoMigratedRepos...), demoArchivedRepos...)
 	out := make([]github.Repository, 0, len(names))
 	for _, name := range names {
 		out = append(out, github.Repository{
 			FullName:      name,
 			DefaultBranch: "main",
 			Private:       true,
+			Archived:      slices.Contains(demoArchivedRepos, name),
 			HTMLURL:       "https://github.com/" + name,
 		})
 	}
 	return out, nil
 }
 
-// ListWorkflows gives the fixture the three answers a real organisation gives:
-// a repository with one workflow, a repository with several -- so the wizard's
-// per-file choice has something to choose between -- and a repository with no
+// ListWorkflows gives the fixture the answers a real organisation gives: a
+// repository with one workflow, a repository with several -- so the wizard's
+// per-file choice has something to choose between -- a repository with no
 // workflows at all, which is what the "hide repositories with nothing to move"
-// filter exists for.
+// filter exists for, and one that has already been migrated, which has nothing
+// to move for the opposite reason.
 func (d *demoClient) ListWorkflows(_ context.Context, repo string) ([]github.WorkflowFile, error) {
 	for _, quiet := range demoQuietRepos {
 		if repo == quiet {
@@ -124,6 +128,13 @@ func (d *demoClient) ListWorkflows(_ context.Context, repo string) ([]github.Wor
 		}
 	}
 	sha := "demo" + strings.ReplaceAll(repo, "/", "")
+	if slices.Contains(demoMigratedRepos, repo) {
+		return []github.WorkflowFile{{
+			Path:    ".github/workflows/ci.yml",
+			SHA:     sha,
+			Content: demoMigratedWorkflow,
+		}}, nil
+	}
 	out := []github.WorkflowFile{{
 		Path:    ".github/workflows/ci.yml",
 		SHA:     sha,
@@ -142,6 +153,21 @@ func (d *demoClient) ListWorkflows(_ context.Context, repo string) ([]github.Wor
 func (d *demoClient) OpenPullRequest(context.Context, github.PullRequestRequest) (*github.PullRequest, error) {
 	return nil, fmt.Errorf("%w, so it cannot open a pull request; connect a real installation to migrate a repository", ErrDemoFixture)
 }
+
+// demoMigratedWorkflow is a repository somebody has already moved. It reads as
+// "nothing to do" in exactly the same way as a repository nobody has touched,
+// which is why the wizard has to tell the two apart by name.
+const demoMigratedWorkflow = `name: CI
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: zoomies-demo-linux-x64
+    steps:
+      - uses: actions/checkout@v4
+      - run: make build
+`
 
 // demoReleaseWorkflow is the fixture's second workflow file in one repository:
 // a release is exactly the workflow an operator might want to leave on GitHub's

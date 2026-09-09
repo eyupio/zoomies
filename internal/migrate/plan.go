@@ -58,10 +58,27 @@ type RepoPlan struct {
 	// the plan is still returned: one unreadable repository must not cost the
 	// operator the whole scan.
 	Error string `json:"error,omitempty"`
+	// Archived says GitHub has archived this repository, which makes it
+	// read-only and means no pull request can be opened against it. It is
+	// carried through the plan so the wizard can say so on the step where the
+	// operator chooses, rather than in the results after the attempt failed.
+	Archived bool `json:"archived"`
+	// OnZoomies says at least one job here already runs on this fleet. A
+	// repository that is entirely on Zoomies has nothing left to migrate, and
+	// saying which of the two reasons it has nothing to do -- migrated, or
+	// never touched -- is the difference between finished work and work
+	// nobody has started.
+	OnZoomies bool `json:"on_zoomies"`
 }
 
 // Changed reports whether this repository would get a pull request.
+//
+// An archived repository never would, however many rewritable jobs it has:
+// GitHub refuses every write to it until somebody unarchives it.
 func (p RepoPlan) Changed() bool {
+	if p.Archived {
+		return false
+	}
 	for _, w := range p.Workflows {
 		if w.Changed() {
 			return true
@@ -146,6 +163,30 @@ func IsWorkflowPath(p string) bool {
 // ---------------------------------------------------------------------------
 // Suggesting a mapping
 // ---------------------------------------------------------------------------
+
+// FleetLabels are the labels that, written in a runs-on, send a job to this
+// fleet: the brand every pool answers to, and the label that identifies each
+// pool of its own.
+//
+// The implicit labels are deliberately left out. "self-hosted", "linux" and
+// "x64" are advertised by every self-hosted runner anybody has ever
+// registered, so treating them as evidence would report a repository on
+// somebody else's runners as already migrated and quietly refuse to move it.
+func FleetLabels(pools []*store.Pool) map[string]bool {
+	out := map[string]bool{store.BrandLabel: true}
+	for _, p := range pools {
+		if p == nil || !p.Enabled {
+			continue
+		}
+		for _, l := range store.NormalizeLabels(p.Labels) {
+			if store.ImplicitLabels[l] {
+				continue
+			}
+			out[l] = true
+		}
+	}
+	return out
+}
 
 // Suggest proposes, for each hosted label, the `runs-on` value that should
 // replace it.

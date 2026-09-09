@@ -87,6 +87,10 @@ export const FIXTURE = {
   repos: ['acme/api', 'acme/site', 'acme/widgets'],
   /** Has no workflows, so the migration wizard hides it by default. */
   quietRepo: 'acme/docs',
+  /** Archived on GitHub, so no pull request could ever be opened against it. */
+  archivedRepo: 'acme/legacy-api',
+  /** Already runs on this fleet, so there is nothing left to move. */
+  migratedRepo: 'acme/infra',
   /** Has two workflow files, so the wizard can be made to choose between them. */
   multiWorkflowRepo: 'acme/widgets',
   /** Every job the seed writes; nothing adds more, since no webhook arrives. */

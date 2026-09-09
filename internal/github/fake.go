@@ -501,7 +501,7 @@ func (f *FakeGitHub) listInstallationRepos(w http.ResponseWriter, _ *http.Reques
 			// a migration fails silently on a repository still using "master".
 			"default_branch": f.repoLocked(full).defaultBranch,
 			"private":        true,
-			"archived":       false,
+			"archived":       f.repoLocked(full).archived,
 			"html_url":       "https://github.com/" + full,
 			"pushed_at":      f.repoLocked(full).pushedAt.UTC().Format(time.RFC3339),
 		})
