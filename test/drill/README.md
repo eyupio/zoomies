@@ -100,7 +100,7 @@ correct behaviour — or, worse, pass or fail on which happened first.
 
 ## The fault drills
 
-Four of the six the roadmap names are here. Both inject their fault while a job
+Five of the six the roadmap names are here. Both inject their fault while a job
 is actually running, because that is the only moment at which any of this is
 interesting: a fleet with nothing in flight recovers from anything.
 
@@ -150,6 +150,19 @@ at zero. The fix is in `classify`, and only when the refusal's own headers say
 the quota is actually gone: a 403 for a missing permission comes back with
 quota to spare, and standing an installation down for fifteen minutes over that
 would be a wait that fixes nothing.
+
+`TestAHostWithNoDockerSocketSaysWhichBackendIsUnusable` joins a second agent
+whose Docker socket is not there -- a second machine rather than a
+reconfigured first one, because that is the shape of the fault in a real fleet:
+one host's daemon is down and the others are fine. The agent joins (one that
+refused to start would take away the fleet's only way of telling anybody), the
+host names the backend it cannot use and the socket it looked for, and the pool
+with work waiting raises `pool.no_capacity` at error severity with a fix. It
+deliberately stops there: starting a daemon needs a daemon, and a tier that
+needed one could not run on every pull request. A socket that is not there is
+what a stopped daemon looks like from the outside, and that half is honest
+here; the recovery half belongs on the reference host the roadmap asks the
+owner for.
 
 The restart drills watch the runner for a few seconds after the fault rather
 than checking it once. A death that follows its parent's arrives a beat later, and the stub's
