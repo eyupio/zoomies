@@ -21,9 +21,15 @@ import (
 // reads a fence at startup and refuses readiness, and the thing being proved
 // is that the file travelled. None of that exists inside the test process.
 //
-// The GitHub half of the acceptance -- sign in, re-join an agent, run a job
-// after lifting the fence -- is an owner action against a real organisation
-// and is recorded in roadmap/validation/ instead.
+// It now runs a job on the restored fleet too, which is the half Gate F's
+// sixth bullet asks for and the half that is easy to skip: a controller that
+// answers readiness has proved that it starts, not that it works. The agent is
+// never told any of this happened -- it is still polling the address it joined
+// -- so a restore that lost the host row or its credentials would leave a
+// fleet that looks healthy and can place nothing.
+//
+// What remains an owner action against a real organisation is the same journey
+// against real GitHub, and that is recorded in roadmap/validation/ instead.
 func TestABackupCanBeRestoredIntoACleanDirectoryAndComesBackFenced(t *testing.T) {
 	f := newFleet(t)
 	rec := newRecord(t, "restore")
@@ -124,10 +130,40 @@ func TestABackupCanBeRestoredIntoACleanDirectoryAndComesBackFenced(t *testing.T)
 		r.Body.Close()
 		return r.StatusCode == http.StatusOK
 	})
-	rec.recovered()
 	rec.note("lifted the fence", "the fleet is ready again")
+
+	// And it works: a queued job becomes a runner on the host that was already
+	// there. Nothing re-joined the agent -- the restored database carries the
+	// host it had when the backup was taken, and the agent is still polling
+	// the address it has always polled.
+	job := f.gh.AddQueuedJob("acme/api", "CI", "build", []string{"self-hosted", label})
+	var runner runnerView
+	waitFor(t, waitRunnerCreated, "the restored fleet to create a runner", func() bool {
+		for _, r := range f.runners(poolID) {
+			runner = r
+			return true
+		}
+		return false
+	})
+	waitFor(t, waitWorkloadUp, "a workload to appear on the host", func() bool {
+		return len(f.liveWorkloads()) == 1
+	})
+	rec.note("job placed after the restore", runner.Name)
+
+	f.gh.StartJob(job.ID, runner.Name)
+	f.deliverJob("in_progress", job, runner.Name, "")
+	f.gh.CompleteJob(job.ID, "success")
+	f.deliverJob("completed", job, runner.Name, "success")
+	if err := finishJob(f.runnerDir(runner.Name)); err != nil {
+		t.Fatalf("telling the stub runner its job is over: %v", err)
+	}
+	waitFor(t, waitRunnerGone, "the workload to be gone from the host", func() bool {
+		return len(f.liveWorkloads()) == 0
+	})
+	rec.recovered()
+	rec.note("host workloads after the restored fleet finished the job", "0")
 	rec.pass("a backup taken from a running fleet restores into an empty state directory, " +
-		"comes back fenced, and serves again once the fence is lifted")
+		"comes back fenced, serves again once the fence is lifted, and runs a job on the host it had before")
 }
 
 // carryKey copies the instance encryption key from one state directory to

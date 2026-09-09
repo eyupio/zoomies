@@ -19,6 +19,11 @@
 #     machine would look healthy and have lost every pool binding on it
 #   * the schema moved, and a copy of the database from before it moved is on
 #     disk, which is the promise docs/upgrading.md makes about migrations
+#   * and that copy is worth having: the old binary starts again on it, with
+#     the host it had, which is the only thing "rollback" can mean here.
+#     Migrations are one way, so going back is restoring the database from
+#     before they ran -- and an operator only finds out whether that works on
+#     the day they need it to.
 #
 # It needs no GitHub credentials and no Docker: the controller runs with its
 # embedded agent, which is what a single-VM install is.
@@ -145,4 +150,41 @@ if [ "$new_schema" != "$old_schema" ]; then
     echo "   ok the database was copied before the schema moved"
 fi
 
-echo "PASS: $old_version upgraded to $new_version in place, keeping its configuration, its database and its host"
+echo "-> rolling back to the copy taken before the schema moved"
+if [ "$new_schema" = "$old_schema" ]; then
+    echo "   skipped: the schema did not move, so there is nothing to roll back to"
+else
+    stop
+    pre=$(find "$state/pre-migration" -name zoomies.db 2>/dev/null | head -1)
+    [ -n "$pre" ] || fail "no pre-migration copy to roll back to"
+    # The write-ahead log belongs to the file being replaced. Leaving it would
+    # let the migrated schema's last writes back into a database that has not
+    # been migrated, which is the one way to make a rollback worse than no
+    # rollback at all.
+    rm -f "$state/zoomies.db" "$state/zoomies.db-wal" "$state/zoomies.db-shm"
+    cp "$pre" "$state/zoomies.db"
+    start "$old" "rolled back"
+    rolled_version=$(field /readyz version)
+    rolled_host=$(field /api/v1/hosts id)
+    rolled_schema=$(field /readyz latest)
+
+    [ "$rolled_version" = "$old_version" ] ||
+        fail "the rollback is running $rolled_version, not the $old_version it was rolled back to"
+
+    # The schema is what says a rollback happened at all, and this check was
+    # written the weaker way first: it asserted that the old binary came up, and
+    # it passed with the copy never restored. The published release predates the
+    # ledger check that refuses a database written by a newer build, so it
+    # starts quite happily on the migrated one -- which is exactly the silent
+    # start docs/upgrading.md warns about, and exactly what an operator under
+    # pressure would read as a successful rollback.
+    [ "$rolled_schema" = "$old_schema" ] ||
+        fail "the rollback is on schema $rolled_schema, not the $old_schema it was rolled back to: the pre-upgrade database is not the one that came back"
+
+    [ "$rolled_host" = "$old_host" ] ||
+        fail "the rollback came up with host $rolled_host, not the $old_host it had before the upgrade: the database that came back is not the one that went in"
+
+    echo "   ok $rolled_version serving again on schema $rolled_schema, host $rolled_host"
+fi
+
+echo "PASS: $old_version upgraded to $new_version in place, keeping its configuration, its database and its host, and rolled back onto the copy taken before the schema moved"
