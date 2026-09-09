@@ -1,6 +1,8 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/xml"
 	"net/http"
 	"net/http/httptest"
@@ -595,5 +597,108 @@ func TestStructuredDataIsNotAllowedToRun(t *testing.T) {
 	got := inlineScriptHashes(page)
 	if len(got) != 1 {
 		t.Fatalf("%d hashes for one executable script: %v", len(got), got)
+	}
+}
+
+// TestAnUpgradedControllerStopsServing304ForIndex is the regression test for
+// the bug that made a route fail to load after every upgrade.
+//
+// index.html is sent no-cache, so a browser revalidates it on every visit. It
+// used to be given a Last-Modified taken from buildTime(), a constant, which
+// meant an upgraded controller answered that revalidation 304 and the browser
+// kept the previous build's page -- and with it the names of content-hashed
+// chunks that are no longer in the binary. The shell booted anyway from its own
+// immutable cached bundle, so what the operator saw was one route, the first
+// one they had not already visited, failing with "That page could not be
+// loaded" until they bypassed the cache by hand.
+func TestAnUpgradedControllerStopsServing304ForIndex(t *testing.T) {
+	before, err := newSPAHandler("https://zoomies.test", false)
+	if err != nil {
+		t.Fatalf("newSPAHandler: %v", err)
+	}
+
+	first := httptest.NewRecorder()
+	before.ServeHTTP(first, httptest.NewRequest(http.MethodGet, "/", nil))
+	if first.Code != http.StatusOK {
+		t.Fatalf("first load = %d, want 200", first.Code)
+	}
+	etag := first.Header().Get("ETag")
+	if etag == "" {
+		t.Fatal("index.html was served with no ETag, so nothing but the clock can validate it")
+	}
+	// Sending one would re-open the hole: a browser holding the old page sends
+	// only If-Modified-Since, and ServeContent honours it whenever a
+	// modification time is set.
+	if got := first.Header().Get("Last-Modified"); got != "" {
+		t.Errorf("Last-Modified = %q, want it absent so If-Modified-Since cannot decide this", got)
+	}
+
+	// The operator upgrades. The page changes, because it names new chunks.
+	after := *before
+	after.index = []byte("<!doctype html><script type=module src=/assets/index.NEW.js></script>")
+	sum := sha256.Sum256(after.index)
+	after.indexETag = `"` + base64.RawURLEncoding.EncodeToString(sum[:16]) + `"`
+
+	// A browser that cached before the fix has no ETag to send, only a date.
+	stale := httptest.NewRequest(http.MethodGet, "/", nil)
+	stale.Header.Set("If-Modified-Since", buildTime().UTC().Format(http.TimeFormat))
+	staleResp := httptest.NewRecorder()
+	after.ServeHTTP(staleResp, stale)
+	if staleResp.Code != http.StatusOK {
+		t.Errorf("a browser holding the old page got %d; it keeps the previous build's chunk URLs, which 404",
+			staleResp.Code)
+	}
+
+	// And one that has the new validator is told, correctly, that the page it
+	// is holding is no longer the page being served.
+	revalidate := httptest.NewRequest(http.MethodGet, "/", nil)
+	revalidate.Header.Set("If-None-Match", etag)
+	revalidateResp := httptest.NewRecorder()
+	after.ServeHTTP(revalidateResp, revalidate)
+	if revalidateResp.Code != http.StatusOK {
+		t.Errorf("revalidating a changed page = %d, want 200", revalidateResp.Code)
+	}
+}
+
+// TestAnUnchangedIndexStillRevalidatesTo304 is the other half: the fix must not
+// turn every visit into a full download of a page that has not changed.
+func TestAnUnchangedIndexStillRevalidatesTo304(t *testing.T) {
+	h, err := newSPAHandler("https://zoomies.test", false)
+	if err != nil {
+		t.Fatalf("newSPAHandler: %v", err)
+	}
+	first := httptest.NewRecorder()
+	h.ServeHTTP(first, httptest.NewRequest(http.MethodGet, "/", nil))
+	etag := first.Header().Get("ETag")
+
+	again := httptest.NewRequest(http.MethodGet, "/", nil)
+	again.Header.Set("If-None-Match", etag)
+	againResp := httptest.NewRecorder()
+	h.ServeHTTP(againResp, again)
+	if againResp.Code != http.StatusNotModified {
+		t.Errorf("revalidating an unchanged page = %d, want 304", againResp.Code)
+	}
+}
+
+// TestTwoExternalURLsGetDifferentIndexValidators covers the reason the ETag is
+// computed after the startup substitution rather than from the embedded file:
+// the same binary serves a different page depending on what it was told its
+// address is.
+func TestTwoExternalURLsGetDifferentIndexValidators(t *testing.T) {
+	one, err := newSPAHandler("https://one.example", false)
+	if err != nil {
+		t.Fatalf("newSPAHandler: %v", err)
+	}
+	two, err := newSPAHandler("https://two.example", false)
+	if err != nil {
+		t.Fatalf("newSPAHandler: %v", err)
+	}
+	// A build with no UI has no sharing tags to substitute into, so there is
+	// nothing that could differ.
+	if !one.built {
+		t.Skip("the UI was not built; the placeholder page has no address in it")
+	}
+	if one.indexETag == two.indexETag {
+		t.Error("two controllers on different addresses serve the same validator for different pages")
 	}
 }

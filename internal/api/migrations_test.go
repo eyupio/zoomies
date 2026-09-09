@@ -693,3 +693,67 @@ func TestMigrationSkipsAnArchivedRepositoryWithoutTouchingIt(t *testing.T) {
 		t.Error("an archived repository's workflow was rewritten")
 	}
 }
+
+// TestAnAppThatCannotReadContentsIsNotReportedAsEmptyRepositories is the
+// regression test for a wizard that blamed the repositories for its own App.
+//
+// GitHub answers 404 for contents an App may not read, which is the same answer
+// it gives for a repository that genuinely has no .github/workflows. Reading
+// that as "no workflows" meant an App installed without the Contents permission
+// showed the operator a full organisation in which nothing could be migrated
+// and every row said the repository was empty -- while the one thing that would
+// have explained it, the missing permission, stayed hidden because the panel
+// that names it only appears when something failed to be read.
+func TestAnAppThatCannotReadContentsIsNotReportedAsEmptyRepositories(t *testing.T) {
+	h, inst, cookie := migrationHarness(t)
+
+	// An App created before the migration wizard existed: it can list the
+	// organisation's repositories, and see nothing inside them.
+	h.gh.SetPermissions(map[string]string{"actions": "read", "metadata": "read"})
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/migrations/plan", cookie: cookie,
+		body: map[string]any{"installation_id": inst.ID}})
+	resp.mustStatus(t, http.StatusOK, "plan")
+
+	var plan migrationPlanResponse
+	resp.into(t, &plan)
+
+	if len(plan.Repositories) == 0 {
+		t.Fatal("no repositories were reported at all")
+	}
+	for _, repo := range plan.Repositories {
+		if repo.Error == "" {
+			t.Errorf("%s is reported as read successfully, but the App may not read any repository's contents",
+				repo.Repo)
+		}
+	}
+
+	// And the operator is told what to do about it, which is the whole point:
+	// this panel is rendered from the repositories that could not be read, so
+	// misfiling them as empty is what used to hide it.
+	if len(plan.MissingPermissions) == 0 {
+		t.Error("missing_permissions is empty, so nothing tells the operator the App cannot read contents")
+	}
+	if plan.PermissionHint == "" {
+		t.Error("permission_hint is empty, so the operator is not told which permissions to grant")
+	}
+}
+
+// TestAFullyPermittedAppStillReportsAGenuinelyEmptyRepository is the other
+// half: "no workflows" has to keep meaning what it says when the App really can
+// look.
+func TestAFullyPermittedAppStillReportsAGenuinelyEmptyRepository(t *testing.T) {
+	h, inst, cookie := migrationHarness(t)
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/migrations/plan", cookie: cookie,
+		body: map[string]any{"installation_id": inst.ID}})
+	resp.mustStatus(t, http.StatusOK, "plan")
+
+	var plan migrationPlanResponse
+	resp.into(t, &plan)
+
+	site := repoPlan(t, plan, "acme/site")
+	if site.Error != "" {
+		t.Errorf("acme/site error = %q, want none: the App can read it, and it simply has no workflows", site.Error)
+	}
+}

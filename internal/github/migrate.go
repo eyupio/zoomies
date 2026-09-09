@@ -287,6 +287,24 @@ func (a *AppInfo) MissingForMigration() []string {
 	return out
 }
 
+// CanReadContents reports whether this installation may read a repository's
+// files at all.
+//
+// It is a lower bar than MissingForMigration, and deliberately so: opening a
+// pull request needs Contents at write, but merely reading a repository's
+// workflows needs only read. The difference matters because GitHub answers 404
+// -- not 403 -- for contents an App may not see, which is the same answer it
+// gives for a repository that genuinely has no .github/workflows. Without this,
+// an App that was never granted Contents makes every repository in the
+// organisation look empty.
+func (a *AppInfo) CanReadContents() bool {
+	switch a.Permissions["contents"] {
+	case "read", "write":
+		return true
+	}
+	return false
+}
+
 // migrationPermissionLabels are the names GitHub's settings page shows, which
 // are not the names its API uses.
 var migrationPermissionLabels = map[string]string{

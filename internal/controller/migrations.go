@@ -239,6 +239,20 @@ func (c *Controller) PlanMigration(ctx context.Context, req MigrationPlanRequest
 	// cost of the most expensive call Zoomies makes.
 	sources := readWorkflows(ctx, client, repos)
 
+	// Asking GitHub what this installation may do costs one call, and it is
+	// asked before the plans are built rather than after because the answer
+	// changes what "no workflows" means. GitHub returns 404 for contents an App
+	// may not read, exactly as it does for a repository that has no
+	// .github/workflows, so without this an App that was never granted Contents
+	// reports every repository in the organisation as having nothing to
+	// migrate -- and the operator is told a fact about their repositories
+	// instead of about their App.
+	var appInfo *github.AppInfo
+	if info, err := client.Probe(ctx); err == nil {
+		appInfo = info
+	}
+	blind := appInfo != nil && !appInfo.CanReadContents()
+
 	hosted := hostedLabelsAcross(sources)
 	mapping := normaliseMapping(req.Mapping)
 	if len(mapping) == 0 {
@@ -252,11 +266,18 @@ func (c *Controller) PlanMigration(ctx context.Context, req MigrationPlanRequest
 
 	plans := make([]migrate.RepoPlan, 0, len(sources))
 	for _, src := range sources {
-		if src.err != "" {
+		failed := src.err
+		// An archived repository was never read, and is greyed out for its own
+		// reason; every other empty-looking one is only empty as far as an App
+		// that cannot see inside it can tell.
+		if failed == "" && blind && len(src.workflows) == 0 && !src.repo.Archived {
+			failed = "the App may not read this repository's contents, so its workflows were never looked at"
+		}
+		if failed != "" {
 			plans = append(plans, migrate.RepoPlan{
 				Repo:          src.repo.FullName,
 				DefaultBranch: src.repo.DefaultBranch,
-				Error:         src.err,
+				Error:         failed,
 				Archived:      src.repo.Archived,
 			})
 			continue
@@ -294,17 +315,17 @@ func (c *Controller) PlanMigration(ctx context.Context, req MigrationPlanRequest
 		TotalRepos:         total,
 		MissingPermissions: []string{},
 	}
-	// Asking GitHub what the App may do costs one call and turns "403 halfway
-	// through" into a sentence in the step before.
-	if info, err := client.Probe(ctx); err == nil {
-		if missing := info.MissingForMigration(); len(missing) > 0 {
+	// What the probe above found, turned into something the operator can act
+	// on: "403 halfway through" becomes a sentence in the step before.
+	if appInfo != nil {
+		if missing := appInfo.MissingForMigration(); len(missing) > 0 {
 			out.MissingPermissions = missing
 			out.PermissionHint = github.MigrationPermissionHint
 			settingsOrg := ""
 			if inst.TargetType == store.TargetOrg {
 				settingsOrg = inst.Target
 			}
-			out.SettingsURL = github.SettingsURL(inst.APIBaseURL, info.Slug, settingsOrg)
+			out.SettingsURL = github.SettingsURL(inst.APIBaseURL, appInfo.Slug, settingsOrg)
 		}
 	}
 	return out, nil
