@@ -2,7 +2,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo-master-dark.png">
-  <img src="docs/brand/logo-dark-background.png" alt="Zoomies: a cocker spaniel curling through a circular motion path, above the wordmark" width="260">
+  <img src="docs/brand/logo-master-dark.png" alt="Zoomies: a cocker spaniel curling through a circular motion path, above the wordmark" width="260">
 </picture>
 
 # Give your GitHub Actions runners the Zoomies.
