@@ -133,7 +133,7 @@ on a public address the same setting is an error.
 | `host.unhealthy` | **error with runners on it, warning without** | The host has stopped heartbeating. With runners recorded on it their state is unknown, which is worse than a spare host being down. |
 | `host.cordoned_with_work` | warning | A cordoned host could run jobs that are queued. Cordoning is deliberate, so this is a reminder rather than a fault. |
 | `host.duplicate_agent` | warning | Two agent sessions have used this host's credentials in turn. An agent takes a new session each time it starts and never returns to an old one, so alternation means a second agent holds a copy of the token — usually a cloned VM or a copied state directory. Neither is refused: both are running real jobs, and picking one would end the other's. |
-| `installation.unhealthy` | error | The GitHub App installation is not usable — the App was uninstalled, its key was rotated, or its permissions were changed. Nothing can register until it is fixed. |
+| `installation.unhealthy` | error | The GitHub App installation is not usable — the App was uninstalled, its key was rotated, or its permissions were changed. Nothing can register until it is fixed. An App that is merely not subscribed to `workflow_job` is *not* this: the fleet works on the fallback poller, more slowly, and `webhook.never_received` is the entry for it. |
 | `webhook.rejected` | warning | Deliveries arrived and were refused, almost always a signing-secret mismatch. |
 | `webhook.never_received` | warning | No webhook has ever arrived, so scaling is running entirely on the poller. |
 

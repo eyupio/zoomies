@@ -439,10 +439,22 @@ func TestProbeReportsMissingPermission(t *testing.T) {
 		t.Fatalf("Probe: %v", err)
 	}
 	missing := strings.Join(info.MissingRequirements(store.TargetOrg), "; ")
-	for _, want := range []string{"Self-hosted runners", "not granted", "Actions", "workflow_job"} {
+	for _, want := range []string{"Self-hosted runners", "not granted", "Actions"} {
 		if !strings.Contains(missing, want) {
 			t.Errorf("missing requirements %q does not mention %q", missing, want)
 		}
+	}
+	// The subscription is not one of them, and must not be: every requirement
+	// here is something the fleet cannot work without, and a fleet with no
+	// `workflow_job` subscription works -- on the fallback poller, more slowly.
+	// While the two were bundled, an App with every permission it needed
+	// probed as an error, was recorded unhealthy, and the verify dialog could
+	// never reach its own sentence about the poller.
+	if strings.Contains(missing, "workflow_job") {
+		t.Errorf("the subscription is listed as a missing requirement: %q", missing)
+	}
+	if info.SubscribedToJobs() {
+		t.Error("an App subscribed only to push reports that it will hear about jobs")
 	}
 	if repo := info.MissingRequirements(store.TargetRepo); !strings.Contains(strings.Join(repo, ";"), "Administration") {
 		t.Errorf("repo requirements = %v", repo)

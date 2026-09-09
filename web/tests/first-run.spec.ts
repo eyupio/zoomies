@@ -37,8 +37,13 @@ test('the first screen says what it is, where it sits, and what follows', async 
   const heading = page.getByRole('heading', { level: 1 });
   await expect(heading).toHaveText('Create the first administrator');
   // An operator arriving from `docker compose up` has no way to know whether
-  // this account finishes setup or begins it.
-  await expect(page.getByText('Step 1 of 4')).toBeVisible();
+  // this account finishes setup or begins it. It says which end of the
+  // sequence this is and not how long the sequence is: that depends on whether
+  // the controller has an agent of its own, which this page runs too early to
+  // ask -- and the page used to claim four while the Overview's checklist drew
+  // five on exactly the install that reaches it.
+  await expect(page.getByText('First step')).toBeVisible();
+  await expect(page.getByText(/of 4|of four/i)).toHaveCount(0);
   await expect(page.getByText(/connect a GitHub App|connect GitHub/i)).toBeVisible();
   // The form asks for the token before anything else, and says where to find
   // it: an operator who has not read the log cannot finish this form, so being
