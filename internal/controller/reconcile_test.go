@@ -65,14 +65,20 @@ func TestNudgesCoalesce(t *testing.T) {
 	}
 	t.Cleanup(func() { h2.c.Stop(context.Background()) })
 
-	eventually(t, 2*time.Second, "the first reconcile pass", func() bool {
+	// Ten seconds rather than two: this asserts that a pass happens, not how
+	// fast. CI runs this package on a shared runner where it has taken 173
+	// seconds against twelve locally, and at that ratio a two-second budget is
+	// measuring the runner rather than the controller. What the test is
+	// actually for -- that fifty nudges coalesce into one pass -- is the count
+	// below, and that is unchanged.
+	eventually(t, 10*time.Second, "the first reconcile pass", func() bool {
 		return h2.c.passes.Load() >= 1
 	})
 	base := h2.c.passes.Load()
 	for range 50 {
 		h2.c.Nudge()
 	}
-	eventually(t, 2*time.Second, "the nudged reconcile pass", func() bool {
+	eventually(t, 10*time.Second, "the nudged reconcile pass", func() bool {
 		return h2.c.passes.Load() > base
 	})
 	time.Sleep(100 * time.Millisecond)
