@@ -276,3 +276,75 @@ func TestRestoreRefusesABackupFromANewerRelease(t *testing.T) {
 		t.Errorf("the live database was replaced anyway: %v", err)
 	}
 }
+
+// TestRestoreRefusesWhileAControllerIsRunning covers the window in which a
+// restore does its damage without failing.
+//
+// Renaming a file does not reach a process that already has it open. A
+// controller running through a --replace goes on reading the database that was
+// moved aside, every connection it opens afterwards reads the restored one
+// instead, and the writes it makes in between land in the file nobody will look
+// at again. Nothing errors at the time; what is lost is whatever the fleet did
+// while the operator was restoring.
+func TestRestoreRefusesWhileAControllerIsRunning(t *testing.T) {
+	dir, _ := backupHost(t)
+	src := takeBackup(t)
+	live := filepath.Join(dir, "zoomies.db")
+
+	// Stand in for the running controller: it takes this same lock before it
+	// opens the database, and holds it for as long as it is up.
+	unlock, err := store.Lock(live)
+	if err != nil {
+		t.Fatalf("taking the controller's lock: %v", err)
+	}
+	defer func() { _ = unlock() }()
+
+	e, _, errOut := newTestEnv(t)
+	if code := dispatch(context.Background(), e, []string{"restore", src, "--replace"}); code != exitError {
+		t.Fatalf("restore under a running controller exit code = %d, want %d", code, exitError)
+	}
+	// The operator has to be told what to do about it, not just that it failed.
+	for _, want := range []string{"controller is running", "Stop the controller"} {
+		if !strings.Contains(errOut.String(), want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, errOut)
+		}
+	}
+	// And it refused before touching anything.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, en := range entries {
+		if strings.HasPrefix(en.Name(), "zoomies.db.before-restore-") {
+			t.Errorf("the live database was moved aside despite the refusal: %s", en.Name())
+		}
+	}
+}
+
+// TestRestoreWorksOnceTheControllerHasStopped is the other half: the lock is a
+// gate, not a wall, and it must not leave a host unable to restore because a
+// controller was running when the operator first tried.
+func TestRestoreWorksOnceTheControllerHasStopped(t *testing.T) {
+	dir, _ := backupHost(t)
+	src := takeBackup(t)
+	live := filepath.Join(dir, "zoomies.db")
+
+	unlock, err := store.Lock(live)
+	if err != nil {
+		t.Fatalf("taking the controller's lock: %v", err)
+	}
+	e, _, _ := newTestEnv(t)
+	if code := dispatch(context.Background(), e, []string{"restore", src, "--replace"}); code != exitError {
+		t.Fatalf("restore under a running controller exit code = %d, want %d", code, exitError)
+	}
+
+	// The controller stops, which is what releases the lock.
+	if err := unlock(); err != nil {
+		t.Fatalf("releasing the lock: %v", err)
+	}
+
+	e2, _, errOut := newTestEnv(t)
+	if code := dispatch(context.Background(), e2, []string{"restore", src, "--replace"}); code != exitOK {
+		t.Fatalf("restore after the controller stopped exit code = %d\n%s", code, errOut)
+	}
+}

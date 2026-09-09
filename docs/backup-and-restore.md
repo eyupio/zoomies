@@ -95,7 +95,8 @@ and the service unit are yours to put back, because each is a decision about
 this host rather than a copy of the data.
 
 Stop the controller first. Restoring underneath a running one leaves it holding
-a database that is no longer there.
+a database that is no longer there — and `zoomies restore` now refuses rather
+than letting you find that out afterwards.
 
 ### What it refuses, and why it refuses rather than warns
 
@@ -104,6 +105,13 @@ controller was running on the restored data — the fleet live, the original
 possibly gone, and the symptom saying nothing about the restore that caused it.
 So they all happen before anything is moved.
 
+* **A controller that is still running.** Restore takes the same lock a
+  controller takes before it opens the database, and holds it until it is
+  finished. Renaming a file does not reach a process that already has it open:
+  a live controller would go on reading the database moved aside, every
+  connection it opened afterwards would read the restored one, and the writes
+  it made in between would land in the file nobody looks at again. Nothing
+  fails at the time, which is what makes it worth refusing.
 * **A copy that is not sound.** The backup's database is opened and integrity
   checked first.
 * **A backup from a newer release.** The store refuses a ledger naming
