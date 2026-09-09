@@ -296,7 +296,7 @@ func TestForceRemovingABusyRunnerIsRecordedOnItsJob(t *testing.T) {
 	labels := []string{"self-hosted", "linux", "x64", "demo"}
 	job, r := startJobOnRunner(t, h, host.ID, 1111, labels)
 
-	if _, err := h.c.RemoveRunner(h.ctx, r.ID, "removed by an operator", true); err != nil {
+	if _, err := h.c.RemoveRunner(h.ctx, r.ID, "removed by an operator", true, false); err != nil {
 		t.Fatalf("RemoveRunner: %v", err)
 	}
 	after, _ := h.st.GetJob(h.ctx, job.ID)
@@ -315,7 +315,7 @@ func TestForceRemovingABusyRunnerIsRecordedOnItsJob(t *testing.T) {
 	h2 := newHarness(t)
 	_, _, host2 := h2.fleet()
 	job2, r2 := startJobOnRunner(t, h2, host2.ID, 1212, labels)
-	if _, err := h2.c.RemoveRunner(h2.ctx, r2.ID, "removed by an operator", false); err != nil {
+	if _, err := h2.c.RemoveRunner(h2.ctx, r2.ID, "removed by an operator", false, true); err != nil {
 		t.Fatalf("RemoveRunner without force: %v", err)
 	}
 	if after2, _ := h2.st.GetJob(h2.ctx, job2.ID); after2.RunnerFault != "" {

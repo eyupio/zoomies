@@ -96,7 +96,7 @@ Conventions:
 | GET | `/api/v1/pools/platforms` | viewer | The runner image catalogue: every operating system and release a `zoomies-runner` image is published for, and the architectures each is built for. Served rather than hard-coded in a client, so a pool cannot be offered a platform no image exists for. |
 | GET | `/api/v1/pools/{id}` | viewer | |
 | PATCH | `/api/v1/pools/{id}` | operator | |
-| DELETE | `/api/v1/pools/{id}` | operator | `?drain=true` (default) drains runners first; `?force=true` removes them immediately. The response says how many runners were affected. |
+| DELETE | `/api/v1/pools/{id}` | operator | `?drain=true` (default) drains runners first; `?force=true` removes them immediately, interrupting their jobs. Deleting a pool deletes its runners' records with it, so it answers `409` while any of them is still finishing — the refusal has already asked them to stop, so call it again once they have gone. A pool whose runners are idle goes in one call, because an idle runner is removed outright rather than drained. The response says how many runners were affected. |
 | POST | `/api/v1/pools/{id}/prewarm` | operator | Queues an image pull on every host the pool could be placed on, so the first job does not pay for it. `202` with the per-host state. |
 | POST | `/api/v1/pools/{id}/enable` | operator | |
 | POST | `/api/v1/pools/{id}/disable` | operator | Existing runners drain; no new ones are made. |
@@ -131,7 +131,7 @@ give each repository a cache without an installation per repository.
 | GET | `/api/v1/runners` | viewer | Filters: `pool_id`, `host_id`, `state` (repeatable), `q`, `include_removed`. |
 | GET | `/api/v1/runners/{id}` | viewer | Includes the current job and the host. |
 | GET | `/api/v1/runners/{id}/timeline` | viewer | State transitions with durations, for the detail page. |
-| POST | `/api/v1/runners/{id}/drain` | operator | Finish the current job, then exit. Never kills a running job. |
+| POST | `/api/v1/runners/{id}/drain` | operator | Stop taking new work and exit. A job still running is given five minutes to finish; if it takes longer the runner is stopped and GitHub marks that job failed. Draining a busy runner is therefore refused with `409` unless `?confirm=true` says you accept that. A runner that is not busy drains without it. |
 | DELETE | `/api/v1/runners/{id}` | operator | `?force=true` kills immediately; without it, behaves as drain-then-remove. Deregisters from GitHub. |
 | POST | `/api/v1/runners/bulk` | operator | `{action: "drain"\|"delete", ids: [...], force?: bool}`. Returns per-id results so a partial failure is visible. |
 | GET | `/api/v1/runners/{id}/logs` | viewer | **SSE.** Live log tail relayed from the agent. `?tail=&follow=`. |

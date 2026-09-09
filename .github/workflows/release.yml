@@ -173,6 +173,34 @@ jobs:
       - id: release
         run: echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
+      # :latest is not a name this workflow may move for a release candidate.
+      #
+      # It is what every default install pulls: docker-compose.yml names it, the
+      # installer's container and service deployments name it, and
+      # naming.DefaultRunnerImage is the runner repository's :latest. A tag with
+      # a hyphen in it -- v0.1-alpha, v1.0.0-RC1 -- is this project saying the
+      # release is not finished, and the setup job has already worked that out
+      # for the GitHub release. Applying it here too is what stops tagging a
+      # candidate from handing one to everybody who installs tomorrow.
+      - id: tags
+        name: Work out the tags
+        env:
+          REF: ${{ needs.setup.outputs.tag }}
+          PRERELEASE: ${{ needs.setup.outputs.prerelease }}
+        run: |
+          set -eu
+          {
+            echo "controller<<EOF"
+            echo "ghcr.io/eyupio/zoomies:$REF"
+            if [ "$PRERELEASE" != "true" ]; then
+              echo "ghcr.io/eyupio/zoomies:latest"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          if [ "$PRERELEASE" = "true" ]; then
+            echo "$REF is a prerelease, so :latest was left where it is." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       # The build is written twice rather than once with a swapped action,
       # because the path that works today has to stay byte for byte what it
       # was: this workflow only ever runs on a tag, so CI cannot tell anybody
@@ -190,9 +218,7 @@ jobs:
             VERSION=${{ needs.setup.outputs.version }}
             COMMIT=${{ github.sha }}
             DATE=${{ steps.release.outputs.date }}
-          tags: |
-            ghcr.io/eyupio/zoomies:${{ needs.setup.outputs.tag }}
-            ghcr.io/eyupio/zoomies:latest
+          tags: ${{ steps.tags.outputs.controller }}
       - id: build-github
         if: env.BLACKSMITH != 'true'
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
@@ -206,9 +232,7 @@ jobs:
             VERSION=${{ needs.setup.outputs.version }}
             COMMIT=${{ github.sha }}
             DATE=${{ steps.release.outputs.date }}
-          tags: |
-            ghcr.io/eyupio/zoomies:${{ needs.setup.outputs.tag }}
-            ghcr.io/eyupio/zoomies:latest
+          tags: ${{ steps.tags.outputs.controller }}
 
       # Against the digest rather than a tag: a tag is a name somebody can move,
       # and the claim being made is about the bytes.
@@ -278,6 +302,7 @@ jobs:
           IS_DEFAULT: ${{ matrix.default && 'true' || 'false' }}
           TAG: ${{ matrix.tag }}
           REF: ${{ needs.setup.outputs.tag }}
+          PRERELEASE: ${{ needs.setup.outputs.prerelease }}
         run: |
           set -eu
           for image in zoomies-runner zoomies-runner-docker; do
@@ -287,7 +312,12 @@ jobs:
               echo "ghcr.io/eyupio/$image:$TAG-$REF"
               if [ "$IS_DEFAULT" = "true" ]; then
                 echo "ghcr.io/eyupio/$image:$REF"
-                echo "ghcr.io/eyupio/$image:latest"
+                # Not for a candidate: this is the tag a pool that names no
+                # image resolves to, so moving it would put every default pool
+                # on the release candidate.
+                if [ "$PRERELEASE" != "true" ]; then
+                  echo "ghcr.io/eyupio/$image:latest"
+                fi
               fi
               echo "EOF"
             } >> "$GITHUB_OUTPUT"

@@ -16,7 +16,7 @@ func runRunners(ctx context.Context, e *env, args []string) error {
 	return runGroup(ctx, e, "runners", "The runners that exist right now.", []*subcommand{
 		{"list", "", "List runners, with filters", runnersList},
 		{"get", "<runner-id>", "One runner in full, with its timeline", runnersGet},
-		{"drain", "<runner-id>...", "Finish the current job, then exit; never interrupts work", runnersDrain},
+		{"drain", "<runner-id>...", "Stop taking work; a job still running is given five minutes", runnersDrain},
 		{"delete", "<runner-id>...", "Remove a runner and deregister it from GitHub", runnersDelete},
 		{"logs", "<runner-id>", "The runner's output, optionally followed", runnersLogs},
 	}, args)
@@ -164,7 +164,7 @@ func runnersGet(ctx context.Context, e *env, args []string) error {
 
 func runnersDrain(ctx context.Context, e *env, args []string) error {
 	fs := newFlagSet(e, "zoomies runners drain <runner-id>...",
-		"Ask runners to finish their current job and then exit. A job in flight is never interrupted.")
+		"Ask runners to stop taking work and exit. A job still running is given five minutes to finish and the runner is then stopped, so draining a busy runner needs --yes.")
 	cf := registerClientFlags(fs, false)
 	fs.example("zoomies runners drain run_k3f9qz2m", "zoomies runners drain run_a run_b run_c")
 	if err := fs.parse(args); err != nil {

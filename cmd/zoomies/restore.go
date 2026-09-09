@@ -70,6 +70,36 @@ func runRestore(ctx context.Context, e *env, args []string) error {
 	}
 
 	live := cfg.Database.Path
+
+	// Nothing moves under a running controller. This is the same lock a
+	// controller takes before it opens the database, so holding it for the rest
+	// of the restore both proves none is running now and stops one starting
+	// halfway through the swap.
+	//
+	// The check earns its place because the damage it prevents is silent.
+	// Renaming a file does not reach a process that already has it open: a live
+	// controller goes on reading the database that was moved aside, every
+	// connection it opens after the swap reads the restored one instead, and
+	// the writes it makes in between land in the file nobody will look at
+	// again. Nothing fails at the time, and what is lost is whatever the fleet
+	// did during the restore.
+	//
+	// The directory is created first because the lock sits beside the database,
+	// and restoring onto a host that has never run one is the ordinary case.
+	if err := os.MkdirAll(filepath.Dir(live), 0o750); err != nil {
+		return fmt.Errorf("creating %s: %w", filepath.Dir(live), err)
+	}
+	unlock, err := store.Lock(live)
+	if err != nil {
+		if errors.Is(err, store.ErrLocked) {
+			return fmt.Errorf("a controller is running on %s, and restoring under it would lose "+
+				"whatever the fleet does while the file is being replaced. Stop the controller "+
+				"(systemctl stop zoomies), restore, then start it again", live)
+		}
+		return fmt.Errorf("checking whether a controller is running on %s: %w", live, err)
+	}
+	defer func() { _ = unlock() }()
+
 	if _, err := os.Stat(live); err == nil {
 		if !*replace {
 			return fmt.Errorf("%s already exists, and restoring over it would lose whatever is in it. "+

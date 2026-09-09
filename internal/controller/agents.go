@@ -30,6 +30,13 @@ const (
 	createLease = 20 * time.Minute
 	stopLease   = 10 * time.Minute
 	removeLease = 5 * time.Minute
+	// A prewarm is a cold image pull like a create, and gets the same room. It
+	// needs a lease at all because it is the one task with no runner behind it
+	// to notice: without one it stayed in flight for ever, and since enqueue
+	// refuses a key that is already outstanding, that pool was never prewarmed
+	// on that host again -- not by the hourly refresh, not by editing the pool,
+	// and not by asking for one.
+	prewarmLease = 20 * time.Minute
 	// maxTaskAttempts stops a task from being redelivered forever to a host
 	// whose agent is gone. After this the runner's provision timeout is what
 	// notices, and it says so on the Runners page.
@@ -142,6 +149,8 @@ func requeueAfter(kind agent.TaskKind) time.Duration {
 		return stopLease
 	case agent.TaskRemoveRunner:
 		return removeLease
+	case agent.TaskPrewarmImage:
+		return prewarmLease
 	default:
 		// Log relays are tied to a browser that has since gone away, so
 		// redelivering one would open a stream nobody is reading.
@@ -616,7 +625,11 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 			h.DiskFreeMB = req.DiskFreeMB
 		}
 		h.LastHeartbeat = now
-		if err := c.st.UpdateHost(ctx, h); err != nil {
+		// Only the columns an agent measures. h was read at the top of this
+		// request, so writing the whole row here would put its pre-edit copy of
+		// the operator's fields -- cordoned above all -- back over anything
+		// changed in the interval.
+		if err := c.st.SetHostReported(ctx, h); err != nil {
 			c.log.Warn("could not record what a host reported about itself", "host", hostID, "error", err)
 		} else if backendsChanged {
 			c.log.Info("a host's backends changed", "host", hostID, "name", h.Name,

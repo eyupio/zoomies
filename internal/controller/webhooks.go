@@ -152,12 +152,22 @@ func parseEnvelope(body []byte) envelope {
 // and checks the signature in constant time (github.ValidateSignature uses
 // hmac.Equal).
 //
-// The installation that owns the repository is tried first. When that does not
-// verify -- which happens when an App was re-installed, or a repository moved
-// between organisations -- every configured secret is tried before rejecting,
-// and the note that comes back says which one worked, because "your secrets
-// are out of step with your installations" is a different problem from "this
-// delivery was forged".
+// The installation that owns the repository decides it. Only when no
+// installation covers the repository at all -- which happens when a repository
+// moved between organisations -- is every other configured secret tried, and
+// the note that comes back says which one worked, because "your secrets are out
+// of step with your installations" is a different problem from "this delivery
+// was forged".
+//
+// The fallback is deliberately not reached when an owner exists and its secret
+// fails. Every configured secret is held by somebody: on a controller serving
+// two organisations, each one's GitHub admin pasted their own. Trying them all
+// against a delivery that names somebody else's repository let the holder of
+// one organisation's secret sign a workflow_job for another's, and be believed
+// -- the job is then scheduled on the named repository's pools and a runner is
+// registered in its organisation with its own App credentials. Nor did the
+// wider net ever help the case it was written for: a stale secret for this
+// installation cannot be recovered by matching a different installation's.
 func (c *Controller) verifyDelivery(ctx context.Context, body []byte, signature, repo string) (*store.Installation, string, error) {
 	var firstErr error
 
@@ -176,15 +186,23 @@ func (c *Controller) verifyDelivery(ctx context.Context, body []byte, signature,
 		}
 	}
 
+	// An owner that did not verify is the end of it. Anything further would be
+	// checking this delivery against a secret its own repository's installation
+	// does not use.
+	if owner != nil {
+		if firstErr != nil {
+			return nil, "", firstErr
+		}
+		return nil, "", fmt.Errorf("installation %s covers %q, and this delivery was not signed with its webhook secret",
+			owner.ID, repo)
+	}
+
 	insts, err := c.st.ListInstallations(ctx)
 	if err != nil {
 		return nil, "", fmt.Errorf("could not read the configured installations to verify this delivery: %w", err)
 	}
 	tried := 0
 	for _, inst := range insts {
-		if owner != nil && inst.ID == owner.ID {
-			continue
-		}
 		secret, serr := c.unsealString(inst.WebhookSecretEnc, "webhook secret for installation "+inst.ID)
 		if serr != nil || secret == "" {
 			continue

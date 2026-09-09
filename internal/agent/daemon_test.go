@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -663,5 +664,46 @@ func TestAnInstantIdlePollIsHeldOff(t *testing.T) {
 	}
 	if got := pollWait(&TaskBatch{}, minPollInterval); got != 0 {
 		t.Fatalf("wait = %s after a poll that already took the floor, want none", got)
+	}
+}
+
+// TestEveryPrewarmInABatchIsPulled covers a collision between tasks that have
+// no runner between them.
+//
+// dispatch claims a task by its runner ID so that two lifecycle tasks for one
+// runner cannot race on the host. A prewarm carries no runner, so every prewarm
+// claimed the same empty key: the first took it and the rest returned at once,
+// reporting nothing. Two Docker pools on one host is all it takes, and the loss
+// is permanent rather than a retry away -- a task that reports no result stays
+// outstanding on the controller, and enqueue refuses a key that is already in
+// flight, so that pool is never prewarmed on that host again.
+func TestEveryPrewarmInABatchIsPulled(t *testing.T) {
+	h := newHarness(t, 2)
+
+	h.tr.tasks <- []Task{
+		{ID: "prewarm-a", Kind: TaskPrewarmImage, PoolID: "pool_a", Backend: h.be.Kind(), Image: "img-a", PullPolicy: store.PullIfNotPresent},
+		{ID: "prewarm-b", Kind: TaskPrewarmImage, PoolID: "pool_b", Backend: h.be.Kind(), Image: "img-b", PullPolicy: store.PullIfNotPresent},
+	}
+
+	// Both have to report, or the controller's lease on the silent one never
+	// clears.
+	seen := map[string]bool{}
+	for range 2 {
+		res := h.nextResult()
+		if !res.OK {
+			t.Errorf("prewarm %s failed: %s", res.TaskID, res.Error)
+		}
+		seen[res.TaskID] = true
+	}
+	for _, id := range []string{"prewarm-a", "prewarm-b"} {
+		if !seen[id] {
+			t.Errorf("%s reported no result; the controller will wait on it for ever", id)
+		}
+	}
+
+	pulls := h.be.pulls()
+	slices.Sort(pulls)
+	if !slices.Equal(pulls, []string{"img-a", "img-b"}) {
+		t.Errorf("images pulled = %v, want both img-a and img-b", pulls)
 	}
 }

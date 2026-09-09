@@ -170,9 +170,12 @@ func hostsSetCordon(ctx context.Context, e *env, args []string, cordoned bool) e
 // the drain failed. This is the composition, in the order that empties a host:
 // stop new work arriving, then let what is here finish.
 //
-// It never forces. A drained runner finishes the job it is on; an operator who
-// wants the machine now has `runners delete --force`, and having to type that
-// separately is the point.
+// It does not force, but nor is it free: a drained runner is given five minutes
+// to finish the job it is on and is then stopped, which is what makes the host
+// actually empty rather than waiting on the longest job somebody happened to
+// start. An operator who wants the machine gone immediately has
+// `runners delete --force`, and having to type that separately is still the
+// point -- the difference is now five minutes rather than for ever.
 func hostsDrain(ctx context.Context, e *env, args []string) error {
 	fs := newFlagSet(e, "zoomies hosts drain <host-id>",
 		"Cordon a host and drain every runner on it, so it empties as its jobs finish.")

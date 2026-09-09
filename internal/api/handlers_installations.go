@@ -316,7 +316,7 @@ func (s *Server) handleDeleteInstallation(w http.ResponseWriter, r *http.Request
 			}
 			// Runners must be removed and deregistered from GitHub now, while the
 			// installation credentials are still active and before Forget clears them.
-			if _, rerr := s.ctrl.RemoveRunner(r.Context(), run.ID, "installation "+inst.Target+" was removed", true); rerr != nil {
+			if _, rerr := s.ctrl.RemoveRunner(r.Context(), run.ID, "installation "+inst.Target+" was removed", true, true); rerr != nil {
 				s.logger(r).Warn("could not remove a runner while removing its installation",
 					"installation", id, "runner", run.ID, "error", rerr)
 				continue
@@ -929,13 +929,25 @@ func (s *Server) handleWebhookTest(w http.ResponseWriter, r *http.Request) {
 	}
 	out.LastDeliveryAt = timePtr(last)
 
+	// What is reported and what is concluded from are different questions. The
+	// field above is the last delivery of any kind, which is what the delivery
+	// log shows; the answer below rests on one that verified. This endpoint is
+	// public and unauthenticated by necessity, so a single probe from a stranger
+	// would otherwise be enough for Zoomies to tell an operator that GitHub is
+	// delivering to a webhook that was never pointed at them.
+	accepted, err := s.ctrl.Store().LastAcceptedDeliveryAt(r.Context())
+	if err != nil {
+		s.internal(w, r, "reading the last accepted delivery time", err)
+		return
+	}
+
 	switch {
 	case s.cfg().Server.ExternalURL == "":
 		out.Message = "server.external_url is not set, so Zoomies cannot tell GitHub where to deliver webhooks and cannot test the address."
 		out.Fix = "set server.external_url to the address GitHub should reach this controller on, then restart."
-	case !last.IsZero():
+	case !accepted.IsZero():
 		out.Reachable = true
-		out.Message = fmt.Sprintf("GitHub last delivered a webhook at %s, so deliveries reach this controller.", last.Format(time.RFC3339))
+		out.Message = fmt.Sprintf("GitHub last delivered a webhook at %s, so deliveries reach this controller.", accepted.Format(time.RFC3339))
 	default:
 		out.Reachable, out.Message, out.Fix = s.probeWebhookURL(r.Context(), out.URL)
 	}

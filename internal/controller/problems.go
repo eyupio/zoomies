@@ -516,9 +516,16 @@ func (c *Controller) webhookProblems(ctx context.Context, out *[]Problem) error 
 		})
 	}
 
-	last, err := c.st.LastDeliveryAt(ctx)
+	// Accepted deliveries only. A rejected one proves that something reached
+	// the address, not that GitHub is delivering: the endpoint is public and
+	// unauthenticated by necessity, so a single probe from a stranger would
+	// otherwise stand in for a working webhook and take this warning -- and,
+	// with the poller off, the error that says nothing is scaling -- off the
+	// screen for the whole retention window. The poller stands down on the same
+	// measure, and for the same reason.
+	last, err := c.st.LastAcceptedDeliveryAt(ctx)
 	if err != nil {
-		return fmt.Errorf("reading the last webhook delivery time: %w", err)
+		return fmt.Errorf("reading the last accepted webhook delivery time: %w", err)
 	}
 	// An instance with no installation is not yet configured, and telling its
 	// operator that no webhook has arrived would be noise on top of the setup
@@ -533,7 +540,7 @@ func (c *Controller) webhookProblems(ctx context.Context, out *[]Problem) error 
 			Severity: config.SeverityWarning,
 			Setting:  "server.external_url",
 			Title:    "no webhook has ever arrived, so scaling is running on the poller",
-			Detail: fmt.Sprintf("Zoomies has never received a delivery, so it is discovering queued jobs by polling GitHub every %s "+
+			Detail: fmt.Sprintf("Zoomies has never received a delivery that verified, so it is discovering queued jobs by polling GitHub every %s "+
 				"instead of within a second of them being queued.", c.pollInterval()),
 			Fix: fmt.Sprintf("point the App's webhook at %s and check that GitHub can reach it.", c.webhookURLOrPath()),
 		}
@@ -541,7 +548,7 @@ func (c *Controller) webhookProblems(ctx context.Context, out *[]Problem) error 
 			// With no webhooks and no poller, nothing will ever start a runner.
 			p.Severity = config.SeverityError
 			p.Title = "no webhook has ever arrived and the fallback poller is off, so nothing is scaling"
-			p.Detail = "Zoomies has never received a delivery and github.poll_fallback is false, so no queued job will ever be noticed."
+			p.Detail = "Zoomies has never received a delivery that verified, and github.poll_fallback is false, so no queued job will ever be noticed."
 			p.Fix = fmt.Sprintf("point the App's webhook at %s, or set github.poll_fallback to true.", c.webhookURLOrPath())
 		}
 		*out = append(*out, p)

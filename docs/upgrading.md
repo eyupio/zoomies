@@ -236,8 +236,8 @@ upgrade nobody notices and a wave of failed builds.
 # 1. Stop new work arriving, and let what is here finish.
 zoomies hosts drain hst_k3f9qz2m
 
-# 2. Wait for it to empty. A drained runner finishes its job first, so this
-#    takes as long as the longest job on the host.
+# 2. Wait for it to empty. Each runner gets five minutes to finish what it is
+#    on, so this takes about that, not as long as the longest job.
 zoomies hosts list
 
 # 3. Swap the binary and restart the unit.

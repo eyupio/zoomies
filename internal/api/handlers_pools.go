@@ -24,7 +24,6 @@ import (
 // for why the renderer lives there.
 type poolResponse = controller.PoolView
 
-// handleListPools answers GET /api/v1/pools.
 // poolFor renders a pool for the caller in front of it.
 //
 // Everything on the view is a viewer's to see except the environment a pool
@@ -39,6 +38,7 @@ func poolFor(r *http.Request, v controller.PoolView) controller.PoolView {
 	return v.WithoutEnvValues()
 }
 
+// handleListPools answers GET /api/v1/pools.
 func (s *Server) handleListPools(w http.ResponseWriter, r *http.Request) {
 	pools, err := s.ctrl.Store().ListPools(r.Context())
 	if err != nil {
@@ -798,6 +798,20 @@ type deletePoolResponse struct {
 // runners finish their current job and then go. force tears them down now,
 // interrupting whatever they were running, which is sometimes exactly what an
 // operator wants and is never what they should get by accident.
+//
+// A drain the pool does not outlive is not a drain. The pool row used to go in
+// the same request that started one, and deleting it takes its runners' rows
+// with it -- so the next heartbeat reported runners the controller had no
+// record of, the agent stopped tracking them, and its orphan sweep destroyed
+// the containers about two minutes later, killing the jobs the drain existed to
+// protect. So the delete is refused while any runner is still going, and the
+// operator calls again once they have finished. The drain has already been
+// started by then, which is what makes the second call the short one.
+//
+// An idle pool still goes in one call: a runner that is not busy is removed
+// outright rather than drained, so it is terminal by the time this looks. Only
+// a pool with work on it needs the second call, and force skips the wait by
+// killing the jobs.
 func (s *Server) handleDeletePool(w http.ResponseWriter, r *http.Request) {
 	id := chiURLParam(r, "id")
 	force := queryBool(r, "force", false)
@@ -820,7 +834,7 @@ func (s *Server) handleDeletePool(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		var rerr error
-		_, rerr = s.ctrl.RemoveRunner(r.Context(), run.ID, "pool "+p.Name+" was deleted", force || !drain)
+		_, rerr = s.ctrl.RemoveRunner(r.Context(), run.ID, "pool "+p.Name+" was deleted", force || !drain, true)
 		if rerr != nil {
 			// One runner that cannot be told to stop must not leave the pool
 			// half-deleted; the row goes either way and the reaper cleans up.
@@ -829,6 +843,29 @@ func (s *Server) handleDeletePool(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		affected++
+	}
+
+	// Read the runners back rather than trusting the loop above: a drain leaves
+	// a runner in draining, which is not terminal, and only the agent reporting
+	// the stop moves it on.
+	remaining, err := s.ctrl.Store().ListRunnersForPool(r.Context(), id)
+	if err != nil {
+		s.internal(w, r, "checking whether the pool's runners have finished", err)
+		return
+	}
+	live := 0
+	for _, run := range remaining {
+		if !run.State.Terminal() {
+			live++
+		}
+	}
+	if live > 0 {
+		conflict(w, fmt.Sprintf("%s still has %s finishing, so it was not deleted: deleting the pool now would "+
+			"take their records with it and the jobs they are running would be killed a couple of minutes later. "+
+			"They have been told to stop and will go as their jobs finish; delete the pool again once they have. "+
+			"To stop them now and lose those jobs, delete it with force=true.",
+			p.Name, runnerCount(live)))
+		return
 	}
 
 	if err := s.ctrl.DeletePool(r.Context(), id); err != nil {
@@ -898,4 +935,12 @@ func emptyMap(in store.StringMap) map[string]string {
 		return map[string]string{}
 	}
 	return in
+}
+
+// runnerCount renders a count of runners for a sentence an operator reads.
+func runnerCount(n int) string {
+	if n == 1 {
+		return "1 runner"
+	}
+	return fmt.Sprintf("%d runners", n)
 }

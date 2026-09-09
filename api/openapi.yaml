@@ -836,6 +836,13 @@ paths:
       operationId: deletePool
       tags: [pools]
       summary: Delete a pool
+      description: >-
+        Deleting a pool deletes its runners' records with it, so it is refused
+        with 409 while any of them is still finishing a job. The refusal still
+        asks them to stop, so the call that follows it is the short one: delete
+        the pool again once they have gone. A pool whose runners are idle is
+        deleted in one call, because an idle runner is removed outright rather
+        than drained.
       x-zoomies-role: operator
       parameters:
         - name: drain
@@ -844,7 +851,9 @@ paths:
           schema: { type: boolean, default: true }
         - name: force
           in: query
-          description: Destroy runners immediately, interrupting any job they are running.
+          description: >-
+            Destroy runners immediately, interrupting any job they are running.
+            Deletes the pool in one call, because nothing is left to wait for.
           schema: { type: boolean, default: false }
       responses:
         "200":
@@ -856,6 +865,7 @@ paths:
                 properties:
                   runners_affected: { type: integer }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
 
   /pools/{id}/prewarm:
     post:
@@ -964,15 +974,27 @@ paths:
       operationId: deleteRunner
       tags: [runners]
       summary: Delete a runner
-      description: Without `force` this drains first, so a running job is never interrupted. The registration is removed from GitHub either way.
+      description: Without `force` this drains first, which still ends a running job after five minutes, so an unforced delete of a busy runner needs `confirm=true`. The registration is removed from GitHub either way.
       x-zoomies-role: operator
       parameters:
         - name: force
           in: query
           schema: { type: boolean, default: false }
+        - name: confirm
+          in: query
+          description: >-
+            Accept that a job running on this runner will be ended. Needed only
+            for an unforced delete of a busy runner, which drains it; `force`
+            already says the same thing more loudly.
+          schema: { type: boolean, default: false }
       responses:
         "202": { description: Accepted }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The runner is running a job and neither `force` nor `confirm` was set.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
   /runners/{id}/drain:
     parameters: [{ $ref: "#/components/parameters/PathID" }]
@@ -980,8 +1002,20 @@ paths:
       operationId: drainRunner
       tags: [runners]
       summary: Drain a runner
-      description: Finish the current job, then exit. Never interrupts work in progress.
+      description: >-
+        Stop taking new jobs, finish the current one, then exit. The runner is
+        given five minutes to finish and is then stopped, so draining a runner
+        that is busy ends its job and GitHub marks it failed. That is refused
+        with 409 unless `confirm=true` says the caller accepts it; a runner that
+        is not busy has nothing to lose and drains without it.
       x-zoomies-role: operator
+      parameters:
+        - name: confirm
+          in: query
+          description: >-
+            Accept that a job running on this runner will be ended. Required
+            only when the runner is busy.
+          schema: { type: boolean, default: false }
       responses:
         "202":
           description: Accepted
@@ -990,7 +1024,7 @@ paths:
               schema: { $ref: "#/components/schemas/Runner" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
-          description: The runner is already terminal.
+          description: The runner is already terminal, or it is running a job and `confirm` was not set.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -1032,6 +1066,13 @@ paths:
                 action: { type: string, enum: [drain, delete] }
                 ids: { type: array, items: { type: string }, minItems: 1, maxItems: 500 }
                 force: { type: boolean, default: false }
+                confirm:
+                  type: boolean
+                  default: false
+                  description: >-
+                    Accept that any runner in this batch which is running a job
+                    will lose it. Without it a busy runner comes back as its own
+                    failed row rather than failing the batch.
       responses:
         "200":
           description: Per-ID outcomes

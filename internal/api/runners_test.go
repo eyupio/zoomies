@@ -338,3 +338,42 @@ func TestTheTimelineNamesTheStageWithinAState(t *testing.T) {
 		}
 	}
 }
+
+// TestDrainingABusyRunnerOverTheAPINeedsConfirming is the HTTP half of the
+// confirmation. The gate lives in the controller so that no entry point can
+// bypass it, and this is what an operator, a script or curl actually meets.
+func TestDrainingABusyRunnerOverTheAPINeedsConfirming(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	host := h.host("vm-1")
+	busy := h.runner(pool, host, store.RunnerBusy)
+	_, cookie := h.user("operator", store.RoleOperator)
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/runners/" + busy.ID + "/drain", cookie: cookie})
+	resp.mustStatus(t, http.StatusConflict, "draining a busy runner without confirming")
+	if body := string(resp.body); !strings.Contains(body, "confirm=true") {
+		t.Errorf("the refusal does not say how to proceed:\n%s", body)
+	}
+	// It changed nothing.
+	if after, _ := h.st.GetRunner(h.ctx, busy.ID); after.State != store.RunnerBusy {
+		t.Errorf("runner state = %q, want busy", after.State)
+	}
+
+	ok := h.do(request{method: http.MethodPost, path: "/api/v1/runners/" + busy.ID + "/drain?confirm=true", cookie: cookie})
+	ok.mustStatus(t, http.StatusAccepted, "draining a busy runner with confirm=true")
+}
+
+// TestDrainingAnIdleRunnerOverTheAPINeedsNothing is the limit: the confirmation
+// must not become a tax on the ordinary case.
+func TestDrainingAnIdleRunnerOverTheAPINeedsNothing(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	host := h.host("vm-1")
+	idle := h.runner(pool, host, store.RunnerIdle)
+	_, cookie := h.user("operator", store.RoleOperator)
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/runners/" + idle.ID + "/drain", cookie: cookie})
+	resp.mustStatus(t, http.StatusAccepted, "draining an idle runner")
+}

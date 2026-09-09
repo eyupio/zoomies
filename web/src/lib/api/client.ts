@@ -313,8 +313,8 @@ export const getRunner = (id: string, signal?: AbortSignal) =>
 export const getRunnerTimeline = (id: string, signal?: AbortSignal) =>
   api.get<Result<'getRunnerTimeline'>>(`/runners/${enc(id)}/timeline`, { signal });
 
-export const drainRunner = (id: string) =>
-  api.post<Result<'drainRunner'>>(`/runners/${enc(id)}/drain`, {});
+export const drainRunner = (id: string, query?: Query<'drainRunner'>) =>
+  api.post<Result<'drainRunner'>>(`/runners/${enc(id)}/drain`, { query });
 
 export const deleteRunner = (id: string, query?: Query<'deleteRunner'>) =>
   api.del<Result<'deleteRunner'>>(`/runners/${enc(id)}`, { query });

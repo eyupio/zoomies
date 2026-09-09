@@ -843,7 +843,7 @@ func TestAStopTheHostNeverConfirmedFailsTheRunner(t *testing.T) {
 	pool := h.pool(inst, "linux-x64")
 	host := h.host("vm-1")
 	r := h.runnerRow(pool, host, store.RunnerIdle)
-	if _, err := h.c.DrainRunner(h.ctx, r.ID, "operator asked"); err != nil {
+	if _, err := h.c.DrainRunner(h.ctx, r.ID, "operator asked", false); err != nil {
 		t.Fatalf("DrainRunner: %v", err)
 	}
 	if !h.hasTaskOfKind(host.ID, agent.TaskStopRunner) {
@@ -1251,5 +1251,74 @@ func TestTheShedWaitRisesWithTheExcessAndIsCapped(t *testing.T) {
 	}
 	if got := shedFor(pollShedThreshold * 100); got != maxPollShed {
 		t.Fatalf("shedFor(a hundred times over) = %s, want the %s cap", got, maxPollShed)
+	}
+}
+
+// TestAHeartbeatDoesNotUndoAnOperatorsCordon covers the window between reading
+// a host row and writing it back.
+//
+// The heartbeat reads the host at the top of the request and, when anything the
+// agent reports has moved, wrote the whole row back. An operator who cordoned
+// the machine in the interval had their change overwritten with the pre-edit
+// value -- no error, nothing in the log, and the UI still showing it cordoned
+// because the cordon handler had already published its own view. The scheduler
+// reads the row, so the next pass puts runners on the machine somebody is about
+// to power off.
+//
+// The store already draws this line for the reserves, whose comment says a host
+// must not be able to talk its way out of the room its operator held back for
+// it. A cordon is the same thing said more loudly.
+func TestAHeartbeatDoesNotUndoAnOperatorsCordon(t *testing.T) {
+	h := newHarness(t)
+	tr := h.c.EmbeddedTransport()
+
+	resp, err := tr.Join(h.ctx, agent.JoinRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		Name:            "builder-1",
+		Capacity:        4,
+		OS:              "linux",
+		Arch:            "amd64",
+		Backends:        []backend.Info{{Kind: store.BackendDocker, Available: true, Version: "27.1.1"}},
+	})
+	if err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	tr.SetCredentials(resp.HostID, resp.AgentToken)
+
+	// The operator cordons the host for maintenance, and renames it.
+	if err := h.st.SetHostCordoned(h.ctx, resp.HostID, true); err != nil {
+		t.Fatalf("SetHostCordoned: %v", err)
+	}
+
+	// A heartbeat arrives carrying something new, so the row is written. The
+	// agent's copy of the host still says uncordoned.
+	if _, err := tr.Heartbeat(h.ctx, agent.HeartbeatRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		Capacity:        4,
+		Version:         "1.2.3",
+		CPUs:            16,
+		MemoryMB:        32768,
+		Backends: []backend.Info{{
+			Kind: store.BackendDocker, Available: true, Version: "27.2.0",
+		}},
+	}); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+
+	host, err := h.st.GetHost(h.ctx, resp.HostID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if !host.Cordoned {
+		t.Error("the heartbeat uncordoned a host its operator had just cordoned")
+	}
+	// And what the agent legitimately reports still lands, or the narrower
+	// write has thrown away the point of the heartbeat.
+	if host.Version != "1.2.3" || host.CPUs != 16 || host.MemoryMB != 32768 {
+		t.Errorf("host = version %q cpus %d memory %d, want the values the agent reported",
+			host.Version, host.CPUs, host.MemoryMB)
+	}
+	if info, ok := host.BackendInfo.Find(store.BackendDocker); !ok || info.Version != "27.2.0" {
+		t.Errorf("backend info = %+v, want the version the agent reported", host.BackendInfo)
 	}
 }
