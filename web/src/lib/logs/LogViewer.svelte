@@ -107,6 +107,16 @@
   let queue: string[] = [];
   let opens = 0;
   let disposed = false;
+  /**
+   * True while the viewer is moving the viewport itself.
+   *
+   * Follow is turned off by a scroll *away from the bottom*, and a resize is
+   * one: re-fitting the terminal changes the number of rows, which moves the
+   * viewport before we have put it back. Without this the viewer would drop out
+   * of follow the first time the log pane changed size -- including the re-fit
+   * the web font triggers a beat after the page loads.
+   */
+  let adjusting = false;
 
   /**
    * Our own copy of the lines, bounded to the scrollback.
@@ -120,6 +130,16 @@
   let mirror: string[] = [];
   /** The last line so far, still waiting for its newline. */
   let partial = '';
+
+  /** Run something that moves the viewport without reading it as the operator scrolling. */
+  function adjust(move: () => void): void {
+    adjusting = true;
+    try {
+      move();
+    } finally {
+      adjusting = false;
+    }
+  }
 
   /* -- theme ---------------------------------------------------------------
    * The palette comes from the design tokens rather than a hard-coded terminal
@@ -218,9 +238,15 @@
     const batch = queue.join('');
     queue = [];
     if (!term) return;
-    term.write(batch);
+    const target = term;
+    // `write` is asynchronous: xterm parses on its own schedule, so scrolling
+    // here would scroll to where the bottom was before this batch. The callback
+    // runs once the batch is on the buffer, which is the only moment at which
+    // "the bottom" means the end of what just arrived.
+    target.write(batch, () => {
+      if (follow && term === target) adjust(() => target.scrollToBottom());
+    });
     record(batch);
-    if (follow) term.scrollToBottom();
   }
 
   /** Keep the mirror and the counters in step with what was just written. */
@@ -277,10 +303,16 @@
     wrap = on;
     if (!term) return;
     const text = replay();
-    term.reset();
-    prepare(term);
-    if (text !== '') term.write(text);
-    if (follow) term.scrollToBottom();
+    const target = term;
+    adjust(() => {
+      target.reset();
+      prepare(target);
+    });
+    const settled = () => {
+      if (follow) adjust(() => target.scrollToBottom());
+    };
+    if (text !== '') target.write(text, settled);
+    else settled();
     announcement = on ? 'Long lines wrap.' : 'Long lines are cut off at the right edge.';
   }
 
@@ -291,8 +323,11 @@
     missedLines = 0;
     cleared = true;
     if (term) {
-      term.reset();
-      prepare(term);
+      const target = term;
+      adjust(() => {
+        target.reset();
+        prepare(target);
+      });
     }
     announcement = 'Cleared what was on screen. Nothing on the host was deleted.';
   }
@@ -301,7 +336,8 @@
     follow = on;
     if (!on) return;
     missedLines = 0;
-    term?.scrollToBottom();
+    const target = term;
+    if (target) adjust(() => target.scrollToBottom());
   }
 
   /* -- the stream ----------------------------------------------------------- */
@@ -372,8 +408,12 @@
       // appeared is exactly the jank this viewer exists to avoid.
       if (!proposed || proposed.cols < 1 || proposed.rows < 1) return;
       if (proposed.cols === term.cols && proposed.rows === term.rows) return;
-      fit.fit();
-      if (follow) term.scrollToBottom();
+      const target = term;
+      const fitter = fit;
+      adjust(() => {
+        fitter.fit();
+        if (follow) target.scrollToBottom();
+      });
     }, FIT_DEBOUNCE_MS);
   }
 
@@ -492,6 +532,7 @@
       });
 
       instance.onScroll(() => {
+        if (adjusting) return;
         const buffer = instance.buffer.active;
         // Leaving the bottom is what turns follow off -- including when a search
         // jumps to a match, which is precisely when it should stop moving.
@@ -516,8 +557,15 @@
       }
 
       element.addEventListener('keydown', onTerminalKeydown);
+      // Both boxes matter. The pane is the obvious one; the terminal itself is
+      // the one that catches a cell size that changed underneath a fitted
+      // terminal, which is what the mono web font does when it finishes loading
+      // a beat after the viewer opens -- taller cells, the same row count, and
+      // a terminal standing several rows proud of the pane clipping it. Fitting
+      // to a size change of either keeps the last line on screen.
       observer = new ResizeObserver(() => scheduleFit());
       observer.observe(element);
+      if (instance.element) observer.observe(instance.element);
 
       ready = true;
       connect();
@@ -805,8 +853,16 @@
   }
   .screen {
     position: absolute;
-    inset: 0;
-    padding: var(--z-space-2);
+    /* The gutter is an inset rather than padding: the fit addon decides how
+       many rows fit from this element's height, but the only padding it takes
+       off is the terminal's own. Padding here would never be subtracted, and
+       the last rows would hang below the pane. */
+    inset: var(--z-space-2);
+    /* xterm's internal layers carry z-indexes of their own -- the link layer is
+       a full-size canvas at 2 -- and without a stacking context here they climb
+       out of the terminal and cover the jump button, which then cannot be
+       clicked. */
+    isolation: isolate;
     font-family: var(--z-font-mono);
     font-size: var(--z-text-xs);
     line-height: var(--z-leading-xs);
@@ -830,6 +886,7 @@
   }
   .jump {
     position: absolute;
+    z-index: 1;
     left: 50%;
     bottom: var(--z-space-4);
     transform: translateX(-50%);
