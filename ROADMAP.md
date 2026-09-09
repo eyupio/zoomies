@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.30 · 9 September 2026 · derived from the owner's
+Version 2.31 · 9 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -1757,6 +1757,24 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **9 September 2026 — Version 2.31:** the restore-and-rollback drill Gate F's
+  sixth bullet asks for, in the two tiers its halves belong to, and both were
+  weaker than they looked. The restore drill stopped at "the fence lifts and the
+  controller answers", which proves a fleet *starts*; it now runs a job on the
+  restored database, with the agent never told any of it happened. And the
+  upgrade check now rolls back — the old binary started again on the copy the
+  new build took before migrating. **Written the obvious way, that check passed
+  without restoring anything at all.** The published release predates the ledger
+  check that refuses a database written by a newer build, so it comes up on the
+  migrated one and looks perfectly healthy: the silent start
+  `docs/upgrading.md` warns about, and what somebody rolling back under pressure
+  would read as success. The check asserts the schema went back now, and the
+  documentation says plainly that rolling back *to* `0.2-beta` is the one case
+  where nothing will stop you. Twice in two days a check has passed for a reason
+  that was not the one it claimed — a directory that outlived its process, and
+  now a binary that started on the wrong database. Both were caught by asking
+  what would have to be true for the assertion to be worth making.
 
 * **9 September 2026 — Version 2.30:** two more fault drills, and the second
   one found a defect in the stand-down ZF-105 built. A rate limit is the fault

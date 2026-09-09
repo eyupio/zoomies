@@ -174,7 +174,11 @@ every pool on it belongs to that installation.
 command that removes one.
 
 An older binary started against a newer database **refuses to start**, and says
-which migrations it does not have. SQLite itself does not object — it has no
+which migrations it does not have. That check arrived after `0.2-beta`, so
+rolling back *to* `0.2-beta` itself is the one case where nothing stops you:
+that release will come up on a migrated database and look perfectly healthy.
+Put the pre-upgrade copy back alongside the binary, which is what the rest of
+this section is about. SQLite itself does not object — it has no
 opinion about columns nobody reads — which is exactly why the check exists:
 without it, the older binary comes up, looks healthy, reads columns whose
 meaning it does not know and writes rows the newer one will not accept, and
