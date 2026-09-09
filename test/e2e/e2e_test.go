@@ -266,7 +266,57 @@ func TestEphemeralRunnerRunsARealJob(t *testing.T) {
 		t.Errorf("runner handled %d jobs, want exactly 1 (it is ephemeral)", final.JobsHandled)
 	}
 
-	// 8. The two checks that are the point of running this against reality.
+	// 8. The numbers the Overview draws, from this run's own job.
+	//
+	//    The tiers below this one can assert that the figures are computed;
+	//    only this one can say they are computed from a real job, and the
+	//    Overview is where an operator looks the moment their first job
+	//    finishes. A run whose timestamps are missing or out of order renders
+	//    as a job that took no time at all.
+	var timing struct {
+		QueuedAt    string `json:"queued_at"`
+		StartedAt   string `json:"started_at"`
+		CompletedAt string `json:"completed_at"`
+	}
+	api.get("/jobs/"+ourJob.ID, &timing)
+	queued, started, completed := parseTime(t, timing.QueuedAt, "queued_at"),
+		parseTime(t, timing.StartedAt, "started_at"), parseTime(t, timing.CompletedAt, "completed_at")
+	if started.Before(queued) || completed.Before(started) {
+		t.Errorf("the job's timestamps are out of order: queued %s, started %s, completed %s",
+			timing.QueuedAt, timing.StartedAt, timing.CompletedAt)
+	}
+	if d := completed.Sub(started); d <= 0 {
+		t.Errorf("the job ran for %s; the Overview would show it as having taken no time", d)
+	}
+
+	var stats struct {
+		Window       string `json:"window"`
+		Completed    int    `json:"completed"`
+		Succeeded    int    `json:"succeeded"`
+		MedianWaitMS int64  `json:"median_wait_ms"`
+		Fleet        struct {
+			Completed int `json:"completed"`
+			Succeeded int `json:"succeeded"`
+		} `json:"fleet"`
+	}
+	api.get("/stats", &stats)
+	if stats.Window == "" {
+		t.Error("the statistics payload names no window, so the Overview cannot say what period it is showing")
+	}
+	if stats.Completed < 1 || stats.Succeeded < 1 {
+		t.Errorf("stats report %d completed and %d succeeded after a successful run", stats.Completed, stats.Succeeded)
+	}
+	// The fleet-scoped half is the one that answers "what did *my* runners
+	// do", and it is the figure the Overview shows by default.
+	if stats.Fleet.Completed < 1 || stats.Fleet.Succeeded < 1 {
+		t.Errorf("fleet-scoped stats report %d completed and %d succeeded; this job ran on a runner this controller created",
+			stats.Fleet.Completed, stats.Fleet.Succeeded)
+	}
+	if stats.MedianWaitMS < 0 {
+		t.Errorf("median wait is %dms", stats.MedianWaitMS)
+	}
+
+	// 9. The two checks that are the point of running this against reality.
 	//    Both ask something other than Zoomies, because "did Zoomies clean up?"
 	//    answered by Zoomies is not evidence.
 	orphans, err := githubRunnersWithLabel(e, label)
@@ -287,6 +337,20 @@ func TestEphemeralRunnerRunsARealJob(t *testing.T) {
 		t.Errorf("the host still has %d container(s) for this run's pool: %s",
 			len(left), strings.Join(left, "; "))
 	}
+}
+
+// parseTime reads one of the API's timestamps, failing with the field's name:
+// "cannot parse" on its own does not say which of three it was.
+func parseTime(t *testing.T, value, field string) time.Time {
+	t.Helper()
+	if value == "" {
+		t.Fatalf("the completed job carries no %s", field)
+	}
+	at, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		t.Fatalf("%s = %q, which is not RFC 3339: %v", field, value, err)
+	}
+	return at
 }
 
 // sweep clears what earlier runs left behind, before this run creates

@@ -33,6 +33,12 @@ const PAGES = [
   { path: '/jobs', heading: 'Jobs' },
   { path: '/usage', heading: 'Usage' },
   { path: '/hosts', heading: 'Hosts' },
+  // The two journey pages. They are not in the navigation, which is exactly
+  // why they were missed: an operator setting a fleet up for the first time
+  // spends more time on these than on anything in the sidebar, and every
+  // control on them is one they have never seen before.
+  { path: '/hosts/new', heading: 'Add a host' },
+  { path: '/pools/new', heading: 'Create a pool' },
   { path: '/installations', heading: 'Installations' },
   { path: '/migrate', heading: 'Migrate repositories' },
   { path: '/audit', heading: 'Audit' },

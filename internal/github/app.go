@@ -262,10 +262,20 @@ func (a *AppInfo) MissingRequirements(kind store.TargetType) []string {
 	}
 	need("actions", "read", "Actions")
 	need("metadata", "read", "Metadata")
-	if !slices.Contains(a.Events, "workflow_job") {
-		out = append(out, `the App is not subscribed to the "workflow_job" event, so Zoomies will only see queued jobs when the fallback poller runs`)
-	}
 	return out
+}
+
+// SubscribedToJobs reports whether the App will be told about queued jobs.
+//
+// It is deliberately not one of MissingRequirements: every one of those is a
+// permission the fleet cannot work without, and this is a subscription the
+// fleet works without -- more slowly, on the fallback poller, which is a
+// supported way to run. Bundling the two made a probe return an error for an
+// App with every permission it needs, so an installation that was merely slower
+// was recorded as unhealthy and the verify dialog's own "will run on the
+// fallback poller" sentence could never be reached.
+func (a *AppInfo) SubscribedToJobs() bool {
+	return slices.Contains(a.Events, "workflow_job")
 }
 
 func describeLevel(got string) string {

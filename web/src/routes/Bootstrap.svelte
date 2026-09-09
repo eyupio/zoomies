@@ -159,7 +159,7 @@
       }
       toasts.success(
         `Signed in as ${identity?.name ?? username.trim()}`,
-        'Three steps left: connect GitHub, create a pool, then point a workflow at it.',
+        'Next: connect a GitHub App. The checklist on the Overview says what is left after that.',
       );
       router.navigate('/');
     } catch (cause) {
@@ -181,14 +181,22 @@
   <div class="brand">
     <Logo variant="lockup" size={96} label="Zoomies" />
   </div>
-  <p class="step">Step 1 of 4</p>
+  <!-- "First", not "1 of 4". How many steps there are depends on what this
+       install is: a controller with an agent of its own has one fewer than one
+       without, and this page runs before there is a session to ask with. The
+       Overview's checklist counts the real list from the fleet's own state, so
+       this says only which end of it we are at. -->
+  <p class="step">First step</p>
   <h1>Create the first administrator</h1>
   <p class="lede">
     Nobody has an account on this controller yet. This form creates the first one, with the admin
     role, and stops being available the moment it exists. The setup token is how it knows you are
     the one who deployed this controller.
   </p>
-  <p class="next">Then: connect a GitHub App, create a pool, and point a workflow at it.</p>
+  <p class="next">
+    Then: connect a GitHub App, add a host if this controller has no agent of its own, create a
+    pool, and point a workflow at it. The Overview keeps the list and ticks it off.
+  </p>
 
   {#if failure}
     <div class="failure" role="alert">

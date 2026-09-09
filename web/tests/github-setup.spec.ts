@@ -35,3 +35,35 @@ test('the callback with nothing on it is still a page, not a dead end', async ({
   await goto(page, '/settings/github/setup', 'Installations');
   await expect(page.getByRole('dialog', { name: 'Connect GitHub' })).toBeHidden();
 });
+
+/**
+ * Verify, driven from the browser, with no fake in the way.
+ *
+ * The Playwright suite drives the real binary, but its GitHub is an in-process
+ * fake the browser cannot reach -- so the connect and verify paths were tested
+ * at the API and never through the dialog an operator actually uses. The demo
+ * installation closes that gap without any credentials: its probe answers
+ * deterministically, with every permission granted and `workflow_job`
+ * subscribed, so the dialog has something real to render.
+ */
+test('the verify dialog says what the credentials can do', async ({ page }) => {
+  await goto(page, '/installations', 'Installations');
+
+  const card = page.getByRole('article').first();
+  await expect(card).toBeVisible();
+  await card.getByRole('button', { name: /Verify/ }).click();
+
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  // The verdict in a sentence, then the permissions by name: "403" is what the
+  // dialog exists to avoid showing.
+  await expect(dialog).toContainText(/credentials work/i);
+  await expect(dialog).toContainText(/self.hosted runners|organization_self_hosted_runners/i);
+  await expect(dialog).toContainText('workflow_job');
+  // And nothing is reported missing on an installation that has everything --
+  // a dialog that lists a gap on a healthy App teaches an operator to ignore it.
+  await expect(dialog).not.toContainText(/is not granted/i);
+
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+});

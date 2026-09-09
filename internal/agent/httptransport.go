@@ -440,7 +440,21 @@ func (t *HTTPTransport) Join(ctx context.Context, req JoinRequest) (*JoinRespons
 		req.ProtocolVersion = ProtocolVersion
 	}
 	var out JoinResponse
-	if _, err := t.call(ctx, request{method: http.MethodPost, path: PathJoin, body: req, out: &out, anonymous: true}); err != nil {
+	status, err := t.call(ctx, request{method: http.MethodPost, path: PathJoin, body: req, out: &out, anonymous: true})
+	if err != nil {
+		// A refused join token is 422 here, not 401: the route is anonymous, so
+		// there is no credential to be unauthorised -- what was rejected is the
+		// token in the body. The installer's remedy for a spent or mistyped
+		// token keys on ErrUnauthorized, so without this it never fired for the
+		// one case it was written for, and an operator whose token had expired
+		// was shown "returned HTTP 422" and left to work it out.
+		//
+		// Only on this route: 422 anywhere else is a malformed request, and
+		// calling that a credential problem would send the next person to
+		// re-mint a token that was never the trouble.
+		if status == http.StatusUnprocessableEntity {
+			return nil, fmt.Errorf("%w: %w", ErrUnauthorized, err)
+		}
 		return nil, err
 	}
 	if out.HostID == "" || out.AgentToken == "" {

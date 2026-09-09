@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.24 · 9 September 2026 · derived from the owner's
+Version 2.25 · 9 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident and the deferred host-stewardship slice.
@@ -1757,6 +1757,25 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **9 September 2026 — Version 2.25:** ZF-201's first pull request is done, and
+  its three defects were all the same kind of thing: the product saying
+  something that was not true on the journey a new operator takes. The bootstrap
+  page claimed a length it cannot know — four steps, while the Overview's
+  checklist draws five on exactly the install that reaches it. The installer's
+  remedy for a spent join token had never fired, because a refused token on an
+  anonymous route is a 422 and the transport mapped only 401. **And the third
+  was larger than the package recorded**: `MissingRequirements` bundled the
+  `workflow_job` subscription in with the permissions, so an App with every
+  permission it needs but no subscription probed as a *broken credential* and
+  was recorded unhealthy — while the fleet it describes works perfectly well on
+  the fallback poller, which is a supported way to run. Every other entry in
+  that list is something the fleet cannot work without; that one is something it
+  works without. Writing the dialog's own test then found a fourth: the demo
+  client's shortcut lived at one call site, so pressing Verify on the seeded
+  installation — the one a new fleet has — answered "the stored private key is
+  not a PEM-encoded RSA key". It is in the client cache now, where every path
+  goes through it.
 
 * **9 September 2026 — Version 2.24:** ZF-103's third pull request is done, and
   with it Phase 1: every package in it is `done`. The reserve had a column, a
