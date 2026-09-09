@@ -615,3 +615,53 @@ func TestARedeliveredCreateReportsTheRunnerThatAlreadyExists(t *testing.T) {
 		t.Fatalf("Create called %d times, want the one that made the runner", created)
 	}
 }
+
+// The controller sheds load by asking every agent it is holding to wait, so it
+// asks them all in the same instant. Waiting exactly as long as it asked would
+// bring the whole fleet back together and re-form the queue the backoff was
+// spreading out, so the wait is jittered.
+func TestAShedBackoffIsSpreadRatherThanWaitedExactly(t *testing.T) {
+	const asked = 10 * time.Second
+	batch := &TaskBatch{Backoff: asked}
+
+	seen := map[time.Duration]bool{}
+	for range 50 {
+		got := pollWait(batch, 0)
+		if got <= 0 || got > asked {
+			t.Fatalf("wait of %s for a %s backoff: it should be shorter, and it should still be a wait", got, asked)
+		}
+		seen[got] = true
+	}
+	if len(seen) == 1 {
+		t.Fatal("every agent asked to wait would return in the same instant, which is the queue the backoff exists to spread")
+	}
+}
+
+// A backoff is the controller's answer, not a suggestion to weigh against the
+// spin guard: an agent that found no work still waits for it.
+func TestABackoffOutranksTheSpinGuard(t *testing.T) {
+	if got := pollWait(&TaskBatch{Backoff: time.Second}, time.Hour); got < 500*time.Millisecond {
+		t.Fatalf("wait = %s after a poll that took an hour, want most of the second the controller asked for", got)
+	}
+}
+
+// A batch with work in it is dispatched and polled again straight away: the
+// spin guard exists for an idle loop, and applying it to a busy one would put
+// a floor under how fast a host can be given its next task.
+func TestABatchWithWorkIsPolledAgainImmediately(t *testing.T) {
+	batch := &TaskBatch{Tasks: []Task{{ID: "t1", Kind: TaskCreateRunner}}}
+	if got := pollWait(batch, 0); got != 0 {
+		t.Fatalf("wait = %s after a batch with work in it, want none", got)
+	}
+}
+
+// An idle poll the controller answered instantly is held off, or the loop
+// would spin at whatever rate it can dial.
+func TestAnInstantIdlePollIsHeldOff(t *testing.T) {
+	if got := pollWait(&TaskBatch{}, 0); got != minPollInterval {
+		t.Fatalf("wait = %s after an instant empty poll, want the %s floor", got, minPollInterval)
+	}
+	if got := pollWait(&TaskBatch{}, minPollInterval); got != 0 {
+		t.Fatalf("wait = %s after a poll that already took the floor, want none", got)
+	}
+}

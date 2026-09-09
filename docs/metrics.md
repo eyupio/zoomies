@@ -92,6 +92,7 @@ will not fire when the numbers stop arriving altogether.
 | `zoomies_webhook_deliveries_total` | counter | `status` | Inbound deliveries by `accepted`, `rejected` or `error`. A rising `rejected` count is a signing-secret mismatch or somebody probing. |
 | `zoomies_runner_cleanups_total` | counter | `outcome` | Attempts to take a runner off its host: `succeeded`, or `failed` and recorded on the runner's row. This is the half of a runner's life that goes wrong on the host rather than in the fleet, so it appears in no other series here. |
 | `zoomies_reconcile_errors_total` | counter | — | Reconcile passes that failed. A pass that fails observes no duration, so without this a controller deciding nothing looks exactly like one with nothing to decide. |
+| `zoomies_agent_polls_shed_total` | counter | — | Task polls answered with a backoff because the controller was holding too many at once. A fleet that keeps working while every host hears about its tasks a little later moves nothing else here, so this is the only place that pressure shows. |
 | `zoomies_github_api_requests_total` | counter | `installation`, `result` | GitHub API calls by outcome: `ok`, `rate_limited`, `forbidden`, `not_found`, `error`. Where rate-limiting and a broken installation become visible. |
 
 Every `pool` label is the pool's **name**, so a query can join these against

@@ -1190,3 +1190,66 @@ func truncateValue(s string) string {
 	}
 	return s
 }
+
+// A controller holding more polls than it wants to asks the agents it answers
+// to come back less often. The pressure it is shedding is the fleet's size
+// rather than its workload -- an idle host still costs a held connection --
+// so nothing else about the fleet says it is happening.
+func TestATaskPollFindingNothingIsAskedToWaitWhenTheControllerIsHoldingTooMany(t *testing.T) {
+	h := newHarness(t)
+	h.c.pollsInFlight.Store(pollShedThreshold * 2)
+
+	batch, err := h.c.PollTasks(h.ctx, "host_quiet", 10*time.Millisecond)
+	if err != nil {
+		t.Fatalf("PollTasks: %v", err)
+	}
+	if batch.Backoff <= 0 {
+		t.Fatalf("batch = %+v, want a backoff: %d polls are in flight and the threshold is %d",
+			batch, h.c.pollsInFlight.Load(), pollShedThreshold)
+	}
+}
+
+// Work is never delayed to shed load. The long poll exists so that a task
+// reaches its host in the instant it is queued, and a controller that held a
+// created runner back for fifteen seconds because it was busy would be slower
+// exactly when the fleet needed it to be quick.
+func TestABatchWithWorkInItIsNeverAskedToWait(t *testing.T) {
+	h := newHarness(t)
+	h.c.pollsInFlight.Store(pollShedThreshold * 10)
+	h.c.enqueue("host_busy", agent.Task{Kind: agent.TaskRemoveRunner, RunnerID: "run_1"})
+
+	batch, err := h.c.PollTasks(h.ctx, "host_busy", 10*time.Millisecond)
+	if err != nil {
+		t.Fatalf("PollTasks: %v", err)
+	}
+	if len(batch.Tasks) != 1 {
+		t.Fatalf("batch = %+v, want the queued task", batch)
+	}
+	if batch.Backoff != 0 {
+		t.Fatalf("batch carries a %s backoff with work in it", batch.Backoff)
+	}
+}
+
+// A quiet fleet is asked for nothing at all, so the mechanism costs a single
+// deployment nothing.
+func TestShedForAsksAFleetUnderTheThresholdForNothing(t *testing.T) {
+	for _, inFlight := range []int64{0, 1, pollShedThreshold} {
+		if got := shedFor(inFlight); got != 0 {
+			t.Errorf("shedFor(%d) = %s, want no wait at all", inFlight, got)
+		}
+	}
+}
+
+// The wait rises with the excess rather than switching on: a step would move
+// the whole fleet between two duty cycles at once and oscillate around the
+// threshold. It is capped, because a fleet twice the size it should be is
+// still a fleet that has to start runners.
+func TestTheShedWaitRisesWithTheExcessAndIsCapped(t *testing.T) {
+	small, large := shedFor(pollShedThreshold+8), shedFor(pollShedThreshold+64)
+	if small <= 0 || large <= small {
+		t.Fatalf("waits of %s then %s: a bigger excess should ask for a longer wait", small, large)
+	}
+	if got := shedFor(pollShedThreshold * 100); got != maxPollShed {
+		t.Fatalf("shedFor(a hundred times over) = %s, want the %s cap", got, maxPollShed)
+	}
+}
