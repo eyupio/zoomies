@@ -177,19 +177,23 @@ jobs:
           headers = {"Accept": "application/vnd.github+json"}
           if token:
               headers["Authorization"] = "token " + token
-          req = urllib.request.Request(
-              f"https://api.github.com/repos/{repo}/releases?per_page=20",
-              headers=headers,
-          )
-          with urllib.request.urlopen(req, timeout=30) as resp:
-              releases = json.load(resp)
-          for release in releases:
-              names = {a.get("name") for a in release.get("assets", [])}
-              if asset in names:
-                  print(release["tag_name"])
+          page = 1
+          while True:
+              req = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/releases?per_page=100&page={page}",
+                  headers=headers,
+              )
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  releases = json.load(resp)
+              if not releases:
                   break
-          else:
-              raise SystemExit(f"no published release has the {asset} asset")
+              for release in releases:
+                  names = {a.get("name") for a in release.get("assets", [])}
+                  if asset in names:
+                      print(release["tag_name"])
+                      raise SystemExit(0)
+              page += 1
+          raise SystemExit(f"no published release has the {asset} asset")
           PY
           )
           echo "ZOOMIES_VERSION=$tag" >> "$GITHUB_ENV"
