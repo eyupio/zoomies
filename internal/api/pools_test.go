@@ -1268,3 +1268,73 @@ func TestForceDeletingAPoolDoesNotWait(t *testing.T) {
 		t.Error("a forced delete left the pool behind")
 	}
 }
+
+// A pool's env values must not reach the audit log, in any row it writes.
+//
+// This is the leak that made it necessary. Responses and the event stream take
+// env values out for anyone below operator, but the audit trail was written
+// from the raw store row and trusted auth.Redact to clean it. Redact matches
+// names against a fixed word list, so it blanked GITHUB_TOKEN and let
+// DEPLOY_KEY, NEXUS_PW and REGISTRY_AUTH through in full -- and audit rows are
+// readable at viewer, are never pruned, and outlive the pool. A viewer who
+// could not read the pool's env could read it out of the pool's own create row
+// for the life of the database.
+//
+// The keys are still expected: which variable changed is what the row is for.
+func TestAPoolsEnvValuesNeverReachTheAuditLog(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	_, cookie := h.user("admin@example.com", store.RoleAdmin)
+
+	// Deliberately named the way an operator names things, rather than the way
+	// a word list hopes they will.
+	secrets := map[string]string{
+		"DEPLOY_KEY":    "-----BEGIN OPENSSH PRIVATE KEY-----zzzz-----END-----",
+		"NEXUS_PW":      "hunter2",
+		"REGISTRY_AUTH": "dXNlcjpwYXNzd29yZA==",
+		"GITHUB_TOKEN":  "ghp_shouldalsonotappear",
+	}
+	body := poolBody(inst.ID)
+	body["env"] = secrets
+
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: body})
+	created.mustStatus(t, http.StatusCreated, "create")
+	var pool poolResponse
+	created.into(t, &pool)
+
+	// Change it and delete it, so create, update and delete rows all exist.
+	patched := h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + pool.ID, cookie: cookie,
+		body: map[string]any{"max_runners": 9}})
+	patched.mustStatus(t, http.StatusOK, "patch")
+	deleted := h.do(request{method: http.MethodDelete, path: "/api/v1/pools/" + pool.ID, cookie: cookie})
+	deleted.mustStatus(t, http.StatusOK, "delete")
+
+	rows, _, err := h.st.ListAudit(h.ctx, store.AuditFilter{}, store.Page{Limit: 50})
+	if err != nil {
+		t.Fatalf("ListAudit: %v", err)
+	}
+	var poolRows int
+	for _, row := range rows {
+		if row.TargetKind != "pool" {
+			continue
+		}
+		poolRows++
+		for name, value := range secrets {
+			for _, doc := range []struct{ where, body string }{
+				{"before", row.Before},
+				{"after", row.After},
+			} {
+				if strings.Contains(doc.body, value) {
+					t.Errorf("the %s row's %s carries %s in full:\n%s", row.Action, doc.where, name, doc.body)
+				}
+			}
+			// The key is the part worth keeping.
+			if row.Action == "pool.create" && !strings.Contains(row.After, name) {
+				t.Errorf("the create row's after dropped the key %s, which is what the row is read for:\n%s", name, row.After)
+			}
+		}
+	}
+	if poolRows == 0 {
+		t.Fatal("no pool audit rows at all, so this test proved nothing")
+	}
+}

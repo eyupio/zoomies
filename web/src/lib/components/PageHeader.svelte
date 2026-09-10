@@ -159,6 +159,15 @@
   .actions {
     display: flex;
     align-items: center;
+    /* Wraps rather than pushing the page out from under itself. The row above
+       already drops this block onto its own line, but a button does not wrap
+       its own label, so a detail page carrying five of them -- refresh,
+       prewarm, disable, edit, delete -- asked for 538px inside a 412px phone
+       and got it: the name was cut off mid-word, the cards were clipped on the
+       left, and Delete sat off the right edge where it could not be pressed.
+       The `width: 100%` below made the block wide without letting it wrap,
+       which is why the breakpoint alone did not save it. */
+    flex-wrap: wrap;
     gap: var(--z-space-2);
   }
   @media (max-width: 768px) {

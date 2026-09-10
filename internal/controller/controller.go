@@ -132,6 +132,12 @@ type Controller struct {
 	// says out loud because a fleet scaling on the poller looks healthy until
 	// somebody wonders why it is slow.
 	pollingOnly atomic.Bool
+
+	// webhookProbes bounds what a stream of unverifiable deliveries from one
+	// address can write to the database, the log and the event stream. Only
+	// the rejected path consults it: a delivery that verifies came from
+	// GitHub, and GitHub is never throttled here.
+	webhookProbes *auth.RateLimiter
 	// lastPollAt is when a poller sweep last finished, as UnixNano, or zero if
 	// none has. It is what says the safety net is still there: a poller that
 	// has stopped sweeping looks exactly like a poller with nothing to do, and
@@ -276,21 +282,25 @@ func New(opts Options) (*Controller, error) {
 	}
 
 	c := &Controller{
-		st:               opts.Store,
-		lease:            opts.Lease,
-		live:             config.NewLive(opts.Config),
-		logLevel:         opts.LogLevel,
-		key:              opts.Key,
-		authsvc:          authsvc,
-		bus:              bus,
-		factory:          factory,
-		backends:         opts.Backends,
-		log:              log,
-		clock:            clock,
-		httpClient:       opts.HTTPClient,
-		nudges:           make(chan struct{}, 1),
-		settingsChanged:  make(chan struct{}, 1),
-		hostHealthy:      map[string]bool{},
+		st:              opts.Store,
+		lease:           opts.Lease,
+		live:            config.NewLive(opts.Config),
+		logLevel:        opts.LogLevel,
+		key:             opts.Key,
+		authsvc:         authsvc,
+		bus:             bus,
+		factory:         factory,
+		backends:        opts.Backends,
+		log:             log,
+		clock:           clock,
+		httpClient:      opts.HTTPClient,
+		nudges:          make(chan struct{}, 1),
+		settingsChanged: make(chan struct{}, 1),
+		hostHealthy:     map[string]bool{},
+		// Generous next to what GitHub sends and mean next to what a probe
+		// wants: a real delivery never reaches this limiter, and a prober gets
+		// sixty rows a minute rather than as many as it can open connections.
+		webhookProbes:    auth.NewRateLimiter(60, time.Minute, clock),
 		loopRestartDelay: time.Second,
 		resynced:         map[string]bool{},
 	}

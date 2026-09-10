@@ -360,3 +360,98 @@ func TestTheAppSetupURLOutlivesTheHandshake(t *testing.T) {
 		t.Errorf("redirect_url = %q, want this handshake's listener %q", got.RedirectURL, srv.CallbackURL())
 	}
 }
+
+// A code with no state at all must be refused, not waved through.
+//
+// The guard used to run only when a state was present, so omitting it skipped
+// the check rather than failing it. That matters more than it looks: this
+// listener is on loopback, which keeps the network out but not the browser --
+// any page the operator has open can navigate to a guessed port on 127.0.0.1,
+// and it does not need to read the reply for the code to land. Exchanged, a
+// code yields the App's client secret, private key and webhook secret, so an
+// operator finishing setup could be handed somebody else's App, and nothing
+// about the run would look wrong.
+func TestCallbackServerRefusesACodeWithNoState(t *testing.T) {
+	c, srv := newTestCallbackServer(t)
+
+	resp, err := srv.Client().Get(srv.URL + "/callback?code=attacker-code")
+	if err != nil {
+		t.Fatalf("callback: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: a code with no state was accepted", resp.StatusCode)
+	}
+
+	// Nothing may reach the waiter, or the exchange happens anyway.
+	select {
+	case res := <-c.results:
+		t.Fatalf("the code reached the installer: %+v", res)
+	default:
+	}
+	select {
+	case <-c.stateErrs:
+	default:
+		t.Error("the refusal was not reported, so the operator would see a timeout instead")
+	}
+}
+
+// A name that resolves to 127.0.0.1 reaches this listener however loopback it
+// is bound, and the address check cannot see the difference. The Host header
+// can: a rebound name arrives under its own name, not under the address the
+// installer told the operator to open.
+func TestCallbackServerRefusesAReboundHost(t *testing.T) {
+	_, srv := newTestCallbackServer(t)
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/callback?installation_id=987654", nil)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	req.Host = "setup.attacker.example"
+
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("callback: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: a rebound host was served", resp.StatusCode)
+	}
+}
+
+// Stopping the handshake has to stop the reader, even though the install
+// carries on.
+//
+// The paste reader takes the same stdin every later prompt takes. Started on
+// the install's own context it kept scanning for the whole run, so the operator
+// typing their administrator password was typing into a terminal with two
+// readers on it -- and on the `curl | sh` path that password is the first thing
+// they type after the handshake.
+func TestThePasteReaderStopsWhenTheHandshakeDoesNotWhenTheInstallDoes(t *testing.T) {
+	install, cancelInstall := context.WithCancel(context.Background())
+	defer cancelInstall()
+
+	i := &Installer{in: strings.NewReader("pasted-code\nthe-operators-password\n")}
+	paste, stopPaste := i.pasteReader(install)
+
+	if got := <-paste; got != "pasted-code" {
+		t.Fatalf("first line = %q, want the pasted code", got)
+	}
+
+	// The handshake is over. The install is not.
+	stopPaste()
+	if install.Err() != nil {
+		t.Fatalf("stopping the handshake cancelled the whole install: %v", install.Err())
+	}
+
+	// The reader must be finished with stdin: the channel closes and the line
+	// after the paste is never taken.
+	select {
+	case line, open := <-paste:
+		if open {
+			t.Fatalf("the reader took %q after the handshake ended; that is the operator's next answer", line)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the reader is still on stdin after the handshake ended")
+	}
+}

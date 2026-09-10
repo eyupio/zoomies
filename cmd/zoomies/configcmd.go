@@ -127,6 +127,14 @@ func blankSecrets(cfg *config.Config) *config.Config {
 	// exists to stop repeating: this list is written by hand and a new secret
 	// joins the configuration without joining it.
 	c.CapacityDemand.SigningSecret = blank(c.CapacityDemand.SigningSecret)
+	// The registry credential is the same story told a second time, and it got
+	// past the guard above for a reason worth keeping: the test decides what
+	// looks like a secret by the words in its name, and "registry_auth" holds
+	// none of secret, token, key or password. A credential is not obliged to be
+	// named like one. The word list now covers auth and credential too, so the
+	// next one named that way fails on the day it is added rather than after a
+	// release.
+	c.Agent.RegistryAuth = blank(c.Agent.RegistryAuth)
 	return &c
 }
 

@@ -348,3 +348,82 @@ func TestRestoreWorksOnceTheControllerHasStopped(t *testing.T) {
 		t.Fatalf("restore after the controller stopped exit code = %d\n%s", code, errOut)
 	}
 }
+
+// A write-ahead log that has outlived its database must not be replayed into
+// the restored copy, and must not be destroyed either.
+//
+// This is the state restore exists to be run in: a corrupt-database recovery
+// leaves the .db gone and its -wal beside it. setAsideLiveDatabase already knew
+// the rule -- SQLite replays a log it finds beside a database, whatever
+// database wrote it -- but it only ran when the .db was still there, so this
+// path fell straight through to the copy.
+//
+// Two things went wrong then, and the second is the worse one. The restored
+// database was opened on top of somebody else's log and came back "database
+// disk image is malformed"; and the replay consumed and unlinked the log doing
+// it, so the committed transactions that existed nowhere else were destroyed by
+// a command that then reported failure.
+func TestRestoreDoesNotReplayOrDestroyALogThatOutlivedItsDatabase(t *testing.T) {
+	dir, _ := backupHost(t)
+	src := takeBackup(t)
+	live := filepath.Join(dir, "zoomies.db")
+
+	// The state a crash leaves: no database, a log still there. Its contents
+	// stand in for the transactions only that log holds.
+	if err := os.Remove(live); err != nil {
+		t.Fatalf("removing the database: %v", err)
+	}
+	for _, ext := range []string{"-wal", "-shm"} {
+		_ = os.Remove(live + ext)
+	}
+	const onlyCopy = "the transactions that exist nowhere else"
+	walPath := live + "-wal"
+	if err := os.WriteFile(walPath, []byte(onlyCopy), 0o600); err != nil {
+		t.Fatalf("writing the orphan log: %v", err)
+	}
+
+	// Without --replace the operator is stopped and told why, rather than
+	// finding out from a corrupt database afterwards.
+	e, _, _ := newTestEnv(t)
+	if code := dispatch(context.Background(), e, []string{"restore", src}); code != exitError {
+		t.Fatalf("restore over an orphan log exit code = %d, want %d", code, exitError)
+	}
+	if _, err := os.Stat(walPath); err != nil {
+		t.Fatalf("the refusal removed the log anyway: %v", err)
+	}
+
+	e, out, errOut := newTestEnv(t)
+	if code := dispatch(context.Background(), e, []string{"restore", src, "--replace"}); code != exitOK {
+		t.Fatalf("restore --replace exit code = %d\n%s\n%s", code, out, errOut)
+	}
+
+	// The log is gone from beside the database -- otherwise the next open
+	// replays it -- but it still exists, under a name the report names.
+	if _, err := os.Stat(walPath); !os.IsNotExist(err) {
+		t.Errorf("the log is still beside the database, so the next open replays it")
+	}
+	kept, err := filepath.Glob(live + ".before-restore-*-wal")
+	if err != nil || len(kept) != 1 {
+		t.Fatalf("the log was not kept: glob=%v err=%v", kept, err)
+	}
+	body, err := os.ReadFile(kept[0])
+	if err != nil {
+		t.Fatalf("reading the kept log: %v", err)
+	}
+	if string(body) != onlyCopy {
+		t.Errorf("the kept log = %q, want the bytes that were there", body)
+	}
+	if report := out.String(); !strings.Contains(report, kept[0]) {
+		t.Errorf("the report does not say where the log went:\n%s", report)
+	}
+
+	// And the restored database is sound, rather than a hybrid of two.
+	st, err := store.Open(context.Background(), store.Options{Path: live})
+	if err != nil {
+		t.Fatalf("the restored database does not open: %v", err)
+	}
+	defer func() { _ = st.Close() }()
+	if _, err := st.ListInstallations(context.Background()); err != nil {
+		t.Errorf("the restored database does not read: %v", err)
+	}
+}

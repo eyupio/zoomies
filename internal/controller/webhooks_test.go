@@ -1,12 +1,15 @@
 package controller
 
 import (
+	"bytes"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/agent"
+	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -355,5 +358,96 @@ func TestARejectedDeliveryIsNotProofThatWebhooksWork(t *testing.T) {
 	}
 	if problemPresent() {
 		t.Error("webhook.never_received survived a delivery that verified")
+	}
+}
+
+// Nothing an unverified delivery says about itself is written down whole.
+//
+// The envelope is parsed before the signature is checked, because the
+// repository is what chooses the secret to check it with. So the repository
+// name, the action and both headers arrive from an unauthenticated request and
+// are then kept: a database row, a line in the log, and a frame on the event
+// stream every watching browser holds in memory. Unbounded, that is five
+// megabytes of "repository.full_name" per request from anyone who can reach the
+// endpoint, with no credential of any kind.
+func TestAnUnverifiedDeliveryCannotWriteDownWhateverItLikes(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+
+	huge := strings.Repeat("A", 2<<20)
+	body := []byte(`{"action":"` + huge + `","repository":{"full_name":"` + huge + `"}}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewReader(body))
+	req.Header.Set(github.EventTypeHeader, "workflow_job")
+	req.Header.Set(github.DeliveryIDHeader, huge)
+	rec := httptest.NewRecorder()
+	h.c.HandleWebhook(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+	ds := h.deliveries()
+	if len(ds) != 1 {
+		t.Fatalf("recorded %d deliveries, want 1", len(ds))
+	}
+	d := ds[0]
+	for _, f := range []struct {
+		name  string
+		value string
+		max   int
+	}{
+		{"repo", d.Repo, maxDeliveryRepo},
+		{"delivery id", d.DeliveryID, maxDeliveryID},
+		{"event", d.Event, maxDeliveryEvent},
+	} {
+		// The clamp says what it cut, so the allowance is the limit plus that
+		// note rather than the limit exactly.
+		if len(f.value) > f.max+64 {
+			t.Errorf("the recorded %s is %d bytes; an unverified delivery chose that", f.name, len(f.value))
+		}
+	}
+	// The reason a delivery was rejected quotes the repository back, so it has
+	// to be bounded too or the clamp is undone by the error beside it.
+	if len(d.Error) > 4096 {
+		t.Errorf("the recorded rejection reason is %d bytes", len(d.Error))
+	}
+}
+
+// A stream of unverifiable deliveries from one address is bounded in what it
+// writes down, without any of it reaching a delivery that verifies.
+func TestAFloodOfProbesStopsBeingWrittenDown(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+
+	body := jobEvent{Action: "queued", JobID: 4004}.body()
+	for i := 0; i < 200; i++ {
+		if rec := h.deliver("workflow_job", body, "the-wrong-secret"); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("probe %d: status = %d, want %d; the refusal itself must not change", i, rec.Code, http.StatusUnauthorized)
+		}
+	}
+	// Counted straight out of the store, at the largest page it will serve.
+	// The harness helper pages at 100, which would hide exactly the failure
+	// this test is for -- and ListDeliveries silently falls back to 50 for any
+	// limit above 500, so asking for more than it allows hides it just as well.
+	ds, err := h.st.ListDeliveries(h.ctx, "", 500)
+	if err != nil {
+		t.Fatalf("ListDeliveries: %v", err)
+	}
+	if len(ds) == 0 {
+		t.Fatal("no probe was recorded at all; a burst is worth knowing about")
+	}
+	if len(ds) > 100 {
+		t.Errorf("recorded %d of 200 probes, so one address can still fill the database", len(ds))
+	}
+
+	// And the fleet still works: a real delivery is never touched by this.
+	if rec := h.deliverJob(jobEvent{
+		Action: "queued", JobID: 4005,
+		Labels: []string{"self-hosted", "linux", "x64", "demo"},
+	}); rec.Code != http.StatusOK && rec.Code != http.StatusAccepted {
+		t.Fatalf("a signed delivery after the flood = %d; GitHub must never be throttled here", rec.Code)
+	}
+	if _, err := h.st.GetJobByGitHubID(h.ctx, 4005); err != nil {
+		t.Errorf("the signed delivery did not create its job: %v", err)
 	}
 }
