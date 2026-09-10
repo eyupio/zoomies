@@ -41,7 +41,7 @@ type releaseState struct {
 // releaseVersion reports the release this binary was built from, and whether it
 // was built from one at all.
 //
-// This is the whole honesty of the feature. A controller running :latest or
+// This is the whole honesty of the feature. A controller running :dev or
 // :main is stamped main-sha-abc1234 and is usually *ahead* of the newest
 // release, so telling it that a release is available would be telling it to
 // downgrade. Only a build that came from a release tag has anything to compare.

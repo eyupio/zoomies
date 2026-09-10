@@ -144,3 +144,91 @@ func TestEveryPublishedImageSaysWhatItIs(t *testing.T) {
 		}
 	}
 }
+
+// :latest belongs to the release workflow, and to nothing else.
+//
+// Both workflows used to write it. Whichever ran last won, so a merge to main
+// overwrote the :latest a release had just published and an operator who pulled
+// it got an unreleased build stamped main-sha-abc1234. That is worse than it
+// sounds: an agent is installed from a release asset and no release carries a
+// main- version, so a controller on that image cannot match any agent it
+// enrols, and shows every host as a different build for as long as it runs.
+//
+// main publishes :dev instead, which says what it is. This asserts the split
+// both ways, because either half alone is the same bug wearing a new name.
+func TestOnlyTheReleaseWorkflowPublishesLatest(t *testing.T) {
+	files := workflowFiles(t)
+
+	ci, ok := files["ci.yml"]
+	if !ok {
+		t.Fatal("no ci.yml")
+	}
+	release, ok := files["release.yml"]
+	if !ok {
+		t.Fatal("no release.yml")
+	}
+
+	// The two images that follow releases. The runner images are deliberately
+	// not here: their :latest still tracks main, so that a pool naming no tag
+	// runs the runners this controller was tested against.
+	//
+	// The two workflows spell an image name differently -- ci.yml through an
+	// env var, release.yml in full -- so each is asserted the way it is
+	// actually written. Checking release.yml's spelling against ci.yml is a
+	// check that can never fire, which is what the first draft of this test
+	// did.
+	for _, img := range []struct{ ref, name string }{
+		{"CONTROLLER_IMAGE", "ghcr.io/eyupio/zoomies"},
+		{"AGENT_IMAGE", "ghcr.io/eyupio/zoomies-agent"},
+	} {
+		if strings.Contains(ci, "env."+img.ref+" }}:latest") {
+			t.Errorf("ci.yml publishes %s:latest; that tag is the release workflow's, and a merge to main "+
+				"would overwrite the release an operator asked for", img.name)
+		}
+		// main has to publish something, or its builds are reachable only by
+		// commit.
+		if !strings.Contains(ci, "env."+img.ref+" }}:dev") {
+			t.Errorf("ci.yml does not publish %s:dev", img.name)
+		}
+		if !strings.Contains(release, img.name+":latest") {
+			t.Errorf("release.yml no longer publishes %s:latest, so nothing does and the tag goes stale", img.name)
+		}
+		if !strings.Contains(release, img.name+":$REF") {
+			t.Errorf("release.yml does not publish %s under its own tag", img.name)
+		}
+	}
+
+	// The env vars the assertions above are written in terms of have to be the
+	// images they are believed to be.
+	for _, want := range []string{
+		"CONTROLLER_IMAGE: ghcr.io/eyupio/zoomies\n",
+		"AGENT_IMAGE: ghcr.io/eyupio/zoomies-agent\n",
+	} {
+		if !strings.Contains(ci, want) {
+			t.Errorf("ci.yml does not define %q, so the checks above are testing a name nothing uses", strings.TrimSuffix(want, "\n"))
+		}
+	}
+
+	// And the gate that keeps a prerelease from becoming what :latest means.
+	if !strings.Contains(release, `if [ "$PRERELEASE" != "true" ]; then`) {
+		t.Error("release.yml no longer gates :latest on the release not being a prerelease")
+	}
+}
+
+// An agent host that wants a container needs an image that is an agent.
+//
+// deploy/Dockerfile has carried an `agent` target since it was written and no
+// workflow named it, so the only way to run one was to run the controller image
+// and override its command.
+func TestTheAgentImageIsBuiltAndPublished(t *testing.T) {
+	files := workflowFiles(t)
+	for _, name := range []string{"ci.yml", "release.yml"} {
+		body, ok := files[name]
+		if !ok {
+			t.Fatalf("no %s", name)
+		}
+		if !strings.Contains(body, "target: agent") {
+			t.Errorf("%s builds no `agent` target, so deploy/Dockerfile's agent image is published by nothing", name)
+		}
+	}
+}

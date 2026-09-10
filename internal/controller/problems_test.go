@@ -841,7 +841,7 @@ func TestAKeyThatCannotOpenItsOwnDatabaseSaysSo(t *testing.T) {
 //
 // Both of these problems used to build their Fix from version.Version without
 // asking what that version was. On a controller built from main -- which is
-// what the :latest and :main images are -- it is main-sha-abc1234, and no
+// what the :dev and :main images are -- it is main-sha-abc1234, and no
 // release asset carries it, so "upgrade the agent on those hosts to
 // main-sha-abc1234" sent the operator to a 404 and they came back to find the
 // fleet exactly as it was. That is the fleet these problems fire on, too: a

@@ -345,7 +345,7 @@ func (c *Controller) hostSkewProblems(ctx context.Context, out *[]Problem) error
 	// name here is only nameable when this controller came from a release.
 	//
 	// It used to name version.Version unconditionally. On a controller built
-	// from main -- what the :latest and :main images are -- that is
+	// from main -- what the :dev and :main images are -- that is
 	// main-sha-abc1234, and no release carries it: an operator following the
 	// advice reached a 404 and came back to find the fleet exactly as it was.
 	// Worse, that is precisely the fleet this problem fires on, because a build

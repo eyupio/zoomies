@@ -363,7 +363,7 @@ long poll, and would only work for some of the ways `zoomies init` can install
 it. The upgrade stays a decision you make.
 
 The notice appears **only on a controller built from a release tag**. One built
-from `main` — which is what the `:latest` and `:main` images are — is normally
+from `main` — which is what the `:dev` and `:main` images are — is normally
 *ahead* of the newest release, so telling it that a release is available would
 be telling it to downgrade. It says nothing rather than something wrong.
 
