@@ -29,8 +29,9 @@
 </script>
 
 <p class="lede">
-  Zoomies will read this installation's repositories, and — once you have seen the diff — open a
-  pull request on each one you pick. Nothing is written before that.
+  Zoomies will read through this installation. On the next pages you will choose which repositories
+  and workflow files to migrate, map their labels, and review the diff before any pull request is
+  opened. Nothing is written before that.
 </p>
 
 <RadioGroup bind:value={selected} {options} name="installation" legend="Installation" />

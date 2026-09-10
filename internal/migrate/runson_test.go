@@ -140,32 +140,43 @@ func TestFileSkipsWhatItCannotBeSureOf(t *testing.T) {
 	cases := []struct {
 		name       string
 		in         string
+		m          Mapping
 		wantReason string
 	}{
 		{
 			name:       "a matrix expression",
 			in:         "jobs:\n  build:\n    runs-on: ${{ matrix.os }}\n",
+			m:          zoomies,
 			wantReason: "expression",
 		},
 		{
 			name:       "already self-hosted",
 			in:         "jobs:\n  build:\n    runs-on: [self-hosted, linux, x64]\n",
+			m:          zoomies,
 			wantReason: "already runs on a self-hosted runner",
+		},
+		{
+			name:       "already on this fleet",
+			in:         "jobs:\n  build:\n    runs-on: zoomies-linux-x64\n",
+			m:          zoomies,
+			wantReason: "already runs on zoomies-linux-x64",
 		},
 		{
 			name:       "a label the organisation invented",
 			in:         "jobs:\n  build:\n    runs-on: acme-bigbox\n",
+			m:          zoomies,
 			wantReason: "already pointed somewhere deliberate",
 		},
 		{
 			name:       "a hosted label nobody mapped",
 			in:         "jobs:\n  build:\n    runs-on: windows-latest\n",
+			m:          zoomies,
 			wantReason: `"windows-latest" is not mapped to a pool`,
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := File(c.in, zoomies)
+			got := File(c.in, c.m)
 			if got.Content != c.in {
 				t.Fatalf("a skipped file was modified:\n%q", got.Content)
 			}

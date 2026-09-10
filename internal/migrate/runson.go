@@ -139,6 +139,26 @@ type Mapping struct {
 	jobs map[string]string
 }
 
+// Targets reports whether label is already one of the runs-on values this
+// mapping points jobs at.
+func (m Mapping) Targets(label string) bool {
+	want := strings.ToLower(strings.TrimSpace(label))
+	if want == "" {
+		return false
+	}
+	for _, to := range m.Labels {
+		if strings.EqualFold(strings.TrimSpace(to), want) {
+			return true
+		}
+	}
+	for _, to := range m.jobs {
+		if strings.EqualFold(strings.TrimSpace(to), want) {
+			return true
+		}
+	}
+	return false
+}
+
 // To returns the replacement for a hosted label, and whether there is one.
 func (m Mapping) To(label string) (string, bool) {
 	if m.Labels == nil {
@@ -351,6 +371,9 @@ func rewriteLabelSet(job string, items []string, m Mapping) outcome {
 		// organisation invented. Migrating it would be guessing.
 		if strings.EqualFold(item, "self-hosted") {
 			return outcome{reason: "this job already runs on a self-hosted runner"}
+		}
+		if m.Targets(item) {
+			return outcome{reason: fmt.Sprintf("this job already runs on %s", item)}
 		}
 		return outcome{reason: fmt.Sprintf("%q is not a hosted-runner label, so this job is already pointed somewhere deliberate", item)}
 	}
