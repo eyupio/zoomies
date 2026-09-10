@@ -162,6 +162,41 @@ jobs:
       # test on top of it. It is also the only check that install.sh can still
       # find a release at all -- everything else about the installer is a syntax
       # check.
+      - name: Pick the latest installable release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(python - <<'PY'
+          import os
+          import json
+          import urllib.request
+
+          repo = "eyupio/zoomies"
+          asset = "zoomies_linux_amd64"
+          token = os.environ.get("GITHUB_TOKEN", "")
+          headers = {"Accept": "application/vnd.github+json"}
+          if token:
+              headers["Authorization"] = "token " + token
+          page = 1
+          while True:
+              req = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/releases?per_page=100&page={page}",
+                  headers=headers,
+              )
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  releases = json.load(resp)
+              if not releases:
+                  break
+              for release in releases:
+                  names = {a.get("name") for a in release.get("assets", [])}
+                  if asset in names:
+                      print(release["tag_name"])
+                      raise SystemExit(0)
+              page += 1
+          raise SystemExit(f"no published release has the {asset} asset")
+          PY
+          )
+          echo "ZOOMIES_VERSION=$tag" >> "$GITHUB_ENV"
       - name: Upgrade the last published release to this build
         run: make test-upgrade
 
