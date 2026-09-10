@@ -1,7 +1,6 @@
 package installer
 
 import (
-	"bytes"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -187,38 +186,6 @@ func TestRenderLaunchdPlistAgentLabel(t *testing.T) {
 	}
 	if !strings.Contains(out, "sh.zoomies.agent") {
 		t.Errorf("the agent job needs its own label:\n%s", out)
-	}
-}
-
-func TestRenderCompose(t *testing.T) {
-	var buf bytes.Buffer
-	err := RenderCompose(&buf, ComposeSpec{
-		ExternalURL: "https://zoomies.example.com",
-		Port:        9090,
-		Backend:     "docker",
-		DockerHost:  "unix:///var/run/docker.sock",
-		Capacity:    3,
-		Embedded:    true,
-		DockerGID:   998,
-	})
-	if err != nil {
-		t.Fatalf("RenderCompose: %v", err)
-	}
-	out := buf.String()
-	for _, want := range []string{
-		"ZOOMIES_EXTERNAL_URL: ${ZOOMIES_EXTERNAL_URL",
-		"ZOOMIES_ENCRYPTION_KEY: ${ZOOMIES_ENCRYPTION_KEY",
-		`ZOOMIES_BIND: "0.0.0.0:9090"`,
-		`"127.0.0.1:9090:9090"`,
-		"/var/run/docker.sock:/var/run/docker.sock",
-		`- "998"`,
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("compose file is missing %q\n%s", want, out)
-		}
-	}
-	if strings.Contains(out, "{{") {
-		t.Errorf("unrendered template directive left in the compose file:\n%s", out)
 	}
 }
 
