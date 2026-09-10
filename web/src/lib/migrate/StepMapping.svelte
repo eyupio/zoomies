@@ -119,4 +119,23 @@
     font-size: var(--z-text-base);
     line-height: var(--z-leading-base);
   }
+
+  /* A label and its destination are one vertical decision on a phone. Keeping
+     the desktop's three columns makes the select narrower than its own text. */
+  @media (max-width: 768px) {
+    .mapping {
+      gap: var(--z-space-3);
+    }
+    .mapping li {
+      grid-template-columns: minmax(0, 1fr);
+      gap: var(--z-space-2);
+    }
+    .arrow {
+      display: none;
+    }
+    .from {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+  }
 </style>

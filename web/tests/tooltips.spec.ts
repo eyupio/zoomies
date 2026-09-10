@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { browserOverride, goto } from './support/fixtures';
+import { browserOverride, goto, openSection } from './support/fixtures';
 
 test.use(browserOverride);
 
@@ -70,6 +70,6 @@ test('an open tooltip stays attached when its table scrolls and disappears on na
   });
   expect(delta).toBeGreaterThan(0);
   await expect.poll(async () => (await tip.boundingBox())!.y).toBeCloseTo(before!.y - delta, 0);
-  await page.getByRole('link', { name: 'Usage', exact: true }).click();
+  await openSection(page, '/usage');
   await expect(page.locator('.bubble:popover-open')).toHaveCount(0);
 });

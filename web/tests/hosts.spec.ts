@@ -21,10 +21,19 @@ test.use(browserOverride);
 
 /**
  * The install command. A <pre> carries no role of its own, so it is reached
- * by the one thing only it contains: the token the page has just minted.
+ * inside the named hand-off panel by the installer it invokes. The credential
+ * is shell-quoted, and should stay that way even when this test reads it back.
  */
 function installCommand(page: Page) {
-  return page.locator('pre', { hasText: '--join-token zoojoin_' });
+  return page
+    .getByRole('region', { name: 'Run this on the new host' })
+    .locator('pre', { hasText: 'zoomies.sh/install.sh' });
+}
+
+/** Read the one argument after --join-token, quoted or not. */
+async function joinToken(page: Page): Promise<string | undefined> {
+  const command = await installCommand(page).innerText();
+  return /--join-token\s+['"]?(zoojoin_[^'"\s]+)/.exec(command)?.[1];
 }
 
 /** The chips offering the labels the seeded pools select hosts by. */
@@ -84,7 +93,7 @@ test('the page says so the moment the host joins, without a reload', async ({ pa
   await labelOffers(page).getByRole('button', { name: 'arch=arm64' }).click();
   await page.getByRole('button', { name: 'Get the command' }).click();
 
-  const token = /--join-token (zoojoin_\S+)/.exec(await installCommand(page).innerText())?.[1];
+  const token = await joinToken(page);
   expect(token, 'the command carries the token').toBeTruthy();
   await plantMarker(page);
 
@@ -230,7 +239,7 @@ test('a reserve that would leave nothing to place on is refused', async ({ page 
 test('a token that is spent or nonsense is refused with a reason', async ({ page }) => {
   await goto(page, '/hosts/new', 'Add a host');
   await page.getByRole('button', { name: 'Get the command' }).click();
-  const token = /--join-token (zoojoin_\S+)/.exec(await installCommand(page).innerText())?.[1];
+  const token = await joinToken(page);
   expect(token, 'the command carries the token').toBeTruthy();
 
   const join = (joinToken: string, name: string) =>
