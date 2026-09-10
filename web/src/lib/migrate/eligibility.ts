@@ -10,6 +10,9 @@
 
 import type { MigrationRepo } from '$lib/api/types';
 
+/** The API's MaxApplyRepos limit: a migration opens at most this many pull requests. */
+export const MAX_SELECTED_REPOSITORIES = 25;
+
 /** How many runs-on lines the migration would rewrite in this repository. */
 export function jobsIn(repo: MigrationRepo): number {
   return (repo.workflows ?? []).reduce((n, w) => n + (w.rewrites ?? []).length, 0);

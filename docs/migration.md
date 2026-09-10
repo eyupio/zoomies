@@ -57,8 +57,20 @@ flowchart LR
 
 ## Choosing what moves
 
-Two things are true of any organisation, and the repository step is shaped
-around them.
+The wizard checks repositories in batches and automatically continues through
+all pages. The progress panel shows how many have been checked, how many can
+move, and how many are selected. An empty early batch is a partial result,
+not a verdict on the whole installation.
+
+Pause the scan to work with what has been found, or resume it to check the
+remaining repositories. If you continue while it is paused, unchecked
+repositories are not included. A failed batch keeps the results and choices
+already made so you can retry it.
+
+Search filters the checked list without clearing your selections. Each
+migration can include at most **25 repositories**, matching the API limit;
+the first 25 eligible repositories are selected by default. Deselect one to
+choose another, then migrate the rest in a later batch.
 
 Most repositories cannot move — the App cannot read them, they have no
 workflows, or their jobs already point somewhere deliberate. Those are **hidden

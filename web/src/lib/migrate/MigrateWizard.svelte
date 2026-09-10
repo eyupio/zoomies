@@ -15,7 +15,7 @@
   the server, because it is the one that commits.
 -->
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { ExternalLink, GitPullRequest, RefreshCw } from '@lucide/svelte';
   import {
     ApiError,
@@ -36,7 +36,7 @@
   import Skeleton from '$lib/components/Skeleton.svelte';
   import Wizard from '$lib/components/Wizard.svelte';
   import type { WizardStep } from '$lib/components/Wizard.svelte';
-  import { isMigratable } from './eligibility';
+  import { isMigratable, MAX_SELECTED_REPOSITORIES } from './eligibility';
   import StepTarget from './StepTarget.svelte';
   import StepRepositories from './StepRepositories.svelte';
   import StepMapping from './StepMapping.svelte';
@@ -107,6 +107,14 @@
   let nextCursor = $state('');
   /** How many repositories the installation can see, of which those are a page. */
   let totalRepos = $state(0);
+  let scanningAll = $state(false);
+  let pendingScan: AbortController | undefined;
+  let scannedInstallation = '';
+
+  onDestroy(() => {
+    scanningAll = false;
+    pendingScan?.abort();
+  });
   /** Hosted label -> the runs-on value replacing it. "" means "leave it alone". */
   let mapping = $state<Record<string, string>>({});
   /** True once the operator has edited the mapping, so a re-scan stops overwriting it. */
@@ -195,7 +203,7 @@
       case 0:
         return selected !== '';
       case 1:
-        return chosen.length > 0;
+        return chosen.length > 0 && chosen.length <= MAX_SELECTED_REPOSITORIES;
       case 2:
         // An operator who maps nothing here can still point individual jobs at
         // a pool on the next step, so this is the one step Next does not gate:
@@ -228,18 +236,39 @@
    * at, with the choices you made on the way still ticked.
    */
   async function scan(repos: string[], cursor = ''): Promise<boolean> {
+    pendingScan?.abort();
+    const controller = new AbortController();
+    pendingScan = controller;
     busy = true;
     failure = '';
     try {
-      const result = await planMigration({
-        installation_id: selected,
-        ...(repos.length > 0 ? { repos } : {}),
-        ...(cursor !== '' ? { cursor } : {}),
-        ...(mappingEdited ? { mapping } : {}),
-        ...(liveOverrides.length > 0 ? { overrides: liveOverrides } : {}),
-      });
+      const result = await planMigration(
+        {
+          installation_id: selected,
+          ...(repos.length > 0 ? { repos } : {}),
+          ...(cursor !== '' ? { cursor } : {}),
+          ...(mappingEdited ? { mapping } : {}),
+          ...(liveOverrides.length > 0 ? { overrides: liveOverrides } : {}),
+        },
+        controller.signal,
+      );
+      if (controller.signal.aborted) return false;
+      const existing = new Set((plan?.repositories ?? []).map((r) => r.repo));
       const narrowed = repos.length > 0;
       plan = narrowed ? mergeNarrowed(plan, result) : mergePage(plan, result, cursor !== '');
+      if (narrowed) {
+        const next = { ...selection };
+        for (const repo of result.repositories ?? []) {
+          const name = repo.repo ?? '';
+          const paths = (repo.workflows ?? [])
+            .filter((w) => (w.hosted_labels ?? []).length > 0)
+            .map((w) => w.path);
+          const kept = (next[name] ?? []).filter((path) => paths.includes(path));
+          if (!isMigratable(repo) || kept.length === 0) delete next[name];
+          else next[name] = kept;
+        }
+        selection = next;
+      }
       if (!narrowed) {
         nextCursor = result.next_cursor ?? '';
         totalRepos = result.total_repos ?? (plan?.repositories ?? []).length;
@@ -249,16 +278,19 @@
         // could not place, so the mapping step lists all of them.
         const next: Record<string, string> = {};
         for (const label of plan?.hosted_labels ?? []) next[label] = '';
-        Object.assign(next, result.mapping ?? {});
+        Object.assign(next, cursor ? mapping : {}, result.mapping ?? {});
         mapping = next;
       }
-      if (!narrowed) chooseByDefault(result.repositories ?? []);
+      if (!narrowed)
+        chooseByDefault(
+          (result.repositories ?? []).filter((r) => !cursor || !existing.has(r.repo)),
+        );
       return true;
     } catch (cause) {
-      report(cause, 'The repositories could not be read.');
+      if (!controller.signal.aborted) report(cause, 'The repositories could not be read.');
       return false;
     } finally {
-      busy = false;
+      if (pendingScan === controller) busy = false;
     }
   }
 
@@ -321,23 +353,63 @@
         .filter((w) => (w.hosted_labels ?? []).length > 0)
         .map((w) => w.path ?? '')
         .filter(Boolean);
-      if (paths.length > 0) next[name] = paths;
+      if (paths.length > 0 && Object.keys(next).length < MAX_SELECTED_REPOSITORIES)
+        next[name] = paths;
     }
     selection = next;
   }
 
-  /** The next page of the organisation, appended to what is on screen. */
+  /** Keep paging until the installation is checked, or the operator pauses. */
   async function loadMore(): Promise<void> {
-    if (nextCursor === '') return;
-    await scan([], nextCursor);
+    if (busy || scanningAll || nextCursor === '') return;
+    scanningAll = true;
+    const seen: string[] = [];
+    try {
+      while (scanningAll && nextCursor !== '') {
+        if (seen.includes(nextCursor)) {
+          failure =
+            'GitHub returned the same page twice. Pause here and try the remaining repositories again.';
+          break;
+        }
+        seen.push(nextCursor);
+        if (!(await scan([], nextCursor))) break;
+      }
+    } finally {
+      scanningAll = false;
+    }
   }
 
   async function next(): Promise<void> {
     switch (step) {
       case 0: {
+        if (scannedInstallation === selected && plan) {
+          void loadMore();
+          return;
+        }
+        if (scannedInstallation !== selected) {
+          plan = null;
+          selection = {};
+          nextCursor = '';
+          totalRepos = 0;
+          mapping = {};
+          mappingEdited = false;
+          overrides = [];
+          scannedInstallation = selected;
+        }
         if (!(await scan([]))) step -= 1;
+        else void loadMore();
         return;
       }
+      case 1:
+        // Returning to this step can change which labels need mapping. Refresh
+        // the chosen repositories before showing that next question again.
+        if (!(await scan(chosen))) step -= 1;
+        else if (chosen.length === 0) {
+          failure =
+            'The chosen repositories no longer have accessible workflows to migrate. Choose another repository.';
+          step -= 1;
+        }
+        return;
       case 2:
       case 3: {
         // The mapping or the exceptions changed, so every diff downstream is
@@ -375,6 +447,8 @@
   /** Back to the start, keeping the installation and nothing else. */
   function restart(): void {
     outcome = null;
+    scannedInstallation = '';
+    scanningAll = false;
     plan = null;
     selection = {};
     nextCursor = '';
@@ -467,6 +541,7 @@
     bind:current={step}
     {canAdvance}
     {busy}
+    nextLabel={step === 1 && nextCursor !== '' ? `Continue with ${chosen.length} selected` : 'Next'}
     finishLabel="Open the pull requests"
     onnext={next}
     onfinish={open}
@@ -486,6 +561,8 @@
           total={totalRepos}
           hasMore={nextCursor !== ''}
           {busy}
+          {scanningAll}
+          onpause={() => (scanningAll = false)}
           onloadmore={loadMore}
         />
       {:else if index === 2}

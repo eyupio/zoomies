@@ -36,7 +36,15 @@
   import Checkbox from '$lib/components/Checkbox.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import Switch from '$lib/components/Switch.svelte';
-  import { filesIn, isMigratable, jobsIn, noteFor, skipsIn } from './eligibility';
+  import Input from '$lib/components/Input.svelte';
+  import {
+    filesIn,
+    isMigratable,
+    jobsIn,
+    MAX_SELECTED_REPOSITORIES,
+    noteFor,
+    skipsIn,
+  } from './eligibility';
   import {
     AlertTriangle,
     ChevronDown,
@@ -54,6 +62,8 @@
     /** Set when there is another page to read. */
     hasMore?: boolean;
     busy?: boolean;
+    scanningAll?: boolean;
+    onpause?: () => void;
     onloadmore?: () => void;
   }
 
@@ -63,6 +73,8 @@
     total = 0,
     hasMore = false,
     busy = false,
+    scanningAll = false,
+    onpause,
     onloadmore,
   }: Props = $props();
 
@@ -125,6 +137,7 @@
    * they are most of it.
    */
   let onlyMigratable = $state(true);
+  let query = $state('');
 
   /** Which repositories have their file list open. */
   let expanded = $state<Record<string, boolean>>({});
@@ -139,7 +152,19 @@
     missingPermissions.length > 0 || Boolean(plan?.permission_hint),
   );
   const hidden = $derived(onlyMigratable ? rows.length - migratable.length : 0);
-  const visible = $derived(onlyMigratable ? migratable : rows);
+  const visible = $derived(
+    (onlyMigratable ? migratable : rows).filter((r) =>
+      r.repo.toLowerCase().includes(query.trim().toLowerCase()),
+    ),
+  );
+  const remaining = $derived(Math.max(0, total - rows.length));
+  const scanTitle = $derived(
+    busy
+      ? 'Checking repositories'
+      : hasMore
+        ? 'Repository scan paused'
+        : 'Repository scan complete',
+  );
 
   const chosenIn = (repo: string): string[] => selection[repo] ?? [];
   const chosenCount = $derived(migratable.filter((r) => chosenIn(r.repo).length > 0).length);
@@ -153,7 +178,8 @@
   function set(repo: string, paths: string[]): void {
     const next = { ...selection };
     if (paths.length === 0) delete next[repo];
-    else next[repo] = paths;
+    else if (repo in next || Object.keys(next).length < MAX_SELECTED_REPOSITORIES)
+      next[repo] = paths;
     selection = next;
   }
 
@@ -172,7 +198,10 @@
       return;
     }
     const next: Record<string, string[]> = { ...selection };
-    for (const row of migratable) next[row.repo] = row.files.map((f) => f.path);
+    for (const row of migratable) {
+      if (row.repo in next || Object.keys(next).length < MAX_SELECTED_REPOSITORIES)
+        next[row.repo] = row.files.map((f) => f.path);
+    }
     selection = next;
   }
 
@@ -181,36 +210,65 @@
   }
 </script>
 
-{#if rows.length === 0}
-  <EmptyState
-    icon={FolderGit2}
-    title="No repositories"
-    description="This installation can see no repositories. Check the App is installed on the account, and that it was given access to the repositories you expect."
-  />
-{:else}
-  <p class="lede">
-    {migratable.length} of {rows.length}
-    {rows.length === 1 ? 'repository has' : 'repositories have'} jobs on a rented runner — GitHub's own,
-    or a vendor's — that a pool here could take. The rest are hidden, and the switch below shows them
-    again so you can see they were looked at. A repository with several workflow files can be opened up
-    and picked through one file at a time.
-  </p>
-
-  {#if unreadable.length > 0}
-    <div class="problem" role="alert">
-      <p class="problem-title">
-        <AlertTriangle size={15} aria-hidden="true" />
-        {unreadable.length}
-        {unreadable.length === 1 ? 'repository could' : 'repositories could'} not be read
-      </p>
-      <p>
-        Their workflows were never looked at, so they cannot be migrated from here whatever they
-        contain. The first one says: <span class="mono">{unreadable[0]?.note}</span>
+<section class="scan" aria-label="Repository scan">
+  <div class="scan-heading">
+    <div role="status" aria-live="polite">
+      <h3>{scanTitle}</h3>
+      <p class="scan-count">
+        {rows.length} of {Math.max(total, rows.length)} repositories checked{hasMore
+          ? ' so far'
+          : ''}
       </p>
     </div>
+    {#if scanningAll}
+      <Button size="sm" variant="secondary" onclick={onpause}>Pause scan</Button>
+    {:else if busy}
+      <span class="muted">Finishing this batch…</span>
+    {:else if hasMore}
+      <Button size="sm" variant="primary" onclick={onloadmore}>Scan remaining repositories</Button>
+    {/if}
+  </div>
+  <progress
+    aria-label="Repositories checked"
+    value={rows.length}
+    max={Math.max(total, rows.length, 1)}
+  ></progress>
+  <div class="scan-totals">
+    <span><strong>{migratable.length}</strong> with jobs to migrate{hasMore ? ' so far' : ''}</span>
+    <span><strong>{chosenCount}</strong> selected</span>
+    {#if hasMore}<span><strong>{remaining || 'More'}</strong> still to check</span>{/if}
+  </div>
+  {#if hasMore}
+    <p class="scan-note">
+      {scanningAll
+        ? 'More repositories are being checked automatically. Your selections stay in place.'
+        : busy
+          ? 'The current batch will finish before the scan pauses.'
+          : 'The scan is incomplete. Resume it to find more repositories, or continue with your selection. Unchecked repositories will not be included.'}
+    </p>
   {/if}
+</section>
 
-  <!--
+<p class="lede">
+  Choose the repositories to move, then open any file list to narrow the change. Nothing is written
+  until you review and open the pull requests.
+</p>
+
+{#if unreadable.length > 0}
+  <div class="problem" role="alert">
+    <p class="problem-title">
+      <AlertTriangle size={15} aria-hidden="true" />
+      {unreadable.length}
+      {unreadable.length === 1 ? 'repository could' : 'repositories could'} not be read
+    </p>
+    <p>
+      Their workflows were never looked at, so they cannot be migrated from here whatever they
+      contain. The first one says: <span class="mono">{unreadable[0]?.note}</span>
+    </p>
+  </div>
+{/if}
+
+<!--
     Its own block, and not a paragraph inside the one above, because the two
     are not the same problem and do not always arrive together. This is what
     the App may do, which the server establishes by asking GitHub rather than
@@ -220,135 +278,240 @@
     nothing is unreadable, nothing can be migrated, and the one sentence that
     explains why was hidden behind a count of zero.
   -->
-  {#if permissionProblem}
-    <div class="problem" role="alert">
-      <p class="problem-title">
-        <AlertTriangle size={15} aria-hidden="true" />
-        The App is missing permissions this wizard needs
+{#if permissionProblem}
+  <div class="problem" role="alert">
+    <p class="problem-title">
+      <AlertTriangle size={15} aria-hidden="true" />
+      The App is missing permissions this wizard needs
+    </p>
+    {#if missingPermissions.length > 0}
+      <ul>
+        {#each missingPermissions as item (item)}
+          <li>{item}</li>
+        {/each}
+      </ul>
+    {/if}
+    {#if plan?.permission_hint}<p>{plan.permission_hint}.</p>{/if}
+    <p>
+      Until they are granted, a repository the App cannot read is indistinguishable from one with no
+      workflows in it, so what is listed below may be an incomplete picture of what could move.
+    </p>
+    {#if plan?.settings_url}
+      <p>
+        <a href={plan.settings_url} target="_blank" rel="noopener noreferrer">
+          Review the App's permissions on GitHub
+          <ExternalLink size={12} aria-hidden="true" />
+        </a>
       </p>
-      {#if missingPermissions.length > 0}
-        <ul>
-          {#each missingPermissions as item (item)}
-            <li>{item}</li>
+    {/if}
+  </div>
+{/if}
+
+{#if migratable.length === 0}
+  <EmptyState
+    icon={FolderGit2}
+    compact
+    title={hasMore || busy
+      ? 'No matches in the repositories checked so far'
+      : permissionProblem || unreadable.length > 0
+        ? 'The scan needs attention'
+        : rows.length === 0
+          ? 'No repositories available'
+          : 'No repositories to migrate'}
+    description={hasMore || busy
+      ? 'This is a partial result. Repositories that can migrate may be in the batches still to check.'
+      : permissionProblem || unreadable.length > 0
+        ? 'Resolve the access problems above before treating this as a complete result.'
+        : rows.length === 0
+          ? 'Check that the App has access to the repositories you expect.'
+          : 'All accessible repositories have been checked. Show the other repositories below to see why they have no jobs to move.'}
+  />
+{/if}
+
+<p class="batch-note">
+  Choose up to {MAX_SELECTED_REPOSITORIES} repositories per migration. {chosenCount >=
+  MAX_SELECTED_REPOSITORIES
+    ? 'This batch is full. Deselect a repository to choose another; migrate the rest in a later batch.'
+    : 'Repositories found later stay available in this list.'}
+</p>
+
+<div class="search">
+  <Input
+    type="search"
+    bind:value={query}
+    ariaLabel="Search checked repositories"
+    placeholder="Search checked repositories…"
+  />
+  <span class="muted">{visible.length} shown{hasMore ? ' · checked repositories only' : ''}</span>
+</div>
+
+<div class="controls">
+  <Checkbox
+    checked={allChosen}
+    indeterminate={!allChosen && someChosen}
+    label={migratable.length > MAX_SELECTED_REPOSITORIES
+      ? 'Select a batch of up to 25 repositories'
+      : hasMore
+        ? 'Select every checked file that could move'
+        : 'Select every file that could move'}
+    onchange={toggleAll}
+    disabled={migratable.length === 0}
+  />
+  <Switch
+    checked={onlyMigratable}
+    label="Only repositories with something to move"
+    onchange={(on) => (onlyMigratable = on)}
+  />
+</div>
+
+{#if query.trim() && visible.length === 0 && rows.length > 0}
+  <EmptyState
+    compact
+    title="No checked repositories match your search"
+    description={hasMore
+      ? 'Clear the search or finish the scan to check the remaining repositories.'
+      : 'Try another name, or show repositories with no jobs to move.'}
+  />
+{/if}
+<ul class="repos" aria-label="Checked repositories">
+  {#each visible as row (row.repo)}
+    {@const chosen = chosenIn(row.repo)}
+    <li class:inert={!row.migratable}>
+      <div class="repo">
+        <Checkbox
+          checked={chosen.length > 0 && chosen.length === row.files.length}
+          indeterminate={chosen.length > 0 && chosen.length < row.files.length}
+          disabled={!row.migratable ||
+            (chosen.length === 0 && chosenCount >= MAX_SELECTED_REPOSITORIES)}
+          label={row.repo}
+          description={chosen.length > 0 && chosen.length < row.files.length
+            ? `${row.note} — ${chosen.length} of ${row.files.length} files chosen`
+            : row.note}
+          onchange={(on) => toggle(row, on)}
+        />
+        {#if row.files.length > 1}
+          <button
+            type="button"
+            class="disclose"
+            aria-expanded={expanded[row.repo] ?? false}
+            aria-label="{row.files.length} files in {row.repo}"
+            onclick={() => expand(row.repo)}
+          >
+            {#if expanded[row.repo]}
+              <ChevronDown size={13} aria-hidden="true" />
+            {:else}
+              <ChevronRight size={13} aria-hidden="true" />
+            {/if}
+            {row.files.length} files
+          </button>
+        {/if}
+      </div>
+
+      {#if row.files.length > 1 && expanded[row.repo]}
+        <ul class="files">
+          {#each row.files as file (file.path)}
+            <li>
+              <Checkbox
+                checked={chosen.includes(file.path)}
+                disabled={!row.migratable ||
+                  (chosen.length === 0 && chosenCount >= MAX_SELECTED_REPOSITORIES)}
+                label={file.path}
+                description="{file.jobs} {file.jobs === 1 ? 'job' : 'jobs'} to move{file.skips > 0
+                  ? `, ${file.skips} left alone`
+                  : ''}"
+                onchange={(on) => toggleFile(row, file.path, on)}
+              />
+            </li>
           {/each}
         </ul>
       {/if}
-      {#if plan?.permission_hint}<p>{plan.permission_hint}.</p>{/if}
-      <p>
-        Until they are granted, a repository the App cannot read is indistinguishable from one with
-        no workflows in it, so what is listed below may be an incomplete picture of what could move.
-      </p>
-      {#if plan?.settings_url}
-        <p>
-          <a href={plan.settings_url} target="_blank" rel="noopener noreferrer">
-            Review the App's permissions on GitHub
-            <ExternalLink size={12} aria-hidden="true" />
-          </a>
-        </p>
-      {/if}
-    </div>
-  {/if}
+    </li>
+  {/each}
+</ul>
 
-  {#if migratable.length === 0}
-    <div class="problem" role="status">
-      <p class="problem-title">
-        <AlertTriangle size={15} aria-hidden="true" />
-        There is nothing here to migrate
-      </p>
-      <p>
-        Nothing can be ticked because no repository on this page asks for a runner somebody else
-        operates. Turn the filter off and each row says which of the three reasons applies to it:
-        the App cannot read it, it has no workflows, or its jobs already point somewhere deliberate
-        — a self-hosted fleet, or a label this controller does not recognise as rented.{hasMore
-          ? ' There are more repositories to read.'
-          : ''}
-      </p>
-    </div>
-  {/if}
-
-  <div class="controls">
-    <Checkbox
-      checked={allChosen}
-      indeterminate={!allChosen && someChosen}
-      label="Select every file that could move"
-      onchange={toggleAll}
-      disabled={migratable.length === 0}
-    />
-    <Switch
-      checked={onlyMigratable}
-      label="Only repositories with something to move"
-      onchange={(on) => (onlyMigratable = on)}
-    />
-  </div>
-
-  <ul class="repos">
-    {#each visible as row (row.repo)}
-      {@const chosen = chosenIn(row.repo)}
-      <li class:inert={!row.migratable}>
-        <div class="repo">
-          <Checkbox
-            checked={chosen.length > 0 && chosen.length === row.files.length}
-            indeterminate={chosen.length > 0 && chosen.length < row.files.length}
-            disabled={!row.migratable}
-            label={row.repo}
-            description={chosen.length > 0 && chosen.length < row.files.length
-              ? `${row.note} — ${chosen.length} of ${row.files.length} files chosen`
-              : row.note}
-            onchange={(on) => toggle(row, on)}
-          />
-          {#if row.files.length > 1}
-            <button
-              type="button"
-              class="disclose"
-              aria-expanded={expanded[row.repo] ?? false}
-              onclick={() => expand(row.repo)}
-            >
-              {#if expanded[row.repo]}
-                <ChevronDown size={13} aria-hidden="true" />
-              {:else}
-                <ChevronRight size={13} aria-hidden="true" />
-              {/if}
-              {row.files.length} files
-            </button>
-          {/if}
-        </div>
-
-        {#if row.files.length > 1 && expanded[row.repo]}
-          <ul class="files">
-            {#each row.files as file (file.path)}
-              <li>
-                <Checkbox
-                  checked={chosen.includes(file.path)}
-                  label={file.path}
-                  description="{file.jobs} {file.jobs === 1 ? 'job' : 'jobs'} to move{file.skips > 0
-                    ? `, ${file.skips} left alone`
-                    : ''}"
-                  onchange={(on) => toggleFile(row, file.path, on)}
-                />
-              </li>
-            {/each}
-          </ul>
-        {/if}
-      </li>
-    {/each}
-  </ul>
-
-  <p class="footer">
-    <span>
-      {chosenCount}
-      {chosenCount === 1 ? 'repository' : 'repositories'} chosen{hidden > 0
-        ? `. ${hidden} that cannot move ${hidden === 1 ? 'is' : 'are'} hidden`
-        : ''}{hasMore && total > rows.length ? `. ${total - rows.length} not read yet` : ''}.
-    </span>
-    {#if hasMore}
-      <Button size="sm" variant="secondary" onclick={onloadmore} disabled={busy} loading={busy}>
-        Read the next page
-      </Button>
-    {/if}
-  </p>
-{/if}
+<p class="footer">
+  <span>
+    {chosenCount}
+    {chosenCount === 1 ? 'repository' : 'repositories'} chosen{hidden > 0
+      ? `. ${hidden} that cannot move ${hidden === 1 ? 'is' : 'are'} hidden`
+      : ''}{hasMore && total > rows.length ? `. ${total - rows.length} not read yet` : ''}.
+  </span>
+  <Button size="sm" variant="ghost" disabled={chosenCount === 0} onclick={() => (selection = {})}
+    >Clear selection</Button
+  >
+</p>
 
 <style>
+  .scan {
+    padding: var(--z-space-4);
+    margin-bottom: var(--z-space-4);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface-sunken);
+  }
+  .scan-heading,
+  .scan-totals,
+  .search {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--z-space-3);
+  }
+  .scan h3 {
+    margin: 0;
+    font-size: var(--z-text-base);
+    font-weight: var(--z-weight-semibold);
+  }
+  .scan-count,
+  .scan-note {
+    margin: var(--z-space-2) 0 0;
+    color: var(--z-text-muted);
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+  }
+  .scan-totals {
+    justify-content: flex-start;
+    gap: var(--z-space-4);
+    font-size: var(--z-text-xs);
+  }
+  .scan-totals strong {
+    color: var(--z-text);
+  }
+  progress {
+    display: block;
+    width: 100%;
+    height: var(--z-space-2);
+    margin: var(--z-space-3) 0;
+    border: 0;
+    border-radius: var(--z-radius-full);
+    overflow: hidden;
+    accent-color: var(--z-accent);
+    background: var(--z-border);
+  }
+  progress::-webkit-progress-bar {
+    background: var(--z-border);
+  }
+  progress::-webkit-progress-value {
+    background: var(--z-accent);
+  }
+  progress::-moz-progress-bar {
+    background: var(--z-accent);
+  }
+  .batch-note {
+    margin: 0 0 var(--z-space-3);
+    color: var(--z-text-muted);
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+  }
+  .search {
+    margin-bottom: var(--z-space-3);
+  }
+  .muted {
+    color: var(--z-text-muted);
+    font-size: var(--z-text-xs);
+  }
+
   .lede {
     margin: 0 0 var(--z-space-3);
     max-width: 70ch;
