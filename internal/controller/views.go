@@ -133,10 +133,13 @@ type HostView struct {
 	// knows its own version, and because the agent's own warning comes from
 	// the same comparison -- the two used to disagree for two builds of one
 	// tag, and a badge that contradicts a log line is worse than neither.
-	VersionSkew   string    `json:"version_skew,omitempty"`
-	Healthy       bool      `json:"healthy"`
-	LastHeartbeat time.Time `json:"last_heartbeat"`
-	CreatedAt     time.Time `json:"created_at"`
+	VersionSkew    string    `json:"version_skew,omitempty"`
+	UpgradeCommand string    `json:"upgrade_command,omitempty"`
+	UpgradeVersion string    `json:"upgrade_version,omitempty"`
+	UpgradeNote    string    `json:"upgrade_note,omitempty"`
+	Healthy        bool      `json:"healthy"`
+	LastHeartbeat  time.Time `json:"last_heartbeat"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // HostView renders a host as the API returns it.
@@ -183,6 +186,7 @@ func (c *Controller) HostView(h *store.Host) HostView {
 		LastHeartbeat:      h.LastHeartbeat,
 		CreatedAt:          h.CreatedAt,
 	}
+	out.UpgradeCommand, out.UpgradeVersion, out.UpgradeNote = hostUpgrade(h, version.Version)
 	alloc := h.Allocatable()
 	out.AllocatableCPUs = alloc.CPUs
 	out.AllocatableMemoryMB = alloc.MemoryMB

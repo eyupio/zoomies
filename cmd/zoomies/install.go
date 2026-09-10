@@ -157,3 +157,28 @@ func runUninstall(ctx context.Context, e *env, args []string) error {
 		Logger:         logging.Setup(logging.Options{Level: "warn", Format: "text"}),
 	})
 }
+
+// runUpgrade is the second half of install.sh --upgrade. The script verifies
+// and installs the new binary before this applies it to the existing service.
+func runUpgrade(ctx context.Context, e *env, args []string) error {
+	fs := newFlagSet(e, "zoomies upgrade [flags]", "Apply the installed binary and matching images to an existing deployment, keeping its configuration and credentials.")
+	configDir := fs.String("config-dir", "", "where the existing configuration and deployment record live")
+	binary := fs.String("installed-binary", "", "the binary path used by the existing service")
+	dockerHost := fs.String("docker-host", "", "the existing container runtime endpoint")
+	runtime := fs.String("runtime", "docker", "docker or podman, as detected by install.sh")
+	image := fs.String("image", "", "replacement image for a custom container deployment")
+	mode := fs.String("mode", "", "agent, controller or single; refuses a different existing deployment")
+	check := fs.Bool("check", false, "check the deployment without changing or restarting anything")
+	fs.example("curl -fsSL https://zoomies.sh/install.sh | sh -s -- --upgrade", "zoomies upgrade --check --mode agent")
+	if err := fs.parse(args); err != nil {
+		return err
+	}
+	if err := fs.noMoreArgs(); err != nil {
+		return err
+	}
+	parsed, err := installer.ParseMode(*mode)
+	if err != nil {
+		return err
+	}
+	return installer.Upgrade(ctx, installer.UpgradeOptions{ConfigDir: *configDir, BinaryPath: *binary, DockerHost: *dockerHost, Runtime: *runtime, Image: *image, Mode: parsed, Check: *check, Out: e.out})
+}

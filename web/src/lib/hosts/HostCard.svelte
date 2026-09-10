@@ -13,6 +13,7 @@
   import { formatMegabytes, formatNumber } from '$lib/format';
   import { hostStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
+  import CopyButton from '$lib/components/CopyButton.svelte';
   import DropdownMenu from '$lib/components/DropdownMenu.svelte';
   import type { MenuItem } from '$lib/components/DropdownMenu.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
@@ -266,6 +267,24 @@
     </p>
   {/if}
 
+  {#if canOperate && !host.embedded && host.upgrade_note}
+    <section class="upgrade" aria-label="Agent upgrade for {host.name || host.id}">
+      <h4>{host.upgrade_command ? 'Update this agent' : 'Agent version guidance'}</h4>
+      {#if host.upgrade_version}<p>
+          Controller version: <span class="mono">{host.upgrade_version}</span>
+        </p>{/if}
+      <p>{host.upgrade_note}</p>
+      {#if host.upgrade_command}
+        <p>
+          Running runner containers stay in place. The host reports its new version on the next
+          heartbeat.
+        </p>
+        <pre><code>{host.upgrade_command}</code></pre>
+        <CopyButton value={host.upgrade_command} label="Copy the upgrade command" showLabel />
+      {/if}
+    </section>
+  {/if}
+
   <div class="capacity">
     <UtilisationBar
       busy={active}
@@ -317,6 +336,35 @@
 </article>
 
 <style>
+  .upgrade {
+    margin-top: var(--z-space-3);
+    padding: var(--z-space-3);
+    border: var(--z-border-width) solid var(--z-pending-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-pending-subtle);
+  }
+  .upgrade h4 {
+    margin: 0 0 var(--z-space-2);
+    font-size: var(--z-text-xs);
+    font-weight: var(--z-weight-semibold);
+  }
+  .upgrade p {
+    margin: 0 0 var(--z-space-2);
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+  }
+  .upgrade pre {
+    margin: var(--z-space-3) 0;
+    padding: var(--z-space-3);
+    background: var(--z-surface-sunken);
+    border-radius: var(--z-radius-sm);
+    font-family: var(--z-font-mono);
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
   .card {
     display: flex;
     flex-direction: column;

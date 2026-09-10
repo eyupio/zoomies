@@ -2564,6 +2564,12 @@ export interface components {
              * @enum {string}
              */
             version_skew?: "behind" | "ahead" | "differs";
+            /** @description Copyable install.sh --upgrade command for an older or different remote agent, targeting the controller's published release or dev channel. Absent for embedded, matching or newer agents, and for unpublished controller builds. Contains no credentials. */
+            upgrade_command?: string;
+            /** @description Controller build the upgrade is intended to match. */
+            upgrade_version?: string;
+            /** @description What the command does, or why no safe published command can be offered. */
+            upgrade_note?: string;
             healthy?: boolean;
             /** Format: date-time */
             last_heartbeat?: string;
