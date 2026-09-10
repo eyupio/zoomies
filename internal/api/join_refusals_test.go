@@ -78,3 +78,41 @@ func TestAgentJoinRefusesGarbageExpiredAndSpentTokens(t *testing.T) {
 			garbage.status, stale.status, second.status)
 	}
 }
+
+// The fourth way, which used to be the one that said nothing.
+//
+// A host of this name is already enrolled and the joiner cannot prove it owns
+// it. The controller's refusal is the most useful sentence on this route -- it
+// names the host id and both ways forward -- but it was a plain error, so the
+// handler sent it through s.internal and the agent got HTTP 500 and "the cause
+// is in the controller's log; quote the request ID when reporting it". The one
+// message that says what to do was replaced, at the moment it was needed, by
+// one that says nothing.
+//
+// It reaches an operator, too: this is what a rebuilt machine gets when its
+// credentials are gone, and what any second machine gets when somebody names it
+// after one that already exists.
+func TestAgentJoinRefusesAnAlreadyEnrolledHostWithAdviceRatherThanA500(t *testing.T) {
+	h := newHarness(t)
+	existing := h.host("vm-1")
+
+	_, token, err := h.ctrl.Auth().CreateJoinToken(h.ctx, time.Hour, nil, 2, "test")
+	if err != nil {
+		t.Fatalf("CreateJoinToken: %v", err)
+	}
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/agent/join", body: map[string]any{
+		"protocol_version": 1, "join_token": token, "name": existing.Name,
+		"capacity": 2, "os": "linux", "arch": "amd64", "version": "test",
+	}})
+
+	resp.mustStatus(t, http.StatusUnprocessableEntity, "a name that is already enrolled")
+	msg := resp.errorMessage(t)
+	for _, want := range []string{"already enrolled", existing.ID, "hosts delete"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("the refusal should carry %q so the operator knows what to do: %q", want, msg)
+		}
+	}
+	if strings.Contains(msg, "controller's log") {
+		t.Errorf("the refusal was replaced by the generic internal-error text: %q", msg)
+	}
+}

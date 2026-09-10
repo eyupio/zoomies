@@ -382,12 +382,35 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 		return nil, auth.Invalid("the join request carried no host name; start the agent with --name or set agent.name, since it is how this host appears in the UI")
 	}
 
-	// Reuse the row when a host of this name already exists, so re-joining a
-	// rebuilt machine does not leave a duplicate behind. The join token has to
-	// be redeemed against the final ID, so this lookup comes first.
-	existing, err := c.st.GetHostByName(ctx, name)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return nil, fmt.Errorf("looking up host %q: %w", name, err)
+	// Reuse the row this machine already owns, so re-joining a rebuilt machine
+	// does not leave a duplicate behind. The join token has to be redeemed
+	// against the final ID, so this lookup comes first.
+	//
+	// The id it says it had is tried before the name, because the name is not
+	// stable. It is derived from what the machine is, so an agent that has
+	// learnt to measure its own CPUs and memory computes a different one from
+	// an agent that had not -- and upgrading such a host therefore enrolled it
+	// twice: a new row with the correct figures, beside the old row still being
+	// kept alive by the process that had not been restarted yet. The operator
+	// saw one machine as two, one of them reporting nothing.
+	//
+	// It is a claim, not a credential: the ownership check below is what makes
+	// it safe, and it is the same check either lookup leads to.
+	var existing *store.Host
+	var err error
+	if req.PreviousHostID != "" {
+		existing, err = c.st.GetHost(ctx, req.PreviousHostID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return nil, fmt.Errorf("looking up host %s: %w", req.PreviousHostID, err)
+		}
+	}
+	if existing == nil {
+		// No id, or an id for a row that is gone: an agent too old to send one,
+		// or a host deleted on the controller since it last joined.
+		existing, err = c.st.GetHostByName(ctx, name)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return nil, fmt.Errorf("looking up host %q: %w", name, err)
+		}
 	}
 	// Taking over an existing row is a privileged act: it destroys that host's
 	// runner records and inherits its ID, its labels and its cordon state. A
@@ -397,7 +420,13 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 	// a re-joining agent still holds; the embedded agent is exempt because the
 	// caller is this same process.
 	if existing != nil && !embedded && !c.provesHost(existing, req.PreviousToken) {
-		return nil, fmt.Errorf("a host named %q is already enrolled here. Re-join from the machine that holds its credentials, "+
+		// auth.Invalid, like the two refusals above it and for the same reason:
+		// this is the agent operator's to fix and the sentence says how. As a
+		// plain error it went out as a 500 with "something went wrong while
+		// enrolling a host. The cause is in the controller's log" -- so the one
+		// message that names the two ways forward was replaced, at the moment
+		// it was needed, by one that names none.
+		return nil, auth.Invalid("a host named %q is already enrolled here. Re-join from the machine that holds its credentials, "+
 			"or, if that machine is gone, delete the host first (`zoomies hosts delete %s`) and join again", name, existing.ID)
 	}
 	hostID := store.NewID(store.PrefixHost)

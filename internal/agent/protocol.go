@@ -59,6 +59,20 @@ type JoinRequest struct {
 	// to replace an existing host of the same name, because a join token on its
 	// own must not be enough to take over somebody else's machine.
 	PreviousToken string `json:"previous_token,omitempty"`
+	// PreviousHostID is the row this host was last enrolled as, sent from the
+	// same credentials file as PreviousToken.
+	//
+	// The token proves ownership; this says what is owned. Without it the
+	// controller can only find the old row by name, and the name is not
+	// stable: it is derived from what the machine is, so an agent that has
+	// learnt to measure its own CPUs and memory computes a different one from
+	// an agent that had not. Upgrading such a host therefore enrolled it a
+	// second time -- a new row with the correct figures, beside the old row
+	// still being kept alive by the process that had not been restarted yet.
+	//
+	// Empty from an agent too old to send it, and the name lookup still stands
+	// behind it for exactly that case.
+	PreviousHostID string `json:"previous_host_id,omitempty"`
 }
 
 // JoinResponse hands back the host's identity and its long-lived agent token.

@@ -287,6 +287,8 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq dash shellcheck
           dash -n install.sh
           shellcheck -s sh install.sh
+          dash -n test/install/install-check.sh
+          shellcheck -s sh test/install/install-check.sh
           shellcheck deploy/runner-entrypoint.sh
           dash -n test/upgrade/upgrade-check.sh
           shellcheck -s sh test/upgrade/upgrade-check.sh
@@ -299,6 +301,13 @@ jobs:
             dash -n "$f"
             shellcheck -s sh "$f"
           done
+
+      - name: What install.sh does on a host that already has the binary
+        run: |
+          # Syntax checking is not behaviour checking, and the difference is why
+          # a re-run of the controller's own join command used to drop the join.
+          # Run under dash as well as sh, since that is what most hosts have.
+          TEST_SH=dash test/install/install-check.sh install.sh
 
   images:
     name: Images

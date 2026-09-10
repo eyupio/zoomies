@@ -137,7 +137,8 @@ type Agent struct {
 
 	mu sync.Mutex
 	// hostID is empty until Join or a restored state file provides one.
-	hostID string
+	hostID   string
+	reported Reported
 	// runners is what the agent believes about the workloads it started. The
 	// host is the real truth; reconcile.go corrects this map from it.
 	runners map[string]*tracked
@@ -299,6 +300,36 @@ func kindList(kinds []store.BackendKind) string {
 
 func (a *Agent) now() time.Time { return a.clock() }
 
+// Reported is what this agent told the controller about the machine it is on,
+// and what the controller said it was.
+//
+// Kept so the installer can print it. An operator watching a join finish has no
+// other way to see either: the figures go on the wire and the skew warning goes
+// to a log, so a host that arrived on the wrong build or measured nothing
+// looked exactly like one that did neither -- which is how a fleet ends up with
+// a host nobody noticed was reporting no size at all.
+type Reported struct {
+	CPUs              int
+	MemoryMB          int64
+	DiskTotalMB       int64
+	DiskFreeMB        int64
+	ControllerVersion string
+}
+
+// Reported returns what the last join sent, and what it was answered with. The
+// zero value means this agent has not joined in this process.
+func (a *Agent) Reported() Reported {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.reported
+}
+
+func (a *Agent) setJoined(r Reported) {
+	a.mu.Lock()
+	a.reported = r
+	a.mu.Unlock()
+}
+
 // HostID returns the identity the controller gave this host, or "" before it
 // has joined.
 func (a *Agent) HostID() string {
@@ -369,7 +400,8 @@ func (a *Agent) Join(ctx context.Context, joinToken string) error {
 		// still holds, which is what lets it reclaim its own row rather than
 		// being refused as a name collision. A first join has none, and sending
 		// an empty string is exactly right there.
-		PreviousToken: a.previousToken(),
+		PreviousToken:  a.previousToken(),
+		PreviousHostID: a.previousHostID(),
 	}
 	resp, err := a.tr.Join(ctx, req)
 	if err != nil {
@@ -384,6 +416,10 @@ func (a *Agent) Join(ctx context.Context, joinToken string) error {
 		return fmt.Errorf("agent: joined %s as host %s but could not persist the agent token to %s; the host will have to join again after a restart: %w", a.tr.Describe(), resp.HostID, path, err)
 	}
 	a.setCredentials(creds)
+	a.setJoined(Reported{
+		CPUs: cpus, MemoryMB: memoryMB, DiskTotalMB: total, DiskFreeMB: free,
+		ControllerVersion: resp.ControllerVersion,
+	})
 
 	if d, err := time.ParseDuration(resp.HeartbeatInterval); err == nil && d >= minHeartbeatInterval {
 		a.heartbtI = d
@@ -412,11 +448,25 @@ func (a *Agent) Join(ctx context.Context, joinToken string) error {
 // cannot claim an existing row of the same name, which the controller says in
 // as many words if there is one.
 func (a *Agent) previousToken() string {
+	creds, _ := a.previousCredentials()
+	return creds.AgentToken
+}
+
+// previousHostID returns the row this host was last enrolled as, or "" when it
+// has never joined. Sent beside previousToken so the controller can find the
+// row this machine already owns without relying on its name, which changes
+// when the agent learns to describe the machine differently.
+func (a *Agent) previousHostID() string {
+	creds, _ := a.previousCredentials()
+	return creds.HostID
+}
+
+func (a *Agent) previousCredentials() (Credentials, bool) {
 	creds, err := Load(StatePath(a.opts.WorkDir))
 	if err != nil {
-		return ""
+		return Credentials{}, false
 	}
-	return creds.AgentToken
+	return creds, true
 }
 
 func (a *Agent) setCredentials(c Credentials) {

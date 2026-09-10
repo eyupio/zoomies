@@ -59,6 +59,24 @@ const problemWindow = time.Hour
 // page an operator opens when something is wrong, and one failing query used
 // to turn the whole of it into a 500. An empty drawer reads as a healthy
 // fleet, which is the one thing it must never say by accident.
+// agentUpgradeFix renders "here is how to upgrade an agent", or says plainly
+// that there is nothing to upgrade to.
+//
+// An agent is installed from a published release asset. A controller built from
+// main is stamped main-sha-abc1234 and no release carries it, so naming this
+// controller's version -- which both of these problems used to do -- sent the
+// operator to a download that does not exist. The command is in backticks
+// because RemedyText hangs a copy button on each one.
+func agentUpgradeFix(then string) string {
+	tag, ok := version.Release(version.Version)
+	if !ok {
+		return "this controller is " + version.Version + ", a build from main rather than a release, " +
+			"so there is no matching agent to install. Run a released controller and this clears."
+	}
+	return "on each host: `curl -fsSL https://zoomies.sh/install.sh | sh -s -- --no-init --version v" + tag + "` " +
+		"then `sudo systemctl restart zoomies-agent`. " + then
+}
+
 func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	out := make([]Problem, 0, 8)
 
@@ -323,7 +341,21 @@ func (c *Controller) hostSkewProblems(ctx context.Context, out *[]Problem) error
 		detail = append(detail, fmt.Sprintf("%s on a build this controller cannot order against its own: %s",
 			plural(len(differs), "host"), strings.Join(differs, ", ")))
 	}
-	fix := "upgrade the agent on those hosts to " + version.Version + "; the protocol still matches, so they are placing work as normal in the meantime."
+	// An agent is installed from a published release asset, so the version to
+	// name here is only nameable when this controller came from a release.
+	//
+	// It used to name version.Version unconditionally. On a controller built
+	// from main -- what the :latest and :main images are -- that is
+	// main-sha-abc1234, and no release carries it: an operator following the
+	// advice reached a 404 and came back to find the fleet exactly as it was.
+	// Worse, that is precisely the fleet this problem fires on, because a build
+	// from main cannot be ordered against a release at all, so every such host
+	// lands in `differs`.
+	//
+	// The command is in backticks because RemedyText hangs a copy button on
+	// each one, which is the difference between advice and something an
+	// operator can act on at 3am.
+	fix := agentUpgradeFix("The protocol still matches, so they are placing work as normal in the meantime.")
 	if len(ahead) > 0 {
 		fix = "upgrade this controller to the newest release in the fleet, then the agents: an agent ahead of its controller is the direction nothing is tested in. " + fix
 	}
@@ -377,7 +409,13 @@ func (c *Controller) hostResourceProblems(ctx context.Context, out *[]Problem) e
 			Title:    "some hosts have not reported what machine they are",
 			Detail: fmt.Sprintf("%s reporting no CPUs, memory or disk: %s. They are placed by slot count alone, which is how every host was placed before agents learnt to measure themselves, so nothing is wrong -- but a pool's resource limits cannot be fitted against a machine nobody has measured.",
 				plural(len(unknown), "host"), strings.Join(unknown, ", ")),
-			Fix: "upgrade the agent on those hosts; the figures appear on the next heartbeat, with no re-join.",
+			// Named the same way as host.version_behind, and for the same
+			// reason: "upgrade the agent" is only advice if there is an agent
+			// to upgrade to. The figures really do appear on the next
+			// heartbeat with no re-join -- the agent measures on every beat --
+			// so the only thing standing between this host and its size is a
+			// build that has the code, and before v0.2-beta-plus none did.
+			Fix: agentUpgradeFix("the figures appear on the next heartbeat, with no re-join."),
 		})
 	}
 

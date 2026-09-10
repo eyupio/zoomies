@@ -200,3 +200,55 @@ func TestConfirmRejoinIsQuietOnAFreshHost(t *testing.T) {
 		t.Fatalf("nothing should have been printed:\n%s", out.String())
 	}
 }
+
+// The last screen of a join has to say what this host became.
+//
+// It used to say the host name, the log command and "it should be on the Hosts
+// page within a heartbeat" -- nothing about which build the agent is, which
+// build the controller is, or what the machine measured. All three are answered
+// by running the install again with different arguments, and none was visible
+// until somebody opened the Hosts page and read a badge, which is how a host
+// sat on 0.2-beta reporting no size at all for as long as nobody looked.
+func TestReportedSizeSaysWhatTheAgentMeasuredOrThatItCouldNot(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   agent.Reported
+		want []string
+		not  []string
+	}{
+		{
+			name: "a machine it measured",
+			in:   agent.Reported{CPUs: 12, MemoryMB: 31 * 1024, DiskTotalMB: 108 * 1024, DiskFreeMB: 15 * 1024},
+			want: []string{"12 vCPU", "31 GB", "15 GB free of 108"},
+		},
+		{
+			// An agent from before the machine package existed sends nothing,
+			// and an empty field would read as "nothing to say" when what it
+			// means is "this host cannot say".
+			name: "an agent too old to measure",
+			in:   agent.Reported{},
+			want: []string{"not reported"},
+			not:  []string{"0 vCPU"},
+		},
+		{
+			name: "cpus but no disk",
+			in:   agent.Reported{CPUs: 4, MemoryMB: 8 * 1024},
+			want: []string{"4 vCPU", "8 GB"},
+			not:  []string{"free of"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := reportedSize(tc.in)
+			for _, w := range tc.want {
+				if !strings.Contains(got, w) {
+					t.Errorf("reportedSize(%+v) = %q, want it to carry %q", tc.in, got, w)
+				}
+			}
+			for _, n := range tc.not {
+				if strings.Contains(got, n) {
+					t.Errorf("reportedSize(%+v) = %q, should not carry %q", tc.in, got, n)
+				}
+			}
+		})
+	}
+}
