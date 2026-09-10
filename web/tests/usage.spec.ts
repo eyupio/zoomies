@@ -81,3 +81,34 @@ test('the report is a link: the range and the grouping live in the address bar',
   await expect(csv).toHaveAttribute('href', /from=2026-08-01T/);
   await expect(csv).toHaveAttribute('href', /to=2026-08-31T/);
 });
+
+test('changing grouping cancels a pending manual refresh', async ({ page }) => {
+  await goto(page, '/usage', 'Usage');
+  await expect(header(page, 'Runner-hours')).toHaveCount(1);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/v1/usage?**', async (route) => {
+    if (new URL(route.request().url()).searchParams.get('group_by') !== 'pool') {
+      await route.continue();
+      return;
+    }
+    await gate;
+    await route.abort().catch(() => {});
+  });
+  const started = page.waitForRequest((request) => request.url().includes('/api/v1/usage?'));
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  const old = await started;
+  const cancelled = page.waitForEvent('requestfailed', { predicate: (request) => request === old });
+  try {
+    await page.getByLabel('Group by').selectOption('repository');
+    await cancelled;
+    await expect(
+      table(page).getByRole('row', { name: new RegExp(FIXTURE.repos[0]) }),
+    ).toBeVisible();
+    await expect(header(page, 'Runner-hours')).toHaveCount(0);
+  } finally {
+    release();
+  }
+});

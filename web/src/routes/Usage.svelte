@@ -72,25 +72,32 @@
   let report = $state.raw<Usage | null>(null);
   let loading = $state(true);
   let error = $state<unknown>(null);
+  let pending: AbortController | null = null;
 
-  async function load(q: typeof query, signal?: AbortSignal): Promise<void> {
+  async function load(q: typeof query): Promise<void> {
+    // Refresh, retry and filter changes all replace the same request. A slow
+    // response must never be rendered under a newer range or grouping.
+    pending?.abort();
+    const controller = new AbortController();
+    pending = controller;
     loading = true;
+    error = null;
     try {
-      report = await getUsage(q, signal);
-      error = null;
+      const next = await getUsage(q, controller.signal);
+      if (controller.signal.aborted || pending !== controller) return;
+      report = next;
     } catch (cause) {
-      if (signal?.aborted) return;
+      if (controller.signal.aborted || pending !== controller) return;
       error = cause;
     } finally {
-      if (!signal?.aborted) loading = false;
+      if (!controller.signal.aborted && pending === controller) loading = false;
     }
   }
 
   $effect(() => {
     const q = query;
-    const controller = new AbortController();
-    void load(q, controller.signal);
-    return () => controller.abort();
+    void load(q);
+    return () => pending?.abort();
   });
 
   const rows = $derived(report?.items ?? []);
