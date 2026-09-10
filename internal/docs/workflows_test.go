@@ -129,6 +129,7 @@ func TestTheReleaseWorkflowOnlyLocksPublishedFullReleases(t *testing.T) {
 	for _, want := range []string{
 		"--json isDraft,isPrerelease",
 		`elif .isPrerelease then "prerelease"`,
+		`if [ "$PRERELEASE" = "true" ]; then`,
 		`prerelease) echo "$TAG is already published as a prerelease; it will be replaced." ;;`,
 	} {
 		if !strings.Contains(body, want) {

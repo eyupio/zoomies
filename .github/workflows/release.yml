@@ -75,6 +75,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.release.outputs.tag }}
+          PRERELEASE: ${{ steps.release.outputs.prerelease }}
         run: |
           set -eu
           state=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease \
@@ -82,9 +83,13 @@ jobs:
             2>/dev/null || echo "none")
           case "$state" in
             published)
-              echo "::error::$TAG is already published. A released tag is a promise; " \
-                   "cut a new tag rather than replacing what people have already downloaded."
-              exit 1 ;;
+              if [ "$PRERELEASE" = "true" ]; then
+                echo "$TAG is published as a full release, but the tag marks it as a prerelease; it will be replaced as a prerelease."
+              else
+                echo "::error::$TAG is already published. A released tag is a promise; " \
+                     "cut a new tag rather than replacing what people have already downloaded."
+                exit 1
+              fi ;;
             prerelease) echo "$TAG is already published as a prerelease; it will be replaced." ;;
             draft) echo "$TAG has an unpublished draft; it will be replaced." ;;
             none)  echo "$TAG has no release yet." ;;
