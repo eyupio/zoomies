@@ -260,3 +260,66 @@ func TestUninstallDeregistersOnlyTheRunnersThisDatabaseKnows(t *testing.T) {
 		t.Fatalf("would deregister %v, want only the two this database has rows for", ids)
 	}
 }
+
+// On most installations the config directory and the state directory are one
+// directory, and --keep-config has to survive that.
+//
+// config.StateDir and config.ConfigDir both answer ~/Library/Application
+// Support/zoomies on macOS, and os.UserConfigDir()/zoomies for a non-root
+// Linux install; only a root install separates /var/lib/zoomies from
+// /etc/zoomies. Uninstall used RemoveAll on the state directory, so on every
+// one of those it deleted the configuration too -- the zoomies.yaml just
+// promised to be kept, the encryption key, and anything else in there -- and
+// then reported only that the state directory had gone.
+//
+// The encryption key is the part that does not come back. It is the only copy,
+// and without it the stored App private keys and webhook secrets in any backup
+// the operator still holds cannot be decrypted.
+//
+// Every other test here gives ConfigDir and StateDir separate temporary
+// directories, which is exactly why none of them could see this.
+func TestUninstallWithOneSharedDirectoryKeepsTheConfigItPromisedToKeep(t *testing.T) {
+	shared := t.TempDir()
+	opts := UninstallOptions{
+		ConfigDir:      shared,
+		StateDir:       shared,
+		Out:            &bytes.Buffer{},
+		In:             strings.NewReader(""),
+		Yes:            true,
+		NonInteractive: true,
+		KeepConfig:     true,
+	}
+	var out bytes.Buffer
+	opts.Out = &out
+
+	writeFile(t, shared, "zoomies.yaml", "server: {}\n")
+	writeFile(t, shared, "encryption.key", "the only copy")
+	writeFile(t, shared, "zoomies.db", "")
+	// Something of the operator's own, which uninstall has never claimed.
+	writeFile(t, shared, "fullchain.pem", "a certificate they put here")
+
+	if err := Uninstall(context.Background(), opts); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+
+	if !exists(filepath.Join(shared, "zoomies.yaml")) {
+		t.Errorf("--keep-config was given and zoomies.yaml was deleted anyway:\n%s", out.String())
+	}
+	if !exists(filepath.Join(shared, "fullchain.pem")) {
+		t.Errorf("a file that was never ours was deleted:\n%s", out.String())
+	}
+	// The database is still the thing being uninstalled.
+	if exists(filepath.Join(shared, "zoomies.db")) {
+		t.Errorf("the database survived, so nothing was uninstalled:\n%s", out.String())
+	}
+	// The key goes: it is not configuration, and leaving it behind is the
+	// thing removing it at all is meant to prevent.
+	if exists(filepath.Join(shared, "encryption.key")) {
+		t.Errorf("the encryption key was left behind:\n%s", out.String())
+	}
+	// And the report has to name what survived, or the operator does not know
+	// there is anything still to clean up.
+	if report := out.String(); !strings.Contains(report, "fullchain.pem") {
+		t.Errorf("the report did not name what was left behind:\n%s", report)
+	}
+}

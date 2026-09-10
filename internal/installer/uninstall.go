@@ -65,6 +65,25 @@ func (o UninstallOptions) stateDir() string {
 	return config.StateDir()
 }
 
+// sameDir reports whether two paths are the same directory.
+//
+// It asks the filesystem rather than comparing strings, so a symlink, a
+// trailing slash or a relative path cannot make one directory look like two --
+// which here would mean deleting a configuration the operator asked to keep.
+// String comparison is the fallback for a path that cannot be stat'd, where
+// being wrong costs nothing that is not already missing.
+func sameDir(a, b string) bool {
+	fa, err := os.Stat(a)
+	if err != nil {
+		return filepath.Clean(a) == filepath.Clean(b)
+	}
+	fb, err := os.Stat(b)
+	if err != nil {
+		return filepath.Clean(a) == filepath.Clean(b)
+	}
+	return os.SameFile(fa, fb)
+}
+
 // RemovalItem is one thing uninstall is about to do, listed before it does any
 // of it. An uninstaller that surprises you is not one you run twice.
 type RemovalItem struct {
@@ -286,8 +305,37 @@ func Uninstall(ctx context.Context, opts UninstallOptions) error {
 
 	// --- State ------------------------------------------------------------
 	stateDir := opts.stateDir()
+	cfgDir := opts.configDir()
+
+	// These two are the same directory on macOS, and on Linux for anyone but
+	// root -- config.StateDir and config.ConfigDir both answer
+	// ~/Library/Application Support/zoomies, or os.UserConfigDir()/zoomies,
+	// and only a root install separates /var/lib/zoomies from /etc/zoomies.
+	//
+	// So RemoveAll here took the configuration with the database on most
+	// installations: the zoomies.yaml --keep-config had just promised to keep,
+	// the encryption key, and whatever else the operator had put in there. The
+	// careful handling below -- keep the file, remove the directory only when
+	// it is empty, name what is left -- ran afterwards on a directory that was
+	// already gone, found nothing, and said nothing. The report claimed the
+	// state directory had been removed and left the rest unmentioned.
+	//
+	// When they are one directory the state is removed by name instead, and
+	// the configuration below is left to be dealt with on its own terms.
 	if exists(stateDir) {
-		if err := os.RemoveAll(stateDir); err != nil {
+		if sameDir(stateDir, cfgDir) {
+			for _, name := range []string{"zoomies.db", "zoomies.db-wal", "zoomies.db-shm", "work"} {
+				path := filepath.Join(stateDir, name)
+				if !exists(path) {
+					continue
+				}
+				if err := os.RemoveAll(path); err != nil {
+					u.warn("could not remove " + path + ": " + err.Error())
+					continue
+				}
+				record("removed %s", path)
+			}
+		} else if err := os.RemoveAll(stateDir); err != nil {
 			u.warn("could not remove " + stateDir + ": " + err.Error())
 		} else {
 			record("removed %s, including the database", stateDir)
@@ -295,7 +343,6 @@ func Uninstall(ctx context.Context, opts UninstallOptions) error {
 	}
 
 	// --- Configuration ----------------------------------------------------
-	cfgDir := opts.configDir()
 	cfgFile := filepath.Join(cfgDir, "zoomies.yaml")
 	if opts.KeepConfig && exists(cfgFile) {
 		keep("%s", cfgFile)
