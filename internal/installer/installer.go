@@ -985,7 +985,7 @@ func (p Plan) Review() []ReviewLine {
 	case DeploymentCompose:
 		how = "a compose project in " + p.DeployDir
 	case DeploymentDocker:
-		how = "one container from " + p.Image
+		how = "one container, from the env file in " + p.DeployDir
 	case DeploymentNative:
 		if p.Service == ServiceNone {
 			how = "the binary, with no service manager to restart it"
@@ -995,6 +995,13 @@ func (p Plan) Review() []ReviewLine {
 	out := []ReviewLine{
 		{"this host", kind},
 		{"run as", how},
+	}
+	// Which image, on every containerised deployment rather than only on the
+	// docker one. It is the single line that says which build this host is
+	// about to become, and a runner host's is derived rather than typed -- so
+	// it is also the line that shows the derivation was right.
+	if p.Deployment.Containerised() {
+		out = append(out, ReviewLine{"image", p.Image})
 	}
 	if !p.Deployment.Containerised() {
 		out = append(out, ReviewLine{"account", p.ServiceUser + ":" + p.ServiceGroup})

@@ -468,3 +468,103 @@ func TestTheImageDeclaresTheHealthcheckADockerRunInherits(t *testing.T) {
 		t.Errorf("the HEALTHCHECK does not probe %s:\n%s", want, instruction)
 	}
 }
+
+// The agent image is derived from the controller image rather than asked
+// about, and the three references it must refuse are each a reference that
+// would look plausible and pull nothing.
+func TestAgentImageForFollowsTheControllerImage(t *testing.T) {
+	const digest = "@sha256:8c2f1a9e5b3d4c6a7e8f0b1d2c3a4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f"
+	for _, tc := range []struct {
+		name       string
+		controller string
+		want       string
+		ok         bool
+	}{
+		{"a release tag is the whole point", "ghcr.io/eyupio/zoomies:v1.2.3", "ghcr.io/eyupio/zoomies-agent:v1.2.3", true},
+		{"the tip of main", "ghcr.io/eyupio/zoomies:dev", "ghcr.io/eyupio/zoomies-agent:dev", true},
+		{"the newest release", "ghcr.io/eyupio/zoomies:latest", "ghcr.io/eyupio/zoomies-agent:latest", true},
+		{"a commit tag", "ghcr.io/eyupio/zoomies:sha-b966fb6", "ghcr.io/eyupio/zoomies-agent:sha-b966fb6", true},
+		{"no tag at all", "ghcr.io/eyupio/zoomies", "ghcr.io/eyupio/zoomies-agent", true},
+
+		// A digest names one set of bytes and there is no arithmetic that
+		// turns the controller's into the agent's. Carrying it across would
+		// name an image that does not exist.
+		{"a digest cannot be translated", "ghcr.io/eyupio/zoomies" + digest, "", false},
+		{"a tag and a digest", "ghcr.io/eyupio/zoomies:v1.2.3" + digest, "", false},
+
+		// Whether somebody else's registry carries an -agent counterpart is
+		// not knowable from the name.
+		{"a mirror", "registry.example.com/mirror/zoomies:v1.2.3", "", false},
+		{"a mirror on a port", "registry.example.com:5000/zoomies:v1.2.3", "", false},
+		{"an operator's own build", "zoomies:local", "", false},
+
+		// The repository is compared whole. A prefix test would rewrite the
+		// runner image, which is a different image entirely.
+		{"a repository that merely starts the same way", "ghcr.io/eyupio/zoomies-runner:latest", "", false},
+		{"the agent image itself is not doubled", "ghcr.io/eyupio/zoomies-agent:v1.2.3", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := AgentImageFor(tc.controller)
+			if ok != tc.ok {
+				t.Fatalf("AgentImageFor(%q) derived = %v, want %v", tc.controller, ok, tc.ok)
+			}
+			if got != tc.want {
+				t.Errorf("AgentImageFor(%q) = %q, want %q", tc.controller, got, tc.want)
+			}
+		})
+	}
+}
+
+// containerise is the one place a plan's image is settled, so it is the one
+// place the agent image has to appear.
+func TestContainerisingARunnerHostGivesItTheAgentImage(t *testing.T) {
+	got := containerise(Plan{Deployment: DeploymentCompose, Mode: ModeAgent, Bind: "127.0.0.1:8080", Image: "ghcr.io/eyupio/zoomies:v1.2.3"})
+	if want := "ghcr.io/eyupio/zoomies-agent:v1.2.3"; got.Image != want {
+		t.Errorf("image = %q, want %q", got.Image, want)
+	}
+
+	// A controller keeps the controller image, which is the half that would
+	// break loudly if the swap were made on mode rather than for it.
+	ctl := containerise(Plan{Deployment: DeploymentCompose, Mode: ModeSingle, Bind: "127.0.0.1:8080", Image: "ghcr.io/eyupio/zoomies:v1.2.3"})
+	if want := "ghcr.io/eyupio/zoomies:v1.2.3"; ctl.Image != want {
+		t.Errorf("controller image = %q, want %q", ctl.Image, want)
+	}
+
+	// A pin is a pin. An operator who named a digest gets the bytes they named,
+	// and the compose file's command override is what makes it an agent.
+	const digest = "@sha256:8c2f1a9e5b3d4c6a7e8f0b1d2c3a4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f"
+	pinned := containerise(Plan{Deployment: DeploymentCompose, Mode: ModeAgent, Bind: "127.0.0.1:8080", Image: "ghcr.io/eyupio/zoomies" + digest})
+	if want := "ghcr.io/eyupio/zoomies" + digest; pinned.Image != want {
+		t.Errorf("pinned image = %q, want %q", pinned.Image, want)
+	}
+}
+
+// splitImage is tested on its own because AgentImageFor cannot reach half of
+// it: a stock controller reference never carries a registry port, so the guard
+// that keeps a port from being read as a tag is invisible through the caller --
+// a reference with one is refused for having the wrong repository long before
+// the split matters. Asserting it here is what makes it a tested rule rather
+// than a comment.
+func TestSplitImageKeepsARegistryPortOutOfTheTag(t *testing.T) {
+	const digest = "@sha256:8c2f1a9e5b3d4c6a7e8f0b1d2c3a4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f"
+	for _, tc := range []struct{ ref, repo, tag, digest string }{
+		{"ghcr.io/eyupio/zoomies:v1.2.3", "ghcr.io/eyupio/zoomies", ":v1.2.3", ""},
+		{"ghcr.io/eyupio/zoomies", "ghcr.io/eyupio/zoomies", "", ""},
+		// The colon belongs to the registry, and reading it as a tag would
+		// leave the repository as a bare hostname that pulls nothing.
+		{"registry.example.com:5000/zoomies", "registry.example.com:5000/zoomies", "", ""},
+		{"registry.example.com:5000/zoomies:v1.2.3", "registry.example.com:5000/zoomies", ":v1.2.3", ""},
+		// A digest has a colon of its own, inside it.
+		{"ghcr.io/eyupio/zoomies" + digest, "ghcr.io/eyupio/zoomies", "", digest},
+		{"ghcr.io/eyupio/zoomies:v1.2.3" + digest, "ghcr.io/eyupio/zoomies", ":v1.2.3", digest},
+		{"registry.example.com:5000/zoomies" + digest, "registry.example.com:5000/zoomies", "", digest},
+	} {
+		t.Run(tc.ref, func(t *testing.T) {
+			repo, tag, dg := splitImage(tc.ref)
+			if repo != tc.repo || tag != tc.tag || dg != tc.digest {
+				t.Errorf("splitImage(%q) = (%q, %q, %q), want (%q, %q, %q)",
+					tc.ref, repo, tag, dg, tc.repo, tc.tag, tc.digest)
+			}
+		})
+	}
+}

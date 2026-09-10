@@ -21,6 +21,10 @@ import (
 const (
 	// DefaultImage is the published controller image.
 	DefaultImage = "ghcr.io/eyupio/zoomies:latest"
+	// DefaultAgentImage is its counterpart for a host that only runs runners:
+	// the same build, with the agent as its command, no listener and no
+	// healthcheck.
+	DefaultAgentImage = "ghcr.io/eyupio/zoomies-agent:latest"
 	// ContainerPort is what Zoomies listens on inside the container.
 	ContainerPort = 8080
 	// ContainerStateDir is the mount point of the data volume.
@@ -181,6 +185,69 @@ func EnvSpecFor(p Plan) EnvSpec {
 	}
 }
 
+// The two repositories AgentImageFor translates between. Both workflows build
+// both from the same commit and publish them under the same tags, which is what
+// makes deriving one from the other sound rather than a guess.
+const (
+	stockControllerRepository = "ghcr.io/eyupio/zoomies"
+	stockAgentRepository      = "ghcr.io/eyupio/zoomies-agent"
+)
+
+// AgentImageFor returns the image a runner host should run, given the
+// controller image this deployment was told to use, and whether one could be
+// worked out at all.
+//
+// A runner host given the controller image is not broken -- the entrypoint is
+// the same binary and the compose file already overrides the command -- but it
+// is the wrong image: it carries the UI, it labels itself as a controller in
+// every registry listing and `docker inspect`, and it declares a healthcheck
+// against a listener an agent does not have, so the container reports unhealthy
+// for as long as it runs. Deriving the right one costs nothing and the operator
+// was never going to be asked which of two images to name.
+//
+// The derivation is deliberately narrow, in the same way RunnerImageFor's is,
+// and refuses rather than guesses in the three places a guess would be wrong:
+//
+//   - A digest names one exact set of bytes. There is no arithmetic that turns
+//     the controller's digest into the agent's, so a pinned deployment keeps
+//     what it pinned.
+//   - A mirror or an operator's own build lives in a repository this code knows
+//     nothing about. Whether it carries an -agent counterpart is not something
+//     that can be known from the name.
+//   - A repository that merely starts the same way -- zoomies-runner -- is a
+//     different image, which is why this compares the whole repository rather
+//     than taking a prefix.
+//
+// The tag is carried across untouched, including a digest-free pin, because a
+// tag that exists for the controller exists for the agent: the same workflow
+// step publishes both.
+func AgentImageFor(controller string) (string, bool) {
+	repo, tag, digest := splitImage(controller)
+	if repo != stockControllerRepository || digest != "" {
+		return "", false
+	}
+	return stockAgentRepository + tag, true
+}
+
+// splitImage separates an image reference into its repository, its tag with the
+// colon still on it, and its digest with the @ still on it.
+//
+// Splitting on the last colon is wrong twice over, and both ways produce a
+// reference that looks plausible and pulls nothing: a registry may carry a port,
+// so registry.example.com:5000/zoomies would lose its host, and a digest carries
+// a colon of its own inside sha256:....
+func splitImage(ref string) (repo, tag, digest string) {
+	if i := strings.Index(ref, "@"); i >= 0 {
+		ref, digest = ref[:i], ref[i:]
+	}
+	// A colon after the last slash is a tag; one before it belongs to the
+	// registry's port.
+	if i := strings.LastIndex(ref, ":"); i >= 0 && !strings.Contains(ref[i+1:], "/") {
+		ref, tag = ref[:i], ref[i:]
+	}
+	return ref, tag, digest
+}
+
 // containerise rewrites a plan's paths for a deployment that runs inside a
 // container.
 //
@@ -210,6 +277,18 @@ func containerise(p Plan) Plan {
 	p.WorkDir = ContainerWorkDir
 	if p.Image == "" {
 		p.Image = DefaultImage
+	}
+	// A runner host runs the agent image at whatever tag the controller image
+	// names, so a fleet that pins v1.2.3 gets an agent of v1.2.3 without the
+	// operator having to know there are two images. An image this cannot be
+	// derived from -- a digest, a mirror, something of the operator's own -- is
+	// left exactly as given: it still works, because the command is overridden
+	// either way, and second-guessing a pin is worse than running the image the
+	// operator asked for.
+	if p.Mode == ModeAgent {
+		if img, ok := AgentImageFor(p.Image); ok {
+			p.Image = img
+		}
 	}
 	if p.DeployDir == "" {
 		p.DeployDir = p.ConfigDir
