@@ -1,8 +1,11 @@
 name: Release
 
 on:
-  push:
-    tags: ["v*"]
+  # A GitHub release is the thing users consume, so it is the source of truth.
+  # Listening for a tag push misses releases created from an existing tag and,
+  # when the release creates the tag, races the published release below.
+  release:
+    types: [published]
   # The manual path exists for the day the usual one cannot be taken: a tag
   # whose run was cancelled, or a runner vendor that is down. It takes the tag
   # rather than assuming the ref, because a dispatch runs from a branch.
@@ -42,8 +45,9 @@ jobs:
     steps:
       - id: release
         env:
-          # The dispatch input when there is one, else the tag that was pushed.
-          TAG: ${{ inputs.tag || github.ref_name }}
+          # The published release's tag, or the explicit recovery tag when this
+          # workflow is dispatched by hand.
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
           RUNNER: ${{ inputs.runner || 'blacksmith' }}
         run: |
           set -eu
@@ -67,15 +71,17 @@ jobs:
             echo "runs-on=blacksmith-4vcpu-ubuntu-2404" >> "$GITHUB_OUTPUT"
           fi
 
-      # A published full release is a promise about specific bytes, and
-      # rebuilding one would replace what people have already downloaded behind
-      # the same tag. A draft is fair game: it has not been promised to anybody
-      # yet, and a published prerelease is still explicitly not finished.
+      # A published release event has to be allowed to attach the generated
+      # assets: GitHub publishes the release before it delivers that event. A
+      # later manual dispatch is different. Rebuilding a full release by hand
+      # would replace bytes people have already downloaded behind the same tag.
+      # Drafts and prereleases are still explicitly unfinished and recoverable.
       - name: Refuse to rebuild a published release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.release.outputs.tag }}
           PRERELEASE: ${{ steps.release.outputs.prerelease }}
+          EVENT: ${{ github.event_name }}
         run: |
           set -eu
           state=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease \
@@ -83,7 +89,9 @@ jobs:
             2>/dev/null || echo "none")
           case "$state" in
             published)
-              if [ "$PRERELEASE" = "true" ]; then
+              if [ "$EVENT" = "release" ]; then
+                echo "$TAG is the newly published release that triggered this run; generated assets will be attached."
+              elif [ "$PRERELEASE" = "true" ]; then
                 echo "$TAG is published as a full release, but the tag marks it as a prerelease; it will be replaced as a prerelease."
               else
                 echo "::error::$TAG is already published. A released tag is a promise; " \
@@ -132,7 +140,9 @@ jobs:
             dist/zoomies_*
             dist/checksums.txt
           generate_release_notes: true
-          draft: true
+          # A release event points at an existing published release. A manual
+          # recovery keeps the previous draft-first behaviour.
+          draft: ${{ github.event_name == 'workflow_dispatch' }}
           # A tag with a hyphen -- v0.1-alpha, v1.0-rc1 -- is this project
           # saying the release is not finished. Marked as a prerelease, GitHub
           # keeps it out of "latest", which is what install.sh asks for.
