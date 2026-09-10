@@ -4474,9 +4474,11 @@ export interface operations {
                         token?: string;
                         /**
                          * @description The one-liner to run on the new host.
-                         * @example curl -fsSL https://zoomies.sh/install.sh | sh -s -- --mode agent --controller https://zoomies.example.com --join-token zoojoin_...
+                         * @example curl -fsSL https://zoomies.sh/install.sh | sh -s -- --mode agent --controller https://zoomies.example.com --join-token zoojoin_... --version v1.0.0
                          */
                         command?: string;
+                        /** @description Why the command could not be pinned to this controller's build, or absent when it was. A controller built from main has no matching release asset, so the host will install the newest release and read as a different build until this controller runs a released version. */
+                        version_note?: string;
                     };
                 };
             };

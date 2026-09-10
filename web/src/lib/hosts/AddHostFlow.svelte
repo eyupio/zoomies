@@ -44,7 +44,7 @@
   import LabelMapEditor from './LabelMapEditor.svelte';
 
   type Phase = 'describe' | 'run' | 'joined';
-  type Minted = JoinToken & { token?: string; command?: string };
+  type Minted = JoinToken & { token?: string; command?: string; version_note?: string };
 
   const STEPS = [
     { id: 'describe', title: 'Describe the host' },
@@ -169,6 +169,13 @@
   const expired = $derived(Boolean(watched && !watched.used_at && watched.usable === false));
   const chosenURL = $derived(controllerURL.trim().replace(/\/+$/, ''));
   const installCommand = $derived(minted?.command ?? '');
+  /**
+   * Why the command could not be pinned to this controller's build, when it
+   * could not. Worth its own line rather than a footnote: an operator who is
+   * not told this watches the new host arrive reading "Different build", and
+   * re-runs the installer to fix something no re-run can change.
+   */
+  const versionNote = $derived(minted?.version_note ?? '');
   /** For a machine that already has the binary: the same join, without the download. */
   const joinCommand = $derived(
     minted?.token ? `zoomies agent join ${chosenURL} --token ${minted.token}` : '',
@@ -469,6 +476,9 @@
             The token in it is shown once — only its hash is stored — and works once.
           </span>
         </div>
+        {#if versionNote}
+          <p class="version-note">{versionNote}</p>
+        {/if}
       </div>
 
       <details class="alternatives">
@@ -760,6 +770,12 @@
   .command.small pre {
     font-size: var(--z-text-xs);
     line-height: var(--z-leading-xs);
+  }
+  .version-note {
+    margin: var(--z-space-3) 0 0;
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text-muted);
   }
   .command-actions {
     display: flex;

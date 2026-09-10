@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
@@ -39,15 +38,6 @@ type releaseState struct {
 	At time.Time
 }
 
-// releaseLike matches a version stamped from a release tag: 0.2-beta, v1.4.0.
-// A build from main is stamped main-sha-abc1234 and matches nothing here.
-var releaseLike = regexp.MustCompile(`^v?\d+\.\d+`)
-
-// describeSuffix matches what `git describe` adds to a tag once commits have
-// landed on top of it -- v0.2-beta-5-gabc1234 -- which is a local build of
-// something past that release rather than the release itself.
-var describeSuffix = regexp.MustCompile(`-\d+-g[0-9a-f]{7,}(-dirty)?$`)
-
 // releaseVersion reports the release this binary was built from, and whether it
 // was built from one at all.
 //
@@ -55,13 +45,11 @@ var describeSuffix = regexp.MustCompile(`-\d+-g[0-9a-f]{7,}(-dirty)?$`)
 // :main is stamped main-sha-abc1234 and is usually *ahead* of the newest
 // release, so telling it that a release is available would be telling it to
 // downgrade. Only a build that came from a release tag has anything to compare.
-func releaseVersion(v string) (string, bool) {
-	v = strings.TrimSpace(v)
-	if v == "" || !releaseLike.MatchString(v) || describeSuffix.MatchString(v) {
-		return "", false
-	}
-	return strings.TrimPrefix(v, "v"), true
-}
+//
+// The join command needs the same answer -- an agent is installed from a
+// release asset, so a controller that is not a release cannot pin a host to
+// itself -- so the rule lives in internal/version and this is its name here.
+func releaseVersion(v string) (string, bool) { return version.Release(v) }
 
 // checkForRelease asks GitHub for the current release and records it.
 //

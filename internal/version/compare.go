@@ -1,6 +1,7 @@
 package version
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -105,4 +106,31 @@ func parseRelease(s string) (release, bool) {
 		out.parts[i] = n
 	}
 	return out, true
+}
+
+// releaseLike matches a version stamped from a release tag: 0.2-beta, v1.4.0.
+// A build from main is stamped main-sha-abc1234 and matches nothing here.
+var releaseLike = regexp.MustCompile(`^v?\d+\.\d+`)
+
+// describeSuffix matches what `git describe` adds to a tag once commits have
+// landed on top of it -- v0.2-beta-5-gabc1234 -- which is a local build of
+// something past that release rather than the release itself.
+var describeSuffix = regexp.MustCompile(`-\d+-g[0-9a-f]{7,}(-dirty)?$`)
+
+// Release reports the release a build came from, and whether it came from one
+// at all.
+//
+// Two callers need the same answer for different reasons, which is why it lives
+// here rather than beside either of them. The update check asks so that it does
+// not tell a controller running :latest -- stamped main-sha-abc1234, and usually
+// *ahead* of the newest release -- to downgrade. The join command asks because
+// an agent can only be installed from a published release asset: a controller
+// that is not a release has no version it can honestly pin a host to, and
+// pretending otherwise sends the operator to a download that does not exist.
+func Release(v string) (string, bool) {
+	v = strings.TrimSpace(v)
+	if v == "" || !releaseLike.MatchString(v) || describeSuffix.MatchString(v) {
+		return "", false
+	}
+	return strings.TrimPrefix(v, "v"), true
 }

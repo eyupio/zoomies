@@ -9,6 +9,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/version"
 )
 
 // TestUserLifecycle covers the account management an admin does, including the
@@ -712,5 +713,80 @@ func TestTheAuditLogDoesNotLetAViewerReadAdminOnlyDocuments(t *testing.T) {
 	direct := h.do(request{method: http.MethodGet, path: "/api/v1/users", cookie: viewerCookie})
 	if direct.status != http.StatusForbidden {
 		t.Errorf("GET /users as viewer = %d, want 403", direct.status)
+	}
+}
+
+// The join command has to install an agent that matches this controller.
+//
+// Unpinned, the installer resolves "latest", which is the newest published
+// release rather than this build. A fleet whose controller had moved past that
+// release enrolled every new host on an older agent, and the host arrived
+// reading "Different build" for good: re-running the command changed nothing,
+// because the version it asked for was the version already there. Where the
+// older agent predates the machine measurement code it also arrives permanently
+// "Size unknown", which no argument to the command could fix.
+//
+// The other half is the honest one. A controller built from main is stamped
+// main-sha-abc1234 and no release asset carries that version, so pinning it
+// would send the operator to a 404. The command is left unpinned and says so.
+func TestJoinCommandPinsTheControllersOwnRelease(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("root", store.RoleAdmin)
+	cookie := h.session(admin)
+
+	mint := func(t *testing.T) createJoinTokenResponse {
+		t.Helper()
+		created := h.do(request{method: http.MethodPost, path: "/api/v1/join-tokens", cookie: cookie,
+			body: map[string]any{"controller_url": "https://zoomies.internal:8443"}})
+		created.mustStatus(t, http.StatusCreated, "create")
+		var minted createJoinTokenResponse
+		created.into(t, &minted)
+		return minted
+	}
+
+	was := version.Version
+	t.Cleanup(func() { version.Version = was })
+
+	for _, tc := range []struct {
+		name    string
+		stamped string
+		want    string
+	}{
+		{"a release tag", "1.0.0", "--version v1.0.0"},
+		{"a tag with a v", "v1.0.0", "--version v1.0.0"},
+		{"a prerelease", "0.2-beta", "--version v0.2-beta"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			version.Version = tc.stamped
+			minted := mint(t)
+			if !strings.Contains(minted.Command, tc.want) {
+				t.Errorf("a controller stamped %q handed out a command without %q, so the host it enrols "+
+					"will not match it:\n%s", tc.stamped, tc.want, minted.Command)
+			}
+			if minted.VersionNote != "" {
+				t.Errorf("a pinned command still carried a note: %q", minted.VersionNote)
+			}
+		})
+	}
+
+	for _, stamped := range []string{"main-sha-117bc18", "dev", "v0.2-beta-276-g394254b"} {
+		t.Run("unreleased "+stamped, func(t *testing.T) {
+			version.Version = stamped
+			minted := mint(t)
+			// No pin: there is no asset with this version, and a pin that 404s
+			// is worse than an agent that merely differs.
+			if strings.Contains(minted.Command, "--version") {
+				t.Errorf("a controller stamped %q pinned a version that can never be downloaded:\n%s",
+					stamped, minted.Command)
+			}
+			// But it must not be silent about it.
+			if minted.VersionNote == "" {
+				t.Errorf("a controller stamped %q gave no reason for handing out an unpinned command; "+
+					"the operator finds out when the host reads \"Different build\"", stamped)
+			}
+			if !strings.Contains(minted.VersionNote, stamped) {
+				t.Errorf("the note does not name the build it is about: %q", minted.VersionNote)
+			}
+		})
 	}
 }

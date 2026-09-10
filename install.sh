@@ -1029,17 +1029,40 @@ INSTALLED_TAG="${EXISTING_VERSION%% *}"
 INSTALLED_TAG="${INSTALLED_TAG#v}"
 WANTED_TAG="${VERSION#v}"
 
-# Same version, nothing asked for: there is nothing to do, and saying so beats
-# re-downloading 27 MB to arrive back where we started.
-if [ -n "$INSTALLED_TAG" ] && [ "$INSTALLED_TAG" = "$WANTED_TAG" ] && [ "$ASSUME_YES" -eq 0 ]; then
-    ok "$EXISTING_VERSION is already installed at $EXISTING."
-    note "to set this host up, run: zoomies init"
-    note "to reinstall the same version anyway, add --yes"
-    exit 0
+# Same version already here: there is nothing to *download*, which is not the
+# same as nothing to do, and conflating the two is what sent operators round in
+# circles.
+#
+# The controller's own join command carries --mode agent, --controller and
+# --join-token. Run on a host that already had this version -- which is every
+# host, since the command pins no version and "latest" is whatever release is
+# newest -- this line exited 0 and dropped all three on the floor. The host was
+# never joined, the operator was told to run `zoomies init` instead, and the
+# advice below sent them to --yes, which re-downloads the identical binary and
+# joins nothing. That is the loop: the one thing they asked for was the one
+# thing that never happened.
+#
+# So the early exit is now only for the bare `curl | sh` with no setup asked
+# for. When the invocation carries intent -- a mode, a controller, a token --
+# the download is skipped and the run goes on to the handoff at the bottom,
+# which is where the joining happens.
+SKIP_DOWNLOAD=0
+if [ -n "$INSTALLED_TAG" ] && [ "$INSTALLED_TAG" = "$WANTED_TAG" ]; then
+    if [ -n "$MODE" ] || [ -n "$CONTROLLER_URL" ] || [ -n "$JOIN_TOKEN" ] || [ -n "$ANSWERS" ]; then
+        SKIP_DOWNLOAD=1
+    elif [ "$ASSUME_YES" -eq 0 ]; then
+        ok "$EXISTING_VERSION is already installed at $EXISTING."
+        note "to set this host up, run: zoomies init"
+        note "to install a different build, add --version <tag>"
+        note "to download this same version again anyway, add --yes"
+        exit 0
+    fi
 fi
 
 step "About to"
-if [ -n "$EXISTING" ]; then
+if [ "$SKIP_DOWNLOAD" -eq 1 ]; then
+    field keep "$EXISTING_VERSION, already at $EXISTING -- it is the version asked for"
+elif [ -n "$EXISTING" ]; then
     field install "$VERSION over $EXISTING_VERSION, at $PREFIX/zoomies"
 else
     field install "zoomies $VERSION ($OS/$ARCH) to $PREFIX/zoomies"
@@ -1090,11 +1113,17 @@ if [ "$NON_INTERACTIVE" -eq 0 ] && [ "$ASSUME_YES" -eq 0 ] && have_tty; then
     say ""
 fi
 
-install_binary
+if [ "$SKIP_DOWNLOAD" -eq 1 ]; then
+    ok "$EXISTING_VERSION is already installed at $EXISTING, so it was kept."
+else
+    install_binary
+fi
 
 if [ "$RUN_INIT" -eq 0 ]; then
     say ""
-    if [ -n "$EXISTING" ]; then
+    if [ "$SKIP_DOWNLOAD" -eq 1 ]; then
+        ok "Binary left as it was. Nothing else on this host was touched."
+    elif [ -n "$EXISTING" ]; then
         ok "Binary upgraded. Nothing else on this host was touched."
     else
         ok "Binary installed. Run \`zoomies init\` when you are ready to set it up."

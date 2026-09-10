@@ -10,6 +10,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/version"
 )
 
 // hostResponse is the shape GET /hosts returns, rendered by the controller
@@ -270,12 +271,16 @@ type joinTokenResponse struct {
 	Usable    bool              `json:"usable"`
 }
 
-// createJoinTokenResponse adds the two things that exist exactly once: the
-// plaintext token, and the command to paste on the new host.
+// createJoinTokenResponse adds the things that exist exactly once: the
+// plaintext token, the command to paste on the new host, and -- when the
+// command could not be pinned to this controller's build -- what that will
+// cost the operator.
 type createJoinTokenResponse struct {
 	joinTokenResponse
 	Token   string `json:"token"`
 	Command string `json:"command"`
+	// VersionNote is empty when the command installs a matching agent.
+	VersionNote string `json:"version_note,omitempty"`
 }
 
 func (s *Server) joinTokenResponse(t *store.JoinToken) joinTokenResponse {
@@ -370,6 +375,7 @@ func (s *Server) handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
 		joinTokenResponse: s.joinTokenResponse(token),
 		Token:             plaintext,
 		Command:           s.joinCommand(plaintext, controllerURL),
+		VersionNote:       joinVersionNote(),
 	})
 }
 
@@ -414,8 +420,49 @@ func (s *Server) joinCommand(token, controllerURL string) string {
 			controller = "https://<this-controller>"
 		}
 	}
-	return fmt.Sprintf("curl -fsSL https://zoomies.sh/install.sh | sh -s -- --mode agent --controller %s --join-token %s",
+	cmd := fmt.Sprintf("curl -fsSL https://zoomies.sh/install.sh | sh -s -- --mode agent --controller %s --join-token %s",
 		controller, token)
+
+	// Pin the agent to this controller's own release.
+	//
+	// Unpinned, the installer resolves "latest", which is the newest *published
+	// release* -- not this build. A fleet whose controller was upgraded past the
+	// newest release therefore enrolled every new host on an older agent, and
+	// the host arrived reading "Different build" for good: re-running the
+	// command changed nothing, because the version it asks for is the version
+	// already there.
+	//
+	// It is worse than a cosmetic badge when the older agent predates something.
+	// An agent that cannot yet measure its own machine reports no CPUs, memory
+	// or disk, so the host shows "Size unknown" and a pool's resource limits
+	// have nothing to fit against -- and no argument to the command could have
+	// fixed it.
+	if tag, ok := version.Release(version.Version); ok {
+		return cmd + " --version v" + tag
+	}
+
+	// No pin, because there is nothing honest to pin to. A controller built from
+	// main is stamped main-sha-abc1234, and the installer downloads release
+	// assets: there is no such asset, so pinning this version would send the
+	// operator to a 404 instead of a mismatched agent. The command still works
+	// and the host still joins; it says what it cannot promise instead.
+	return cmd
+}
+
+// joinVersionNote explains a join command that could not be pinned, or is empty
+// when it was.
+//
+// The command above stays runnable either way, so this is the difference
+// between an operator who knows their new host will read "Different build" and
+// one who finds out afterwards and starts re-running the installer to fix it.
+func joinVersionNote() string {
+	if _, ok := version.Release(version.Version); ok {
+		return ""
+	}
+	return fmt.Sprintf("This controller is %s, which is a build from main rather than a release, "+
+		"so there is no matching agent to install. The host will get the newest release and the "+
+		"fleet will show it as a different build until this controller runs a released version.",
+		version.Version)
 }
 
 // handleGetJoinToken answers GET /api/v1/join-tokens/{id}.
