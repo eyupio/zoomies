@@ -11,6 +11,7 @@ import (
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/version"
 )
 
 // The Overview renders "nothing needs your attention" from an empty list, so
@@ -833,5 +834,52 @@ func TestAKeyThatCannotOpenItsOwnDatabaseSaysSo(t *testing.T) {
 	}
 	if p.Severity != config.SeverityError {
 		t.Errorf("severity = %s; nothing can reach GitHub, so this is an error", p.Severity)
+	}
+}
+
+// Advice about upgrading an agent has to be advice an operator can follow.
+//
+// Both of these problems used to build their Fix from version.Version without
+// asking what that version was. On a controller built from main -- which is
+// what the :latest and :main images are -- it is main-sha-abc1234, and no
+// release asset carries it, so "upgrade the agent on those hosts to
+// main-sha-abc1234" sent the operator to a 404 and they came back to find the
+// fleet exactly as it was. That is the fleet these problems fire on, too: a
+// build from main cannot be ordered against a release, so every host on one
+// lands in the differs bucket.
+//
+// CLAUDE.md puts the bar at "findings say what to change", and
+// RemedyText.svelte hangs a copy button on every backticked run of text, so a
+// command belongs in backticks or the operator retypes it.
+func TestAgentUpgradeAdviceIsSomethingAnOperatorCanDo(t *testing.T) {
+	was := version.Version
+	t.Cleanup(func() { version.Version = was })
+
+	t.Run("a released controller names the command", func(t *testing.T) {
+		version.Version = "1.0.0"
+		fix := agentUpgradeFix("Then the figures appear.")
+		if !strings.Contains(fix, "--version v1.0.0") {
+			t.Errorf("the advice does not name the version to install: %q", fix)
+		}
+		if strings.Count(fix, "`") < 2 {
+			t.Errorf("the advice carries no backticked command, so the UI renders no copy button: %q", fix)
+		}
+		if !strings.Contains(fix, "Then the figures appear.") {
+			t.Errorf("the advice dropped what follows the upgrade: %q", fix)
+		}
+	})
+
+	for _, stamped := range []string{"main-sha-117bc18", "dev"} {
+		t.Run("an unreleased controller says there is nothing to install: "+stamped, func(t *testing.T) {
+			version.Version = stamped
+			fix := agentUpgradeFix("Then the figures appear.")
+			if strings.Contains(fix, "--version") {
+				t.Errorf("a controller stamped %q told the operator to install a version that does not exist: %q",
+					stamped, fix)
+			}
+			if !strings.Contains(fix, stamped) {
+				t.Errorf("the advice does not say which build this controller is: %q", fix)
+			}
+		})
 	}
 }
