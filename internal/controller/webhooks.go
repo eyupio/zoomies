@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 
@@ -19,6 +20,49 @@ import (
 // workflow_job payload is a few kilobytes; anything approaching this is either
 // not from GitHub or not something Zoomies should be parsing.
 const maxWebhookBody = 5 << 20
+
+// What a delivery is allowed to say about itself before its signature has been
+// checked.
+//
+// Everything below is read off an unauthenticated request: two headers, and
+// three fields of a body that is parsed before verification because the
+// repository is what chooses the secret. All of it is then written down --
+// a database row that is kept, a line in the log, and a frame on the event
+// stream every watching browser holds in memory -- because a rejected delivery
+// is worth recording. Unbounded, that is an open invitation: five megabytes of
+// "repository.full_name" per request, from anyone who can reach the endpoint,
+// with no credential of any kind.
+//
+// The real values are far smaller. A GitHub repository's full name cannot
+// exceed 100 characters either side of the slash, a delivery ID is a UUID, and
+// an event name and an action are single words. These leave room and still
+// bound the cost.
+const (
+	maxDeliveryRepo   = 256
+	maxDeliveryAction = 64
+	maxDeliveryID     = 64
+	maxDeliveryEvent  = 64
+)
+
+// probeKey is who a rejected delivery is counted against: the address it came
+// from, without its port, since a prober gets a new port every connection.
+func probeKey(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// clampField bounds one such value. It reports what was cut rather than
+// truncating silently, so an operator reading the row sees a probe for what it
+// is instead of a repository name that looks merely unfamiliar.
+func clampField(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + fmt.Sprintf("... (%d bytes, truncated)", len(s))
+}
 
 // HandleWebhook is the endpoint GitHub delivers to, mounted by the API at
 // config.GitHub.WebhookPath.
@@ -36,9 +80,9 @@ func (c *Controller) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	event := github.ParseEventType(r.Header.Get(github.EventTypeHeader))
+	event := clampField(github.ParseEventType(r.Header.Get(github.EventTypeHeader)), maxDeliveryEvent)
 	d := &store.WebhookDelivery{
-		DeliveryID: r.Header.Get(github.DeliveryIDHeader),
+		DeliveryID: clampField(r.Header.Get(github.DeliveryIDHeader), maxDeliveryID),
 		Event:      event,
 	}
 
@@ -57,11 +101,25 @@ func (c *Controller) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	inst, note, err := c.verifyDelivery(ctx, body, r.Header.Get(github.SignatureHeader), env.Repo)
 	if err != nil {
-		c.recordDelivery(ctx, d, "rejected", err.Error())
 		// A burst of these means somebody is probing the endpoint, which is
-		// why every one of them is written down rather than only counted.
-		c.log.Warn("rejected a webhook delivery",
-			"delivery", d.DeliveryID, "event", event, "repo", env.Repo, "reason", err)
+		// why they are written down rather than only counted -- but written
+		// down is what costs, so one address gets a bounded number of them.
+		//
+		// The limit is on the rejected path alone, deliberately. GitHub sends
+		// in bursts from a range of addresses and a real delivery has a valid
+		// signature, so nothing that verifies is ever slowed by this; only
+		// something that could not have come from GitHub is. Rate-limiting the
+		// endpoint itself would throttle the deliveries the fleet scales on.
+		//
+		// The refusal is unchanged either way: what is dropped is the record,
+		// not the rejection.
+		if c.webhookProbes.Allow(probeKey(r)) {
+			c.recordDelivery(ctx, d, "rejected", err.Error())
+			c.log.Warn("rejected a webhook delivery",
+				"delivery", d.DeliveryID, "event", event, "repo", env.Repo, "reason", err)
+		} else {
+			c.metrics.webhookDeliveries.WithLabelValues("rejected").Inc()
+		}
 		http.Error(w, "the delivery signature could not be verified", http.StatusUnauthorized)
 		return
 	}
@@ -145,7 +203,11 @@ func parseEnvelope(body []byte) envelope {
 		// enough to find the installation that should have signed it.
 		repo = p.Organization.Login
 	}
-	return envelope{Repo: repo, Action: strings.ToLower(strings.TrimSpace(p.Action)), InstallationID: p.Installation.ID}
+	return envelope{
+		Repo:           clampField(repo, maxDeliveryRepo),
+		Action:         clampField(strings.ToLower(strings.TrimSpace(p.Action)), maxDeliveryAction),
+		InstallationID: p.Installation.ID,
+	}
 }
 
 // verifyDelivery finds the secret this delivery should have been signed with
