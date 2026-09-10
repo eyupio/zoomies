@@ -100,7 +100,19 @@ func runRestore(ctx context.Context, e *env, args []string) error {
 	}
 	defer func() { _ = unlock() }()
 
-	if _, err := os.Stat(live); err == nil {
+	// Restoring a backup over itself would move the source aside and then copy
+	// from a path that is no longer there, so it is refused while both still
+	// exist. It is an easy mistake to make: the argument is a directory, and
+	// pointing it at the state directory reads as "restore what is here".
+	if same, err := sameFile(backupDB, live); err != nil {
+		return err
+	} else if same {
+		return fmt.Errorf("%s is the database being restored to, not a backup of it. "+
+			"Point restore at a directory `zoomies backup` wrote", backupDB)
+	}
+
+	switch _, err := os.Stat(live); {
+	case err == nil:
 		if !*replace {
 			return fmt.Errorf("%s already exists, and restoring over it would lose whatever is in it. "+
 				"Pass --replace to overwrite it; a copy of it is taken first, beside it", live)
@@ -110,7 +122,39 @@ func runRestore(ctx context.Context, e *env, args []string) error {
 			return err
 		}
 		fmt.Fprintf(e.out, "Moved the database that was there to %s\n", kept)
-	} else if !errors.Is(err, os.ErrNotExist) {
+
+	case errors.Is(err, os.ErrNotExist):
+		// The database is gone; its write-ahead log may not be. That pair is
+		// exactly what a corrupt-database recovery leaves behind, and it is
+		// the state this command exists to be run in.
+		//
+		// setAsideLiveDatabase already knows the rule -- SQLite replays a log
+		// it finds beside a database, whatever database wrote it -- but it
+		// only ran when the .db was still there, so this path fell straight
+		// through to the copy. The restored database was then opened on top of
+		// somebody else's log and came back "database disk image is
+		// malformed", and the replay consumed and unlinked the log doing it:
+		// the committed transactions that only existed in that log were gone,
+		// destroyed by a command that then reported failure.
+		//
+		// So the log is moved aside rather than removed. It is the last copy
+		// of whatever those transactions were, and an operator who came here
+		// to recover data should not lose more of it to the recovery.
+		if !hasOrphanedLogs(live) {
+			break
+		}
+		if !*replace {
+			return fmt.Errorf("%s is gone but its write-ahead log is still there, and SQLite would replay "+
+				"that log into whatever is restored, corrupting it and destroying the log in the process. "+
+				"Pass --replace to move the log aside first; it is kept, not deleted, beside the database", live)
+		}
+		kept, err := setAsideOrphanedLogs(live)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(e.out, "Moved a write-ahead log that had outlived its database to %s\n", strings.Join(kept, ", "))
+
+	default:
 		return fmt.Errorf("checking %s: %w", live, err)
 	}
 
@@ -219,6 +263,62 @@ func loadConfiguredKey(cfg *config.Config) (*cryptox.Key, error) {
 // old copy after a bad upgrade -- and the store refuses to open a database
 // whose ledger it does not know. A pre-restore copy that only worked when it
 // was not needed would be worse than none.
+// hasOrphanedLogs reports whether a write-ahead log or shared-memory file is
+// sitting beside a database that is not there. It is the state a crashed
+// controller leaves, and the state somebody reaches for restore in.
+func hasOrphanedLogs(live string) bool {
+	for _, ext := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(live + ext); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// setAsideOrphanedLogs moves that pair out of the way, under the same name the
+// database itself would have been kept under. Renamed and never removed: the
+// log may hold committed transactions that exist nowhere else, and this
+// command is reached by people who are already missing data.
+//
+// It returns the paths it wrote, so the report can name files that are really
+// there rather than the stem they share.
+func setAsideOrphanedLogs(live string) ([]string, error) {
+	kept := live + ".before-restore-" + time.Now().UTC().Format("20060102-150405")
+	var moved []string
+	for _, ext := range []string{"-wal", "-shm"} {
+		if err := os.Rename(live+ext, kept+ext); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return nil, fmt.Errorf("moving %s aside: %w", live+ext, err)
+		}
+		moved = append(moved, kept+ext)
+	}
+	return moved, nil
+}
+
+// sameFile reports whether two paths are the same file on disk. A path that is
+// not there is not the same file as anything, and is not an error here: the
+// caller has already established the backup exists, and a missing destination
+// is the ordinary case.
+func sameFile(a, b string) (bool, error) {
+	fa, err := os.Stat(a)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("checking %s: %w", a, err)
+	}
+	fb, err := os.Stat(b)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("checking %s: %w", b, err)
+	}
+	return os.SameFile(fa, fb), nil
+}
+
 func setAsideLiveDatabase(live string) (string, error) {
 	kept := live + ".before-restore-" + time.Now().UTC().Format("20060102-150405")
 	if err := os.Rename(live, kept); err != nil {
