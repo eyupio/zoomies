@@ -564,7 +564,7 @@ func defaultPlan(d Detection, mode Mode) Plan {
 
 	p.ServiceUser, p.ServiceGroup = defaultServiceUser(d)
 	p.DeployDir = p.ConfigDir
-	p.Image = DefaultImage
+	p.Image = DefaultImage()
 	p.ComposeCommand = d.Compose.Command
 	if c := backendChoices(d); len(c) > 0 {
 		p.Backend = c[0].Kind

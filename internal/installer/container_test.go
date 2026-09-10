@@ -35,7 +35,7 @@ func containerPlan(t *testing.T) Plan {
 		TLSMode:        config.TLSOff,
 		TrustedProxies: []string{"10.0.0.0/8"},
 		ExternalURL:    "https://zoomies.example.com",
-		Image:          DefaultImage,
+		Image:          DefaultImage(),
 		ComposeCommand: []string{"docker", "compose"},
 		DockerGID:      998,
 		GitHub:         GitHubPlan{APIBaseURL: "https://api.github.com"},
@@ -335,7 +335,7 @@ func TestDockerRunSpecForFollowsThePlan(t *testing.T) {
 		"--publish 0.0.0.0:8080:8080",
 		"--volume /etc/tls/cert.pem:/etc/tls/cert.pem:ro",
 		"--group-add 998",
-		DefaultImage + " controller",
+		DefaultImage() + " controller",
 	} {
 		if !strings.Contains(line, want) {
 			t.Errorf("the run command is missing %q:\n%s", want, line)
@@ -566,5 +566,47 @@ func TestSplitImageKeepsARegistryPortOutOfTheTag(t *testing.T) {
 					tc.ref, repo, tag, dg, tc.repo, tc.tag, tc.digest)
 			}
 		})
+	}
+}
+
+// The default image names this build, because :latest names nothing useful.
+//
+// Every release this project has made carries a hyphen, which is how it says
+// the release is not finished, and the release workflow leaves :latest alone
+// for one. main stopped publishing it when :dev took over. So an installer
+// defaulting to :latest would write a compose file pulling a controller older
+// than the installer that wrote it -- and, once the agent image is derived from
+// it, a runner host pulling a tag that has never been published at all.
+func TestTheDefaultImageFollowsThisBuild(t *testing.T) {
+	for _, tc := range []struct{ name, version, want string }{
+		// The release workflow stamps the version with the leading v stripped,
+		// because a binary reports 1.2.3; the image tag is the git tag, which
+		// keeps it. Getting that backwards names a tag no registry has.
+		{"a release", "1.2.3", "ghcr.io/eyupio/zoomies:v1.2.3"},
+		{"a release candidate", "1.0.0-RC1", "ghcr.io/eyupio/zoomies:v1.0.0-RC1"},
+		{"a release that kept its v", "v0.2-beta", "ghcr.io/eyupio/zoomies:v0.2-beta"},
+
+		// Anything that is not a release gets the tag main publishes.
+		{"a build from main", "main-sha-b966fb6", "ghcr.io/eyupio/zoomies:dev"},
+		{"an unstamped build", "dev", "ghcr.io/eyupio/zoomies:dev"},
+		{"a describe from a working tree", "v1.2.3-14-gb966fb6", "ghcr.io/eyupio/zoomies:dev"},
+		{"nothing at all", "", "ghcr.io/eyupio/zoomies:dev"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := defaultImageFor(tc.version); got != tc.want {
+				t.Errorf("defaultImageFor(%q) = %q, want %q", tc.version, got, tc.want)
+			}
+		})
+	}
+
+	// And the pair composes: a runner host on a release gets the agent image of
+	// that release, which is the whole reason the default stopped being a
+	// constant.
+	agent, ok := AgentImageFor(defaultImageFor("1.0.0-RC1"))
+	if !ok || agent != "ghcr.io/eyupio/zoomies-agent:v1.0.0-RC1" {
+		t.Errorf("a runner host on a release candidate gets %q (derived %v), want ghcr.io/eyupio/zoomies-agent:v1.0.0-RC1", agent, ok)
+	}
+	if agent, ok := AgentImageFor(defaultImageFor("main-sha-b966fb6")); !ok || agent != "ghcr.io/eyupio/zoomies-agent:dev" {
+		t.Errorf("a runner host on a main build gets %q (derived %v), want ghcr.io/eyupio/zoomies-agent:dev", agent, ok)
 	}
 }

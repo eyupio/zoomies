@@ -101,7 +101,7 @@ func (s EnvSpec) defaults() EnvSpec {
 		s.Mode = ModeSingle
 	}
 	if s.Image == "" {
-		s.Image = DefaultImage
+		s.Image = DefaultImage()
 	}
 	if s.Bind == "" {
 		s.Bind = "0.0.0.0:" + strconv.Itoa(ContainerPort)

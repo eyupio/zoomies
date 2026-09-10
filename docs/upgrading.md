@@ -221,12 +221,12 @@ ghcr.io/eyupio/zoomies-runner-docker   the same, with a Docker client
 to mean the newest commit on `main`, which cost more than a name: both the merge
 and the release wrote it, so whichever ran last won, and an operator who pulled
 it could get an unreleased build stamped `main-sha-abc1234`. No installer can
-match an agent to a controller stamped that way -- agents are installed from
-release assets, and no release carries a `main-` version -- so a fleet on that
+match an agent to a controller stamped that way — agents are installed from
+release assets, and no release carries a `main-` version — so a fleet on that
 image showed every host it enrolled as a different build, permanently. Run
 `:dev` when you want `main`; it says so.
 
-A prerelease -- a tag with a hyphen in it, `v0.1-alpha`, `v1.0-rc1` -- is
+A prerelease — a tag with a hyphen in it, `v0.1-alpha`, `v1.0-rc1` — is
 published under its own tag and does **not** move `:latest`. Name it to run it.
 
 The runner images are the exception, and deliberately: their `:latest` still

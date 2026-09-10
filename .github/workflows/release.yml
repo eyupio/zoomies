@@ -175,9 +175,11 @@ jobs:
 
       # :latest is not a name this workflow may move for a release candidate.
       #
-      # It is what every default install pulls: docker-compose.yml names it, the
-      # installer's container and service deployments name it, and
-      # naming.DefaultRunnerImage is the runner repository's :latest. A tag with
+      # It is what a default install pulls: docker-compose.yml names it, and
+      # naming.DefaultRunnerImage is the runner repository's :latest. The
+      # installer no longer names it at all -- it defaults to the image matching
+      # its own build, precisely because a project whose every release so far
+      # has a hyphen in it never moves this tag. A tag with
       # a hyphen in it -- v0.1-alpha, v1.0.0-RC1 -- is this project saying the
       # release is not finished, and the setup job has already worked that out
       # for the GitHub release. Applying it here too is what stops tagging a
@@ -197,10 +199,12 @@ jobs:
             fi
             echo "EOF"
             # The agent moves with the controller, and for a sharper reason
-            # than symmetry: an agent is only supported against a controller of
-            # its own build, so the two images have to be able to name the same
-            # release. :latest is gated identically -- a prerelease must not
-            # become what an operator gets by asking for nothing.
+            # than symmetry: the installer derives a runner host's image from
+            # the controller's by swapping the repository and keeping the tag,
+            # so a tag that exists for one has to exist for the other or the
+            # derivation names nothing. :latest is gated identically -- a
+            # prerelease must not become what an operator gets by asking for
+            # nothing.
             echo "agent<<EOF"
             echo "ghcr.io/eyupio/zoomies-agent:$REF"
             if [ "$PRERELEASE" != "true" ]; then

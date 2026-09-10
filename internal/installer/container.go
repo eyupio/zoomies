@@ -12,6 +12,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/version"
 )
 
 // The shape of a containerised Zoomies. These are constants rather than
@@ -19,12 +20,6 @@ import (
 // one process, one port and one data directory, and the operator's choices --
 // which port to publish, where to keep the files -- are made on the outside.
 const (
-	// DefaultImage is the published controller image.
-	DefaultImage = "ghcr.io/eyupio/zoomies:latest"
-	// DefaultAgentImage is its counterpart for a host that only runs runners:
-	// the same build, with the agent as its command, no listener and no
-	// healthcheck.
-	DefaultAgentImage = "ghcr.io/eyupio/zoomies-agent:latest"
 	// ContainerPort is what Zoomies listens on inside the container.
 	ContainerPort = 8080
 	// ContainerStateDir is the mount point of the data volume.
@@ -193,6 +188,36 @@ const (
 	stockAgentRepository      = "ghcr.io/eyupio/zoomies-agent"
 )
 
+// DefaultImage is the controller image a fresh containerised install runs: the
+// one that matches this installer's own build.
+//
+// It used to be a constant naming :latest, which was wrong twice over the
+// moment :latest became a release's name rather than main's. Every release this
+// project has made so far carries a hyphen -- v0.1-alpha, v0.2-beta, and a
+// v1.0.0-RC1 would too -- and a hyphen is this project saying the release is not
+// finished, so the release workflow deliberately leaves :latest where it is.
+// Nothing has published :latest since main stopped, and nothing will until a
+// release without a hyphen: an installer defaulting to it would write a compose
+// file pulling a build older than the installer that wrote it, and an agent one
+// pulling a tag that has never existed at all.
+//
+// Naming this build instead is what the join command already does for the
+// binary. An installer taken from a release installs that release's container,
+// and a build from main installs :dev, which is the tag main publishes.
+func DefaultImage() string { return defaultImageFor(version.Version) }
+
+// defaultImageFor is the pure half, so that both branches can be tested without
+// relinking the binary.
+func defaultImageFor(v string) string {
+	if tag, ok := version.Release(v); ok {
+		// The stamped version has no leading v -- the release workflow strips
+		// it, because a binary reports 1.2.3 -- and the image tag is the git
+		// tag, which has one.
+		return stockControllerRepository + ":v" + tag
+	}
+	return stockControllerRepository + ":dev"
+}
+
 // AgentImageFor returns the image a runner host should run, given the
 // controller image this deployment was told to use, and whether one could be
 // worked out at all.
@@ -276,7 +301,7 @@ func containerise(p Plan) Plan {
 	p.DBPath = ContainerDBPath
 	p.WorkDir = ContainerWorkDir
 	if p.Image == "" {
-		p.Image = DefaultImage
+		p.Image = DefaultImage()
 	}
 	// A runner host runs the agent image at whatever tag the controller image
 	// names, so a fleet that pins v1.2.3 gets an agent of v1.2.3 without the
@@ -367,7 +392,7 @@ type DockerRunSpec struct {
 // is the kind of thing that only shows up weeks later.
 func DockerRunArgs(s DockerRunSpec) []string {
 	if s.Image == "" {
-		s.Image = DefaultImage
+		s.Image = DefaultImage()
 	}
 	if s.Container == "" {
 		s.Container = ContainerName
