@@ -1322,3 +1322,71 @@ func TestAHeartbeatDoesNotUndoAnOperatorsCordon(t *testing.T) {
 		t.Errorf("backend info = %+v, want the version the agent reported", host.BackendInfo)
 	}
 }
+
+// A host that changes its name on upgrade must still be one host.
+//
+// The name is not stable: it is derived from what the machine is, so an agent
+// that has learnt to measure its own CPUs and memory computes a different one
+// from an agent that had not. The reclaim was keyed on the name alone, so
+// upgrading such a host enrolled it a second time -- a new row with the correct
+// figures, beside the old row still being kept alive by the process that had
+// not been restarted yet. The operator saw one machine as two, one of them
+// reporting nothing, and neither of them wrong exactly.
+//
+// The id the agent already keeps in its credentials file is what settles it.
+// The token is still the proof; the id only says which row the proof is about.
+func TestAnUpgradedAgentThatRenamesItselfReclaimsItsOwnRow(t *testing.T) {
+	h := newHarness(t)
+
+	// As it was: the bare hostname, which is what an older agent sent.
+	first, err := h.c.Join(h.ctx, joinRequest("Ollama1", h.joinToken(t, nil, 0)), "10.0.0.9")
+	if err != nil {
+		t.Fatalf("first join: %v", err)
+	}
+
+	// As it is after the upgrade: the same machine, describing itself.
+	renamed := joinRequest("zoomies-4vcpu-8gb-debian-12-ollama1", h.joinToken(t, nil, 0))
+	renamed.PreviousToken = first.AgentToken
+	renamed.PreviousHostID = first.HostID
+	second, err := h.c.Join(h.ctx, renamed, "10.0.0.9")
+	if err != nil {
+		t.Fatalf("re-join under a new name: %v", err)
+	}
+	if second.HostID != first.HostID {
+		t.Errorf("host ID = %s, want %s: the machine was enrolled a second time instead of reclaiming its row",
+			second.HostID, first.HostID)
+	}
+
+	hosts, err := h.st.ListHosts(h.ctx)
+	if err != nil {
+		t.Fatalf("ListHosts: %v", err)
+	}
+	var named int
+	for _, host := range hosts {
+		if host.ID == first.HostID {
+			named++
+			if host.Name != "zoomies-4vcpu-8gb-debian-12-ollama1" {
+				t.Errorf("the reclaimed row kept the old name %q, so the Hosts page still says what the machine was", host.Name)
+			}
+		}
+	}
+	if named != 1 {
+		t.Fatalf("found %d rows for the reclaimed host, want 1", named)
+	}
+	if len(hosts) != 1 {
+		names := make([]string, 0, len(hosts))
+		for _, host := range hosts {
+			names = append(names, host.Name)
+		}
+		t.Errorf("one machine left %d host rows: %s", len(hosts), strings.Join(names, ", "))
+	}
+
+	// The id is a claim, not a credential. Naming somebody else's row without
+	// their token still gets nowhere.
+	_, _, other := h.fleet()
+	thief := joinRequest("anything-at-all", h.joinToken(t, nil, 0))
+	thief.PreviousHostID = other.ID
+	if _, err := h.c.Join(h.ctx, thief, "10.0.0.66"); err == nil {
+		t.Error("a join claimed another host's row by naming its id, with no token to prove it")
+	}
+}

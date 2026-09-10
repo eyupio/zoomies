@@ -369,7 +369,8 @@ func (a *Agent) Join(ctx context.Context, joinToken string) error {
 		// still holds, which is what lets it reclaim its own row rather than
 		// being refused as a name collision. A first join has none, and sending
 		// an empty string is exactly right there.
-		PreviousToken: a.previousToken(),
+		PreviousToken:  a.previousToken(),
+		PreviousHostID: a.previousHostID(),
 	}
 	resp, err := a.tr.Join(ctx, req)
 	if err != nil {
@@ -412,11 +413,25 @@ func (a *Agent) Join(ctx context.Context, joinToken string) error {
 // cannot claim an existing row of the same name, which the controller says in
 // as many words if there is one.
 func (a *Agent) previousToken() string {
+	creds, _ := a.previousCredentials()
+	return creds.AgentToken
+}
+
+// previousHostID returns the row this host was last enrolled as, or "" when it
+// has never joined. Sent beside previousToken so the controller can find the
+// row this machine already owns without relying on its name, which changes
+// when the agent learns to describe the machine differently.
+func (a *Agent) previousHostID() string {
+	creds, _ := a.previousCredentials()
+	return creds.HostID
+}
+
+func (a *Agent) previousCredentials() (Credentials, bool) {
 	creds, err := Load(StatePath(a.opts.WorkDir))
 	if err != nil {
-		return ""
+		return Credentials{}, false
 	}
-	return creds.AgentToken
+	return creds, true
 }
 
 func (a *Agent) setCredentials(c Credentials) {
