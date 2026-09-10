@@ -224,10 +224,10 @@ firewall. The [quick start](docs/quickstart.md#adding-another-host) has the line
 itself.
 
 A host that would rather not have a binary on it can run
-`ghcr.io/eyupio/zoomies-agent` instead, on the same tag as the controller — an
-agent is only supported against a controller of its own build. `latest` is the
-newest release and `dev` is the tip of `main`, for the controller and the agent
-alike; the runner images are the exception and still track `main`.
+`ghcr.io/eyupio/zoomies-agent` instead, ideally on the same tag as the
+controller. `latest` is the newest release and `dev` is the tip of `main`, for
+the controller and the agent alike; the runner images are the exception and
+still track `main`.
 [Which image tag to run](docs/upgrading.md#which-image-tag-to-run) is the table,
 and [an agent in a container](docs/hosts-and-pools.md#an-agent-in-a-container)
 is what it needs.

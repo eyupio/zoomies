@@ -74,19 +74,23 @@ image, with the agent as its command rather than the controller, and it needs
 the container runtime's socket bind-mounted so the runners it starts are
 siblings on the host rather than containers inside it.
 
-Run the **same tag as the controller**. An agent is only supported against a
-controller of its own build, so a fleet on `v1.2.3` wants
-`ghcr.io/eyupio/zoomies-agent:v1.2.3`; one tracking `main` wants `:dev` on both.
-`zoomies init --mode agent` picks the matching image for you when it sets a host
-up as a container, so this matters mostly when you write the unit yourself.
-[Which image tag to run](upgrading.md#which-image-tag-to-run) has the full table.
+Give it the **same tag as the controller** where you can: a fleet on `v1.2.3`
+wants `ghcr.io/eyupio/zoomies-agent:v1.2.3`, one tracking `main` wants `:dev` on
+both. [Which image tag to run](upgrading.md#which-image-tag-to-run) has the full
+table.
 
-A mismatch is not fatal and does not have to be fixed in a hurry: the protocol
-carries its own version, so an agent one release apart from its controller keeps
-placing work while the Hosts page says it is a different build. What it costs is
-everything the newer half learnt to report — a host on a build from before agents
-measured themselves shows no CPUs, memory or disk at all, and a pool's resource
-limits have nothing to fit against.
+That is a preference rather than a requirement, and
+[Version skew](upgrading.md#version-skew) is where the rules live: an agent may
+lag its controller by releases while the protocol version matches, which is the
+normal state during a rolling upgrade. The direction to avoid is a **newer agent
+against an older controller** — upgrade the controller first.
+
+What an older agent costs is description rather than placement. A host on a
+build from before agents measured themselves reports no CPUs, memory or disk at
+all, so a pool's resource limits have nothing to fit against and the Hosts page
+shows it as a different build. Only a **protocol** mismatch stops work reaching
+a host, and then it is excluded from placement exactly as a cordon excludes it
+and says `incompatible` on its card.
 
 ### What a host brings with it
 
