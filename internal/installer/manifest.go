@@ -673,9 +673,37 @@ func (c *callbackServer) Handler() http.Handler {
 	})
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		// GitHub sends the state back on the manifest redirect. An installation
-		// redirect has no state of its own, so it is only checked when present.
-		if got := q.Get("state"); got != "" && got != c.state {
+		// This listener is on loopback, which keeps the network out but not the
+		// browser: any page the operator has open can navigate to a guessed
+		// port on 127.0.0.1, and a name that resolves there defeats the address
+		// check on its own. What such a request cannot carry is this session's
+		// state, so that is what is checked -- and the Host it arrives on,
+		// which a rebound name gets wrong.
+		if host := r.Host; host != "" {
+			name, _, err := net.SplitHostPort(host)
+			if err != nil {
+				name = host
+			}
+			if name != "localhost" && !isLoopbackHost(name) {
+				http.Error(w, "This setup page is only served on this machine.", http.StatusBadRequest)
+				return
+			}
+		}
+		// A code is the whole prize: exchanged, it yields the App's client
+		// secret, private key and webhook secret, and whoever holds those owns
+		// the fleet the App is installed on. So a code has to prove it belongs
+		// to this session. It used to be enough to send one with no state at
+		// all -- the check ran only when a state was present, so omitting it
+		// skipped the check rather than failing it, and an operator finishing
+		// setup could be handed somebody else's App without anything looking
+		// wrong.
+		//
+		// An installation redirect is the case that comment was reaching for.
+		// It carries installation_id and no code of its own, and GitHub sends
+		// no state with it, so it is still allowed through unchecked: there is
+		// no credential in it to steal, and the value it does carry is checked
+		// against the App before it is used.
+		if got := q.Get("state"); got != c.state && (got != "" || strings.TrimSpace(q.Get("code")) != "") {
 			c.stateErrs <- errors.New("installer: a callback arrived with the wrong state value, so it was ignored; " +
 				"this request did not come from this setup session -- start `zoomies init` again")
 			http.Error(w, "This request did not come from this setup session. Close this page and start setup again.", http.StatusBadRequest)
