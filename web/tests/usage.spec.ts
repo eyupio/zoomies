@@ -112,3 +112,15 @@ test('changing grouping cancels a pending manual refresh', async ({ page }) => {
     release();
   }
 });
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`date controls follow the explicit ${theme} theme instead of the system preference`, async ({
+    page,
+  }) => {
+    await page.emulateMedia({ colorScheme: theme === 'light' ? 'dark' : 'light' });
+    await page.addInitScript((choice) => localStorage.setItem('zoomies.theme', choice), theme);
+    await goto(page, '/usage', 'Usage');
+    await expect(page.getByLabel('From', { exact: true })).toHaveCSS('color-scheme', theme);
+    await expect(page.getByLabel('to', { exact: true })).toHaveCSS('color-scheme', theme);
+  });
+}
