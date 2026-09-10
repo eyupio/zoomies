@@ -33,14 +33,14 @@
   const runners = $derived(host?.active_runners ?? 0);
 
   // Opening the dialog again starts from a clean slate. It deliberately does
-  // not clear on close: the confirmation closes itself the moment the server
-  // refuses, and the refusal is what we show next.
+  // not clear on close: a refusal replaces the confirmation with the
+  // consequences of forcing it, without throwing that explanation away.
   $effect(() => {
     if (open) refusal = '';
   });
 
-  async function remove(force: boolean): Promise<void> {
-    if (!host?.id) return;
+  async function remove(force: boolean): Promise<boolean> {
+    if (!host?.id) return false;
     try {
       await deleteHost(host.id, force ? { force: true } : undefined);
       await fleet.reconcile();
@@ -48,13 +48,15 @@
       refusal = '';
       open = false;
       onclose?.();
+      return true;
     } catch (cause) {
       if (cause instanceof ApiError && cause.isConflict) {
         // Not an error to shout about: it is the guard working. Offer the way past it.
         refusal = cause.message;
-        return;
+        return false;
       }
       toasts.fromError(cause, 'That host was not removed');
+      return false;
     }
   }
 

@@ -200,17 +200,15 @@
     }
   }
 
-  async function confirm(): Promise<void> {
+  async function confirm(): Promise<boolean> {
     const ids = targets.map((runner) => runner.id ?? '').filter((id) => id !== '');
-    if (ids.length === 0) return;
+    if (ids.length === 0) return false;
     const ok = single && first ? await runSingle(first) : await runBulk(ids);
     void fleet.reconcile();
-    // The dialog closes either way, so the caller is told either way. A refusal
-    // used to report nothing at all, which left the grid's bulk action awaiting
-    // a promise nobody would ever settle: the rows stayed ticked, the toolbar
-    // stayed busy, and the only way out was a reload.
+    // A failed request stays retryable. The grid's pending bulk action is
+    // settled only when the operator succeeds or actually cancels.
     if (ok) ondone?.();
-    else oncancel?.();
+    return ok;
   }
 </script>
 

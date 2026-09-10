@@ -253,15 +253,17 @@
   let deleteOpen = $state(false);
   let deleting = $state<User | null>(null);
 
-  async function remove(): Promise<void> {
+  async function remove(): Promise<boolean> {
     const user = deleting;
-    if (!user?.id) return;
+    if (!user?.id) return false;
     try {
       await deleteUser(user.id);
       toasts.success(`${user.username ?? 'Account'} deleted`);
       reload += 1;
+      return true;
     } catch (cause) {
       handle(cause, 'That account was not deleted');
+      return false;
     }
   }
 

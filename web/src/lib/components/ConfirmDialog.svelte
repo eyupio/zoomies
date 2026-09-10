@@ -11,6 +11,7 @@
   import Dialog from './Dialog.svelte';
   import Field from './Field.svelte';
   import Input from './Input.svelte';
+  import { toasts } from '../state/toasts.svelte';
 
   interface Props {
     open?: boolean;
@@ -28,7 +29,8 @@
     requireName?: boolean;
     tone?: 'danger' | 'default';
     busy?: boolean;
-    onconfirm: () => void | Promise<void>;
+    /** Return false to keep the confirmation and its input available for retry. */
+    onconfirm: () => boolean | Promise<boolean>;
     oncancel?: () => void;
     /** Extra controls -- a "remove from GitHub too" switch, say. */
     children?: Snippet;
@@ -69,8 +71,9 @@
     if (!confirmed || running) return;
     running = true;
     try {
-      await onconfirm();
-      open = false;
+      if (await onconfirm()) open = false;
+    } catch (cause) {
+      toasts.fromError(cause, 'That action was not completed');
     } finally {
       running = false;
     }

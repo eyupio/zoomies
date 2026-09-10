@@ -123,15 +123,17 @@
   let revokeOpen = $state(false);
   let revoking = $state<APIToken | null>(null);
 
-  async function revoke(): Promise<void> {
+  async function revoke(): Promise<boolean> {
     const token = revoking;
-    if (!token?.id) return;
+    if (!token?.id) return false;
     try {
       await revokeToken(token.id);
       toasts.success(`${token.name ?? 'Token'} revoked`, 'Anything using it stops working now.');
       reload += 1;
+      return true;
     } catch (cause) {
       toasts.fromError(cause, 'That token was not revoked');
+      return false;
     }
   }
 </script>

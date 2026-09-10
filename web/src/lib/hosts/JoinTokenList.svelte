@@ -34,15 +34,17 @@
     confirmOpen = true;
   }
 
-  async function revoke(): Promise<void> {
+  async function revoke(): Promise<boolean> {
     const token = revoking;
-    if (!token?.id) return;
+    if (!token?.id) return false;
     try {
       await deleteJoinToken(token.id);
       toasts.success(`Join token ${token.prefix ?? ''} revoked`);
       onrevoked?.();
+      return true;
     } catch (cause) {
       toasts.fromError(cause, 'That join token was not revoked');
+      return false;
     }
   }
 

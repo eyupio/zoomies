@@ -178,9 +178,9 @@
     deleteOpen = true;
   }
 
-  async function remove(): Promise<void> {
+  async function remove(): Promise<boolean> {
     const target = deleteTarget;
-    if (!target?.id) return;
+    if (!target?.id) return false;
     try {
       const result = await deleteInstallation(target.id);
       toasts.success(
@@ -191,8 +191,10 @@
         )} affected.`,
       );
       reload += 1;
+      return true;
     } catch (cause) {
       toasts.fromError(cause, 'That installation was not disconnected');
+      return false;
     }
   }
 
