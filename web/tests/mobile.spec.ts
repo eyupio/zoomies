@@ -64,6 +64,31 @@ test('the Overview is readable without scrolling sideways', async ({ page }) => 
   await expectNoSidewaysScroll(page, 'the Overview');
 });
 
+test('migration labels and job exceptions stay readable', async ({ page }) => {
+  await goto(page, '/migrate', 'Migrate repositories');
+
+  // The demo has one installation and preselects repositories that can move.
+  // Step through Installation and Repositories to the first wide decision.
+  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('button', { name: 'Next' }).click();
+
+  const mapping = page.getByLabel('What replaces ubuntu-latest');
+  await expect(mapping).toBeVisible();
+  expect((await mapping.boundingBox())?.width).toBeGreaterThan(180);
+
+  await page.getByRole('button', { name: 'Next' }).click();
+  const build = page.getByLabel('Where build in .github/workflows/ci.yml runs, in acme/widgets');
+  await expect(build).toBeVisible();
+  expect((await build.boundingBox())?.width).toBeGreaterThan(180);
+
+  // A blocked row used to be squeezed into a 30px reason column, producing
+  // the one-word-per-line stack from the reported phone capture.
+  const reason = page.getByText('${{ }} expression').first();
+  await expect(reason).toBeVisible();
+  expect((await reason.boundingBox())?.width).toBeGreaterThan(180);
+  await expectNoSidewaysScroll(page, 'the migration wizard');
+});
+
 test('the navigation is a bar at the bottom, aligned and reaching every page', async ({ page }) => {
   await goto(page, '/', 'Overview');
 

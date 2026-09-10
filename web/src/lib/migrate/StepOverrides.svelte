@@ -249,4 +249,40 @@
     line-height: var(--z-leading-xs);
     color: var(--z-text-subtle);
   }
+
+  /*
+    The desktop row has three useful columns, but on a phone those columns leave
+    the reason with only a few characters of width and push the pool control
+    against the edge of the panel. Read each job from top to bottom instead:
+    its identity, its current label, then the decision. Blocked jobs use the
+    same shape, with the reason taking the decision's place.
+  */
+  @media (max-width: 768px) {
+    ul {
+      gap: 0;
+    }
+    li,
+    li.blocked {
+      grid-template-columns: minmax(0, 1fr);
+      align-items: stretch;
+      gap: var(--z-space-2);
+      padding: var(--z-space-3) 0;
+      border-bottom: var(--z-border-width) solid var(--z-border);
+    }
+    li:first-child {
+      padding-top: var(--z-space-1);
+    }
+    li:last-child {
+      padding-bottom: 0;
+      border-bottom: 0;
+    }
+    .path,
+    .job,
+    .label {
+      overflow-wrap: anywhere;
+    }
+    .label {
+      white-space: normal;
+    }
+  }
 </style>

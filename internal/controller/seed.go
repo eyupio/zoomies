@@ -592,11 +592,14 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 			// One failure the fleet owns: the runner died under the job, which
 			// is what the "runner lost" badge, the timeline entry and the
 			// problems drawer entry all have as their fixture. It is the most
-			// recent finished job, so that it falls inside the hour the
-			// problems drawer looks back over.
+			// recent finished job, so that it remains well inside the hour the
+			// problems drawer looks back over after both browser projects and a
+			// retry have run.
 			lostRunner := i == 43
 			if lostRunner {
 				j.Conclusion = "failure"
+				started = now.Add(-25 * time.Minute)
+				completed = now.Add(-20 * time.Minute)
 			}
 			j.StartedAt, j.CompletedAt = &started, &completed
 			r := runners[i%12]

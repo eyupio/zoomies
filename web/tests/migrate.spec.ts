@@ -11,7 +11,7 @@ import { FIXTURE, browserOverride, goto, navEntry, pageHeading } from './support
 
 test.use(browserOverride);
 
-test.skip(({ isMobile }) => isMobile, 'the wizard is a desktop task');
+test.skip(({ isMobile }) => isMobile, 'the wizard interactions are covered by the mobile suite');
 
 test('an empty first batch continues scanning and finds repositories on later pages', async ({
   page,
