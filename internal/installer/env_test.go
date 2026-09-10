@@ -165,11 +165,17 @@ func TestRenderEnvIsPure(t *testing.T) {
 	}
 }
 
-func TestRenderEnvForAnAgent(t *testing.T) {
+func agentEnvSpec() EnvSpec {
 	spec := controllerEnvSpec()
 	spec.Mode = ModeAgent
 	spec.ControllerURL = "https://zoomies.example.com"
-	spec.AgentToken = "zooagent_9f3c"
+	spec.JoinToken = "zoojoin_9f3c"
+	spec.AgentName = "zoomies-8vcpu-32gb-ubuntu-2404-ollama1"
+	return spec
+}
+
+func TestRenderEnvForAnAgent(t *testing.T) {
+	spec := agentEnvSpec()
 
 	body, err := RenderEnv(spec)
 	if err != nil {
@@ -179,10 +185,13 @@ func TestRenderEnvForAnAgent(t *testing.T) {
 	if values["ZOOMIES_CONTROLLER_URL"] != spec.ControllerURL {
 		t.Errorf("ZOOMIES_CONTROLLER_URL = %q", values["ZOOMIES_CONTROLLER_URL"])
 	}
-	if values["ZOOMIES_AGENT_TOKEN"] != spec.AgentToken {
-		t.Errorf("ZOOMIES_AGENT_TOKEN = %q", values["ZOOMIES_AGENT_TOKEN"])
+	if values["ZOOMIES_JOIN_TOKEN"] != spec.JoinToken {
+		t.Errorf("ZOOMIES_JOIN_TOKEN = %q", values["ZOOMIES_JOIN_TOKEN"])
 	}
-	for _, key := range []string{"ZOOMIES_CONTROLLER_URL", "ZOOMIES_AGENT_TOKEN"} {
+	if values["ZOOMIES_AGENT_NAME"] != spec.AgentName {
+		t.Errorf("ZOOMIES_AGENT_NAME = %q", values["ZOOMIES_AGENT_NAME"])
+	}
+	for _, key := range []string{"ZOOMIES_CONTROLLER_URL", "ZOOMIES_JOIN_TOKEN", "ZOOMIES_AGENT_NAME"} {
 		if comments[key] == "" {
 			t.Errorf("%s was written with no comment", key)
 		}
@@ -191,6 +200,54 @@ func TestRenderEnvForAnAgent(t *testing.T) {
 	// URL to carry either.
 	if _, ok := values["ZOOMIES_ENCRYPTION_KEY"]; ok {
 		t.Error("an agent stores nothing, so it must not be handed the instance key")
+	}
+	// The file used to hand an agent ZOOMIES_AGENT_TOKEN, which is a variable
+	// the configuration parses and nothing ever reads back out.
+	if _, ok := values["ZOOMIES_AGENT_TOKEN"]; ok {
+		t.Error("ZOOMIES_AGENT_TOKEN is read by nothing; an agent given only that refuses to start")
+	}
+}
+
+// The file has to be one the agent can actually boot from.
+//
+// This is the assertion the old test was missing, and missing it cost the whole
+// containerised agent: the environment carried ZOOMIES_AGENT_TOKEN, which
+// config parses into Agent.AgentToken and no code path ever reads, so `zoomies
+// agent` fell through to its "no agent credentials at .../agent.json and no
+// join token to get some" refusal every time. Rendering the right keys with the
+// right comments proved nothing about that, because the wrong key rendered just
+// as prettily.
+//
+// So this loads what was written the way the daemon loads it -- environment
+// only, no file, exactly what a container has -- and demands what
+// runAgentDaemon demands before it will start.
+func TestAnAgentCanStartFromTheFileTheInstallerWrites(t *testing.T) {
+	body, err := RenderEnv(agentEnvSpec())
+	if err != nil {
+		t.Fatalf("RenderEnv: %v", err)
+	}
+	values, _ := parseEnv(t, body)
+	for key, value := range values {
+		t.Setenv(key, value)
+	}
+
+	cfg, err := config.Load("")
+	if err != nil {
+		t.Fatalf("loading the configuration from that environment: %v", err)
+	}
+	// A controller to talk to, and something to authenticate the first
+	// conversation with. Without the second, cmd/zoomies/agent.go refuses.
+	if cfg.Agent.ControllerURL == "" {
+		t.Error("the agent has no controller URL, so it has nothing to join")
+	}
+	if cfg.Agent.JoinToken == "" {
+		t.Error("the agent has no join token and no credentials file, which is the state it refuses to start in")
+	}
+	if cfg.Agent.Name == "" {
+		t.Error("the agent has no name, so every host running this file computes the same one")
+	}
+	if cfg.Agent.Embedded {
+		t.Error("a dedicated agent must not also run a controller's embedded one")
 	}
 }
 

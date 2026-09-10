@@ -22,17 +22,26 @@ services:
     image: ${ZOOMIES_IMAGE}
     restart: unless-stopped
     container_name: {{.Container}}
-    # The embedded agent registers this host under the container's hostname;
-    # without one that is a random twelve-hex-digit ID, which then follows the
-    # host into every scheduler reason and problem message.
+    # The last segment of the name the embedded agent registers this host
+    # under, which is otherwise derived from what the machine is:
+    # zoomies-8vcpu-32gb-ubuntu-2404-<this>. Without the line that segment is
+    # the container's random twelve-hex-digit ID, which then follows the host
+    # into every scheduler reason and problem message. A dedicated agent does
+    # not rely on it -- it is told its whole name outright, because this line
+    # reads the same on every machine running this file.
     hostname: {{.Container}}
     command: ["{{.Command}}"]
     environment:
 {{- if eq .Command "agent" }}
-      # The controller this host takes work from, and the credential the join
-      # exchanged your join token for.
+      # The controller this host takes work from, and the token it joins with
+      # the first time it starts. The join writes a lasting credential into the
+      # state volume, so the token is spent once and every later start reads
+      # the volume instead.
       ZOOMIES_CONTROLLER_URL: ${ZOOMIES_CONTROLLER_URL:?set this in .env}
-      ZOOMIES_AGENT_TOKEN: ${ZOOMIES_AGENT_TOKEN:?set this in .env}
+      ZOOMIES_JOIN_TOKEN: ${ZOOMIES_JOIN_TOKEN:?set this in .env}
+      # Set explicitly because this container's hostname is the same on every
+      # machine that runs this file, and the name is derived from it.
+      ZOOMIES_AGENT_NAME: ${ZOOMIES_AGENT_NAME:?set this in .env}
 {{- else }}
       # How GitHub and your browser reach this controller. Webhooks are
       # delivered to $ZOOMIES_EXTERNAL_URL/webhooks/github, and the https there

@@ -216,8 +216,20 @@ func TestRenderComposeFileForAnAgent(t *testing.T) {
 	if strings.Contains(body, "ZOOMIES_ENCRYPTION_KEY") {
 		t.Error("an agent stores nothing, so it must not be handed the instance key")
 	}
-	if !strings.Contains(body, "ZOOMIES_AGENT_TOKEN") {
-		t.Error("an agent needs the credential the join returned")
+	// A join token, not an agent token. The agent token is the credential a
+	// join returns, and nothing reads it back out of the configuration -- a
+	// container handed only that one refuses to start, saying it has no
+	// credentials and no join token to get some.
+	if !strings.Contains(body, "ZOOMIES_JOIN_TOKEN") {
+		t.Errorf("an agent needs a token to join with on its first start:\n%s", body)
+	}
+	if strings.Contains(body, "ZOOMIES_AGENT_TOKEN") {
+		t.Error("ZOOMIES_AGENT_TOKEN is read by nothing; requiring it is how the container never starts")
+	}
+	// Every machine running this file has the same container hostname, and the
+	// name is derived from it, so it has to be told outright.
+	if !strings.Contains(body, "ZOOMIES_AGENT_NAME") {
+		t.Errorf("an agent must be told its name:\n%s", body)
 	}
 	// It still creates runner containers, so it still needs the socket.
 	if !strings.Contains(body, "/var/run/docker.sock:/var/run/docker.sock") {

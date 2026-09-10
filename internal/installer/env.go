@@ -84,10 +84,25 @@ type EnvSpec struct {
 	Image     string
 	DockerGID int
 
-	// ControllerURL and AgentToken are how a containerised agent reaches the
-	// controller it has already joined.
+	// ControllerURL and JoinToken are how a containerised agent reaches a
+	// controller and earns a lasting credential from it.
+	//
+	// A join token rather than an agent token, which is what this used to
+	// carry: nothing reads an agent token back out of the configuration. The
+	// daemon takes its credentials from the state file a join wrote, and the
+	// one fallback when that file is absent is a join token -- so an agent
+	// handed only ZOOMIES_AGENT_TOKEN refuses to start, saying it has no
+	// credentials and no join token to get some. A container given a join
+	// token joins itself on first start and writes the state file into its
+	// volume, where every later start finds it.
 	ControllerURL string
-	AgentToken    string
+	JoinToken     string
+	// AgentName is what this host calls itself. A container has to be told:
+	// the name is derived from the machine and the hostname, and a container's
+	// hostname is whatever the deployment set it to -- the same for every host
+	// running the same file, which is how two machines of the same shape end
+	// up computing one name and the second one's join is refused.
+	AgentName string
 }
 
 // defaults fills in the values a caller may reasonably leave empty, so that
@@ -100,8 +115,26 @@ func (s EnvSpec) defaults() EnvSpec {
 	if s.Mode == "" {
 		s.Mode = ModeSingle
 	}
+	if s.Mode == ModeAgent {
+		// A dedicated agent is not an embedded one, whatever the plan carried.
+		// The two are the mutually exclusive halves of how an agent exists --
+		// inside a controller, or against one -- and the zoomies.yaml a native
+		// join writes says so outright. An environment file that said otherwise
+		// would be the only place they disagreed.
+		s.Embedded = false
+		// The image follows suit: the tag is the deployment's, the repository
+		// is the agent's.
+		if img, ok := AgentImageFor(s.Image); ok && s.Image != "" {
+			s.Image = img
+		}
+	}
 	if s.Image == "" {
 		s.Image = DefaultImage()
+		if s.Mode == ModeAgent {
+			if img, ok := AgentImageFor(s.Image); ok {
+				s.Image = img
+			}
+		}
 	}
 	if s.Bind == "" {
 		s.Bind = "0.0.0.0:" + strconv.Itoa(ContainerPort)
@@ -178,7 +211,8 @@ func (s EnvSpec) Config() *config.Config {
 	cfg.Agent.DockerHost = s.DockerHost
 	cfg.Agent.WorkDir = s.WorkDir
 	cfg.Agent.ControllerURL = s.ControllerURL
-	cfg.Agent.AgentToken = s.AgentToken
+	cfg.Agent.JoinToken = s.JoinToken
+	cfg.Agent.Name = s.AgentName
 	if cfg.Agent.Name == "" {
 		cfg.Agent.Name = machine.DefaultHostName()
 	}
@@ -205,8 +239,8 @@ func (s EnvSpec) required() []string {
 		if s.ControllerURL == "" {
 			missing = append(missing, "ZOOMIES_CONTROLLER_URL (the controller this host joined)")
 		}
-		if s.AgentToken == "" {
-			missing = append(missing, "ZOOMIES_AGENT_TOKEN (the credential the join returned)")
+		if s.JoinToken == "" {
+			missing = append(missing, "ZOOMIES_JOIN_TOKEN (the token this host joins with on its first start)")
 		}
 		return missing
 	}
@@ -246,8 +280,10 @@ func RenderEnv(spec EnvSpec) (string, error) {
 		w.section("Joining a controller")
 		w.set("ZOOMIES_CONTROLLER_URL", s.ControllerURL,
 			"The controller this host takes work from. It is the URL `zoomies agent join` was pointed at.")
-		w.set("ZOOMIES_AGENT_TOKEN", s.AgentToken,
-			"The long-lived credential the join exchanged your join token for. Treat it as a password: it lets this host claim jobs.")
+		w.set("ZOOMIES_JOIN_TOKEN", s.JoinToken,
+			"Single-use, and spent the first time this host starts: it is exchanged for a lasting credential written into the state volume, which every later start reads instead. Mint another under Hosts -> Add a host if the volume is ever lost.")
+		w.set("ZOOMIES_AGENT_NAME", s.AgentName,
+			"What this host calls itself on the Hosts page. It is set explicitly because a container's hostname is the same on every machine running this file, and two hosts that compute one name are one host as far as the controller is concerned.")
 	} else {
 		w.section("The controller")
 		w.set("ZOOMIES_EXTERNAL_URL", s.ExternalURL,
