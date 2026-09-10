@@ -98,6 +98,25 @@ CMD ["controller"]
 # container backends distroless is enough. It talks to the Docker or Podman
 # socket, which is bind-mounted in.
 FROM gcr.io/distroless/static-debian12:nonroot AS agent
+# Re-declared after FROM for the same reason the controller's are: the ARGs set
+# in the build stage are out of scope here, and a label written from one that is
+# not in scope is silently empty.
+ARG VERSION=dev
+ARG COMMIT=""
+ARG DATE=""
+# This target went unpublished for as long as it has existed, so nothing ever
+# noticed it had no labels. Now that it is published it makes the same promise
+# every other image here makes -- say what you are without being started.
+LABEL org.opencontainers.image.title="zoomies-agent" \
+      org.opencontainers.image.description="Zoomies agent: runs a runner fleet on one host for a controller" \
+      org.opencontainers.image.source="https://github.com/eyupio/zoomies" \
+      org.opencontainers.image.url="https://zoomies.sh" \
+      org.opencontainers.image.documentation="https://zoomies.sh/hosts/" \
+      org.opencontainers.image.vendor="EyUp.io" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.created="${DATE}"
 COPY --from=build /out/zoomies /usr/local/bin/zoomies
 COPY --from=build --chown=65532:65532 /out/state /var/lib/zoomies
 USER 65532:65532

@@ -125,23 +125,98 @@ func TestTheReleaseWorkflowGuardsItsTag(t *testing.T) {
 // at all, which made them the images an operator is most likely to be holding
 // when something is wrong and least able to identify.
 func TestEveryPublishedImageSaysWhatItIs(t *testing.T) {
+	// Per published target, not per file, and following FROM.
+	//
+	// Checking that the file mentioned each label was enough to pass while
+	// deploy/Dockerfile's `agent` target carried none at all: the controller's
+	// labels satisfied every search. That went unnoticed because nothing
+	// published the agent image, and stopped being harmless the moment
+	// something did.
+	//
+	// Which targets are published is not a list kept here -- it is whatever the
+	// workflows name, so a new image is covered on the day it is added.
+	// Inheritance counts: Dockerfile.runner's `runner` declares no labels and
+	// needs none, because it is FROM runner-base, which does.
+	required := []string{
+		"org.opencontainers.image.source",
+		"org.opencontainers.image.version",
+		"org.opencontainers.image.revision",
+		"org.opencontainers.image.created",
+		"org.opencontainers.image.licenses",
+	}
+
+	published := map[string]bool{}
+	for name, body := range workflowFiles(t) {
+		for _, m := range regexp.MustCompile(`(?m)^\s*target:\s*(\S+)\s*$`).FindAllStringSubmatch(body, -1) {
+			published[m[1]] = true
+		}
+		_ = name
+	}
+	if len(published) == 0 {
+		t.Fatal("no workflow names a build target; this test is looking at the wrong thing")
+	}
+
+	// Every target in every Dockerfile: what it is FROM, and the text of its
+	// own section.
+	type stage struct{ from, body string }
+	stages := map[string]stage{}
 	for _, file := range []string{"../../deploy/Dockerfile", "../../deploy/Dockerfile.runner"} {
 		b, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatalf("reading %s: %v", file, err)
 		}
 		body := string(b)
-		for _, label := range []string{
-			"org.opencontainers.image.source",
-			"org.opencontainers.image.version",
-			"org.opencontainers.image.revision",
-			"org.opencontainers.image.created",
-			"org.opencontainers.image.licenses",
-		} {
-			if !strings.Contains(body, label) {
-				t.Errorf("%s has no %s label", filepath.Base(file), label)
+		marks := regexp.MustCompile(`(?m)^FROM\s+(\S+)(?:\s+AS\s+(\S+))?\s*$`).FindAllStringSubmatchIndex(body, -1)
+		for i, m := range marks {
+			if m[4] < 0 {
+				continue // an unnamed stage cannot be a build target
+			}
+			end := len(body)
+			if i+1 < len(marks) {
+				end = marks[i+1][0]
+			}
+			stages[body[m[4]:m[5]]] = stage{from: body[m[2]:m[3]], body: body[m[0]:end]}
+		}
+	}
+
+	// labelled walks a target and everything it is FROM, since a label on a
+	// base image is on the images built from it.
+	labelled := func(name, label string) bool {
+		for seen := map[string]bool{}; ; {
+			st, ok := stages[name]
+			if !ok || seen[name] {
+				return false
+			}
+			if strings.Contains(st.body, label) {
+				return true
+			}
+			seen[name] = true
+			name = st.from
+		}
+	}
+
+	var checked int
+	for name := range published {
+		if _, ok := stages[name]; !ok {
+			t.Errorf("a workflow builds target %q, which no Dockerfile defines", name)
+			continue
+		}
+		checked++
+		for _, label := range required {
+			if !labelled(name, label) {
+				t.Errorf("the %s image has no %s label, so a registry listing says nothing about what "+
+					"it is and `docker inspect` cannot answer which build is running", name, label)
 			}
 		}
+		// A label written from an ARG that is out of scope after FROM ships
+		// silently empty, which reads as "no version" rather than as a mistake.
+		if st := stages[name]; strings.Contains(st.body, `image.version="${VERSION}"`) && !strings.Contains(st.body, "ARG VERSION") {
+			t.Errorf("the %s image labels a version from an ARG it never re-declares after FROM, "+
+				"so the label ships empty", name)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no published target was checked")
 	}
 }
 
