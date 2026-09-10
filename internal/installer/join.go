@@ -318,9 +318,58 @@ func Join(ctx context.Context, opts JoinOptions) error {
 	u.blank()
 	u.step("Done")
 	u.field("host", name+" ("+a.HostID()+")")
+
+	// What this host is, and what it just told the controller it is.
+	//
+	// None of this used to be printed. The figures went on the wire, the skew
+	// between the two builds went to a log at warn level in the middle of the
+	// installer's prose, and the last thing an operator saw was that a service
+	// had started -- so a host that joined on the wrong build, or measured
+	// nothing at all, looked exactly like one that did neither. Both are worth
+	// a line each while the operator is still at the terminal, because both are
+	// answered by running the install again with different arguments, and
+	// neither is visible until somebody opens the Hosts page and reads a badge.
+	rep := a.Reported()
+	u.field("agent", version.Short())
+	if rep.ControllerVersion != "" {
+		u.field("controller", rep.ControllerVersion)
+	}
+	u.field("size", reportedSize(rep))
 	u.field("logs", mgr.LogCommand())
+
+	if rep.ControllerVersion != "" && version.CompareBuilds(version.Version, rep.ControllerVersion) != version.SkewNone {
+		u.blank()
+		u.warn("this agent is " + version.Version + " and that controller is " + rep.ControllerVersion +
+			"; the fleet will show this host as a different build.")
+		u.note("to match it, install that version and restart the agent:")
+		u.note("  curl -fsSL https://zoomies.sh/install.sh | sh -s -- --no-init --version <tag>")
+	}
+	if rep.CPUs == 0 {
+		u.blank()
+		u.warn("this agent reported no CPUs, memory or disk, so the fleet cannot fit a pool's " +
+			"resource limits against this host.")
+		u.note("agents learnt to measure themselves after 0.2-beta; a newer one reports on its next heartbeat.")
+	}
+
 	u.note("It should be on the Hosts page of " + opts.ControllerURL + " within a heartbeat.")
 	return nil
+}
+
+// reportedSize renders what the agent measured, or says plainly that it did
+// not. An empty field would read as "nothing to say" when what it means is
+// "this host cannot say".
+func reportedSize(r agent.Reported) string {
+	if r.CPUs <= 0 && r.MemoryMB <= 0 && r.DiskTotalMB <= 0 {
+		return "not reported by this agent"
+	}
+	out := fmt.Sprintf("%d vCPU", r.CPUs)
+	if r.MemoryMB > 0 {
+		out += fmt.Sprintf(" - %d GB", r.MemoryMB/1024)
+	}
+	if r.DiskTotalMB > 0 {
+		out += fmt.Sprintf(" - %d GB free of %d", r.DiskFreeMB/1024, r.DiskTotalMB/1024)
+	}
+	return out
 }
 
 // confirmRejoin stops a second join from silently replacing an identity this
