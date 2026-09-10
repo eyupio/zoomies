@@ -67,23 +67,25 @@ jobs:
             echo "runs-on=blacksmith-4vcpu-ubuntu-2404" >> "$GITHUB_OUTPUT"
           fi
 
-      # A tag whose release is already published is a released artefact, and
-      # rebuilding one is how "v0.1-alpha" came to have assets two days newer
-      # than the commit it names. A draft is fair game: it has not been
-      # promised to anybody yet.
+      # A published full release is a promise about specific bytes, and
+      # rebuilding one would replace what people have already downloaded behind
+      # the same tag. A draft is fair game: it has not been promised to anybody
+      # yet, and a published prerelease is still explicitly not finished.
       - name: Refuse to rebuild a published release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -eu
-          state=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft \
-            --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo "none")
+          state=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease \
+            --jq 'if .isDraft then "draft" elif .isPrerelease then "prerelease" else "published" end' \
+            2>/dev/null || echo "none")
           case "$state" in
             published)
               echo "::error::$TAG is already published. A released tag is a promise; " \
                    "cut a new tag rather than replacing what people have already downloaded."
               exit 1 ;;
+            prerelease) echo "$TAG is already published as a prerelease; it will be replaced." ;;
             draft) echo "$TAG has an unpublished draft; it will be replaced." ;;
             none)  echo "$TAG has no release yet." ;;
           esac

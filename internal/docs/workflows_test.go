@@ -101,7 +101,7 @@ func TestNoMultiJobWorkflowGrantsWriteToEveryJob(t *testing.T) {
 }
 
 // The release workflow's own rules, each of which exists because of something
-// that has already happened to this project's one published release.
+// that can turn a release tag into a lie about the bytes it names.
 func TestTheReleaseWorkflowGuardsItsTag(t *testing.T) {
 	body := workflowFiles(t)["release.yml"]
 	if body == "" {
@@ -112,11 +112,27 @@ func TestTheReleaseWorkflowGuardsItsTag(t *testing.T) {
 	}{
 		{"workflow_dispatch:", "a release must be startable by hand when the tag's own run cannot be"},
 		{"prerelease:", "a tag with a hyphen is this project saying the release is not finished"},
-		{"Refuse to rebuild a published release", "v0.1-alpha had its assets rebuilt two days after it was tagged"},
+		{"Refuse to rebuild a published release", "a full release tag must stay immutable once people can download it"},
 		{"attest-build-provenance", "a checksum says the bytes match; provenance says where they came from"},
 	} {
 		if !strings.Contains(body, want.needle) {
 			t.Errorf("release.yml has no %q: %s", want.needle, want.why)
+		}
+	}
+}
+
+func TestTheReleaseWorkflowOnlyLocksPublishedFullReleases(t *testing.T) {
+	body := workflowFiles(t)["release.yml"]
+	if body == "" {
+		t.Fatal("release.yml is missing")
+	}
+	for _, want := range []string{
+		"--json isDraft,isPrerelease",
+		`elif .isPrerelease then "prerelease"`,
+		`prerelease) echo "$TAG is already published as a prerelease; it will be replaced." ;;`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("release.yml is missing %q, so a published prerelease is still treated as final", want)
 		}
 	}
 }

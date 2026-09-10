@@ -258,10 +258,11 @@ the newest release of any kind instead. Once there is a full release, that is
 what "latest" means and prereleases stop being offered. Either way, name the
 tag with `--version v1.2.3` when it matters which one you get.
 
-A tag whose release is already published cannot be rebuilt: the release
-workflow refuses. A released tag is a promise about specific bytes, and
-replacing them behind people who have already downloaded them is not an upgrade
-anyone can reason about.
+A published full release cannot be rebuilt: the release workflow refuses.
+A published prerelease can, because it is still explicitly not finished. A
+released tag is a promise about specific bytes, and replacing them behind
+people who have already downloaded them is not an upgrade anyone can reason
+about.
 
 ## Upgrading an agent host
 
