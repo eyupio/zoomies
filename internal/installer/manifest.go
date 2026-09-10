@@ -195,7 +195,9 @@ func (i *Installer) appFromManifest(ctx context.Context, st *store.Store, key *c
 	i.ui.note("address, so use an SSH tunnel, or paste the ?code= value from GitHub's redirect below.")
 	i.ui.blank()
 
-	paste := lineReader(ctx, i.in)
+	paste, stopPaste := i.pasteReader(ctx)
+	defer stopPaste()
+
 	res, err := srv.WaitFor(ctx, manifestWait, paste, i.countdown("waiting for GitHub"))
 	i.clearLine()
 	if err != nil {
@@ -797,10 +799,36 @@ func parsePasted(line string) (callbackResult, bool) {
 	return callbackResult{Code: s}, true
 }
 
+// pasteReader starts the handshake's paste reader and returns the channel with
+// the function that stops it.
+//
+// The separate context is the whole point of this existing as its own function.
+// This reader takes the same stdin every later prompt takes, and it used to be
+// started on the install's own context, so it went on scanning for the rest of
+// the run: the operator typed their administrator password into a terminal with
+// two readers on it, and the goroutine nobody was listening to any more took
+// the line. On the `curl | sh` path that is the first thing they type.
+//
+// Stopping it bounds the reader to the handshake rather than removing the race
+// outright. A goroutine already inside Scan is not woken by a cancel, so it can
+// still take one line if the operator types during the return; what it cannot
+// do any more is compete for every prompt after this one. Removing the last of
+// it would mean one reader shared by the whole installer, which is a larger
+// change than this is.
+func (i *Installer) pasteReader(ctx context.Context) (<-chan string, context.CancelFunc) {
+	reading, stop := context.WithCancel(ctx)
+	return lineReader(reading, i.in), stop
+}
+
 // lineReader turns an input stream into a channel of lines, so that a paste
 // can be selected on alongside the browser callback and the countdown.
 func lineReader(ctx context.Context, r io.Reader) <-chan string {
-	out := make(chan string, 1)
+	// Unbuffered on purpose. With room to buffer, the reader ran a line ahead
+	// of whoever was waiting, so a line was taken off stdin before anybody had
+	// asked for one and was still held when the handshake ended. Handing each
+	// line straight to a waiting receiver keeps the reader no further ahead
+	// than it has to be, and makes stopping it stop it.
+	out := make(chan string)
 	if r == nil {
 		return out
 	}
@@ -808,6 +836,14 @@ func lineReader(ctx context.Context, r io.Reader) <-chan string {
 		defer close(out)
 		sc := bufio.NewScanner(r)
 		for sc.Scan() {
+			// Checked before the send, not only alongside it. A line already
+			// scanned when the reader is stopped must not be delivered: with
+			// both cases ready a select picks either one, so a line read for a
+			// handshake that has finished could still arrive at whoever came
+			// after it.
+			if ctx.Err() != nil {
+				return
+			}
 			select {
 			case out <- sc.Text():
 			case <-ctx.Done():

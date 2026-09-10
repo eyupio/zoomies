@@ -418,3 +418,40 @@ func TestCallbackServerRefusesAReboundHost(t *testing.T) {
 		t.Fatalf("status = %d, want 400: a rebound host was served", resp.StatusCode)
 	}
 }
+
+// Stopping the handshake has to stop the reader, even though the install
+// carries on.
+//
+// The paste reader takes the same stdin every later prompt takes. Started on
+// the install's own context it kept scanning for the whole run, so the operator
+// typing their administrator password was typing into a terminal with two
+// readers on it -- and on the `curl | sh` path that password is the first thing
+// they type after the handshake.
+func TestThePasteReaderStopsWhenTheHandshakeDoesNotWhenTheInstallDoes(t *testing.T) {
+	install, cancelInstall := context.WithCancel(context.Background())
+	defer cancelInstall()
+
+	i := &Installer{in: strings.NewReader("pasted-code\nthe-operators-password\n")}
+	paste, stopPaste := i.pasteReader(install)
+
+	if got := <-paste; got != "pasted-code" {
+		t.Fatalf("first line = %q, want the pasted code", got)
+	}
+
+	// The handshake is over. The install is not.
+	stopPaste()
+	if install.Err() != nil {
+		t.Fatalf("stopping the handshake cancelled the whole install: %v", install.Err())
+	}
+
+	// The reader must be finished with stdin: the channel closes and the line
+	// after the paste is never taken.
+	select {
+	case line, open := <-paste:
+		if open {
+			t.Fatalf("the reader took %q after the handshake ended; that is the operator's next answer", line)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the reader is still on stdin after the handshake ended")
+	}
+}
