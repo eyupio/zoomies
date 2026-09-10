@@ -115,6 +115,9 @@ func (s EnvSpec) defaults() EnvSpec {
 	if s.Mode == "" {
 		s.Mode = ModeSingle
 	}
+	if s.Image == "" {
+		s.Image = DefaultImage()
+	}
 	if s.Mode == ModeAgent {
 		// A dedicated agent is not an embedded one, whatever the plan carried.
 		// The two are the mutually exclusive halves of how an agent exists --
@@ -124,16 +127,8 @@ func (s EnvSpec) defaults() EnvSpec {
 		s.Embedded = false
 		// The image follows suit: the tag is the deployment's, the repository
 		// is the agent's.
-		if img, ok := AgentImageFor(s.Image); ok && s.Image != "" {
+		if img, ok := AgentImageFor(s.Image); ok {
 			s.Image = img
-		}
-	}
-	if s.Image == "" {
-		s.Image = DefaultImage()
-		if s.Mode == ModeAgent {
-			if img, ok := AgentImageFor(s.Image); ok {
-				s.Image = img
-			}
 		}
 	}
 	if s.Bind == "" {
