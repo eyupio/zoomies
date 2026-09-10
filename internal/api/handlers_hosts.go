@@ -277,8 +277,10 @@ type joinTokenResponse struct {
 // cost the operator.
 type createJoinTokenResponse struct {
 	joinTokenResponse
-	Token   string `json:"token"`
-	Command string `json:"command"`
+	Token             string `json:"token"`
+	Command           string `json:"command"`
+	ControllerVersion string `json:"controller_version"`
+	InstallTag        string `json:"install_tag,omitempty"`
 	// VersionNote is empty when the command installs a matching agent.
 	VersionNote string `json:"version_note,omitempty"`
 }
@@ -375,6 +377,8 @@ func (s *Server) handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
 		joinTokenResponse: s.joinTokenResponse(token),
 		Token:             plaintext,
 		Command:           s.joinCommand(plaintext, controllerURL),
+		ControllerVersion: version.Short(),
+		InstallTag:        version.Channel(version.Version),
 		VersionNote:       joinVersionNote(),
 	})
 }
@@ -423,7 +427,7 @@ func (s *Server) joinCommand(token, controllerURL string) string {
 	cmd := fmt.Sprintf("curl -fsSL https://zoomies.sh/install.sh | sh -s -- --mode agent --controller %s --join-token %s",
 		controller, token)
 
-	// Pin the agent to this controller's own release.
+	// Pin the agent to this controller's own published channel.
 	//
 	// Unpinned, the installer resolves "latest", which is the newest *published
 	// release* -- not this build. A fleet whose controller was upgraded past the
@@ -437,15 +441,13 @@ func (s *Server) joinCommand(token, controllerURL string) string {
 	// or disk, so the host shows "Size unknown" and a pool's resource limits
 	// have nothing to fit against -- and no argument to the command could have
 	// fixed it.
-	if tag, ok := version.Release(version.Version); ok {
-		return cmd + " --version v" + tag
+	if tag, ok := version.InstallTag(version.Version); ok {
+		return cmd + " --version " + tag
 	}
 
-	// No pin, because there is nothing honest to pin to. A controller built from
-	// main is stamped main-sha-abc1234, and the installer downloads release
-	// assets: there is no such asset, so pinning this version would send the
-	// operator to a 404 instead of a mismatched agent. The command still works
-	// and the host still joins; it says what it cannot promise instead.
+	// No pin, because there is nothing honest to pin to. Local and fork builds
+	// have no repository asset; the command still works and the note says what
+	// it cannot promise instead.
 	return cmd
 }
 
@@ -456,10 +458,10 @@ func (s *Server) joinCommand(token, controllerURL string) string {
 // between an operator who knows their new host will read "Different build" and
 // one who finds out afterwards and starts re-running the installer to fix it.
 func joinVersionNote() string {
-	if _, ok := version.Release(version.Version); ok {
+	if _, ok := version.InstallTag(version.Version); ok {
 		return ""
 	}
-	return fmt.Sprintf("This controller is %s, which is a build from main rather than a release, "+
+	return fmt.Sprintf("This controller is %s, which is a local or unpublished build, "+
 		"so there is no matching agent to install. The host will get the newest release and the "+
 		"fleet will show it as a different build until this controller runs a released version.",
 		version.Version)

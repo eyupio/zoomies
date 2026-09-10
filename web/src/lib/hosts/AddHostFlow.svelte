@@ -44,7 +44,13 @@
   import LabelMapEditor from './LabelMapEditor.svelte';
 
   type Phase = 'describe' | 'run' | 'joined';
-  type Minted = JoinToken & { token?: string; command?: string; version_note?: string };
+  type Minted = JoinToken & {
+    token?: string;
+    command?: string;
+    controller_version?: string;
+    install_tag?: string;
+    version_note?: string;
+  };
 
   const STEPS = [
     { id: 'describe', title: 'Describe the host' },
@@ -469,6 +475,18 @@
       </p>
 
       <div class="command">
+        {#if minted.install_tag}
+          <dl class="version-match" aria-label="Version selected for this host">
+            <div>
+              <dt>Controller build</dt>
+              <dd class="mono">{minted.controller_version || '--'}</dd>
+            </div>
+            <div>
+              <dt>Host install channel</dt>
+              <dd class="mono">:{minted.install_tag}</dd>
+            </div>
+          </dl>
+        {/if}
         <pre class="mono"><code>{installCommand}</code></pre>
         <div class="command-actions">
           <CopyButton value={installCommand} label="Copy the install command" size="md" showLabel />
@@ -561,6 +579,12 @@
           <div>
             <dt>Agent</dt>
             <dd>{joinedHost.version || '--'}</dd>
+          </div>
+          <div>
+            <dt>Channel</dt>
+            <dd class="mono">
+              {joinedHost.version_channel ? `:${joinedHost.version_channel}` : '--'}
+            </dd>
           </div>
           <div>
             <dt>Capacity</dt>
@@ -749,6 +773,30 @@
     border: var(--z-border-width) solid var(--z-pending-border);
     border-radius: var(--z-radius-md);
     background: var(--z-pending-subtle);
+  }
+  .version-match {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--z-space-3) var(--z-space-6);
+    margin: 0;
+    padding: var(--z-space-3);
+    border-bottom: var(--z-border-width) solid var(--z-border);
+    background: var(--z-surface-raised);
+  }
+  .version-match div {
+    display: grid;
+    gap: var(--z-space-1);
+  }
+  .version-match dt {
+    color: var(--z-text-subtle);
+    font-size: var(--z-text-2xs);
+    text-transform: uppercase;
+    letter-spacing: var(--z-tracking-wider);
+  }
+  .version-match dd {
+    margin: 0;
+    color: var(--z-text);
+    font-size: var(--z-text-xs);
   }
   .command.small {
     padding: var(--z-space-3);

@@ -239,6 +239,7 @@
         title="Disk on the filesystem holding the work directory">{disk}</span
       >{/if}
     {#if host.version}<span>agent {host.version}</span>{/if}
+    {#if host.version_channel}<span class="mono">channel :{host.version_channel}</span>{/if}
     {#if host.address}<span class="mono">{host.address}</span>{/if}
   </p>
 

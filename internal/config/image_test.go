@@ -19,6 +19,7 @@ func TestRunnerImageForSwapsTheStockImageForItsDockerVariant(t *testing.T) {
 		want   string
 	}{
 		{"the default, with a daemon", DefaultRunnerImage, true, DefaultRunnerDockerImage},
+		{"the dev tag moves with it", "ghcr.io/eyupio/zoomies-runner:dev", true, "ghcr.io/eyupio/zoomies-runner-docker:dev"},
 		{"the main tag moves with it", "ghcr.io/eyupio/zoomies-runner:main", true, "ghcr.io/eyupio/zoomies-runner-docker:main"},
 		{"no tag at all", "ghcr.io/eyupio/zoomies-runner", true, "ghcr.io/eyupio/zoomies-runner-docker"},
 		{"a commit tag is a pin, and stays", "ghcr.io/eyupio/zoomies-runner:sha-b966fb6", true, "ghcr.io/eyupio/zoomies-runner:sha-b966fb6"},

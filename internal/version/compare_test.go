@@ -65,3 +65,29 @@ func TestCompareBuildsIsSymmetric(t *testing.T) {
 		}
 	}
 }
+
+func TestInstallTagNamesThePublishedChannel(t *testing.T) {
+	for _, tc := range []struct {
+		build string
+		tag   string
+		ok    bool
+	}{
+		{"1.2.3", "v1.2.3", true},
+		{"v1.2.3", "v1.2.3", true},
+		{"0.2-beta", "v0.2-beta", true},
+		{"main-sha-117bc18", "dev", true},
+		{"dev", "dev", true},
+		{"v0.2-beta-276-g394254b", "", false},
+		{"some-fork-build", "", false},
+	} {
+		t.Run(tc.build, func(t *testing.T) {
+			got, ok := InstallTag(tc.build)
+			if got != tc.tag || ok != tc.ok {
+				t.Errorf("InstallTag(%q) = %q, %v; want %q, %v", tc.build, got, ok, tc.tag, tc.ok)
+			}
+			if channel := Channel(tc.build); channel != tc.tag {
+				t.Errorf("Channel(%q) = %q, want %q", tc.build, channel, tc.tag)
+			}
+		})
+	}
+}

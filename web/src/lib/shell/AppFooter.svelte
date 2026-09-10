@@ -24,6 +24,7 @@
   import Logo from '../components/Logo.svelte';
 
   const version = $derived(session.meta?.version);
+  const versionChannel = $derived(session.meta?.version_channel);
 </script>
 
 <footer class="app-footer">
@@ -33,6 +34,11 @@
       <span class="name">Zoomies</span>
       {#if version}
         <span class="version" title="The controller build this page is talking to">{version}</span>
+      {/if}
+      {#if versionChannel}
+        <span class="channel" title="The published channel carrying this controller build"
+          >:{versionChannel}</span
+        >
       {/if}
     </span>
     <span class="right">
@@ -89,6 +95,14 @@
     font-family: var(--z-font-mono);
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .channel {
+    padding: 0 var(--z-space-2);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-full);
+    color: var(--z-text-muted);
+    font-family: var(--z-font-mono);
     white-space: nowrap;
   }
   .descriptor {

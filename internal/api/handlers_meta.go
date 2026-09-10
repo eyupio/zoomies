@@ -25,6 +25,7 @@ import (
 // first-run bootstrap form. Nothing in it is a secret.
 type metaResponse struct {
 	Version           string `json:"version"`
+	VersionChannel    string `json:"version_channel,omitempty"`
 	Commit            string `json:"commit,omitempty"`
 	BootstrapRequired bool   `json:"bootstrap_required"`
 	AuthDisabled      bool   `json:"auth_disabled"`
@@ -50,6 +51,7 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 	}
 	out := metaResponse{
 		Version:           version.Short(),
+		VersionChannel:    version.Channel(version.Version),
 		Commit:            version.Commit,
 		BootstrapRequired: needsBootstrap,
 		AuthDisabled:      s.cfg().Security.DisableAuth,

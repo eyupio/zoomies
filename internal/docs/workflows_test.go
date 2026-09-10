@@ -284,10 +284,6 @@ func TestOnlyTheReleaseWorkflowPublishesLatest(t *testing.T) {
 		t.Fatal("no release.yml")
 	}
 
-	// The two images that follow releases. The runner images are deliberately
-	// not here: their :latest still tracks main, so that a pool naming no tag
-	// runs the runners this controller was tested against.
-	//
 	// The two workflows spell an image name differently -- ci.yml through an
 	// env var, release.yml in full -- so each is asserted the way it is
 	// actually written. Checking release.yml's spelling against ci.yml is a
@@ -325,9 +321,46 @@ func TestOnlyTheReleaseWorkflowPublishesLatest(t *testing.T) {
 		}
 	}
 
+	// Runner tags are emitted from one loop for both repositories. They obey the
+	// same contract: dev is main, latest is a full release.
+	if strings.Contains(ci, `echo "$image:latest"`) {
+		t.Error("ci.yml publishes a runner :latest tag; that tag is the release workflow's")
+	}
+	if !strings.Contains(ci, `echo "$image:dev"`) {
+		t.Error("ci.yml does not publish the default runner variant under :dev")
+	}
+	if !strings.Contains(release, `echo "ghcr.io/eyupio/$image:latest"`) {
+		t.Error("release.yml no longer publishes runner :latest tags")
+	}
+	for _, want := range []string{
+		"RUNNER_IMAGE: ghcr.io/eyupio/zoomies-runner\n",
+		"RUNNER_DOCKER_IMAGE: ghcr.io/eyupio/zoomies-runner-docker\n",
+	} {
+		if !strings.Contains(ci, want) {
+			t.Errorf("ci.yml does not define %q", strings.TrimSuffix(want, "\n"))
+		}
+	}
+
 	// And the gate that keeps a prerelease from becoming what :latest means.
 	if !strings.Contains(release, `if [ "$PRERELEASE" != "true" ]; then`) {
 		t.Error("release.yml no longer gates :latest on the release not being a prerelease")
+	}
+}
+
+func TestMainPublishesAnInstallableDevBinary(t *testing.T) {
+	ci := workflowFiles(t)["ci.yml"]
+	for _, want := range []string{
+		"dev-binaries:",
+		"github.event_name == 'push' && github.ref == 'refs/heads/main'",
+		"make dist VERSION=${{ steps.build.outputs.version }}",
+		"tag_name: dev",
+		"prerelease: true",
+		"make_latest: false",
+		"overwrite_files: true",
+	} {
+		if !strings.Contains(ci, want) {
+			t.Errorf("ci.yml is missing %q, so --version dev is not a complete rolling binary channel", want)
+		}
 	}
 }
 

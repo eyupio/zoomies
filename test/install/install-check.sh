@@ -88,6 +88,54 @@ run join-does-not-need-yes \
     --version 0.2-beta --mode agent \
     --controller https://zoomies.example.com --join-token zoojoin_abc123 --no-init
 
+# dev is a moving GitHub prerelease tag, not a numeric version to prefix with
+# v. A fake release endpoint makes the URL and checksum behaviour observable
+# without reaching the network.
+dev="$root/dev-channel"
+mkdir -p "$dev/release" "$dev/bin" "$dev/prefix"
+cat > "$dev/release/zoomies_linux_amd64" <<'STUB'
+#!/bin/sh
+case "$1 $2" in
+    "version --short") printf '%s\n' "main-sha-117bc18 (117bc18)" ;;
+    *) exit 0 ;;
+esac
+STUB
+chmod +x "$dev/release/zoomies_linux_amd64"
+(
+    cd "$dev/release"
+    sha256sum zoomies_linux_amd64 > checksums.txt
+)
+cat > "$dev/bin/curl" <<'STUB'
+#!/bin/sh
+set -eu
+out=""
+url=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -o) out="$2"; shift 2 ;;
+        http://*|https://*) url="$1"; shift ;;
+        *) shift ;;
+    esac
+done
+case "$url" in
+    */download/dev/zoomies_linux_amd64) cp "$FAKE_RELEASE/zoomies_linux_amd64" "$out" ;;
+    */download/dev/checksums.txt) cat "$FAKE_RELEASE/checksums.txt" ;;
+    *) exit 22 ;;
+esac
+STUB
+chmod +x "$dev/bin/curl"
+out=$(FAKE_RELEASE="$dev/release" PATH="$dev/bin:$PATH" "$SH" "$SCRIPT_UNDER_TEST" \
+    --prefix "$dev/prefix" --version dev --no-init --yes 2>&1) || true
+if ! printf '%s' "$out" | grep -qF -- "Downloading zoomies_linux_amd64 dev"; then
+    printf 'FAIL dev-channel: dev was not used as the download tag\n%s\n\n' "$out" >&2
+    failures=$((failures + 1))
+elif printf '%s' "$out" | grep -qF -- "/download/vdev/"; then
+    printf 'FAIL dev-channel: dev was incorrectly rewritten to vdev\n%s\n\n' "$out" >&2
+    failures=$((failures + 1))
+else
+    printf 'ok   dev-channel-is-not-v-prefixed\n'
+fi
+
 if [ "$failures" -ne 0 ]; then
     printf '\n%d check(s) failed\n' "$failures" >&2
     exit 1

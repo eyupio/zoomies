@@ -726,9 +726,9 @@ func TestTheAuditLogDoesNotLetAViewerReadAdminOnlyDocuments(t *testing.T) {
 // older agent predates the machine measurement code it also arrives permanently
 // "Size unknown", which no argument to the command could fix.
 //
-// The other half is the honest one. A controller built from main is stamped
-// main-sha-abc1234 and no release asset carries that version, so pinning it
-// would send the operator to a 404. The command is left unpinned and says so.
+// Main is a published channel too. CI keeps a rolling dev binary beside the
+// dev images, so a main-sha-* controller can enrol a host from the same channel
+// instead of silently falling back to the newest release.
 func TestJoinCommandPinsTheControllersOwnRelease(t *testing.T) {
 	h := newHarness(t)
 	admin, _ := h.user("root", store.RoleAdmin)
@@ -751,10 +751,13 @@ func TestJoinCommandPinsTheControllersOwnRelease(t *testing.T) {
 		name    string
 		stamped string
 		want    string
+		tag     string
 	}{
-		{"a release tag", "1.0.0", "--version v1.0.0"},
-		{"a tag with a v", "v1.0.0", "--version v1.0.0"},
-		{"a prerelease", "0.2-beta", "--version v0.2-beta"},
+		{"a release tag", "1.0.0", "--version v1.0.0", "v1.0.0"},
+		{"a tag with a v", "v1.0.0", "--version v1.0.0", "v1.0.0"},
+		{"a prerelease", "0.2-beta", "--version v0.2-beta", "v0.2-beta"},
+		{"main", "main-sha-117bc18", "--version dev", "dev"},
+		{"an unstamped development build", "dev", "--version dev", "dev"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			version.Version = tc.stamped
@@ -766,10 +769,16 @@ func TestJoinCommandPinsTheControllersOwnRelease(t *testing.T) {
 			if minted.VersionNote != "" {
 				t.Errorf("a pinned command still carried a note: %q", minted.VersionNote)
 			}
+			if minted.InstallTag != tc.tag {
+				t.Errorf("install_tag = %q, want %q", minted.InstallTag, tc.tag)
+			}
+			if !strings.Contains(minted.ControllerVersion, tc.stamped) {
+				t.Errorf("controller_version = %q, want it to name %q", minted.ControllerVersion, tc.stamped)
+			}
 		})
 	}
 
-	for _, stamped := range []string{"main-sha-117bc18", "dev", "v0.2-beta-276-g394254b"} {
+	for _, stamped := range []string{"v0.2-beta-276-g394254b", "some-fork-build"} {
 		t.Run("unreleased "+stamped, func(t *testing.T) {
 			version.Version = stamped
 			minted := mint(t)
@@ -778,6 +787,9 @@ func TestJoinCommandPinsTheControllersOwnRelease(t *testing.T) {
 			if strings.Contains(minted.Command, "--version") {
 				t.Errorf("a controller stamped %q pinned a version that can never be downloaded:\n%s",
 					stamped, minted.Command)
+			}
+			if minted.InstallTag != "" {
+				t.Errorf("an unpublished build advertised install tag %q", minted.InstallTag)
 			}
 			// But it must not be silent about it.
 			if minted.VersionNote == "" {

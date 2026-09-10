@@ -115,9 +115,10 @@ type HostView struct {
 	// CanonicalName is the name this machine would be given today. It is shown
 	// beside a host called something that says nothing, so an operator can see
 	// what renaming it would buy them.
-	CanonicalName string `json:"canonical_name,omitempty"`
-	Version       string `json:"version,omitempty"`
-	Cordoned      bool   `json:"cordoned"`
+	CanonicalName  string `json:"canonical_name,omitempty"`
+	Version        string `json:"version,omitempty"`
+	VersionChannel string `json:"version_channel,omitempty"`
+	Cordoned       bool   `json:"cordoned"`
 	// ProtocolVersion is the agent protocol this host reported, and
 	// Incompatible whether this controller can work with it. An incompatible
 	// host is excluded from placement exactly as a cordoned one is, so the
@@ -172,6 +173,7 @@ func (c *Controller) HostView(h *store.Host) HostView {
 		PlatformLabel:      h.Platform().Describe(),
 		CanonicalName:      h.CanonicalName(),
 		Version:            h.Version,
+		VersionChannel:     version.Channel(h.Version),
 		Cordoned:           h.Cordoned,
 		ProtocolVersion:    h.ProtocolVersion,
 		Incompatible:       h.Incompatible,

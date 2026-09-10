@@ -73,8 +73,8 @@ func (c *Controller) backgroundLoop(ctx context.Context) {
 // anyone touching the pool.
 //
 // Prewarming is otherwise only triggered by a pool being created, edited or
-// prewarmed by hand, which means the default image -- a :latest tag that CI
-// repoints on every merge -- would reach a host once and never again.
+// prewarmed by hand, which means a moving image -- :dev on each main build or
+// :latest on each full release -- would reach a host once and never again.
 //
 // Nothing here can affect scheduling: PrewarmPool records its outcome per host
 // and queues an idempotent task, and a host that cannot reach the registry
