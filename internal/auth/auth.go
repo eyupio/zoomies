@@ -237,6 +237,9 @@ type Service struct {
 	// bootstrapMu serialises CreateFirstAdmin so two simultaneous requests
 	// cannot both pass the "no users exist" check.
 	bootstrapMu sync.Mutex
+	// The last-admin check and the account write are one decision. The
+	// store's writer lock serialises statements, not the reads before them.
+	adminMu sync.Mutex
 	// touched remembers when each token's last_used_at was last written.
 	touched sync.Map // token ID -> time.Time
 }
@@ -844,6 +847,8 @@ func (s *Service) createUser(ctx context.Context, in NewUser) (*store.User, erro
 // UpdateUser saves profile, role and disabled changes, refusing any change that
 // would leave the instance without an administrator.
 func (s *Service) UpdateUser(ctx context.Context, u *store.User) error {
+	s.adminMu.Lock()
+	defer s.adminMu.Unlock()
 	existing, err := s.store.GetUser(ctx, u.ID)
 	if err != nil {
 		return err
@@ -868,6 +873,8 @@ func (s *Service) UpdateUser(ctx context.Context, u *store.User) error {
 
 // SetUserDisabled enables or disables an account.
 func (s *Service) SetUserDisabled(ctx context.Context, id string, disabled bool) error {
+	s.adminMu.Lock()
+	defer s.adminMu.Unlock()
 	u, err := s.store.GetUser(ctx, id)
 	if err != nil {
 		return err
@@ -901,6 +908,8 @@ func (s *Service) SetUserDisabled(ctx context.Context, id string, disabled bool)
 
 // DeleteUser removes an account, refusing to remove the last administrator.
 func (s *Service) DeleteUser(ctx context.Context, id string) error {
+	s.adminMu.Lock()
+	defer s.adminMu.Unlock()
 	u, err := s.store.GetUser(ctx, id)
 	if err != nil {
 		return err
