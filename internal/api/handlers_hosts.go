@@ -409,7 +409,7 @@ func (s *Server) joinCommand(token, controllerURL string) string {
 		}
 	}
 	cmd := fmt.Sprintf("curl -fsSL https://zoomies.sh/install.sh | sh -s -- --mode agent --controller %s --join-token %s",
-		controller, token)
+		shellArgument(controller), shellArgument(token))
 
 	// Pin the agent to this controller's own published channel.
 	//
@@ -433,6 +433,12 @@ func (s *Server) joinCommand(token, controllerURL string) string {
 	// have no repository asset; the command still works and the note says what
 	// it cannot promise instead.
 	return cmd
+}
+
+// shellArgument keeps a URL or credential one literal argument when the
+// operator pastes the command into a POSIX shell.
+func shellArgument(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 // joinVersionNote explains a join command that could not be pinned, or is empty
