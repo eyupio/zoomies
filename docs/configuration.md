@@ -294,8 +294,8 @@ halves. The difference is deliberate, and it is about who is asking.
 
 | Tag | Points at | Published by |
 | --- | --- | --- |
-| `latest` | The newest full release | `release.yml`, on a `v*` tag |
-| `vX.Y.Z` | One tagged release | `release.yml`, on a `v*` tag |
+| `latest` | The newest full release | `release.yml`, when a release is published |
+| `vX.Y.Z` | One published release | `release.yml`, when a release is published |
 | `dev` | The tip of `main` | `ci.yml`, on every push to `main` |
 | `main` | The tip of `main` | `ci.yml`, on every push to `main` |
 | `sha-<commit>` | One exact commit | `ci.yml`, on every push to `main` |
