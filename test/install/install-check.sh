@@ -136,6 +136,48 @@ else
     printf 'ok   dev-channel-is-not-v-prefixed\n'
 fi
 
+# Upgrade uses the new binary's preflight and never runs init, even when the
+# requested moving tag is already installed. The same release mirror is used
+# above, so these checks neither download nor restart a real deployment.
+cat > "$dev/release/zoomies_linux_amd64" <<'STUB'
+#!/bin/sh
+case "$1" in
+    version) printf '%s\n' "main-sha-117bc18 (117bc18)" ;;
+    upgrade)
+        printf '%s\n' "$*" >> "$UPGRADE_LOG"
+        case " $* " in
+            *" --check "*) [ "${REFUSE_UPGRADE_CHECK:-0}" = 0 ] || exit 1 ;;
+        esac ;;
+    *) printf 'unexpected setup: %s\n' "$*" >> "$UPGRADE_LOG"; exit 1 ;;
+esac
+STUB
+chmod +x "$dev/release/zoomies_linux_amd64"
+(cd "$dev/release" && sha256sum zoomies_linux_amd64 > checksums.txt)
+upgrade_log="$dev/upgrade.log"
+if ! out=$(UPGRADE_LOG="$upgrade_log" FAKE_RELEASE="$dev/release" PATH="$dev/bin:$PATH" "$SH" "$SCRIPT_UNDER_TEST" \
+    --prefix "$dev/prefix" --version dev --upgrade --mode agent --non-interactive 2>&1); then
+    printf 'FAIL upgrade handoff: %s\n' "$out" >&2
+    failures=$((failures + 1))
+elif [ "$(wc -l < "$upgrade_log" | tr -d ' ')" != 2 ] || grep -qF "unexpected setup" "$upgrade_log"; then
+    printf 'FAIL upgrade did not preflight and apply exactly once\n' >&2
+    failures=$((failures + 1))
+else
+    printf 'ok   upgrade-preflights-and-keeps-existing-enrolment\n'
+fi
+# A refused preflight must not replace the previous binary.
+stub_at "$dev/prefix" "0.1 (old)"
+before=$(sha256sum "$dev/prefix/zoomies")
+if UPGRADE_LOG="$upgrade_log" REFUSE_UPGRADE_CHECK=1 FAKE_RELEASE="$dev/release" PATH="$dev/bin:$PATH" "$SH" "$SCRIPT_UNDER_TEST" \
+    --prefix "$dev/prefix" --version dev --upgrade --mode agent --yes > "$dev/refusal.log" 2>&1; then
+    printf 'FAIL refused upgrade succeeded\n' >&2
+    failures=$((failures + 1))
+elif [ "$before" != "$(sha256sum "$dev/prefix/zoomies")" ]; then
+    printf 'FAIL refused preflight replaced the binary\n' >&2
+    failures=$((failures + 1))
+else
+    printf 'ok   refused-upgrade-keeps-the-installed-binary\n'
+fi
+
 if [ "$failures" -ne 0 ]; then
     printf '\n%d check(s) failed\n' "$failures" >&2
     exit 1

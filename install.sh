@@ -65,6 +65,11 @@ NON_INTERACTIVE=0
 ANSWERS=""
 RUN_INIT=1
 DO_UNINSTALL=0
+DO_UPGRADE=0
+BINARY_ONLY=0
+PREFIX_GIVEN=0
+CONFIG_DIR=""
+UPGRADE_IMAGE=""
 ASSUME_YES=0
 ALLOW_UNVERIFIED=0
 EXISTING_OTHER=""
@@ -159,6 +164,11 @@ Options:
   --non-interactive     Never prompt. Requires --answers, or enough flags.
   --answers <file>      YAML answer file for unattended setup. Implies
                         --non-interactive and --yes.
+  --upgrade             Upgrade the existing deployment, keeping its configuration
+                        and credentials. Refresh stock runner images, pull the
+                        matching service image and restart the service/container.
+  --config-dir <dir>    Existing configuration directory (for a custom install).
+  --image <ref>         With --upgrade: replacement for a custom container image.
   --no-init             Install the binary only; do not run `zoomies init`.
   --yes, -y             Do not ask before installing. Implied by
                         --non-interactive and --answers.
@@ -182,6 +192,9 @@ Examples:
   # Add a runner host in one line
   curl -fsSL https://zoomies.sh/install.sh | sh -s -- \
       --mode agent --controller https://zoomies.example.com --join-token zoojoin_...
+
+  # Upgrade a runner host without redeeming another join token
+  curl -fsSL https://zoomies.sh/install.sh | sh -s -- --upgrade --mode agent
 
   # Unattended
   sh install.sh --non-interactive --answers /etc/zoomies/answers.yaml
@@ -230,8 +243,8 @@ while [ $# -gt 0 ]; do
         --join-token=*) JOIN_TOKEN="${1#*=}"; shift ;;
         --version)     needs_value --version $# "a release tag such as v1.2.3, dev, or latest"; VERSION="$2"; shift 2 ;;
         --version=*)   VERSION="${1#*=}"; shift ;;
-        --prefix)      needs_value --prefix $# "a directory to install the binary into"; PREFIX="$2"; shift 2 ;;
-        --prefix=*)    PREFIX="${1#*=}"; shift ;;
+        --prefix)      needs_value --prefix $# "a directory to install the binary into"; PREFIX="$2"; PREFIX_GIVEN=1; shift 2 ;;
+        --prefix=*)    PREFIX="${1#*=}"; PREFIX_GIVEN=1; shift ;;
         # --answers and --non-interactive both imply --yes, and have to: an
         # unattended run has nobody to answer a confirmation, and the one that
         # guards a same-version reinstall would otherwise exit 0 without ever
@@ -240,7 +253,12 @@ while [ $# -gt 0 ]; do
         --answers)     needs_value --answers $# "a path to a YAML answer file"; ANSWERS="$2"; NON_INTERACTIVE=1; ASSUME_YES=1; shift 2 ;;
         --answers=*)   ANSWERS="${1#*=}"; NON_INTERACTIVE=1; ASSUME_YES=1; shift ;;
         --non-interactive) NON_INTERACTIVE=1; ASSUME_YES=1; shift ;;
-        --no-init)     RUN_INIT=0; shift ;;
+        --upgrade)     DO_UPGRADE=1; RUN_INIT=0; shift ;;
+        --config-dir)  needs_value --config-dir $# "the existing configuration directory"; CONFIG_DIR="$2"; shift 2 ;;
+        --config-dir=*) CONFIG_DIR="${1#*=}"; shift ;;
+        --image)       needs_value --image $# "the replacement container image"; UPGRADE_IMAGE="$2"; shift 2 ;;
+        --image=*)     UPGRADE_IMAGE="${1#*=}"; shift ;;
+        --no-init)     RUN_INIT=0; BINARY_ONLY=1; shift ;;
         --uninstall)   DO_UNINSTALL=1; shift ;;
         -y|--yes)      ASSUME_YES=1; shift ;;
         --allow-unverified) ALLOW_UNVERIFIED=1; shift ;;
@@ -257,6 +275,15 @@ done
 # rejected it. Every check below is one this script can make in a millisecond,
 # so it makes it first.
 # ---------------------------------------------------------------------------
+
+if [ "$DO_UPGRADE" -eq 1 ]; then
+    if [ "$DO_UNINSTALL" -eq 1 ] || [ "$BINARY_ONLY" -eq 1 ] || [ -n "$ANSWERS" ] ||
+       [ -n "$JOIN_TOKEN" ] || [ -n "$CONTROLLER_URL" ] || [ -n "$DEPLOYMENT" ]; then
+        die "--upgrade uses the existing deployment; do not combine it with setup, join, --no-init or --uninstall options."
+    fi
+elif [ -n "$UPGRADE_IMAGE" ]; then
+    die "--image belongs to --upgrade."
+fi
 
 case "$MODE" in
     ""|single|controller|agent) ;;
@@ -287,7 +314,7 @@ fi
 # controller to join and a token to join it with. Interactively `zoomies init`
 # asks; with no terminal there is nobody to ask, so say it now rather than
 # after the download.
-if [ "$MODE" = agent ] && [ "$NON_INTERACTIVE" -eq 1 ] && [ -z "$ANSWERS" ]; then
+if [ "$DO_UPGRADE" -eq 0 ] && [ "$MODE" = agent ] && [ "$NON_INTERACTIVE" -eq 1 ] && [ -z "$ANSWERS" ]; then
     [ -n "$CONTROLLER_URL" ] ||
         die "--mode agent --non-interactive also needs --controller <url>." \
             "It is the address the Hosts -> Add a host page shows."
@@ -787,6 +814,12 @@ install_binary() {
     fi
 
     chmod +x "$tmp/zoomies"
+    if [ "$DO_UPGRADE" -eq 1 ]; then
+        step "Checking the existing deployment before replacing its binary"
+        upgrade_with "$tmp/zoomies" --check ||
+            die "the upgrade preflight failed; the installed binary and deployment were left in place." \
+                "Check the error above. The selected release must support zoomies upgrade."
+    fi
 
     # preflight_prefix already settled whether this can be written and with
     # what, before the download, so there is nothing left here to discover.
@@ -817,7 +850,7 @@ install_binary() {
     else
         ok "$NEW_VERSION installed"
     fi
-    if [ "$EXISTING_RUNNING" -eq 1 ]; then
+    if [ "$EXISTING_RUNNING" -eq 1 ] && [ "$DO_UPGRADE" -eq 0 ]; then
         # The running process still holds the old inode, so nothing an operator
         # can see has changed yet.
         note "the running service is still on the old build; pick this one up with:"
@@ -838,6 +871,25 @@ install_binary() {
     # a shell to do it.
     rm -rf "$tmp"
     trap - EXIT INT TERM
+}
+
+# The new binary understands its own upgrade procedure. Run its read-only
+# check before replacing anything; older releases cannot silently fall through
+# into setup and spend a new join token.
+upgrade_with() {
+    upgrade_binary="$1"
+    shift
+    set -- upgrade --installed-binary "$PREFIX/zoomies" "$@"
+    [ -n "$MODE" ] && set -- "$@" --mode "$MODE"
+    [ -n "$CONFIG_DIR" ] && set -- "$@" --config-dir "$CONFIG_DIR"
+    [ -n "$UPGRADE_IMAGE" ] && set -- "$@" --image "$UPGRADE_IMAGE"
+    [ -n "$RUNTIME_SOCKET" ] && set -- "$@" --docker-host "unix://$RUNTIME_SOCKET"
+    case "$RUNTIME" in docker|podman) set -- "$@" --runtime "$RUNTIME" ;; esac
+    if [ -n "$ELEVATE" ] && [ "$OS" = linux ]; then
+        run_privileged "$upgrade_binary" "$@"
+    else
+        "$upgrade_binary" "$@"
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -983,8 +1035,11 @@ check_space() {
 }
 check_space "${TMPDIR:-/tmp}"
 
-preflight_prefix
 detect_existing
+if [ "$DO_UPGRADE" -eq 1 ] && [ "$PREFIX_GIVEN" -eq 0 ] && [ -n "$EXISTING" ]; then
+    PREFIX=$(dirname "$EXISTING")
+fi
+preflight_prefix
 if [ -n "$EXISTING" ]; then
     if [ "$EXISTING_RUNNING" -eq 1 ]; then
         field installed "$EXISTING_VERSION at $EXISTING, and running"
@@ -1050,7 +1105,7 @@ WANTED_TAG="${VERSION#v}"
 # the download is skipped and the run goes on to the handoff at the bottom,
 # which is where the joining happens.
 SKIP_DOWNLOAD=0
-if [ -n "$INSTALLED_TAG" ] && [ "$INSTALLED_TAG" = "$WANTED_TAG" ]; then
+if [ "$DO_UPGRADE" -eq 0 ] && [ -n "$INSTALLED_TAG" ] && [ "$INSTALLED_TAG" = "$WANTED_TAG" ]; then
     if [ -n "$MODE" ] || [ -n "$CONTROLLER_URL" ] || [ -n "$JOIN_TOKEN" ] || [ -n "$ANSWERS" ]; then
         SKIP_DOWNLOAD=1
     elif [ "$ASSUME_YES" -eq 0 ]; then
@@ -1078,7 +1133,10 @@ if [ -n "$ELEVATE" ]; then
     fi
     field "" "it may ask for your password"
 fi
-if [ "$RUN_INIT" -eq 0 ]; then
+if [ "$DO_UPGRADE" -eq 1 ]; then
+    field "then" "upgrade the existing service and images, keeping its configuration and credentials"
+    field "jobs" "existing runner containers stay running; reporting resumes after the restart"
+elif [ "$RUN_INIT" -eq 0 ]; then
     field "then" "nothing -- --no-init was given, so setup is yours to run"
 elif [ -n "$MODE" ]; then
     field "then" "run \`zoomies init\` to set this host up as $MODE"
@@ -1125,6 +1183,12 @@ else
     install_binary
 fi
 
+if [ "$DO_UPGRADE" -eq 1 ]; then
+    say ""
+    upgrade_with "$PREFIX/zoomies" || die "the binary is installed, but the deployment upgrade did not finish; fix the error above and run --upgrade again."
+    exit 0
+fi
+
 if [ "$RUN_INIT" -eq 0 ]; then
     say ""
     if [ "$SKIP_DOWNLOAD" -eq 1 ]; then
@@ -1154,6 +1218,7 @@ set -- init \
 [ -n "$CONTROLLER_URL" ] && set -- "$@" --controller "$CONTROLLER_URL"
 [ -n "$JOIN_TOKEN" ] && set -- "$@" --join-token "$JOIN_TOKEN"
 [ -n "$ANSWERS" ] && set -- "$@" --answers "$ANSWERS"
+[ -n "$CONFIG_DIR" ] && set -- "$@" --config-dir "$CONFIG_DIR"
 [ "$NON_INTERACTIVE" -eq 1 ] && set -- "$@" --non-interactive
 [ "$ASSUME_YES" -eq 1 ] && set -- "$@" --yes
 

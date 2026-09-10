@@ -268,3 +268,44 @@ test('a token that is spent or nonsense is refused with a reason', async ({ page
     if (hostId) await page.request.delete(`/api/v1/hosts/${hostId}?force=true`);
   }
 });
+
+test('an older remote agent offers a copyable upgrade command without a join token', async ({
+  page,
+}) => {
+  const command =
+    "curl -fsSL https://zoomies.sh/install.sh | sh -s -- --upgrade --mode agent --version 'v1.2.3'";
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (value: string) => sessionStorage.setItem('copied-upgrade', value),
+      },
+    });
+  });
+  await page.route(/\/api\/v1\/hosts(?:\?.*)?$/, async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.items = body.items.map((host: { name: string }) =>
+      host.name === 'demo-builder-1'
+        ? {
+            ...host,
+            embedded: false,
+            version: '1.0',
+            version_skew: 'behind',
+            upgrade_version: '1.2.3',
+            upgrade_command: command,
+            upgrade_note: 'Run this on the host. Its existing credentials are kept.',
+          }
+        : host,
+    );
+    await route.fulfill({ json: body });
+  });
+  await goto(page, '/hosts', 'Hosts');
+  const card = page.getByRole('article').filter({ hasText: 'demo-builder-1' });
+  await expect(card).toContainText('Controller version: 1.2.3');
+  await card.getByRole('button', { name: 'Copy the upgrade command' }).click();
+  await expect
+    .poll(() => page.evaluate(() => sessionStorage.getItem('copied-upgrade')))
+    .toBe(command);
+  await expect(card).not.toContainText('--join-token');
+});

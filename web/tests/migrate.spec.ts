@@ -13,6 +13,122 @@ test.use(browserOverride);
 
 test.skip(({ isMobile }) => isMobile, 'the wizard is a desktop task');
 
+test('an empty first batch continues scanning and finds repositories on later pages', async ({
+  page,
+}) => {
+  let releasePage!: () => void;
+  const gate = new Promise<void>((resolve) => (releasePage = resolve));
+  await page.route('**/api/v1/migrations/plan', async (route) => {
+    const response = await route.fetch({
+      postData: { installation_id: route.request().postDataJSON().installation_id },
+    });
+    const plan = await response.json();
+    const cursor = route.request().postDataJSON().cursor;
+    if (!cursor) {
+      await route.fulfill({
+        json: {
+          ...plan,
+          repositories: [{ repo: 'acme/docs', workflows: [] }],
+          total_repos: 2,
+          next_cursor: 'second',
+        },
+      });
+    } else {
+      await gate;
+      await route.fulfill({
+        json: {
+          ...plan,
+          repositories: plan.repositories.filter(
+            (r: { repo: string }) => r.repo === FIXTURE.repos[0],
+          ),
+          total_repos: 2,
+          next_cursor: '',
+        },
+      });
+    }
+  });
+  await walkTo(page, 1);
+  await expect(page.getByText('No matches in the repositories checked so far')).toBeVisible();
+  await expect(page.getByText('1 of 2 repositories checked so far')).toBeVisible();
+  await expect(page.getByText('No repositories to migrate', { exact: true })).toBeHidden();
+  releasePage();
+  await expect(page.getByText('Repository scan complete')).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: FIXTURE.repos[0], exact: false })).toBeChecked();
+  await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeEnabled();
+});
+
+test('a failed later batch keeps choices and can resume without selecting a cleared repository again', async ({
+  page,
+}) => {
+  let calls = 0;
+  await page.route('**/api/v1/migrations/plan', async (route) => {
+    calls += 1;
+    if (calls === 2) {
+      await route.fulfill({
+        status: 503,
+        json: { error: { code: 'unavailable', message: 'Try the remaining repositories again.' } },
+      });
+      return;
+    }
+    const response = await route.fetch({
+      postData: { installation_id: route.request().postDataJSON().installation_id },
+    });
+    const plan = await response.json();
+    const first = plan.repositories.find((r: { repo: string }) => r.repo === FIXTURE.repos[0]);
+    const second = { ...first, repo: 'acme/later' };
+    await route.fulfill({
+      json: {
+        ...plan,
+        repositories: calls === 1 ? [first] : [first, second],
+        total_repos: 2,
+        next_cursor: calls === 1 ? 'second' : '',
+      },
+    });
+  });
+  await walkTo(page, 1);
+  await expect(page.getByRole('button', { name: 'Scan remaining repositories' })).toBeVisible();
+  const first = page.getByRole('checkbox', { name: FIXTURE.repos[0], exact: false });
+  await first.uncheck();
+  await page.getByRole('button', { name: 'Scan remaining repositories' }).click();
+  await expect(page.getByText('Repository scan complete')).toBeVisible();
+  await expect(first).not.toBeChecked();
+  await expect(page.getByRole('checkbox', { name: 'acme/later', exact: false })).toBeChecked();
+});
+
+test('large scans keep the migration within the API limit and search preserves the selection', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/migrations/plan', async (route) => {
+    const response = await route.fetch({
+      postData: { installation_id: route.request().postDataJSON().installation_id },
+    });
+    const plan = await response.json();
+    const example = plan.repositories.find((r: { repo: string }) => r.repo === FIXTURE.repos[0]);
+    await route.fulfill({
+      json: {
+        ...plan,
+        repositories: Array.from({ length: 30 }, (_, n) => ({
+          ...example,
+          repo: `acme/project-${String(n).padStart(2, '0')}`,
+        })),
+        total_repos: 30,
+        next_cursor: '',
+      },
+    });
+  });
+  await walkTo(page, 1);
+  const list = page.getByRole('list', { name: 'Checked repositories' });
+  await expect(list.getByRole('checkbox', { checked: true })).toHaveCount(25);
+  await expect(page.getByText(/This batch is full/)).toBeVisible();
+  await page.getByRole('searchbox', { name: 'Search checked repositories' }).fill('project-29');
+  const last = list.getByRole('checkbox', { name: 'acme/project-29', exact: false });
+  await expect(last).toBeDisabled();
+  await page.getByRole('searchbox', { name: 'Search checked repositories' }).clear();
+  await list.getByRole('checkbox', { name: 'acme/project-00', exact: false }).uncheck();
+  await last.check();
+  await expect(list.getByRole('checkbox', { checked: true })).toHaveCount(25);
+});
+
 /**
  * The `build` job of one repository on the exceptions step. Every demo
  * repository has the same workflow, so the repository has to be named.
@@ -107,7 +223,7 @@ test('a repository with several workflows is chosen file by file', async ({ page
   const repo = page.getByRole('checkbox', { name: FIXTURE.multiWorkflowRepo, exact: false });
   await expect(repo).toBeChecked();
 
-  await page.getByRole('button', { name: '2 files' }).click();
+  await page.getByRole('button', { name: `2 files in ${FIXTURE.multiWorkflowRepo}` }).click();
   const release = page.getByRole('checkbox', { name: '.github/workflows/release.yml' });
   await expect(release).toBeChecked();
   await release.click();
@@ -227,4 +343,41 @@ test('an App without the permissions is stopped here, not halfway through', asyn
 
   // Nothing can be opened while that is true.
   await expect(page.getByRole('button', { name: 'Open the pull requests' })).toBeDisabled();
+});
+
+test('pausing a multi-page scan finishes the current batch and keeps unchecked repositories explicit', async ({
+  page,
+}) => {
+  let releaseBatch!: () => void;
+  const gate = new Promise<void>((resolve) => (releaseBatch = resolve));
+  const cursors: string[] = [];
+  await page.route('**/api/v1/migrations/plan', async (route) => {
+    const request = route.request().postDataJSON();
+    const cursor = request.cursor ?? '';
+    cursors.push(cursor);
+    const response = await route.fetch({ postData: { installation_id: request.installation_id } });
+    const plan = await response.json();
+    const example = plan.repositories.find((r: { repo: string }) => r.repo === FIXTURE.repos[0]);
+    if (cursor === 'second') await gate;
+    await route.fulfill({
+      json: {
+        ...plan,
+        repositories: [{ ...example, repo: `acme/batch-${cursor || 'first'}` }],
+        total_repos: 3,
+        next_cursor: cursor === '' ? 'second' : cursor === 'second' ? 'third' : '',
+      },
+    });
+  });
+  await walkTo(page, 1);
+  await page.getByRole('button', { name: 'Pause scan' }).click();
+  releaseBatch();
+  await expect(page.getByText('Repository scan paused')).toBeVisible();
+  await expect(page.getByText(/Unchecked repositories will not be included/)).toBeVisible();
+  expect(cursors).toEqual(['', 'second']);
+  await expect(page.getByRole('button', { name: 'Continue with 2 selected' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Scan remaining repositories' }).click();
+  await expect(page.getByText('Repository scan complete')).toBeVisible();
+  await expect(
+    page.getByRole('checkbox', { name: 'acme/batch-third', exact: false }),
+  ).toBeChecked();
 });

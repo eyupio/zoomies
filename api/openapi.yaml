@@ -3358,6 +3358,18 @@ components:
             development build, a fork's tag -- because a wrong order would send an operator
             to upgrade the wrong side. Two builds of one tag are the same release and are
             not skew.
+        upgrade_command:
+          type: string
+          description: >-
+            Copyable install.sh --upgrade command for an older or different remote agent,
+            targeting the controller's published release or dev channel. Absent for embedded,
+            matching or newer agents, and for unpublished controller builds. Contains no credentials.
+        upgrade_version:
+          type: string
+          description: Controller build the upgrade is intended to match.
+        upgrade_note:
+          type: string
+          description: What the command does, or why no safe published command can be offered.
         healthy: { type: boolean }
         last_heartbeat: { type: string, format: date-time }
         created_at: { type: string, format: date-time }

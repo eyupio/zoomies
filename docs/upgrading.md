@@ -6,8 +6,44 @@ description: >-
 
 # Upgrading
 
-An upgrade is: stop the controller, put the new binary in place, start it. The
-first start applies any schema migrations, and there is nothing else to run.
+Run the installer with `--upgrade` to update an existing deployment:
+
+```sh
+curl -fsSL https://zoomies.sh/install.sh | sh -s -- --upgrade
+```
+
+It downloads and verifies the new binary, checks the existing deployment before
+replacing the binary, then restarts its native service or updates its Compose
+or Docker container. The first controller start applies any schema migrations.
+It does not run setup again or ask a host to redeem a new join token.
+
+For a **remote agent**, copy the upgrade command from its card on **Hosts**.
+That command targets the controller's published version instead of blindly
+installing the newest release. A newer agent tells you to upgrade the
+controller first. A local or unpublished controller build has no matching
+published command. The `dev` channel moves, so it can contain a build newer
+than the controller by the time you run the command.
+
+The upgrade keeps configuration, credentials, host identity, data volumes,
+ports and runtime options. It refreshes locally cached stock runner images
+under their existing tags, including Docker-enabled variants; running runners
+keep their current images. It does not retag a pool's pinned or custom image.
+A custom **service** image needs an explicit `--image <reference>`.
+
+For a custom installation, pass `--config-dir <directory>` and, where needed,
+`--prefix <binary-directory>`. Upgrade uses `deployment.json` for container
+installs and the existing systemd or launchd service for native ones. It
+refuses an unrecognised deployment instead of guessing at a replacement.
+
+A failed image pull stops before a restart. If a replacement container cannot
+start, the upgrade attempts to restore the previous container or Compose image.
+That restores the process, **not a migrated database**; the rollback rules
+below still apply. An interrupted upgrade can leave `upgrade.lock` in its
+configuration directory: remove it only after checking no upgrade is running.
+
+`zoomies upgrade --check` checks the existing deployment without modifying it.
+`zoomies upgrade` applies an already installed binary; use the shell command
+above when the binary itself also needs downloading.
 
 The parts of that worth knowing before you do it are what happens to work in
 flight, how far the pieces may drift apart, and the one direction you cannot
