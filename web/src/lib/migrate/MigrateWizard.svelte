@@ -68,7 +68,7 @@
    * make the common case the hard one.
    */
   const STEPS: readonly WizardStep[] = [
-    { id: 'target', title: 'Installation', description: 'Whose repositories.' },
+    { id: 'target', title: 'Installation', description: 'Which installation to read through.' },
     { id: 'repos', title: 'Repositories', description: 'Which ones to migrate.' },
     { id: 'mapping', title: 'Labels', description: 'What each GitHub label becomes.' },
     { id: 'overrides', title: 'Exceptions', description: 'Any job that needs a different pool.' },
