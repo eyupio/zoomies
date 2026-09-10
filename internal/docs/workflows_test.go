@@ -121,7 +121,26 @@ func TestTheReleaseWorkflowGuardsItsTag(t *testing.T) {
 	}
 }
 
-func TestTheReleaseWorkflowOnlyLocksPublishedFullReleases(t *testing.T) {
+func TestTheReleaseWorkflowStartsFromEachPublishedRelease(t *testing.T) {
+	body := workflowFiles(t)["release.yml"]
+	if body == "" {
+		t.Fatal("release.yml is missing")
+	}
+	for _, want := range []string{
+		"release:\n    types: [published]",
+		"github.event.release.tag_name || inputs.tag",
+		`draft: ${{ github.event_name == 'workflow_dispatch' }}`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("release.yml is missing %q, so creating a GitHub release may not build and attach its artifacts", want)
+		}
+	}
+	if strings.Contains(body, "\n  push:\n") {
+		t.Error("release.yml still listens for tag pushes as well as release publication, so creating a release can start two competing builds")
+	}
+}
+
+func TestTheReleaseWorkflowOnlyLocksManualRebuildsOfPublishedFullReleases(t *testing.T) {
 	body := workflowFiles(t)["release.yml"]
 	if body == "" {
 		t.Fatal("release.yml is missing")
@@ -129,6 +148,8 @@ func TestTheReleaseWorkflowOnlyLocksPublishedFullReleases(t *testing.T) {
 	for _, want := range []string{
 		"--json isDraft,isPrerelease",
 		`elif .isPrerelease then "prerelease"`,
+		`EVENT: ${{ github.event_name }}`,
+		`if [ "$EVENT" = "release" ]; then`,
 		`if [ "$PRERELEASE" = "true" ]; then`,
 		`else`,
 		`::error::$TAG is already published.`,
