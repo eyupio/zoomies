@@ -12,6 +12,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/version"
 )
 
 // The shape of a containerised Zoomies. These are constants rather than
@@ -19,8 +20,6 @@ import (
 // one process, one port and one data directory, and the operator's choices --
 // which port to publish, where to keep the files -- are made on the outside.
 const (
-	// DefaultImage is the published controller image.
-	DefaultImage = "ghcr.io/eyupio/zoomies:latest"
 	// ContainerPort is what Zoomies listens on inside the container.
 	ContainerPort = 8080
 	// ContainerStateDir is the mount point of the data volume.
@@ -181,6 +180,99 @@ func EnvSpecFor(p Plan) EnvSpec {
 	}
 }
 
+// The two repositories AgentImageFor translates between. Both workflows build
+// both from the same commit and publish them under the same tags, which is what
+// makes deriving one from the other sound rather than a guess.
+const (
+	stockControllerRepository = "ghcr.io/eyupio/zoomies"
+	stockAgentRepository      = "ghcr.io/eyupio/zoomies-agent"
+)
+
+// DefaultImage is the controller image a fresh containerised install runs: the
+// one that matches this installer's own build.
+//
+// It used to be a constant naming :latest, which was wrong twice over the
+// moment :latest became a release's name rather than main's. Every release this
+// project has made so far carries a hyphen -- v0.1-alpha, v0.2-beta, and a
+// v1.0.0-RC1 would too -- and a hyphen is this project saying the release is not
+// finished, so the release workflow deliberately leaves :latest where it is.
+// Nothing has published :latest since main stopped, and nothing will until a
+// release without a hyphen: an installer defaulting to it would write a compose
+// file pulling a build older than the installer that wrote it, and an agent one
+// pulling a tag that has never existed at all.
+//
+// Naming this build instead is what the join command already does for the
+// binary. An installer taken from a release installs that release's container,
+// and a build from main installs :dev, which is the tag main publishes.
+func DefaultImage() string { return defaultImageFor(version.Version) }
+
+// defaultImageFor is the pure half, so that both branches can be tested without
+// relinking the binary.
+func defaultImageFor(v string) string {
+	if tag, ok := version.Release(v); ok {
+		// The stamped version has no leading v -- the release workflow strips
+		// it, because a binary reports 1.2.3 -- and the image tag is the git
+		// tag, which has one.
+		return stockControllerRepository + ":v" + tag
+	}
+	return stockControllerRepository + ":dev"
+}
+
+// AgentImageFor returns the image a runner host should run, given the
+// controller image this deployment was told to use, and whether one could be
+// worked out at all.
+//
+// A runner host given the controller image is not broken -- the entrypoint is
+// the same binary and the compose file already overrides the command -- but it
+// is the wrong image: it carries the UI, it labels itself as a controller in
+// every registry listing and `docker inspect`, and it declares a healthcheck
+// against a listener an agent does not have, so the container reports unhealthy
+// for as long as it runs. Deriving the right one costs nothing and the operator
+// was never going to be asked which of two images to name.
+//
+// The derivation is deliberately narrow, in the same way RunnerImageFor's is,
+// and refuses rather than guesses in the three places a guess would be wrong:
+//
+//   - A digest names one exact set of bytes. There is no arithmetic that turns
+//     the controller's digest into the agent's, so a pinned deployment keeps
+//     what it pinned.
+//   - A mirror or an operator's own build lives in a repository this code knows
+//     nothing about. Whether it carries an -agent counterpart is not something
+//     that can be known from the name.
+//   - A repository that merely starts the same way -- zoomies-runner -- is a
+//     different image, which is why this compares the whole repository rather
+//     than taking a prefix.
+//
+// The tag is carried across untouched, including a digest-free pin, because a
+// tag that exists for the controller exists for the agent: the same workflow
+// step publishes both.
+func AgentImageFor(controller string) (string, bool) {
+	repo, tag, digest := splitImage(controller)
+	if repo != stockControllerRepository || digest != "" {
+		return "", false
+	}
+	return stockAgentRepository + tag, true
+}
+
+// splitImage separates an image reference into its repository, its tag with the
+// colon still on it, and its digest with the @ still on it.
+//
+// Splitting on the last colon is wrong twice over, and both ways produce a
+// reference that looks plausible and pulls nothing: a registry may carry a port,
+// so registry.example.com:5000/zoomies would lose its host, and a digest carries
+// a colon of its own inside sha256:....
+func splitImage(ref string) (repo, tag, digest string) {
+	if i := strings.Index(ref, "@"); i >= 0 {
+		ref, digest = ref[:i], ref[i:]
+	}
+	// A colon after the last slash is a tag; one before it belongs to the
+	// registry's port.
+	if i := strings.LastIndex(ref, ":"); i >= 0 && !strings.Contains(ref[i+1:], "/") {
+		ref, tag = ref[:i], ref[i:]
+	}
+	return ref, tag, digest
+}
+
 // containerise rewrites a plan's paths for a deployment that runs inside a
 // container.
 //
@@ -209,7 +301,19 @@ func containerise(p Plan) Plan {
 	p.DBPath = ContainerDBPath
 	p.WorkDir = ContainerWorkDir
 	if p.Image == "" {
-		p.Image = DefaultImage
+		p.Image = DefaultImage()
+	}
+	// A runner host runs the agent image at whatever tag the controller image
+	// names, so a fleet that pins v1.2.3 gets an agent of v1.2.3 without the
+	// operator having to know there are two images. An image this cannot be
+	// derived from -- a digest, a mirror, something of the operator's own -- is
+	// left exactly as given: it still works, because the command is overridden
+	// either way, and second-guessing a pin is worse than running the image the
+	// operator asked for.
+	if p.Mode == ModeAgent {
+		if img, ok := AgentImageFor(p.Image); ok {
+			p.Image = img
+		}
 	}
 	if p.DeployDir == "" {
 		p.DeployDir = p.ConfigDir
@@ -288,7 +392,7 @@ type DockerRunSpec struct {
 // is the kind of thing that only shows up weeks later.
 func DockerRunArgs(s DockerRunSpec) []string {
 	if s.Image == "" {
-		s.Image = DefaultImage
+		s.Image = DefaultImage()
 	}
 	if s.Container == "" {
 		s.Container = ContainerName

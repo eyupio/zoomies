@@ -175,9 +175,11 @@ jobs:
 
       # :latest is not a name this workflow may move for a release candidate.
       #
-      # It is what every default install pulls: docker-compose.yml names it, the
-      # installer's container and service deployments name it, and
-      # naming.DefaultRunnerImage is the runner repository's :latest. A tag with
+      # It is what a default install pulls: docker-compose.yml names it, and
+      # naming.DefaultRunnerImage is the runner repository's :latest. The
+      # installer no longer names it at all -- it defaults to the image matching
+      # its own build, precisely because a project whose every release so far
+      # has a hyphen in it never moves this tag. A tag with
       # a hyphen in it -- v0.1-alpha, v1.0.0-RC1 -- is this project saying the
       # release is not finished, and the setup job has already worked that out
       # for the GitHub release. Applying it here too is what stops tagging a
@@ -194,6 +196,19 @@ jobs:
             echo "ghcr.io/eyupio/zoomies:$REF"
             if [ "$PRERELEASE" != "true" ]; then
               echo "ghcr.io/eyupio/zoomies:latest"
+            fi
+            echo "EOF"
+            # The agent moves with the controller, and for a sharper reason
+            # than symmetry: the installer derives a runner host's image from
+            # the controller's by swapping the repository and keeping the tag,
+            # so a tag that exists for one has to exist for the other or the
+            # derivation names nothing. :latest is gated identically -- a
+            # prerelease must not become what an operator gets by asking for
+            # nothing.
+            echo "agent<<EOF"
+            echo "ghcr.io/eyupio/zoomies-agent:$REF"
+            if [ "$PRERELEASE" != "true" ]; then
+              echo "ghcr.io/eyupio/zoomies-agent:latest"
             fi
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
@@ -240,6 +255,44 @@ jobs:
         with:
           subject-name: ghcr.io/eyupio/zoomies
           subject-digest: ${{ steps.build.outputs.digest || steps.build-github.outputs.digest }}
+          push-to-registry: true
+
+      # The agent image, on the same terms. Written twice for the same reason
+      # the controller's is: this workflow only ever runs on a tag, so nothing
+      # tells anybody it is broken until somebody needs a release.
+      - id: build-agent
+        if: env.BLACKSMITH == 'true'
+        uses: useblacksmith/build-push-action@9b0579bbec7a6cad2f171596c57e7ac1e7658850 # v2.3.0
+        with:
+          context: .
+          file: deploy/Dockerfile
+          target: agent
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            VERSION=${{ needs.setup.outputs.version }}
+            COMMIT=${{ github.sha }}
+            DATE=${{ steps.release.outputs.date }}
+          tags: ${{ steps.tags.outputs.agent }}
+      - id: build-agent-github
+        if: env.BLACKSMITH != 'true'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: deploy/Dockerfile
+          target: agent
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            VERSION=${{ needs.setup.outputs.version }}
+            COMMIT=${{ github.sha }}
+            DATE=${{ steps.release.outputs.date }}
+          tags: ${{ steps.tags.outputs.agent }}
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/eyupio/zoomies-agent
+          subject-digest: ${{ steps.build-agent.outputs.digest || steps.build-agent-github.outputs.digest }}
           push-to-registry: true
 
   # One job per operating system in internal/naming's catalogue, each building

@@ -122,7 +122,7 @@ var describeSuffix = regexp.MustCompile(`-\d+-g[0-9a-f]{7,}(-dirty)?$`)
 //
 // Two callers need the same answer for different reasons, which is why it lives
 // here rather than beside either of them. The update check asks so that it does
-// not tell a controller running :latest -- stamped main-sha-abc1234, and usually
+// not tell a controller running :dev -- stamped main-sha-abc1234, and usually
 // *ahead* of the newest release -- to downgrade. The join command asks because
 // an agent can only be installed from a published release asset: a controller
 // that is not a release has no version it can honestly pin a host to, and

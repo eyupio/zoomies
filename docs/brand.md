@@ -198,7 +198,7 @@ not try to set it in type.
 | CLI | `zoomies` |
 | Service | `zoomies` (controller), `zoomies-agent` (agent) |
 | Config directory | `/etc/zoomies` as root, `~/.config/zoomies` otherwise; see [Where things live](configuration.md#where-things-live) |
-| Container images | `ghcr.io/eyupio/zoomies`, `ghcr.io/eyupio/zoomies-runner`, `ghcr.io/eyupio/zoomies-runner-docker` |
+| Container images | `ghcr.io/eyupio/zoomies`, `ghcr.io/eyupio/zoomies-agent`, `ghcr.io/eyupio/zoomies-runner`, `ghcr.io/eyupio/zoomies-runner-docker` |
 | Runner names | `zoomies-4vcpu-ubuntu-2404-biscuit-a3f9qz2m` — the brand, the pool's shape, a kennel word and a token |
 | Pool names | `zoomies-truffle-docker-linux`; a name given without the prefix gains one |
 | Pool labels | `zoomies-linux-x64`, `zoomies-gpu`; every pool also answers to `zoomies` |

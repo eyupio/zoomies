@@ -66,6 +66,76 @@ results back, so a host behind NAT or a strict firewall needs no inbound rule.
 See [Architecture](architecture.md#why-the-agent-connects-outbound) for why the
 connection runs that way round.
 
+### An agent in a container
+
+A host that would rather not have a binary installed on it can run
+`ghcr.io/eyupio/zoomies-agent` instead. It is the same build as the controller
+image, with the agent as its command rather than the controller, and it needs
+the container runtime's socket bind-mounted so the runners it starts are
+siblings on the host rather than containers inside it.
+
+`zoomies init` does not set this up for you: a runner host it installs is a
+native one, whatever `--deployment` says, because the join it performs writes
+this host's credentials to the state directory and the binary reads them from
+there at every start. A container joins itself instead, on its first start, so
+the file is yours to write:
+
+```yaml
+services:
+  zoomies-agent:
+    image: ghcr.io/eyupio/zoomies-agent:v1.2.3
+    restart: unless-stopped
+    environment:
+      ZOOMIES_CONTROLLER_URL: https://zoomies.example.com
+      # Single-use, and spent on the first start: it is exchanged for a lasting
+      # credential written into the volume below, which every later start reads
+      # instead. Mint one under Hosts -> Add a host.
+      ZOOMIES_JOIN_TOKEN: zoojoin_...
+      # Say who this host is. The name is otherwise derived from the machine and
+      # the container's hostname, and that hostname is identical on every
+      # machine running this file -- so two hosts of the same shape would
+      # compute one name, and the second one's join would be refused.
+      ZOOMIES_AGENT_NAME: ollama1
+      ZOOMIES_STATE_DIR: /var/lib/zoomies
+      ZOOMIES_WORK_DIR: /var/lib/zoomies/work
+      ZOOMIES_DOCKER_HOST: unix:///var/run/docker.sock
+    # The image runs as an unprivileged account that is not on this host, so it
+    # is given the group that owns the socket rather than joined to one. Use
+    # your own: `stat -c %g /var/run/docker.sock`.
+    group_add:
+      - "998"
+    volumes:
+      - zoomies-agent-data:/var/lib/zoomies
+      # Zoomies' own access to the runtime, which is what lets the runners it
+      # starts be siblings of this container rather than containers inside it.
+      # It is not handed to the jobs themselves.
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  zoomies-agent-data:
+```
+
+The volume is the part worth keeping. It holds the credential the join token was
+exchanged for, and losing it means minting another token and joining again.
+
+Give it the **same tag as the controller** where you can: a fleet on `v1.2.3`
+wants `ghcr.io/eyupio/zoomies-agent:v1.2.3`, one tracking `main` wants `:dev` on
+both. [Which image tag to run](upgrading.md#which-image-tag-to-run) has the full
+table.
+
+That is a preference rather than a requirement, and
+[Version skew](upgrading.md#version-skew) is where the rules live: an agent may
+lag its controller by releases while the protocol version matches, which is the
+normal state during a rolling upgrade. The direction to avoid is a **newer agent
+against an older controller** — upgrade the controller first.
+
+What an older agent costs is description rather than placement. A host on a
+build from before agents measured themselves reports no CPUs, memory or disk at
+all, so a pool's resource limits have nothing to fit against and the Hosts page
+shows it as a different build. Only a **protocol** mismatch stops work reaching
+a host, and then it is excluded from placement exactly as a cordon excludes it
+and says `incompatible` on its card.
+
 ### What a host brings with it
 
 | What | Where it comes from | Why it matters |

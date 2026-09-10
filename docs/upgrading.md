@@ -197,6 +197,43 @@ Take your own as well before an upgrade you are unsure about: the automatic one
 is beside the database, and a disk that fails takes both.
 [Backup and restore](backup-and-restore.md) is the subject.
 
+## Which image tag to run
+
+Four images are published, and the tag says where the build came from rather
+than only how new it is.
+
+| Tag | Means | Moves |
+| --- | --- | --- |
+| `:latest` | the newest full release | when a release is published |
+| `v1.2.3` | that release, and only that | never |
+| `:dev` | the newest commit on `main` | on every merge |
+| `:main` | the same as `:dev` | on every merge |
+| `:sha-abc1234` | one commit | never |
+
+```text
+ghcr.io/eyupio/zoomies                 the controller
+ghcr.io/eyupio/zoomies-agent           an agent, for a host that runs one in a container
+ghcr.io/eyupio/zoomies-runner          the runners a pool starts
+ghcr.io/eyupio/zoomies-runner-docker   the same, with a Docker client
+```
+
+`:latest` on the controller and the agent means the newest **release**. It used
+to mean the newest commit on `main`, which cost more than a name: both the merge
+and the release wrote it, so whichever ran last won, and an operator who pulled
+it could get an unreleased build stamped `main-sha-abc1234`. No installer can
+match an agent to a controller stamped that way — agents are installed from
+release assets, and no release carries a `main-` version — so a fleet on that
+image showed every host it enrolled as a different build, permanently. Run
+`:dev` when you want `main`; it says so.
+
+A prerelease — a tag with a hyphen in it, `v0.1-alpha`, `v1.0-rc1` — is
+published under its own tag and does **not** move `:latest`. Name it to run it.
+
+The runner images are the exception, and deliberately: their `:latest` still
+follows `main`, because a pool that names no tag is expected to track the
+runners this controller was tested against. Pin `ghcr.io/eyupio/zoomies-runner:v1.2.3`
+on the pool to hold one release instead.
+
 ## What a release carries
 
 Every published binary and the controller image carry a **build-provenance

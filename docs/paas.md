@@ -128,6 +128,10 @@ that one and skip the build:
 ghcr.io/eyupio/zoomies:latest
 ```
 
+That tag is the newest full release. Pin `ghcr.io/eyupio/zoomies:vX.Y.Z` if you
+would rather decide when your platform moves, or run `:dev` to track `main`.
+[Which image tag to run](upgrading.md#which-image-tag-to-run) has the rest.
+
 The variables above are the same either way. Nixpacks earns its place when the
 platform builds from a repository and you would rather not maintain a second
 answer to "how is this built".

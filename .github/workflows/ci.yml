@@ -318,6 +318,7 @@ jobs:
       packages: write
     env:
       CONTROLLER_IMAGE: ghcr.io/eyupio/zoomies
+      AGENT_IMAGE: ghcr.io/eyupio/zoomies-agent
       RUNNER_IMAGE: ghcr.io/eyupio/zoomies-runner
       RUNNER_DOCKER_IMAGE: ghcr.io/eyupio/zoomies-runner-docker
     # The runner-images job below repeats none of these decisions; it reads them
@@ -348,9 +349,17 @@ jobs:
             echo "value=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # main publishes :latest, :main and :sha-<commit>. :latest tracks main
-      # rather than the newest release, so a pool that names no tag runs
-      # ahead of the releases; pin a vX.Y.Z tag to stay on one release instead.
+      # main publishes :dev, :main and :sha-<commit>.
+      #
+      # Not :latest. That tag is the release workflow's, and while both wrote it
+      # the last one to run won: a merge to main overwrote the :latest a release
+      # had just published, so an operator who pulled it got an unreleased build
+      # and a controller stamped main-sha-abc1234 -- which no installer can
+      # match a host to, because agents are installed from release assets.
+      #
+      # :dev says what it is. Someone who wants main asks for main; :latest
+      # means the newest release, which is what everyone else expects it to
+      # mean.
       - id: tags
         name: Work out the tags
         run: echo "sha=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
@@ -460,10 +469,31 @@ jobs:
             VERSION=main-${{ steps.tags.outputs.sha }}
             COMMIT=${{ github.sha }}
           tags: |
-            ${{ env.CONTROLLER_IMAGE }}:latest
+            ${{ env.CONTROLLER_IMAGE }}:dev
             ${{ env.CONTROLLER_IMAGE }}:main
             ${{ env.CONTROLLER_IMAGE }}:${{ steps.tags.outputs.sha }}
 
+      # The agent image, which nothing built until now.
+      #
+      # deploy/Dockerfile has carried an `agent` target all along and no
+      # workflow named it, so the only way to run an agent in a container was to
+      # run the controller image and override its command. An agent host that
+      # wants a container now has one that says what it is.
+      - name: Build the agent image
+        uses: useblacksmith/build-push-action@9b0579bbec7a6cad2f171596c57e7ac1e7658850 # v2.3.0
+        with:
+          context: .
+          file: deploy/Dockerfile
+          target: agent
+          platforms: ${{ steps.platforms.outputs.list }}
+          push: ${{ steps.publish.outputs.value }}
+          build-args: |
+            VERSION=main-${{ steps.tags.outputs.sha }}
+            COMMIT=${{ github.sha }}
+          tags: |
+            ${{ env.AGENT_IMAGE }}:dev
+            ${{ env.AGENT_IMAGE }}:main
+            ${{ env.AGENT_IMAGE }}:${{ steps.tags.outputs.sha }}
 
       - name: Say what happened
         env:
@@ -482,7 +512,8 @@ jobs:
             else
               echo "Published:"
               echo
-              echo "- \`$CONTROLLER_IMAGE:latest\`, \`:main\`, \`:$SHA_TAG\`"
+              echo "- \`$CONTROLLER_IMAGE:dev\`, \`:main\`, \`:$SHA_TAG\`"
+              echo "- \`$AGENT_IMAGE:dev\`, \`:main\`, \`:$SHA_TAG\`"
               if [ "$RUNNER_BUILT" = "true" ]; then
                 echo "- \`$RUNNER_IMAGE:latest\`, \`:main\`, \`:$SHA_TAG\`"
                 echo "- \`$RUNNER_DOCKER_IMAGE:latest\`, \`:main\`, \`:$SHA_TAG\`"

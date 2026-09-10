@@ -6,7 +6,6 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,8 +40,11 @@ const (
 	// ServiceLaunchd installs a plist, which is how macOS keeps a development
 	// controller running.
 	ServiceLaunchd ServiceKind = "launchd"
-	// ServiceCompose prints a docker-compose.yml for hosts with neither, so
-	// the operator still ends up with something that restarts on boot.
+	// ServiceCompose is what detection reports for a host that has neither but
+	// does have a compose command. It installs nothing: a native install
+	// supervised by a container would keep its state in two places, so setup
+	// refuses the pair and says to run again with --deployment compose, which
+	// makes the whole deployment containerised rather than half of it.
 	ServiceCompose ServiceKind = "compose"
 	// ServiceNone leaves the operator to run the binary themselves.
 	ServiceNone ServiceKind = "none"
@@ -205,55 +207,6 @@ func RenderLaunchdPlist(spec ServiceSpec) (string, error) {
 type launchdView struct {
 	ServiceSpec
 	Label string
-}
-
-// ComposeSpec is what RenderCompose needs. The encryption key is deliberately
-// absent: the file references an environment variable instead, because a
-// compose file usually ends up in a repository.
-type ComposeSpec struct {
-	Image       string
-	ExternalURL string
-	Port        int
-	Backend     string
-	DockerHost  string
-	SocketPath  string
-	Capacity    int
-	Embedded    bool
-	DockerGID   int
-}
-
-// RenderCompose writes a docker-compose.yml for hosts with neither systemd nor
-// launchd, so that "there is no service manager here" still ends with something
-// that comes back after a reboot.
-func RenderCompose(w io.Writer, spec ComposeSpec) error {
-	if spec.Image == "" {
-		spec.Image = "ghcr.io/eyupio/zoomies:latest"
-	}
-	if spec.Port == 0 {
-		spec.Port = 8080
-	}
-	if spec.Backend == "" {
-		spec.Backend = "docker"
-	}
-	if spec.DockerHost == "" {
-		spec.DockerHost = "unix:///var/run/docker.sock"
-	}
-	if spec.SocketPath == "" {
-		spec.SocketPath = strings.TrimPrefix(spec.DockerHost, "unix://")
-	}
-	if spec.Capacity <= 0 {
-		spec.Capacity = 4
-	}
-
-	if spec.ExternalURL == "" {
-		spec.ExternalURL = "https://zoomies.example.com"
-	}
-	out, err := render("compose.yml.tmpl", spec)
-	if err != nil {
-		return err
-	}
-	_, err = io.WriteString(w, out)
-	return err
 }
 
 func render(name string, data any) (string, error) {
