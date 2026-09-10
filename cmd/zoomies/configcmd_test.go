@@ -301,11 +301,19 @@ func discardLogger() *slog.Logger {
 // never be printed. A path to a secret is not a secret: an operator debugging
 // a deployment needs to see which file the key is read from, and printing that
 // discloses nothing, so anything ending in _file is deliberately out.
+//
+// The word list is the weak point, and agent.registry_auth is what proved it:
+// a base64 registry credential whose name holds none of secret, token, key or
+// password, so this test called it harmless and `config print` disclosed it in
+// full, as did every backup manifest. auth and credential are here for that.
+// The lesson generalises past the two words -- a credential is not obliged to
+// be named like one -- so a new secret-bearing field is worth a thought here
+// rather than a hope that its name happens to match.
 func secretShaped(name string) bool {
 	if strings.HasSuffix(name, "_file") {
 		return false
 	}
-	for _, word := range []string{"secret", "token", "key", "password"} {
+	for _, word := range []string{"secret", "token", "key", "password", "auth", "credential"} {
 		if strings.Contains(name, word) {
 			return true
 		}
