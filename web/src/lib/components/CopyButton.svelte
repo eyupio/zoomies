@@ -3,6 +3,8 @@
 -->
 <script lang="ts">
   import { Check, Copy } from '@lucide/svelte';
+  import { onDestroy } from 'svelte';
+  import { toasts } from '../state/toasts.svelte';
 
   interface Props {
     value: string;
@@ -30,24 +32,28 @@
   }: Props = $props();
 
   let copied = $state(false);
-  let failed = $state(false);
   let timer: ReturnType<typeof setTimeout> | null = null;
+
+  onDestroy(() => {
+    if (timer) clearTimeout(timer);
+  });
 
   async function copy(): Promise<void> {
     if (timer) clearTimeout(timer);
     try {
       await navigator.clipboard.writeText(value);
       copied = true;
-      failed = false;
     } catch {
-      // Clipboard access is refused outside a secure context; say so rather
-      // than silently doing nothing.
-      failed = true;
       copied = false;
+      toasts.error(
+        'Could not copy to the clipboard',
+        window.isSecureContext
+          ? 'Your browser did not allow clipboard access. Select the text and copy it manually.'
+          : 'Copying needs HTTPS or localhost. Select the text and copy it manually.',
+      );
     }
     timer = setTimeout(() => {
       copied = false;
-      failed = false;
     }, 2000);
   }
 </script>
@@ -70,7 +76,7 @@
     {#if showLabel}<span class="text">{copied ? 'Copied' : label}</span>{/if}
   </button>
   <span class="sr-only" aria-live="polite">
-    {#if copied}Copied to the clipboard{:else if failed}Copying needs a secure connection{/if}
+    {#if copied}Copied to the clipboard{/if}
   </span>
 </span>
 

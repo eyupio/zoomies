@@ -269,3 +269,21 @@ test('a shortcut typed into an open dialog stays in the dialog', async ({ page }
   await page.keyboard.press('o');
   await expect(page).toHaveURL(/\/$/);
 });
+
+test('clipboard refusal is visible and does not blame HTTPS on a secure page', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: () => Promise.reject(new DOMException('Denied', 'NotAllowedError')) },
+    });
+  });
+  await goto(page, `/runners/${FIXTURE.busyRunnerId}`, FIXTURE.busyRunner);
+  await page.getByRole('button', { name: 'Copy the runner ID', exact: true }).click();
+  await expect(page.getByText('Could not copy to the clipboard', { exact: true })).toBeVisible();
+  await expect(
+    page.getByText(
+      'Your browser did not allow clipboard access. Select the text and copy it manually.',
+      { exact: true },
+    ),
+  ).toBeVisible();
+});
