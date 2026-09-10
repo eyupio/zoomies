@@ -56,11 +56,6 @@ type hostUpdateRequest struct {
 	ReserveDiskMB   *int64 `json:"reserve_disk_mb"`
 }
 
-// reserveGiven reports whether the request asks to change the reserve at all.
-func (r hostUpdateRequest) reserveGiven() bool {
-	return r.ReserveCPUs != nil || r.ReserveMemoryMB != nil || r.ReserveDiskMB != nil
-}
-
 // handleUpdateHost changes a host's capacity, labels or reserve.
 func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 	id := chiURLParam(r, "id")
@@ -137,33 +132,22 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	before := *h
-	if req.Capacity != nil {
-		h.Capacity = *req.Capacity
+	changes := store.HostChanges{
+		Capacity: req.Capacity, ReserveCPUs: req.ReserveCPUs,
+		ReserveMemoryMB: req.ReserveMemoryMB, ReserveDiskMB: req.ReserveDiskMB,
 	}
 	if req.Labels != nil {
-		h.Labels = store.StringMap(*req.Labels)
+		labels := store.StringMap(*req.Labels)
+		changes.Labels = &labels
 	}
-	if err := s.ctrl.Store().UpdateHost(r.Context(), h); err != nil {
+	if err := s.ctrl.Store().PatchHost(r.Context(), id, changes); err != nil {
 		s.fail(w, r, "saving the host", err)
 		return
 	}
-	// The reserve is written by its own statement, because UpdateHost is the
-	// path a heartbeat takes: a host must not be able to talk its way out of
-	// the room its operator kept for it.
-	if req.reserveGiven() {
-		if req.ReserveCPUs != nil {
-			h.ReserveCPUs = *req.ReserveCPUs
-		}
-		if req.ReserveMemoryMB != nil {
-			h.ReserveMemoryMB = *req.ReserveMemoryMB
-		}
-		if req.ReserveDiskMB != nil {
-			h.ReserveDiskMB = *req.ReserveDiskMB
-		}
-		if err := s.ctrl.Store().SetHostReserve(r.Context(), id, h.ReserveCPUs, h.ReserveMemoryMB, h.ReserveDiskMB); err != nil {
-			s.fail(w, r, "saving the host's reserve", err)
-			return
-		}
+	h, err = s.ctrl.Store().GetHost(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, "reading the host back", err)
+		return
 	}
 
 	s.auth.Auditor().Updated(r.Context(), Identity(r.Context()), "host", id, &before, h)
@@ -425,7 +409,7 @@ func (s *Server) joinCommand(token, controllerURL string) string {
 		}
 	}
 	cmd := fmt.Sprintf("curl -fsSL https://zoomies.sh/install.sh | sh -s -- --mode agent --controller %s --join-token %s",
-		controller, token)
+		shellArgument(controller), shellArgument(token))
 
 	// Pin the agent to this controller's own published channel.
 	//
@@ -449,6 +433,12 @@ func (s *Server) joinCommand(token, controllerURL string) string {
 	// have no repository asset; the command still works and the note says what
 	// it cannot promise instead.
 	return cmd
+}
+
+// shellArgument keeps a URL or credential one literal argument when the
+// operator pastes the command into a POSIX shell.
+func shellArgument(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 // joinVersionNote explains a join command that could not be pinned, or is empty

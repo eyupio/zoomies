@@ -135,3 +135,18 @@ test('question mark opens the shortcut list, and it agrees with the keys themsel
   await page.keyboard.press('Escape');
   await expect(sheet).toBeHidden();
 });
+
+test('Home and End move tab focus together with the selected panel', async ({ page }) => {
+  await goto(page, '/settings?tab=appearance', 'Settings');
+  const tabs = page.getByRole('tablist', { name: 'Settings sections' });
+  await tabs.getByRole('tab', { name: 'Appearance' }).focus();
+  await page.keyboard.press('End');
+  await expect(tabs.getByRole('tab', { name: 'About' })).toBeFocused();
+  await expect(tabs.getByRole('tab', { name: 'About' })).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('Home');
+  await expect(tabs.getByRole('tab', { name: 'Users', exact: true })).toBeFocused();
+  await expect(tabs.getByRole('tab', { name: 'Users', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+});

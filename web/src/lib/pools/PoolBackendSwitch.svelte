@@ -53,9 +53,9 @@
     return lines;
   });
 
-  async function confirm(): Promise<void> {
+  async function confirm(): Promise<boolean> {
     const backend = chosen;
-    if (!backend || !pool.id) return;
+    if (!backend || !pool.id) return false;
     const body: Body<'updatePool'> = { backend };
     if (backend === 'process') body.docker_mode = 'none';
     busy = true;
@@ -67,8 +67,10 @@
       );
       void fleet.reconcile();
       chosen = null;
+      return true;
     } catch (cause) {
       toasts.fromError(cause, 'That pool was not changed');
+      return false;
     } finally {
       busy = false;
     }

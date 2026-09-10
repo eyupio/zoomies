@@ -626,6 +626,34 @@ func (s *Store) UpdateHost(ctx context.Context, h *Host) error {
 	return affected(res, "host", h.ID)
 }
 
+// HostChanges contains only the operator's editable fields. Nil leaves the
+// current value alone, including changes made since the caller read the host.
+type HostChanges struct {
+	Capacity        *int
+	Labels          *StringMap
+	ReserveCPUs     *int
+	ReserveMemoryMB *int64
+	ReserveDiskMB   *int64
+}
+
+// PatchHost writes one edit without overwriting a concurrent cordon or
+// heartbeat. Capacity, labels and reserves succeed or fail together.
+func (s *Store) PatchHost(ctx context.Context, id string, changes HostChanges) error {
+	var labels any
+	if changes.Labels != nil {
+		labels = *changes.Labels
+	}
+	res, err := s.exec(ctx, `UPDATE hosts SET capacity=COALESCE(?,capacity),
+		labels=COALESCE(?,labels), reserve_cpus=COALESCE(?,reserve_cpus),
+		reserve_memory_mb=COALESCE(?,reserve_memory_mb), reserve_disk_mb=COALESCE(?,reserve_disk_mb)
+		WHERE id=?`, changes.Capacity, labels, changes.ReserveCPUs,
+		changes.ReserveMemoryMB, changes.ReserveDiskMB, id)
+	if err != nil {
+		return wrapWrite(err)
+	}
+	return affected(res, "host", id)
+}
+
 // SetHostReported writes the facts an agent measures about its own machine,
 // and only those.
 //

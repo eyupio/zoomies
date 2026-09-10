@@ -564,3 +564,38 @@ func TestALiveStreamSurvivesItsOwnHeartbeat(t *testing.T) {
 		}
 	}
 }
+
+func TestPoolEventsFollowTheWatchersCurrentRole(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("root", store.RoleAdmin)
+	watcher, _ := h.user("watcher", store.RoleOperator)
+	ctx, cancel := context.WithCancel(h.ctx)
+	defer cancel()
+	frames, _ := h.openStream(t, ctx, "/api/v1/events", h.session(watcher), nil)
+	await(t, frames, "the opening comment", func(f sseFrame) bool { return f.comment != "" })
+
+	for _, role := range []store.Role{store.RoleOperator, store.RoleViewer, store.RoleOperator} {
+		h.do(request{method: http.MethodPatch, path: "/api/v1/users/" + watcher.ID,
+			cookie: h.session(admin), body: map[string]any{"role": role}}).
+			mustStatus(t, http.StatusOK, "change the watcher's role")
+		h.ctrl.Events().Publish(events.KindPoolUpdated, "pool:pool_test", map[string]any{
+			"id": "pool_test", "env": map[string]string{"REGISTRY_PASSWORD": "private-value"},
+		})
+		frame := await(t, frames, "the pool event", func(f sseFrame) bool {
+			return f.event == string(events.KindPoolUpdated)
+		})
+		var payload struct {
+			Env map[string]string `json:"env"`
+		}
+		if err := json.Unmarshal([]byte(frame.data), &payload); err != nil {
+			t.Fatal(err)
+		}
+		want := "private-value"
+		if role == store.RoleViewer {
+			want = ""
+		}
+		if got, ok := payload.Env["REGISTRY_PASSWORD"]; !ok || got != want {
+			t.Fatalf("role %s received env %v; want the key with value %q", role, payload.Env, want)
+		}
+	}
+}

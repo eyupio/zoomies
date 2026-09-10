@@ -54,8 +54,12 @@
     }
     const tab = tabs[next];
     if (!tab) return;
-    select(tab.id);
-    queueMicrotask(() => list?.querySelector<HTMLElement>(`#${id}-tab-${cssId(tab.id)}`)?.focus());
+    selectAndFocus(tab.id);
+  }
+
+  function selectAndFocus(next: string): void {
+    select(next);
+    queueMicrotask(() => list?.querySelector<HTMLElement>(`#${id}-tab-${cssId(next)}`)?.focus());
   }
 
   function onKeydown(event: KeyboardEvent): void {
@@ -68,11 +72,11 @@
     } else if (event.key === 'Home') {
       event.preventDefault();
       const first = tabs.find((t) => !t.disabled);
-      if (first) select(first.id);
+      if (first) selectAndFocus(first.id);
     } else if (event.key === 'End') {
       event.preventDefault();
       const last = [...tabs].reverse().find((t) => !t.disabled);
-      if (last) select(last.id);
+      if (last) selectAndFocus(last.id);
     }
   }
 

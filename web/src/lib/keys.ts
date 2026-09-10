@@ -9,7 +9,7 @@
  */
 
 /** Overlay kinds, in the order they tend to nest. */
-export type LayerKind = 'dropdown' | 'palette' | 'sheet' | 'drawer' | 'dialog';
+export type LayerKind = 'dropdown' | 'palette' | 'sheet' | 'drawer' | 'dialog' | 'tooltip';
 
 export interface Layer {
   id: number;

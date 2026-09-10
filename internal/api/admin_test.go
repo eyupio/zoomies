@@ -324,7 +324,7 @@ func TestJoinTokenCommandUsesTheAddressTheCallerGave(t *testing.T) {
 	created.mustStatus(t, http.StatusCreated, "create with a controller_url")
 	var minted createJoinTokenResponse
 	created.into(t, &minted)
-	if !strings.Contains(minted.Command, "--controller https://zoomies.internal:8443 ") {
+	if !strings.Contains(minted.Command, "--controller 'https://zoomies.internal:8443' ") {
 		t.Errorf("the command does not carry the given address, without its trailing slash: %q", minted.Command)
 	}
 	if strings.Contains(minted.Command, "<this-controller>") {

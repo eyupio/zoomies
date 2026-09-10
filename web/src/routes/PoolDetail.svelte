@@ -209,8 +209,8 @@
 
   const consequences = $derived(deletionConsequences(counts, forceDelete));
 
-  async function confirmDelete(): Promise<void> {
-    if (!pool?.id) return;
+  async function confirmDelete(): Promise<boolean> {
+    if (!pool?.id) return false;
     const name = pool.name ?? 'the pool';
     try {
       const result = await deletePool(pool.id, { drain: !forceDelete, force: forceDelete });
@@ -223,8 +223,10 @@
       );
       void fleet.reconcile();
       router.navigate('/pools');
+      return true;
     } catch (cause) {
       toasts.fromError(cause, 'That pool was not deleted');
+      return false;
     }
   }
 

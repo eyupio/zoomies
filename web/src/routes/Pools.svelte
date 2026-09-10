@@ -293,9 +293,9 @@
     doomed ? deletionConsequences(doomed.counts ?? {}, forceDelete) : [],
   );
 
-  async function confirmDelete(): Promise<void> {
+  async function confirmDelete(): Promise<boolean> {
     const pool = doomed;
-    if (!pool?.id) return;
+    if (!pool?.id) return false;
     try {
       const result = await deletePool(pool.id, { drain: !forceDelete, force: forceDelete });
       const affected = result?.runners_affected ?? 0;
@@ -307,8 +307,10 @@
       );
       doomed = null;
       void fleet.reconcile();
+      return true;
     } catch (cause) {
       toasts.fromError(cause, 'That pool was not deleted');
+      return false;
     }
   }
 

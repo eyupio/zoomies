@@ -92,7 +92,7 @@
     color: var(--z-text);
     font-family: var(--z-font-sans);
     font-size: var(--z-text-xs);
-    color-scheme: light dark;
+    color-scheme: inherit;
   }
   input:hover {
     border-color: var(--z-text-subtle);

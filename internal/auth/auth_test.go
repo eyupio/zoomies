@@ -917,3 +917,40 @@ func TestATokenWithNoOwnerStillWorks(t *testing.T) {
 		t.Errorf("an ownerless token was refused: %v", err)
 	}
 }
+
+func TestConcurrentAccountChangesKeepAnEnabledAdministrator(t *testing.T) {
+	s, st, _ := newService(t)
+	const accounts = 12
+	users := make([]*store.User, accounts)
+	for i := range users {
+		users[i] = addUser(t, st, fmt.Sprintf("admin%d", i), store.RoleAdmin, nil)
+	}
+	start := make(chan struct{})
+	results := make(chan error, accounts)
+	for i, u := range users {
+		go func() {
+			<-start
+			switch i % 3 {
+			case 0:
+				u.Role = store.RoleViewer
+				results <- s.UpdateUser(t.Context(), u)
+			case 1:
+				results <- s.SetUserDisabled(t.Context(), u.ID, true)
+			default:
+				results <- s.DeleteUser(t.Context(), u.ID)
+			}
+		}()
+	}
+	close(start)
+	refused := 0
+	for range accounts {
+		if err := <-results; errors.Is(err, ErrLastAdmin) {
+			refused++
+		} else if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, err := st.CountAdmins(t.Context()); err != nil || n != 1 || refused != 1 {
+		t.Fatalf("admins=%d, refused=%d, error=%v; want one administrator and one refusal", n, refused, err)
+	}
+}

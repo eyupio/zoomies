@@ -610,3 +610,36 @@ test('the scaling step says which hosts a CPU limit has just cost the pool', asy
   await expect(fit).not.toContainText('demo-builder-2');
   await expect(fit).not.toContainText(/Matching the host selector is not the whole of it/);
 });
+
+test('a refused pool deletion keeps the typed confirmation available for retry', async ({
+  page,
+}) => {
+  await goto(page, '/pools', 'Pools');
+  const row = dataRows(grid(page, 'Pools')).filter({ hasText: FIXTURE.linuxPool });
+  await row.getByRole('button', { name: `Actions for ${FIXTURE.linuxPool}` }).click();
+  await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Delete pool', exact: true });
+  const typed = dialog.getByRole('textbox', { name: 'Type the name to confirm' });
+  await typed.fill(FIXTURE.linuxPool);
+  let attempts = 0;
+  await page.route('**/api/v1/pools/*', async (route) => {
+    if (route.request().method() !== 'DELETE') {
+      await route.continue();
+      return;
+    }
+    attempts++;
+    await route.fulfill({
+      status: 409,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'conflict', message: 'The pool is still in use.' } }),
+    });
+  });
+  await dialog.getByRole('button', { name: 'Delete pool', exact: true }).click();
+  await expect(page.getByText('The pool is still in use.', { exact: true })).toBeVisible();
+  await expect(dialog).toBeVisible();
+  await expect(typed).toHaveValue(FIXTURE.linuxPool);
+  await dialog.getByRole('button', { name: 'Delete pool', exact: true }).click();
+  await expect.poll(() => attempts).toBe(2);
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(dialog).toBeHidden();
+});

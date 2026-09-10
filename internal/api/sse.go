@@ -170,13 +170,6 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 
 	stream := startSSE(w, r)
 	_ = stream.retry(2 * time.Second)
-	// Decided once, for this connection. A pool frame carries the same shape
-	// the GET does, and the GET withholds env values from a caller who could
-	// not have set them; a stream that handed the same operator's registry
-	// password to a viewer would just be the longer way round to the same
-	// disclosure.
-	redactPoolEnv := !auth.Allowed(Identity(r.Context()), auth.ActionPoolsWrite)
-
 	// An immediate heartbeat lets the client start its stall watchdog without
 	// waiting twenty seconds to learn the stream works.
 	if err := stream.comment("connected"); err != nil {
@@ -208,8 +201,14 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			data := ev.Data
-			if redactPoolEnv && (ev.Kind == events.KindPoolCreated || ev.Kind == events.KindPoolUpdated) {
-				data = withoutEnvValues(data)
+			if ev.Kind == events.KindPoolCreated || ev.Kind == events.KindPoolUpdated {
+				// A viewer may keep watching after a demotion, but must not
+				// keep the environment access they opened this stream with.
+				// Resolve each pool frame, including replay, and fail closed.
+				id, err := s.resolveIdentity(r)
+				if err != nil || !auth.Allowed(id, auth.ActionPoolsWrite) {
+					data = withoutEnvValues(data)
+				}
 			}
 			if err := stream.event(string(ev.Kind), bus.WireID(ev.ID), data); err != nil {
 				return
