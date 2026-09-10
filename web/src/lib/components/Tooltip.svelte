@@ -4,6 +4,7 @@
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import { layers } from '../keys';
 
   interface Props {
     text: string;
@@ -15,6 +16,88 @@
   let { text, placement = 'top', class: className = '', children }: Props = $props();
 
   let open = $state(false);
+  let wrap = $state<HTMLSpanElement | null>(null);
+  let bubble = $state<HTMLSpanElement | null>(null);
+  let hovered = false;
+  let focused = false;
+
+  $effect(() => {
+    if (!open || !wrap || !bubble) return;
+    const anchor = wrap;
+    const tip = bubble;
+    const preferred = placement;
+    // Reading text makes an already open tooltip reposition when its copy changes.
+    void text;
+    const layer = layers.push('tooltip', hide);
+    // The browser's top layer escapes overflow clipping and stacking contexts,
+    // while keeping the tooltip in its owner's DOM and accessibility tree.
+    tip.showPopover();
+
+    function position(): void {
+      const rect = anchor.getBoundingClientRect();
+      const width = document.documentElement.clientWidth;
+      const height = document.documentElement.clientHeight;
+      if (rect.bottom <= 0 || rect.top >= height || rect.right <= 0 || rect.left >= width) {
+        hide();
+        return;
+      }
+      // A focused trigger can scroll out of a table without leaving the
+      // window. Its top-layer tooltip must not float over unrelated rows.
+      for (let parent = anchor.parentElement; parent; parent = parent.parentElement) {
+        const style = getComputedStyle(parent);
+        const clip = parent.getBoundingClientRect();
+        const clipsX = /auto|scroll|hidden|clip/.test(style.overflowX);
+        const clipsY = /auto|scroll|hidden|clip/.test(style.overflowY);
+        if (
+          (clipsX && (rect.right <= clip.left || rect.left >= clip.right)) ||
+          (clipsY && (rect.bottom <= clip.top || rect.top >= clip.bottom))
+        ) {
+          hide();
+          return;
+        }
+      }
+      // Padding uses the shared space token and supplies the viewport margin
+      // and anchor gap too, rather than inventing another spacing scale.
+      const gap = parseFloat(getComputedStyle(tip).paddingLeft);
+      const bounds = tip.getBoundingClientRect();
+      const space = {
+        top: rect.top,
+        bottom: height - rect.bottom,
+        left: rect.left,
+        right: width - rect.right,
+      };
+      const opposite = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' } as const;
+      const needed =
+        (preferred === 'top' || preferred === 'bottom' ? bounds.height : bounds.width) + gap;
+      const side =
+        space[preferred] < needed && space[opposite[preferred]] > space[preferred]
+          ? opposite[preferred]
+          : preferred;
+      let x = rect.left + (rect.width - bounds.width) / 2;
+      let y = rect.top + (rect.height - bounds.height) / 2;
+      if (side === 'top') y = rect.top - bounds.height - gap;
+      if (side === 'bottom') y = rect.bottom + gap;
+      if (side === 'left') x = rect.left - bounds.width - gap;
+      if (side === 'right') x = rect.right + gap;
+      tip.style.left = `${Math.max(gap, Math.min(x, width - bounds.width - gap))}px`;
+      tip.style.top = `${Math.max(gap, Math.min(y, height - bounds.height - gap))}px`;
+    }
+
+    position();
+    // Capture sees scrolls from the table's own viewport, not just the window.
+    document.addEventListener('scroll', position, true);
+    window.addEventListener('resize', position);
+    const observer = new ResizeObserver(position);
+    observer.observe(anchor);
+    observer.observe(tip);
+    return () => {
+      layers.remove(layer);
+      observer.disconnect();
+      document.removeEventListener('scroll', position, true);
+      window.removeEventListener('resize', position);
+      if (tip.matches(':popover-open')) tip.hidePopover();
+    };
+  });
 
   function show(): void {
     open = true;
@@ -32,17 +115,32 @@
 
 <span
   class="tip-wrap {className}"
+  bind:this={wrap}
   role="presentation"
-  onmouseenter={show}
-  onmouseleave={hide}
-  onfocusin={show}
-  onfocusout={hide}
+  onmouseenter={() => {
+    hovered = true;
+    show();
+  }}
+  onmouseleave={() => {
+    hovered = false;
+    if (!focused) hide();
+  }}
+  onfocusin={() => {
+    focused = true;
+    show();
+  }}
+  onfocusout={() => {
+    focused = false;
+    if (!hovered) hide();
+  }}
   onkeydown={onKeydown}
 >
   {@render children()}
   <span class="sr-only">{text}</span>
   {#if open}
-    <span class="bubble {placement}" role="presentation" aria-hidden="true">{text}</span>
+    <span bind:this={bubble} class="bubble" popover="manual" role="presentation" aria-hidden="true"
+      >{text}</span
+    >
   {/if}
 </span>
 
@@ -53,9 +151,14 @@
     align-items: center;
   }
   .bubble {
-    position: absolute;
+    position: fixed;
+    inset: auto;
+    margin: 0;
     z-index: var(--z-layer-dropdown);
-    max-width: 260px;
+    max-width: min(260px, calc(100vw - var(--z-space-4)));
+    max-height: calc(100dvh - var(--z-space-4));
+    overflow-y: auto;
+    overflow-wrap: anywhere;
     padding: var(--z-space-1) var(--z-space-2);
     border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
@@ -67,25 +170,5 @@
     white-space: normal;
     width: max-content;
     pointer-events: none;
-  }
-  .top {
-    bottom: calc(100% + var(--z-space-2));
-    left: 50%;
-    transform: translateX(-50%);
-  }
-  .bottom {
-    top: calc(100% + var(--z-space-2));
-    left: 50%;
-    transform: translateX(-50%);
-  }
-  .left {
-    right: calc(100% + var(--z-space-2));
-    top: 50%;
-    transform: translateY(-50%);
-  }
-  .right {
-    left: calc(100% + var(--z-space-2));
-    top: 50%;
-    transform: translateY(-50%);
   }
 </style>
