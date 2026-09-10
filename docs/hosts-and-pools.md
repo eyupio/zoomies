@@ -66,6 +66,28 @@ results back, so a host behind NAT or a strict firewall needs no inbound rule.
 See [Architecture](architecture.md#why-the-agent-connects-outbound) for why the
 connection runs that way round.
 
+### An agent in a container
+
+A host that would rather not have a binary installed on it can run
+`ghcr.io/eyupio/zoomies-agent` instead. It is the same build as the controller
+image, with the agent as its command rather than the controller, and it needs
+the container runtime's socket bind-mounted so the runners it starts are
+siblings on the host rather than containers inside it.
+
+Run the **same tag as the controller**. An agent is only supported against a
+controller of its own build, so a fleet on `v1.2.3` wants
+`ghcr.io/eyupio/zoomies-agent:v1.2.3`; one tracking `main` wants `:dev` on both.
+`zoomies init --mode agent` picks the matching image for you when it sets a host
+up as a container, so this matters mostly when you write the unit yourself.
+[Which image tag to run](upgrading.md#which-image-tag-to-run) has the full table.
+
+A mismatch is not fatal and does not have to be fixed in a hurry: the protocol
+carries its own version, so an agent one release apart from its controller keeps
+placing work while the Hosts page says it is a different build. What it costs is
+everything the newer half learnt to report — a host on a build from before agents
+measured themselves shows no CPUs, memory or disk at all, and a pool's resource
+limits have nothing to fit against.
+
 ### What a host brings with it
 
 | What | Where it comes from | Why it matters |

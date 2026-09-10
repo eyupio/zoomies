@@ -278,23 +278,51 @@ lands on, a pool whose `docker_mode` gives jobs a daemon then gets that image's
 Docker variant. See [Naming and platforms](naming.md) for the catalogue and how
 a pool picks from it.
 
-Three images are published to GHCR — `ghcr.io/eyupio/zoomies` (the controller),
-`ghcr.io/eyupio/zoomies-runner` (the runner) and
-`ghcr.io/eyupio/zoomies-runner-docker` (the runner plus a Docker CLI, which a
-pool is switched to when its `docker_mode` gives jobs a daemon — see [Jobs that
-build container images](#jobs-that-build-container-images)) — each under four
-kinds of tag:
+Four images are published to GHCR:
+
+| Image | What it is |
+| --- | --- |
+| `ghcr.io/eyupio/zoomies` | the controller |
+| `ghcr.io/eyupio/zoomies-agent` | an agent, for a host that runs one in a container |
+| `ghcr.io/eyupio/zoomies-runner` | the runner a pool starts |
+| `ghcr.io/eyupio/zoomies-runner-docker` | the same, plus a Docker CLI — a pool is switched to it when its `docker_mode` gives jobs a daemon, see [Jobs that build container images](#jobs-that-build-container-images) |
+
+They share their tag names, and `latest` does not mean the same thing on both
+halves. The difference is deliberate, and it is about who is asking.
+
+**The controller and the agent** follow releases:
 
 | Tag | Points at | Published by |
 | --- | --- | --- |
-| `latest` | The tip of `main` | `ci.yml`, on every push to `main` |
+| `latest` | The newest full release | `release.yml`, on a `v*` tag |
+| `vX.Y.Z` | One tagged release | `release.yml`, on a `v*` tag |
+| `dev` | The tip of `main` | `ci.yml`, on every push to `main` |
 | `main` | The tip of `main` | `ci.yml`, on every push to `main` |
 | `sha-<commit>` | One exact commit | `ci.yml`, on every push to `main` |
+
+An operator pulling `latest` gets a release, which is what it reads as. It used
+to mean the tip of `main`, and both workflows wrote it, so whichever ran last
+won — and a controller pulled from it could be an unreleased build stamped
+`main-sha-abc1234`. That is worse than a stale tag: an agent is installed from a
+release asset and no release carries a `main-` version, so such a controller
+cannot match any agent it enrols, and shows every host as a different build for
+as long as it runs. Run `dev` when you want `main`; it says so.
+
+A **prerelease** — a tag with a hyphen in it, `v0.1-alpha`, `v1.0-rc1` — is
+published under its own tag and does not move `latest`. Name it to run it.
+
+**The runner images** follow `main`, and that has not changed:
+
+| Tag | Points at | Published by |
+| --- | --- | --- |
+| `latest` | The tip of `main` | `ci.yml`, when something in the image changes |
+| `main` | The tip of `main` | `ci.yml`, when something in the image changes |
+| `sha-<commit>` | One exact commit | `ci.yml`, when something in the image changes |
 | `vX.Y.Z` | One tagged release | `release.yml`, on a `v*` tag |
 
-`latest` is the default, and tracks `main` rather than the newest release, so a
-pool that names no tag gets the newest build as soon as CI publishes it. Pin
-`vX.Y.Z` to stay on one release, or `sha-<commit>` for an image that never
+That is the right default for a different reason: a pool naming no tag should
+run the runners this controller was tested against, not a release that predates
+it. Pin `vX.Y.Z` to hold one release, or `sha-<commit>` for an image that never
 changes at all.
 
 Both runner images are also published with one tag per operating system —
