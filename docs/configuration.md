@@ -311,32 +311,32 @@ as long as it runs. Run `dev` when you want `main`; it says so.
 A **prerelease** — a tag with a hyphen in it, `v0.1-alpha`, `v1.0-rc1` — is
 published under its own tag and does not move `latest`. Name it to run it.
 
-**The runner images** follow `main`, and that has not changed:
+**The runner images** use the same explicit channels:
 
 | Tag | Points at | Published by |
 | --- | --- | --- |
-| `latest` | The tip of `main` | `ci.yml`, when something in the image changes |
-| `main` | The tip of `main` | `ci.yml`, when something in the image changes |
-| `sha-<commit>` | One exact commit | `ci.yml`, when something in the image changes |
+| `latest` | The newest full release | `release.yml`, when a release is published |
+| `dev` | The tip of `main` | `ci.yml`, on every push to `main` |
+| `main` | The tip of `main` | `ci.yml`, on every push to `main` |
+| `sha-<commit>` | One exact commit | `ci.yml`, on every push to `main` |
 | `vX.Y.Z` | One tagged release | `release.yml`, on a `v*` tag |
 
-That is the right default for a different reason: a pool naming no tag should
-run the runners this controller was tested against, not a release that predates
-it. Pin `vX.Y.Z` to hold one release, or `sha-<commit>` for an image that never
-changes at all.
+Use `dev` for a pool that should follow a controller tracking `main`. Use
+`latest` for the released channel, pin `vX.Y.Z` to hold one release, or use
+`sha-<commit>` for an image that never changes at all.
 
 Both runner images are also published with one tag per operating system —
 `ubuntu-2404`, `ubuntu-2204`, `debian-12`, `fedora-42`, `rocky-9`, each built
-for amd64 and arm64 — plus `<os>-<version>-main` and `<os>-<version>-<tag>` for
+for amd64 and arm64 — plus `<os>-<version>-dev`, `<os>-<version>-main` and
+`<os>-<version>-<tag>` for
 pinning one operating system without pinning the controller. `latest` is the
 `ubuntu-2404` variant. Set this key to a specific variant to change what an
 unspecified pool boots fleet-wide.
 
-The runner images are only rebuilt when something that goes into them changes —
-`deploy/Dockerfile.runner`, `deploy/runner-entrypoint.sh` or the
-`deploy/runner-*.sh` install scripts — so their `main` tag can be older than the
-controller's, and correctly so. Every variant and both targets come out of the
-same Dockerfile, so they are never out of step with each other.
+Every push to `main` rebuilds the runner variants so their `dev` labels and
+build stamp identify the same commit as the controller, agent image and binary.
+Every variant and both targets come out of the same Dockerfile, so they are
+never out of step with each other.
 
 ### What is in the runner image
 
@@ -656,7 +656,7 @@ Every pool's image is prepared on a host by *prewarming* it, and prewarming is
 otherwise triggered by exactly three things: creating a pool, editing one, and
 `POST /pools/{id}/prewarm`. None of those happen on their own, so a pool that
 names a tag which moves — and the default
-`ghcr.io/eyupio/zoomies-runner:latest` moves on every merge to `main` — would
+`ghcr.io/eyupio/zoomies-runner:dev` moves on every merge to `main` — would
 reach a host once, at the first job it ever ran, and keep that image for as long
 as the host lived.
 
@@ -812,7 +812,7 @@ That is the one setting. A daemon is worth nothing to a job whose image has no
 client to reach it with, and the stock runner image deliberately carries none —
 most pools never build an image, and a client on every runner is cold-start
 time spent for nothing — so a pool that asks for a daemon while on
-`ghcr.io/eyupio/zoomies-runner` under a moving tag (`latest`, `main`, or no tag
+`ghcr.io/eyupio/zoomies-runner` under a moving tag (`latest`, `dev`, `main`, or no tag
 at all) is switched to `ghcr.io/eyupio/zoomies-runner-docker` under the same
 tag as it is saved. The response, the audit row and the pool's page all show
 the image that runs; the wizard says so on the step that decides it and shows

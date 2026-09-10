@@ -153,7 +153,8 @@ Options:
   --controller <url>    For --mode agent: the controller to join.
   --join-token <token>  For --mode agent: a join token from the UI or
                         `zoomies hosts join-token create`.
-  --version <v>         Release to install (default: latest).
+  --version <v>         Release or channel to install: v1.2.3, dev, or latest
+                        (default: latest).
   --prefix <dir>        Where to put the binary (default: /usr/local/bin).
   --non-interactive     Never prompt. Requires --answers, or enough flags.
   --answers <file>      YAML answer file for unattended setup. Implies
@@ -227,7 +228,7 @@ while [ $# -gt 0 ]; do
         --controller=*) CONTROLLER_URL="${1#*=}"; shift ;;
         --join-token)  needs_value --join-token $# "a token that starts zoojoin_"; JOIN_TOKEN="$2"; shift 2 ;;
         --join-token=*) JOIN_TOKEN="${1#*=}"; shift ;;
-        --version)     needs_value --version $# "a release tag such as v1.2.3, or latest"; VERSION="$2"; shift 2 ;;
+        --version)     needs_value --version $# "a release tag such as v1.2.3, dev, or latest"; VERSION="$2"; shift 2 ;;
         --version=*)   VERSION="${1#*=}"; shift ;;
         --prefix)      needs_value --prefix $# "a directory to install the binary into"; PREFIX="$2"; shift 2 ;;
         --prefix=*)    PREFIX="${1#*=}"; shift ;;
@@ -274,7 +275,7 @@ case "$DEPLOYMENT" in
 esac
 
 case "$VERSION" in
-    *[!A-Za-z0-9._-]*) die "--version $VERSION does not look like a release tag. Try latest, or v1.2.3." ;;
+    *[!A-Za-z0-9._-]*) die "--version $VERSION does not look like a release tag or channel. Try latest, dev, or v1.2.3." ;;
 esac
 
 if [ -n "$ANSWERS" ] && [ ! -r "$ANSWERS" ]; then
@@ -675,24 +676,23 @@ sha256_of() {
     fi
 }
 
-# newest_release_tag names the most recent release, pre-releases included, from
-# the API. It prints nothing when it cannot say, and the caller turns that into
-# the same error a missing redirect gives: a wrong tag here would download some
-# other project's binary.
+# newest_release_tag names the most recent versioned release from the API. The
+# rolling dev prerelease intentionally does not qualify: asking for latest must
+# never turn into asking for main.
 newest_release_tag() {
     # Only the real github.com has this API shape. A ZOOMIES_BASE_URL pointing
     # somewhere else -- a mirror, a test server -- gets the error instead of a
     # guess at what its API might be.
     [ "$BASE_URL" = "https://github.com/${REPO}/releases" ] || return 0
-    api="https://api.github.com/repos/${REPO}/releases?per_page=1"
+    api="https://api.github.com/repos/${REPO}/releases?per_page=20"
     if have curl; then
         # shellcheck disable=SC2086 # as above
         body=$(curl -fsSL $CURL_PROTO "$api" 2>/dev/null || printf '')
     else
         body=$(wget -qO- "$api" 2>/dev/null || printf '')
     fi
-    printf '%s\n' "$body" | grep -o '"tag_name"[^,]*' | head -1 |
-        sed 's/.*: *"//; s/".*//'
+    printf '%s\n' "$body" | grep -o '"tag_name"[^,]*' |
+        sed 's/.*: *"//; s/".*//' | grep '^v' | head -1
 }
 
 resolve_version() {
@@ -727,7 +727,10 @@ resolve_version() {
 
 install_binary() {
     tag="$VERSION"
-    case "$tag" in v*) ;; *) tag="v$tag" ;; esac
+    # dev is a real, moving prerelease asset. Numeric versions keep the
+    # project's v-prefixed tag spelling, while already-prefixed versions pass
+    # through unchanged.
+    case "$tag" in dev|v*) ;; *) tag="v$tag" ;; esac
     asset="zoomies_${OS}_${ARCH}"
     url="$BASE_URL/download/$tag/$asset"
 
@@ -1093,13 +1096,16 @@ say ""
 # build may not be readable by an older one. `sort -V` is GNU and BusyBox only
 # -- BSD sort, which is what macOS ships, does not have it -- so the check is
 # skipped rather than wrong where it cannot be made.
-if [ -n "$INSTALLED_TAG" ] && [ "$INSTALLED_TAG" != "$WANTED_TAG" ] &&
-   printf '1\n' | sort -V >/dev/null 2>&1 &&
-   [ "$(printf '%s\n%s\n' "$INSTALLED_TAG" "$WANTED_TAG" | sort -V | tail -1)" = "$INSTALLED_TAG" ]; then
-    warn "$VERSION is older than the installed $EXISTING_VERSION, so this is a downgrade."
-    hint "Back up the database first -- /var/lib/zoomies/zoomies.db on a native install, the zoomies-data volume on a container one." \
-         "An older build may not read a schema a newer one wrote."
-fi
+case "$INSTALLED_TAG:$WANTED_TAG" in
+    [0-9]*:[0-9]*)
+        if [ "$INSTALLED_TAG" != "$WANTED_TAG" ] &&
+           printf '1\n' | sort -V >/dev/null 2>&1 &&
+           [ "$(printf '%s\n%s\n' "$INSTALLED_TAG" "$WANTED_TAG" | sort -V | tail -1)" = "$INSTALLED_TAG" ]; then
+            warn "$VERSION is older than the installed $EXISTING_VERSION, so this is a downgrade."
+            hint "Back up the database first -- /var/lib/zoomies/zoomies.db on a native install, the zoomies-data volume on a container one." \
+                 "An older build may not read a schema a newer one wrote."
+        fi ;;
+esac
 
 if [ "$NON_INTERACTIVE" -eq 0 ] && [ "$ASSUME_YES" -eq 0 ] && have_tty; then
     printf '%s   ?? %sContinue? [Y/n] ' "$C_ACCENT" "$C_RESET"

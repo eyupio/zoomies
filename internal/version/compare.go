@@ -117,20 +117,48 @@ var releaseLike = regexp.MustCompile(`^v?\d+\.\d+`)
 // something past that release rather than the release itself.
 var describeSuffix = regexp.MustCompile(`-\d+-g[0-9a-f]{7,}(-dirty)?$`)
 
+// mainBuild matches the version CI stamps into every artifact built from the
+// default branch. The moving dev tag carries those artifacts; the commit in
+// the stamp is still what makes two concrete builds distinguishable.
+var mainBuild = regexp.MustCompile(`^main-sha-[0-9a-f]{7,}$`)
+
 // Release reports the release a build came from, and whether it came from one
 // at all.
 //
 // Two callers need the same answer for different reasons, which is why it lives
 // here rather than beside either of them. The update check asks so that it does
 // not tell a controller running :dev -- stamped main-sha-abc1234, and usually
-// *ahead* of the newest release -- to downgrade. The join command asks because
-// an agent can only be installed from a published release asset: a controller
-// that is not a release has no version it can honestly pin a host to, and
-// pretending otherwise sends the operator to a download that does not exist.
+// *ahead* of the newest release -- to downgrade. InstallTag builds on the same
+// answer to distinguish immutable versioned releases from the moving dev
+// channel.
 func Release(v string) (string, bool) {
 	v = strings.TrimSpace(v)
 	if v == "" || !releaseLike.MatchString(v) || describeSuffix.MatchString(v) {
 		return "", false
 	}
 	return strings.TrimPrefix(v, "v"), true
+}
+
+// InstallTag returns the downloadable channel that carries this build.
+//
+// Releases have an immutable v-prefixed tag. Builds from main share the moving
+// dev tag, which CI updates for the binary and every stock image on each push.
+// A local git-describe build has neither, so callers must not pretend it can be
+// downloaded from this repository.
+func InstallTag(v string) (string, bool) {
+	v = strings.TrimSpace(v)
+	if release, ok := Release(v); ok {
+		return "v" + release, true
+	}
+	if v == "dev" || mainBuild.MatchString(v) {
+		return "dev", true
+	}
+	return "", false
+}
+
+// Channel is the image/download tag operators should use for this build, or
+// empty for a local or otherwise unpublished build.
+func Channel(v string) string {
+	tag, _ := InstallTag(v)
+	return tag
 }

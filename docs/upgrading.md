@@ -217,22 +217,21 @@ ghcr.io/eyupio/zoomies-runner          the runners a pool starts
 ghcr.io/eyupio/zoomies-runner-docker   the same, with a Docker client
 ```
 
-`:latest` on the controller and the agent means the newest **release**. It used
+`:latest` on every image means the newest **full release**. It used
 to mean the newest commit on `main`, which cost more than a name: both the merge
 and the release wrote it, so whichever ran last won, and an operator who pulled
-it could get an unreleased build stamped `main-sha-abc1234`. No installer can
-match an agent to a controller stamped that way — agents are installed from
-release assets, and no release carries a `main-` version — so a fleet on that
-image showed every host it enrolled as a different build, permanently. Run
-`:dev` when you want `main`; it says so.
+it could get an unreleased build stamped `main-sha-abc1234`. CI now keeps a
+rolling `dev` prerelease asset beside the `:dev` images, so the Add Host command
+can install the same channel as a controller tracking `main`. Run `:dev` when
+you want `main`; it says so.
 
 A prerelease — a tag with a hyphen in it, `v0.1-alpha`, `v1.0-rc1` — is
 published under its own tag and does **not** move `:latest`. Name it to run it.
 
-The runner images are the exception, and deliberately: their `:latest` still
-follows `main`, because a pool that names no tag is expected to track the
-runners this controller was tested against. Pin `ghcr.io/eyupio/zoomies-runner:v1.2.3`
-on the pool to hold one release instead.
+Runner images use the same split. Their default `:dev` follows `main`, while
+`:latest` follows the newest full release. Per-platform development tags use
+the explicit form `ubuntu-2404-dev`; release builds use
+`ubuntu-2404-v1.2.3`. Pin either form on a pool when it must not cross channels.
 
 ## What a release carries
 

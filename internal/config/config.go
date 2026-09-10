@@ -420,8 +420,9 @@ const (
 // the missing binary and not the reason.
 //
 // So the swap is made here, once, whenever daemon is true, and only for the
-// stock repository under a moving tag: no tag, :latest or :main, which CI
-// publishes for both images from the same commit. A pinned tag is left as
+// stock repository under a moving tag: no tag, :latest, :dev or :main. CI
+// publishes the development tags for both images from the same commit, and
+// the release workflow publishes :latest for both. A pinned tag is left as
 // given, because the variant is only published beside the tags made since it
 // was added, and a pool moved onto a tag the registry does not have would
 // stop running every job, including the ones that never touch Docker; the
@@ -441,7 +442,7 @@ func RunnerImageFor(image string, daemon bool) string {
 	switch image {
 	case stockRunnerRepository:
 		return stockRunnerDockerRepository
-	case stockRunnerRepository + ":latest", stockRunnerRepository + ":main":
+	case stockRunnerRepository + ":latest", stockRunnerRepository + ":dev", stockRunnerRepository + ":main":
 		return stockRunnerDockerRepository + strings.TrimPrefix(image, stockRunnerRepository)
 	}
 	return image

@@ -36,6 +36,10 @@ jobs:
   # One place decides what is being released and where it is built, so no two
   # jobs can disagree about the version they stamp into a binary and an image.
   setup:
+    # The rolling dev prerelease is maintained by CI. A published dev release
+    # therefore produces a cleanly skipped release run rather than trying to
+    # turn a moving channel into a versioned release.
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'v')
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.release.outputs.tag }}
@@ -378,8 +382,12 @@ jobs:
           for image in zoomies-runner zoomies-runner-docker; do
             {
               echo "${image}<<EOF"
-              echo "ghcr.io/eyupio/$image:$TAG"
               echo "ghcr.io/eyupio/$image:$TAG-$REF"
+              # The unversioned OS alias follows full releases, never main or
+              # a release candidate. Use $TAG-dev to follow main explicitly.
+              if [ "$PRERELEASE" != "true" ]; then
+                echo "ghcr.io/eyupio/$image:$TAG"
+              fi
               if [ "$IS_DEFAULT" = "true" ]; then
                 echo "ghcr.io/eyupio/$image:$REF"
                 # Not for a candidate: this is the tag a pool that names no

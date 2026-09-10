@@ -64,6 +64,8 @@ test('the page comes filled in and hands over a command carrying the token', asy
   const command = installCommand(page);
   await expect(command).toContainText('--mode agent');
   await expect(command).toContainText(`--controller ${origin}`);
+  await expect(command).toContainText('--version dev');
+  await expect(page.getByText('Host install channel').locator('..')).toContainText(':dev');
   // The page has other live regions -- the connection, the problems count --
   // so the waiting view is reached inside the panel that holds it.
   await expect(
