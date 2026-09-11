@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -562,6 +563,8 @@ type pendingApp struct {
 	target        string
 	targetType    store.TargetType
 	apiBaseURL    string
+	manifest      string
+	postURL       string
 	webhookSecret string
 	appID         int64
 	slug          string
@@ -753,6 +756,8 @@ func (s *Server) handleCreateManifest(w http.ResponseWriter, r *http.Request) {
 		target:     target,
 		targetType: targetType,
 		apiBaseURL: normalised,
+		manifest:   string(manifest),
+		postURL:    postURL,
 		createdAt:  s.ctrl.Now(),
 	})
 
@@ -761,6 +766,44 @@ func (s *Server) handleCreateManifest(w http.ResponseWriter, r *http.Request) {
 		Manifest: string(manifest),
 		State:    state,
 	})
+}
+
+// handleManifestHandoff keeps the operator's click on the Zoomies origin and
+// redirects the same POST to GitHub. Android may offer an app/browser chooser
+// when a user-initiated form points directly at github.com; following an HTTP
+// redirect is ordinary navigation in the browser that already owns the setup
+// state.
+func (s *Server) handleManifestHandoff(w http.ResponseWriter, r *http.Request) {
+	state := strings.TrimSpace(r.URL.Query().Get("state"))
+	pending := s.manifests.peek(state)
+	if pending == nil {
+		http.Error(w, "This GitHub App setup has expired. Return to Zoomies and start it again.", http.StatusGone)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "The GitHub App manifest could not be read.", http.StatusBadRequest)
+		return
+	}
+	if r.FormValue("manifest") != pending.manifest {
+		http.Error(w, "The GitHub App manifest does not match this setup.", http.StatusBadRequest)
+		return
+	}
+	if !s.formAllowed(pending.postURL) {
+		http.Error(w, "The GitHub App destination is not allowed by this controller.", http.StatusBadRequest)
+		return
+	}
+	destination, err := url.Parse(pending.postURL)
+	if err != nil {
+		http.Error(w, "The GitHub App destination is invalid.", http.StatusBadRequest)
+		return
+	}
+	query := destination.Query()
+	query.Set("state", state)
+	destination.RawQuery = query.Encode()
+
+	// Temporary Redirect is deliberate: 302 commonly changes POST to GET and
+	// would discard the manifest GitHub needs.
+	http.Redirect(w, r, destination.String(), http.StatusTemporaryRedirect)
 }
 
 type exchangeRequest struct {

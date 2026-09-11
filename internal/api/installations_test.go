@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -103,6 +104,46 @@ func TestManifestRefusesAGitHubTheBrowserCouldNotPostTo(t *testing.T) {
 	if got := ok.json(t)["post_url"]; got != "https://github.com/organizations/acme/settings/apps/new" {
 		t.Errorf("post_url = %v", got)
 	}
+}
+
+// The user's click posts to Zoomies first. The controller validates the
+// handshake, then preserves the POST across a redirect to GitHub so Android
+// cannot dispatch the clicked URL to a different browser or app.
+func TestManifestHandoffRedirectsTheValidatedPOSTToGitHub(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("admin", store.RoleAdmin)
+	const state = "state-1"
+	const manifest = `{"name":"Zoomies (acme)"}`
+	h.api.manifests.put(&pendingApp{
+		state:      state,
+		target:     "acme",
+		targetType: store.TargetOrg,
+		manifest:   manifest,
+		postURL:    "https://github.com/organizations/acme/settings/apps/new",
+		createdAt:  h.ctrl.Now(),
+	})
+
+	body := url.Values{"manifest": {manifest}}.Encode()
+	resp := h.do(request{
+		method:  http.MethodPost,
+		path:    "/api/v1/installations/manifest/handoff?state=" + state,
+		cookie:  h.session(admin),
+		rawBody: body,
+		headers: map[string]string{"Content-Type": "application/x-www-form-urlencoded"},
+	})
+	resp.mustStatus(t, http.StatusTemporaryRedirect, "handing the manifest to GitHub")
+	if got := resp.header.Get("Location"); got != "https://github.com/organizations/acme/settings/apps/new?state=state-1" {
+		t.Fatalf("Location = %q", got)
+	}
+
+	bad := h.do(request{
+		method:  http.MethodPost,
+		path:    "/api/v1/installations/manifest/handoff?state=" + state,
+		cookie:  h.session(admin),
+		rawBody: url.Values{"manifest": {`{"name":"altered"}`}}.Encode(),
+		headers: map[string]string{"Content-Type": "application/x-www-form-urlencoded"},
+	})
+	bad.mustStatus(t, http.StatusBadRequest, "refusing an altered manifest")
 }
 
 // The Enterprise host the controller is configured against is allowed, since it
