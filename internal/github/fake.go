@@ -194,6 +194,7 @@ func (f *FakeGitHub) AddRunnerGroup(name string) RunnerGroup {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	g := RunnerGroup{ID: int64(len(f.groups) + 1), Name: name,
+		Visibility:                  "all",
 		PublicRepositoryAccessKnown: true, AllowsPublicRepositories: true}
 	f.groups = append(f.groups, g)
 	return g
@@ -388,6 +389,7 @@ func (f *FakeGitHub) handler() http.Handler {
 	mux.HandleFunc("DELETE /orgs/{org}/actions/runners/{id}", f.deleteRunner)
 	mux.HandleFunc("DELETE /repos/{owner}/{repo}/actions/runners/{id}", f.deleteRunner)
 	mux.HandleFunc("GET /orgs/{org}/actions/runner-groups", f.listRunnerGroups)
+	mux.HandleFunc("POST /orgs/{org}/actions/runner-groups", f.createRunnerGroup)
 
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/jobs/{job}", f.getWorkflowJob)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs", f.listWorkflowRuns)
@@ -670,6 +672,34 @@ func (f *FakeGitHub) listRunnerGroups(w http.ResponseWriter, _ *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(out), "runner_groups": out})
+}
+
+func (f *FakeGitHub) createRunnerGroup(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name                     string `json:"name"`
+		Visibility               string `json:"visibility"`
+		AllowsPublicRepositories bool   `json:"allows_public_repositories"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Name) == "" {
+		writeError(w, http.StatusUnprocessableEntity, "Validation Failed")
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if slices.ContainsFunc(f.groups, func(g RunnerGroup) bool { return strings.EqualFold(g.Name, req.Name) }) {
+		writeError(w, http.StatusUnprocessableEntity, "Validation Failed")
+		return
+	}
+	g := RunnerGroup{
+		ID: int64(len(f.groups) + 1), Name: strings.TrimSpace(req.Name), Visibility: req.Visibility,
+		PublicRepositoryAccessKnown: true, AllowsPublicRepositories: req.AllowsPublicRepositories,
+	}
+	f.groups = append(f.groups, g)
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"id": g.ID, "name": g.Name, "default": false, "visibility": g.Visibility,
+		"allows_public_repositories": g.AllowsPublicRepositories,
+		"restricted_to_workflows":    false,
+	})
 }
 
 func (f *FakeGitHub) listWorkflowRuns(w http.ResponseWriter, r *http.Request) {

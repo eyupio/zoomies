@@ -69,6 +69,9 @@ func TestPoolRoundTrip(t *testing.T) {
 	if pool.InstallationTarget != "acme" {
 		t.Errorf("installation_target = %q, want acme", pool.InstallationTarget)
 	}
+	if pool.RunnerGroup != controller.ManagedRunnerGroupName {
+		t.Errorf("runner_group = %q, want the managed organisation group %q", pool.RunnerGroup, controller.ManagedRunnerGroupName)
+	}
 	if pool.Counts.Live != 0 || pool.QueuedJobs != 0 {
 		t.Errorf("a new pool reports work it does not have: %+v", pool.Counts)
 	}

@@ -8,9 +8,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/store"
 )
+
+// ManagedRunnerGroupName is the organisation runner group Zoomies provisions
+// and uses for pools that do not explicitly choose another one.
+const ManagedRunnerGroupName = "zoomies"
 
 // probeInterval is how often every installation's credentials are re-checked.
 // It is minutes rather than seconds because the failure it catches -- a
@@ -270,6 +275,92 @@ func (c *Controller) refreshRunnerGroupProblems(ctx context.Context, inst *store
 	}
 }
 
+// ensureManagedRunnerGroup creates the organisation-wide group Zoomies owns,
+// or reuses a compatible one left by an earlier setup attempt. It deliberately
+// does not rewrite a same-named group with a different policy: that group may
+// belong to an administrator, and widening it to public repositories is a
+// security decision setup must never make silently.
+func (c *Controller) ensureManagedRunnerGroup(ctx context.Context, inst *store.Installation, client github.Client) (*github.RunnerGroup, error) {
+	if inst.TargetType != store.TargetOrg || IsDemoID(inst.ID) {
+		return nil, nil
+	}
+	groups, err := client.ListRunnerGroups(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list runner groups before provisioning %s: %w", ManagedRunnerGroupName, err)
+	}
+	for i := range groups {
+		g := &groups[i]
+		if !strings.EqualFold(g.Name, ManagedRunnerGroupName) {
+			continue
+		}
+		if g.Visibility != "all" || !g.PublicRepositoryAccessKnown || !g.AllowsPublicRepositories || g.RestrictedToWorkflows {
+			return nil, fmt.Errorf("runner group %s already exists but is not the organisation-wide group Zoomies needs; configure it with visibility all, Allow public repositories enabled, and no workflow restriction, or rename it so Zoomies can create its own", g.Name)
+		}
+		return g, nil
+	}
+
+	g, err := client.CreateRunnerGroup(ctx, github.RunnerGroupCreate{
+		Name: ManagedRunnerGroupName, Visibility: "all", AllowsPublicRepositories: true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("provision runner group %s: %w", ManagedRunnerGroupName, err)
+	}
+	// ListRunnerGroups is cached for JIT creation. Drop only that snapshot so
+	// the new group is resolvable immediately without rebuilding credentials.
+	c.clients.mu.Lock()
+	if e := c.clients.entries[inst.ID]; e != nil {
+		e.groups = nil
+	}
+	c.clients.mu.Unlock()
+	c.log.Info("created the managed GitHub runner group", "installation", inst.ID,
+		"target", inst.Target, "group", g.Name)
+	return g, nil
+}
+
+// adoptManagedRunnerGroup moves only pools that still use GitHub's implicit
+// Default group. Explicit group choices are administrator policy and stay
+// untouched. Existing non-busy runners were registered in Default, so recycle
+// them; the scheduler replaces them in the managed group on its next pass.
+func (c *Controller) adoptManagedRunnerGroup(ctx context.Context, inst *store.Installation, group *github.RunnerGroup) error {
+	if group == nil {
+		return nil
+	}
+	pools, err := c.st.ListPools(ctx)
+	if err != nil {
+		return err
+	}
+	changed := false
+	for _, pool := range pools {
+		if pool.InstallationID != inst.ID || strings.TrimSpace(pool.RunnerGroup) != "" {
+			continue
+		}
+		runners, err := c.st.ListRunnersForPool(ctx, pool.ID)
+		if err != nil {
+			return err
+		}
+		pool.RunnerGroup = group.Name
+		if err := c.st.UpdatePool(ctx, pool); err != nil {
+			return err
+		}
+		c.PublishPool(ctx, events.KindPoolUpdated, pool)
+		for _, runner := range runners {
+			if runner.State != store.RunnerIdle && runner.State != store.RunnerRegistering {
+				continue
+			}
+			if err := c.drainRunnerID(ctx, runner.ID,
+				"pool moved from GitHub Default to the managed "+group.Name+" runner group", pool); err != nil {
+				c.log.Warn("could not recycle a runner after assigning its pool to the managed group",
+					"pool", pool.Name, "runner", runner.ID, "error", err)
+			}
+		}
+		changed = true
+	}
+	if changed {
+		c.Nudge()
+	}
+	return nil
+}
+
 // ProbeInstallation verifies one installation's credentials end to end and
 // records the outcome, publishing it so the UI updates.
 //
@@ -287,7 +378,14 @@ func (c *Controller) ProbeInstallation(ctx context.Context, installationID strin
 	if err == nil {
 		info, err = client.Probe(ctx)
 		if err == nil {
-			c.refreshRunnerGroupProblems(ctx, inst, client)
+			var group *github.RunnerGroup
+			group, err = c.ensureManagedRunnerGroup(ctx, inst, client)
+			if err == nil {
+				err = c.adoptManagedRunnerGroup(ctx, inst, group)
+			}
+			if err == nil {
+				c.refreshRunnerGroupProblems(ctx, inst, client)
+			}
 		}
 	}
 	c.observeGitHub(inst.ID, err)

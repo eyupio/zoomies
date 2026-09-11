@@ -209,6 +209,24 @@ func TestListRunnerGroups(t *testing.T) {
 	}
 }
 
+func TestCreateRunnerGroup(t *testing.T) {
+	f := newFake(t)
+	ctx := context.Background()
+
+	created, err := f.Client("acme", store.TargetOrg).CreateRunnerGroup(ctx, RunnerGroupCreate{
+		Name: " zoomies ", Visibility: "all", AllowsPublicRepositories: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateRunnerGroup: %v", err)
+	}
+	if created.Name != "zoomies" || created.Visibility != "all" || !created.PublicRepositoryAccessKnown || !created.AllowsPublicRepositories {
+		t.Fatalf("created group = %+v, want a public organisation-wide zoomies group", created)
+	}
+	if _, err := f.Client("acme/widgets", store.TargetRepo).CreateRunnerGroup(ctx, RunnerGroupCreate{Name: "zoomies"}); err == nil {
+		t.Fatal("a repository target created an organisation runner group")
+	}
+}
+
 func TestRateLimit(t *testing.T) {
 	f := newFake(t)
 	reset := time.Now().Add(30 * time.Minute).UTC().Truncate(time.Second)

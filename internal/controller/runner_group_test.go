@@ -8,6 +8,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -185,22 +186,89 @@ func TestAPoolWhoseRunnerGroupBlocksPublicRepositoriesSaysJobsCanStayQueued(t *t
 	t.Fatal("a pool whose runner group blocks public repositories raised no warning")
 }
 
-func TestInstallationProbeFindsBlockedPublicRepositoryAccessWithoutCreatingARunner(t *testing.T) {
+func TestInstallationProbeCreatesAndAdoptsManagedRunnerGroup(t *testing.T) {
 	h := newHarness(t)
-	inst, pool, _ := h.fleet()
+	inst, pool, host := h.fleet()
 	h.gh.SetRunnerGroupPublicAccess("Default", false)
+	idle := h.runnerRow(pool, host, store.RunnerIdle)
+	busy := h.runnerRow(pool, host, store.RunnerBusy)
 
 	if _, err := h.c.ProbeInstallation(h.ctx, inst.ID); err != nil {
 		t.Fatalf("ProbeInstallation: %v", err)
 	}
-	ps, err := h.c.Problems(h.ctx)
+	got, err := h.st.GetPool(h.ctx, pool.ID)
 	if err != nil {
-		t.Fatalf("Problems: %v", err)
+		t.Fatalf("GetPool: %v", err)
 	}
-	if !slices.ContainsFunc(ps, func(p Problem) bool {
-		return p.Code == "pool.runner_group_public_repositories_blocked" && p.TargetID == pool.ID
+	if got.RunnerGroup != ManagedRunnerGroupName {
+		t.Fatalf("runner group = %q, want %q", got.RunnerGroup, ManagedRunnerGroupName)
+	}
+	if got := h.runnerByID(t, idle.ID).State; got != store.RunnerDraining {
+		t.Fatalf("idle legacy runner state = %q, want draining so its replacement joins the managed group", got)
+	}
+	if got := h.runnerByID(t, busy.ID).State; got != store.RunnerBusy {
+		t.Fatalf("busy legacy runner state = %q, want busy so its job can finish", got)
+	}
+	groups, err := h.gh.Client(inst.Target, inst.TargetType).ListRunnerGroups(h.ctx)
+	if err != nil {
+		t.Fatalf("ListRunnerGroups: %v", err)
+	}
+	if !slices.ContainsFunc(groups, func(g github.RunnerGroup) bool {
+		return g.Name == ManagedRunnerGroupName && g.Visibility == "all" && g.AllowsPublicRepositories
 	}) {
-		t.Fatalf("problem codes = %v, want public-repository runner-group warning", h.problemCodes())
+		t.Fatalf("runner groups = %+v, want the public organisation-wide %q group", groups, ManagedRunnerGroupName)
+	}
+
+	if _, err := h.c.ProbeInstallation(h.ctx, inst.ID); err != nil {
+		t.Fatalf("second ProbeInstallation: %v", err)
+	}
+	creates := 0
+	for _, request := range h.gh.Requests() {
+		if strings.Contains(request, "POST /orgs/acme/actions/runner-groups") {
+			creates++
+		}
+	}
+	if creates != 1 {
+		t.Fatalf("runner-group create requests = %d, want exactly one after two probes", creates)
+	}
+}
+
+func TestInstallationProbePreservesAnExplicitPoolRunnerGroup(t *testing.T) {
+	h := newHarness(t)
+	inst, pool, _ := h.fleet()
+	h.gh.AddRunnerGroup("security-reviewed")
+	pool.RunnerGroup = "security-reviewed"
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+
+	if _, err := h.c.ProbeInstallation(h.ctx, inst.ID); err != nil {
+		t.Fatalf("ProbeInstallation: %v", err)
+	}
+	got, err := h.st.GetPool(h.ctx, pool.ID)
+	if err != nil {
+		t.Fatalf("GetPool: %v", err)
+	}
+	if got.RunnerGroup != "security-reviewed" {
+		t.Fatalf("runner group = %q, want the administrator's explicit choice preserved", got.RunnerGroup)
+	}
+}
+
+func TestInstallationProbeDoesNotWidenAnExistingIncompatibleZoomiesGroup(t *testing.T) {
+	h := newHarness(t)
+	inst, pool, _ := h.fleet()
+	h.gh.AddRunnerGroup(ManagedRunnerGroupName)
+	h.gh.SetRunnerGroupPublicAccess(ManagedRunnerGroupName, false)
+
+	if _, err := h.c.ProbeInstallation(h.ctx, inst.ID); err == nil || !strings.Contains(err.Error(), "Allow public repositories") {
+		t.Fatalf("ProbeInstallation error = %v, want actionable incompatible-group error", err)
+	}
+	got, err := h.st.GetPool(h.ctx, pool.ID)
+	if err != nil {
+		t.Fatalf("GetPool: %v", err)
+	}
+	if got.RunnerGroup != "" {
+		t.Fatalf("runner group = %q, want the pool untouched after provisioning failed", got.RunnerGroup)
 	}
 }
 
