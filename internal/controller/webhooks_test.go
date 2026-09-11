@@ -224,6 +224,65 @@ func TestInProgressDeliveryLinksTheRunner(t *testing.T) {
 	}
 }
 
+func TestCompletedJobExplicitlyRemovesItsEphemeralRunner(t *testing.T) {
+	h := newHarness(t)
+	_, _, host := h.fleet()
+	labels := []string{"self-hosted", "linux", "x64", "demo"}
+	job, runner := startJobOnRunner(t, h, host.ID, 6010, labels)
+
+	// Recovery responses are allowed to omit runner_name; the durable link
+	// from the in-progress event must still lead completion to this runner.
+	h.deliverJob(jobEvent{Action: "completed", JobID: 6010, Name: "test", Workflow: "CI",
+		Labels: labels, Conclusion: "success"})
+
+	finished := h.runnerByID(t, runner.ID)
+	if finished.State != store.RunnerRemoved || finished.CurrentJobID != "" {
+		t.Fatalf("runner after completion = state %q, current job %q; want removed with no job",
+			finished.State, finished.CurrentJobID)
+	}
+	if finished.JobsHandled != 1 {
+		t.Fatalf("jobs handled = %d, want 1", finished.JobsHandled)
+	}
+	if !h.hasTaskOfKind(host.ID, agent.TaskRemoveRunner) {
+		t.Fatal("job completion did not queue removal of the ephemeral workload")
+	}
+	got, err := h.st.GetJob(h.ctx, job.ID)
+	if err != nil || got.State != store.JobCompleted || got.Conclusion != "success" {
+		t.Fatalf("completed job = %+v, err = %v", got, err)
+	}
+
+	// GitHub redelivers completion events. The job guard prevents a second
+	// retirement or a second jobs-handled count.
+	h.deliverJob(jobEvent{Action: "completed", JobID: 6010, Name: "test", Workflow: "CI",
+		Labels: labels, RunnerName: runner.Name, Conclusion: "success"})
+	if again := h.runnerByID(t, runner.ID); again.JobsHandled != 1 {
+		t.Fatalf("duplicate completion counted %d jobs, want 1", again.JobsHandled)
+	}
+}
+
+func TestCompletedJobReturnsAPersistentRunnerToIdle(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	pool.Ephemeral = false
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	labels := []string{"self-hosted", "linux", "x64", "demo"}
+	_, runner := startJobOnRunner(t, h, host.ID, 6011, labels)
+
+	h.deliverJob(jobEvent{Action: "completed", JobID: 6011, Name: "test", Workflow: "CI",
+		Labels: labels, RunnerName: runner.Name, Conclusion: "success"})
+
+	finished := h.runnerByID(t, runner.ID)
+	if finished.State != store.RunnerIdle || finished.CurrentJobID != "" || finished.JobsHandled != 1 {
+		t.Fatalf("persistent runner after completion = state %q, current job %q, jobs %d; want idle, empty, 1",
+			finished.State, finished.CurrentJobID, finished.JobsHandled)
+	}
+	if h.hasTaskOfKind(host.ID, agent.TaskRemoveRunner) {
+		t.Fatal("completion queued removal of a persistent runner")
+	}
+}
+
 // A delivery that verifies but is not a workflow_job event this controller can
 // read is not a failure on this side. It used to be answered with a 500, which
 // is the status that asks GitHub to redeliver, so a malformed body came back

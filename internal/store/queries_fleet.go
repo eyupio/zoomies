@@ -1307,6 +1307,51 @@ func (s *Store) AssignRunnerJob(ctx context.Context, runnerID, jobID string) err
 	return err
 }
 
+// CompleteRunnerJob atomically releases a runner from the job GitHub says has
+// finished. Persistent runners return to idle; ephemeral runners are finished
+// immediately so a missed workload-exit report cannot leave one busy forever.
+// The job ID guard makes duplicate and out-of-order deliveries harmless.
+func (s *Store) CompleteRunnerJob(ctx context.Context, runnerID, jobID, message string) (*Runner, bool, error) {
+	var out *Runner
+	changed := false
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		row := tx.QueryRowContext(ctx, `SELECT `+runnerCols+` FROM runners WHERE id = ?`, runnerID)
+		r, err := scanRunner(row)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("runner %s: %w", runnerID, ErrNotFound)
+		}
+		if err != nil {
+			return err
+		}
+		if r.State != RunnerBusy || r.CurrentJobID != jobID {
+			out = r
+			return nil
+		}
+
+		now := s.Now()
+		r.CurrentJobID = ""
+		r.JobsHandled++
+		r.Message = message
+		if r.Ephemeral {
+			r.State = RunnerRemoved
+			r.FinishedAt = &now
+		} else {
+			r.State = RunnerIdle
+			r.LastIdleAt = &now
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE runners SET state=?, message=?, last_idle_at=?,
+			finished_at=?, jobs_handled=?, current_job_id=? WHERE id=?`,
+			string(r.State), r.Message, msp(r.LastIdleAt), msp(r.FinishedAt),
+			r.JobsHandled, r.CurrentJobID, r.ID)
+		if err != nil {
+			return err
+		}
+		out, changed = r, true
+		return nil
+	})
+	return out, changed, err
+}
+
 // DeleteRunner hard-deletes a runner row. Normal teardown transitions to
 // "removed" instead; this exists for the UI's explicit delete action and for
 // pruning ancient history.

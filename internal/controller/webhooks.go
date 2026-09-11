@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/scheduler"
@@ -341,6 +342,14 @@ func (c *Controller) applyWorkflowJob(ctx context.Context, e *github.WorkflowJob
 	if err != nil {
 		return fmt.Errorf("recording job %d: %w", e.JobID, err)
 	}
+	// A recovery response may omit runner_name even though the earlier
+	// in-progress event linked this job. Use the durable link as the fallback,
+	// or a completed job can still miss its runner cleanup.
+	if runner == nil && saved.RunnerID != "" {
+		if r, err := c.st.GetRunner(ctx, saved.RunnerID); err == nil {
+			runner = r
+		}
+	}
 	c.recordJobChange(ctx, saved, change, source, runner)
 	if saved.StartedAt != nil {
 		poolName, backendName := UnmatchedPool, "unknown"
@@ -359,10 +368,23 @@ func (c *Controller) applyWorkflowJob(ctx context.Context, e *github.WorkflowJob
 			c.applyRunnerState(ctx, runner, store.RunnerBusy,
 				fmt.Sprintf("running %s / %s", saved.Workflow, saved.JobName))
 		case store.JobCompleted:
-			// An ephemeral runner exits by itself and its agent reports it
-			// gone; a persistent one goes back to waiting for work.
-			if !runner.Ephemeral && runner.State == store.RunnerBusy {
-				c.applyRunnerState(ctx, runner, store.RunnerIdle, "finished "+saved.JobName)
+			// GitHub's completion is authoritative. An ephemeral runner normally
+			// exits and is reported gone by its agent, but relying on that second
+			// observation alone leaves the row busy forever when one report is
+			// missed. Release it atomically and explicitly remove its workload.
+			finished, changed, err := c.st.CompleteRunnerJob(ctx, runner.ID, saved.ID, "finished "+saved.JobName)
+			if err != nil {
+				c.log.Warn("could not release a runner from its completed job",
+					"runner", runner.ID, "job", saved.ID, "error", err)
+			} else if changed {
+				c.publishRunner(ctx, events.KindRunnerUpdated, finished)
+				if finished.Ephemeral {
+					c.enqueueLifecycle(ctx, finished.HostID, agent.Task{
+						Kind: agent.TaskRemoveRunner, RunnerID: finished.ID,
+						Backend: c.backendKind(ctx, finished, nil),
+					})
+					c.Nudge()
+				}
 			}
 			c.observeJobCompletion(saved)
 		}
