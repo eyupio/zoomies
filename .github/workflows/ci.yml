@@ -376,7 +376,9 @@ jobs:
 
   installer:
     name: install.sh
-    runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
+    # This job needs root package installation for dash and shellcheck.
+    # Run it on GitHub-hosted Ubuntu where sudo is available.
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: POSIX shell syntax
