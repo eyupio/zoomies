@@ -382,7 +382,6 @@ func TestTheAgentImageIsBuiltAndPublished(t *testing.T) {
 	}
 }
 
-
 func TestStageOneDogfoodsZoomiesWithoutLosingRecovery(t *testing.T) {
 	files := workflowFiles(t)
 	ci := files["ci.yml"]
