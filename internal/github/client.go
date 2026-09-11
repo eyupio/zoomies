@@ -226,6 +226,8 @@ type Client interface {
 	// ListQueuedJobs is the webhook fallback: it walks recent workflow runs and
 	// returns the jobs still waiting for a runner.
 	ListQueuedJobs(ctx context.Context) ([]QueuedJob, error)
+	// GetWorkflowJob reconciles a known job even after its run has completed.
+	GetWorkflowJob(ctx context.Context, repo string, id int64) (*WorkflowJobEvent, error)
 	// RateLimit reports remaining quota.
 	RateLimit(ctx context.Context) (*RateLimit, error)
 	// WebURL returns the browser URL for the target.

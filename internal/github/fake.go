@@ -369,6 +369,7 @@ func (f *FakeGitHub) handler() http.Handler {
 	mux.HandleFunc("DELETE /repos/{owner}/{repo}/actions/runners/{id}", f.deleteRunner)
 	mux.HandleFunc("GET /orgs/{org}/actions/runner-groups", f.listRunnerGroups)
 
+	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/jobs/{job}", f.getWorkflowJob)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs", f.listWorkflowRuns)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs/{run}/jobs", f.listWorkflowJobs)
 
@@ -696,4 +697,21 @@ func (f *FakeGitHub) listWorkflowJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(jobs), "jobs": jobs})
+}
+
+func (f *FakeGitHub) getWorkflowJob(w http.ResponseWriter, r *http.Request) {
+	full, _ := target(r)
+	id, _ := strconv.ParseInt(r.PathValue("job"), 10, 64)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	j := f.findJobLocked(id)
+	if j == nil || j.Repo != full {
+		writeError(w, http.StatusNotFound, "Not Found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id": j.ID, "run_id": j.RunID, "name": j.JobName, "workflow_name": j.WorkflowName,
+		"status": j.Status, "conclusion": j.Conclusion, "labels": j.Labels, "runner_name": j.RunnerName,
+		"created_at": j.QueuedAt, "started_at": j.StartedAt, "completed_at": j.CompletedAt, "html_url": j.HTMLURL,
+	})
 }

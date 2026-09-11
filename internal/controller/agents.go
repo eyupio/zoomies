@@ -17,6 +17,7 @@ import (
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/events"
+	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
@@ -1056,6 +1057,7 @@ func (c *Controller) ReportRunners(ctx context.Context, hostID string, reports [
 // applyReports folds each observation into the runner's authoritative state.
 func (c *Controller) applyReports(ctx context.Context, hostID string, reports []agent.RunnerReport) error {
 	var errs []error
+	registrations := make(map[string][]github.Runner)
 	for _, rep := range reports {
 		if rep.RunnerID == "" {
 			continue
@@ -1091,11 +1093,11 @@ func (c *Controller) applyReports(ctx context.Context, hostID string, reports []
 
 		state := rep.State
 		if state == "" && rep.Phase == backend.PhaseRunning && r.State == store.RunnerRegistering {
-			// The agent stops asserting a state once the workload is up,
-			// because whether GitHub has handed it a job is not the agent's
-			// call. A registered runner with nothing to do is idle, and the
-			// webhook is what moves it to busy.
-			state = store.RunnerIdle
+			// Container liveness is not GitHub readiness. Keep the provision
+			// timeout active until GitHub confirms the listener is online.
+			if c.runnerOnline(ctx, r, registrations) {
+				state = store.RunnerIdle
+			}
 		}
 		c.applyRunnerState(ctx, r, state, rep.Message)
 		if rep.HostRemoved && !rep.Phase.Live() && (r.State.Terminal() || state.Terminal()) {

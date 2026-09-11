@@ -96,13 +96,12 @@ func (c *Controller) pollInterval() time.Duration {
 
 // pollOnce lists queued jobs for every installation and records what it finds.
 //
-// It skips entirely when a webhook has arrived within the last two poll
-// intervals. That single check is what makes the fallback cheap: on a working
-// installation the poller costs one query against the local database per
-// interval and no GitHub calls at all, so leaving it on by default does not
-// spend an organisation's API quota.
+// Queue discovery skips installations with recent webhooks. Known unfinished
+// jobs are checked separately in bounded pages so a missing completion cannot
+// be hidden by unrelated deliveries.
 func (c *Controller) pollOnce(ctx context.Context) {
 	now := c.Now()
+	c.reconcileKnownJobs(ctx, now)
 
 	// Accepted deliveries only: one that was rejected recorded a job for
 	// nobody, and a run of them is the mistyped-secret case this poller is
@@ -145,10 +144,8 @@ func (c *Controller) pollOnce(ctx context.Context) {
 		if c.githubHeld(inst.ID, now) {
 			continue
 		}
-		// An installation whose webhooks are arriving costs nothing: this is
-		// what makes leaving the poller on by default defensible, and asking
-		// it per installation is what stops a working organisation's
-		// deliveries from covering for a silent one on the same controller.
+		// Skip discovery for this installation when its deliveries are fresh.
+		// Known job reconciliation above remains independent of that signal.
 		if fresh[inst.ID] {
 			continue
 		}
@@ -320,4 +317,58 @@ func (c *Controller) owningInstallation(ctx context.Context, repo string, fallba
 			"repo", repo, "error", err)
 	}
 	return installationID(fallback)
+}
+
+// A healthy stream of unrelated webhooks does not prove every completion was
+// delivered. Check a rotating, bounded page of older unfinished jobs even when
+// queue discovery stands down. A 404 or API failure is not a cancellation.
+func (c *Controller) reconcileKnownJobs(ctx context.Context, now time.Time) {
+	const batch = 10
+	cutoff := now.Add(-2 * time.Minute)
+	offset := int(c.jobPollOffset.Load())
+	jobs, total, err := c.st.ListJobs(ctx, store.JobFilter{
+		States: []store.JobState{store.JobQueued, store.JobInProgress}, Until: &cutoff, ManagedOnly: true,
+	}, store.Page{Limit: batch, Offset: offset})
+	if err != nil {
+		c.log.Warn("could not list jobs to reconcile", "error", err)
+		return
+	}
+	next := offset + len(jobs)
+	if next >= total {
+		next = 0
+	}
+	c.jobPollOffset.Store(int64(next))
+	for _, j := range jobs {
+		if ctx.Err() != nil {
+			return
+		}
+		if j.InstallationID == "" || IsDemoID(j.InstallationID) || c.githubHeld(j.InstallationID, now) {
+			continue
+		}
+		inst, err := c.st.GetInstallation(ctx, j.InstallationID)
+		if err != nil {
+			continue
+		}
+		client, err := c.clients.get(ctx, inst)
+		if err != nil {
+			continue
+		}
+		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		remote, err := client.GetWorkflowJob(checkCtx, j.Repo, j.GitHubJobID)
+		cancel()
+		c.observeGitHub(inst.ID, err)
+		if err != nil {
+			if errors.Is(err, github.ErrRateLimited) {
+				c.holdRateLimited(inst.ID, err, now, "reconciling jobs")
+			}
+			c.log.Warn("could not reconcile workflow job", "job", j.ID, "error", err)
+			continue
+		}
+		if remote.State() != store.JobCompleted && remote.State() != store.JobInProgress {
+			continue
+		}
+		if err := c.applyWorkflowJob(ctx, remote, sourcePoller); err != nil {
+			c.log.Warn("could not update reconciled workflow job", "job", j.ID, "error", err)
+		}
+	}
 }

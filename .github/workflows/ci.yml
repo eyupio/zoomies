@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       runner:
-        description: "Where the stage-one jobs run. github is the recovery path."
+        description: "Where CI runs. github is the recovery path for every job."
         type: choice
         default: zoomies
         options: [zoomies, github]
@@ -23,12 +23,10 @@ env:
   GO_VERSION: "1.26"
   NODE_VERSION: "22"
 
-# Stage one dogfoods the versioned runner image behind the dedicated
-# zoomies-linux-x64 pool. Fork pull requests stay off self-hosted machines,
-# and a maintainer can dispatch the whole workflow on GitHub-hosted runners if
-# the Zoomies control plane or pool is unavailable. Jobs that publish Zoomies
-# or exercise its runtime remain independent below, so a moving :dev image can
-# never be responsible for publishing its own replacement.
+# CI defaults to the Zoomies pool. Forks use GitHub-hosted runners, and a
+# manual dispatch with runner=github recovers every job, including image builds.
+# Pin the pool to an already published runner image digest; advance that pin
+# separately after validating new images so builds do not require their output.
 jobs:
   go:
     name: Go
@@ -67,7 +65,7 @@ jobs:
 
   drill:
     name: Drill
-    runs-on: zoomies-linux-x64
+    runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     # Only this job, and only to append its own rows to the drill record on the
     # default branch: the record is worth nothing unless a run keeps it, and
     # every other job here reads.
@@ -161,7 +159,7 @@ jobs:
 
   upgrade:
     name: Upgrade
-    runs-on: zoomies-linux-x64
+    runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -267,7 +265,7 @@ jobs:
 
   playwright:
     name: Playwright
-    runs-on: zoomies-linux-x64
+    runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     needs: [ui]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -332,9 +330,9 @@ jobs:
   # successful push to main.
   dev-binaries:
     name: Publish dev binaries
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     needs: [go, ui, installer]
-    runs-on: zoomies-linux-x64
+    runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     permissions:
       contents: write
       id-token: write
@@ -412,12 +410,11 @@ jobs:
 
   images:
     name: Images
-    runs-on: zoomies-linux-x64
+    runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     needs: [dev-binaries]
-    # On a main push, do not expose a new :dev controller until its matching
-    # downloadable binary exists. Pull requests and manual image checks have no
-    # dev binary to wait for.
-    if: always() && (github.event_name != 'push' || github.ref != 'refs/heads/main' || needs.dev-binaries.result == 'success')
+    # Main pushes and manual recovery publish matching binaries before images.
+    # Pull requests and checks on other branches do not publish dev binaries.
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.ref != 'refs/heads/main' || needs.dev-binaries.result == 'success') }}
     # Publishing needs to write packages; everything else here only reads.
     permissions:
       contents: read
@@ -503,21 +500,8 @@ jobs:
       - if: steps.platforms.outputs.list != 'linux/amd64'
         uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
 
-      - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2.2.0
-        with:
-          # v2 made this required and derives nothing when it is missing. Without
-          # it the action warns, builds on a throwaway local builder with no
-          # sticky disk, and every image build refetches every module and every
-          # package from scratch -- which is how one reset stream from the module
-          # proxy failed a build whose go.mod had not changed. The value is the
-          # Dockerfile, as the action's own description asks, and it matches
-          # release.yml so a tagged build reuses the layers main already built.
-          cache-key: deploy/Dockerfile
-          # Fail rather than quietly downgrade. The fallback warning ran on every
-          # image build for a day and nobody read it; a red job is the only kind
-          # of notice that works.
-          nofallback: true
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       # Pull requests only need to prove a changed runner Dockerfile still
       # builds. Every push to main rebuilds every runner variant even when its
@@ -558,7 +542,7 @@ jobs:
           fi
 
       - name: Build the controller image
-        uses: useblacksmith/build-push-action@9b0579bbec7a6cad2f171596c57e7ac1e7658850 # v2.3.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: deploy/Dockerfile
@@ -584,7 +568,7 @@ jobs:
       # run the controller image and override its command. An agent host that
       # wants a container now has one that says what it is.
       - name: Build the agent image
-        uses: useblacksmith/build-push-action@9b0579bbec7a6cad2f171596c57e7ac1e7658850 # v2.3.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: deploy/Dockerfile
@@ -642,7 +626,7 @@ jobs:
   # catalogue in step, so a new operating system cannot be half-added.
   runner-images:
     name: Runner image (${{ matrix.tag }})
-    runs-on: zoomies-linux-x64
+    runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     needs: [images]
     if: needs.images.outputs.runner == 'true'
     permissions:
@@ -677,15 +661,8 @@ jobs:
       - if: needs.images.outputs.platforms != 'linux/amd64'
         uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
 
-      - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2.2.0
-        with:
-          # Per variant, not per Dockerfile: the five variants share
-          # Dockerfile.runner but almost none of its layers -- different base
-          # images, different package managers -- so one key between them would
-          # thrash rather than cache.
-          cache-key: deploy/Dockerfile.runner-${{ matrix.tag }}
-          nofallback: true
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       # Only the default variant carries the unqualified tags. Anything else
       # would mean a pool that named no operating system got whichever variant
@@ -714,7 +691,7 @@ jobs:
             } >> "$GITHUB_OUTPUT"
           done
 
-      - uses: useblacksmith/build-push-action@9b0579bbec7a6cad2f171596c57e7ac1e7658850 # v2.3.0
+      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: deploy/Dockerfile.runner
@@ -737,7 +714,7 @@ jobs:
       # The variant with a Docker CLI, for pools whose docker_mode gives jobs a
       # daemon. Everything below the client is a layer the step above just
       # built, so this costs one package install rather than another image.
-      - uses: useblacksmith/build-push-action@9b0579bbec7a6cad2f171596c57e7ac1e7658850 # v2.3.0
+      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: deploy/Dockerfile.runner
@@ -766,7 +743,7 @@ jobs:
       # only thing that script branches on. amd64 only, because a
       # multi-platform image cannot be loaded into the local daemon to run.
       - name: Build the variant with an extra package
-        uses: useblacksmith/build-push-action@9b0579bbec7a6cad2f171596c57e7ac1e7658850 # v2.3.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: deploy/Dockerfile.runner

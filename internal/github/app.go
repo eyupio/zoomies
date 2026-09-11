@@ -838,3 +838,23 @@ func validationDetail(er *gh.ErrorResponse, message string) string {
 	}
 	return ": " + strings.Join(parts, "; ")
 }
+
+// GetWorkflowJob uses the job ID rather than an unfinished-run listing: a
+// cancelled run disappears from that listing before a missed webhook is repaired.
+func (c *appClient) GetWorkflowJob(ctx context.Context, repo string, id int64) (*WorkflowJobEvent, error) {
+	owner, name, kind := SplitTarget(repo)
+	if kind != store.TargetRepo {
+		return nil, fmt.Errorf("github: invalid job repository %q", repo)
+	}
+	job, resp, err := c.asInstallation.Actions.GetWorkflowJobByID(ctx, owner, name, id)
+	if err != nil {
+		return nil, c.fail("read workflow job", resp, err)
+	}
+	body, err := json.Marshal(map[string]any{
+		"action": job.GetStatus(), "repository": map[string]string{"full_name": repo}, "workflow_job": job,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return ParseWorkflowJob(body)
+}
