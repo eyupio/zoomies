@@ -390,7 +390,7 @@ func TestStageOneDogfoodsZoomiesWithoutLosingRecovery(t *testing.T) {
 		t.Fatal("the CI and govulncheck workflows must exist")
 	}
 
-	selector := `((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-ci-linux-x64'`
+	selector := `((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64'`
 	for name, workflow := range map[string]string{"ci.yml": ci, "govulncheck.yml": vuln} {
 		for _, want := range []string{"default: zoomies", "options: [zoomies, github]", selector} {
 			if !strings.Contains(workflow, want) {
@@ -413,7 +413,7 @@ func TestStageOneDogfoodsZoomiesWithoutLosingRecovery(t *testing.T) {
 		if next := jobLine.FindStringIndex(rest[1:]); next != nil {
 			end = next[0] + 1
 		}
-		if !strings.Contains(rest[:end], "zoomies-ci-linux-x64") {
+		if !strings.Contains(rest[:end], "zoomies-linux-x64") {
 			t.Errorf("the stage-one %s job no longer targets the dedicated Zoomies pool", job)
 		}
 	}
@@ -431,7 +431,7 @@ func TestStageOneDogfoodsZoomiesWithoutLosingRecovery(t *testing.T) {
 		if next := jobLine.FindStringIndex(rest[1:]); next != nil {
 			end = next[0] + 1
 		}
-		if strings.Contains(rest[:end], "zoomies-ci-linux-x64") {
+		if strings.Contains(rest[:end], "zoomies-linux-x64") {
 			t.Errorf("%s runs on the dogfood pool; it must remain independent during stage one", job)
 		}
 	}
