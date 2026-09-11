@@ -154,6 +154,7 @@ func TestSubcommandHelpExitsZero(t *testing.T) {
 		{"controller", "--help"},
 		{"agent", "join", "--help"},
 		{"config", "check", "--help"},
+		{"deployment", "restart", "--help"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			e, _, errOut := newTestEnv(t)

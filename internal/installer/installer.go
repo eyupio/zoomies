@@ -118,6 +118,7 @@ type Options struct {
 	ControllerURL string
 	JoinToken     string
 	ExternalURL   string
+	Port          int
 
 	// AnswersFile is a YAML answer file for unattended setup.
 	AnswersFile string
@@ -286,6 +287,9 @@ func (i *Installer) Run(ctx context.Context) error {
 		return err
 	}
 	if mode == ModeAgent {
+		if i.opts.Port != 0 || i.opts.ExternalURL != "" {
+			return errors.New("installer: --port and --external-url configure a controller and cannot be used with agent mode")
+		}
 		return i.runAgent(ctx)
 	}
 
@@ -1319,6 +1323,16 @@ func (i *Installer) resolvePlan(ctx context.Context, mode Mode) (Plan, error) {
 			return p, fmt.Errorf("installer: --external-url: %w", err)
 		}
 	}
+	if i.opts.Port < 0 || i.opts.Port > 65535 {
+		return p, fmt.Errorf("installer: --port must be from 1 to 65535")
+	}
+	if i.opts.Port > 0 {
+		host, _, err := splitBind(p.Bind)
+		if err != nil {
+			return p, err
+		}
+		p.Bind = net.JoinHostPort(host, strconv.Itoa(i.opts.Port))
+	}
 	if p.Upgrade {
 		if p, err = i.askExisting(ctx, p); err != nil {
 			return p, err
@@ -1334,6 +1348,18 @@ func (i *Installer) resolvePlan(ctx context.Context, mode Mode) (Plan, error) {
 	if i.interactive {
 		if p, err = i.ask(ctx, p); err != nil {
 			return p, err
+		}
+	} else if i.opts.Port > 0 {
+		host, port, err := splitBind(p.Bind)
+		if err != nil {
+			return p, err
+		}
+		if !PortFree(host, port) {
+			hint := ""
+			if next, ok := NextFreePort(host, port+1, 20); ok {
+				hint = fmt.Sprintf("; port %d is available", next)
+			}
+			return p, fmt.Errorf("installer: port %d is already in use on %s%s", port, host, hint)
 		}
 	}
 	// The operator answered questions about this host; a containerised
@@ -1682,18 +1708,22 @@ func (i *Installer) askListener(ctx context.Context, p Plan) (Plan, error) {
 	if err != nil {
 		port = 8080
 	}
-	portStr := strconv.Itoa(port)
-	if err := i.input(ctx, "Which port?", "8080 is the default. Ports below 1024 need a capability the unit will grant explicitly.",
-		portStr, &portStr, func(s string) error {
-			n, err := strconv.Atoi(strings.TrimSpace(s))
-			if err != nil || n < 1 || n > 65535 {
-				return errors.New("enter a port between 1 and 65535")
-			}
-			return nil
-		}); err != nil {
-		return p, err
+	if i.opts.Port == 0 {
+		portStr := strconv.Itoa(port)
+		if err := i.input(ctx, "Which port should Zoomies use?", "The port is checked before anything is written. 8080 is the default; ports below 1024 need a capability the unit grants explicitly.",
+			portStr, &portStr, func(s string) error {
+				n, err := strconv.Atoi(strings.TrimSpace(s))
+				if err != nil || n < 1 || n > 65535 {
+					return errors.New("enter a port between 1 and 65535")
+				}
+				return nil
+			}); err != nil {
+			return p, err
+		}
+		port, _ = strconv.Atoi(strings.TrimSpace(portStr))
+	} else {
+		port = i.opts.Port
 	}
-	port, _ = strconv.Atoi(strings.TrimSpace(portStr))
 
 	// A port that is already taken is worth catching now: the alternative is a
 	// service that installs cleanly and then fails to start.
@@ -2584,11 +2614,26 @@ func waitHealthy(ctx context.Context, client *http.Client, target string, timeou
 // and this block is the most important output of the whole install.
 func (i *Installer) stepSummary(p Plan, freshKey bool) {
 	i.ui.blank()
-	i.ui.step("Done")
-	i.ui.field("URL", p.ExternalURL)
+	i.ui.step("Installation complete")
+	status := "configured; start it with the command below"
+	if p.Service != ServiceNone && p.StartService {
+		status = "running; local health check completed"
+	}
+	i.ui.ok("Zoomies is installed.")
+	i.ui.blank()
+	i.ui.step("Deployment")
+	i.ui.field("status", status)
+	i.ui.field("mode", string(p.Mode))
+	i.ui.field("public URL", p.ExternalURL)
+	i.ui.field("listener", p.Bind+"; TLS "+string(p.TLSMode))
+	if p.runsRunners() {
+		i.ui.field("runner backend", fmt.Sprintf("%s; capacity %d", p.Backend, p.Capacity))
+	}
 	i.ui.field("login", p.AdminUser)
 	i.ui.field("config", p.ConfigFile)
-	i.ui.field("key", p.KeyFile)
+	i.ui.field("encryption key", p.KeyFile)
+	i.ui.field("database", p.DBPath)
+	i.ui.field("service", string(p.Service))
 	i.ui.field("logs", logHint(p))
 	i.ui.blank()
 
@@ -2611,7 +2656,7 @@ func (i *Installer) stepSummary(p Plan, freshKey bool) {
 
 	// What is genuinely left. An empty list is the good case, and saying so
 	// beats printing instructions for work that is already done.
-	i.ui.step("Next")
+	i.ui.step("Next steps")
 	n := 0
 	next := func(what, where string) {
 		n++
@@ -2643,6 +2688,19 @@ func (i *Installer) stepSummary(p Plan, freshKey bool) {
 		i.ui.blank()
 		i.ui.ok("This host is ready -- the " + p.PoolName + " pool runs on it.")
 	}
+	i.ui.blank()
+	i.ui.step("Manage this service")
+	switch p.Service {
+	case ServiceSystemd:
+		i.ui.field("status", "systemctl status "+UnitController)
+		i.ui.field("restart", "sudo systemctl restart "+UnitController)
+		i.ui.field("stop/start", "sudo systemctl stop "+UnitController+" / sudo systemctl start "+UnitController)
+	case ServiceLaunchd:
+		i.ui.field("status", "launchctl print sh.zoomies.controller")
+		i.ui.field("restart", "launchctl kickstart -k sh.zoomies.controller")
+	}
+	i.ui.field("update", "curl -fsSL https://zoomies.sh/install.sh | sh -s -- --upgrade")
+	i.ui.field("uninstall", "zoomies uninstall")
 }
 
 func logHint(p Plan) string {

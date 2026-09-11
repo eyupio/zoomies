@@ -429,22 +429,19 @@ func TestDeploymentCommandsAreRunnable(t *testing.T) {
 	p := containerPlan(t)
 
 	lines := i.deploymentCommands(p)
-	if len(lines) != 4 {
-		t.Fatalf("want logs, restart, upgrade and stop; got %d", len(lines))
+	if len(lines) != 7 {
+		t.Fatalf("want status, logs, start, stop, restart, update and down; got %d", len(lines))
 	}
 	joined := strings.Join(lines, "\n")
-	for _, want := range []string{"logs", "restart", "pull", "down"} {
+	for _, want := range []string{"deployment status", "deployment logs", "deployment start", "deployment stop", "deployment restart", "deployment update", "deployment down"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("the summary must include %q:\n%s", want, joined)
 		}
 	}
-	if !strings.Contains(joined, filepath.Join(p.DeployDir, ComposeFileName)) {
-		t.Errorf("every command must name the file it acts on:\n%s", joined)
-	}
 
 	p.Deployment = DeploymentDocker
 	joined = strings.Join(i.deploymentCommands(p), "\n")
-	for _, want := range []string{"docker logs -f zoomies", "docker restart zoomies", "docker pull", "docker stop zoomies"} {
+	for _, want := range []string{"deployment status", "deployment restart", "deployment update", "deployment stop"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("the summary must include %q:\n%s", want, joined)
 		}

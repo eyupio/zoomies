@@ -806,18 +806,30 @@ func (i *Installer) logsCommand(p Plan) string {
 func (i *Installer) containerSummary(p Plan, envPath string, reusedKey bool) {
 	file := filepath.Join(p.DeployDir, ComposeFileName)
 	i.ui.blank()
-	i.ui.step("Done")
+	i.ui.step("Installation complete")
+	i.ui.ok("Zoomies is installed and the container deployment is running.")
+	i.ui.blank()
+	i.ui.step("Deployment")
 	// The helper owns the column, and it is not faint: the URL an operator must
 	// open and the file holding their encryption key were the dimmest lines on
 	// the screen that told them about both.
-	i.ui.field("URL", p.ExternalURL)
-	i.ui.field("env", envPath+" (mode 0600 -- it holds the encryption key)")
+	i.ui.field("status", "running; local health check completed")
+	i.ui.field("mode", string(p.Mode))
+	i.ui.field("public URL", p.ExternalURL)
+	i.ui.field("host port", net.JoinHostPort(p.PublishAddr, strconv.Itoa(p.PublishedPort)))
+	i.ui.field("image", p.Image)
+	i.ui.field("environment", envPath+" (mode 0600; contains the encryption key)")
 	if p.Deployment == DeploymentCompose {
-		i.ui.field("compose", file)
+		i.ui.field("deployment", "Docker Compose")
+		i.ui.field("compose file", file)
 	} else {
-		i.ui.field("container", ContainerName+" from "+p.Image)
+		i.ui.field("deployment", "Docker container")
+		i.ui.field("container", ContainerName)
 	}
-	i.ui.field("volume", VolumeName+" -- the database lives here, not in the container")
+	if p.runsRunners() {
+		i.ui.field("runner backend", fmt.Sprintf("%s; capacity %d", p.Backend, p.Capacity))
+	}
+	i.ui.field("database", "volume "+VolumeName+" (survives restart, update and down)")
 	i.ui.blank()
 
 	if !reusedKey {
@@ -839,7 +851,7 @@ func (i *Installer) containerSummary(p Plan, envPath string, reusedKey bool) {
 	sug := SuggestPool(i.det, p.Backend, p.Capacity)
 	// The same four steps, in the same order and with the same names, as the
 	// browser's own checklist and the first-run card it hands over from.
-	i.ui.step("Next -- four steps: three in the browser, then one in a workflow")
+	i.ui.step("Next steps")
 	i.ui.field("  1.", "Create the first administrator")
 	i.ui.field("", p.ExternalURL)
 	i.ui.field("  2.", "Connect GitHub -- nothing can run until an App is installed")
@@ -850,31 +862,24 @@ func (i *Installer) containerSummary(p Plan, envPath string, reusedKey bool) {
 	i.ui.field("", "runs-on: "+sug.RunsOn())
 	i.ui.blank()
 
-	i.ui.note("The commands you will want:")
+	i.ui.step("Manage this deployment")
 	for _, line := range i.deploymentCommands(p) {
-		i.ui.note("  " + line)
+		i.ui.field("", line)
 	}
+	i.ui.field("uninstall", "zoomies uninstall (add --volumes only when the database should also be deleted)")
 }
 
-// deploymentCommands lists the four things an operator does to a running
-// deployment: read it, restart it, upgrade it and stop it.
+// deploymentCommands uses the binary's record-aware lifecycle commands rather
+// than making the operator remember Compose file and environment arguments.
 func (i *Installer) deploymentCommands(p Plan) []string {
-	if p.Deployment == DeploymentCompose {
-		file := filepath.Join(p.DeployDir, ComposeFileName)
-		return []string{
-			"logs      " + ComposeLine(p.ComposeCommand, file, "logs", "-f"),
-			"restart   " + ComposeLine(p.ComposeCommand, file, "restart"),
-			"upgrade   " + ComposeLine(p.ComposeCommand, file, "pull") + " && " + ComposeLine(p.ComposeCommand, file, "up", "-d"),
-			"stop      " + ComposeLine(p.ComposeCommand, file, "down") + "   (add -v to delete the database too)",
-		}
-	}
-	envPath := filepath.Join(p.DeployDir, EnvFileFor(p.Deployment))
-	run := DockerCommandLine(DockerRunArgs(DockerRunSpecFor(p, envPath)))
 	return []string{
-		"logs      docker logs -f " + ContainerName,
-		"restart   docker restart " + ContainerName,
-		"upgrade   docker pull " + p.Image + " && docker rm -f " + ContainerName + " && " + run,
-		"stop      docker stop " + ContainerName,
+		"status    zoomies deployment status",
+		"logs      zoomies deployment logs",
+		"start     zoomies deployment start",
+		"stop      zoomies deployment stop",
+		"restart   zoomies deployment restart",
+		"update    zoomies deployment update",
+		"down      zoomies deployment down  (keeps the database volume)",
 	}
 }
 
