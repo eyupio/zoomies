@@ -77,6 +77,7 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 		fmt.Fprintln(opts.Out, "The existing deployment can be upgraded without running setup again.")
 		return nil
 	}
+	beforeImage := p.localImageID(ctx)
 	fmt.Fprintln(opts.Out, "Keeping this host's configuration, credentials, identity and data.")
 	if err := p.pullRunnerImages(ctx); err != nil {
 		return err
@@ -100,8 +101,40 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 	if err != nil {
 		return fmt.Errorf("installer: the upgrade did not finish: %w", err)
 	}
+	if p.record.Deployment.Containerised() {
+		afterImage := p.localImageID(ctx)
+		switch {
+		case beforeImage != "" && afterImage == beforeImage:
+			fmt.Fprintf(opts.Out, "Image channel did not advance: %s still resolves to %s. The service was recreated from the same published image.\n", p.image, shortImageID(afterImage))
+		case afterImage != "" && beforeImage != "":
+			fmt.Fprintf(opts.Out, "Image channel advanced: %s now resolves to %s (was %s).\n", p.image, shortImageID(afterImage), shortImageID(beforeImage))
+		case afterImage != "":
+			fmt.Fprintf(opts.Out, "Pulled %s at %s.\n", p.image, shortImageID(afterImage))
+		default:
+			fmt.Fprintf(opts.Out, "Recreated the service from %s. Confirm its reported build; moving tags advance only after a successful publish.\n", p.image)
+		}
+	}
 	fmt.Fprintln(opts.Out, "Upgrade complete. Check the Hosts page for the agent's next heartbeat.")
 	return nil
+}
+
+func (p *upgradePlan) localImageID(ctx context.Context) string {
+	if !p.record.Deployment.Containerised() || p.image == "" {
+		return ""
+	}
+	out, err := p.docker(ctx, "image", "inspect", "--format", "{{.Id}}", p.image)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
+func shortImageID(id string) string {
+	id = strings.TrimSpace(strings.TrimPrefix(id, "sha256:"))
+	if len(id) > 12 {
+		id = id[:12]
+	}
+	return id
 }
 
 func prepareUpgrade(ctx context.Context, opts UpgradeOptions) (*upgradePlan, error) {

@@ -1265,6 +1265,30 @@ func (c *Controller) updateProblems() []Problem {
 	if c.cfg().Updates.CheckInterval <= 0 {
 		return nil
 	}
+	if running, ok := developmentCommit(version.Version); ok {
+		latest := c.latestDevelopment()
+		if latest == nil || strings.HasPrefix(latest.SHA, running) {
+			return nil
+		}
+		newest := latest.SHA
+		if len(newest) > 7 {
+			newest = newest[:7]
+		}
+		fix := "let a main CI image-publishing run finish successfully, then run zoomies upgrade again"
+		if latest.URL != "" {
+			fix += "; the current main commit is " + latest.URL
+		}
+		at := latest.At
+		return []Problem{{
+			Code:     "controller.development_update_available",
+			Severity: config.SeverityInfo,
+			Title:    fmt.Sprintf("main is at %s; this development controller is running %s", newest, running),
+			Detail: "the moving dev image may still point to this older build when its publishing workflow was cancelled or failed. " +
+				"An upgrade can only pull the newest image that was actually published.",
+			Fix:   fix,
+			Since: &at,
+		}}
+	}
 	latest := c.latestRelease()
 	if latest == nil {
 		return nil

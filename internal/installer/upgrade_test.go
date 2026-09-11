@@ -1,6 +1,7 @@
 package installer
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -9,6 +10,48 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestUpgradeSaysWhetherAMovingImageAdvanced(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		before string
+		after  string
+		want   string
+	}{
+		{"same image", "sha256:aaaaaaaaaaaaaaaa", "sha256:aaaaaaaaaaaaaaaa", "Image channel did not advance"},
+		{"new image", "sha256:aaaaaaaaaaaaaaaa", "sha256:bbbbbbbbbbbbbbbb", "Image channel advanced"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts, _ := upgradeFixture(t, DeploymentCompose)
+			var out bytes.Buffer
+			opts.Out = &out
+			inspects := 0
+			opts.run = func(_ context.Context, name string, args ...string) (string, error) {
+				line := name + " " + strings.Join(args, " ")
+				switch {
+				case strings.Contains(line, "config --images"):
+					return opts.Image, nil
+				case strings.Contains(line, "image inspect"):
+					inspects++
+					if inspects == 1 {
+						return tc.before, nil
+					}
+					return tc.after, nil
+				case name == "docker" && len(args) > 0 && args[0] == "inspect":
+					return "true", nil
+				default:
+					return "", nil
+				}
+			}
+			if err := Upgrade(context.Background(), opts); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(out.String(), tc.want) || !strings.Contains(out.String(), opts.Image) {
+				t.Fatalf("output = %q, want %q and image", out.String(), tc.want)
+			}
+		})
+	}
+}
 
 func upgradeFixture(t *testing.T, deployment Deployment) (UpgradeOptions, DeploymentRecord) {
 	t.Helper()
