@@ -361,7 +361,11 @@ func Default() *Config {
 			Backend:           "docker",
 			WorkDir:           defaultStatePath("work"),
 			HeartbeatInterval: 30 * time.Second,
-			FinishedRetention: 10 * time.Minute,
+			// The controller already retains runner history and the agent waits for
+			// its terminal report to be acknowledged before removal. Keeping an
+			// exited container as well makes every job consume host disk for no
+			// default benefit; operators who debug from container logs can opt in.
+			FinishedRetention: 0,
 		},
 		Scheduler: Scheduler{
 			Interval:          10 * time.Second,
