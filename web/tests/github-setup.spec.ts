@@ -37,6 +37,16 @@ test('the callback with nothing on it is still a page, not a dead end', async ({
 });
 
 test('creating an App explicitly keeps the GitHub handoff in this tab', async ({ page }) => {
+  await page.route('**/api/v1/meta', async (route) => {
+    const response = await route.fetch();
+    const meta = (await response.json()) as Record<string, unknown>;
+    // The shared fixture is loopback-only, which is the right truth for most of
+    // the suite. This path is about the browser handoff itself, so it needs the
+    // public URL the dialog now insists on before it will build a manifest.
+    meta.external_url = 'https://zoomies.example.test';
+    meta.webhook_url = 'https://zoomies.example.test/webhooks/github';
+    await route.fulfill({ response, json: meta });
+  });
   await page.route('**/api/v1/installations/manifest', async (route) => {
     await route.fulfill({
       contentType: 'application/json',
