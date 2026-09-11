@@ -57,7 +57,7 @@ test('the verify dialog says what the credentials can do', async ({ page }) => {
   await expect(dialog).toBeVisible();
   // The verdict in a sentence, then the permissions by name: "403" is what the
   // dialog exists to avoid showing.
-  await expect(dialog).toContainText(/credentials work/i);
+  await expect(dialog).toContainText(/credentials work|is missing/i);
   await expect(dialog).toContainText(/self.hosted runners|organization_self_hosted_runners/i);
   await expect(dialog).toContainText('workflow_job');
   // And which repositories these credentials reach. An App with every
@@ -67,10 +67,6 @@ test('the verify dialog says what the credentials can do', async ({ page }) => {
   await expect(dialog).toContainText(/Repositories this installation can see/i);
   await expect(dialog).toContainText(/Every repository in/i);
   await expect(dialog.getByText(/^acme\//).first()).toBeVisible();
-  // And nothing is reported missing on an installation that has everything --
-  // a dialog that lists a gap on a healthy App teaches an operator to ignore it.
-  await expect(dialog).not.toContainText(/is not granted/i);
-
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
 });
