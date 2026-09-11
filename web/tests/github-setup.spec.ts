@@ -43,8 +43,9 @@ test('the callback with nothing on it is still a page, not a dead end', async ({
  * fake the browser cannot reach -- so the connect and verify paths were tested
  * at the API and never through the dialog an operator actually uses. The demo
  * installation closes that gap without any credentials: its probe answers
- * deterministically, with every permission granted and `workflow_job`
- * subscribed, so the dialog has something real to render.
+ * deterministically, with `workflow_job` subscribed and one permission still
+ * short of what Zoomies needs, so the dialog exercises the operator-facing
+ * verdict rather than a raw GitHub error.
  */
 test('the verify dialog says what the credentials can do', async ({ page }) => {
   await goto(page, '/installations', 'Installations');
@@ -57,7 +58,7 @@ test('the verify dialog says what the credentials can do', async ({ page }) => {
   await expect(dialog).toBeVisible();
   // The verdict in a sentence, then the permissions by name: "403" is what the
   // dialog exists to avoid showing.
-  await expect(dialog).toContainText(/credentials work|is missing/i);
+  await expect(dialog).toContainText(/credentials work|the App is reachable but is missing/i);
   await expect(dialog).toContainText(/self.hosted runners|organization_self_hosted_runners/i);
   await expect(dialog).toContainText('workflow_job');
   // And which repositories these credentials reach. An App with every
