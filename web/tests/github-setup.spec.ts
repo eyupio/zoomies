@@ -36,6 +36,30 @@ test('the callback with nothing on it is still a page, not a dead end', async ({
   await expect(page.getByRole('dialog', { name: 'Connect GitHub' })).toBeHidden();
 });
 
+test('creating an App explicitly keeps the GitHub handoff in this tab', async ({ page }) => {
+  await page.route('**/api/v1/installations/manifest', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        post_url: 'https://github.com/settings/apps/new',
+        manifest: '{"name":"zoomies-acme"}',
+        state: 'same-tab-state',
+      }),
+    });
+  });
+  await goto(page, '/installations', 'Installations');
+
+  await page.getByRole('button', { name: 'Connect GitHub' }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Connect GitHub' });
+  await dialog.getByLabel('Organisation login').fill('acme');
+  await dialog.getByRole('button', { name: 'Continue to GitHub' }).click();
+
+  const handoff = page.locator('form#github-manifest');
+  await expect(handoff).toHaveAttribute('target', '_self');
+  await expect(handoff).toHaveAttribute('action', /github\.com\/settings\/apps\/new/);
+  await expect(dialog.getByText(/in this tab/i)).toBeVisible();
+});
+
 /**
  * Verify, driven from the browser, with no fake in the way.
  *
