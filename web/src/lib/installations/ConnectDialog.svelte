@@ -975,11 +975,7 @@
               <!-- The button lives here; the form it submits is a sibling of
                    the step form, below, because a form cannot nest. -->
               <div>
-                <Button
-                  type="submit"
-                  form="github-manifest"
-                  variant="primary"
-                >
+                <Button type="submit" form="github-manifest" variant="primary">
                   Create the App on GitHub
                 </Button>
               </div>
@@ -1119,13 +1115,7 @@
           the step form is what makes Enter work everywhere else in the dialog.
         -->
         {#if step === 1 && manifest}
-          <form
-            id="github-manifest"
-            method="POST"
-            action={manifestAction}
-            target="_self"
-            hidden
-          >
+          <form id="github-manifest" method="POST" action={manifestAction} target="_self" hidden>
             <input type="hidden" name="manifest" value={manifest} />
           </form>
         {/if}
