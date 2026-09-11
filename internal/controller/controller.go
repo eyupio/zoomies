@@ -142,7 +142,8 @@ type Controller struct {
 	// none has. It is what says the safety net is still there: a poller that
 	// has stopped sweeping looks exactly like a poller with nothing to do, and
 	// on a fleet whose webhooks are also broken the difference is every job.
-	lastPollAt atomic.Int64
+	lastPollAt    atomic.Int64
+	jobPollOffset atomic.Int64
 	// fence is the recovery fence, read from the database at start and kept
 	// here so that a decision made ten times a minute is not ten database
 	// reads. It is a pointer so the zero value -- no fence -- costs nothing to

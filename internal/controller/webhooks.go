@@ -297,6 +297,11 @@ func (c *Controller) handleWorkflowJob(ctx context.Context, body []byte) error {
 	if err != nil {
 		return fmt.Errorf("%w: %v", errMalformedDelivery, err)
 	}
+	return c.applyWorkflowJob(ctx, e, sourceWebhook)
+}
+
+// applyWorkflowJob gives polling and webhooks the same monotonic state updates.
+func (c *Controller) applyWorkflowJob(ctx context.Context, e *github.WorkflowJobEvent, source string) error {
 	job := e.ToJob()
 
 	// Which installation owns this work is the job's repository's question,
@@ -336,7 +341,7 @@ func (c *Controller) handleWorkflowJob(ctx context.Context, body []byte) error {
 	if err != nil {
 		return fmt.Errorf("recording job %d: %w", e.JobID, err)
 	}
-	c.recordJobChange(ctx, saved, change, sourceWebhook, runner)
+	c.recordJobChange(ctx, saved, change, source, runner)
 	if saved.StartedAt != nil {
 		poolName, backendName := UnmatchedPool, "unknown"
 		if p, e := c.st.GetPool(ctx, saved.PoolID); e == nil {

@@ -8,6 +8,12 @@ on:
   schedule:
     - cron: "17 6 * * 1"
   workflow_dispatch:
+    inputs:
+      runner:
+        description: "Where to run. github is the recovery path."
+        type: choice
+        default: zoomies
+        options: [zoomies, github]
 
 permissions:
   contents: write
@@ -15,7 +21,7 @@ permissions:
 
 jobs:
   check:
-    runs-on: zoomies-linux-x64
+    runs-on: ${{ inputs.runner == 'github' && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

@@ -206,3 +206,7 @@ jobs:
     steps:
       - run: make test
 `
+
+func (d *demoClient) GetWorkflowJob(context.Context, string, int64) (*github.WorkflowJobEvent, error) {
+	return nil, ErrDemoFixture
+}

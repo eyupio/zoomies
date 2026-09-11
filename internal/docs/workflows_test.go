@@ -382,57 +382,32 @@ func TestTheAgentImageIsBuiltAndPublished(t *testing.T) {
 	}
 }
 
-func TestStageOneDogfoodsZoomiesWithoutLosingRecovery(t *testing.T) {
+func TestCIDogfoodsZoomiesWithRecoveryForEveryJob(t *testing.T) {
 	files := workflowFiles(t)
-	ci := files["ci.yml"]
-	vuln := files["govulncheck.yml"]
-	if ci == "" || vuln == "" {
-		t.Fatal("the CI and govulncheck workflows must exist")
-	}
-
 	selector := `((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64'`
-	for name, workflow := range map[string]string{"ci.yml": ci, "govulncheck.yml": vuln} {
-		for _, want := range []string{"default: zoomies", "options: [zoomies, github]", selector} {
-			if !strings.Contains(workflow, want) {
-				t.Errorf("%s is missing %q, so dogfooding has no explicit GitHub-hosted recovery path or fork boundary", name, want)
+	runsOn := regexp.MustCompile(`(?m)^    runs-on: (.+)$`)
+	for _, name := range []string{"ci.yml", "govulncheck.yml"} {
+		body := files[name]
+		for _, want := range []string{"default: zoomies", "options: [zoomies, github]"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s lacks %s", name, want)
+			}
+		}
+		matches := runsOn.FindAllStringSubmatch(body, -1)
+		if len(matches) == 0 {
+			t.Fatalf("%s has no job runners", name)
+		}
+		for _, m := range matches {
+			if !strings.Contains(m[1], selector) {
+				t.Errorf("%s has a job without fork protection and manual recovery: %s", name, m[1])
 			}
 		}
 	}
-
-	// These jobs are the deliberately small first stage: they read source and
-	// produce transient build output, but do not publish Zoomies or exercise
-	// the control plane responsible for creating their own runner.
-	for _, job := range []string{"go", "staticcheck", "ui", "build-matrix", "installer"} {
-		start := strings.Index(ci, "\n  "+job+":\n")
-		if start < 0 {
-			t.Errorf("ci.yml has no %s job", job)
-			continue
-		}
-		rest := ci[start+1:]
-		end := len(rest)
-		if next := jobLine.FindStringIndex(rest[1:]); next != nil {
-			end = next[0] + 1
-		}
-		if !strings.Contains(rest[:end], "zoomies-linux-x64") {
-			t.Errorf("the stage-one %s job no longer targets the dedicated Zoomies pool", job)
-		}
+	ci := files["ci.yml"]
+	if strings.Contains(ci, "useblacksmith/") {
+		t.Error("CI still depends on Blacksmith-specific builders")
 	}
-
-	// The jobs that can mutate project state, validate the running product, or
-	// publish the moving :dev channel remain on independent infrastructure.
-	for _, job := range []string{"drill", "upgrade", "playwright", "dev-binaries", "images", "runner-images"} {
-		start := strings.Index(ci, "\n  "+job+":\n")
-		if start < 0 {
-			t.Errorf("ci.yml has no %s job", job)
-			continue
-		}
-		rest := ci[start+1:]
-		end := len(rest)
-		if next := jobLine.FindStringIndex(rest[1:]); next != nil {
-			end = next[0] + 1
-		}
-		if strings.Contains(rest[:end], "zoomies-linux-x64") {
-			t.Errorf("%s runs on the dogfood pool; it must remain independent during stage one", job)
-		}
+	if !strings.Contains(ci, "if: ${{ !cancelled() && (github.event_name == 'pull_request'") {
+		t.Error("Images must respect cancellation while allowing skipped PR publishing dependencies")
 	}
 }
