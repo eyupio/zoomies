@@ -68,10 +68,10 @@
   }: Props = $props();
 
   /**
-   * The flow crosses tabs twice: GitHub is asked to create the App in a new tab
-   * and returns the operator there, and the install link opens another one
-   * again. Neither knows what was typed on the first step, so what is needed to
-   * finish is kept where any tab on this origin can read it.
+   * The flow leaves Zoomies twice and returns through redirects in the same
+   * browsing context. A reload or an interrupted redirect must not lose what
+   * was typed on the first step, so what is needed to finish is kept in this
+   * origin's storage.
    *
    * Nothing here is a secret. The App's private key never reaches the browser:
    * it stays sealed on the controller, which hands it out to nothing. This is
@@ -967,8 +967,9 @@
               </p>
             {:else if manifest}
               <p class="lede">
-                The next button takes you to GitHub with the manifest already filled in. Confirm it
-                there and you will be brought straight back here, with the code in the address bar.
+                The next button takes you to GitHub in this tab with the manifest already filled in.
+                Confirm it there and you will be brought straight back here, with the code in the
+                address bar.
               </p>
 
               <!-- The button lives here; the form it submits is a sibling of
@@ -978,7 +979,6 @@
                   type="submit"
                   form="github-manifest"
                   variant="primary"
-                  iconAfter={ExternalLink}
                 >
                   Create the App on GitHub
                 </Button>
@@ -1110,11 +1110,22 @@
           screen, and reloading turns the POST into a GET, which GitHub answers
           with its blank create-an-App form.
 
+          It explicitly targets the current browsing context. Leaving that
+          implicit let mobile browsers treat the GitHub handoff as an external
+          launch and offer a browser/app chooser instead of continuing the
+          setup in the tab that owns the saved handshake.
+
           It sits outside the step form because HTML has no nested forms, and
           the step form is what makes Enter work everywhere else in the dialog.
         -->
         {#if step === 1 && manifest}
-          <form id="github-manifest" method="POST" action={manifestAction} hidden>
+          <form
+            id="github-manifest"
+            method="POST"
+            action={manifestAction}
+            target="_self"
+            hidden
+          >
             <input type="hidden" name="manifest" value={manifest} />
           </form>
         {/if}
