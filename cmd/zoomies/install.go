@@ -23,6 +23,7 @@ func runInit(ctx context.Context, e *env, args []string) error {
 	controllerURL := fs.String("controller", "", "for --mode agent: the controller to join")
 	joinToken := fs.String("join-token", "", "for --mode agent: a join token from the UI")
 	externalURL := fs.String("external-url", "", "for a controller: the public hostname or URL browsers and GitHub use; a bare hostname implies https://")
+	port := fs.Int("port", 0, "host port for the controller; 0 asks interactively or uses the detected default")
 	answers := fs.String("answers", "", "a YAML answer file for unattended setup; implies --non-interactive")
 	nonInteractive := fs.Bool("non-interactive", false, "never prompt; a missing answer is an error naming the key")
 	assumeYes := fs.Bool("yes", false, "accept the confirmations that are not destructive")
@@ -89,6 +90,7 @@ func runInit(ctx context.Context, e *env, args []string) error {
 		ControllerURL:    *controllerURL,
 		JoinToken:        *joinToken,
 		ExternalURL:      *externalURL,
+		Port:             *port,
 		AnswersFile:      *answers,
 		NonInteractive:   *nonInteractive || *answers != "",
 		AssumeYes:        *assumeYes,

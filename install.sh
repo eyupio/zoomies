@@ -64,6 +64,7 @@ DEPLOYMENT=""
 CONTROLLER_URL=""
 JOIN_TOKEN=""
 EXTERNAL_URL=""
+PORT=""
 NON_INTERACTIVE=0
 ANSWERS=""
 RUN_INIT=1
@@ -165,6 +166,8 @@ Options:
                         (default: latest).
   --external-url <url>  Public hostname or URL browsers and GitHub use for
                         the controller. A bare hostname implies https://.
+  --port <number>        Host port for the controller (default: 8080). It is
+                        checked before deployment files are written.
   --prefix <dir>        Where to put the binary (default: /usr/local/bin).
   --non-interactive     Never prompt. Requires --answers, or enough flags.
   --answers <file>      YAML answer file for unattended setup. Implies
@@ -250,6 +253,8 @@ while [ $# -gt 0 ]; do
         --version=*)   VERSION="${1#*=}"; VERSION_GIVEN=1; shift ;;
         --external-url) needs_value --external-url $# "the controller's public hostname or URL"; EXTERNAL_URL="$2"; shift 2 ;;
         --external-url=*) EXTERNAL_URL="${1#*=}"; shift ;;
+        --port)        needs_value --port $# "a TCP port from 1 to 65535"; PORT="$2"; shift 2 ;;
+        --port=*)      PORT="${1#*=}"; shift ;;
         --prefix)      needs_value --prefix $# "a directory to install the binary into"; PREFIX="$2"; PREFIX_GIVEN=1; shift 2 ;;
         --prefix=*)    PREFIX="${1#*=}"; PREFIX_GIVEN=1; shift ;;
         # --answers and --non-interactive both imply --yes, and have to: an
@@ -285,7 +290,8 @@ done
 
 if [ "$DO_UPGRADE" -eq 1 ]; then
     if [ "$DO_UNINSTALL" -eq 1 ] || [ "$BINARY_ONLY" -eq 1 ] || [ -n "$ANSWERS" ] ||
-       [ -n "$JOIN_TOKEN" ] || [ -n "$CONTROLLER_URL" ] || [ -n "$DEPLOYMENT" ]; then
+       [ -n "$JOIN_TOKEN" ] || [ -n "$CONTROLLER_URL" ] || [ -n "$DEPLOYMENT" ] ||
+       [ -n "$EXTERNAL_URL" ] || [ -n "$PORT" ]; then
         die "--upgrade uses the existing deployment; do not combine it with setup, join, --no-init or --uninstall options."
     fi
 elif [ -n "$UPGRADE_IMAGE" ]; then
@@ -310,6 +316,12 @@ esac
 
 case "$VERSION" in
     *[!A-Za-z0-9._-]*) die "--version $VERSION does not look like a release tag or channel. Try latest, dev, or v1.2.3." ;;
+esac
+
+case "$PORT" in
+    "") ;;
+    *[!0-9]*) die "--port must be a whole number from 1 to 65535." ;;
+    *) [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || die "--port must be from 1 to 65535." ;;
 esac
 
 if [ -n "$ANSWERS" ] && [ ! -r "$ANSWERS" ]; then
@@ -390,6 +402,21 @@ prompt_install_inputs() {
         printf '%s      Address: %s' "$C_DIM" "$C_RESET"
         read -r EXTERNAL_URL < /dev/tty || EXTERNAL_URL=""
         [ -n "$EXTERNAL_URL" ] || die "the external hostname cannot be empty; pass --external-url <hostname-or-url>."
+        say ""
+    fi
+
+    if [ "$RUN_INIT" -eq 1 ] && [ "$DO_UPGRADE" -eq 0 ] &&
+       [ "$NON_INTERACTIVE" -eq 0 ] && [ -n "$MODE" ] && [ "$MODE" != agent ] &&
+       [ -z "$ANSWERS" ] && [ -z "$PORT" ] && have_tty; then
+        printf '%s   ?? %sController port%s\n' "$C_ACCENT" "$C_RESET" "$C_RESET"
+        note "8080 is the default. Zoomies checks that the port is available before installing."
+        printf '%s      Port [8080]: %s' "$C_DIM" "$C_RESET"
+        read -r PORT < /dev/tty || PORT=""
+        [ -n "$PORT" ] || PORT=8080
+        case "$PORT" in
+            *[!0-9]*) die "the port must be a whole number from 1 to 65535." ;;
+            *) [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || die "the port must be from 1 to 65535." ;;
+        esac
         say ""
     fi
 }
@@ -1258,6 +1285,7 @@ set -- init \
 [ -n "$CONTROLLER_URL" ] && set -- "$@" --controller "$CONTROLLER_URL"
 [ -n "$JOIN_TOKEN" ] && set -- "$@" --join-token "$JOIN_TOKEN"
 [ -n "$EXTERNAL_URL" ] && set -- "$@" --external-url "$EXTERNAL_URL"
+[ -n "$PORT" ] && set -- "$@" --port "$PORT"
 [ -n "$ANSWERS" ] && set -- "$@" --answers "$ANSWERS"
 [ -n "$CONFIG_DIR" ] && set -- "$@" --config-dir "$CONFIG_DIR"
 [ "$NON_INTERACTIVE" -eq 1 ] && set -- "$@" --non-interactive

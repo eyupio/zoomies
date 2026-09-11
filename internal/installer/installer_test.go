@@ -2,6 +2,7 @@ package installer
 
 import (
 	"context"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -179,6 +180,25 @@ func TestDefaultExternalURL(t *testing.T) {
 				t.Fatalf("defaultExternalURL = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestExplicitPortIsRejectedWhenAlreadyInUse(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+	dir := t.TempDir()
+	i := &Installer{
+		opts: Options{Port: port},
+		det:  Detection{ConfigDir: dir, StateDir: dir, Hostname: "build-01"},
+		ui:   newUI(io.Discard),
+	}
+	_, err = i.resolvePlan(context.Background(), ModeSingle)
+	if err == nil || !strings.Contains(err.Error(), "already in use") {
+		t.Fatalf("resolvePlan port %d error = %v", port, err)
 	}
 }
 
