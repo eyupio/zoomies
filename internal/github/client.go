@@ -181,6 +181,13 @@ type RunnerGroup struct {
 	RestrictedToWorkflows       bool
 }
 
+// RunnerGroupCreate is the policy for a new organisation runner group.
+type RunnerGroupCreate struct {
+	Name                     string
+	Visibility               string
+	AllowsPublicRepositories bool
+}
+
 // AppInfo describes the authenticated GitHub App.
 type AppInfo struct {
 	ID    int64
@@ -231,6 +238,10 @@ type Client interface {
 	DeleteRunner(ctx context.Context, id int64) error
 	// ListRunnerGroups returns the target's runner groups.
 	ListRunnerGroups(ctx context.Context) ([]RunnerGroup, error)
+	// CreateRunnerGroup creates an organisation runner group. Repository
+	// targets reject it because GitHub only supports groups at organisation
+	// scope.
+	CreateRunnerGroup(ctx context.Context, req RunnerGroupCreate) (*RunnerGroup, error)
 	// ListQueuedJobs is the webhook fallback: it walks recent workflow runs and
 	// returns the jobs still waiting for a runner.
 	ListQueuedJobs(ctx context.Context) ([]QueuedJob, error)

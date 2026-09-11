@@ -714,7 +714,7 @@ the CLI or the API. These are their fields:
 | `name` | Unique. Appears in scaling reasons and in the UI. |
 | `installation_id` | Which GitHub App installation this pool registers against. |
 | `labels` | What `runs-on` must ask for. Normalised to lowercase, and always includes `zoomies`, which Zoomies adds to every pool. |
-| `runner_group` | Optional GitHub runner group. |
+| `runner_group` | GitHub runner group. New organisation pools default to the managed `zoomies` group; set an explicit name or an empty value to choose another group or GitHub Default. Repository targets have no runner groups. |
 | `backend` | `docker`, `podman` or `process`. |
 | `image` | Runner image for the container backends. Changing it replaces the pool's idle runners: one made from the old image is drained and a new one takes its place, and a busy one finishes its job first. |
 | `pull_policy` | `if-not-present` (the default), `always`, or `pinned-only`, which refuses to run anything but the digest the pool names. |

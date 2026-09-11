@@ -172,7 +172,7 @@
   <Field
     label="Runner group"
     error={errors['runner_group']}
-    hint="Runner groups decide which repositories may use these runners. Leave it as the default unless your organisation has set groups up."
+    hint="Runner groups decide which repositories may use these runners. Organisation installations default to the dedicated zoomies group created during connection."
   >
     {#snippet children({ id, describedBy, invalid })}
       {#if groupsLoading}

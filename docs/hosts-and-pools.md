@@ -259,15 +259,21 @@ rather than something the platform enforces. The same caveat governs a
 repository-scoped cache: see
 [Adding a pool](#adding-a-pool) and the pool's own warnings.
 
-A **runner group** narrows this further, and only on an organisation. Naming
-one puts the pool's runners in that group, so only repositories with access to
-it can be offered their jobs. If the group cannot be resolved — it does not
-exist on the target, or the App may not list groups — the runners register in
-Default, which every repository the installation covers can reach; the pool
-then carries a `pool.runner_group_unresolved` warning saying which happened,
-because a pool that asked to be fenced off and quietly was not is worth
-noticing. Repositories have no runner groups at all, so a repository-target
-pool naming one is warned about the same way.
+A **runner group** narrows this further, and only on an organisation. During a
+successful organisation connection probe, Zoomies creates an organisation-wide
+`zoomies` group, enables it for public repositories, and moves pools that still
+use GitHub's implicit Default group into it. Idle runners registered in Default
+are recycled so their replacements join the managed group; busy runners finish
+first. New organisation pools use `zoomies` unless an operator explicitly
+chooses another group or Default.
+
+Explicit group choices remain administrator policy and Zoomies never rewrites
+them. If an incompatible group named `zoomies` already exists, connection
+verification stops with an actionable error instead of silently widening it.
+If any explicitly selected group cannot be resolved, runners fall back to
+Default and the pool carries a `pool.runner_group_unresolved` warning.
+Repositories have no runner groups, so repository-target pools continue to use
+their repository's Default scope.
 
 ## How a runner is placed
 

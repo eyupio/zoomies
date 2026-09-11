@@ -502,6 +502,10 @@
     listRunnerGroups(id, controller.signal)
       .then((response) => {
         groups = response.items ?? [];
+        if (!editing && !touched.runner_group && draft.runner_group === '') {
+          const managed = groups.find((group) => group.name?.toLowerCase() === 'zoomies');
+          if (managed?.name) draft.runner_group = managed.name;
+        }
       })
       .catch((cause: unknown) => {
         if (cause instanceof DOMException && cause.name === 'AbortError') return;

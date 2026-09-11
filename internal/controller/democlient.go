@@ -80,6 +80,10 @@ func (d *demoClient) ListRunnerGroups(context.Context) ([]github.RunnerGroup, er
 	return []github.RunnerGroup{{ID: 1, Name: "Default"}}, nil
 }
 
+func (d *demoClient) CreateRunnerGroup(context.Context, github.RunnerGroupCreate) (*github.RunnerGroup, error) {
+	return nil, errors.New("the demo installation cannot create runner groups")
+}
+
 // ListQueuedJobs returns nothing. The demo's queued jobs are already in the
 // database; inventing more on every poll would make the fixture drift.
 func (d *demoClient) ListQueuedJobs(context.Context) ([]github.QueuedJob, error) { return nil, nil }

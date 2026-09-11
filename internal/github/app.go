@@ -503,6 +503,38 @@ func (c *appClient) ListRunnerGroups(ctx context.Context) ([]RunnerGroup, error)
 	}
 }
 
+// CreateRunnerGroup creates a group under an organisation installation.
+func (c *appClient) CreateRunnerGroup(ctx context.Context, in RunnerGroupCreate) (*RunnerGroup, error) {
+	if !c.isOrg() {
+		return nil, fmt.Errorf("github: runner groups belong to an organisation, and %s is a repository", c.target)
+	}
+	name := strings.TrimSpace(in.Name)
+	if name == "" {
+		return nil, errors.New("github: create runner group: a name is required")
+	}
+	visibility := strings.TrimSpace(in.Visibility)
+	if visibility == "" {
+		visibility = "all"
+	}
+	g, resp, err := c.asInstallation.Actions.CreateOrganizationRunnerGroup(ctx, c.owner, gh.CreateRunnerGroupRequest{
+		Name:                     &name,
+		Visibility:               &visibility,
+		AllowsPublicRepositories: gh.Ptr(in.AllowsPublicRepositories),
+	})
+	if err != nil {
+		return nil, c.fail("create runner group "+name+" on "+c.target, resp, err)
+	}
+	return &RunnerGroup{
+		ID:                          g.GetID(),
+		Name:                        g.GetName(),
+		Default:                     g.GetDefault(),
+		Visibility:                  g.GetVisibility(),
+		PublicRepositoryAccessKnown: g.AllowsPublicRepositories != nil,
+		AllowsPublicRepositories:    g.GetAllowsPublicRepositories(),
+		RestrictedToWorkflows:       g.GetRestrictedToWorkflows(),
+	}, nil
+}
+
 // ListQueuedJobs is the webhook fallback.
 //
 // GitHub has no endpoint that lists an organisation's queued jobs, so this

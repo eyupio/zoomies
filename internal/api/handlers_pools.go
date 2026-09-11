@@ -554,6 +554,14 @@ func (s *Server) handleCreatePool(w http.ResponseWriter, r *http.Request) {
 	}
 	p := s.defaultPool()
 	errs := in.apply(p)
+	// Organisation installations get the dedicated group provisioned by the
+	// connection probe. An omitted group means "use the Zoomies isolation
+	// boundary", while an explicit empty string still means GitHub Default.
+	if in.RunnerGroup == nil && p.InstallationID != "" {
+		if inst, err := s.ctrl.Store().GetInstallation(r.Context(), p.InstallationID); err == nil && inst.TargetType == store.TargetOrg {
+			p.RunnerGroup = controller.ManagedRunnerGroupName
+		}
+	}
 	errs = append(errs, s.validatePool(r.Context(), p, "")...)
 	if len(errs) > 0 {
 		unprocessable(w, "this pool cannot be created as described", errs)
