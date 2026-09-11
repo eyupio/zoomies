@@ -911,6 +911,20 @@ func DockerVolumeRemoveArgs(rec DeploymentRecord) []string {
 	return []string{"volume", "rm", volume}
 }
 
+// ContainerImageRemoveCommand removes the exact image recorded at install
+// time. It deliberately does not match a repository prefix: another Zoomies
+// deployment, or an operator's custom runner image, may share this host.
+func ContainerImageRemoveCommand(rec DeploymentRecord) (string, []string) {
+	runtime := "docker"
+	if len(rec.ComposeCommand) > 0 {
+		switch rec.ComposeCommand[0] {
+		case "docker", "podman":
+			runtime = rec.ComposeCommand[0]
+		}
+	}
+	return runtime, []string{"image", "rm", rec.Image}
+}
+
 func containerOr(rec DeploymentRecord) string {
 	if rec.Container != "" {
 		return rec.Container
@@ -956,6 +970,16 @@ func tearDownDeployment(ctx context.Context, rec DeploymentRecord, removeVolume 
 		} else {
 			u.note("left the " + volumeOr(rec) + " volume in place; remove it with: docker volume rm " + volumeOr(rec))
 		}
+	}
+	if rec.Image == "" {
+		return
+	}
+	name, args := ContainerImageRemoveCommand(rec)
+	if _, err := runCommand(ctx, name, args...); err != nil {
+		u.warn("could not remove the " + rec.Image + " image: " + err.Error())
+		u.note("remove it by hand with: " + name + " " + strings.Join(args, " "))
+	} else {
+		record("removed the %s container image", rec.Image)
 	}
 }
 

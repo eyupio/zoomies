@@ -91,6 +91,20 @@ func TestUninstallItemsRespectsKeepConfig(t *testing.T) {
 	t.Fatal("the configuration was not listed at all")
 }
 
+func TestDeploymentItemsIncludesTheRecordedContainerImage(t *testing.T) {
+	opts := uninstallOpts(t)
+	rec := DeploymentRecord{
+		Deployment: DeploymentDocker,
+		Image:      "ghcr.io/eyupio/zoomies:dev",
+	}
+	for _, item := range deploymentItems(rec, opts) {
+		if item.What == "container image" && item.Path == rec.Image {
+			return
+		}
+	}
+	t.Fatal("uninstall summary did not include the recorded container image")
+}
+
 func TestUninstallDoesNothingWhenNothingIsInstalled(t *testing.T) {
 	opts := uninstallOpts(t)
 	if err := os.RemoveAll(opts.ConfigDir); err != nil {

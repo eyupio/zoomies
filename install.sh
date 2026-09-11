@@ -38,6 +38,8 @@
 set -eu
 
 VERSION="${ZOOMIES_VERSION:-latest}"
+VERSION_GIVEN=0
+[ "${ZOOMIES_VERSION+x}" = x ] && VERSION_GIVEN=1
 REPO="${ZOOMIES_REPO:-eyupio/zoomies}"
 PREFIX="${ZOOMIES_PREFIX:-/usr/local/bin}"
 BASE_URL="${ZOOMIES_BASE_URL:-https://github.com/${REPO}/releases}"
@@ -61,6 +63,7 @@ MODE=""
 DEPLOYMENT=""
 CONTROLLER_URL=""
 JOIN_TOKEN=""
+EXTERNAL_URL=""
 NON_INTERACTIVE=0
 ANSWERS=""
 RUN_INIT=1
@@ -160,6 +163,8 @@ Options:
                         `zoomies hosts join-token create`.
   --version <v>         Release or channel to install: v1.2.3, dev, or latest
                         (default: latest).
+  --external-url <url>  Public hostname or URL browsers and GitHub use for
+                        the controller. A bare hostname implies https://.
   --prefix <dir>        Where to put the binary (default: /usr/local/bin).
   --non-interactive     Never prompt. Requires --answers, or enough flags.
   --answers <file>      YAML answer file for unattended setup. Implies
@@ -241,8 +246,10 @@ while [ $# -gt 0 ]; do
         --controller=*) CONTROLLER_URL="${1#*=}"; shift ;;
         --join-token)  needs_value --join-token $# "a token that starts zoojoin_"; JOIN_TOKEN="$2"; shift 2 ;;
         --join-token=*) JOIN_TOKEN="${1#*=}"; shift ;;
-        --version)     needs_value --version $# "a release tag such as v1.2.3, dev, or latest"; VERSION="$2"; shift 2 ;;
-        --version=*)   VERSION="${1#*=}"; shift ;;
+        --version)     needs_value --version $# "a release tag such as v1.2.3, dev, or latest"; VERSION="$2"; VERSION_GIVEN=1; shift 2 ;;
+        --version=*)   VERSION="${1#*=}"; VERSION_GIVEN=1; shift ;;
+        --external-url) needs_value --external-url $# "the controller's public hostname or URL"; EXTERNAL_URL="$2"; shift 2 ;;
+        --external-url=*) EXTERNAL_URL="${1#*=}"; shift ;;
         --prefix)      needs_value --prefix $# "a directory to install the binary into"; PREFIX="$2"; PREFIX_GIVEN=1; shift 2 ;;
         --prefix=*)    PREFIX="${1#*=}"; PREFIX_GIVEN=1; shift ;;
         # --answers and --non-interactive both imply --yes, and have to: an
@@ -354,6 +361,38 @@ have() { command -v "$1" >/dev/null 2>&1; }
 # binary was installed, leaving `cannot open /dev/tty` as the last word. Only
 # opening it actually answers the question.
 have_tty() { (exec 3</dev/tty) 2>/dev/null; }
+
+# Ask for the two installation-wide values before downloading anything. The
+# build choice has to live here because it decides which binary is fetched;
+# the external address is carried into `zoomies init` so it is asked once.
+prompt_install_inputs() {
+    if [ "$NON_INTERACTIVE" -eq 0 ] && [ "$ASSUME_YES" -eq 0 ] &&
+       [ "$VERSION_GIVEN" -eq 0 ] && have_tty; then
+        printf '%s   ?? %sWhich build should be installed?%s\n' "$C_ACCENT" "$C_RESET" "$C_RESET"
+        note "1) Latest stable (default)"
+        note "2) Development -- newest build from main"
+        printf '%s      Choice [1]: %s' "$C_DIM" "$C_RESET"
+        read -r reply < /dev/tty || reply=""
+        case "$reply" in
+            ""|1|latest) VERSION=latest ;;
+            2|dev|development) VERSION=dev ;;
+            *) die "choose 1 for latest stable or 2 for development, or pass --version latest|dev." ;;
+        esac
+        say ""
+    fi
+
+    if [ "$RUN_INIT" -eq 1 ] && [ "$DO_UPGRADE" -eq 0 ] &&
+       [ "$NON_INTERACTIVE" -eq 0 ] && [ -n "$MODE" ] && [ "$MODE" != agent ] &&
+       [ -z "$ANSWERS" ] && [ -z "$EXTERNAL_URL" ] && have_tty; then
+        printf '%s   ?? %sExternal hostname or URL%s\n' "$C_ACCENT" "$C_RESET" "$C_RESET"
+        note "The address browsers and GitHub use, for example zoomies.example.com."
+        note "A bare hostname uses https://. Include http:// and a port for local-only setup."
+        printf '%s      Address: %s' "$C_DIM" "$C_RESET"
+        read -r EXTERNAL_URL < /dev/tty || EXTERNAL_URL=""
+        [ -n "$EXTERNAL_URL" ] || die "the external hostname cannot be empty; pass --external-url <hostname-or-url>."
+        say ""
+    fi
+}
 
 detect_platform() {
     OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -1069,6 +1108,7 @@ if [ "$RUN_INIT" -eq 1 ] && [ "$NON_INTERACTIVE" -eq 0 ] && ! have_tty; then
         "     \`zoomies init --print-answers\` writes an annotated file to start from."
 fi
 
+prompt_install_inputs
 resolve_version
 
 # ---------------------------------------------------------------------------
@@ -1217,6 +1257,7 @@ set -- init \
 [ -n "$DEPLOYMENT" ] && set -- "$@" --deployment "$DEPLOYMENT"
 [ -n "$CONTROLLER_URL" ] && set -- "$@" --controller "$CONTROLLER_URL"
 [ -n "$JOIN_TOKEN" ] && set -- "$@" --join-token "$JOIN_TOKEN"
+[ -n "$EXTERNAL_URL" ] && set -- "$@" --external-url "$EXTERNAL_URL"
 [ -n "$ANSWERS" ] && set -- "$@" --answers "$ANSWERS"
 [ -n "$CONFIG_DIR" ] && set -- "$@" --config-dir "$CONFIG_DIR"
 [ "$NON_INTERACTIVE" -eq 1 ] && set -- "$@" --non-interactive

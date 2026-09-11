@@ -385,6 +385,7 @@ func TestTeardownArgs(t *testing.T) {
 		Directory:      "/etc/zoomies",
 		ComposeCommand: []string{"docker", "compose"},
 		Container:      "zoomies",
+		Image:          "ghcr.io/eyupio/zoomies:dev",
 		Volume:         "zoomies-data",
 	}
 	name, args := ComposeDownArgs(rec, false)
@@ -406,6 +407,14 @@ func TestTeardownArgs(t *testing.T) {
 	}
 	if got := strings.Join(DockerVolumeRemoveArgs(rec), " "); got != "volume rm zoomies-data" {
 		t.Fatalf("volume rm = %q", got)
+	}
+	name, args = ContainerImageRemoveCommand(rec)
+	if got := name + " " + strings.Join(args, " "); got != "docker image rm ghcr.io/eyupio/zoomies:dev" {
+		t.Fatalf("image rm = %q", got)
+	}
+	rec.ComposeCommand = []string{"podman", "compose"}
+	if name, _ := ContainerImageRemoveCommand(rec); name != "podman" {
+		t.Fatalf("podman compose deployment should remove its image with podman, got %q", name)
 	}
 	// A record from an older install names nothing; the defaults still have to
 	// take down what that install actually made.

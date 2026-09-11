@@ -150,6 +150,10 @@ func deploymentItems(rec DeploymentRecord, opts UninstallOptions) []RemovalItem 
 	items := []RemovalItem{
 		{What: what, Path: target, Present: true, Note: note},
 	}
+	if rec.Image != "" {
+		items = append(items, RemovalItem{What: "container image", Path: rec.Image, Present: true,
+			Note: "removed after the container"})
+	}
 	if rec.EnvFile != "" {
 		items = append(items, RemovalItem{What: "environment file", Path: rec.EnvFile, Present: exists(rec.EnvFile),
 			Note: "it holds the encryption key"})

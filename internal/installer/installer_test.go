@@ -182,6 +182,24 @@ func TestDefaultExternalURL(t *testing.T) {
 	}
 }
 
+func TestNormalizeExternalURL(t *testing.T) {
+	for _, tc := range []struct {
+		in, want string
+	}{
+		{"zoomies.example.com", "https://zoomies.example.com"},
+		{"zoomies.example.com:8443/", "https://zoomies.example.com:8443"},
+		{"http://localhost:8080/", "http://localhost:8080"},
+		{"  https://zoomies.example.com/path/  ", "https://zoomies.example.com/path"},
+	} {
+		if got := normalizeExternalURL(tc.in); got != tc.want {
+			t.Errorf("normalizeExternalURL(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+		if err := validateAbsoluteURL(normalizeExternalURL(tc.in)); err != nil {
+			t.Errorf("normalised %q should be valid: %v", tc.in, err)
+		}
+	}
+}
+
 func TestListenChoiceFor(t *testing.T) {
 	cases := []struct {
 		bind    string
