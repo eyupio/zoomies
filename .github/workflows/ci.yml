@@ -285,7 +285,13 @@ jobs:
       - run: go build -o zoomies ./cmd/zoomies
       - run: npm ci --no-audit --no-fund
         working-directory: web
-      - run: npx playwright install --with-deps chromium
+      - name: Install Playwright Chromium
+        run: |
+          if sudo -n true >/dev/null 2>&1; then
+            npx playwright install --with-deps chromium
+          else
+            npx playwright install chromium
+          fi
         working-directory: web
       - run: npm run test:e2e
         working-directory: web
