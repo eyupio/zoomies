@@ -117,6 +117,7 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionInstallationsRead)).Get("/", s.handleListInstallations)
 			r.With(s.require(auth.ActionInstallationsWrite)).Post("/", s.handleCreateInstallation)
 			r.With(s.require(auth.ActionInstallationsWrite)).Post("/manifest", s.handleCreateManifest)
+			r.With(s.require(auth.ActionInstallationsWrite)).Post("/manifest/handoff", s.handleManifestHandoff)
 			r.With(s.require(auth.ActionInstallationsWrite)).Post("/manifest/exchange", s.handleExchangeManifest)
 			r.With(s.require(auth.ActionInstallationsRead)).Get("/{id}", s.handleGetInstallation)
 			r.With(s.require(auth.ActionInstallationsWrite)).Patch("/{id}", s.handleUpdateInstallation)
