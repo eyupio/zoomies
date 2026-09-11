@@ -66,7 +66,11 @@ test('creating an App explicitly keeps the GitHub handoff in this tab', async ({
 
   const handoff = page.locator('form#github-manifest');
   await expect(handoff).toHaveAttribute('target', '_self');
-  await expect(handoff).toHaveAttribute('action', /github\.com\/settings\/apps\/new/);
+  await expect(handoff).toHaveAttribute(
+    'action',
+    /\/api\/v1\/installations\/manifest\/handoff\?state=same-tab-state$/,
+  );
+  await expect(handoff.locator('input[name="manifest"]')).toHaveValue('{"name":"zoomies-acme"}');
   await expect(dialog.getByText(/in this tab/i)).toBeVisible();
 });
 
