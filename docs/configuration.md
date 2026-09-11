@@ -109,7 +109,7 @@ agent:
   labels: {}                    # ZOOMIES_AGENT_LABELS   -- "gpu=true,zone=eu"
   network: ""                   # ZOOMIES_AGENT_NETWORK
   heartbeat_interval: 30s       # ZOOMIES_HEARTBEAT_INTERVAL -- a host is lost after 90s of silence; above 45s is warned about
-  finished_retention: 10m       # ZOOMIES_AGENT_FINISHED_RETENTION -- how long a finished runner stays on disk
+  finished_retention: 0s        # ZOOMIES_AGENT_FINISHED_RETENTION -- 0 removes a finished workload after its report is acknowledged
   # Process backend only:
   runner_sha256: ""             # ZOOMIES_AGENT_RUNNER_SHA256 -- digest of the runner archive, when github.runner_version is pinned
   allow_unverified_runner_download: false   # ZOOMIES_AGENT_ALLOW_UNVERIFIED_RUNNER_DOWNLOAD -- warned about
@@ -511,6 +511,27 @@ available across matching hosts.
 
 Default is half the CPU count, on the reasoning that a job usually wants more
 than one core and the host still has to breathe.
+
+### `agent.finished_retention`
+
+A finished runner is removed from its host on the reconcile pass after the
+controller acknowledges the runner's terminal report. The default is `0s`:
+GitHub's job result and Zoomies' runner history remain available, but the
+stopped container's writable layer, its Docker-in-Docker sidecar and any
+Zoomies-created scratch directory do not accumulate from job to job.
+
+Set a non-zero duration only when you deliberately want a window in which to
+read the stopped container's local logs, for example:
+
+```yaml
+agent:
+  finished_retention: 10m
+```
+
+This setting does not delete a workload before its final state is safe. If the
+controller cannot acknowledge the terminal report, the agent keeps the
+workload and retries. It also does not prune shared Docker images, volumes or
+BuildKit cache.
 
 ### `agent.registry_auth`
 
