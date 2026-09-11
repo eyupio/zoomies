@@ -99,7 +99,7 @@ func NewFake() *FakeGitHub {
 		// repositories have no workflows". A test that wants a narrower App
 		// says so with SetPermissions.
 		permissions: map[string]string{
-			"actions":                          "read",
+			"actions":                          "write",
 			"metadata":                         "read",
 			"administration":                   "write",
 			"organization_self_hosted_runners": "write",

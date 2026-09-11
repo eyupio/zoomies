@@ -76,9 +76,9 @@ type EnvSpec struct {
 	// PollFallback is the queued-job poller. It is a pointer only so that
 	// "not set" can take the safe default of true rather than of false.
 	PollFallback *bool
-	// AllowWorkflowCancellation opts into GitHub Actions write access and the
-	// operator cancellation action. False preserves least privilege.
-	AllowWorkflowCancellation bool
+	// AllowWorkflowCancellation controls GitHub Actions write access and the
+	// operator cancellation action. It is a pointer so unset inherits true.
+	AllowWorkflowCancellation *bool
 	// GitHubAPIBaseURL is https://api.github.com, or a GHES API root.
 	GitHubAPIBaseURL string
 
@@ -174,6 +174,10 @@ func (s EnvSpec) defaults() EnvSpec {
 		on := true
 		s.PollFallback = &on
 	}
+	if s.AllowWorkflowCancellation == nil {
+		on := true
+		s.AllowWorkflowCancellation = &on
+	}
 	return s
 }
 
@@ -202,7 +206,7 @@ func (s EnvSpec) Config() *config.Config {
 
 	cfg.GitHub.APIBaseURL = s.GitHubAPIBaseURL
 	cfg.GitHub.PollFallback = *s.PollFallback
-	cfg.GitHub.AllowWorkflowCancellation = s.AllowWorkflowCancellation
+	cfg.GitHub.AllowWorkflowCancellation = *s.AllowWorkflowCancellation
 
 	cfg.Agent.Embedded = s.Embedded
 	cfg.Agent.Capacity = s.Capacity
@@ -304,8 +308,8 @@ func RenderEnv(spec EnvSpec) (string, error) {
 			"https://api.github.com, or https://ghes.example.com/api/v3 for GitHub Enterprise Server.")
 		w.set("ZOOMIES_POLL_FALLBACK", strconv.FormatBool(*s.PollFallback),
 			"The queued-job poller. Leave it on: it is what keeps jobs being picked up when a webhook delivery is lost or misconfigured.")
-		w.set("ZOOMIES_ALLOW_WORKFLOW_CANCELLATION", strconv.FormatBool(s.AllowWorkflowCancellation),
-			"Opt in to cancelling whole workflow runs from Zoomies. Enabling it also requires GitHub App Actions read and write permission.")
+		w.set("ZOOMIES_ALLOW_WORKFLOW_CANCELLATION", strconv.FormatBool(*s.AllowWorkflowCancellation),
+			"Allow operators to cancel whole workflow runs from Zoomies. Disable it to keep the GitHub App Actions permission read-only.")
 	}
 
 	w.section("The agent")
