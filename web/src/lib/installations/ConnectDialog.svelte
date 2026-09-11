@@ -545,18 +545,14 @@
   });
 
   /**
-   * Where the manifest is posted: the endpoint the API returned, with the
-   * handshake state appended, because the API returns the two separately.
+   * Post first to this controller. It validates the saved handshake and returns
+   * a 307 to GitHub, preserving the manifest body while keeping Android inside
+   * the browser that owns this setup.
    */
   const manifestAction = $derived.by(() => {
-    if (!postUrl) return '';
-    try {
-      const url = new URL(postUrl);
-      if (manifestState) url.searchParams.set('state', manifestState);
-      return url.toString();
-    } catch {
-      return postUrl;
-    }
+    if (!postUrl || !manifestState) return '';
+    const params = new URLSearchParams({ state: manifestState });
+    return `/api/v1/installations/manifest/handoff?${params.toString()}`;
   });
 
   /* -- step two: exchange the code -------------------------------------------- */
@@ -1106,10 +1102,10 @@
           screen, and reloading turns the POST into a GET, which GitHub answers
           with its blank create-an-App form.
 
-          It explicitly targets the current browsing context. Leaving that
-          implicit let mobile browsers treat the GitHub handoff as an external
-          launch and offer a browser/app chooser instead of continuing the
-          setup in the tab that owns the saved handshake.
+          Its first destination is this controller, which answers with a 307
+          redirect to GitHub. The redirect preserves the manifest POST without
+          exposing a user-clicked github.com URL for Android to dispatch to a
+          different browser or app.
 
           It sits outside the step form because HTML has no nested forms, and
           the step form is what makes Enter work everywhere else in the dialog.
