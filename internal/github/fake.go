@@ -111,8 +111,11 @@ func NewFake() *FakeGitHub {
 		nextRunnerID: 1,
 		nextJobID:    1000,
 		nextRunID:    5000,
-		groups:       []RunnerGroup{{ID: 1, Name: "Default"}},
-		rateLimit:    RateLimit{Limit: 5000, Remaining: 4999, ResetAt: time.Now().Add(time.Hour).UTC()},
+		groups: []RunnerGroup{{
+			ID: 1, Name: "Default", Default: true,
+			PublicRepositoryAccessKnown: true, AllowsPublicRepositories: true,
+		}},
+		rateLimit: RateLimit{Limit: 5000, Remaining: 4999, ResetAt: time.Now().Add(time.Hour).UTC()},
 	}
 	f.srv = httptest.NewServer(f.handler())
 	return f
@@ -190,9 +193,26 @@ func (f *FakeGitHub) addRepoLocked(fullName string) {
 func (f *FakeGitHub) AddRunnerGroup(name string) RunnerGroup {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	g := RunnerGroup{ID: int64(len(f.groups) + 1), Name: name}
+	g := RunnerGroup{ID: int64(len(f.groups) + 1), Name: name,
+		PublicRepositoryAccessKnown: true, AllowsPublicRepositories: true}
 	f.groups = append(f.groups, g)
 	return g
+}
+
+// SetRunnerGroupPublicAccess changes the public-repository policy GitHub
+// reports for a group. It exists for controller tests of the otherwise easy
+// to miss state where a runner is online but no public-repository job is
+// eligible to use it.
+func (f *FakeGitHub) SetRunnerGroupPublicAccess(name string, allowed bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.groups {
+		if strings.EqualFold(f.groups[i].Name, name) {
+			f.groups[i].PublicRepositoryAccessKnown = true
+			f.groups[i].AllowsPublicRepositories = allowed
+			return
+		}
+	}
 }
 
 // AddRunner registers a runner that Zoomies did not create, which is how a
@@ -642,7 +662,12 @@ func (f *FakeGitHub) listRunnerGroups(w http.ResponseWriter, _ *http.Request) {
 	defer f.mu.Unlock()
 	out := make([]map[string]any, 0, len(f.groups))
 	for _, g := range f.groups {
-		out = append(out, map[string]any{"id": g.ID, "name": g.Name, "default": g.ID == 1})
+		out = append(out, map[string]any{
+			"id": g.ID, "name": g.Name, "default": g.Default,
+			"visibility":                 g.Visibility,
+			"allows_public_repositories": g.AllowsPublicRepositories,
+			"restricted_to_workflows":    g.RestrictedToWorkflows,
+		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(out), "runner_groups": out})
 }

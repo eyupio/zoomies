@@ -169,8 +169,16 @@ type QueuedJob struct {
 
 // RunnerGroup is a runner group in the target org.
 type RunnerGroup struct {
-	ID   int64
-	Name string
+	ID         int64
+	Name       string
+	Default    bool
+	Visibility string
+	// PublicRepositoryAccessKnown distinguishes an older GitHub Enterprise
+	// response that omitted the setting from a group that explicitly disables
+	// it. Treating both as false would raise a warning nobody could act on.
+	PublicRepositoryAccessKnown bool
+	AllowsPublicRepositories    bool
+	RestrictedToWorkflows       bool
 }
 
 // AppInfo describes the authenticated GitHub App.

@@ -2,6 +2,7 @@ package controller
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -161,6 +162,46 @@ func TestAPoolWithNoRunnerGroupIsNotWarnedAbout(t *testing.T) {
 		})
 	}
 	_ = h
+}
+
+func TestAPoolWhoseRunnerGroupBlocksPublicRepositoriesSaysJobsCanStayQueued(t *testing.T) {
+	h := newHarness(t)
+	h.gh.SetRunnerGroupPublicAccess("Default", false)
+	pool := groupPool(h, "")
+
+	ps, err := h.c.Problems(h.ctx)
+	if err != nil {
+		t.Fatalf("Problems: %v", err)
+	}
+	for _, p := range ps {
+		if p.Code != "pool.runner_group_public_repositories_blocked" || p.TargetID != pool.ID {
+			continue
+		}
+		if !strings.Contains(p.Detail, "remain queued") || !strings.Contains(p.Fix, "Allow public repositories") {
+			t.Fatalf("warning = %+v, want the symptom and the GitHub setting that fixes it", p)
+		}
+		return
+	}
+	t.Fatal("a pool whose runner group blocks public repositories raised no warning")
+}
+
+func TestInstallationProbeFindsBlockedPublicRepositoryAccessWithoutCreatingARunner(t *testing.T) {
+	h := newHarness(t)
+	inst, pool, _ := h.fleet()
+	h.gh.SetRunnerGroupPublicAccess("Default", false)
+
+	if _, err := h.c.ProbeInstallation(h.ctx, inst.ID); err != nil {
+		t.Fatalf("ProbeInstallation: %v", err)
+	}
+	ps, err := h.c.Problems(h.ctx)
+	if err != nil {
+		t.Fatalf("Problems: %v", err)
+	}
+	if !slices.ContainsFunc(ps, func(p Problem) bool {
+		return p.Code == "pool.runner_group_public_repositories_blocked" && p.TargetID == pool.ID
+	}) {
+		t.Fatalf("problem codes = %v, want public-repository runner-group warning", h.problemCodes())
+	}
 }
 
 // Losing the lease means another controller is running against the same

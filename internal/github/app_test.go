@@ -197,6 +197,9 @@ func TestListRunnerGroups(t *testing.T) {
 	if len(org) != 2 || org[0].Name != "Default" || org[1].Name != "gpu" {
 		t.Fatalf("org groups = %+v", org)
 	}
+	if !org[0].Default || !org[0].PublicRepositoryAccessKnown || !org[0].AllowsPublicRepositories {
+		t.Fatalf("default group policy = %+v, want public-repository access", org[0])
+	}
 
 	// Runner groups are an organisation concept; a repo target reports none
 	// rather than failing, so the pool form can show an empty picker.
