@@ -198,8 +198,12 @@ type Controller struct {
 	resynced map[string]bool
 	// release is what the last update check learned about the current release
 	// of Zoomies, or nil until one has answered.
-	release  *releaseState
-	embedded *agent.Agent
+	release *releaseState
+	// development is the head of main learned by a controller running the
+	// moving dev channel. Release checks deliberately cannot order that build,
+	// so it needs its own comparison.
+	development *developmentState
+	embedded    *agent.Agent
 	// embeddedCancel stops the in-process agent, which may have been started
 	// with a context the controller does not otherwise control.
 	embeddedCancel context.CancelFunc

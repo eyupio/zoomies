@@ -63,6 +63,25 @@ func TestReleaseVersionAcceptsOnlyABuildFromARelease(t *testing.T) {
 	}
 }
 
+func TestDevelopmentCommitAcceptsOnlyPublishedMainBuilds(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want string
+		ok   bool
+	}{
+		{"main-sha-abc1234", "abc1234", true},
+		{"main-sha-0123456789abcdef", "0123456789abcdef", true},
+		{"main-sha-short", "", false},
+		{"dev", "", false},
+		{"1.0.0", "", false},
+	} {
+		got, ok := developmentCommit(tc.in)
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("developmentCommit(%q) = %q, %v; want %q, %v", tc.in, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
 func TestUpdateProblemSaysNothingWithoutAReleaseToCompare(t *testing.T) {
 	h := newHarness(t)
 
@@ -117,6 +136,33 @@ func TestUpdateProblemNamesBothVersions(t *testing.T) {
 	}
 }
 
+func TestDevelopmentUpdateProblemNamesRunningAndMainCommits(t *testing.T) {
+	h := newHarness(t)
+	withVersion(t, "main-sha-abc1234")
+	h.c.mu.Lock()
+	h.c.development = &developmentState{SHA: "def5678901234567", URL: "https://example.invalid/commit/def5678", At: time.Now()}
+	h.c.mu.Unlock()
+
+	got := h.c.updateProblems()
+	if len(got) != 1 {
+		t.Fatalf("problems = %v, want one", got)
+	}
+	p := got[0]
+	if p.Code != "controller.development_update_available" || !strings.Contains(p.Title, "abc1234") || !strings.Contains(p.Title, "def5678") {
+		t.Fatalf("problem = %+v, want both development commits", p)
+	}
+	if !strings.Contains(p.Detail, "actually published") || !strings.Contains(p.Fix, "zoomies upgrade") {
+		t.Fatalf("problem does not explain the stale channel: %+v", p)
+	}
+
+	h.c.mu.Lock()
+	h.c.development.SHA = "abc1234fffffffffffffffffffffffff"
+	h.c.mu.Unlock()
+	if got := h.c.updateProblems(); len(got) != 0 {
+		t.Fatalf("matching development build reported as stale: %v", got)
+	}
+}
+
 // Switching the check off has to switch the notice off too, or an air-gapped
 // fleet keeps being told about a release it deliberately stopped asking for.
 func TestUpdateProblemIsSilentWhenTheCheckIsOff(t *testing.T) {
@@ -135,6 +181,7 @@ func TestUpdateProblemIsSilentWhenTheCheckIsOff(t *testing.T) {
 
 func TestCheckForReleaseRecordsWhatGitHubSaid(t *testing.T) {
 	h := newHarness(t)
+	withVersion(t, "0.1-alpha")
 	h.c.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) *http.Response {
 		if r.URL.String() != latestReleaseURL {
 			t.Errorf("asked %s, want %s", r.URL, latestReleaseURL)
@@ -147,6 +194,27 @@ func TestCheckForReleaseRecordsWhatGitHubSaid(t *testing.T) {
 	got := h.c.latestRelease()
 	if got == nil || got.Tag != "v0.2-beta" || got.URL != "https://example.invalid/r" {
 		t.Fatalf("release = %+v", got)
+	}
+}
+
+func TestDevelopmentBuildChecksMainInsteadOfTheLatestRelease(t *testing.T) {
+	h := newHarness(t)
+	withVersion(t, "main-sha-abc1234")
+	h.c.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) *http.Response {
+		if r.URL.String() != mainCommitURL {
+			t.Errorf("asked %s, want %s", r.URL, mainCommitURL)
+		}
+		return jsonResponse(http.StatusOK, `{"sha":"def5678901234567","html_url":"https://example.invalid/commit/def5678"}`)
+	})}
+
+	h.c.checkForRelease(h.ctx)
+
+	got := h.c.latestDevelopment()
+	if got == nil || got.SHA != "def5678901234567" || got.URL != "https://example.invalid/commit/def5678" {
+		t.Fatalf("development = %+v", got)
+	}
+	if got := h.c.latestRelease(); got != nil {
+		t.Fatalf("release = %+v, want no release comparison for a main build", got)
 	}
 }
 

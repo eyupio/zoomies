@@ -364,6 +364,14 @@ func TestMainPublishesAnInstallableDevBinary(t *testing.T) {
 	}
 }
 
+func TestMainPublishingRunsCannotCancelOneAnother(t *testing.T) {
+	ci := workflowFiles(t)["ci.yml"]
+	want := "cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}"
+	if !strings.Contains(ci, want) {
+		t.Fatalf("ci.yml is missing %q; a newer main run can cancel the publisher and leave :dev stale", want)
+	}
+}
+
 // An agent host that wants a container needs an image that is an agent.
 //
 // deploy/Dockerfile has carried an `agent` target since it was written and no
@@ -397,10 +405,22 @@ func TestCIDogfoodsZoomiesWithRecoveryForEveryJob(t *testing.T) {
 		if len(matches) == 0 {
 			t.Fatalf("%s has no job runners", name)
 		}
+		githubHosted := 0
 		for _, m := range matches {
+			if name == "ci.yml" && m[1] == "ubuntu-latest" {
+				githubHosted++
+				continue
+			}
 			if !strings.Contains(m[1], selector) {
 				t.Errorf("%s has a job without fork protection and manual recovery: %s", name, m[1])
 			}
+		}
+		// install.sh is the sole exception: it verifies host installation with
+		// sudo and system packages, which a deliberately minimal runner image
+		// does not provide. Keep the exception singular so another job cannot
+		// silently stop dogfooding the fleet.
+		if name == "ci.yml" && githubHosted != 1 {
+			t.Errorf("ci.yml has %d always-GitHub-hosted jobs, want only the install.sh check", githubHosted)
 		}
 	}
 	ci := files["ci.yml"]

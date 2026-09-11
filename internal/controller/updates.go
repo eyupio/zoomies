@@ -23,6 +23,7 @@ const (
 	// latestReleaseURL is the API redirect GitHub maintains for the newest
 	// release that is neither a draft nor a prerelease.
 	latestReleaseURL = "https://api.github.com/repos/eyupio/zoomies/releases/latest"
+	mainCommitURL    = "https://api.github.com/repos/eyupio/zoomies/commits/main"
 	// updateCheckTimeout bounds the request. Nothing waits on this, so it can
 	// afford to be patient, but not to hold a housekeeping pass open.
 	updateCheckTimeout = 15 * time.Second
@@ -36,6 +37,28 @@ type releaseState struct {
 	URL string
 	// At is when this was learned, so a stale answer can be recognised.
 	At time.Time
+}
+
+// developmentState is what the last successful main-branch check learned.
+type developmentState struct {
+	SHA string
+	URL string
+	At  time.Time
+}
+
+// developmentCommit returns the commit stamped into a published main build.
+func developmentCommit(v string) (string, bool) {
+	const prefix = "main-sha-"
+	sha := strings.TrimPrefix(strings.TrimSpace(v), prefix)
+	if sha == v || len(sha) < 7 {
+		return "", false
+	}
+	for _, r := range sha {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return "", false
+		}
+	}
+	return sha, true
 }
 
 // releaseVersion reports the release this binary was built from, and whether it
@@ -59,6 +82,10 @@ func releaseVersion(v string) (string, bool) { return version.Release(v) }
 func (c *Controller) checkForRelease(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, updateCheckTimeout)
 	defer cancel()
+	if _, ok := developmentCommit(version.Version); ok {
+		c.checkForMain(ctx)
+		return
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, latestReleaseURL, nil)
 	if err != nil {
@@ -98,9 +125,52 @@ func (c *Controller) checkForRelease(ctx context.Context) {
 	c.mu.Unlock()
 }
 
+// checkForMain gives a moving dev build a source of truth. The registry tag
+// can remain perfectly reachable while CI has failed to advance it, so asking
+// the branch rather than the tag is what detects that failure mode.
+func (c *Controller) checkForMain(ctx context.Context) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, mainCommitURL, nil)
+	if err != nil {
+		c.log.Debug("could not build the main branch check request", "error", err)
+		return
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", version.UserAgent())
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		c.log.Debug("could not ask GitHub which commit is on main", "error", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		c.log.Debug("the main branch check was refused", "status", resp.StatusCode)
+		return
+	}
+	var body struct {
+		SHA     string `json:"sha"`
+		HTMLURL string `json:"html_url"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		c.log.Debug("could not read the main branch check answer", "error", err)
+		return
+	}
+	if strings.TrimSpace(body.SHA) == "" {
+		return
+	}
+	c.mu.Lock()
+	c.development = &developmentState{SHA: body.SHA, URL: body.HTMLURL, At: c.Now()}
+	c.mu.Unlock()
+}
+
 // latestRelease returns what the last check learned, or nil.
 func (c *Controller) latestRelease() *releaseState {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.release
+}
+
+func (c *Controller) latestDevelopment() *developmentState {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.development
 }
