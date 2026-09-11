@@ -67,7 +67,7 @@ jobs:
 
   drill:
     name: Drill
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: zoomies-linux-x64
     # Only this job, and only to append its own rows to the drill record on the
     # default branch: the record is worth nothing unless a run keeps it, and
     # every other job here reads.
@@ -161,7 +161,7 @@ jobs:
 
   upgrade:
     name: Upgrade
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: zoomies-linux-x64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -267,7 +267,7 @@ jobs:
 
   playwright:
     name: Playwright
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: zoomies-linux-x64
     needs: [ui]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -334,7 +334,7 @@ jobs:
     name: Publish dev binaries
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [go, ui, installer]
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: zoomies-linux-x64
     permissions:
       contents: write
       id-token: write
@@ -412,7 +412,7 @@ jobs:
 
   images:
     name: Images
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: zoomies-linux-x64
     needs: [dev-binaries]
     # On a main push, do not expose a new :dev controller until its matching
     # downloadable binary exists. Pull requests and manual image checks have no
@@ -642,7 +642,7 @@ jobs:
   # catalogue in step, so a new operating system cannot be half-added.
   runner-images:
     name: Runner image (${{ matrix.tag }})
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: zoomies-linux-x64
     needs: [images]
     if: needs.images.outputs.runner == 'true'
     permissions:

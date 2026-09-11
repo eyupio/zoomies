@@ -40,7 +40,7 @@ jobs:
     # therefore produces a cleanly skipped release run rather than trying to
     # turn a moving channel into a versioned release.
     if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'v')
-    runs-on: ubuntu-latest
+    runs-on: zoomies-linux-x64
     outputs:
       tag: ${{ steps.release.outputs.tag }}
       version: ${{ steps.release.outputs.version }}
