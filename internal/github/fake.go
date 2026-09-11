@@ -372,10 +372,23 @@ func (f *FakeGitHub) handler() http.Handler {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/jobs/{job}", f.getWorkflowJob)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs", f.listWorkflowRuns)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs/{run}/jobs", f.listWorkflowJobs)
+	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/runs/{run}/cancel", f.cancelWorkflowRun)
+	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/runs/{run}/force-cancel", f.cancelWorkflowRun)
 
 	f.registerMigrationRoutes(mux)
 
 	return f.middleware(mux)
+}
+
+func (f *FakeGitHub) cancelWorkflowRun(w http.ResponseWriter, _ *http.Request) {
+	f.mu.Lock()
+	level := f.permissions["actions"]
+	f.mu.Unlock()
+	if level != "write" {
+		writeError(w, http.StatusForbidden, "Resource not accessible by integration")
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
 }
 
 // middleware records the request, strips the GitHub Enterprise Server /api/v3

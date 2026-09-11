@@ -1205,6 +1205,45 @@ paths:
               schema: { $ref: "#/components/schemas/Job" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /jobs/{id}/cancel:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: cancelJobWorkflow
+      tags: [jobs]
+      summary: Cancel the GitHub workflow run containing a job
+      description: >-
+        Asks GitHub to cancel the whole workflow run, not only this job. The
+        request is asynchronous; Zoomies keeps the job pending until a webhook
+        or the fallback poller confirms its terminal state. Requires the opt-in
+        setting and GitHub App Actions write permission.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                force:
+                  type: boolean
+                  default: false
+                  description: Bypass conditions that may leave an ordinary cancellation stuck.
+      responses:
+        "202":
+          description: GitHub accepted the cancellation request
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accepted, force, run_id]
+                properties:
+                  accepted: { type: boolean }
+                  force: { type: boolean }
+                  run_id: { type: integer, format: int64 }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
   /jobs/{id}/events:
     parameters: [{ $ref: "#/components/parameters/PathID" }]
     get:
@@ -2286,6 +2325,7 @@ components:
         webhook_url: { type: string }
         polling_only: { type: boolean, description: True when no webhook has ever been received and the poller is doing the work. }
         poller_enabled: { type: boolean, description: True when the fallback poller is running. It is off only by configuration, never by failure. }
+        workflow_cancellation_enabled: { type: boolean, description: True when operators may ask GitHub to cancel workflow runs. }
         poller_last_poll_at: { type: string, format: date-time, nullable: true, description: When the fallback poller last completed a sweep, or absent if it has not completed one since this controller started. }
 
     # --- overview ---------------------------------------------------------
@@ -3246,7 +3286,7 @@ components:
         the queue wait starts at `approved`. `runner_returned` withdraws a `runner_lost`:
         the host was silent long enough to be given up on, came back with the runner
         still executing this job, and the job is being left to finish.
-      enum: [queued, waiting, approved, claimed, unmatched, started, completed, runner_lost, runner_returned]
+      enum: [queued, waiting, approved, claimed, unmatched, started, completed, runner_lost, runner_returned, cancel_requested]
 
     JobEvent:
       type: object

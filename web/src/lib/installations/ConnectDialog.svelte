@@ -452,7 +452,9 @@
     targetType === 'repo'
       ? "administration: write — register and remove this repository's runners"
       : "organization_self_hosted_runners: write — register and remove the org's runners",
-    'actions: read — read workflow runs and jobs for the fallback poller',
+    session.meta?.workflow_cancellation_enabled
+      ? 'actions: write — read workflow jobs and cancel workflow runs from Zoomies'
+      : 'actions: read — read workflow runs and jobs for the fallback poller',
     'metadata: read — required by GitHub for every App',
     'contents: write — read and rewrite workflow files for the migration wizard',
     "pull_requests: write — open the migration wizard's pull request",

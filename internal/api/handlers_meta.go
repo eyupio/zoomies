@@ -38,8 +38,9 @@ type metaResponse struct {
 	// and when it last ran. They sit beside polling_only because they are the
 	// same class of fact about this deployment, and none of the three tells an
 	// unauthenticated visitor anything they could act on.
-	PollerEnabled    bool       `json:"poller_enabled"`
-	PollerLastPollAt *time.Time `json:"poller_last_poll_at,omitempty"`
+	PollerEnabled               bool       `json:"poller_enabled"`
+	PollerLastPollAt            *time.Time `json:"poller_last_poll_at,omitempty"`
+	WorkflowCancellationEnabled bool       `json:"workflow_cancellation_enabled"`
 }
 
 // handleMeta answers GET /api/v1/meta.
@@ -50,16 +51,17 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := metaResponse{
-		Version:           version.Short(),
-		VersionChannel:    version.Channel(version.Version),
-		Commit:            version.Commit,
-		BootstrapRequired: needsBootstrap,
-		AuthDisabled:      s.cfg().Security.DisableAuth,
-		OIDCEnabled:       s.oidc.Enabled(),
-		ExternalURL:       s.cfg().Server.ExternalURL,
-		WebhookURL:        s.cfg().WebhookURL(),
-		PollingOnly:       s.ctrl.PollingOnly(),
-		PollerEnabled:     s.ctrl.PollerEnabled(),
+		Version:                     version.Short(),
+		VersionChannel:              version.Channel(version.Version),
+		Commit:                      version.Commit,
+		BootstrapRequired:           needsBootstrap,
+		AuthDisabled:                s.cfg().Security.DisableAuth,
+		OIDCEnabled:                 s.oidc.Enabled(),
+		ExternalURL:                 s.cfg().Server.ExternalURL,
+		WebhookURL:                  s.cfg().WebhookURL(),
+		PollingOnly:                 s.ctrl.PollingOnly(),
+		PollerEnabled:               s.ctrl.PollerEnabled(),
+		WorkflowCancellationEnabled: s.cfg().GitHub.AllowWorkflowCancellation,
 	}
 	if last := s.ctrl.LastPollAt(); !last.IsZero() {
 		out.PollerLastPollAt = &last

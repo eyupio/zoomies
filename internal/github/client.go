@@ -228,6 +228,9 @@ type Client interface {
 	ListQueuedJobs(ctx context.Context) ([]QueuedJob, error)
 	// GetWorkflowJob reconciles a known job even after its run has completed.
 	GetWorkflowJob(ctx context.Context, repo string, id int64) (*WorkflowJobEvent, error)
+	// CancelWorkflowRun asks GitHub to cancel the entire run containing a job.
+	// Force bypasses conditions that may otherwise keep a run cancelling.
+	CancelWorkflowRun(ctx context.Context, repo string, runID int64, force bool) error
 	// RateLimit reports remaining quota.
 	RateLimit(ctx context.Context) (*RateLimit, error)
 	// WebURL returns the browser URL for the target.

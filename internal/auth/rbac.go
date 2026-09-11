@@ -38,8 +38,12 @@ const (
 	ActionRunnersDelete Action = "runners.delete"
 )
 
-// Job actions. Jobs are observed, never mutated, so there is only a read.
-const ActionJobsRead Action = "jobs.read"
+// Job actions. Cancellation is deliberately separate: GitHub cancels the
+// whole workflow run, not only the job selected in Zoomies.
+const (
+	ActionJobsRead   Action = "jobs.read"
+	ActionJobsCancel Action = "jobs.cancel"
+)
 const ActionUsageRead Action = "usage.read"
 
 // Host actions.
@@ -127,8 +131,9 @@ var actionRoles = map[Action]store.Role{
 	ActionRunnersDrain:  store.RoleOperator,
 	ActionRunnersDelete: store.RoleOperator,
 
-	ActionJobsRead:  store.RoleViewer,
-	ActionUsageRead: store.RoleViewer,
+	ActionJobsRead:   store.RoleViewer,
+	ActionJobsCancel: store.RoleOperator,
+	ActionUsageRead:  store.RoleViewer,
 
 	ActionHostsRead:   store.RoleViewer,
 	ActionHostsWrite:  store.RoleOperator,

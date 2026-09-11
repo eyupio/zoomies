@@ -2,11 +2,66 @@ package api
 
 import (
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
 )
+
+func TestCancelJobWorkflowCallsGitHubAndRecordsRequest(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.GitHub.AllowWorkflowCancellation = true })
+	h.gh.SetPermissions(map[string]string{"actions": "write"})
+	inst := h.installation()
+	pool := h.pool(inst, "linux")
+	j := h.job(pool, store.JobQueued)
+	_, cookie := h.user("operator", store.RoleOperator)
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/jobs/" + j.ID + "/cancel", body: map[string]any{"force": false}, cookie: cookie})
+	if resp.status != http.StatusAccepted {
+		t.Logf("controller log:\n%s", h.logs.text())
+	}
+	resp.mustStatus(t, http.StatusAccepted, "cancelling a workflow run")
+
+	force := h.do(request{method: http.MethodPost, path: "/api/v1/jobs/" + j.ID + "/cancel", body: map[string]any{"force": true}, cookie: cookie})
+	force.mustStatus(t, http.StatusAccepted, "force cancelling a workflow run")
+
+	for _, want := range []string{
+		"POST /repos/acme/widgets/actions/runs/1/cancel",
+		"POST /repos/acme/widgets/actions/runs/1/force-cancel",
+	} {
+		if !slices.Contains(h.gh.Requests(), want) {
+			t.Fatalf("GitHub requests = %v, want %q", h.gh.Requests(), want)
+		}
+	}
+	events, err := h.ctrl.JobEvents(h.ctx, j.ID)
+	if err != nil {
+		t.Fatalf("JobEvents: %v", err)
+	}
+	if len(events) != 2 || events[0].Kind != store.JobEventCancelRequested || events[1].Kind != store.JobEventCancelRequested {
+		t.Fatalf("events = %+v, want two cancel_requested entries", events)
+	}
+	after, err := h.st.GetJob(h.ctx, j.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if after.State != store.JobQueued {
+		t.Fatalf("state = %q, want queued until GitHub confirms cancellation", after.State)
+	}
+}
+
+func TestCancelJobWorkflowIsOptInAndOperatorOnly(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux")
+	j := h.job(pool, store.JobQueued)
+	_, viewer := h.user("viewer", store.RoleViewer)
+	_, operator := h.user("operator", store.RoleOperator)
+
+	h.do(request{method: http.MethodPost, path: "/api/v1/jobs/" + j.ID + "/cancel", body: map[string]any{}, cookie: viewer}).mustStatus(t, http.StatusForbidden, "a viewer cancelling a workflow")
+	h.do(request{method: http.MethodPost, path: "/api/v1/jobs/" + j.ID + "/cancel", body: map[string]any{}, cookie: operator}).mustStatus(t, http.StatusConflict, "cancellation while the feature is disabled")
+}
 
 // The Jobs page asks for managed=true by default, so the parameter has to reach
 // the store: GitHub reports every job in an installed repository, and a fleet

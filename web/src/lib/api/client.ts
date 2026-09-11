@@ -346,6 +346,9 @@ export const getJobEvents = (id: string, signal?: AbortSignal) =>
 export const getJobExplanation = (id: string, signal?: AbortSignal) =>
   api.get<Result<'getJobExplanation'>>(`/jobs/${enc(id)}/explanation`, { signal });
 
+export const cancelJobWorkflow = (id: string, body: Body<'cancelJobWorkflow'>) =>
+  api.post<Result<'cancelJobWorkflow'>>(`/jobs/${enc(id)}/cancel`, { body });
+
 /* -- hosts ---------------------------------------------------------------- */
 
 export const listHosts = (signal?: AbortSignal) =>

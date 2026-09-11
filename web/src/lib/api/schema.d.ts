@@ -833,6 +833,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/jobs/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel the GitHub workflow run containing a job
+         * @description Asks GitHub to cancel the whole workflow run, not only this job. The request is asynchronous; Zoomies keeps the job pending until a webhook or the fallback poller confirms its terminal state. Requires the opt-in setting and GitHub App Actions write permission.
+         */
+        post: operations["cancelJobWorkflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/jobs/{id}/events": {
         parameters: {
             query?: never;
@@ -1552,6 +1575,8 @@ export interface components {
             polling_only?: boolean;
             /** @description True when the fallback poller is running. It is off only by configuration */
             poller_enabled?: boolean;
+            /** @description True when operators may ask GitHub to cancel workflow runs. */
+            workflow_cancellation_enabled?: boolean;
             /**
              * Format: date-time
              * @description When the fallback poller last completed a sweep
@@ -2453,7 +2478,7 @@ export interface components {
          * @description What happened. `runner_lost` is the one entry GitHub cannot produce: the runner stopped under the job, and GitHub will report an ordinary failure. `waiting` and `approved` bracket a deployment review: the time between them is GitHub's, and the queue wait starts at `approved`. `runner_returned` withdraws a `runner_lost`: the host was silent long enough to be given up on, came back with the runner still executing this job, and the job is being left to finish.
          * @enum {string}
          */
-        JobEventKind: "queued" | "waiting" | "approved" | "claimed" | "unmatched" | "started" | "completed" | "runner_lost" | "runner_returned";
+        JobEventKind: "queued" | "waiting" | "approved" | "claimed" | "unmatched" | "started" | "completed" | "runner_lost" | "runner_returned" | "cancel_requested";
         JobEvent: {
             id?: string;
             job_id?: string;
@@ -4209,6 +4234,47 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    cancelJobWorkflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description Bypass conditions that may leave an ordinary cancellation stuck.
+                     * @default false
+                     */
+                    force?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description GitHub accepted the cancellation request */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        accepted: boolean;
+                        force: boolean;
+                        /** Format: int64 */
+                        run_id: number;
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     getJobEvents: {

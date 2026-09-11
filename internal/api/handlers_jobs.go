@@ -1,12 +1,53 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 
 	"github.com/eyupio/zoomies/internal/controller"
+	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/store"
 )
+
+type cancelJobRequest struct {
+	Force bool `json:"force"`
+}
+
+type cancelJobResponse struct {
+	Accepted bool  `json:"accepted"`
+	Force    bool  `json:"force"`
+	RunID    int64 `json:"run_id"`
+}
+
+func (s *Server) handleCancelJobWorkflow(w http.ResponseWriter, r *http.Request) {
+	var req cancelJobRequest
+	if !decodeOptional(w, r, &req) {
+		return
+	}
+	j, err := s.ctrl.CancelJobWorkflow(r.Context(), chiURLParam(r, "id"), req.Force)
+	if err != nil {
+		switch {
+		case errors.Is(err, controller.ErrWorkflowCancellationDisabled):
+			conflict(w, err.Error()+"; set github.allow_workflow_cancellation to true and restart Zoomies")
+		case errors.Is(err, controller.ErrJobAlreadyCompleted):
+			conflict(w, err.Error())
+		case errors.Is(err, github.ErrForbidden):
+			forbidden(w, err.Error())
+		default:
+			s.fail(w, r, "cancelling the GitHub workflow run", err)
+		}
+		return
+	}
+	action := "job.cancel_requested"
+	if req.Force {
+		action = "job.force_cancel_requested"
+	}
+	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), action, "job", j.ID, map[string]any{
+		"repo": j.Repo, "run_id": j.GitHubRunID, "force": req.Force,
+	})
+	writeJSON(w, http.StatusAccepted, cancelJobResponse{Accepted: true, Force: req.Force, RunID: j.GitHubRunID})
+}
 
 // jobResponse is one workflow job as Zoomies observed it.
 //

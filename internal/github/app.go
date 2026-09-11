@@ -858,3 +858,38 @@ func (c *appClient) GetWorkflowJob(ctx context.Context, repo string, id int64) (
 	}
 	return ParseWorkflowJob(body)
 }
+
+// CancelWorkflowRun calls GitHub's run-level cancellation API. GitHub does not
+// expose job-level cancellation, so callers must make that blast radius clear.
+func (c *appClient) CancelWorkflowRun(ctx context.Context, repo string, runID int64, force bool) error {
+	owner, name, kind := SplitTarget(repo)
+	if kind != store.TargetRepo || runID <= 0 {
+		return fmt.Errorf("github: invalid workflow run %q/%d", repo, runID)
+	}
+	var resp *gh.Response
+	var err error
+	if force {
+		path := fmt.Sprintf("repos/%s/%s/actions/runs/%d/force-cancel", owner, name, runID)
+		req, reqErr := c.asInstallation.NewRequest(ctx, http.MethodPost, path, nil)
+		if reqErr != nil {
+			return errorf("force cancel workflow run", reqErr)
+		}
+		resp, err = c.asInstallation.Do(req, nil)
+	} else {
+		resp, err = c.asInstallation.Actions.CancelWorkflowRunByID(ctx, owner, name, runID)
+	}
+	// go-github represents 202 Accepted as AcceptedError because the operation
+	// is asynchronous. For cancellation, accepted is exactly success.
+	if err == nil || (resp != nil && resp.StatusCode == http.StatusAccepted) {
+		return nil
+	}
+	op := "cancel workflow run"
+	if force {
+		op = "force cancel workflow run"
+	}
+	e := classify(resp, err)
+	if errors.Is(e, ErrForbidden) {
+		return fmt.Errorf("github: %s: %w; check the App installation on %s: it needs \"Actions\" (actions) read and write, and changed permissions must be accepted on the installation", op, e, c.target)
+	}
+	return errorf(op, e)
+}
