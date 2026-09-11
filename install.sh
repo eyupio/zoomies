@@ -321,7 +321,10 @@ esac
 case "$PORT" in
     "") ;;
     *[!0-9]*) die "--port must be a whole number from 1 to 65535." ;;
-    *) [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || die "--port must be from 1 to 65535." ;;
+    *)
+        if [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+            die "--port must be from 1 to 65535."
+        fi ;;
 esac
 
 if [ -n "$ANSWERS" ] && [ ! -r "$ANSWERS" ]; then
@@ -415,7 +418,10 @@ prompt_install_inputs() {
         [ -n "$PORT" ] || PORT=8080
         case "$PORT" in
             *[!0-9]*) die "the port must be a whole number from 1 to 65535." ;;
-            *) [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || die "the port must be from 1 to 65535." ;;
+            *)
+                if [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+                    die "the port must be from 1 to 65535."
+                fi ;;
         esac
         say ""
     fi

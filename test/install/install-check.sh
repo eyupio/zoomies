@@ -88,6 +88,10 @@ run join-does-not-need-yes \
     --version 0.2-beta --mode agent \
     --controller https://zoomies.example.com --join-token zoojoin_abc123 --no-init
 
+run rejects-out-of-range-port \
+    "--port must be from 1 to 65535." "" \
+    --version 0.2-beta --port 65536 --no-init
+
 # dev is a moving GitHub prerelease tag, not a numeric version to prefix with
 # v. A fake release endpoint makes the URL and checksum behaviour observable
 # without reaching the network.
