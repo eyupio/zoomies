@@ -123,7 +123,7 @@ func TestRenderEnvCarriesEveryVariableWithAComment(t *testing.T) {
 		"ZOOMIES_LOG_FORMAT":                  "json",
 		"ZOOMIES_LOG_LEVEL":                   "info",
 		"ZOOMIES_POLL_FALLBACK":               "true",
-		"ZOOMIES_ALLOW_WORKFLOW_CANCELLATION": "false",
+		"ZOOMIES_ALLOW_WORKFLOW_CANCELLATION": "true",
 		"ZOOMIES_GITHUB_API_BASE_URL":         spec.GitHubAPIBaseURL,
 		"ZOOMIES_IMAGE":                       spec.Image,
 		"ZOOMIES_PUBLISHED_ADDR":              "127.0.0.1",

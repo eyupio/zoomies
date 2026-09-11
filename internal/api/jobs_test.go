@@ -51,8 +51,8 @@ func TestCancelJobWorkflowCallsGitHubAndRecordsRequest(t *testing.T) {
 	}
 }
 
-func TestCancelJobWorkflowIsOptInAndOperatorOnly(t *testing.T) {
-	h := newHarness(t)
+func TestCancelJobWorkflowCanBeDisabledAndIsOperatorOnly(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.GitHub.AllowWorkflowCancellation = false })
 	inst := h.installation()
 	pool := h.pool(inst, "linux")
 	j := h.job(pool, store.JobQueued)

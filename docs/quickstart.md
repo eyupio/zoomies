@@ -112,8 +112,7 @@ host still works — with exactly the permissions it needs and no more:
 | --- | --- |
 | `organization_self_hosted_runners: write` | register and remove runners (org targets) |
 | `administration: write` | the same, for a repository target (a single repository, which is also how a personal account is used) |
-| `actions: read` | read workflow runs and jobs for the fallback poller |
-| `actions: write` (optional) | replaces Actions read when `github.allow_workflow_cancellation` is enabled, so operators can cancel workflow runs from Zoomies |
+| `actions: write` | read workflow jobs and let operators cancel workflow runs from Zoomies; set `github.allow_workflow_cancellation: false` to request read-only access instead |
 | `metadata: read` | required by GitHub for any App |
 | `contents: write` | read and rewrite workflow files for the [migration wizard](migration.md) |
 | `pull_requests: write` | open the migration wizard's pull request |

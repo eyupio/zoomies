@@ -180,8 +180,8 @@ type GitHub struct {
 	// a few extra API calls.
 	PollFallback bool `yaml:"poll_fallback"`
 	// AllowWorkflowCancellation lets operators ask GitHub to cancel the whole
-	// workflow run that owns a Zoomies job. It is off by default because it
-	// requires the GitHub App's Actions permission to be raised to write.
+	// workflow run that owns a Zoomies job. It is on by default; operators who
+	// want a read-only Actions grant can explicitly disable it.
 	AllowWorkflowCancellation bool `yaml:"allow_workflow_cancellation"`
 	// RunnerImage is the default container image for new pools.
 	RunnerImage string `yaml:"runner_image"`
@@ -348,11 +348,12 @@ func Default() *Config {
 			RateLimitLogins:   10,
 		},
 		GitHub: GitHub{
-			APIBaseURL:   "https://api.github.com",
-			WebhookPath:  "/webhooks/github",
-			PollInterval: 30 * time.Second,
-			PollFallback: true,
-			RunnerImage:  DefaultRunnerImage,
+			APIBaseURL:                "https://api.github.com",
+			WebhookPath:               "/webhooks/github",
+			PollInterval:              30 * time.Second,
+			PollFallback:              true,
+			AllowWorkflowCancellation: true,
+			RunnerImage:               DefaultRunnerImage,
 		},
 		Agent: Agent{
 			Embedded:          true,
