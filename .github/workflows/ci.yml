@@ -176,7 +176,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          tag=$(python - <<'PY'
+          tag=$(python3 - <<'PY'
           import os
           import json
           import urllib.request
