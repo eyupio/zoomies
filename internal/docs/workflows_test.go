@@ -381,3 +381,59 @@ func TestTheAgentImageIsBuiltAndPublished(t *testing.T) {
 		}
 	}
 }
+
+
+func TestStageOneDogfoodsZoomiesWithoutLosingRecovery(t *testing.T) {
+	files := workflowFiles(t)
+	ci := files["ci.yml"]
+	vuln := files["govulncheck.yml"]
+	if ci == "" || vuln == "" {
+		t.Fatal("the CI and govulncheck workflows must exist")
+	}
+
+	selector := `((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-ci-linux-x64'`
+	for name, workflow := range map[string]string{"ci.yml": ci, "govulncheck.yml": vuln} {
+		for _, want := range []string{"default: zoomies", "options: [zoomies, github]", selector} {
+			if !strings.Contains(workflow, want) {
+				t.Errorf("%s is missing %q, so dogfooding has no explicit GitHub-hosted recovery path or fork boundary", name, want)
+			}
+		}
+	}
+
+	// These jobs are the deliberately small first stage: they read source and
+	// produce transient build output, but do not publish Zoomies or exercise
+	// the control plane responsible for creating their own runner.
+	for _, job := range []string{"go", "staticcheck", "ui", "build-matrix", "installer"} {
+		start := strings.Index(ci, "\n  "+job+":\n")
+		if start < 0 {
+			t.Errorf("ci.yml has no %s job", job)
+			continue
+		}
+		rest := ci[start+1:]
+		end := len(rest)
+		if next := jobLine.FindStringIndex(rest[1:]); next != nil {
+			end = next[0] + 1
+		}
+		if !strings.Contains(rest[:end], "zoomies-ci-linux-x64") {
+			t.Errorf("the stage-one %s job no longer targets the dedicated Zoomies pool", job)
+		}
+	}
+
+	// The jobs that can mutate project state, validate the running product, or
+	// publish the moving :dev channel remain on independent infrastructure.
+	for _, job := range []string{"drill", "upgrade", "playwright", "dev-binaries", "images", "runner-images"} {
+		start := strings.Index(ci, "\n  "+job+":\n")
+		if start < 0 {
+			t.Errorf("ci.yml has no %s job", job)
+			continue
+		}
+		rest := ci[start+1:]
+		end := len(rest)
+		if next := jobLine.FindStringIndex(rest[1:]); next != nil {
+			end = next[0] + 1
+		}
+		if strings.Contains(rest[:end], "zoomies-ci-linux-x64") {
+			t.Errorf("%s runs on the dogfood pool; it must remain independent during stage one", job)
+		}
+	}
+}
