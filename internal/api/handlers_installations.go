@@ -391,6 +391,16 @@ func (s *Server) handleVerifyInstallation(w http.ResponseWriter, r *http.Request
 		out.AppSlug, out.AppName = info.Slug, info.Name
 		out.Permissions, out.Events = info.Permissions, info.Events
 		out.MissingPermissions = info.MissingRequirements(inst.TargetType)
+		if s.cfg().GitHub.AllowWorkflowCancellation && info.Permissions["actions"] != "write" {
+			level := info.Permissions["actions"]
+			if level == "" {
+				level = "not granted"
+			} else {
+				level = "only " + level
+			}
+			out.MissingPermissions = append(out.MissingPermissions,
+				"permission \"Actions\" (write) is "+level+"; accept the permission update on the GitHub App installation")
+		}
 		out.MissingEvents = missingEvents(info.Events)
 		switch {
 		case len(out.MissingPermissions) > 0:
@@ -710,11 +720,12 @@ func (s *Server) handleCreateManifest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	manifest, err := github.Manifest(github.ManifestOptions{
-		Name:         name,
-		URL:          s.cfg().Server.ExternalURL,
-		WebhookURL:   s.cfg().WebhookURL(),
-		Organization: org,
-		SetupURL:     s.cfg().Server.ExternalURL + "/settings/github/setup",
+		Name:                      name,
+		URL:                       s.cfg().Server.ExternalURL,
+		WebhookURL:                s.cfg().WebhookURL(),
+		Organization:              org,
+		SetupURL:                  s.cfg().Server.ExternalURL + "/settings/github/setup",
+		AllowWorkflowCancellation: s.cfg().GitHub.AllowWorkflowCancellation,
 	})
 	if err != nil {
 		unprocessable(w, err.Error(), []fieldError{{"name", err.Error()}})

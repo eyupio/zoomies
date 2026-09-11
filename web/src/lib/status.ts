@@ -336,6 +336,14 @@ const JOB_EVENTS: Record<JobEventKind, StatusMeta> = {
     CircleCheck,
     'The runner reported lost is alive after all and this job is still running on it. The entry above it stands as what the fleet believed at the time.',
   ),
+  cancel_requested: meta(
+    'cancel_requested',
+    'Cancellation requested',
+    'pending',
+    'slash',
+    CircleSlash,
+    'Zoomies asked GitHub to cancel the workflow run and is waiting for GitHub to confirm the terminal state.',
+  ),
 };
 
 /**

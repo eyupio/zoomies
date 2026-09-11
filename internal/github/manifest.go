@@ -43,6 +43,10 @@ type ManifestOptions struct {
 	// that created it. Zoomies defaults it off: a fleet controller's App has
 	// no business being installable by strangers.
 	Public bool
+	// AllowWorkflowCancellation raises Actions from read to write so Zoomies
+	// can cancel workflow runs. It is opt-in because write is not needed to run
+	// the fleet.
+	AllowWorkflowCancellation bool
 }
 
 // manifest is the wire format of GitHub's App manifest.
@@ -118,7 +122,7 @@ func Manifest(o ManifestOptions) ([]byte, error) {
 		// workflow_job is the only event Zoomies acts on. Subscribing to more
 		// would mean parsing payloads it has no use for.
 		DefaultEvents:      []string{"workflow_job"},
-		DefaultPermissions: manifestPermissions(o.Organization != ""),
+		DefaultPermissions: manifestPermissions(o.Organization != "", o.AllowWorkflowCancellation),
 	}
 	b, err := json.Marshal(m)
 	if err != nil {
@@ -140,9 +144,13 @@ func Manifest(o ManifestOptions) ([]byte, error) {
 // missing permission. Asking once, on the consent screen the operator is
 // already reading, is both honest and the only point in the flow where saying
 // yes costs a click.
-func manifestPermissions(org bool) map[string]string {
+func manifestPermissions(org, allowWorkflowCancellation bool) map[string]string {
+	actions := "read"
+	if allowWorkflowCancellation {
+		actions = "write"
+	}
 	p := map[string]string{
-		"actions":  "read",
+		"actions":  actions,
 		"metadata": "read",
 		// The migration wizard's three: read a repository's workflows, commit
 		// the rewritten file to a branch, and open the pull request. GitHub

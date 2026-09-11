@@ -70,6 +70,8 @@ services:
       # The queued-job poller: what keeps scaling working when a webhook
       # delivery is lost or misconfigured.
       ZOOMIES_POLL_FALLBACK: ${ZOOMIES_POLL_FALLBACK}
+      # Optional: lets operators cancel an entire GitHub workflow run from a job.
+      ZOOMIES_ALLOW_WORKFLOW_CANCELLATION: ${ZOOMIES_ALLOW_WORKFLOW_CANCELLATION}
 {{- end }}
 
       ZOOMIES_AGENT_EMBEDDED: ${ZOOMIES_AGENT_EMBEDDED}

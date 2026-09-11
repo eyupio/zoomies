@@ -10,6 +10,8 @@
   older than the stream.
 -->
 <script lang="ts">
+  import { CircleX } from '@lucide/svelte';
+  import { cancelJobWorkflow } from '$lib/api/client';
   import { formatDuration, shortId } from '$lib/format';
   import {
     HOSTED,
@@ -20,7 +22,12 @@
     UNMATCHED,
   } from '$lib/status';
   import type { Job } from '$lib/api/types';
+  import { session } from '$lib/state/session.svelte';
+  import { toasts } from '$lib/state/toasts.svelte';
   import Badge from '$lib/components/Badge.svelte';
+  import Button from '$lib/components/Button.svelte';
+  import Checkbox from '$lib/components/Checkbox.svelte';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import Drawer from '$lib/components/Drawer.svelte';
   import Duration from '$lib/components/Duration.svelte';
@@ -61,6 +68,30 @@
    */
   const pending = $derived(waiting || held);
   const steps = $derived(job?.steps ?? []);
+  const canCancel = $derived(
+    session.meta?.workflow_cancellation_enabled === true &&
+      session.can('operator') &&
+      Boolean(job?.id) &&
+      (job?.github_run_id ?? 0) > 0 &&
+      job?.state !== 'completed',
+  );
+  let cancelOpen = $state(false);
+  let forceCancel = $state(false);
+
+  async function confirmCancel(): Promise<boolean> {
+    if (!job?.id) return false;
+    try {
+      await cancelJobWorkflow(job.id, { force: forceCancel });
+      toasts.success(
+        forceCancel ? 'Force cancellation requested' : 'Cancellation requested',
+        'Zoomies is waiting for GitHub to confirm the workflow run has ended.',
+      );
+      return true;
+    } catch (cause) {
+      toasts.fromError(cause, 'GitHub did not accept the cancellation');
+      return false;
+    }
+  }
 </script>
 
 <Drawer
@@ -210,15 +241,45 @@
   {/if}
 
   {#snippet footer()}
-    <GitHubLink href={job?.html_url} label="Open the run on GitHub" showLabel variant="button" />
+    <div class="footer-actions">
+      {#if canCancel}
+        <Button variant="danger" icon={CircleX} onclick={() => (cancelOpen = true)}>
+          Cancel workflow
+        </Button>
+      {/if}
+      <GitHubLink href={job?.html_url} label="Open the run on GitHub" showLabel variant="button" />
+    </div>
   {/snippet}
 </Drawer>
+
+<ConfirmDialog
+  bind:open={cancelOpen}
+  title="Cancel workflow run"
+  name={job?.workflow || job?.job_name || 'workflow run'}
+  description="GitHub can only cancel the whole workflow run. Every queued or running job in this run will be stopped, not only the job shown here."
+  consequences={[`Run ${job?.github_run_id ?? ''} in ${job?.repo ?? 'GitHub'} will be cancelled.`]}
+  confirmLabel={forceCancel ? 'Force cancel run' : 'Cancel run'}
+  onconfirm={confirmCancel}
+  oncancel={() => (forceCancel = false)}
+>
+  <Checkbox
+    bind:checked={forceCancel}
+    label="Force cancellation"
+    description="Use this only if GitHub leaves an ordinary cancellation stuck. It bypasses conditions that would otherwise keep the run alive."
+  />
+</ConfirmDialog>
 
 <style>
   .stack {
     display: flex;
     flex-direction: column;
     gap: var(--z-space-5);
+  }
+  .footer-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--z-space-2);
   }
   .badges {
     display: flex;

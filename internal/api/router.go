@@ -165,12 +165,12 @@ func (s *Server) apiRoutes() chi.Router {
 		r.With(s.require(auth.ActionUsageRead)).Get("/usage", s.handleUsage)
 		r.With(s.require(auth.ActionUsageRead)).Get("/usage.csv", s.handleUsageCSV)
 		r.Route("/jobs", func(r chi.Router) {
-			r.Use(s.require(auth.ActionJobsRead))
-			r.Get("/", s.handleListJobs)
-			r.Get("/facets", s.handleJobFacets)
-			r.Get("/{id}", s.handleGetJob)
-			r.Get("/{id}/events", s.handleJobEvents)
-			r.Get("/{id}/explanation", s.handleJobExplanation)
+			r.With(s.require(auth.ActionJobsRead)).Get("/", s.handleListJobs)
+			r.With(s.require(auth.ActionJobsRead)).Get("/facets", s.handleJobFacets)
+			r.With(s.require(auth.ActionJobsRead)).Get("/{id}", s.handleGetJob)
+			r.With(s.require(auth.ActionJobsRead)).Get("/{id}/events", s.handleJobEvents)
+			r.With(s.require(auth.ActionJobsRead)).Get("/{id}/explanation", s.handleJobExplanation)
+			r.With(s.require(auth.ActionJobsCancel)).Post("/{id}/cancel", s.handleCancelJobWorkflow)
 		})
 
 		// Hosts and enrolment.

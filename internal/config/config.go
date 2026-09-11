@@ -179,6 +179,10 @@ type GitHub struct {
 	// silently stops scaling because a webhook was misconfigured is worse than
 	// a few extra API calls.
 	PollFallback bool `yaml:"poll_fallback"`
+	// AllowWorkflowCancellation lets operators ask GitHub to cancel the whole
+	// workflow run that owns a Zoomies job. It is off by default because it
+	// requires the GitHub App's Actions permission to be raised to write.
+	AllowWorkflowCancellation bool `yaml:"allow_workflow_cancellation"`
 	// RunnerImage is the default container image for new pools.
 	RunnerImage string `yaml:"runner_image"`
 	// RunnerVersion pins the actions/runner release; empty tracks the image.
@@ -794,6 +798,7 @@ func (c *Config) applyEnv() error {
 	str("ZOOMIES_WEBHOOK_PATH", &c.GitHub.WebhookPath)
 	dur("ZOOMIES_POLL_INTERVAL", &c.GitHub.PollInterval)
 	boolean("ZOOMIES_POLL_FALLBACK", &c.GitHub.PollFallback)
+	boolean("ZOOMIES_ALLOW_WORKFLOW_CANCELLATION", &c.GitHub.AllowWorkflowCancellation)
 	str("ZOOMIES_RUNNER_IMAGE", &c.GitHub.RunnerImage)
 	str("ZOOMIES_RUNNER_VERSION", &c.GitHub.RunnerVersion)
 

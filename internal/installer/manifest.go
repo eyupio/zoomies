@@ -169,8 +169,9 @@ func (i *Installer) appFromManifest(ctx context.Context, st *store.Store, key *c
 		// listener catches only this handshake, and putting it here instead
 		// meant every future "install on another repository" ended on a
 		// refused connection to a port that stopped existing years earlier.
-		SetupURL:    strings.TrimRight(p.ExternalURL, "/") + "/settings/github/setup",
-		RedirectURL: srv.CallbackURL(),
+		SetupURL:                  strings.TrimRight(p.ExternalURL, "/") + "/settings/github/setup",
+		RedirectURL:               srv.CallbackURL(),
+		AllowWorkflowCancellation: cfg.GitHub.AllowWorkflowCancellation,
 	})
 	if err != nil {
 		return err

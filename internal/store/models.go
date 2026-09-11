@@ -1002,6 +1002,9 @@ const (
 	// one: a job that finishes normally after its runner was written off read
 	// as a contradiction, and an operator had to guess which entry to believe.
 	JobEventRunnerReturned JobEventKind = "runner_returned"
+	// JobEventCancelRequested records an operator request sent to GitHub. The
+	// eventual completed event remains authoritative for the outcome.
+	JobEventCancelRequested JobEventKind = "cancel_requested"
 )
 
 // JobEvent is one entry in a job's timeline: what happened, who observed it,

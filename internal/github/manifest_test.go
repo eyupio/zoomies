@@ -91,6 +91,17 @@ func TestManifestOrgShape(t *testing.T) {
 	}
 }
 
+func TestManifestRequestsActionsWriteOnlyWhenCancellationEnabled(t *testing.T) {
+	m := decodeManifest(t, ManifestOptions{
+		Name: "zoomies-cancel", URL: "https://zoomies.example.com",
+		WebhookURL:                "https://zoomies.example.com/webhooks/github",
+		AllowWorkflowCancellation: true,
+	})
+	if got := permissions(t, m)["actions"]; got != "write" {
+		t.Fatalf("Actions permission = %q, want write", got)
+	}
+}
+
 // GitHub validates the manifest key by key and rejects the whole thing with
 // `"<key>" is not a permitted key` when it does not recognise one, so a
 // well-meant addition here breaks App creation for everybody. These are the

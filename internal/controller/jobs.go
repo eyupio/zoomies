@@ -2,12 +2,57 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/store"
 )
+
+var (
+	ErrWorkflowCancellationDisabled = errors.New("workflow cancellation is disabled")
+	ErrJobAlreadyCompleted          = errors.New("the job has already completed")
+)
+
+// CancelJobWorkflow asks GitHub to cancel the workflow run containing jobID.
+// Zoomies deliberately leaves the local job pending until GitHub confirms the
+// terminal state through a webhook or the fallback poller.
+func (c *Controller) CancelJobWorkflow(ctx context.Context, jobID string, force bool) (*store.Job, error) {
+	if !c.cfg().GitHub.AllowWorkflowCancellation {
+		return nil, ErrWorkflowCancellationDisabled
+	}
+	j, err := c.st.GetJob(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	if j.State == store.JobCompleted {
+		return nil, ErrJobAlreadyCompleted
+	}
+	if j.InstallationID == "" || j.Repo == "" || j.GitHubRunID <= 0 {
+		return nil, fmt.Errorf("job %s has no GitHub installation and workflow run to cancel", j.ID)
+	}
+	client, err := c.ClientFor(ctx, j.InstallationID)
+	if err != nil {
+		return nil, err
+	}
+	if err := client.CancelWorkflowRun(ctx, j.Repo, j.GitHubRunID, force); err != nil {
+		return nil, err
+	}
+	mode := "cancellation"
+	if force {
+		mode = "force cancellation"
+	}
+	if err := c.st.AppendJobEvent(ctx, &store.JobEvent{
+		JobID: j.ID, Kind: store.JobEventCancelRequested, Source: sourceController,
+		Message: fmt.Sprintf("an operator requested %s of GitHub workflow run %d; GitHub's completion event will confirm the result", mode, j.GitHubRunID),
+		At:      c.Now(),
+	}); err != nil {
+		return nil, err
+	}
+	c.publishJob(ctx, j)
+	return j, nil
+}
 
 // A job's timeline is the answer to "what happened to my job?", told in the
 // order it happened and in sentences an operator can read without knowing how

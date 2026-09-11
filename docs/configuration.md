@@ -95,6 +95,7 @@ github:
   webhook_path: /webhooks/github         # ZOOMIES_WEBHOOK_PATH
   poll_interval: 30s                     # ZOOMIES_POLL_INTERVAL
   poll_fallback: true                    # ZOOMIES_POLL_FALLBACK
+  allow_workflow_cancellation: false     # ZOOMIES_ALLOW_WORKFLOW_CANCELLATION
   runner_image: ghcr.io/eyupio/zoomies-runner:latest   # ZOOMIES_RUNNER_IMAGE
   runner_version: ""                     # ZOOMIES_RUNNER_VERSION
 
@@ -263,6 +264,24 @@ github:
 
 A bare hostname is accepted and `/api/v3` appended. Everything else — App auth,
 JIT configs, webhooks, runner groups — works the same.
+
+### `github.allow_workflow_cancellation` — cancel runs from Zoomies
+
+```yaml
+github:
+  allow_workflow_cancellation: true
+```
+
+Off by default. When enabled, operators can cancel the GitHub workflow run
+containing a queued or running job from its drawer. GitHub only provides a
+run-level API, so this stops every job in that run. The confirmation also
+offers force cancellation for a run that remains stuck after an ordinary
+request.
+
+This feature requires the GitHub App's **Actions: read and write** permission.
+New Apps created while the setting is enabled request it automatically. For an
+existing App, change the permission in GitHub and accept the permission update
+on every installation before using the action.
 
 ### `github.runner_image` — the fallback runner image
 

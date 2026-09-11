@@ -210,3 +210,7 @@ jobs:
 func (d *demoClient) GetWorkflowJob(context.Context, string, int64) (*github.WorkflowJobEvent, error) {
 	return nil, ErrDemoFixture
 }
+
+func (d *demoClient) CancelWorkflowRun(context.Context, string, int64, bool) error {
+	return ErrDemoFixture
+}
