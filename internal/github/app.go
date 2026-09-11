@@ -486,7 +486,15 @@ func (c *appClient) ListRunnerGroups(ctx context.Context) ([]RunnerGroup, error)
 			return nil, c.fail("list runner groups on "+c.target, resp, err)
 		}
 		for _, g := range page.RunnerGroups {
-			out = append(out, RunnerGroup{ID: g.GetID(), Name: g.GetName()})
+			out = append(out, RunnerGroup{
+				ID:                          g.GetID(),
+				Name:                        g.GetName(),
+				Default:                     g.GetDefault(),
+				Visibility:                  g.GetVisibility(),
+				PublicRepositoryAccessKnown: g.AllowsPublicRepositories != nil,
+				AllowsPublicRepositories:    g.GetAllowsPublicRepositories(),
+				RestrictedToWorkflows:       g.GetRestrictedToWorkflows(),
+			})
 		}
 		if resp == nil || resp.NextPage == 0 {
 			return out, nil

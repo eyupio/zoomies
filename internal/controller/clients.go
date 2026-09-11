@@ -33,10 +33,9 @@ type clientCache struct {
 type clientEntry struct {
 	client    github.Client
 	updatedAt time.Time
-	// groups maps runner group names to their IDs for this installation. It is
-	// filled lazily because most pools use the default group and the lookup
-	// costs an API call.
-	groups map[string]int64
+	// groups maps runner group names to their GitHub policy for this
+	// installation. It is filled lazily because the lookup costs an API call.
+	groups map[string]github.RunnerGroup
 }
 
 func newClientCache(c *Controller) *clientCache {
@@ -136,35 +135,37 @@ func (c *Controller) Forget(installationID string) {
 // turns into the Default group every target has.
 //
 // The second return value is why the fallback happened, empty when it did not.
-// Falling back is not a detail: Default is the group every repository the
-// installation covers can reach, so a pool that asked to be fenced into one
-// group and quietly landed in Default is running its jobs somewhere wider than
-// its operator asked for. The caller turns it into a standing warning.
-func (cc *clientCache) runnerGroupID(ctx context.Context, inst *store.Installation, client github.Client, name string) (int64, string) {
+// Falling back is not a detail: Default is usually wider than a named group,
+// so a pool that asked to be fenced into one and quietly landed in Default may
+// run jobs it was not meant for. Conversely, a group that blocks public
+// repositories makes an online runner ineligible for their jobs. The caller
+// turns both conditions into standing warnings.
+func (cc *clientCache) runnerGroupID(ctx context.Context, inst *store.Installation, client github.Client, name string) (int64, string, bool) {
 	name = strings.TrimSpace(name)
-	if name == "" || strings.EqualFold(name, "default") {
-		return 0, ""
+	wantsDefault := name == "" || strings.EqualFold(name, "default")
+	lookup := strings.ToLower(name)
+	if wantsDefault {
+		lookup = "default"
+	}
+
+	if inst.TargetType == store.TargetRepo {
+		if wantsDefault {
+			return 0, "", false
+		}
+		cc.c.log.Warn("a repository target has no runner groups; using the default group",
+			"installation", inst.ID, "target", inst.Target, "group", name)
+		return 0, "runner groups belong to an organisation, and " + inst.Target + " is a repository", false
 	}
 
 	cc.mu.Lock()
 	e := cc.entries[inst.ID]
 	if e != nil && e.groups != nil {
-		if id, ok := e.groups[strings.ToLower(name)]; ok {
+		if group, ok := e.groups[lookup]; ok {
 			cc.mu.Unlock()
-			return id, ""
+			return group.ID, "", group.PublicRepositoryAccessKnown && !group.AllowsPublicRepositories
 		}
 	}
 	cc.mu.Unlock()
-
-	// Runner groups are an organisation concept, so a pool on a
-	// repository-target installation cannot have one whatever it names. Said
-	// separately because the fix is the opposite: drop the group from the
-	// pool, rather than create it on GitHub.
-	if inst.TargetType == store.TargetRepo {
-		cc.c.log.Warn("a repository target has no runner groups; using the default group",
-			"installation", inst.ID, "target", inst.Target, "group", name)
-		return 0, "runner groups belong to an organisation, and " + inst.Target + " is a repository"
-	}
 
 	// A name that resolved to nothing is deliberately not cached, so that the
 	// next create asks again. It costs one call per runner on a pool that is
@@ -176,15 +177,19 @@ func (cc *clientCache) runnerGroupID(ctx context.Context, inst *store.Installati
 		// GitHub will place it in Default and the operator sees the warning.
 		cc.c.log.Warn("could not list runner groups; falling back to the default group",
 			"installation", inst.ID, "group", name, "error", err)
-		return 0, "GitHub would not say which runner groups exist on " + inst.Target
+		if wantsDefault {
+			return 0, "", false
+		}
+		return 0, "GitHub would not say which runner groups exist on " + inst.Target, false
 	}
 
-	found := int64(0)
-	m := make(map[string]int64, len(groups))
+	var found github.RunnerGroup
+	m := make(map[string]github.RunnerGroup, len(groups))
 	for _, g := range groups {
-		m[strings.ToLower(g.Name)] = g.ID
-		if strings.EqualFold(g.Name, name) {
-			found = g.ID
+		key := strings.ToLower(g.Name)
+		m[key] = g
+		if key == lookup || (wantsDefault && g.Default) {
+			found = g
 		}
 	}
 	cc.mu.Lock()
@@ -193,12 +198,15 @@ func (cc *clientCache) runnerGroupID(ctx context.Context, inst *store.Installati
 	}
 	cc.mu.Unlock()
 
-	if found == 0 {
+	if found.ID == 0 {
+		if wantsDefault {
+			return 0, "", false
+		}
 		cc.c.log.Warn("the pool names a runner group that does not exist on the target; using the default group",
 			"installation", inst.ID, "target", inst.Target, "group", name)
-		return 0, "the group " + name + " does not exist on " + inst.Target
+		return 0, "the group " + name + " does not exist on " + inst.Target, false
 	}
-	return found, ""
+	return found.ID, "", found.PublicRepositoryAccessKnown && !found.AllowsPublicRepositories
 }
 
 // probeLoop re-checks every installation's credentials on an interval, so a
@@ -242,6 +250,26 @@ func (c *Controller) probeInstallations(ctx context.Context) {
 	}
 }
 
+// refreshRunnerGroupProblems makes group eligibility visible even when a
+// controller upgrade finds an already-full pool and therefore has no reason
+// to mint another runner. Without this probe-only path, the warning would not
+// appear until the next scale-up -- exactly when an ineligible group can leave
+// every existing runner idle forever.
+func (c *Controller) refreshRunnerGroupProblems(ctx context.Context, inst *store.Installation, client github.Client) {
+	pools, err := c.st.ListPools(ctx)
+	if err != nil {
+		c.log.Warn("could not inspect pool runner groups", "installation", inst.ID, "error", err)
+		return
+	}
+	for _, pool := range pools {
+		if pool.InstallationID != inst.ID {
+			continue
+		}
+		_, unresolved, publicBlocked := c.clients.runnerGroupID(ctx, inst, client, pool.RunnerGroup)
+		c.noteRunnerGroup(pool, pool.RunnerGroup, unresolved, publicBlocked)
+	}
+}
+
 // ProbeInstallation verifies one installation's credentials end to end and
 // records the outcome, publishing it so the UI updates.
 //
@@ -258,6 +286,9 @@ func (c *Controller) ProbeInstallation(ctx context.Context, installationID strin
 	client, err := c.clients.get(ctx, inst)
 	if err == nil {
 		info, err = client.Probe(ctx)
+		if err == nil {
+			c.refreshRunnerGroupProblems(ctx, inst, client)
+		}
 	}
 	c.observeGitHub(inst.ID, err)
 

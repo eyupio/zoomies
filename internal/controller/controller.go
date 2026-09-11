@@ -24,6 +24,7 @@ import (
 	"os"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -895,33 +896,41 @@ func (c *Controller) reservedOn(id string) (scheduler.Reservation, bool) {
 type runnerGroupNote struct {
 	// PoolName and Group are what the sentence names; the reason is the half
 	// that differs between "the group is not there" and "GitHub would not say".
-	PoolName string
-	Group    string
-	Reason   string
+	PoolName                  string
+	Group                     string
+	Reason                    string
+	PublicRepositoriesBlocked bool
 }
 
 // noteRunnerGroup records that a pool's runners were placed in the default
 // runner group, or that they no longer are. Like noteBlocked, each change is
 // logged once: a pool creating runners every few seconds would otherwise
 // repeat the same sentence until somebody noticed it.
-func (c *Controller) noteRunnerGroup(p *store.Pool, group, reason string) {
+func (c *Controller) noteRunnerGroup(p *store.Pool, group, reason string, publicRepositoriesBlocked bool) {
 	c.mu.Lock()
 	if c.runnerGroups == nil {
 		c.runnerGroups = map[string]runnerGroupNote{}
 	}
 	was, had := c.runnerGroups[p.ID]
-	if reason == "" {
+	if reason == "" && !publicRepositoriesBlocked {
 		delete(c.runnerGroups, p.ID)
 	} else {
-		c.runnerGroups[p.ID] = runnerGroupNote{PoolName: p.Name, Group: group, Reason: reason}
+		if strings.TrimSpace(group) == "" {
+			group = "Default"
+		}
+		c.runnerGroups[p.ID] = runnerGroupNote{PoolName: p.Name, Group: group, Reason: reason,
+			PublicRepositoriesBlocked: publicRepositoriesBlocked}
 	}
 	c.mu.Unlock()
 
 	switch {
+	case publicRepositoriesBlocked && !was.PublicRepositoriesBlocked:
+		c.log.Warn("a pool's runner group blocks jobs from public repositories",
+			"pool", p.Name, "group", group)
 	case reason != "" && reason != was.Reason:
 		c.log.Warn("a pool's runners are going to the default runner group",
 			"pool", p.Name, "group", group, "reason", reason)
-	case reason == "" && had:
+	case reason == "" && !publicRepositoriesBlocked && had:
 		c.log.Info("a pool's runner group resolved again", "pool", p.Name, "group", group)
 	}
 }

@@ -651,11 +651,11 @@ func (c *Controller) leaseProblems() []Problem {
 // PoolRunnerGroupProblems reports the pools whose runners went into GitHub's
 // default runner group because the group they asked for could not be resolved.
 //
-// It is a warning rather than a log line because of what Default means: it is
-// the group every repository the installation covers can reach. A pool put
-// into a named group to fence its runners off, and quietly placed in Default
-// instead, is running its jobs somewhere wider than its operator asked for --
-// and nothing else on the page would say so.
+// It is a warning rather than a log line because runner-group policy can make
+// a runner either broader than intended or completely ineligible. A pool put
+// into a named group to fence its runners off and quietly placed in Default is
+// wider than its operator asked for; a group that blocks public repositories
+// leaves their matching jobs queued while its runners look healthy and idle.
 func (c *Controller) PoolRunnerGroupProblems() []Problem {
 	c.mu.Lock()
 	notes := make([]runnerGroupNote, 0, len(c.runnerGroups))
@@ -668,6 +668,17 @@ func (c *Controller) PoolRunnerGroupProblems() []Problem {
 
 	out := make([]Problem, 0, len(notes))
 	for i, n := range notes {
+		if n.PublicRepositoriesBlocked {
+			out = append(out, Problem{
+				Code:       "pool.runner_group_public_repositories_blocked",
+				Severity:   config.SeverityWarning,
+				Title:      fmt.Sprintf("pool %s: runner group %s blocks public repositories", n.PoolName, n.Group),
+				Detail:     fmt.Sprintf("GitHub can register these runners and report them online, but group %s is not allowed to run jobs from public repositories. Matching jobs then remain queued while the runners appear idle.", n.Group),
+				Fix:        fmt.Sprintf("in the GitHub organisation, open Settings > Actions > Runner groups > %s and enable Allow public repositories, or move this pool to a repository-scoped installation", n.Group),
+				TargetKind: "pool", TargetID: ids[i],
+			})
+			continue
+		}
 		out = append(out, Problem{
 			Code:     "pool.runner_group_unresolved",
 			Severity: config.SeverityWarning,
