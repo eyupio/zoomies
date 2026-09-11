@@ -22,6 +22,7 @@ func runInit(ctx context.Context, e *env, args []string) error {
 	deployment := fs.String("deployment", "", "native (the binary under systemd or launchd), compose (a docker-compose.yml and a populated .env) or docker (one container); empty asks, offering only what this host can run")
 	controllerURL := fs.String("controller", "", "for --mode agent: the controller to join")
 	joinToken := fs.String("join-token", "", "for --mode agent: a join token from the UI")
+	externalURL := fs.String("external-url", "", "for a controller: the public hostname or URL browsers and GitHub use; a bare hostname implies https://")
 	answers := fs.String("answers", "", "a YAML answer file for unattended setup; implies --non-interactive")
 	nonInteractive := fs.Bool("non-interactive", false, "never prompt; a missing answer is an error naming the key")
 	assumeYes := fs.Bool("yes", false, "accept the confirmations that are not destructive")
@@ -87,6 +88,7 @@ func runInit(ctx context.Context, e *env, args []string) error {
 		Deployment:       parsedDeployment,
 		ControllerURL:    *controllerURL,
 		JoinToken:        *joinToken,
+		ExternalURL:      *externalURL,
 		AnswersFile:      *answers,
 		NonInteractive:   *nonInteractive || *answers != "",
 		AssumeYes:        *assumeYes,

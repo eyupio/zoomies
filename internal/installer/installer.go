@@ -109,7 +109,7 @@ type Options struct {
 	// service unit will exec.
 	InstalledBinary string
 
-	// Mode, Deployment, ControllerURL and JoinToken come from the command
+	// Mode, Deployment, ControllerURL, JoinToken and ExternalURL come from the command
 	// line. When Mode or Deployment is empty the installer asks -- install.sh
 	// deliberately does not, so that there is one place these questions are
 	// worded.
@@ -117,6 +117,7 @@ type Options struct {
 	Deployment    Deployment
 	ControllerURL string
 	JoinToken     string
+	ExternalURL   string
 
 	// AnswersFile is a YAML answer file for unattended setup.
 	AnswersFile string
@@ -1312,6 +1313,12 @@ func (i *Installer) resolvePlan(ctx context.Context, mode Mode) (Plan, error) {
 	if p, err = applyAnswers(p, i.answers); err != nil {
 		return p, err
 	}
+	if i.opts.ExternalURL != "" {
+		p.ExternalURL = normalizeExternalURL(i.opts.ExternalURL)
+		if err := validateAbsoluteURL(p.ExternalURL); err != nil {
+			return p, fmt.Errorf("installer: --external-url: %w", err)
+		}
+	}
 	if p.Upgrade {
 		if p, err = i.askExisting(ctx, p); err != nil {
 			return p, err
@@ -1536,8 +1543,15 @@ func (i *Installer) ask(ctx context.Context, p Plan) (Plan, error) {
 	if p, err = i.askListener(ctx, p); err != nil {
 		return p, err
 	}
-	if p, err = i.askExternalURL(ctx, p); err != nil {
-		return p, err
+	if i.opts.ExternalURL == "" {
+		if p, err = i.askExternalURL(ctx, p); err != nil {
+			return p, err
+		}
+	} else {
+		// askListener derives a local default after the command-line option was
+		// first applied. Restore the explicit value: flags beat detection.
+		p.ExternalURL = normalizeExternalURL(i.opts.ExternalURL)
+		i.ui.ok("external URL: " + p.ExternalURL)
 	}
 	if p.Deployment.Containerised() {
 		// A container keeps its database in a volume this process cannot
@@ -1733,15 +1747,23 @@ func (i *Installer) askListener(ctx context.Context, p Plan) (Plan, error) {
 
 func (i *Installer) askExternalURL(ctx context.Context, p Plan) (Plan, error) {
 	value := p.ExternalURL
-	if err := i.input(ctx, "What URL will GitHub and your browser use?",
+	if err := i.input(ctx, "What external hostname or URL will GitHub and your browser use?",
 		"Webhook deliveries go to this URL plus /webhooks/github. Get it wrong and the fleet still works, but only through the "+
-			"fallback poller, which reacts in tens of seconds rather than instantly.",
-		value, &value, validateAbsoluteURL); err != nil {
+			"fallback poller, which reacts in tens of seconds rather than instantly. A bare hostname implies https://.",
+		value, &value, func(s string) error { return validateAbsoluteURL(normalizeExternalURL(s)) }); err != nil {
 		return p, err
 	}
-	p.ExternalURL = strings.TrimRight(strings.TrimSpace(value), "/")
+	p.ExternalURL = normalizeExternalURL(value)
 	i.ui.ok("external URL: " + p.ExternalURL)
 	return p, nil
+}
+
+func normalizeExternalURL(value string) string {
+	value = strings.TrimRight(strings.TrimSpace(value), "/")
+	if value != "" && !strings.Contains(value, "://") {
+		value = "https://" + value
+	}
+	return value
 }
 
 func (i *Installer) askAdmin(ctx context.Context, p Plan) (Plan, error) {
