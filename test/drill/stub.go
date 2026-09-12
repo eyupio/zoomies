@@ -40,19 +40,29 @@ const (
 // observed from the host rather than inferred from a Zoomies row, then waits
 // to be killed. The trap makes it exit promptly on the backend's TERM, which
 // is what a drill measuring recovery time needs.
+//
+// The trap is installed before that file exists, and the order is the whole
+// contract with the drill: a shell that has not installed its handler yet is
+// killed outright by the signal, so a drill that signals on the strength of
+// the marker must not be able to arrive in between the two. Losing that race
+// costs the drill the thing it is there to measure -- cleanup never runs, the
+// marker it watches is left behind, and a prompt exit is recorded as a process
+// killed by a signal.
 const stubRunner = `#!/bin/sh
 set -eu
 : "${ACTIONS_RUNNER_INPUT_JITCONFIG:=}"
 dir="$(cd "$(dirname "$0")/.." && pwd)"
-# Record that a real process reached this point, and with what.
-{
-  echo "pid=$$"
-  echo "jit_present=$([ -n "${ACTIONS_RUNNER_INPUT_JITCONFIG}" ] && echo yes || echo no)"
-} > "$dir/drill-started"
 cleanup() { rm -f "$dir/drill-started"; exit 0; }
 # TERM is the backend stopping us, which is what a drain or a forced removal
 # looks like from in here.
 trap cleanup TERM INT
+# Record that a real process reached this point, and with what. The drill waits
+# for this, so nothing above it may be skippable and nothing below it may be
+# needed to handle a signal.
+{
+  echo "pid=$$"
+  echo "jit_present=$([ -n "${ACTIONS_RUNNER_INPUT_JITCONFIG}" ] && echo yes || echo no)"
+} > "$dir/drill-started"
 # Otherwise wait for the drill to say the job is over, and exit the way an
 # ephemeral runner does. The sleep is short and backgrounded so the trap is
 # handled promptly rather than after a long uninterruptible sleep.
