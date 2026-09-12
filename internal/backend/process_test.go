@@ -26,14 +26,21 @@ import (
 
 const stubVersion = "9.9.9"
 
-// stubListener stands in for Runner.Listener: it announces itself, then waits
-// for the SIGINT that Stop sends and exits cleanly, the way the real runner
-// finishes its job and leaves.
+// stubListener stands in for Runner.Listener: it traps the SIGINT that Stop
+// sends, announces itself, and then exits cleanly when interrupted, the way the
+// real runner finishes its job and leaves.
+//
+// The trap comes before the announcement, and that order is the whole contract
+// with waitForLog: a shell that has not installed its trap yet is killed
+// outright by SIGINT, so a test that signals on the strength of the
+// announcement must not be able to arrive in between the two. It could -- the
+// announcement was first -- and CI found the window often enough to turn the
+// clean exit this test is about into a runner "killed with code -1".
 const stubListener = `#!/bin/sh
+trap 'echo "interrupted"; exit 0' INT
 echo "$@" > listener-args.txt
 printf '%s' "${ACTIONS_RUNNER_INPUT_JITCONFIG:-}" > listener-jitconfig.txt
 echo "listener started with $1"
-trap 'echo "interrupted"; exit 0' INT
 i=0
 while [ $i -lt 60 ]; do
   sleep 1
@@ -1023,9 +1030,14 @@ func TestProcessKeepsTheJITConfigOffTheCommandLine(t *testing.T) {
 
 // stubDeaf ignores the interrupt Stop sends first, so that stopping it has to
 // go through the kill, which is the path this file's other tests never take.
+//
+// Ignoring a signal is installed the same way as handling one, so the order
+// here matters for the same reason it does in stubListener: announce after the
+// trap, or a SIGINT that lands in between kills the shell and the kill path
+// this test exists for is never reached.
 const stubDeaf = `#!/bin/sh
-echo "listener started with $1"
 trap '' INT
+echo "listener started with $1"
 i=0
 while [ $i -lt 120 ]; do
   sleep 1

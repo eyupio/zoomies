@@ -272,6 +272,16 @@
   --z-topbar-height: 52px;
   --z-content-max: 1600px;
 
+  /* The window, which on a phone is not the same thing as 100%. A mobile
+     browser answers a page that overflows sideways by laying the whole thing
+     out in a wider block and showing it smaller, and everything positioned
+     against the viewport is laid out in that block rather than against the
+     screen -- so one row a few pixels past the edge took the problems drawer
+     with it, off the side of the phone. `100%` is the widened block and
+     `100vw` stays the window, so the smaller of the two is the window on a
+     phone, and on a desktop it is the side that does not add a scrollbar. */
+  --z-window-width: min(100vw, 100%);
+
   /* The chip the monochrome mark sits on. The brand sanctions the white
      knockout over dark surfaces, so one asset serves both themes when it is
      drawn on a near-black chip. */

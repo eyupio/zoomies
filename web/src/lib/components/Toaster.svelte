@@ -50,7 +50,11 @@
   @media (max-width: 768px) {
     .toaster {
       left: var(--z-space-3);
-      right: var(--z-space-3);
+      /* Measured from the window rather than the document (see
+         --z-window-width), or a page that overflows sideways puts the
+         confirmation an operator just earned off the right of the screen. */
+      right: auto;
+      width: calc(var(--z-window-width) - var(--z-space-3) * 2);
       bottom: calc(var(--z-space-16) + env(safe-area-inset-bottom, 0px));
       max-width: none;
     }

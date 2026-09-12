@@ -100,7 +100,9 @@
 <style>
   .backdrop {
     position: fixed;
-    inset: 0;
+    /* The window, not the document: see --z-window-width. */
+    inset: 0 auto 0 0;
+    width: var(--z-window-width);
     z-index: var(--z-layer-dialog);
     display: flex;
     align-items: center;
@@ -156,18 +158,22 @@
   .heading {
     min-width: 0;
   }
+  /* min-width alone only lets the box shrink -- a name with no spaces in it
+     then runs out of the box and over Close. */
   h2 {
     margin: 0;
     font-size: var(--z-text-lg);
     line-height: var(--z-leading-lg);
     font-weight: var(--z-weight-semibold);
     color: var(--z-text);
+    overflow-wrap: anywhere;
   }
   header p {
     margin: var(--z-space-1) 0 0;
     font-size: var(--z-text-base);
     line-height: var(--z-leading-base);
     color: var(--z-text-muted);
+    overflow-wrap: anywhere;
   }
   .body {
     padding: 0 var(--z-space-5);
