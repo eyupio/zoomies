@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -242,7 +243,10 @@ func TestEncryptionKeyIsGeneratedOnceAndReused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the key file was not written: %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
+	// Windows has no mode bits to check: Go reports 0666 for every writable
+	// file there, and what keeps another local user out is the directory's
+	// ACL, which the installer sets and this test cannot see.
+	if perm := info.Mode().Perm(); runtime.GOOS != "windows" && perm != 0o600 {
 		t.Errorf("key file mode = %04o, want 0600: anything else lets another local user read it", perm)
 	}
 
