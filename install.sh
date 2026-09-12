@@ -281,40 +281,27 @@ pulse() {
     return 0
 }
 
-# The mark, in the two widths of terminal this script supports.
-_wordmark() {
-    if anim_ready; then
-        cat <<'EOU'
- ██╗  ██╗   ██████╗   ██████╗  ███╗   ███╗  ██╗  ███████╗  ███████╗
- ╚██╗██╔╝   ██╔═══██╗ ██╔═══██╗ ████╗ ████║  ██║  ██╔════╝  ██╔════╝
-  ╚███╔╝    ██║   ██║ ██║   ██║ ██╔████╔██║  ██║  ███████╗  ███████╗
-  ██╔╝      ██║   ██║ ██║   ██║ ██║╚██╔╝██║  ██║  ╚════██║  ╚════██║
- ██╔╝  ██   ╚██████╔╝ ╚██████╔╝ ██║ ╚═╝ ██║  ██║  ███████║  ███████║
- ╚═╝  ╚═╝    ╚═════╝   ╚═════╝  ╚═╝     ╚═╝  ╚═╝  ╚══════╝  ╚══════╝
-EOU
-    else
-        cat <<'EOA'
-####  ##  ##  #   # # #### ####
-  ## #  # #  # ## ## # #    #
- ##  #  # #  # # # # # ###   ###
-##   #  # #  # #   # # #       #
-####  ##  ##  #   # # #### ####
-EOA
-    fi
-}
-
-# A line-by-line reveal -- top to bottom, fast. One-shot, so it redraws nothing
-# and cannot corrupt anything that comes after it.
-wordmark_reveal() {
+# A tiny arrival before the permanent banner. The dog is recognisably the same
+# `(oo)~` character used by the finale, rather than an emoji whose width varies
+# between terminals. Six frames take less than a quarter of a second: enough to
+# feel alive, never enough to make a quick local install feel slower.
+brand_dash() {
     [ "$Z_ANIM" -eq 1 ] || return 0
     _cur_off
-    _wordmark | while IFS= read -r _ln; do
-        printf '  %s%s%s\n' "$C_ACCENT" "$_ln" "$C_RESET"
-        sleep 0.05
+    for _bp in 0 4 8 12 16 20; do
+        _i=0; _pad=''
+        while [ "$_i" -lt "$_bp" ]; do _pad="$_pad "; _i=$((_i + 1)); done
+        printf '\r\033[K  %s~~~~%s%s%s(oo)>%s' \
+            "$C_DIM" "$C_RESET" "$_pad" "$C_ACCENT" "$C_RESET"
+        sleep 0.035
     done
+    printf '\r\033[K'
     _cur_on
     return 0
 }
+
+# Pace the one-shot banner reveal without making the static path sleep.
+brand_beat() { [ "$Z_ANIM" -eq 1 ] && sleep 0.045; return 0; }
 
 # The dog skids to a stop and sits as the install hands off. A moving dog is a
 # courtesy while work happens; a dog that has arrived is the payoff.
@@ -376,33 +363,29 @@ preview_all() {
     ok "preview done -- nothing was installed."
 }
 
-# Three lines, and every one of them says something. The dog is the mark; the
-# tagline is the product; the third line is where to look when this goes wrong.
+# A compact terminal card rather than a giant novelty font. The first glance is
+# product and purpose; the dog and the copy carry the personality. It has no
+# right edge, deliberately: a custom ZOOMIES_REPO can be long without breaking
+# a box drawn for the default repository.
 banner() {
-    if [ "$Z_ANIM" -eq 1 ]; then
-        printf '\n'
-        wordmark_reveal
-        printf '%s  off the lead, on the job   %s%s%s%s\n' \
-            "$C_DIM" "$C_ACCENT" "$_RUNNER" "$C_RESET" "$C_RESET"
-        printf '%s        %s  ephemeral GitHub Actions runners that clean up after themselves%s\n' \
-            "$C_DIM" "$C_RESET" "$C_RESET"
-        printf '%s           https://github.com/%s%s\n\n' "$C_DIM" "$REPO" "$C_RESET"
-        return 0
+    if anim_ready && [ "${TERM:-dumb}" != "dumb" ]; then
+        _tl='╭─'; _vl='│'; _bl='╰─'; _rule='────────────────────────────────────────────'
+    else
+        _tl='+-'; _vl='|'; _bl='+-'; _rule='--------------------------------------------'
     fi
-    # The mark is three characters no ASCII terminal has. A dumb terminal, or a
-    # locale that is not UTF-8, gets mojibake where the brand should be -- so it
-    # gets a plain stand-in instead.
-    mark='⟋●⟍'
-    case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
-        *UTF-8*|*utf8*|*UTF8*|*utf-8*) ;;
-        *) mark='[o]' ;;
-    esac
-    [ "${TERM:-dumb}" != "dumb" ] || mark='[o]'
-    printf '\n%s%s   %s%s   %s%sZoomies%s  %soff the lead, on the job%s\n' \
-        "$C_BOLD" "$C_ACCENT" "$mark" "$C_RESET" "$C_BOLD" "$C_ACCENT" "$C_RESET" "$C_DIM" "$C_RESET"
-    printf '%s        %s  ephemeral GitHub Actions runners that clean up after themselves%s\n' \
-        "$C_DIM" "$C_RESET" "$C_RESET"
-    printf '%s           https://github.com/%s%s\n\n' "$C_DIM" "$REPO" "$C_RESET"
+
+    printf '\n'
+    brand_dash
+    printf '%s  %s%s %sZOOMIES%s %s\n' "$C_DIM" "$_tl" "$C_RESET" "$C_BOLD$C_ACCENT" "$C_RESET" "$_rule"; brand_beat
+    printf '%s  %s%s\n' "$C_DIM" "$_vl" "$C_RESET"; brand_beat
+    printf '%s  %s%s   %s__%s      %sSELF-HOSTED GITHUB ACTIONS RUNNERS%s\n' \
+        "$C_DIM" "$_vl" "$C_RESET" "$C_ACCENT" "$C_RESET" "$C_BOLD" "$C_RESET"; brand_beat
+    printf '%s  %s%s  %s(oo)~%s    Fast when needed. Gone when done.\n' \
+        "$C_DIM" "$_vl" "$C_RESET" "$C_ACCENT" "$C_RESET"; brand_beat
+    printf '%s  %s%s  %s/||\\%s     %soff the lead, on the job.%s\n' \
+        "$C_DIM" "$_vl" "$C_RESET" "$C_ACCENT" "$C_RESET" "$C_DIM" "$C_RESET"; brand_beat
+    printf '%s  %s%s %shttps://github.com/%s%s\n\n' \
+        "$C_DIM" "$_bl" "$C_RESET" "$C_DIM" "$REPO" "$C_RESET"
 }
 
 usage() {
