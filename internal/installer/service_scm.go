@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -183,6 +184,38 @@ func (m *windowsManager) LogCommand() string {
 func (m *windowsManager) exists(ctx context.Context) bool {
 	_, err := m.run(ctx, "sc.exe", "query", m.name())
 	return err == nil
+}
+
+// prepareDirs creates the installer's directories and, on Windows, replaces
+// each one's inherited ACL with one that only SYSTEM and Administrators can
+// read.
+//
+// %ProgramData% is readable by every local user by default, and the agent's
+// credentials live under it. On POSIX the 0600 on the credentials file is
+// what keeps another account out; on Windows that mode is ignored and the
+// directory's ACL is the only thing that does the same job. The platform and
+// the runner are arguments so the icacls invocation is checked on every
+// platform, not only the one it runs on.
+func prepareDirs(ctx context.Context, goos string, run commandRunner, dirs ...string) error {
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return fmt.Errorf("installer: creating %s: %w", dir, err)
+		}
+		if err := restrictDir(ctx, goos, dir, run); err != nil {
+			return fmt.Errorf("installer: restricting %s to administrators: %w (run this from an elevated prompt)", dir, err)
+		}
+	}
+	return nil
+}
+
+// restrictDir is the ACL half of prepareDirs.
+func restrictDir(ctx context.Context, goos, dir string, run commandRunner) error {
+	if goos != "windows" {
+		return nil
+	}
+	_, err := run(ctx, "icacls", dir, "/inheritance:r",
+		"/grant:r", "SYSTEM:(OI)(CI)F", "/grant:r", "Administrators:(OI)(CI)F")
+	return err
 }
 
 // windowsServiceInstalled reports whether the agent service is registered on

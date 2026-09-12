@@ -850,3 +850,77 @@ func TestAJobClaimedOnArrivalIsEligibleFromArrival(t *testing.T) {
 		t.Errorf("eligible at %v, want %v", j.EligibleAt, clock)
 	}
 }
+
+// GitHub owner and repository names are case-insensitive, and a delivery
+// carries the canonical case whatever an operator typed into the form. An
+// installation saved as "Acme" that matched nothing was a fleet that scaled
+// for nobody with every delivery recorded as "no installation covers".
+func TestInstallationTargetsMatchWhateverCaseTheyWereTypedIn(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	inst := &Installation{AppID: 1, InstallationID: 20, Target: " Acme ", TargetType: TargetOrg}
+	if err := s.CreateInstallation(ctx, inst); err != nil {
+		t.Fatalf("CreateInstallation: %v", err)
+	}
+	if inst.Target != "acme" {
+		t.Fatalf("stored target = %q, want it folded to acme", inst.Target)
+	}
+	for _, repo := range []string{"acme/widgets", "ACME/Widgets", "Acme"} {
+		got, err := s.FindInstallationByTarget(ctx, repo)
+		if err != nil {
+			t.Fatalf("FindInstallationByTarget(%q): %v", repo, err)
+		}
+		if got.ID != inst.ID {
+			t.Fatalf("FindInstallationByTarget(%q) = %s, want %s", repo, got.ID, inst.ID)
+		}
+	}
+
+	// Rows written before targets were folded are matched too, which is why
+	// the comparison folds the column and not only the argument.
+	if _, err := s.exec(ctx, `UPDATE installations SET target = 'Acme' WHERE id = ?`, inst.ID); err != nil {
+		t.Fatalf("unfolding the stored target: %v", err)
+	}
+	if got, err := s.FindInstallationByTarget(ctx, "acme/gadgets"); err != nil || got.ID != inst.ID {
+		t.Fatalf("an older mixed-case row is not matched: %v, %v", got, err)
+	}
+
+	// Delivery freshness is credited by the same comparison.
+	if err := s.RecordDelivery(ctx, &WebhookDelivery{DeliveryID: "d1", Event: "workflow_job",
+		Repo: "ACME/widgets", Status: "accepted", ReceivedAt: s.Now()}); err != nil {
+		t.Fatalf("RecordDelivery: %v", err)
+	}
+	fresh, err := s.InstallationsFreshSince(ctx, s.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("InstallationsFreshSince: %v", err)
+	}
+	if !fresh[inst.ID] {
+		t.Fatalf("a delivery in canonical case was not credited to the mixed-case installation: %v", fresh)
+	}
+}
+
+// Two installations may cover one target -- the unique index is on the App as
+// well -- and the one a delivery resolves to has to be the same on every
+// call, or a job's installation changes between the webhook and the poller.
+func TestTheOlderOfTwoInstallationsOnOneTargetWins(t *testing.T) {
+	clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	s := newTestStoreAt(t, func() time.Time { return clock })
+	ctx := context.Background()
+	first := &Installation{AppID: 1, InstallationID: 30, Target: "acme", TargetType: TargetOrg}
+	if err := s.CreateInstallation(ctx, first); err != nil {
+		t.Fatalf("CreateInstallation: %v", err)
+	}
+	clock = clock.Add(time.Minute)
+	second := &Installation{AppID: 2, InstallationID: 31, Target: "acme", TargetType: TargetOrg}
+	if err := s.CreateInstallation(ctx, second); err != nil {
+		t.Fatalf("CreateInstallation: %v", err)
+	}
+	for range 5 {
+		got, err := s.FindInstallationByTarget(ctx, "acme/widgets")
+		if err != nil {
+			t.Fatalf("FindInstallationByTarget: %v", err)
+		}
+		if got.ID != first.ID {
+			t.Fatalf("resolved to %s, want the older installation %s every time", got.ID, first.ID)
+		}
+	}
+}

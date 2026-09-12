@@ -118,6 +118,7 @@ on a public address the same setting is an error.
 | `images.refresh_negative` | error | `images.refresh_interval` | Must not be negative. Use a duration, or 0 to leave images alone. |
 | `images.refresh_too_fast` | warning | `images.refresh_interval` | Every pool's image is checked on every host far more often than an image is built. |
 | `images.refresh_off` | info | `images.refresh_interval` | Nothing refreshes runner images, so a pool naming a moving tag keeps whatever its hosts pulled first. Expected on an air-gapped fleet, or one that pins every pool to a digest. |
+| `retention.audit_renamed` | info | `retention.audit` | The key was renamed to `retention.scaling_events`, which is all it ever bounded; audit rows are never pruned. The value is still honoured. Rename it. |
 | `capacity_demand.url` | error | `capacity_demand.destination_url` | Not an absolute HTTP URL. |
 | `capacity_demand.secret` | error | `capacity_demand.signing_secret` | Empty, so deliveries could not be signed and a receiver could not tell them from anyone else's. |
 | `capacity_demand.cooldown` | error | `capacity_demand.cooldown` | Must be positive. |
@@ -144,6 +145,7 @@ on a public address the same setting is an error.
 | --- | --- | --- |
 | `pool.no_capacity` | **error with jobs waiting, warning without** | The pool cannot start the runners it wants. The entry carries the scheduler's own reason: no host matches its selector, every host is full, or every host is cordoned. |
 | `pool.runners_failing` | **error with jobs waiting, warning without** | Runners are being created and dying before they register. The usual causes are an image that cannot be pulled and a backend that cannot start a container. |
+| `pool.github_rate_limited` | warning | The pool has jobs waiting and its installation is inside a GitHub rate-limit backoff, so the scheduler is creating nothing for it rather than spending another call on a quota that is already gone. It lifts on its own when `poller.paused` does. |
 | `controller.lease_lost` | **error** | Another controller has taken this database's lease, so two are running against it. Both are scheduling, and they will mint runners against each other and remove each other's workloads. Stop one; the survivor restarts with `--takeover`. |
 | `pool.runner_group_unresolved` | warning | A pool asked for a runner group its target does not offer, or GitHub would not say which groups exist, so its runners registered in Default instead of the isolation boundary the pool requested. |
 | `pool.runner_group_public_repositories_blocked` | warning | GitHub reports the pool's runner group as unavailable to public repositories. The runners can register, connect and appear idle, but GitHub will leave matching public-repository jobs queued. Enable **Allow public repositories** for that runner group under the organisation's **Settings > Actions > Runner groups**, or use a repository-scoped installation. |

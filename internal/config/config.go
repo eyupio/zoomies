@@ -324,9 +324,19 @@ type Metrics struct {
 }
 
 // Retention bounds how much history the database keeps.
+//
+// Audit rows are deliberately absent: an audit trail a process can quietly
+// delete is not one, and the store offers no way to prune them.
 type Retention struct {
-	Jobs     time.Duration `yaml:"jobs"`
-	Runners  time.Duration `yaml:"runners"`
+	Jobs    time.Duration `yaml:"jobs"`
+	Runners time.Duration `yaml:"runners"`
+	// ScalingEvents is how long scaling decisions are kept. It used to be
+	// called audit, and a file that still says so is honoured -- see Audit.
+	ScalingEvents time.Duration `yaml:"scaling_events"`
+	// Audit is the old name for ScalingEvents. It never bounded audit rows,
+	// which are not pruned, so the name promised a deletion that never
+	// happened and hid one that did. A value here still sets ScalingEvents,
+	// with an info finding asking for the rename.
 	Audit    time.Duration `yaml:"audit"`
 	Samples  time.Duration `yaml:"samples"`
 	Webhooks time.Duration `yaml:"webhooks"`
@@ -390,11 +400,11 @@ func Default() *Config {
 			GroupsClaim:   "groups",
 		},
 		Retention: Retention{
-			Jobs:     30 * 24 * time.Hour,
-			Runners:  7 * 24 * time.Hour,
-			Audit:    365 * 24 * time.Hour,
-			Samples:  7 * 24 * time.Hour,
-			Webhooks: 7 * 24 * time.Hour,
+			Jobs:          30 * 24 * time.Hour,
+			Runners:       7 * 24 * time.Hour,
+			ScalingEvents: 365 * 24 * time.Hour,
+			Samples:       7 * 24 * time.Hour,
+			Webhooks:      7 * 24 * time.Hour,
 		},
 		// Hourly is soon enough that a host picks up a rebuilt image the same
 		// working day, and rare enough that the registry never notices.
@@ -607,6 +617,13 @@ func (c *Config) Save(path string) error {
 
 // normalize fills in values that depend on other values.
 func (c *Config) normalize() {
+	// The old name for the scaling-history window still sets it. Only a
+	// positive value carries over: zero is what an unset key reads as, and
+	// treating it as "keep everything" would turn every file that never
+	// mentioned the key into one that switched pruning off.
+	if c.Retention.Audit > 0 {
+		c.Retention.ScalingEvents = c.Retention.Audit
+	}
 	c.Log.Level = strings.ToLower(strings.TrimSpace(c.Log.Level))
 	if c.Log.Level == "warning" {
 		// slog's name for the level is warn; the file may say either.
@@ -917,6 +934,7 @@ func (c *Config) applyEnv() error {
 
 	dur("ZOOMIES_RETENTION_JOBS", &c.Retention.Jobs)
 	dur("ZOOMIES_RETENTION_RUNNERS", &c.Retention.Runners)
+	dur("ZOOMIES_RETENTION_SCALING_EVENTS", &c.Retention.ScalingEvents)
 	dur("ZOOMIES_RETENTION_AUDIT", &c.Retention.Audit)
 	dur("ZOOMIES_RETENTION_SAMPLES", &c.Retention.Samples)
 	dur("ZOOMIES_RETENTION_WEBHOOKS", &c.Retention.Webhooks)

@@ -332,7 +332,9 @@ runs as root on that host. Zoomies warns about this combination specifically.
 
 On Windows this is the only backend, and the service runs as LocalSystem unless
 you reconfigure it, so the same sentence applies with "root" read as
-"LocalSystem". There is no Windows container to destroy: what "ephemeral" means
+"LocalSystem". File modes mean nothing there, so what keeps another local
+account away from the agent's credentials is the ACL `zoomies agent join` sets
+on `%ProgramData%\zoomies`: SYSTEM and Administrators only. There is no Windows container to destroy: what "ephemeral" means
 there is a fresh work directory and a single-use registration on a machine that
 keeps its state, and a drain is a kill of the runner's process tree rather than
 an interrupt.

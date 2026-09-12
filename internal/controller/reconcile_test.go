@@ -685,3 +685,46 @@ func TestAnUnforcedRemoveOfABusyRunnerNeedsConfirming(t *testing.T) {
 		t.Fatalf("a forced remove asked for confirmation: %v", err)
 	}
 }
+
+// The poller and the reap already stand down from an installation GitHub is
+// rate-limiting; the scheduler used to ask it for a JIT configuration on every
+// pass anyway. Each request was refused, each refusal became a failed runner
+// row, and the pool then backed off from its own failures on top of the hold
+// GitHub asked for -- with a Runners page full of rows saying the same thing.
+func TestAHeldInstallationMintsNothingAndSaysWhy(t *testing.T) {
+	h := newHarness(t)
+	inst, pool, _ := h.fleet()
+	h.deliverJob(jobEvent{Action: "queued", JobID: 61, Labels: []string{"self-hosted", "linux", "x64", "demo"}})
+	// A minute, not longer: the clock is moved past it below, and a host
+	// that has not been heard from for ninety seconds is one the scheduler
+	// places nothing on, which would look exactly like the hold still holding.
+	h.c.holdGitHub(inst.ID, h.c.Now().Add(time.Minute))
+
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if got := h.runners(); len(got) != 0 {
+		t.Fatalf("a held installation got %d runner rows, want none: %+v", len(got), got[0])
+	}
+	if got := len(h.gh.Runners()); got != 0 {
+		t.Fatalf("GitHub was asked to register %d runners during a hold", got)
+	}
+	if codes := h.problemCodes(); !slices.Contains(codes, "pool.github_rate_limited") {
+		t.Fatalf("problems = %v, want pool.github_rate_limited so the waiting job is explained", codes)
+	}
+	if p := h.problem(t, "pool.github_rate_limited"); p.TargetID != pool.ID {
+		t.Fatalf("the problem targets %s, want the pool %s", p.TargetID, pool.ID)
+	}
+
+	// The hold lifts and the next pass creates.
+	h.advance(61 * time.Second)
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile after the hold: %v", err)
+	}
+	if got := h.runners(); len(got) != 1 {
+		t.Fatalf("got %d runners after the hold lifted, want 1", len(got))
+	}
+	if codes := h.problemCodes(); slices.Contains(codes, "pool.github_rate_limited") {
+		t.Fatalf("pool.github_rate_limited is still raised after the hold lifted: %v", codes)
+	}
+}

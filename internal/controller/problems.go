@@ -736,6 +736,22 @@ func (c *Controller) PoolCapacityProblems() []Problem {
 				TargetKind: "pool", TargetID: pp.PoolID,
 			})
 		}
+		if pp.Held != "" && pp.QueuedMatched > 0 {
+			// The installation's hold is already raised as poller.paused, with
+			// the moment it lifts. This entry is about the pool: it has jobs
+			// waiting and looks healthy, and nothing else on the page says why
+			// no runner is coming.
+			out = append(out, Problem{
+				Code:     "pool.github_rate_limited",
+				Severity: config.SeverityWarning,
+				Title:    fmt.Sprintf("pool %s is waiting on GitHub's rate limit", pp.PoolName),
+				Detail:   pp.Held,
+				Fix: "nothing to change: the hold lasts as long as GitHub asked and lifts on its own. " +
+					"A hold that recurs means the installation's hourly quota is being spent elsewhere, " +
+					"usually by another integration on the same App.",
+				TargetKind: "pool", TargetID: pp.PoolID,
+			})
+		}
 		if pp.Blocked == "" {
 			continue
 		}

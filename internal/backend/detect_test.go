@@ -21,6 +21,7 @@ func fakeEnv(vars map[string]string, uid int, present ...string) hostEnv {
 }
 
 func TestDockerCandidateOrder(t *testing.T) {
+	requirePOSIX(t)
 	e := fakeEnv(map[string]string{
 		"XDG_RUNTIME_DIR": "/run/user/1000",
 		"HOME":            "/home/ops",
@@ -68,6 +69,7 @@ func TestDockerCandidateDeduplicates(t *testing.T) {
 }
 
 func TestPodmanCandidateOrder(t *testing.T) {
+	requirePOSIX(t)
 	e := fakeEnv(map[string]string{"XDG_RUNTIME_DIR": "/run/user/1000"}, 1000)
 	got := podmanCandidates(e)
 	want := []string{
@@ -85,6 +87,7 @@ func TestPodmanCandidateOrder(t *testing.T) {
 }
 
 func TestDetectHostFiltersToWhatExists(t *testing.T) {
+	requirePOSIX(t)
 	t.Run("only existing sockets", func(t *testing.T) {
 		e := fakeEnv(map[string]string{"XDG_RUNTIME_DIR": "/run/user/1000"}, 1000, "/var/run/docker.sock")
 		got := detectHost(e, dockerCandidates)
@@ -151,6 +154,7 @@ func TestIsRootlessEndpoint(t *testing.T) {
 }
 
 func TestCanUseDockerSocket(t *testing.T) {
+	requirePOSIX(t)
 	dir := t.TempDir()
 
 	t.Run("missing", func(t *testing.T) {
@@ -224,6 +228,7 @@ func TestCanUseDockerSocket(t *testing.T) {
 }
 
 func TestCanUseDockerSocketPermissionDenied(t *testing.T) {
+	requirePOSIX(t)
 	if os.Geteuid() == 0 {
 		t.Skip("root bypasses filesystem permissions, so this check cannot fail here")
 	}

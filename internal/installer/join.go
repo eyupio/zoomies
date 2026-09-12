@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -155,10 +156,8 @@ func Join(ctx context.Context, opts JoinOptions) error {
 			u.ok("created the system user " + serviceUser)
 		}
 	}
-	for _, dir := range []string{opts.configDir(), opts.stateDir(), workDir} {
-		if err := os.MkdirAll(dir, 0o750); err != nil {
-			return fmt.Errorf("installer: creating %s: %w", dir, err)
-		}
+	if err := prepareDirs(ctx, runtime.GOOS, runCommand, opts.configDir(), opts.stateDir(), workDir); err != nil {
+		return err
 	}
 	u.ok(opts.configDir() + " and " + opts.stateDir() + " are ready")
 

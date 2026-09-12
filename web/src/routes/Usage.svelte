@@ -19,7 +19,7 @@
   import type { Usage, UsageGrouping } from '$lib/api/types';
   import { router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
-  import { formatNumber, formatPercent } from '$lib/format';
+  import { formatAbsolute, formatNumber, formatPercent } from '$lib/format';
   import Button from '$lib/components/Button.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import LoadingBoundary from '$lib/components/LoadingBoundary.svelte';
@@ -128,6 +128,24 @@
    */
   const attributable = $derived(report?.allocation_attributable !== false);
   const backwards = $derived(since > until);
+
+  /**
+   * The instant the report's runner history begins, when the range asked for
+   * reaches further back than that. Runner rows are pruned sooner than job
+   * rows, so a 30-day report has every job but by default only a week of
+   * runner-hours -- and a runner-hours figure that is silently short by three
+   * weeks is the one number on this page somebody takes to a finance meeting.
+   */
+  const runnersFrom = $derived.by(() => {
+    const from = report?.history_from?.runners;
+    if (!from || !attributable) return null;
+    return new Date(from) > new Date(report?.from ?? from) ? from : null;
+  });
+  const jobsFrom = $derived.by(() => {
+    const from = report?.history_from?.jobs;
+    if (!from) return null;
+    return new Date(from) > new Date(report?.from ?? from) ? from : null;
+  });
 
   function setRange(next: { since: string; until: string }): void {
     router.setQuery({ since: next.since || null, until: next.until || null });
@@ -253,6 +271,20 @@
   <p class="note attribution">
     A runner idles on behalf of a pool, never on behalf of a {grouping}, so runner-hours and cost
     cannot be attributed at this grouping. Group by pool, host or installation to see them.
+  </p>
+{/if}
+
+{#if runnersFrom || jobsFrom}
+  <p class="note attribution" data-testid="usage-history-from">
+    {#if runnersFrom}
+      Runner-hours, utilisation and cost are complete from {formatAbsolute(runnersFrom)}: runner
+      history before then has been pruned.
+    {/if}
+    {#if jobsFrom}
+      Job counts and waits are complete from {formatAbsolute(jobsFrom)}: job history before then has
+      been pruned.
+    {/if}
+    Raise the retention settings to keep more.
   </p>
 {/if}
 

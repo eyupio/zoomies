@@ -55,6 +55,13 @@ type Snapshot struct {
 	// Values outside [0,1) are clamped, and a pool with no entry gets none --
 	// a caller that has not thought about jitter keeps the old behaviour.
 	Jitter map[string]float64
+	// HeldInstallations is every installation GitHub is rate-limiting, keyed
+	// by ID, with the moment its quota returns. A pool on a held installation
+	// creates nothing: the create would be refused identically, spend another
+	// call against a quota that is already gone, and leave a failed row whose
+	// only message is the refusal. The poller and the reap already stand down
+	// from a held installation; this is the scheduler doing the same.
+	HeldInstallations map[string]time.Time
 }
 
 const (
@@ -197,7 +204,11 @@ type PoolPlan struct {
 	// It says how many failed, the latest reason and when the next attempt
 	// is, because a pool in this state has jobs waiting on runners that keep
 	// failing, and the problems drawer has to be able to say why.
-	Failing string   `json:"failing,omitempty"`
+	Failing string `json:"failing,omitempty"`
+	// Held is set when the pool's installation is inside a GitHub rate-limit
+	// backoff. It says until when, because the pool is otherwise healthy and
+	// its jobs are waiting on nothing the operator can see.
+	Held    string   `json:"held,omitempty"`
 	Actions []Action `json:"actions,omitempty"`
 }
 
@@ -238,6 +249,7 @@ func Decide(s Snapshot) Plan {
 		poolCount:          len(pools),
 		jitter:             s.Jitter,
 		lastProvisioned:    s.LastProvisioned,
+		held:               s.HeldInstallations,
 	}
 	if t.budget <= 0 {
 		// An unset cap must not stall the fleet; host capacity still bounds us.
@@ -269,6 +281,7 @@ type tick struct {
 	poolCount          int
 	jitter             map[string]float64
 	lastProvisioned    map[string]time.Time
+	held               map[string]time.Time
 }
 
 // assign maps every queued job onto the pool that will run it, and collects the
@@ -358,6 +371,7 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 	plan.Desired = clamp(max(p.MinRunners, busy+draining+eligible), p.MinRunners, p.MaxRunners)
 	plan.eligible = eligible
 	plan.Failing = t.holdAfterStartFailures(p, runners)
+	plan.Held = t.holdWhileRateLimited(p)
 
 	switch {
 	case plan.Desired < live:
@@ -398,6 +412,27 @@ func (t *tick) holdAfterStartFailures(p *store.Pool, runners []*store.Runner) st
 	return fmt.Sprintf("%s failed to start, most recently %s ago (%s); trying again in %s",
 		which, formatDuration(since.Truncate(time.Second)), summarise(failed[0].Message),
 		formatDuration((wait - since).Round(time.Second)))
+}
+
+// holdWhileRateLimited returns the sentence that says a pool's installation
+// is inside a GitHub rate-limit backoff, or "" when it is not.
+//
+// It is a hold on creates only. Draining and removing a runner ask GitHub for
+// nothing, so a held pool still scales down.
+func (t *tick) holdWhileRateLimited(p *store.Pool) string {
+	until, ok := t.held[p.InstallationID]
+	if !ok || !t.now.Before(until) {
+		return ""
+	}
+	return fmt.Sprintf("GitHub is rate-limiting this pool's installation; not asking it to register runners for %s",
+		formatDuration(until.Sub(t.now).Round(time.Second)))
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 // jittered lengthens a wait by up to startBackoffJitter of itself.
@@ -525,11 +560,11 @@ func (t *tick) allocate(pools []*store.Pool, plans []PoolPlan, runners map[strin
 				if !p.Enabled || pp.Desired <= pp.Current+creates(pp.Actions) {
 					continue
 				}
-				if pp.Failing != "" {
+				if why := firstNonEmpty(pp.Failing, pp.Held); why != "" {
 					// Held back, not blocked: there is somewhere to put a
 					// runner, and the pool will try again on its own once the
 					// wait is out. The reason still says what went unserved.
-					pp.Reason = cannotScale(p.Name, pp.Current, pp.Desired, pp.Failing)
+					pp.Reason = cannotScale(p.Name, pp.Current, pp.Desired, why)
 					continue
 				}
 				if !t.grant(p, pp, runners[p.ID], demand[p.ID]) {
@@ -552,7 +587,7 @@ func (t *tick) allocate(pools []*store.Pool, plans []PoolPlan, runners map[strin
 	for _, p := range pools {
 		pp := byID[p.ID]
 		got := creates(pp.Actions)
-		if !p.Enabled || pp.Desired <= pp.Current+got || pp.Blocked != "" || pp.Failing != "" {
+		if !p.Enabled || pp.Desired <= pp.Current+got || pp.Blocked != "" || pp.Failing != "" || pp.Held != "" {
 			continue
 		}
 		why := fmt.Sprintf("this tick's global limit of %s is exhausted; the next pass will continue", plural(t.policy.MaxCreatesPerTick, "new runner"))

@@ -188,7 +188,7 @@ func TestSettings(t *testing.T) {
 
 	// So is an unparseable value.
 	bad := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
-		body: map[string]any{"retention.audit": "forever"}})
+		body: map[string]any{"retention.scaling_events": "forever"}})
 	bad.mustStatus(t, http.StatusUnprocessableEntity, "patch with a bad duration")
 
 	// A request is refused as a whole: a good key sent beside a bad one is not

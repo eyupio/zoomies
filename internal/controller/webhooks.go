@@ -87,6 +87,19 @@ func (c *Controller) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		Event:      event,
 	}
 
+	// A delivery with no signature header cannot verify, so it is refused
+	// before its body is read: reading, parsing and checking a body against
+	// every installation's secret is the expensive part of this handler, and
+	// it is the part a probe of the endpoint would otherwise get for free.
+	// The refusal is recorded through the same bounded path as a delivery
+	// whose signature was wrong, so a burst of them is still visible.
+	signature := r.Header.Get(github.SignatureHeader)
+	if strings.TrimSpace(signature) == "" {
+		c.rejectDelivery(ctx, w, r, d, event, "",
+			fmt.Errorf("the delivery carries no %s header, so it cannot have come from GitHub with the webhook secret Zoomies holds", github.SignatureHeader))
+		return
+	}
+
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxWebhookBody))
 	if err != nil {
 		c.recordDelivery(ctx, d, "error", fmt.Sprintf("could not read the delivery body (limit %d bytes): %v", maxWebhookBody, err))
@@ -100,28 +113,9 @@ func (c *Controller) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	env := parseEnvelope(body)
 	d.Repo, d.Action = env.Repo, env.Action
 
-	inst, note, err := c.verifyDelivery(ctx, body, r.Header.Get(github.SignatureHeader), env.Repo)
+	inst, note, err := c.verifyDelivery(ctx, body, signature, env.Repo)
 	if err != nil {
-		// A burst of these means somebody is probing the endpoint, which is
-		// why they are written down rather than only counted -- but written
-		// down is what costs, so one address gets a bounded number of them.
-		//
-		// The limit is on the rejected path alone, deliberately. GitHub sends
-		// in bursts from a range of addresses and a real delivery has a valid
-		// signature, so nothing that verifies is ever slowed by this; only
-		// something that could not have come from GitHub is. Rate-limiting the
-		// endpoint itself would throttle the deliveries the fleet scales on.
-		//
-		// The refusal is unchanged either way: what is dropped is the record,
-		// not the rejection.
-		if c.webhookProbes.Allow(probeKey(r)) {
-			c.recordDelivery(ctx, d, "rejected", err.Error())
-			c.log.Warn("rejected a webhook delivery",
-				"delivery", d.DeliveryID, "event", event, "repo", env.Repo, "reason", err)
-		} else {
-			c.metrics.webhookDeliveries.WithLabelValues("rejected").Inc()
-		}
-		http.Error(w, "the delivery signature could not be verified", http.StatusUnauthorized)
+		c.rejectDelivery(ctx, w, r, d, event, env.Repo, err)
 		return
 	}
 
@@ -209,6 +203,32 @@ func parseEnvelope(body []byte) envelope {
 		Action:         clampField(strings.ToLower(strings.TrimSpace(p.Action)), maxDeliveryAction),
 		InstallationID: p.Installation.ID,
 	}
+}
+
+// rejectDelivery answers a delivery that could not be verified, and records it
+// within bounds.
+//
+// A burst of these means somebody is probing the endpoint, which is why they
+// are written down rather than only counted -- but written down is what costs,
+// so one address gets a bounded number of them.
+//
+// The limit is on the rejected path alone, deliberately. GitHub sends in bursts
+// from a range of addresses and a real delivery has a valid signature, so
+// nothing that verifies is ever slowed by this; only something that could not
+// have come from GitHub is. Rate-limiting the endpoint itself would throttle
+// the deliveries the fleet scales on.
+//
+// The refusal is unchanged either way: what is dropped is the record, not the
+// rejection.
+func (c *Controller) rejectDelivery(ctx context.Context, w http.ResponseWriter, r *http.Request, d *store.WebhookDelivery, event, repo string, err error) {
+	if c.webhookProbes.Allow(probeKey(r)) {
+		c.recordDelivery(ctx, d, "rejected", err.Error())
+		c.log.Warn("rejected a webhook delivery",
+			"delivery", d.DeliveryID, "event", event, "repo", repo, "reason", err)
+	} else {
+		c.metrics.webhookDeliveries.WithLabelValues("rejected").Inc()
+	}
+	http.Error(w, "the delivery signature could not be verified", http.StatusUnauthorized)
 }
 
 // verifyDelivery finds the secret this delivery should have been signed with

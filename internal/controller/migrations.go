@@ -589,7 +589,15 @@ func migrationRepos(ctx context.Context, client github.Client, named []string, c
 		return out, "", len(out), nil
 	}
 
-	sort.Slice(all, func(i, j int) bool { return all[i].FullName < all[j].FullName })
+	// Sorted by the lowercased name, because that is the order the cursor
+	// below is compared in. GitHub's names are mixed case, and ordering by raw
+	// bytes puts every capitalised name before every lowercase one -- so the
+	// search for the cursor would run over an order it does not share, and the
+	// repositories between the two orders would appear on no page at all. A
+	// repository the wizard never lists is one nobody can migrate.
+	sort.Slice(all, func(i, j int) bool {
+		return strings.ToLower(all[i].FullName) < strings.ToLower(all[j].FullName)
+	})
 	total := len(all)
 
 	// The cursor is a name rather than an offset, so a repository added or

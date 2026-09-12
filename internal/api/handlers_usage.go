@@ -82,7 +82,33 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 		// Told to the client even when items is empty, so the page can explain
 		// an absent runner-hours column rather than leaving it blank.
 		"allocation_attributable": store.UsageAllocationAttributable(g),
+		"history_from":            s.usageHistoryFrom(),
 	})
+}
+
+// usageHistoryFrom is the earliest instant each side of the usage aggregate
+// can still be computed from, given what the prune loop has already deleted.
+//
+// The aggregate is read from rows, not from a ledger, and the rows have
+// windows: jobs are kept thirty days by default and runners seven. A report
+// over a longer range is not wrong for the days it has rows for, but it is
+// silently short for the days it has not, and a runner-hours figure short by
+// three weeks is one an operator takes to a finance meeting. So the response
+// says where each history begins, and the page says so beside the figure. A
+// window of zero keeps everything and is reported as null.
+func (s *Server) usageHistoryFrom() map[string]any {
+	now := s.ctrl.Now()
+	since := func(window time.Duration) any {
+		if window <= 0 {
+			return nil
+		}
+		return now.Add(-window)
+	}
+	r := s.cfg().Retention
+	return map[string]any{
+		"jobs":    since(r.Jobs),
+		"runners": since(r.Runners),
+	}
 }
 
 func (s *Server) handleUsageCSV(w http.ResponseWriter, r *http.Request) {

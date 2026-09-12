@@ -2978,7 +2978,7 @@ components:
         arch: { type: string, enum: [amd64, arm64], examples: [arm64] }
     UsageResponse:
       type: object
-      required: [from, to, group_by, items, costs_are_estimates, allocation_attributable]
+      required: [from, to, group_by, items, costs_are_estimates, allocation_attributable, history_from]
       properties:
         from: { type: string, format: date-time }
         to: { type: string, format: date-time }
@@ -2992,6 +2992,19 @@ components:
             pool, never on behalf of a repository or a workflow, so it is false
             for the repository and workflow groupings and every row's
             allocated_runner_seconds is null.
+        history_from:
+          type: object
+          required: [jobs, runners]
+          description: |
+            Where the history each figure is computed from begins, given what
+            retention has already pruned. Job counts, execution time and
+            queue waits come from job rows; allocated runner time and cost
+            from runner rows, which are kept for less time by default. A
+            report whose `from` is earlier than one of these is complete only
+            from that instant on. Null means that history is never pruned.
+          properties:
+            jobs: { type: string, format: date-time, nullable: true }
+            runners: { type: string, format: date-time, nullable: true }
         items:
           type: array
           items:

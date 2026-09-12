@@ -38,6 +38,35 @@ func NewID(prefix string) string {
 	return prefix + "_" + idEncoding.EncodeToString(b[:])
 }
 
+// generatedIDLength is how many characters NewID's random part always has:
+// eight bytes of base32 with no padding. It is a property of NewID, so a
+// change to the byte count above has to change this too, and a test holds the
+// two together.
+const generatedIDLength = 13
+
+// LooksGenerated reports whether id has the exact shape NewID produces: a
+// prefix, an underscore, and thirteen characters of the base32 alphabet.
+//
+// It exists for the one caller that needs to tell a fixture apart from a real
+// row. The demo seed names its rows with readable identifiers such as
+// "pool_demolinux", and a check that only looked for the "demo" prefix would
+// also match a real identifier that happened to start that way -- which, at
+// four letters over a 32-character alphabet, one row in a million does. A
+// fixture is never this shape, so the shape is what settles it.
+func LooksGenerated(id string) bool {
+	_, rest, ok := strings.Cut(id, "_")
+	if !ok || len(rest) != generatedIDLength {
+		return false
+	}
+	for i := 0; i < len(rest); i++ {
+		c := rest[i]
+		if (c < 'a' || c > 'z') && (c < '2' || c > '7') {
+			return false
+		}
+	}
+	return true
+}
+
 // HasPrefix reports whether id looks like an ID minted for the given kind.
 func HasPrefix(id, prefix string) bool {
 	return strings.HasPrefix(id, prefix+"_")

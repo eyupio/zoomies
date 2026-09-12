@@ -67,14 +67,14 @@ func TestPruningHonoursEachWindowAndKeepsEverythingWhenOneIsZero(t *testing.T) {
 	// And a window that is set takes exactly what is older than it.
 	h.c.UpdateConfig(func(c *config.Config) {
 		c.Retention = config.Retention{
-			Audit: 24 * time.Hour, Samples: 24 * time.Hour, Webhooks: 24 * time.Hour,
+			ScalingEvents: 24 * time.Hour, Samples: 24 * time.Hour, Webhooks: 24 * time.Hour,
 			Jobs: 24 * time.Hour, Runners: 24 * time.Hour,
 		}
 	})
 	h.c.prune(h.ctx)
 
 	if events, err = h.st.ListScalingEvents(h.ctx, "", 10); err != nil || len(events) != 0 {
-		t.Errorf("scaling events after the prune = %d (err %v), want none: they follow the audit window", len(events), err)
+		t.Errorf("scaling events after the prune = %d (err %v), want none: they follow the scaling-events window", len(events), err)
 	}
 	if samples, err = h.st.ListSamples(h.ctx, now.Add(-72*time.Hour)); err != nil || len(samples) != 0 {
 		t.Errorf("samples after the prune = %d (err %v), want none", len(samples), err)
