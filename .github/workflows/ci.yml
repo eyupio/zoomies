@@ -34,6 +34,7 @@ env:
 jobs:
   go:
     name: Go
+    timeout-minutes: 45
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -62,7 +63,12 @@ jobs:
           git diff --exit-code go.mod go.sum
 
       - name: Test
-        run: go test -race -count=1 -coverprofile=coverage.out -covermode=atomic ./...
+        # The timeout is per package, not per test. The growing API/controller
+        # suites repeatedly migrate pure-Go SQLite under race instrumentation;
+        # on the small fleet runner they exceed Go's default ten-minute budget.
+        # Keep the race detector and full coverage; share the bounded budget
+        # with local make test / make cover.
+        run: make cover
 
       - name: Coverage summary
         run: go tool cover -func=coverage.out | tail -1 >> "$GITHUB_STEP_SUMMARY"
