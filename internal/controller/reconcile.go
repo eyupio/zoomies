@@ -208,6 +208,9 @@ func (c *Controller) apply(ctx context.Context, snap scheduler.Snapshot, plan sc
 		}
 		c.recordScaling(ctx, pp, created, drained)
 		c.noteBlocked(pp)
+		if err := c.st.RecordUsageCapacity(ctx, pp.PoolID, c.Now(), pp.BlockedAtCapacity); err != nil {
+			c.log.Error("could not record usage capacity", "pool", pp.PoolID, "error", err)
+		}
 	}
 }
 

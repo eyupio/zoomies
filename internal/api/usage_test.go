@@ -99,3 +99,21 @@ func TestCSVTextLeavesOrdinaryNamesAlone(t *testing.T) {
 		}
 	}
 }
+
+func TestUsageExactKeyFilterMatchesJSONAndCSV(t *testing.T) {
+	h := newHarness(t)
+	u, _ := h.user("usage-viewer", store.RoleViewer)
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	for i, repo := range []string{"acme/one", "acme/two"} {
+		if _, err := h.st.UpsertJob(h.ctx, &store.Job{GitHubJobID: int64(9900 + i), Repo: repo, Matched: true, State: store.JobQueued, QueuedAt: base}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, suffix := range []string{"", ".csv"} {
+		resp := h.do(request{method: http.MethodGet, cookie: h.session(u), path: "/api/v1/usage" + suffix + "?group_by=repository&key=acme%2Fone&from=" + base.Add(-time.Hour).Format(time.RFC3339) + "&to=" + base.Add(time.Hour).Format(time.RFC3339)})
+		resp.mustStatus(t, http.StatusOK, "filtered usage")
+		if !strings.Contains(string(resp.body), "acme/one") || strings.Contains(string(resp.body), "acme/two") {
+			t.Fatalf("wrong filter for %s: %s", suffix, resp.body)
+		}
+	}
+}

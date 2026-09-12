@@ -209,6 +209,7 @@ func (c *Controller) prune(ctx context.Context) {
 		// The audit rows themselves have no prune: an audit trail a process can
 		// quietly delete is not one, so store deliberately offers no way.
 		{"scaling events", r.Audit, c.st.PruneScalingEvents},
+		{"usage capacity", r.Jobs, c.st.PruneUsageCapacity},
 	} {
 		// A zero or negative window means "keep everything", which is what an
 		// operator who cleared the setting meant.

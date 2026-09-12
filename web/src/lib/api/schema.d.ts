@@ -2023,7 +2023,7 @@ export interface components {
             /** Format: date-time */
             to: string;
             /** @enum {string} */
-            group_by: "installation" | "repository" | "workflow" | "pool";
+            group_by: "installation" | "repository" | "workflow" | "pool" | "host";
             /** @constant */
             costs_are_estimates: true;
             /**
@@ -2035,6 +2035,11 @@ export interface components {
              */
             allocation_attributable: boolean;
             items: {
+                history?: components["schemas"]["UsageBucket"][];
+                succeeded?: number;
+                failed?: number;
+                cancelled?: number;
+                unknown?: number;
                 key: string;
                 /** @description Job execution time clipped to the reported interval. */
                 job_execution_seconds: number;
@@ -2052,6 +2057,22 @@ export interface components {
                 /** @description Estimate from administrator-assigned pool rates; omitted when no rate exists. */
                 estimated_cost?: number;
             }[];
+        };
+        UsageBucket: {
+            /** Format: date-time */
+            from: string;
+            queued: number;
+            started: number;
+            succeeded: number;
+            failed: number;
+            cancelled: number;
+            unknown: number;
+            execution_seconds: number;
+            allocated_seconds: number;
+            /** @description Observed pool minutes; zero means no capacity telemetry. */
+            capacity_samples: number;
+            /** @description Observed pool minutes containing at least one capacity-blocked placement. Not incident count or exact duration. */
+            capacity_reached: number;
         };
         PoolPrewarm: {
             pool_id?: string;
@@ -2969,7 +2990,9 @@ export interface operations {
             query: {
                 from: string;
                 to: string;
-                group_by?: "installation" | "repository" | "workflow" | "pool";
+                /** @description Optional exact group key filter. */
+                key?: string;
+                group_by?: "installation" | "repository" | "workflow" | "pool" | "host";
             };
             header?: never;
             path?: never;
@@ -2993,7 +3016,9 @@ export interface operations {
             query: {
                 from: string;
                 to: string;
-                group_by?: "installation" | "repository" | "workflow" | "pool";
+                /** @description Optional exact group key filter. */
+                key?: string;
+                group_by?: "installation" | "repository" | "workflow" | "pool" | "host";
             };
             header?: never;
             path?: never;
