@@ -545,26 +545,49 @@
   });
 
   /**
-   * Post first to this controller. It validates the saved handshake and returns
-   * a 307 to GitHub, preserving the manifest body while keeping Android inside
-   * the browser that owns this setup.
+   * Submit directly: Android Chromium keeps native form submissions in the
+   * browser, but explicitly allows redirected submissions to launch apps.
+   * The controller validates this destination against the CSP form allowlist
+   * when building the manifest. State is still checked during code exchange.
    */
   const manifestAction = $derived.by(() => {
     if (!postUrl || !manifestState) return '';
-    const params = new URLSearchParams({ state: manifestState });
-    return `/api/v1/installations/manifest/handoff?${params.toString()}`;
+    const destination = new URL(postUrl);
+    destination.searchParams.set('state', manifestState);
+    return destination.href;
   });
+
+  // GET forms replace the action's query. Preserve every parameter as a
+  // successful control, including repeated values and GitHub's setup state.
+  const installDestination = $derived(installUrl ? new URL(installUrl) : null);
+  const installParameters = $derived(
+    installDestination ? Array.from(installDestination.searchParams.entries()) : [],
+  );
 
   /* -- step two: exchange the code -------------------------------------------- */
 
   async function exchange(): Promise<void> {
     if (!code.trim()) return;
+    let exchangeCode = code.trim();
+    let exchangeState = manifestState;
+    try {
+      const callback = new URL(exchangeCode);
+      // Treat a pasted return URL as data only. Never navigate to or fetch it.
+      exchangeCode = callback.searchParams.get('code') ?? '';
+      exchangeState = callback.searchParams.get('state') || manifestState;
+    } catch {
+      // A plain code remains supported.
+    }
+    if (!exchangeCode) {
+      errors = { code: 'That URL does not contain a GitHub code.' };
+      return;
+    }
     busy = true;
     clearFailure();
     try {
       const result = await exchangeAppManifest({
-        code: code.trim(),
-        state: manifestState || undefined,
+        code: exchangeCode,
+        state: exchangeState || undefined,
         api_base_url: apiBase.trim() || undefined,
       });
       appId = result.app_id ?? null;
@@ -989,7 +1012,7 @@
               <summary>GitHub did not bring you back?</summary>
               <Field
                 label="Code from GitHub"
-                hint="Copy the code= value out of the address bar GitHub left you on, and paste it here."
+                hint="If GitHub opened another browser, return to this browser and paste the full return URL here, or just its code= value. Keep the URL private."
                 error={errors.code ?? errors.state}
               >
                 {#snippet children({ id, describedBy, invalid })}
@@ -1026,10 +1049,22 @@
 
             {#if installUrl}
               <div>
-                <Button variant="primary" href={installUrl} iconAfter={ExternalLink}>
+                <Button type="submit" form="github-install" variant="primary">
                   Install it on {target || 'the account'}
                 </Button>
               </div>
+              <details class="fallback">
+                <summary>Opened another browser or app?</summary>
+                <p>
+                  Copy the installation link and paste it into this browser's address bar. After
+                  installing, return here and paste the return URL into Installation ID. You do not
+                  need to create the App again.
+                </p>
+                <CopyButton value={installUrl} label="Copy installation link" showLabel showValue />
+                {#if appId !== null}
+                  <p>App ID (if another browser asks for it): <code>{appId}</code></p>
+                {/if}
+              </details>
             {/if}
 
             <!--
@@ -1102,10 +1137,11 @@
           screen, and reloading turns the POST into a GET, which GitHub answers
           with its blank create-an-App form.
 
-          Its first destination is this controller, which answers with a 307
-          redirect to GitHub. The redirect preserves the manifest POST without
-          exposing a user-clicked github.com URL for Android to dispatch to a
-          different browser or app.
+          Submit directly to GitHub: an intermediary redirect makes Android
+          eligible to dispatch the navigation to another browser or app.
+          Native forms also handle the installation GET, rather than an app link.
+          OS/browser choices and GitHub's own redirects can still switch apps;
+          the recovery controls above let the operator finish in this browser.
 
           It sits outside the step form because HTML has no nested forms, and
           the step form is what makes Enter work everywhere else in the dialog.
@@ -1113,6 +1149,19 @@
         {#if step === 1 && manifest}
           <form id="github-manifest" method="POST" action={manifestAction} target="_self" hidden>
             <input type="hidden" name="manifest" value={manifest} />
+          </form>
+        {/if}
+        {#if step === 2 && installDestination}
+          <form
+            id="github-install"
+            method="GET"
+            action={installDestination.origin + installDestination.pathname}
+            target="_self"
+            hidden
+          >
+            {#each installParameters as [name, value], index (index)}
+              <input type="hidden" {name} {value} />
+            {/each}
           </form>
         {/if}
       {:else}
