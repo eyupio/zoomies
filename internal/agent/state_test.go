@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -29,6 +30,12 @@ func TestCredentialsRoundTrip(t *testing.T) {
 		t.Fatalf("Load = %+v, want %+v", got, want)
 	}
 
+	// The modes are POSIX facts; Windows reports 0666 and 0777 for anything
+	// writable, and what keeps other accounts out there is the directory's
+	// ACL, which the installer sets and this test cannot see.
+	if runtime.GOOS == "windows" {
+		return
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatalf("Stat: %v", err)
@@ -46,6 +53,9 @@ func TestCredentialsRoundTrip(t *testing.T) {
 }
 
 func TestLoadRefusesAWorldReadableFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the refusal reads POSIX mode bits, which Windows has none of; Load skips it there on purpose")
+	}
 	path := StatePath(t.TempDir())
 	if err := Save(path, Credentials{HostID: "host-1", AgentToken: "secret-token"}); err != nil {
 		t.Fatalf("Save: %v", err)
