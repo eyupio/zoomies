@@ -447,3 +447,25 @@ func TestCIDogfoodsZoomiesWithRecoveryForEveryJob(t *testing.T) {
 		t.Error("Images must respect cancellation while allowing skipped PR publishing dependencies")
 	}
 }
+
+func TestContainerBuildsStampTheirRunnerChannel(t *testing.T) {
+	workflows := workflowFiles(t)
+	for _, tc := range []struct {
+		file, stamp string
+		count       int
+	}{
+		{"ci.yml", "RUNNER_IMAGE_TAG=dev", 2},
+		{"release.yml", "RUNNER_IMAGE_TAG=${{ needs.setup.outputs.tag }}", 4},
+	} {
+		if got := strings.Count(workflows[tc.file], tc.stamp); got != tc.count {
+			t.Errorf("%s: found %d runner tag stamps, want %d controller/agent build paths", tc.file, got, tc.count)
+		}
+	}
+	dockerfile, err := os.ReadFile("../../deploy/Dockerfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(dockerfile), "-X github.com/eyupio/zoomies/internal/naming.RunnerImageTag=${RUNNER_IMAGE_TAG}") {
+		t.Error("container build does not pass its runner tag to the binary")
+	}
+}

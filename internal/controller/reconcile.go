@@ -13,7 +13,6 @@ import (
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/github"
-	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -404,9 +403,8 @@ func (c *Controller) mintCredentials(ctx context.Context, inst *store.Installati
 // the other two answers, and because what runs should be decided where the
 // runner is made rather than trusted to every path that ever wrote a pool row.
 func (c *Controller) RunnerImage(p *store.Pool) string {
-	image := naming.ResolveRunnerImage(
-		p.Image, p.Platform.OS, p.Platform.OSVersion, c.cfg().GitHub.RunnerImage)
-	return config.RunnerImageFor(image, p.DockerMode.GivesDaemon())
+	return config.ResolvePoolRunnerImage(p.Image, p.Platform.OS, p.Platform.OSVersion,
+		c.cfg().GitHub.RunnerImage, p.DockerMode.GivesDaemon())
 }
 
 func (c *Controller) runnerVersion(p *store.Pool) string {

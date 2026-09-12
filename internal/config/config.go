@@ -416,13 +416,25 @@ var DefaultRunnerImage = naming.DefaultRunnerImage()
 // same file's runner-docker target, published under the same tags. It is what
 // a pool whose docker_mode gives its jobs a daemon actually runs, whichever of
 // the two the pool names; see RunnerImageFor.
-const DefaultRunnerDockerImage = "ghcr.io/eyupio/zoomies-runner-docker:latest"
+var DefaultRunnerDockerImage = stockRunnerDockerRepository + ":" + naming.RunnerImageTag
 
 // The two repositories RunnerImageFor translates between.
 const (
 	stockRunnerRepository       = "ghcr.io/eyupio/zoomies-runner"
 	stockRunnerDockerRepository = "ghcr.io/eyupio/zoomies-runner-docker"
 )
+
+// ResolvePoolRunnerImage keeps automatic images on the build's channel, including
+// their Docker CLI variants. Explicit pins still use RunnerImageFor's narrow
+// compatibility rules: an arbitrary old tag might not have a Docker variant.
+func ResolvePoolRunnerImage(poolImage, os, version, instanceDefault string, daemon bool) string {
+	image := naming.ResolveRunnerImage(poolImage, os, version, instanceDefault)
+	_, platform := naming.FindImage(os, version)
+	if daemon && strings.TrimSpace(poolImage) == "" && (platform || instanceDefault == naming.DefaultRunnerImage()) {
+		return stockRunnerDockerRepository + strings.TrimPrefix(image, stockRunnerRepository)
+	}
+	return RunnerImageFor(image, daemon)
+}
 
 // RunnerImageFor returns the image a pool's runners are created from, given
 // the image the pool names and whether its docker_mode gives jobs a daemon.

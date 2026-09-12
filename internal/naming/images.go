@@ -129,7 +129,12 @@ func DefaultImage() Image {
 
 // DefaultRunnerImage is the image reference a pool gets when it names neither
 // an image nor an operating system.
-func DefaultRunnerImage() string { return RunnerImageRepo + ":latest" }
+func DefaultRunnerImage() string { return RunnerImageRepo + ":" + RunnerImageTag }
+
+// RunnerImageTag is stamped by the container build independently of the binary
+// version. Native builds retain the released channel. Container builds use dev
+// or the release tag, including its leading v, as published by the workflows.
+var RunnerImageTag = "latest"
 
 // FindImage returns the catalogue entry for an operating system and version.
 //
@@ -171,7 +176,12 @@ func RunnerImageFor(os, version string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	return i.Ref(), true
+	ref := i.Ref()
+	// The released channel uses bare platform aliases, not <platform>-latest.
+	if RunnerImageTag != "latest" {
+		ref += "-" + RunnerImageTag
+	}
+	return ref, true
 }
 
 // ResolveRunnerImage picks the image a pool's runners boot.

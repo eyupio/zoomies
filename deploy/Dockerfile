@@ -30,6 +30,10 @@ COPY --from=ui /src/internal/api/webdist ./internal/api/webdist
 ARG VERSION=dev
 ARG COMMIT=""
 ARG DATE=""
+# Runner tags are separate from VERSION (main-sha-* is not a runner tag).
+# Keep this a binary default, not ENV ZOOMIES_RUNNER_IMAGE: a baked environment
+# override would incorrectly take precedence over the operator's YAML setting.
+ARG RUNNER_IMAGE_TAG=dev
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
@@ -37,7 +41,8 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
       -ldflags "-s -w \
         -X github.com/eyupio/zoomies/internal/version.Version=${VERSION} \
         -X github.com/eyupio/zoomies/internal/version.Commit=${COMMIT} \
-        -X github.com/eyupio/zoomies/internal/version.Date=${DATE}" \
+        -X github.com/eyupio/zoomies/internal/version.Date=${DATE} \
+        -X github.com/eyupio/zoomies/internal/naming.RunnerImageTag=${RUNNER_IMAGE_TAG}" \
       -o /out/zoomies ./cmd/zoomies
 
 # An empty state directory to copy into the runtime stages. distroless has no
