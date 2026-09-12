@@ -372,3 +372,43 @@ func TestWindowsServiceManagerDrivesScExe(t *testing.T) {
 		t.Errorf("a re-install must delete the old registration and create the new one, ran %v", seen)
 	}
 }
+
+// %ProgramData% is readable by every local user by default, and the agent's
+// credentials live under it. On Windows the join replaces the directory's
+// inherited ACL with SYSTEM and Administrators, and nowhere else does it
+// touch permissions at all -- a chmod-shaped change on Linux would fight the
+// service user the installer already set up.
+func TestJoinRestrictsTheDirectoryToAdministratorsOnWindowsOnly(t *testing.T) {
+	var calls [][]string
+	run := func(_ context.Context, name string, args ...string) (string, error) {
+		calls = append(calls, append([]string{name}, args...))
+		return "", nil
+	}
+	if err := restrictDir(context.Background(), "linux", `/var/lib/zoomies`, run); err != nil {
+		t.Fatalf("linux: %v", err)
+	}
+	if len(calls) != 0 {
+		t.Fatalf("a Linux join must not touch permissions, ran %v", calls)
+	}
+
+	if err := restrictDir(context.Background(), "windows", `C:\ProgramData\zoomies`, run); err != nil {
+		t.Fatalf("windows: %v", err)
+	}
+	if len(calls) != 1 || calls[0][0] != "icacls" {
+		t.Fatalf("expected one icacls call, got %v", calls)
+	}
+	args := strings.Join(calls[0], " ")
+	for _, want := range []string{`C:\ProgramData\zoomies`, "/inheritance:r", "SYSTEM:(OI)(CI)F", "Administrators:(OI)(CI)F"} {
+		if !strings.Contains(args, want) {
+			t.Errorf("icacls call is missing %q: %s", want, args)
+		}
+	}
+	if strings.Contains(args, "Users") {
+		t.Errorf("Users must not be granted anything: %s", args)
+	}
+
+	failing := func(context.Context, string, ...string) (string, error) { return "", errors.New("Access is denied.") }
+	if err := restrictDir(context.Background(), "windows", `C:\ProgramData\zoomies`, failing); err == nil {
+		t.Fatal("a refused icacls must be reported: a join that silently leaves the credentials world-readable is worse than one that stops")
+	}
+}

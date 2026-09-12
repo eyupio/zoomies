@@ -195,10 +195,16 @@ func (m *windowsManager) exists(ctx context.Context) bool {
 // directory's ACL is the only thing that does the same job. A no-op anywhere
 // but Windows.
 func restrictWindowsDir(ctx context.Context, dir string) error {
-	if runtime.GOOS != "windows" {
+	return restrictDir(ctx, runtime.GOOS, dir, runCommand)
+}
+
+// restrictDir is restrictWindowsDir with the platform and the runner as
+// arguments, so the icacls invocation can be checked on any platform.
+func restrictDir(ctx context.Context, goos, dir string, run commandRunner) error {
+	if goos != "windows" {
 		return nil
 	}
-	_, err := runCommand(ctx, "icacls", dir, "/inheritance:r",
+	_, err := run(ctx, "icacls", dir, "/inheritance:r",
 		"/grant:r", "SYSTEM:(OI)(CI)F", "/grant:r", "Administrators:(OI)(CI)F")
 	return err
 }
