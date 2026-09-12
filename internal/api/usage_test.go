@@ -117,3 +117,50 @@ func TestUsageExactKeyFilterMatchesJSONAndCSV(t *testing.T) {
 		}
 	}
 }
+
+// The report is computed from rows the prune loop deletes on two different
+// clocks: jobs are kept a month and runners a week by default. A 30-day
+// runner-hours figure was therefore short by three weeks with nothing on the
+// page saying so, which on the one page an operator takes to a finance
+// meeting is the wrong figure to leave silent. The response now says where
+// each history begins.
+func TestUsageSaysWhereItsHistoryBegins(t *testing.T) {
+	h := newHarness(t)
+	u, _ := h.user("viewer", store.RoleViewer)
+	h.cfg.Retention.Jobs = 30 * 24 * time.Hour
+	h.cfg.Retention.Runners = 7 * 24 * time.Hour
+
+	now := h.ctrl.Now()
+	resp := h.do(request{method: http.MethodGet, cookie: h.session(u),
+		path: "/api/v1/usage?from=" + now.Add(-60*24*time.Hour).Format(time.RFC3339) +
+			"&to=" + now.Format(time.RFC3339)})
+	resp.mustStatus(t, http.StatusOK, "usage")
+	var body struct {
+		HistoryFrom struct {
+			Jobs    *time.Time `json:"jobs"`
+			Runners *time.Time `json:"runners"`
+		} `json:"history_from"`
+	}
+	resp.into(t, &body)
+	if body.HistoryFrom.Jobs == nil || body.HistoryFrom.Runners == nil {
+		t.Fatalf("history_from = %+v, want both instants", body.HistoryFrom)
+	}
+	if d := now.Sub(*body.HistoryFrom.Runners); d < 6*24*time.Hour || d > 8*24*time.Hour {
+		t.Errorf("runners history begins %s ago, want about the 7-day retention", d)
+	}
+	if d := now.Sub(*body.HistoryFrom.Jobs); d < 29*24*time.Hour || d > 31*24*time.Hour {
+		t.Errorf("jobs history begins %s ago, want about the 30-day retention", d)
+	}
+
+	// A window of zero keeps everything, and says so as null rather than as
+	// an instant at the epoch that every range would appear to reach past.
+	h.cfg.Retention.Runners = 0
+	resp = h.do(request{method: http.MethodGet, cookie: h.session(u),
+		path: "/api/v1/usage?from=" + now.Add(-time.Hour).Format(time.RFC3339) +
+			"&to=" + now.Format(time.RFC3339)})
+	resp.mustStatus(t, http.StatusOK, "usage")
+	resp.into(t, &body)
+	if body.HistoryFrom.Runners != nil {
+		t.Errorf("runners history_from = %v with retention off, want null", body.HistoryFrom.Runners)
+	}
+}

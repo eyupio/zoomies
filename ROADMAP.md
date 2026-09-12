@@ -1,9 +1,11 @@
 # Zoomies follow-on roadmap
 
-Version 2.32 · 9 September 2026 · derived from the owner's
+Version 2.33 · 12 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
-closed N02 incident and the deferred host-stewardship slice.
+closed N02 incident, the deferred host-stewardship slice, and the four
+packages an instance operated on somebody else's behalf needs from this
+repository.
 
 This is the working plan for the next programme: make Zoomies a dependable,
 secure and easy-to-operate self-hosted GitHub Actions runner platform, and
@@ -243,6 +245,26 @@ ratified.
     platform while the project is trying to prove the one it has would widen
     Gate F rather than pass it. *Recommend: process first, containers only if
     a user asks for the isolation; and neither before Gate F.*
+27. **Phase 5's shape, and what this repository owes it.** The source
+    roadmap's ZF-501 already chooses the shape: one controller, one database,
+    one encryption key and one set of agent credentials per customer, with
+    the existing application reused unchanged and only a small service layer
+    built to provision and supervise those instances. A review of the code
+    against the alternative — one shared controller with an organisation
+    column on every row — confirms the choice: the shared shape touches
+    roughly a hundred and fifty store methods, every handler, the scheduler's
+    placement, the event bus and both derived payloads, re-keys four unique
+    names and the jobs upsert, and turns the single writer and the
+    one-controller lease into a platform-wide ceiling. It is a second project,
+    not a step. So the shape is per-customer instances, and the service layer
+    that manages them is **not planned in this repository**: it is not a
+    package here, it has no seam here, and this document does not describe
+    it. What this repository provides is the four packages ZF-207 to ZF-210,
+    each of which stands on its own for a platform team running one instance
+    per team, an operator with a public controller, or anyone who provisions
+    with a compose file, and each of which the instance-per-customer shape
+    would otherwise have to work around. Decision 23 is unchanged by this and
+    is still due before any of Phase 5 proper. *Recommend: as stated.*
 
 ## 4. Delivery rules
 
@@ -428,6 +450,62 @@ first Dependabot pull requests arrive; the three pages say what the code
 does.
 
 Depends on nothing. Size S. Session: Claude Sonnet 5 at `high`. Decisions: 9, 21.
+
+### ZF-004: six corrections from reading the instance as a service
+
+**Classification: new; small; behaviour changes, all of them narrowings.**
+Found by reading every package with one question — what breaks when the
+person operating this controller and the people whose fleet it runs are not
+the same — and kept here because none of the six depends on that question:
+each is wrong for a single team too.
+
+**Done, in one pull request:**
+
+1. **A real identifier could pass as demo data.** `IsDemoID` was a prefix
+   test for `demo` on the random part of an identifier, and the random part
+   is base32 over `a-z2-7`, so about one real row in a million began with
+   those four letters. Such an installation was skipped by the credential
+   prober, the poller and the registration reap; such a host was never
+   reclaimed when it went quiet. A fixture is now recognised by its shape as
+   well as its prefix (`store.LooksGenerated`), the one fixture whose
+   readable name was exactly thirteen letters is renamed, and a test seeds
+   every fixture and holds each to the rule.
+2. **Installation targets matched by case.** GitHub logins are
+   case-insensitive and a delivery carries the canonical case, so an
+   installation saved as `Acme` matched nothing: every delivery was recorded
+   as "no installation covers" and the fleet scaled for nobody. Targets are
+   folded on write and compared folded, including rows written before this,
+   and two installations on one target resolve to the older one on every
+   call rather than to whichever row SQLite reached first.
+3. **The scheduler asked a rate-limited installation to register runners.**
+   The poller and the reap already stood down from an installation inside
+   its GitHub hold; `mintCredentials` did not, so every pass spent another
+   call against a quota that was gone, left a failed row whose only message
+   was the refusal, and the pool then backed off from its own failures on
+   top of the hold GitHub asked for. The hold now travels in the scheduler's
+   snapshot, a held pool creates nothing and says why, and a held pool with
+   jobs waiting raises `pool.github_rate_limited`. Draining and removing ask
+   GitHub for nothing and still happen.
+4. **The usage report was silently short.** It accepts a 366-day range and
+   is computed from rows the prune loop deletes on two clocks — jobs at
+   thirty days, runners at seven — so a 30-day runner-hours figure was
+   short by three weeks with nothing on the page saying so. The response now
+   carries `history_from` for each side, and the page says where the figure
+   is complete from.
+5. **`retention.audit` pruned scaling events, not audit.** Audit rows are
+   never pruned, deliberately, so the key promised a deletion that never
+   happened and hid one that did. It is `retention.scaling_events` now; the
+   old key is still read, and raises `retention.audit_renamed` once.
+6. **The public webhook did its expensive work before verifying.** Up to
+   five megabytes were read, parsed and checked against every installation's
+   secret before the per-address limiter applied, which bounded only the
+   record. A delivery with no signature header is refused before its body is
+   read; the record and the limiter are unchanged.
+
+**Accept when:** each has a test that fails with the change removed. It does.
+
+Depends on nothing. Size S. Session: Claude Fable 5.1 at `high`, one
+session. Decisions: 27.
 
 ## 6. Phase 1: correctness and security under failure
 
@@ -1406,6 +1484,178 @@ Size L. Session: Claude Opus 5 at `xhigh` for the third pull request, which is
 the one where a wrong answer leaves processes on somebody's machine; `high`
 for the rest. Decisions: 26.
 
+### ZF-207 to ZF-210: an instance operated for somebody else
+
+Four packages, added in version 2.33 from decision 27. They share a reading
+rather than a dependency: today every role, every setting, every problem and
+every figure assumes the person looking at the page owns the process. That
+is true of a team running its own controller and false of a platform team
+running one per product team, of an operator whose controller is reachable
+from the internet, and of the per-customer shape Phase 5 chooses. Each
+package below is worth doing for the first two on its own, which is why they
+are Phase 2 rather than Phase 5, and none of them adds an organisation, an
+account, a plan or a quota per tenant: one instance stays one trust domain
+(delivery rule 3), and what these do is stop the instance leaking the
+operator's business to the fleet's users and stop the fleet's users spending
+the operator's resources without bound.
+
+### ZF-207: two audiences for one instance
+
+**Classification: extension; medium.** The RBAC table has three roles and
+one policy, and `admin` covers both "manages the fleet's accounts and
+installations" and "reads the process's bind address, TLS file paths,
+trusted proxies, database path and encryption-key location, changes its
+timers, unfences it after a restore and takes its support bundle". The
+problems list mixes `bind.public_no_tls`, `proxy.trust_everyone`,
+`crypto.*` and `controller.lease_lost` into what every viewer sees, and
+several fleet problems name an example runner, repository or host from
+wherever the fleet is worst. The copy says "this controller" forty-one times
+and sends people to "the controller log" they cannot read.
+
+**Do:**
+
+1. A `platform` action family in `actionRoles` — `platform.settings.read`,
+   `platform.settings.write`, `platform.diagnostics.read`,
+   `platform.recovery.write`, `platform.problems.read` — with a fourth role,
+   `platform`, above `admin` and holding only those. The bootstrap account is
+   `platform`; an admin created by one is not. `GET /settings`, `PATCH
+   /settings`, `/diagnostics/bundle` and `/recovery/unfence` move behind it;
+   the RBAC walk test and `docs/security.md`'s table say so.
+2. `Problems()` split into the platform's (every validator finding, the
+   lease, loop panics, the update check, the capacity-demand receiver, and
+   any problem whose detail names a bind address or a URL the process
+   serves) and the fleet's; `/problems` and `problems.updated` carry the
+   fleet's to everyone and the platform's only to a `platform` identity.
+3. The copy: "this controller" becomes "Zoomies" or the fleet; `ErrorState`
+   stops naming a log the reader may not have; the About panel keeps its
+   version and drops the database path for anyone below `platform`; the
+   Settings tabs a role cannot use are absent rather than disabled.
+4. Audit: `audit.read` stays viewer for the fleet's actions, and the source
+   address is shown only to `admin` and above — an IP is the one column
+   that is about a person rather than about the fleet.
+
+**Accept when:** a viewer, an operator and an admin fixture each see no
+bind address, file path, key location or other tenant's example in any
+page or event frame, with a Playwright test per role; the platform role is
+the only one that can change a timer or lift the fence; the OpenAPI
+document, both clients and `docs/api-surface.md` say the same.
+
+Depends on ZF-202 (the problems drawer it splits). Size M. Session: Claude
+Opus 5 at `high`. Decisions: 27.
+
+### ZF-208: limits at the public and agent edges
+
+**Classification: extension; small.** Only the join route is rate-limited
+among the agent routes. A host token can heartbeat at any frequency with a
+megabyte of runner reports, each costing a read and possibly a write on the
+single writer; one host can open thousands of parallel task polls, each
+holding a goroutine for twenty-five seconds, and the fleet-wide poll shed
+then slows every host's task delivery to fifteen seconds. Nothing bounds
+the number of hosts, pools, join tokens or SSE subscribers, and the
+per-tick create budget is allocated by pool priority, which any operator
+sets, so one pool at priority 1000 starves the rest on every tick.
+
+**Do:**
+
+1. A per-host token bucket on heartbeat, report and results, sized from
+   `agent.heartbeat_interval` so a well-behaved agent never meets it; one
+   in-flight task poll per host, a second answered at once with an empty
+   set; a cap on reports per request.
+2. Fleet-wide ceilings as configuration — `limits.hosts`, `limits.pools`,
+   `limits.runners`, `limits.join_tokens`, `limits.event_subscribers` --
+   each zero by default meaning unlimited, each refused at the handler with
+   a message naming the ceiling, and each a warning in the validator when
+   set on a loopback bind, where it protects nothing.
+3. The create budget shared fairly across pools of *different* priority
+   before priority decides within a tier: a highest-priority pool may take
+   the whole tick only when no lower tier has demand it has waited a full
+   interval for. The scaling reason says when a pool was deferred by this.
+4. The webhook body cap lowered from five megabytes to one; a
+   `workflow_job` is tens of kilobytes.
+
+**Accept when:** a load-tier drill with one hostile agent and one hostile
+pool leaves every other host's task latency and every other pool's
+time-to-runner within the ZF-002 targets; each limit has a test that
+reaches it.
+
+Depends on ZF-301b (the drill tier). Size S. Session: Claude Sonnet 5 at
+`high`. Decisions: 27.
+
+### ZF-209: a metering ledger the usage report can stand on
+
+**Classification: extension; medium.** The usage report is computed at read
+time from `jobs` and `runners` rows, and ZF-004's fourth correction made it
+say where those rows begin rather than pretend otherwise. That is honest and
+not enough: a figure an operator charges a team for, or reconciles against
+an invoice from their own provider, has to survive the prune loop, be
+additive across adjacent reports, and be recomputable from a record that was
+written once and never edited. The source roadmap's ZF-801 describes the
+ledger a paid offer needs; this is the half of it that a single fleet needs
+today, and the half that costs nothing to carry forward.
+
+**Do:**
+
+1. A `runner_sessions` table written once, at the moment a runner's cleanup
+   is confirmed: runner, pool, host, installation, the job it ran if any,
+   started, registered, finished, and the pool's cost rate at the time. Never
+   updated; its own `retention.runner_sessions` window, a year by default.
+2. A `usage_daily` roll-up per pool, host and installation, produced by the
+   prune loop *before* it deletes the rows it is computed from, so the
+   report is complete for every day the roll-up covers however short the
+   row retention is. Integer seconds and integer minor currency units, as
+   ZF-801 asks, so a sum is exact.
+3. `/usage` reads the roll-up for days it covers and the rows for the rest,
+   and `history_from` becomes the roll-up's start rather than the rows'.
+   `/usage.csv` gains the same. `docs/metrics.md`'s "what happened last
+   month is your scraper's problem" sentence is corrected to say what is
+   kept.
+
+**Accept when:** a 90-day report taken with seven-day runner retention
+matches, to the second, one taken with retention off; a runner session is
+written exactly once across a controller restart mid-cleanup (the ZF-302
+restart drill); the roll-up is reproducible from the sessions table alone.
+
+Depends on ZF-105 (cleanup confirmation is its write point) and ZF-205.
+Size M. Session: Claude Opus 5 at `high`. Decisions: 27.
+
+### ZF-210: unattended provisioning and lifecycle
+
+**Classification: extension; small.** `zoomies init` is a conversation, and
+the first administrator is created by reading a setup token out of the
+controller's log and pasting it into a browser. That is right for a person
+and wrong for a compose file, a Terraform module or anything else that
+creates instances without a person watching, and every one of those has to
+scrape a log to finish. Backup exists; export and delete of one
+installation's whole history do not, and `DeleteInstallation` leaves jobs,
+deliveries, scaling events and capacity samples behind by design.
+
+**Do:**
+
+1. `ZOOMIES_BOOTSTRAP_ADMIN` and `ZOOMIES_BOOTSTRAP_PASSWORD_FILE` (or
+   `_TOKEN_FILE` for an API token instead of a password) create the first
+   administrator at start when the users table is empty, audited as
+   `auth.bootstrap` with actor `system`, and are ignored — with a warning
+   naming them — once any user exists. The setup-token flow stays for
+   people.
+2. `/readyz` says whether bootstrap is still required, so a provisioner can
+   wait on one endpoint.
+3. `zoomies export --installation ID` writes everything about one
+   installation — its pools, runners, jobs, deliveries, scaling events,
+   sessions from ZF-209 and the audit rows that name any of them — as one
+   archive, and `DELETE /installations/{id}?purge=true` removes the same set
+   rather than only the rows a foreign key reaches. Both are audited;
+   neither touches another installation's rows, and a test proves that with
+   two installations side by side.
+4. `zoomies init --answers FILE` runs the whole installer from a file with
+   no prompt, refusing rather than guessing at anything the file leaves out.
+
+**Accept when:** a compose file brings up a controller, an admin and one
+joined agent with no human step and no log scraping; export then purge of
+one installation leaves the other's rows and figures byte-identical.
+
+Depends on ZF-203 (the backup it sits beside) and ZF-209 (the sessions it
+exports). Size S. Session: Claude Sonnet 5 at `high`. Decisions: 27.
+
 ## 8. Phase 3: real use, drills and Gate F
 
 The harness, the drills and the readiness record. Gate F's targets, as
@@ -1569,6 +1819,19 @@ ZF-404b host-stewardship slice from decision 25: use it to define safe,
 opt-in maintenance for dedicated runner hosts without making imported or shared
 machines invasive by default.
 
+**Phase 5's shape is decided (decision 27), and its service layer is not
+here.** The source roadmap's ZF-501 chooses one instance per customer and
+says not to convert the core to shared tenancy as a first commercial step;
+version 2.33's review of the code against the shared alternative agrees, for
+reasons the decision records. What follows for this repository is narrow:
+the layer that provisions, routes and supervises instances is a separate
+piece of software with its own plan, and nothing in this document, in the
+package record or in the code stubs it. What this repository does is make an
+instance honest about being operated for somebody else, which is ZF-207 to
+ZF-210 in Phase 2, each justified without reference to Phase 5. A reader
+looking here for accounts, entitlements, billing or routing will not find
+them, and that is deliberate rather than an omission.
+
 ## 10. The first sequence
 
 Dependency order. Slices marked ∥ can run in parallel sessions. This section
@@ -1616,6 +1879,12 @@ against — section 6's second ZF-103 pull request entire, plus what its third
 left behind. Then ZF-201, ZF-202, ZF-203, ZF-204, ZF-205 in whichever order
 the sessions are available (203 before 204; 202 after 102), then ZF-301c,
 ZF-302's record and ZF-303.
+
+**Alongside Assignment B**, in any session that is free, because none of it
+waits on Gate F: ZF-004 is done. ZF-208 needs only the drill tier and can go
+next. ZF-209 follows ZF-105 and ZF-205, both merged, and should land before
+ZF-303's beta so the beta's figures are the ledger's. ZF-207 waits for
+ZF-202's drawer. ZF-210 waits for ZF-203 and ZF-209.
 
 **After Gate F**, and not before it: ZF-206, Windows runners. It is sequenced
 here rather than in Assignment B because it widens the platform surface, and
@@ -1757,6 +2026,24 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 
 ## 13. Change record
+
+* **12 September 2026 — Version 2.33:** the code read with one question --
+  what breaks when the person operating the controller and the people whose
+  fleet it runs are not the same — and two things came of it. Six defects
+  that are wrong for a single team too, fixed as ZF-004: a real identifier
+  could pass as demo data and be skipped by every sweep; installation targets
+  matched by case, so `Acme` scaled for nobody; the scheduler kept asking a
+  rate-limited installation for credentials the poller had already stood
+  down from; the usage report was silently three weeks short; the retention
+  key called `audit` pruned scaling events; and the public webhook read and
+  checked five megabytes against every secret before deciding it was
+  unsigned. And decision 27, which settles the shape of Phase 5 the way the
+  source roadmap already proposed, says its service layer is not this
+  repository's, and adds the four Phase 2 packages — ZF-207 to ZF-210 --
+  that an instance operated on somebody else's behalf needs and that a
+  platform team or a public controller needs just the same. The shared
+  alternative was costed and is recorded in the decision; it is a second
+  project, not a step.
 
 * **9 September 2026 — Version 2.32:** the dead-socket drill, in the half a
   tier with no daemon can do honestly: a second agent joins with its Docker

@@ -1801,3 +1801,57 @@ func TestJitterNeverShortensAWait(t *testing.T) {
 		}
 	}
 }
+
+// A pool whose installation GitHub is rate-limiting creates nothing. The
+// request would be refused identically, spend another call against a quota
+// that is already gone, and leave a failed row whose only message is the
+// refusal -- and the pool would then back off from its own failures on top of
+// the hold GitHub asked for. Scaling down asks GitHub for nothing, so it
+// still happens.
+func TestARateLimitedInstallationHoldsCreatesButNotDrains(t *testing.T) {
+	p := testPool("linux-x64", "linux", "x64")
+	s := snap([]*store.Pool{p}, nil,
+		[]*store.Job{queued("j1", time.Minute, "linux", "x64")},
+		[]*store.Host{testHost("host_a", 8, 0)})
+	s.HeldInstallations = map[string]time.Time{testInstallation: now.Add(7 * time.Minute)}
+
+	pp := only(t, Decide(s))
+	if n := countOf(pp.Actions, ActionCreate); n != 0 {
+		t.Fatalf("got %d creates for a held installation, want 0", n)
+	}
+	if pp.Held == "" || !strings.Contains(pp.Held, "7m") {
+		t.Fatalf("Held = %q, want it to say how long the hold lasts", pp.Held)
+	}
+	if !strings.Contains(pp.Reason, "rate-limiting") {
+		t.Fatalf("reason = %q, want it to name the hold", pp.Reason)
+	}
+	if pp.Blocked != "" {
+		t.Fatalf("Blocked = %q; a hold is not a placement failure", pp.Blocked)
+	}
+
+	// An expired hold is no hold. The controller drops these as it reads
+	// them, but the scheduler must not depend on that.
+	s.HeldInstallations[testInstallation] = now.Add(-time.Second)
+	pp = only(t, Decide(s))
+	if n := countOf(pp.Actions, ActionCreate); n != 1 {
+		t.Fatalf("got %d creates after the hold expired, want 1", n)
+	}
+	if pp.Held != "" {
+		t.Fatalf("Held = %q after the hold expired, want empty", pp.Held)
+	}
+
+	// Another installation's hold is not this pool's.
+	s.HeldInstallations = map[string]time.Time{"ins_someoneelse": now.Add(time.Hour)}
+	if pp := only(t, Decide(s)); countOf(pp.Actions, ActionCreate) != 1 {
+		t.Fatalf("a hold on another installation stopped this pool creating")
+	}
+
+	// And a held pool still scales down.
+	s.HeldInstallations = map[string]time.Time{testInstallation: now.Add(time.Hour)}
+	s.Jobs = nil
+	s.Runners[p.ID] = []*store.Runner{idleRunner("r1", p, time.Hour)}
+	pp = only(t, Decide(s))
+	if n := countOf(pp.Actions, ActionDrain); n != 1 {
+		t.Fatalf("got %d drains while held, want 1: draining asks GitHub for nothing", n)
+	}
+}

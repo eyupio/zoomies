@@ -71,6 +71,7 @@ func (s *Store) CreateInstallation(ctx context.Context, i *Installation) error {
 	}
 	now := s.Now()
 	i.CreatedAt, i.UpdatedAt = now, now
+	i.Target = NormalizeTarget(i.Target)
 	_, err := s.exec(ctx, `INSERT INTO installations (`+installationCols+`)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		i.ID, i.AppID, i.InstallationID, i.Target, string(i.TargetType), i.APIBaseURL,
@@ -89,6 +90,13 @@ func (s *Store) GetInstallation(ctx context.Context, id string) (*Installation, 
 	return i, err
 }
 
+// NormalizeTarget folds an installation target to the form it is stored and
+// compared in: trimmed and lower-cased. GitHub owner and repository names are
+// case-insensitive, so "Acme/Widgets" and "acme/widgets" are one target.
+func NormalizeTarget(target string) string {
+	return strings.ToLower(strings.TrimSpace(target))
+}
+
 // FindInstallationByTarget resolves the installation that owns a repo or org.
 // It prefers an exact repo match and falls back to the owning organisation, so
 // a webhook for acme/widgets resolves against an org-wide installation.
@@ -97,10 +105,17 @@ func (s *Store) FindInstallationByTarget(ctx context.Context, repoFullName strin
 	if i := strings.IndexByte(repoFullName, '/'); i > 0 {
 		owner = repoFullName[:i]
 	}
+	// GitHub logins are case-insensitive and a delivery carries the canonical
+	// case, so the comparison folds both sides: a target an operator typed as
+	// "Acme" has to match "acme/widgets". LOWER on the column rather than a
+	// migration, because rows written before targets were folded on write are
+	// still out there. Two installations covering the same target are ordered
+	// by age so the answer is the same on every call rather than whichever
+	// row SQLite reached first.
 	row := s.read.QueryRowContext(ctx, `SELECT `+installationCols+` FROM installations
-		WHERE (target_type = 'repo' AND target = ?) OR (target_type = 'org' AND target = ?)
-		ORDER BY CASE target_type WHEN 'repo' THEN 0 ELSE 1 END LIMIT 1`,
-		repoFullName, owner)
+		WHERE (target_type = 'repo' AND LOWER(target) = ?) OR (target_type = 'org' AND LOWER(target) = ?)
+		ORDER BY CASE target_type WHEN 'repo' THEN 0 ELSE 1 END, created_at, id LIMIT 1`,
+		strings.ToLower(repoFullName), strings.ToLower(owner))
 	i, err := scanInstallation(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("no installation covers %s: %w", repoFullName, ErrNotFound)
@@ -129,6 +144,7 @@ func (s *Store) ListInstallations(ctx context.Context) ([]*Installation, error) 
 // UpdateInstallation persists changes to an existing installation.
 func (s *Store) UpdateInstallation(ctx context.Context, i *Installation) error {
 	i.UpdatedAt = s.Now()
+	i.Target = NormalizeTarget(i.Target)
 	res, err := s.exec(ctx, `UPDATE installations SET app_id=?, installation_id=?, target=?,
 		target_type=?, api_base_url=?, upload_base_url=?, private_key_enc=?, webhook_secret_enc=?,
 		app_slug=?, last_checked_at=?, last_error=?, updated_at=? WHERE id=?`,

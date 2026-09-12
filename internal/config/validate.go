@@ -672,6 +672,16 @@ func (c *Config) Validate() Findings {
 		})
 	}
 
+	// --- Retention --------------------------------------------------------
+	if c.Retention.Audit != 0 {
+		add(Finding{
+			Code: "retention.audit_renamed", Severity: SeverityInfo, Setting: "retention.audit",
+			Title:  "retention.audit is now retention.scaling_events",
+			Detail: "the value is honoured as the scaling-history window, which is all it ever bounded: audit rows are never pruned, whatever this setting says.",
+			Fix:    "rename the key to retention.scaling_events (ZOOMIES_RETENTION_SCALING_EVENTS) and remove retention.audit.",
+		})
+	}
+
 	// --- Update check -----------------------------------------------------
 	if c.Updates.CheckInterval < 0 {
 		add(Finding{

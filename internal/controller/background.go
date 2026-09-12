@@ -205,10 +205,9 @@ func (c *Controller) prune(ctx context.Context) {
 		}},
 		{"fleet samples", r.Samples, c.st.PruneSamples},
 		{"webhook deliveries", r.Webhooks, c.st.PruneDeliveries},
-		// Scaling history is decision history, so it follows the audit window.
 		// The audit rows themselves have no prune: an audit trail a process can
 		// quietly delete is not one, so store deliberately offers no way.
-		{"scaling events", r.Audit, c.st.PruneScalingEvents},
+		{"scaling events", r.ScalingEvents, c.st.PruneScalingEvents},
 		{"usage capacity", r.Jobs, c.st.PruneUsageCapacity},
 	} {
 		// A zero or negative window means "keep everything", which is what an

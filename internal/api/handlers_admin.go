@@ -422,7 +422,7 @@ var runtimeWritable = map[string]string{
 	"scheduler.max_creates_per_tick": "how many runners may be created in one pass",
 	"retention.jobs":                 "how long job history is kept",
 	"retention.runners":              "how long finished runners are kept",
-	"retention.audit":                "how long scaling history is kept; audit rows themselves are never deleted",
+	"retention.scaling_events":       "how long scaling history is kept; audit rows are never deleted",
 	"retention.samples":              "how long the Overview's samples are kept",
 	"retention.webhooks":             "how long webhook deliveries are kept",
 	"images.refresh_interval":        "how often every pool's image is prewarmed again, so a moving tag reaches the hosts",
@@ -543,11 +543,11 @@ func (s *Server) settingsConfig() map[string]any {
 			"public":  c.Metrics.Public,
 		},
 		"retention": map[string]any{
-			"jobs":     c.Retention.Jobs.String(),
-			"runners":  c.Retention.Runners.String(),
-			"audit":    c.Retention.Audit.String(),
-			"samples":  c.Retention.Samples.String(),
-			"webhooks": c.Retention.Webhooks.String(),
+			"jobs":           c.Retention.Jobs.String(),
+			"runners":        c.Retention.Runners.String(),
+			"scaling_events": c.Retention.ScalingEvents.String(),
+			"samples":        c.Retention.Samples.String(),
+			"webhooks":       c.Retention.Webhooks.String(),
 		},
 		"images": map[string]any{
 			"refresh_interval": c.Images.RefreshInterval.String(),
@@ -705,8 +705,8 @@ func (s *Server) stageSetting(key string, value any) (func(*config.Config) any, 
 		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Retention.Jobs }, 0)
 	case "retention.runners":
 		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Retention.Runners }, 0)
-	case "retention.audit":
-		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Retention.Audit }, 0)
+	case "retention.scaling_events":
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Retention.ScalingEvents }, 0)
 	case "retention.samples":
 		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Retention.Samples }, 0)
 	case "retention.webhooks":

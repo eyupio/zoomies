@@ -166,7 +166,7 @@ metrics:
 retention:
   jobs: 720h                    # ZOOMIES_RETENTION_JOBS      (30 days)
   runners: 168h                 # ZOOMIES_RETENTION_RUNNERS   (7 days; the row, not the container -- see agent.finished_retention)
-  audit: 8760h                  # ZOOMIES_RETENTION_AUDIT     (365 days of scaling history; audit rows are never pruned)
+  scaling_events: 8760h         # ZOOMIES_RETENTION_SCALING_EVENTS (365 days of scaling history; was retention.audit, which is still read)
   samples: 168h                 # ZOOMIES_RETENTION_SAMPLES
   webhooks: 168h                # ZOOMIES_RETENTION_WEBHOOKS
 

@@ -31,7 +31,7 @@ const StuckSeedEnvVar = "ZOOMIES_SEED_STUCK"
 const (
 	stuckPoolID    = "pool_demostuckblocked"
 	stuckPoolName  = "zoomies-demo-stuck-blocked"
-	stuckHeldJobID = "job_demostuckheld"
+	stuckHeldJobID = "job_demostuckheldjob"
 )
 
 // stuckSeedRequested reports whether the diagnostics fixture was asked for.

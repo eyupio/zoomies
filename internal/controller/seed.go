@@ -36,9 +36,16 @@ const (
 // registration reaper -- check this and skip. Without it a demo or a UI test
 // run fills the problems drawer with "this installation is not usable" and the
 // log with parse failures, none of which says anything about the fleet.
+//
+// A fixture's identifier begins "demo" after its prefix and is never the shape
+// store.NewID produces. Both halves matter: the prefix alone also matched a
+// real identifier whose random part happened to start with those four
+// letters, which one row in a million does, and such an installation was then
+// skipped by the prober, the poller and the reap, and such a host was never
+// reclaimed. A test in this package holds every fixture literal to the rule.
 func IsDemoID(id string) bool {
 	_, rest, ok := strings.Cut(id, "_")
-	return ok && strings.HasPrefix(rest, "demo")
+	return ok && strings.HasPrefix(rest, "demo") && !store.LooksGenerated(id)
 }
 
 // demoPoolNames is what "is this instance already seeded?" is decided on, and
