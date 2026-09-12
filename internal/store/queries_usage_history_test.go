@@ -78,3 +78,44 @@ func TestUsageCapacityCoalescesAndPrunesWithoutInventingCoverage(t *testing.T) {
 		t.Fatalf("pruned: %+v %v", rows, err)
 	}
 }
+
+// A week asked for in hours is a week of hours, whatever the window's length
+// would have chosen for itself: the activity matrix draws a week as a punch
+// card, one square an hour, and the rule that cuts a week into days is the
+// rule for a caller that did not say.
+func TestUsageHistoryTakesTheIntervalItIsAskedFor(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	_, pool, _ := seedPool(t, s)
+	seedUsageJob(t, s, pool.ID, "acme/hours", 0, mins(30), mins(90))
+
+	week := usageAt(7 * 24 * 60)
+	rows, err := s.UsageWithInterval(ctx, usageAt(0), week, UsageByPool, UsageHourly)
+	if err != nil {
+		t.Fatalf("hourly: %v", err)
+	}
+	if len(rows) != 1 || len(rows[0].History) != 7*24 {
+		t.Fatalf("a week in hours: %d rows, %d buckets", len(rows), len(rows[0].History))
+	}
+	if h := rows[0].History; h[0].Queued != 1 || h[0].Started != 1 || h[1].Unknown != 1 {
+		t.Fatalf("the job is in the hours it happened in: %+v %+v", h[0], h[1])
+	}
+
+	// The same week, left to the rule, is seven days.
+	rows, err = s.UsageWithInterval(ctx, usageAt(0), week, UsageByPool, UsageAutoInterval)
+	if err != nil {
+		t.Fatalf("auto: %v", err)
+	}
+	if len(rows[0].History) != 7 {
+		t.Fatalf("a week left to the rule: %d buckets", len(rows[0].History))
+	}
+
+	// And a day asked for in days is one bucket, where the rule would give 24.
+	rows, err = s.UsageWithInterval(ctx, usageAt(0), usageAt(24*60), UsageByPool, UsageDaily)
+	if err != nil {
+		t.Fatalf("daily: %v", err)
+	}
+	if len(rows[0].History) != 1 || rows[0].History[0].Unknown != 1 {
+		t.Fatalf("a day in days: %+v", rows[0].History)
+	}
+}

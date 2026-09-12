@@ -17,7 +17,7 @@
     "format": "prettier --write .",
     "generate:api": "openapi-typescript ../api/openapi.yaml -o src/lib/api/schema.d.ts",
     "test:e2e": "playwright test",
-    "test:unit": "node --test unit/*.test.ts"
+    "test:unit": "node --import ./unit/register.mjs --test unit/*.test.ts"
   },
   "dependencies": {
     "@lucide/svelte": "^1.43.0",

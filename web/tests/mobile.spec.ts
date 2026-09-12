@@ -284,7 +284,10 @@ test('the usage report reads as cards on a phone, with nothing cut off', async (
   }
 
   await goto(page, '/usage', 'Usage');
-  const names = page.getByRole('rowheader');
+  // The table's rows and headers, not the activity matrix's: that is a grid
+  // of its own above the report, with rows of squares rather than of figures.
+  const report = page.getByRole('table');
+  const names = report.getByRole('rowheader');
   await expect(names.first()).toBeVisible();
 
   // Every row's name is rendered in full. Truncation here is what made two
@@ -322,7 +325,7 @@ test('the usage report reads as cards on a phone, with nothing cut off', async (
   // And the figures stack rather than running across, which is the whole of
   // what makes ten columns fit: two cells of one row share a left edge and sit
   // at different heights. Laid out as a table row they would do the opposite.
-  const first = page.getByRole('row').nth(1).getByRole('cell');
+  const first = report.getByRole('row').nth(1).getByRole('cell');
   const a = await first.nth(0).boundingBox();
   const b = await first.nth(1).boundingBox();
   expect(a && b, 'the first row has no figures to lay out').toBeTruthy();
@@ -332,7 +335,7 @@ test('the usage report reads as cards on a phone, with nothing cut off', async (
   // The card holds its contents off its own edge by more than the hairline of
   // its border -- a row whose text starts on its own boundary reads as a wall
   // of figures rather than as a card.
-  const card = await page.getByRole('row').nth(1).boundingBox();
+  const card = await report.getByRole('row').nth(1).boundingBox();
   expect(a!.x - card!.x, 'the card gives its contents no room off its own edge').toBeGreaterThan(4);
 });
 

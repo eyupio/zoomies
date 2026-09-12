@@ -3064,6 +3064,8 @@ export interface operations {
                 /** @description Optional exact group key filter. */
                 key?: string;
                 group_by?: "installation" | "repository" | "workflow" | "pool" | "host";
+                /** @description The width of one history bucket. Left out, it is an hour for a range of two days or less and a day beyond. Hourly buckets may be asked for over at most 14 days. */
+                interval?: "hour" | "day";
             };
             header?: never;
             path?: never;
@@ -3090,6 +3092,8 @@ export interface operations {
                 /** @description Optional exact group key filter. */
                 key?: string;
                 group_by?: "installation" | "repository" | "workflow" | "pool" | "host";
+                /** @description The width of one history bucket. Left out, it is an hour for a range of two days or less and a day beyond. Hourly buckets may be asked for over at most 14 days. */
+                interval?: "hour" | "day";
             };
             header?: never;
             path?: never;

@@ -61,7 +61,16 @@ interface StoredPrefs {
    * because a nudge is one operator's business, not the fleet's.
    */
   dismissed?: string[];
+  /**
+   * How far back the Overview's activity matrix looks. An operator who
+   * watches today by the hour should find it that way tomorrow morning.
+   */
+  activityRange?: ActivityRangeKey;
 }
+
+/** The quick ranges the activity matrix offers, as the buttons name them. */
+export const ACTIVITY_RANGES = ['1d', '7d', '30d', '90d', '1y'] as const;
+export type ActivityRangeKey = (typeof ACTIVITY_RANGES)[number];
 
 /** The nav choice recorded under NAV_KEY, or undefined when none has been made. */
 function navChoiceFromStorage(): boolean | undefined {
@@ -108,6 +117,7 @@ class Prefs {
   #grids = $state<Record<string, GridPrefs>>({});
   #dismissed = $state<string[]>([]);
   #otherRunners = $state(false);
+  #activityRange = $state<ActivityRangeKey>('1y');
 
   constructor() {
     const stored = load();
@@ -120,6 +130,13 @@ class Prefs {
     this.#grids = stored.grids ?? {};
     this.#dismissed = stored.dismissed ?? [];
     this.#otherRunners = stored.otherRunners ?? false;
+    // Validated, not trusted: the stored value is whatever this browser last
+    // wrote, and a range this build no longer offers falls back to the year.
+    this.#activityRange = (ACTIVITY_RANGES as readonly string[]).includes(
+      stored.activityRange ?? '',
+    )
+      ? (stored.activityRange as ActivityRangeKey)
+      : '1y';
     this.#applyNav();
   }
 
@@ -149,6 +166,16 @@ class Prefs {
 
   set otherRunners(value: boolean) {
     this.#otherRunners = value;
+    this.#persist();
+  }
+
+  /** How far back the Overview's activity matrix looks. */
+  get activityRange(): ActivityRangeKey {
+    return this.#activityRange;
+  }
+
+  set activityRange(value: ActivityRangeKey) {
+    this.#activityRange = value;
     this.#persist();
   }
 
@@ -205,6 +232,7 @@ class Prefs {
         grids: this.#grids,
         dismissed: this.#dismissed,
         otherRunners: this.#otherRunners,
+        activityRange: this.#activityRange,
       } satisfies StoredPrefs),
     );
   }

@@ -126,14 +126,16 @@ test('the Overview says how much needs a person without spending the page on it'
   // drawer, which is not open yet.
   await expect(page.getByRole('main')).not.toContainText('no webhook has ever arrived');
 
-  // And on a desktop the panels an operator actually watches are above the fold
-  // with it, which is exactly what the full-height list used to cost. A phone
-  // stacks everything and cannot promise this, so it is not asserted there.
+  // And on a desktop it is still on the first screen, under the matrix and
+  // the numbers, which is exactly what the full-height list used to cost:
+  // the line that says what needs a person must never be the thing a
+  // settled configuration warning pushes out of sight. A phone stacks
+  // everything and cannot promise this, so it is not asserted there.
   const viewport = page.viewportSize();
   if ((viewport?.width ?? 0) >= 1180) {
-    const box = await page.getByRole('region', { name: 'Recent scaling' }).boundingBox();
-    expect(box, 'the scaling feed is laid out').not.toBeNull();
-    expect(box?.y ?? Infinity, 'the scaling feed starts within the first screen').toBeLessThan(
+    const box = await page.getByRole('button', { name: 'Review' }).boundingBox();
+    expect(box, 'the problems line is laid out').not.toBeNull();
+    expect(box?.y ?? Infinity, 'the problems line is within the first screen').toBeLessThan(
       viewport?.height ?? 0,
     );
   }
@@ -440,4 +442,189 @@ test('the subtitle names the window the figures actually cover', async ({ page }
   await expect(subtitle, 'the sparklines are still an hour, and say so separately').toContainText(
     'Trends cover the last hour',
   );
+});
+
+/*
+ * The activity matrix: a year of the fleet's days as one band of squares at
+ * the top of the page. What it protects is that the band is data and not
+ * decoration -- every square says its figures in words, the keyboard can
+ * walk it, and selecting a day leads to that day's jobs -- and that it sits
+ * above the numbers, where the operator asked for it.
+ */
+test('the activity matrix heads the page, and every square says what it holds', async ({
+  page,
+}) => {
+  const matrix = page.getByRole('region', { name: 'Activity matrix', exact: true });
+  await expect(matrix).toBeVisible();
+  const grid = matrix.getByRole('grid');
+  await expect(grid).toHaveAccessibleName(/weeks of this fleet's jobs, one square per day/);
+
+  // Above the metric tiles, on every width.
+  const tile = page.getByRole('link', { name: /^Queued jobs/ });
+  const matrixBox = await matrix.boundingBox();
+  const tileBox = await tile.boundingBox();
+  expect(matrixBox).not.toBeNull();
+  expect(tileBox).not.toBeNull();
+  expect(matrixBox!.y, 'the matrix comes before the tiles').toBeLessThan(tileBox!.y);
+
+  // The seed's morning of jobs is in the newest squares. A square's
+  // accessible name is the whole sentence the tooltip shows, so nothing
+  // lives only in the tooltip.
+  const squares = grid.getByRole('gridcell');
+  expect(await squares.count()).toBeGreaterThan(7);
+  const busy = grid.locator(
+    '[role="gridcell"][data-kind="failing"], [role="gridcell"][data-kind="healthy"]',
+  );
+  await expect(busy.first()).toBeVisible();
+  await expect(busy.last()).toHaveAttribute('aria-label', /\d+ jobs finished.*succeeded.*failed/);
+
+  // The header sums the squares on screen, and the seed has failures.
+  await expect(matrix).toContainText(/\d+ jobs finished/);
+  await expect(matrix.locator('.badge')).toHaveText(/^\s*\d+ failed$/);
+
+  // The band never widens the page: it is cut to the width it has.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('the matrix is one tab stop, walked with the arrow keys, with a tooltip on every square', async ({
+  page,
+}) => {
+  const matrix = page.getByRole('region', { name: 'Activity matrix', exact: true });
+  const grid = matrix.getByRole('grid');
+  await expect(grid).toBeVisible();
+
+  // Exactly one square is in the tab order, and it is the newest with jobs.
+  const stop = grid.locator('[role="gridcell"][tabindex="0"]');
+  await expect(stop).toHaveCount(1);
+  await expect(stop).toHaveAttribute('aria-label', /jobs finished/);
+
+  await stop.focus();
+  const tip = page.locator('.tip:popover-open');
+  await expect(tip, 'focus opens the tooltip').toBeVisible();
+  await expect(tip).toContainText(/jobs finished/);
+  await expect(tip).toContainText('Queued');
+  await expect(tip).toContainText('Executing');
+
+  // Left is the same weekday a week earlier; the tooltip follows the focus.
+  const before = await stop.getAttribute('aria-label');
+  await page.keyboard.press('ArrowLeft');
+  const focused = grid.locator('[role="gridcell"]:focus');
+  await expect(focused).toHaveCount(1);
+  expect(await focused.getAttribute('aria-label')).not.toBe(before);
+  await expect(page.locator('.tip:popover-open')).toContainText(
+    (await focused.getAttribute('aria-label'))!.split('.')[0]!,
+  );
+  // And back, so the rest of the test is about today.
+  await page.keyboard.press('ArrowRight');
+  await expect(grid.locator('[role="gridcell"]:focus')).toHaveAttribute('aria-label', before!);
+
+  // Escape lets go of the tooltip and nothing else: the page is still here.
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.tip:popover-open')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
+});
+
+test('selecting a day opens its hours and leads to its jobs', async ({ page }) => {
+  const matrix = page.getByRole('region', { name: 'Activity matrix', exact: true });
+  const grid = matrix.getByRole('grid');
+  const today = grid.locator('[role="gridcell"][tabindex="0"]');
+  await expect(today).toHaveAttribute('aria-label', /jobs finished/);
+
+  await today.click();
+  await expect(today).toHaveAttribute('aria-selected', 'true');
+  const detail = matrix.getByRole('region', { name: 'Selected day' });
+  await expect(detail).toBeVisible();
+  await expect(detail).toContainText(/jobs finished/);
+  await expect(detail).toContainText('Succeeded');
+  await expect(detail).toContainText('Failed');
+
+  // The hour-by-hour breakdown is fetched on demand and described in words.
+  const hours = detail.getByRole('img', { name: /^Hour by hour:/ });
+  await expect(hours).toBeVisible();
+  // The clock is the browser's own, so it may carry a meridiem.
+  await expect(hours).toHaveAccessibleName(/busiest at \d\d:\d\d( [AP]M)? with \d+ finished/);
+
+  // The links are cut to the day, and the Jobs page honours them.
+  const jobs = detail.getByRole('link', { name: 'Jobs that day' });
+  await expect(jobs).toHaveAttribute(
+    'href',
+    /^\/jobs\?since=\d{4}-\d\d-\d\d&until=\d{4}-\d\d-\d\d$/,
+  );
+  await expect(detail.getByRole('link', { name: 'Failed jobs' })).toHaveAttribute(
+    'href',
+    /^\/jobs\?failed=true&since=/,
+  );
+  await expect(detail.getByRole('link', { name: 'Usage report for the day' })).toHaveAttribute(
+    'href',
+    /^\/usage\?since=\d{4}-\d\d-\d\d&until=\d{4}-\d\d-\d\d$/,
+  );
+
+  // Selecting the same square again lets go of it.
+  await today.click();
+  await expect(today).toHaveAttribute('aria-selected', 'false');
+  await expect(matrix.getByRole('region', { name: 'Selected day' })).toHaveCount(0);
+
+  await today.click();
+  await jobs.click();
+  await expect(page.getByRole('heading', { name: 'Jobs' })).toBeVisible();
+  await expect(page.locator('tbody tr[data-row]').first()).toBeVisible();
+  await expect(page).toHaveURL(/since=/);
+});
+
+test('the matrix can be coloured by a different figure', async ({ page }) => {
+  const matrix = page.getByRole('region', { name: 'Activity matrix', exact: true });
+  await expect(matrix.getByRole('grid')).toBeVisible();
+  await expect(matrix).toContainText('Failures, few');
+
+  const colour = matrix.getByLabel('Colour the matrix by');
+  await colour.selectOption('queue');
+  await expect(matrix.locator('.matrix')).toHaveAttribute('data-mode', 'queue');
+  await expect(matrix).toContainText('Fewer queued');
+  await expect(matrix).not.toContainText('Failures, few');
+  // The squares are the same squares, now saying how many were queued.
+  await expect(
+    matrix.locator('[role="gridcell"][data-tone="pending"][data-kind="active"]').first(),
+  ).toBeVisible();
+
+  await colour.selectOption('runtime');
+  await expect(matrix).toContainText('runner time');
+  await expect(
+    matrix.locator('[role="gridcell"][data-tone="busy"][data-kind="active"]').first(),
+  ).toBeVisible();
+});
+
+test('the matrix has quick ranges, and remembers the one chosen', async ({ page }) => {
+  const matrix = page.getByRole('region', { name: 'Activity matrix', exact: true });
+  const ranges = matrix.getByRole('group', { name: 'Range' });
+  await expect(ranges.getByRole('button', { name: 'The last year' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+
+  // A week by the hour: seven rows of twenty-four squares, the newest one
+  // with jobs being the tab stop, and a square is an hour.
+  await ranges.getByRole('button', { name: 'The last 7 days, by the hour' }).click();
+  const grid = matrix.getByRole('grid');
+  await expect(grid).toHaveAccessibleName(/^7 days of this fleet's jobs, one square per hour$/);
+  await expect(grid.getByRole('gridcell')).toHaveCount(7 * 24);
+  // The newest hour with anything in it may be one where jobs are still
+  // queued and nothing has finished yet; either way it is an hour.
+  await expect(grid.locator('[role="gridcell"][tabindex="0"]')).toHaveAttribute(
+    'aria-label',
+    /, \d\d?:\d\d( [AP]M)? to \d\d?:\d\d( [AP]M)?\. \d+ jobs? (finished|queued)/,
+  );
+
+  // Today alone is one row.
+  await ranges.getByRole('button', { name: 'Today, by the hour' }).click();
+  await expect(grid.getByRole('gridcell')).toHaveCount(24);
+
+  // The choice is the operator's, and survives a reload.
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
+  const again = page.getByRole('region', { name: 'Activity matrix', exact: true });
+  await expect(again.getByRole('button', { name: 'Today, by the hour' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(again.getByRole('grid').getByRole('gridcell')).toHaveCount(24);
 });
