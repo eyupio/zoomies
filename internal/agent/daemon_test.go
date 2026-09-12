@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -706,4 +707,122 @@ func TestEveryPrewarmInABatchIsPulled(t *testing.T) {
 	if !slices.Equal(pulls, []string{"img-a", "img-b"}) {
 		t.Errorf("images pulled = %v, want both img-a and img-b", pulls)
 	}
+}
+
+// An operator removing a runner while its create is still running must still
+// get the runner removed.
+//
+// The two tasks arrive together -- the controller queues the remove the moment
+// the row is deleted, which can be seconds after the create was issued -- and
+// the claim that stops two creates racing used to drop the remove with them.
+// Nothing then reported on it, so the container ran on the host until the
+// task's lease expired minutes later, long after the runner had gone from the
+// UI. The later task waits for the claim instead of being thrown away.
+func TestARemoveArrivingDuringACreateRunsOnceTheCreateIsDone(t *testing.T) {
+	h := newHarness(t, 2)
+	h.be.mu.Lock()
+	h.be.createDelay = 150 * time.Millisecond
+	h.be.mu.Unlock()
+
+	h.tr.tasks <- []Task{
+		createTask("task-create", "runner-1"),
+		{ID: "task-remove", Kind: TaskRemoveRunner, RunnerID: "runner-1"},
+	}
+
+	results := map[string]TaskResult{}
+	for range 2 {
+		res := h.nextResult()
+		results[res.TaskID] = res
+	}
+	if res, ok := results["task-create"]; !ok || !res.OK {
+		t.Fatalf("create result = %+v (reported: %v)", res, slices.Sorted(maps.Keys(results)))
+	}
+	res, ok := results["task-remove"]
+	if !ok || !res.OK {
+		t.Fatalf("remove result = %+v (reported: %v)", res, slices.Sorted(maps.Keys(results)))
+	}
+	if res.State != store.RunnerRemoved {
+		t.Fatalf("remove reported state %q, want removed", res.State)
+	}
+
+	h.be.mu.Lock()
+	removed := len(h.be.removed)
+	h.be.mu.Unlock()
+	if removed == 0 {
+		t.Fatal("the runner's workload was left on the host, so the container outlives the row the operator deleted")
+	}
+
+	// And the claim itself is free afterwards: a claim handed from one task to
+	// the next must still be given up by the one that finishes last.
+	if !h.agent.claim("runner-1") {
+		t.Fatal("runner-1 is still claimed after both tasks finished")
+	}
+	h.agent.release("runner-1")
+}
+
+// A duplicate of the task already running is still dropped. The controller
+// redelivers what it has not seen a result for, and doing that work twice --
+// two creates for one runner racing on the host -- is what the claim exists to
+// prevent.
+func TestADuplicateOfTheTaskInFlightIsStillDropped(t *testing.T) {
+	a, _, _, _ := newAgent(t, 1)
+	first := createTask("task-1", "runner-1")
+	if claimed, held := a.claimOrQueue(first); !claimed || held {
+		t.Fatalf("first create: claimed=%v held=%v, want claimed", claimed, held)
+	}
+	if claimed, held := a.claimOrQueue(createTask("task-2", "runner-1")); claimed || held {
+		t.Fatalf("duplicate create: claimed=%v held=%v, want dropped", claimed, held)
+	}
+
+	// A remove supersedes it, and a second remove behind that one does not.
+	remove := Task{ID: "task-3", Kind: TaskRemoveRunner, RunnerID: "runner-1"}
+	if claimed, held := a.claimOrQueue(remove); claimed || !held {
+		t.Fatalf("remove during a create: claimed=%v held=%v, want held", claimed, held)
+	}
+	if claimed, held := a.claimOrQueue(Task{ID: "task-4", Kind: TaskRemoveRunner, RunnerID: "runner-1"}); claimed || held {
+		t.Fatalf("second remove: claimed=%v held=%v, want dropped", claimed, held)
+	}
+}
+
+// Only one task waits, so when two supersede the create in flight it is the
+// later of them that stays: a remove does everything the stop it replaces
+// would have, and the controller redelivers the stop if it still wants it.
+func TestTheLaterOfTwoWaitingTasksIsTheOneKept(t *testing.T) {
+	a, _, _, _ := newAgent(t, 1)
+	if claimed, _ := a.claimOrQueue(createTask("task-1", "runner-1")); !claimed {
+		t.Fatal("the create did not take the claim")
+	}
+	if claimed, held := a.claimOrQueue(Task{ID: "task-2", Kind: TaskStopRunner, RunnerID: "runner-1"}); claimed || !held {
+		t.Fatalf("stop during a create: claimed=%v held=%v, want held", claimed, held)
+	}
+	if claimed, held := a.claimOrQueue(Task{ID: "task-3", Kind: TaskRemoveRunner, RunnerID: "runner-1"}); claimed || !held {
+		t.Fatalf("remove behind the waiting stop: claimed=%v held=%v, want held", claimed, held)
+	}
+
+	a.mu.Lock()
+	waiting := a.waiting["runner-1"]
+	a.mu.Unlock()
+	if waiting.ID != "task-3" {
+		t.Fatalf("the task waiting is %q, want the remove that supersedes the stop", waiting.ID)
+	}
+
+	// A log relay is not lifecycle work and ranks below all of them, so it is
+	// never what a runner's claim is handed to.
+	if claimed, held := a.claimOrQueue(Task{ID: "task-4", Kind: TaskStreamLogs, RunnerID: "runner-1", StreamID: "str_1"}); claimed || held {
+		t.Fatalf("stream during a create: claimed=%v held=%v, want dropped", claimed, held)
+	}
+}
+
+// The reconciler's claim is not one anything can queue behind: it hands the
+// claim to nobody, so a task left waiting on it would never start. Those are
+// dropped, and the controller's redelivery is what brings them back.
+func TestATaskArrivingDuringReconcilerWorkIsDroppedRatherThanHeld(t *testing.T) {
+	a, _, _, _ := newAgent(t, 1)
+	if !a.claim("runner-1") {
+		t.Fatal("could not take the reconciler's claim")
+	}
+	if claimed, held := a.claimOrQueue(Task{ID: "task-1", Kind: TaskRemoveRunner, RunnerID: "runner-1"}); claimed || held {
+		t.Fatalf("remove during reconciler work: claimed=%v held=%v, want dropped", claimed, held)
+	}
+	a.release("runner-1")
 }
