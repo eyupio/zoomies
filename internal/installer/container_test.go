@@ -661,3 +661,83 @@ func TestTheDefaultImageFollowsThisBuild(t *testing.T) {
 		t.Errorf("a runner host on a main build gets %q (derived %v), want ghcr.io/eyupio/zoomies-agent:dev", agent, ok)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// What the operator is handed
+// ---------------------------------------------------------------------------
+//
+// These four are the strings a containerised install prints, polls or pastes.
+// None of them had a test, and each is the kind of thing that is wrong in
+// exactly one deployment shape -- the shape whose operator then has a health
+// check that never passes, or a logs command that names nothing.
+
+// The health check must follow the scheme the controller was configured to
+// serve. Polling http:// against a controller serving TLS is a health check
+// that never passes and an install that reports failure after succeeding.
+func TestContainerHealthURLFollowsTheSchemeTheControllerServes(t *testing.T) {
+	for _, tc := range []struct {
+		mode config.TLSMode
+		want string
+	}{
+		{config.TLSOff, "http://127.0.0.1:8443/healthz"},
+		{config.TLSSelfSigned, "https://127.0.0.1:8443/healthz"},
+		{config.TLSFiles, "https://127.0.0.1:8443/healthz"},
+	} {
+		p := Plan{TLSMode: tc.mode, PublishedPort: 8443}
+		if got := containerHealthURL(p); got != tc.want {
+			t.Errorf("containerHealthURL(%q) = %q, want %q", tc.mode, got, tc.want)
+		}
+	}
+}
+
+// The two container deployments read different environment files, and the
+// names are not interchangeable: compose finds `.env` beside the file on its
+// own, while `docker run --env-file` is handed a name that has to be the one
+// that was written.
+func TestEnvFileForNamesTheFileTheDeploymentActuallyReads(t *testing.T) {
+	if got := EnvFileFor(DeploymentCompose); got != EnvFileName {
+		t.Errorf("EnvFileFor(compose) = %q, want %q", got, EnvFileName)
+	}
+	if got := EnvFileFor(DeploymentDocker); got != DockerEnvFileName {
+		t.Errorf("EnvFileFor(docker) = %q, want %q", got, DockerEnvFileName)
+	}
+	// A native install has no container to hand a file to; the compose name is
+	// the harmless answer, and the point is that it is never the docker one.
+	if got := EnvFileFor(DeploymentNative); got == DockerEnvFileName {
+		t.Errorf("EnvFileFor(native) = %q, which belongs to the single-container deployment", got)
+	}
+}
+
+// DockerCommandLine renders an argv as something the operator can paste, so
+// the `docker` at the front is part of it.
+func TestDockerCommandLineIsPastable(t *testing.T) {
+	got := DockerCommandLine([]string{"run", "-d", "--name", ContainerName})
+	if want := "docker run -d --name zoomies"; got != want {
+		t.Errorf("DockerCommandLine = %q, want %q", got, want)
+	}
+}
+
+// The logs command has to name the thing that actually holds the logs: the
+// compose project through its own file, or the container by name.
+func TestLogsCommandNamesWhicheverHoldsTheLogs(t *testing.T) {
+	i := &Installer{}
+
+	dir := t.TempDir()
+	compose := i.logsCommand(Plan{
+		Deployment:     DeploymentCompose,
+		DeployDir:      dir,
+		ComposeCommand: []string{"docker", "compose"},
+	})
+	if !strings.Contains(compose, filepath.Join(dir, ComposeFileName)) {
+		t.Errorf("compose logs command %q does not name the compose file, so it only works from one directory", compose)
+	}
+	for _, want := range []string{"docker compose", "logs", "-f"} {
+		if !strings.Contains(compose, want) {
+			t.Errorf("compose logs command %q is missing %q", compose, want)
+		}
+	}
+
+	if got, want := i.logsCommand(Plan{Deployment: DeploymentDocker}), "docker logs -f "+ContainerName; got != want {
+		t.Errorf("docker logs command = %q, want %q", got, want)
+	}
+}
