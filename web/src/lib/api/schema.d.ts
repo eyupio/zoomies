@@ -426,13 +426,43 @@ export interface paths {
         put?: never;
         /**
          * Build a GitHub App manifest
-         * @description Returns the manifest JSON and the URL to POST it to. The browser submits
-         *     it, the operator confirms in GitHub, and GitHub redirects back with a
-         *     code that `manifest/exchange` turns into App credentials.
+         * @description Returns the manifest JSON, GitHub destination and handshake state. The
+         *     browser POSTs the manifest to `manifest/handoff?state=...` on this
+         *     controller, which redirects the POST to GitHub. The operator confirms
+         *     there, and GitHub redirects back with a code that `manifest/exchange`
+         *     turns into App credentials.
          *
          *     The manifest asks for exactly the permissions Zoomies needs and no more.
          */
         post: operations["createAppManifest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/installations/manifest/handoff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Hand the browser's manifest POST to GitHub
+         * @description Submit a same-tab HTML form to this controller with the exact manifest
+         *     and state returned by `createAppManifest`. After validating the pending
+         *     handshake, manifest and allowed destination, the controller responds
+         *     with a 307 redirect to GitHub or the configured GitHub Enterprise Server.
+         *     The browser must preserve the POST method and form body on that redirect.
+         *
+         *     This is a browser navigation endpoint, not a JSON fetch. The state is
+         *     also included in the destination URL for GitHub to echo on the callback.
+         *     Handoff does not consume the state; the code exchange completes it.
+         */
+        post: operations["handoffAppManifest"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3546,13 +3576,63 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        /** @description Where the browser POSTs the manifest. */
+                        /** @description GitHub destination reached through the controller's manifest handoff. */
                         post_url?: string;
                         /** @description The manifest JSON */
                         manifest?: string;
                         /** @description Single-use value echoed back on the callback. */
                         state?: string;
                     };
+                };
+            };
+        };
+    };
+    handoffAppManifest: {
+        parameters: {
+            query: {
+                /** @description Pending handshake state returned by `createAppManifest`. */
+                state: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    /** @description Exact manifest JSON returned by `createAppManifest`. */
+                    manifest: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Continue the same POST to GitHub, preserving the form body. */
+            307: {
+                headers: {
+                    /** @description Validated GitHub manifest URL including the handshake state. */
+                    Location: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unreadable or altered manifest, or an invalid or disallowed destination. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Missing, unknown, expired or already consumed handshake state; restart setup. */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
                 };
             };
         };
