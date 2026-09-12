@@ -335,7 +335,12 @@ test('an older remote agent offers a copyable upgrade command without a join tok
   });
   await goto(page, '/hosts', 'Hosts');
   const card = page.getByRole('article', { name: 'demo-builder-1', exact: true });
-  await expect(card).toContainText('Controller version: 1.2.3');
+  // Folded away until it is asked for, so that a fleet due an upgrade is still
+  // a grid of comparable cards rather than a page of repeated instructions.
+  const reveal = card.getByText('Update this agent to 1.2.3');
+  await expect(card.getByText(command)).toBeHidden();
+  await reveal.click();
+  await expect(card.getByText(command)).toBeVisible();
   await card.getByRole('button', { name: 'Copy the upgrade command' }).click();
   await expect
     .poll(() => page.evaluate(() => sessionStorage.getItem('copied-upgrade')))
