@@ -328,7 +328,7 @@
   import StepTarget from './StepTarget.svelte';
   import StepLabels from './StepLabels.svelte';
   import StepHosts from './StepHosts.svelte';
-  import { hostMatchesSelector } from './HostSelectorEditor.svelte';
+  import { hostMatchesSelector } from './hostSelector';
   import StepBackend from './StepBackend.svelte';
   import StepScaling from './StepScaling.svelte';
   import StepReview from './StepReview.svelte';

@@ -8,11 +8,12 @@
   as well as by a colour.
 -->
 <script lang="ts">
-  import { Pencil, ServerCog, Trash2 } from '@lucide/svelte';
+  import { Gauge, Pencil, ServerCog, Trash2 } from '@lucide/svelte';
   import type { Host } from '$lib/api/types';
   import { formatMegabytes, formatNumber } from '$lib/format';
   import { hostStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
+  import Button from '$lib/components/Button.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import DropdownMenu from '$lib/components/DropdownMenu.svelte';
   import type { MenuItem } from '$lib/components/DropdownMenu.svelte';
@@ -26,6 +27,7 @@
     canOperate?: boolean;
     canAdmin?: boolean;
     oncordon: (host: Host, cordoned: boolean) => void;
+    oncapacity: (host: Host) => void;
     onedit: (host: Host) => void;
     ondelete: (host: Host) => void;
     class?: string;
@@ -36,6 +38,7 @@
     canOperate = false,
     canAdmin = false,
     oncordon,
+    oncapacity,
     onedit,
     ondelete,
     class: className = '',
@@ -163,6 +166,13 @@
       icon: ServerCog,
       disabled: !canOperate,
       onSelect: () => oncordon(host, !host.cordoned),
+    },
+    {
+      id: 'capacity',
+      label: 'Adjust runner capacity',
+      icon: Gauge,
+      disabled: !canOperate,
+      onSelect: () => oncapacity(host),
     },
     {
       id: 'edit',
@@ -293,10 +303,15 @@
       label="Runner slots in use on {host.name || host.id}"
       showText={false}
     />
-    <p class="capacity-text tabular">
-      <strong>{formatNumber(active)}</strong> of {formatNumber(capacity)} slots in use
-      <span class="muted">· {formatNumber(free)} free</span>
-    </p>
+    <div class="capacity-line">
+      <p class="capacity-text tabular">
+        <strong>{formatNumber(active)}</strong> of {formatNumber(capacity)} slots in use
+        <span class="muted">· {formatNumber(free)} free</span>
+      </p>
+      {#if canOperate}
+        <Button size="sm" icon={Gauge} onclick={() => oncapacity(host)}>Adjust</Button>
+      {/if}
+    </div>
   </div>
 
   {#if resources}
@@ -438,6 +453,12 @@
     display: flex;
     flex-direction: column;
     gap: var(--z-space-1);
+  }
+  .capacity-line {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--z-space-3);
   }
   .capacity-text {
     margin: 0;

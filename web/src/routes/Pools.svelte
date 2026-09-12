@@ -6,7 +6,7 @@
   dangerous switched on -- is answerable without opening a row.
 -->
 <script lang="ts">
-  import { Pencil, Plug, Plus, Power, PowerOff, Search, Trash2 } from '@lucide/svelte';
+  import { Gauge, Pencil, Plug, Plus, Power, PowerOff, Search, Trash2 } from '@lucide/svelte';
   import {
     deletePool,
     disablePool,
@@ -42,6 +42,7 @@
   import Select from '$lib/components/Select.svelte';
   import UtilisationBar from '$lib/components/UtilisationBar.svelte';
   import PoolLabels from '$lib/pools/PoolLabels.svelte';
+  import PoolRunnerLimitsDialog from '$lib/pools/PoolRunnerLimitsDialog.svelte';
   import PoolRiskBadge from '$lib/pools/PoolRiskBadge.svelte';
   import {
     backendLabel,
@@ -261,6 +262,12 @@
             onSelect: () => setEnabled(pool, true),
           },
       {
+        id: 'runner-limits',
+        label: 'Adjust runner limits',
+        icon: Gauge,
+        onSelect: () => askSize(pool),
+      },
+      {
         id: 'edit',
         label: 'Edit',
         icon: Pencil,
@@ -275,6 +282,14 @@
         onSelect: () => askDelete(pool),
       },
     ];
+  }
+
+  let sizing = $state<Pool | null>(null);
+  let sizeOpen = $state(false);
+
+  function askSize(pool: Pool): void {
+    sizing = pool;
+    sizeOpen = true;
   }
 
   /* -- deletion --------------------------------------------------------------- */
@@ -542,6 +557,8 @@
     {/if}
   {/snippet}
 </DataGrid>
+
+<PoolRunnerLimitsDialog bind:open={sizeOpen} pool={sizing} onclose={() => (sizing = null)} />
 
 <ConfirmDialog
   bind:open={deleteOpen}

@@ -27,6 +27,7 @@
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import HostCard from '$lib/hosts/HostCard.svelte';
+  import HostCapacityDialog from '$lib/hosts/HostCapacityDialog.svelte';
   import HostDeleteDialog from '$lib/hosts/HostDeleteDialog.svelte';
   import HostEditDialog from '$lib/hosts/HostEditDialog.svelte';
   import JoinTokenList from '$lib/hosts/JoinTokenList.svelte';
@@ -73,6 +74,8 @@
 
   let editing = $state<Host | null>(null);
   let editOpen = $state(false);
+  let sizing = $state<Host | null>(null);
+  let sizeOpen = $state(false);
   let deleting = $state<Host | null>(null);
   let deleteOpen = $state(false);
 
@@ -109,6 +112,11 @@
   function edit(host: Host): void {
     editing = host;
     editOpen = true;
+  }
+
+  function size(host: Host): void {
+    sizing = host;
+    sizeOpen = true;
   }
 
   function remove(host: Host): void {
@@ -180,6 +188,7 @@
           {canOperate}
           {canAdmin}
           oncordon={(target, next) => void cordon(target, next)}
+          oncapacity={size}
           onedit={edit}
           ondelete={remove}
         />
@@ -218,6 +227,8 @@
     </section>
   {/if}
 </div>
+
+<HostCapacityDialog bind:open={sizeOpen} host={sizing} onclose={() => (sizing = null)} />
 
 <HostEditDialog bind:open={editOpen} host={editing} onclose={() => (editing = null)} />
 <HostDeleteDialog bind:open={deleteOpen} host={deleting} onclose={() => (deleting = null)} />
