@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -190,7 +191,9 @@ func TestTheKeyIsLeftOutUnlessItIsAskedForAndTheOperatorIsTold(t *testing.T) {
 			t.Error("the copied key is not this instance's key")
 		}
 		info, err := os.Stat(filepath.Join(b, backupKeyName))
-		if err != nil || info.Mode().Perm() != 0o600 {
+		// Windows has no mode bits to check; the backup directory's ACL is
+		// what keeps the copied key private there.
+		if err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o600) {
 			t.Errorf("the copied key is mode %v (%v); it is a credential", info.Mode().Perm(), err)
 		}
 		// The backup now decrypts itself, which is a different object from the

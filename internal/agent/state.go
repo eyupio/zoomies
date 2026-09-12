@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 // ErrNotJoined reports that this host has no usable credentials yet. Callers
@@ -39,7 +40,12 @@ func Load(path string) (Credentials, error) {
 	if !info.Mode().IsRegular() {
 		return Credentials{}, fmt.Errorf("agent: %s is not a regular file; agent credentials must be a JSON file written by `zoomies agent join`", path)
 	}
-	if perm := info.Mode().Perm(); perm&0o077 != 0 {
+	// The mode bits are POSIX facts. Windows reports every writable file as
+	// 0666 whatever its ACL says, so the check would refuse every credentials
+	// file on the one platform where the bits mean nothing; there, the ACL
+	// `zoomies agent join` sets on the directory is what keeps other accounts
+	// out, and the check is skipped rather than made to lie.
+	if perm := info.Mode().Perm(); runtime.GOOS != "windows" && perm&0o077 != 0 {
 		return Credentials{}, fmt.Errorf("agent: refusing to read %s: it is mode %04o, so other users on this host can read this agent's token; run: chmod 600 %s", path, perm, path)
 	}
 

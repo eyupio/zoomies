@@ -1,0 +1,5 @@
+# The unit files and the plist are embedded into the binary and written to
+# Linux and macOS hosts as they are, so a Windows checkout must not give them
+# CRLF line endings: systemd would read a unit with a stray carriage return on
+# every line, and the tests that render them check exact lines.
+internal/installer/templates/* text eol=lf

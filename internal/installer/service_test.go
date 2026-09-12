@@ -4,11 +4,23 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 )
+
+// requirePOSIX skips a test whose subject is a POSIX fact -- a path that
+// starts with a slash, a file mode, a unit file -- on Windows, where the
+// installer's job is done by the service manager in service_scm.go and its
+// own tests.
+func requirePOSIX(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("this test is about a POSIX fact (rooted paths, modes or unit files) with no Windows counterpart")
+	}
+}
 
 func controllerSpec() ServiceSpec {
 	return ServiceSpec{

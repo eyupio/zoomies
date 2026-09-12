@@ -356,6 +356,7 @@ func TestDockerRunSpecForFollowsThePlan(t *testing.T) {
 }
 
 func TestComposeArgsUseTheCommandThisHostHas(t *testing.T) {
+	requirePOSIX(t)
 	// A host with only the v1 binary must never be handed a v2 command line.
 	name, args := ComposeArgs([]string{"docker-compose"}, "/etc/zoomies/docker-compose.yml", "up", "-d")
 	if name != "docker-compose" {
@@ -380,6 +381,7 @@ func TestComposeArgsUseTheCommandThisHostHas(t *testing.T) {
 }
 
 func TestTeardownArgs(t *testing.T) {
+	requirePOSIX(t)
 	rec := DeploymentRecord{
 		Deployment:     DeploymentCompose,
 		Directory:      "/etc/zoomies",
