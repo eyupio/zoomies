@@ -433,7 +433,7 @@ func TestDeploymentCommandsAreRunnable(t *testing.T) {
 		t.Fatalf("want status, logs, start, stop, restart, update and down; got %d", len(lines))
 	}
 	joined := strings.Join(lines, "\n")
-	for _, want := range []string{"deployment status", "deployment logs", "deployment start", "deployment stop", "deployment restart", "deployment update", "deployment down"} {
+	for _, want := range []string{"deployment status", "zoomies logs", "deployment start", "deployment stop", "deployment restart", "zoomies update", "deployment down"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("the summary must include %q:\n%s", want, joined)
 		}
@@ -441,9 +441,40 @@ func TestDeploymentCommandsAreRunnable(t *testing.T) {
 
 	p.Deployment = DeploymentDocker
 	joined = strings.Join(i.deploymentCommands(p), "\n")
-	for _, want := range []string{"deployment status", "deployment restart", "deployment update", "deployment stop"} {
+	for _, want := range []string{"deployment status", "deployment restart", "zoomies update", "deployment stop"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("the summary must include %q:\n%s", want, joined)
+		}
+	}
+}
+
+func TestSetupTokenIsRecoveredFromControllerLogs(t *testing.T) {
+	first := "abcdefghijklmnopqrstuvwxyz234567"
+	second := "765432abcdefghijklmnopqrstuvwxyz"
+	logs := "time=now level=INFO msg=\"setup token: " + first + "\"\n" +
+		"  setup token    " + second + "\n"
+	if got := setupTokenFromLogs(logs); got != second {
+		t.Fatalf("setup token = %q, want latest %q", got, second)
+	}
+	if got := setupTokenFromLogs("controller already has an administrator"); got != "" {
+		t.Fatalf("found a setup token where there was none: %q", got)
+	}
+}
+
+func TestContainerSummaryHandsOverTheWebUISetupKey(t *testing.T) {
+	var out strings.Builder
+	i := &Installer{ui: newUI(&out), det: Detection{Arch: "amd64"}}
+	p := containerPlan(t)
+	token := "abcdefghijklmnopqrstuvwxyz234567"
+
+	i.containerSummary(p, filepath.Join(p.DeployDir, EnvFileName), false, token, nil)
+
+	for _, want := range []string{
+		"Installation complete", p.ExternalURL, p.Image, "Web UI key", token,
+		"first-run page", "zoomies logs", "zoomies update", "runs-on:",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("the installation handoff does not mention %q:\n%s", want, out.String())
 		}
 	}
 }

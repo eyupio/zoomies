@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -555,7 +556,15 @@ func (i *Installer) runContainer(ctx context.Context, p Plan) error {
 	if p.Mode != ModeAgent {
 		i.stepContainerHealth(ctx, p)
 	}
-	i.containerSummary(p, envPath, res.ReusedKey)
+	var setupToken string
+	var setupTokenErr error
+	// A rerun may retain historical logs containing a token from before the
+	// first administrator existed. Only a new deployment can safely treat the
+	// token in its startup log as the credential for this running process.
+	if !rerun && p.Mode != ModeAgent {
+		setupToken, setupTokenErr = i.containerSetupToken(ctx, p)
+	}
+	i.containerSummary(p, envPath, res.ReusedKey, setupToken, setupTokenErr)
 	return nil
 }
 
@@ -801,9 +810,42 @@ func (i *Installer) logsCommand(p Plan) string {
 	return "docker logs -f " + ContainerName
 }
 
+var setupTokenLogPattern = regexp.MustCompile(`(?i)setup token[^a-z2-7]+([a-z2-7]{32})`)
+
+// setupTokenFromLogs extracts the controller's one-time first-admin credential
+// from either its human banner or its structured log line. Both are emitted at
+// startup, before the health endpoint begins answering.
+func setupTokenFromLogs(logs string) string {
+	matches := setupTokenLogPattern.FindAllStringSubmatch(logs, -1)
+	if len(matches) == 0 {
+		return ""
+	}
+	return matches[len(matches)-1][1]
+}
+
+func (i *Installer) containerSetupToken(ctx context.Context, p Plan) (string, error) {
+	var (
+		out string
+		err error
+	)
+	if p.Deployment == DeploymentCompose {
+		name, args := ComposeArgs(p.ComposeCommand, filepath.Join(p.DeployDir, ComposeFileName), "logs", "--tail", "100")
+		out, err = runCommand(ctx, name, args...)
+	} else {
+		out, err = runCommand(ctx, "docker", "logs", "--tail", "100", ContainerName)
+	}
+	if err != nil {
+		return "", err
+	}
+	if token := setupTokenFromLogs(out); token != "" {
+		return token, nil
+	}
+	return "", fmt.Errorf("the running controller's startup log did not contain a setup token")
+}
+
 // containerSummary is the last thing the operator reads. It is the handful of
 // commands they will actually want next, and nothing else.
-func (i *Installer) containerSummary(p Plan, envPath string, reusedKey bool) {
+func (i *Installer) containerSummary(p Plan, envPath string, reusedKey bool, setupToken string, setupTokenErr error) {
 	file := filepath.Join(p.DeployDir, ComposeFileName)
 	i.ui.blank()
 	i.ui.step("Installation complete")
@@ -830,6 +872,20 @@ func (i *Installer) containerSummary(p Plan, envPath string, reusedKey bool) {
 		i.ui.field("runner backend", fmt.Sprintf("%s; capacity %d", p.Backend, p.Capacity))
 	}
 	i.ui.field("database", "volume "+VolumeName+" (survives restart, update and down)")
+	if p.Mode != ModeAgent {
+		i.ui.field("Web UI", p.ExternalURL)
+		switch {
+		case setupToken != "":
+			i.ui.field("Web UI key", setupToken)
+			i.ui.field("", "paste this into the first-run page to create the administrator")
+			i.ui.field("", "one-time bootstrap credential; it changes if the controller restarts")
+		case setupTokenErr != nil:
+			i.ui.field("Web UI key", "run `zoomies logs` and copy the line beginning \"setup token\"")
+			i.ui.note("the installer could not read it automatically: " + setupTokenErr.Error())
+		default:
+			i.ui.field("Web UI key", "not required on an existing installation")
+		}
+	}
 	i.ui.blank()
 
 	if !reusedKey {
@@ -874,11 +930,11 @@ func (i *Installer) containerSummary(p Plan, envPath string, reusedKey bool) {
 func (i *Installer) deploymentCommands(p Plan) []string {
 	return []string{
 		"status    zoomies deployment status",
-		"logs      zoomies deployment logs",
+		"logs      zoomies logs",
 		"start     zoomies deployment start",
 		"stop      zoomies deployment stop",
 		"restart   zoomies deployment restart",
-		"update    zoomies deployment update",
+		"update    zoomies update",
 		"down      zoomies deployment down  (keeps the database volume)",
 	}
 }

@@ -2699,7 +2699,8 @@ func (i *Installer) stepSummary(p Plan, freshKey bool) {
 		i.ui.field("status", "launchctl print sh.zoomies.controller")
 		i.ui.field("restart", "launchctl kickstart -k sh.zoomies.controller")
 	}
-	i.ui.field("update", "curl -fsSL https://zoomies.sh/install.sh | sh -s -- --upgrade")
+	i.ui.field("update", "zoomies update")
+	i.ui.field("logs", logHint(p))
 	i.ui.field("uninstall", "zoomies uninstall")
 }
 
