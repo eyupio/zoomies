@@ -94,6 +94,8 @@ type CapacityDemand struct {
 
 // Server controls the HTTP listener.
 type Server struct {
+	// TailcatEnabled permits private agent connections, started on first enrolment.
+	TailcatEnabled bool `yaml:"tailcat_enabled"`
 	// Bind defaults to 127.0.0.1:8080. Binding to 0.0.0.0 without TLS is a
 	// warning, not an error, because a reverse proxy in front is legitimate.
 	Bind string `yaml:"bind"`
@@ -338,11 +340,12 @@ func (c *Config) Path() string { return c.path }
 func Default() *Config {
 	return &Config{
 		Server: Server{
-			Bind:         "127.0.0.1:8080",
-			TLS:          TLS{Mode: TLSOff},
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 0, // 0: SSE streams and log tails must not be cut off
-			IdleTimeout:  120 * time.Second,
+			TailcatEnabled: true,
+			Bind:           "127.0.0.1:8080",
+			TLS:            TLS{Mode: TLSOff},
+			ReadTimeout:    30 * time.Second,
+			WriteTimeout:   0, // 0: SSE streams and log tails must not be cut off
+			IdleTimeout:    120 * time.Second,
 		},
 		Database: Database{Path: defaultStatePath("zoomies.db")},
 		Security: Security{
@@ -772,6 +775,7 @@ func (c *Config) applyEnv() error {
 	}
 
 	str("ZOOMIES_BIND", &c.Server.Bind)
+	boolean("ZOOMIES_TAILCAT_ENABLED", &c.Server.TailcatEnabled)
 	dur("ZOOMIES_READ_TIMEOUT", &c.Server.ReadTimeout)
 	dur("ZOOMIES_WRITE_TIMEOUT", &c.Server.WriteTimeout)
 	dur("ZOOMIES_IDLE_TIMEOUT", &c.Server.IdleTimeout)

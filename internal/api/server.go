@@ -81,6 +81,7 @@ type Server struct {
 	manifests  *manifestStates
 
 	handler http.Handler
+	private privateConnections
 }
 
 // cfg is the configuration as it currently stands. It comes from the
@@ -275,6 +276,18 @@ const shutdownGrace = 15 * time.Second
 // service manager that starts a dependent unit on READY=1 is not racing the
 // bind.
 func (s *Server) ListenAndServe(ctx context.Context) error {
+	defer s.closeTailcat()
+	if s.cfg().Server.TailcatEnabled && !s.cfg().Security.DisableAuth {
+		stored, err := s.ctrl.Store().GetSetting(ctx, tailcatIdentitySetting)
+		if err != nil {
+			return err
+		}
+		if stored != "" {
+			if _, err := s.ensureTailcat(ctx); err != nil {
+				return err
+			}
+		}
+	}
 	// A cancellable base context is what makes shutdown tidy. An SSE stream or
 	// a log tail is an ordinary request as far as net/http is concerned, and
 	// Shutdown waits for requests rather than cancelling them; cancelling this

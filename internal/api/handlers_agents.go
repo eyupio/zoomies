@@ -39,6 +39,7 @@ func (s *Server) handleAgentJoin(w http.ResponseWriter, r *http.Request) {
 	if !decodeLenient(w, r, &req) {
 		return
 	}
+	req.Connection = connectionKind(r.Context())
 	resp, err := s.ctrl.Join(r.Context(), req, ClientIP(r.Context()))
 	if err != nil {
 		// A refused join is almost always a spent or mistyped token, which is
@@ -79,6 +80,16 @@ func (s *Server) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 		}
 		s.internal(w, r, "recording a heartbeat", err)
 		return
+	}
+	kind := connectionKind(r.Context())
+	if host.Connection != kind {
+		if err := s.ctrl.Store().SetHostConnection(r.Context(), host.ID, kind); err != nil {
+			s.internal(w, r, "recording the host connection", err)
+			return
+		}
+		if updated, err := s.ctrl.Store().GetHost(r.Context(), host.ID); err == nil {
+			s.ctrl.PublishHost(updated)
+		}
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

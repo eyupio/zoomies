@@ -320,7 +320,7 @@ func loadOrCreateKey(ctx context.Context, st *store.Store, cfg *config.Config, l
 		return nil, serr
 	}
 	if sealed {
-		return nil, fmt.Errorf("this database holds GitHub App credentials sealed with an encryption key, and %s does not exist: "+
+		return nil, fmt.Errorf("this database holds credentials sealed with an encryption key, and %s does not exist: "+
 			"generating a new key here would leave them unreadable. Restore the key file from your backup, "+
 			"or pass the key in ZOOMIES_ENCRYPTION_KEY; if the key is genuinely lost, delete and re-add the installations", path)
 	}

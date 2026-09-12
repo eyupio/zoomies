@@ -414,6 +414,9 @@ func (a *Agent) Join(ctx context.Context, joinToken string) error {
 	}
 
 	creds := Credentials{HostID: resp.HostID, AgentToken: resp.AgentToken, Controller: a.tr.Describe()}
+	if t, ok := a.tr.(interface{ TailcatAddress() string }); ok {
+		creds.TailcatAddress = t.TailcatAddress()
+	}
 	path := StatePath(a.opts.WorkDir)
 	if err := Save(path, creds); err != nil {
 		// The token is shown exactly once, so a save failure has to be loud:

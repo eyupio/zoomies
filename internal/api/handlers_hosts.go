@@ -263,6 +263,7 @@ type createJoinTokenResponse struct {
 	joinTokenResponse
 	Token             string `json:"token"`
 	Command           string `json:"command"`
+	JoinCommand       string `json:"join_command"`
 	ControllerVersion string `json:"controller_version"`
 	InstallTag        string `json:"install_tag,omitempty"`
 	// VersionNote is empty when the command installs a matching agent.
@@ -307,6 +308,7 @@ type createJoinTokenRequest struct {
 	// the browser reached this controller on some address, and a machine on
 	// the same network will usually reach it there too.
 	ControllerURL string `json:"controller_url"`
+	Connection    string `json:"connection"`
 }
 
 // handleCreateJoinToken mints a single-use enrolment credential.
@@ -332,6 +334,9 @@ func (s *Server) handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
 	if req.Capacity < 0 {
 		fields = append(fields, fieldError{"capacity", "capacity cannot be negative; leave it at 0 to let the agent decide from the host's CPU count"})
 	}
+	if req.Connection != "" && req.Connection != "direct" && req.Connection != "tailcat" {
+		fields = append(fields, fieldError{"connection", "choose direct or tailcat"})
+	}
 	controllerURL := strings.TrimRight(strings.TrimSpace(req.ControllerURL), "/")
 	if controllerURL != "" {
 		if msg := checkControllerURL(controllerURL); msg != "" {
@@ -343,6 +348,14 @@ func (s *Server) handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Connection == "tailcat" {
+		address, err := s.ensureTailcat(r.Context())
+		if err != nil {
+			unprocessable(w, err.Error(), []fieldError{{"connection", err.Error()}})
+			return
+		}
+		controllerURL = "tailcat://" + address
+	}
 	id := Identity(r.Context())
 	createdBy := ""
 	if id != nil {
@@ -361,6 +374,7 @@ func (s *Server) handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
 		joinTokenResponse: s.joinTokenResponse(token),
 		Token:             plaintext,
 		Command:           s.joinCommand(plaintext, controllerURL),
+		JoinCommand:       "zoomies agent join " + shellArgument(s.joinControllerURL(controllerURL)) + " --token " + shellArgument(plaintext),
 		ControllerVersion: version.Short(),
 		InstallTag:        version.Channel(version.Version),
 		VersionNote:       joinVersionNote(),
@@ -394,7 +408,7 @@ func checkControllerURL(raw string) string {
 // reach; when that is not configured either the command is still printed,
 // with the placeholder in it, since an operator who has not set it yet needs
 // to see what is missing rather than a blank field.
-func (s *Server) joinCommand(token, controllerURL string) string {
+func (s *Server) joinControllerURL(controllerURL string) string {
 	controller := controllerURL
 	if controller == "" {
 		controller = s.cfg().Server.ExternalURL
@@ -408,6 +422,11 @@ func (s *Server) joinCommand(token, controllerURL string) string {
 			controller = "https://<this-controller>"
 		}
 	}
+	return controller
+}
+
+func (s *Server) joinCommand(token, controllerURL string) string {
+	controller := s.joinControllerURL(controllerURL)
 	cmd := fmt.Sprintf("curl -fsSL https://zoomies.sh/install.sh | sh -s -- --mode agent --controller %s --join-token %s",
 		shellArgument(controller), shellArgument(token))
 

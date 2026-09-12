@@ -1,0 +1,1 @@
+ALTER TABLE hosts ADD COLUMN connection TEXT NOT NULL DEFAULT 'direct';

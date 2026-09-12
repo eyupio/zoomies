@@ -376,3 +376,17 @@ zoomies status                # the Overview, in a terminal
 
 `--output json|table|yaml` on every read command. Credentials come from
 `ZOOMIES_URL` + `ZOOMIES_TOKEN`, or `~/.config/zoomies/cli.yaml`.
+
+
+### Private agent enrolment
+
+`POST /api/v1/join-tokens` accepts `connection: "tailcat"` (admin only).
+Omit `controller_url` for private enrolment. The returned `command` and
+`join_command` contain credentials and must be treated as secrets; they are not
+returned by token list/get endpoints. Failed tunnel setup returns 422 without
+minting a token. The default `connection` is `direct` for existing clients.
+
+`GET /api/v1/meta` includes the non-secret `tailcat_available` capability flag.
+Host responses and `host.updated` include `connection: "direct" | "tailcat"`,
+observed at enrolment and heartbeat. The tunnel accepts agent endpoints only;
+operator routes are not available through it.

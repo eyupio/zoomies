@@ -72,7 +72,12 @@ func runAgentDaemon(ctx context.Context, e *env, args []string) error {
 		return err
 	}
 
+	saved, loadErr := agent.Load(agent.StatePath(cfg.Agent.WorkDir))
+	if loadErr != nil && !errors.Is(loadErr, agent.ErrNotJoined) {
+		return loadErr
+	}
 	transport, err := agent.NewHTTPTransport(agent.HTTPOptions{
+		TailcatAddress:     saved.TailcatAddress,
 		ControllerURL:      cfg.Agent.ControllerURL,
 		CAFile:             cfg.Agent.CAFile,
 		ClientCertFile:     cfg.Agent.ClientCertFile,
@@ -84,6 +89,8 @@ func runAgentDaemon(ctx context.Context, e *env, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	defer transport.Close()
 
 	a, err := agent.New(agent.Options{
 		Name:               cfg.Agent.Name,
@@ -114,14 +121,14 @@ func runAgentDaemon(ctx context.Context, e *env, args []string) error {
 		if token == "" {
 			return fmt.Errorf("this host has no agent credentials at %s and no join token to get some: "+
 				"run `zoomies agent join %s --token <join-token>`, minting the token in the UI under Hosts -> Add a host, "+
-				"or set ZOOMIES_JOIN_TOKEN and start again", statePath, cfg.Agent.ControllerURL)
+				"or set ZOOMIES_JOIN_TOKEN and start again", statePath, agent.DisplayController(cfg.Agent.ControllerURL))
 		}
 		if err := a.Join(ctx, token); err != nil {
 			return err
 		}
 	}
 
-	fmt.Fprintf(e.out, "zoomies agent %q -> %s\n", cfg.Agent.Name, cfg.Agent.ControllerURL)
+	fmt.Fprintf(e.out, "zoomies agent %q -> %s\n", cfg.Agent.Name, transport.Describe())
 	return a.Run(ctx)
 }
 

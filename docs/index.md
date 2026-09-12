@@ -3,7 +3,8 @@ title: Give your GitHub Actions runners the Zoomies.
 social_title: Zoomies — free, open-source self-hosted GitHub Actions runners
 description: >-
   Free, open-source self-hosted GitHub Actions runners: a fresh ephemeral
-  runner for every job, autoscaling across your own hosts.
+  runner for every job, autoscaling across cloud and private home-lab hosts
+  with built-in Tailcat encrypted connections.
 hide:
   - navigation
   - toc
@@ -59,6 +60,19 @@ The Overview, on a fleet part-way through a morning — every number live, and
 nothing to press to keep it that way. [See all ten pages, in both
 themes](ui.md).
 { .zoomies-shot-caption }
+
+## Your home lab belongs in the pack.
+
+**Turn your own private machines into GitHub Actions runner capacity.**
+Built-in Tailcat connections bring your home lab and office hosts into the same
+fleet as your cloud machines. No public host IP, router port forwarding,
+Tailscale account or separate tunnel installation.
+
+Choose **Private connection · Tailcat**, run one command, and watch the host
+join the pack. Same web UI, same pools, same ephemeral runners. Your hardware,
+your network, without a Zoomies per-minute platform fee.
+
+[Connect your private hosts :material-arrow-right:](private-hosts.md){ .md-button .md-button--primary }
 
 ## How it works
 

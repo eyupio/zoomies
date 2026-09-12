@@ -275,6 +275,9 @@ func (c *Controller) seedHosts(ctx context.Context, now time.Time) ([]*store.Hos
 			Cordoned:        s.cordoned,
 			LastHeartbeat:   now.Add(-s.silentFor),
 		}
+		if s.arch == "arm64" {
+			h.Connection = "tailcat"
+		}
 		if err := c.st.CreateHost(ctx, h); err != nil {
 			return nil, fmt.Errorf("seeding host %s: %w", s.name, err)
 		}

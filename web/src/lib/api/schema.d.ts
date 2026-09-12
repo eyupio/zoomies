@@ -1651,6 +1651,8 @@ export interface components {
             commit?: string;
             /** @description True when no user exists yet. */
             bootstrap_required: boolean;
+            /** @description Whether private enrolment is enabled and the controller has its encryption key. Relay connectivity is checked at enrolment. */
+            tailcat_available?: boolean;
             /** @description True when authentication has been switched off in the configuration. */
             auth_disabled?: boolean;
             oidc_enabled?: boolean;
@@ -2626,6 +2628,11 @@ export interface components {
             id?: string;
             name?: string;
             address?: string;
+            /**
+             * @description Connection observed by the controller at enrolment or the latest heartbeat.
+             * @enum {string}
+             */
+            connection?: "direct" | "tailcat";
             /** @description True for the agent running inside the controller process. */
             embedded?: boolean;
             capacity?: number;
@@ -4834,6 +4841,12 @@ export interface operations {
                         [key: string]: string;
                     };
                     /**
+                     * @description Tailcat creates a private encrypted agent connection and supplies its address in the returned commands.
+                     * @default direct
+                     * @enum {string}
+                     */
+                    connection?: "direct" | "tailcat";
+                    /**
                      * Format: uri
                      * @description The address the new host should join on, used in the
                      *     returned command in place of `server.external_url`. The
@@ -4856,6 +4869,8 @@ export interface operations {
                     "application/json": components["schemas"]["JoinToken"] & {
                         /** @description Shown once. Only its hash is stored. */
                         token?: string;
+                        /** @description Command for an existing binary. Contains credentials; shown only in this response. */
+                        join_command?: string;
                         /**
                          * @description The one-liner to run on the new host.
                          * @example curl -fsSL https://zoomies.sh/install.sh | sh -s -- --mode agent --controller https://zoomies.example.com --join-token zoojoin_... --version v1.0.0

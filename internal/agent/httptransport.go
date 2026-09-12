@@ -85,7 +85,8 @@ var userAgent = "zoomies-agent/" + version.Version
 type HTTPOptions struct {
 	// ControllerURL is where the controller answers, e.g.
 	// https://zoomies.internal:8080.
-	ControllerURL string
+	ControllerURL  string
+	TailcatAddress string
 	// CAFile pins the certificate the controller presents. For the usual
 	// self-signed controller this is certificate pinning, not a public CA: it
 	// is what makes a private deployment verifiable without buying a name.
@@ -115,9 +116,11 @@ type HTTPOptions struct {
 // It is safe for concurrent use; the agent heartbeats, polls and streams logs
 // at the same time.
 type HTTPTransport struct {
-	base string
-	http *http.Client
-	log  *slog.Logger
+	base           string
+	tailcatAddress string
+	closeTunnel    func()
+	http           *http.Client
+	log            *slog.Logger
 
 	// session identifies this agent process for the life of it. It is minted
 	// here rather than passed in because "one agent process" is exactly what a
@@ -133,6 +136,10 @@ type HTTPTransport struct {
 // NewHTTPTransport builds a transport pointed at one controller.
 func NewHTTPTransport(opts HTTPOptions) (*HTTPTransport, error) {
 	raw := strings.TrimSpace(opts.ControllerURL)
+	if strings.HasPrefix(strings.ToLower(raw), "tailcat:") {
+		opts.ControllerURL = raw
+		return newTailcatTransport(opts)
+	}
 	if raw == "" {
 		return nil, errors.New("agent: no controller URL; set agent.controller_url in zoomies.yaml or pass it to `zoomies agent join`")
 	}
@@ -332,7 +339,12 @@ func (t *HTTPTransport) SetCredentials(hostID, agentToken string) {
 }
 
 // Describe returns the controller URL, for the startup banner and log lines.
-func (t *HTTPTransport) Describe() string { return t.base }
+func (t *HTTPTransport) Describe() string {
+	if t.tailcatAddress != "" {
+		return TailcatController
+	}
+	return t.base
+}
 
 func (t *HTTPTransport) credentials() (string, string) {
 	t.mu.RLock()
