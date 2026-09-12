@@ -148,6 +148,14 @@ const SHOTS = [
     path: '/hosts/new',
     heading: 'Add a host',
   },
+  {
+    name: 'private-host',
+    path: '/hosts/new',
+    heading: 'Add a host',
+    async prepare(page) {
+      await page.getByRole('radio', { name: /Private connection/ }).check();
+    },
+  },
   // Sign-in is deliberately not here. This runner bootstraps an administrator
   // so that every other page has a session, and a signed-in browser cannot
   // photograph the sign-in card. Capturing it would need the first-run fixture

@@ -147,6 +147,7 @@ nav:
       - Naming and platforms: naming.md
       - Configuration: configuration.md
       - Hosts and pools: hosts-and-pools.md
+      - Private hosts with Tailcat: private-hosts.md
       - Migrating repositories: migration.md
       - Deploying on a PaaS: paas.md
       - Security: security.md

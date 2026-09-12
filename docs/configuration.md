@@ -191,6 +191,15 @@ Without it, Zoomies cannot tell GitHub where to deliver webhooks, so scaling
 falls back entirely to polling and reacts in tens of seconds rather than
 instantly. It warns about this at startup.
 
+### `server.tailcat_enabled`
+
+Default `true`; environment override `ZOOMIES_TAILCAT_ENABLED`.
+Permits built-in private agent connections through Tailcat. The controller
+starts its userspace listener on first private enrolment, then resumes it on
+subsequent starts. Requires authentication and the instance encryption key.
+Set false and restart to stop private connections without deleting their saved
+identity. See [Private hosts](private-hosts.md).
+
 ### `server.bind`
 
 Defaults to loopback. If you change it to `0.0.0.0` and leave TLS off, you get a

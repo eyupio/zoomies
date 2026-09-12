@@ -24,6 +24,7 @@ import (
 // what decides whether to show a password form, a single sign-on button, or the
 // first-run bootstrap form. Nothing in it is a secret.
 type metaResponse struct {
+	TailcatAvailable  bool   `json:"tailcat_available"`
 	Version           string `json:"version"`
 	VersionChannel    string `json:"version_channel,omitempty"`
 	Commit            string `json:"commit,omitempty"`
@@ -51,6 +52,7 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := metaResponse{
+		TailcatAvailable:            s.cfg().Server.TailcatEnabled && !s.cfg().Security.DisableAuth && s.key != nil,
 		Version:                     version.Short(),
 		VersionChannel:              version.Channel(version.Version),
 		Commit:                      version.Commit,

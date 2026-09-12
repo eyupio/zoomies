@@ -7,6 +7,10 @@ description: >-
 
 # Hosts and pools
 
+**Adding a home-lab or private host?** Choose **Private connection · Tailcat**
+in Add a host for built-in encrypted connectivity without public host IPs or
+port forwarding. [Private host setup and how it works](private-hosts.md).
+
 The [quick start](quickstart.md) leaves you with one host and one pool, which is
 a whole working fleet. This page is the next step: a second machine, a second
 pool, and the rules that decide which runner lands where.

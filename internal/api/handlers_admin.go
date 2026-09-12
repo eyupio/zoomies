@@ -434,7 +434,7 @@ var runtimeWritable = map[string]string{
 // a time by being refused.
 var restartRequiredKeys = sync.OnceValue(func() []string {
 	keys := []string{
-		"server.bind", "server.external_url", "server.tls.mode", "server.tls.cert_file",
+		"server.tailcat_enabled", "server.bind", "server.external_url", "server.tls.mode", "server.tls.cert_file",
 		"server.tls.key_file", "server.trusted_proxies", "server.allowed_origins",
 		"server.read_timeout", "server.idle_timeout",
 		"database.path",

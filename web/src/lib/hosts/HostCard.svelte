@@ -233,6 +233,15 @@
             title="This agent has not reported the machine's CPUs, memory or disk, so this host is placed by its slot count alone. Upgrade the agent and the figures appear on its next heartbeat."
           />
         {/if}
+        {#if host.connection === 'tailcat'}
+          <Badge
+            tone="accent"
+            label="Tailcat host"
+            size="sm"
+            dot={false}
+            title="Private encrypted agent connection. No public host address or inbound port required. Health is shown separately."
+          />
+        {/if}
         {#if host.embedded}
           <Badge
             tone="accent"

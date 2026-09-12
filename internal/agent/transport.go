@@ -55,9 +55,10 @@ type Transport interface {
 // Credentials are what an agent persists between runs so that a restart does
 // not need a new join token.
 type Credentials struct {
-	HostID     string `json:"host_id" yaml:"host_id"`
-	AgentToken string `json:"agent_token" yaml:"agent_token"`
-	Controller string `json:"controller_url" yaml:"controller_url"`
+	HostID         string `json:"host_id" yaml:"host_id"`
+	AgentToken     string `json:"agent_token" yaml:"agent_token"`
+	Controller     string `json:"controller_url" yaml:"controller_url"`
+	TailcatAddress string `json:"tailcat_address,omitempty" yaml:"-"`
 }
 
 // Valid reports whether the credentials are complete enough to use.

@@ -45,6 +45,7 @@ type BackendInfoView struct {
 
 // HostView is one agent host and the room it has left.
 type HostView struct {
+	Connection    string            `json:"connection"`
 	ID            string            `json:"id"`
 	Name          string            `json:"name"`
 	Address       string            `json:"address,omitempty"`
@@ -156,6 +157,7 @@ func (c *Controller) HostView(h *store.Host) HostView {
 		Name:               h.Name,
 		Address:            h.Address,
 		Embedded:           h.Embedded,
+		Connection:         h.Connection,
 		Capacity:           h.Capacity,
 		ActiveRunners:      h.ActiveRunners,
 		Free:               h.Free(),

@@ -1672,6 +1672,11 @@ paths:
                   minimum: 0
                   description: 0 lets the agent decide from the host's CPU count.
                 labels: { type: object, additionalProperties: { type: string } }
+                connection:
+                  type: string
+                  enum: [direct, tailcat]
+                  default: direct
+                  description: Tailcat creates a private encrypted agent connection and supplies its address in the returned commands.
                 controller_url:
                   type: string
                   format: uri
@@ -1695,6 +1700,9 @@ paths:
                       token:
                         type: string
                         description: Shown once. Only its hash is stored.
+                      join_command:
+                        type: string
+                        description: Command for an existing binary. Contains credentials; shown only in this response.
                       command:
                         type: string
                         description: The one-liner to run on the new host.
@@ -2540,6 +2548,7 @@ components:
         version_channel: { type: string, examples: ["v1.0.0", "dev"], description: The published image and binary tag carrying this build. }
         commit: { type: string }
         bootstrap_required: { type: boolean, description: True when no user exists yet. }
+        tailcat_available: { type: boolean, description: Whether private enrolment is enabled and the controller has its encryption key. Relay connectivity is checked at enrolment. }
         auth_disabled: { type: boolean, description: True when authentication has been switched off in the configuration. }
         oidc_enabled: { type: boolean }
         oidc_label: { type: string, examples: ["Sign in with Okta"] }
@@ -3569,6 +3578,7 @@ components:
         id: { type: string }
         name: { type: string }
         address: { type: string }
+        connection: { type: string, enum: [direct, tailcat], description: Connection observed by the controller at enrolment or the latest heartbeat. }
         embedded: { type: boolean, description: True for the agent running inside the controller process. }
         capacity: { type: integer }
         active_runners: { type: integer }

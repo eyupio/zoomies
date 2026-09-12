@@ -17,7 +17,7 @@
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { ArrowRight, Check, Plus, RefreshCw } from '@lucide/svelte';
+  import { ArrowRight, Check, Plus, RefreshCw, ShieldCheck, Globe } from '@lucide/svelte';
   import {
     ApiError,
     createJoinToken,
@@ -48,6 +48,7 @@
   type Minted = JoinToken & {
     token?: string;
     command?: string;
+    join_command?: string;
     controller_version?: string;
     install_tag?: string;
     version_note?: string;
@@ -88,6 +89,8 @@
     return location.origin;
   }
 
+  let connection = $state<'direct' | 'tailcat'>('direct');
+  const tailcatAvailable = $derived(session.meta?.tailcat_available === true);
   let controllerURL = $state(suggestedControllerURL());
   let capacity = $state('');
   let ttl = $state('15m');
@@ -96,6 +99,7 @@
   let minting = $state(false);
 
   const controllerError = $derived.by(() => {
+    if (connection === 'tailcat') return '';
     const raw = controllerURL.trim();
     if (!raw) return 'Give the address the new host will reach this controller on.';
     try {
@@ -185,7 +189,8 @@
   const versionNote = $derived(minted?.version_note ?? '');
   /** For a machine that already has the binary: the same join, without the download. */
   const joinCommand = $derived(
-    minted?.token ? `zoomies agent join ${chosenURL} --token ${minted.token}` : '',
+    minted?.join_command ??
+      (minted?.token ? `zoomies agent join ${chosenURL} --token ${minted.token}` : ''),
   );
 
   async function mint(): Promise<void> {
@@ -202,7 +207,8 @@
         ttl,
         capacity: capacityNumber,
         labels,
-        controller_url: chosenURL,
+        controller_url: connection === 'tailcat' ? undefined : chosenURL,
+        connection,
       });
       watched = null;
       checkFailed = false;
@@ -212,7 +218,7 @@
       if (cause instanceof ApiError) errors = cause.fieldErrors();
       toasts.fromError(cause, 'That join token was not created');
       // A refused address is a describe-step problem, wherever it was asked from.
-      if (errors.controller_url) phase = 'describe';
+      if (errors.controller_url || errors.connection) phase = 'describe';
     } finally {
       minting = false;
     }
@@ -371,28 +377,77 @@
           void mint();
         }}
       >
-        <Field
-          label="Controller address"
-          hint="What the new host will dial to reach this controller. It only ever connects outbound, so this is the one address that has to be right."
-          notice={controllerLocal
-            ? 'Only this machine answers on a loopback address. Use one the new host can reach, or set server.external_url so every operator gets it.'
-            : undefined}
-          error={errors.controller_url ?? controllerError}
-        >
-          {#snippet children({ id, describedBy, invalid })}
-            <Input
-              bind:value={controllerURL}
-              {id}
-              {describedBy}
-              {invalid}
-              type="url"
-              mono
-              autocomplete="off"
-              spellcheck={false}
-            />
-          {/snippet}
-        </Field>
-
+        <fieldset class="connection-options">
+          <legend>How should this host connect?</legend>
+          <div class="connection-choices">
+            <label class="connection-choice" class:selected={connection === 'direct'}>
+              <input type="radio" name="connection" value="direct" bind:group={connection} />
+              <Globe size={20} aria-hidden="true" />
+              <span
+                ><strong>Direct connection</strong><small
+                  >Use an address this host can reach. Works on your LAN or over HTTPS.</small
+                ></span
+              >
+            </label>
+            <label
+              class="connection-choice"
+              class:selected={connection === 'tailcat'}
+              class:unavailable={!tailcatAvailable}
+            >
+              <input
+                type="radio"
+                name="connection"
+                value="tailcat"
+                bind:group={connection}
+                disabled={!tailcatAvailable}
+                aria-describedby="private-connection-help"
+              />
+              <ShieldCheck size={20} aria-hidden="true" />
+              <span
+                ><strong>Private connection <span class="connection-brand">Tailcat</span></strong
+                ><small
+                  >Bring your home lab into the pack. No public IP, port forwarding or Tailscale
+                  account.</small
+                ></span
+              >
+            </label>
+          </div>
+          <p id="private-connection-help" class="fine">
+            {#if !tailcatAvailable}Private connections need authentication, a controller encryption
+              key and server.tailcat_enabled. Ask your administrator to enable these and restart
+              Zoomies.
+            {:else if connection === 'tailcat'}Zoomies handles the encrypted tunnel. Your host and
+              controller only need outbound internet access; no address to configure.
+            {:else}Both options let the host connect outbound. Choose Tailcat when the host cannot
+              reach the controller’s normal address.{/if}
+          </p>
+          {#if errors.connection}<p class="connection-error" role="alert">
+              {errors.connection}
+            </p>{/if}
+        </fieldset>
+        {#if connection === 'direct'}
+          <Field
+            label="Controller address"
+            hint="What the new host will dial to reach this controller. It only ever connects outbound, so this is the one address that has to be right."
+            notice={controllerLocal
+              ? 'Only this machine answers on a loopback address. Use one the new host can reach, or set server.external_url so every operator gets it.'
+              : undefined}
+            error={errors.controller_url ?? controllerError}
+          >
+            {#snippet children({ id, describedBy, invalid })}
+              <Input
+                bind:value={controllerURL}
+                {id}
+                {describedBy}
+                {invalid}
+                type="url"
+                mono
+                autocomplete="off"
+                spellcheck={false}
+              />
+            {/snippet}
+          </Field>
+        {/if}
         <Field
           label="Capacity"
           hint="How many runners this host may run at once. Leave it blank and the agent decides from the host’s CPU count, taking half."
@@ -469,12 +524,19 @@
   {:else if phase === 'run' && minted}
     <section class="panel" aria-labelledby="run-heading">
       <h2 id="run-heading" tabindex="-1" bind:this={panelHeading}>Run this on the new host</h2>
+      {#if connection === 'tailcat'}<p class="private-note">
+          <ShieldCheck size={18} aria-hidden="true" /> Private connection · Powered by Tailcat
+        </p>{/if}
       <p class="lede">
         One line, in a shell on that machine. It downloads the Zoomies binary and verifies it, joins
         this controller with the token, and installs the agent as a service — which is the part that
         needs root or sudo.
       </p>
 
+      {#if connection === 'tailcat'}<p class="fine">
+          This command contains private connection credentials. Run it only on the intended host;
+          keep it out of screenshots, chat and source control.
+        </p>{/if}
       <div class="command">
         {#if minted.install_tag}
           <dl class="version-match" aria-label="Version selected for this host">
@@ -539,8 +601,12 @@
           <span class="pulse" aria-hidden="true"></span>
           <div class="watch-text">
             <p>
-              <strong>Waiting for the host to join.</strong> This page asks the controller every few seconds
-              and fills the host in the moment it arrives. Leave it open while the command runs.
+              <strong
+                >{connection === 'tailcat'
+                  ? 'Waiting for your private host to join.'
+                  : 'Waiting for the host to join.'}</strong
+              > This page asks the controller every few seconds and fills the host in the moment it arrives.
+              Leave it open while the command runs.
             </p>
             <p class="fine">
               The token expires <RelativeTime value={minted.expires_at} plain />.
@@ -647,6 +713,78 @@
 </div>
 
 <style>
+  .connection-options {
+    border: 0;
+    padding: 0;
+    margin: 0;
+    min-width: 0;
+  }
+  .connection-options legend {
+    font-weight: 600;
+    margin-bottom: var(--z-space-3);
+  }
+  .connection-choices {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--z-space-3);
+  }
+  .connection-choice {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--z-space-3);
+    padding: var(--z-space-4);
+    border: 1px solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    cursor: pointer;
+  }
+  .connection-choice.selected {
+    border-color: var(--z-accent);
+    background: var(--z-accent-subtle);
+  }
+  .connection-choice:focus-within {
+    outline: 2px solid var(--z-accent);
+    outline-offset: 2px;
+  }
+  .connection-choice input {
+    accent-color: var(--z-accent);
+    flex-shrink: 0;
+  }
+  .connection-choice :global(svg) {
+    flex-shrink: 0;
+    color: var(--z-text-muted);
+  }
+  .connection-choice strong,
+  .connection-choice small {
+    display: block;
+  }
+  .connection-choice small {
+    color: var(--z-text-muted);
+    line-height: 1.5;
+    margin-top: var(--z-space-2);
+  }
+  .connection-brand {
+    color: var(--z-accent);
+    font-size: var(--z-text-xs);
+  }
+  .connection-choice.unavailable {
+    opacity: 0.65;
+    cursor: default;
+  }
+  .private-note {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-2);
+    color: var(--z-accent);
+  }
+  .connection-error {
+    color: var(--z-danger);
+  }
+  @media (max-width: 768px) {
+    .connection-choices {
+      grid-template-columns: 1fr;
+    }
+  }
+
   .flow {
     display: flex;
     flex-direction: column;

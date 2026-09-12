@@ -49,6 +49,17 @@ curl -fsSL https://zoomies.sh/install.sh | sh
 
 ---
 
+## Your home lab. Your runner fleet.
+
+**Bring private machines into the pack with built-in Tailcat connections.**
+Use the hardware you already own for GitHub Actions: no public host IP,
+no port forwarding, no Tailscale account and no separate tunnel installation.
+Choose **Private connection · Tailcat** in Add a host, run one command, and
+manage private and cloud hosts together in the live web UI.
+
+Free and open source. Your hardware, your network, one pack.
+[Connect a private host](docs/private-hosts.md).
+
 ## What it does
 
 You point Zoomies at a GitHub organisation, or at a repository on a personal

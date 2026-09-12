@@ -522,3 +522,15 @@ behaving dangerously is not a vulnerability, and a way to reach one without
 setting it is.
 
 [advisory]: https://github.com/eyupio/zoomies/security/advisories/new
+
+
+## Tailcat private connections
+
+Private tunnels expose only the agent API and retain Zoomies join-token and
+agent-token authentication. No administrator route, SSH service, arbitrary
+port forwarding or subnet routing is enabled. Tunnel identities are encrypted
+in SQLite; agent capability addresses live in mode-0600 agent credentials.
+Enrolment commands contain secrets and must not be published. Disabling
+`server.tailcat_enabled` and restarting closes private connectivity; it does
+not rotate the saved identity. See [private host credential handling and relay
+limitations](private-hosts.md#restarts-and-credential-protection).

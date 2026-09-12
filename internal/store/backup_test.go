@@ -201,3 +201,14 @@ func TestHasSealedSecretsSeesTheOneThingAKeyOpens(t *testing.T) {
 		t.Error("an installation with a sealed private key does not count as a sealed secret")
 	}
 }
+
+func TestAPrivateConnectionIdentityPreventsGeneratingAReplacementKey(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.SetSetting(context.Background(), "tailcat.identity.v1", "sealed-identity", true); err != nil {
+		t.Fatal(err)
+	}
+	has, err := s.HasSealedSecrets(context.Background())
+	if err != nil || !has {
+		t.Fatalf("private connection identity was not protected: %v", err)
+	}
+}

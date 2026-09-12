@@ -183,7 +183,7 @@ func Join(ctx context.Context, opts JoinOptions) error {
 	u.ok("this host will run jobs with the " + string(chosen) + " backend")
 
 	// --- Join ------------------------------------------------------------
-	u.step("Joining " + opts.ControllerURL)
+	u.step("Joining " + agent.DisplayController(opts.ControllerURL))
 	transport, err := agent.NewHTTPTransport(agent.HTTPOptions{
 		ControllerURL:      opts.ControllerURL,
 		CAFile:             opts.CAFile,
@@ -197,6 +197,9 @@ func Join(ctx context.Context, opts JoinOptions) error {
 		return err
 	}
 
+	defer transport.Close()
+	// The capability belongs in agent.json, never the ordinary configuration.
+	opts.ControllerURL = transport.Describe()
 	a, err := agent.New(agent.Options{
 		Name:           name,
 		WorkDir:        workDir,

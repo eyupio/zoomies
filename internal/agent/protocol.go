@@ -21,6 +21,7 @@ const ProtocolVersion = 1
 
 // JoinRequest redeems a short-lived join token and enrols a new host.
 type JoinRequest struct {
+	Connection      string `json:"-"`
 	ProtocolVersion int    `json:"protocol_version"`
 	JoinToken       string `json:"join_token"`
 	Name            string `json:"name"`

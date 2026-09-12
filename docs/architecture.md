@@ -425,3 +425,18 @@ for the threat model and each individual toggle.
   external autoscaler for hosts and leaves the deleting to it.
 * Not multi-tenant across unrelated organisations. One Zoomies is one team's
   fleet.
+
+
+## Private agent connections
+
+[Private hosts with Tailcat](private-hosts.md) preserve the outbound agent
+protocol. The controller accepts an additional userspace listener restricted
+to the agent API. `internal/api/tailcat.go` seals and resumes its identity through
+the existing settings store; `internal/agent/tailcat.go` dials it using the same
+HTTP protocol, without proxies or redirects. No OS listener, SSH service,
+subnet route or Docker endpoint is created. The server-observed `connection`
+field travels with the normal host view and `host.updated` event.
+
+The Go library brings WireGuard and the userspace network stack into the binary.
+This is a deliberate binary-size and toolchain trade-off for installation with
+no separate Tailcat binary. It has no browser dependency or shell-budget cost.
