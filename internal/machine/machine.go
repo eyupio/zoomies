@@ -77,6 +77,9 @@ func detect(root string) Facts {
 		m.Distro = naming.OSMacOS
 		m.OSVersion = macOSVersion()
 		m.MemoryMB = sysctlMB("hw.memsize")
+	case "windows":
+		m.Distro = naming.OSWindows
+		m.OSVersion, m.MemoryMB = windowsFacts()
 	default:
 		m.Distro, m.OSVersion = readOSRelease(filepath.Join(root, "etc", "os-release"))
 		m.MemoryMB = readMemTotalMB(filepath.Join(root, "proc", "meminfo"))

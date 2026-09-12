@@ -28,6 +28,7 @@ system and on whether the process is running as root.
 | Linux, as root | `/etc/zoomies` | `/var/lib/zoomies` |
 | Linux, as anyone else | `~/.config/zoomies` | `~/.config/zoomies` |
 | macOS | `~/Library/Application Support/zoomies` | same |
+| Windows | `%ProgramData%\zoomies` | same |
 
 The configuration directory holds `zoomies.yaml` and the encryption key; the
 state directory holds the database and the agents' work areas. Every default

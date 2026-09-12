@@ -238,9 +238,11 @@ Zoomies is an early beta, and this project keeps a
 that separates what a test has actually run on from what merely builds. Read it
 before you put anything precious on this. Today, in short: the controller, the
 agents, a join, and a queued job becoming a real workload on a real machine are
-exercised on every pull request, on the `process` backend against a fake GitHub;
-the Docker backend is unit-tested against a fake Engine API and no test here has
-yet started a real container; and no test runs on arm64.
+exercised on every pull request, on the `process` backend against a fake GitHub,
+on amd64 and on arm64; the Docker backend is unit-tested against a fake Engine
+API and no test here has yet started a real container; and the Windows agent is
+built, vetted and unit-tested on a hosted Windows runner, and has not yet run a
+job on a Windows host anyone kept.
 
 That is not a reason to keep it off your own machines. It is the reason the
 defaults are the careful ones, and the reason every claim on this page names

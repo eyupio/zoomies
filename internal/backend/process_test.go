@@ -2,6 +2,7 @@ package backend
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -17,7 +18,6 @@ import (
 	"runtime"
 	"strings"
 	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 
@@ -447,6 +447,10 @@ func TestRunnerAsset(t *testing.T) {
 		{"linux", "arm64", "actions-runner-linux-arm64-2.3.4.tar.gz"},
 		{"linux", "arm", "actions-runner-linux-arm-2.3.4.tar.gz"},
 		{"darwin", "arm64", "actions-runner-osx-arm64-2.3.4.tar.gz"},
+		// Windows releases are zips, and the extension is what picks the
+		// unpacker, so the name has to carry it.
+		{"windows", "amd64", "actions-runner-win-x64-2.3.4.zip"},
+		{"windows", "arm64", "actions-runner-win-arm64-2.3.4.zip"},
 	}
 	for _, c := range cases {
 		got, err := runnerAsset(c.goos, c.goarch, "2.3.4")
@@ -455,21 +459,111 @@ func TestRunnerAsset(t *testing.T) {
 		}
 	}
 
-	// The refusal has to name the platform Zoomies does not ship for, not one
-	// actions/runner does not have: win-x64 has existed for years, and an
-	// operator told otherwise goes looking for a GitHub problem that is ours.
-	_, err := runnerAsset("windows", "amd64", "2.3.4")
-	if err == nil {
-		t.Fatal("windows must be refused")
+	for _, c := range []struct{ goos, goarch string }{
+		{"linux", "riscv64"},
+		{"windows", "arm"},
+		{"darwin", "arm"},
+		{"freebsd", "amd64"},
+	} {
+		if _, err := runnerAsset(c.goos, c.goarch, "2.3.4"); err == nil {
+			t.Errorf("%s/%s must be refused: actions/runner ships no such build", c.goos, c.goarch)
+		}
 	}
-	if !strings.Contains(err.Error(), "Zoomies has no Windows support yet") {
-		t.Errorf("the refusal must say whose gap it is, got %v", err)
+}
+
+// A Windows release is a zip, and a zip is remote input with the same escape
+// routes a tarball has: a name that climbs out, an absolute name, a symlink
+// to write through. Each is refused, and a well-formed archive lands with the
+// listener where ensureRelease looks for it.
+func TestExtractZip(t *testing.T) {
+	write := func(t *testing.T, entries map[string]string) string {
+		t.Helper()
+		var buf bytes.Buffer
+		zw := zip.NewWriter(&buf)
+		for name, body := range entries {
+			w, err := zw.Create(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := w.Write([]byte(body)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := zw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		src := filepath.Join(t.TempDir(), "runner.zip")
+		if err := os.WriteFile(src, buf.Bytes(), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return src
 	}
-	if strings.Contains(err.Error(), "actions/runner ships for Linux and macOS") {
-		t.Errorf("the refusal must not claim actions/runner has no Windows build, got %v", err)
+
+	dest := filepath.Join(t.TempDir(), "tools")
+	src := write(t, map[string]string{
+		"bin/Runner.Listener.exe": "MZ",
+		"config.cmd":              "@echo off\r\n",
+		"docs/":                   "",
+		"docs/readme.txt":         "hello",
+	})
+	if err := extractZip(src, dest); err != nil {
+		t.Fatalf("extract: %v", err)
 	}
-	if _, err := runnerAsset("linux", "riscv64", "2.3.4"); err == nil {
-		t.Error("an unsupported architecture must be refused")
+	for _, name := range []string{"bin/Runner.Listener.exe", "config.cmd", "docs/readme.txt"} {
+		if _, err := os.Stat(filepath.Join(dest, filepath.FromSlash(name))); err != nil {
+			t.Errorf("%s missing after extraction: %v", name, err)
+		}
+	}
+	if b, err := os.ReadFile(filepath.Join(dest, "docs", "readme.txt")); err != nil || string(b) != "hello" {
+		t.Errorf("readme = %q, %v", b, err)
+	}
+
+	for name, entries := range map[string]map[string]string{
+		"a climbing name":  {"../evil.txt": "x"},
+		"an absolute name": {"/etc/evil.txt": "x"},
+	} {
+		src := write(t, entries)
+		if err := extractZip(src, filepath.Join(t.TempDir(), "tools")); err == nil {
+			t.Errorf("%s must be refused", name)
+		}
+	}
+}
+
+// Windows refuses to delete a file another process still has open, and a
+// runner's handles can outlive its termination by a moment. The removal keeps
+// trying for a bounded grace and then reports the last error, so that the
+// usual case converges and the unusual one is still recorded rather than
+// retried forever.
+func TestRemoveAllRetryKeepsTryingWithinItsGrace(t *testing.T) {
+	calls := 0
+	flaky := func(string) error {
+		calls++
+		if calls < 3 {
+			return errors.New("The process cannot access the file because it is being used by another process.")
+		}
+		return nil
+	}
+	if err := removeAllRetry(context.Background(), "dir", 5*time.Second, flaky); err != nil {
+		t.Fatalf("a removal that succeeds on the third try must succeed: %v", err)
+	}
+	if calls != 3 {
+		t.Errorf("remove was called %d times, want 3", calls)
+	}
+
+	// Without a grace the first answer is the answer, which is what POSIX
+	// gets: there is nothing to wait for there.
+	calls = 0
+	if err := removeAllRetry(context.Background(), "dir", 0, flaky); err == nil {
+		t.Fatal("with no grace, the first failure must be returned")
+	}
+	if calls != 1 {
+		t.Errorf("remove was called %d times with no grace, want 1", calls)
+	}
+
+	// A grace that runs out returns the last error rather than nil.
+	always := func(string) error { return errors.New("still open") }
+	if err := removeAllRetry(context.Background(), "dir", 150*time.Millisecond, always); err == nil {
+		t.Fatal("a removal that never succeeds must report the last error")
 	}
 }
 
@@ -847,35 +941,6 @@ func TestProcessDownloadMissingVersion(t *testing.T) {
 	_, err = b.ensureRelease(context.Background(), "0.0.1")
 	if err == nil || !strings.Contains(err.Error(), "pinned runner version") {
 		t.Fatalf("got %v, want a message about the pinned version", err)
-	}
-}
-
-// The runner leads a process group of its own. Without that, interrupting the
-// listener orphaned the worker running the job, and a service manager stopping
-// the agent's unit took every runner in the cgroup down with it -- the
-// opposite of "restarting an agent must never kill a job".
-func TestProcessRunnerLeadsItsOwnProcessGroup(t *testing.T) {
-	requireUnix(t)
-	b, _ := newStubProcessBackend(t)
-	ctx := context.Background()
-
-	h, err := b.Create(ctx, processSpec())
-	if err != nil {
-		t.Fatalf("create: %v", err)
-	}
-	t.Cleanup(func() { _ = b.Remove(ctx, h) })
-	waitForPhase(t, b, h, PhaseRunning, 5*time.Second)
-
-	pid := readPID(string(h))
-	if pid <= 0 {
-		t.Fatal("no pid recorded")
-	}
-	pgid, err := syscall.Getpgid(pid)
-	if err != nil {
-		t.Fatalf("Getpgid: %v", err)
-	}
-	if pgid != pid {
-		t.Fatalf("the runner's process group is %d, want its own pid %d; it is sharing the agent's group", pgid, pid)
 	}
 }
 

@@ -490,6 +490,9 @@ func StateDir() string {
 	if v := os.Getenv("ZOOMIES_STATE_DIR"); v != "" {
 		return v
 	}
+	if dir := windowsDir(); dir != "" {
+		return dir
+	}
 	if runtime.GOOS == "darwin" {
 		if home, err := os.UserHomeDir(); err == nil {
 			return filepath.Join(home, "Library", "Application Support", "zoomies")
@@ -509,6 +512,9 @@ func ConfigDir() string {
 	if v := os.Getenv("ZOOMIES_CONFIG_DIR"); v != "" {
 		return v
 	}
+	if dir := windowsDir(); dir != "" {
+		return dir
+	}
 	if runtime.GOOS == "darwin" {
 		if home, err := os.UserHomeDir(); err == nil {
 			return filepath.Join(home, "Library", "Application Support", "zoomies")
@@ -521,6 +527,22 @@ func ConfigDir() string {
 		return filepath.Join(dir, "zoomies")
 	}
 	return ".zoomies"
+}
+
+// windowsDir is the one directory Zoomies uses on Windows, for configuration
+// and state alike: %ProgramData%\zoomies. A per-user directory would put the
+// agent's credentials under whichever account ran `zoomies agent join`, and
+// the service runs as LocalSystem, whose profile is not a place an operator
+// looks. Empty everywhere but Windows.
+func windowsDir() string {
+	if runtime.GOOS != "windows" {
+		return ""
+	}
+	base := os.Getenv("ProgramData")
+	if base == "" {
+		base = `C:\ProgramData`
+	}
+	return filepath.Join(base, "zoomies")
 }
 
 func defaultStatePath(name string) string  { return filepath.Join(StateDir(), name) }

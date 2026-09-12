@@ -119,6 +119,12 @@ func main() {
 	defer stop()
 
 	e := &env{out: os.Stdout, err: os.Stderr, in: os.Stdin}
+	// Under the Windows service manager the process has to answer the
+	// manager's control requests or be killed thirty seconds in; everywhere
+	// else, and in a terminal on Windows, this is a plain command.
+	if code, ok := runAsService(ctx, e); ok {
+		os.Exit(code)
+	}
 	os.Exit(dispatch(ctx, e, os.Args[1:]))
 }
 

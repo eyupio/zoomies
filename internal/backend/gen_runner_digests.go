@@ -34,7 +34,16 @@ import (
 const target = "internal/backend/runner_digests.go"
 
 // platforms are the archives runnerAsset in process.go can name.
-var platforms = []string{"linux-x64", "linux-arm64", "linux-arm", "osx-x64", "osx-arm64"}
+var platforms = []string{"linux-x64", "linux-arm64", "linux-arm", "osx-x64", "osx-arm64", "win-x64", "win-arm64"}
+
+// assetExt is the archive format each platform is published in; runnerAsset
+// makes the same choice.
+func assetExt(platform string) string {
+	if strings.HasPrefix(platform, "win-") {
+		return ".zip"
+	}
+	return ".tar.gz"
+}
 
 var shaBlock = regexp.MustCompile(`<!-- BEGIN SHA ([A-Za-z0-9-]+) -->\s*([0-9a-fA-F]{64})\s*<!-- END SHA `)
 
@@ -81,13 +90,14 @@ func main() {
 			fmt.Fprintf(os.Stderr, "the release notes for %s carry no SHA-256 for %s\n", version, p)
 			os.Exit(1)
 		}
-		k := fmt.Sprintf("%s/actions-runner-%s-%s.tar.gz", version, p, version)
+		k := fmt.Sprintf("%s/actions-runner-%s-%s%s", version, p, version, assetExt(p))
 		keys = append(keys, k)
 		width = max(width, len(k))
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		platform := strings.TrimSuffix(strings.TrimPrefix(k, version+"/actions-runner-"), "-"+version+".tar.gz")
+		platform := strings.TrimPrefix(k, version+"/actions-runner-")
+		platform = platform[:strings.LastIndex(platform, "-"+version+".")]
 		fmt.Fprintf(&b, "\t%-*s %q,\n", width+3, fmt.Sprintf("%q:", k), found[platform])
 	}
 	fmt.Fprintf(&b, "}\n")

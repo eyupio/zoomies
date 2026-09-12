@@ -15,6 +15,7 @@ package backend
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -50,14 +51,15 @@ const (
 	runnerExitFile = "runner.exit"
 	runnerMetaFile = "runner.json"
 	runnerWorkDir  = "_work"
-
-	// listenerPath is the binary run.sh eventually execs. Zoomies runs it
-	// directly: run.sh is a wrapper that spawns the listener as a child, so a
-	// SIGINT sent to the wrapper does not reliably reach the process that has
-	// to act on it, and the pid we record would not be the pid we need.
-	listenerPath = "bin/Runner.Listener"
-	configScript = "config.sh"
 )
+
+// listenerPath is the binary run.sh (run.cmd on Windows) eventually execs.
+// Zoomies runs it directly: the script is a wrapper that spawns the listener
+// as a child, so a SIGINT sent to the wrapper does not reliably reach the
+// process that has to act on it, and the pid we record would not be the pid we
+// need. The suffix, like configScript, is the platform's: see process_unix.go
+// and process_windows.go.
+var listenerPath = "bin/Runner.Listener" + exeSuffix
 
 // DefaultRunnerVersion is used when neither the pool nor the agent pins one.
 //
@@ -220,24 +222,6 @@ func (b *ProcessBackend) checkWritable() error {
 	return nil
 }
 
-// noShellDetail is why the process backend is unavailable on a host with no
-// shell, in the words the Hosts page shows.
-const noShellDetail = "no shell is installed (sh is not in PATH), so nothing actions/runner starts could run here; " +
-	"the published Zoomies image is built without one on purpose -- from a container, use the docker or podman backend, " +
-	"and use the process backend only on a host with a shell, tar and libicu"
-
-// HasShell reports whether this host has a shell, which the runner's config.sh
-// and every `run:` step need.
-//
-// It is checked before ICU because it decides what kind of host this is. The
-// published Zoomies image is distroless -- no shell at all, on purpose -- so an
-// agent running in it can never use this backend, and telling that operator to
-// apt-get install libicu, into an image with no apt, sends them the wrong way.
-func HasShell() bool {
-	_, err := exec.LookPath("sh")
-	return err == nil
-}
-
 // checkICU looks for the ICU libraries the runner's .NET runtime needs.
 func checkICU() error {
 	if runtime.GOOS != "linux" {
@@ -391,6 +375,7 @@ func (b *ProcessBackend) start(dir string, args, env []string, spec Spec, versio
 		_ = logFile.Close()
 		return fmt.Errorf("backend: starting the runner in %s: %w", dir, err)
 	}
+	adoptRunner(cmd)
 
 	now := time.Now().UTC()
 	meta := processMeta{
@@ -432,6 +417,7 @@ func (b *ProcessBackend) start(dir string, args, env []string, spec Spec, versio
 			code = -1
 		}
 		writeExit(dir, code)
+		releaseRunner(meta.PID)
 		b.mu.Lock()
 		delete(b.running, dir)
 		b.mu.Unlock()
@@ -474,6 +460,7 @@ func (b *ProcessBackend) childEnv(spec Spec, dir string) []string {
 		// an agent running as a system service often is root.
 		"RUNNER_ALLOW_RUNASROOT=1",
 	}
+	env = append(env, platformChildEnv(dir)...)
 	for _, k := range []string{"LANG", "LC_ALL", "TZ", "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"} {
 		if v, ok := os.LookupEnv(k); ok {
 			env = append(env, k+"="+v)
@@ -623,7 +610,9 @@ func (b *ProcessBackend) Stop(ctx context.Context, h Handle, timeout time.Durati
 		return nil
 	}
 	if runtime.GOOS == "windows" {
-		// Windows does not support sending os.Interrupt to arbitrary processes.
+		// There is no interrupt to send: a service has no console to raise
+		// Ctrl-C on, so a drain is a kill here. The runner's ephemeral
+		// registration is single-use and the reaper removes it either way.
 		return b.kill(ctx, proc, dir)
 	}
 	// The whole group, not the listener alone: the job runs in a worker the
@@ -704,10 +693,34 @@ func (b *ProcessBackend) wipe(ctx context.Context, dir string) error {
 			"dir", dir, "waited", reapGrace)
 	}
 
-	if err := os.RemoveAll(dir); err != nil {
+	if err := removeAllRetry(ctx, dir, removeGrace, os.RemoveAll); err != nil {
 		return fmt.Errorf("backend: removing the runner directory %s: %w", dir, err)
 	}
 	return nil
+}
+
+// removeAllRetry removes a tree, trying again for up to grace after a failure.
+//
+// The retry exists for Windows, where a file another process still holds open
+// cannot be deleted and a runner's handles can outlive its termination by a
+// moment. On POSIX grace is zero and this is one RemoveAll. The backoff starts
+// short, because the usual wait is milliseconds, and caps at two seconds so
+// the whole grace is spent looking rather than sleeping.
+func removeAllRetry(ctx context.Context, dir string, grace time.Duration, remove func(string) error) error {
+	deadline := time.Now().Add(grace)
+	wait := 100 * time.Millisecond
+	for {
+		err := remove(dir)
+		if err == nil || grace <= 0 || !time.Now().Before(deadline) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(wait):
+		}
+		wait = min(wait*2, 2*time.Second)
+	}
 }
 
 // abandonedGrace is how long a runner directory carrying no usable metadata
@@ -832,7 +845,11 @@ func (b *ProcessBackend) ensureRelease(ctx context.Context, version string) (str
 
 	tmp := dir + ".incoming"
 	_ = os.RemoveAll(tmp)
-	if err := extractTarGz(archive, tmp); err != nil {
+	extract := extractTarGz
+	if strings.HasSuffix(asset, ".zip") {
+		extract = extractZip
+	}
+	if err := extract(archive, tmp); err != nil {
 		_ = os.RemoveAll(tmp)
 		return "", fmt.Errorf("backend: unpacking %s: %w", asset, err)
 	}
@@ -916,13 +933,9 @@ func runnerAsset(goos, goarch, version string) (string, error) {
 	case "darwin":
 		osPart = "osx"
 	case "windows":
-		// actions/runner has shipped win-x64 and win-arm64 for years, so the
-		// missing half is ours: no agent is built for Windows, the asset is a
-		// .zip nothing here unpacks, and there are no digests to check it
-		// against. Saying so names the thing an operator could change.
-		return "", errors.New("backend: Zoomies has no Windows support yet -- actions/runner ships a Windows build, but nothing here downloads, verifies or supervises it; run this agent on a Linux or macOS host")
+		osPart = "win"
 	default:
-		return "", fmt.Errorf("backend: Zoomies has no runner for %s; run this agent on a Linux or macOS host", goos)
+		return "", fmt.Errorf("backend: Zoomies has no runner for %s; run this agent on a Linux, macOS or Windows host", goos)
 	}
 
 	var archPart string
@@ -936,10 +949,86 @@ func runnerAsset(goos, goarch, version string) (string, error) {
 	default:
 		return "", fmt.Errorf("backend: the process backend does not support %s/%s; actions/runner ships for x64, arm64 and arm", goos, goarch)
 	}
-	if osPart == "osx" && archPart == "arm" {
-		return "", errors.New("backend: actions/runner does not ship a 32-bit macOS build")
+	if osPart != "linux" && archPart == "arm" {
+		return "", fmt.Errorf("backend: actions/runner does not ship a 32-bit %s build", goos)
 	}
-	return fmt.Sprintf("actions-runner-%s-%s-%s.tar.gz", osPart, archPart, version), nil
+	// Windows releases are zips, and everything else a gzipped tarball; the
+	// extension is what ensureRelease picks its unpacker by.
+	ext := ".tar.gz"
+	if osPart == "win" {
+		ext = ".zip"
+	}
+	return fmt.Sprintf("actions-runner-%s-%s-%s%s", osPart, archPart, version, ext), nil
+}
+
+// extractZip unpacks a Windows runner release with the same refusals as
+// extractTarGz: nothing outside the destination, nothing through a symlink,
+// and no symlink entries at all, since a runner release has none and a zip
+// that carries one is not the file it claims to be.
+func extractZip(archive, dest string) error {
+	zr, err := zip.OpenReader(archive)
+	if err != nil {
+		return err
+	}
+	defer zr.Close()
+
+	if err := os.MkdirAll(dest, 0o750); err != nil {
+		return err
+	}
+	for _, f := range zr.File {
+		// Zip names are slash-separated whatever made them. An absolute name
+		// or one with a drive letter is refused outright rather than joined,
+		// because filepath.Join would keep the volume and safeJoin sees only
+		// the text after it.
+		name := filepath.FromSlash(f.Name)
+		if filepath.IsAbs(name) || filepath.VolumeName(name) != "" || strings.HasPrefix(name, string(os.PathSeparator)) {
+			return fmt.Errorf("archive entry %q is an absolute path", f.Name)
+		}
+		target, err := safeJoin(dest, name)
+		if err != nil {
+			return err
+		}
+		if err := noSymlinkParents(dest, target); err != nil {
+			return err
+		}
+		mode := f.Mode()
+		if mode&fs.ModeSymlink != 0 {
+			return fmt.Errorf("archive entry %q is a symlink, which a runner release never carries", f.Name)
+		}
+		if f.FileInfo().IsDir() {
+			if err := os.MkdirAll(target, 0o750); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
+			return err
+		}
+		// A zip written on Windows records no POSIX mode at all, and a file
+		// created with none could not be read back even to hash it.
+		perm := mode.Perm()
+		if perm == 0 {
+			perm = 0o644
+		}
+		in, err := f.Open()
+		if err != nil {
+			return err
+		}
+		out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, perm)
+		if err != nil {
+			_ = in.Close()
+			return err
+		}
+		_, copyErr := io.Copy(out, in)
+		_ = in.Close()
+		if closeErr := out.Close(); copyErr == nil {
+			copyErr = closeErr
+		}
+		if copyErr != nil {
+			return copyErr
+		}
+	}
+	return nil
 }
 
 // extractTarGz unpacks an archive, refusing entries that would write outside
@@ -1216,19 +1305,6 @@ func waitFor(ctx context.Context, done func() bool, timeout, interval time.Durat
 		case <-time.After(interval):
 		}
 	}
-}
-
-// processAlive reports whether a pid is still running. Signal 0 performs the
-// permission and existence checks without delivering anything.
-func processAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	return proc.Signal(syscall.Signal(0)) == nil
 }
 
 func appendLog(path string, data []byte) {

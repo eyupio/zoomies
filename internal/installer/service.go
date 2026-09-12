@@ -48,6 +48,8 @@ const (
 	ServiceCompose ServiceKind = "compose"
 	// ServiceNone leaves the operator to run the binary themselves.
 	ServiceNone ServiceKind = "none"
+	// ServiceWindows is declared in service_scm.go beside the manager that
+	// drives it.
 )
 
 // Unit names the two services Zoomies installs.
@@ -302,6 +304,8 @@ type ServiceManager interface {
 // installers produce their most confusing errors.
 func DetectServiceKind(d Detection) ServiceKind {
 	switch {
+	case d.HasSCM:
+		return ServiceWindows
 	case d.HasSystemd:
 		return ServiceSystemd
 	case d.HasLaunchd:
@@ -354,10 +358,15 @@ func NewServiceManager(kind ServiceKind, unit string) (ServiceManager, error) {
 			return nil, errors.New("installer: launchd was selected but launchctl is not on PATH; this is not macOS")
 		}
 		return &launchdManager{unit: unit, root: os.Geteuid() == 0, run: runCommand}, nil
+	case ServiceWindows:
+		if lookPath("sc.exe") == "" {
+			return nil, errors.New("installer: the Windows service manager was selected but sc.exe is not on PATH; this is not Windows")
+		}
+		return &windowsManager{unit: unit, run: runCommand}, nil
 	case ServiceCompose, ServiceNone:
 		return nil, fmt.Errorf("installer: %q installs no service; the installer prints what to run instead", kind)
 	default:
-		return nil, fmt.Errorf("installer: %q is not a service manager; use systemd, launchd, compose or none", kind)
+		return nil, fmt.Errorf("installer: %q is not a service manager; use systemd, launchd, windows, compose or none", kind)
 	}
 }
 

@@ -17,4 +17,6 @@ var knownRunnerSHA256 = map[string]string{
 	"2.337.0/actions-runner-linux-x64-2.337.0.tar.gz":   "70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613",
 	"2.337.0/actions-runner-osx-arm64-2.337.0.tar.gz":   "5a2cd92908a93d7276a194e1de6008099f3e7946f3f8e14aa7a1a7b4a31fdec2",
 	"2.337.0/actions-runner-osx-x64-2.337.0.tar.gz":     "d383f505d7ed041b1873ab68c35dd766fc093f2252330f95bb427be8f2c6dcfc",
+	"2.337.0/actions-runner-win-arm64-2.337.0.zip":      "7ee1a72a0e0ad384ac7871ffc2356063a116e20d1db3ea41000eb49272cf0030",
+	"2.337.0/actions-runner-win-x64-2.337.0.zip":        "1150692afa94e71f872017e254ea55b6eece1eece3fe7e3a6d4c93d0a1b85cfc",
 }
