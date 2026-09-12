@@ -507,8 +507,10 @@ score knows what it is measuring:
   their author. A project with one maintainer scores zero here until it has
   two, and the score is honest about that.
 * **CII-Best-Practices** looks for a badge earned at
-  [bestpractices.dev](https://www.bestpractices.dev/), which is a questionnaire
-  a maintainer fills in about the practices this document describes.
+  [bestpractices.dev](https://www.bestpractices.dev/projects/14604), a
+  questionnaire a maintainer fills in about the practices this document
+  describes. The project holds the passing badge; Scorecard picks it up on
+  its next weekly run.
 
 ---
 
