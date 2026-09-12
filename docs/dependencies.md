@@ -72,6 +72,17 @@ build [zoomies.sh](https://zoomies.sh) and nothing else.
 | Mermaid | Diagrams. Material fetches it from a CDN in the reader's browser, only on a page that has one, and colours it from the palette above — so a diagram lives in the Markdown beside what it explains, renders on GitHub as well, and there is no exported image to go stale. |
 | `pillow` | Encodes the screenshots in `docs/screenshots/` as lossless WebP, at under half the size of the PNGs Playwright takes. Only `make screenshots` needs it, so it is not in `docs/requirements.txt` and the site builds without it; the browser can write lossless WebP itself but compresses it six times worse. |
 
+## Coverage reporting
+
+| Action | Why |
+| --- | --- |
+| `codecov/codecov-action` | Publishes the Go coverage report so coverage is visible in Codecov and pull requests. Pinned to a release commit; GitHub OIDC authenticates uploads without a stored secret. |
+
+The Codecov GitHub App must have access to `eyupio/zoomies`. CI uploads
+`coverage.out` after successful Go tests and fails visibly if the upload fails.
+Fork and Dependabot pull requests keep the tests and coverage summary but skip
+the upload because their restricted permissions do not provide the OIDC token.
+
 ## Deliberate omissions
 
 **`github.com/docker/docker`.** The official client drags in a very large
