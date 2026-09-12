@@ -784,6 +784,35 @@ func TestADuplicateOfTheTaskInFlightIsStillDropped(t *testing.T) {
 	}
 }
 
+// Only one task waits, so when two supersede the create in flight it is the
+// later of them that stays: a remove does everything the stop it replaces
+// would have, and the controller redelivers the stop if it still wants it.
+func TestTheLaterOfTwoWaitingTasksIsTheOneKept(t *testing.T) {
+	a, _, _, _ := newAgent(t, 1)
+	if claimed, _ := a.claimOrQueue(createTask("task-1", "runner-1")); !claimed {
+		t.Fatal("the create did not take the claim")
+	}
+	if claimed, held := a.claimOrQueue(Task{ID: "task-2", Kind: TaskStopRunner, RunnerID: "runner-1"}); claimed || !held {
+		t.Fatalf("stop during a create: claimed=%v held=%v, want held", claimed, held)
+	}
+	if claimed, held := a.claimOrQueue(Task{ID: "task-3", Kind: TaskRemoveRunner, RunnerID: "runner-1"}); claimed || !held {
+		t.Fatalf("remove behind the waiting stop: claimed=%v held=%v, want held", claimed, held)
+	}
+
+	a.mu.Lock()
+	waiting := a.waiting["runner-1"]
+	a.mu.Unlock()
+	if waiting.ID != "task-3" {
+		t.Fatalf("the task waiting is %q, want the remove that supersedes the stop", waiting.ID)
+	}
+
+	// A log relay is not lifecycle work and ranks below all of them, so it is
+	// never what a runner's claim is handed to.
+	if claimed, held := a.claimOrQueue(Task{ID: "task-4", Kind: TaskStreamLogs, RunnerID: "runner-1", StreamID: "str_1"}); claimed || held {
+		t.Fatalf("stream during a create: claimed=%v held=%v, want dropped", claimed, held)
+	}
+}
+
 // The reconciler's claim is not one anything can queue behind: it hands the
 // claim to nobody, so a task left waiting on it would never start. Those are
 // dropped, and the controller's redelivery is what brings them back.
