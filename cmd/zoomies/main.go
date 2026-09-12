@@ -97,7 +97,9 @@ func commands() []*command {
 		{"tokens", groupFleet, "API tokens", runTokens},
 
 		{"init", groupSetup, "Set this host up: service, backend, GitHub App, first admin", runInit},
+		{"update", groupSetup, "Update an existing deployment (alias for upgrade)", runUpdate},
 		{"upgrade", groupSetup, "Upgrade an existing deployment without running setup again", runUpgrade},
+		{"logs", groupSetup, "Show the installed container deployment's latest logs", runLogs},
 		{"deployment", groupSetup, "Start, stop, restart, update, or take down the installed containers", runDeployment},
 		{"uninstall", groupSetup, "Remove Zoomies from this host", runUninstall},
 		{"backup", groupSetup, "Copy this host's database, with a manifest saying what it needs", runBackup},

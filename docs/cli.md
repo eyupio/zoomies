@@ -156,7 +156,9 @@ It needs an admin token, because the document contains the settings section.
 | Command | What it does |
 | --- | --- |
 | `zoomies init` | Set this host up: how it runs, backend, listener, GitHub App and the first administrator. `--answers` takes a file and implies `--non-interactive`; `--print-answers` writes one out from an interactive run so the next host can be identical. |
+| `zoomies update [--check]` | Short, operator-friendly alias for `zoomies upgrade`. It accepts the same flags and keeps the existing spelling compatible with scripts. |
 | `zoomies upgrade [--check]` | Apply the installed binary and matching images to an existing native, Compose or Docker deployment. Keeps configuration and credentials; `--check` changes nothing. To download the binary too, use `install.sh --upgrade`. See [Upgrading](upgrading.md). |
+| `zoomies logs` | Show the latest 100 controller log lines for the recorded Compose or Docker deployment. Alias for `zoomies deployment logs`. |
 | `zoomies deployment <action>` | Operate the container deployment recorded by `zoomies init`: `status`, `logs`, `start`, `stop`, `restart`, `update`, or `down`. `update` pulls the controller image matching this binary plus cached runner images, recreates safely, and rolls back on failure. `down` keeps the database volume. |
 | `zoomies uninstall` | Remove the service or container, the database, the encryption key and the configuration. |
 | `zoomies backup [--dir path] [--keep N] [--include-key]` | Take a consistent copy of this host's database into a timestamped directory, with a manifest recording the build, the migration ledger, the encryption key's fingerprint, what that key is needed for, and the blanked configuration. Reads the database file directly, so it works when the controller will not start. See [Backup and restore](backup-and-restore.md). |

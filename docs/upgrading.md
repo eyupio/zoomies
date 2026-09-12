@@ -42,8 +42,9 @@ below still apply. An interrupted upgrade can leave `upgrade.lock` in its
 configuration directory: remove it only after checking no upgrade is running.
 
 `zoomies upgrade --check` checks the existing deployment without modifying it.
-`zoomies upgrade` applies an already installed binary; use the shell command
-above when the binary itself also needs downloading.
+`zoomies update` is its shorter alias and accepts the same flags. Both commands
+apply an already installed binary; use the shell command above when the binary
+itself also needs downloading.
 
 The parts of that worth knowing before you do it are what happens to work in
 flight, how far the pieces may drift apart, and the one direction you cannot

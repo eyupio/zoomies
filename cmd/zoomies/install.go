@@ -165,7 +165,18 @@ func runUninstall(ctx context.Context, e *env, args []string) error {
 // runUpgrade is the second half of install.sh --upgrade. The script verifies
 // and installs the new binary before this applies it to the existing service.
 func runUpgrade(ctx context.Context, e *env, args []string) error {
-	fs := newFlagSet(e, "zoomies upgrade [flags]", "Apply the installed binary and matching images to an existing deployment, keeping its configuration and credentials.")
+	return runUpgradeNamed(ctx, e, args, "upgrade")
+}
+
+// runUpdate is the operator-friendly spelling of upgrade. Keeping upgrade as
+// an alias preserves scripts and the install.sh handoff while making the command
+// people naturally try first do the same safe, record-aware work.
+func runUpdate(ctx context.Context, e *env, args []string) error {
+	return runUpgradeNamed(ctx, e, args, "update")
+}
+
+func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) error {
+	fs := newFlagSet(e, "zoomies "+name+" [flags]", "Apply the installed binary and matching images to an existing deployment, keeping its configuration and credentials.")
 	configDir := fs.String("config-dir", "", "where the existing configuration and deployment record live")
 	binary := fs.String("installed-binary", "", "the binary path used by the existing service")
 	dockerHost := fs.String("docker-host", "", "the existing container runtime endpoint")
@@ -173,7 +184,7 @@ func runUpgrade(ctx context.Context, e *env, args []string) error {
 	image := fs.String("image", "", "replacement image for a custom container deployment")
 	mode := fs.String("mode", "", "agent, controller or single; refuses a different existing deployment")
 	check := fs.Bool("check", false, "check the deployment without changing or restarting anything")
-	fs.example("curl -fsSL https://zoomies.sh/install.sh | sh -s -- --upgrade", "zoomies upgrade --check --mode agent")
+	fs.example("curl -fsSL https://zoomies.sh/install.sh | sh -s -- --upgrade", "zoomies "+name+" --check --mode agent")
 	if err := fs.parse(args); err != nil {
 		return err
 	}

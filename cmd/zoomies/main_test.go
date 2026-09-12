@@ -155,6 +155,8 @@ func TestSubcommandHelpExitsZero(t *testing.T) {
 		{"agent", "join", "--help"},
 		{"config", "check", "--help"},
 		{"deployment", "restart", "--help"},
+		{"update", "--help"},
+		{"logs", "--help"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			e, _, errOut := newTestEnv(t)
@@ -163,6 +165,26 @@ func TestSubcommandHelpExitsZero(t *testing.T) {
 			}
 			if !strings.Contains(errOut.String(), "Usage:") {
 				t.Errorf("no usage printed:\n%s", errOut)
+			}
+		})
+	}
+}
+
+func TestConvenienceCommandsHaveTheirOwnUsageNames(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"update", "--help"}, "zoomies update [flags]"},
+		{[]string{"logs", "--help"}, "zoomies logs [--config-dir path]"},
+	} {
+		t.Run(tc.args[0], func(t *testing.T) {
+			e, _, errOut := newTestEnv(t)
+			if code := dispatch(context.Background(), e, tc.args); code != exitOK {
+				t.Fatalf("exit code = %d, want 0\n%s", code, errOut)
+			}
+			if !strings.Contains(errOut.String(), tc.want) {
+				t.Errorf("help does not use the top-level alias %q:\n%s", tc.want, errOut)
 			}
 		})
 	}

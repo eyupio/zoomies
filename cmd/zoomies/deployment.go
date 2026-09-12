@@ -22,11 +22,15 @@ func runDeployment(ctx context.Context, e *env, args []string) error {
 }
 
 func deploymentAction(action installer.DeploymentAction) func(context.Context, *env, []string) error {
+	return deploymentActionNamed("deployment "+string(action), action)
+}
+
+func deploymentActionNamed(command string, action installer.DeploymentAction) func(context.Context, *env, []string) error {
 	return func(ctx context.Context, e *env, args []string) error {
-		fs := newFlagSet(e, "zoomies deployment "+string(action)+" [--config-dir path]",
+		fs := newFlagSet(e, "zoomies "+command+" [--config-dir path]",
 			"Use the saved deployment record, so container names and Compose files are never guessed.")
 		configDir := fs.String("config-dir", "", "directory containing deployment.json (default: "+config.ConfigDir()+")")
-		fs.example("zoomies deployment "+string(action), "zoomies deployment "+string(action)+" --config-dir /etc/zoomies")
+		fs.example("zoomies "+command, "zoomies "+command+" --config-dir /etc/zoomies")
 		if err := fs.parse(args); err != nil {
 			return err
 		}
@@ -37,6 +41,12 @@ func deploymentAction(action installer.DeploymentAction) func(context.Context, *
 			ConfigDir: *configDir, Action: action, Out: e.out,
 		})
 	}
+}
+
+// runLogs is the short spelling operators reach for during setup and incident
+// response. The nested command remains available for backwards compatibility.
+func runLogs(ctx context.Context, e *env, args []string) error {
+	return deploymentActionNamed("logs", installer.DeploymentLogs)(ctx, e, args)
 }
 
 func runDeploymentUpdate(ctx context.Context, e *env, args []string) error {
