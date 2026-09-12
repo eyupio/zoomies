@@ -664,6 +664,9 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "GET", path: "/api/v1/runners/missing/logs", role: store.RoleViewer, action: auth.ActionLogsRead},
 		{method: "GET", path: "/api/v1/runners/missing/logs/download", role: store.RoleViewer, action: auth.ActionLogsRead},
 
+		{method: "GET", path: "/api/v1/provisioning", role: store.RoleViewer, action: auth.ActionJobsRead},
+		{method: "GET", path: "/api/v1/provisioning/selection", role: store.RoleViewer, action: auth.ActionJobsRead},
+		{method: "POST", path: "/api/v1/provisioning/bulk", role: store.RoleOperator, action: auth.ActionProvisioningWrite},
 		{method: "GET", path: "/api/v1/jobs", role: store.RoleViewer, action: auth.ActionJobsRead},
 		{method: "GET", path: "/api/v1/jobs/facets", role: store.RoleViewer, action: auth.ActionJobsRead},
 		{method: "GET", path: "/api/v1/jobs/" + ids.job, role: store.RoleViewer, action: auth.ActionJobsRead},

@@ -878,6 +878,11 @@ func (r *Runner) IdleFor(now time.Time) time.Duration {
 
 // Job is a GitHub Actions workflow job as Zoomies observed it.
 type Job struct {
+	// Provisioning is operator-owned and never overwritten by GitHub deliveries.
+	// Empty means ready; paused and deleted suppress this job's scale-up demand.
+	Provisioning string `json:"provisioning"`
+	ProvisionNow bool   `json:"provision_now"`
+
 	ID          string      `json:"id"`
 	GitHubJobID int64       `json:"github_job_id"`
 	GitHubRunID int64       `json:"github_run_id"`

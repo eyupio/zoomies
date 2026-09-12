@@ -91,6 +91,13 @@
         run: () => router.navigate('/runners'),
       },
       {
+        id: 'go-queue',
+        group: 'Go to',
+        label: 'Queue',
+        icon: ListChecks,
+        run: () => router.navigate('/queue'),
+      },
+      {
         id: 'go-jobs',
         group: 'Go to',
         label: 'Jobs',

@@ -44,6 +44,7 @@ export const ROUTES: readonly RouteDef[] = [
     title: 'Overview',
     load: () => import('../routes/Overview.svelte'),
   },
+  { name: 'queue', path: '/queue', title: 'Queue', load: () => import('../routes/Queue.svelte') },
   { name: 'pools', path: '/pools', title: 'Pools', load: () => import('../routes/Pools.svelte') },
   {
     name: 'pool-new',

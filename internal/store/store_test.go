@@ -715,7 +715,8 @@ func TestTheJobsRebuildKeepsEveryRowAndItsIndexes(t *testing.T) {
 	for _, stmt := range []string{
 		`DELETE FROM schema_migrations WHERE name IN
 			('0009_jobs_waiting_state.sql', '0012_job_installation.sql',
-			 '0019_job_eligible_at.sql')`,
+			 '0019_job_eligible_at.sql', '0025_provisioning_queue.sql')`,
+		`DROP INDEX runners_provisioning_order`,
 		`ALTER TABLE webhook_deliveries DROP COLUMN installation_id`,
 		`DROP TABLE jobs`,
 		`CREATE TABLE jobs (

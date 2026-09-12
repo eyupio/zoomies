@@ -482,3 +482,10 @@ export const updateSettings = (body: Body<'updateSettings'>) =>
 
 /** The base path, for the two endpoints the browser navigates to directly. */
 export const apiBase = BASE;
+
+export const listProvisioning = (query?: Query<'listProvisioning'>, signal?: AbortSignal) =>
+  api.get<Result<'listProvisioning'>>('/provisioning', { query, signal });
+export const selectProvisioning = (query?: Query<'selectProvisioning'>, signal?: AbortSignal) =>
+  api.get<Result<'selectProvisioning'>>('/provisioning/selection', { query, signal });
+export const controlProvisioning = (body: Body<'controlProvisioning'>) =>
+  api.post<Result<'controlProvisioning'>>('/provisioning/bulk', { body });

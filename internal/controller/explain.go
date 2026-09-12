@@ -130,6 +130,16 @@ func (c *Controller) explainRunning(ctx context.Context, job *store.Job, out *Jo
 
 // explainQueued is the case the endpoint exists for.
 func (c *Controller) explainQueued(ctx context.Context, job *store.Job, out *JobExplanation) {
+	if job.Provisioning != "" {
+		out.Blocked = true
+		out.Summary = "Provisioning is paused for this item."
+		if job.Provisioning == "deleted" {
+			out.Summary = "This item was deleted from the provisioning queue."
+		}
+		out.Detail = "It contributes no new runner demand. Existing runners and the pool's warm capacity can still pick up the GitHub job."
+		out.Fix = "Resume the item in Queue to restore its provisioning demand."
+		return
+	}
 	plan, planAt := c.getLastPlan()
 
 	// Nothing claims it. The scheduler records why when the reason is not the
