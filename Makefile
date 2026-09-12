@@ -81,7 +81,13 @@ test-short: ## Run only fast tests
 
 .PHONY: cover
 cover: ## Run tests with a coverage report
-	$(GO) test -race -count=1 -timeout $(GO_TEST_TIMEOUT) -coverprofile=coverage.out -covermode=atomic ./...
+	# -coverpkg is what makes the number honest. Without it a package is only
+	# credited for the lines its own _test.go files run, so code exercised
+	# through the layer above it -- the controller's migration service, driven
+	# entirely by internal/api's handler tests -- reports zero and sends
+	# whoever reads the dashboard to write tests for the best-covered file in
+	# the tree.
+	$(GO) test -race -count=1 -timeout $(GO_TEST_TIMEOUT) -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./...
 	$(GO) tool cover -func=coverage.out | tail -1
 
 .PHONY: test-ui
