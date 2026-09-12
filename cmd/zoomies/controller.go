@@ -471,7 +471,13 @@ func printBanner(w io.Writer, cfg *config.Config, backends *backend.Registry) {
 		scheme = "https"
 	}
 
-	fmt.Fprintf(w, "\nzoomies %s\n", version.Short())
+	// The same small dog closes install.sh and now greets the operator here:
+	// enough character to make the binary unmistakably Zoomies, without turning
+	// service logs into an ASCII-art poster on every restart.
+	fmt.Fprintf(w, "\n    __     zoomies %s\n", version.Short())
+	fmt.Fprintln(w, "   (oo)~   off the lead, on the job.")
+	fmt.Fprintln(w, "   /||\\")
+	fmt.Fprintln(w)
 	for _, row := range [][2]string{
 		{"listening on", fmt.Sprintf("%s://%s", scheme, cfg.Server.Bind)},
 		{"external URL", external},
