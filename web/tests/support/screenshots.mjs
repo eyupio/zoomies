@@ -54,10 +54,27 @@ const FIXTURE = {
 
 /**
  * What is captured. `heading` is the <h1> that proves the route rendered;
- * `prepare` puts the page into the state worth showing after it has settled.
+ * `prepare` puts the page into the state worth showing after it has settled;
+ * `clip` names a region to photograph instead of the whole page.
  */
 const SHOTS = [
   { name: 'overview', path: '/', heading: 'Overview' },
+  {
+    name: 'activity',
+    path: '/',
+    heading: 'Overview',
+    async prepare(page) {
+      // The newest square with jobs in it is the one tab stop; selecting it
+      // opens the day under the grid, hour by hour.
+      const matrix = page.getByRole('region', { name: 'Activity matrix', exact: true });
+      await matrix.locator('[role="gridcell"][tabindex="0"]').click();
+      await matrix.getByRole('img', { name: /^Hour by hour:/ }).waitFor();
+      // The pointer is still on the square, and its tooltip would cover the
+      // header; the detail under the grid is what this shot is of.
+      await page.mouse.move(0, 0);
+    },
+    clip: 'Activity matrix',
+  },
   {
     name: 'problems',
     path: '/',
@@ -88,7 +105,7 @@ const SHOTS = [
     async prepare(page) {
       await page.getByText('Explore fleet activity over the last hour', { exact: true }).click();
       await page
-        .getByRole('region', { name: 'Fleet activity · last hour' })
+        .getByRole('region', { name: 'Fleet activity', exact: true })
         .scrollIntoViewIfNeeded();
     },
   },
@@ -300,7 +317,9 @@ async function settle(page, shot) {
     : page.getByRole('heading', { level: 1 }).first();
   await heading.waitFor();
   await page.evaluate(() => document.fonts.ready);
-  const grid = page.getByRole('grid').first();
+  // The table kind of grid, whose rows arrive after the page does. The
+  // activity matrix is a grid too, and has no rows to wait for.
+  const grid = page.locator('table[role="grid"]').first();
   if (await grid.count()) {
     await grid.locator('tbody tr[data-row]').first().waitFor();
   }
@@ -354,7 +373,10 @@ async function capture(browser, scheme, pngDir) {
         await shot.prepare(page);
         await page.waitForTimeout(SETTLE_MS / 2);
       }
-      const png = await page.screenshot({ animations: 'disabled', caret: 'hide' });
+      // A shot may be one panel rather than the page, for the docs that
+      // discuss that panel on its own.
+      const target = shot.clip ? page.getByRole('region', { name: shot.clip, exact: true }) : page;
+      const png = await target.screenshot({ animations: 'disabled', caret: 'hide' });
       writeFileSync(join(pngDir, `${shot.name}-${scheme}.png`), png);
       await page.close();
       if (shot.device) await context.close();

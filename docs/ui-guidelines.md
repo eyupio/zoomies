@@ -391,6 +391,20 @@ the top bar.
 
 The one page that has to earn the second monitor.
 
+* **The activity matrix**, first: a year of the fleet's days as one band of
+  squares, a column per week and a row per weekday, coloured by what finished
+  — greener as more jobs finish, red the moment any fail, darker red the
+  larger the share. Colour never carries it alone: a failing square has a hole
+  in it, a square with work waiting and nothing finished is hollow, and every
+  square's accessible name is the whole sentence its tooltip shows. The grid
+  is one tab stop walked with the arrow keys; selecting a square opens the
+  day's hours and its links beneath the grid rather than in an overlay. Quick
+  ranges cut the window -- a day and a week are drawn by the hour, the rest by
+  the day -- and the choice is a per-operator preference. It is cut to the
+  width of the screen rather than scrolled, so the newest week is always on
+  it, and it is compact on purpose: every line it spends is a line the
+  numbers under it lose. The component lives in `lib/insights/` because the
+  Usage page draws its range with the same one.
 * **Four metric tiles**: queued jobs, running jobs, live runners, median queue
   wait. Each carries a sparkline of the last hour.
 * **Per-pool utilisation bars** — busy / live, with the pool's min and max marked
@@ -459,7 +473,8 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 | `Field` | label + control + hint + error; the only way form controls are laid out |
 | `Badge` | status pill: colour **and** shape from the state map |
 | `StatusDot` | the shape half of the state encoding, reusable inline |
-| `Tooltip` | on hover *and* focus; never the only place information lives |
+| `Tooltip` | on hover *and* focus; never the only place information lives. `text` is the whole tooltip as one sentence and what assistive technology gets; an optional `content` snippet draws a richer card for sighted readers |
+| `Segmented` | one choice among a few as one control, `aria-pressed` on the one in force: the activity matrix's ranges, the fleet trend's windows |
 | `Dialog` | focus trap, restores focus on close, `Esc` closes, backdrop click closes only non-destructive dialogs |
 | `Drawer` | right-hand detail panel; same focus rules |
 | `NavMenu` | the phone's side menu: every section, named; slides from the left, same focus rules, closes when one is chosen |

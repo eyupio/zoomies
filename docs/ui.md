@@ -21,21 +21,41 @@ connecting GitHub.
 
 ## Overview
 
-The page that has to earn the second monitor. Four numbers with an hour of
-shape behind them — queued jobs, running jobs, live runners, and the median
-queue wait with its p95 — then how long runners take to start and to register.
-Under them, each pool's busy runners against its live ones with the floor and
-ceiling marked, what is running this moment, how the last jobs ended, and the
-scheduler's decisions in its own words: *scaled zoomies-demo-linux-x64 4 → 5:
-1 job queued*. When something needs a person it is one line and a
-*Review* button, never a list that pushes the fleet below the fold. The
+The page that has to earn the second monitor. It opens on the activity
+matrix: a year of the fleet's days as one band of squares, laid out the way a
+contribution graph is — a column per week, a row per weekday, the month named
+above the week it begins in — and coloured by what finished, greener as more
+jobs finish and red the moment any fail. Hover a square and it says everything
+it holds: how many jobs were queued, started and finished, how they ended,
+the runner time they used and the pool-minutes spent at capacity. Select one
+and the day opens under the grid, hour by hour, with links to that day's jobs
+and its usage report. A select recolours the same squares by queued jobs,
+runner time or how often a pool was blocked on capacity, so a queue that
+backs up every Monday is a shape rather than a table, and the quick ranges
+— 1d, 7d, 30d, 90d, 1y — cut the window: today and the last week are drawn by
+the hour, a row of twenty-four squares per day, which is the punch card that
+shows when the fleet is busy. The range you choose is remembered. The band is
+cut to the width of the screen and the grid is one tab stop: the arrow keys
+walk it, Enter selects.
+
+Under it, four numbers with an hour of shape behind them — queued jobs,
+running jobs, live runners, and the median queue wait with its p95 — then how
+long runners take to start and to register. Then each pool's busy runners
+against its live ones with the floor and ceiling marked, what is running this
+moment, how the last jobs ended, and the scheduler's decisions in its own
+words: *scaled zoomies-demo-linux-x64 4 → 5: 1 job queued*. When something
+needs a person it is one line and a *Review* button, never a list that pushes
+the fleet below the fold. The
 *Other runners* switch says whether these numbers count only the jobs this
 fleet ran or every job GitHub reported on an installed repository — the
 default is this fleet's own work, because that is the question an operator is
 usually asking.
 
-![The Overview: four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words](screenshots/overview-dark.webp#only-dark){ .zoomies-shot }
-![The Overview: four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words](screenshots/overview-light.webp#only-light){ .zoomies-shot }
+![The Overview: the activity matrix across the top, then four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words](screenshots/overview-dark.webp#only-dark){ .zoomies-shot }
+![The Overview: the activity matrix across the top, then four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words](screenshots/overview-light.webp#only-light){ .zoomies-shot }
+
+![The activity matrix with a day selected: the day's figures, its outcomes hour by hour, and links to its jobs](screenshots/activity-dark.webp#only-dark){ .zoomies-shot }
+![The activity matrix with a day selected: the day's figures, its outcomes hour by hour, and links to its jobs](screenshots/activity-light.webp#only-light){ .zoomies-shot }
 
 ## The problems drawer
 
@@ -80,6 +100,11 @@ Every runner that exists right now and what each one is doing. Removed runners
 are hidden by default, because a busy fleet makes and destroys thousands of
 them and they are all history. Rows select for bulk drain or delete, and the
 state filter is a real filter: it narrows the set rather than repainting it.
+Above the grid, the runner lifecycle is the controller's own state machine
+drawn out — provisioning, registering, idle, busy, draining — with how many
+runners are at each step this moment and a link into each; under it, a bar of
+the same states whose segments are links too, and say their share when you
+hover them.
 
 ![The Runners page: job queue depth, runner state totals, provisioning demand and lifecycle composition above the runner grid](screenshots/runners-dark.webp#only-dark){ .zoomies-shot }
 ![The Runners page: job queue depth, runner state totals, provisioning demand and lifecycle composition above the runner grid](screenshots/runners-light.webp#only-light){ .zoomies-shot }
@@ -91,10 +116,12 @@ host's agent last reported it, and the live log.
 ![A busy runner's page: its current job, a timeline of its states, details and resource usage](screenshots/runner-dark.webp#only-dark){ .zoomies-shot }
 ![A busy runner's page: its current job, a timeline of its states, details and resource usage](screenshots/runner-light.webp#only-light){ .zoomies-shot }
 
-The expandable activity panel shows the last hour of queued jobs, running jobs,
-idle runners or live runners. Inspect individual minutes with the timeline
-control; gaps indicate missing samples. Fleet context is independent of grid
-filters, while selecting a pool scopes the headline runner metrics.
+The expandable activity panel shows the queued jobs, running jobs, idle runners
+or live runners over the last hour, six hours or day — a wider window folds
+the minutes into intervals that carry their peak, so a spike is never averaged
+away. Hover the line for every figure at that moment, or inspect it with the
+timeline control; gaps indicate missing samples. Fleet context is independent
+of grid filters, while selecting a pool scopes the headline runner metrics.
 
 ![Runner history expanded, with a one-hour trend and minute-by-minute coverage](screenshots/runner-history-dark.webp#only-dark){ .zoomies-shot }
 ![Runner history expanded, with a one-hour trend and minute-by-minute coverage](screenshots/runner-history-light.webp#only-light){ .zoomies-shot }
@@ -133,7 +160,11 @@ wrong.
 Runner-hours, jobs and queue waits over a date range, grouped by pool,
 repository, workflow or installation, with an estimated cost wherever an
 administrator has given a pool a rate. Zoomies embeds no cloud prices. The
-table exports as CSV.
+table exports as CSV. The same activity matrix as the Overview's draws the
+chosen range — a square per day laid out as a calendar, or a square per hour
+for a range of two days or less — cut to the grouping and the group in
+focus, so a repository's bad week is a red row of squares rather than a
+column of numbers.
 
 ![The Usage dashboard: runner-hours, job outcomes, queue wait, utilisation trends and activity history grouped by pool](screenshots/usage-dark.webp#only-dark){ .zoomies-shot }
 ![The Usage dashboard: runner-hours, job outcomes, queue wait, utilisation trends and activity history grouped by pool](screenshots/usage-light.webp#only-light){ .zoomies-shot }

@@ -3,10 +3,12 @@
   import MetricGrid, { type Metric } from '$lib/components/MetricGrid.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import ChartPanel from '$lib/components/ChartPanel.svelte';
+  import LifecycleFlow from './LifecycleFlow.svelte';
   import ProvisioningPulse from './ProvisioningPulse.svelte';
   import StateBreakdown from './StateBreakdown.svelte';
   import { poolSignals, finite } from './signals';
   import { formatNumber } from '$lib/format';
+  import { runnerStatus } from '$lib/status';
   let { poolId = '', compact = false }: { poolId?: string; compact?: boolean } = $props();
   const signal = $derived(poolSignals(fleet.pools, fleet.stats).find((p) => p.pool.id === poolId));
   const r = $derived(fleet.stats?.runners);
@@ -90,18 +92,21 @@
             value: busy ?? 0,
             tone: 'busy' as const,
             href: `/runners?state=busy${suffix}`,
+            hint: runnerStatus('busy').hint,
           },
           {
             label: 'Idle',
             value: idle ?? 0,
             tone: 'idle' as const,
             href: `/runners?state=idle${suffix}`,
+            hint: runnerStatus('idle').hint,
           },
           {
             label: 'Other live',
             value: Math.max(0, (signal?.live ?? 0) - (busy ?? 0) - (idle ?? 0)),
             tone: 'pending' as const,
             href: `/runners?pool_id=${encodeURIComponent(poolId)}`,
+            hint: 'Starting up, or draining after its last job.',
           },
         ]
       : [
@@ -110,30 +115,35 @@
             value: r?.provisioning ?? 0,
             tone: 'pending' as const,
             href: '/runners?state=provisioning',
+            hint: runnerStatus('provisioning').hint,
           },
           {
             label: 'Registering',
             value: r?.registering ?? 0,
             tone: 'accent' as const,
             href: '/runners?state=registering',
+            hint: runnerStatus('registering').hint,
           },
           {
             label: 'Idle',
             value: r?.idle ?? 0,
             tone: 'idle' as const,
             href: '/runners?state=idle',
+            hint: runnerStatus('idle').hint,
           },
           {
             label: 'Busy',
             value: r?.busy ?? 0,
             tone: 'busy' as const,
             href: '/runners?state=busy',
+            hint: runnerStatus('busy').hint,
           },
           {
             label: 'Draining',
             value: r?.draining ?? 0,
             tone: 'neutral' as const,
             href: '/runners?state=draining',
+            hint: runnerStatus('draining').hint,
           },
         ],
   );
@@ -153,9 +163,13 @@
   <ProvisioningPulse {poolId} />
   {#if !compact && fleet.stats}<ChartPanel
       title="Runner lifecycle"
-      description="Live runner composition. Failed and removed records are excluded from this bar."
-      ><StateBreakdown {segments} label="Live runner states" /></ChartPanel
-    >{/if}
+      description={poolId
+        ? 'How this pool\u2019s live runners divide up right now. Failed and removed records are excluded from this bar.'
+        : 'The states a runner passes through, in the order the controller allows, with how many are at each step right now. Failed and removed records are excluded from the bar.'}
+    >
+      {#if !poolId && r}<LifecycleFlow runners={r} />{/if}
+      <StateBreakdown {segments} label="Live runner states" noun="live runners" />
+    </ChartPanel>{/if}
   <p class="note">
     Job queue depth is waiting GitHub work, including jobs whose provisioning demand is held; it is
     not a count of runner creation requests.

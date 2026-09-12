@@ -7,13 +7,20 @@
   import { layers } from '../keys';
 
   interface Props {
+    /** The whole tooltip as one sentence: what assistive technology gets. */
     text: string;
+    /**
+     * Richer markup for the bubble itself -- a heading, a figure, a line of
+     * context -- for sighted readers. `text` stays the accessible copy, so a
+     * card with three lines is still one sentence to a screen reader.
+     */
+    content?: Snippet;
     placement?: 'top' | 'bottom' | 'left' | 'right';
     class?: string;
     children: Snippet;
   }
 
-  let { text, placement = 'top', class: className = '', children }: Props = $props();
+  let { text, content, placement = 'top', class: className = '', children }: Props = $props();
 
   let open = $state(false);
   let wrap = $state<HTMLSpanElement | null>(null);
@@ -139,7 +146,7 @@
   <span class="sr-only">{text}</span>
   {#if open}
     <span bind:this={bubble} class="bubble" popover="manual" role="presentation" aria-hidden="true"
-      >{text}</span
+      >{#if content}{@render content()}{:else}{text}{/if}</span
     >
   {/if}
 </span>
