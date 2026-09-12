@@ -141,7 +141,7 @@ test('runner capacity is adjustable from the host card without opening the full 
   page,
 }) => {
   await goto(page, '/hosts', 'Hosts');
-  const card = page.getByRole('article').filter({ hasText: 'demo-builder-1' });
+  const card = page.getByRole('article', { name: 'demo-builder-1', exact: true });
   let patched: Record<string, unknown> | null = null;
   await page.route('**/api/v1/hosts/*', async (route) => {
     if (route.request().method() !== 'PATCH') {
@@ -175,7 +175,7 @@ test('a host says how much disk its runners have, and marks the one that is near
 }) => {
   await goto(page, '/hosts', 'Hosts');
 
-  const roomy = page.getByRole('article').filter({ hasText: 'demo-builder-1' });
+  const roomy = page.getByRole('article', { name: 'demo-builder-1', exact: true });
   await expect(roomy).toContainText('GB free of');
   // 717 GB of 1024: the figure is the work directory's filesystem, in the
   // same units the rest of the card uses.
@@ -183,7 +183,7 @@ test('a host says how much disk its runners have, and marks the one that is near
 
   // The one at six percent is marked, because "31 GB free" beside "512" is
   // not something anybody reads as urgent on its own.
-  const tight = page.getByRole('article').filter({ hasText: 'demo-builder-2' });
+  const tight = page.getByRole('article', { name: 'demo-builder-2', exact: true });
   const low = tight.locator('.low');
   await expect(low).toHaveText(/31 GB free of 512/);
 
@@ -205,7 +205,7 @@ test('a host shows what the fleet has committed on it, and lets an operator hold
 }) => {
   await goto(page, '/hosts', 'Hosts');
 
-  const card = page.getByRole('article').filter({ hasText: 'demo-builder-1' });
+  const card = page.getByRole('article', { name: 'demo-builder-1', exact: true });
   const committed = card.getByRole('region', { name: /Resources committed/ });
   await expect(committed).toBeVisible();
   // 16 CPUs and 32 GB, less the floors, against what the runners on it hold.
@@ -239,7 +239,7 @@ test('a host shows what the fleet has committed on it, and lets an operator hold
  */
 test('a reserve that would leave nothing to place on is refused', async ({ page }) => {
   await goto(page, '/hosts', 'Hosts');
-  const card = page.getByRole('article').filter({ hasText: 'demo-builder-2' });
+  const card = page.getByRole('article', { name: 'demo-builder-2', exact: true });
   await card.getByRole('button', { name: /Actions for/ }).click();
   await page.getByRole('menuitem', { name: 'Edit capacity and labels' }).click();
   const dialog = page.getByRole('dialog');
@@ -334,7 +334,7 @@ test('an older remote agent offers a copyable upgrade command without a join tok
     await route.fulfill({ json: body });
   });
   await goto(page, '/hosts', 'Hosts');
-  const card = page.getByRole('article').filter({ hasText: 'demo-builder-1' });
+  const card = page.getByRole('article', { name: 'demo-builder-1', exact: true });
   await expect(card).toContainText('Controller version: 1.2.3');
   await card.getByRole('button', { name: 'Copy the upgrade command' }).click();
   await expect
