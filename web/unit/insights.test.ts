@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  foldMinutes,
   hostSignals,
   poolSignals,
   minuteSeries,
@@ -85,4 +86,34 @@ test('minute history preserves gaps and the latest streamed observation without 
   assert.equal(merged.length, 2);
   assert.equal(merged[0]?.fleet_queued_jobs, 8);
   assert.equal(merged[1]?.fleet_queued_jobs, 999);
+});
+
+test('a wider window keeps its minutes, and a folded interval carries its peak', () => {
+  const now = Date.now();
+  const merged = mergeSamples(
+    [{ at: new Date(now - 5 * 3_600_000).toISOString(), fleet_queued_jobs: 8 }],
+    [],
+    now,
+    6 * 60,
+  );
+  assert.equal(merged.length, 1, 'a sample five hours back is inside a six-hour window');
+  assert.equal(mergeSamples(merged, [], now).length, 0, 'and outside the hour');
+
+  const folded = foldMinutes(
+    [
+      { at: 0, value: 5 },
+      { at: 60_000, value: null },
+      { at: 120_000, value: 3 },
+      { at: 180_000, value: null },
+      { at: 240_000, value: null },
+      { at: 300_000, value: null },
+      { at: 360_000, value: 2 },
+    ],
+    3,
+  );
+  assert.deepEqual(folded, [
+    { at: 0, value: 5 },
+    { at: 180_000, value: null },
+    { at: 360_000, value: 2 },
+  ]);
 });

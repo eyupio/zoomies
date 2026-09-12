@@ -73,6 +73,8 @@
   });
 
   let report = $state.raw<Usage | null>(null);
+  /** When the report on screen landed; the matrix throws its hours away on a new one. */
+  let fetchedAt = $state(0);
   let loading = $state(true);
   let error = $state<unknown>(null);
   let pending: AbortController | null = null;
@@ -89,6 +91,7 @@
       const next = await getUsage(q, controller.signal);
       if (controller.signal.aborted || pending !== controller) return;
       report = next;
+      fetchedAt = Date.now();
     } catch (cause) {
       if (controller.signal.aborted || pending !== controller) return;
       error = cause;
@@ -306,7 +309,15 @@
     />
   {/snippet}
 
-  <UsageInsights {rows} {grouping} {label} onselect={focus} />
+  <UsageInsights
+    {rows}
+    {grouping}
+    range={{ from: query.from, to: query.to }}
+    {entity}
+    {fetchedAt}
+    {label}
+    onselect={focus}
+  />
   <div class="detail-heading">
     <h2>Detailed usage</h2>
     <span>{rows.length} groups · execution and allocation in hours</span>

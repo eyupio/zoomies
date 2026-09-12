@@ -55,6 +55,33 @@ type UsageRow struct {
 	EstimatedCost           *float64 `json:"estimated_cost,omitempty"`
 }
 
+// UsageInterval is the width of one history bucket.
+type UsageInterval string
+
+const (
+	// UsageAutoInterval is the width a caller gets without asking: hourly for
+	// a window of two days or less, daily beyond, which keeps a month's
+	// report to thirty buckets a row and a day's to twenty-four.
+	UsageAutoInterval UsageInterval = ""
+	UsageHourly       UsageInterval = "hour"
+	UsageDaily        UsageInterval = "day"
+)
+
+// Width is the bucket this interval cuts from a window.
+func (i UsageInterval) Width(from, to time.Time) time.Duration {
+	switch i {
+	case UsageHourly:
+		return time.Hour
+	case UsageDaily:
+		return 24 * time.Hour
+	default:
+		if to.Sub(from) <= 48*time.Hour {
+			return time.Hour
+		}
+		return 24 * time.Hour
+	}
+}
+
 // UsageAllocationAttributable reports whether runner allocation, and therefore
 // cost, can be attributed to the given grouping at all.
 func UsageAllocationAttributable(group UsageGroup) bool {
@@ -72,6 +99,14 @@ func UsageAllocationAttributable(group UsageGroup) bool {
 // the one the Jobs page and the Overview use, so a repository's runner-hours
 // here and its job list there are about the same jobs.
 func (s *Store) Usage(ctx context.Context, from, to time.Time, group UsageGroup) ([]UsageRow, error) {
+	return s.UsageWithInterval(ctx, from, to, group, UsageAutoInterval)
+}
+
+// UsageWithInterval is Usage with the history cut into buckets of the given
+// width rather than the width the window's length would choose. A week of
+// hours is what the activity matrix draws as a punch card; the caller is
+// trusted to keep the bucket count sensible, and the API does.
+func (s *Store) UsageWithInterval(ctx context.Context, from, to time.Time, group UsageGroup, interval UsageInterval) ([]UsageRow, error) {
 	if !from.Before(to) || to.Sub(from) > 366*24*time.Hour {
 		return nil, fmt.Errorf("usage range must have from before to")
 	}
@@ -106,10 +141,7 @@ func (s *Store) Usage(ctx context.Context, from, to time.Time, group UsageGroup)
 	a := map[string]*acc{}
 	lo, hi := ms(from), ms(to)
 	observed := min64(hi, ms(s.Now()))
-	width := int64((24 * time.Hour) / time.Millisecond)
-	if to.Sub(from) <= 48*time.Hour {
-		width = int64(time.Hour / time.Millisecond)
-	}
+	width := int64(interval.Width(from, to) / time.Millisecond)
 	bucket := func(x *acc, at int64) *UsageBucket {
 		if at < lo || at >= hi {
 			return nil

@@ -102,6 +102,13 @@ paths:
         - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
         - { name: key, in: query, description: Optional exact group key filter., schema: { type: string } }
         - { name: group_by, in: query, schema: { type: string, enum: [installation, repository, workflow, pool, host], default: pool } }
+        - name: interval
+          in: query
+          description: >-
+            The width of one history bucket. Left out, it is an hour for a
+            range of two days or less and a day beyond. Hourly buckets may be
+            asked for over at most 14 days.
+          schema: { type: string, enum: [hour, day] }
       responses:
         "200":
           description: Usage totals; monetary values are administrator-configured estimates.
@@ -117,6 +124,13 @@ paths:
         - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
         - { name: key, in: query, description: Optional exact group key filter., schema: { type: string } }
         - { name: group_by, in: query, schema: { type: string, enum: [installation, repository, workflow, pool, host], default: pool } }
+        - name: interval
+          in: query
+          description: >-
+            The width of one history bucket. Left out, it is an hour for a
+            range of two days or less and a day beyond. Hourly buckets may be
+            asked for over at most 14 days.
+          schema: { type: string, enum: [hour, day] }
       responses:
         "200": { description: CSV export, content: { text/csv: { schema: { type: string } } } }
   # ==========================================================================

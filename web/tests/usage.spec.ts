@@ -133,10 +133,15 @@ test('analytics supports keyboard inspection, group focus and matching CSV expor
   await page.getByLabel('Chart metric').selectOption('execution');
   await expect(page.getByRole('img', { name: /Runner hours trend/ })).toBeVisible();
   const matrix = page.getByRole('region', { name: 'Activity matrix', exact: true });
-  const dot = matrix.getByRole('button').first();
-  await dot.focus();
-  await expect(dot).toBeFocused();
-  await expect(matrix.locator('.selection')).toContainText('queued');
+  // The grid is one tab stop: the square with tabindex 0 is the newest one
+  // with anything in it. Focusing it opens the tooltip; Enter selects it and
+  // opens the detail, which carries the same figures as text.
+  const square = matrix.locator('[role="gridcell"][tabindex="0"]');
+  await square.focus();
+  await expect(square).toBeFocused();
+  await expect(page.locator('.tip:popover-open')).toContainText('Queued');
+  await square.press('Enter');
+  await expect(matrix.getByRole('region', { name: 'Selected day' })).toContainText('Queued');
   const ranking = page.getByRole('region', { name: 'Execution by group', exact: true });
   await ranking.getByRole('button').first().click();
   await expect(page).toHaveURL(/entity=/);

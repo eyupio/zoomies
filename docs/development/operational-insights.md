@@ -5,13 +5,13 @@ and links that explain the work visible on each page.
 
 | Page | Operational context |
 | --- | --- |
-| Runners | Job queue depth, busy/idle/starting/draining/failed counts, lifecycle composition, provisioning status, oldest queued demand, inspectable one-hour history |
+| Runners | Job queue depth, busy/idle/starting/draining/failed counts, the runner lifecycle drawn as the state machine with live counts and links, provisioning status, oldest queued demand, an inspectable trend over the last hour, six hours or day |
 | Queue | Active provisioning demand and ready/expedited/paused/removed composition across matching records, beside the existing bulk controls |
 | Pools | Matched queue depth, enabled/disabled totals, pools at their configured ceiling, ranked demand and headroom |
 | Pool and runner detail | Pool queue depth, live runner state, headroom, provisioning state and links to the corresponding queue and usage report |
-| Jobs | Current queue/running counts, completion success/failure/unknown outcomes, P95 queue wait and scoped one-hour fleet trends |
+| Jobs | Current queue/running counts, completion outcomes as a bar whose segments are ways into the jobs they count, P95 queue wait and the same fleet trend |
 | Hosts | Eligible slot headroom, resource commitment map, disk-free context and direct access to host controls and usage history |
-| Overview | Compact host capacity map beside existing fleet, pool, scaling and outcome information |
+| Overview | The activity matrix across the top: a year of days as a contribution graph, coloured by outcome, queue depth, runner time or capacity pressure, with a tooltip per square and an hourly breakdown per selected day; then a compact host capacity map beside existing fleet, pool, scaling and outcome information |
 | Installations | Connection health, dependent pool totals, low API quota count and per-connection quota meters |
 
 ## Counting rules
@@ -43,9 +43,15 @@ not measured CPU or memory utilisation. Disk is reported free space. Missing
 resource telemetry stays unknown; commitments above 100% retain the exact
 percentage even though the visual meter stops at its boundary.
 
-One-hour history contains at most 60 one-minute points. Stored samples and live
-stats are coalesced by minute, with the newer input winning. Missing minutes are
-gaps, not zeroes. History reloads on reconnect and aborts on unmount. Provisioning
+The fleet trend is one-minute points: sixty of them for the last hour, and for
+the six-hour and one-day windows the minutes are folded into five- and
+fifteen-minute intervals that carry their peak, because a queue that hit twelve
+for two minutes is what somebody looking at a day is looking for. Stored
+samples and live stats are coalesced by minute, with the newer input winning.
+Missing minutes are gaps, not zeroes, and a folded interval with no observed
+minute is a gap too. Hovering the chart reads every figure at that moment; the
+slider is the same inspection for a keyboard. History reloads on reconnect and
+aborts on unmount. Provisioning
 counts use a throttled event-driven refresh and ignore late results after a
 scope change. No scheduler behavior is changed by these views.
 
@@ -53,9 +59,18 @@ scope change. No scheduler behavior is changed by these views.
 
 - `MetricGrid` supports action links and optional progress tracks using semantic
   tones, accessible names and the existing responsive design tokens.
-- `StateBreakdown` presents labelled proportional state bands with exact counts.
-- `SignalTrend` provides a time axis, coverage strip and keyboard/touch range
-  inspector. It breaks its line at missing samples.
+- `StateBreakdown` presents labelled proportional state bands with exact counts
+  and shares; a segment with a destination is a link, and hovering one says the
+  count, the share and what the state means.
+- `LifecycleFlow` draws the runner state machine in the store's own order, each
+  step with its count and a link to the runners in it.
+- `SignalTrend` provides a time axis, the area under the line, a hover crosshair
+  with a card of every figure at that moment, a coverage strip and a
+  keyboard/touch range inspector. It breaks its line at missing samples.
+- `ActivityMatrix` draws usage buckets as a contribution graph with one tab
+  stop, a tooltip per square and an inline detail per selection; its
+  arithmetic is `activity.ts`, which `npm run test:unit` covers. See
+  [usage analytics](usage-analytics.md).
 - Domain components under `web/src/lib/insights` compose these pieces, keeping
   data interpretation out of generic presentation components.
 

@@ -12,21 +12,34 @@ import (
 
 const maxUsageRange = 366 * 24 * time.Hour
 
-func usageParams(r *http.Request) (time.Time, time.Time, store.UsageGroup, error) {
+// maxHourlyRange bounds a request for hourly buckets. A fortnight is 336
+// buckets a row, which is a punch card of a week with room to spare; a year
+// of hours would be 8,784 a row, multiplied by every repository.
+const maxHourlyRange = 14 * 24 * time.Hour
+
+// usageQuery is what the two usage routes agree a request means.
+type usageQuery struct {
+	from, to time.Time
+	group    store.UsageGroup
+	interval store.UsageInterval
+}
+
+func usageParams(r *http.Request) (usageQuery, error) {
+	var q usageQuery
 	from, to := r.URL.Query().Get("from"), r.URL.Query().Get("to")
 	f, err := time.Parse(time.RFC3339, from)
 	if err != nil {
-		return f, toZero(), "", fmt.Errorf("from is required and must be RFC 3339")
+		return q, fmt.Errorf("from is required and must be RFC 3339")
 	}
 	t, err := time.Parse(time.RFC3339, to)
 	if err != nil {
-		return f, t, "", fmt.Errorf("to is required and must be RFC 3339")
+		return q, fmt.Errorf("to is required and must be RFC 3339")
 	}
 	if !f.Before(t) {
-		return f, t, "", fmt.Errorf("from must be before to")
+		return q, fmt.Errorf("from must be before to")
 	}
 	if t.Sub(f) > maxUsageRange {
-		return f, t, "", fmt.Errorf("date range cannot exceed 366 days")
+		return q, fmt.Errorf("date range cannot exceed 366 days")
 	}
 	g := store.UsageGroup(r.URL.Query().Get("group_by"))
 	if g == "" {
@@ -35,19 +48,29 @@ func usageParams(r *http.Request) (time.Time, time.Time, store.UsageGroup, error
 	switch g {
 	case store.UsageByHost, store.UsageByPool, store.UsageByInstallation, store.UsageByRepository, store.UsageByWorkflow:
 	default:
-		return f, t, g, fmt.Errorf("group_by must be installation, repository, workflow, host, or pool")
+		return q, fmt.Errorf("group_by must be installation, repository, workflow, host, or pool")
 	}
-	return f, t, g, nil
+	interval := store.UsageInterval(r.URL.Query().Get("interval"))
+	switch interval {
+	case store.UsageAutoInterval, store.UsageDaily:
+	case store.UsageHourly:
+		if t.Sub(f) > maxHourlyRange {
+			return q, fmt.Errorf("hourly buckets cover at most 14 days; ask for daily buckets, or a shorter range")
+		}
+	default:
+		return q, fmt.Errorf("interval must be hour or day")
+	}
+	return usageQuery{from: f, to: t, group: g, interval: interval}, nil
 }
-func toZero() time.Time { return time.Time{} }
 
 func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
-	f, t, g, err := usageParams(r)
+	q, err := usageParams(r)
 	if err != nil {
 		badRequest(w, err.Error())
 		return
 	}
-	rows, err := s.ctrl.Store().Usage(r.Context(), f, t, g)
+	f, t, g := q.from, q.to, q.group
+	rows, err := s.ctrl.Store().UsageWithInterval(r.Context(), f, t, g, q.interval)
 	if err != nil {
 		s.internal(w, r, "querying usage", err)
 		return
@@ -89,12 +112,12 @@ func (s *Server) usageHistoryFrom() map[string]any {
 }
 
 func (s *Server) handleUsageCSV(w http.ResponseWriter, r *http.Request) {
-	f, t, g, err := usageParams(r)
+	q, err := usageParams(r)
 	if err != nil {
 		badRequest(w, err.Error())
 		return
 	}
-	rows, err := s.ctrl.Store().Usage(r.Context(), f, t, g)
+	rows, err := s.ctrl.Store().UsageWithInterval(r.Context(), q.from, q.to, q.group, q.interval)
 	if err != nil {
 		s.internal(w, r, "querying usage", err)
 		return

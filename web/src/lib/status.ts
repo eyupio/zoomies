@@ -29,7 +29,6 @@ import type { LucideIcon } from '@lucide/svelte';
 import type {
   APIToken,
   Host,
-  Job,
   JobEventKind,
   JobState,
   JoinToken,
@@ -286,16 +285,13 @@ export const RUNNER_LOST: StatusMeta = meta(
   "The runner executing this job stopped before GitHub reported the job over. The failure is the fleet's, not the workflow's.",
 );
 
-/** The conclusions GitHub counts as a job going wrong, as the failed filter does. */
-const FAILING_CONCLUSIONS = new Set(['failure', 'timed_out', 'startup_failure']);
-
 /**
- * Whether a job went wrong on either side: a failing conclusion, or a runner
- * that stopped under it -- including one GitHub still believes is running.
+ * Whether a job went wrong on either side. The rule lives in outcomes.ts, so
+ * the activity matrix can count jobs the same way without loading the icons
+ * this file imports; it is re-exported here because this is where every page
+ * looks for it.
  */
-export function jobFailed(job: Pick<Job, 'conclusion' | 'runner_fault'>): boolean {
-  return Boolean(job.runner_fault) || FAILING_CONCLUSIONS.has((job.conclusion ?? '').toLowerCase());
-}
+export { jobFailed } from './outcomes';
 
 /**
  * One step of a job, coloured like the job it belongs to: a step still running

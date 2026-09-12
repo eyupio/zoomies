@@ -10,20 +10,33 @@
   const window = $derived(describeWindow(fleet.stats?.window) ?? 'reported window');
   const num = (n: number | undefined) => (n === undefined ? '—' : formatNumber(n));
   const segments = $derived([
-    { label: 'Succeeded', value: stats?.succeeded ?? 0, tone: 'idle' as const },
+    {
+      label: 'Succeeded',
+      value: stats?.succeeded ?? 0,
+      tone: 'idle' as const,
+      href: `/jobs?conclusion=success${suffix}`,
+      hint: 'GitHub reported success and the fleet had no fault in it.',
+    },
     {
       label: 'Failed',
       value: stats?.failed ?? 0,
       tone: 'danger' as const,
       href: `/jobs?failed=true${suffix}`,
+      hint: 'A failing conclusion, or a runner that stopped under the job.',
     },
     {
       label: 'Cancelled / skipped',
       value: stats?.cancelled ?? 0,
       tone: 'neutral' as const,
       href: `/jobs?conclusion=cancelled&conclusion=skipped${suffix}`,
+      hint: 'Cancelled or skipped, with no fault of the fleet\u2019s.',
     },
-    { label: 'Unknown', value: stats?.unknown ?? 0, tone: 'pending' as const },
+    {
+      label: 'Unknown',
+      value: stats?.unknown ?? 0,
+      tone: 'pending' as const,
+      hint: 'None of the above, including a job GitHub stopped reporting. Never counted as a success.',
+    },
   ]);
 </script>
 
@@ -74,7 +87,11 @@
     <ChartPanel
       title="Job outcomes"
       description={`Completions in the last ${window}. Unknown outcomes remain separate. Links open the corresponding job view across its full retained history.`}
-      ><StateBreakdown {segments} label="Completed job outcomes" /></ChartPanel
+      ><StateBreakdown
+        {segments}
+        label="Completed job outcomes"
+        noun="completed jobs"
+      /></ChartPanel
     >
   </section>
 {/if}

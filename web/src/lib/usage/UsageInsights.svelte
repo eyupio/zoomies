@@ -1,24 +1,48 @@
 <script lang="ts">
-  import { SvelteMap } from 'svelte/reactivity';
+  import { getUsage } from '$lib/api/client';
   import type { UsageRow, UsageGrouping } from '$lib/api/types';
   import MetricGrid from '$lib/components/MetricGrid.svelte';
   import ChartPanel from '$lib/components/ChartPanel.svelte';
   import Select from '$lib/components/Select.svelte';
-  import { formatNumber } from '$lib/format';
+  import ActivityMatrix, { type ActivityRange } from '$lib/insights/ActivityMatrix.svelte';
+  import {
+    addDays,
+    fillWindow,
+    hasCapacity,
+    intervalWidth,
+    localDate,
+    mergeHistories,
+    MODES,
+    startOfLocalDay,
+    type ActivityBucket,
+    type ActivityMode,
+    type Interval,
+  } from '$lib/insights/activity';
+  import { formatNumber, toMillis } from '$lib/format';
   let {
     rows,
     grouping,
+    range,
+    entity = '',
+    fetchedAt = 0,
     label,
     onselect,
   }: {
     rows: UsageRow[];
     grouping: UsageGrouping;
+    /** The report's own bounds, as the request carried them. */
+    range: { from: string; to: string };
+    /** The group the report is focused on, or empty for all of them. */
+    entity?: string;
+    /** When the report landed, so the matrix knows its hours are stale. */
+    fetchedAt?: number;
     label: (key: string) => string;
     onselect: (key: string) => void;
   } = $props();
-  type Bucket = NonNullable<UsageRow['history']>[number];
+  type Bucket = ActivityBucket;
   let metric = $state('outcomes');
   let selected = $state<number | null>(null);
+  let mode = $state<ActivityMode>('outcomes');
   const total = $derived(
     rows.reduce(
       (a, r) => ({
@@ -47,27 +71,56 @@
       },
     ),
   );
+  /**
+   * The API cuts hourly buckets for a window of two days or less and daily
+   * ones beyond, anchored at the start the request named; the same rule here
+   * is what lets the matrix know whether a square is an hour or a day.
+   */
+  const interval = $derived<Interval>(
+    (toMillis(range.to) ?? 0) - (toMillis(range.from) ?? 0) <= 48 * intervalWidth('hour')
+      ? 'hour'
+      : 'day',
+  );
+  const first = $derived(startOfLocalDay(new Date(toMillis(range.from) ?? Date.now())));
   const buckets = $derived.by(() => {
-    const map = new SvelteMap<string, Bucket>();
-    for (const row of rows)
-      for (const b of row.history ?? []) {
-        const a = map.get(b.from);
-        if (!a) map.set(b.from, { ...b });
-        else {
-          a.queued += b.queued;
-          a.started += b.started;
-          a.succeeded += b.succeeded;
-          a.failed += b.failed;
-          a.cancelled += b.cancelled;
-          a.unknown += b.unknown;
-          a.execution_seconds += b.execution_seconds;
-          a.allocated_seconds += b.allocated_seconds;
-          a.capacity_samples += b.capacity_samples;
-          a.capacity_reached += b.capacity_reached;
-        }
-      }
-    return [...map.values()].sort((a, b) => a.from.localeCompare(b.from));
+    const from = new Date(toMillis(range.from) ?? 0);
+    const span = (toMillis(range.to) ?? 0) - from.getTime();
+    const count = Math.max(1, Math.ceil(span / intervalWidth(interval)));
+    return fillWindow(mergeHistories(rows), from, count, interval);
   });
+  const modes = $derived(MODES.filter((m) => m.value !== 'capacity' || hasCapacity(buckets)));
+
+  /** A day's hours for the detail, in the report's own grouping and focus. */
+  async function hourly(day: Date): Promise<Bucket[]> {
+    const to = addDays(day, 1);
+    const report = await getUsage({
+      from: day.toISOString(),
+      to: to.toISOString(),
+      group_by: grouping,
+      key: entity || undefined,
+    });
+    const count = Math.round((to.getTime() - day.getTime()) / intervalWidth('hour'));
+    return fillWindow(mergeHistories(report.items ?? []), day, count, 'hour');
+  }
+
+  /**
+   * The Jobs page cut to the square's day and, where the grouping is one the
+   * Jobs page can filter by, to the focused group. An hour cannot be asked
+   * for there, so an hour's link is its day's.
+   */
+  function links(at: ActivityRange) {
+    const day = localDate(at.from);
+    const params = [`since=${day}`, `until=${day}`];
+    const filter = { pool: 'pool_id', repository: 'repo', workflow: 'workflow' }[
+      grouping as string
+    ];
+    if (entity && filter) params.push(`${filter}=${encodeURIComponent(entity)}`);
+    const out = [{ href: `/jobs?${params.join('&')}`, label: 'Jobs that day' }];
+    if (at.bucket.failed > 0) {
+      out.push({ href: `/jobs?failed=true&${params.join('&')}`, label: 'Failed jobs' });
+    }
+    return out;
+  }
   const metrics = $derived([
     {
       label: 'Jobs queued',
@@ -98,11 +151,20 @@
     },
     {
       label: 'Runner busy share',
-      value: total.allocated ? `${((100 * total.seconds) / total.allocated).toFixed(1)}%` : '—',
+      // A share only while the runner records are all there: runners are
+      // kept for less time than jobs, so a range that reaches past runner
+      // retention has its jobs' hours and only some of its runners', and the
+      // ratio is then a number that means nothing rather than a percentage.
+      value:
+        total.allocated && total.allocated >= total.seconds
+          ? `${((100 * total.seconds) / total.allocated).toFixed(1)}%`
+          : '—',
       detail:
         grouping === 'repository' || grouping === 'workflow'
           ? 'Allocation not attributable'
-          : `${(total.allocated / 3600).toFixed(2)} allocated runner-hours`,
+          : total.allocated && total.allocated < total.seconds
+            ? 'Runner records for part of this range are no longer retained'
+            : `${(total.allocated / 3600).toFixed(2)} allocated runner-hours`,
     },
   ]);
   const series = $derived(
@@ -154,14 +216,6 @@
     [...rows].sort((a, b) => b.job_execution_seconds - a.job_execution_seconds).slice(0, 10),
   );
   const maxHours = $derived(Math.max(1, ...ranked.map((r) => r.job_execution_seconds)));
-  const lanes = $derived([
-    { key: 'queued' as const, name: 'Queued', tone: 'var(--z-accent)' },
-    { key: 'succeeded' as const, name: 'Succeeded', tone: 'var(--z-idle)' },
-    { key: 'failed' as const, name: 'Failed', tone: 'var(--z-danger)' },
-    ...(grouping === 'pool'
-      ? [{ key: 'capacity_reached' as const, name: 'Capacity reached', tone: 'var(--z-pending)' }]
-      : []),
-  ]);
   function date(value: string): string {
     return new Date(value).toLocaleString(undefined, {
       month: 'short',
@@ -178,16 +232,13 @@
       )
       .join(' ');
   }
-  function describe(b: Bucket): string {
-    return `${date(b.from)}: ${b.queued} queued, ${b.succeeded} succeeded, ${b.failed} failed, ${b.cancelled} cancelled or skipped, ${b.unknown} unknown; ${b.capacity_samples ? `${b.capacity_reached} capacity-blocked pool-minutes out of ${b.capacity_samples} observed` : 'no capacity observations'}`;
-  }
 </script>
 
 <MetricGrid items={metrics} />
 <div class="insights">
   <ChartPanel
     title="Usage over time"
-    description="Follow demand, job outcomes and runner time across the selected window. Select a dot below to inspect its interval."
+    description="Follow demand, job outcomes and runner time across the selected window. Select a square in the matrix below to inspect its interval here."
   >
     {#snippet actions()}<Select
         ariaLabel="Chart metric"
@@ -274,41 +325,36 @@
 </div>
 <ChartPanel
   title="Activity matrix"
-  description="Each dot represents one interval: hourly for windows up to 48 hours, otherwise 24 hours from the range start. Darker dots mean more activity. Tap or focus a dot for exact values."
+  description={interval === 'day'
+    ? 'Each square is one day of the range, laid out as a calendar. Greener as more jobs finish, red when any fail; hover a square for its figures and select it for its hours and its jobs.'
+    : 'Each square is one hour of the range. Greener as more jobs finish, red when any fail; hover a square for its figures and select it for its jobs.'}
 >
-  <div class="matrix-scroll">
-    <div
-      class="matrix"
-      style:grid-template-columns={`max-content repeat(${buckets.length}, minmax(16px,1fr))`}
-    >
-      {#each lanes as lane (lane.key)}
-        {@const maximum = Math.max(1, ...buckets.map((b) => b[lane.key]))}
-        <span class="lane">{lane.name}</span>
-        {#each buckets as b, i (b.from)}
-          {@const unknown = lane.key === 'capacity_reached' && b.capacity_samples === 0}
-          <button
-            class="dot"
-            class:unknown
-            class:chosen={selected === i}
-            style:--dot-color={lane.tone}
-            style:--dot-opacity={b[lane.key] ? 0.3 + (0.7 * b[lane.key]) / maximum : 0}
-            aria-label={`${lane.name}, ${describe(b)}`}
-            title={describe(b)}
-            onfocus={() => (selected = i)}
-            onclick={() => (selected = i)}><span></span></button
-          >
-        {/each}
-      {/each}
-    </div>
-  </div>
+  {#snippet actions()}<Select
+      ariaLabel="Colour the matrix by"
+      value={mode}
+      size="sm"
+      options={modes}
+      onchange={(v) => (mode = v as ActivityMode)}
+    />{/snippet}
+  <ActivityMatrix
+    {buckets}
+    {interval}
+    {first}
+    {mode}
+    weeks={buckets.length}
+    bind:selected
+    {fetchedAt}
+    hourly={interval === 'day' ? hourly : undefined}
+    {links}
+    subject={entity ? label(entity) : `every ${grouping}`}
+  />
   <p class="muted">
     {#if grouping === 'pool'}Capacity reached counts observed pool-minutes with a host-capacity
-      placement block, not incidents or exact duration. Outlined dots have no capacity observations.
-      History starts after this feature is installed.{:else}Capacity observations belong to pools.
-      Choose Pool to inspect recorded placement bottlenecks.{/if} All history reflects retained records;
-    pruning can remove older activity.
+      placement block, not incidents or exact duration. Dashed squares have no capacity
+      observations. History starts after this feature is installed.{:else}Capacity observations
+      belong to pools. Choose Pool to inspect recorded placement bottlenecks.{/if} All history reflects
+    retained records; pruning can remove older activity.
   </p>
-  {#if active}<p class="selection" aria-live="polite">{describe(active)}</p>{/if}
 </ChartPanel>
 
 <style>
@@ -425,60 +471,6 @@
   }
   .muted {
     margin: var(--z-space-4) 0 0;
-  }
-  .matrix-scroll {
-    overflow-x: auto;
-  }
-  .matrix {
-    display: grid;
-    align-items: center;
-    gap: var(--z-space-2);
-    min-width: 100%;
-    width: max-content;
-  }
-  .lane {
-    position: sticky;
-    left: 0;
-    background: var(--z-surface);
-    z-index: 1;
-    font-size: var(--z-text-xs);
-    padding-right: var(--z-space-3);
-  }
-  .dot {
-    width: 20px;
-    height: 24px;
-    padding: var(--z-space-1);
-    background: none;
-    border: 0;
-    cursor: pointer;
-    border-radius: var(--z-radius-sm);
-  }
-  .dot span {
-    display: block;
-    width: 12px;
-    height: 12px;
-    border-radius: var(--z-radius-full);
-    background: color-mix(
-      in srgb,
-      var(--dot-color) calc(var(--dot-opacity) * 100%),
-      var(--z-surface-sunken)
-    );
-    border: var(--z-border-width) solid var(--z-border);
-  }
-  .dot.unknown span {
-    background: none;
-    border-style: dashed;
-  }
-  .chosen {
-    outline: var(--z-border-width) solid var(--z-accent);
-  }
-  button:focus-visible {
-    outline: 2px solid var(--z-accent);
-    outline-offset: 2px;
-  }
-  .selection {
-    margin: var(--z-space-3) 0 0;
-    font-size: var(--z-text-xs);
   }
   @media (max-width: 1024px) {
     .insights {

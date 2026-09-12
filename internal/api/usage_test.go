@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/csv"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -116,6 +117,72 @@ func TestUsageExactKeyFilterMatchesJSONAndCSV(t *testing.T) {
 			t.Fatalf("wrong filter for %s: %s", suffix, resp.body)
 		}
 	}
+}
+
+// The width of a bucket can be asked for, within a bound.
+//
+// A punch card of a week is 168 squares an hour wide, and the route's own rule
+// would cut that week into seven days. Hourly buckets over a year, times every
+// repository, is a payload nobody wants, so the request is refused past a
+// fortnight with a reason that says what to ask for instead.
+func TestUsageIntervalCanBeAskedForWithinItsBound(t *testing.T) {
+	h := newHarness(t)
+	u, _ := h.user("viewer", store.RoleViewer)
+
+	base := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	started, done := base.Add(time.Minute), base.Add(2*time.Minute)
+	if _, err := h.st.UpsertJob(h.ctx, &store.Job{
+		GitHubJobID: 4343, Repo: "acme/widgets", JobName: "build", Workflow: "ci", Matched: true,
+		State: store.JobCompleted, QueuedAt: base, StartedAt: &started, CompletedAt: &done,
+		Conclusion: "success",
+	}); err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+
+	ask := func(days int, interval string) *response {
+		path := "/api/v1/usage?group_by=repository&from=" + base.Format(time.RFC3339) +
+			"&to=" + base.Add(time.Duration(days)*24*time.Hour).Format(time.RFC3339)
+		if interval != "" {
+			path += "&interval=" + interval
+		}
+		return h.do(request{method: http.MethodGet, cookie: h.session(u), path: path})
+	}
+	buckets := func(resp *response) int {
+		var body struct {
+			Items []store.UsageRow `json:"items"`
+		}
+		if err := json.Unmarshal(resp.body, &body); err != nil {
+			t.Fatalf("decoding usage: %v", err)
+		}
+		if len(body.Items) != 1 {
+			t.Fatalf("got %d rows, want the one repository", len(body.Items))
+		}
+		return len(body.Items[0].History)
+	}
+
+	resp := ask(7, "hour")
+	resp.mustStatus(t, http.StatusOK, "a week in hours")
+	if n := buckets(resp); n != 7*24 {
+		t.Errorf("a week in hours has %d buckets, want %d", n, 7*24)
+	}
+	resp = ask(7, "")
+	resp.mustStatus(t, http.StatusOK, "a week left to the rule")
+	if n := buckets(resp); n != 7 {
+		t.Errorf("a week left to the rule has %d buckets, want 7", n)
+	}
+	resp = ask(1, "day")
+	resp.mustStatus(t, http.StatusOK, "a day in days")
+	if n := buckets(resp); n != 1 {
+		t.Errorf("a day in days has %d buckets, want 1", n)
+	}
+
+	resp = ask(15, "hour")
+	resp.mustStatus(t, http.StatusBadRequest, "hours past the bound")
+	if !strings.Contains(string(resp.body), "at most 14 days") {
+		t.Errorf("the refusal does not say what the bound is: %s", resp.body)
+	}
+	resp = ask(1, "minute")
+	resp.mustStatus(t, http.StatusBadRequest, "a width that is not a width")
 }
 
 // The report is computed from rows the prune loop deletes on two different

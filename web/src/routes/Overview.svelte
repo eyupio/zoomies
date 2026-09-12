@@ -1,7 +1,10 @@
 <!--
   The Overview: the one page that has to earn a place on a second monitor.
 
-  Reading order is deliberate. The four numbers say what the fleet is doing;
+  Reading order is deliberate. The activity matrix comes first: a year of the
+  fleet's days as one band of squares, the shape an operator recognises from a
+  contribution graph, which says at a glance whether this week looks like last
+  week. The four numbers under it say what the fleet is doing right now;
   anything that needs a person comes immediately after them, because a problem
   found at the bottom of a page is a problem found late. Then the two things an
   operator watches when nothing is wrong -- where the capacity is going, and
@@ -28,10 +31,10 @@
 
   Nothing on this page polls. The fleet cache subscribes to `stats`, `scaling`,
   `problems.updated`, `runner.*`, `pool.*` and `host.*`; the panels below add
-  `job.updated` for the running jobs and the recent outcomes. A reconnect ends
-  in one reconciling fetch. Refreshing by hand asks for that same fetch: it is
-  never how the numbers keep up, only how an operator settles the question of
-  whether they have.
+  `job.updated` for the matrix, the running jobs and the recent outcomes. A
+  reconnect ends in one reconciling fetch. Refreshing by hand asks for that
+  same fetch, and the matrix's with it: it is never how the numbers keep up,
+  only how an operator settles the question of whether they have.
 -->
 <script lang="ts">
   import HostLandscape from '$lib/insights/HostLandscape.svelte';
@@ -43,6 +46,7 @@
   import { prefs } from '$lib/state/prefs.svelte';
   import ActiveJobs from '$lib/overview/ActiveJobs.svelte';
   import FirstRun from '$lib/overview/FirstRun.svelte';
+  import FleetActivity from '$lib/overview/FleetActivity.svelte';
   import FleetMetrics from '$lib/overview/FleetMetrics.svelte';
   import PoolUtilisation from '$lib/overview/PoolUtilisation.svelte';
   import ProblemsSummary from '$lib/overview/ProblemsSummary.svelte';
@@ -50,8 +54,13 @@
   import ScalingFeed from '$lib/overview/ScalingFeed.svelte';
 
   // Raised by the checklist while it is on screen, so the problems summary
-  // knows not to also claim that nothing needs attention.
+  // knows not to also claim that nothing needs attention, and the matrix
+  // knows not to show a year of empty squares under a fleet's first steps.
   let setupPending = $state(false);
+
+  // The matrix fetches its own year of history, so the page's refresh reaches
+  // it by hand: the fleet cache's reconcile does not know it exists.
+  let activity = $state<FleetActivity | null>(null);
 
   const loading = $derived(!fleet.loaded);
 
@@ -91,7 +100,7 @@
   subtitle={(others
     ? 'What is happening across every runner GitHub reports on, this fleet\u2019s and everybody else\u2019s.'
     : 'What this fleet is doing right now.') + coverage}
-  onrefresh={() => fleet.reconcile()}
+  onrefresh={() => Promise.all([fleet.reconcile(), activity?.reload()]).then(() => undefined)}
 >
   <Switch label="Other runners" checked={others} onchange={(on) => (prefs.otherRunners = on)} />
 </PageHeader>
@@ -109,6 +118,7 @@
          step, not confirmation that nothing is happening. It removes itself
          for good once a job has run here. -->
     <FirstRun onpending={(pending) => (setupPending = pending)} />
+    {#if !setupPending}<FleetActivity bind:this={activity} />{/if}
     <FleetMetrics {loading} />
     <ProblemsSummary {loading} {setupPending} />
     <div class="split">

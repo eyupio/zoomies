@@ -105,6 +105,17 @@
     align-items: center;
     gap: var(--z-space-2);
     flex: none;
+    max-width: 100%;
+  }
+  /* On a phone the actions wrap too: a panel whose actions are a range and
+     a select has more than a phone's width of them, and a row that cannot
+     wrap widens the page instead. Only there -- a select is as wide as its
+     container, so a row allowed to wrap on a desktop would put it on a line
+     of its own and make every such panel a line taller. */
+  @media (max-width: 768px) {
+    .actions {
+      flex-wrap: wrap;
+    }
   }
   .body {
     flex: 1;

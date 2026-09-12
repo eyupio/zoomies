@@ -98,14 +98,37 @@ export function mergeSamples(
   history: readonly FleetSample[],
   live: readonly FleetSample[],
   now: number,
+  minutes = 60,
 ): FleetSample[] {
   const byMinute: Record<number, FleetSample> = {};
   const end = Math.floor(now / 60_000) * 60_000;
   for (const point of [...history, ...live]) {
     const at = Math.floor(new Date(point.at ?? '').getTime() / 60_000) * 60_000;
-    if (Number.isFinite(at) && at >= end - 59 * 60_000 && at <= end) byMinute[at] = point;
+    if (Number.isFinite(at) && at >= end - (minutes - 1) * 60_000 && at <= end)
+      byMinute[at] = point;
   }
   return Object.entries(byMinute)
     .sort(([a], [b]) => Number(a) - Number(b))
     .map(([, point]) => point);
+}
+
+/**
+ * A minute series folded into wider intervals, each carrying the peak of its
+ * minutes. Peaks rather than means because a queue that hit twelve for two
+ * minutes is what an operator looking at a day wants to see, and a mean of
+ * fifteen minutes would round it away. An interval with no observed minute
+ * stays a gap.
+ */
+export function foldMinutes(points: readonly SignalPoint[], step: number): SignalPoint[] {
+  if (step <= 1) return [...points];
+  const out: SignalPoint[] = [];
+  for (let i = 0; i < points.length; i += step) {
+    const slice = points.slice(i, i + step);
+    const known = slice.map((p) => p.value).filter((v): v is number => v !== null);
+    out.push({
+      at: slice[0]?.at ?? 0,
+      value: known.length ? Math.max(...known) : null,
+    });
+  }
+  return out;
 }
