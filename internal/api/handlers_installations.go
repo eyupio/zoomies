@@ -801,6 +801,14 @@ func (s *Server) handleManifestHandoff(w http.ResponseWriter, r *http.Request) {
 	query.Set("state", state)
 	destination.RawQuery = query.Encode()
 
+	// The security middleware sets the dashboard's CSP on every response. A
+	// browser can carry a policy received on a redirect into the destination
+	// document; doing that here makes GitHub inherit Zoomies' script-src and
+	// blocks GitHub's own inline bootstrap scripts. The redirect contains no
+	// document or executable content, and its destination was constrained and
+	// revalidated above, so a document CSP has nothing to protect here.
+	w.Header().Del("Content-Security-Policy")
+
 	// Temporary Redirect is deliberate: 302 commonly changes POST to GET and
 	// would discard the manifest GitHub needs.
 	http.Redirect(w, r, destination.String(), http.StatusTemporaryRedirect)
