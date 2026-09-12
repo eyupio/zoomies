@@ -471,7 +471,19 @@ func printBanner(w io.Writer, cfg *config.Config, backends *backend.Registry) {
 		scheme = "https"
 	}
 
-	fmt.Fprintf(w, "\nzoomies %s\n", version.Short())
+	// The block paw mirrors the project's icon without reproducing its fine speed
+	// ring, which would muddy the silhouette at terminal resolution.
+	fmt.Fprintln(w, "\n        ▄██▄     ▄██▄")
+	fmt.Fprintf(w, "       ██████   ██████        zoomies %s\n", version.Short())
+	fmt.Fprintln(w, "  ▄██▄ ██████   ██████ ▄██▄  off the lead, on the job.")
+	fmt.Fprintln(w, " █████  ▀██▀     ▀██▀  █████")
+	fmt.Fprintln(w, "  ▀██▀      ▄██▄       ▀██▀")
+	fmt.Fprintln(w, "         ▄████████▄")
+	fmt.Fprintln(w, "       ▄████████████▄")
+	fmt.Fprintln(w, "      ████████████████")
+	fmt.Fprintln(w, "       ▀████████████▀")
+	fmt.Fprintln(w, "          ▀▀██▀▀")
+	fmt.Fprintln(w)
 	for _, row := range [][2]string{
 		{"listening on", fmt.Sprintf("%s://%s", scheme, cfg.Server.Bind)},
 		{"external URL", external},
