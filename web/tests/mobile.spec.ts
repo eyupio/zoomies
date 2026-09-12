@@ -428,8 +428,9 @@ test('every text control is at least 16px, so tapping one does not zoom the page
       Array.from(document.querySelectorAll('input, select, textarea'))
         .filter((el) => {
           const type = el.getAttribute('type');
-          // A checkbox, radio or switch has no text of its own to zoom to.
-          if (type === 'checkbox' || type === 'radio' || type === 'hidden') return false;
+          // Checkboxes, radios and range sliders have no editable text to zoom to.
+          if (type === 'checkbox' || type === 'radio' || type === 'range' || type === 'hidden')
+            return false;
           if (!(el as HTMLElement).offsetParent && el.getClientRects().length === 0) return false;
           return Number.parseFloat(getComputedStyle(el).fontSize) < 16;
         })

@@ -52,6 +52,11 @@ test('an open tooltip stays attached when its table scrolls and disappears on na
 }) => {
   await goto(page, '/pools', 'Pools');
   const trigger = page.locator('.tip-wrap').filter({ hasText: '2 risks' });
+  // Establish the constrained table before measuring: changing its height
+  // afterwards can move the anchor and flip the tooltip's placement.
+  await trigger.evaluate((node) => {
+    (node.closest('.scroll') as HTMLElement).style.maxHeight = '110px';
+  });
   await trigger.scrollIntoViewIfNeeded();
   // Focus keeps the tooltip open while the pointer is outside the table.
   await trigger.evaluate((node) => {
@@ -63,7 +68,6 @@ test('an open tooltip stays attached when its table scrolls and disappears on na
   const before = await tip.boundingBox();
   const delta = await trigger.evaluate((node) => {
     const scroll = node.closest('.scroll') as HTMLElement;
-    scroll.style.maxHeight = '110px';
     const before = scroll.scrollTop;
     scroll.scrollTop += 10;
     return scroll.scrollTop - before;
