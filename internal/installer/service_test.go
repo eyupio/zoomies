@@ -411,8 +411,12 @@ func TestJoinRestrictsTheDirectoryToAdministratorsOnWindowsOnly(t *testing.T) {
 			t.Errorf("icacls call is missing %q: %s", want, args)
 		}
 	}
-	if strings.Contains(args, "Users") {
-		t.Errorf("Users must not be granted anything: %s", args)
+	// The grants, not the whole line: on Windows the temporary directory
+	// itself lives under C:\Users.
+	for i, a := range calls[0] {
+		if a == "/grant:r" && strings.HasPrefix(calls[0][i+1], "Users") {
+			t.Errorf("Users must not be granted anything: %s", args)
+		}
 	}
 
 	failing := func(context.Context, string, ...string) (string, error) { return "", errors.New("Access is denied.") }
