@@ -205,8 +205,8 @@ scaled zoomies-linux-x64 0 -> 1: 1 job queued
 The Jobs page keeps the record: how long each job waited, how long it ran,
 which runner took it, and — for anything that failed — the step it failed at.
 
-![The Jobs page: the fleet's queued, running and finished jobs with their labels, pool, runner, queue wait and duration](screenshots/jobs-dark.webp#only-dark){ .zoomies-shot }
-![The Jobs page: the fleet's queued, running and finished jobs with their labels, pool, runner, queue wait and duration](screenshots/jobs-light.webp#only-light){ .zoomies-shot }
+![The Jobs page: queue depth, running jobs, success rate, P95 wait and outcome composition above the job grid](screenshots/jobs-dark.webp#only-dark){ .zoomies-shot }
+![The Jobs page: queue depth, running jobs, success rate, P95 wait and outcome composition above the job grid](screenshots/jobs-light.webp#only-light){ .zoomies-shot }
 
 ## Moving the rest of your repositories
 
