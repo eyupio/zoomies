@@ -14,6 +14,7 @@
   fleet does.
 -->
 <script lang="ts">
+  import MetricGrid from '$lib/components/MetricGrid.svelte';
   import { Plus, Server } from '@lucide/svelte';
   import { cordonHost, listJoinTokens } from '$lib/api/client';
   import type { Host, JoinToken } from '$lib/api/types';
@@ -138,6 +139,7 @@
       </p>
     {/if}
   {/snippet}
+  <Button variant="secondary" href="/usage?group_by=host">Usage history</Button>
   {#if canAdmin}
     <Button variant="primary" icon={Plus} href="/hosts/new">Add a host</Button>
   {/if}
@@ -181,6 +183,34 @@
       </EmptyState>
     {/snippet}
 
+    <MetricGrid
+      items={[
+        {
+          label: 'Hosts reporting healthy',
+          value: `${healthy} / ${hosts.length}`,
+          detail: 'Live fleet health',
+        },
+        {
+          label: 'Runner slots in use',
+          value: `${inUse} / ${capacity}`,
+          detail: 'Configured slots across all hosts',
+        },
+        {
+          label: 'Cordoned hosts',
+          value: String(hosts.filter((h) => h.cordoned).length),
+          detail: 'Excluded from new placements',
+        },
+        {
+          label: 'Hosts at slot capacity',
+          value: String(
+            hosts.filter(
+              (h) => (h.capacity ?? 0) > 0 && (h.active_runners ?? 0) >= (h.capacity ?? 0),
+            ).length,
+          ),
+          detail: 'Resource limits can restrict placement sooner',
+        },
+      ]}
+    />
     <div class="grid">
       {#each hosts as host (host.id)}
         <HostCard

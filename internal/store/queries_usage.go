@@ -15,6 +15,7 @@ const (
 	UsageByRepository   UsageGroup = "repository"
 	UsageByWorkflow     UsageGroup = "workflow"
 	UsageByPool         UsageGroup = "pool"
+	UsageByHost         UsageGroup = "host"
 )
 
 // UsageRow is one aggregate over a bounded half-open [from,to) interval.
@@ -25,8 +26,13 @@ const (
 // already running when the window opened and is running still -- contributes
 // its execution seconds and its concurrency without being counted again.
 type UsageRow struct {
-	Key                 string  `json:"key"`
-	JobExecutionSeconds float64 `json:"job_execution_seconds"`
+	Key                 string        `json:"key"`
+	History             []UsageBucket `json:"history"`
+	Succeeded           int           `json:"succeeded"`
+	Failed              int           `json:"failed"`
+	Cancelled           int           `json:"cancelled"`
+	Unknown             int           `json:"unknown"`
+	JobExecutionSeconds float64       `json:"job_execution_seconds"`
 	// AllocatedRunnerSeconds is nil when the grouping cannot attribute runner
 	// lifetime honestly -- a runner idles on behalf of a pool, never on behalf
 	// of a repository or a workflow -- which is not the same as an observed
@@ -52,7 +58,7 @@ type UsageRow struct {
 // UsageAllocationAttributable reports whether runner allocation, and therefore
 // cost, can be attributed to the given grouping at all.
 func UsageAllocationAttributable(group UsageGroup) bool {
-	return group == UsageByPool || group == UsageByInstallation
+	return group == UsageByPool || group == UsageByInstallation || group == UsageByHost
 }
 
 // Usage aggregates jobs and allocated runner lifetime without assuming a
@@ -66,7 +72,7 @@ func UsageAllocationAttributable(group UsageGroup) bool {
 // the one the Jobs page and the Overview use, so a repository's runner-hours
 // here and its job list there are about the same jobs.
 func (s *Store) Usage(ctx context.Context, from, to time.Time, group UsageGroup) ([]UsageRow, error) {
-	if !from.Before(to) {
+	if !from.Before(to) || to.Sub(from) > 366*24*time.Hour {
 		return nil, fmt.Errorf("usage range must have from before to")
 	}
 	var expr string
@@ -80,6 +86,8 @@ func (s *Store) Usage(ctx context.Context, from, to time.Time, group UsageGroup)
 		expr = "j.repo"
 	case UsageByWorkflow:
 		expr = "j.workflow"
+	case UsageByHost:
+		expr = "COALESCE(r.host_id, '')"
 	case UsageByPool:
 		expr = "j.pool_id"
 	default:
@@ -97,8 +105,26 @@ func (s *Store) Usage(ctx context.Context, from, to time.Time, group UsageGroup)
 	}
 	a := map[string]*acc{}
 	lo, hi := ms(from), ms(to)
-	rows, err := s.read.QueryContext(ctx, `SELECT `+expr+`, j.queued_at, j.started_at, j.completed_at
-		FROM jobs j LEFT JOIN pools p ON p.id=j.pool_id
+	observed := min64(hi, ms(s.Now()))
+	width := int64((24 * time.Hour) / time.Millisecond)
+	if to.Sub(from) <= 48*time.Hour {
+		width = int64(time.Hour / time.Millisecond)
+	}
+	bucket := func(x *acc, at int64) *UsageBucket {
+		if at < lo || at >= hi {
+			return nil
+		}
+		i := int((at - lo) / width)
+		if x.row.History == nil {
+			x.row.History = make([]UsageBucket, (hi-lo+width-1)/width)
+			for n := range x.row.History {
+				x.row.History[n].From = from.Add(time.Duration(int64(n)*width) * time.Millisecond)
+			}
+		}
+		return &x.row.History[i]
+	}
+	rows, err := s.read.QueryContext(ctx, `SELECT `+expr+`, j.queued_at, j.started_at, j.completed_at, j.conclusion, j.runner_fault
+		FROM jobs j LEFT JOIN pools p ON p.id=j.pool_id LEFT JOIN runners r ON r.id=j.runner_id
 		WHERE j.queued_at < ? AND COALESCE(j.completed_at, ?) >= ?
 		AND `+managedJobSQL("j"), ms(to), ms(to), ms(from))
 	if err != nil {
@@ -109,7 +135,8 @@ func (s *Store) Usage(ctx context.Context, from, to time.Time, group UsageGroup)
 		var key string
 		var q int64
 		var st, done *int64
-		if err := rows.Scan(&key, &q, &st, &done); err != nil {
+		var conclusion, fault string
+		if err := rows.Scan(&key, &q, &st, &done, &conclusion, &fault); err != nil {
 			return nil, err
 		}
 		x := a[key]
@@ -122,19 +149,45 @@ func (s *Store) Usage(ctx context.Context, from, to time.Time, group UsageGroup)
 		// job and one started job rather than two of each.
 		if q >= lo && q < hi {
 			x.row.Jobs++
+			bucket(x, q).Queued++
 		}
 		if st != nil && *st >= lo && *st < hi {
 			x.row.JobsStarted++
+			bucket(x, *st).Started++
 			x.wait += float64(max64(0, *st-q)) / 1000
 		}
 		if done != nil && *done >= lo && *done < hi {
 			x.row.JobsCompleted++
+			b := bucket(x, *done)
+			switch {
+			case fault != "" || IsFailedConclusion(conclusion):
+				x.row.Failed++
+				b.Failed++
+			case conclusion == "success":
+				x.row.Succeeded++
+				b.Succeeded++
+			case conclusion == "cancelled" || conclusion == "skipped":
+				x.row.Cancelled++
+				b.Cancelled++
+			default:
+				x.row.Unknown++
+				b.Unknown++
+			}
 		}
-		if st != nil && done != nil {
-			from, to := max64(*st, lo), min64(*done, hi)
+		if st != nil {
+			end := observed
+			if done != nil {
+				end = min64(*done, observed)
+			}
+			from, to := max64(*st, lo), end
 			if to > from {
 				x.row.JobExecutionSeconds += float64(to-from) / 1000
 				x.events = append(x.events, event{from, 1}, event{to, -1})
+				for at := from; at < to; {
+					next := min64(to, lo+((at-lo)/width+1)*width)
+					bucket(x, at).ExecutionSeconds += float64(next-at) / 1000
+					at = next
+				}
 			}
 		}
 	}
@@ -147,10 +200,13 @@ func (s *Store) Usage(ctx context.Context, from, to time.Time, group UsageGroup)
 	attributable := UsageAllocationAttributable(group)
 	if attributable {
 		rExpr := "r.pool_id"
+		if group == UsageByHost {
+			rExpr = "r.host_id"
+		}
 		if group == UsageByInstallation {
 			rExpr = "p.installation_id"
 		}
-		rr, err := s.read.QueryContext(ctx, `SELECT `+rExpr+`, r.created_at, COALESCE(r.finished_at, ?), p.cost_per_runner_hour FROM runners r JOIN pools p ON p.id=r.pool_id WHERE r.created_at < ? AND COALESCE(r.finished_at, ?) > ?`, ms(to), ms(to), ms(to), ms(from))
+		rr, err := s.read.QueryContext(ctx, `SELECT `+rExpr+`, r.created_at, COALESCE(r.finished_at, ?), p.cost_per_runner_hour FROM runners r JOIN pools p ON p.id=r.pool_id WHERE r.created_at < ? AND COALESCE(r.finished_at, ?) > ?`, observed, ms(to), observed, ms(from))
 		if err != nil {
 			return nil, err
 		}
@@ -167,11 +223,16 @@ func (s *Store) Usage(ctx context.Context, from, to time.Time, group UsageGroup)
 				x = &acc{row: UsageRow{Key: key}}
 				a[key] = x
 			}
-			secs := float64(min64(end, hi)-max64(start, lo)) / 1000
+			secs := float64(min64(end, observed)-max64(start, lo)) / 1000
 			if secs < 0 {
 				secs = 0
 			}
 			x.allocated += secs
+			for at, end := max64(start, lo), min64(end, observed); at < end; {
+				next := min64(end, lo+((at-lo)/width+1)*width)
+				bucket(x, at).AllocatedSeconds += float64(next-at) / 1000
+				at = next
+			}
 			if cost != nil {
 				if x.row.EstimatedCost == nil {
 					x.row.EstimatedCost = new(float64)
@@ -183,13 +244,42 @@ func (s *Store) Usage(ctx context.Context, from, to time.Time, group UsageGroup)
 			return nil, err
 		}
 	}
+	// Capacity observations belong to pools, not repositories that share them.
+	if group == UsageByPool {
+		cr, err := s.read.QueryContext(ctx, `SELECT pool_id, ? + ((at-?)/?)*?, COUNT(*), SUM(blocked) FROM usage_capacity_samples WHERE at >= ? AND at < ? GROUP BY pool_id, (at-?)/?`, lo, lo, width, width, lo, hi, lo, width)
+		if err != nil {
+			return nil, err
+		}
+		for cr.Next() {
+			var key string
+			var at int64
+			var blocked, samples int
+			if err := cr.Scan(&key, &at, &samples, &blocked); err != nil {
+				cr.Close()
+				return nil, err
+			}
+			x := a[key]
+			if x == nil {
+				x = &acc{row: UsageRow{Key: key}}
+				a[key] = x
+			}
+			b := bucket(x, at)
+			b.CapacitySamples += samples
+			b.CapacityReached += blocked
+		}
+		err = cr.Err()
+		cr.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
 	out := make([]UsageRow, 0, len(a))
 	for _, x := range a {
 		// A key can reach this map without anything to report -- a job queued
 		// before the window and still queued now is present, but it is not this
 		// window's job. Reporting it as a row of zeroes would only look broken.
 		if x.row.Jobs == 0 && x.row.JobsStarted == 0 && x.row.JobsCompleted == 0 &&
-			x.row.JobExecutionSeconds == 0 && x.allocated == 0 {
+			x.row.JobExecutionSeconds == 0 && x.allocated == 0 && len(x.row.History) == 0 {
 			continue
 		}
 		if attributable {

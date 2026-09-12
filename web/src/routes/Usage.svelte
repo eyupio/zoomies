@@ -13,6 +13,7 @@
   somebody else as a link rather than as a description of which boxes to tick.
 -->
 <script lang="ts">
+  import UsageInsights from '$lib/usage/UsageInsights.svelte';
   import { Download, Receipt } from '@lucide/svelte';
   import { getUsage, usageCsvUrl } from '$lib/api/client';
   import type { Usage, UsageGrouping } from '$lib/api/types';
@@ -30,6 +31,7 @@
   /** The groupings the API offers, in the order an operator narrows through them. */
   const GROUPINGS: { value: UsageGrouping; label: string }[] = [
     { value: 'pool', label: 'Pool' },
+    { value: 'host', label: 'Host' },
     { value: 'installation', label: 'Installation' },
     { value: 'repository', label: 'Repository' },
     { value: 'workflow', label: 'Workflow' },
@@ -38,6 +40,7 @@
   /** What the column of keys is called, once a grouping is chosen. */
   const KEY_HEADER: Record<UsageGrouping, string> = {
     pool: 'Pool',
+    host: 'Host',
     installation: 'Installation',
     repository: 'Repository',
     workflow: 'Workflow',
@@ -100,7 +103,21 @@
     return () => pending?.abort();
   });
 
-  const rows = $derived(report?.items ?? []);
+  const entity = $derived(router.param('entity'));
+  const rows = $derived((report?.items ?? []).filter((r) => !entity || r.key === entity));
+  const entities = $derived([
+    { value: '', label: 'All groups' },
+    ...(report?.items ?? [])
+      .filter((r) => r.key)
+      .map((r) => ({ value: r.key, label: label(r.key) })),
+  ]);
+  function focus(key: string): void {
+    router.setQuery({ entity: key || null });
+  }
+  function preset(days: number): void {
+    setRange({ since: day(new Date(Date.now() - (days - 1) * 86_400_000)), until: today });
+  }
+
   /**
    * Whether runner time can be attributed at this grouping at all. A runner
    * idles on behalf of a pool and never on behalf of a repository, so those
@@ -158,6 +175,7 @@
    */
   function label(key: string): string {
     if (!key) return 'Unattributed';
+    if (grouping === 'host') return fleet.host(key)?.name ?? key;
     if (grouping !== 'pool') return key;
     return fleet.pool(key)?.name ?? key;
   }
@@ -186,7 +204,7 @@
     variant="secondary"
     size="sm"
     icon={Download}
-    href={usageCsvUrl(query)}
+    href={usageCsvUrl({ ...query, key: entity || undefined })}
     disabled={backwards}
   >
     Export CSV
@@ -202,9 +220,24 @@
       size="sm"
       ariaLabel="Group by"
       options={GROUPINGS}
-      onchange={(value) => router.setQuery({ group_by: value === 'pool' ? null : value })}
+      onchange={(value) =>
+        router.setQuery({ group_by: value === 'pool' ? null : value, entity: null })}
     />
   </label>
+  <Select
+    value={entity || ''}
+    size="sm"
+    ariaLabel="Focus group"
+    options={entities}
+    onchange={focus}
+  />
+  <div class="presets" aria-label="Quick date ranges">
+    {#each [1, 7, 30, 90] as days (days)}<Button
+        variant="secondary"
+        size="sm"
+        onclick={() => preset(days)}>{days}d</Button
+      >{/each}
+  </div>
 </div>
 
 <p class="note">
@@ -216,7 +249,7 @@
 {#if !attributable}
   <p class="note attribution">
     A runner idles on behalf of a pool, never on behalf of a {grouping}, so runner-hours and cost
-    cannot be attributed at this grouping. Group by pool or installation to see them.
+    cannot be attributed at this grouping. Group by pool, host or installation to see them.
   </p>
 {/if}
 
@@ -241,6 +274,11 @@
     />
   {/snippet}
 
+  <UsageInsights {rows} {grouping} {label} onselect={focus} />
+  <div class="detail-heading">
+    <h2>Detailed usage</h2>
+    <span>{rows.length} groups · execution and allocation in hours</span>
+  </div>
   <div class="frame">
     <table>
       <caption class="sr-only">
@@ -301,6 +339,28 @@
 </LoadingBoundary>
 
 <style>
+  .presets {
+    display: flex;
+    gap: var(--z-space-2);
+  }
+  .detail-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--z-space-2);
+    margin: var(--z-space-5) 0 var(--z-space-3);
+  }
+  .detail-heading h2 {
+    font-size: var(--z-text-sm);
+    font-weight: var(--z-weight-semibold);
+    margin: 0;
+  }
+  .detail-heading span {
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
+  }
+
   .controls {
     display: flex;
     flex-wrap: wrap;
