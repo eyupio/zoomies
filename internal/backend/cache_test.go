@@ -156,6 +156,7 @@ func TestPruneCacheLeavesACacheUnderItsLimitAlone(t *testing.T) {
 // Only a host directory can be measured, so only a host directory is offered up
 // for eviction; a named volume must not be mistaken for a relative path.
 func TestCacheDirectoryOnlyRecognisesHostPaths(t *testing.T) {
+	requirePOSIX(t)
 	volume := Spec{PoolID: "p", Cache: store.CacheConfig{Enabled: true, Scope: store.CacheScopePool}}
 	if _, ok := cacheDirectory(volume); ok {
 		t.Fatal("a named volume was treated as a directory this agent can prune")

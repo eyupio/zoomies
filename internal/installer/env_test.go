@@ -296,6 +296,7 @@ func TestRenderEnvQuotesWhatNeedsIt(t *testing.T) {
 }
 
 func TestWriteEnvIsPrivateAndReadsBack(t *testing.T) {
+	requirePOSIX(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, EnvFileName)
 

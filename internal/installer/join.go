@@ -160,6 +160,11 @@ func Join(ctx context.Context, opts JoinOptions) error {
 			return fmt.Errorf("installer: creating %s: %w", dir, err)
 		}
 	}
+	for _, dir := range []string{opts.configDir(), opts.stateDir()} {
+		if err := restrictWindowsDir(ctx, dir); err != nil {
+			return fmt.Errorf("installer: restricting %s to administrators: %w (run this from an elevated prompt)", dir, err)
+		}
+	}
 	u.ok(opts.configDir() + " and " + opts.stateDir() + " are ready")
 
 	// --- An identity this host already has -------------------------------

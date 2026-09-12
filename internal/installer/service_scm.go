@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 )
 
@@ -183,6 +184,23 @@ func (m *windowsManager) LogCommand() string {
 func (m *windowsManager) exists(ctx context.Context) bool {
 	_, err := m.run(ctx, "sc.exe", "query", m.name())
 	return err == nil
+}
+
+// restrictWindowsDir replaces a directory's inherited ACL with one that only
+// SYSTEM and Administrators can read.
+//
+// %ProgramData% is readable by every local user by default, and the agent's
+// credentials live under it. On POSIX the 0600 on the credentials file is
+// what keeps another account out; on Windows that mode is ignored and the
+// directory's ACL is the only thing that does the same job. A no-op anywhere
+// but Windows.
+func restrictWindowsDir(ctx context.Context, dir string) error {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+	_, err := runCommand(ctx, "icacls", dir, "/inheritance:r",
+		"/grant:r", "SYSTEM:(OI)(CI)F", "/grant:r", "Administrators:(OI)(CI)F")
+	return err
 }
 
 // windowsServiceInstalled reports whether the agent service is registered on
