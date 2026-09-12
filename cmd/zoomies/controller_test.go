@@ -58,6 +58,8 @@ func TestBannerNamesTheSixThingsAnOperatorChecks(t *testing.T) {
 	printBanner(&buf, cfg, nil)
 
 	for _, want := range []string{
+		"(oo)~",
+		"off the lead, on the job",
 		"http://127.0.0.1:8080",
 		"https://zoomies.example.com",
 		"https://zoomies.example.com/webhooks/github",
