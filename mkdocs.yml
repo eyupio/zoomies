@@ -17,7 +17,6 @@ copyright: Zoomies is AGPL-3.0 licensed.
 
 repo_url: https://github.com/eyupio/zoomies
 repo_name: eyupio/zoomies
-edit_uri: edit/main/docs/
 
 docs_dir: docs
 site_dir: site
@@ -52,7 +51,6 @@ theme:
     - search.share
     - content.code.copy
     - content.code.annotate
-    - content.action.edit
   palette:
     # The brand is a near-black identity, so dark is the default and light is
     # the alternative rather than the other way round.
