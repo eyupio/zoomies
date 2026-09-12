@@ -563,6 +563,13 @@ func (c *Config) Validate() Findings {
 				Fix:   "set agent.work_dir, e.g. /var/lib/zoomies/work.",
 			})
 		}
+		if c.Agent.DockerBuildCacheMB < 0 || c.Agent.DockerBuildCacheMB > 1048576 {
+			add(Finding{
+				Code: "agent.docker_build_cache_mb", Severity: SeverityError, Setting: "agent.docker_build_cache_mb",
+				Title: "Docker build cache target must be between 0 and 1048576 MiB",
+				Fix:   "use 5120 for a 5 GiB cache target, or 0 to disable automatic builder cache cleanup.",
+			})
+		}
 		if c.Agent.FinishedRetention < 0 {
 			add(Finding{
 				Code: "agent.finished_retention", Severity: SeverityError, Setting: "agent.finished_retention",

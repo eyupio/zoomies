@@ -196,8 +196,17 @@ whether it is yours to deal with.
 
 * **The runner's workload.** The agent deletes a finished runner's container
   once the controller has heard how it ended and the window an operator gets to
-  read its output — `agent.finished_retention` — has passed. A
-  docker-in-docker sidecar goes with it.
+  read its output — `agent.finished_retention`, default `0s` — has passed. A
+  docker-in-docker sidecar and its anonymous volumes go with it. GitHub job
+  completion, including cancellation and failure, also triggers ephemeral
+  runner removal. The controller recovers pending removals after a restart
+  and retries them until the host confirms success.
+* **Unused Docker builder cache.** Every five minutes the agent asks the host
+  Docker daemon to reduce unused cache toward `agent.docker_build_cache_mb`
+  (default 5 GiB). Active cache is protected; this is a target, not a quota.
+  Set `0` to disable it. Separate Buildx container builders are not covered.
+* **Container logs.** New Docker runner and sidecar containers rotate their
+  logs at 10 MiB with three files retained.
 * **Untracked workloads on a host.** Anything carrying Zoomies' own labels that
   no runner claims is removed, but only after a successful poll and a
   two-minute grace, and only when the controller has said it does not know it.

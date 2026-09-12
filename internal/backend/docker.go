@@ -362,6 +362,7 @@ func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreate
 		// is exactly what a drain means.
 		StopSignal: "SIGINT",
 		HostConfig: &HostConfig{
+			LogConfig: runnerLogConfig(fl),
 			// AutoRemove would delete the container the instant it exits, taking
 			// its exit code and its logs with it -- and those are the two things
 			// a failed job investigation needs. The agent removes it itself once
@@ -484,6 +485,7 @@ func buildDinDConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRe
 		},
 		Cmd: []string{"dockerd", "--host=tcp://127.0.0.1:2375", "--host=unix:///var/run/docker.sock"},
 		HostConfig: &HostConfig{
+			LogConfig: runnerLogConfig(fl),
 			// A nested daemon needs real privileges; this is the cost of the
 			// mode, and the pool that asked for it is flagged as dangerous.
 			Privileged:    true,
@@ -524,7 +526,7 @@ func (b *DockerBackend) Create(ctx context.Context, spec Spec) (Handle, error) {
 	return r.Handle, err
 }
 
-func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (CreateResult, error) {
+func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result CreateResult, createErr error) {
 	if err := spec.Validate(); err != nil {
 		return CreateResult{}, err
 	}
@@ -571,6 +573,17 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (Create
 		return CreateResult{}, err
 	}
 	opts.WorkDirMount, opts.WorkDirOwned = workDir, owned
+	// Every failure after allocating scratch space must unwind it, including a
+	// cancelled pull/start or a lost create response. Use the deterministic
+	// names because the daemon may have created a container without returning
+	// its ID. Cleanup gets its own bounded context, not the expired create's.
+	defer func() {
+		if createErr != nil {
+			if err := b.cleanupFailedCreate(ctx, name, workDir, owned); err != nil {
+				createErr = errors.Join(createErr, err)
+			}
+		}
+	}()
 
 	b.pruneCacheFor(ctx, spec)
 
@@ -611,12 +624,9 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (Create
 	cfg := buildRunnerConfig(spec, b.fl, opts)
 	id, err := b.api.ContainerCreate(ctx, name, cfg)
 	if err != nil {
-		b.cleanupFailedCreate(ctx, dindID, workDir, owned)
 		return CreateResult{}, fmt.Errorf("backend: creating container %s: %w", name, err)
 	}
 	if err := b.api.ContainerStart(ctx, id); err != nil {
-		_ = b.api.ContainerRemove(ctx, id, true)
-		b.cleanupFailedCreate(ctx, dindID, workDir, owned)
 		return CreateResult{}, fmt.Errorf("backend: starting container %s: %w", name, err)
 	}
 
@@ -689,7 +699,6 @@ func (b *DockerBackend) startDinD(ctx context.Context, spec Spec, opts container
 		return "", fmt.Errorf("backend: creating the docker-in-docker sidecar for %s: %w", spec.Name, err)
 	}
 	if err := b.api.ContainerStart(ctx, id); err != nil {
-		_ = b.api.ContainerRemove(ctx, id, true)
 		return "", fmt.Errorf("backend: starting the docker-in-docker sidecar for %s: %w", spec.Name, err)
 	}
 
@@ -698,7 +707,6 @@ func (b *DockerBackend) startDinD(ctx context.Context, spec Spec, opts container
 		return err == nil && insp.State != nil && insp.State.Running
 	}
 	if !waitFor(ctx, running, dindStartTimeout, 200*time.Millisecond) {
-		_ = b.api.ContainerRemove(ctx, id, true)
 		return "", fmt.Errorf("backend: the docker-in-docker sidecar for %s was not running after %s; this host may not allow privileged containers, in which case the pool needs docker_mode none or the podman backend", spec.Name, dindStartTimeout)
 	}
 	b.log.Warn("docker-in-docker sidecar started: this runner has a privileged container",
@@ -706,15 +714,22 @@ func (b *DockerBackend) startDinD(ctx context.Context, spec Spec, opts container
 	return id, nil
 }
 
-func (b *DockerBackend) cleanupFailedCreate(ctx context.Context, dindID, workDir string, owned bool) {
-	if dindID != "" {
-		if err := b.api.ContainerRemove(ctx, dindID, true); err != nil && !errors.Is(err, ErrNotFound) {
-			b.log.Warn("could not remove the docker-in-docker sidecar after a failed create", "container", shortID(dindID), "error", err)
-		}
+func (b *DockerBackend) cleanupFailedCreate(ctx context.Context, name, workDir string, owned bool) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+	defer cancel()
+	if err := b.Remove(cleanupCtx, Handle(name)); err != nil {
+		return fmt.Errorf("cleaning failed runner creation: %w", err)
+	}
+	// There may be a sidecar even when the runner never reached creation.
+	if err := b.removeByName(cleanupCtx, dindName(name)); err != nil {
+		return err
 	}
 	if owned && workDir != "" {
-		_ = os.RemoveAll(workDir)
+		if err := os.RemoveAll(workDir); err != nil {
+			return fmt.Errorf("cleaning failed runner scratch directory: %w", err)
+		}
 	}
+	return nil
 }
 
 // ensureImage applies the pull policy.

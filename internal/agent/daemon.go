@@ -105,7 +105,9 @@ type Options struct {
 	// after it has been reported. The controller's retention.runners is a
 	// different window -- it keeps the row, not the container.
 	FinishedRetention time.Duration
-	Logger            *slog.Logger
+	// DockerBuildCacheMB targets unused host Docker builder cache; 0 disables it.
+	DockerBuildCacheMB int
+	Logger             *slog.Logger
 	// Clock is injectable so tests do not have to sleep.
 	Clock func() time.Time
 	// Machine overrides what this agent reports about the host it runs on.
@@ -261,6 +263,9 @@ func New(opts Options) (*Agent, error) {
 	}
 	if opts.FinishedRetention < 0 {
 		return nil, fmt.Errorf("agent: finished retention %s is negative; set agent.finished_retention to how long a finished runner's output should stay readable on the host, or to 0s to remove it as soon as the controller has been told", opts.FinishedRetention)
+	}
+	if opts.DockerBuildCacheMB < 0 || opts.DockerBuildCacheMB > 1048576 {
+		return nil, fmt.Errorf("agent: Docker build cache target must be between 0 and 1048576 MiB")
 	}
 
 	log := opts.Logger
@@ -547,6 +552,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	run("tasks", a.taskLoop)
 	run("reconcile", a.reconcileLoop)
 	run("watchdog", a.watchdogLoop)
+	if a.opts.DockerBuildCacheMB > 0 {
+		run("build-cache", a.buildCacheLoop)
+	}
 
 	var err error
 	select {

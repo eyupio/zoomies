@@ -343,6 +343,7 @@ type ContainerCreateRequest struct {
 
 // HostConfig carries the isolation and resource settings.
 type HostConfig struct {
+	LogConfig      *LogConfig        `json:"LogConfig,omitempty"`
 	Binds          []string          `json:"Binds,omitempty"`
 	NetworkMode    string            `json:"NetworkMode,omitempty"`
 	AutoRemove     bool              `json:"AutoRemove"`
@@ -360,6 +361,11 @@ type HostConfig struct {
 	ShmSize        int64             `json:"ShmSize,omitempty"`
 	Tmpfs          map[string]string `json:"Tmpfs,omitempty"`
 	RestartPolicy  RestartPolicy     `json:"RestartPolicy"`
+}
+
+type LogConfig struct {
+	Type   string            `json:"Type"`
+	Config map[string]string `json:"Config"`
 }
 
 // RestartPolicy is always "no" for runners: a runner that died has either
