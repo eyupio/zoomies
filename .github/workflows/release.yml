@@ -202,8 +202,8 @@ jobs:
 
       # :latest is not a name this workflow may move for a release candidate.
       #
-      # It is what a default install pulls: docker-compose.yml names it, and
-      # naming.DefaultRunnerImage is the runner repository's :latest. The
+      # It is what docker-compose.yml pulls. The release build stamps its
+      # matching runner tag into the controller. The
       # installer no longer names it at all -- it defaults to the image matching
       # its own build, precisely because a project whose every release so far
       # has a hyphen in it never moves this tag. A tag with
@@ -257,6 +257,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
+            RUNNER_IMAGE_TAG=${{ needs.setup.outputs.tag }}
             VERSION=${{ needs.setup.outputs.version }}
             COMMIT=${{ github.sha }}
             DATE=${{ steps.release.outputs.date }}
@@ -271,6 +272,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
+            RUNNER_IMAGE_TAG=${{ needs.setup.outputs.tag }}
             VERSION=${{ needs.setup.outputs.version }}
             COMMIT=${{ github.sha }}
             DATE=${{ steps.release.outputs.date }}
@@ -297,6 +299,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
+            RUNNER_IMAGE_TAG=${{ needs.setup.outputs.tag }}
             VERSION=${{ needs.setup.outputs.version }}
             COMMIT=${{ github.sha }}
             DATE=${{ steps.release.outputs.date }}
@@ -311,6 +314,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
+            RUNNER_IMAGE_TAG=${{ needs.setup.outputs.tag }}
             VERSION=${{ needs.setup.outputs.version }}
             COMMIT=${{ github.sha }}
             DATE=${{ steps.release.outputs.date }}

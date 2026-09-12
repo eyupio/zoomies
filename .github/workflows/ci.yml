@@ -556,6 +556,7 @@ jobs:
           # the Dockerfile's "dev" default, and nothing in the image says which
           # commit it came from.
           build-args: |
+            RUNNER_IMAGE_TAG=dev
             VERSION=${{ steps.tags.outputs.version }}
             COMMIT=${{ github.sha }}
             DATE=${{ steps.tags.outputs.date }}
@@ -579,6 +580,7 @@ jobs:
           platforms: ${{ steps.platforms.outputs.list }}
           push: ${{ steps.publish.outputs.value }}
           build-args: |
+            RUNNER_IMAGE_TAG=dev
             VERSION=${{ steps.tags.outputs.version }}
             COMMIT=${{ github.sha }}
             DATE=${{ steps.tags.outputs.date }}

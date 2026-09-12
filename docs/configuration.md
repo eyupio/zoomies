@@ -316,8 +316,7 @@ Four images are published to GHCR:
 | `ghcr.io/eyupio/zoomies-runner` | the runner a pool starts |
 | `ghcr.io/eyupio/zoomies-runner-docker` | the same, plus a Docker CLI — a pool is switched to it when its `docker_mode` gives jobs a daemon, see [Jobs that build container images](#jobs-that-build-container-images) |
 
-They share their tag names, and `latest` does not mean the same thing on both
-halves. The difference is deliberate, and it is about who is asking.
+They share their tag names and release/development channels.
 
 **The controller and the agent** follow releases:
 
@@ -350,9 +349,24 @@ published under its own tag and does not move `latest`. Name it to run it.
 | `sha-<commit>` | One exact commit | `ci.yml`, on every push to `main` |
 | `vX.Y.Z` | One tagged release | `release.yml`, on a `v*` tag |
 
-Use `dev` for a pool that should follow a controller tracking `main`. Use
-`latest` for the released channel, pin `vX.Y.Z` to hold one release, or use
-`sha-<commit>` for an image that never changes at all.
+With no image override, development controller images automatically select
+`:dev` runners; platform pools select e.g. `:debian-12-dev`. Release controller
+images select their own release tag, e.g. `:v1.2.3` or `:debian-12-v1.2.3`,
+including when pulled via `:latest`. Docker-enabled pools keep the same tag
+when selecting `zoomies-runner-docker`.
+
+The `dev`, `main` and SHA controller aliases share one image and therefore
+share the `dev` runner default: a container cannot discover which alias was
+used to pull it. For an immutable development runner, explicitly select
+`sha-<commit>` (or `<platform>-sha-<commit>`) in the pool image field.
+Native builds retain the `latest` default. Local container builds default to
+`dev`; set the Docker build argument `RUNNER_IMAGE_TAG` for a different tag.
+
+Explicit pool images, including custom repositories, tags and digests, remain
+overrides. `github.runner_image` / `ZOOMIES_RUNNER_IMAGE` still overrides the
+fallback for pools without a platform. Leave these unset to follow the build.
+Existing saved `:latest` values are treated as explicit overrides; clear the
+pool image and remove any fallback setting to restore automatic selection.
 
 Both runner images are also published with one tag per operating system —
 `ubuntu-2404`, `ubuntu-2204`, `debian-12`, `fedora-42`, `rocky-9`, each built

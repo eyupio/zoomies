@@ -104,3 +104,37 @@ func TestDefaultRunnerImage(t *testing.T) {
 		t.Errorf("SupportedPlatforms = %q, which does not name the default", SupportedPlatforms())
 	}
 }
+
+func TestRunnerImagesFollowBuildChannelAndKeepOverrides(t *testing.T) {
+	original := RunnerImageTag
+	t.Cleanup(func() { RunnerImageTag = original })
+	for _, tag := range []string{"latest", "dev", "main", "sha-abc1234", "v1.2.3", "v1.3.0-rc1"} {
+		t.Run(tag, func(t *testing.T) {
+			RunnerImageTag = tag
+			fallback := DefaultRunnerImage()
+			if want := RunnerImageRepo + ":" + tag; fallback != want {
+				t.Fatalf("default = %q, want %q", fallback, want)
+			}
+			for _, variant := range Images() {
+				want := variant.Ref()
+				if tag != "latest" {
+					want += "-" + tag
+				}
+				if got := ResolveRunnerImage("", variant.OS, variant.Version, fallback); got != want {
+					t.Errorf("platform %s = %q, want %q", variant.Tag(), got, want)
+				}
+			}
+			for _, override := range []string{RunnerImageRepo + ":latest", "registry.example/runner:custom", "registry.example/runner@sha256:abcd"} {
+				if got := ResolveRunnerImage(override, "debian", "12", fallback); got != override {
+					t.Errorf("pool override changed to %q", got)
+				}
+				if got := ResolveRunnerImage("", "", "", override); got != override {
+					t.Errorf("instance override changed to %q", got)
+				}
+			}
+			if got := ResolveRunnerImage("", "", "", fallback); got != fallback {
+				t.Errorf("fallback = %q, want %q", got, fallback)
+			}
+		})
+	}
+}

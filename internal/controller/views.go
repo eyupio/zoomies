@@ -9,7 +9,6 @@ import (
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/github"
-	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
 )
@@ -643,8 +642,8 @@ func (c *Controller) PoolRenderer(ctx context.Context) (*PoolRenderer, error) {
 // way the controller resolves it when it makes one -- including the Docker
 // variant a pool that gives its jobs a daemon gets.
 func (v *PoolRenderer) image(p *store.Pool) string {
-	image := naming.ResolveRunnerImage(p.Image, p.Platform.OS, p.Platform.OSVersion, v.defaultImage)
-	return config.RunnerImageFor(image, p.DockerMode.GivesDaemon())
+	return config.ResolvePoolRunnerImage(p.Image, p.Platform.OS, p.Platform.OSVersion,
+		v.defaultImage, p.DockerMode.GivesDaemon())
 }
 
 // View renders one pool.
