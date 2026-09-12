@@ -56,3 +56,12 @@ updates:
     groups:
       images:
         patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: /docs
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      docs:
+        patterns: ["*"]

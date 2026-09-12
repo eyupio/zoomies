@@ -4,7 +4,7 @@
 # is pure Go) so the runtime image can be distroless.
 
 # ---- UI ---------------------------------------------------------------------
-FROM node:26-alpine AS ui
+FROM node:26-alpine@sha256:ef24c5053d50fdc3e4e56eb4e7ddb7861874ab0fdc797046ba897581deb8e868 AS ui
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json* ./
 # No `|| npm install` fallback: that turns a lockfile CI would reject into an
@@ -14,7 +14,7 @@ COPY web/ ./
 RUN npm run build
 
 # ---- Go ---------------------------------------------------------------------
-FROM golang:1.27-alpine AS build
+FROM golang:1.27-alpine@sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125 AS build
 WORKDIR /src
 RUN apk add --no-cache git ca-certificates
 COPY go.mod go.sum ./
@@ -46,7 +46,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 RUN install -d -m 0750 /out/state
 
 # ---- Runtime ----------------------------------------------------------------
-FROM gcr.io/distroless/static-debian12:nonroot AS controller
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab AS controller
 # Re-declared after FROM: the ones set above are out of scope here, and a label
 # written from an ARG that is not in scope is silently empty.
 ARG VERSION=dev
@@ -97,7 +97,7 @@ CMD ["controller"]
 # The agent needs a shell only when it uses the process backend; for the
 # container backends distroless is enough. It talks to the Docker or Podman
 # socket, which is bind-mounted in.
-FROM gcr.io/distroless/static-debian12:nonroot AS agent
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab AS agent
 # Re-declared after FROM for the same reason the controller's are: the ARGs set
 # in the build stage are out of scope here, and a label written from one that is
 # not in scope is silently empty.

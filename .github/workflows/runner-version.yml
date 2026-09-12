@@ -16,11 +16,13 @@ on:
         options: [zoomies, github]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   check:
+    permissions:
+      contents: write
+      pull-requests: write
     runs-on: ${{ inputs.runner == 'github' && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
