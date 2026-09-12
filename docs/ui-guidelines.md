@@ -634,6 +634,24 @@ ranges:
   collapse.
 * `> 1180px` — **full.**
 
+An overlay that covers the screen — the drawer, the dialogs, the command
+palette, the side menu, the bar along the bottom and the toasts — takes its
+width from `--z-window-width`, never from a bare `100%` or `inset`. A phone
+answers a page that overflows sideways by laying the whole thing out in a wider
+block and showing it smaller, and everything `position: fixed` is laid out
+against that block rather than against the screen. One row a few pixels past
+the edge is therefore not one row: it put the problems drawer at its desktop
+760px, anchored to the right-hand end of a block twice the width of the phone,
+and left an operator looking at a sliver of a panel whose close button was off
+the side of the screen. `min(100vw, 100%)` is the window on a phone, and on a
+desktop it is the side of the two that does not add a scrollbar.
+
+The mobile project emulates a 412px Pixel 7, which is the forgiving end of the
+range most phones are in, so two of its tests set 360px instead and walk every
+section at it. That is where a settings row — 15rem of key, the value beside it
+— ran **Change** over the edge, and with it the document and every overlay laid
+out against it.
+
 A third threshold is not a judgement call to be made per component. Four
 components had one each — 560, 640 and 720 — and every one of them was a "stack
 this on a phone" rule written to a width somebody eyeballed. They are all 768px

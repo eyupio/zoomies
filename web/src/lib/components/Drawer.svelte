@@ -85,7 +85,12 @@
 <style>
   .backdrop {
     position: fixed;
-    inset: 0;
+    /* Anchored to the window rather than stretched across the document: see
+       --z-window-width. This panel is the one that showed what that costs --
+       it hangs off the right edge, so a document a few hundred pixels too wide
+       took the whole drawer off the side of the screen with it. */
+    inset: 0 auto 0 0;
+    width: var(--z-window-width);
     z-index: var(--z-layer-drawer);
     display: flex;
     justify-content: flex-end;
@@ -132,15 +137,24 @@
     padding: var(--z-space-5);
     border-bottom: var(--z-border-width) solid var(--z-border);
   }
+  /* A title is a job's name or an audit action, so it is as long as whoever
+     wrote the workflow made it. Without these the heading kept its full width
+     and pushed Close off the side of the panel, which on a phone is the only
+     way out of the drawer an operator can see. */
+  .heading {
+    min-width: 0;
+  }
   h2 {
     margin: 0;
     font-size: var(--z-text-lg);
     font-weight: var(--z-weight-semibold);
+    overflow-wrap: anywhere;
   }
   header p {
     margin: var(--z-space-1) 0 0;
     font-size: var(--z-text-sm);
     color: var(--z-text-muted);
+    overflow-wrap: anywhere;
   }
   .body {
     flex: 1;
@@ -161,6 +175,20 @@
     from {
       transform: translateX(var(--z-space-4));
       opacity: 0;
+    }
+  }
+  /*
+    On a phone the panel is the whole screen, so its bottom edge is the one the
+    home indicator sits on. index.html asks for viewport-fit=cover, so the gap
+    is honoured here rather than declared and ignored -- the footer holds the
+    drawer's actions, and a button half under the indicator is a button that
+    takes two goes to press.
+  */
+  @media (max-width: 768px) {
+    .body,
+    .body.flush,
+    footer {
+      padding-bottom: calc(var(--z-space-4) + env(safe-area-inset-bottom, 0px));
     }
   }
 </style>

@@ -260,10 +260,13 @@
     .nav.phone {
       position: fixed;
       inset-block: auto 0;
-      inset-inline: 0;
+      inset-inline: 0 auto;
       flex-direction: row;
       align-items: center;
-      width: 100%;
+      /* The window, not the document: see --z-window-width. A page that
+         overflows sideways used to spread these five entries across its whole
+         width, leaving half the bar off the screen. */
+      width: var(--z-window-width);
       height: auto;
       /* The home-indicator gap on an iPhone: index.html asks for
          viewport-fit=cover, so the inset has to be honoured somewhere. */

@@ -438,6 +438,18 @@
     gap: var(--z-space-1);
     margin: 0;
   }
+  /*
+    A badge holds a status word and does not wrap, which is right for every
+    other one of them. These carry a host name chosen by whoever enrolled the
+    machine, and `ip-10-0-31-44.eu-west-1.compute.internal` is wider than a
+    phone on its own: it took the page sideways rather than the name onto a
+    second line, which is the wrong way round.
+  */
+  .match-hosts :global(.badge) {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
   .more {
     font-size: var(--z-text-2xs);
     color: var(--z-text-muted);

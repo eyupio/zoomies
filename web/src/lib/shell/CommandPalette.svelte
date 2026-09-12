@@ -452,7 +452,9 @@
 <style>
   .backdrop {
     position: fixed;
-    inset: 0;
+    /* The window, not the document: see --z-window-width. */
+    inset: 0 auto 0 0;
+    width: var(--z-window-width);
     z-index: var(--z-layer-palette);
     display: flex;
     align-items: flex-start;

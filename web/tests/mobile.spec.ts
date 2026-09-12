@@ -8,7 +8,7 @@
  *
  * These run only in the Pixel 7 project; the desktop project skips them.
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import {
   browserOverride,
   dataRows,
@@ -438,4 +438,188 @@ test('every text control is at least 16px, so tapping one does not zoom the page
     );
     expect(small, `${path}: every text control is 16px or more on a phone`).toEqual([]);
   }
+});
+
+/*
+ * The reported bug, and the class it belongs to.
+ *
+ * A mobile browser answers a page that overflows sideways by laying the whole
+ * thing out in a wider block and showing it smaller, and every `position:
+ * fixed` overlay is laid out against that block rather than against the
+ * screen. One row a few pixels past the edge is therefore not one row: the
+ * problems drawer sized itself against an 800px block, anchored to the
+ * right-hand end of it, and an operator on a 412px phone was left looking at a
+ * sliver of a panel whose close button was off the side of the screen. The
+ * side menu, the command palette, the dialogs and the bottom navigation all
+ * sit in the same block and all go with it.
+ *
+ * The page is widened here deliberately rather than by finding a page that
+ * does it, because the fix is not "no page is ever too wide" -- the rest of
+ * this file is what protects that. It is that an overlay covers the window
+ * whatever the page underneath it has done. Each one is opened first and the
+ * page widened under it, which is both the order an operator meets this in and
+ * the only order a test can use: once the page is laid out at twice the size,
+ * the bottom bar is past the foot of the window as far as a click is
+ * concerned.
+ */
+test('an overlay covers the window, not a page that has outgrown it', async ({ page }) => {
+  await goto(page, '/', 'Overview');
+  const window = (await documentWidth(page)).clientWidth;
+
+  /** Puts a row past the right edge, the way a wide table or a long name does. */
+  async function widenThePage(): Promise<void> {
+    await page.evaluate((width) => {
+      if (document.getElementById('too-wide')) return;
+      const filler = document.createElement('div');
+      filler.id = 'too-wide';
+      filler.style.cssText = `width:${width * 2}px;height:8px`;
+      document.querySelector('main')?.append(filler);
+    }, window);
+    const { scrollWidth, clientWidth } = await documentWidth(page);
+    expect(scrollWidth, 'the page really is wider than the window now').toBeGreaterThan(
+      clientWidth,
+    );
+  }
+
+  /**
+   * And put it back, so the next overlay is opened from a normal page.
+   *
+   * Necessary rather than tidy: while the page is wide the browser lays
+   * everything out at twice the size, which puts the bottom bar past the foot
+   * of the window and out of reach of a press.
+   */
+  async function narrowThePage(): Promise<void> {
+    await page.evaluate(() => document.getElementById('too-wide')?.remove());
+    await expectNoSidewaysScroll(page, 'the page with the filler taken out again');
+  }
+
+  /** The overlay is no wider than the screen, and starts at its edge. */
+  async function expectWithinTheWindow(what: Locator, name: string): Promise<void> {
+    // Measured once it has finished sliding in: these panels arrive from off
+    // the edge, and mid-flight is the animation rather than the rule.
+    await what.evaluate(async (node) => {
+      await Promise.all(node.getAnimations().map((animation) => animation.finished));
+    });
+    const box = await what.boundingBox();
+    expect(box, `${name} is on screen`).not.toBeNull();
+    expect(box!.x, `${name} starts off the left edge`).toBeGreaterThanOrEqual(-0.5);
+    expect(box!.width, `${name} is wider than the screen`).toBeLessThanOrEqual(window + 0.5);
+  }
+
+  await page.getByRole('button', { name: /^Problems\./ }).click();
+  const drawer = page.getByRole('dialog', { name: 'Problems' });
+  await expect(drawer).toBeVisible();
+  await widenThePage();
+  await expectWithinTheWindow(drawer, 'the problems drawer');
+  // And it is the whole window rather than a column down one side of it: a
+  // phone has no room for a panel beside the page it came from.
+  expect((await drawer.boundingBox())!.width, 'the drawer fills the phone').toBeCloseTo(window, 0);
+  // The bar along the bottom is laid out in the same block and was the other
+  // half of the reported capture: five entries spread across a page twice the
+  // width of the screen, with three of them off the right of it.
+  await expectWithinTheWindow(nav(page), 'the bottom navigation');
+  await narrowThePage();
+  await page.keyboard.press('Escape');
+  await expect(drawer).toHaveCount(0);
+
+  const menu = await openNavMenu(page);
+  await widenThePage();
+  await expectWithinTheWindow(menu, 'the side menu');
+  await narrowThePage();
+  await page.keyboard.press('Escape');
+  await expect(navMenu(page)).toHaveCount(0);
+
+  await page.keyboard.press('Control+k');
+  const palette = page.getByRole('dialog', { name: 'Command palette' });
+  await expect(palette).toBeVisible();
+  await widenThePage();
+  await expectWithinTheWindow(palette, 'the command palette');
+  await narrowThePage();
+  await page.keyboard.press('Escape');
+});
+
+/*
+ * The same rule as the tests above, at the width most Android phones actually
+ * are. The Pixel 7 these run on is 412px, which turned out to be the forgiving
+ * end of the range: a settings row gives its key 15rem and puts the value
+ * beside it, which at 412px leaves Change just enough room and at 360px leaves
+ * it hanging over the edge -- taking the document, and every fixed overlay
+ * laid out against it, with it.
+ */
+test('every section fits a 360px phone, not just the one these tests emulate', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 780 });
+
+  for (const section of SECTIONS) {
+    await goto(page, section.path, sectionHeading(section));
+    await expectNoSidewaysScroll(page, `${section.label} at 360px`);
+  }
+
+  // Settings hides four of its five panels behind tabs, and the one that holds
+  // the rows is not the one it opens on.
+  await goto(page, '/settings', 'Settings');
+  for (const name of ['Users', 'API tokens', 'Appearance', 'Configuration', 'About']) {
+    await page.getByRole('tab', { name }).click();
+    await expect(page.getByRole('tab', { name })).toHaveAttribute('aria-selected', 'true');
+    await expectNoSidewaysScroll(page, `the Settings ${name} panel at 360px`);
+  }
+});
+
+/*
+ * Names Zoomies did not choose: a host enrolled as
+ * `ip-10-0-31-44.eu-west-1.compute.internal`, a workflow job called whatever
+ * its author called it. Both are wider than a phone with nowhere to break, and
+ * both used to be rendered in something that refuses to wrap -- a badge, or a
+ * drawer's heading. The badge took the page sideways; the heading kept its
+ * width and pushed the drawer's Close off the panel, which on a phone is the
+ * only way out of it an operator can see.
+ *
+ * The names are put into the responses rather than into the fleet, for the
+ * reason hostile-input.spec.ts gives: what is under test is what the page does
+ * with a name it is given.
+ */
+test('a name nobody chose wraps rather than taking the page or Close off the screen', async ({
+  page,
+}) => {
+  // At the width of the phone above it, rather than the one these tests
+  // emulate: the badge fits a fifty-character hostname at 412px and hangs over
+  // the edge at 360px, which is the width most of them are.
+  await page.setViewportSize({ width: 360, height: 780 });
+  const hostile = 'ip-10-0-31-44.eu-west-1.compute.internal.example.invalid';
+
+  await page.route('**/api/v1/hosts**', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    if (Array.isArray(body.items)) for (const host of body.items) host.name = hostile;
+    await route.fulfill({ response, json: body });
+  });
+  await page.route('**/api/v1/jobs**', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    if (Array.isArray(body.items)) for (const job of body.items) job.job_name = hostile;
+    await route.fulfill({ response, json: body });
+  });
+
+  // The pool wizard names every host that would match, in a badge each.
+  await goto(page, '/pools/new', 'Create a pool');
+  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByText(hostile).first()).toBeVisible();
+  await expectNoSidewaysScroll(page, 'the pool wizard naming a long host');
+
+  // The job drawer is titled with the job's name.
+  await goto(page, '/jobs', 'Jobs');
+  const row = dataRows(grid(page, 'Jobs')).first();
+  await expect(row).toContainText(hostile);
+  await row.click();
+  const drawer = page.getByRole('dialog', { name: hostile });
+  await expect(drawer).toBeVisible();
+  const close = drawer.getByRole('button', { name: 'Close' });
+  const box = await close.boundingBox();
+  const panel = await drawer.boundingBox();
+  expect(box, 'the drawer has a close button').not.toBeNull();
+  expect(
+    box!.x + box!.width,
+    'Close was pushed off the side of the panel by the title',
+  ).toBeLessThanOrEqual(panel!.x + panel!.width + 0.5);
+  await expectNoSidewaysScroll(page, 'the job drawer titled with a long name');
 });

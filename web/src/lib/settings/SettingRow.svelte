@@ -237,4 +237,16 @@
     line-height: var(--z-leading-xs);
     color: var(--z-text-muted);
   }
+  /*
+    The key column is 15rem, which on a 360px phone leaves the value about
+    forty pixels to hold a value and the button that changes it. Change kept
+    its own width, sat past the right edge where it could not be pressed, and
+    took the page sideways with it -- and the fixed navigation, which is laid
+    out against the document, went with the page. So the two stack.
+  */
+  @media (max-width: 768px) {
+    .row {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
 </style>
