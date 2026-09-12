@@ -637,6 +637,7 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "GET", path: "/api/v1/installations/" + ids.installation + "/rate-limit", role: store.RoleViewer, action: auth.ActionInstallationsRead},
 		{method: "POST", path: "/api/v1/installations/manifest", role: store.RoleAdmin, action: auth.ActionInstallationsWrite,
 			body: map[string]any{"target": "acme", "target_type": "org"}},
+		{method: "POST", path: "/api/v1/installations/manifest/handoff", role: store.RoleAdmin, action: auth.ActionInstallationsWrite},
 		{method: "POST", path: "/api/v1/installations/manifest/exchange", role: store.RoleAdmin, action: auth.ActionInstallationsWrite,
 			body: map[string]any{"code": ""}},
 		{method: "GET", path: "/api/v1/webhook-deliveries", role: store.RoleViewer, action: auth.ActionWebhooksRead},
