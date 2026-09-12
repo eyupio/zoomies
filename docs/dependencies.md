@@ -84,6 +84,14 @@ The Codecov GitHub App must have access to `eyupio/zoomies`. CI uploads
 Fork and Dependabot pull requests keep the tests and coverage summary but skip
 the upload because their restricted permissions do not provide the OIDC token.
 
+`make cover` measures with `-coverpkg=./...`, and that flag is load-bearing
+rather than a detail. Without it Go credits a package only for the lines its
+own `_test.go` files run, and this repository deliberately tests several things
+through the layer above them — the controller's migration service is driven
+entirely by `internal/api`'s handler tests. Those files reported 0%, which is
+worse than a low number: it is a dashboard pointing the next contributor at the
+best-covered file in the tree.
+
 ## Deliberate omissions
 
 **`github.com/docker/docker`.** The official client drags in a very large
