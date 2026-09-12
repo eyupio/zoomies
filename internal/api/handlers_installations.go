@@ -768,11 +768,9 @@ func (s *Server) handleCreateManifest(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleManifestHandoff keeps the operator's click on the Zoomies origin and
-// redirects the same POST to GitHub. Android may offer an app/browser chooser
-// when a user-initiated form points directly at github.com; following an HTTP
-// redirect is ordinary navigation in the browser that already owns the setup
-// state.
+// handleManifestHandoff is retained for older, already-loaded dashboards.
+// Current dashboards submit directly to GitHub: Android can dispatch redirected
+// form submissions to another app, so this is not a mobile browser-locking proxy.
 func (s *Server) handleManifestHandoff(w http.ResponseWriter, r *http.Request) {
 	state := strings.TrimSpace(r.URL.Query().Get("state"))
 	pending := s.manifests.peek(state)

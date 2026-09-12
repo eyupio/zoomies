@@ -36,7 +36,11 @@ test('the callback with nothing on it is still a page, not a dead end', async ({
   await expect(page.getByRole('dialog', { name: 'Connect GitHub' })).toBeHidden();
 });
 
-test('creating an App explicitly keeps the GitHub handoff in this tab', async ({ page }) => {
+// Device emulation tests the actual form requests, not Android's OS intent
+// dispatcher. Physical Android validation is still required for the chooser.
+test('GitHub creation and installation use direct native forms and survive a reload', async ({
+  page,
+}) => {
   await page.route('**/api/v1/meta', async (route) => {
     const response = await route.fetch();
     const meta = (await response.json()) as Record<string, unknown>;
@@ -68,10 +72,83 @@ test('creating an App explicitly keeps the GitHub handoff in this tab', async ({
   await expect(handoff).toHaveAttribute('target', '_self');
   await expect(handoff).toHaveAttribute(
     'action',
-    /\/api\/v1\/installations\/manifest\/handoff\?state=same-tab-state$/,
+    'https://github.com/settings/apps/new?state=same-tab-state',
   );
   await expect(handoff.locator('input[name="manifest"]')).toHaveValue('{"name":"zoomies-acme"}');
   await expect(dialog.getByText(/in this tab/i)).toBeVisible();
+
+  await page.route('https://github.com/**', (route) =>
+    route.fulfill({ contentType: 'text/html', body: '<h1>GitHub test destination</h1>' }),
+  );
+  const creation = page.waitForRequest('https://github.com/settings/apps/new?state=same-tab-state');
+  await dialog.getByRole('button', { name: 'Create the App on GitHub' }).click();
+  const request = await creation;
+  expect(request.method()).toBe('POST');
+  expect(request.redirectedFrom()).toBeNull();
+  expect(new URLSearchParams(request.postData() ?? '').get('manifest')).toBe(
+    '{"name":"zoomies-acme"}',
+  );
+  await expect(page).toHaveURL('https://github.com/settings/apps/new?state=same-tab-state');
+  expect(page.context().pages()).toHaveLength(1);
+
+  await page.route('**/api/v1/installations/manifest/exchange', (route) =>
+    route.fulfill({
+      json: {
+        app_id: 123,
+        slug: 'zoomies-acme',
+        target: 'acme',
+        target_type: 'org',
+        install_url:
+          'https://github.com/apps/zoomies-acme/installations/new?state=install-state&x=one&x=two',
+      },
+    }),
+  );
+  await goto(
+    page,
+    '/settings/github/setup?code=returned-code&state=same-tab-state',
+    'Installations',
+  );
+  await expect(dialog.getByRole('button', { name: 'Install it on acme' })).toBeVisible();
+  await page.reload();
+  await page.getByRole('button', { name: 'Connect GitHub' }).first().click();
+  const installation = page.waitForRequest(
+    'https://github.com/apps/zoomies-acme/installations/new?**',
+  );
+  await dialog.getByRole('button', { name: 'Install it on acme' }).click();
+  const installRequest = await installation;
+  expect(installRequest.method()).toBe('GET');
+  expect(installRequest.redirectedFrom()).toBeNull();
+  const destination = new URL(installRequest.url());
+  expect(destination.searchParams.get('state')).toBe('install-state');
+  expect(destination.searchParams.getAll('x')).toEqual(['one', 'two']);
+  await expect(page).toHaveURL(installRequest.url());
+  expect(page.context().pages()).toHaveLength(1);
+});
+
+test('a return URL from another browser can be exchanged without local setup storage', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/installations/manifest/exchange', (route) =>
+    route.fulfill({
+      json: { app_id: 123, slug: 'zoomies-acme', target: 'acme', target_type: 'org' },
+    }),
+  );
+  // Fresh context, no saved handshake. A callback without state exposes the
+  // manual exchange; the pasted full URL supplies the state from the other tab.
+  await goto(page, '/settings/github/setup?code=unused', 'Installations');
+  const dialog = page.getByRole('dialog', { name: 'Connect GitHub' });
+  await dialog
+    .getByLabel('Code from GitHub')
+    .fill(
+      'https://zoomies.example.test/settings/github/setup?code=recovered-code&state=recovered-state',
+    );
+  const exchange = page.waitForRequest('**/api/v1/installations/manifest/exchange');
+  await dialog.getByRole('button', { name: 'Exchange the code' }).click();
+  expect((await exchange).postDataJSON()).toMatchObject({
+    code: 'recovered-code',
+    state: 'recovered-state',
+  });
+  await expect(dialog).toContainText('zoomies-acme exists');
 });
 
 /**
