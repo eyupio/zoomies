@@ -14,6 +14,8 @@
   fleet does.
 -->
 <script lang="ts">
+  import HostLandscape from '$lib/insights/HostLandscape.svelte';
+  import { hostSignals } from '$lib/insights/signals';
   import MetricGrid from '$lib/components/MetricGrid.svelte';
   import { Plus, Server } from '@lucide/svelte';
   import { cordonHost, listJoinTokens } from '$lib/api/client';
@@ -39,7 +41,7 @@
   const hosts = $derived(
     [...fleet.hosts].sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')),
   );
-  const healthy = $derived(hosts.filter((h) => h.healthy !== false).length);
+  const healthy = $derived(hosts.filter((h) => h.healthy === true).length);
   const capacity = $derived(hosts.reduce((sum, h) => sum + (h.capacity ?? 0), 0));
   const inUse = $derived(hosts.reduce((sum, h) => sum + (h.active_runners ?? 0), 0));
 
@@ -186,6 +188,19 @@
     <MetricGrid
       items={[
         {
+          label: 'Available host slots',
+          value: hosts
+            .filter((h) => hostSignals(h).eligible)
+            .every((h) => hostSignals(h).free !== null)
+            ? String(
+                hosts
+                  .filter((h) => hostSignals(h).eligible)
+                  .reduce((n, h) => n + (hostSignals(h).free ?? 0), 0),
+              )
+            : '—',
+          detail: 'Healthy, uncordoned, compatible hosts; runner fit still applies',
+        },
+        {
           label: 'Hosts reporting healthy',
           value: `${healthy} / ${hosts.length}`,
           detail: 'Live fleet health',
@@ -211,6 +226,17 @@
         },
       ]}
     />
+    <div class="capacity-map">
+      <HostLandscape
+        {hosts}
+        onmanage={(host) => {
+          const heading = document.getElementById(`host-${host.id}-name`);
+          heading?.scrollIntoView({ block: 'center' });
+          heading?.focus({ preventScroll: true });
+        }}
+      />
+    </div>
+    <h2 class="controls-heading">Host controls and configuration</h2>
     <div class="grid">
       {#each hosts as host (host.id)}
         <HostCard
@@ -264,6 +290,14 @@
 <HostDeleteDialog bind:open={deleteOpen} host={deleting} onclose={() => (deleting = null)} />
 
 <style>
+  .capacity-map {
+    margin-bottom: var(--z-space-5);
+  }
+  .controls-heading {
+    font-size: var(--z-text-sm);
+    margin: 0 0 var(--z-space-3);
+    font-weight: var(--z-weight-semibold);
+  }
   .content {
     display: flex;
     flex-direction: column;

@@ -184,6 +184,15 @@
           <span class="muted">Not checked</span>
         {:else}
           {formatNumber(rate.remaining)}{rate.limit ? ` of ${formatNumber(rate.limit)}` : ''} left
+          {#if rate.limit && rate.limit > 0}<meter
+              class="quota-meter"
+              min="0"
+              max={rate.limit}
+              low={rate.limit * 0.1}
+              optimum={rate.limit}
+              value={Math.min(rate.limit, Math.max(0, rate.remaining))}
+              aria-label="GitHub API requests remaining">{rate.remaining} of {rate.limit}</meter
+            >{/if}
           {#if rate.reset_at}
             <span class="muted">· resets <RelativeTime value={rate.reset_at} plain /></span>
           {/if}
@@ -367,5 +376,13 @@
     font-size: var(--z-text-xs);
     line-height: var(--z-leading-xs);
     overflow-wrap: anywhere;
+  }
+  .quota-meter {
+    display: block;
+    width: 100%;
+    max-width: 18rem;
+    height: var(--z-space-3);
+    margin-top: var(--z-space-2);
+    accent-color: var(--z-accent);
   }
 </style>

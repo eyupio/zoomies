@@ -34,6 +34,7 @@
   whether they have.
 -->
 <script lang="ts">
+  import HostLandscape from '$lib/insights/HostLandscape.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Switch from '$lib/components/Switch.svelte';
@@ -117,6 +118,7 @@
       </div>
       <ActiveJobs />
     </div>
+    {#if fleet.loaded}<HostLandscape hosts={fleet.hosts} compact />{/if}
     <RecentOutcomes />
   </div>
 {/if}

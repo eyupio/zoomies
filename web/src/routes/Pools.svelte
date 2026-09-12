@@ -1,11 +1,12 @@
 <!--
   Pools: what runners to make.
 
-  The grid is the whole page. Everything an operator asks of this list -- is it
+  Demand and headroom summaries lead into the grid. Everything an operator asks of this list -- is it
   enabled, is it at its ceiling, is anything queued behind it, and is anything
   dangerous switched on -- is answerable without opening a row.
 -->
 <script lang="ts">
+  import PoolPressure from '$lib/insights/PoolPressure.svelte';
   import { Gauge, Pencil, Plug, Plus, Power, PowerOff, Search, Trash2 } from '@lucide/svelte';
   import {
     deletePool,
@@ -522,6 +523,8 @@
     </div>
   </FilterBar>
 </div>
+
+<PoolPressure pools={fleet.pools.filter(matches)} />
 
 <DataGrid
   gridId="pools"

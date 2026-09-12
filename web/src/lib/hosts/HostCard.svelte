@@ -202,7 +202,7 @@
 <article class="card {className}" aria-labelledby="host-{host.id}-name">
   <header>
     <div class="identity">
-      <h3 id="host-{host.id}-name">{host.name || host.id}</h3>
+      <h3 id="host-{host.id}-name" tabindex="-1">{host.name || host.id}</h3>
       <div class="badges">
         <Badge {status} size="sm" title={status.hint} />
         {#if host.incompatible}

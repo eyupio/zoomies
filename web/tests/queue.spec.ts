@@ -27,7 +27,7 @@ test('queue controls persist, filter and restore demand without changing GitHub 
     await expect(page.getByRole('status').filter({ hasText: '1 updated' })).toBeVisible();
     await page.reload();
     await page.getByRole('button', { name: /Paused.*Demand on hold/ }).click();
-    await expect(page.getByRole('table', { name: 'Provisioning queue' })).toContainText(
+    await expect(page.getByRole('grid', { name: 'Provisioning queue' })).toContainText(
       job.job_name,
     );
     await page.getByRole('button', { name: 'Select all matching', exact: true }).click();

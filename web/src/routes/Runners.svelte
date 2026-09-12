@@ -1,7 +1,7 @@
 <!--
   Runners: what exists right now.
 
-  The grid is the page. Every filter lives in the query string, so a narrowed
+  Live operational context precedes the grid. Every filter lives in the query string, so a narrowed
   view -- "busy runners on host-2" -- is a URL somebody can paste into a chat
   window and land on exactly what you were looking at.
 
@@ -13,6 +13,8 @@
   both the cache and the page of rows up to date.
 -->
 <script lang="ts">
+  import RunnerInsights from '$lib/insights/RunnerInsights.svelte';
+  import FleetHistory from '$lib/insights/FleetHistory.svelte';
   import { CircleSlash, Search, Trash2 } from '@lucide/svelte';
   import { listRunners } from '$lib/api/client';
   import { RUNNER_STATES, type Runner, type RunnerState } from '$lib/api/types';
@@ -426,6 +428,11 @@
   onrefresh={() => fleet.reconcile()}
 />
 
+<RunnerInsights {poolId} />
+<details class="activity-history">
+  <summary>Explore fleet activity over the last hour</summary><FleetHistory />
+</details>
+
 <div class="filters">
   <FilterBar {chips} onclear={clearFilters}>
     <div class="search">
@@ -512,6 +519,21 @@
 />
 
 <style>
+  .activity-history {
+    margin: var(--z-space-4) 0 var(--z-space-5);
+  }
+  .activity-history summary {
+    padding: var(--z-space-3);
+    color: var(--z-accent);
+    font-size: var(--z-text-sm);
+    cursor: pointer;
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface);
+  }
+  .activity-history[open] summary {
+    margin-bottom: var(--z-space-3);
+  }
   .filters {
     margin-bottom: var(--z-space-4);
   }
