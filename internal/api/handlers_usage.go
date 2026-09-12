@@ -33,9 +33,9 @@ func usageParams(r *http.Request) (time.Time, time.Time, store.UsageGroup, error
 		g = store.UsageByPool
 	}
 	switch g {
-	case store.UsageByPool, store.UsageByInstallation, store.UsageByRepository, store.UsageByWorkflow:
+	case store.UsageByHost, store.UsageByPool, store.UsageByInstallation, store.UsageByRepository, store.UsageByWorkflow:
 	default:
-		return f, t, g, fmt.Errorf("group_by must be installation, repository, workflow, or pool")
+		return f, t, g, fmt.Errorf("group_by must be installation, repository, workflow, host, or pool")
 	}
 	return f, t, g, nil
 }
@@ -52,6 +52,7 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, "querying usage", err)
 		return
 	}
+	rows = filterUsageRows(rows, r)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"from": f, "to": t, "group_by": g, "items": rows,
 		"costs_are_estimates": true,
@@ -72,6 +73,7 @@ func (s *Server) handleUsageCSV(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, "querying usage", err)
 		return
 	}
+	rows = filterUsageRows(rows, r)
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="zoomies-usage.csv"`)
 	c := csv.NewWriter(w)
@@ -115,4 +117,17 @@ func csvText(s string) string {
 		return "'" + s
 	}
 	return s
+}
+
+func filterUsageRows(rows []store.UsageRow, r *http.Request) []store.UsageRow {
+	if keys, ok := r.URL.Query()["key"]; ok && len(keys) > 0 {
+		out := make([]store.UsageRow, 0)
+		for _, row := range rows {
+			if row.Key == keys[0] {
+				out = append(out, row)
+			}
+		}
+		return out
+	}
+	return rows
 }

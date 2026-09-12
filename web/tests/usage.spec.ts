@@ -124,3 +124,31 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.getByLabel('to', { exact: true })).toHaveCSS('color-scheme', theme);
   });
 }
+
+test('analytics supports keyboard inspection, group focus and matching CSV exports', async ({
+  page,
+}) => {
+  await goto(page, '/usage', 'Usage');
+  await expect(page.getByRole('region', { name: 'Usage over time', exact: true })).toBeVisible();
+  await page.getByLabel('Chart metric').selectOption('execution');
+  await expect(page.getByRole('img', { name: /Runner hours trend/ })).toBeVisible();
+  const matrix = page.getByRole('region', { name: 'Activity matrix', exact: true });
+  const dot = matrix.getByRole('button').first();
+  await dot.focus();
+  await expect(dot).toBeFocused();
+  await expect(matrix.locator('.selection')).toContainText('queued');
+  const ranking = page.getByRole('region', { name: 'Execution by group', exact: true });
+  await ranking.getByRole('button').first().click();
+  await expect(page).toHaveURL(/entity=/);
+  const key = new URL(page.url()).searchParams.get('entity');
+  const href = await page.getByRole('link', { name: 'Export CSV' }).getAttribute('href');
+  expect(new URL(href!, page.url()).searchParams.get('key')).toBe(key);
+  await expect(table(page).locator('tbody tr')).toHaveCount(1);
+  await page.getByLabel('Group by').selectOption('host');
+  await expect(page).not.toHaveURL(/entity=/);
+  await expect(header(page, 'Runner-hours')).toHaveCount(1);
+  await expect(
+    matrix.getByText('Capacity observations belong to pools.', { exact: false }),
+  ).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});

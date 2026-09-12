@@ -8,6 +8,7 @@
   as well as by a colour.
 -->
 <script lang="ts">
+  import { navigate } from '$lib/router';
   import { Gauge, Pencil, ServerCog, Trash2 } from '@lucide/svelte';
   import type { Host } from '$lib/api/types';
   import { formatMegabytes, formatNumber } from '$lib/format';
@@ -160,6 +161,11 @@
   });
 
   const actions = $derived<MenuItem[]>([
+    {
+      id: 'usage',
+      label: 'View usage history',
+      onSelect: () => navigate(`/usage?group_by=host&entity=${encodeURIComponent(host.id ?? '')}`),
+    },
     {
       id: 'cordon',
       label: host.cordoned ? 'Uncordon this host' : 'Cordon this host',
