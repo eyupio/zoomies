@@ -34,9 +34,11 @@ theme:
   logo: brand/paw-swish-white.png
   icon:
     repo: fontawesome/brands/github
-  font:
-    text: Inter
-    code: JetBrains Mono
+  # No `font:` key: the faces are self-hosted rather than fetched from Google
+  # Fonts. overrides/main.html replaces the theme's font block, and
+  # docs/stylesheets/ carries the @font-face rules and the woff2 files beside
+  # it. A third-party font stylesheet is render-blocking, and when the host is
+  # slow or unreachable the tab spins with nothing to show.
   features:
     - navigation.instant
     - navigation.instant.progress

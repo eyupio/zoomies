@@ -15,6 +15,17 @@
 #}
 {% extends "base.html" %}
 
+{#
+  Locally hosted faces, so the page makes no third-party font request. Material
+  would otherwise put a Google Fonts stylesheet in the head, and a
+  render-blocking request to a host the reader cannot reach is what left the tab
+  spinning with nothing to show. The @font-face rules and the woff2 files live
+  in stylesheets/ beside this theme's CSS.
+#}
+{% block fonts %}
+  <style>:root{--md-text-font:"InterVariable";--md-code-font:"JetBrains Mono"}</style>
+{% endblock %}
+
 {% block extrahead %}
   {#
     The page's own title, not the abbreviation the sidebar uses: a navigation
