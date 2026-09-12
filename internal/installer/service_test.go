@@ -3,6 +3,7 @@ package installer
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -370,5 +371,74 @@ func TestWindowsServiceManagerDrivesScExe(t *testing.T) {
 	}
 	if !slices.Contains(seen, "delete") || !slices.Contains(seen, "create") {
 		t.Errorf("a re-install must delete the old registration and create the new one, ran %v", seen)
+	}
+}
+
+// %ProgramData% is readable by every local user by default, and the agent's
+// credentials live under it. On Windows the join replaces the directory's
+// inherited ACL with SYSTEM and Administrators, and nowhere else does it
+// touch permissions at all -- a chmod-shaped change on Linux would fight the
+// service user the installer already set up.
+func TestJoinRestrictsTheDirectoryToAdministratorsOnWindowsOnly(t *testing.T) {
+	var calls [][]string
+	run := func(_ context.Context, name string, args ...string) (string, error) {
+		calls = append(calls, append([]string{name}, args...))
+		return "", nil
+	}
+	root := t.TempDir()
+	config, state := filepath.Join(root, "etc"), filepath.Join(root, "state")
+	if err := prepareDirs(context.Background(), "linux", run, config, state); err != nil {
+		t.Fatalf("linux: %v", err)
+	}
+	for _, dir := range []string{config, state} {
+		if _, err := os.Stat(dir); err != nil {
+			t.Errorf("%s was not created: %v", dir, err)
+		}
+	}
+	if len(calls) != 0 {
+		t.Fatalf("a Linux join must not touch permissions, ran %v", calls)
+	}
+
+	if err := prepareDirs(context.Background(), "windows", run, config, state); err != nil {
+		t.Fatalf("windows: %v", err)
+	}
+	if len(calls) != 2 || calls[0][0] != "icacls" || calls[1][0] != "icacls" {
+		t.Fatalf("expected one icacls call per directory, got %v", calls)
+	}
+	args := strings.Join(calls[0], " ")
+	for _, want := range []string{config, "/inheritance:r", "SYSTEM:(OI)(CI)F", "Administrators:(OI)(CI)F"} {
+		if !strings.Contains(args, want) {
+			t.Errorf("icacls call is missing %q: %s", want, args)
+		}
+	}
+	// The grants, not the whole line: on Windows the temporary directory
+	// itself lives under C:\Users.
+	for i, a := range calls[0] {
+		if a == "/grant:r" && strings.HasPrefix(calls[0][i+1], "Users") {
+			t.Errorf("Users must not be granted anything: %s", args)
+		}
+	}
+
+	failing := func(context.Context, string, ...string) (string, error) { return "", errors.New("Access is denied.") }
+	err := prepareDirs(context.Background(), "windows", failing, config)
+	if err == nil {
+		t.Fatal("a refused icacls must be reported: a join that silently leaves the credentials world-readable is worse than one that stops")
+	}
+	if !strings.Contains(err.Error(), "elevated") {
+		t.Errorf("the error must say what to do about it: %v", err)
+	}
+
+	// A directory that cannot be created is reported as such, before any
+	// ACL is attempted on it.
+	calls = nil
+	blocked := filepath.Join(root, "file")
+	if err := os.WriteFile(blocked, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareDirs(context.Background(), "windows", run, filepath.Join(blocked, "under")); err == nil {
+		t.Fatal("creating a directory under a file must fail")
+	}
+	if len(calls) != 0 {
+		t.Errorf("no ACL must be set on a directory that was not created, ran %v", calls)
 	}
 }
