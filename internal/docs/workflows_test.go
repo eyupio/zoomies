@@ -406,12 +406,17 @@ func TestCIDogfoodsZoomiesWithRecoveryForEveryJob(t *testing.T) {
 			t.Fatalf("%s has no job runners", name)
 		}
 		// Match exceptions by job ID: a count alone lets the wrong job stop
-		// dogfooding while still satisfying the test. Both exceptions need
-		// system packages unavailable to the unprivileged stock runner.
-		exceptions := map[string]bool{}
+		// dogfooding while still satisfying the test. The first two need
+		// system packages unavailable to the unprivileged stock runner; the
+		// other two exist to run on a platform the Zoomies pool has no host
+		// for, which is the whole point of each.
+		exceptions := map[string]string{}
+		found := map[string]bool{}
 		if name == "ci.yml" {
-			exceptions["installer"] = false
-			exceptions["playwright"] = false
+			exceptions["installer"] = "ubuntu-latest"
+			exceptions["playwright"] = "ubuntu-latest"
+			exceptions["arm64"] = "ubuntu-24.04-arm"
+			exceptions["windows"] = "windows-latest"
 		}
 		jobs := regexp.MustCompile(`(?m)^  ([a-zA-Z0-9_-]+):\n`).FindAllStringSubmatchIndex(body, -1)
 		for i, job := range jobs {
@@ -424,17 +429,17 @@ func TestCIDogfoodsZoomiesWithRecoveryForEveryJob(t *testing.T) {
 			if len(runner) == 0 {
 				continue
 			}
-			if _, allowed := exceptions[id]; allowed {
-				exceptions[id] = true
-				if runner[1] != "ubuntu-latest" {
-					t.Errorf("%s job %s needs GitHub-hosted system packages, got %s", name, id, runner[1])
+			if want, allowed := exceptions[id]; allowed {
+				found[id] = true
+				if runner[1] != want {
+					t.Errorf("%s job %s must run on the GitHub-hosted %s, got %s", name, id, want, runner[1])
 				}
 			} else if !strings.Contains(runner[1], selector) {
 				t.Errorf("%s job %s lacks fork protection and manual recovery: %s", name, id, runner[1])
 			}
 		}
-		for id, found := range exceptions {
-			if !found {
+		for id := range exceptions {
+			if !found[id] {
 				t.Errorf("%s is missing expected GitHub-hosted job %s", name, id)
 			}
 		}

@@ -493,18 +493,6 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 			break
 		}
 	}
-	// The vocabulary for Windows shipped and the platform did not: `windows`
-	// is a known operating system and an implicit runner label, no agent is
-	// built for it, and the process backend refuses it. A pool asking for one
-	// was accepted and then matched nothing, so the fleet reported itself
-	// short of capacity for a platform it has never had. Refusing at the point
-	// the operator can still choose something else is the honest answer.
-	for k, v := range p.HostSelector {
-		if strings.EqualFold(strings.TrimSpace(k), "os") && strings.EqualFold(strings.TrimSpace(v), naming.OSWindows) {
-			add("host_selector", "Zoomies has no Windows agent yet, so os=windows matches no host and adding one would not help; select a Linux or macOS host, or leave the job on a GitHub-hosted Windows runner")
-			break
-		}
-	}
 	return errs
 }
 
@@ -678,6 +666,14 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 // was working all along.
 func noHostWarning(p *store.Pool, fit controller.HostFit) (why, fix string) {
 	if fit.Selected == 0 {
+		// A selector on what the agent reports about its machine is answered
+		// by joining such a machine, not by labelling one: an operator told
+		// to "label a host" for os=windows would put a Linux box in a Windows
+		// pool, which is exactly the placement the selector exists to stop.
+		if platform := platformSelector(p.HostSelector); platform != "" {
+			return fmt.Sprintf("no host reports itself as %s, so every runner this pool asks for would wait for a host that does not exist.", platform),
+				fmt.Sprintf("join a %s host to this fleet, or change the host selector to a platform it already has.", platform)
+		}
 		return "no host matches this pool's host selector, so every runner it asks for would wait for a host that does not exist.",
 			"relax the host selector, or label a host to match it."
 	}
@@ -707,6 +703,30 @@ func noHostWarning(p *store.Pool, fit controller.HostFit) (why, fix string) {
 		fix = fmt.Sprintf("make the %s backend usable on that host%s.", p.Backend, switchTo(fit.Alternatives))
 	}
 	return strings.TrimSpace(why), fix
+}
+
+// platformSelector renders a host selector that asks only about the machine
+// -- the os and arch keys every agent answers for -- as prose, e.g.
+// "Windows, arm64". It is empty for a selector that asks about anything else,
+// because a label an operator invented is theirs to explain.
+func platformSelector(sel map[string]string) string {
+	var parts []string
+	for k, v := range sel {
+		switch strings.ToLower(strings.TrimSpace(k)) {
+		case store.LabelOS:
+			if os := naming.PrettyOS(v); os != "" {
+				parts = append([]string{os}, parts...)
+				continue
+			}
+		case store.LabelArch:
+			if arch := naming.NormalizeArch(v); arch != "" {
+				parts = append(parts, arch)
+				continue
+			}
+		}
+		return ""
+	}
+	return strings.Join(parts, ", ")
 }
 
 // hostDetail names the hosts that were turned down and why, up to the point

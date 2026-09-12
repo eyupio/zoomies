@@ -142,6 +142,75 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+  # Linux arm64 is the other architecture every release ships for, and until
+  # this job existed nothing had run a test on it: the support matrix recorded
+  # it as cross-compiled and no more. The Go suite and the runtime drill on
+  # GitHub's hosted arm64 runner are what move that row. Hosted rather than the
+  # Zoomies pool because the pool has no arm64 host to dogfood on yet; a
+  # public repository pays nothing for the label.
+  arm64:
+    name: Linux arm64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Stub the embedded UI
+        run: make build-nogui
+      - name: Test
+        run: make test
+      - name: Note where the drill record ends
+        id: record
+        run: echo "lines=$(wc -l < roadmap/validation/drills.md 2>/dev/null || echo 0)" >> "$GITHUB_OUTPUT"
+      - name: Run the lifecycle drill
+        run: make test-drill
+      # This run's rows go to the summary only. The file on main is written by
+      # the Drill job, and two jobs appending the same drills to one file
+      # would double every row.
+      - name: Drill record
+        if: always()
+        run: |
+          if [ -f roadmap/validation/drills.md ]; then
+            echo "Drills on $(uname -m):" >> "$GITHUB_STEP_SUMMARY"
+            tail -n +$(( ${{ steps.record.outputs.lines }} + 1 )) roadmap/validation/drills.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # Windows is the platform the agent learnt to run on last, and this is the
+  # only place anything runs on it. The whole tree builds and vets, and the
+  # packages the Windows agent is made of run their tests here without the
+  # race detector, which needs a C toolchain the stock runner does not pair
+  # with CGO_ENABLED=0. The rest of the suite is Linux-shaped (shell stubs,
+  # signals, unit files) and skips or does not apply; the support matrix says
+  # which row this leg backs.
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      # go:embed needs the directory to exist even when the UI is not built,
+      # and the stock Windows runner has no make.
+      - name: Stub the embedded UI
+        run: |
+          mkdir -p internal/api/webdist
+          printf '<!doctype html><title>Zoomies</title><p>The UI was not built.' > internal/api/webdist/index.html
+      - name: go vet
+        run: go vet ./...
+      - name: Build
+        run: go build -trimpath -o zoomies.exe ./cmd/zoomies
+      - name: Test the packages the Windows agent is made of
+        run: go test -count=1 -timeout 20m ./internal/backend/ ./internal/machine/ ./internal/agent/ ./internal/installer/ ./internal/config/ ./internal/naming/ ./cmd/zoomies/
+
   upgrade:
     name: Upgrade
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
@@ -302,6 +371,7 @@ jobs:
           - { goos: linux,  goarch: arm64 }
           - { goos: darwin, goarch: amd64 }
           - { goos: darwin, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -350,10 +420,22 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: "dist/zoomies_*"
+      # Two files from one attestation. The Sigstore bundle is what
+      # `gh attestation verify` reads: the signed statement plus the
+      # certificate and transparency-log entry that prove who signed it. The
+      # .intoto.jsonl beside it is the same signed statement on its own, in
+      # the DSSE envelope the SLSA tooling and the OpenSSF Scorecard look for;
+      # a release carrying only the bundle scores as signed but unattested.
       - name: Attach verifiable provenance to the release
         env:
           BUNDLE: ${{ steps.binary-provenance.outputs.bundle-path }}
-        run: cp "$BUNDLE" dist/zoomies-provenance.sigstore.json
+        run: |
+          set -eu
+          cp "$BUNDLE" dist/zoomies-provenance.sigstore.json
+          jq -c '.dsseEnvelope' "$BUNDLE" > dist/zoomies-provenance.intoto.jsonl
+          # A bundle without an envelope is not provenance; refuse it here
+          # rather than attach an empty file that verifies nothing.
+          test "$(jq -r '.payloadType' dist/zoomies-provenance.intoto.jsonl)" = "application/vnd.in-toto+json"
 
       - name: Move the dev tag to this build
         run: |
@@ -371,6 +453,7 @@ jobs:
             dist/zoomies_*
             dist/checksums.txt
             dist/zoomies-provenance.sigstore.json
+            dist/zoomies-provenance.intoto.jsonl
           prerelease: true
           make_latest: false
           overwrite_files: true

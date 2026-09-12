@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/eyupio/zoomies/internal/agent"
@@ -31,6 +32,7 @@ func runAgentDaemon(ctx context.Context, e *env, args []string) error {
 	cfgPath := fs.String("config", "", "path to zoomies.yaml (default: "+config.DefaultConfigFile()+")")
 	controllerURL := fs.String("controller", "", "the controller to talk to; overrides agent.controller_url")
 	joinToken := fs.String("join-token", "", "a join token, used only when this host has no credentials yet")
+	logFile := fs.String("log-file", "", "append the log to this file instead of stderr (the Windows service is installed with one, because a service has no stderr anyone can read)")
 	fs.example(
 		"zoomies agent --config /etc/zoomies/zoomies.yaml",
 		"zoomies agent --controller https://zoomies.example.com --join-token zoojoin_...",
@@ -40,6 +42,12 @@ func runAgentDaemon(ctx context.Context, e *env, args []string) error {
 	}
 	if err := fs.noMoreArgs(); err != nil {
 		return err
+	}
+
+	if *logFile != "" {
+		if err := redirectOutput(e, *logFile); err != nil {
+			return err
+		}
 	}
 
 	cfg, err := config.Load(*cfgPath)
@@ -207,4 +215,21 @@ func serviceChoice(none bool) installer.ServiceKind {
 		return installer.ServiceNone
 	}
 	return ""
+}
+
+// redirectOutput sends everything the agent would print or log to a file.
+//
+// The logger is built from os.Stderr when the agent starts, so the variable
+// is replaced rather than the handler wrapped: every later write, including
+// the findings printed before the logger exists, lands in the same file. It
+// is opened for append so that a restart continues the file rather than
+// truncating what an operator was about to read.
+func redirectOutput(e *env, path string) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o640)
+	if err != nil {
+		return fmt.Errorf("opening the log file %s: %w", path, err)
+	}
+	os.Stdout, os.Stderr = f, f
+	e.out, e.err = f, f
+	return nil
 }

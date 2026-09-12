@@ -280,7 +280,7 @@ func Join(ctx context.Context, opts JoinOptions) error {
 		kind = DetectServiceKind(det)
 	}
 	u.step("Service")
-	if kind != ServiceSystemd && kind != ServiceLaunchd {
+	if kind != ServiceSystemd && kind != ServiceLaunchd && kind != ServiceWindows {
 		u.note("no service manager here; start the agent yourself with:")
 		u.note("  " + det.BinaryPath + " agent --config " + configFile)
 		return nil

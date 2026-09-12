@@ -23,6 +23,7 @@ separates what a test has actually run on from what merely builds.*
 [![Latest release](https://img.shields.io/github/v/release/eyupio/zoomies?display_name=tag&include_prereleases&color=2F80ED&labelColor=080808)](https://github.com/eyupio/zoomies/releases)
 [![CI](https://github.com/eyupio/zoomies/actions/workflows/ci.yml/badge.svg)](https://github.com/eyupio/zoomies/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/eyupio/zoomies/badge)](https://scorecard.dev/viewer/?uri=github.com/eyupio/zoomies)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14604/badge)](https://www.bestpractices.dev/projects/14604)
 [![Website](https://github.com/eyupio/zoomies/actions/workflows/docs.yml/badge.svg)](https://zoomies.sh)
 
 ```sh

@@ -283,6 +283,14 @@ gh attestation verify zoomies_linux_amd64 --repo eyupio/zoomies
 gh attestation verify oci://ghcr.io/eyupio/zoomies:v1.2.3 --repo eyupio/zoomies
 ```
 
+The attestation is attached twice. `zoomies-provenance.sigstore.json` is the
+Sigstore bundle `gh attestation verify` reads — the signed statement together
+with the certificate and transparency-log entry that say who signed it.
+`zoomies-provenance.intoto.jsonl` is the same signed statement on its own, in
+the DSSE envelope that SLSA tooling and the OpenSSF Scorecard recognise as
+provenance. Both describe every binary in the release; neither is needed to
+install, and `install.sh` checks neither.
+
 Every image says what it is without being started, in the standard OCI labels —
 `org.opencontainers.image.version`, `.revision` and `.created`. That includes
 the runner images, which until recently carried no version at all.
@@ -332,6 +340,14 @@ agent that restarts over running work adopts it rather than reaping it, which is
 what makes a binary swap non-disruptive at all. Draining first is what makes it
 *predictable* — a host with nothing on it cannot surprise you — and on a host
 whose jobs are short it costs a few minutes.
+
+On a Windows host the same sequence is `zoomies hosts drain`, replace
+`zoomies.exe` in place, then `sc.exe stop zoomies-agent` and
+`sc.exe start zoomies-agent` from an elevated prompt, and `zoomies hosts
+uncordon`. A Windows agent runs the `process` backend, so the runner release it
+downloads is pinned by the pool's `runner_version` and the digests in the
+binary, and an agent behind the controller's release may not know a digest the
+controller's default asks for; upgrade the agent first on that platform.
 
 An agent that comes back on a release the controller does not recognise is
 excluded rather than refused: it keeps heartbeating, its running work finishes,

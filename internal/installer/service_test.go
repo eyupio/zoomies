@@ -1,7 +1,10 @@
 package installer
 
 import (
+	"context"
+	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -215,6 +218,7 @@ func TestDetectServiceKind(t *testing.T) {
 		want ServiceKind
 	}{
 		{"systemd wins", Detection{HasSystemd: true, HasLaunchd: true}, ServiceSystemd},
+		{"the service manager on windows", Detection{HasSCM: true, Docker: RuntimeInfo{Available: true}}, ServiceWindows},
 		{"launchd on macOS", Detection{HasLaunchd: true}, ServiceLaunchd},
 		{"compose when docker is there", Detection{Docker: RuntimeInfo{Available: true}}, ServiceCompose},
 		{"nothing at all", Detection{}, ServiceNone},
@@ -257,5 +261,102 @@ func TestReadUnitIdentityKeepsAnUpgradeOnTheSameAccount(t *testing.T) {
 
 	if u, g, gs := ReadUnitIdentity(filepath.Join(t.TempDir(), "absent.service")); u != "" || g != "" || gs != nil {
 		t.Fatalf("a missing unit has no identity, got %q/%q/%v", u, g, gs)
+	}
+}
+
+// The command line the Windows service manager runs is split again by the
+// usual CommandLineToArgv rules, so a path with a space -- C:\Program Files
+// is the default install location -- has to be quoted, and every path is
+// quoted rather than only the ones that need it today.
+func TestWindowsServiceCommandQuotesEveryPath(t *testing.T) {
+	cmd, err := WindowsServiceCommand(ServiceSpec{
+		Unit:       UnitAgent,
+		ExecPath:   `C:\Program Files\zoomies\zoomies.exe`,
+		ConfigFile: `C:\ProgramData\zoomies\zoomies.yaml`,
+		StateDir:   `C:\ProgramData\zoomies`,
+		User:       "LocalSystem",
+	})
+	if err != nil {
+		t.Fatalf("WindowsServiceCommand: %v", err)
+	}
+	// The log file is defaulted beside the state directory with the host's
+	// own separator, which is why the expectation is joined rather than
+	// spelled: on Linux this test sees a slash where Windows would see a
+	// backslash, and either is the right answer on its platform.
+	want := `"C:\Program Files\zoomies\zoomies.exe" agent --config "C:\ProgramData\zoomies\zoomies.yaml" --log-file "` +
+		filepath.Join(`C:\ProgramData\zoomies`, "zoomies-agent.log") + `"`
+	if cmd != want {
+		t.Fatalf("command line\n got %s\nwant %s", cmd, want)
+	}
+}
+
+// sc.exe's `key= value` spelling is two arguments with the space between
+// them, and an invocation that joins them is one that registers nothing and
+// says so only in its exit code. The manager is watched through the fake
+// runner, which is what makes the shape testable without a Windows host.
+func TestWindowsServiceManagerDrivesScExe(t *testing.T) {
+	var calls [][]string
+	exists := false
+	m := &windowsManager{unit: UnitAgent, run: func(_ context.Context, name string, args ...string) (string, error) {
+		calls = append(calls, append([]string{name}, args...))
+		if len(args) > 0 && args[0] == "query" {
+			if !exists {
+				return "", errors.New("[SC] EnumQueryServicesStatus:OpenService FAILED 1060")
+			}
+			return "SERVICE_NAME: zoomies-agent\n        STATE              : 4  RUNNING\n", nil
+		}
+		if len(args) > 0 && args[0] == "create" {
+			exists = true
+		}
+		return "", nil
+	}}
+	spec := ServiceSpec{Unit: UnitAgent, ExecPath: `C:\zoomies\zoomies.exe`, ConfigFile: `C:\ProgramData\zoomies\zoomies.yaml`, StateDir: `C:\ProgramData\zoomies`, User: "LocalSystem"}
+	name, err := m.Install(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if name != "zoomies-agent" {
+		t.Errorf("service name = %q, want zoomies-agent, the unit name", name)
+	}
+
+	var create []string
+	for _, c := range calls {
+		if c[0] == "sc.exe" && c[1] == "create" {
+			create = c
+		}
+	}
+	if create == nil {
+		t.Fatalf("no sc.exe create among %v", calls)
+	}
+	for i, a := range create {
+		if strings.HasSuffix(a, "=") && strings.Contains(a, " ") {
+			t.Errorf("argument %q joins a key and its value; sc.exe wants them apart", a)
+		}
+		if a == "binPath=" && !strings.HasPrefix(create[i+1], `"C:\zoomies\zoomies.exe" agent`) {
+			t.Errorf("binPath is %q, want the rendered command line", create[i+1])
+		}
+		if a == "start=" && create[i+1] != "auto" {
+			t.Errorf("a service that does not start at boot is a host that drops out on reboot: start= %q", create[i+1])
+		}
+	}
+
+	if status, _ := m.Status(context.Background()); status != "running" {
+		t.Errorf("status = %q, want the STATE word from sc.exe query, lowercased", status)
+	}
+	if !strings.Contains(m.LogCommand(), `zoomies-agent.log`) {
+		t.Errorf("the log command must point at the file the service writes: %q", m.LogCommand())
+	}
+
+	// Installing again replaces the registration rather than failing on it.
+	calls = nil
+	if _, err := m.Install(context.Background(), spec); err != nil {
+		t.Fatalf("second Install: %v", err)
+	}
+	var seen []string
+	for _, c := range calls {
+		seen = append(seen, c[1])
+	}
+	if !slices.Contains(seen, "delete") || !slices.Contains(seen, "create") {
+		t.Errorf("a re-install must delete the old registration and create the new one, ran %v", seen)
 	}
 }

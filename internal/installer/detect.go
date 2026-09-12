@@ -202,6 +202,9 @@ type Detection struct {
 	HasSystemd bool
 	HasLaunchd bool
 	HasCompose bool
+	// HasSCM is the Windows service manager, present on every Windows host
+	// and nowhere else.
+	HasSCM bool
 
 	// Compose is the Docker Compose command this host has, which decides
 	// whether a compose deployment can be offered at all.
@@ -264,6 +267,7 @@ func Detect(ctx context.Context, opts Options) Detection {
 	}
 	d.HasSystemd = d.Init == InitSystemd && lookPath("systemctl") != ""
 	d.HasLaunchd = d.Init == InitLaunchd && lookPath("launchctl") != ""
+	d.HasSCM = d.OS == "windows" && lookPath("sc.exe") != ""
 	d.Compose = detectCompose(ctx, opts.DetectedCompose)
 	d.HasCompose = d.Compose.Available
 

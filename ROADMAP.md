@@ -244,7 +244,12 @@ ratified.
     that a row moves right only when a test runs on the thing, and adding a
     platform while the project is trying to prove the one it has would widen
     Gate F rather than pass it. *Recommend: process first, containers only if
-    a user asks for the isolation; and neither before Gate F.*
+    a user asks for the isolation; and neither before Gate F.* **Taken on
+    12 September 2026** as process on a Windows host, per
+    [decision 0003](roadmap/decisions/0003-windows-runners-are-processes-on-a-host.md),
+    on the owner's instruction to implement it ahead of Gate F and flag it as
+    a beta-testing item; the support matrix row says what has and has not
+    run.
 27. **Phase 5's shape, and what this repository owes it.** The source
     roadmap's ZF-501 already chooses the shape: one controller, one database,
     one encryption key and one set of agent credentials per customer, with
@@ -1892,8 +1897,14 @@ the support matrix's rule — a row moves right only when a test runs on the
 thing — means a platform added while the project is still proving the one it
 has would widen Gate F rather than pass it. Its first pull request was the
 exception and **has been taken**: it added no behaviour and only stopped the
-product implying a platform it has not got. The other three stay where this
-paragraph puts them, and decision 26 comes before any of them.
+product implying a platform it has not got. **The other three were taken on
+12 September 2026 at the owner's instruction**, ahead of this paragraph's
+sequencing and with the platform flagged as a beta-testing item rather than a
+qualified one; decision 26 was taken with them, and the support matrix
+records what has run (a hosted Windows runner vets and tests the code) and
+what has not (a job on a Windows host). Gate F is unchanged by it: the
+reference configuration is still Linux amd64, and a Windows row that says
+"not run" does not widen what the gate measures.
 
 ## 11. What the owner provides, and when
 
@@ -2027,7 +2038,7 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
 
 ## 13. Change record
 
-* **12 September 2026 — Version 2.33:** the code read with one question --
+* **12 September 2026 — Version 2.33:** the code read with one question —
   what breaks when the person operating the controller and the people whose
   fleet it runs are not the same — and two things came of it. Six defects
   that are wrong for a single team too, fixed as ZF-004: a real identifier
@@ -2039,7 +2050,7 @@ and ZF-204's upgrade drill runs from a tag nobody has cut.
   checked five megabytes against every secret before deciding it was
   unsigned. And decision 27, which settles the shape of Phase 5 the way the
   source roadmap already proposed, says its service layer is not this
-  repository's, and adds the four Phase 2 packages — ZF-207 to ZF-210 --
+  repository's, and adds the four Phase 2 packages — ZF-207 to ZF-210 —
   that an instance operated on somebody else's behalf needs and that a
   platform team or a public controller needs just the same. The shared
   alternative was costed and is recorded in the decision; it is a second

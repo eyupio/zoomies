@@ -238,6 +238,18 @@ func Uninstall(ctx context.Context, opts UninstallOptions) error {
 
 	// --- Stop the service first, so nothing creates new runners while we are
 	// deregistering the old ones. -----------------------------------------
+	if windowsServiceInstalled(ctx, UnitAgent) {
+		if mgr, err := NewServiceManager(ServiceWindows, UnitAgent); err == nil {
+			if err := mgr.Stop(ctx); err != nil {
+				u.warn("could not stop " + UnitAgent + ": " + err.Error())
+			}
+			if err := mgr.Remove(ctx); err != nil {
+				u.warn("could not remove the " + UnitAgent + " service: " + err.Error())
+			} else {
+				record("stopped and removed the %s service", UnitAgent)
+			}
+		}
+	}
 	for _, unit := range []string{UnitController, UnitAgent} {
 		if !exists(SystemdUnitPath(unit)) {
 			continue
