@@ -135,6 +135,9 @@ func TestManifestHandoffRedirectsTheValidatedPOSTToGitHub(t *testing.T) {
 	if got := resp.header.Get("Location"); got != "https://github.com/organizations/acme/settings/apps/new?state=state-1" {
 		t.Fatalf("Location = %q", got)
 	}
+	if got := resp.header.Get("Content-Security-Policy"); got != "" {
+		t.Fatalf("the GitHub redirect carries the dashboard CSP %q", got)
+	}
 
 	bad := h.do(request{
 		method:  http.MethodPost,
