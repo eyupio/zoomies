@@ -6,6 +6,7 @@
   expects it to.
 -->
 <script lang="ts">
+  import RunnerInsights from '$lib/insights/RunnerInsights.svelte';
   import { Download, Gauge, Pencil, Power, PowerOff, Trash2 } from '@lucide/svelte';
   import {
     deletePool,
@@ -286,6 +287,7 @@
     <PoolWizardForm {pool} oncancel={stopEditing} ondone={stopEditing} />
   {/key}
 {:else}
+  <RunnerInsights poolId={pool.id ?? ''} compact />
   <div class="layout">
     <div class="main">
       <section class="panel" aria-labelledby="runners-heading">

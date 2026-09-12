@@ -27,6 +27,8 @@
   already on.
 -->
 <script lang="ts">
+  import JobsInsights from '$lib/insights/JobsInsights.svelte';
+  import FleetHistory from '$lib/insights/FleetHistory.svelte';
   import { getJobFacets, listJobs } from '$lib/api/client';
   import { JOB_STATES, type Job, type JobState } from '$lib/api/types';
   import { events } from '$lib/api/sse';
@@ -387,6 +389,10 @@
   onrefresh={refreshPage}
 />
 
+<JobsInsights others={filters.all} />
+<details class="activity-history">
+  <summary>Explore fleet activity over the last hour</summary><FleetHistory others={filters.all} />
+</details>
 <div class="content">
   <JobFilters
     value={filters}
@@ -440,6 +446,21 @@
 <JobDrawer bind:open={drawerOpen} job={selected} onclose={() => (selected = null)} />
 
 <style>
+  .activity-history {
+    margin: var(--z-space-4) 0 var(--z-space-5);
+  }
+  .activity-history summary {
+    padding: var(--z-space-3);
+    color: var(--z-accent);
+    font-size: var(--z-text-sm);
+    cursor: pointer;
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface);
+  }
+  .activity-history[open] summary {
+    margin-bottom: var(--z-space-3);
+  }
   .content {
     display: flex;
     flex-direction: column;

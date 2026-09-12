@@ -1,0 +1,189 @@
+<script lang="ts">
+  import { fleet } from '$lib/state/fleet.svelte';
+  import MetricGrid, { type Metric } from '$lib/components/MetricGrid.svelte';
+  import Skeleton from '$lib/components/Skeleton.svelte';
+  import ChartPanel from '$lib/components/ChartPanel.svelte';
+  import ProvisioningPulse from './ProvisioningPulse.svelte';
+  import StateBreakdown from './StateBreakdown.svelte';
+  import { poolSignals, finite } from './signals';
+  import { formatNumber } from '$lib/format';
+  let { poolId = '', compact = false }: { poolId?: string; compact?: boolean } = $props();
+  const signal = $derived(poolSignals(fleet.pools, fleet.stats).find((p) => p.pool.id === poolId));
+  const r = $derived(fleet.stats?.runners);
+  const queue = $derived(poolId ? signal?.queued : finite(fleet.stats?.fleet?.queued_jobs));
+  const busy = $derived(poolId ? signal?.busy : finite(r?.busy));
+  const idle = $derived(poolId ? signal?.idle : finite(r?.idle));
+  const scope = $derived(poolId ? (signal?.pool.name ?? 'Selected pool') : 'Fleet');
+  const suffix = $derived(poolId ? `&pool_id=${encodeURIComponent(poolId)}` : '');
+  const num = (value: number | null | undefined) => (value == null ? '—' : formatNumber(value));
+  const metrics = $derived<Metric[]>([
+    {
+      label: 'Job queue depth',
+      value: num(queue),
+      detail: 'Jobs waiting to start',
+      tone: (queue ?? 0) > 0 ? 'warning' : 'neutral',
+      href: `/jobs?state=queued${suffix}`,
+    },
+    {
+      label: 'Busy runners',
+      value: num(busy),
+      detail: 'Executing a job',
+      tone: 'busy',
+      href: `/runners?state=busy${suffix}`,
+    },
+    {
+      label: 'Idle runners',
+      value: num(idle),
+      detail: 'Registered and waiting for work',
+      tone: 'success',
+      href: `/runners?state=idle${suffix}`,
+    },
+    ...(poolId
+      ? [
+          {
+            label: 'Live runners',
+            value: num(signal?.live),
+            detail: 'Includes startup and draining',
+            href: `/runners?pool_id=${encodeURIComponent(poolId)}`,
+          },
+          {
+            label: 'Pool headroom',
+            value: num(signal?.headroom),
+            detail: `Configured maximum: ${num(signal?.max)}; host fit still applies`,
+            tone: signal?.atCeiling ? ('warning' as const) : ('neutral' as const),
+          },
+          {
+            label: 'Busy share',
+            value: signal?.live ? `${Math.round((100 * (busy ?? 0)) / signal.live)}%` : '—',
+            detail: 'Busy / live runners right now',
+            progress: signal?.live ? (100 * (busy ?? 0)) / signal.live : null,
+          },
+        ]
+      : [
+          {
+            label: 'Starting runners',
+            value: r ? num((r.provisioning ?? 0) + (r.registering ?? 0)) : '—',
+            detail: 'Provisioning + registering',
+            tone: 'accent' as const,
+            href: '/runners?state=provisioning&state=registering',
+          },
+          {
+            label: 'Draining runners',
+            value: num(finite(r?.draining)),
+            detail: 'Finishing or being removed',
+            href: '/runners?state=draining',
+          },
+          {
+            label: 'Failed runners',
+            value: num(finite(r?.failed)),
+            detail: 'Retained failed runner records',
+            tone: (r?.failed ?? 0) > 0 ? ('danger' as const) : ('neutral' as const),
+            href: '/runners?state=failed',
+          },
+        ]),
+  ]);
+  const segments = $derived(
+    poolId
+      ? [
+          {
+            label: 'Busy',
+            value: busy ?? 0,
+            tone: 'busy' as const,
+            href: `/runners?state=busy${suffix}`,
+          },
+          {
+            label: 'Idle',
+            value: idle ?? 0,
+            tone: 'idle' as const,
+            href: `/runners?state=idle${suffix}`,
+          },
+          {
+            label: 'Other live',
+            value: Math.max(0, (signal?.live ?? 0) - (busy ?? 0) - (idle ?? 0)),
+            tone: 'pending' as const,
+            href: `/runners?pool_id=${encodeURIComponent(poolId)}`,
+          },
+        ]
+      : [
+          {
+            label: 'Provisioning',
+            value: r?.provisioning ?? 0,
+            tone: 'pending' as const,
+            href: '/runners?state=provisioning',
+          },
+          {
+            label: 'Registering',
+            value: r?.registering ?? 0,
+            tone: 'accent' as const,
+            href: '/runners?state=registering',
+          },
+          {
+            label: 'Idle',
+            value: r?.idle ?? 0,
+            tone: 'idle' as const,
+            href: '/runners?state=idle',
+          },
+          {
+            label: 'Busy',
+            value: r?.busy ?? 0,
+            tone: 'busy' as const,
+            href: '/runners?state=busy',
+          },
+          {
+            label: 'Draining',
+            value: r?.draining ?? 0,
+            tone: 'neutral' as const,
+            href: '/runners?state=draining',
+          },
+        ],
+  );
+</script>
+
+<section aria-label="Runner operational context" class="context">
+  <div class="scope">
+    <span
+      >{scope} context · {fleet.connection === 'live'
+        ? 'live snapshot'
+        : 'last known snapshot'}</span
+    ><a href={`/usage?group_by=pool${poolId ? `&entity=${encodeURIComponent(poolId)}` : ''}`}
+      >Explore usage history</a
+    >
+  </div>
+  {#if !fleet.stats}<Skeleton lines={3} />{:else}<MetricGrid items={metrics} />{/if}
+  <ProvisioningPulse {poolId} />
+  {#if !compact && fleet.stats}<ChartPanel
+      title="Runner lifecycle"
+      description="Live runner composition. Failed and removed records are excluded from this bar."
+      ><StateBreakdown {segments} label="Live runner states" /></ChartPanel
+    >{/if}
+  <p class="note">
+    Job queue depth is waiting GitHub work, including jobs whose provisioning demand is held; it is
+    not a count of runner creation requests.
+    {#if compact}These figures describe the whole pool.{:else}Search, host and state filters below
+      do not change this {poolId ? 'pool' : 'fleet'} context.{/if}
+  </p>
+</section>
+
+<style>
+  .context {
+    margin-bottom: var(--z-space-5);
+  }
+  .scope {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: var(--z-space-2);
+    font-size: var(--z-text-xs);
+    margin: var(--z-space-3) 0;
+    color: var(--z-text-muted);
+  }
+  a {
+    color: var(--z-accent);
+  }
+  .note {
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
+    margin: var(--z-space-3) 0 0;
+    max-width: 110ch;
+  }
+</style>

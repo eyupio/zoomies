@@ -12,6 +12,7 @@
   actually changes.
 -->
 <script lang="ts">
+  import RunnerInsights from '$lib/insights/RunnerInsights.svelte';
   import { CircleSlash, TriangleAlert, Trash2, Unplug } from '@lucide/svelte';
   import { getRunner, getRunnerTimeline } from '$lib/api/client';
   import { events } from '$lib/api/sse';
@@ -301,6 +302,7 @@
     </div>
   </div>
 
+  <RunnerInsights poolId={runner.pool_id ?? ''} compact />
   <section class="logs" aria-labelledby="runner-log-heading">
     <div class="logs-head">
       <h2 id="runner-log-heading">Log</h2>

@@ -1,4 +1,7 @@
 <script lang="ts">
+  import ChartPanel from '$lib/components/ChartPanel.svelte';
+  import StateBreakdown from '$lib/insights/StateBreakdown.svelte';
+
   import { Pause, Play, Zap, Trash2, ListOrdered, Bookmark, X } from '@lucide/svelte';
   import {
     controlProvisioning,
@@ -349,6 +352,31 @@
       </button>
     {/each}
   </div>
+  {#if Object.keys(counts).length}
+    <ChartPanel
+      title="Provisioning demand"
+      description="Counts match your repository, workflow, pool and other filters across all pages. Status filters do not narrow this breakdown. Ready and Run now remain subject to scheduling limits."
+    >
+      <div class="demand-heading">
+        <strong
+          >{((counts.ready ?? 0) + (counts.expedited ?? 0)).toLocaleString()} active demand</strong
+        ><span
+          >{(counts.paused ?? 0).toLocaleString()} on hold · {(
+            counts.deleted ?? 0
+          ).toLocaleString()} removed</span
+        >
+      </div>
+      <StateBreakdown
+        label="Provisioning states"
+        segments={[
+          { label: 'Ready', value: counts.ready ?? 0, tone: 'idle' },
+          { label: 'Run now', value: counts.expedited ?? 0, tone: 'accent' },
+          { label: 'Paused', value: counts.paused ?? 0, tone: 'pending' },
+          { label: 'Removed', value: counts.deleted ?? 0, tone: 'neutral' },
+        ]}
+      />
+    </ChartPanel>
+  {/if}
   <div class="policy">
     <ListOrdered size={20} />
     <div>
@@ -540,6 +568,23 @@
 </Dialog>
 
 <style>
+  .demand-heading {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: var(--z-space-3);
+    margin-bottom: var(--z-space-4);
+  }
+  .demand-heading strong {
+    font-size: var(--z-text-lg);
+    font-variant-numeric: tabular-nums;
+  }
+  .demand-heading span {
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
+  }
+
   .queue-content {
     display: flex;
     flex-direction: column;
