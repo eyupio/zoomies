@@ -34,6 +34,9 @@ env:
 jobs:
   go:
     name: Go
+    permissions:
+      contents: read
+      id-token: write # Codecov authenticates uploads without a stored secret.
     timeout-minutes: 45
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     steps:
@@ -72,6 +75,17 @@ jobs:
 
       - name: Coverage summary
         run: go tool cover -func=coverage.out | tail -1 >> "$GITHUB_STEP_SUMMARY"
+
+      # Restricted PRs still run the tests and coverage summary, but cannot
+      # request the OIDC token needed to authenticate an upload.
+      - name: Upload coverage to Codecov
+        if: ${{ github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) }}
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          use_oidc: true
+          files: ./coverage.out
+          disable_search: true
+          fail_ci_if_error: true
 
   drill:
     name: Drill
