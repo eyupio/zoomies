@@ -988,12 +988,12 @@ func (s *Store) InstallationsFreshSince(ctx context.Context, since time.Time) (m
 	rows, err := s.read.QueryContext(ctx, `
 		SELECT DISTINCT (
 			SELECT i.id FROM installations i
-			 WHERE (i.target_type = 'repo' AND i.target = d.repo)
-			    OR (i.target_type = 'org'  AND i.target = CASE
+			 WHERE (i.target_type = 'repo' AND LOWER(i.target) = LOWER(d.repo))
+			    OR (i.target_type = 'org'  AND LOWER(i.target) = LOWER(CASE
 			            WHEN instr(d.repo, '/') > 1
 			            THEN substr(d.repo, 1, instr(d.repo, '/') - 1)
-			            ELSE d.repo END)
-			 ORDER BY CASE i.target_type WHEN 'repo' THEN 0 ELSE 1 END
+			            ELSE d.repo END))
+			 ORDER BY CASE i.target_type WHEN 'repo' THEN 0 ELSE 1 END, i.created_at, i.id
 			 LIMIT 1
 		) AS owner
 		  FROM webhook_deliveries d

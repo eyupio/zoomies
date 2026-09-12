@@ -454,3 +454,55 @@ func TestInsecureCookieOnAPublicBindIsNamed(t *testing.T) {
 		t.Errorf("a loopback bind should not warn about cookie security: %+v", f)
 	}
 }
+
+// retention.audit never bounded audit rows, which are not pruned; it bounded
+// scaling history. The key is renamed to say so, and a file that still uses
+// the old name keeps its window and is told once to rename it.
+func TestRetentionAuditIsHonouredAsScalingEventsAndFlagged(t *testing.T) {
+	c := Default()
+	if c.Retention.ScalingEvents != 365*24*time.Hour || c.Retention.Audit != 0 {
+		t.Fatalf("defaults: scaling_events = %s, audit = %s", c.Retention.ScalingEvents, c.Retention.Audit)
+	}
+	if hasCode(c.Validate(), "retention.audit_renamed") {
+		t.Fatal("a file that never used retention.audit is asked to rename it")
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "zoomies.yaml")
+	if err := os.WriteFile(path, []byte("retention:\n  audit: 48h\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.Retention.ScalingEvents != 48*time.Hour {
+		t.Fatalf("scaling_events = %s, want the 48h retention.audit set", loaded.Retention.ScalingEvents)
+	}
+	if !hasCode(loaded.Validate(), "retention.audit_renamed") {
+		t.Fatal("retention.audit in the file raised no finding asking for the rename")
+	}
+
+	// The new key wins over the environment alias too.
+	t.Setenv("ZOOMIES_RETENTION_SCALING_EVENTS", "72h")
+	loaded, err = Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.Retention.ScalingEvents != 48*time.Hour {
+		// The file's audit key is applied in normalize, after the environment,
+		// so it still wins here; that is the cost of honouring it at all and
+		// the finding is what asks the operator to remove it.
+		t.Fatalf("scaling_events = %s with both keys set, want 48h from the file's audit key", loaded.Retention.ScalingEvents)
+	}
+	if err := os.WriteFile(path, []byte("retention:\n  jobs: 1h\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err = Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.Retention.ScalingEvents != 72*time.Hour {
+		t.Fatalf("scaling_events = %s, want 72h from ZOOMIES_RETENTION_SCALING_EVENTS", loaded.Retention.ScalingEvents)
+	}
+}

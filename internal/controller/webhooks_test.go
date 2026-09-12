@@ -510,3 +510,30 @@ func TestAFloodOfProbesStopsBeingWrittenDown(t *testing.T) {
 		t.Errorf("the signed delivery did not create its job: %v", err)
 	}
 }
+
+// A delivery with no signature header cannot verify, so it is refused before
+// its body is read. Reading, parsing and checking a body against every
+// installation's secret is the expensive part of the endpoint, and the
+// endpoint is public: a probe used to get all of that for free, and a large
+// unsigned body was answered as too large rather than as unsigned, which told
+// the prober something and cost the controller five megabytes to say it.
+func TestAnUnsignedDeliveryIsRefusedBeforeItsBodyIsRead(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+
+	body := make([]byte, maxWebhookBody+1)
+	rec := h.deliver("workflow_job", body, "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d: an unsigned delivery is unsigned before it is too large", rec.Code, http.StatusUnauthorized)
+	}
+	ds := h.deliveries()
+	if len(ds) != 1 || ds[0].Status != "rejected" {
+		t.Fatalf("deliveries = %+v, want one rejected", ds)
+	}
+	if !strings.Contains(ds[0].Error, github.SignatureHeader) {
+		t.Fatalf("the record does not name the missing header: %q", ds[0].Error)
+	}
+	if ds[0].Repo != "" {
+		t.Fatalf("the body was parsed for a delivery that could never verify: repo = %q", ds[0].Repo)
+	}
+}

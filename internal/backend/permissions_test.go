@@ -31,6 +31,7 @@ func fakeIdentity(processGroups, userGroups []int, mode fs.FileMode, gid int, st
 const socket = "/var/run/docker.sock"
 
 func TestDeniedDetailNamesTheAgentsOwnAccount(t *testing.T) {
+	requirePOSIX(t)
 	// The whole point: $USER would be the operator's login shell, and the agent
 	// runs as somebody else entirely.
 	id := fakeIdentity(nil, nil, fs.ModeSocket|0o660, 998, true)
@@ -88,6 +89,7 @@ func TestDeniedDetailLooksPastTheGroupWhenItIsHeld(t *testing.T) {
 }
 
 func TestDeniedDetailFallsBackWhenTheSocketCannotBeExamined(t *testing.T) {
+	requirePOSIX(t)
 	// A directory above the socket that the agent may not traverse: nothing can
 	// be read about the socket itself, and the advice still has to be usable.
 	id := fakeIdentity(nil, nil, 0, 0, false)

@@ -168,6 +168,7 @@ func TestUpgradeRefusesAnUnreadableRecordOrACustomImageBeforeChangingAnything(t 
 }
 
 func TestNativeUpgradeRestartsTheExistingAgentAndRefusesTheWrongBinary(t *testing.T) {
+	requirePOSIX(t)
 	for _, wrong := range []bool{false, true} {
 		t.Run(map[bool]string{false: "matching", true: "wrong path"}[wrong], func(t *testing.T) {
 			var calls []string

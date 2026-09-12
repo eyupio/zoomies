@@ -210,6 +210,11 @@ jobs:
         run: go build -trimpath -o zoomies.exe ./cmd/zoomies
       - name: Test the packages the Windows agent is made of
         run: go test -count=1 -timeout 20m ./internal/backend/ ./internal/machine/ ./internal/agent/ ./internal/installer/ ./internal/config/ ./internal/naming/ ./cmd/zoomies/
+      # The database lock is a byte-range lock here rather than flock, and it
+      # is the one thing in the store that has a Windows implementation of its
+      # own; the test proves it holds across processes.
+      - name: The database lock holds between processes
+        run: go test -count=1 -run TestTheDatabaseLock ./internal/store/
 
   upgrade:
     name: Upgrade

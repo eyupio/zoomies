@@ -129,9 +129,11 @@ func (c *Controller) snapshot(ctx context.Context) (scheduler.Snapshot, error) {
 	if err != nil {
 		return scheduler.Snapshot{}, fmt.Errorf("reading provisioning order: %w", err)
 	}
+	now := c.Now()
 	return scheduler.Snapshot{
 		LastProvisioned:    lastProvisioned,
-		Now:                c.Now(),
+		Now:                now,
+		HeldInstallations:  c.heldInstallations(now),
 		Pools:              pools,
 		Runners:            runners,
 		Jobs:               jobs,

@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"golang.org/x/crypto/argon2"
@@ -89,12 +90,18 @@ func ParseKey(s string) (*Key, error) {
 }
 
 // LoadKeyFile reads a key from a file, refusing world- or group-readable files.
+//
+// The refusal reads POSIX mode bits, and Windows has none: Go reports every
+// writable file there as 0666 whatever its ACL says, so the check would refuse
+// every key on the one platform where the bits mean nothing. Access there is
+// the directory's ACL, which the installer restricts; the check is skipped
+// rather than made to lie.
 func LoadKeyFile(path string) (*Key, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("cryptox: reading key file %s: %w", path, err)
 	}
-	if mode := info.Mode().Perm(); mode&0o077 != 0 {
+	if mode := info.Mode().Perm(); runtime.GOOS != "windows" && mode&0o077 != 0 {
 		return nil, fmt.Errorf("cryptox: key file %s is mode %04o; it must not be readable by group or other (chmod 600 %s)",
 			path, mode, path)
 	}

@@ -61,6 +61,18 @@ func requireUnix(t *testing.T) {
 	}
 }
 
+// requirePOSIX skips a test whose subject is a POSIX fact: a Unix socket
+// path, a uid, a file mode, an absolute path that starts with a slash. The
+// Docker and Podman backends are not offered on Windows, and the Windows
+// half of the process backend has tests of its own, so nothing here is left
+// unproved by the skip.
+func requirePOSIX(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("this test is about a POSIX fact (socket paths, uids, modes or rooted paths) with no Windows counterpart")
+	}
+}
+
 // installStubRunner lays out a fake actions/runner release so that Create finds
 // one already installed and never reaches the network.
 func installStubRunner(t *testing.T, root, version, listener, config string) {
@@ -426,6 +438,7 @@ func TestProcessProbe(t *testing.T) {
 // apt, no shell and no way to run the runner at all -- when the honest answer
 // is that this backend is not for containers.
 func TestProcessProbeWithoutAShellSaysSoBeforeAnythingElse(t *testing.T) {
+	requirePOSIX(t)
 	b, _ := newStubProcessBackend(t)
 	t.Setenv("PATH", t.TempDir())
 
@@ -623,8 +636,8 @@ func TestExtractTarGz(t *testing.T) {
 		mode int64
 		body string
 	}{
-		{"bin/Runner.Listener", 0o755, "#!/bin/sh\n"},
-		{"config.sh", 0o755, "#!/bin/sh\n"},
+		{listenerPath, 0o755, "#!/bin/sh\n"},
+		{configScript, 0o755, "#!/bin/sh\n"},
 		{"docs/readme.txt", 0o644, "hello"},
 	}
 	for _, e := range entries {
@@ -661,6 +674,7 @@ func TestExtractTarGz(t *testing.T) {
 }
 
 func TestSafeJoinRejectsEscapes(t *testing.T) {
+	requirePOSIX(t)
 	root := "/srv/tools"
 	if _, err := safeJoin(root, "../../etc/passwd"); err == nil {
 		t.Fatal("a traversing entry was accepted")
@@ -835,6 +849,7 @@ func tarGzWithListener(t *testing.T) []byte {
 }
 
 func TestProcessEnsureRelease(t *testing.T) {
+	requirePOSIX(t)
 	if _, err := runnerAsset(runtime.GOOS, runtime.GOARCH, "2.3.4"); err != nil {
 		t.Skipf("no actions/runner release for this host: %v", err)
 	}

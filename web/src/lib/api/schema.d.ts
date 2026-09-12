@@ -2093,6 +2093,20 @@ export interface components {
              *     allocated_runner_seconds is null.
              */
             allocation_attributable: boolean;
+            /**
+             * @description Where the history each figure is computed from begins, given what
+             *     retention has already pruned. Job counts, execution time and
+             *     queue waits come from job rows; allocated runner time and cost
+             *     from runner rows, which are kept for less time by default. A
+             *     report whose `from` is earlier than one of these is complete only
+             *     from that instant on. Null means that history is never pruned.
+             */
+            history_from: {
+                /** Format: date-time */
+                jobs: string | null;
+                /** Format: date-time */
+                runners: string | null;
+            };
             items: {
                 history?: components["schemas"]["UsageBucket"][];
                 succeeded?: number;

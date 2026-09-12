@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/eyupio/zoomies/internal/github"
+	"github.com/eyupio/zoomies/internal/store"
 )
 
 func TestIsDemoID(t *testing.T) {
@@ -18,12 +19,64 @@ func TestIsDemoID(t *testing.T) {
 		{"host_demo1", true},
 		{"run_demo09", true},
 		{"pool_k3f9qz2mx7ab", false},
-		{"ins_democracy", true}, // a real ID cannot collide: real IDs are random base32
+		{"ins_democracy", true}, // readable, and not the shape NewID makes
+		{"job_demostuckheldjob", true},
+		// A real identifier whose random part happens to begin "demo". One row
+		// in a million does, and it used to be skipped by the prober, the
+		// poller and the reap, and never reclaimed if it was a host.
+		{"ins_demoq2mx7abk3", false},
+		{"host_demozzzzzzzzz", false},
 		{"nounderscore", false},
 		{"", false},
 	} {
 		if got := IsDemoID(tc.id); got != tc.want {
 			t.Errorf("IsDemoID(%q) = %v, want %v", tc.id, got, tc.want)
+		}
+	}
+}
+
+// Every identifier the seed writes has to be one IsDemoID recognises, and the
+// rule it recognises them by is the shape, so no fixture may be exactly the
+// shape NewID produces. This is the test that stops a future fixture named
+// with thirteen readable letters from becoming a real row overnight.
+func TestEveryDemoFixtureIsRecognisedAsOne(t *testing.T) {
+	h := newHarness(t)
+	t.Setenv(StuckSeedEnvVar, "1")
+	if err := h.c.SeedDemo(h.ctx); err != nil {
+		t.Fatalf("SeedDemo: %v", err)
+	}
+	if err := h.c.SeedStuck(h.ctx); err != nil {
+		t.Fatalf("seedStuck: %v", err)
+	}
+	var ids []string
+	insts, _ := h.st.ListInstallations(h.ctx)
+	for _, i := range insts {
+		ids = append(ids, i.ID)
+	}
+	pools, _ := h.st.ListPools(h.ctx)
+	for _, p := range pools {
+		ids = append(ids, p.ID)
+	}
+	hosts, _ := h.st.ListHosts(h.ctx)
+	for _, hh := range hosts {
+		ids = append(ids, hh.ID)
+	}
+	for _, r := range h.runners() {
+		ids = append(ids, r.ID)
+	}
+	jobs, _, _ := h.st.ListJobs(h.ctx, store.JobFilter{}, store.Page{Limit: 500})
+	for _, j := range jobs {
+		ids = append(ids, j.ID)
+	}
+	if len(ids) < 60 {
+		t.Fatalf("collected only %d fixture identifiers; the seed is not what this test thinks it is", len(ids))
+	}
+	for _, id := range ids {
+		if !IsDemoID(id) {
+			t.Errorf("fixture %q is not recognised as demo data", id)
+		}
+		if store.LooksGenerated(id) {
+			t.Errorf("fixture %q has the shape of a real identifier; a fixture must never be mistakable for one", id)
 		}
 	}
 }
