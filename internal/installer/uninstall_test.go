@@ -337,3 +337,87 @@ func TestUninstallWithOneSharedDirectoryKeepsTheConfigItPromisedToKeep(t *testin
 		t.Errorf("the report did not name what was left behind:\n%s", report)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// The one irreversible answer
+// ---------------------------------------------------------------------------
+
+// The volume is the database -- pools, runners, job history, the audit log --
+// and deleting it cannot be undone. Every path into the question defaults to
+// keeping it, and the one that would surprise somebody most is `--yes`: on
+// nearly every other tool that means "yes to everything", and here it must
+// still not mean "and delete my data".
+func TestUninstallKeepsTheVolumeUnlessItIsAskedPlainly(t *testing.T) {
+	yes, no := true, false
+
+	for _, tc := range []struct {
+		name  string
+		opts  UninstallOptions
+		input string
+		want  bool
+	}{
+		{name: "the flag says so", opts: UninstallOptions{RemoveVolume: &yes}, want: true},
+		{name: "the flag says not to", opts: UninstallOptions{RemoveVolume: &no}, want: false},
+		{name: "--yes is not consent to lose the database", opts: UninstallOptions{Yes: true}, want: false},
+		{name: "nobody is there to ask", opts: UninstallOptions{NonInteractive: true}, want: false},
+		{name: "asked, and answered yes", input: "y\n", want: true},
+		{name: "asked, and answered no", input: "n\n", want: false},
+		{name: "asked, and just pressed return", input: "\n", want: false},
+		{name: "asked, and the input ended", input: "", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := &bytes.Buffer{}
+			opts := tc.opts
+			opts.Out = out
+			opts.In = strings.NewReader(tc.input)
+
+			got, err := wantsVolumeRemoved(opts, newUI(out), DeploymentRecord{})
+			if err != nil {
+				t.Fatalf("wantsVolumeRemoved: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("wantsVolumeRemoved = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// When the question is skipped because nobody is there to answer it, the
+// operator is told the volume was kept and how to ask for it to go. A silent
+// skip leaves somebody believing they uninstalled everything.
+func TestUninstallSaysItKeptTheVolumeWhenItCouldNotAsk(t *testing.T) {
+	out := &bytes.Buffer{}
+	opts := UninstallOptions{NonInteractive: true, Out: out, In: strings.NewReader("")}
+
+	if _, err := wantsVolumeRemoved(opts, newUI(out), DeploymentRecord{Volume: "zoomies-data"}); err != nil {
+		t.Fatalf("wantsVolumeRemoved: %v", err)
+	}
+	said := out.String()
+	if !strings.Contains(said, "zoomies-data") {
+		t.Errorf("the note does not name the volume that was kept:\n%s", said)
+	}
+	if !strings.Contains(said, "--volumes") {
+		t.Errorf("the note does not say how to delete it either:\n%s", said)
+	}
+}
+
+// The prompt has to say what is about to be lost. "Delete the volume?" on its
+// own is a question an operator answers wrongly once.
+func TestUninstallVolumePromptNamesWhatIsInIt(t *testing.T) {
+	out := &bytes.Buffer{}
+	opts := UninstallOptions{Out: out, In: strings.NewReader("n\n")}
+
+	if _, err := wantsVolumeRemoved(opts, newUI(out), DeploymentRecord{}); err != nil {
+		t.Fatalf("wantsVolumeRemoved: %v", err)
+	}
+	asked := out.String()
+	for _, want := range []string{"database", "cannot be undone"} {
+		if !strings.Contains(asked, want) {
+			t.Errorf("the prompt never says %q:\n%s", want, asked)
+		}
+	}
+	// The default is spelled out rather than left to capitalisation alone.
+	if !strings.Contains(asked, "[y/N]") {
+		t.Errorf("the prompt does not show that keeping the volume is the default:\n%s", asked)
+	}
+}
