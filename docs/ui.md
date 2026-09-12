@@ -64,8 +64,8 @@ ceiling, idle timeout, whether its runners are ephemeral and whether jobs get a
 Docker daemon — and a risk badge on any pool that trades some of the default
 safety away, so the trade is visible from the list.
 
-![The Pools page: each pool's labels, target, backend, busy-against-live bar, queue depth, idle timeout, lifetime and Docker mode](screenshots/pools-dark.webp#only-dark){ .zoomies-shot }
-![The Pools page: each pool's labels, target, backend, busy-against-live bar, queue depth, idle timeout, lifetime and Docker mode](screenshots/pools-light.webp#only-light){ .zoomies-shot }
+![The Pools page: queue pressure and configured headroom above each pool's runner and configuration details](screenshots/pools-dark.webp#only-dark){ .zoomies-shot }
+![The Pools page: queue pressure and configured headroom above each pool's runner and configuration details](screenshots/pools-light.webp#only-light){ .zoomies-shot }
 
 A pool's own page shows its runners and recent jobs, the exact `runs-on:` line
 a workflow writes to land here, and its configuration with the warnings — if
@@ -81,8 +81,8 @@ are hidden by default, because a busy fleet makes and destroys thousands of
 them and they are all history. Rows select for bulk drain or delete, and the
 state filter is a real filter: it narrows the set rather than repainting it.
 
-![The Runners grid: state, name, pool, host, current job, age, jobs handled, CPU and memory for each runner](screenshots/runners-dark.webp#only-dark){ .zoomies-shot }
-![The Runners grid: state, name, pool, host, current job, age, jobs handled, CPU and memory for each runner](screenshots/runners-light.webp#only-light){ .zoomies-shot }
+![The Runners page: job queue depth, runner state totals, provisioning demand and lifecycle composition above the runner grid](screenshots/runners-dark.webp#only-dark){ .zoomies-shot }
+![The Runners page: job queue depth, runner state totals, provisioning demand and lifecycle composition above the runner grid](screenshots/runners-light.webp#only-light){ .zoomies-shot }
 
 A runner's page carries the job it is on, a timeline of how long it spent in
 each state — provisioning, registering, idle, busy — its resource usage as the
@@ -90,6 +90,23 @@ host's agent last reported it, and the live log.
 
 ![A busy runner's page: its current job, a timeline of its states, details and resource usage](screenshots/runner-dark.webp#only-dark){ .zoomies-shot }
 ![A busy runner's page: its current job, a timeline of its states, details and resource usage](screenshots/runner-light.webp#only-light){ .zoomies-shot }
+
+The expandable activity panel shows the last hour of queued jobs, running jobs,
+idle runners or live runners. Inspect individual minutes with the timeline
+control; gaps indicate missing samples. Fleet context is independent of grid
+filters, while selecting a pool scopes the headline runner metrics.
+
+![Runner history expanded, with a one-hour trend and minute-by-minute coverage](screenshots/runner-history-dark.webp#only-dark){ .zoomies-shot }
+![Runner history expanded, with a one-hour trend and minute-by-minute coverage](screenshots/runner-history-light.webp#only-light){ .zoomies-shot }
+
+## Queue
+
+Provisioning demand has its own view, with ready, expedited, paused and removed
+counts alongside filtering and bulk controls. Job queue depth can remain high
+when provisioning demand is held; these are separate measures.
+
+![The Queue page: provisioning demand composition, status filters and bulk controls](screenshots/queue-dark.webp#only-dark){ .zoomies-shot }
+![The Queue page: provisioning demand composition, status filters and bulk controls](screenshots/queue-light.webp#only-light){ .zoomies-shot }
 
 ## Jobs
 
@@ -100,8 +117,8 @@ job that no enabled pool claims is one filter away — *Unmatched only* — and 
 problems drawer links straight to it: on an organisation that also rents
 runners elsewhere, most such jobs are somebody else's rather than a fault.
 
-![The Jobs page: the fleet's queued, running and finished jobs with their labels, pool, runner, queue wait and duration](screenshots/jobs-dark.webp#only-dark){ .zoomies-shot }
-![The Jobs page: the fleet's queued, running and finished jobs with their labels, pool, runner, queue wait and duration](screenshots/jobs-light.webp#only-light){ .zoomies-shot }
+![The Jobs page: queue depth, running jobs, success rate, P95 wait and outcome composition above the job grid](screenshots/jobs-dark.webp#only-dark){ .zoomies-shot }
+![The Jobs page: queue depth, running jobs, success rate, P95 wait and outcome composition above the job grid](screenshots/jobs-light.webp#only-light){ .zoomies-shot }
 
 Opening a job says where it went wrong first: the step that failed and how
 long it ran, with a link to that step's log on GitHub — or, when the runner
@@ -118,8 +135,8 @@ repository, workflow or installation, with an estimated cost wherever an
 administrator has given a pool a rate. Zoomies embeds no cloud prices. The
 table exports as CSV.
 
-![The Usage report grouped by pool: runner-hours, jobs queued, started and completed, average queue wait and peak concurrency](screenshots/usage-dark.webp#only-dark){ .zoomies-shot }
-![The Usage report grouped by pool: runner-hours, jobs queued, started and completed, average queue wait and peak concurrency](screenshots/usage-light.webp#only-light){ .zoomies-shot }
+![The Usage dashboard: runner-hours, job outcomes, queue wait, utilisation trends and activity history grouped by pool](screenshots/usage-dark.webp#only-dark){ .zoomies-shot }
+![The Usage dashboard: runner-hours, job outcomes, queue wait, utilisation trends and activity history grouped by pool](screenshots/usage-light.webp#only-light){ .zoomies-shot }
 
 ## Hosts
 
@@ -135,8 +152,8 @@ alone for the machine's own sake. A cordoned host keeps its runners and takes no
 ones. *Add a host* mints a join token and prints the one line to paste on the
 new machine.
 
-![The Hosts page: a card per host with its health, slots in use, detected backends and labels, above the join tokens panel](screenshots/hosts-dark.webp#only-dark){ .zoomies-shot }
-![The Hosts page: a card per host with its health, slots in use, detected backends and labels, above the join tokens panel](screenshots/hosts-light.webp#only-light){ .zoomies-shot }
+![The Hosts page: fleet health and eligible slots, with a capacity map showing host state, slot use, CPU and memory commitments and disk free space](screenshots/hosts-dark.webp#only-dark){ .zoomies-shot }
+![The Hosts page: fleet health and eligible slots, with a capacity map showing host state, slot use, CPU and memory commitments and disk free space](screenshots/hosts-light.webp#only-light){ .zoomies-shot }
 
 ## Installations
 

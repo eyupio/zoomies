@@ -315,7 +315,7 @@ wrong), **Pools**, **Runners**, **Jobs**, **Usage**, **Hosts**,
     <td width="50%" valign="top">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/hosts-dark.webp">
-  <img src="docs/screenshots/hosts-light.webp" alt="The Hosts page: a card per host with its health, slots in use, detected backends and labels, above the join tokens panel" width="100%">
+  <img src="docs/screenshots/hosts-light.webp" alt="The Hosts page: fleet health and eligible slots, with a capacity map showing host state, slot use, CPU and memory commitments and disk free space" width="100%">
 </picture>
       <p align="center"><sub>Hosts, their room left, and the backends their agents found.</sub></p>
     </td>

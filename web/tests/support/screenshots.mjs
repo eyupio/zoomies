@@ -81,6 +81,18 @@ const SHOTS = [
   { name: 'pools', path: '/pools', heading: 'Pools' },
   { name: 'pool', path: `/pools/${FIXTURE.linuxPool}` },
   { name: 'runners', path: '/runners', heading: 'Runners' },
+  {
+    name: 'runner-history',
+    path: '/runners',
+    heading: 'Runners',
+    async prepare(page) {
+      await page.getByText('Explore fleet activity over the last hour', { exact: true }).click();
+      await page
+        .getByRole('region', { name: 'Fleet activity · last hour' })
+        .scrollIntoViewIfNeeded();
+    },
+  },
+  { name: 'queue', path: '/queue', heading: 'Queue' },
   { name: 'runner', path: `/runners/${FIXTURE.busyRunner}` },
   { name: 'jobs', path: '/jobs', heading: 'Jobs' },
   {
@@ -109,7 +121,7 @@ const SHOTS = [
     async prepare(page) {
       // The review step: the exact diff, and the jobs it will not touch.
       await page.getByRole('radio', { name: 'acme', exact: false }).waitFor();
-      for (let step = 0; step < 3; step++) {
+      for (let step = 0; step < 4; step++) {
         await page.getByRole('button', { name: 'Next' }).click();
       }
       await page.getByRole('heading', { level: 2, name: 'Review' }).waitFor();
@@ -264,7 +276,7 @@ function encodeWebp(pngDir) {
     '    Image.open(png).convert("RGB").save(out, lossless=True, quality=100, method=6)',
     '    print(f"  {out.name}  {out.stat().st_size // 1024} KB")',
   ].join('\n');
-  const run = spawnSync('python3', ['-c', script, pngDir, outDir], { stdio: 'inherit' });
+  const run = spawnSync('python3', ['-u', '-c', script, pngDir, outDir], { stdio: 'inherit' });
   if (run.error || run.status !== 0) {
     throw new Error(
       'encoding the screenshots needs Python 3 with Pillow: pip install pillow\n' +
@@ -321,6 +333,7 @@ async function capture(browser, scheme, pngDir) {
     await pingWebhook(baseURL);
 
     for (const shot of SHOTS) {
+      console.log(`  capturing ${shot.name}-${scheme}`);
       let context = desktop;
       if (shot.device) {
         context = await browser.newContext({ ...shot.device, ...common });
