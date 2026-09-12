@@ -483,6 +483,33 @@ kept; a rule that could not be made to fail did not ship.
 | A link a runner printed is followed only when it is http or https, and then with `noopener` | `followableLink` in `web/src/lib/logs/LogViewer.svelte` (see the note in ZF-104's fourth pull request) |
 | A body over the limit is refused, and the log relay is exempt | `TestOversizeRequestBodyIsRefused`, `TestARunnerThatPrintsMoreThanTheBodyLimitIsNotCutOff` (`internal/api`) |
 
+### The supply chain
+
+The [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/eyupio/zoomies)
+on the README is the outside view of the same discipline, re-run weekly by
+`.github/workflows/scorecard.yml`. Most of what it measures is in this
+repository and checked by it: every action pinned to a commit, workflow tokens
+that grant nothing at the top, Dependabot on all three ecosystems, CodeQL on
+every pull request, `govulncheck` on every change, a fuzz workflow, and a
+release that ships its build provenance twice — a Sigstore bundle for
+`gh attestation verify` and the same statement as `.intoto.jsonl` for SLSA
+tooling. `osv-scanner.toml` at the root is the one place an advisory is
+ignored, and only when `govulncheck` has already shown the package is not in
+the import graph and no version fixes it; an entry there names why.
+
+Three of its checks are repository settings rather than files, so no pull
+request can change them. They are recorded here so the next person to read the
+score knows what it is measuring:
+
+* **Branch-Protection** wants `main` to refuse a direct push and a force push,
+  and to require the CI status checks before a merge.
+* **Code-Review** counts merged pull requests approved by someone other than
+  their author. A project with one maintainer scores zero here until it has
+  two, and the score is honest about that.
+* **CII-Best-Practices** looks for a badge earned at
+  [bestpractices.dev](https://www.bestpractices.dev/), which is a questionnaire
+  a maintainer fills in about the practices this document describes.
+
 ---
 
 ## 8. Hardening a production install
