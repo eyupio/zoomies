@@ -145,8 +145,16 @@ type Agent struct {
 	// host is the real truth; reconcile.go corrects this map from it.
 	runners map[string]*tracked
 	// inflight keys the tasks currently executing on runner ID, so two tasks
-	// for one runner never run at once.
+	// for one runner never run at once. running records the kind of the
+	// dispatched task holding each claim, and waiting the one task queued
+	// behind it -- what makes a remove that overtakes a create run as soon as
+	// the create is done rather than waiting out the task's lease.
 	inflight map[string]bool
+	running  map[string]TaskKind
+	waiting  map[string]Task
+	// taskCtx is the task loop's context, so a task handed a claim as it is
+	// released runs under the same cancellation as one delivered by a poll.
+	taskCtx context.Context
 	// orphans records when an unclaimed workload was first seen, which is how
 	// "the controller has not mentioned it in a while" is measured.
 	orphans map[backend.Handle]time.Time
@@ -289,6 +297,8 @@ func New(opts Options) (*Agent, error) {
 		sem:       make(chan struct{}, opts.Capacity),
 		runners:   make(map[string]*tracked),
 		inflight:  make(map[string]bool),
+		running:   make(map[string]TaskKind),
+		waiting:   make(map[string]Task),
 		orphans:   make(map[backend.Handle]time.Time),
 	}
 	a.logs = newLogRelay(opts.Transport, log)
@@ -535,6 +545,9 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	loopCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	a.mu.Lock()
+	a.taskCtx = loopCtx
+	a.mu.Unlock()
 
 	// A fatal error from any loop stops the others: there is no useful work to
 	// do once the controller has disowned this host.
@@ -962,17 +975,36 @@ func (a *Agent) dispatch(ctx context.Context, task Task) {
 	// dropped task reports no result and its key stays outstanding on the
 	// controller. Two Docker pools on one host meant one of them was never
 	// prewarmed again.
-	claimed := task.RunnerID != ""
-	if claimed && !a.claim(task.RunnerID) {
-		// The controller redelivers any task it has not seen a result for, so
-		// a duplicate arriving while the first is still running is expected.
-		// Skipping rather than queueing is what stops two creates for one
-		// runner from racing each other on the host.
-		a.log.Debug("skipping task; another task for this runner is already in flight",
-			"task", task.ID, "kind", task.Kind, "runner", task.RunnerID)
-		return
+	if task.RunnerID != "" {
+		claimed, held := a.claimOrQueue(task)
+		switch {
+		case held:
+			// A remove arriving while the create it cancels is still running
+			// is the controller changing its mind, not a redelivery. Dropping
+			// it left the workload on the host until the task's lease expired
+			// minutes later, with the row already gone from the UI -- so it
+			// waits for the claim instead and runs the moment it is free.
+			a.log.Debug("holding a task until the one in flight for this runner finishes",
+				"task", task.ID, "kind", task.Kind, "runner", task.RunnerID)
+			return
+		case !claimed:
+			// The controller redelivers any task it has not seen a result for,
+			// so a duplicate arriving while the first is still running is
+			// expected. Skipping rather than queueing is what stops two
+			// creates for one runner from racing each other on the host.
+			a.log.Debug("skipping task; another task for this runner is already in flight",
+				"task", task.ID, "kind", task.Kind, "runner", task.RunnerID)
+			return
+		}
 	}
 
+	a.start(ctx, task)
+}
+
+// start runs a task whose runner's claim is already held, and gives the claim
+// up -- or hands it to whatever is waiting behind it -- when the task is done.
+func (a *Agent) start(ctx context.Context, task Task) {
+	claimed := task.RunnerID != ""
 	a.tasks.Add(1)
 	go func() {
 		defer a.tasks.Done()
@@ -1579,10 +1611,79 @@ func (a *Agent) claim(runnerID string) bool {
 	return true
 }
 
+// taskRank orders the lifecycle tasks by how far along a runner's life they
+// take it. A task that ranks above the one in flight for its runner supersedes
+// it -- the controller has decided something later about that runner -- and is
+// worth waiting for the claim rather than dropping. An equal rank is a
+// redelivery of work already being done, which is exactly what the claim is
+// there to drop.
+func taskRank(kind TaskKind) int {
+	switch kind {
+	case TaskCreateRunner:
+		return 1
+	case TaskStopRunner:
+		return 2
+	case TaskRemoveRunner:
+		return 3
+	}
+	return 0
+}
+
+// claimOrQueue takes the runner's claim for a dispatched task, or leaves the
+// task waiting behind the one that holds it when it supersedes that one.
+//
+// Only a claim held by another dispatched task is queued behind: the
+// reconciler takes one for the length of its own work and hands nothing on, so
+// a task arriving then is better left to the controller's redelivery than held
+// by a goroutine that will not start it.
+func (a *Agent) claimOrQueue(task Task) (claimed, held bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.inflight[task.RunnerID] {
+		a.inflight[task.RunnerID] = true
+		a.running[task.RunnerID] = task.Kind
+		return true, false
+	}
+	running, dispatched := a.running[task.RunnerID]
+	if !dispatched || taskRank(task.Kind) <= taskRank(running) {
+		return false, false
+	}
+	if waiting, ok := a.waiting[task.RunnerID]; ok {
+		if taskRank(waiting.Kind) >= taskRank(task.Kind) {
+			return false, false
+		}
+		// Two supersede the one in flight and only one may wait: the later of
+		// the two does everything the earlier would, and the controller
+		// redelivers the one dropped here if it still wants it.
+		a.log.Debug("a later task replaced the one waiting for this runner",
+			"runner", task.RunnerID, "dropped", waiting.ID, "kind", task.Kind)
+	}
+	a.waiting[task.RunnerID] = task
+	return false, true
+}
+
+// release gives up a runner's claim, or hands it straight to the task waiting
+// behind this one. The claim is never dropped in between: a third task
+// arriving in that gap would otherwise run beside the one that was waiting.
 func (a *Agent) release(runnerID string) {
 	a.mu.Lock()
-	delete(a.inflight, runnerID)
+	next, ok := a.waiting[runnerID]
+	if ok {
+		delete(a.waiting, runnerID)
+		a.running[runnerID] = next.Kind
+	} else {
+		delete(a.inflight, runnerID)
+		delete(a.running, runnerID)
+	}
+	ctx := a.taskCtx
 	a.mu.Unlock()
+	if !ok {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	a.start(ctx, next)
 }
 
 func (a *Agent) markStopping(runnerID string) {
