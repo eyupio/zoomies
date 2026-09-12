@@ -283,6 +283,14 @@ gh attestation verify zoomies_linux_amd64 --repo eyupio/zoomies
 gh attestation verify oci://ghcr.io/eyupio/zoomies:v1.2.3 --repo eyupio/zoomies
 ```
 
+The attestation is attached twice. `zoomies-provenance.sigstore.json` is the
+Sigstore bundle `gh attestation verify` reads — the signed statement together
+with the certificate and transparency-log entry that say who signed it.
+`zoomies-provenance.intoto.jsonl` is the same signed statement on its own, in
+the DSSE envelope that SLSA tooling and the OpenSSF Scorecard recognise as
+provenance. Both describe every binary in the release; neither is needed to
+install, and `install.sh` checks neither.
+
 Every image says what it is without being started, in the standard OCI labels —
 `org.opencontainers.image.version`, `.revision` and `.created`. That includes
 the runner images, which until recently carried no version at all.
