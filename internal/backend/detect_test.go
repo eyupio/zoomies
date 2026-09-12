@@ -244,8 +244,16 @@ func TestCanUseDockerSocketPermissionDenied(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(sub, 0o700) })
 
 	err = CanUseDockerSocket(path)
-	if err == nil || !strings.Contains(err.Error(), "docker group") {
-		t.Fatalf("a permission failure must name the group to join, got %v", err)
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("a permission failure must report an unavailable backend, got %v", err)
+	}
+	// This integration test runs on both bare hosts and container runners.
+	// Their remedies differ (usermod versus --group-add); permissions_test.go
+	// verifies each remedy using explicit identities, independently of CI's host.
+	for _, want := range []string{"permission denied", path} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("a permission failure must identify %q, got %v", want, err)
+		}
 	}
 }
 
