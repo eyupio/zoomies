@@ -165,7 +165,11 @@ _cur_on()  { [ "$Z_ANIM" -eq 1 ] && printf '\033[?25h'; return 0; }
 # decided there.
 init_motion() {
     Z_ANIM=0
-    if anim_ready; then _RUNNER='🐾'; _RD=2; else _RUNNER='(oo~'; _RD=4; fi
+    if anim_ready; then
+        _RUNNER='🐾'; _RD=2; _DASH_DOG='🐕'
+    else
+        _RUNNER='dog>'; _RD=4; _DASH_DOG='dog>'
+    fi
     _W=32
     if [ "$NO_ANIM" -eq 1 ] || [ -n "${ZOOMIES_NO_ANIMATION:-}" ]; then
         :
@@ -212,16 +216,7 @@ _load_line() {
     _max=$((_W - _RD)); [ "$_max" -lt 1 ] && _max=1
     _cyc=$((_max * 2)); [ "$_cyc" -lt 1 ] && _cyc=1
     _p=$((_fr % _cyc)); [ "$_p" -gt "$_max" ] && _p=$((_cyc - _p))
-    if [ "$_RD" -eq 4 ]; then
-        case $((_fr % 4)) in
-            0) _r="(oo\\" ;;
-            1) _r='(oo|' ;;
-            2) _r='(oo/' ;;
-            3) _r='(oo|' ;;
-        esac
-    else
-        _r=$_RUNNER
-    fi
+    _r=$_RUNNER
     _i=0; _left=''
     while [ "$_i" -lt "$_p" ]; do _left="$_left "; _i=$((_i + 1)); done
     _pad=''
@@ -281,18 +276,18 @@ pulse() {
     return 0
 }
 
-# A tiny arrival before the permanent banner. The dog is recognisably the same
-# `(oo)~` character used by the finale, rather than an emoji whose width varies
-# between terminals. Six frames take less than a quarter of a second: enough to
-# feel alive, never enough to make a quick local install feel slower.
+# A tiny arrival before the permanent banner. UTF-8 terminals get a running dog;
+# the portable fallback spells it out instead of attempting ambiguous face art.
+# Six frames take less than a quarter of a second: enough to feel alive, never
+# enough to make a quick local install feel slower.
 brand_dash() {
     [ "$Z_ANIM" -eq 1 ] || return 0
     _cur_off
     for _bp in 0 4 8 12 16 20; do
         _i=0; _pad=''
         while [ "$_i" -lt "$_bp" ]; do _pad="$_pad "; _i=$((_i + 1)); done
-        printf '\r\033[K  %s~~~~%s%s%s(oo)>%s' \
-            "$C_DIM" "$C_RESET" "$_pad" "$C_ACCENT" "$C_RESET"
+        printf '\r\033[K  %s~~~~%s%s%s%s%s' \
+            "$C_DIM" "$C_RESET" "$_pad" "$C_ACCENT" "$_DASH_DOG" "$C_RESET"
         sleep 0.035
     done
     printf '\r\033[K'
@@ -324,11 +319,13 @@ finale() {
     done
     printf '\r\033[K'
     _cur_on
-    printf '%s    __%s\n' "$C_ACCENT" "$C_RESET"
-    printf '%s   (oo)~%s  %s%s%s is installed and off the lead.\n' \
+    printf '%s       / \\__%s\n' "$C_ACCENT" "$C_RESET"
+    printf '%s      (    @\\___%s  %s%s%s is installed and off the lead.\n' \
         "$C_ACCENT" "$C_RESET" "$C_BOLD" "$fin_ver" "$C_RESET"
-    printf '%s   /||\\%s  %snext: zoomies init%s\n' \
+    printf '%s      /         O%s  %snext: zoomies init%s\n' \
         "$C_ACCENT" "$C_RESET" "$C_DIM" "$C_RESET"
+    printf '%s     /   (_____/%s\n' "$C_ACCENT" "$C_RESET"
+    printf '%s    /_____/   U%s\n' "$C_ACCENT" "$C_RESET"
     return 0
 }
 
@@ -378,12 +375,16 @@ banner() {
     brand_dash
     printf '%s  %s%s %sZOOMIES%s %s\n' "$C_DIM" "$_tl" "$C_RESET" "$C_BOLD$C_ACCENT" "$C_RESET" "$_rule"; brand_beat
     printf '%s  %s%s\n' "$C_DIM" "$_vl" "$C_RESET"; brand_beat
-    printf '%s  %s%s   %s__%s      %sSELF-HOSTED GITHUB ACTIONS RUNNERS%s\n' \
-        "$C_DIM" "$_vl" "$C_RESET" "$C_ACCENT" "$C_RESET" "$C_BOLD" "$C_RESET"; brand_beat
-    printf '%s  %s%s  %s(oo)~%s    Fast when needed. Gone when done.\n' \
+    printf '%s  %s%s       %s/ \\__%s\n' \
         "$C_DIM" "$_vl" "$C_RESET" "$C_ACCENT" "$C_RESET"; brand_beat
-    printf '%s  %s%s  %s/||\\%s     %soff the lead, on the job.%s\n' \
+    printf '%s  %s%s  %s~~~  (    @\\___%s  %sSELF-HOSTED GITHUB ACTIONS RUNNERS%s\n' \
+        "$C_DIM" "$_vl" "$C_RESET" "$C_ACCENT" "$C_RESET" "$C_BOLD" "$C_RESET"; brand_beat
+    printf '%s  %s%s       %s/         O%s  Fast when needed. Gone when done.\n' \
+        "$C_DIM" "$_vl" "$C_RESET" "$C_ACCENT" "$C_RESET"; brand_beat
+    printf '%s  %s%s      %s/   (_____/%s   %soff the lead, on the job.%s\n' \
         "$C_DIM" "$_vl" "$C_RESET" "$C_ACCENT" "$C_RESET" "$C_DIM" "$C_RESET"; brand_beat
+    printf '%s  %s%s     %s/_____/   U%s\n' \
+        "$C_DIM" "$_vl" "$C_RESET" "$C_ACCENT" "$C_RESET"; brand_beat
     printf '%s  %s%s %shttps://github.com/%s%s\n\n' \
         "$C_DIM" "$_bl" "$C_RESET" "$C_DIM" "$REPO" "$C_RESET"
 }
