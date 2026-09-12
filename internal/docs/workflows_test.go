@@ -405,22 +405,38 @@ func TestCIDogfoodsZoomiesWithRecoveryForEveryJob(t *testing.T) {
 		if len(matches) == 0 {
 			t.Fatalf("%s has no job runners", name)
 		}
-		githubHosted := 0
-		for _, m := range matches {
-			if name == "ci.yml" && m[1] == "ubuntu-latest" {
-				githubHosted++
+		// Match exceptions by job ID: a count alone lets the wrong job stop
+		// dogfooding while still satisfying the test. Both exceptions need
+		// system packages unavailable to the unprivileged stock runner.
+		exceptions := map[string]bool{}
+		if name == "ci.yml" {
+			exceptions["installer"] = false
+			exceptions["playwright"] = false
+		}
+		jobs := regexp.MustCompile(`(?m)^  ([a-zA-Z0-9_-]+):\n`).FindAllStringSubmatchIndex(body, -1)
+		for i, job := range jobs {
+			end := len(body)
+			if i+1 < len(jobs) {
+				end = jobs[i+1][0]
+			}
+			id := body[job[2]:job[3]]
+			runner := runsOn.FindStringSubmatch(body[job[1]:end])
+			if len(runner) == 0 {
 				continue
 			}
-			if !strings.Contains(m[1], selector) {
-				t.Errorf("%s has a job without fork protection and manual recovery: %s", name, m[1])
+			if _, allowed := exceptions[id]; allowed {
+				exceptions[id] = true
+				if runner[1] != "ubuntu-latest" {
+					t.Errorf("%s job %s needs GitHub-hosted system packages, got %s", name, id, runner[1])
+				}
+			} else if !strings.Contains(runner[1], selector) {
+				t.Errorf("%s job %s lacks fork protection and manual recovery: %s", name, id, runner[1])
 			}
 		}
-		// install.sh is the sole exception: it verifies host installation with
-		// sudo and system packages, which a deliberately minimal runner image
-		// does not provide. Keep the exception singular so another job cannot
-		// silently stop dogfooding the fleet.
-		if name == "ci.yml" && githubHosted != 1 {
-			t.Errorf("ci.yml has %d always-GitHub-hosted jobs, want only the install.sh check", githubHosted)
+		for id, found := range exceptions {
+			if !found {
+				t.Errorf("%s is missing expected GitHub-hosted job %s", name, id)
+			}
 		}
 	}
 	ci := files["ci.yml"]

@@ -27,6 +27,8 @@ RUNNER_VERSION ?= 2.337.0
 
 GO       ?= go
 NPM      ?= npm
+# Package-wide budget, including race instrumentation and SQLite migrations.
+GO_TEST_TIMEOUT ?= 30m
 
 ##@ Build
 
@@ -70,7 +72,7 @@ dist: ui ## Cross-compile release binaries into dist/
 
 .PHONY: test
 test: ## Run Go unit and integration tests
-	$(GO) test -race -count=1 ./...
+	$(GO) test -race -count=1 -timeout $(GO_TEST_TIMEOUT) ./...
 
 .PHONY: test-short
 test-short: ## Run only fast tests
@@ -78,7 +80,7 @@ test-short: ## Run only fast tests
 
 .PHONY: cover
 cover: ## Run tests with a coverage report
-	$(GO) test -race -coverprofile=coverage.out -covermode=atomic ./...
+	$(GO) test -race -count=1 -timeout $(GO_TEST_TIMEOUT) -coverprofile=coverage.out -covermode=atomic ./...
 	$(GO) tool cover -func=coverage.out | tail -1
 
 .PHONY: test-ui
