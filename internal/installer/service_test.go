@@ -3,6 +3,7 @@ package installer
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -384,21 +385,28 @@ func TestJoinRestrictsTheDirectoryToAdministratorsOnWindowsOnly(t *testing.T) {
 		calls = append(calls, append([]string{name}, args...))
 		return "", nil
 	}
-	if err := restrictDir(context.Background(), "linux", `/var/lib/zoomies`, run); err != nil {
+	root := t.TempDir()
+	config, state := filepath.Join(root, "etc"), filepath.Join(root, "state")
+	if err := prepareDirs(context.Background(), "linux", run, config, state); err != nil {
 		t.Fatalf("linux: %v", err)
+	}
+	for _, dir := range []string{config, state} {
+		if _, err := os.Stat(dir); err != nil {
+			t.Errorf("%s was not created: %v", dir, err)
+		}
 	}
 	if len(calls) != 0 {
 		t.Fatalf("a Linux join must not touch permissions, ran %v", calls)
 	}
 
-	if err := restrictDir(context.Background(), "windows", `C:\ProgramData\zoomies`, run); err != nil {
+	if err := prepareDirs(context.Background(), "windows", run, config, state); err != nil {
 		t.Fatalf("windows: %v", err)
 	}
-	if len(calls) != 1 || calls[0][0] != "icacls" {
-		t.Fatalf("expected one icacls call, got %v", calls)
+	if len(calls) != 2 || calls[0][0] != "icacls" || calls[1][0] != "icacls" {
+		t.Fatalf("expected one icacls call per directory, got %v", calls)
 	}
 	args := strings.Join(calls[0], " ")
-	for _, want := range []string{`C:\ProgramData\zoomies`, "/inheritance:r", "SYSTEM:(OI)(CI)F", "Administrators:(OI)(CI)F"} {
+	for _, want := range []string{config, "/inheritance:r", "SYSTEM:(OI)(CI)F", "Administrators:(OI)(CI)F"} {
 		if !strings.Contains(args, want) {
 			t.Errorf("icacls call is missing %q: %s", want, args)
 		}
@@ -408,7 +416,25 @@ func TestJoinRestrictsTheDirectoryToAdministratorsOnWindowsOnly(t *testing.T) {
 	}
 
 	failing := func(context.Context, string, ...string) (string, error) { return "", errors.New("Access is denied.") }
-	if err := restrictDir(context.Background(), "windows", `C:\ProgramData\zoomies`, failing); err == nil {
+	err := prepareDirs(context.Background(), "windows", failing, config)
+	if err == nil {
 		t.Fatal("a refused icacls must be reported: a join that silently leaves the credentials world-readable is worse than one that stops")
+	}
+	if !strings.Contains(err.Error(), "elevated") {
+		t.Errorf("the error must say what to do about it: %v", err)
+	}
+
+	// A directory that cannot be created is reported as such, before any
+	// ACL is attempted on it.
+	calls = nil
+	blocked := filepath.Join(root, "file")
+	if err := os.WriteFile(blocked, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareDirs(context.Background(), "windows", run, filepath.Join(blocked, "under")); err == nil {
+		t.Fatal("creating a directory under a file must fail")
+	}
+	if len(calls) != 0 {
+		t.Errorf("no ACL must be set on a directory that was not created, ran %v", calls)
 	}
 }
