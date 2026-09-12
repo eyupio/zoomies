@@ -242,7 +242,12 @@ ratified.
     that a row moves right only when a test runs on the thing, and adding a
     platform while the project is trying to prove the one it has would widen
     Gate F rather than pass it. *Recommend: process first, containers only if
-    a user asks for the isolation; and neither before Gate F.*
+    a user asks for the isolation; and neither before Gate F.* **Taken on
+    12 September 2026** as process on a Windows host, per
+    [decision 0003](roadmap/decisions/0003-windows-runners-are-processes-on-a-host.md),
+    on the owner's instruction to implement it ahead of Gate F and flag it as
+    a beta-testing item; the support matrix row says what has and has not
+    run.
 
 ## 4. Delivery rules
 
@@ -1623,8 +1628,14 @@ the support matrix's rule — a row moves right only when a test runs on the
 thing — means a platform added while the project is still proving the one it
 has would widen Gate F rather than pass it. Its first pull request was the
 exception and **has been taken**: it added no behaviour and only stopped the
-product implying a platform it has not got. The other three stay where this
-paragraph puts them, and decision 26 comes before any of them.
+product implying a platform it has not got. **The other three were taken on
+12 September 2026 at the owner's instruction**, ahead of this paragraph's
+sequencing and with the platform flagged as a beta-testing item rather than a
+qualified one; decision 26 was taken with them, and the support matrix
+records what has run (a hosted Windows runner vets and tests the code) and
+what has not (a job on a Windows host). Gate F is unchanged by it: the
+reference configuration is still Linux amd64, and a Windows row that says
+"not run" does not widen what the gate measures.
 
 ## 11. What the owner provides, and when
 

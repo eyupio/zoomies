@@ -59,11 +59,12 @@ ui-dev: ## Run the Vite dev server against a controller on :8080
 .PHONY: dist
 dist: ui ## Cross-compile release binaries into dist/
 	@mkdir -p $(DIST)
-	@for platform in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do \
+	@for platform in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do \
 		os=$${platform%/*}; arch=$${platform#*/}; \
+		case $$os in windows) ext=.exe ;; *) ext= ;; esac; \
 		echo "  building $$os/$$arch"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build -trimpath \
-			-ldflags "$(LDFLAGS)" -o $(DIST)/$(BIN)_$${os}_$${arch} ./cmd/zoomies; \
+			-ldflags "$(LDFLAGS)" -o $(DIST)/$(BIN)_$${os}_$${arch}$$ext ./cmd/zoomies; \
 	done
 	cd $(DIST) && sha256sum $(BIN)_* > checksums.txt
 	@echo "  wrote $(DIST)/checksums.txt"

@@ -18,7 +18,7 @@ Two things are deliberately **not** here, and both were close calls — see
 | --- | --- |
 | `github.com/tailscale/tailcat` | Built-in encrypted private agent transport, NAT traversal and relay fallback; avoids installing and supervising a separate tunnel process. Pinned to v0.6.0; requires Go 1.27.1. |
 | `tailscale.com` | Tailcat’s network and key types, plus a local DERP test relay to verify real tunnel behaviour without hosted infrastructure. |
-| `modernc.org/sqlite` | Pure-Go SQLite. No cgo means the binary is static, cross-compiles to four platforms from one machine, and runs on distroless. |
+| `modernc.org/sqlite` | Pure-Go SQLite. No cgo means the binary is static, cross-compiles to five platforms from one machine, and runs on distroless. |
 | `github.com/go-chi/chi/v5` | Router. `net/http`'s 1.22 mux nearly suffices, but chi's middleware chaining and sub-router mounting keep the API's role and audit middleware readable. Small, stable, no reflection. |
 | `github.com/google/go-github/v88` | The GitHub REST client. Hand-rolling the Actions endpoints, their pagination and their error shapes would be a permanent maintenance tax for no gain. |
 | `github.com/bradleyfalzon/ghinstallation/v2` | GitHub App installation tokens: JWT signing, token caching, refresh. It is 400 lines we would otherwise get subtly wrong. |
@@ -30,6 +30,7 @@ Two things are deliberately **not** here, and both were close calls — see
 | `github.com/charmbracelet/huh` | The installer's prompts — select, input, confirm, with validation. It is what makes `zoomies init` feel like a product rather than a script. It brings `bubbletea` with it as its runtime, which is why that appears in `go.mod` as indirect and has no row of its own. |
 | `github.com/charmbracelet/lipgloss` | Styling for the installer and the CLI's table output. |
 | `golang.org/x/term` | Terminal detection, so the CLI and installer degrade to plain output when piped. |
+| `golang.org/x/sys` | The Windows half of the agent: the service control dispatcher a process started by the service manager must answer, the job object that lets killing a runner kill what it started, and the process and disk queries POSIX answers with a signal and a `statfs`. It was already in the tree as a transitive dependency; making it direct added no module. |
 
 Standard library for everything else: `net/http`, `log/slog`, `database/sql`,
 `crypto/*`, `embed`, `os/exec`, `context`, `testing`.

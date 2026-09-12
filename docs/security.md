@@ -330,6 +330,13 @@ user, sharing its filesystem, package manager, network and SSH agent.
 If the agent runs as root, every workflow step from every matched repository
 runs as root on that host. Zoomies warns about this combination specifically.
 
+On Windows this is the only backend, and the service runs as LocalSystem unless
+you reconfigure it, so the same sentence applies with "root" read as
+"LocalSystem". There is no Windows container to destroy: what "ephemeral" means
+there is a fresh work directory and a single-use registration on a machine that
+keeps its state, and a drain is a kill of the runner's process tree rather than
+an interrupt.
+
 ### `server.bind: 0.0.0.0` with `server.tls.mode: off`
 
 Session cookies, API tokens and the GitHub App private key you paste during

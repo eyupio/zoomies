@@ -458,11 +458,36 @@ box somebody runs a controller on. Both are matched against what the agent
 reports, and a label of the same name on a host still wins, which is the escape
 hatch if you want a machine to answer for an architecture it does not have.
 
-`os=windows` is refused when you create the pool. There is no Windows agent to
-join a host with, so such a pool would match nothing however many machines you
-added, and a pool that matches nothing reports itself as a fleet short of
-capacity rather than as a platform Zoomies has not got. Windows runners are
-[not supported](faq.md#which-platforms-does-it-run-on).
+**A Windows host.** The agent runs on Windows with the `process` backend:
+actions/runner's own `win-x64` build, started as a process on the machine, no
+container. Download `zoomies_windows_amd64.exe` from the release, and from an
+elevated PowerShell prompt:
+
+```powershell
+.\zoomies.exe agent join https://zoomies.example.com --token zoojoin_... --backend process
+```
+
+`join` writes its configuration and credentials under `%ProgramData%\zoomies`,
+registers `zoomies-agent` with the service manager so the host comes back after
+a reboot, and starts it; the service appends its log to
+`%ProgramData%\zoomies\zoomies-agent.log`, since a service has no journal.
+`sc.exe query zoomies-agent` is `systemctl status zoomies-agent`. The host
+reports `os=windows`, so a pool selects it with `--host-selector os=windows`
+and needs no image: there is no Windows runner image, and the pool's
+`runner_version` picks the actions/runner release the agent downloads and
+verifies.
+
+What a Windows pool does not have is a container, and so it does not have the
+ephemeral guarantee the rest of this page assumes: a job gets a fresh work
+directory and a single-use registration on a machine whose state persists,
+exactly what the `process` backend means on Linux, and
+[security](security.md#agentbackend-process) says what that costs. Draining a
+Windows runner is a kill rather than an interrupt, because a service has no
+console to raise one on; the runner's registration is single-use either way.
+
+This is new in this beta and
+[not yet qualified](index.md#what-is-qualified): it is built and unit-tested,
+and the first job that runs on a real Windows host is what moves the row.
 
 **Separating a noisy repository.** Give it a pool with its own labels and its own
 `max_runners`. Note the limit of `repository_scale_up_limit` on a shared pool: it

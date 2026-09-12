@@ -118,10 +118,14 @@ images](configuration.md#jobs-that-build-container-images).
 ## Which platforms does it run on?
 
 Linux on x86-64 and arm64 is what the controller, the agents and the runner
-images are built for. macOS works for running a controller in development.
-Windows runners are not supported. The
-[runner image catalogue](naming.md#the-runner-image) is the list of
-distributions, and it is generated from the code that publishes them.
+images are built for, and the reference configuration is Linux amd64. macOS
+works for running a controller in development. A Windows host can join as an
+agent and run jobs with the `process` backend — actions/runner's own Windows
+build, as a process on the machine, with no container — which is new in this
+beta and [not yet qualified](index.md#what-is-qualified): it is built and
+unit-tested, and the first test that runs on a real Windows host is what moves
+it. The [runner image catalogue](naming.md#the-runner-image) is the list of
+Linux distributions, and it is generated from the code that publishes them.
 
 ## Does it work with GitHub Enterprise Server?
 
@@ -269,7 +273,7 @@ modified or not, asks nothing of you. The full text is in
       "name": "Which platforms does Zoomies run on?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Linux on x86-64 and arm64 is what the controller, the agents and the runner images are built for. macOS works for running a controller in development. Windows runners are not supported."
+        "text": "Linux on x86-64 and arm64 is what the controller, the agents and the runner images are built for. macOS works for running a controller in development. A Windows host can join as an agent and run jobs as processes with actions/runner's Windows build; that is new in this beta and not yet qualified on real hardware."
       }
     },
     {

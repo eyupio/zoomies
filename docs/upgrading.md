@@ -341,6 +341,14 @@ what makes a binary swap non-disruptive at all. Draining first is what makes it
 *predictable* — a host with nothing on it cannot surprise you — and on a host
 whose jobs are short it costs a few minutes.
 
+On a Windows host the same sequence is `zoomies hosts drain`, replace
+`zoomies.exe` in place, then `sc.exe stop zoomies-agent` and
+`sc.exe start zoomies-agent` from an elevated prompt, and `zoomies hosts
+uncordon`. A Windows agent runs the `process` backend, so the runner release it
+downloads is pinned by the pool's `runner_version` and the digests in the
+binary, and an agent behind the controller's release may not know a digest the
+controller's default asks for; upgrade the agent first on that platform.
+
 An agent that comes back on a release the controller does not recognise is
 excluded rather than refused: it keeps heartbeating, its running work finishes,
 and no new runner is placed on it. The Hosts page says so on the card. See
