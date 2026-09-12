@@ -471,14 +471,18 @@ func printBanner(w io.Writer, cfg *config.Config, backends *backend.Registry) {
 		scheme = "https"
 	}
 
-	// The same running dog closes install.sh and now greets the operator here:
-	// enough character to make the binary unmistakably Zoomies, without turning
-	// service logs into an ASCII-art poster on every restart.
-	fmt.Fprintln(w, "\n       / \\__")
-	fmt.Fprintf(w, "      (    @\\___   zoomies %s\n", version.Short())
-	fmt.Fprintln(w, "      /         O  off the lead, on the job.")
-	fmt.Fprintln(w, "     /   (_____/")
-	fmt.Fprintln(w, "    /_____/   U")
+	// The block paw mirrors the project's icon without reproducing its fine speed
+	// ring, which would muddy the silhouette at terminal resolution.
+	fmt.Fprintln(w, "\n        ▄██▄     ▄██▄")
+	fmt.Fprintf(w, "       ██████   ██████        zoomies %s\n", version.Short())
+	fmt.Fprintln(w, "  ▄██▄ ██████   ██████ ▄██▄  off the lead, on the job.")
+	fmt.Fprintln(w, " █████  ▀██▀     ▀██▀  █████")
+	fmt.Fprintln(w, "  ▀██▀      ▄██▄       ▀██▀")
+	fmt.Fprintln(w, "         ▄████████▄")
+	fmt.Fprintln(w, "       ▄████████████▄")
+	fmt.Fprintln(w, "      ████████████████")
+	fmt.Fprintln(w, "       ▀████████████▀")
+	fmt.Fprintln(w, "          ▀▀██▀▀")
 	fmt.Fprintln(w)
 	for _, row := range [][2]string{
 		{"listening on", fmt.Sprintf("%s://%s", scheme, cfg.Server.Bind)},
