@@ -375,6 +375,30 @@ func TestMinRunnersScalesUpWithoutDemand(t *testing.T) {
 	}
 }
 
+// Pool membership is a live predicate, not a list captured by the pool wizard.
+// A host that joins after the pool was created must be considered on the very
+// next pass when its backend, platform and selector values fit the pool.
+func TestNewMatchingHostAutomaticallyExpandsAnExistingPool(t *testing.T) {
+	p := testPool("linux", "self-hosted")
+	p.MinRunners = 1
+	p.HostSelector = store.StringMap{"arch": "arm64"}
+
+	before := only(t, Decide(snap([]*store.Pool{p}, nil, nil, nil)))
+	if !strings.Contains(before.Blocked, "no agent hosts") {
+		t.Fatalf("before host joined = %+v, want the existing pool blocked on having no host", before)
+	}
+
+	joined := testHost("new-host", 4, 0)
+	joined.Arch = "arm64"
+	after := only(t, Decide(snap([]*store.Pool{p}, nil, nil, []*store.Host{joined})))
+	if after.Blocked != "" || countOf(after.Actions, ActionCreate) != 1 {
+		t.Fatalf("after matching host joined = %+v, want one runner created without editing the pool", after)
+	}
+	if after.Actions[0].HostID != joined.ID {
+		t.Fatalf("runner host = %q, want newly joined host %q", after.Actions[0].HostID, joined.ID)
+	}
+}
+
 func TestIdleRunnersAbsorbQueuedJobs(t *testing.T) {
 	p := testPool("linux-x64", "linux")
 	runners := []*store.Runner{idleRunner("r1", p, time.Minute), idleRunner("r2", p, time.Minute)}

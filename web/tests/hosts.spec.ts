@@ -137,6 +137,30 @@ test('the Hosts page leads here', async ({ page }) => {
   await expect(pageHeading(page, 'Add a host')).toBeVisible();
 });
 
+test('runner capacity is adjustable from the host card without opening the full editor', async ({
+  page,
+}) => {
+  await goto(page, '/hosts', 'Hosts');
+  const card = page.getByRole('article').filter({ hasText: 'demo-builder-1' });
+  let patched: Record<string, unknown> | null = null;
+  await page.route('**/api/v1/hosts/*', async (route) => {
+    if (route.request().method() !== 'PATCH') {
+      await route.continue();
+      return;
+    }
+    patched = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+  });
+
+  await card.getByRole('button', { name: 'Adjust', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Runner capacity' });
+  await dialog.getByRole('spinbutton', { name: 'Maximum runners on this host' }).fill('7');
+  await dialog.getByRole('button', { name: 'Save capacity' }).click();
+
+  await expect(dialog).toBeHidden();
+  await expect.poll(() => patched).toEqual({ capacity: 7 });
+});
+
 /**
  * A host's disk is the resource that runs out first and says nothing when it
  * does.

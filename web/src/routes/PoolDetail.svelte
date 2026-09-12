@@ -6,7 +6,7 @@
   expects it to.
 -->
 <script lang="ts">
-  import { Download, Pencil, Power, PowerOff, Trash2 } from '@lucide/svelte';
+  import { Download, Gauge, Pencil, Power, PowerOff, Trash2 } from '@lucide/svelte';
   import {
     deletePool,
     disablePool,
@@ -35,6 +35,7 @@
   import PoolBackendSwitch from '$lib/pools/PoolBackendSwitch.svelte';
   import PoolConfig from '$lib/pools/PoolConfig.svelte';
   import PoolJobs from '$lib/pools/PoolJobs.svelte';
+  import PoolRunnerLimitsDialog from '$lib/pools/PoolRunnerLimitsDialog.svelte';
   import PoolRunners from '$lib/pools/PoolRunners.svelte';
   import PoolScaling from '$lib/pools/PoolScaling.svelte';
   import PoolWarnings from '$lib/pools/PoolWarnings.svelte';
@@ -205,6 +206,7 @@
   }
 
   let deleteOpen = $state(false);
+  let limitsOpen = $state(false);
   let forceDelete = $state(false);
 
   const consequences = $derived(deletionConsequences(counts, forceDelete));
@@ -260,6 +262,7 @@
   {/snippet}
 
   {#if pool && canOperate && !editing}
+    <Button icon={Gauge} onclick={() => (limitsOpen = true)}>Runner limits</Button>
     <Button icon={Download} onclick={prewarm}>Prewarm image</Button>
     {#if pool.enabled === false}
       <Button icon={Power} onclick={() => setEnabled(true)}>Enable</Button>
@@ -368,6 +371,8 @@
     </div>
   </div>
 {/if}
+
+<PoolRunnerLimitsDialog bind:open={limitsOpen} pool={pool ?? null} />
 
 <!--
   A pool with nowhere to run carries the backends its hosts do offer, so the

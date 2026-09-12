@@ -40,6 +40,7 @@
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Select from '$lib/components/Select.svelte';
   import { isLoopbackURL } from '$lib/addresses';
+  import { hostMatchesSelector } from '$lib/pools/hostSelector';
   import BackendList from './BackendList.svelte';
   import LabelMapEditor from './LabelMapEditor.svelte';
 
@@ -306,21 +307,21 @@
   }
 
   /**
-   * Mirrors internal/scheduler's placement check: a pool places runners on a
-   * host that offers its backend and carries every label its selector names.
-   * Enabled pools only, since a disabled one creates nothing anywhere.
+   * The existing pools that immediately pick this host up. Host selectors may
+   * use reported `os` and `arch` as well as labels, so use the same lookup as
+   * the pool wizard rather than checking the label map alone. The controller
+   * makes the final resource-fit decision on its already-nudged scheduler pass.
    */
   const placeable = $derived.by((): Pool[] => {
     const host = joinedHost;
     if (!host) return [];
-    const labels = host.labels ?? {};
     const backends = host.backends ?? [];
     return fleet.pools
       .filter(
         (pool) =>
           pool.enabled !== false &&
           backends.includes(String(pool.backend ?? '')) &&
-          Object.entries(pool.host_selector ?? {}).every(([k, v]) => labels[k] === v),
+          hostMatchesSelector(host, pool.host_selector ?? {}),
       )
       .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
   });

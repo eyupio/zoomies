@@ -91,6 +91,33 @@ test('a filter that matches nothing settles on the empty state, not the skeleton
   await expect(rows).toHaveCount(2);
 });
 
+test('runner limits are adjustable from a pool row without opening the wizard', async ({
+  page,
+}) => {
+  await goto(page, '/pools', 'Pools');
+  const row = dataRows(grid(page, 'Pools')).filter({ hasText: FIXTURE.linuxPool });
+  let patched: Record<string, unknown> | null = null;
+  await page.route('**/api/v1/pools/*', async (route) => {
+    if (route.request().method() !== 'PATCH') {
+      await route.continue();
+      return;
+    }
+    patched = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+  });
+
+  await row.getByRole('button', { name: `Actions for ${FIXTURE.linuxPool}` }).click();
+  await page.getByRole('menuitem', { name: 'Adjust runner limits' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Runner limits' });
+  await dialog.getByRole('spinbutton', { name: 'Minimum runners' }).fill('2');
+  await dialog.getByRole('spinbutton', { name: 'Maximum runners' }).fill('9');
+  await dialog.getByRole('button', { name: 'Save limits' }).click();
+
+  await expect(dialog).toBeHidden();
+  await expect.poll(() => patched).toEqual({ min_runners: 2, max_runners: 9 });
+  await expect(pageHeading(page, 'Pools')).toBeVisible();
+});
+
 test('the wizard walks target, labels, hosts, backend, scaling and review', async ({ page }) => {
   await goto(page, '/pools/new', 'Create a pool');
 

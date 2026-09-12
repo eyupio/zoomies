@@ -14,58 +14,10 @@
   machines does this reach" is on screen while it is being typed rather than
   two steps later.
 -->
-<script lang="ts" module>
-  import type { Host } from '$lib/api/types';
-
-  /** The selector keys a host answers for from its agent's report, not a label. */
-  export const REPORTED_KEYS = ['os', 'arch'] as const;
-
-  /**
-   * What a host answers for one selector key: its own label first, then what
-   * its agent reported. This mirrors Host.SelectorValue in the Go store, and
-   * the two have to agree -- the count this component shows is a promise about
-   * what the scheduler will do.
-   */
-  export function hostSelectorValue(host: Host, key: string): string {
-    const labels = host.labels ?? {};
-    if (key in labels) return labels[key] ?? '';
-    if (key === 'os') return host.os ?? '';
-    if (key === 'arch') return host.arch ?? '';
-    return '';
-  }
-
-  /** Whether a host satisfies every entry of a selector. Empty means any host. */
-  export function hostMatchesSelector(host: Host, selector: Record<string, string>): boolean {
-    return Object.entries(selector).every(([key, value]) => hostSelectorValue(host, key) === value);
-  }
-
-  /**
-   * The values the fleet actually reports for a key, each with how many hosts
-   * report it, plus `extra` when a pool already selects a value no connected
-   * host has. That last case is why this is not simply a set of what is there:
-   * editing a pool whose arm64 box is powered off must not silently widen it
-   * to every host on the first save.
-   */
-  export function reportedValues(
-    hosts: readonly Host[],
-    key: string,
-    extra: string,
-  ): { value: string; hosts: number }[] {
-    const counts: Record<string, number> = {};
-    for (const host of hosts) {
-      const value = hostSelectorValue(host, key);
-      if (value) counts[value] = (counts[value] ?? 0) + 1;
-    }
-    if (extra && counts[extra] === undefined) counts[extra] = 0;
-    return Object.entries(counts)
-      .map(([value, count]) => ({ value, hosts: count }))
-      .sort((a, b) => b.hosts - a.hosts || a.value.localeCompare(b.value));
-  }
-</script>
-
 <script lang="ts">
   import { untrack } from 'svelte';
   import { Cpu, MonitorCog, Plus, ServerOff, Trash2 } from '@lucide/svelte';
+  import type { Host } from '$lib/api/types';
   import { pluralise } from '$lib/format';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
@@ -74,6 +26,7 @@
   import Input from '$lib/components/Input.svelte';
   import RadioGroup from '$lib/components/RadioGroup.svelte';
   import Select from '$lib/components/Select.svelte';
+  import { hostMatchesSelector, reportedValues, REPORTED_KEYS } from './hostSelector';
 
   interface Props {
     /** The pool's host_selector, edited in place. */
