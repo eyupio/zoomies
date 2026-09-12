@@ -177,6 +177,7 @@ export const GO_KEYS: ReadonlyArray<{ key: string; path: string; label: string }
   { key: 'o', path: '/', label: 'Overview' },
   { key: 'p', path: '/pools', label: 'Pools' },
   { key: 'r', path: '/runners', label: 'Runners' },
+  { key: 'q', path: '/queue', label: 'Queue' },
   { key: 'j', path: '/jobs', label: 'Jobs' },
   { key: 'u', path: '/usage', label: 'Usage' },
   { key: 'h', path: '/hosts', label: 'Hosts' },

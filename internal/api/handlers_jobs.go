@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/github"
@@ -61,41 +62,9 @@ type jobResponse = controller.JobView
 
 // handleListJobs answers GET /api/v1/jobs.
 func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
-	filter := store.JobFilter{
-		Repos:       queryList(r, "repo"),
-		Workflows:   queryList(r, "workflow"),
-		PoolIDs:     queryList(r, "pool_id"),
-		RunnerIDs:   queryList(r, "runner_id"),
-		Conclusions: queryList(r, "conclusion"),
-		Labels:      queryList(r, "label"),
-		Search:      r.URL.Query().Get("q"),
-	}
-	for _, raw := range queryList(r, "state") {
-		st := store.JobState(raw)
-		if !st.Valid() {
-			badRequestField(w, "state", fmt.Sprintf("%q is not a job state; use waiting, queued, in_progress or completed", raw))
-			return
-		}
-		filter.States = append(filter.States, st)
-	}
-
-	var err error
-	if filter.Since, err = queryTime(r, "since"); err != nil {
-		badRequestField(w, "since", err.Error())
+	filter, ok := parseJobFilter(w, r)
+	if !ok {
 		return
-	}
-	if filter.Until, err = queryTime(r, "until"); err != nil {
-		badRequestField(w, "until", err.Error())
-		return
-	}
-	if unmatched := queryBoolPtr(r, "unmatched"); unmatched != nil {
-		filter.UnmatchedOnly = *unmatched
-	}
-	if managed := queryBoolPtr(r, "managed"); managed != nil {
-		filter.ManagedOnly = *managed
-	}
-	if failed := queryBoolPtr(r, "failed"); failed != nil {
-		filter.FailedOnly = *failed
 	}
 
 	p := parsePage(r)
@@ -114,6 +83,15 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	out := make([]jobResponse, 0, len(jobs))
 	for _, j := range jobs {
 		out = append(out, controller.NewJobView(j, names[j.PoolID]))
+	}
+	if strings.HasPrefix(r.URL.Path, "/api/v1/provisioning") {
+		counts, err := s.ctrl.Store().ProvisioningCounts(r.Context(), filter)
+		if err != nil {
+			s.internal(w, r, "counting provisioning demand", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": out, "total": total, "counts": counts})
+		return
 	}
 	writeJSON(w, http.StatusOK, newPage(out, total, p))
 }
@@ -201,4 +179,63 @@ func (s *Server) handleJobExplanation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+func parseJobFilter(w http.ResponseWriter, r *http.Request) (store.JobFilter, bool) {
+	filter := store.JobFilter{
+		Repos:        queryList(r, "repo"),
+		Branches:     queryList(r, "branch"),
+		Provisioning: queryList(r, "provisioning"),
+		Workflows:    queryList(r, "workflow"),
+		PoolIDs:      queryList(r, "pool_id"),
+		RunnerIDs:    queryList(r, "runner_id"),
+		Conclusions:  queryList(r, "conclusion"),
+		Labels:       queryList(r, "label"),
+		Search:       r.URL.Query().Get("q"),
+	}
+	for _, raw := range queryList(r, "state") {
+		st := store.JobState(raw)
+		if !st.Valid() {
+			badRequestField(w, "state", fmt.Sprintf("%q is not a job state; use waiting, queued, in_progress or completed", raw))
+			return filter, false
+		}
+		filter.States = append(filter.States, st)
+	}
+
+	var err error
+	if filter.Since, err = queryTime(r, "since"); err != nil {
+		badRequestField(w, "since", err.Error())
+		return filter, false
+	}
+	if filter.Until, err = queryTime(r, "until"); err != nil {
+		badRequestField(w, "until", err.Error())
+		return filter, false
+	}
+	if unmatched := queryBoolPtr(r, "unmatched"); unmatched != nil {
+		filter.UnmatchedOnly = *unmatched
+	}
+	if managed := queryBoolPtr(r, "managed"); managed != nil {
+		filter.ManagedOnly = *managed
+	}
+	if failed := queryBoolPtr(r, "failed"); failed != nil {
+		filter.FailedOnly = *failed
+	}
+
+	for _, v := range filter.Provisioning {
+		switch v {
+		case "ready", "expedited", "paused", "deleted":
+		default:
+			badRequestField(w, "provisioning", "use ready, expedited, paused or deleted")
+			return filter, false
+		}
+	}
+	if filter.Since != nil && filter.Until != nil && filter.Since.After(*filter.Until) {
+		badRequestField(w, "since", "start must be before end")
+		return filter, false
+	}
+	if strings.HasPrefix(r.URL.Path, "/api/v1/provisioning") {
+		filter.States = []store.JobState{store.JobQueued}
+		filter.ManagedOnly = true
+	}
+	return filter, true
 }

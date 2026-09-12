@@ -228,15 +228,17 @@ func (c *Controller) HostView(h *store.Host) HostView {
 
 // JobView is one job with its pool named and its waits measured.
 type JobView struct {
-	ID          string         `json:"id"`
-	GitHubJobID int64          `json:"github_job_id"`
-	GitHubRunID int64          `json:"github_run_id"`
-	Repo        string         `json:"repo"`
-	Workflow    string         `json:"workflow"`
-	JobName     string         `json:"job_name"`
-	Labels      []string       `json:"labels"`
-	State       store.JobState `json:"state"`
-	Conclusion  string         `json:"conclusion,omitempty"`
+	Provisioning string         `json:"provisioning"`
+	ProvisionNow bool           `json:"provision_now"`
+	ID           string         `json:"id"`
+	GitHubJobID  int64          `json:"github_job_id"`
+	GitHubRunID  int64          `json:"github_run_id"`
+	Repo         string         `json:"repo"`
+	Workflow     string         `json:"workflow"`
+	JobName      string         `json:"job_name"`
+	Labels       []string       `json:"labels"`
+	State        store.JobState `json:"state"`
+	Conclusion   string         `json:"conclusion,omitempty"`
 	// InstallationID is the GitHub App installation covering this job's
 	// repository. It is read-only and derived at ingest; a pool only ever runs
 	// work in its own installation's target, so this is half of why a job is
@@ -291,6 +293,8 @@ func hostedJob(labels []string) bool { return store.HostedJob(labels) }
 // NewJobView renders a job, given the name of the pool that claimed it.
 func NewJobView(j *store.Job, poolName string) JobView {
 	return JobView{
+		Provisioning:   j.Provisioning,
+		ProvisionNow:   j.ProvisionNow,
 		ID:             j.ID,
 		GitHubJobID:    j.GitHubJobID,
 		GitHubRunID:    j.GitHubRunID,

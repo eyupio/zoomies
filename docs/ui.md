@@ -195,3 +195,54 @@ the accessibility checklist — is in [UI guidelines](ui-guidelines.md).
 Nothing here needs a GitHub App to look at: the [quick start](quickstart.md)
 takes about five minutes, and `ZOOMIES_SEED_DEMO=true` fills a fresh controller
 with the same fleet these screenshots were taken from.
+
+## Provisioning queue
+
+Open **Queue** to manage the demand that causes Zoomies to create runners. Each
+row represents a queued GitHub job's provisioning demand, rather than a runner
+that already exists.
+
+| Action | Effect |
+| --- | --- |
+| Pause | Stop counting the selected items towards new runner demand. |
+| Resume | Restore normal demand and clear Run now priority. Also restores deleted items. |
+| Delete from queue | Suppress demand persistently. Use the Deleted view to find and restore it. |
+| Run now | Resume and expedite demand within the pool's priority tier, bypassing the scale-up delay. |
+
+These controls do not cancel GitHub jobs or retract provisioning tasks already
+issued to agents. Pool minimums and normal runner lifecycle rules still apply;
+existing runners may pick up a GitHub job whose provisioning demand is paused.
+Run now respects disabled pools, host capacity, runner maximums, repository
+limits, failure backoff and recovery fencing.
+
+Filter by repository, workflow, pool, all required labels, exact branch, queued
+dates, unmatched work and provisioning status. Multiple values within repository,
+workflow, pool or status filters match any selected value; different filters
+combine. Labels must all match. The four status cards retain the other filters
+and show their counts independently of the status filter. Deleted items are
+excluded from the initial view.
+
+Checkboxes select individual rows; **Select all matching** snapshots up to 5,000
+matching IDs across every page. The confirmation applies to those IDs only, so
+later arrivals cannot be included silently. Items that start or finish before
+the action commits are skipped, with individual results. Changing filters clears
+the all-matching selection. Actions require the operator role and are audited;
+API tokens need `provisioning:write`.
+
+Filters live in the URL for sharing. **Save view** keeps up to 20 named filter
+sets in this browser; saving the same name replaces it. Table sorting affects
+presentation only.
+
+### Provisioning order
+
+Higher pool priorities receive capacity first. Within a priority tier, pools
+with Run now demand come first; otherwise the least recently provisioned pool
+gets the first turn. Each backlogged pool gets one slot per allocation round.
+Provisioning history includes removed runners, so fast-finishing runners and
+controller restarts do not reset fairness. Within each pool, Run now demand
+comes before ordinary demand, then oldest queued time, then job ID to break ties.
+Pool priority and an explicit Run now preference can defer ordinary work.
+
+This is an order for provisioning capacity. GitHub chooses which compatible job
+an available runner actually executes. Open a queue row for its current waiting
+explanation, including explicit paused/deleted demand.

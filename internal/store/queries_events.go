@@ -15,7 +15,7 @@ import (
 
 const jobCols = `id, github_job_id, github_run_id, repo, workflow, job_name, labels, state,
 	conclusion, installation_id, pool_id, runner_id, runner_name, html_url, queued_at,
-	started_at, completed_at, matched, eligible_at, head_branch, head_sha, run_attempt, steps, runner_fault`
+	started_at, completed_at, matched, eligible_at, head_branch, head_sha, run_attempt, steps, runner_fault, provisioning, provision_now`
 
 func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
 	var j Job
@@ -25,7 +25,7 @@ func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
 	err := sc.Scan(&j.ID, &j.GitHubJobID, &j.GitHubRunID, &j.Repo, &j.Workflow, &j.JobName,
 		&j.Labels, &j.State, &j.Conclusion, &j.InstallationID, &j.PoolID, &j.RunnerID,
 		&j.RunnerName, &j.HTMLURL, &queued, &started, &completed, &matched, &eligible,
-		&j.HeadBranch, &j.HeadSHA, &j.RunAttempt, &j.Steps, &j.RunnerFault)
+		&j.HeadBranch, &j.HeadSHA, &j.RunAttempt, &j.Steps, &j.RunnerFault, &j.Provisioning, &j.ProvisionNow)
 	if err != nil {
 		return nil, err
 	}
@@ -73,12 +73,12 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 				j.EligibleAt = &now
 			}
 			_, err := tx.ExecContext(ctx, `INSERT INTO jobs (`+jobCols+`)
-				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 				j.ID, j.GitHubJobID, j.GitHubRunID, j.Repo, j.Workflow, j.JobName, j.Labels,
 				string(j.State), j.Conclusion, j.InstallationID, j.PoolID, j.RunnerID,
 				j.RunnerName, j.HTMLURL, ms(j.QueuedAt), msp(j.StartedAt), msp(j.CompletedAt),
 				boolInt(j.Matched), msp(j.EligibleAt), j.HeadBranch, j.HeadSHA, j.RunAttempt,
-				j.Steps, j.RunnerFault)
+				j.Steps, j.RunnerFault, j.Provisioning, j.ProvisionNow)
 			if err != nil {
 				return err
 			}
@@ -290,6 +290,9 @@ func (s *Store) GetJobByGitHubID(ctx context.Context, ghID int64) (*Job, error) 
 // JobFilter narrows a job history listing. Every field is optional; the UI's
 // filter bar maps one-to-one onto it.
 type JobFilter struct {
+	Provisioning []string
+	Branches     []string
+
 	Repos       []string
 	Workflows   []string
 	PoolIDs     []string
@@ -347,7 +350,7 @@ func (s *Store) ListJobs(ctx context.Context, f JobFilter, p Page) ([]*Job, int,
 		return nil, 0, err
 	}
 	q := `SELECT ` + jobCols + ` FROM jobs ` + where +
-		` ORDER BY ` + p.orderBy(jobSortCols, "queued_at DESC") + ` LIMIT ? OFFSET ?`
+		` ORDER BY ` + p.orderBy(jobSortCols, "queued_at DESC") + `, id ASC LIMIT ? OFFSET ?`
 	args = append(args, p.limit(50, 500), max(p.Offset, 0))
 	rows, err := s.read.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -378,6 +381,24 @@ func jobWhere(f JobFilter) (string, []any) {
 			args = append(args, v)
 		}
 		cond = append(cond, col+` IN (`+strings.Join(ph, ",")+`)`)
+	}
+	inClause("head_branch", f.Branches)
+	if len(f.Provisioning) > 0 {
+		var states []string
+		for _, v := range f.Provisioning {
+			switch v {
+			case "ready":
+				states = append(states, "(provisioning = '' AND provision_now = 0)")
+			case "expedited":
+				states = append(states, "(provisioning = '' AND provision_now = 1)")
+			case "paused", "deleted":
+				states = append(states, "provisioning = ?")
+				args = append(args, v)
+			}
+		}
+		if len(states) > 0 {
+			cond = append(cond, "("+strings.Join(states, " OR ")+")")
+		}
 	}
 	inClause("repo", f.Repos)
 	inClause("workflow", f.Workflows)

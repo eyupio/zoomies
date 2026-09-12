@@ -1,0 +1,723 @@
+<script lang="ts">
+  import { Pause, Play, Zap, Trash2, ListOrdered, Bookmark, X } from '@lucide/svelte';
+  import {
+    controlProvisioning,
+    getJobFacets,
+    listProvisioning,
+    selectProvisioning,
+    toQuery,
+  } from '$lib/api/client';
+  import type { Body, Job, Query } from '$lib/api/types';
+  import { events } from '$lib/api/sse';
+  import { router } from '$lib/router';
+  import { fleet } from '$lib/state/fleet.svelte';
+  import { session } from '$lib/state/session.svelte';
+  import { toasts } from '$lib/state/toasts.svelte';
+  import Button from '$lib/components/Button.svelte';
+  import PageHeader from '$lib/components/PageHeader.svelte';
+  import DataGrid from '$lib/components/DataGrid.svelte';
+  import type { BulkAction, GridColumn, GridQuery } from '$lib/components/DataGrid.svelte';
+  import DropdownMenu from '$lib/components/DropdownMenu.svelte';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+  import Dialog from '$lib/components/Dialog.svelte';
+  import Input from '$lib/components/Input.svelte';
+  import Select from '$lib/components/Select.svelte';
+  import Duration from '$lib/components/Duration.svelte';
+  import JobFilters, { EMPTY_JOB_FILTERS } from '$lib/jobs/JobFilters.svelte';
+  import type { JobFilterState } from '$lib/jobs/JobFilters.svelte';
+  import FacetMenu from '$lib/jobs/FacetMenu.svelte';
+  import JobDrawer from '$lib/jobs/JobDrawer.svelte';
+  import JobLabels from '$lib/jobs/JobLabels.svelte';
+  import { startOfDay, endOfDay } from '$lib/jobs/DateRange.svelte';
+
+  type Action = Body<'controlProvisioning'>['action'];
+  type Status = 'ready' | 'expedited' | 'paused' | 'deleted';
+  const statuses: { value: Status; label: string; hint: string }[] = [
+    { value: 'ready', label: 'Ready', hint: 'Normal provisioning demand' },
+    { value: 'expedited', label: 'Run now', hint: 'Prioritised within pool priority' },
+    { value: 'paused', label: 'Paused', hint: 'Demand on hold' },
+    { value: 'deleted', label: 'Deleted', hint: 'Removed demand · can be restored' },
+  ];
+  const actions = [
+    { id: 'run_now' as Action, label: 'Run now', icon: Zap },
+    { id: 'pause' as Action, label: 'Pause', icon: Pause },
+    { id: 'resume' as Action, label: 'Resume', icon: Play },
+    { id: 'delete' as Action, label: 'Delete from queue', icon: Trash2, danger: true },
+  ];
+  const canOperate = $derived(session.can('operator'));
+  const filters = $derived<JobFilterState>({
+    ...EMPTY_JOB_FILTERS,
+    q: router.param('q'),
+    repo: router.paramList('repo'),
+    workflow: router.paramList('workflow'),
+    pool_id: router.paramList('pool_id'),
+    label: router.paramList('label'),
+    since: router.param('since'),
+    until: router.param('until'),
+    unmatched: router.param('unmatched') === 'true',
+  });
+  const provisioning = $derived(
+    router.paramList('provisioning').length
+      ? router
+          .paramList('provisioning')
+          .filter((s): s is Status => statuses.some((v) => v.value === s))
+      : (['ready', 'expedited', 'paused'] as Status[]),
+  );
+  const branch = $derived(router.param('branch'));
+  const query = $derived<Query<'listProvisioning'>>({
+    q: filters.q,
+    repo: filters.repo,
+    workflow: filters.workflow,
+    pool_id: filters.pool_id,
+    label: filters.label,
+    branch: branch ? [branch] : [],
+    provisioning,
+    since: startOfDay(filters.since),
+    until: endOfDay(filters.until),
+    unmatched: filters.unmatched || undefined,
+  });
+  let liveKey = $state(0);
+  let counts = $state<Record<string, number>>({});
+  let total = $state(0);
+  let pageRows = $state<Job[]>([]);
+  let facets = $state<{ repos?: string[]; workflows?: string[] }>({});
+  let snapshot = $state<string[]>([]);
+  let selecting = $state(false);
+  let selectionAbort: AbortController | undefined;
+  let selectedJob = $state<Job | null>(null);
+  let drawerOpen = $state(false);
+  let pending = $state<{ action: Action; ids: string[]; name: string } | null>(null);
+  let confirmOpen = $state(false);
+  let settle: ((ok: boolean) => void) | undefined;
+  let report = $state<{ changed: number; failed: { id: string; error?: string }[] } | null>(null);
+
+  $effect(() => {
+    const abort = new AbortController();
+    getJobFacets(abort.signal)
+      .then((v) => (facets = v))
+      .catch(() => {});
+    return () => {
+      abort.abort();
+      selectionAbort?.abort();
+      settle?.(false);
+    };
+  });
+  $effect(() =>
+    events.subscribe('job.updated', (job) => {
+      liveKey += 1;
+      if (selectedJob?.id === job.id) selectedJob = job;
+    }),
+  );
+  $effect(() => {
+    toQuery(query);
+    snapshot = [];
+    selectionAbort?.abort();
+    selecting = false;
+  });
+  const labelOptions = $derived(
+    [
+      ...new Set([
+        ...fleet.pools.flatMap((p) => p.labels ?? []),
+        ...pageRows.flatMap((j) => j.labels ?? []),
+        ...filters.label,
+      ]),
+    ].sort(),
+  );
+
+  function patch(next: Partial<JobFilterState>): void {
+    const out: Record<string, string | readonly string[] | null> = { offset: null };
+    for (const [key, value] of Object.entries(next))
+      out[key] = typeof value === 'boolean' ? (value ? 'true' : null) : value || null;
+    router.setQuery(out);
+  }
+  function clear(): void {
+    router.navigate('/queue');
+  }
+  function setStatus(values: string[]): void {
+    router.setQuery({
+      provisioning: values.length ? values : statuses.map((s) => s.value),
+      offset: null,
+    });
+  }
+  async function fetchRows(page: GridQuery, signal: AbortSignal) {
+    const result = await listProvisioning({ ...query, ...page }, signal);
+    if (!signal.aborted) {
+      counts = result.counts ?? {};
+      total = result.total ?? 0;
+    }
+    return { items: result.items ?? [], total: result.total ?? 0 };
+  }
+  function takeRows(rows: Job[]): void {
+    pageRows = rows;
+  }
+  function rowId(job: Job): string {
+    return job.id ?? '';
+  }
+  function status(job: Job): Status {
+    return job.provisioning || (job.provision_now ? 'expedited' : 'ready');
+  }
+  function openJob(job: Job): void {
+    selectedJob = job;
+    drawerOpen = true;
+  }
+  async function selectAll(): Promise<void> {
+    selectionAbort?.abort();
+    const abort = new AbortController();
+    selectionAbort = abort;
+    selecting = true;
+    try {
+      const result = await selectProvisioning(query, abort.signal);
+      if (!abort.signal.aborted) snapshot = result.ids;
+    } catch (e) {
+      if (!abort.signal.aborted) toasts.fromError(e, 'Could not select matching items');
+    } finally {
+      if (!abort.signal.aborted) selecting = false;
+    }
+  }
+  function ask(action: Action, ids: string[]): Promise<boolean> {
+    if (pending) return Promise.resolve(false);
+    const job = ids.length === 1 ? pageRows.find((j) => j.id === ids[0]) : undefined;
+    pending = {
+      action,
+      ids: [...ids],
+      name: job ? `${job.repo} / ${job.job_name}` : `${ids.length} provisioning items`,
+    };
+    confirmOpen = true;
+    return new Promise((resolve) => (settle = resolve));
+  }
+  function cancel(): void {
+    pending = null;
+    settle?.(false);
+    settle = undefined;
+  }
+  async function confirm(): Promise<boolean> {
+    if (!pending) return false;
+    const result = await controlProvisioning({ action: pending.action, ids: pending.ids });
+    const failed = result.results.filter((r) => !r.ok);
+    report = { changed: result.results.length - failed.length, failed };
+    snapshot = [];
+    liveKey += 1;
+    pending = null;
+    settle?.(true);
+    settle = undefined;
+    return true;
+  }
+  const bulkActions: BulkAction[] = actions.map((a) => ({ ...a, run: (ids) => ask(a.id, ids) }));
+  const description = $derived(
+    pending?.action === 'pause'
+      ? 'Hold new runner demand for these items until you resume them.'
+      : pending?.action === 'delete'
+        ? 'Remove these items from provisioning demand. You can restore them from the Deleted view.'
+        : pending?.action === 'run_now'
+          ? 'Resume and prioritise these items within their pool priority, without waiting for the scale-up delay.'
+          : 'Restore normal provisioning demand and clear any Run now priority.',
+  );
+  const columns = $derived<GridColumn<Job>[]>([
+    {
+      id: 'provisioning',
+      header: 'Provisioning',
+      width: '9rem',
+      hideable: false,
+      cell: statusCell,
+    },
+    {
+      id: 'job_name',
+      header: 'Job / workflow',
+      hideable: false,
+      cell: jobCell,
+      value: (j) => j.job_name ?? '',
+    },
+    {
+      id: 'repo',
+      header: 'Repository',
+      sortable: true,
+      cell: repoCell,
+      value: (j) => j.repo ?? '',
+    },
+    { id: 'pool', header: 'Pool / priority', cell: poolCell, value: (j) => j.pool_name ?? '' },
+    { id: 'labels', header: 'Labels', cell: labelsCell },
+    { id: 'queued_at', header: 'Waiting', sortable: true, cell: waitCell, width: '7rem' },
+    ...(canOperate
+      ? [{ id: 'actions', header: 'Actions', hideable: false, width: '5rem', cell: actionCell }]
+      : []),
+  ]);
+
+  let saved = $state<{ name: string; url: string }[]>([]);
+  let saveOpen = $state(false);
+  let viewName = $state('');
+  $effect(() => {
+    try {
+      const v: unknown = JSON.parse(localStorage.getItem('zoomies.queue.views') ?? '[]');
+      if (Array.isArray(v))
+        saved = v
+          .filter(
+            (x) =>
+              typeof x?.name === 'string' &&
+              typeof x?.url === 'string' &&
+              x.url.startsWith('/queue?'),
+          )
+          .slice(0, 20);
+    } catch {
+      /* Browser storage is optional. */
+    }
+  });
+  function saveView(): void {
+    const name = viewName.trim();
+    if (!name) return;
+    const next = [
+      ...saved.filter((v) => v.name !== name),
+      { name, url: '/queue' + toQuery({ ...query, since: filters.since, until: filters.until }) },
+    ].slice(-20);
+    try {
+      localStorage.setItem('zoomies.queue.views', JSON.stringify(next));
+      saved = next;
+      saveOpen = false;
+      viewName = '';
+    } catch (e) {
+      toasts.fromError(e, 'Could not save this view');
+    }
+  }
+</script>
+
+{#snippet statusCell(job: Job)}
+  <span class="status {status(job)}">
+    {#if status(job) === 'paused'}<Pause size={13} />{:else if status(job) === 'deleted'}<Trash2
+        size={13}
+      />{:else if job.provision_now}<Zap size={13} />{:else}<span class="dot"></span>{/if}
+    {statuses.find((s) => s.value === status(job))?.label}
+  </span>
+{/snippet}
+{#snippet jobCell(job: Job)}<div class="cell">
+    <strong>{job.job_name || 'Unnamed job'}</strong><span>{job.workflow || 'Workflow'}</span>
+  </div>{/snippet}
+{#snippet repoCell(job: Job)}<div class="cell">
+    <span class="repo">{job.repo}</span><span>{job.head_branch || '—'}</span>
+  </div>{/snippet}
+{#snippet poolCell(job: Job)}
+  <div class="cell">
+    <span>{job.pool_name || 'Unclaimed'}</span><span
+      >{job.pool_id
+        ? `Priority ${fleet.pools.find((p) => p.id === job.pool_id)?.priority ?? 0}`
+        : 'Open for matching details'}</span
+    >
+  </div>
+{/snippet}
+{#snippet labelsCell(job: Job)}<JobLabels labels={job.labels} />{/snippet}
+{#snippet waitCell(job: Job)}<Duration from={job.queued_at} live />{/snippet}
+{#snippet actionCell(job: Job)}
+  <div role="presentation" onclick={(event) => event.stopPropagation()}>
+    <DropdownMenu
+      label="Provisioning actions for {job.job_name}"
+      size="sm"
+      items={actions.map((a) => ({
+        ...a,
+        disabled:
+          (a.id === 'pause' && job.provisioning === 'paused') ||
+          (a.id === 'delete' && job.provisioning === 'deleted') ||
+          (a.id === 'run_now' && job.provision_now && !job.provisioning),
+        onSelect: () => {
+          void ask(a.id, [rowId(job)]);
+        },
+      }))}
+    />
+  </div>
+{/snippet}
+
+<PageHeader
+  title="Queue"
+  subtitle="Shape runner demand. Keep the right work moving."
+  onrefresh={async () => {
+    liveKey += 1;
+  }}
+>
+  <Button variant="secondary" icon={Bookmark} onclick={() => (saveOpen = true)}>Save view</Button>
+  <Button variant="ghost" href="/runners">View runners</Button>
+</PageHeader>
+
+<div class="queue-content">
+  <div class="summary" aria-label="Provisioning status filters">
+    {#each statuses as item (item.value)}
+      <button
+        class="summary-card"
+        class:active={provisioning.length === 1 && provisioning[0] === item.value}
+        onclick={() => setStatus([item.value])}
+        aria-pressed={provisioning.length === 1 && provisioning[0] === item.value}
+      >
+        <span class="card-title">{item.label}</span><strong
+          >{counts[item.value]?.toLocaleString() ?? '—'}</strong
+        ><span class="card-hint">{item.hint}</span>
+      </button>
+    {/each}
+  </div>
+  <div class="policy">
+    <ListOrdered size={20} />
+    <div>
+      <strong>Predictable provisioning, within your limits</strong>
+      <p>
+        Higher pool priority first. Run now takes precedence within a priority tier; other pools
+        take turns, least recently provisioned first. Within a pool, demand is oldest first with a
+        stable ID tie-break.
+      </p>
+      <details>
+        <summary>What these controls affect</summary>
+        <p>
+          Controls change new runner demand. Existing runners, tasks already issued and minimum warm
+          capacity remain available. Run now respects pool and host limits, repository quotas and
+          failure backoff. GitHub still assigns jobs to available runners.
+        </p>
+      </details>
+    </div>
+  </div>
+  <div class="filters-panel">
+    <JobFilters
+      queue
+      value={filters}
+      {facets}
+      pools={fleet.pools}
+      {labelOptions}
+      onchange={patch}
+      onclear={clear}
+    />
+    <div class="extra-filters">
+      <FacetMenu
+        label="Provisioning"
+        options={statuses}
+        selected={provisioning}
+        onchange={setStatus}
+      />
+      <Input
+        size="sm"
+        value={branch}
+        ariaLabel="Filter by branch"
+        placeholder="Exact branch name"
+        oninput={(e) =>
+          router.setQuery({
+            branch: (e.currentTarget as HTMLInputElement).value || null,
+            offset: null,
+          })}
+      />
+      {#if saved.length}<Select
+          size="sm"
+          ariaLabel="Saved queue views"
+          value=""
+          options={[
+            { value: '', label: 'Saved views' },
+            ...saved.map((v) => ({ value: v.url, label: v.name })),
+          ]}
+          onchange={(url) => {
+            if (url) router.navigate(url);
+          }}
+        />{/if}
+      <Button variant="ghost" size="sm" onclick={clear}>Reset filters</Button>
+      <span class="filter-hint"
+        >Values within a filter match any; filters combine. Labels must all match.</span
+      >
+    </div>
+  </div>
+  {#if report}
+    <div class="result" role="status">
+      <div>
+        <strong
+          >{report.changed} updated{report.failed.length
+            ? ` · ${report.failed.length} skipped`
+            : ''}</strong
+        >
+        {#if report.failed.length}<details>
+            <summary>Review skipped items</summary>
+            <ul>
+              {#each report.failed.slice(0, 50) as item (item.id)}<li>
+                  {item.id}: {item.error}
+                </li>{/each}
+            </ul>
+            {#if report.failed.length > 50}<p>
+                Showing the first 50 of {report.failed.length} skipped items.
+              </p>{/if}
+          </details>{/if}
+      </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        icon={X}
+        ariaLabel="Dismiss results"
+        onclick={() => (report = null)}>Dismiss</Button
+      >
+    </div>
+  {/if}
+  {#if canOperate}
+    <div class="selection-bar" aria-live="polite">
+      {#if snapshot.length}
+        <strong>{snapshot.length.toLocaleString()} matching items selected</strong>
+        <span>Snapshot across all pages</span>
+        <div class="selection-actions">
+          {#each actions as action (action.id)}<Button
+              size="sm"
+              variant={action.danger ? 'danger' : 'secondary'}
+              icon={action.icon}
+              onclick={() => {
+                void ask(action.id, snapshot);
+              }}>{action.label}</Button
+            >{/each}
+          <Button size="sm" variant="ghost" onclick={() => (snapshot = [])}>Clear selection</Button>
+        </div>
+      {:else}
+        <span
+          ><strong>{total.toLocaleString()}</strong> matching items · select rows or the full filtered
+          set</span
+        >
+        <Button
+          size="sm"
+          variant="secondary"
+          loading={selecting}
+          disabled={total === 0}
+          onclick={() => {
+            void selectAll();
+          }}>Select all matching</Button
+        >
+      {/if}
+    </div>
+  {/if}
+  {#key snapshot.length > 0}
+    <DataGrid
+      gridId="provisioning-queue"
+      label="Provisioning queue"
+      {columns}
+      fetcher={fetchRows}
+      {rowId}
+      filters={query}
+      defaultSort="queued_at"
+      defaultOrder="asc"
+      noun="items"
+      {liveKey}
+      selectable={canOperate && !snapshot.length}
+      {bulkActions}
+      onopen={openJob}
+      onrows={takeRows}
+      emptyTitle="No provisioning items match"
+      emptyDescription="New demand appears here when GitHub queues work for this fleet. Widen your filters or review deleted items."
+    >
+      {#snippet emptyAction()}<Button variant="secondary" onclick={clear}>Reset filters</Button
+        >{/snippet}
+    </DataGrid>
+  {/key}
+  <p class="footnote">
+    The table is sorted by waiting time by default. Sorting changes this view, not scheduling
+    priority. Open an item to see why it is waiting.
+  </p>
+</div>
+
+<ConfirmDialog
+  bind:open={confirmOpen}
+  title={actions.find((a) => a.id === pending?.action)?.label ?? 'Update provisioning'}
+  name={pending?.name}
+  description={`${pending?.name ?? ''}. ${description}`}
+  consequences={[
+    'Only the selected provisioning demand changes. Existing runners and GitHub jobs are unaffected.',
+    'Items that start or finish before this action reaches the server are skipped and reported.',
+  ]}
+  confirmLabel={actions.find((a) => a.id === pending?.action)?.label ?? 'Confirm'}
+  tone={pending?.action === 'delete' ? 'danger' : 'default'}
+  onconfirm={confirm}
+  oncancel={cancel}
+/>
+<JobDrawer bind:open={drawerOpen} job={selectedJob} onclose={() => (selectedJob = null)} />
+<Dialog bind:open={saveOpen} title="Save queue view" size="sm">
+  <form
+    onsubmit={(e) => {
+      e.preventDefault();
+      saveView();
+    }}
+  >
+    <label for="queue-view-name">View name</label><Input
+      id="queue-view-name"
+      bind:value={viewName}
+      placeholder="Release builds on Linux"
+    />
+    <p class="footnote">
+      Saves these filters in this browser. The address bar also provides a shareable link.
+    </p>
+    <Button type="submit" disabled={!viewName.trim()}>Save view</Button>
+  </form>
+</Dialog>
+
+<style>
+  .queue-content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-4);
+    min-width: 0;
+  }
+  .summary {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--z-space-3);
+  }
+  .summary-card {
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-2);
+    padding: var(--z-space-4);
+    border: 1px solid var(--z-border);
+    border-radius: var(--z-radius-lg);
+    background: var(--z-surface);
+    color: var(--z-text);
+    cursor: pointer;
+  }
+  .summary-card:hover,
+  .summary-card.active {
+    border-color: var(--z-accent);
+    background: var(--z-accent-subtle);
+  }
+  .summary-card:focus-visible {
+    outline: 2px solid var(--z-accent);
+    outline-offset: 2px;
+  }
+  .summary-card strong {
+    font-size: var(--z-text-2xl);
+    font-variant-numeric: tabular-nums;
+  }
+  .card-title {
+    font-size: var(--z-text-sm);
+    font-weight: var(--z-weight-medium);
+  }
+  .card-hint,
+  .filter-hint,
+  .footnote {
+    color: var(--z-text-muted);
+    font-size: var(--z-text-xs);
+  }
+  .policy {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--z-space-3);
+    padding: var(--z-space-4);
+    background: var(--z-surface);
+    border: 1px solid var(--z-border);
+    border-radius: var(--z-radius-lg);
+    font-size: var(--z-text-sm);
+  }
+  .policy :global(svg) {
+    flex-shrink: 0;
+    color: var(--z-accent);
+  }
+  .policy p {
+    color: var(--z-text-muted);
+    margin-top: var(--z-space-2);
+    max-width: 100ch;
+  }
+  details {
+    margin-top: var(--z-space-2);
+  }
+  summary {
+    cursor: pointer;
+    color: var(--z-accent);
+  }
+  .filters-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-3);
+  }
+  .extra-filters {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--z-space-2);
+  }
+  .extra-filters :global(.wrap) {
+    max-width: 240px;
+  }
+  .selection-bar,
+  .result {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--z-space-3);
+    padding: var(--z-space-3) var(--z-space-4);
+    background: var(--z-surface);
+    border: 1px solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    font-size: var(--z-text-sm);
+  }
+  .selection-bar {
+    position: sticky;
+    top: var(--z-space-2);
+    z-index: 5;
+  }
+  .selection-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--z-space-2);
+  }
+  .selection-bar > span {
+    color: var(--z-text-muted);
+  }
+  .cell {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-1);
+  }
+  .cell strong {
+    font-weight: var(--z-weight-medium);
+  }
+  .cell > span:last-child {
+    color: var(--z-text-muted);
+    font-size: var(--z-text-xs);
+  }
+  .cell .repo {
+    color: var(--z-text);
+  }
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--z-space-2);
+    font-size: var(--z-text-xs);
+    font-weight: var(--z-weight-medium);
+    border-radius: var(--z-radius-sm);
+    padding: var(--z-space-1) var(--z-space-2);
+    background: var(--z-surface-sunken);
+    white-space: nowrap;
+  }
+  .status.expedited {
+    color: var(--z-accent);
+    background: var(--z-accent-subtle);
+  }
+  .status.paused {
+    color: var(--z-text-muted);
+  }
+  .status.deleted {
+    color: var(--z-text-subtle);
+  }
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--z-accent);
+  }
+  form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-3);
+  }
+  ul {
+    padding-left: var(--z-space-5);
+    overflow-wrap: anywhere;
+  }
+  @media (max-width: 767px) {
+    .summary {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .summary-card {
+      padding: var(--z-space-3);
+    }
+    .filter-hint {
+      flex-basis: 100%;
+    }
+    .selection-bar {
+      position: static;
+    }
+    .extra-filters :global(.wrap) {
+      max-width: 100%;
+    }
+  }
+</style>

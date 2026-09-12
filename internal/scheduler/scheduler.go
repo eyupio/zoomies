@@ -24,7 +24,8 @@ import (
 type Snapshot struct {
 	// Now is the decision time. It is a field rather than a clock read so that
 	// a test can place a runner exactly one second either side of a timeout.
-	Now time.Time
+	Now             time.Time
+	LastProvisioned map[string]time.Time
 	// Pools is every pool, enabled or not; a disabled pool still gets drained.
 	Pools []*store.Pool
 	// Runners holds the non-removed runners of each pool, keyed by pool ID.
@@ -236,6 +237,7 @@ func Decide(s Snapshot) Plan {
 		activeByRepository: s.ActiveByRepository,
 		poolCount:          len(pools),
 		jitter:             s.Jitter,
+		lastProvisioned:    s.LastProvisioned,
 	}
 	if t.budget <= 0 {
 		// An unset cap must not stall the fleet; host capacity still bounds us.
@@ -266,6 +268,7 @@ type tick struct {
 	activeByRepository map[string]int
 	poolCount          int
 	jitter             map[string]float64
+	lastProvisioned    map[string]time.Time
 }
 
 // assign maps every queued job onto the pool that will run it, and collects the
@@ -274,7 +277,7 @@ func assign(pools []*store.Pool, jobs []*store.Job, targets map[string]string) (
 	demand := make(map[string][]*store.Job, len(pools))
 	var unmatched []UnmatchedJob
 	for _, j := range sortedJobs(jobs) {
-		if j.State != store.JobQueued {
+		if j.State != store.JobQueued || j.Provisioning != "" {
 			continue
 		}
 		p, reason := bestPool(pools, j, targets)
@@ -337,7 +340,7 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 			quotaRepositories[j.Repo] = true
 			continue
 		}
-		if t.now.Sub(j.QueuedAt) >= t.policy.ScaleUpDelay {
+		if j.ProvisionNow || t.now.Sub(j.QueuedAt) >= t.policy.ScaleUpDelay {
 			eligible++
 			admitted[j.Repo]++
 		}
@@ -470,7 +473,40 @@ func summarise(message string) string {
 // tier each backlogged pool receives one slot per round.
 func (t *tick) allocate(pools []*store.Pool, plans []PoolPlan, runners map[string][]*store.Runner, demand map[string][]*store.Job) {
 	tiers := append([]*store.Pool(nil), pools...)
-	slices.SortStableFunc(tiers, func(a, b *store.Pool) int { return cmp.Compare(b.Priority, a.Priority) })
+	slices.SortStableFunc(tiers, func(a, b *store.Pool) int {
+		if c := cmp.Compare(b.Priority, a.Priority); c != 0 {
+			return c
+		}
+		// Under a small per-tick budget, start with the least recently served
+		// backlogged pool. Round-robin within a pass alone starves later pools.
+		// Explicit run-now demand comes first within its configured priority tier.
+		aq, bq := demand[a.ID], demand[b.ID]
+		aNow, bNow := len(aq) > 0 && aq[0].ProvisionNow, len(bq) > 0 && bq[0].ProvisionNow
+		if aNow != bNow {
+			if aNow {
+				return -1
+			}
+			return 1
+		}
+		latest := func(id string) time.Time {
+			last := t.lastProvisioned[id]
+			for _, r := range runners[id] {
+				if r != nil && r.CreatedAt.After(last) {
+					last = r.CreatedAt
+				}
+			}
+			return last
+		}
+		if c := latest(a.ID).Compare(latest(b.ID)); c != 0 {
+			return c
+		}
+		if len(aq) > 0 && len(bq) > 0 {
+			if c := aq[0].QueuedAt.Compare(bq[0].QueuedAt); c != 0 {
+				return c
+			}
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
 	byID := make(map[string]*PoolPlan, len(plans))
 	for i := range plans {
 		byID[plans[i].PoolID] = &plans[i]
@@ -552,7 +588,19 @@ func (t *tick) grant(p *store.Pool, plan *PoolPlan, runners []*store.Runner, que
 	// The reason counts the jobs the pool is scaling for. Counting the queue
 	// here instead used to say "3 jobs queued" for a pool the repository
 	// limit let scale for one of them, which reads as a shortfall.
-	reason := upReason(p, busy, plan.eligible, t.policy.ScaleUpDelay)
+	delay := t.policy.ScaleUpDelay
+	expedited := false
+	for _, j := range queued {
+		if j.ProvisionNow {
+			expedited = true
+			delay = 0
+			break
+		}
+	}
+	reason := upReason(p, busy, plan.eligible, delay)
+	if expedited {
+		reason += " (includes Run now demand)"
+	}
 	if plan.QuotaDeferredJobs > 0 {
 		reason += fmt.Sprintf(" (%s deferred by the repository limit for %s)",
 			plural(plan.QuotaDeferredJobs, "job"), strings.Join(plan.QuotaDeferredRepositories, ", "))
@@ -1154,6 +1202,12 @@ func sortedRunners(in []*store.Runner) []*store.Runner {
 func sortedJobs(in []*store.Job) []*store.Job {
 	out := compact(in)
 	slices.SortStableFunc(out, func(a, b *store.Job) int {
+		if a.ProvisionNow != b.ProvisionNow {
+			if a.ProvisionNow {
+				return -1
+			}
+			return 1
+		}
 		if c := a.QueuedAt.Compare(b.QueuedAt); c != 0 {
 			return c
 		}

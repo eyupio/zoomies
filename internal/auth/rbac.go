@@ -41,8 +41,9 @@ const (
 // Job actions. Cancellation is deliberately separate: GitHub cancels the
 // whole workflow run, not only the job selected in Zoomies.
 const (
-	ActionJobsRead   Action = "jobs.read"
-	ActionJobsCancel Action = "jobs.cancel"
+	ActionProvisioningWrite Action = "provisioning.write"
+	ActionJobsRead          Action = "jobs.read"
+	ActionJobsCancel        Action = "jobs.cancel"
 )
 const ActionUsageRead Action = "usage.read"
 
@@ -131,9 +132,10 @@ var actionRoles = map[Action]store.Role{
 	ActionRunnersDrain:  store.RoleOperator,
 	ActionRunnersDelete: store.RoleOperator,
 
-	ActionJobsRead:   store.RoleViewer,
-	ActionJobsCancel: store.RoleOperator,
-	ActionUsageRead:  store.RoleViewer,
+	ActionProvisioningWrite: store.RoleOperator,
+	ActionJobsRead:          store.RoleViewer,
+	ActionJobsCancel:        store.RoleOperator,
+	ActionUsageRead:         store.RoleViewer,
 
 	ActionHostsRead:   store.RoleViewer,
 	ActionHostsWrite:  store.RoleOperator,

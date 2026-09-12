@@ -68,6 +68,7 @@
   import type { FacetOption } from './FacetMenu.svelte';
 
   interface Props {
+    queue?: boolean;
     value: JobFilterState;
     /** Distinct values from GET /jobs/facets. */
     facets: { repos?: string[]; workflows?: string[]; conclusions?: string[] };
@@ -78,7 +79,7 @@
     onclear: () => void;
   }
 
-  let { value, facets, pools, labelOptions, onchange, onclear }: Props = $props();
+  let { queue = false, value, facets, pools, labelOptions, onchange, onclear }: Props = $props();
 
   let searchElement = $state<HTMLInputElement | null>(null);
 
@@ -223,19 +224,21 @@
     emptyHint="Labels appear once a pool defines them or a job asks for them."
     onchange={(next) => onchange({ label: next })}
   />
-  <FacetMenu
-    label="Outcome"
-    options={conclusionOptions}
-    selected={value.conclusion}
-    emptyHint="No job has finished here yet."
-    onchange={(next) => onchange({ conclusion: next })}
-  />
-  <FacetMenu
-    label="State"
-    options={stateOptions}
-    selected={value.state}
-    onchange={(next) => onchange({ state: next as JobState[] })}
-  />
+  {#if !queue}
+    <FacetMenu
+      label="Outcome"
+      options={conclusionOptions}
+      selected={value.conclusion}
+      emptyHint="No job has finished here yet."
+      onchange={(next) => onchange({ conclusion: next })}
+    />
+    <FacetMenu
+      label="State"
+      options={stateOptions}
+      selected={value.state}
+      onchange={(next) => onchange({ state: next as JobState[] })}
+    />
+  {/if}
 
   <DateRange
     since={value.since}
@@ -251,19 +254,21 @@
     onchange={(on) => onchange({ unmatched: on })}
   />
 
-  <Switch
-    label="Failed only"
-    description="Failing conclusions, and runners that stopped under a job"
-    checked={value.failed}
-    onchange={(on) => onchange({ failed: on })}
-  />
+  {#if !queue}
+    <Switch
+      label="Failed only"
+      description="Failing conclusions, and runners that stopped under a job"
+      checked={value.failed}
+      onchange={(on) => onchange({ failed: on })}
+    />
 
-  <Switch
-    label="Include other runners"
-    description="Also show jobs GitHub ran without this fleet"
-    checked={value.all}
-    onchange={(on) => onchange({ all: on })}
-  />
+    <Switch
+      label="Include other runners"
+      description="Also show jobs GitHub ran without this fleet"
+      checked={value.all}
+      onchange={(on) => onchange({ all: on })}
+    />
+  {/if}
 </FilterBar>
 
 <style>

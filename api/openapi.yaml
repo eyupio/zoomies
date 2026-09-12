@@ -1189,6 +1189,168 @@ paths:
   # ==========================================================================
   # Jobs
   # ==========================================================================
+  /provisioning:
+    get:
+      operationId: listProvisioning
+      tags: [jobs]
+      summary: Queued provisioning demand
+      description: Always restricted to queued jobs belonging to this fleet. Counts respect all filters except provisioning status.
+      x-zoomies-role: viewer
+      parameters:
+        - { name: branch, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: provisioning, in: query, schema: { type: array, items: { type: string, enum: [ready, expedited, paused, deleted] } }, style: form, explode: true }
+        - { name: repo, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: workflow, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: pool_id, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: runner_id, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: state, in: query, schema: { type: array, items: { $ref: "#/components/schemas/JobState" } }, style: form, explode: true }
+        - { name: conclusion, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: label, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: q, in: query, schema: { type: string } }
+        - { name: since, in: query, schema: { type: string, format: date-time } }
+        - { name: until, in: query, schema: { type: string, format: date-time } }
+        - name: unmatched
+          in: query
+          description: >-
+            Only jobs that are still queued and that no enabled pool claims. A job that
+            already started or finished was run by something else, so it is not included
+            however its labels read, and neither is one whose labels all name GitHub's own
+            runners or a hosted-runner vendor's: those run where their labels say.
+          schema: { type: boolean }
+        - name: managed
+          in: query
+          description: >-
+            Only jobs this controller has a hand in: one an enabled pool claims, one that
+            ran on a runner this fleet started, and queued jobs no pool claims -- which
+            nothing ran, so they belong here too, unless their labels all name somebody
+            else's runners. Leave it off to see every job GitHub has reported, including
+            those run on hosted runners this fleet does not own.
+          schema: { type: boolean }
+        - name: failed
+          in: query
+          description: >-
+            Only jobs that went wrong, on either side: a conclusion GitHub counts as a
+            failure (failure, timed_out, startup_failure), or a runner of this fleet that
+            stopped under the job -- including one GitHub still believes is running.
+          schema: { type: boolean }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Order"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    properties:
+                      counts:
+                        type: object
+                        additionalProperties: { type: integer }
+                      items:
+                        type: array
+                        items: { $ref: "#/components/schemas/Job" }
+
+  /provisioning/selection:
+    get:
+      operationId: selectProvisioning
+      tags: [jobs]
+      summary: Snapshot all matching queued item IDs, capped at 5000
+      x-zoomies-role: viewer
+      parameters:
+        - { name: branch, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: provisioning, in: query, schema: { type: array, items: { type: string, enum: [ready, expedited, paused, deleted] } }, style: form, explode: true }
+        - { name: repo, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: workflow, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: pool_id, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: runner_id, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: state, in: query, schema: { type: array, items: { $ref: "#/components/schemas/JobState" } }, style: form, explode: true }
+        - { name: conclusion, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: label, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: q, in: query, schema: { type: string } }
+        - { name: since, in: query, schema: { type: string, format: date-time } }
+        - { name: until, in: query, schema: { type: string, format: date-time } }
+        - name: unmatched
+          in: query
+          description: >-
+            Only jobs that are still queued and that no enabled pool claims. A job that
+            already started or finished was run by something else, so it is not included
+            however its labels read, and neither is one whose labels all name GitHub's own
+            runners or a hosted-runner vendor's: those run where their labels say.
+          schema: { type: boolean }
+        - name: managed
+          in: query
+          description: >-
+            Only jobs this controller has a hand in: one an enabled pool claims, one that
+            ran on a runner this fleet started, and queued jobs no pool claims -- which
+            nothing ran, so they belong here too, unless their labels all name somebody
+            else's runners. Leave it off to see every job GitHub has reported, including
+            those run on hosted runners this fleet does not own.
+          schema: { type: boolean }
+        - name: failed
+          in: query
+          description: >-
+            Only jobs that went wrong, on either side: a conclusion GitHub counts as a
+            failure (failure, timed_out, startup_failure), or a runner of this fleet that
+            stopped under the job -- including one GitHub still believes is running.
+          schema: { type: boolean }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Order"
+      responses:
+        "200":
+          description: Frozen IDs; later arrivals are excluded from subsequent actions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ids]
+                properties:
+                  ids: { type: array, items: { type: string } }
+  /provisioning/bulk:
+    post:
+      operationId: controlProvisioning
+      tags: [jobs]
+      summary: Control provisioning for one or more queued items
+      description: >-
+        Persistent operator controls. Pause and delete suppress new demand; resume restores normal
+        demand; run_now resumes and expedites demand within pool priority, bypassing only scale-up delay.
+        Existing runners, warm capacity, pool and host limits, quotas, backoff and GitHub jobs are unaffected.
+        Completed, running and foreign hosted jobs are skipped with a per-item error. IDs are deduplicated.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids, action]
+              properties:
+                ids: { type: array, minItems: 1, maxItems: 5000, items: { type: string } }
+                action: { type: string, enum: [pause, resume, delete, run_now] }
+      responses:
+        "200":
+          description: Results for each unique selected ID
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [results]
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, ok]
+                      properties:
+                        id: { type: string }
+                        ok: { type: boolean }
+                        error: { type: string }
+
   /jobs:
     get:
       operationId: listJobs
@@ -1196,6 +1358,8 @@ paths:
       summary: Job history
       x-zoomies-role: viewer
       parameters:
+        - { name: branch, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: provisioning, in: query, schema: { type: array, items: { type: string, enum: [ready, expedited, paused, deleted] } }, style: form, explode: true }
         - { name: repo, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
         - { name: workflow, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
         - { name: pool_id, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
@@ -3295,6 +3459,8 @@ components:
     Job:
       type: object
       properties:
+        provisioning: { type: string, enum: ["", paused, deleted], description: "Operator demand control; empty means ready." }
+        provision_now: { type: boolean, description: Expedite demand within pool priority and bypass scale-up delay. }
         id: { type: string }
         github_job_id: { type: integer, format: int64 }
         github_run_id: { type: integer, format: int64 }

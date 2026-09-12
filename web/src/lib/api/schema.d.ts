@@ -826,6 +826,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/provisioning": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Queued provisioning demand
+         * @description Always restricted to queued jobs belonging to this fleet. Counts respect all filters except provisioning status.
+         */
+        get: operations["listProvisioning"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/provisioning/selection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Snapshot all matching queued item IDs, capped at 5000 */
+        get: operations["selectProvisioning"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/provisioning/bulk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Control provisioning for one or more queued items
+         * @description Persistent operator controls. Pause and delete suppress new demand; resume restores normal demand; run_now resumes and expedites demand within pool priority, bypassing only scale-up delay. Existing runners, warm capacity, pool and host limits, quotas, backoff and GitHub jobs are unaffected. Completed, running and foreign hosted jobs are skipped with a per-item error. IDs are deduplicated.
+         */
+        post: operations["controlProvisioning"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/jobs": {
         parameters: {
             query?: never;
@@ -2448,6 +2505,13 @@ export interface components {
             message?: string;
         };
         Job: {
+            /**
+             * @description Operator demand control; empty means ready.
+             * @enum {string}
+             */
+            provisioning?: "" | "paused" | "deleted";
+            /** @description Expedite demand within pool priority and bypass scale-up delay. */
+            provision_now?: boolean;
             id?: string;
             /** Format: int64 */
             github_job_id?: number;
@@ -4273,9 +4337,140 @@ export interface operations {
             };
         };
     };
+    listProvisioning: {
+        parameters: {
+            query?: {
+                branch?: string[];
+                provisioning?: ("ready" | "expedited" | "paused" | "deleted")[];
+                repo?: string[];
+                workflow?: string[];
+                pool_id?: string[];
+                runner_id?: string[];
+                state?: components["schemas"]["JobState"][];
+                conclusion?: string[];
+                label?: string[];
+                q?: string;
+                since?: string;
+                until?: string;
+                /** @description Only jobs that are still queued and that no enabled pool claims. A job that already started or finished was run by something else, so it is not included however its labels read, and neither is one whose labels all name GitHub's own runners or a hosted-runner vendor's: those run where their labels say. */
+                unmatched?: boolean;
+                /** @description Only jobs this controller has a hand in: one an enabled pool claims, one that ran on a runner this fleet started, and queued jobs no pool claims -- which nothing ran, so they belong here too, unless their labels all name somebody else's runners. Leave it off to see every job GitHub has reported, including those run on hosted runners this fleet does not own. */
+                managed?: boolean;
+                /** @description Only jobs that went wrong, on either side: a conclusion GitHub counts as a failure (failure, timed_out, startup_failure), or a runner of this fleet that stopped under the job -- including one GitHub still believes is running. */
+                failed?: boolean;
+                limit?: components["parameters"]["Limit"];
+                offset?: components["parameters"]["Offset"];
+                /** @description A column name. An unknown value falls back to the default rather than erroring, so a stale bookmark does not break the page. */
+                sort?: components["parameters"]["Sort"];
+                order?: components["parameters"]["Order"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"] & {
+                        counts?: {
+                            [key: string]: number;
+                        };
+                        items?: components["schemas"]["Job"][];
+                    };
+                };
+            };
+        };
+    };
+    selectProvisioning: {
+        parameters: {
+            query?: {
+                branch?: string[];
+                provisioning?: ("ready" | "expedited" | "paused" | "deleted")[];
+                repo?: string[];
+                workflow?: string[];
+                pool_id?: string[];
+                runner_id?: string[];
+                state?: components["schemas"]["JobState"][];
+                conclusion?: string[];
+                label?: string[];
+                q?: string;
+                since?: string;
+                until?: string;
+                /** @description Only jobs that are still queued and that no enabled pool claims. A job that already started or finished was run by something else, so it is not included however its labels read, and neither is one whose labels all name GitHub's own runners or a hosted-runner vendor's: those run where their labels say. */
+                unmatched?: boolean;
+                /** @description Only jobs this controller has a hand in: one an enabled pool claims, one that ran on a runner this fleet started, and queued jobs no pool claims -- which nothing ran, so they belong here too, unless their labels all name somebody else's runners. Leave it off to see every job GitHub has reported, including those run on hosted runners this fleet does not own. */
+                managed?: boolean;
+                /** @description Only jobs that went wrong, on either side: a conclusion GitHub counts as a failure (failure, timed_out, startup_failure), or a runner of this fleet that stopped under the job -- including one GitHub still believes is running. */
+                failed?: boolean;
+                limit?: components["parameters"]["Limit"];
+                offset?: components["parameters"]["Offset"];
+                /** @description A column name. An unknown value falls back to the default rather than erroring, so a stale bookmark does not break the page. */
+                sort?: components["parameters"]["Sort"];
+                order?: components["parameters"]["Order"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Frozen IDs; later arrivals are excluded from subsequent actions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ids: string[];
+                    };
+                };
+            };
+        };
+    };
+    controlProvisioning: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    ids: string[];
+                    /** @enum {string} */
+                    action: "pause" | "resume" | "delete" | "run_now";
+                };
+            };
+        };
+        responses: {
+            /** @description Results for each unique selected ID */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        results: {
+                            id: string;
+                            ok: boolean;
+                            error?: string;
+                        }[];
+                    };
+                };
+            };
+        };
+    };
     listJobs: {
         parameters: {
             query?: {
+                branch?: string[];
+                provisioning?: ("ready" | "expedited" | "paused" | "deleted")[];
                 repo?: string[];
                 workflow?: string[];
                 pool_id?: string[];
