@@ -73,6 +73,9 @@ func (c *Controller) Reconcile(ctx context.Context) error {
 	defer c.reconcileMu.Unlock()
 
 	started := time.Now()
+	if err := c.recoverHostCleanup(ctx); err != nil {
+		return fmt.Errorf("recovering unfinished host cleanup: %w", err)
+	}
 	snap, err := c.snapshot(ctx)
 	if err != nil {
 		return err

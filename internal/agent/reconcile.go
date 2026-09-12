@@ -352,6 +352,15 @@ func (a *Agent) reapOrphan(ctx context.Context, b backend.Backend, kind store.Ba
 	if !a.polled.Load() {
 		return RunnerReport{}, false
 	}
+	// A slow create is not tracked until it returns. In particular, its DinD
+	// sidecar can appear long before the runner. Never race a lifecycle task
+	// over those partially created resources.
+	if w.RunnerID != "" {
+		if !a.claim(w.RunnerID) {
+			return RunnerReport{}, false
+		}
+		defer a.release(w.RunnerID)
+	}
 	first := a.markOrphan(w.Handle, now)
 	if now.Sub(first) < orphanGrace {
 		return RunnerReport{}, false

@@ -1551,17 +1551,18 @@ func (c *Controller) StartEmbeddedAgent(ctx context.Context, cfg *config.Config)
 
 	tr := c.EmbeddedTransport()
 	a, err := agent.New(agent.Options{
-		Name:              cfg.Agent.Name,
-		WorkDir:           cfg.Agent.WorkDir,
-		Capacity:          cfg.Agent.Capacity,
-		Labels:            cfg.Agent.Labels,
-		Backends:          c.backends,
-		DefaultBackend:    store.BackendKind(cfg.Agent.Backend),
-		Transport:         tr,
-		HeartbeatInterval: cfg.Agent.HeartbeatInterval,
-		FinishedRetention: cfg.Agent.FinishedRetention,
-		Logger:            c.log,
-		Clock:             c.clock,
+		Name:               cfg.Agent.Name,
+		WorkDir:            cfg.Agent.WorkDir,
+		Capacity:           cfg.Agent.Capacity,
+		Labels:             cfg.Agent.Labels,
+		Backends:           c.backends,
+		DefaultBackend:     store.BackendKind(cfg.Agent.Backend),
+		Transport:          tr,
+		HeartbeatInterval:  cfg.Agent.HeartbeatInterval,
+		FinishedRetention:  cfg.Agent.FinishedRetention,
+		DockerBuildCacheMB: cfg.Agent.DockerBuildCacheMB,
+		Logger:             c.log,
+		Clock:              c.clock,
 	})
 	if err != nil {
 		return err

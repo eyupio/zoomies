@@ -251,6 +251,9 @@ type Agent struct {
 	// row, this is disk on the host: a busy host keeps one finished
 	// container per job for this long.
 	FinishedRetention time.Duration `yaml:"finished_retention"`
+	// DockerBuildCacheMB is the target for unused Docker builder cache. Zero
+	// disables automatic cache pruning on shared or externally managed daemons.
+	DockerBuildCacheMB int `yaml:"docker_build_cache_mb"`
 }
 
 // Scheduler tunes the scaling loop.
@@ -365,7 +368,8 @@ func Default() *Config {
 			// its terminal report to be acknowledged before removal. Keeping an
 			// exited container as well makes every job consume host disk for no
 			// default benefit; operators who debug from container logs can opt in.
-			FinishedRetention: 0,
+			FinishedRetention:  0,
+			DockerBuildCacheMB: 5120,
 		},
 		Scheduler: Scheduler{
 			Interval:          10 * time.Second,
@@ -833,6 +837,7 @@ func (c *Config) applyEnv() error {
 	dur("ZOOMIES_HEARTBEAT_INTERVAL", &c.Agent.HeartbeatInterval)
 	str("ZOOMIES_AGENT_NETWORK", &c.Agent.Network)
 	dur("ZOOMIES_AGENT_FINISHED_RETENTION", &c.Agent.FinishedRetention)
+	integer("ZOOMIES_AGENT_DOCKER_BUILD_CACHE_MB", &c.Agent.DockerBuildCacheMB)
 	str("ZOOMIES_AGENT_RUNNER_SHA256", &c.Agent.RunnerSHA256)
 	boolean("ZOOMIES_AGENT_ALLOW_UNVERIFIED_RUNNER_DOWNLOAD", &c.Agent.AllowUnverifiedRunnerDownload)
 	str("ZOOMIES_AGENT_RUNNER_DOWNLOAD_URL", &c.Agent.RunnerDownloadURL)

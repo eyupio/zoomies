@@ -86,7 +86,9 @@ type Options struct {
 
 // Controller owns the control plane's moving parts and their lifecycles.
 type Controller struct {
-	st *store.Store
+	// cleanupCursor is owned by the serial reconcile loop.
+	cleanupCursor string
+	st            *store.Store
 	// live is the configuration as this process currently sees it. It is a
 	// snapshot behind an atomic pointer rather than a struct shared by
 	// reference, because PATCH /settings changes it while every loop in here

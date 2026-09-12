@@ -86,16 +86,17 @@ func runAgentDaemon(ctx context.Context, e *env, args []string) error {
 	}
 
 	a, err := agent.New(agent.Options{
-		Name:              cfg.Agent.Name,
-		WorkDir:           cfg.Agent.WorkDir,
-		Capacity:          cfg.Agent.Capacity,
-		Labels:            cfg.Agent.Labels,
-		Backends:          backends,
-		DefaultBackend:    store.BackendKind(cfg.Agent.Backend),
-		Transport:         transport,
-		HeartbeatInterval: cfg.Agent.HeartbeatInterval,
-		FinishedRetention: cfg.Agent.FinishedRetention,
-		Logger:            log,
+		Name:               cfg.Agent.Name,
+		WorkDir:            cfg.Agent.WorkDir,
+		Capacity:           cfg.Agent.Capacity,
+		Labels:             cfg.Agent.Labels,
+		Backends:           backends,
+		DefaultBackend:     store.BackendKind(cfg.Agent.Backend),
+		Transport:          transport,
+		HeartbeatInterval:  cfg.Agent.HeartbeatInterval,
+		FinishedRetention:  cfg.Agent.FinishedRetention,
+		DockerBuildCacheMB: cfg.Agent.DockerBuildCacheMB,
+		Logger:             log,
 	})
 	if err != nil {
 		return err

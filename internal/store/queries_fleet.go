@@ -1323,7 +1323,20 @@ func (s *Store) CompleteRunnerJob(ctx context.Context, runnerID, jobID, message 
 		if err != nil {
 			return err
 		}
-		if r.State != RunnerBusy || r.CurrentJobID != jobID {
+		assigned := r.CurrentJobID == jobID && (r.State == RunnerBusy || r.State == RunnerDraining)
+		// GitHub can deliver completion before in_progress (including a fast
+		// cancellation). Only an unused ephemeral runner may be completed from
+		// that observation; never release a persistent runner or another job.
+		missedStart := r.Ephemeral && r.CurrentJobID == "" && r.JobsHandled == 0 &&
+			(r.State == RunnerProvisioning || r.State == RunnerRegistering || r.State == RunnerIdle)
+		if missedStart {
+			var linked bool
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM jobs WHERE id=? AND runner_id=? AND state='completed')`, jobID, runnerID).Scan(&linked); err != nil {
+				return err
+			}
+			missedStart = linked
+		}
+		if !assigned && !missedStart {
 			out = r
 			return nil
 		}
@@ -1335,7 +1348,7 @@ func (s *Store) CompleteRunnerJob(ctx context.Context, runnerID, jobID, message 
 		if r.Ephemeral {
 			r.State = RunnerRemoved
 			r.FinishedAt = &now
-		} else {
+		} else if r.State != RunnerDraining {
 			r.State = RunnerIdle
 			r.LastIdleAt = &now
 		}

@@ -530,8 +530,45 @@ agent:
 
 This setting does not delete a workload before its final state is safe. If the
 controller cannot acknowledge the terminal report, the agent keeps the
-workload and retries. It also does not prune shared Docker images, volumes or
-BuildKit cache.
+workload and retries. A completed GitHub job also triggers removal of its ephemeral
+runner, including failed and cancelled jobs; this explicit removal does not wait
+for the log-retention window. Pending host removals are recovered after a
+controller restart and retried until the host confirms success.
+
+New Docker runner and Docker-in-Docker containers rotate their local logs at
+10 MiB, retaining three files per container. This bounds log growth while a
+runner is active or waiting for removal. Existing containers keep their original
+logging settings until replaced.
+
+### `agent.docker_build_cache_mb`
+
+Target size in MiB for unused build cache in the host Docker daemon. The default
+is `5120` (5 GiB). The agent requests cache cleanup at startup and every five
+minutes in a separate loop, so a slow Docker daemon does not delay runner
+removal or heartbeats. Failed cleanup is logged and retried.
+
+```yaml
+agent:
+  docker_build_cache_mb: 5120
+```
+
+Set `0` to disable this cleanup, for example when another service manages a
+shared daemon's cache. The environment override is
+`ZOOMIES_AGENT_DOCKER_BUILD_CACHE_MB`; changing it requires restarting the agent.
+Both standalone and embedded agents use this setting.
+
+This targets Docker's own builder cache, including cache left by cancelled
+host-socket builds. On a shared daemon it includes unused cache from other
+builds. Docker protects cache currently in use, so the target is not a hard
+disk quota. Separate Buildx builders using the `docker-container` driver, job
+images, named volumes and arbitrary files created through the host socket are
+outside this cleanup. Podman and process backends do not use this setting.
+Docker-in-Docker build data is discarded with each runner's sidecar instead.
+
+The scheduler also stops placing work when the host's reported free disk falls
+below its reserve (at least 2 GiB). That reading covers `agent.work_dir`'s
+filesystem; a separate Docker data filesystem and disk written by jobs already
+running still need enough capacity.
 
 ### `agent.registry_auth`
 
@@ -615,27 +652,6 @@ enrol one machine could seize any other machine by naming itself after it.
 An empty selector matches any host, so once a specialised machine joins, give
 the general pools a selector of their own — otherwise they are eligible for the
 GPU box too. [Hosts and pools](hosts-and-pools.md) works that shape through.
-
-### `agent.finished_retention`
-
-How long a finished runner's workload stays on the host before the agent
-deletes it: the exited container with the runner's log and its writable layer,
-its docker-in-docker sidecar, and any scratch directory Zoomies created for it
--- or, on the process backend, the runner's directory under `agent.work_dir`.
-The default is `10m`.
-
-A runner that has exited is finished business as far as the controller is
-concerned: the row is marked removed and nothing sends the host another task
-for it. So the host cleans up after itself. Once the controller has been told
-how the runner ended, and this window has passed, the agent removes the
-workload and logs a line saying so. Until then its output is still readable
-from the Runners page, which is what the window is for.
-
-`0s` removes a finished runner on the next pass after it has been reported. A
-long window is disk: a busy host keeps one finished container per job for that
-long, and a setting over a day is flagged in the problems drawer for that
-reason. It is separate from `retention.runners`, which keeps the runner's row
-in the database for the history page.
 
 ### `agent.runner_sha256` and the process backend's download
 
