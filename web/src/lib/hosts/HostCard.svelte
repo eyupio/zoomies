@@ -292,24 +292,6 @@
     </p>
   {/if}
 
-  {#if canOperate && !host.embedded && host.upgrade_note}
-    <section class="upgrade" aria-label="Agent upgrade for {host.name || host.id}">
-      <h4>{host.upgrade_command ? 'Update this agent' : 'Agent version guidance'}</h4>
-      {#if host.upgrade_version}<p>
-          Controller version: <span class="mono">{host.upgrade_version}</span>
-        </p>{/if}
-      <p>{host.upgrade_note}</p>
-      {#if host.upgrade_command}
-        <p>
-          Running runner containers stay in place. The host reports its new version on the next
-          heartbeat.
-        </p>
-        <pre><code>{host.upgrade_command}</code></pre>
-        <CopyButton value={host.upgrade_command} label="Copy the upgrade command" showLabel />
-      {/if}
-    </section>
-  {/if}
-
   <div class="capacity">
     <UtilisationBar
       busy={active}
@@ -363,28 +345,84 @@
       </ul>
     {/if}
   </section>
+  {#if canOperate && !host.embedded && host.upgrade_note}
+    <!--
+      Last on the card, and folded away until it is asked for.
+
+      A fleet upgraded in step is a fleet where every card carries this, and an
+      open copy of the same instructions on each one is three times the card
+      for a paragraph that does not differ between them. Kept anywhere above,
+      even folded, it also pushes the figures an operator came to compare --
+      slots, committed resources, backends -- down by a line on the hosts that
+      have it and not on the hosts that do not, so nothing lines up across the
+      row. The header badge is what says a host is behind; this is where the
+      command lives when somebody wants it.
+    -->
+    <details class="upgrade">
+      <summary>
+        {#if host.upgrade_command}
+          {host.upgrade_version
+            ? `Update this agent to ${host.upgrade_version}`
+            : 'Update this agent'}
+        {:else}
+          Agent version guidance
+        {/if}
+      </summary>
+      <div class="upgrade-body">
+        <p>{host.upgrade_note}</p>
+        {#if host.upgrade_command}
+          <p>
+            Running runner containers stay in place. The host reports its new version on the next
+            heartbeat.
+          </p>
+          <pre><code>{host.upgrade_command}</code></pre>
+          <div class="upgrade-actions">
+            <CopyButton value={host.upgrade_command} label="Copy the upgrade command" showLabel />
+          </div>
+        {/if}
+      </div>
+    </details>
+  {/if}
 </article>
 
 <style>
   .upgrade {
-    margin-top: var(--z-space-3);
-    padding: var(--z-space-3);
+    /* Against the foot of the card, so that a row of stretched cards puts
+       every one of these on the same line rather than wherever its own
+       content happened to end. */
+    margin-top: auto;
     border: var(--z-border-width) solid var(--z-pending-border);
-    border-radius: var(--z-radius-md);
+    border-radius: var(--z-radius-sm);
     background: var(--z-pending-subtle);
   }
-  .upgrade h4 {
-    margin: 0 0 var(--z-space-2);
-    font-size: var(--z-text-xs);
-    font-weight: var(--z-weight-semibold);
-  }
-  .upgrade p {
-    margin: 0 0 var(--z-space-2);
+  .upgrade summary {
+    padding: var(--z-space-2) var(--z-space-3);
+    cursor: pointer;
     font-size: var(--z-text-xs);
     line-height: var(--z-leading-xs);
+    font-weight: var(--z-weight-medium);
+    color: var(--z-text-muted);
+  }
+  .upgrade[open] summary {
+    border-bottom: var(--z-border-width) solid var(--z-pending-border);
+  }
+  .upgrade-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-2);
+    padding: var(--z-space-3);
+  }
+  .upgrade-body p {
+    margin: 0;
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text-muted);
+  }
+  .upgrade-actions {
+    display: flex;
   }
   .upgrade pre {
-    margin: var(--z-space-3) 0;
+    margin: 0;
     padding: var(--z-space-3);
     background: var(--z-surface-sunken);
     border-radius: var(--z-radius-sm);

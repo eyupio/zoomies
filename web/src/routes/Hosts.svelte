@@ -309,11 +309,16 @@
     font-size: var(--z-text-xs);
     color: var(--z-text-muted);
   }
+  /* Cards in a row share a height rather than each stopping where its own
+     content runs out. A host with a cordon notice, or one label more than its
+     neighbour, otherwise leaves a ragged edge and a band of empty page before
+     the next row -- and the whole point of laying hosts out side by side is
+     that their figures can be compared across the row. */
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
     gap: var(--z-space-4);
-    align-items: start;
+    align-items: stretch;
   }
   .card-skeleton {
     display: flex;
