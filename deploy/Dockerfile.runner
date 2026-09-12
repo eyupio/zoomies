@@ -12,7 +12,7 @@
 # arguments:
 #
 #   docker build -f deploy/Dockerfile.runner \
-#     --build-arg BASE=debian:12-slim --build-arg OS_FAMILY=apt \
+#     --build-arg BASE=debian:12-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 --build-arg OS_FAMILY=apt \
 #     --build-arg OS_ID=debian --build-arg OS_VERSION=12 \
 #     -t ghcr.io/eyupio/zoomies-runner:debian-12 .
 #
@@ -64,7 +64,7 @@ ARG RUNNER_VERSION=2.337.0
 # process backend, and the runner-version workflow moves all of them together.
 ARG RUNNER_SHA256_X64=70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613
 ARG RUNNER_SHA256_ARM64=9b1dc70626422526e3c94767cf024896beb15da5342a3f4819bf2feac13e0393
-ARG BASE=ubuntu:24.04
+ARG BASE=ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254
 
 FROM ${BASE} AS runner-base
 # Re-declared after FROM: an ARG from before it is out of scope in the build

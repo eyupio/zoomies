@@ -133,9 +133,14 @@ jobs:
       # it downloaded are the bytes this release names; an attestation says
       # those bytes were built by this workflow, from this commit, and nowhere
       # else. `gh attestation verify` checks it against the release.
-      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      - id: binary-provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: "dist/zoomies_*"
+      - name: Attach verifiable provenance to the release
+        env:
+          BUNDLE: ${{ steps.binary-provenance.outputs.bundle-path }}
+        run: cp "$BUNDLE" dist/zoomies-provenance.sigstore.json
 
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
@@ -143,6 +148,7 @@ jobs:
           files: |
             dist/zoomies_*
             dist/checksums.txt
+            dist/zoomies-provenance.sigstore.json
           generate_release_notes: true
           # A release event points at an existing published release. A manual
           # recovery keeps the previous draft-first behaviour.
@@ -338,11 +344,11 @@ jobs:
         # or swapping an operating system is a row there, not here.
         # zoomies:catalogue-begin
         include:
-          - { tag: ubuntu-2404, base: "ubuntu:24.04",            family: apt, os: ubuntu, version: "24.04", platforms: "linux/amd64,linux/arm64", default: true }
-          - { tag: ubuntu-2204, base: "ubuntu:22.04",            family: apt, os: ubuntu, version: "22.04", platforms: "linux/amd64" }
-          - { tag: debian-12,   base: "debian:12-slim",          family: apt, os: debian, version: "12",    platforms: "linux/amd64,linux/arm64" }
-          - { tag: fedora-42,   base: "fedora:42",               family: dnf, os: fedora, version: "42",    platforms: "linux/amd64,linux/arm64" }
-          - { tag: rocky-9,     base: "rockylinux/rockylinux:9", family: dnf, os: rocky,  version: "9",     platforms: "linux/amd64,linux/arm64" }
+          - { tag: ubuntu-2404, base: "ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254",            family: apt, os: ubuntu, version: "24.04", platforms: "linux/amd64,linux/arm64", default: true }
+          - { tag: ubuntu-2204, base: "ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7",            family: apt, os: ubuntu, version: "22.04", platforms: "linux/amd64" }
+          - { tag: debian-12,   base: "debian:12-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171",          family: apt, os: debian, version: "12",    platforms: "linux/amd64,linux/arm64" }
+          - { tag: fedora-42,   base: "fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814",               family: dnf, os: fedora, version: "42",    platforms: "linux/amd64,linux/arm64" }
+          - { tag: rocky-9,     base: "rockylinux/rockylinux:9@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f", family: dnf, os: rocky,  version: "9",     platforms: "linux/amd64,linux/arm64" }
         # zoomies:catalogue-end
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

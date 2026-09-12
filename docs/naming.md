@@ -140,11 +140,11 @@ and the tag is the same `<os>-<version>` that appears in a pool name.
 <!-- zoomies:catalogue-begin -->
 | Tag | Base | Architectures |
 | --- | --- | --- |
-| `ubuntu-2404` | `ubuntu:24.04` | amd64, arm64 |
-| `ubuntu-2204` | `ubuntu:22.04` | amd64 |
-| `debian-12` | `debian:12-slim` | amd64, arm64 |
-| `fedora-42` | `fedora:42` | amd64, arm64 |
-| `rocky-9` | `rockylinux/rockylinux:9` | amd64, arm64 |
+| `ubuntu-2404` | `ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254` | amd64, arm64 |
+| `ubuntu-2204` | `ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7` | amd64 |
+| `debian-12` | `debian:12-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171` | amd64, arm64 |
+| `fedora-42` | `fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814` | amd64, arm64 |
+| `rocky-9` | `rockylinux/rockylinux:9@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f` | amd64, arm64 |
 <!-- zoomies:catalogue-end -->
 
 `:latest` points at `ubuntu-2404`, which is what a pool that names no platform

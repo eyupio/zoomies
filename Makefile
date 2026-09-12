@@ -192,11 +192,11 @@ RUNNER_VARIANTS := ubuntu-2404 ubuntu-2204 debian-12 fedora-42 rocky-9
 RUNNER_VARIANT_DEFAULT := ubuntu-2404
 
 # base | family | os | version
-variant.ubuntu-2404 := ubuntu:24.04 apt ubuntu 24.04
-variant.ubuntu-2204 := ubuntu:22.04 apt ubuntu 22.04
-variant.debian-12   := debian:12-slim apt debian 12
-variant.fedora-42   := fedora:42 dnf fedora 42
-variant.rocky-9     := rockylinux/rockylinux:9 dnf rocky 9
+variant.ubuntu-2404 := ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254 apt ubuntu 24.04
+variant.ubuntu-2204 := ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7 apt ubuntu 22.04
+variant.debian-12   := debian:12-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 apt debian 12
+variant.fedora-42   := fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814 dnf fedora 42
+variant.rocky-9     := rockylinux/rockylinux:9@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f dnf rocky 9
 # zoomies:catalogue-end
 
 # variant-args renders one variant's row as docker build arguments.

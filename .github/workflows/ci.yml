@@ -76,11 +76,6 @@ jobs:
   drill:
     name: Drill
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
-    # Only this job, and only to append its own rows to the drill record on the
-    # default branch: the record is worth nothing unless a run keeps it, and
-    # every other job here reads.
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -123,49 +118,15 @@ jobs:
             tail -n +$(( ${{ steps.record.outputs.lines }} + 1 )) roadmap/validation/drills.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      # A row that reaches one job summary and nowhere else cannot be compared
-      # with the row before it, and comparison is the whole reason for keeping
-      # these: a drill that recovered cleanly forty times and then did not is a
-      # finding only if the forty are still there. So the rows are committed,
-      # from the default branch only -- a pull request's rows describe a commit
-      # that may never exist.
-      #
-      # A push made with GITHUB_TOKEN starts no workflow run, which is what
-      # stops this step from triggering itself for ever.
-      - name: Keep the rows
-        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          set -eu
-          rows="$RUNNER_TEMP/rows.md"
-          tail -n +$(( ${{ steps.record.outputs.lines }} + 1 )) roadmap/validation/drills.md > "$rows"
-          if [ ! -s "$rows" ]; then
-            echo "The drills wrote no rows, so there is nothing to keep."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # The rows are held in $rows from here on, so the working tree goes
-          # back to what was checked out -- appending to a file that already
-          # carries this run's rows would write them twice.
-          git reset --hard
-          # Another push can land while the drills run, so the rows are appended
-          # to whatever main is by then rather than to the copy this run started
-          # with. The file is a log: its lines do not conflict, they just follow
-          # whatever is already there.
-          for attempt in 1 2 3; do
-            git fetch --depth=1 origin main
-            git checkout -B drill-record FETCH_HEAD
-            cat "$rows" >> roadmap/validation/drills.md
-            git add roadmap/validation/drills.md
-            git commit -m "Record what the drills observed on ${GITHUB_SHA}"
-            if git push origin HEAD:main; then
-              exit 0
-            fi
-            echo "main moved while the drills ran; appending to where it is now (attempt $attempt)."
-            git reset --hard FETCH_HEAD
-          done
-          echo "Could not keep the drill rows after three attempts."
-          exit 1
+      # Keep evidence per commit without letting test code write to main.
+      - name: Preserve drill evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: drill-evidence-${{ github.sha }}
+          path: roadmap/validation/drills.md
+          if-no-files-found: error
+          retention-days: 90
 
   upgrade:
     name: Upgrade
@@ -371,9 +332,15 @@ jobs:
           echo "version=main-sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
       - run: make dist VERSION=${{ steps.build.outputs.version }} COMMIT=${{ github.sha }} DATE=${{ steps.build.outputs.date }}
-      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      - id: binary-provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: "dist/zoomies_*"
+      - name: Attach verifiable provenance to the release
+        env:
+          BUNDLE: ${{ steps.binary-provenance.outputs.bundle-path }}
+        run: cp "$BUNDLE" dist/zoomies-provenance.sigstore.json
+
       - name: Move the dev tag to this build
         run: |
           git tag -f dev "$GITHUB_SHA"
@@ -389,6 +356,7 @@ jobs:
           files: |
             dist/zoomies_*
             dist/checksums.txt
+            dist/zoomies-provenance.sigstore.json
           prerelease: true
           make_latest: false
           overwrite_files: true
@@ -663,11 +631,11 @@ jobs:
         # or swapping an operating system is a row there, not here.
         # zoomies:catalogue-begin
         include:
-          - { tag: ubuntu-2404, base: "ubuntu:24.04",            family: apt, os: ubuntu, version: "24.04", platforms: "linux/amd64,linux/arm64", default: true }
-          - { tag: ubuntu-2204, base: "ubuntu:22.04",            family: apt, os: ubuntu, version: "22.04", platforms: "linux/amd64" }
-          - { tag: debian-12,   base: "debian:12-slim",          family: apt, os: debian, version: "12",    platforms: "linux/amd64,linux/arm64" }
-          - { tag: fedora-42,   base: "fedora:42",               family: dnf, os: fedora, version: "42",    platforms: "linux/amd64,linux/arm64" }
-          - { tag: rocky-9,     base: "rockylinux/rockylinux:9", family: dnf, os: rocky,  version: "9",     platforms: "linux/amd64,linux/arm64" }
+          - { tag: ubuntu-2404, base: "ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254",            family: apt, os: ubuntu, version: "24.04", platforms: "linux/amd64,linux/arm64", default: true }
+          - { tag: ubuntu-2204, base: "ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7",            family: apt, os: ubuntu, version: "22.04", platforms: "linux/amd64" }
+          - { tag: debian-12,   base: "debian:12-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171",          family: apt, os: debian, version: "12",    platforms: "linux/amd64,linux/arm64" }
+          - { tag: fedora-42,   base: "fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814",               family: dnf, os: fedora, version: "42",    platforms: "linux/amd64,linux/arm64" }
+          - { tag: rocky-9,     base: "rockylinux/rockylinux:9@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f", family: dnf, os: rocky,  version: "9",     platforms: "linux/amd64,linux/arm64" }
         # zoomies:catalogue-end
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
