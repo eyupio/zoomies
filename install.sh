@@ -76,6 +76,16 @@ CONFIG_DIR=""
 UPGRADE_IMAGE=""
 ASSUME_YES=0
 ALLOW_UNVERIFIED=0
+# Motion -- off until init_motion says otherwise. It is a courtesy, never the
+# interface: every value that could make an animated line the wrong thing to
+# draw (a captured stdout, NO_COLOR, a dumb terminal, CI, --no-animation) turns
+# it off, and when it is off not one byte more reaches the terminal than before.
+NO_ANIM=0
+PREVIEW=0
+Z_ANIM=0
+Z_LOAD_PID=""
+[ -n "${ZOOMIES_NO_ANIMATION:-}" ] && NO_ANIM=1
+[ -n "${ZOOMIES_PREVIEW:-}" ] && PREVIEW=1
 EXISTING_OTHER=""
 EXISTING_UNIT=""
 # Something worked out during argument parsing that belongs in the "Looking
@@ -111,7 +121,7 @@ step() { printf '%s->%s %s\n' "$C_ACCENT" "$C_RESET" "$*"; }
 ok()   { printf '%s   ok%s %s\n' "$C_OK" "$C_RESET" "$*"; }
 note() { printf '%s      %s%s\n' "$C_DIM" "$*" "$C_RESET"; }
 warn() { printf '%s   !!%s %s\n' "$C_WARN" "$C_RESET" "$*" >&2; }
-die()  { printf '%s   xx%s %s\n' "$C_ERR" "$C_RESET" "$1" >&2; shift; hint "$@"; exit 1; }
+die()  { anim_teardown; printf '%s   xx%s %s\n' "$C_ERR" "$C_RESET" "$1" >&2; shift; hint "$@"; exit 1; }
 # hint prints the continuation lines of a warning or an error at the gutter's
 # own indent. The alternative -- six literal spaces inside the message string --
 # drifts silently the moment the gutter changes, and it did.
@@ -122,9 +132,263 @@ hint() { for h in "$@"; do printf '%s      %s%s\n' "$C_DIM" "$h" "$C_RESET" >&2;
 # column everything else lines up in.
 field() { k="$1"; shift; printf '%s      %-12s%s%s\n' "$C_DIM" "$k" "$*" "$C_RESET"; }
 
+# ---------------------------------------------------------------------------
+# Motion
+#
+# The install is mostly waiting: a release lookup, a 40 MB download, a checksum
+# fetch, and sometimes the minutes a just-published release takes to finish
+# uploading. Waiting with nothing on screen reads as a hang, and the one thing
+# named after a dog sprinting round the living room should not look stalled.
+#
+# The rule that keeps this safe is that the animation draws *around* the gutter,
+# never inside it. `step`/`ok`/`warn`/`die` are untouched; the loader is one
+# ephemeral line it redraws with a carriage return and clears before the real
+# result is printed. So a terminal that is not a terminal -- the CI checks,
+# `curl | sh | tee`, anything that captures stdout -- gets exactly the text it
+# always got, and every animated byte is spent only where a person is watching.
+# ---------------------------------------------------------------------------
+
+# Whether the locale can render the multibyte paw. The banner makes the same
+# downgrade for the same reason: mojibake where the mark should be.
+anim_ready() {
+    case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+        *UTF-8*|*utf8*|*UTF8*|*utf-8*) return 0 ;;
+    esac
+    return 1
+}
+
+_cur_off() { [ "$Z_ANIM" -eq 1 ] && printf '\033[?25l'; return 0; }
+_cur_on()  { [ "$Z_ANIM" -eq 1 ] && printf '\033[?25h'; return 0; }
+
+# Decide once whether anything may be drawn, and pick the runner. Called from
+# main after the arguments are known, because --preview and --no-animation are
+# decided there.
+init_motion() {
+    Z_ANIM=0
+    if anim_ready; then _RUNNER='🐾'; _RD=2; else _RUNNER='(oo~'; _RD=4; fi
+    _W=32
+    if [ "$NO_ANIM" -eq 1 ] || [ -n "${ZOOMIES_NO_ANIMATION:-}" ]; then
+        :
+    elif [ "$PREVIEW" -eq 1 ]; then
+        Z_ANIM=1
+    elif [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != "dumb" ] &&
+         [ -z "${CI:-}" ]; then
+        Z_ANIM=1
+    fi
+    # A hidden cursor that outlives the script is the one animation failure an
+    # operator has to fix by hand, so the trap that shows it again is armed the
+    # moment motion is on and every later trap chains through it.
+    [ "$Z_ANIM" -eq 1 ] || return 0
+    trap 'anim_teardown' EXIT INT TERM
+}
+
+# anim_teardown stops a loader that is still running and shows the cursor, so
+# an error, a signal or an early exit never leaves the terminal mid-gallop.
+anim_teardown() {
+    [ -n "$Z_LOAD_PID" ] && load_stop
+    _cur_on
+    return 0
+}
+
+# _load_line redraws the one loader line. The runner bounces down a belt because
+# none of these waits has a trustworthy total -- the release lookup has no size
+# at all, and the download's length arrives one redirect away from the truth --
+# so a bouncing dog on a treadmill is the honest picture of "working", and the
+# live byte count and elapsed timer carry the progress that is real.
+_load_line() {
+    _now=$(date +%s 2>/dev/null) || _now=0
+    _el=$((_now - _t0)); [ "$_el" -lt 0 ] && _el=0
+    _sz=0
+    if [ -n "$_load_file" ] && [ -f "$_load_file" ]; then
+        _sz=$(wc -c < "$_load_file" 2>/dev/null) || _sz=0
+        _sz=$(printf '%s' "$_sz" | tr -dc 0-9)
+        case "$_sz" in ''|*[!0-9]*) _sz=0 ;; esac
+    fi
+    _size=''
+    if [ -n "$_load_file" ]; then
+        _mb=$((_sz / 1048576)); _md=$(((_sz % 1048576) / 104858))
+        _size=$(printf '%d.%dMB' "$_mb" "$_md")
+    fi
+    _max=$((_W - _RD)); [ "$_max" -lt 1 ] && _max=1
+    _cyc=$((_max * 2)); [ "$_cyc" -lt 1 ] && _cyc=1
+    _p=$((_fr % _cyc)); [ "$_p" -gt "$_max" ] && _p=$((_cyc - _p))
+    if [ "$_RD" -eq 4 ]; then
+        case $((_fr % 4)) in
+            0) _r="(oo\\" ;;
+            1) _r='(oo|' ;;
+            2) _r='(oo/' ;;
+            3) _r='(oo|' ;;
+        esac
+    else
+        _r=$_RUNNER
+    fi
+    _i=0; _left=''
+    while [ "$_i" -lt "$_p" ]; do _left="$_left "; _i=$((_i + 1)); done
+    _pad=''
+    while [ "$_i" -lt "$_max" ]; do _pad="$_pad "; _i=$((_i + 1)); done
+    _belt="$C_DIM|$C_RESET$C_ACCENT$_left$_r$_pad$C_RESET$C_DIM|$C_RESET"
+    printf '\r\033[K  %s  %.22s  %6s  %2ds' "$_belt" "$_load_phase" "$_size" "$_el"
+}
+
+# load_start runs the loader in the background while the caller gets on with the
+# real command -- the caller must not print to the terminal between load_start
+# and load_stop, which is exactly true of the fetches it wraps (their output is
+# captured, not shown). load_stop is always safe to call; a no-op loader leaves
+# no trace.
+load_start() {
+    [ "$Z_ANIM" -eq 1 ] || return 0
+    _load_phase=$1
+    _load_file=${2:-}
+    _t0=$(date +%s 2>/dev/null) || _t0=0
+    _cur_off
+    ( _fr=0; while :; do _load_line; _fr=$((_fr + 1)); sleep 0.1 || return 0; done ) &
+    Z_LOAD_PID=$!
+}
+
+load_stop() {
+    [ -n "$Z_LOAD_PID" ] || return 0
+    kill "$Z_LOAD_PID" 2>/dev/null || true
+    wait "$Z_LOAD_PID" 2>/dev/null || true
+    Z_LOAD_PID=""
+    printf '\r\033[K'
+    _cur_on
+    return 0
+}
+
+# pulse animates a fixed wait in the foreground. It exists for the one loop that
+# has nothing to overlap -- waiting for a release's binaries to finish
+# uploading, which is a plain sleep between two checks -- and so must not fight
+# a background line with it.
+pulse() {
+    [ "$Z_ANIM" -eq 1 ] || return 0
+    pulse_secs=$1
+    pulse_phase=$2
+    _load_phase=$pulse_phase
+    _load_file=""
+    _t0=$(date +%s 2>/dev/null) || _t0=0
+    _end=$((_t0 + pulse_secs))
+    _fr=0
+    _cur_off
+    while :; do
+        _load_line
+        _fr=$((_fr + 1))
+        _n=$(date +%s 2>/dev/null) || _n=0
+        [ "$_n" -lt "$_end" ] || break
+        sleep 0.1 || break
+    done
+    printf '\r\033[K'
+    _cur_on
+    return 0
+}
+
+# The mark, in the two widths of terminal this script supports.
+_wordmark() {
+    if anim_ready; then
+        cat <<'EOU'
+ ██╗  ██╗   ██████╗   ██████╗  ███╗   ███╗  ██╗  ███████╗  ███████╗
+ ╚██╗██╔╝   ██╔═══██╗ ██╔═══██╗ ████╗ ████║  ██║  ██╔════╝  ██╔════╝
+  ╚███╔╝    ██║   ██║ ██║   ██║ ██╔████╔██║  ██║  ███████╗  ███████╗
+  ██╔╝      ██║   ██║ ██║   ██║ ██║╚██╔╝██║  ██║  ╚════██║  ╚════██║
+ ██╔╝  ██   ╚██████╔╝ ╚██████╔╝ ██║ ╚═╝ ██║  ██║  ███████║  ███████║
+ ╚═╝  ╚═╝    ╚═════╝   ╚═════╝  ╚═╝     ╚═╝  ╚═╝  ╚══════╝  ╚══════╝
+EOU
+    else
+        cat <<'EOA'
+####  ##  ##  #   # # #### ####
+  ## #  # #  # ## ## # #    #
+ ##  #  # #  # # # # # ###   ###
+##   #  # #  # #   # # #       #
+####  ##  ##  #   # # #### ####
+EOA
+    fi
+}
+
+# A line-by-line reveal -- top to bottom, fast. One-shot, so it redraws nothing
+# and cannot corrupt anything that comes after it.
+wordmark_reveal() {
+    [ "$Z_ANIM" -eq 1 ] || return 0
+    _cur_off
+    _wordmark | while IFS= read -r _ln; do
+        printf '  %s%s%s\n' "$C_ACCENT" "$_ln" "$C_RESET"
+        sleep 0.05
+    done
+    _cur_on
+    return 0
+}
+
+# The dog skids to a stop and sits as the install hands off. A moving dog is a
+# courtesy while work happens; a dog that has arrived is the payoff.
+finale() {
+    [ "$Z_ANIM" -eq 1 ] || return 0
+    fin_ver=$1
+    _cur_off
+    _fr=0
+    while [ "$_fr" -lt 11 ]; do
+        _sp=$((_fr * 3))
+        _i=0; _pad=""
+        while [ "$_i" -lt "$_sp" ]; do _pad="$_pad "; _i=$((_i + 1)); done
+        _wl=$((24 - _fr * 3)); [ "$_wl" -lt 0 ] && _wl=0
+        _k=0; _w=""
+        while [ "$_k" -lt "$_wl" ]; do _w="$_w~"; _k=$((_k + 1)); done
+        printf '\r\033[K  %s%s%s%s%s%s%s' \
+            "$C_DIM" "$_w" "$C_RESET" "$C_ACCENT" "$_pad" "$_RUNNER" "$C_RESET"
+        _fr=$((_fr + 1))
+        sleep 0.04
+    done
+    printf '\r\033[K'
+    _cur_on
+    printf '%s    __%s\n' "$C_ACCENT" "$C_RESET"
+    printf '%s   (oo)~%s  %s%s%s is installed and off the lead.\n' \
+        "$C_ACCENT" "$C_RESET" "$C_BOLD" "$fin_ver" "$C_RESET"
+    printf '%s   /||\\%s  %snext: zoomies init%s\n' \
+        "$C_ACCENT" "$C_RESET" "$C_DIM" "$C_RESET"
+    return 0
+}
+
+# preview_all plays the whole set without touching the host, so the art can be
+# judged against a real terminal, font and tmux before it is trusted in an
+# install. It is the reason --preview exists.
+preview_all() {
+    say ""
+    banner
+    step "Doing a thing that takes a moment"
+    load_start "resolving latest"
+    sleep 2
+    load_stop
+    ok "latest is v1.4.2"
+    say ""
+    step "Downloading zoomies_linux_amd64 v1.4.2"
+    load_start "downloading"
+    sleep 3
+    load_stop
+    ok "downloaded"
+    say ""
+    step "Verifying the checksum"
+    pulse 2 "sniffing the goods"
+    ok "sha256 1f4c9a72... matches"
+    say ""
+    step "Waiting on a release that was published seconds ago"
+    pulse 3 "asset still building"
+    ok "available now"
+    say ""
+    finale "zoomies 1.4.2 (abc1234)"
+    say ""
+    ok "preview done -- nothing was installed."
+}
+
 # Three lines, and every one of them says something. The dog is the mark; the
 # tagline is the product; the third line is where to look when this goes wrong.
 banner() {
+    if [ "$Z_ANIM" -eq 1 ]; then
+        printf '\n'
+        wordmark_reveal
+        printf '%s  off the lead, on the job   %s%s%s%s\n' \
+            "$C_DIM" "$C_ACCENT" "$_RUNNER" "$C_RESET" "$C_RESET"
+        printf '%s        %s  ephemeral GitHub Actions runners that clean up after themselves%s\n' \
+            "$C_DIM" "$C_RESET" "$C_RESET"
+        printf '%s           https://github.com/%s%s\n\n' "$C_DIM" "$REPO" "$C_RESET"
+        return 0
+    fi
     # The mark is three characters no ASCII terminal has. A dumb terminal, or a
     # locale that is not UTF-8, gets mojibake where the brand should be -- so it
     # gets a plain stand-in instead.
@@ -184,6 +448,10 @@ Options:
                         checked against the release's checksums.txt. Only for
                         a private mirror that does not publish one.
   --uninstall           Run `zoomies uninstall`, then remove the binary.
+  --no-animation        Do not animate the waits, even on a terminal. Same as
+                        ZOOMIES_NO_ANIMATION.
+  --preview             Play the installer's animations and exit. Installs
+                        nothing and changes nothing on the host.
   --help, -h            This.
 
 Environment:
@@ -192,6 +460,8 @@ Environment:
                         binaries to finish uploading (default 300, 0 to
                         fail immediately).
   NO_COLOR              Disable colour.
+  ZOOMIES_NO_ANIMATION  Set to any value to keep the waits as plain text.
+  ZOOMIES_PREVIEW       Set to any value for the effect of --preview.
 
 Examples:
   # A single VM, interactive
@@ -274,10 +544,21 @@ while [ $# -gt 0 ]; do
         --uninstall)   DO_UNINSTALL=1; shift ;;
         -y|--yes)      ASSUME_YES=1; shift ;;
         --allow-unverified) ALLOW_UNVERIFIED=1; shift ;;
+        --no-animation) NO_ANIM=1; shift ;;
+        --preview)     PREVIEW=1; shift ;;
         -h|--help)     usage; exit 0 ;;
         *)             die "unknown option: $1 (try --help)" ;;
     esac
 done
+
+# Decide whether there is going to be any motion before a single line of it is
+# printed, then --preview -- which is the one invocation that exists purely to be
+# looked at -- plays the whole set and leaves before anything is detected.
+init_motion
+if [ "$PREVIEW" -eq 1 ]; then
+    preview_all
+    exit 0
+fi
 
 # ---------------------------------------------------------------------------
 # The answers we already have, checked before anything is downloaded
@@ -752,13 +1033,16 @@ wait_for_asset() {
          "uploading. Waiting up to ${ASSET_WAIT}s for them."
     waited=0
     while [ "$waited" -lt "$ASSET_WAIT" ]; do
-        sleep 15
+        # A bare sleep 15 is the emptiest possible terminal. Pacing it with the
+        # runner says the same thing -- we are waiting, not stuck -- and the
+        # elapsed timer in the loader counts up on its own.
+        pulse 15 "$asset is still building"
         waited=$((waited + 15))
         if fetch "$1" "$2"; then
             ok "downloaded after ${waited}s"
             return 0
         fi
-        note "still waiting (${waited}s of ${ASSET_WAIT}s)"
+        [ "$Z_ANIM" -eq 1 ] || note "still waiting (${waited}s of ${ASSET_WAIT}s)"
     done
     return 1
 }
@@ -797,6 +1081,10 @@ newest_release_tag() {
 resolve_version() {
     [ "$VERSION" = latest ] || return 0
     step "Finding the latest release"
+    # The lookup is one or two round trips and usually under a second, but on a
+    # cold connection or a rate-limited API it is exactly the kind of pause that
+    # looks like nothing is happening -- so the dog runs while it resolves.
+    load_start "resolving latest"
     # The redirect target of /releases/latest names the tag without needing the
     # API, which keeps this working for unauthenticated users behind a rate limit.
     if have curl; then
@@ -816,6 +1104,7 @@ resolve_version() {
         # per address and shared with everyone else behind the same NAT.
         *) VERSION=$(newest_release_tag) ;;
     esac
+    load_stop
     case "$VERSION" in
         ""|latest)
             die "could not work out the latest release. Pass --version v1.2.3, or check that $BASE_URL is reachable." ;;
@@ -834,11 +1123,26 @@ install_binary() {
     url="$BASE_URL/download/$tag/$asset"
 
     tmp=$(mktemp -d "${TMPDIR:-/tmp}/zoomies-install.XXXXXX")
+    # The temp-dir cleanup and the motion teardown share the trap, because an
+    # interrupt here has to both remove the half-written download and stop the
+    # loader that was watching it.
     # shellcheck disable=SC2064
-    trap "rm -rf '$tmp'" EXIT INT TERM
+    trap "rm -rf '$tmp'; anim_teardown" EXIT INT TERM
 
     step "Downloading $asset $tag"
-    if ! fetch "$url" "$tmp/zoomies"; then
+    # The loader watches the file curl is writing, so the byte count it shows is
+    # the transfer, not a guess. It runs in the background only while the fetch
+    # itself is silent (its errors are captured, never echoed), so the two never
+    # contend for the terminal. load_stop is called on every way out of the fetch
+    # so a failure hands a clean line back to wait_for_asset or die.
+    load_start "downloading" "$tmp/zoomies"
+    if fetch "$url" "$tmp/zoomies"; then
+        _dl_ok=1
+    else
+        _dl_ok=0
+    fi
+    load_stop
+    if [ "$_dl_ok" -eq 0 ]; then
         wait_for_asset "$url" "$tmp/zoomies" ||
             die "could not download $asset $tag." \
                 "$url" \
@@ -855,8 +1159,18 @@ install_binary() {
     # sudo password prompt, so nobody ever saw it. --allow-unverified is the
     # deliberate opt-in for a private mirror that publishes no checksums.
     step "Verifying the checksum"
+    # "Sniffing the goods" is the whole point of this step and the dog is the
+    # one who checks. The fetch is into a file rather than a command substitution
+    # so the background loader can run beside a silent transfer, exactly as it
+    # did for the download; the success/emptiness test below is unchanged.
+    load_start "sniffing the goods"
+    sums=''
+    if fetch_stdout "$BASE_URL/download/$tag/checksums.txt" 2>/dev/null > "$tmp/sums"; then
+        sums=$(cat "$tmp/sums" 2>/dev/null)
+    fi
+    load_stop
     unverified=""
-    if sums=$(fetch_stdout "$BASE_URL/download/$tag/checksums.txt" 2>/dev/null) && [ -n "$sums" ]; then
+    if [ -n "$sums" ]; then
         want=$(printf '%s\n' "$sums" | awk -v a="$asset" '$2 == a || $2 == "*"a {print $1; exit}')
         got=$(sha256_of "$tmp/zoomies")
         if [ -z "$want" ]; then
@@ -942,7 +1256,9 @@ install_binary() {
     # left under /tmp after every install. Clean up here, while there is still
     # a shell to do it.
     rm -rf "$tmp"
-    trap - EXIT INT TERM
+    # tmp is gone; keep only the teardown trap for the rest of the run so a later
+    # interrupt still shows the cursor.
+    trap 'anim_teardown' EXIT INT TERM
 }
 
 # The new binary understands its own upgrade procedure. Run its read-only
@@ -1324,6 +1640,11 @@ if [ -n "$ELEVATE" ] && [ "$OS" = linux ]; then
     ELEVATE_INIT="$ELEVATE"
 fi
 
+say ""
+# The dog has arrived. This is the only place the finale runs: --no-init and
+# --uninstall exit above with their own closing line, and only the interactive
+# handoff earns the little skid to a stop before setup takes the lead.
+finale "${NEW_VERSION:-$VERSION}"
 say ""
 if [ -n "$ELEVATE_INIT" ]; then
     step "Handing over to \`$ELEVATE_INIT zoomies init\`"
