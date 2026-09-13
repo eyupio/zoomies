@@ -26,6 +26,12 @@ type HostUsage struct {
 
 const HostUsageMaxAge = 90 * time.Second
 
+// CPUHoldWindow is how long CPU has to sit at or above 95% before new starts
+// are held. It is a constant rather than a literal because the throttle
+// ladder is paced against it: a rung may not be climbed faster than the hold
+// that feeds it can trip, and internal/controller pins the two together.
+const CPUHoldWindow = 30 * time.Second
+
 func (u HostUsage) Fresh(now time.Time) bool {
 	return !u.SampledAt.IsZero() && !now.Before(u.SampledAt) && now.Sub(u.SampledAt) < HostUsageMaxAge
 }
@@ -48,7 +54,7 @@ func ObserveHostUsage(previous, measured HostUsage, memoryMB int64, now time.Tim
 				since = *previous.CPUHighSince
 			}
 			u.CPUHighSince = &since
-			u.CPUHeld = u.CPUHeld || now.Sub(since) >= 30*time.Second
+			u.CPUHeld = u.CPUHeld || now.Sub(since) >= CPUHoldWindow
 		}
 	}
 	if v := measured.MemoryAvailableMB; v != nil && *v >= 0 && memoryMB > 0 && *v <= memoryMB {

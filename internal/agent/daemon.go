@@ -179,6 +179,10 @@ type Agent struct {
 	incompatibleReason string
 	// warnedSkew keeps a version-skew warning to one line per run.
 	warnedSkew bool
+	// cpuFactor is the last heartbeat directive's throttle factor, the share
+	// of its allocated CPU each runner here is to be left. A nil directive,
+	// or a zero factor from one, is 1: an older controller never throttles.
+	cpuFactor float64
 
 	// polled records that at least one task poll has completed since start.
 	// The reconciler will not delete anything until it has, so a controller
@@ -220,6 +224,22 @@ type tracked struct {
 	exitCode   int
 	message    string
 	observedAt time.Time
+
+	// resources is the allocation the workload was created with: the base a
+	// throttle scales from. It comes from the spec at create and from the
+	// workload's own labels at adopt, because a restarted agent remembers
+	// nothing about how a container was made.
+	resources store.Resources
+	// appliedCPUFactor is the throttle factor this runner's quota was last
+	// set to, so the daemon is not asked again on every beat. Nil is
+	// "unknown", which is what an adopted runner starts as: the agent that
+	// made it may have throttled it and then died, so the first beat
+	// reconciles it whichever way the controller now says.
+	appliedCPUFactor *float64
+	// failedCPUFactor is the factor the daemon last refused for this runner,
+	// so the refusal is logged once and not on every beat the throttle
+	// stands. The update is still retried: the daemon may have recovered.
+	failedCPUFactor *float64
 }
 
 func (t *tracked) report() RunnerReport {
@@ -308,6 +328,7 @@ func New(opts Options) (*Agent, error) {
 		waiting:   make(map[string]Task),
 		taskCtx:   context.Background(),
 		orphans:   make(map[backend.Handle]time.Time),
+		cpuFactor: 1,
 	}
 	a.logs = newLogRelay(opts.Transport, log)
 	return a, nil
@@ -714,6 +735,12 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	// only what it names is what keeps a restart from destroying live jobs
 	// while still clearing up a workload whose runner was deleted meanwhile.
 	a.releaseUnknown(resp.UnknownRunners)
+
+	// The throttle is applied after the release above, so a runner the
+	// controller has just disowned is not the one whose quota is moved, and
+	// under the heartbeat's own deadline: an update the daemon sits on must
+	// not hold the beat open past the interval.
+	a.applyThrottleDirective(hctx, resp.Throttle)
 
 	if resp.ResyncRequested {
 		// The controller restarted and lost its cache, so re-probe rather than
@@ -1205,11 +1232,23 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 		state:      store.RunnerRegistering,
 		phase:      backend.PhaseStarting,
 		observedAt: now,
+		resources:  spec.Resources,
+		// The container was created with its full allocation, which is a
+		// factor of 1 applied; recording it saves the next beat a request.
+		appliedCPUFactor: new(float64(1)),
 	}
 	delete(a.orphans, handle)
+	throttled := a.cpuFactor < 1
 	a.mu.Unlock()
 
 	a.log.Info("runner created", "runner", task.RunnerID, "name", spec.Name, "backend", kind, "handle", handle, "took", now.Sub(start))
+	if throttled {
+		// A runner created while the host is throttled starts at its full
+		// allocation, which on an overwhelmed host is one more full-speed job
+		// until the next beat. Throttle it now, under the create's context,
+		// which shutdown does not cancel either.
+		a.applyThrottle(cctx, false)
+	}
 	release()
 	a.report(ctx, TaskResult{
 		TaskID:             task.ID,
@@ -1603,6 +1642,7 @@ func (a *Agent) adopt(runnerID string, kind store.BackendKind, w backend.Workloa
 		createdAt:  w.Status.StartedAt,
 		phase:      w.Status.Phase,
 		observedAt: now,
+		resources:  w.Resources,
 	}
 	if a.runners[runnerID].createdAt.IsZero() {
 		a.runners[runnerID].createdAt = now

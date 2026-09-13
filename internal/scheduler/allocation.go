@@ -52,19 +52,38 @@ func Allocation(p *store.Pool, h *store.Host, defaults bool) (store.Resources, s
 	}
 	limits := hostLimits(h, p.Backend)
 	alloc := h.Allocatable()
-	if res.CPUs <= 0 && alloc.CPUsKnown && limits.CPU {
-		if cpus := shareCPUs(alloc.CPUs, h.Capacity); cpus > 0 {
-			res.CPUs = cpus
-			source = store.AllocationFromHost
-		}
+	def := HostShare(h)
+	if res.CPUs <= 0 && alloc.CPUsKnown && limits.CPU && def.CPUs > 0 {
+		res.CPUs = def.CPUs
+		source = store.AllocationFromHost
 	}
-	if res.MemoryMB <= 0 && alloc.MemoryKnown && limits.Memory {
-		if mb := int64(share(float64(alloc.MemoryMB), h.Capacity)); mb > 0 {
-			res.MemoryMB = mb
-			source = store.AllocationFromHost
-		}
+	if res.MemoryMB <= 0 && alloc.MemoryKnown && limits.Memory && def.MemoryMB > 0 {
+		res.MemoryMB = def.MemoryMB
+		source = store.AllocationFromHost
 	}
 	return res, source
+}
+
+// HostShare is one slot's share of a host: the CPU and memory a runner of a
+// pool that sets neither is given by Allocation, before the host's daemon is
+// asked whether it can apply them. Zero on a field the host has not measured.
+//
+// It is exported so that the problem which warns about an over-provisioned
+// host can say what each runner's default share would be in the same figures
+// Allocation hands out, rather than in a second sum that could drift from it.
+func HostShare(h *store.Host) store.Resources {
+	if h == nil {
+		return store.Resources{}
+	}
+	alloc := h.Allocatable()
+	var out store.Resources
+	if alloc.CPUsKnown {
+		out.CPUs = shareCPUs(alloc.CPUs, h.Capacity)
+	}
+	if alloc.MemoryKnown {
+		out.MemoryMB = int64(share(float64(alloc.MemoryMB), h.Capacity))
+	}
+	return out
 }
 
 // hostLimits is what the host's daemon for this backend said it can enforce.

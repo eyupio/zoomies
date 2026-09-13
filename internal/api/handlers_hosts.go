@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
@@ -150,10 +151,80 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.auth.Auditor().Updated(r.Context(), Identity(r.Context()), "host", id, &before, h)
+	// A change to the capacity or the reserve is the operator answering the
+	// pressure that throttled the host -- fewer slots, or more of the machine
+	// kept back -- so the rung it was on is lifted with it. Left standing, the
+	// new figures would only take effect once the old episode had spent five
+	// minutes calm, and the card would show a throttle nothing explains. A
+	// label change says nothing about the machine and lifts nothing. When the
+	// lift itself fails the patch still stands, so the answer is the saved
+	// host and a log line, not a 500 that reads as "nothing was saved".
+	cleared := false
+	if h.Throttle.Active() && (req.Capacity != nil || req.ReserveCPUs != nil ||
+		req.ReserveMemoryMB != nil || req.ReserveDiskMB != nil) {
+		if lifted, err := s.ctrl.ClearHostThrottle(r.Context(), id); err != nil {
+			s.logger(r).Warn("a host's capacity or reserve changed but its throttle could not be lifted; the next heartbeat decides it again",
+				"host", id, "error", err)
+		} else {
+			h, cleared = lifted, true
+		}
+	}
+
+	s.auditHostUpdate(r, id, &before, h, cleared)
 	s.ctrl.PublishHost(h)
 	// Capacity, labels and the reserve all decide where runners may be placed.
 	s.ctrl.Nudge()
+	writeJSON(w, http.StatusOK, s.ctrl.HostView(h))
+}
+
+// auditHostUpdate writes the PATCH's audit row: the fields that differ, as
+// Auditor.Updated would, plus "throttle_cleared" when the change lifted one.
+// The throttle column already appears in the diff, but a reader of the audit
+// page should not have to know that {} against {level: 2} means "lifted".
+func (s *Server) auditHostUpdate(r *http.Request, id string, before, after *store.Host, cleared bool) {
+	b, af := auth.Diff(before, after)
+	if cleared {
+		detail, _ := af.(map[string]any)
+		if detail == nil {
+			detail = map[string]any{}
+		}
+		detail["throttle_cleared"] = true
+		af = detail
+	}
+	if b == nil && af == nil {
+		// Nothing changed, and Updated would have written nothing either.
+		return
+	}
+	_ = s.auth.Auditor().Record(r.Context(), Identity(r.Context()), "host.update", "host", id, b, af)
+}
+
+// handleClearHostThrottle lifts a host's throttle by hand.
+//
+// It is for a host whose cause is known and fixed: the runaway job was
+// cancelled, the daemon was restarted. Nothing pins the throttle the other
+// way, so a host still under pressure is stepped back up by its next
+// heartbeat, and the audit row says who lifted it early. A host on no rung is
+// answered as it is, and nothing is written about it -- exactly as an
+// uncordon of an uncordoned host is.
+func (s *Server) handleClearHostThrottle(w http.ResponseWriter, r *http.Request) {
+	id := chiURLParam(r, "id")
+	h, err := s.ctrl.Store().GetHost(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, "reading the host", err)
+		return
+	}
+	if was := h.Throttle; was.Active() {
+		effective := h.EffectiveCapacity()
+		h, err = s.ctrl.ClearHostThrottle(r.Context(), id)
+		if err != nil {
+			s.fail(w, r, "lifting the host's throttle", err)
+			return
+		}
+		s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "host.throttle_clear", "host", id, map[string]any{
+			"name": h.Name, "level": was.Level, "reason": was.Reason, "since": was.Since,
+			"effective_capacity": effective, "capacity": h.Capacity,
+		})
+	}
 	writeJSON(w, http.StatusOK, s.ctrl.HostView(h))
 }
 

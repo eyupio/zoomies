@@ -119,7 +119,7 @@ these colours for anything else, because operators learn them.
 | --- | --- | --- | --- |
 | idle / healthy / success | `--z-idle` | `#0F7A3D` | `#5FD68C` |
 | **busy / running** | `--z-busy` | `#00757F` | `#3BD6E8` |
-| provisioning / registering / pending | `--z-pending` | `#9A6100` | `#F2B246` |
+| provisioning / registering / pending / throttled | `--z-pending` | `#9A6100` | `#F2B246` |
 | draining / cordoned / paused | `--z-draining` | `#4D3F5C` | `#D0BEE0` |
 | failed / error / destructive | `--z-danger` | `#BD2018` | `#FF8D84` |
 | removed / neutral | `--z-neutral` | `#686D76` | `#7F858E` |
@@ -153,7 +153,11 @@ own `-subtle` ground, which is what a badge is.
 Each has a `-subtle` companion for badge and chart-fill backgrounds, and
 `--z-danger` has a `-contrast` for text on a destructive fill. Every status is
 **also** carried by a shape: a filled dot for busy, a hollow dot for idle, a
-dashed ring for provisioning, a slash for draining, a triangle for failed.
+dashed ring for provisioning and for a throttled host, a slash for draining, a
+triangle for failed. A throttled host is pending rather than draining on
+purpose: the fleet stepped it down and the fleet will step it back up, so it is
+a state that resolves itself, like provisioning, and not one an operator asked
+for, like a cordon.
 Colour alone never encodes state -- that is both an accessibility requirement
 and a practical one for an operator glancing at a sparkline from across the
 room.

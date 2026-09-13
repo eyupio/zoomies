@@ -168,8 +168,10 @@
         <legend>Held back for the machine</legend>
         <p class="note">
           What the scheduler leaves alone: the room this host needs to be a working machine rather
-          than a pool of capacity. Memory and disk have floors of 512 MB and 2 GB even when these
-          are zero.
+          than a pool of capacity. Each has a floor that applies even when these are zero: half a
+          core or 5% of the machine's CPUs, whichever is larger, 512 MB of memory and 2 GB of disk.
+          A CPU reserve set here is whole cores, and the larger of it and the floor is what is kept
+          back.
         </p>
         {#if knownCpus > 0}
           <Field label="CPUs" error={cpuReserveError} hint="Of {knownCpus} on this host.">

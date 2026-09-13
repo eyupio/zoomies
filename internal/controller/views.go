@@ -45,24 +45,42 @@ type BackendInfoView struct {
 
 // HostView is one agent host and the room it has left.
 type HostView struct {
-	Usage           *store.HostUsage  `json:"usage,omitempty"`
-	UsageFresh      bool              `json:"usage_fresh"`
-	AdmissionReason string            `json:"admission_reason,omitempty"`
-	Connection      string            `json:"connection"`
-	ID              string            `json:"id"`
-	Name            string            `json:"name"`
-	Address         string            `json:"address,omitempty"`
-	Embedded        bool              `json:"embedded"`
-	Capacity        int               `json:"capacity"`
-	ActiveRunners   int               `json:"active_runners"`
-	Free            int               `json:"free"`
-	Backends        []string          `json:"backends"`
-	BackendInfo     []BackendInfoView `json:"backend_info"`
-	Labels          map[string]string `json:"labels"`
-	OS              string            `json:"os,omitempty"`
-	Distro          string            `json:"distro,omitempty"`
-	OSVersion       string            `json:"os_version,omitempty"`
-	Arch            string            `json:"arch,omitempty"`
+	Usage           *store.HostUsage `json:"usage,omitempty"`
+	UsageFresh      bool             `json:"usage_fresh"`
+	AdmissionReason string           `json:"admission_reason,omitempty"`
+	// Throttle is the rung the controller has stepped this host down to after
+	// sustained pressure, absent when it is on none, and ThrottleReason is the
+	// same thing as the sentence the host card shows: what it took, why, what
+	// it is doing to the jobs already running, and how it ends. Both are the
+	// controller's alone; a heartbeat carries the measurements and never the
+	// decision.
+	Throttle       *store.HostThrottle `json:"throttle,omitempty"`
+	ThrottleReason string              `json:"throttle_reason"`
+	// EffectiveCapacity is the slots the host takes right now: Capacity
+	// stepped down by the throttle, and Capacity itself when there is none.
+	// Free is measured against it, so a throttled host's card does not
+	// promise slots the next pass will refuse.
+	EffectiveCapacity int `json:"effective_capacity"`
+	// UnlimitedRunners is how many of the live runners here were created
+	// with no CPU quota -- a pool with none and defaults off, a process pool,
+	// a daemon that cannot apply one, or a row from before allocations were
+	// recorded. They are the runners a CPU hold can mean something about.
+	UnlimitedRunners int               `json:"unlimited_runners,omitempty"`
+	Connection       string            `json:"connection"`
+	ID               string            `json:"id"`
+	Name             string            `json:"name"`
+	Address          string            `json:"address,omitempty"`
+	Embedded         bool              `json:"embedded"`
+	Capacity         int               `json:"capacity"`
+	ActiveRunners    int               `json:"active_runners"`
+	Free             int               `json:"free"`
+	Backends         []string          `json:"backends"`
+	BackendInfo      []BackendInfoView `json:"backend_info"`
+	Labels           map[string]string `json:"labels"`
+	OS               string            `json:"os,omitempty"`
+	Distro           string            `json:"distro,omitempty"`
+	OSVersion        string            `json:"os_version,omitempty"`
+	Arch             string            `json:"arch,omitempty"`
 	// CPUs and MemoryMB are how much machine this host is, as its agent
 	// reported it: the daemon's view of the machine where that is larger than
 	// the agent's own share, because a container runner runs beside the agent
@@ -90,8 +108,10 @@ type HostView struct {
 	// AllocatableCPUs, AllocatableMemoryMB and AllocatableDiskMB are the
 	// machine less its reserve: what the scheduler may actually place onto,
 	// which is the figure a "how full is this host" question is asked against.
-	// The floors under the reserve -- 512 MB of memory and 2 GB of disk -- are
-	// applied here too, so what is shown is what is used.
+	// The floors under the reserve -- half a core or 5% of the CPUs, 512 MB
+	// of memory and 2 GB of disk -- are applied here too, so what is shown is
+	// what is used. The CPU floor is what keeps the daemon, the agent and the
+	// kernel a core the runners' quotas can never take.
 	AllocatableCPUs     float64 `json:"allocatable_cpus,omitempty"`
 	AllocatableMemoryMB int64   `json:"allocatable_memory_mb,omitempty"`
 	AllocatableDiskMB   int64   `json:"allocatable_disk_mb,omitempty"`
@@ -164,6 +184,9 @@ func (c *Controller) HostView(h *store.Host) HostView {
 		Capacity:           h.Capacity,
 		ActiveRunners:      h.ActiveRunners,
 		Free:               h.Free(),
+		EffectiveCapacity:  h.EffectiveCapacity(),
+		UnlimitedRunners:   h.UnlimitedRunners,
+		ThrottleReason:     scheduler.ThrottleReason(h),
 		Backends:           emptySlice(h.Backends),
 		Labels:             emptyMap(h.Labels),
 		OS:                 h.OS,
@@ -197,6 +220,10 @@ func (c *Controller) HostView(h *store.Host) HostView {
 	if !h.Usage.SampledAt.IsZero() {
 		usage := h.Usage
 		out.Usage = &usage
+	}
+	if h.Throttle.Active() {
+		throttle := h.Throttle
+		out.Throttle = &throttle
 	}
 	alloc := h.Allocatable()
 	out.AllocatableCPUs = alloc.CPUs
@@ -398,7 +425,16 @@ type RunnerView struct {
 	JobsHandled    int               `json:"jobs_handled"`
 	CPUPercent     float64           `json:"cpu_percent,omitempty"`
 	MemoryBytes    int64             `json:"memory_bytes,omitempty"`
-	CreatedAt      time.Time         `json:"created_at"`
+	// AllocatedCPUs and AllocatedMemoryMB are the limits this runner's
+	// workload was created with, and AllocationSource says whether they are
+	// the pool's own ("pool") or one slot's share of the host it landed on
+	// ("host"). Absent on a runner created with no limit at all. They are on
+	// the view so that an OOM kill on a defaulted limit points an operator at
+	// the host's capacity rather than at a pool field nobody set.
+	AllocatedCPUs     float64   `json:"allocated_cpus,omitempty"`
+	AllocatedMemoryMB int64     `json:"allocated_memory_mb,omitempty"`
+	AllocationSource  string    `json:"allocation_source,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
 	// ContainerStartedAt and RegisteredAt are the two halves of coming up, and
 	// they are on the view because the gap between them is the whole diagnosis
 	// of a runner stuck in `registering`: a container that never started is a
@@ -489,6 +525,9 @@ func (v *RunnerRenderer) View(r *store.Runner) RunnerView {
 		JobsHandled:           r.JobsHandled,
 		CPUPercent:            r.CPUPercent,
 		MemoryBytes:           r.MemoryBytes,
+		AllocatedCPUs:         r.AllocatedCPUs,
+		AllocatedMemoryMB:     r.AllocatedMemoryMB,
+		AllocationSource:      r.AllocationSource,
 		CreatedAt:             r.CreatedAt,
 		CreateTaskIssuedAt:    r.CreateTaskIssuedAt,
 		HostRemovedAt:         r.HostRemovedAt,

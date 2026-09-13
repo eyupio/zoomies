@@ -29,6 +29,7 @@ import type { LucideIcon } from '@lucide/svelte';
 import type {
   APIToken,
   Host,
+  HostThrottle,
   JobEventKind,
   JobState,
   JoinToken,
@@ -357,7 +358,30 @@ export function jobEventStatus(
 
 /* -- hosts ---------------------------------------------------------------- */
 
-export function hostStatus(host: Pick<Host, 'healthy' | 'cordoned'>): StatusMeta {
+/**
+ * The top rung of the throttle ladder, mirroring store.MaxThrottleLevel. Each
+ * rung takes a quarter of the host's slots; a fourth would take it to nothing,
+ * which is a cordon, and a cordon is the operator's to apply.
+ */
+export const MAX_THROTTLE_LEVEL = 3;
+
+/** Whether the controller has a host on any rung at all. */
+export function throttled(throttle: HostThrottle | undefined | null): boolean {
+  return (throttle?.level ?? 0) > 0;
+}
+
+/**
+ * What a throttled host's runners with a CPU limit are running at, as a
+ * percentage of their allocation. Mirrors store.HostThrottle.CPUFactor: a
+ * quarter off per rung, floored at half, because the top rung takes slots
+ * only -- a job at a quarter of its CPU is a job that never finishes.
+ */
+export function throttleCpuPercent(throttle: HostThrottle | undefined | null): number {
+  const level = Math.min(Math.max(throttle?.level ?? 0, 0), MAX_THROTTLE_LEVEL);
+  return Math.max(50, 100 - 25 * level);
+}
+
+export function hostStatus(host: Pick<Host, 'healthy' | 'cordoned' | 'throttle'>): StatusMeta {
   if (host.healthy === false) {
     return meta(
       'unreachable',
@@ -376,6 +400,20 @@ export function hostStatus(host: Pick<Host, 'healthy' | 'cordoned'>): StatusMeta
       'slash',
       CircleSlash,
       'Existing runners keep going; no new ones are placed here.',
+    );
+  }
+  if (throttled(host.throttle)) {
+    // Its own shape: a throttle is neither a cordon (the fleet did it, and
+    // will undo it) nor unreachable (the agent is talking; that is how the
+    // fleet knows). The step is in the hint because the badge is the one
+    // place on the card an operator hovers to ask "how bad".
+    return meta(
+      'throttled',
+      'Throttled',
+      'pending',
+      'dashed',
+      CircleDashed,
+      `Throttled, step ${host.throttle?.level} of ${MAX_THROTTLE_LEVEL}: the fleet is taking fewer new runners here after sustained pressure. It lifts one step after five minutes of calm.`,
     );
   }
   return meta('healthy', 'Healthy', 'idle', 'hollow', Circle);

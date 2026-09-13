@@ -183,6 +183,7 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionHostsRead)).Get("/{id}", s.handleGetHost)
 			r.With(s.require(auth.ActionHostsWrite)).Patch("/{id}", s.handleUpdateHost)
 			r.With(s.require(auth.ActionHostsCordon)).Post("/{id}/cordon", s.handleCordonHost)
+			r.With(s.require(auth.ActionHostsWrite)).Post("/{id}/throttle/clear", s.handleClearHostThrottle)
 			r.With(s.require(auth.ActionHostsDelete)).Delete("/{id}", s.handleDeleteHost)
 		})
 		r.Route("/join-tokens", func(r chi.Router) {

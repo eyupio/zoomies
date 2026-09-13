@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -201,6 +202,10 @@ type DockerBackend struct {
 
 var _ Backend = (*DockerBackend)(nil)
 
+// A throttle reaches a running job through the update endpoint, and Podman
+// inherits the implementation by embedding.
+var _ ResourceUpdater = (*DockerBackend)(nil)
+
 // NewDocker builds a Docker backend. It does not contact the daemon: a host
 // where Docker is not running must still be able to start an agent and report
 // the backend as unavailable, which is what Probe is for.
@@ -360,6 +365,7 @@ func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreate
 	if o.WorkDirOwned && o.WorkDirMount != "" {
 		labels[LabelWorkDir] = o.WorkDirMount
 	}
+	stampResourceLabels(labels, spec)
 
 	cfg := ContainerCreateRequest{
 		Image: spec.Image,
@@ -398,7 +404,7 @@ func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreate
 
 	hc := cfg.HostConfig
 	if spec.Resources.CPUs > 0 {
-		hc.NanoCPUs = int64(spec.Resources.CPUs * 1e9)
+		hc.NanoCPUs = nanoCPUs(spec.Resources.CPUs)
 	}
 	if spec.Resources.MemoryMB > 0 {
 		hc.Memory = spec.Resources.MemoryMB * 1024 * 1024
@@ -487,6 +493,7 @@ func buildDinDConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRe
 	labels[LabelRole] = roleDinD
 	labels[LabelDinDFor] = spec.Name
 	labels[LabelName] = dindName(spec.Name)
+	stampResourceLabels(labels, spec)
 
 	cfg := ContainerCreateRequest{
 		Image:    o.DinDImage,
@@ -512,7 +519,7 @@ func buildDinDConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRe
 	// unless they bind the sidecar too.
 	hc := cfg.HostConfig
 	if spec.Resources.CPUs > 0 {
-		hc.NanoCPUs = int64(spec.Resources.CPUs * 1e9)
+		hc.NanoCPUs = nanoCPUs(spec.Resources.CPUs)
 	}
 	if spec.Resources.MemoryMB > 0 {
 		hc.Memory = spec.Resources.MemoryMB * 1024 * 1024
@@ -530,6 +537,129 @@ func buildDinDConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRe
 		}
 	}
 	return cfg
+}
+
+// stampResourceLabels records the limits a container is created with, and
+// where they came from, on the container itself. The runner and its sidecar
+// both carry them: a throttle scales each container's quota from its own
+// label, and an agent that adopted the pair after a restart has no other
+// record of what either was given.
+//
+// A missing label reads back as zero, so only a limit that was set is
+// written, and the source only when there is a limit for it to describe. A
+// spec from a controller that predates the source says nothing about it, and
+// a limit it did set can only have been the pool's own.
+func stampResourceLabels(labels map[string]string, spec Spec) {
+	res := spec.Resources
+	if res.CPUs > 0 {
+		labels[LabelCPUs] = strconv.FormatFloat(res.CPUs, 'f', -1, 64)
+	}
+	if res.MemoryMB > 0 {
+		labels[LabelMemoryMB] = strconv.FormatInt(res.MemoryMB, 10)
+	}
+	if res.CPUs > 0 || res.MemoryMB > 0 {
+		source := spec.ResourcesSource
+		if source == "" {
+			source = store.AllocationFromPool
+		}
+		labels[LabelLimitsFrom] = source
+	}
+}
+
+// resourcesFromLabels reads back what stampResourceLabels wrote. A label that
+// is missing or unreadable is zero rather than an error: it is a container
+// from an older release, or one somebody edited, and either way the worst
+// outcome is a runner the throttle leaves alone.
+func resourcesFromLabels(labels map[string]string) store.Resources {
+	var res store.Resources
+	if v, err := strconv.ParseFloat(labels[LabelCPUs], 64); err == nil && v > 0 && !math.IsInf(v, 0) {
+		res.CPUs = v
+	}
+	if v, err := strconv.ParseInt(labels[LabelMemoryMB], 10, 64); err == nil && v > 0 {
+		res.MemoryMB = v
+	}
+	return res
+}
+
+// nanoCPUs is the daemon's unit for a CPU quota. Rounded rather than
+// truncated so that the quota a throttle computes for a live container and
+// the one its create wrote compare equal when they mean the same share; a
+// float that lands a nanosecond short would otherwise be an update per beat.
+func nanoCPUs(cpus float64) int64 { return int64(math.Round(cpus * 1e9)) }
+
+// UpdateResources moves a running runner's CPU quota, and its docker-in-docker
+// sidecar's, to res.CPUs. It is how a throttle reaches a job that is already
+// running, and it is idempotent: a container whose quota already matches is
+// not asked to change, so the agent can send the same figure on every beat
+// without a durable record of what it last sent.
+//
+// Only the CPU quota moves. A memory limit lowered under a live process is
+// refused by the daemon or kills the process, and neither is a throttle; the
+// smaller effective capacity is how memory pressure reaches new work. A
+// quota of zero asks for nothing, because the update endpoint reads zero as
+// "leave it alone", not as "remove the limit".
+func (b *DockerBackend) UpdateResources(ctx context.Context, h Handle, res store.Resources) error {
+	if res.CPUs <= 0 {
+		return nil
+	}
+	insp, err := b.api.ContainerInspect(ctx, string(h))
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return err
+		}
+		return fmt.Errorf("backend: inspecting container %s before changing its CPU quota: %w", shortID(string(h)), err)
+	}
+	want := nanoCPUs(res.CPUs)
+	if err := b.updateCPUQuota(ctx, string(h), insp.HostConfig, want); err != nil {
+		return err
+	}
+
+	// The sidecar does the build's work under docker_mode dind, so a throttle
+	// that left it alone would slow the runner process and nothing else. It
+	// is found by the name label the runner carries, which is what its own
+	// dind-for label was written from.
+	var name string
+	if insp.Config != nil {
+		name = insp.Config.Labels[LabelName]
+	}
+	if name == "" {
+		return nil
+	}
+	sidecars, err := b.api.ContainerList(ctx, map[string][]string{
+		"label": {LabelManaged + "=true", LabelDinDFor + "=" + name},
+	})
+	if err != nil {
+		return fmt.Errorf("backend: listing the docker-in-docker sidecar of %s: %w", name, err)
+	}
+	for _, s := range sidecars {
+		sinsp, err := b.api.ContainerInspect(ctx, s.ID)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				// Gone between the listing and the look: nothing to throttle.
+				continue
+			}
+			return fmt.Errorf("backend: inspecting the docker-in-docker sidecar of %s: %w", name, err)
+		}
+		if err := b.updateCPUQuota(ctx, s.ID, sinsp.HostConfig, want); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// updateCPUQuota sends the quota only when the container's differs.
+func (b *DockerBackend) updateCPUQuota(ctx context.Context, id string, hc *HostConfig, want int64) error {
+	if hc != nil && hc.NanoCPUs == want {
+		return nil
+	}
+	if err := b.api.ContainerUpdate(ctx, id, UpdateConfig{NanoCPUs: want}); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return err
+		}
+		return fmt.Errorf("backend: changing the CPU quota of container %s: %w", shortID(id), err)
+	}
+	b.log.Debug("changed a container's CPU quota", "container", shortID(id), "cpus", float64(want)/1e9)
+	return nil
 }
 
 // Create materialises one runner. It replaces any container of the same name,
@@ -869,10 +999,23 @@ func statusFromInspect(h Handle, insp *ContainerInspect) Status {
 			st.Phase = PhaseFailed
 		}
 		if s.OOMKilled {
-			st.Message = "container was killed for exceeding its memory limit; raise the pool's memory_mb"
+			st.Message = oomMessage(insp)
 		}
 	}
 	return st
+}
+
+// oomMessage tells the operator what to change after an out-of-memory kill,
+// which depends on where the limit came from. Telling someone to raise a pool
+// field nobody set sends them to the wrong page: a limit that was the host's
+// default share moves with the host's capacity, or with a limit of the pool's
+// own.
+func oomMessage(insp *ContainerInspect) string {
+	if insp.Config != nil && insp.Config.Labels[LabelLimitsFrom] == store.AllocationFromHost {
+		return "container was killed for exceeding its memory limit, which was the host's default share of its memory; " +
+			"set memory_mb on the pool to give its runners a limit of their own, or lower the host's capacity so each runner's share is larger"
+	}
+	return "container was killed for exceeding its memory limit; raise the pool's memory_mb"
 }
 
 // Stats samples one container. A daemon that cannot answer yields a zero sample
@@ -1083,12 +1226,13 @@ func (b *DockerBackend) List(ctx context.Context) ([]Workload, error) {
 // workloadFrom renders one container summary as a Workload.
 func (b *DockerBackend) workloadFrom(ctx context.Context, s ContainerSummary, sidecar bool) Workload {
 	w := Workload{
-		Handle:   Handle(s.ID),
-		Name:     s.Labels[LabelName],
-		RunnerID: s.Labels[LabelRunnerID],
-		PoolID:   s.Labels[LabelPoolID],
-		Sidecar:  sidecar,
-		Status:   Status{Handle: Handle(s.ID), Phase: phaseFromState(s.State)},
+		Handle:    Handle(s.ID),
+		Name:      s.Labels[LabelName],
+		RunnerID:  s.Labels[LabelRunnerID],
+		PoolID:    s.Labels[LabelPoolID],
+		Sidecar:   sidecar,
+		Status:    Status{Handle: Handle(s.ID), Phase: phaseFromState(s.State)},
+		Resources: resourcesFromLabels(s.Labels),
 	}
 	if w.Name == "" && len(s.Names) > 0 {
 		w.Name = strings.TrimPrefix(s.Names[0], "/")

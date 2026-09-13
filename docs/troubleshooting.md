@@ -175,6 +175,31 @@ allow placement to recover. A manual cordon remains in place. The full
 [pressure rules](hosts-and-pools.md#current-usage-and-automatic-holds) explain
 sample freshness and the fallback when usage cannot be measured.
 
+A host card that says **Throttled** is a different thing from a hold, and
+waiting is only half the answer. A hold is one bad sample and releases on the
+next good one; a throttle means the host has been overwhelmed for long enough
+that the controller has stepped it down a rung — to three quarters, half or a
+quarter of its slots — and lowered the CPU quota of every runner on it that has
+one, never below half. The card's sentence, and `zoomies hosts list`, say which
+measurement did it: CPU pinned at 95% with a runner no limit binds, a load
+average past twice the host's CPUs, or memory at the reserve. Running jobs
+continue, slower; nothing is failed. It lifts itself one rung after five
+minutes of calm, and a host that keeps climbing back up has too many slots
+for its machine or pools whose limits let a job take more than a slot's worth
+of it — `host.overprovisioned` says which, and the fix is the host's capacity
+or the pool's `cpus` and `memory_mb`, not the throttle. Once the cause is
+fixed, **Lift the throttle** on the card, or
+`POST /api/v1/hosts/{id}/throttle/clear`, gives the slots back without waiting
+out the recovery; a clear that was premature is put back on the first rung by
+the next heartbeat. A `PATCH` that changes the capacity or a reserve clears it
+too. If the jobs on a throttled host are not slowing down, check the agent's
+log: `throttling N runners to P% of their CPU allocation` is the quota being
+lowered, `no runner here has a CPU limit to reduce` means the pool set no
+limits and defaults are off or unsupported on that host, and `could not change
+a runner's CPU quota` is the daemon refusing the update, retried on the next
+heartbeat. The [ladder](hosts-and-pools.md#current-usage-and-automatic-holds)
+has the thresholds and what ends a throttle.
+
 If Docker is timing out while the agent still heartbeats, the heartbeat only
 proves the agent can reach the controller. Widespread health-check exec and
 container-operation timeouts warrant checking Docker, containerd and host

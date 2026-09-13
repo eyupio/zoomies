@@ -177,6 +177,13 @@ func (c *Controller) apply(ctx context.Context, snap scheduler.Snapshot, plan sc
 	for _, p := range snap.Pools {
 		pools[p.ID] = p
 	}
+	// The host a create lands on decides what the runner is given: its
+	// default limits are one slot's share of that machine, and the snapshot
+	// is the one view of the host the decision was made against.
+	hosts := make(map[string]*store.Host, len(snap.Hosts))
+	for _, h := range snap.Hosts {
+		hosts[h.ID] = h
+	}
 
 	for _, pp := range plan.Pools {
 		pool := pools[pp.PoolID]
@@ -190,7 +197,7 @@ func (c *Controller) apply(ctx context.Context, snap scheduler.Snapshot, plan sc
 			}
 			switch a.Kind {
 			case scheduler.ActionCreate:
-				if err := c.createRunner(ctx, pool, a); err != nil {
+				if err := c.createRunner(ctx, pool, hosts[a.HostID], a); err != nil {
 					c.log.Error("could not create a runner",
 						"pool", pool.Name, "host", a.HostID, "reason", a.Reason, "error", err)
 					continue
@@ -269,24 +276,37 @@ func (c *Controller) recordScaling(ctx context.Context, pp scheduler.PoolPlan, c
 // failed with GitHub's own error as its message, which is what the operator
 // sees on the Runners page -- the alternative, deleting the row, leaves a pool
 // that silently sits one runner short with nothing to explain it.
-func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, a scheduler.Action) error {
+//
+// host is the machine the action chose, from the snapshot the plan was made
+// against, and it may be nil for a host that vanished between snapshot and
+// apply: the runner is then created with the pool's own limits and nothing
+// else, exactly as every runner was before defaults existed. The limits are
+// decided here and written on the row before the create task carries them,
+// so the Runners page can say what a runner was given and where the figure
+// came from -- an OOM kill on a defaulted limit points at the host's capacity,
+// not at a pool field nobody set.
+func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, host *store.Host, a scheduler.Action) error {
 	inst, err := c.st.GetInstallation(ctx, pool.InstallationID)
 	if err != nil {
 		return fmt.Errorf("pool %s points at installation %s, which is not there; edit the pool to choose an installation: %w",
 			pool.Name, pool.InstallationID, err)
 	}
 
+	resources, source := scheduler.Allocation(pool, host, c.cfg().Scheduler.DefaultRunnerLimits)
 	name := github.RunnerName(pool)
 	r := &store.Runner{
-		PoolID:        pool.ID,
-		HostID:        a.HostID,
-		Name:          name,
-		State:         store.RunnerProvisioning,
-		Ephemeral:     pool.Ephemeral,
-		Labels:        pool.Labels,
-		Image:         c.RunnerImage(pool),
-		RunnerVersion: c.runnerVersion(pool),
-		Message:       a.Reason,
+		PoolID:            pool.ID,
+		HostID:            a.HostID,
+		Name:              name,
+		State:             store.RunnerProvisioning,
+		Ephemeral:         pool.Ephemeral,
+		Labels:            pool.Labels,
+		Image:             c.RunnerImage(pool),
+		RunnerVersion:     c.runnerVersion(pool),
+		Message:           a.Reason,
+		AllocatedCPUs:     resources.CPUs,
+		AllocatedMemoryMB: resources.MemoryMB,
+		AllocationSource:  source,
 	}
 	if err := c.st.CreateRunner(ctx, r); err != nil {
 		return fmt.Errorf("creating the runner row for %s: %w", name, err)
@@ -329,8 +349,12 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, a sched
 		Credentials: creds,
 		Env:         pool.Env,
 		Ephemeral:   pool.Ephemeral,
-		Resources:   pool.Resources,
-		Cache:       pool.Cache,
+		// What the row records, not the pool's field: a pool that sets no
+		// limit gets one slot's share of the host, and the agent applies
+		// whatever this says without knowing the difference.
+		Resources:       resources,
+		ResourcesSource: source,
+		Cache:           pool.Cache,
 		// An organisation installation's target is the organisation, which is
 		// no repository at all; a pool under one names its cache's repository
 		// itself, and that is the identity the runner should carry.

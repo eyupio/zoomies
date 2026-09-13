@@ -256,8 +256,14 @@ func (c *Controller) seedHosts(ctx context.Context, now time.Time) ([]*store.Hos
 			Capacity: s.capacity,
 			Backends: store.StringSlice{"docker"},
 			BackendInfo: store.HostBackends{
+				// A daemon that can apply every limit, which is what a rootless
+				// daemon on a delegated cgroup v2 slice reports: the demo fleet
+				// exists to look like a fleet with nothing wrong, and a probe
+				// that said nothing would raise host.limits_unverified on every
+				// host in it.
 				{Kind: store.BackendDocker, Available: true, Version: "27.1.1",
-					Rootless: true, Endpoint: "unix:///run/user/1000/docker.sock", SupportsDinD: true},
+					Rootless: true, Endpoint: "unix:///run/user/1000/docker.sock", SupportsDinD: true,
+					Limits: store.LimitSupport{Known: true, CPU: true, Memory: true, Pids: true}},
 				// The real probe's sentence, commands and all: the demo fleet is
 				// what the UI is looked at with, so it has to show what an
 				// operator actually gets when a backend is missing.
@@ -396,6 +402,17 @@ func (c *Controller) beatDemoHosts(ctx context.Context) {
 			continue
 		}
 		h.LastHeartbeat = now
+		// A fixture host with a measurement keeps it fresh, for the same
+		// reason the heartbeat is kept fresh: the diagnostics fixture's
+		// throttled host is throttled for a load average, and a sample that
+		// aged past HostUsageMaxAge would read on its card as a throttle
+		// nobody can see the reason for.
+		if !h.Usage.SampledAt.IsZero() {
+			h.Usage.SampledAt = now
+			if err := c.st.SetHostUsage(ctx, h.ID, h.Usage); err != nil {
+				c.log.Warn("demo heartbeat could not freshen a host's usage", "host", h.ID, "error", err)
+			}
+		}
 		c.PublishHost(h)
 	}
 }

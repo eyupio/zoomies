@@ -137,6 +137,14 @@ test('the Hosts page leads here', async ({ page }) => {
   await expect(pageHeading(page, 'Add a host')).toBeVisible();
 });
 
+/**
+ * A host that reports no memory left is held and, since the same measurement
+ * is what overwhelms it, throttled on the same heartbeat. The card shows the
+ * throttle's sentence rather than the hold's, because it says everything the
+ * hold's does and what happens next. The memory figure recovers on the next
+ * beat; the throttle stays a rung until the host has been calm for five
+ * minutes, which is the fleet's promise rather than this test's.
+ */
 test('host usage distinguishes a connected agent from held new starts and recovers', async ({
   page,
 }, testInfo) => {
@@ -176,15 +184,100 @@ test('host usage distinguishes a connected agent from held new starts and recove
     await expect(card).toContainText('Agent connected');
     await expect(card).toContainText('CPU usage 20%');
     await expect(card).toContainText('0 B memory available');
-    await expect(card).toContainText('new starts held');
-    await expect(card).toContainText('Running jobs continue');
+    // Two slots stepped to one: the controller's sentence names the rung,
+    // the measurement and what the running work is doing.
+    await expect(card).toContainText(
+      "throttled to 1 of 2 slots (step 1 of 3) after sustained pressure: available memory is at or below the host's reserve",
+    );
+    await expect(card).toContainText('running jobs continue');
+    await expect(card).toContainText(/0 of 1 slots in use\s*· throttled from 2/);
     await testInfo.attach('host-pressure-hold', {
       body: await card.screenshot(),
       contentType: 'image/png',
     });
     await heartbeat(8192);
-    await expect(card).not.toContainText('new starts held');
     await expect(card).toContainText('8.0 GB memory available');
+    // Still on its rung: calm has to last before a step is given back.
+    await expect(card).toContainText('throttled from 2');
+  } finally {
+    if (hostId) await page.request.delete(`/api/v1/hosts/${hostId}?force=true`);
+  }
+});
+
+/**
+ * A throttle is the fleet's answer to a host that has stopped keeping up, and
+ * the card has to carry all of it: that it happened, how far, why, what it
+ * costs the running jobs, and how it ends -- plus the one thing an operator
+ * can do about it early, once the cause is known and gone.
+ */
+test('a host under sustained pressure is throttled, says why, and an operator can lift it', async ({
+  page,
+}, testInfo) => {
+  await goto(page, '/hosts/new', 'Add a host');
+  await page.getByRole('button', { name: 'Get the command' }).click();
+  const token = await joinToken(page);
+  const name = `throttle-host-${Date.now()}`;
+  let hostId = '';
+  try {
+    const join = await page.request.post('/api/v1/agent/join', {
+      data: {
+        protocol_version: 1,
+        join_token: token,
+        name,
+        capacity: 4,
+        os: 'linux',
+        arch: 'amd64',
+        cpus: 8,
+        memory_mb: 16384,
+        version: 'dev',
+        backends: [{ kind: 'docker', available: true }],
+      },
+    });
+    expect(join.ok()).toBeTruthy();
+    const credentials = (await join.json()) as { host_id: string; agent_token: string };
+    hostId = credentials.host_id;
+    // A load average of twenty on eight CPUs is a runnable queue the machine
+    // is not draining, and it steps the throttle up on the first beat: memory
+    // is left healthy so the sentence names the load and nothing else.
+    const beat = await page.request.post('/api/v1/agent/heartbeat', {
+      headers: { Authorization: `Bearer ${credentials.agent_token}` },
+      data: {
+        protocol_version: 1,
+        usage: { cpu_percent: 60, memory_available_mb: 8192, load_average_1m: 20 },
+      },
+    });
+    expect(beat.ok()).toBeTruthy();
+
+    await goto(page, '/hosts', 'Hosts');
+    const card = page.getByRole('article', { name, exact: true });
+    // The badge carries the step in its title, so hovering answers "how bad".
+    await expect(card.getByTitle(/^Throttled, step 1 of 3/)).toContainText('Throttled');
+    await expect(card).toContainText(
+      "throttled to 3 of 4 slots (step 1 of 3) after sustained pressure: the 1-minute load average is 20.0, at least twice the host's 8 CPUs",
+    );
+    await expect(card).toContainText('the throttle lifts one step after 5m of calm');
+    await expect(card).toContainText(/0 of 3 slots in use\s*· throttled from 4/);
+    await expect(card).toContainText('load 20');
+    await testInfo.attach('host-throttled', {
+      body: await card.screenshot(),
+      contentType: 'image/png',
+    });
+
+    // Lifting it is a menu action, and the card follows without a reload.
+    await plantMarker(page);
+    await card.getByRole('button', { name: /Actions for/ }).click();
+    await page.getByRole('menuitem', { name: 'Lift the throttle' }).click();
+    await expect(card).toContainText(/0 of 4 slots in use/);
+    await expect(card).not.toContainText('throttled from');
+    await expect(card.getByTitle(/^Throttled, step/)).toHaveCount(0);
+    await expect(page.getByText(`Throttle lifted on ${name}`)).toBeVisible();
+    await expectNoReload(page);
+
+    // And the controller agrees: the row is clear, not just the card.
+    const read = await page.request.get(`/api/v1/hosts/${hostId}`);
+    const host = (await read.json()) as { throttle?: unknown; effective_capacity: number };
+    expect(host.throttle).toBeUndefined();
+    expect(host.effective_capacity).toBe(4);
   } finally {
     if (hostId) await page.request.delete(`/api/v1/hosts/${hostId}?force=true`);
   }

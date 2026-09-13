@@ -45,6 +45,16 @@ type fakeBackend struct {
 	// so a test can prove a batch of prewarms all arrived rather than only the
 	// first.
 	prewarmed []string
+	// updates records every UpdateResources call, in order, and updateErr
+	// makes each one fail the way a daemon without the endpoint would.
+	updates   []resourceUpdate
+	updateErr error
+}
+
+// resourceUpdate is one UpdateResources call the fake backend received.
+type resourceUpdate struct {
+	handle backend.Handle
+	res    store.Resources
 }
 
 func newFakeBackend(kind store.BackendKind) *fakeBackend {
@@ -119,11 +129,12 @@ func (f *fakeBackend) Create(ctx context.Context, spec backend.Spec) (backend.Ha
 	f.inflight--
 	if err == nil {
 		f.workloads = append(f.workloads, backend.Workload{
-			Handle:   handle,
-			Name:     spec.Name,
-			RunnerID: spec.RunnerID,
-			PoolID:   spec.PoolID,
-			Status:   backend.Status{Handle: handle, Phase: backend.PhaseRunning},
+			Handle:    handle,
+			Name:      spec.Name,
+			RunnerID:  spec.RunnerID,
+			PoolID:    spec.PoolID,
+			Status:    backend.Status{Handle: handle, Phase: backend.PhaseRunning},
+			Resources: spec.Resources,
 		})
 	}
 	f.mu.Unlock()
@@ -182,6 +193,25 @@ func (f *fakeBackend) Remove(_ context.Context, h backend.Handle) error {
 	f.removed = append(f.removed, h)
 	f.workloads = slicesDelete(f.workloads, h)
 	return nil
+}
+
+// UpdateResources makes this backend a backend.ResourceUpdater, which is what
+// a throttle needs of one. It records the call and touches nothing.
+func (f *fakeBackend) UpdateResources(_ context.Context, h backend.Handle, res store.Resources) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.updateErr != nil {
+		return f.updateErr
+	}
+	f.updates = append(f.updates, resourceUpdate{handle: h, res: res})
+	return nil
+}
+
+// resourceUpdates returns every UpdateResources call so far.
+func (f *fakeBackend) resourceUpdates() []resourceUpdate {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]resourceUpdate(nil), f.updates...)
 }
 
 func (f *fakeBackend) List(context.Context) ([]backend.Workload, error) {
