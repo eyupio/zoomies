@@ -229,6 +229,36 @@ standard error for a bootstrap.
 | `provider.provisioning_paused` | info | The kill switch is on. Draining, deleting, recovery and ownership checks all continue; only creation is held. | Nothing, unless you did not mean it. |
 | `provider.contract_unsupported` | error | A provider declares a contract version this build does not speak. Machines it already owns stay visible, drainable and deletable — a version mismatch must never strand a running machine. | Upgrade whichever side is behind; the message names both numbers. |
 
+## A provider's preflight
+
+Raised by a provider's own check, which creates nothing. They appear on the
+provider's page, in the configuration wizard and in the problems drawer, in the
+same shape as every other finding — because a refused credential and a template
+that is not a template are *answers*, not failures.
+
+`provider.*` codes come from any provider; `proxmox.*` from the Proxmox one.
+
+| Code | Severity | What it means | What to do |
+| --- | --- | --- | --- |
+| `provider.preflight_failed` | error | The provider refused its connection check. | Read the message; it carries the provider's own words. |
+| `provider.zone_missing` | error | The provider has no zone (node, region) configured, so there is nowhere to put a machine. | Set one. |
+| `proxmox.unreachable` | error | The cluster could not be reached at all. | Check the endpoint, the port (8006), the network and the certificate. |
+| `proxmox.credentials_refused` | error | The API token was refused outright. | Check the token's user, realm, token id and secret. The form wants them exactly as Proxmox printed them: `user@realm!tokenid=secret`. |
+| `proxmox.privilege_missing` | error | The token is valid and not allowed to do something. The finding names the privilege **and** the path it is needed on. | Grant that privilege. [Proxmox VE](proxmox.md#the-api-token) lists every one and why it is needed. |
+| `proxmox.insecure_tls` | warning | Certificate verification is off, so the token crosses to whoever answered. | Paste the cluster's CA — `/etc/pve/pve-root-ca.pem` — into the provider's CA field instead. See [Security](security.md). |
+| `proxmox.version_unqualified` | warning | The cluster is older than the release this integration was qualified against. It is not refused, but nothing about it has been tested. | Upgrade, or proceed knowing it is unqualified. |
+| `proxmox.node_missing` | error | No node is configured, or the configured one is not in the cluster. | Choose one the credential can see; the wizard lists them. |
+| `proxmox.node_offline` | warning | The node is configured and not currently online. | Machines cannot be created there until it returns. |
+| `proxmox.storage_missing` | error | No storage is configured, or the configured one does not exist on that node. | Choose one the wizard lists. |
+| `proxmox.storage_no_images` | error | The storage exists and does not accept disk images, so a clone has nowhere to land. | Choose a storage whose content types include `images`. |
+| `proxmox.storage_inactive` | error | The storage exists and is not active. | Bring it up, or choose another. |
+| `proxmox.bridge_missing` | error | No network bridge is configured, or the configured one is not on that node. A machine with no network cannot reach this controller to enrol. | Choose a bridge that can reach the controller. |
+| `proxmox.template_missing` | error | No template VMID is configured, or nothing exists at it. | Prepare a template as the [runbook](proxmox.md#preparing-the-template) describes and give its VMID. |
+| `proxmox.template_not_a_template` | error | A VM exists at that VMID and is not a template. Cloning a running VM is not what this does. | Convert it to a template, or point at the right VMID. |
+| `proxmox.template_no_agent` | warning | The template does not have the QEMU guest agent enabled. Enrolment reaches the guest through it, so a machine made from this template will boot, cost money and never join. | Install `qemu-guest-agent` in the image and set `agent: enabled=1`. |
+| `proxmox.vmid_range` | error | No VMID range is configured, or its bounds are the wrong way round. The range is both a budget and a blast radius: a VM outside it is by construction not ours. | Give a block nothing else allocates from. |
+| `proxmox.vmid_range_reserved` | warning | Guests already exist inside the configured range. They are not touched, but the range is meant to be Zoomies' alone. | Move the range, or move those guests. |
+
 ## Keeping this list honest
 
 Every code above is checked against the source by a test
