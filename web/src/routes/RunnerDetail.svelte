@@ -301,6 +301,7 @@
           allocatedMemoryMb={runner.allocated_memory_mb}
           allocationSource={runner.allocation_source}
           hostThrottle={(fleet.host(runner.host_id) ?? runner.host)?.throttle}
+          backend={(runner.pool ?? fleet.pool(runner.pool_id))?.backend}
         />
       </Panel>
     </div>

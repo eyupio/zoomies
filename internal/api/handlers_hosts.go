@@ -156,12 +156,16 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 	// kept back -- so the rung it was on is lifted with it. Left standing, the
 	// new figures would only take effect once the old episode had spent five
 	// minutes calm, and the card would show a throttle nothing explains. A
-	// label change says nothing about the machine and lifts nothing. When the
+	// label change says nothing about the machine and lifts nothing, and
+	// neither does a request that repeats the figures the host already has:
+	// the edit dialog sends every field it shows, and only a figure that
+	// moved is an answer. When the
 	// lift itself fails the patch still stands, so the answer is the saved
 	// host and a log line, not a 500 that reads as "nothing was saved".
 	cleared := false
-	if h.Throttle.Active() && (req.Capacity != nil || req.ReserveCPUs != nil ||
-		req.ReserveMemoryMB != nil || req.ReserveDiskMB != nil) {
+	resized := before.Capacity != h.Capacity || before.ReserveCPUs != h.ReserveCPUs ||
+		before.ReserveMemoryMB != h.ReserveMemoryMB || before.ReserveDiskMB != h.ReserveDiskMB
+	if h.Throttle.Active() && resized {
 		if lifted, err := s.ctrl.ClearHostThrottle(r.Context(), id); err != nil {
 			s.logger(r).Warn("a host's capacity or reserve changed but its throttle could not be lifted; the next heartbeat decides it again",
 				"host", id, "error", err)

@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -85,16 +87,44 @@ func (t *HostThrottle) Scan(value any) error {
 	}
 }
 
-// SetHostThrottle records the controller's decision for one host.
+// ErrThrottleMoved is returned by SetHostThrottle when the host is no longer
+// on the rung the caller decided from: another decider -- the heartbeat, the
+// housekeeping pass, or an operator's clear -- wrote first.
+var ErrThrottleMoved = errors.New("the host's throttle was decided elsewhere first")
+
+// SetHostThrottle records the controller's decision for one host, provided
+// the host is still on the rung the decision was made from.
 //
 // Its own statement, like the reserve and the usage: the path a heartbeat's
 // facts take through UpdateHost and SetHostReported cannot reach this column,
 // and an operator's PATCH cannot either. The throttle is decided from what a
 // host measured, never written by what a host said.
-func (s *Store) SetHostThrottle(ctx context.Context, id string, throttle HostThrottle) error {
-	res, err := s.exec(ctx, `UPDATE hosts SET throttle=? WHERE id=?`, throttle, id)
+//
+// The write is conditional on fromLevel because two things decide a throttle
+// -- every heartbeat, and the housekeeping tick -- and an operator can clear
+// one between a read and the write that follows it. A step recorded twice
+// would be two audit rows for one decision, and a stale rung written back
+// over an operator's clear would be a lift silently undone; a caller that
+// finds the rung moved leaves the decision to whoever moved it.
+func (s *Store) SetHostThrottle(ctx context.Context, id string, throttle HostThrottle, fromLevel int) error {
+	res, err := s.exec(ctx, `UPDATE hosts SET throttle=? WHERE id=? AND COALESCE(json_extract(throttle, '$.level'), 0)=?`,
+		throttle, id, fromLevel)
 	if err != nil {
 		return wrapWrite(err)
 	}
-	return affected(res, "host", id)
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	var exists int
+	if err := s.read.QueryRowContext(ctx, `SELECT 1 FROM hosts WHERE id=?`, id).Scan(&exists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	return ErrThrottleMoved
 }

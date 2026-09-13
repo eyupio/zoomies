@@ -1590,7 +1590,11 @@ func (a *Agent) adoptExisting(ctx context.Context) {
 // that cgroup, so where no daemon answers, the agent's own view is the honest
 // one and is what this falls back to.
 func hostSize(infos []backend.Info, self machine.Facts) (cpus int, memoryMB int64) {
-	cpus, memoryMB = self.CPUs, self.MemoryMB
+	// The largest machine any daemon reports, and the agent's own view only
+	// where no daemon reports one. A daemon's figure is taken even when it
+	// is smaller than the agent's: Docker Desktop's VM on a ten-core laptop
+	// has four cores, the runners run inside it, and a CPU share sized from
+	// the laptop is a quota the VM's daemon refuses.
 	for _, info := range infos {
 		if !info.Available {
 			continue
@@ -1601,6 +1605,12 @@ func hostSize(infos []backend.Info, self machine.Facts) (cpus int, memoryMB int6
 		if info.MemoryMB > memoryMB {
 			memoryMB = info.MemoryMB
 		}
+	}
+	if cpus <= 0 {
+		cpus = self.CPUs
+	}
+	if memoryMB <= 0 {
+		memoryMB = self.MemoryMB
 	}
 	return cpus, memoryMB
 }

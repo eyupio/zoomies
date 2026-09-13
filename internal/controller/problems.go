@@ -485,7 +485,7 @@ func (c *Controller) hostResourceProblems(ctx context.Context, out *[]Problem) e
 			Title:    "some hosts are throttled after sustained pressure",
 			Detail:   strings.Join(throttled, ". ") + ".",
 			Fix: "wait for it to lift, lower the host's capacity or the pools' limits so its runners fit the machine, " +
-				"or clear it from the host card once the cause is fixed. A cleared throttle comes back on the next heartbeat if the pressure is still there.",
+				"or lift it from the host card (Lift the throttle) once the cause is fixed. A lifted throttle comes back on the next heartbeat if the pressure is still there.",
 		}
 		if len(throttled) == 1 {
 			p.TargetKind, p.TargetID = "host", throttledID
@@ -926,22 +926,44 @@ func overprovisionedProblem(h *store.Host, defaults bool) (Problem, bool) {
 	}
 	detail := fmt.Sprintf("%s has capacity %d on %s (%s, less the reserve)",
 		h.Name, h.Capacity, strings.Join(allocatable, " and "), strings.Join(machine, " and "))
+	// The share is named only where it is given. A host offering only the
+	// process backend, or a daemon that cannot apply the limit, or an agent
+	// that has not said, gives its runners no default at all, and a sentence
+	// about "each runner's default share" there would describe a limit that
+	// does not exist.
+	bindCPU, bindMemory := scheduler.DefaultsBind(h)
+	var each []string
 	if defaults {
 		share := scheduler.HostShare(h)
-		var each []string
-		if a.CPUsKnown {
+		if a.CPUsKnown && bindCPU {
 			each = append(each, scheduler.FormatCPUs(share.CPUs)+" CPUs")
 		}
-		if a.MemoryKnown {
+		if a.MemoryKnown && bindMemory {
 			each = append(each, fmt.Sprintf("%d MB of memory", share.MemoryMB))
 		}
+	}
+	switch {
+	case len(each) > 0:
 		detail += fmt.Sprintf(", so each runner's default share is %s; a runner with less than a core or under %d MB crawls through a build, and %d of them together are what the machine was already too small for.",
 			strings.Join(each, " and "), overprovisionedSlotMemoryMB, h.Capacity)
-	} else {
+	case defaults:
+		detail += fmt.Sprintf(", and its runners are given no default limit here -- its daemon cannot apply one, or its agent has not said whether it can, or it runs only the process backend -- so nothing limits them: each of the %d can take the whole machine at once, which is the shape that stops Docker answering.", h.Capacity)
+	default:
 		detail += fmt.Sprintf(", and scheduler.default_runner_limits is off, so nothing limits its runners: each of the %d can take the whole machine at once, which is the shape that stops Docker answering.", h.Capacity)
 	}
-	where := "lower the host's capacity to " + strconv.Itoa(fits) +
-		" -- agent.capacity on the host, the join token's --capacity, or PATCH /api/v1/hosts/" + h.ID + " -- or add a host"
+	// Capacity is decided once, at join, and a heartbeat never rewrites it:
+	// agent.capacity answers only for the embedded host, and a remote host
+	// is resized on its card or with a PATCH. A join token's --capacity is
+	// named for what it is -- the figure the host takes at its next join --
+	// so an operator who edits zoomies.yaml on a remote host and restarts
+	// the agent is not left wondering why the warning stayed.
+	where := "lower the host's capacity to " + strconv.Itoa(fits)
+	if h.Embedded {
+		where += " (agent.capacity in the controller's zoomies.yaml, or PATCH /api/v1/hosts/" + h.ID + ")"
+	} else {
+		where += " (on the host card, or PATCH /api/v1/hosts/" + h.ID + "; --capacity on a fresh join token applies only at the host's next join)"
+	}
+	where += ", or add a host"
 	tooSmall := (a.CPUsKnown && a.CPUs < 1) || (a.MemoryKnown && a.MemoryMB < overprovisionedSlotMemoryMB)
 	fix := where + "."
 	if tooSmall {

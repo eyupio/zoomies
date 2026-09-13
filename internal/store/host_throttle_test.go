@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -53,7 +54,7 @@ func TestAThrottleIsStoredByItsOwnStatementAndSurvivesTheHostsOwnWrites(t *testi
 	}
 	since := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
 	want := HostThrottle{Level: 2, Since: &since, ChangedAt: &since, Reason: "CPU has been at or above 95% for 30 s"}
-	if err := s.SetHostThrottle(ctx, h.ID, want); err != nil {
+	if err := s.SetHostThrottle(ctx, h.ID, want, 0); err != nil {
 		t.Fatalf("SetHostThrottle: %v", err)
 	}
 	got, err := s.GetHost(ctx, h.ID)
@@ -85,14 +86,27 @@ func TestAThrottleIsStoredByItsOwnStatementAndSurvivesTheHostsOwnWrites(t *testi
 	if again.Throttle.Level != 2 {
 		t.Fatalf("a host's own write moved its throttle: %+v", again.Throttle)
 	}
-	if err := s.SetHostThrottle(ctx, h.ID, HostThrottle{}); err != nil {
+	if err := s.SetHostThrottle(ctx, h.ID, HostThrottle{}, 2); err != nil {
 		t.Fatalf("SetHostThrottle: %v", err)
 	}
 	if again, _ = s.GetHost(ctx, h.ID); again.Throttle.Active() || again.EffectiveCapacity() != 8 {
 		t.Fatalf("clearing the throttle did not give the host its capacity back: %+v", again)
 	}
-	if err := s.SetHostThrottle(ctx, "host_missing", HostThrottle{Level: 1}); err == nil {
-		t.Fatal("a throttle was written for a host that does not exist")
+	if err := s.SetHostThrottle(ctx, "host_missing", HostThrottle{Level: 1}, 0); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("a throttle written for a host that does not exist: %v", err)
+	}
+	// Two deciders, one decision. The write says which rung it was decided
+	// from, and a rung that has moved since -- a heartbeat that got there
+	// first, or an operator's clear -- refuses the stale one rather than
+	// recording it twice or undoing the clear.
+	if err := s.SetHostThrottle(ctx, h.ID, HostThrottle{Level: 1}, 0); err != nil {
+		t.Fatalf("SetHostThrottle from rung 0: %v", err)
+	}
+	if err := s.SetHostThrottle(ctx, h.ID, HostThrottle{Level: 1}, 0); !errors.Is(err, ErrThrottleMoved) {
+		t.Fatalf("a decision from a rung the host has left was written: %v", err)
+	}
+	if got, _ := s.GetHost(ctx, h.ID); got.Throttle.Level != 1 {
+		t.Fatalf("the refused write moved the rung: %+v", got.Throttle)
 	}
 }
 

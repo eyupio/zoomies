@@ -1461,6 +1461,8 @@ func hostBackends(infos []backend.Info) store.HostBackends {
 			Endpoint:     i.Endpoint,
 			Detail:       i.Detail,
 			SupportsDinD: i.SupportsDinD,
+			CPUs:         i.CPUs,
+			MemoryMB:     i.MemoryMB,
 			Limits:       i.Limits,
 		})
 	}

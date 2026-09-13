@@ -297,6 +297,12 @@ type HostBackend struct {
 	// SupportsDinD reports whether this backend can give a job its own Docker
 	// daemon in a sidecar.
 	SupportsDinD bool `json:"supports_dind"`
+	// CPUs and MemoryMB are the machine the daemon runs on, as it reported
+	// them, kept beside the limits it can apply because a default CPU share
+	// is a request to that daemon: one above its own core count is refused
+	// outright, however many cores the agent's machine has.
+	CPUs     int   `json:"cpus,omitempty"`
+	MemoryMB int64 `json:"memory_mb,omitempty"`
 	// Limits is whether the daemon behind this backend can enforce a CPU
 	// quota, a memory limit and a pids limit at all. A rootless daemon on
 	// cgroup v1, or on cgroup v2 with no cpu controller delegated to the user,

@@ -132,7 +132,7 @@ func TestResponsesMatchTheSpecShapes(t *testing.T) {
 	since := time.Now().Add(-time.Minute)
 	if err := h.st.SetHostThrottle(h.ctx, host.ID, store.HostThrottle{
 		Level: 1, Since: &since, ChangedAt: &since, Reason: "available memory is at or below the host's reserve",
-	}); err != nil {
+	}, 0); err != nil {
 		t.Fatalf("SetHostThrottle: %v", err)
 	}
 	run.AllocatedCPUs, run.AllocatedMemoryMB, run.AllocationSource = 1.87, 3968, store.AllocationFromHost

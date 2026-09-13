@@ -165,3 +165,40 @@ func TestTheCPUShareIsFlooredToTheHundredth(t *testing.T) {
 		t.Errorf("shareCPUs(4, 0) = %v, want 0 for a host with no slots", got)
 	}
 }
+
+// A share is a request to the daemon, and a daemon refuses a quota above its
+// own core count however many cores the agent's machine has -- a Docker
+// Desktop VM on a ten-core laptop has four. The host is sized by its daemon,
+// so this only matters for a row whose size and probe disagree, and then the
+// share is capped rather than the create refused.
+func TestTheDefaultShareNeverExceedsTheDaemonsOwnCores(t *testing.T) {
+	h := sized("host_a", 1, 10, 32*1024, 500*1024)
+	h.BackendInfo[0].CPUs = 4
+	p := limited("builders", 0, 0)
+	got, _ := Allocation(p, h, true)
+	if got.CPUs != 4 {
+		t.Fatalf("allocation = %v CPUs, want the daemon's 4 rather than the agent's share of 10", got.CPUs)
+	}
+}
+
+// A problem that names "each runner's default share" has to ask first whether
+// a share is ever given: a host offering only the process backend, or a
+// daemon that cannot apply the limit, gives none.
+func TestDefaultsBindSaysWhichFieldsAHostCanBeGivenADefaultOn(t *testing.T) {
+	h := sized("host_a", 4, 16, 32*1024, 500*1024)
+	if cpu, memory := DefaultsBind(h); !cpu || !memory {
+		t.Fatalf("a daemon that enforces both reported %v/%v", cpu, memory)
+	}
+	h.BackendInfo[0].Limits = store.LimitSupport{Known: true, CPU: false, Memory: true}
+	if cpu, memory := DefaultsBind(h); cpu || !memory {
+		t.Fatalf("a daemon without CFS quotas reported %v/%v", cpu, memory)
+	}
+	h.BackendInfo = store.HostBackends{{Kind: store.BackendProcess, Available: true, Limits: store.LimitSupport{Known: true, CPU: true, Memory: true}}}
+	if cpu, memory := DefaultsBind(h); cpu || memory {
+		t.Fatalf("a process-only host reported %v/%v", cpu, memory)
+	}
+	h.BackendInfo = store.HostBackends{{Kind: store.BackendDocker, Available: true}}
+	if cpu, memory := DefaultsBind(h); cpu || memory {
+		t.Fatalf("an agent that has not said reported %v/%v", cpu, memory)
+	}
+}

@@ -194,11 +194,16 @@ out the recovery; a clear that was premature is put back on the first rung by
 the next heartbeat. A `PATCH` that changes the capacity or a reserve clears it
 too. If the jobs on a throttled host are not slowing down, check the agent's
 log: `throttling N runners to P% of their CPU allocation` is the quota being
-lowered, `no runner here has a CPU limit to reduce` means the pool set no
-limits and defaults are off or unsupported on that host, and `could not change
-a runner's CPU quota` is the daemon refusing the update, retried on the next
-heartbeat. The [ladder](hosts-and-pools.md#current-usage-and-automatic-holds)
-has the thresholds and what ends a throttle.
+lowered; `the controller throttled this host, but no runner here has a CPU
+limit to reduce; running jobs continue at full speed, and only the host's
+smaller effective capacity applies` means no runner there carries a recorded
+allocation — the pool set no limits and defaults are off or unsupported on
+that host, the runners were created before allocations were recorded and are
+replaced by their pool's next ones, or the pool runs on the `process` backend,
+which has no container to hold a quota; and `could not change a runner's CPU
+quota` is the daemon refusing the update, retried on the next heartbeat. The
+[ladder](hosts-and-pools.md#current-usage-and-automatic-holds) has the
+thresholds and what ends a throttle.
 
 If Docker is timing out while the agent still heartbeats, the heartbeat only
 proves the agent can reach the controller. Widespread health-check exec and

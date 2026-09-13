@@ -13,7 +13,7 @@
   a pool field nobody set.
 -->
 <script lang="ts">
-  import type { HostThrottle, Resources } from '$lib/api/types';
+  import type { BackendKind, HostThrottle, Resources } from '$lib/api/types';
   import { formatBytes, formatMegabytes, formatNumber, formatPercent, ratio } from '$lib/format';
   import { throttleCpuPercent, throttled, MAX_THROTTLE_LEVEL } from '$lib/status';
 
@@ -29,6 +29,8 @@
     allocationSource?: string;
     /** The throttle its host is on, if any: it is what the CPU quota is running under. */
     hostThrottle?: HostThrottle | null;
+    /** The backend its pool runs on. A `process` runner has no container, so no quota for a throttle to lower. */
+    backend?: BackendKind;
     class?: string;
   }
 
@@ -40,6 +42,7 @@
     allocatedMemoryMb,
     allocationSource,
     hostThrottle,
+    backend,
     class: className = '',
   }: Props = $props();
 
@@ -72,6 +75,18 @@
   });
 
   const isThrottled = $derived(throttled(hostThrottle));
+  // Whether the throttle reaches this runner. The agent lowers only a quota it
+  // was told about -- the allocation recorded with the container -- and a
+  // process-backend runner has no container at all. The pool's current limits
+  // are deliberately not consulted here: they are the bars' fallback ceiling,
+  // but a runner from before allocations were recorded carries none, and the
+  // agent leaves it alone whatever its pool says now.
+  const throttleReaches = $derived((allocatedCpus ?? 0) > 0 && backend !== 'process');
+  // A runner on a pool limit from before allocations were recorded: limited,
+  // but not by a figure the throttle can move.
+  const unrecorded = $derived(
+    !((allocatedCpus ?? 0) > 0) && backend !== 'process' && (limits?.cpus ?? 0) > 0,
+  );
 </script>
 
 <dl class="resources {className}">
@@ -121,12 +136,16 @@
 
 {#if isThrottled}
   <!-- The host's rung is what the CPU figure above is running under. A runner
-       with no CPU limit has nothing for the throttle to lower, and saying so
-       is what stops "throttled" reading as "this job is being slowed". -->
+       the throttle cannot reach -- no recorded allocation, or no container to
+       hold a quota -- is not being slowed, and saying so is what stops
+       "throttled" reading as "this job is being slowed". -->
   <p class="throttled" data-testid="runner-throttle">
-    {#if cpuLimit > 0}
+    {#if throttleReaches}
       Its host is throttled (step {hostThrottle?.level} of {MAX_THROTTLE_LEVEL}), so its CPU
       allocation is throttled to {throttleCpuPercent(hostThrottle)}% while that stands.
+    {:else if unrecorded}
+      Its host is throttled, but this runner was created before allocations were recorded, so the
+      throttle does not reach it; it runs at its pool's limit.
     {:else}
       Its host is throttled, but this runner has no CPU limit to lower, so it runs at full speed.
     {/if}

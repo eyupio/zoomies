@@ -94,13 +94,17 @@ the order it will be noticed:
   smaller share. A host's `allocatable_cpus` in the API and its committed CPU
   bar on the card show the figure the floor leaves. An operator's own
   `reserve_cpus` replaces the floor where it is larger.
-* **Runners created before the upgrade keep no limit**, and their rows carry
-  an empty `allocation_source`, until they are replaced. Nothing is applied to
-  a live container retroactively; a limit arrives with the next runner the
-  scheduler makes, which for an ephemeral pool is the next job. Such runners
-  are what `unlimited_runners` on the host counts, and while one is on a host
-  a sustained CPU hold there can throttle the host, which is the one thing a
-  runner inside its quota cannot cause.
+* **Runners created before the upgrade keep whatever limit their pool set** —
+  none where it set none — but carry no recorded allocation and an empty
+  `allocation_source`: the allocation is written when a runner is made, and
+  nothing is applied to a live container retroactively. Two things follow
+  while such a runner is on a host. It is counted among the host's
+  `unlimited_runners` whatever its pool's limit, so a sustained CPU hold there
+  can still throttle the host; and the throttle cannot slow it, because the
+  agent lowers only a quota whose allocation was recorded with the container,
+  so its job runs at full speed and only the host's smaller effective capacity
+  applies. Both end when its pool's next runner replaces it, which for an
+  ephemeral runner is after one job.
 * **Upgrade the agents before expecting either half.** The controller gives a
   default only where the host's daemon has said it can apply the limit, and an
   agent from before the probe has not said, so its hosts get no defaults and

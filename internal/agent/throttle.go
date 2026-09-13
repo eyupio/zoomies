@@ -82,10 +82,14 @@ func (a *Agent) applyThrottle(ctx context.Context, announce bool) {
 			continue
 		}
 		res := r.resources
-		// Hundredths, which is the daemon's own granularity for --cpus and
-		// what the pool field accepts; a longer float would be a quota that
-		// never compares equal to the one written.
-		res.CPUs = math.Round(res.CPUs*factor*100) / 100
+		// A restore sends the base exactly as the container was created with,
+		// so a pool's own figure is never rounded up over its own limit; a
+		// throttled figure is rounded to hundredths, the daemon's granularity
+		// for --cpus, so the quota the backend compares against is one it
+		// could have written.
+		if factor < 1 {
+			res.CPUs = math.Round(res.CPUs*factor*100) / 100
+		}
 		todo = append(todo, candidate{
 			runnerID: r.runnerID, handle: r.handle, updater: u, res: res,
 			warned: r.failedCPUFactor != nil && *r.failedCPUFactor == factor,
@@ -96,7 +100,7 @@ func (a *Agent) applyThrottle(ctx context.Context, announce bool) {
 	if announce {
 		switch {
 		case len(todo) == 0 && factor < 1:
-			a.log.Info("the controller throttled this host, but no runner here has a CPU limit to reduce; running jobs continue at full speed until the effective capacity takes effect",
+			a.log.Info("the controller throttled this host, but no runner here has a CPU limit to reduce; running jobs continue at full speed, and only the host's smaller effective capacity applies",
 				"cpu_factor", factor)
 		case factor < 1:
 			a.log.Info(fmt.Sprintf("throttling %d runners to %d%% of their CPU allocation", len(todo), int(math.Round(factor*100))))

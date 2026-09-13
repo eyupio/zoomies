@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/agent"
@@ -32,7 +33,14 @@ func (c *Controller) settleThrottle(ctx context.Context, h *store.Host, now time
 	if sameThrottle(next, h.Throttle) {
 		return false
 	}
-	if err := c.st.SetHostThrottle(ctx, h.ID, next); err != nil {
+	if err := c.st.SetHostThrottle(ctx, h.ID, next, h.Throttle.Level); err != nil {
+		if errors.Is(err, store.ErrThrottleMoved) {
+			// Somebody else decided first: a heartbeat racing the
+			// housekeeping tick, or an operator's clear. Their decision
+			// stands, and the next sample decides from it.
+			c.log.Debug("a host's throttle was decided elsewhere first", "host", h.ID)
+			return false
+		}
 		c.log.Warn("could not record a host's throttle; the next heartbeat will decide again", "host", h.ID, "error", err)
 		return false
 	}
@@ -119,6 +127,12 @@ func (c *Controller) settleThrottles(ctx context.Context, now time.Time) {
 			}
 			continue
 		}
+		// A host with a fresh sample is being decided by its heartbeats, and
+		// housekeeping has nothing to add but a second decider racing the
+		// first. This pass is for the host that has stopped sending samples.
+		if h.Usage.Fresh(now) {
+			continue
+		}
 		c.settleThrottle(ctx, h, now)
 	}
 }
@@ -148,7 +162,17 @@ func (c *Controller) clearThrottle(ctx context.Context, h *store.Host, audit boo
 	if !h.Throttle.Active() {
 		return h, nil
 	}
-	if err := c.st.SetHostThrottle(ctx, h.ID, store.HostThrottle{}); err != nil {
+	if err := c.st.SetHostThrottle(ctx, h.ID, store.HostThrottle{}, h.Throttle.Level); err != nil {
+		if errors.Is(err, store.ErrThrottleMoved) {
+			// The rung moved between the read and the clear. Read it again
+			// and clear from where it is now: a clear is an instruction
+			// about the host, not about the rung it happened to be on.
+			fresh, rerr := c.st.GetHost(ctx, h.ID)
+			if rerr != nil {
+				return nil, rerr
+			}
+			return c.clearThrottle(ctx, fresh, audit)
+		}
 		return nil, err
 	}
 	was := h.Throttle

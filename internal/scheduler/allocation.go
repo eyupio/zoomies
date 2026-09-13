@@ -50,10 +50,19 @@ func Allocation(p *store.Pool, h *store.Host, defaults bool) (store.Resources, s
 	if !defaults || h == nil || p.Backend == store.BackendProcess {
 		return res, source
 	}
+	info, _ := h.BackendInfo.Find(p.Backend)
 	limits := hostLimits(h, p.Backend)
 	alloc := h.Allocatable()
 	def := HostShare(h)
 	if res.CPUs <= 0 && alloc.CPUsKnown && limits.CPU && def.CPUs > 0 {
+		// The share is a request to the daemon, and a daemon refuses a quota
+		// above its own core count whatever the agent's machine has: a
+		// Docker Desktop VM on a ten-core laptop has four. The host is sized
+		// by its daemon, so this is a belt on braces, for a row whose size
+		// and probe disagree.
+		if info.CPUs > 0 && def.CPUs > float64(info.CPUs) {
+			def.CPUs = float64(info.CPUs)
+		}
 		res.CPUs = def.CPUs
 		source = store.AllocationFromHost
 	}
@@ -84,6 +93,24 @@ func HostShare(h *store.Host) store.Resources {
 		out.MemoryMB = int64(share(float64(alloc.MemoryMB), h.Capacity))
 	}
 	return out
+}
+
+// DefaultsBind reports which default limits would bind on this host at all:
+// whether any available container backend on it has said it can apply a CPU
+// quota, and a memory limit. It is what a problem about the host asks before
+// it names "each runner's default share", because on a host offering only
+// the process backend, or one whose daemon cannot apply the limit, or one
+// whose agent has not said, the share is never given and a sentence naming
+// it would say the opposite of the truth.
+func DefaultsBind(h *store.Host) (cpu, memory bool) {
+	for _, info := range h.BackendInfo {
+		if !info.Available || info.Kind == store.BackendProcess || !info.Limits.Known {
+			continue
+		}
+		cpu = cpu || info.Limits.CPU
+		memory = memory || info.Limits.Memory
+	}
+	return cpu, memory
 }
 
 // hostLimits is what the host's daemon for this backend said it can enforce.

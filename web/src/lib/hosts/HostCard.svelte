@@ -345,6 +345,14 @@
         >
       {/if}
       <span>Measured <RelativeTime value={host.usage.sampled_at} plain /></span>
+    {:else if isThrottled}
+      <!-- A throttle outlives the sample that put it there: the rung stands
+           on the last measurements and is lifted after ten minutes without a
+           fresh one, so "cannot be throttled" would be untrue on this card. -->
+      <span
+        >Current usage unavailable. The throttle stands on its last measurements and lifts after ten
+        minutes without a fresh one.</span
+      >
     {:else}
       <span
         >Current usage unavailable. Placement uses configured capacity and reservations, and this

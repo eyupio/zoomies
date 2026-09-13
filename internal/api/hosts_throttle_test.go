@@ -26,7 +26,7 @@ func throttledHost(t *testing.T, h *harness) *store.Host {
 		Level: 2, Since: &since, ChangedAt: &changed,
 		Reason: "the 1-minute load average is 30.0, at least twice the host's 8 CPUs",
 	}
-	if err := h.st.SetHostThrottle(h.ctx, host.ID, throttle); err != nil {
+	if err := h.st.SetHostThrottle(h.ctx, host.ID, throttle, 0); err != nil {
 		t.Fatalf("SetHostThrottle: %v", err)
 	}
 	host.Throttle = throttle
@@ -163,11 +163,18 @@ func TestChangingCapacityOrTheReserveLiftsTheThrottle(t *testing.T) {
 		name  string
 		body  map[string]any
 		lifts bool
+		// audited is whether the PATCH changed anything at all: a request
+		// that repeats the host's own figures writes no host.update row.
+		audited bool
 	}{
-		{"capacity", map[string]any{"capacity": 3}, true},
-		{"a CPU reserve", map[string]any{"reserve_cpus": 2}, true},
-		{"a memory reserve", map[string]any{"reserve_memory_mb": 4096}, true},
-		{"labels alone", map[string]any{"labels": map[string]string{"zone": "eu"}}, false},
+		{"capacity", map[string]any{"capacity": 3}, true, true},
+		{"a CPU reserve", map[string]any{"reserve_cpus": 2}, true, true},
+		{"a memory reserve", map[string]any{"reserve_memory_mb": 4096}, true, true},
+		{"labels alone", map[string]any{"labels": map[string]string{"zone": "eu"}}, false, true},
+		// The edit dialog sends every field it shows, so an operator who
+		// added a label sends the capacity too; only a figure that moved is
+		// an answer to the pressure, and the same figure again is not.
+		{"the capacity it already has", map[string]any{"capacity": 4}, false, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -195,6 +202,12 @@ func TestChangingCapacityOrTheReserveLiftsTheThrottle(t *testing.T) {
 			// The PATCH's own audit row says so, rather than leaving a reader
 			// to work out that {} against {level: 2} means "lifted".
 			row := lastAudit(t, h, "host.update")
+			if !tc.audited {
+				if row != nil {
+					t.Fatalf("a PATCH that changed nothing wrote an audit row: %+v", row)
+				}
+				return
+			}
 			if row == nil {
 				t.Fatal("no host.update audit row was written")
 			}

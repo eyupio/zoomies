@@ -275,7 +275,7 @@ func TestThrottlingOffDecidesNothingAndLiftsWhatStands(t *testing.T) {
 
 	// A rung left over from before the setting was turned off.
 	now := h.c.Now()
-	if err := h.st.SetHostThrottle(h.ctx, f.hostID, store.HostThrottle{Level: 2, Since: &now, ChangedAt: &now, Reason: "earlier"}); err != nil {
+	if err := h.st.SetHostThrottle(h.ctx, f.hostID, store.HostThrottle{Level: 2, Since: &now, ChangedAt: &now, Reason: "earlier"}, 0); err != nil {
 		t.Fatal(err)
 	}
 	h.c.settleThrottles(h.ctx, h.c.Now())

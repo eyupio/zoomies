@@ -144,6 +144,20 @@ func TestAHostWithNoDaemonIsSizedByWhatTheAgentMayUse(t *testing.T) {
 	}
 }
 
+// A daemon on a smaller machine than the agent's sizes the host, because the
+// runners run there: Docker Desktop's VM on a ten-core laptop has four cores,
+// and a CPU share sized from the laptop is a quota the VM's daemon refuses.
+func TestADaemonOnASmallerMachineSizesTheHost(t *testing.T) {
+	self := machine.Facts{CPUs: 10, MemoryMB: 32_768}
+	infos := []backend.Info{{Kind: store.BackendDocker, Available: true, CPUs: 4, MemoryMB: 8192}}
+
+	cpus, memoryMB := hostSize(infos, self)
+
+	if cpus != 4 || memoryMB != 8192 {
+		t.Fatalf("host = %d cpus, %d MB; want the daemon's smaller machine", cpus, memoryMB)
+	}
+}
+
 // A daemon that says nothing about its machine -- an older one, or a backend
 // that is not a container runtime -- leaves the agent's own view standing
 // rather than zeroing the host.

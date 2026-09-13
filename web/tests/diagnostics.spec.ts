@@ -73,9 +73,13 @@ test('a runner shows the allocation it was given and that its host is throttling
   await expect(usage).toContainText("1.87 CPU · 3.9 GB, the host's default share");
   await expect(usage).toContainText('of 1.87 allowed');
   await expect(usage).toContainText('of 3.9 GB allowed');
+  // The sentence is decided from the runner's own recorded allocation and its
+  // pool's backend, never from the pool's current limits: this one was created
+  // with a share on a Docker pool, so the agent is lowering its quota and the
+  // page may say so.
   const throttle = page.getByTestId('runner-throttle');
   await expect(throttle).toContainText('step 2 of 3');
-  await expect(throttle).toContainText('throttled to 50%');
+  await expect(throttle).toContainText('CPU allocation is throttled to 50%');
 });
 
 test('a runner whose container came up but never registered says exactly that', async ({
