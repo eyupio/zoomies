@@ -22,6 +22,7 @@ import (
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/github"
+	"github.com/eyupio/zoomies/internal/provider"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/go-chi/chi/v5"
 )
@@ -164,15 +165,24 @@ func newHarness(t *testing.T, opts ...func(*config.Config)) *harness {
 	bus := events.New()
 	logs := newLogCapture()
 	logger := slog.New(logs)
+	// A registry holding the fake, so the provider routes have a driver to
+	// answer about. Without one every one of them would answer "this build
+	// has no driver for that kind", and the walks below would be asserting
+	// that a refusal is well-formed rather than that a route works.
+	providers, err := provider.NewRegistry(provider.NewFakeFactory())
+	if err != nil {
+		t.Fatalf("provider.NewRegistry: %v", err)
+	}
 	ctrl, err := controller.New(controller.Options{
-		Store:  st,
-		Config: cfg,
-		Key:    key,
-		Auth:   auth.New(st, cfg, bus, auth.WithLogger(logger)),
-		Events: bus,
-		GitHub: &fakeFactory{gh: gh},
-		Logger: logger,
-		Clock:  time.Now,
+		Store:     st,
+		Config:    cfg,
+		Key:       key,
+		Auth:      auth.New(st, cfg, bus, auth.WithLogger(logger)),
+		Events:    bus,
+		GitHub:    &fakeFactory{gh: gh},
+		Providers: providers,
+		Logger:    logger,
+		Clock:     time.Now,
 	})
 	if err != nil {
 		t.Fatalf("controller.New: %v", err)
@@ -435,6 +445,58 @@ func (h *harness) installation() *store.Installation {
 	return inst
 }
 
+// provider is a configured provider of the kind the fake registry can build,
+// so a route that goes on to talk to a driver has one to talk to.
+func (h *harness) provider(name string) *store.Provider {
+	h.t.Helper()
+	p := &store.Provider{
+		Kind:               store.ProviderFake,
+		Name:               name,
+		Endpoint:           "https://pve.example.com:8006",
+		Settings:           store.StringMap{"zone": "zone-a"},
+		MachineCapacity:    2,
+		MachineBackend:     store.BackendDocker,
+		MaxMachines:        4,
+		MaxCreatesInFlight: 1,
+		IdleTimeout:        store.Duration(15 * time.Minute),
+		Enabled:            true,
+	}
+	if err := h.st.CreateProvider(h.ctx, p); err != nil {
+		h.t.Fatalf("CreateProvider: %v", err)
+	}
+	sealed, err := h.key.SealString("prv-token-" + name)
+	if err != nil {
+		h.t.Fatalf("SealString: %v", err)
+	}
+	if err := h.st.SetProviderCredentials(h.ctx, p.ID, sealed); err != nil {
+		h.t.Fatalf("SetProviderCredentials: %v", err)
+	}
+	got, err := h.st.GetProvider(h.ctx, p.ID)
+	if err != nil {
+		h.t.Fatalf("GetProvider: %v", err)
+	}
+	return got
+}
+
+// machine is a ready machine belonging to a provider, written straight into
+// the state a test needs rather than replayed through the whole lifecycle.
+func (h *harness) machine(p *store.Provider, name string) *store.Machine {
+	h.t.Helper()
+	m := &store.Machine{
+		ProviderID:   p.ID,
+		Name:         name,
+		State:        store.MachinePlanned,
+		ResourceZone: "zone-a",
+		ResourceID:   machineResourceID(name),
+		Capacity:     p.MachineCapacity,
+		Labels:       store.StringMap{},
+	}
+	if err := h.st.CreateMachine(h.ctx, m); err != nil {
+		h.t.Fatalf("CreateMachine: %v", err)
+	}
+	return m
+}
+
 func (h *harness) pool(inst *store.Installation, name string) *store.Pool {
 	h.t.Helper()
 	p := &store.Pool{
@@ -686,6 +748,27 @@ func routeTable(ids fixtureIDs) []route {
 			body: map[string]any{"cordoned": false}},
 		{method: "DELETE", path: "/api/v1/hosts/missing", role: store.RoleAdmin, action: auth.ActionHostsDelete},
 
+		{method: "GET", path: "/api/v1/providers", role: store.RoleViewer, action: auth.ActionProvidersRead},
+		{method: "POST", path: "/api/v1/providers", role: store.RoleAdmin, action: auth.ActionProvidersWrite,
+			body: map[string]any{"kind": "fake", "name": "made-by-the-route-walk", "settings": map[string]string{"zone": "zone-a"}}},
+		{method: "POST", path: "/api/v1/providers/validate", role: store.RoleAdmin, body: map[string]any{}, action: auth.ActionProvidersWrite},
+		{method: "GET", path: "/api/v1/providers/kinds", role: store.RoleViewer, action: auth.ActionProvidersRead},
+		{method: "GET", path: "/api/v1/providers/" + ids.provider, role: store.RoleViewer, action: auth.ActionProvidersRead},
+		{method: "PATCH", path: "/api/v1/providers/" + ids.provider, role: store.RoleAdmin, body: map[string]any{}, action: auth.ActionProvidersWrite},
+		{method: "DELETE", path: "/api/v1/providers/missing", role: store.RoleAdmin, action: auth.ActionProvidersDelete},
+		{method: "POST", path: "/api/v1/providers/" + ids.provider + "/check", role: store.RoleOperator, action: auth.ActionProvidersPause},
+		{method: "GET", path: "/api/v1/providers/" + ids.provider + "/discovery", role: store.RoleOperator, action: auth.ActionProvidersPause},
+		{method: "GET", path: "/api/v1/providers/" + ids.provider + "/orphans", role: store.RoleAdmin, action: auth.ActionProvidersWrite},
+		{method: "POST", path: "/api/v1/providers/" + ids.provider + "/pause", role: store.RoleOperator, action: auth.ActionProvidersPause},
+		{method: "POST", path: "/api/v1/providers/" + ids.provider + "/resume", role: store.RoleOperator, action: auth.ActionProvidersPause},
+
+		{method: "GET", path: "/api/v1/machines", role: store.RoleViewer, action: auth.ActionMachinesRead},
+		{method: "GET", path: "/api/v1/machines/" + ids.machine, role: store.RoleViewer, action: auth.ActionMachinesRead},
+		{method: "POST", path: "/api/v1/machines/missing/drain", role: store.RoleOperator, action: auth.ActionMachinesDrain},
+		{method: "DELETE", path: "/api/v1/machines/missing", role: store.RoleAdmin, action: auth.ActionMachinesDelete},
+		{method: "POST", path: "/api/v1/machines/missing/release", role: store.RoleAdmin, action: auth.ActionMachinesDelete,
+			body: map[string]any{"name": "never-the-right-name"}},
+
 		{method: "GET", path: "/api/v1/join-tokens", role: store.RoleAdmin, action: auth.ActionJoinsRead},
 		{method: "GET", path: "/api/v1/join-tokens/missing", role: store.RoleAdmin, action: auth.ActionJoinsRead},
 		{method: "POST", path: "/api/v1/join-tokens", role: store.RoleAdmin, body: map[string]any{"ttl": "15m"}, action: auth.ActionJoinsWrite},
@@ -724,6 +807,8 @@ type fixtureIDs struct {
 	runner       string
 	host         string
 	job          string
+	provider     string
+	machine      string
 }
 
 func (h *harness) fixtures() fixtureIDs {
@@ -732,8 +817,11 @@ func (h *harness) fixtures() fixtureIDs {
 	host := h.host("vm-1")
 	run := h.runner(pool, host, store.RunnerIdle)
 	job := h.job(pool, store.JobQueued)
+	prov := h.provider("proxmox-lab")
+	machine := h.machine(prov, "zoomies-mach-fixture")
 	return fixtureIDs{
 		installation: inst.ID, pool: pool.ID, runner: run.ID, host: host.ID, job: job.ID,
+		provider: prov.ID, machine: machine.ID,
 	}
 }
 
@@ -917,6 +1005,7 @@ func TestScopesAreNarrowerThanRoles(t *testing.T) {
 func TestRouteTableCoversTheSpec(t *testing.T) {
 	placeholders := fixtureIDs{
 		installation: "ins_x", pool: "pool_x", runner: "run_x", host: "host_x", job: "job_x",
+		provider: "prv_x", machine: "mach_x",
 	}
 	tested := map[string]bool{}
 	for _, rt := range routeTable(placeholders) {
@@ -1013,7 +1102,8 @@ func normalisePath(p string) string {
 		}
 		if strings.HasPrefix(part, "ins_") || strings.HasPrefix(part, "pool_") ||
 			strings.HasPrefix(part, "run_") || strings.HasPrefix(part, "host_") ||
-			strings.HasPrefix(part, "job_") || part == "missing" {
+			strings.HasPrefix(part, "job_") || strings.HasPrefix(part, "prv_") ||
+			strings.HasPrefix(part, "mach_") || part == "missing" {
 			parts[i] = "{id}"
 		}
 	}

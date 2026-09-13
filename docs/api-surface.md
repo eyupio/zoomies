@@ -207,6 +207,45 @@ wire types.
 | POST | `/api/v1/agent/report` | Out-of-band runner state reports. |
 | POST | `/api/v1/agent/logs/{stream_id}` | Chunked outbound log relay for a UI viewer. |
 
+## Providers and machines
+
+A provider is one place machines can be rented from. Its credential goes in
+once, sealed with the instance key, and never comes back: every read reports
+`credentials_configured` instead, because an audit row and a screenshot both
+outlive the person who took them.
+
+| Method | Path | Role | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/providers` | viewer | Each provider with its machines by state, how many still hold a resource, and `held` — why no new machine may be bought right now, in one sentence, or absent when one may. |
+| POST | `/api/v1/providers` | admin | Creates one renting nothing: `max_machines` defaults to zero, so a fleet that turns a provider on says in the same breath how many machines it is willing to pay for. 422 names the offending field. |
+| POST | `/api/v1/providers/validate` | admin | A dry run over a draft. Always 200 — the verdict is in the body — and it writes nothing and dials nothing, so a form can run it as somebody types. `?id=` says the draft is an edit to that provider, so the name check does not refuse it about itself. |
+| GET | `/api/v1/providers/kinds` | viewer | What this build can rent from, and the questions each driver's form has to ask. |
+| GET | `/api/v1/providers/{id}` | viewer | |
+| PATCH | `/api/v1/providers/{id}` | admin | Every field independent; what is not named is left alone. A `credential` of `""` leaves the stored one alone, so a form with a blank password box does not erase it. A provider's kind cannot be changed — the machines it owns are that kind. |
+| DELETE | `/api/v1/providers/{id}` | admin | 409 while any of its machines still holds a resource, naming how many. The rows are the only record of what was rented. |
+| POST | `/api/v1/providers/{id}/check` | operator | The live preflight. Read-only at the hypervisor, audited here, and recorded on the row so a check run in a terminal quiets the warning the UI is showing. |
+| GET | `/api/v1/providers/{id}/discovery` | operator | The nodes, storages, bridges and templates this credential can see. 409 from a driver that cannot list them, and the form asks for identifiers instead. |
+| GET | `/api/v1/providers/{id}/orphans` | admin | The three sections of the review page: resources with no row, rows holding no resource, and machines nobody can vouch for. |
+| POST | `/api/v1/providers/{id}/pause` · `/resume` | operator | The kill switch. It blocks new machines only — drains, deletes, recovery and ownership checks carry on — and pressing either twice is not an error. Audited as `provider.pause` / `provider.resume`. |
+| GET | `/api/v1/machines` | viewer | Paged, filtered by `?provider=`, `?pool=`, `?host=`, `?state=`, `?q=` and `?include_deleted=`. |
+| GET | `/api/v1/machines/{id}` | viewer | Includes the phase timeline the detail page reads as a life rather than a row of timestamps. |
+| POST | `/api/v1/machines/{id}/drain` | operator | Cordons its host and lets its runners finish. Reversible until the delete starts: demand coming back takes a draining machine back to ready rather than paying for a new one. |
+| DELETE | `/api/v1/machines/{id}` | admin | Answers 200 with the machine in `deleting`, because a delete is finished when the resource can no longer be found, not when the provider returns. 409 while runners are still going unless `?force=true`. A quarantined machine is **never** deletable, forced or not. |
+| POST | `/api/v1/machines/{id}/release` | admin | Forgets a row and touches nothing, for the machine nobody can safely delete. The machine's name must be in the body. Audited with the provider's identifiers for the resource, because after this the audit row is the only record of them. |
+
+**There is no `POST /machines`.** A machine exists because demand asked for one:
+one creation path means one accounting path, and a hand-made machine would be
+supply the reconciler would then decide to delete. An operator who wants more
+machines raises the provider's ceiling.
+
+`DELETE /api/v1/hosts/{id}` refuses a host that is a machine Zoomies created,
+and says to delete the machine instead — that removes the VM too. `?force=true`
+still works and forgets the host while leaving the VM running, which is a thing
+somebody may genuinely want and never a thing to do by accident.
+
+`GET /api/v1/meta` includes the non-secret `providers_available` flag: this
+build ships at least one driver and `provider.enabled` is on.
+
 ## Migrations
 
 Moving a repository's workflows from GitHub's runners onto this fleet. The plan
@@ -308,8 +347,9 @@ flowchart LR
 `runner.created` · `runner.updated` · `runner.deleted` · `pool.created` ·
 `pool.updated` · `pool.deleted` · `job.updated` · `host.updated` ·
 `host.deleted` · `scaling` · `installation.updated` · `installation.deleted` ·
-`problems.updated` · `stats` · `audit` · `webhook.delivery` · `heartbeat` ·
-`resync`
+`problems.updated` · `stats` · `audit` · `webhook.delivery` ·
+`provider.updated` · `provider.deleted` · `machine.updated` ·
+`machine.deleted` · `heartbeat` · `resync`
 
 Every frame but `heartbeat` and `resync` carries an `id` of the form
 `<epoch>.<sequence>`, where the epoch names one run of the controller. A client
@@ -367,6 +407,7 @@ zoomies runners list | get | drain | delete | logs
 zoomies jobs list | get
 zoomies hosts list | cordon | uncordon | delete
 zoomies hosts join-token create
+zoomies providers list | check | pause | resume | machines | orphans
 zoomies installations list | verify
 zoomies audit list | tail
 zoomies users list | create | passwd | delete

@@ -645,6 +645,24 @@ func (s *Store) ConfirmMachineDeleted(ctx context.Context, id string, now time.T
 	return stamped.Valid, nil
 }
 
+// ForgetMachine deletes one machine row outright, without touching anything the
+// provider holds.
+//
+// It is the escape hatch behind POST /machines/{id}/release, and it is
+// deliberately the only way a row that still names a resource can leave the
+// database: PruneMachines refuses one, and DeleteProvider refuses a whole
+// provider while one exists. Forgetting a row that still owns a resource is how
+// a fleet loses a VM it is paying for, so the route above this asks for the
+// machine's name to be typed before it calls, and the audit row it writes keeps
+// the resource identifier the database is about to stop holding.
+func (s *Store) ForgetMachine(ctx context.Context, id string) error {
+	res, err := s.exec(ctx, `DELETE FROM machines WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	return affected(res, "machine", id)
+}
+
 // PendingMachineWork returns machines with unfinished work in id order after
 // afterID. A keyset cursor rather than an offset, so a machine stuck behind an
 // unreachable node cannot starve the rest.
