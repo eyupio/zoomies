@@ -436,8 +436,12 @@ func (s *Store) ClaimMachineOperation(ctx context.Context, id string, op Machine
 		if getErr != nil {
 			return nil, getErr
 		}
-		return nil, fmt.Errorf("%w: machine %s is doing %s for %s until %s",
-			ErrMachineBusy, id, held.OpKind, held.OpHolder, held.OpDeadlineAt.Format(time.RFC3339))
+		deadlineOf := "with no deadline"
+		if held.OpDeadlineAt != nil {
+			deadlineOf = "until " + held.OpDeadlineAt.Format(time.RFC3339)
+		}
+		return nil, fmt.Errorf("%w: machine %s is doing %s for %s %s",
+			ErrMachineBusy, id, held.OpKind, held.OpHolder, deadlineOf)
 	}
 	if err != nil {
 		return nil, err

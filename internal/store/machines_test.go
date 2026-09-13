@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 	"errors"
-	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -37,6 +37,55 @@ var everyMachineState = []MachineState{
 	MachinePlanned, MachineCreating, MachineStarting, MachineBootstrapping,
 	MachineEnrolling, MachineReady, MachineDraining, MachineDeleting,
 	MachineDeleted, MachineFailed, MachineQuarantined,
+}
+
+// Every column of a machine has to survive a round trip. The driver binds
+// positionally and ignores a surplus argument, so an argument without a
+// placeholder shifts every later column onto its neighbour's value -- and on
+// this row that means a machine coming back pointing at somebody else's
+// resource. Comparing the whole struct is what keeps the two lists honest.
+func TestAMachineComesBackAsItWasWritten(t *testing.T) {
+	now := time.Date(2026, 9, 13, 8, 0, 0, 0, time.UTC)
+	s := newTestStoreAt(t, func() time.Time { return now })
+	ctx := context.Background()
+	_, pool, host := seedPool(t, s)
+	p := seedProvider(t, s)
+
+	stamp := func(offset time.Duration) *time.Time {
+		t := now.Add(offset)
+		return &t
+	}
+	want := &Machine{
+		ProviderID: p.ID, Name: "zoomies-mach-abcdefghijklm", State: MachineReady,
+		Message: "running", PoolID: pool.ID,
+		OwnerControllerID: "ctl_a", OwnerFingerprint: "fingerprint",
+		ResourceZone: "pve-1", ResourceID: "143",
+		ResourceDetail: StringMap{"template": "9000"}, Address: "10.0.0.5",
+		OwnershipVerifiedAt: stamp(time.Minute), OwnershipError: "",
+		HostID: host.ID, JoinTokenID: "join_abc", Capacity: 2,
+		Labels: StringMap{"zone": "lab"},
+		OpID:   "mop_abcdefghijklm", OpKind: MachineOpBootstrap, OpHandle: "UPID:pve-1:1",
+		OpHolder: "ctl_a", OpStartedAt: stamp(time.Minute), OpDeadlineAt: stamp(5 * time.Minute),
+		OpOutcomeUnknown: true,
+		Attempts:         2, NextAttemptAt: stamp(time.Hour),
+		ProviderError: "the node was busy", BootstrapError: "the agent would not install",
+		ReservationExpiresAt: stamp(2 * time.Hour), CreateStartedAt: stamp(time.Second),
+		CreatedOKAt: stamp(2 * time.Second), StartedAt: stamp(3 * time.Second),
+		BootstrappedAt: stamp(4 * time.Second), EnrolledAt: stamp(5 * time.Second),
+		ReadyAt: stamp(6 * time.Second), IdleSince: stamp(7 * time.Second),
+		DrainingAt: stamp(8 * time.Second), DeleteStartedAt: stamp(9 * time.Second),
+		DeletedAt: stamp(10 * time.Second),
+	}
+	if err := s.CreateMachine(ctx, want); err != nil {
+		t.Fatalf("CreateMachine: %v", err)
+	}
+	got, err := s.GetMachine(ctx, want.ID)
+	if err != nil {
+		t.Fatalf("GetMachine: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("the machine came back changed:\n got  %+v\n want %+v", got, want)
+	}
 }
 
 // The allow-list lives in the store rather than in the reconciler so that a
@@ -157,13 +206,14 @@ func TestAMachineCountsAgainstItsProviderExactlyWhileItHasAResource(t *testing.T
 	now := s.Now()
 
 	owned := 0
-	for i, state := range everyMachineState {
+	for _, state := range everyMachineState {
 		for _, withResource := range []bool{false, true} {
 			for _, confirmedGone := range []bool{false, true} {
 				m := seedMachine(t, s, p.ID, state)
 				if withResource {
-					vmid := fmt.Sprintf("%d", 100+i*4+len(m.ID)%4)
-					if err := s.SetMachineResource(ctx, m.ID, "pve-1", vmid+m.ID, "fp", "ctl_1"); err != nil {
+					// The machine's own id stands in for a VM id; what matters
+					// here is that each row names a different resource.
+					if err := s.SetMachineResource(ctx, m.ID, "pve-1", m.ID, "fp", "ctl_1"); err != nil {
 						t.Fatalf("SetMachineResource: %v", err)
 					}
 				}
