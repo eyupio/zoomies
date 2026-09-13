@@ -338,13 +338,22 @@ func (s *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A token is attributed to the account behind the caller -- the person
+	// signed in, or the owner of the token being used -- so that disabling or
+	// deleting that account ends every credential descended from it. A token
+	// with no owner has nobody to attribute to, and minting from it would
+	// produce credentials that outlive every revocation, so it cannot.
 	id := Identity(r.Context())
-	userID := ""
-	if id != nil && id.Kind == auth.KindUser {
-		userID = id.ID
+	if id == nil || id.UserID == "" {
+		unprocessable(w, "this token has no owner, so it cannot mint tokens; sign in as a user, or use a token created by one", nil)
+		return
+	}
+	if err := auth.MintWithin(id, role, req.Scopes); err != nil {
+		unprocessable(w, err.Error(), nil)
+		return
 	}
 	token, plaintext, err := s.auth.CreateAPIToken(r.Context(), auth.NewToken{
-		Name: strings.TrimSpace(req.Name), Role: role, UserID: userID,
+		Name: strings.TrimSpace(req.Name), Role: role, UserID: id.UserID,
 		Scopes: req.Scopes, ExpiresAt: expiresAt,
 	})
 	if err != nil {
