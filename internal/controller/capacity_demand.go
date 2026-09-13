@@ -64,7 +64,15 @@ func (c *Controller) publishCapacitySignals(ctx context.Context, snap scheduler.
 		}
 		capacity := eligibleCapacity(p, snap.Hosts, snap.Now)
 		oldest := oldestPoolQueue(p, snap.Pools, snap.Jobs, snap.Now)
-		if pp.BlockedAtCapacity && pp.QueuedMatched > 0 {
+		// Both blockages are demand, and the second one is the one a receiver
+		// exists for: a pool whose jobs have nowhere to go at all is asking to
+		// be scaled from zero, and until this said so the only shortfall
+		// Zoomies ever announced was one a finished job would have cleared by
+		// itself. A pool blocked for a reason a machine cannot fix -- the wrong
+		// platform, a selector nothing matches -- still reaches the receiver,
+		// which is correct: the event says what is missing, and deciding
+		// whether it can supply it has always been the receiver's half.
+		if (pp.BlockedAtCapacity || pp.BlockedNoEligibleHost) && pp.QueuedMatched > 0 {
 			slots := max(pp.Desired-pp.Current, 1)
 			c.deliverCapacityEvent(ctx, p, capacity, pp.QueuedMatched, oldest, slots, capacityDemandEvent, false)
 		} else {
