@@ -626,3 +626,45 @@ test('a name nobody chose wraps rather than taking the page or Close off the scr
   ).toBeLessThanOrEqual(panel!.x + panel!.width + 0.5);
   await expectNoSidewaysScroll(page, 'the job drawer titled with a long name');
 });
+
+/*
+ * The runner lifecycle wrapped as a row of flex items, so each card was as
+ * wide as its own label: on a phone "Provisioning" and "Registering" sat side
+ * by side at different sizes, the row under them lined up with neither, and
+ * the arrow that should point at the next step pointed off the end of the row
+ * at nothing. It is a grid now, so the steps stay in step at every width.
+ */
+test('the runner lifecycle keeps its steps in columns when it wraps', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 780 });
+  await goto(page, '/runners', 'Runners');
+
+  const steps = page.getByRole('list', { name: 'Runner lifecycle, in order' });
+  const cards = steps.getByRole('link');
+  await expect(cards).toHaveCount(5);
+
+  const boxes = await cards.evaluateAll((els) =>
+    els.map((el) => {
+      const box = el.getBoundingClientRect();
+      const head = el.querySelector('.head') as HTMLElement;
+      return { x: box.x, width: box.width, clipped: head.scrollWidth > head.clientWidth + 1 };
+    }),
+  );
+
+  // Two columns, so every card is one width and sits at one of two offsets.
+  const width = boxes[0].width;
+  for (const [i, box] of boxes.entries()) {
+    expect(Math.abs(box.width - width), `step ${i} is a different width`).toBeLessThanOrEqual(1);
+    const column = i % 2 === 0 ? boxes[0].x : boxes[1].x;
+    expect(Math.abs(box.x - column), `step ${i} starts out of column`).toBeLessThanOrEqual(1);
+  }
+
+  // A card that is one width is no use if the label inside it is cut in half.
+  expect(boxes.filter((b) => b.clipped)).toEqual([]);
+
+  // The arrow at the end of a row, and the one past the last step, point at
+  // nothing, so they are held in the layout rather than drawn.
+  const arrows = await steps
+    .locator('.arrow')
+    .evaluateAll((els) => els.map((el) => getComputedStyle(el).visibility));
+  expect(arrows).toEqual(['visible', 'hidden', 'visible', 'hidden', 'hidden']);
+});
