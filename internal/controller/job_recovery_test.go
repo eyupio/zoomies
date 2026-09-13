@@ -119,3 +119,38 @@ func TestJobRecoveryRotatesThroughBoundedPages(t *testing.T) {
 		}
 	}
 }
+
+// Turning the fallback poller off used to turn off the only check that notices
+// a completion whose webhook never arrived, leaving the job in progress for
+// ever: counted against its repository's scale-up limit, and holding its
+// runner's host back from cleanup. The check now runs from the housekeeping
+// loop when the poller is off, and stays the poller's when it is on.
+func TestAMissedCompletionIsStillRecoveredWithThePollerOff(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+	q := h.gh.AddQueuedJob("acme/widgets", "CI", "Images", []string{"self-hosted", "linux", "x64", "demo"})
+	h.c.pollOnce(h.ctx)
+	h.gh.CompleteJob(q.ID, "success")
+	h.advance(3 * time.Minute)
+
+	// With the poller on, the housekeeping loop leaves the check to it.
+	h.cfg.GitHub.PollFallback = true
+	h.c.reconcileJobsWithoutThePoller(h.ctx, h.c.Now())
+	job, err := h.st.GetJobByGitHubID(h.ctx, q.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.State == store.JobCompleted {
+		t.Fatal("the housekeeping loop checked jobs while the poller was on, which would double every GitHub call")
+	}
+
+	h.cfg.GitHub.PollFallback = false
+	h.c.reconcileJobsWithoutThePoller(h.ctx, h.c.Now())
+	job, err = h.st.GetJobByGitHubID(h.ctx, q.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.State != store.JobCompleted || job.Conclusion != "success" {
+		t.Fatalf("job = %+v, want it completed by the housekeeping loop", job)
+	}
+}
