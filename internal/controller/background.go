@@ -220,6 +220,15 @@ func (c *Controller) prune(ctx context.Context) {
 		// The audit rows themselves have no prune: an audit trail a process can
 		// quietly delete is not one, so store deliberately offers no way.
 		{"scaling events", r.ScalingEvents, c.st.PruneScalingEvents},
+		// Only the machines that cannot be about anything live: a failed
+		// machine still naming a resource is never pruned, however old, because
+		// the row is the only record that something was rented and may still be
+		// running. PruneMachines enforces that; this announces what went.
+		{"machines", r.Machines, func(ctx context.Context, before time.Time) (int64, error) {
+			n, ids, err := c.st.PruneMachines(ctx, before)
+			c.publishMachinesDeleted(ids)
+			return n, err
+		}},
 		{"usage capacity", r.Jobs, c.st.PruneUsageCapacity},
 	} {
 		// A zero or negative window means "keep everything", which is what an

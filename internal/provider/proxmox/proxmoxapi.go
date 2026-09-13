@@ -327,10 +327,19 @@ func (e *APIError) Error() string {
 
 // StatusCode returns the HTTP status an error carries, or 0 when it did not
 // come from the cluster at all.
+//
+// It reaches through provider.Error.Cause by hand because that type unwraps to
+// its category sentinel rather than to what went wrong underneath -- on
+// purpose, so that nothing rediscovers a classification from the cause. The
+// status is still worth having for a log line and a test.
 func StatusCode(err error) int {
 	var ae *APIError
 	if errors.As(err, &ae) {
 		return ae.Status
+	}
+	var pe *provider.Error
+	if errors.As(err, &pe) && pe.Cause != nil {
+		return StatusCode(pe.Cause)
 	}
 	return 0
 }

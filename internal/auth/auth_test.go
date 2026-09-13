@@ -684,10 +684,10 @@ func TestJoinTokenIsSingleUseAndExpires(t *testing.T) {
 	if err := st.CreateHost(ctx, h); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.RedeemJoinToken(ctx, plaintext, h.ID); err != nil {
+	if _, err := s.RedeemJoinToken(ctx, plaintext, store.JoinClaim{HostID: h.ID, Name: h.Name}); err != nil {
 		t.Fatalf("RedeemJoinToken: %v", err)
 	}
-	if _, err := s.RedeemJoinToken(ctx, plaintext, h.ID); err == nil {
+	if _, err := s.RedeemJoinToken(ctx, plaintext, store.JoinClaim{HostID: h.ID, Name: h.Name}); err == nil {
 		t.Error("a join token was redeemed twice")
 	}
 
@@ -696,7 +696,7 @@ func TestJoinTokenIsSingleUseAndExpires(t *testing.T) {
 		t.Fatal(err)
 	}
 	c.Advance(2 * time.Minute)
-	if _, err := s.RedeemJoinToken(ctx, second, h.ID); err == nil {
+	if _, err := s.RedeemJoinToken(ctx, second, store.JoinClaim{HostID: h.ID, Name: h.Name}); err == nil {
 		t.Error("an expired join token was accepted")
 	}
 }
@@ -786,7 +786,7 @@ func TestRefusalsSayWhatKindTheyAre(t *testing.T) {
 	if _, _, err := s.CreateAPIToken(ctx, NewToken{Name: "ci", Scopes: []string{"pools:fly"}}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("an unknown scope = %v; want ErrInvalidInput", err)
 	}
-	if _, err := s.RedeemJoinToken(ctx, "zjt_not_a_real_token", "host_x"); !errors.Is(err, ErrInvalidInput) {
+	if _, err := s.RedeemJoinToken(ctx, "zjt_not_a_real_token", store.JoinClaim{HostID: "host_x"}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("a bad join token = %v; want ErrInvalidInput", err)
 	}
 }

@@ -437,12 +437,18 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 
 	var tokenLabels store.StringMap
 	tokenCapacity := 0
+	// machineID is the machine this token was minted for, when it was minted
+	// for one. The link is written after the host row exists, because a
+	// machine's deletion authority over a host is the link -- so a link
+	// written before the row would name a host that may never appear.
+	machineID, joinTokenID := "", ""
 	if !embedded {
-		tok, err := c.authsvc.RedeemJoinToken(ctx, req.JoinToken, hostID)
+		tok, err := c.authsvc.RedeemJoinToken(ctx, req.JoinToken, store.JoinClaim{HostID: hostID, Name: name})
 		if err != nil {
 			return nil, err
 		}
 		tokenLabels, tokenCapacity = tok.Labels, tok.Capacity
+		machineID, joinTokenID = tok.MachineID, tok.ID
 	}
 
 	capacity := req.Capacity
@@ -534,6 +540,21 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 	}
 	if err := c.st.CreateHost(ctx, h); err != nil {
 		return nil, fmt.Errorf("registering host %s: %w", name, err)
+	}
+
+	// The machine that minted this token now has a host. Linking it here
+	// rather than in the machine loop closes the window in which a machine has
+	// enrolled and nothing in the fleet knows which host it became -- and the
+	// machine loop still links on a later pass if this write is lost, because
+	// the token carries the machine and the token names the host.
+	if machineID != "" {
+		if err := c.st.LinkMachineHost(ctx, machineID, h.ID, joinTokenID, now); err != nil {
+			// Not fatal: the host is enrolled and working. The machine loop's
+			// enrolling step retries the link, and quarantines the machine if
+			// the host turns out to belong to something else.
+			c.log.Warn("a machine's host enrolled but could not be linked to it",
+				"machine", machineID, "host", h.ID, "error", err)
+		}
 	}
 
 	c.markHostSeen(h.ID, true)

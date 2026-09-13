@@ -565,6 +565,32 @@ func (s *Store) LinkMachineHost(ctx context.Context, id, hostID, joinTokenID str
 	return nil
 }
 
+// SetMachineAddress records where the provider says the guest can be reached.
+//
+// It is a writer of its own rather than part of a transition because the
+// address is the provider's observation, not a decision: a machine that booted
+// and never joined is looked at through this, and losing it because the state
+// did not happen to move would take away the one thing an operator has to go on.
+func (s *Store) SetMachineAddress(ctx context.Context, id, address string) error {
+	_, err := s.exec(ctx, `UPDATE machines SET address=?, updated_at=? WHERE id=?`,
+		address, ms(s.Now()), id)
+	return err
+}
+
+// SetMachineJoinToken records the credential this machine was given.
+//
+// Last write wins, and deliberately so. Only the hash of a join token is kept,
+// so a payload that was written into a guest and lost cannot be written again
+// with the same token -- the controller mints another and points the row at it.
+// That is safe because both are single-use and both are scoped to this
+// machine's one name, so at most one of them can ever enrol anything, and it is
+// why the caller deletes the one it is replacing.
+func (s *Store) SetMachineJoinToken(ctx context.Context, id, joinTokenID string) error {
+	_, err := s.exec(ctx, `UPDATE machines SET join_token_id=?, updated_at=? WHERE id=?`,
+		joinTokenID, ms(s.Now()), id)
+	return err
+}
+
 // SetMachineIdleSince records when this machine's host last had nothing to do,
 // or clears it. It is the clock scale-down counts from, so it is a writer of
 // its own: a pass that rewrote it every time it looked would make a machine

@@ -939,3 +939,308 @@ func millis(d time.Duration) int64 {
 	}
 	return d.Milliseconds()
 }
+
+// ---------------------------------------------------------------------------
+// Providers and machines
+// ---------------------------------------------------------------------------
+
+// ProviderView is one place machines are rented from, as the API returns it.
+//
+// It carries no credential and has no field one could be put in. What it says
+// about the credential is whether there is one, which is the only thing a page
+// needs: an audit row and a screenshot both outlive the person who took them.
+type ProviderView struct {
+	ID   string             `json:"id"`
+	Kind store.ProviderKind `json:"kind"`
+	Name string             `json:"name"`
+	// Endpoint is where this controller reaches the provider. It is not a
+	// secret -- it is the address an operator typed -- and showing it is how
+	// somebody tells two clusters apart on a page listing both.
+	Endpoint           string            `json:"endpoint,omitempty"`
+	InsecureSkipVerify bool              `json:"insecure_skip_verify,omitempty"`
+	Settings           map[string]string `json:"settings"`
+	// CredentialsConfigured says a credential is sealed in the row. The value
+	// never leaves this process, so this is what the form renders instead.
+	CredentialsConfigured bool `json:"credentials_configured"`
+
+	MachineLabels   map[string]string `json:"machine_labels"`
+	MachineCapacity int               `json:"machine_capacity"`
+	MachineBackend  store.BackendKind `json:"machine_backend"`
+	MachinePlatform store.Platform    `json:"machine_platform"`
+	MachineCPUs     float64           `json:"machine_cpus,omitempty"`
+	MachineMemoryMB int64             `json:"machine_memory_mb,omitempty"`
+	MachineDiskMB   int64             `json:"machine_disk_mb,omitempty"`
+
+	PoolSelector       map[string]string `json:"pool_selector"`
+	MaxMachines        int               `json:"max_machines"`
+	MaxCreatesInFlight int               `json:"max_creates_in_flight"`
+	IdleTimeoutMS      int64             `json:"idle_timeout_ms,omitempty"`
+	CostPerMachineHour float64           `json:"cost_per_machine_hour,omitempty"`
+	Enabled            bool              `json:"enabled"`
+
+	Paused       bool       `json:"paused"`
+	PausedReason string     `json:"paused_reason,omitempty"`
+	PausedUntil  *time.Time `json:"paused_until,omitempty"`
+	// Held is why no new machine may be bought right now, in one sentence, or
+	// empty when one may. It is computed rather than stored because it answers
+	// for three switches at once -- the fence, the configuration and the row --
+	// and a page that showed only the row's would say a fenced fleet was fine.
+	Held                string     `json:"held,omitempty"`
+	ConsecutiveFailures int        `json:"consecutive_failures,omitempty"`
+	LastCheckAt         *time.Time `json:"last_check_at,omitempty"`
+	LastCheckError      string     `json:"last_check_error,omitempty"`
+	LastSweepAt         *time.Time `json:"last_sweep_at,omitempty"`
+
+	// Machines is how many this provider has, by state, so the card can show
+	// the band without a second request.
+	Machines map[string]int `json:"machines"`
+	// Owned is how many still believe they have a resource, which is the
+	// number the ceiling and the bill are both counted in.
+	Owned     int       `json:"owned"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// ProviderView renders a provider with its machine counts and whatever is
+// currently holding it back.
+func (c *Controller) ProviderView(p *store.Provider, machines []*store.Machine) ProviderView {
+	out := ProviderView{
+		ID:                    p.ID,
+		Kind:                  p.Kind,
+		Name:                  p.Name,
+		Endpoint:              p.Endpoint,
+		InsecureSkipVerify:    p.InsecureSkipVerify,
+		Settings:              emptyMap(p.Settings),
+		CredentialsConfigured: len(p.CredentialsEnc) > 0,
+		MachineLabels:         emptyMap(p.MachineLabels),
+		MachineCapacity:       p.MachineCapacity,
+		MachineBackend:        p.MachineBackend,
+		MachinePlatform:       p.MachinePlatform,
+		MachineCPUs:           p.MachineCPUs,
+		MachineMemoryMB:       p.MachineMemoryMB,
+		MachineDiskMB:         p.MachineDiskMB,
+		PoolSelector:          emptyMap(p.PoolSelector),
+		MaxMachines:           p.MaxMachines,
+		MaxCreatesInFlight:    p.MaxCreatesInFlight,
+		IdleTimeoutMS:         millis(time.Duration(p.IdleTimeout)),
+		CostPerMachineHour:    p.CostPerMachineHour,
+		Enabled:               p.Enabled,
+		Paused:                p.Paused,
+		PausedReason:          p.PausedReason,
+		PausedUntil:           p.PausedUntil,
+		Held:                  c.provisioningHeld(p, c.Now()),
+		ConsecutiveFailures:   p.ConsecutiveFailures,
+		LastCheckAt:           p.LastCheckAt,
+		LastCheckError:        p.LastCheckError,
+		LastSweepAt:           p.LastSweepAt,
+		Machines:              map[string]int{},
+		CreatedAt:             p.CreatedAt,
+		UpdatedAt:             p.UpdatedAt,
+	}
+	for _, m := range machines {
+		if m == nil || m.ProviderID != p.ID {
+			continue
+		}
+		out.Machines[string(m.State)]++
+		if m.Owns() {
+			out.Owned++
+		}
+	}
+	return out
+}
+
+// MachineView is one rented machine, as the API returns it.
+//
+// The ownership fingerprint is deliberately absent from the JSON. It is not a
+// secret, but it is the mark a delete is checked against, and putting it on a
+// page invites somebody to write it onto a resource by hand.
+type MachineView struct {
+	ID           string             `json:"id"`
+	ProviderID   string             `json:"provider_id"`
+	ProviderName string             `json:"provider_name,omitempty"`
+	Kind         store.ProviderKind `json:"provider_kind,omitempty"`
+	Name         string             `json:"name"`
+	State        store.MachineState `json:"state"`
+	Message      string             `json:"message,omitempty"`
+	PoolID       string             `json:"pool_id,omitempty"`
+	PoolName     string             `json:"pool_name,omitempty"`
+
+	ResourceZone string `json:"resource_zone,omitempty"`
+	ResourceID   string `json:"resource_id,omitempty"`
+	Address      string `json:"address,omitempty"`
+	// OwnerFingerprint is carried on the type so the orphan page's server side
+	// can compare, and never rendered.
+	OwnerFingerprint    string     `json:"-"`
+	OwnershipVerifiedAt *time.Time `json:"ownership_verified_at,omitempty"`
+	OwnershipError      string     `json:"ownership_error,omitempty"`
+
+	HostID   string            `json:"host_id,omitempty"`
+	HostName string            `json:"host_name,omitempty"`
+	Capacity int               `json:"capacity,omitempty"`
+	Labels   map[string]string `json:"labels"`
+
+	// Operation and OperationHandle are what an operator pastes into the
+	// provider's own task log when they want to see the other half of a step
+	// that is taking too long.
+	Operation       store.MachineOpKind    `json:"operation,omitempty"`
+	OperationID     string                 `json:"operation_id,omitempty"`
+	OperationHandle string                 `json:"operation_handle,omitempty"`
+	OperationHolder string                 `json:"operation_holder,omitempty"`
+	OperationSince  *time.Time             `json:"operation_since,omitempty"`
+	OutcomeUnknown  bool                   `json:"outcome_unknown,omitempty"`
+	Attempts        int                    `json:"attempts,omitempty"`
+	NextAttemptAt   *time.Time             `json:"next_attempt_at,omitempty"`
+	ProviderError   string                 `json:"provider_error,omitempty"`
+	BootstrapError  string                 `json:"bootstrap_error,omitempty"`
+	SafeToDelete    bool                   `json:"safe_to_delete"`
+	SafeToDeleteWhy string                 `json:"safe_to_delete_why,omitempty"`
+	Timeline        []MachineTimelineEntry `json:"timeline"`
+	CreatedAt       time.Time              `json:"created_at"`
+	UpdatedAt       time.Time              `json:"updated_at"`
+	ReadyAt         *time.Time             `json:"ready_at,omitempty"`
+	IdleSince       *time.Time             `json:"idle_since,omitempty"`
+	DeletedAt       *time.Time             `json:"deleted_at,omitempty"`
+}
+
+// MachineTimelineEntry is one phase a machine has reached, so the detail page
+// reads as a life rather than as a row of timestamps.
+type MachineTimelineEntry struct {
+	Phase string    `json:"phase"`
+	At    time.Time `json:"at"`
+}
+
+// MachineRenderer renders a page of machines with their provider, pool and
+// host names filled in, taking the lookups once rather than per row.
+type MachineRenderer struct {
+	providers map[string]*store.Provider
+	pools     map[string]string
+	hosts     map[string]string
+	now       time.Time
+	c         *Controller
+}
+
+// MachineRenderer gathers what the machine views need. A list endpoint would
+// otherwise be N+1 in three directions at once.
+func (c *Controller) MachineRenderer(ctx context.Context) (*MachineRenderer, error) {
+	providers, err := c.st.ListProviders(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing providers: %w", err)
+	}
+	pools, err := c.st.ListPools(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing pools: %w", err)
+	}
+	hosts, err := c.st.ListHosts(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing hosts: %w", err)
+	}
+	r := &MachineRenderer{
+		providers: make(map[string]*store.Provider, len(providers)),
+		pools:     poolNames(pools),
+		hosts:     make(map[string]string, len(hosts)),
+		now:       c.Now(),
+		c:         c,
+	}
+	for _, p := range providers {
+		r.providers[p.ID] = p
+	}
+	for _, h := range hosts {
+		r.hosts[h.ID] = h.Name
+	}
+	return r, nil
+}
+
+// View renders one machine.
+func (r *MachineRenderer) View(m *store.Machine) MachineView {
+	out := MachineView{
+		ID:                  m.ID,
+		ProviderID:          m.ProviderID,
+		Name:                m.Name,
+		State:               m.State,
+		Message:             m.Message,
+		PoolID:              m.PoolID,
+		PoolName:            r.pools[m.PoolID],
+		ResourceZone:        m.ResourceZone,
+		ResourceID:          m.ResourceID,
+		Address:             m.Address,
+		OwnerFingerprint:    m.OwnerFingerprint,
+		OwnershipVerifiedAt: m.OwnershipVerifiedAt,
+		OwnershipError:      m.OwnershipError,
+		HostID:              m.HostID,
+		HostName:            r.hosts[m.HostID],
+		Capacity:            m.Capacity,
+		Labels:              emptyMap(m.Labels),
+		Operation:           m.OpKind,
+		OperationID:         m.OpID,
+		OperationHandle:     m.OpHandle,
+		OperationHolder:     m.OpHolder,
+		OperationSince:      m.OpStartedAt,
+		OutcomeUnknown:      m.OpOutcomeUnknown,
+		Attempts:            m.Attempts,
+		NextAttemptAt:       m.NextAttemptAt,
+		ProviderError:       m.ProviderError,
+		BootstrapError:      m.BootstrapError,
+		Timeline:            machineTimeline(m),
+		CreatedAt:           m.CreatedAt,
+		UpdatedAt:           m.UpdatedAt,
+		ReadyAt:             m.ReadyAt,
+		IdleSince:           m.IdleSince,
+		DeletedAt:           m.DeletedAt,
+	}
+	if p := r.providers[m.ProviderID]; p != nil {
+		out.ProviderName, out.Kind = p.Name, p.Kind
+	}
+	out.SafeToDelete, out.SafeToDeleteWhy = machineSafeToDelete(m, r.now)
+	return out
+}
+
+// machineSafeToDelete answers the question the orphan page asks before it
+// offers a button, and says why when the answer is no.
+//
+// It is a reading of the row alone. The delete itself asks the provider again
+// -- an observation older than a minute is not evidence -- so this is what an
+// operator is shown rather than what the reconciler acts on.
+func machineSafeToDelete(m *store.Machine, now time.Time) (bool, string) {
+	switch {
+	case m.DeletedAt != nil:
+		return false, "this machine's resource has already been confirmed gone"
+	case m.ResourceID == "":
+		return false, "this machine never got as far as a resource, so there is nothing to delete"
+	case m.OwnershipError != "":
+		return false, m.OwnershipError
+	case m.OwnershipVerifiedAt == nil:
+		return false, "nothing has confirmed this resource is ours since the last check; the next ownership sweep will"
+	case now.Sub(*m.OwnershipVerifiedAt) > observationMaxAge:
+		return false, "the last time anything confirmed this resource is ours is too old to act on; the next ownership sweep will refresh it"
+	}
+	return true, ""
+}
+
+// machineTimeline is the phases this machine actually reached, in order. A
+// phase it skipped -- a provider whose create leaves the guest running skips
+// starting -- is absent rather than zero, because a zero timestamp in a
+// timeline reads as 1970.
+func machineTimeline(m *store.Machine) []MachineTimelineEntry {
+	out := make([]MachineTimelineEntry, 0, 8)
+	for _, e := range []struct {
+		phase string
+		at    *time.Time
+	}{
+		{"planned", &m.CreatedAt},
+		{"creating", m.CreateStartedAt},
+		{"created", m.CreatedOKAt},
+		{"starting", m.StartedAt},
+		{"bootstrapped", m.BootstrappedAt},
+		{"enrolled", m.EnrolledAt},
+		{"ready", m.ReadyAt},
+		{"draining", m.DrainingAt},
+		{"deleting", m.DeleteStartedAt},
+		{"deleted", m.DeletedAt},
+	} {
+		if e.at == nil || e.at.IsZero() {
+			continue
+		}
+		out = append(out, MachineTimelineEntry{Phase: e.phase, At: *e.at})
+	}
+	return out
+}

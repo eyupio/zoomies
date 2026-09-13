@@ -218,6 +218,12 @@ func TestNoMetricDeclaresAnUnboundedLabel(t *testing.T) {
 		// Registered hosts are operator-managed fleet entities like pools;
 		// ephemeral runner/container IDs remain excluded.
 		"host": true,
+		// A provider is a configuration row somebody wrote, like a pool, and
+		// there are a handful of them. "kind" is the five operations the
+		// provider contract defines, which is a closed set in the source --
+		// neither grows with the fleet's work, which is what this test is
+		// about; a machine id would, and is deliberately absent.
+		"provider": true, "kind": true,
 	}
 
 	descs := make(chan *prometheus.Desc, 256)

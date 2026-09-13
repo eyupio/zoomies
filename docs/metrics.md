@@ -59,6 +59,8 @@ memory, so they are always current and never drift.
 | `zoomies_host_reserved_memory_bytes` | gauge | — | The same for memory. Divide by the allocatable pair for "how full are the machines", which is a different question from how full the slots are. |
 | `zoomies_job_queue_age_seconds` | gauge | `pool` | How long the oldest job still waiting has been waiting. Zero when the pool has nothing queued. |
 | `zoomies_github_paused` | gauge | `installation` | 1 while that installation is inside its GitHub rate-limit backoff and every background sweep is standing down from it. |
+| `zoomies_provider_machines` | gauge | `provider`, `state` | Machines a provider is renting, by state. Every state is reported including the zeroes, so a provider that has stopped buying is visible rather than absent. |
+| `zoomies_provider_machines_quarantined` | gauge | — | Machines whose ownership could not be proved. Nothing will move one until a person does, so this is a queue of work rather than a shape — alert on any sustained non-zero value. |
 
 **Slots and resources answer different questions too.** `zoomies_host_capacity`
 counts what the fleet will *take*; the allocatable and reserved pairs say
@@ -98,6 +100,7 @@ will not fire when the numbers stop arriving altogether.
 | `zoomies_reconcile_errors_total` | counter | — | Reconcile passes that failed. A pass that fails observes no duration, so without this a controller deciding nothing looks exactly like one with nothing to decide. |
 | `zoomies_agent_polls_shed_total` | counter | — | Task polls answered with a backoff because the controller was holding too many at once. A fleet that keeps working while every host hears about its tasks a little later moves nothing else here, so this is the only place that pressure shows. |
 | `zoomies_github_api_requests_total` | counter | `installation`, `result` | GitHub API calls by outcome: `ok`, `rate_limited`, `forbidden`, `not_found`, `error`. Where rate-limiting and a broken installation become visible. |
+| `zoomies_provider_operations_total` | counter | `kind`, `outcome` | Provider operations by what was attempted — `create`, `start`, `stop`, `bootstrap`, `delete` — and how it went: `ok`, `ambiguous`, `quota`, `unreachable` or `refused`. `ambiguous` is separated from the failures because it means something different: a create that failed cost nothing, and a create whose answer was lost may already be a machine somebody is paying for. Any sustained rate of it is worth looking at. |
 
 Every `pool` label is the pool's **name**, so a query can join these against
 the gauges above on `pool`. Work no pool claims is counted under the literal
@@ -111,6 +114,7 @@ not to name one that.
 | `zoomies_job_queue_wait_seconds` | histogram | Queued to picked up. The number that answers "is the fleet big enough?". |
 | `zoomies_job_duration_seconds` | histogram | How long jobs ran once started. Capacity planning. |
 | `zoomies_reconcile_duration_seconds` | histogram | One reconcile pass, including its GitHub calls. A rising p99 means the control loop is being held up by GitHub rather than by itself. |
+| `zoomies_provider_operation_seconds` | histogram | One request to a provider, labelled `kind`. It measures the request, not the clone the request starts: a create that takes four minutes at the hypervisor appears here as the second it took to accept the job. |
 
 ## Where a slow start actually goes
 
@@ -147,6 +151,17 @@ Older cleanup timestamps are retained as `cleanup_estimated_at`, labelled as
 estimates, and never used as confirmed completion. Compare scheduling figures
 with the scheduler interval and available capacity; compare cleanup duration
 with retention before interpreting either as a delay.
+
+## Machines a fleet is renting
+
+Present only when a [provider](providers.md) is configured.
+
+| Metric | Type | Labels | What it is |
+| --- | --- | --- | --- |
+| `zoomies_provider_machines` | gauge | `provider`, `state` | Machines by provider and lifecycle state, read from the rows at scrape time so it cannot drift across a restart. |
+| `zoomies_provider_machines_quarantined` | gauge | — | Machines whose ownership could not be proved. Nothing will act on one until a person does, so this is a queue of work rather than a shape: **alert on it above zero**. |
+| `zoomies_provider_operations_total` | counter | `kind`, `outcome` | Provider operations, by what was attempted and how it ended: `ok`, `ambiguous`, `quota`, `unreachable` or `refused`. `ambiguous` is its own value on purpose — a create that failed costs nothing, and a create whose answer was lost may already be a machine somebody is paying for. |
+| `zoomies_provider_operation_seconds` | histogram | `kind` | How long one provider request took. It measures the request, not the clone the request starts. |
 
 ## Build information
 

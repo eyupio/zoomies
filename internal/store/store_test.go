@@ -192,10 +192,10 @@ func TestJoinTokenIsSingleUse(t *testing.T) {
 	if err := s.CreateJoinToken(ctx, tok); err != nil {
 		t.Fatalf("CreateJoinToken: %v", err)
 	}
-	if _, err := s.RedeemJoinToken(ctx, "hash", "host_1", now); err != nil {
+	if _, err := s.RedeemJoinToken(ctx, "hash", JoinClaim{HostID: "host_1"}, now); err != nil {
 		t.Fatalf("first redeem: %v", err)
 	}
-	if _, err := s.RedeemJoinToken(ctx, "hash", "host_2", now); err == nil {
+	if _, err := s.RedeemJoinToken(ctx, "hash", JoinClaim{HostID: "host_2"}, now); err == nil {
 		t.Fatal("second redeem succeeded; join tokens must be single use")
 	}
 }
@@ -217,7 +217,7 @@ func TestJoinTokenRemembersWhichHostUsedIt(t *testing.T) {
 	if !fresh.Usable(now) || fresh.UsedByID != "" {
 		t.Fatalf("an unredeemed token reads as %+v", fresh)
 	}
-	if _, err := s.RedeemJoinToken(ctx, "hash", "host_1", now); err != nil {
+	if _, err := s.RedeemJoinToken(ctx, "hash", JoinClaim{HostID: "host_1"}, now); err != nil {
 		t.Fatalf("redeem: %v", err)
 	}
 	spent, err := s.GetJoinToken(ctx, tok.ID)
