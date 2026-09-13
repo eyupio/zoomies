@@ -58,12 +58,12 @@ const (
 
 // stepBootstrapping puts the enrolment payload inside the guest.
 //
-// The token is minted exactly once per machine: join_token_id is written the
-// first time and read on every pass after it, so a bootstrap that has to be
-// re-run -- and it may be, because a payload that was written and never
-// acknowledged is indistinguishable from one that was lost -- re-runs with the
-// SAME token. Minting a second would leave the first unspent and the machine
-// able to enrol twice.
+// A bootstrap may have to be run again -- a payload that was written and never
+// acknowledged is indistinguishable from one that was lost -- so the first
+// question it asks is whether this machine's credential has already been
+// spent. A redeemed token is proof the guest got the payload, whatever became
+// of the acknowledgement, and re-running would then be writing over an agent
+// that is already joining.
 func (c *Controller) stepBootstrapping(ctx context.Context, env *machineEnv, pr *machineProvider, m *store.Machine) error {
 	if m.OpHandle != "" {
 		status, err := pr.p.Operation(ctx, provider.OperationRef{Kind: provider.OpBootstrap, Handle: m.OpHandle})
@@ -91,6 +91,18 @@ func (c *Controller) stepBootstrapping(ctx context.Context, env *machineEnv, pr 
 				"the agent is installed and is joining this controller")
 			return nil
 		}
+	}
+
+	// A token this machine minted that has already been spent means the agent
+	// inside the guest has what it needs, whatever became of the payload we
+	// wrote: the write is what could be lost, and the redemption is proof it
+	// was not.
+	if spent, err := c.machineTokenSpent(ctx, m); err != nil {
+		c.log.Warn("could not read a machine's join token", "machine", m.ID, "error", err)
+	} else if spent {
+		c.transitionMachine(ctx, env, m, store.MachineEnrolling,
+			"the agent has its credential and is joining this controller")
+		return nil
 	}
 
 	boot, ok := pr.p.(provider.Bootstrapper)
@@ -135,26 +147,32 @@ func (c *Controller) machineBootstrap(ctx context.Context, env *machineEnv, row 
 }
 
 // machineJoinToken returns the plaintext of this machine's join token, minting
-// one the first time.
+// one when it has none this pass can use.
 //
 // A token already minted cannot be re-read -- only its hash is stored -- so a
-// machine whose payload was written and lost gets a fresh token and the old one
-// is left to expire unspent. That is the one place this design mints twice, and
-// it is safe because both are scoped to the same single name and only one of
-// them can ever be redeemed.
+// machine whose payload was written and lost gets a fresh one, and the one it
+// replaces is revoked rather than left to expire. Either would be safe, since
+// both are single-use and scoped to the same single name; revoking is what
+// keeps "one machine, one live credential" true rather than merely harmless.
 func (c *Controller) machineJoinToken(ctx context.Context, env *machineEnv, row *store.Provider, m *store.Machine) (string, error) {
 	if m.JoinTokenID != "" {
-		tok, err := c.st.GetJoinToken(ctx, m.JoinTokenID)
+		spent, err := c.machineTokenSpent(ctx, m)
 		switch {
-		case err == nil && tok.UsedAt != nil:
+		case err != nil:
+			return "", err
+		case spent:
 			// Already redeemed: the agent has what it needs and the machine is
 			// waiting to be linked, not to be bootstrapped again.
 			return "", fmt.Errorf("%w: machine %s has already spent its join token", errMachineWaiting, m.ID)
-		case err == nil && tok.Usable(env.now):
-			// Still usable, and we cannot read it back. Re-minting is the only
-			// way to write the payload again; the old one expires unspent.
-		case err != nil && !errors.Is(err, store.ErrNotFound):
-			return "", err
+		}
+		// Unspent, and its plaintext cannot be read back -- only the hash is
+		// kept. Re-minting is the only way to write the payload again, and the
+		// one it replaces is revoked here rather than left to expire: two live
+		// credentials for one machine is one more than the design allows
+		// itself, even where both are scoped to the same single name.
+		if err := c.st.DeleteJoinToken(ctx, m.JoinTokenID); err != nil && !errors.Is(err, store.ErrNotFound) {
+			c.log.Warn("could not revoke a machine's unused join token",
+				"machine", m.ID, "token", m.JoinTokenID, "error", err)
 		}
 	}
 	ttl := env.cfg.Provider.EnrolTimeout + machineTokenGrace
@@ -176,6 +194,23 @@ func (c *Controller) machineJoinToken(ctx context.Context, env *machineEnv, row 
 	}
 	m.JoinTokenID = tok.ID
 	return plaintext, nil
+}
+
+// machineTokenSpent reports whether the credential this machine was given has
+// been redeemed, which is the only proof that the payload reached the guest.
+func (c *Controller) machineTokenSpent(ctx context.Context, m *store.Machine) (bool, error) {
+	if m.JoinTokenID == "" {
+		return false, nil
+	}
+	tok, err := c.st.GetJoinToken(ctx, m.JoinTokenID)
+	if errors.Is(err, store.ErrNotFound) {
+		// Pruned or revoked: not proof of anything, and a fresh one is minted.
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return tok.UsedAt != nil, nil
 }
 
 // bootstrapPayload renders what goes into the guest. It is pure so that the

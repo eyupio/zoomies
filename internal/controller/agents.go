@@ -555,6 +555,10 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 			c.log.Warn("a machine's host enrolled but could not be linked to it",
 				"machine", machineID, "host", h.ID, "error", err)
 		}
+		// The machine the fleet has been waiting minutes for has arrived, and
+		// the pass that marks it ready is worth having now rather than at the
+		// next tick.
+		c.NudgeMachines()
 	}
 
 	c.markHostSeen(h.ID, true)
