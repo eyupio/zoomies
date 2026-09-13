@@ -127,3 +127,21 @@ func TestARefusalDoesNotReprintAWholeUnreasonableString(t *testing.T) {
 		t.Errorf("the refusal was %d bytes long; it quotes its input without limit", len(err.Error()))
 	}
 }
+
+// The absent handle. A machine that has no operation in flight carries an empty
+// one, and every caller asks this rather than comparing to "" -- so that a
+// synchronous provider returning no handle and a machine between operations
+// answer the same way.
+func TestTheAbsentHandleIsTellableFromARealOne(t *testing.T) {
+	var none UPID
+	if !none.Zero() {
+		t.Error("the zero handle does not report itself as absent")
+	}
+	got, err := ParseUPID("UPID:pve-1:00051234:0089ABCD:65F0A1B2:qmclone:143:root@pam:")
+	if err != nil {
+		t.Fatalf("ParseUPID: %v", err)
+	}
+	if got.Zero() {
+		t.Error("a real task handle reports itself as absent")
+	}
+}
