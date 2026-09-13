@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -215,5 +216,43 @@ func TestEveryActionIsOneSomethingChecks(t *testing.T) {
 		if action == "runners.create" {
 			t.Error("runners.create is back; no route checks it, so granting it means nothing")
 		}
+	}
+}
+
+// A token hands authority on, so it must not hand on more than its maker has:
+// a leaked token narrowed to one resource would otherwise be one request away
+// from an unscoped one that never expires.
+func TestATokenCannotMintMoreThanItsMakerHolds(t *testing.T) {
+	tests := []struct {
+		name   string
+		by     *Identity
+		role   store.Role
+		scopes []string
+		wantOK bool
+	}{
+		{"a user mints anything up to their role", &Identity{Kind: KindUser, Role: store.RoleAdmin}, store.RoleAdmin, nil, true},
+		{"an operator cannot mint an admin", &Identity{Kind: KindUser, Role: store.RoleOperator}, store.RoleAdmin, nil, false},
+		{"an operator can mint a viewer", &Identity{Kind: KindUser, Role: store.RoleOperator}, store.RoleViewer, nil, true},
+		{"a scoped token cannot mint an unscoped one", &Identity{Kind: KindToken, Role: store.RoleAdmin, Scopes: []string{"tokens:*"}}, store.RoleAdmin, nil, false},
+		{"a scoped token cannot reach past its scopes", &Identity{Kind: KindToken, Role: store.RoleAdmin, Scopes: []string{"tokens:*"}}, store.RoleAdmin, []string{"pools:write"}, false},
+		{"a scoped token can mint within its scopes", &Identity{Kind: KindToken, Role: store.RoleAdmin, Scopes: []string{"pools:*"}}, store.RoleAdmin, []string{"pools:write"}, true},
+		{"a resource scope covers reading it", &Identity{Kind: KindToken, Role: store.RoleAdmin, Scopes: []string{"pools:write"}}, store.RoleViewer, []string{"pools:read"}, true},
+		{"a wildcard is only minted by a wildcard", &Identity{Kind: KindToken, Role: store.RoleAdmin, Scopes: []string{"pools:*"}}, store.RoleViewer, []string{"*"}, false},
+		{"a wildcard covers everything", &Identity{Kind: KindToken, Role: store.RoleAdmin, Scopes: []string{"*"}}, store.RoleAdmin, []string{"hosts:write"}, true},
+		{"nobody mints nothing", nil, store.RoleViewer, nil, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := MintWithin(tc.by, tc.role, tc.scopes)
+			if tc.wantOK && err != nil {
+				t.Fatalf("refused: %v", err)
+			}
+			if !tc.wantOK && err == nil {
+				t.Fatal("allowed a token to carry more than its maker")
+			}
+			if err != nil && !errors.Is(err, ErrInvalidInput) {
+				t.Fatalf("a refusal has to be something the API answers 422 to, got %v", err)
+			}
+		})
 	}
 }

@@ -264,6 +264,42 @@ func scopesAllow(scopes []string, a Action) bool {
 	return false
 }
 
+// MintWithin refuses a token that would carry more than the identity minting
+// it. A token is a way to hand authority on, and handing on more than one
+// holds is how a narrowly scoped credential that leaked turns into an
+// unscoped one that never expires: the role may not exceed the caller's, and
+// a caller narrowed by scopes may only mint a token narrowed at least as far.
+//
+// The check is made against the actions themselves rather than the scope
+// strings, so "pools:*" covers "pools:write", any scope on a resource covers
+// reading it, and a new action needs no change here.
+func MintWithin(by *Identity, role store.Role, scopes []string) error {
+	if by == nil {
+		return Invalid("a token can only be minted by an authenticated caller")
+	}
+	if !by.Role.AtLeast(role) {
+		return Invalid("a %s cannot mint a %s token; a token carries no more than the caller that made it", by.Role, role)
+	}
+	if len(by.Scopes) == 0 {
+		return nil
+	}
+	if len(scopes) == 0 {
+		return Invalid("this token is limited to %s, so the tokens it mints need scopes within that; an unscoped token would carry the whole role",
+			strings.Join(by.Scopes, ", "))
+	}
+	var beyond []string
+	for _, a := range AllActions() {
+		if scopesAllow(scopes, a) && !scopesAllow(by.Scopes, a) {
+			beyond = append(beyond, a.Scope())
+		}
+	}
+	if len(beyond) > 0 {
+		return Invalid("this token is limited to %s and cannot mint one that reaches %s",
+			strings.Join(by.Scopes, ", "), strings.Join(beyond, ", "))
+	}
+	return nil
+}
+
 // ValidateScopes checks a token's requested scopes against the action list, so
 // a typo is rejected at creation time rather than silently granting nothing.
 func ValidateScopes(scopes []string) error {

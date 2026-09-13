@@ -1306,7 +1306,15 @@ export interface paths {
          */
         get: operations["listTokens"];
         put?: never;
-        /** Create an API token */
+        /**
+         * Create an API token
+         * @description A token carries no more than the caller that made it: the role may not
+         *     exceed the caller's, and a caller narrowed by scopes may only mint a
+         *     token narrowed at least as far. The token is attributed to the account
+         *     behind the caller -- the signed-in user, or the owner of the token in
+         *     use -- so disabling or deleting that account ends it too. A token with
+         *     no owner cannot mint tokens; anything wider than the caller is a 422.
+         */
         post: operations["createToken"];
         delete?: never;
         options?: never;

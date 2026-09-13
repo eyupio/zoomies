@@ -143,6 +143,12 @@ type Identity struct {
 	// TokenID is set when the caller authenticated with an API token, so a
 	// leaked token can be traced through the audit log to the actions it took.
 	TokenID string
+	// UserID is the account this identity acts for: the user's own ID for a
+	// session, and the owner of the token for a token. It is what a token
+	// minted by this identity is attributed to, so that disabling or deleting
+	// the account still ends every credential that descends from it. Empty
+	// for an agent, the controller itself, and a token that has no owner.
+	UserID string
 	// IP is the client address the request came from, recorded in the audit log.
 	IP string
 }
@@ -202,7 +208,7 @@ func AgentIdentity(h *store.Host, ip string) *Identity {
 // startup warning on the loopback-with-nothing-in-front case that is left, so
 // this cannot be reached by accident on a real deployment.
 func DevIdentity(ip string) *Identity {
-	return &Identity{Kind: KindUser, ID: "dev", Name: "auth-disabled", Role: store.RoleAdmin, IP: ip}
+	return &Identity{Kind: KindUser, ID: "dev", Name: "auth-disabled", Role: store.RoleAdmin, UserID: "dev", IP: ip}
 }
 
 // Service is the package's entry point: it owns the store handle, the security
@@ -678,6 +684,7 @@ func (s *Service) authenticateToken(ctx context.Context, token, ip string) (*Ide
 		Role:    t.Role,
 		Scopes:  t.Scopes,
 		TokenID: t.ID,
+		UserID:  t.UserID,
 		IP:      ip,
 	}, nil
 }
@@ -701,7 +708,7 @@ func (s *Service) authenticateSession(ctx context.Context, cookie, ip string) (*
 	if u.Disabled {
 		return nil, ErrAccountDisabled
 	}
-	return &Identity{Kind: KindUser, ID: u.ID, Name: u.Username, Role: u.Role, IP: ip}, nil
+	return &Identity{Kind: KindUser, ID: u.ID, Name: u.Username, Role: u.Role, UserID: u.ID, IP: ip}, nil
 }
 
 // touch records that a token was used, at most once per touchInterval.

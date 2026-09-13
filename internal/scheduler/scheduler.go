@@ -250,6 +250,7 @@ func Decide(s Snapshot) Plan {
 		jitter:             s.Jitter,
 		lastProvisioned:    s.LastProvisioned,
 		held:               s.HeldInstallations,
+		stillRunning:       runnersWithAJob(s.Jobs),
 	}
 	if t.budget <= 0 {
 		// An unset cap must not stall the fleet; host capacity still bounds us.
@@ -282,6 +283,11 @@ type tick struct {
 	jitter             map[string]float64
 	lastProvisioned    map[string]time.Time
 	held               map[string]time.Time
+	// stillRunning is every runner with a job in progress on it, whatever the
+	// row says its state is. A runner given up as lost is failed while its job
+	// is still running, and the late-report path keeps that workload alive
+	// on purpose; the reap has to know not to take it back.
+	stillRunning map[string]bool
 }
 
 // assign maps every queued job onto the pool that will run it, and collects the
@@ -462,6 +468,17 @@ func startFailures(runners []*store.Runner, now time.Time) []*store.Runner {
 	slices.SortStableFunc(out, func(a, b *store.Runner) int {
 		return failedAt(b).Compare(failedAt(a))
 	})
+	return out
+}
+
+// runnersWithAJob is the set of runners a job in progress is attributed to.
+func runnersWithAJob(jobs []*store.Job) map[string]bool {
+	out := map[string]bool{}
+	for _, j := range jobs {
+		if j.State == store.JobInProgress && j.RunnerID != "" {
+			out[j.RunnerID] = true
+		}
+	}
 	return out
 }
 
@@ -663,7 +680,15 @@ func (t *tick) reap(p *store.Pool, runners []*store.Runner) (actions []Action, r
 			// by removing it quickly, and everything to lose: the message on
 			// it is the only record of why it failed. It stays on the page
 			// for the retention, then goes.
-			if t.now.Sub(failedAt(r)) >= failedRetention {
+			//
+			// Unless a job is still running on it. A host that went quiet
+			// long enough to be given up as lost has its runners failed, and
+			// when it comes back with the job still going the workload is
+			// deliberately left to finish. Removing the row now would remove
+			// the container under that job for no reason but tidiness; the
+			// removal waits until the job has ended, which the reap sees on
+			// a later pass.
+			if t.now.Sub(failedAt(r)) >= failedRetention && !t.stillRunning[r.ID] {
 				removes = append(removes, t.action(ActionRemove, p, r, fmt.Sprintf(
 					"runner failed %s ago; its failure has been on the Runners page long enough",
 					formatDuration(t.now.Sub(failedAt(r)).Truncate(time.Minute)))))

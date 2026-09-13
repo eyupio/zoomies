@@ -157,7 +157,11 @@ re-encryption in v1.
   it takes `oidc.link_by_username`. An `email` claim is used as a username only
   when the provider says `email_verified`.
 * **API tokens** — `zoo_<prefix>_<secret>`, sent as `Authorization: Bearer`.
-  Carry a role and optionally a narrower scope list.
+  Carry a role and optionally a narrower scope list. A token can mint tokens,
+  but never one wider than itself: the role is capped at the caller's, a
+  scoped token can only mint within its scopes, and the result belongs to the
+  same account, so a leaked token narrowed to one resource cannot be turned
+  into an unscoped one that outlives its revocation.
 * **Agents** — a separate credential class that can only reach `/api/v1/agent/*`,
   and only for their own host: an agent may report on its own runners and write
   into its own log relay, and gets the same "no such stream" answer for anybody

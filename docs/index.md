@@ -43,7 +43,6 @@ curl -fsSL https://zoomies.sh/install.sh | sh
   <li>Single Go binary</li>
   <li>No Kubernetes</li>
   <li>No database server</li>
-  <li>Early beta</li>
 </ul>
 
 </div>
@@ -233,7 +232,7 @@ Windows runners are not supported, and there is no macOS runner image.
 
 ## What is qualified
 
-Zoomies is an early beta, and this project keeps a
+This project keeps a
 [support matrix](https://github.com/eyupio/zoomies/blob/main/roadmap/support-and-measurement.md)
 that separates what a test has actually run on from what merely builds. Read it
 before you put anything precious on this. Today, in short: the controller, the
@@ -285,8 +284,7 @@ blast radius of each execution as small as it reasonably can:
 Every setting that trades any of that away is named at startup, listed in the
 UI, and documented in [Security](security.md) with what it actually costs you.
 
-Zoomies is an early beta, and the honest advice is to start it on workloads you
-already trust. [What is qualified](#what-is-qualified) says which parts have
+The honest advice is still to start it on workloads you already trust. [What is qualified](#what-is-qualified) says which parts have
 been run and which have only been built.
 
 <div class="zoomies-cta" markdown>

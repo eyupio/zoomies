@@ -16,8 +16,9 @@ operate — without Kubernetes and without a database server.
 
 Single Go binary. SQLite. AGPL-3.0.
 
-*Early beta, for workloads you trust. The [support matrix](https://zoomies.sh/#what-is-qualified)
-separates what a test has actually run on from what merely builds.*
+*The [support matrix](https://zoomies.sh/#what-is-qualified) separates what a
+test has actually run on from what merely builds. Read it before you put
+anything precious on this.*
 
 [![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-2F80ED?labelColor=080808)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/eyupio/zoomies?display_name=tag&include_prereleases&color=2F80ED&labelColor=080808)](https://github.com/eyupio/zoomies/releases)
