@@ -23,6 +23,14 @@ on:
       - "mkdocs.yml"
       - "install.sh"
       - ".github/workflows/docs.yml"
+  # A failed publish takes the whole site with it: pushes only build this
+  # workflow when something under docs/ changed, so the last good deploy stays
+  # up -- missing whatever the failed one carried -- until somebody happens to
+  # edit the documentation again. The build is a couple of minutes and produces
+  # the same site when nothing changed, so rebuild it daily: a runner having a
+  # bad day then costs the site a day, not a fortnight.
+  schedule:
+    - cron: "29 4 * * *" # daily at 04:29 UTC
   workflow_dispatch:
     inputs:
       runner:
@@ -74,6 +82,15 @@ jobs:
           set -eu
           grep -q "https://zoomies.sh/quickstart/" site/sitemap.xml
           grep -q "https://zoomies.sh/faq/" site/llms.txt
+
+      # The badge is linked from READMEs the migration wizard has edited, out
+      # in other people's repositories, and nothing in the docs build looks at
+      # it: no page links to it, so --strict would not notice it going missing.
+      # A broken image on somebody's front page is ours to prevent.
+      - name: The CI has the Zoomies badge is published at the site root
+        run: |
+          set -eu
+          test -s site/badge.svg
 
       - name: Publish install.sh at the site root
         run: |
