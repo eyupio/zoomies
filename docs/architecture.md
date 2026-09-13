@@ -229,7 +229,9 @@ by trying again.
 | `internal/backend` | How a runner becomes a real process: Docker, Podman, bare process. |
 | `internal/auth` | Identity, RBAC, sessions, API tokens, join tokens, OIDC, audit. |
 | `internal/api` | The REST API, SSE, `/metrics`, and the embedded UI. |
-| `internal/controller` | Wiring: the reconcile loop, webhook ingest, the agent task queue, the log relay. |
+| `internal/provider` | The contract an infrastructure provider implements, a fake that obeys it, and the conformance suite every provider must pass. No SQL, no HTTP, no opinions about the fleet. |
+| `internal/provider/proxmox` | The first provider: a hand-rolled Proxmox VE API client, and the machine lifecycle over it. |
+| `internal/controller` | Wiring: the reconcile loop, the machine loop, webhook ingest, the agent task queue, the log relay. |
 | `internal/agent` | The runner-executing half and its transport to the controller. |
 | `internal/installer` | `zoomies init`, `zoomies uninstall`, the GitHub App manifest flow, service installation. |
 | `internal/events` | In-process pub/sub that the SSE endpoint fans out. |
@@ -280,6 +282,66 @@ allow-list itself is `validRunnerTransitions` in `internal/store/models.go`.
 
 Transitions are validated in `store.TransitionRunner`, not in the caller. An
 agent cannot report a nonsensical state and corrupt the fleet's accounting.
+
+## The machine state machine
+
+A **machine** is a host Zoomies rented rather than one somebody built. Its row
+exists before the resource does, and outlives it by exactly as long as it takes
+to prove the resource is gone.
+
+```mermaid
+stateDiagram-v2
+    [*] --> planned: demand asked for a machine
+    planned --> creating: identity written down, then built
+    creating --> starting: the resource exists
+    creating --> bootstrapping: it was already running
+    starting --> bootstrapping: it is up
+    bootstrapping --> enrolling: the agent has its credential
+    enrolling --> ready: it joined, and is a host
+    ready --> draining: idle long enough, or an operator
+    draining --> ready: demand came back before the delete started
+    ready --> deleting: an operator, or its host is gone
+    draining --> deleting: its last runner finished
+    deleting --> deleted: the provider confirms it is gone
+    planned --> failed: the create was never issued
+    creating --> failed: it could not be built
+    bootstrapping --> failed: the guest never came up
+    enrolling --> failed: it never joined
+    failed --> deleting: a sweep found a resource after all
+    creating --> quarantined: the outcome could not be resolved
+    ready --> quarantined: it is not ours after all
+    deleting --> quarantined: the delete could not be confirmed
+    quarantined --> deleted: an operator released it
+    deleted --> [*]
+```
+
+* **planned** -- the reservation exists and nothing has been created.
+* **creating** -- the identity is written down, and a create may or may not have
+  happened. This is the state a lost response leaves behind.
+* **starting**, **bootstrapping**, **enrolling** -- the resource exists and is
+  being made into a host: powered on, given the agent, then waiting for it to
+  join.
+* **ready** -- a host row exists and the scheduler places runners on it.
+* **draining** -- cordoned, waiting for its runners to finish. Reversible, which
+  is why demand returning cancels a drain rather than paying for a new machine.
+* **deleting** -- a delete was issued and the resource is not yet confirmed gone.
+  A 200 from the delete call is not that confirmation; an inspect that cannot
+  find it is.
+* **deleted** -- the only state that is finished with.
+* **failed** -- the lifecycle was given up on. Not terminal: the resource may
+  still exist, and a later sweep can find it.
+* **quarantined** -- ownership could not be proved. Nothing automatic ever
+  touches one of these again, because the alternative is destroying a machine
+  somebody else is using.
+
+Every arrow out of `creating` is an **observation**, never an intent. When the
+answer to a create is lost, the reconciler asks who owns the identity it chose
+in advance; it never asks for a second machine. A timeout is not evidence that
+creation failed.
+
+The allow-list is `validMachineTransitions` in `internal/store/machines.go`, and
+`store.TransitionMachine` enforces it — the same discipline as runners, for the
+same reason.
 
 ### Reconciliation invariants
 
@@ -420,14 +482,23 @@ for the threat model and each individual toggle.
 
 * Not a Kubernetes operator. [ARC](https://github.com/actions/actions-runner-controller)
   already exists and is the right answer if you have a cluster.
-* Not a cloud provisioner. Zoomies never creates or deletes a machine. The
-  `backend.Backend` interface — create, inspect, log, remove — is the shape of
-  a runner on a host the agent already has, so a backend that put each job in
-  its own VM could be added behind it without the agent learning anything new;
-  renting the host itself is a different contract, on the controller's side,
-  and the nearest thing to it today is the
-  [capacity-demand receiver](capacity-demand-receiver.md), which asks an
-  external autoscaler for hosts and leaves the deleting to it.
+* Not a cloud provisioner, though it can rent a host. Zoomies creates and
+  destroys machines only through a narrow, ownership-verified
+  [provider contract](providers.md), only from providers an operator configured,
+  and only within limits they set — and it will not delete a resource it cannot
+  prove it created. That is a different thing from a provisioner: there is no
+  catalogue, no marketplace of plugins, and no attempt to manage infrastructure
+  you did not ask it to rent. An external autoscaler driven by the
+  [capacity-demand receiver](capacity-demand-receiver.md) remains a first-class
+  alternative for fleets that would rather own that half themselves.
+* Not VM-per-job isolation. A rented machine hosts the same agent and the same
+  runner backend as a machine you built yourself, so it runs several runners at
+  once and they are containers, not virtual machines. The `backend.Backend`
+  interface — create, inspect, log, remove — is the shape of a runner on a host
+  the agent already has, and a backend that put each job in its own VM could be
+  added behind it without the agent learning anything new. Renting the host is
+  the other contract, on the controller's side, and the two are deliberately
+  separate.
 * Not multi-tenant across unrelated organisations. One Zoomies is one team's
   fleet.
 
