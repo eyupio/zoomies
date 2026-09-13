@@ -759,7 +759,14 @@ func (c *callbackServer) WaitFor(ctx context.Context, timeout time.Duration, pas
 			return res, nil
 		case err := <-c.stateErrs:
 			return callbackResult{}, err
-		case line := <-paste:
+		case line, open := <-paste:
+			// A closed paste channel -- stdin at EOF, or the reader stopped --
+			// is always ready, so leaving the case in place would spin this
+			// loop against the countdown instead of waiting on GitHub.
+			if !open {
+				paste = nil
+				continue
+			}
 			if res, ok := parsePasted(line); ok {
 				return res, nil
 			}
@@ -811,14 +818,59 @@ func parsePasted(line string) (callbackResult, bool) {
 // the line. On the `curl | sh` path that is the first thing they type.
 //
 // Stopping it bounds the reader to the handshake rather than removing the race
-// outright. A goroutine already inside Scan is not woken by a cancel, so it can
-// still take one line if the operator types during the return; what it cannot
+// outright. A goroutine already inside Scan is not woken by a cancel, so a line
+// the operator types during the return can still be swallowed; what it cannot
 // do any more is compete for every prompt after this one. Removing the last of
 // it would mean one reader shared by the whole installer, which is a larger
 // change than this is.
+//
+// The stop is synchronous, and that is what makes it worth anything. Cancelling
+// alone left the scanning goroutine parked in a select between "deliver the
+// line I have already read" and "the handshake is over", and a select with both
+// cases ready picks either one -- so the line the operator typed next could
+// still be handed to the handshake's receiver after the handshake had stopped.
+// The relay below owns the channel the caller sees and can always be woken, so
+// once stop has returned the channel is closed and nothing more can arrive on
+// it. The scanner itself may be stuck in Scan, which is why it is a separate
+// goroutine: waiting for that one could wait for ever.
 func (i *Installer) pasteReader(ctx context.Context) (<-chan string, context.CancelFunc) {
-	reading, stop := context.WithCancel(ctx)
-	return lineReader(reading, i.in), stop
+	reading, cancel := context.WithCancel(ctx)
+	raw := lineReader(reading, i.in)
+
+	out := make(chan string)
+	stopped := make(chan struct{})
+	closed := make(chan struct{})
+	go func() {
+		// closed is signalled after out, so a stop that has returned means the
+		// caller's next receive sees a closed channel rather than a line.
+		defer close(closed)
+		defer close(out)
+		for {
+			select {
+			case <-stopped:
+				return
+			case line, ok := <-raw:
+				if !ok {
+					return
+				}
+				select {
+				case out <- line:
+				case <-stopped:
+					return
+				}
+			}
+		}
+	}()
+
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			close(stopped)
+			cancel()
+		})
+		<-closed
+	}
+	return out, stop
 }
 
 // lineReader turns an input stream into a channel of lines, so that a paste
