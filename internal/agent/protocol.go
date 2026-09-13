@@ -89,7 +89,8 @@ type JoinResponse struct {
 // HeartbeatRequest is sent on every interval. It carries the agent's own view
 // of its runners so the controller can detect drift without polling.
 type HeartbeatRequest struct {
-	ProtocolVersion int `json:"protocol_version"`
+	Usage           *store.HostUsage `json:"usage,omitempty"`
+	ProtocolVersion int              `json:"protocol_version"`
 	// Capacity is the agent's configured value, sent for the log and for
 	// older controllers. The controller does not write it: capacity is set
 	// at join and belongs to the operator after that.

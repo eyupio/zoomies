@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.37 · 13 September 2026 · derived from the owner's
+Version 2.38 · 13 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident, the deferred host-stewardship slice, and the four
@@ -2015,6 +2015,43 @@ begin a second provider before the pilot produces a supportable result.
 resources and an authorised pilot provider. This is validation evidence, not a
 new runner engine or a hosted Zoomies service.
 
+### ZF-220: resource-aware host allocation for the stable release
+
+**Classification: extension; bounded release slice. Owner direction, 13
+September 2026:** make allocation across a pool's compatible hosts account for
+machine size, CPU and memory usage, and existing reservations. Prioritise this
+small reliability change for the immediate `v1.0.0` review, ahead of the
+one-click deployment package. It does not authorise publishing or replacing a
+release tag.
+
+Extend the pure scheduler's existing eligibility and reservation rules with a
+deterministic CPU/memory headroom score. Sample whole-host Linux usage through
+normal agent heartbeats, account for starts not yet represented by the sample,
+and retain reservation-based behaviour when usage is stale or unavailable.
+Under CPU pressure start one runner at a time; sustained pressure holds new
+starts and recovers with hysteresis. Available memory must cover the next
+runner and the host reserve. Existing jobs, operator cordons, capacity and
+installation/platform boundaries stay authoritative.
+
+Show actual usage separately from commitments, explain admission holds, and
+export bounded per-host monitoring gauges. Keep the single binary, SQLite,
+outbound agents and existing scheduler; no prediction engine, new dependency,
+live job migration or automatic runtime restart.
+
+**Acceptance:** different host sizes and loads produce sensible placements;
+cross-pool and pending-start reservations cannot spend the same budget twice;
+stale/unknown readings preserve existing reservation limits; a short spike does
+not hold the host; recovery never clears a manual cordon; API, UI and metrics
+agree on measured usage. CPU and memory pressure mitigation does not prove or
+repair the underlying Docker/containerd stall. Runtime-operation health,
+durable incident records and richer diagnostics remain separate follow-up
+work, rather than an implied part of this release slice.
+
+**Dependencies:** existing ZF-103 reservations and ZF-202 diagnostics. Record
+implementation checks separately from live fleet qualification. The release
+owner decides inclusion after review; ZF-218 continues against the published
+stable baseline.
+
 ## 10. Ordered delivery plan
 
 This sequence supersedes earlier Assignment A/B scheduling, which described
@@ -2024,6 +2061,7 @@ description of a missing feature is not evidence it remains missing.
 
 | Order | Work | Exit criterion |
 | --- | --- | --- |
+| 0 | ZF-220 resource-aware host allocation and pressure admission | Reviewed implementation and automated checks; live fleet qualification reported separately before release inclusion |
 | 1 | ZF-218a–d one-click deployment foundation, against today's `v1.0.0` release once published | Complete provider-neutral artefact and partner hand-off; implementation is complete but not yet qualified |
 | 2 | ZF-219 post-implementation verification and friendly-provider pilot readiness | Pristine-VPS and first-workflow evidence; one pilot can be invited, not yet broadly listed |
 | 3 | ZF-211 documentation reconciliation and evidence inventory | One current support story; historical gaps clearly dated |
@@ -2086,6 +2124,11 @@ runs, elapsed observation, benchmark results or user feedback. Keep implemented,
 validated and blocked distinct, and report the exact remaining dependency.
 
 ## 13. Change record
+
+* **13 September 2026 — Version 2.38:** add the owner's bounded pre-release
+  allocation request as ZF-220. Prioritise measured host headroom, existing
+  reservations and automatic pressure admission; retain separate scope for
+  runtime incident diagnosis and remediation.
 
 * **13 September 2026 — Version 2.37:** make repository-root `ROADMAP.md` the
   sole active source of truth for scope, ordering and authorisation of roadmap

@@ -50,6 +50,21 @@ The parts of that worth knowing before you do it are what happens to work in
 flight, how far the pieces may drift apart, and the one direction you cannot
 go back in.
 
+## Host usage during a rolling upgrade
+
+Resource-aware allocation adds migration `0028_host_usage.sql` and an optional
+heartbeat field. Upgrade the controller first, then the agents, to make their
+new measurements available for placement. Older agents can keep running: a
+host with no fresh usage reading retains configured capacity and reservation
+checks. Local Linux agents begin reporting memory on their first sample and
+CPU after a second sample. Unsupported or remote runtime measurements are
+shown as unavailable, never as zero usage.
+
+The [pressure rules](hosts-and-pools.md#current-usage-and-automatic-holds) affect
+new runner starts and do not clear operator cordons. No new configuration is
+required. This remains a schema migration, so the backup and rollback rules
+below apply.
+
 ## What happens to work in flight
 
 A restart does not touch a running job. The runner is a container on its host,

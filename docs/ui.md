@@ -186,6 +186,14 @@ alone for the machine's own sake. A cordoned host keeps its runners and takes no
 ones. *Add a host* mints a join token and prints the one line to paste on the
 new machine.
 
+**Agent connected** describes the heartbeat. Recent **CPU usage** and
+**memory available** describe the machine's actual load, separately from its
+committed resources. A pressure warning says whether new starts are held or
+limited to one at a time; recovery happens automatically and keeps any manual
+cordon. A missing or stale reading is shown as unavailable. See
+[current usage and automatic holds](hosts-and-pools.md#current-usage-and-automatic-holds)
+for the thresholds and the limits of these measurements.
+
 ![The Hosts page: fleet health and eligible slots, with a capacity map showing host state, slot use, CPU and memory commitments and disk free space](screenshots/hosts-dark.webp#only-dark){ .zoomies-shot }
 ![The Hosts page: fleet health and eligible slots, with a capacity map showing host state, slot use, CPU and memory commitments and disk free space](screenshots/hosts-light.webp#only-light){ .zoomies-shot }
 

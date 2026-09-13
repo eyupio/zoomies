@@ -161,6 +161,35 @@ runs, so it starts taking work within a heartbeat of the daemon appearing. What
 each host can currently run, and why it cannot run the rest, is on the Hosts
 page.
 
+## The agent is connected but new runners are held
+
+Read the host card's reason before changing a pool. **Committed** CPU and
+memory are reservations; **CPU usage** and **memory available** are recent
+measurements of the whole host, including work outside Zoomies.
+
+At 85% CPU usage, Zoomies starts one runner at a time. Sustained usage of at
+least 95% holds new starts until it falls below 85%. A host at its memory
+reserve holds starts too, and a pool waits when its next runner would not fit.
+Reduce competing work or add a compatible host; the next fresh measurements
+allow placement to recover. A manual cordon remains in place. The full
+[pressure rules](hosts-and-pools.md#current-usage-and-automatic-holds) explain
+sample freshness and the fallback when usage cannot be measured.
+
+If Docker is timing out while the agent still heartbeats, the heartbeat only
+proves the agent can reach the controller. Widespread health-check exec and
+container-operation timeouts warrant checking Docker, containerd and host
+resource pressure. They do not establish an out-of-memory or disk fault by
+themselves. Pressure admission can reduce overload, but does not detect every
+runtime stall or restart the daemon.
+
+Use **Cordon** on the host card, or `zoomies hosts cordon <host-id>`, to stop
+new placement while investigating. Existing runners remain registered and may
+still receive work from GitHub. Save `zoomies diagnostics` and the Docker,
+containerd and kernel logs for the same time window before a restart or
+cleanup removes evidence. The
+[host metrics](metrics.md) report measurement freshness and admission holds;
+an unavailable reading is not evidence that the host is idle.
+
 ## Reporting a bug
 
 `zoomies diagnostics` writes a support bundle: this instance's build and

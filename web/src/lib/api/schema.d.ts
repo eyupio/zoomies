@@ -2641,6 +2641,27 @@ export interface components {
             /** Format: date-time */
             at?: string;
         };
+        HostUsage: {
+            /** @description Whole-host CPU occupied between samples */
+            cpu_percent?: number;
+            /**
+             * Format: int64
+             * @description Whole-host available memory including reclaimable cache. Zero is a measured full host.
+             */
+            memory_available_mb?: number;
+            /**
+             * Format: date-time
+             * @description Controller receipt time. Agent-provided timestamps are ignored.
+             */
+            sampled_at?: string;
+            /**
+             * Format: date-time
+             * @description Beginning of sustained CPU pressure
+             */
+            cpu_high_since?: string;
+            /** @description Admission held after sustained CPU pressure. Running jobs continue. Owned by the controller. */
+            cpu_held?: boolean;
+        };
         BackendInfo: {
             kind?: components["schemas"]["BackendKind"];
             available?: boolean;
@@ -2654,6 +2675,11 @@ export interface components {
             host_socket_path?: string;
         };
         Host: {
+            usage?: components["schemas"]["HostUsage"];
+            /** @description Usage is less than 90 seconds old. Unknown or stale readings retain reservation-based placement. */
+            usage_fresh?: boolean;
+            /** @description Why current host pressure is holding new runner starts. Empty when no pressure hold applies. */
+            admission_reason?: string;
             id?: string;
             name?: string;
             address?: string;
@@ -2865,6 +2891,7 @@ export interface components {
             heartbeat_interval?: components["schemas"]["Duration"];
         };
         AgentHeartbeatRequest: {
+            usage?: components["schemas"]["HostUsage"];
             protocol_version?: number;
             /** @description The agent's configured value */
             capacity?: number;

@@ -9,6 +9,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/github"
+	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
 )
@@ -44,21 +45,24 @@ type BackendInfoView struct {
 
 // HostView is one agent host and the room it has left.
 type HostView struct {
-	Connection    string            `json:"connection"`
-	ID            string            `json:"id"`
-	Name          string            `json:"name"`
-	Address       string            `json:"address,omitempty"`
-	Embedded      bool              `json:"embedded"`
-	Capacity      int               `json:"capacity"`
-	ActiveRunners int               `json:"active_runners"`
-	Free          int               `json:"free"`
-	Backends      []string          `json:"backends"`
-	BackendInfo   []BackendInfoView `json:"backend_info"`
-	Labels        map[string]string `json:"labels"`
-	OS            string            `json:"os,omitempty"`
-	Distro        string            `json:"distro,omitempty"`
-	OSVersion     string            `json:"os_version,omitempty"`
-	Arch          string            `json:"arch,omitempty"`
+	Usage           *store.HostUsage  `json:"usage,omitempty"`
+	UsageFresh      bool              `json:"usage_fresh"`
+	AdmissionReason string            `json:"admission_reason,omitempty"`
+	Connection      string            `json:"connection"`
+	ID              string            `json:"id"`
+	Name            string            `json:"name"`
+	Address         string            `json:"address,omitempty"`
+	Embedded        bool              `json:"embedded"`
+	Capacity        int               `json:"capacity"`
+	ActiveRunners   int               `json:"active_runners"`
+	Free            int               `json:"free"`
+	Backends        []string          `json:"backends"`
+	BackendInfo     []BackendInfoView `json:"backend_info"`
+	Labels          map[string]string `json:"labels"`
+	OS              string            `json:"os,omitempty"`
+	Distro          string            `json:"distro,omitempty"`
+	OSVersion       string            `json:"os_version,omitempty"`
+	Arch            string            `json:"arch,omitempty"`
 	// CPUs and MemoryMB are how much machine this host is, as its agent
 	// reported it: the daemon's view of the machine where that is larger than
 	// the agent's own share, because a container runner runs beside the agent
@@ -168,6 +172,8 @@ func (c *Controller) HostView(h *store.Host) HostView {
 		Arch:               h.Arch,
 		CPUs:               h.CPUs,
 		MemoryMB:           h.MemoryMB,
+		UsageFresh:         h.Usage.Fresh(c.Now()),
+		AdmissionReason:    scheduler.HostAdmissionReason(h, c.Now()),
 		DiskTotalMB:        h.DiskTotalMB,
 		DiskFreeMB:         h.DiskFreeMB,
 		ReserveCPUs:        h.ReserveCPUs,
@@ -188,6 +194,10 @@ func (c *Controller) HostView(h *store.Host) HostView {
 		CreatedAt:          h.CreatedAt,
 	}
 	out.UpgradeCommand, out.UpgradeVersion, out.UpgradeNote = hostUpgrade(h, version.Version)
+	if !h.Usage.SampledAt.IsZero() {
+		usage := h.Usage
+		out.Usage = &usage
+	}
 	alloc := h.Allocatable()
 	out.AllocatableCPUs = alloc.CPUs
 	out.AllocatableMemoryMB = alloc.MemoryMB
