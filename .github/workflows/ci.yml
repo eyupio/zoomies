@@ -574,10 +574,9 @@ jobs:
           # it this way keeps the workflow clear of that namespace entirely.
           password: ${{ github.token }}
 
-      # arm64 is emulated, and emulated apt plus an emulated 200 MB download is
-      # the difference between a two-minute job and a twenty-minute one. A pull
-      # request proves the Dockerfiles still build; main proves they still build
-      # for both architectures, and publishes both.
+      # Pull requests build amd64; main publishes both architectures. The
+      # controller and agent cross-compile natively, while runner images still
+      # need QEMU for their ARM64 package installations on an x64 builder.
       - id: platforms
         name: Decide the platforms
         run: |
@@ -586,10 +585,6 @@ jobs:
           else
             echo "list=linux/amd64,linux/arm64" >> "$GITHUB_OUTPUT"
           fi
-
-      # QEMU is only needed for the architecture this machine is not.
-      - if: steps.platforms.outputs.list != 'linux/amd64'
-        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
@@ -640,6 +635,10 @@ jobs:
           target: controller
           platforms: ${{ steps.platforms.outputs.list }}
           push: ${{ steps.publish.outputs.value }}
+          # Export intermediate layers for the next ephemeral builder. Each
+          # target has its own scope; cache export is optional and bounded.
+          cache-from: type=gha,version=2,scope=ci-controller
+          cache-to: type=gha,version=2,scope=ci-controller,mode=max,timeout=5m,ignore-error=true
           # Without these, `zoomies version` inside a published image reports
           # the Dockerfile's "dev" default, and nothing in the image says which
           # commit it came from.
@@ -667,6 +666,8 @@ jobs:
           target: agent
           platforms: ${{ steps.platforms.outputs.list }}
           push: ${{ steps.publish.outputs.value }}
+          cache-from: type=gha,version=2,scope=ci-agent
+          cache-to: type=gha,version=2,scope=ci-agent,mode=max,timeout=5m,ignore-error=true
           build-args: |
             RUNNER_IMAGE_TAG=dev
             VERSION=${{ steps.tags.outputs.version }}
@@ -794,6 +795,10 @@ jobs:
           # which is not the same for every row -- see internal/naming.
           platforms: ${{ needs.images.outputs.platforms == 'linux/amd64' && 'linux/amd64' || matrix.platforms }}
           push: ${{ needs.images.outputs.publish }}
+          # Separate variants and targets so matrix jobs cannot replace one
+          # another's cache. GitHub also isolates PR caches from main.
+          cache-from: type=gha,version=2,scope=ci-runner-${{ matrix.tag }}
+          cache-to: type=gha,version=2,scope=ci-runner-${{ matrix.tag }},mode=max,timeout=5m,ignore-error=true
           build-args: |
             BASE=${{ matrix.base }}
             OS_FAMILY=${{ matrix.family }}
@@ -814,6 +819,8 @@ jobs:
           target: runner-docker
           platforms: ${{ needs.images.outputs.platforms == 'linux/amd64' && 'linux/amd64' || matrix.platforms }}
           push: ${{ needs.images.outputs.publish }}
+          cache-from: type=gha,version=2,scope=ci-runner-docker-${{ matrix.tag }}
+          cache-to: type=gha,version=2,scope=ci-runner-docker-${{ matrix.tag }},mode=max,timeout=5m,ignore-error=true
           build-args: |
             BASE=${{ matrix.base }}
             OS_FAMILY=${{ matrix.family }}
@@ -844,6 +851,9 @@ jobs:
           platforms: linux/amd64
           push: false
           load: true
+          # Reuse the base, but do not replace its multi-platform cache with
+          # this temporary amd64-only image.
+          cache-from: type=gha,version=2,scope=ci-runner-${{ matrix.tag }}
           build-args: |
             BASE=${{ matrix.base }}
             OS_FAMILY=${{ matrix.family }}

@@ -4,7 +4,8 @@
 # is pure Go) so the runtime image can be distroless.
 
 # ---- UI ---------------------------------------------------------------------
-FROM node:26-alpine@sha256:ef24c5053d50fdc3e4e56eb4e7ddb7861874ab0fdc797046ba897581deb8e868 AS ui
+# UI assets are architecture-independent; build them once on the builder's CPU.
+FROM --platform=$BUILDPLATFORM node:26-alpine@sha256:ef24c5053d50fdc3e4e56eb4e7ddb7861874ab0fdc797046ba897581deb8e868 AS ui
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json* ./
 # No `|| npm install` fallback: that turns a lockfile CI would reject into an
@@ -14,7 +15,8 @@ COPY web/ ./
 RUN npm run build
 
 # ---- Go ---------------------------------------------------------------------
-FROM golang:1.27-alpine@sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125 AS build
+# Go cross-compiles on the builder's CPU instead of running the compiler in QEMU.
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125 AS build
 WORKDIR /src
 RUN apk add --no-cache git ca-certificates
 COPY go.mod go.sum ./
@@ -34,8 +36,9 @@ ARG DATE=""
 # Keep this a binary default, not ENV ZOOMIES_RUNNER_IMAGE: a baked environment
 # override would incorrectly take precedence over the operator's YAML setting.
 ARG RUNNER_IMAGE_TAG=dev
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+# Redeclare BuildKit's automatic target arguments without overriding their values.
+ARG TARGETOS
+ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath \
       -ldflags "-s -w \

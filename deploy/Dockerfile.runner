@@ -86,20 +86,9 @@ ARG OS_FAMILY=apt
 # asked for.
 ARG OS_ID=ubuntu
 ARG OS_VERSION=24.04
-# EXTRA_PACKAGES bakes a fleet's own toolchain into a variant without forking
-# this file: --build-arg EXTRA_PACKAGES="ruby-dev golang". It is installed in a
-# layer of its own, below -- see deploy/runner-extra.sh for why.
-ARG EXTRA_PACKAGES=""
-
-# Which release built this image. These carried no value at all until now:
-# the controller image took VERSION, COMMIT and DATE and these did not, so of
-# the images this project publishes the ones an operator is most likely to be
-# holding when something is wrong were the ones that could not say what they
-# were. `docker inspect` answers it now, and so does a registry listing.
-ARG VERSION=dev
-ARG COMMIT=""
-ARG DATE=""
-
+# Only stable metadata belongs on the shared base. Release arguments are
+# declared on the final targets, after every package installation, because
+# all RUN instructions implicitly consume the arguments already in scope.
 LABEL org.opencontainers.image.title="zoomies-runner" \
       org.opencontainers.image.description="GitHub Actions runner image for Zoomies" \
       org.opencontainers.image.source="https://github.com/eyupio/zoomies" \
@@ -107,9 +96,6 @@ LABEL org.opencontainers.image.title="zoomies-runner" \
       org.opencontainers.image.documentation="https://zoomies.sh/hosts-and-pools/" \
       org.opencontainers.image.vendor="EyUp.io" \
       org.opencontainers.image.licenses="AGPL-3.0-only" \
-      org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.revision="${COMMIT}" \
-      org.opencontainers.image.created="${DATE}" \
       org.opencontainers.image.base.name="${BASE}" \
       io.zoomies.runner-version="${RUNNER_VERSION}" \
       io.zoomies.os="${OS_ID}" \
@@ -198,6 +184,9 @@ RUN set -eux; \
 # EXTRA_PACKAGES set is cheap enough for CI to run one on every variant, which
 # is what keeps this build argument from quietly ceasing to work.
 COPY --chmod=0755 deploy/runner-extra.sh /tmp/runner-extra.sh
+# Declare this only at its installation step so changing the package list
+# reuses the runner download and toolchain layers above.
+ARG EXTRA_PACKAGES=""
 RUN /tmp/runner-extra.sh "${OS_FAMILY}" ${EXTRA_PACKAGES} && rm /tmp/runner-extra.sh
 
 COPY --chmod=0755 deploy/runner-entrypoint.sh /usr/local/bin/entrypoint.sh
@@ -226,19 +215,7 @@ ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 FROM runner-base AS runner-docker
 ARG OS_FAMILY
 ARG OS_ID
-# Re-declared after FROM, like every other ARG here: the values set before it
-# are out of scope in this stage, and a label written from an ARG that is not
-# in scope is silently empty.
-ARG VERSION=dev
-ARG COMMIT=""
-ARG DATE=""
 USER root
-
-LABEL org.opencontainers.image.title="zoomies-runner-docker" \
-      org.opencontainers.image.description="GitHub Actions runner image for Zoomies, with the Docker CLI" \
-      org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.revision="${COMMIT}" \
-      org.opencontainers.image.created="${DATE}"
 
 COPY --chmod=0755 deploy/runner-docker-cli.sh /tmp/runner-docker-cli.sh
 RUN /tmp/runner-docker-cli.sh "${OS_FAMILY}" "${OS_ID}" && rm /tmp/runner-docker-cli.sh
@@ -250,9 +227,25 @@ RUN set -eux; \
     docker buildx version
 USER runner
 
+# Stamp the finished image without invalidating its Docker CLI installation.
+ARG VERSION=dev
+ARG COMMIT=""
+ARG DATE=""
+LABEL org.opencontainers.image.title="zoomies-runner-docker" \
+      org.opencontainers.image.description="GitHub Actions runner image for Zoomies, with the Docker CLI" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.created="${DATE}"
+
 
 # --- runner -------------------------------------------------------------------
 #
 # The default target: the runner and the build toolchain, without the Docker
 # client. Last in the file so that a bare build with no --target produces it.
 FROM runner-base AS runner
+ARG VERSION=dev
+ARG COMMIT=""
+ARG DATE=""
+LABEL org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.created="${DATE}"
