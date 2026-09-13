@@ -261,10 +261,12 @@ test('a host shows what the fleet has committed on it, and lets an operator hold
   const card = page.getByRole('article', { name: 'demo-builder-1', exact: true });
   const committed = card.getByRole('region', { name: /Resources committed/ });
   await expect(committed).toBeVisible();
-  // 16 CPUs and 32 GB, less the floors, against what the runners on it hold.
+  // 16 CPUs and 32 GB, less the floors, against what the runners on it hold:
+  // 15.2 CPUs rather than 16, because the scheduler keeps a twentieth of the
+  // machine back for the daemon and the agent.
   await expect(committed).toContainText('CPU');
   await expect(committed).toContainText('Memory');
-  await expect(committed).toContainText(/of 16/);
+  await expect(committed).toContainText(/of 15\.2/);
 
   // And the reserve is settable from the same card, against the figures this
   // host has actually reported.
