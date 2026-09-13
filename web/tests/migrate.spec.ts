@@ -393,7 +393,15 @@ test('the review step offers the badge, ticked, and shows the line it would add'
   await expect(box).toBeChecked();
 
   // The exact line, not a description of one, beside the badge it renders.
-  await expect(page.getByRole('img', { name: 'CI has the Zoomies' })).toBeVisible();
+  const preview = page.getByRole('img', { name: 'CI has the Zoomies' });
+  await expect(preview).toBeVisible();
+  // Visible is not loaded: an <img> with width and height attributes takes up
+  // the same box whether its source resolved or a broken-image icon sits in
+  // it, so the preview of a badge that 404s would pass the assertion above.
+  // This one is about the asset actually being served with the UI.
+  await expect
+    .poll(() => preview.evaluate((el: HTMLImageElement) => el.naturalWidth))
+    .toBeGreaterThan(0);
   await expect(
     page.getByText('[![CI has the Zoomies](https://zoomies.sh/badge.svg)'),
   ).toBeVisible();
@@ -401,5 +409,5 @@ test('the review step offers the badge, ticked, and shows the line it would add'
   // Declining is one click, and the preview stays so it can be reconsidered.
   await box.uncheck();
   await expect(box).not.toBeChecked();
-  await expect(page.getByRole('img', { name: 'CI has the Zoomies' })).toBeVisible();
+  await expect(preview).toBeVisible();
 });
