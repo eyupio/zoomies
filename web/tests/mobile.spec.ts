@@ -651,10 +651,15 @@ test('the runner lifecycle keeps its steps in columns when it wraps', async ({ p
   );
 
   // Two columns, so every card is one width and sits at one of two offsets.
-  const width = boxes[0].width;
+  // The first two cards are the columns, and the count above has already
+  // proved there are five of them.
+  const [left, right] = boxes;
+  expect(left, 'the lifecycle rendered no cards to measure').toBeDefined();
+  expect(right, 'the lifecycle rendered a single column').toBeDefined();
+  const width = left!.width;
   for (const [i, box] of boxes.entries()) {
     expect(Math.abs(box.width - width), `step ${i} is a different width`).toBeLessThanOrEqual(1);
-    const column = i % 2 === 0 ? boxes[0].x : boxes[1].x;
+    const column = i % 2 === 0 ? left!.x : right!.x;
     expect(Math.abs(box.x - column), `step ${i} starts out of column`).toBeLessThanOrEqual(1);
   }
 
