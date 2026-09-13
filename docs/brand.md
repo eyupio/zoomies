@@ -100,6 +100,34 @@ for an organisation App and `https://github.com/settings/apps/<app>` for a
 personal one) and upload `brand/github-avatar.png` under **Display
 information**. GitHub crops it to a circle, which the file already allows for.
 
+## The badge
+
+[![CI has the Zoomies](badge.svg)](https://zoomies.sh)
+
+A repository whose CI runs on Zoomies can say so with the badge, served from
+`https://zoomies.sh/badge.svg`. It is the paw/swish on Zoomies Black beside
+"CI", and "has the zoomies" on Runner Blue — the three colours the guide
+gives a badge, and the one thing the identity is about: a dog doing zoomies
+is CI running fast.
+
+```markdown
+[![CI has the Zoomies](https://zoomies.sh/badge.svg)](https://zoomies.sh)
+```
+
+The [migration wizard](migration.md#the-badge) adds that line to each
+repository it moves, unless the operator unticks it. The file is
+`docs/badge.svg` in the repository, published by the site from there so the
+one a contributor edits is the one every README shows; the product's own copy
+under `web/public/brand/` is what the review step previews, because a
+self-hosted controller does not fetch from zoomies.sh to draw its own screen.
+
+It is a self-contained SVG on purpose. A README badge is fetched through
+GitHub's image proxy, which follows no stylesheet, no web font and no second
+request, so the mark is carried inline as a tiny PNG made from
+`paw-swish-white.png` and the text is pinned to a width so it lays out the
+same whichever font a viewer has. Do not recolour it, and do not draw a second
+one: a badge in different colours on different READMEs is not a brand.
+
 ## Using the system in the product
 
 The full primary logo appears on the sign-in, first-run, boot and connection

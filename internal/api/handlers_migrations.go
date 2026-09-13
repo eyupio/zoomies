@@ -69,7 +69,7 @@ func (s *Server) handleMigrationApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "migration.pull_requests", "installation", strings.TrimSpace(req.InstallationID), map[string]any{
-		"repos": len(out.Results), "opened": out.Opened, "failed": out.Failed, "branch": out.Branch,
+		"repos": len(out.Results), "opened": out.Opened, "failed": out.Failed, "branch": out.Branch, "badge": req.WantsBadge(),
 	})
 	writeJSON(w, http.StatusOK, out)
 }

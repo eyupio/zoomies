@@ -255,7 +255,7 @@ type Client interface {
 	// WebURL returns the browser URL for the target.
 	WebURL() string
 
-	// The migration surface. These three are the only calls Zoomies makes that
+	// The migration surface. These are the only calls Zoomies makes that
 	// write anything to a repository, and they are used by one feature: the
 	// wizard that moves a repository's workflows onto this fleet. They need
 	// permissions the rest of Zoomies does not have and does not ask for, so
@@ -267,6 +267,9 @@ type Client interface {
 	// ListWorkflows returns the workflow files at the top of a repository's
 	// .github/workflows, with their contents.
 	ListWorkflows(ctx context.Context, repo string) ([]WorkflowFile, error)
+	// ReadReadme returns the README GitHub renders on the repository's front
+	// page, or ErrNoReadme when there is none. It is where the badge goes.
+	ReadReadme(ctx context.Context, repo string) (*Readme, error)
 	// OpenPullRequest commits a set of files to a new branch and opens a pull
 	// request for it.
 	OpenPullRequest(ctx context.Context, req PullRequestRequest) (*PullRequest, error)

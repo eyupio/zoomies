@@ -124,6 +124,12 @@
    * a fleet that wants one answer per label never touches this.
    */
   let overrides = $state<MigrationOverride[]>([]);
+  /**
+   * Whether each pull request also adds the badge to the README. It starts
+   * ticked -- the badge is how the people who read a README find out what
+   * runs its CI -- and the review step is where it is unticked.
+   */
+  let badge = $state(true);
 
   /* -- the outcome --------------------------------------------------------- */
 
@@ -447,6 +453,7 @@
   /** Back to the start, keeping the installation and nothing else. */
   function restart(): void {
     outcome = null;
+    badge = true;
     scannedInstallation = '';
     scanningAll = false;
     plan = null;
@@ -484,6 +491,7 @@
         mapping: chosenMapping,
         overrides: liveOverrides,
         workflows,
+        badge,
       });
       // Assigned only once the call has returned, because assigning it is what
       // swaps the wizard for the results.
@@ -581,6 +589,7 @@
           repos={selectedChanged}
           {busy}
           target={target?.target ?? ''}
+          bind:badge
           onrescan={rescan}
         />
       {/if}
