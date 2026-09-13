@@ -1,14 +1,14 @@
-# Implementation plan
+# Historical implementation record
 
-The working list for acting on the code review of `main` at `be92082`
-(5 September 2026). Every item carries the review's finding ID, so the
-full reasoning is one lookup away in the review document, and a status:
-`todo`, `in progress`, `done` (with the commit), or `wontfix` (with why).
+This is the completed code-review implementation record for `main` at
+`be92082` (5 September 2026). Every item carries the review's finding ID, so
+the full reasoning remains one lookup away in the review document, alongside
+its final status and commit.
 
-Keep it current: when a change lands, tick the box, write the commit, and
-move anything it made unnecessary to *wontfix* rather than deleting it. A
-plan that only grows is a plan nobody reads, so finished waves collapse to
-their summary line once the next wave starts.
+It is not an active plan. The repository-root [ROADMAP.md](ROADMAP.md) is the
+sole source of truth for current scope, ordering and authorisation; record
+delivery status there in [roadmap/progress.md](roadmap/progress.md). Retain
+this file as history rather than adding new work to it.
 
 ## How the work is staged
 

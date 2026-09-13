@@ -1,9 +1,11 @@
 # Work-package record
 
-The one list for the follow-on roadmap. Every package in
-[ROADMAP.md](../ROADMAP.md) has a row here, and the row is where its state
-lives: the plan says what a package is for, this file says where it has got
-to. Keep it current in the same pull request as the work.
+The one status and evidence record for the active
+[ROADMAP.md](../ROADMAP.md). Every package defined there has a row here, and
+the row is where its delivery state lives: the roadmap says what work is
+authorised and in what order; this file says where it has got to. This is not
+a second roadmap: do not add, reorder or authorise work here. Keep it current
+in the same pull request as the work.
 
 ## How to read a row
 
