@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/provider"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -269,5 +270,144 @@ func TestAnImportedHostNeverAcquiresDeletionAuthority(t *testing.T) {
 	}
 	if _, err := h.st.GetMachineByHost(h.ctx, host.ID); err == nil {
 		t.Fatal("a label gave a host a machine row; a host that can be labelled into deletion authority can be destroyed by anyone with the operator role")
+	}
+}
+
+// A credential that enrolled somebody else is a copied guest.
+//
+// The machine minted a token for itself, and a different machine spent it. That
+// can only happen if the guest was cloned after it was given its credential, and
+// the answer is emphatically not to take the host: two machines now claim it,
+// and which one owns it is a question for a person. The alternative -- linking
+// it anyway -- would hand this machine deletion authority over a host that
+// belongs to another.
+func TestATokenSpentBySomebodyElseQuarantinesTheMachineRatherThanTakingTheHost(t *testing.T) {
+	h := newHarness(t)
+	_, row := h.machineFleet(t)
+
+	m := &store.Machine{ProviderID: row.ID, State: store.MachineEnrolling}
+	if err := h.st.CreateMachine(h.ctx, m); err != nil {
+		t.Fatalf("CreateMachine: %v", err)
+	}
+	// The token belongs to another machine and was legitimately redeemed by the
+	// host it names. What is wrong is this row pointing at it -- a restored
+	// database, or a row edited by hand -- and the scope check cannot catch
+	// that, because the redemption itself was correct.
+	tok, _, err := h.c.Auth().CreateScopedJoinToken(h.ctx, auth.JoinScope{
+		TTL: time.Hour, Capacity: 1, MachineID: "mach_somebodyelse", ExpectedName: "zoomies-mach-stranger",
+	})
+	if err != nil {
+		t.Fatalf("CreateScopedJoinToken: %v", err)
+	}
+	host := h.host("zoomies-mach-stranger")
+	if _, err := h.st.RedeemJoinToken(h.ctx, tok.TokenHash, store.JoinClaim{HostID: host.ID, Name: host.Name}, h.c.Now()); err != nil {
+		t.Fatalf("RedeemJoinToken: %v", err)
+	}
+	if err := h.st.SetMachineJoinToken(h.ctx, m.ID, tok.ID); err != nil {
+		t.Fatalf("SetMachineJoinToken: %v", err)
+	}
+
+	h.machinePass(t)
+
+	got := h.machineByID(t, m.ID)
+	if got.State != store.MachineQuarantined {
+		t.Fatalf("state = %s, want quarantined: a token spent by another machine is a copied guest", got.State)
+	}
+	if got.HostID != "" {
+		t.Fatalf("the machine took host %s, which another machine's token enrolled", got.HostID)
+	}
+	if got.OwnershipError == "" {
+		t.Fatal("the quarantine says nothing about what disagreed, and the entry exists for a person to read")
+	}
+}
+
+// A machine that has minted a credential and not yet had it spent is simply
+// waiting. It is neither ready nor broken, and a pass that moved it either way
+// would be guessing.
+func TestAMachineWhoseCredentialIsUnspentIsStillWaiting(t *testing.T) {
+	h := newHarness(t)
+	_, row := h.machineFleet(t)
+
+	m := &store.Machine{ProviderID: row.ID, State: store.MachineEnrolling}
+	if err := h.st.CreateMachine(h.ctx, m); err != nil {
+		t.Fatalf("CreateMachine: %v", err)
+	}
+	tok, _, err := h.c.Auth().CreateScopedJoinToken(h.ctx, auth.JoinScope{
+		TTL: time.Hour, Capacity: 1, MachineID: m.ID, ExpectedName: m.Name,
+	})
+	if err != nil {
+		t.Fatalf("CreateScopedJoinToken: %v", err)
+	}
+	if err := h.st.SetMachineJoinToken(h.ctx, m.ID, tok.ID); err != nil {
+		t.Fatalf("SetMachineJoinToken: %v", err)
+	}
+
+	h.machinePass(t)
+
+	got := h.machineByID(t, m.ID)
+	if got.State != store.MachineEnrolling {
+		t.Fatalf("state = %s, want it still enrolling: nothing has happened yet", got.State)
+	}
+	if got.HostID != "" {
+		t.Fatal("a machine whose token nobody redeemed was linked to a host anyway")
+	}
+}
+
+// A machine in enrolling with no credential at all waits for its timeout to say
+// so, rather than being walked backwards. Nothing returns to bootstrapping: the
+// state machine has no such edge, because a machine that may already have been
+// handed a credential must not be handed a second one.
+func TestAMachineWithNoCredentialIsNotWalkedBackwards(t *testing.T) {
+	h := newHarness(t)
+	_, row := h.machineFleet(t)
+
+	m := &store.Machine{ProviderID: row.ID, State: store.MachineEnrolling}
+	if err := h.st.CreateMachine(h.ctx, m); err != nil {
+		t.Fatalf("CreateMachine: %v", err)
+	}
+
+	h.machinePass(t)
+
+	if got := h.machineByID(t, m.ID); got.State != store.MachineEnrolling {
+		t.Fatalf("state = %s, want it left alone until its enrolment timeout speaks", got.State)
+	}
+}
+
+// A resource that went away underneath a working machine is not a deletion this
+// fleet can tidy up: there is nothing left to delete, and whatever the host was
+// running is gone. Its host is cordoned so no more work is placed on something
+// that no longer exists, and the machine is failed with the provider's name in
+// the sentence rather than silently removed.
+func TestAMachineDestroyedOutsideZoomiesCordonsItsHostAndSaysSo(t *testing.T) {
+	h := newHarness(t)
+	_, row := h.machineFleet(t)
+
+	m := &store.Machine{ProviderID: row.ID, State: store.MachineReady}
+	if err := h.st.CreateMachine(h.ctx, m); err != nil {
+		t.Fatalf("CreateMachine: %v", err)
+	}
+	host := h.host(m.Name)
+	if err := h.st.SetMachineResource(h.ctx, m.ID, "zone-a", "9001", "ours", h.c.controllerID()); err != nil {
+		t.Fatalf("SetMachineResource: %v", err)
+	}
+	if err := h.st.LinkMachineHost(h.ctx, m.ID, host.ID, "", h.c.Now()); err != nil {
+		t.Fatalf("LinkMachineHost: %v", err)
+	}
+	// The provider has never heard of it: somebody removed it by hand.
+	h.machinePass(t)
+
+	got := h.machineByID(t, m.ID)
+	if got.State != store.MachineFailed {
+		t.Fatalf("state = %s, want failed: the resource is gone and there is nothing to delete", got.State)
+	}
+	if got.ProviderError == "" {
+		t.Fatal("a machine that vanished says nothing about it; the message is the only record")
+	}
+	gotHost, err := h.st.GetHost(h.ctx, host.ID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if !gotHost.Cordoned {
+		t.Fatal("the host of a machine that no longer exists is still taking work")
 	}
 }
