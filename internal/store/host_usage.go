@@ -12,11 +12,16 @@ import (
 // Pointers distinguish an idle/full host from a host that could not measure.
 // The controller owns the timestamps and the sustained-CPU hold.
 type HostUsage struct {
-	CPUPercent        *float64   `json:"cpu_percent,omitempty"`
-	MemoryAvailableMB *int64     `json:"memory_available_mb,omitempty"`
-	SampledAt         time.Time  `json:"sampled_at,omitempty"`
-	CPUHighSince      *time.Time `json:"cpu_high_since,omitempty"`
-	CPUHeld           bool       `json:"cpu_held,omitempty"`
+	CPUPercent        *float64 `json:"cpu_percent,omitempty"`
+	MemoryAvailableMB *int64   `json:"memory_available_mb,omitempty"`
+	// LoadAverage1 is the kernel's one-minute load average for the whole
+	// machine. CPU occupancy stops at 100%; this keeps counting the tasks
+	// queued behind the cores, so it is what says how far past its size a
+	// host has been pushed rather than merely that it is busy.
+	LoadAverage1 *float64   `json:"load_average_1m,omitempty"`
+	SampledAt    time.Time  `json:"sampled_at,omitempty"`
+	CPUHighSince *time.Time `json:"cpu_high_since,omitempty"`
+	CPUHeld      bool       `json:"cpu_held,omitempty"`
 }
 
 const HostUsageMaxAge = 90 * time.Second
@@ -50,7 +55,15 @@ func ObserveHostUsage(previous, measured HostUsage, memoryMB int64, now time.Tim
 		value := *v
 		u.MemoryAvailableMB = &value
 	}
-	if u.CPUPercent == nil && u.MemoryAvailableMB == nil {
+	// A load average has no ceiling -- that is the point of it -- but it is
+	// never negative, and a NaN or an infinity is an agent that read
+	// something other than /proc/loadavg. A figure that is only a load
+	// average, with no CPU and no memory, is still a measurement.
+	if v := measured.LoadAverage1; v != nil && !math.IsNaN(*v) && !math.IsInf(*v, 0) && *v >= 0 {
+		value := *v
+		u.LoadAverage1 = &value
+	}
+	if u.CPUPercent == nil && u.MemoryAvailableMB == nil && u.LoadAverage1 == nil {
 		return HostUsage{}
 	}
 	return u

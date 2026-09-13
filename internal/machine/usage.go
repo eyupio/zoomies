@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -14,6 +15,13 @@ import (
 type Usage struct {
 	CPUPercent        *float64
 	MemoryAvailableMB *int64
+	// LoadAverage1 is the kernel's one-minute load average: the mean number
+	// of runnable or uninterruptible tasks. It is the figure that keeps
+	// climbing after CPU occupancy has pinned at 100%, so it is what says how
+	// far past its cores a host has been pushed rather than merely that it is
+	// busy. Whole-machine, like the other two, so it is only reported where
+	// the CPU count is the machine's.
+	LoadAverage1 *float64
 }
 
 // UsageSampler takes CPU deltas between heartbeats without sleeping or asking
@@ -53,7 +61,29 @@ func (s *UsageSampler) Sample(cpus int, memoryMB int64) Usage {
 			out.MemoryAvailableMB = &available
 		}
 	}
+	// The load average is only meaningful against the CPU count it is read
+	// beside, so it is subject to the same test the CPU sample is: procfs has
+	// to be describing the machine the caller believes it is on.
+	if la, err := os.ReadFile(filepath.Join(s.root, "/proc/loadavg")); err == nil && s.cpus == cpus && cpus > 0 {
+		if v, ok := loadAverage(string(la)); ok {
+			out.LoadAverage1 = &v
+		}
+	}
 	return out
+}
+
+// loadAverage reads the one-minute figure from /proc/loadavg, whose first
+// three fields are the 1, 5 and 15 minute averages.
+func loadAverage(raw string) (float64, bool) {
+	fields := strings.Fields(raw)
+	if len(fields) < 3 {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(fields[0], 64)
+	if err != nil || v < 0 || math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0, false
+	}
+	return v, true
 }
 
 func cpuTicks(raw string) (total, idle uint64, cpus int, ok bool) {
