@@ -314,16 +314,30 @@ func (s *Server) validateProvider(r *http.Request, p *store.Provider, existingID
 }
 
 // settingField turns a driver finding's setting name into the field a form can
-// highlight. A driver names its settings "provider.settings.node", which is
-// what an operator reads in a log line, while the form knows the key.
+// highlight.
+//
+// A driver names the answer it is complaining about in the terms an operator
+// reads in a log line -- "template_node", or "provider.settings.zone" -- while
+// the form knows it as a key of the settings object. Everything that is not one
+// of the provider's own top-level fields is one of those keys.
 func settingField(setting string) string {
-	if setting == "" {
+	setting = strings.TrimSpace(setting)
+	switch setting {
+	case "":
 		return "settings"
+	case "kind", "name", "endpoint", "ca_pem", "insecure_skip_verify", "credential":
+		return setting
 	}
 	if key := strings.TrimPrefix(setting, "provider.settings."); key != setting {
 		return "settings." + key
 	}
-	return setting
+	if strings.Contains(setting, ".") {
+		// Something fully qualified that is not a setting of ours -- a
+		// configuration key, say. Naming a field the form does not have would
+		// highlight nothing, so it stays as the message's own words.
+		return "settings"
+	}
+	return "settings." + setting
 }
 
 // handleCreateProvider answers POST /api/v1/providers.
@@ -477,6 +491,10 @@ func (s *Server) handleValidateProvider(w http.ResponseWriter, r *http.Request) 
 	errs := in.apply(p)
 	errs = append(errs, s.validateProvider(r, p, strings.TrimSpace(r.URL.Query().Get("id")))...)
 
+	// Only the driver's own findings. This endpoint is offline, so the
+	// warnings that need the hypervisor -- a certificate nobody checks, a
+	// privilege the token is missing -- belong to the preflight, which has a
+	// documented code for each and is one button away in the same wizard.
 	warnings := []config.Finding{}
 	if p.Kind.Valid() {
 		if findings, err := s.ctrl.ValidateProviderSettings(p.Kind, p.Settings); err == nil {
@@ -486,20 +504,6 @@ func (s *Server) handleValidateProvider(w http.ResponseWriter, r *http.Request) 
 				}
 			}
 		}
-	}
-	if p.InsecureSkipVerify {
-		// The one weakening this endpoint can see for itself, and the reason
-		// it is reported rather than refused: a homelab hypervisor's
-		// certificate is usually its own.
-		warnings = append(warnings, config.Finding{
-			Code:     "provider.insecure_skip_verify",
-			Severity: config.SeverityWarning,
-			Setting:  "insecure_skip_verify",
-			Title:    "This provider's certificate will not be checked",
-			Detail: "Anything able to answer on the network between this controller and the hypervisor " +
-				"can pretend to be it, and it will be handed the credential.",
-			Fix: "Paste the hypervisor's CA certificate into ca_pem instead, or give it a certificate this controller trusts.",
-		})
 	}
 	writeJSON(w, http.StatusOK, validateProviderResponse{
 		Valid:    len(errs) == 0,
