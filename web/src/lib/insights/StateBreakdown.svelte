@@ -14,7 +14,7 @@
   export interface Segment {
     label: string;
     value: number;
-    tone: 'busy' | 'idle' | 'pending' | 'danger' | 'neutral' | 'accent';
+    tone: 'busy' | 'idle' | 'pending' | 'draining' | 'danger' | 'neutral' | 'accent';
     href?: string;
     /** One line on what the state means, for the tooltip. */
     hint?: string;
@@ -122,6 +122,9 @@
   }
   [data-tone='danger'] {
     --tone: var(--z-danger);
+  }
+  [data-tone='draining'] {
+    --tone: var(--z-draining);
   }
   [data-tone='neutral'] {
     --tone: var(--z-neutral);
