@@ -141,7 +141,8 @@ test('analytics supports keyboard inspection, group focus and matching CSV expor
   await expect(square).toBeFocused();
   await expect(page.locator('.tip:popover-open')).toContainText('Queued');
   await square.press('Enter');
-  await expect(matrix.getByRole('region', { name: 'Selected day' })).toContainText('Queued');
+  // The report opens on a day, so a square is an hour and the detail is one.
+  await expect(matrix.getByRole('region', { name: 'Selected hour' })).toContainText('Queued');
   const ranking = page.getByRole('region', { name: 'Execution by group', exact: true });
   await ranking.getByRole('button').first().click();
   await expect(page).toHaveURL(/entity=/);

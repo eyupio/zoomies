@@ -63,7 +63,8 @@ interface StoredPrefs {
   dismissed?: string[];
   /**
    * How far back the Overview's activity matrix looks. An operator who
-   * watches today by the hour should find it that way tomorrow morning.
+   * widens it to the year should find it that way tomorrow morning; with no
+   * choice recorded it starts at today, the range the fleet is running in.
    */
   activityRange?: ActivityRangeKey;
 }
@@ -117,7 +118,7 @@ class Prefs {
   #grids = $state<Record<string, GridPrefs>>({});
   #dismissed = $state<string[]>([]);
   #otherRunners = $state(false);
-  #activityRange = $state<ActivityRangeKey>('1y');
+  #activityRange = $state<ActivityRangeKey>('1d');
 
   constructor() {
     const stored = load();
@@ -131,12 +132,12 @@ class Prefs {
     this.#dismissed = stored.dismissed ?? [];
     this.#otherRunners = stored.otherRunners ?? false;
     // Validated, not trusted: the stored value is whatever this browser last
-    // wrote, and a range this build no longer offers falls back to the year.
+    // wrote, and a range this build no longer offers falls back to the day.
     this.#activityRange = (ACTIVITY_RANGES as readonly string[]).includes(
       stored.activityRange ?? '',
     )
       ? (stored.activityRange as ActivityRangeKey)
-      : '1y';
+      : '1d';
     this.#applyNav();
   }
 

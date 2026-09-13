@@ -52,11 +52,13 @@
     return local.toISOString().slice(0, 10);
   }
 
-  const DEFAULT_DAYS = 30;
+  // A day, like every other range the UI opens on. A wider report is one
+  // preset away, and it lands in the address bar where it can be sent on.
+  const DEFAULT_DAYS = 1;
   const today = day(new Date());
-  const monthAgo = day(new Date(Date.now() - DEFAULT_DAYS * 86_400_000));
+  const defaultSince = day(new Date(Date.now() - (DEFAULT_DAYS - 1) * 86_400_000));
 
-  const since = $derived(router.param('since') || monthAgo);
+  const since = $derived(router.param('since') || defaultSince);
   const until = $derived(router.param('until') || today);
   const grouping = $derived<UsageGrouping>(
     (GROUPINGS.find((g) => g.value === router.param('group_by'))?.value ?? 'pool') as UsageGrouping,

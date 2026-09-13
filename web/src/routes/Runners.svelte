@@ -430,7 +430,7 @@
 
 <RunnerInsights {poolId} />
 <details class="activity-history">
-  <summary>Explore fleet activity over the last hour</summary><FleetHistory />
+  <summary>Explore fleet activity over the last 24 hours</summary><FleetHistory />
 </details>
 
 <div class="filters">

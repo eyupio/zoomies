@@ -391,7 +391,9 @@
 
 <JobsInsights others={filters.all} />
 <details class="activity-history">
-  <summary>Explore fleet activity over the last hour</summary><FleetHistory others={filters.all} />
+  <summary>Explore fleet activity over the last 24 hours</summary><FleetHistory
+    others={filters.all}
+  />
 </details>
 <div class="content">
   <JobFilters
