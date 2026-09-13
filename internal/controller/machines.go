@@ -467,6 +467,13 @@ func (c *Controller) applyMachinePlan(ctx context.Context, env *machineEnv, plan
 			continue
 		}
 		if pp.Create > 0 {
+			// A machine already draining is cheaper than a new one, and the
+			// drain is reversible right up until the delete starts: demand
+			// that came back before then takes its machine back rather than
+			// paying to build another.
+			pp.Create -= c.reviveDraining(ctx, env, row, pp)
+		}
+		if pp.Create > 0 {
 			if held := c.provisioningHeld(row, env.now); held != "" {
 				c.log.Debug("machines were wanted and nothing may be bought", "provider", row.Name,
 					"wanted", pp.Create, "held", held)
@@ -507,6 +514,45 @@ func (c *Controller) reserveMachines(ctx context.Context, env *machineEnv, row *
 		c.log.Info("a machine was reserved", "machine", m.ID, "name", m.Name,
 			"provider", row.Name, "reason", pp.Reason)
 	}
+}
+
+// reviveDraining takes back as many of this provider's draining machines as the
+// pass wants to buy, and returns how many it took.
+//
+// It is the other half of a drain being an intent rather than an act: nothing
+// has been deleted yet, the host is cordoned and its runners have finished, so
+// uncordoning costs nothing and saves the minutes a clone takes. A machine
+// whose delete has started is past this -- a delete that was issued cannot be
+// un-issued.
+func (c *Controller) reviveDraining(ctx context.Context, env *machineEnv, row *store.Provider, pp ProviderPlan) int {
+	taken := 0
+	for _, m := range env.list {
+		if taken >= pp.Create {
+			break
+		}
+		if m.ProviderID != row.ID || m.State != store.MachineDraining {
+			continue
+		}
+		if slices.Contains(pp.Drain, m.ID) {
+			// This pass wants it gone, so taking it back would be the same
+			// pass disagreeing with itself.
+			continue
+		}
+		if m.HostID != "" {
+			if err := c.st.SetHostCordoned(ctx, m.HostID, false); err != nil {
+				c.log.Warn("could not uncordon a machine coming back into service",
+					"machine", m.ID, "host", m.HostID, "error", err)
+				continue
+			}
+			if h, err := c.st.GetHost(ctx, m.HostID); err == nil {
+				c.publishHost(h)
+			}
+		}
+		c.transitionMachine(ctx, env, m, store.MachineReady,
+			"work came back for this machine's pools before it was released")
+		taken++
+	}
+	return taken
 }
 
 // beginDrain cordons a machine's host and moves the machine to draining, which
@@ -1144,6 +1190,26 @@ func (c *Controller) stepDeleting(ctx context.Context, env *machineEnv, pr *mach
 		// Nothing was ever created, so there is nothing to confirm gone.
 		return c.confirmDeleted(ctx, env, m)
 	}
+	// Has the delete already issued finished? Its handle is the only record of
+	// it, and polling before looking is what stops a delete being issued twice
+	// while the first one is still running.
+	issued := false
+	if m.OpHandle != "" {
+		status, err := pr.p.Operation(ctx, provider.OperationRef{Kind: provider.OpDelete, Handle: m.OpHandle})
+		switch {
+		case errors.Is(err, provider.ErrNotFound):
+			// The provider has forgotten the task. What became of the resource
+			// is still Inspect's to answer.
+			issued = true
+		case err != nil:
+			return err
+		case !status.Done:
+			return errMachineWaiting
+		default:
+			issued = true
+		}
+	}
+
 	got, err := pr.p.Inspect(ctx, machineRef(m))
 	switch {
 	case errors.Is(err, provider.ErrNotFound):
@@ -1154,24 +1220,20 @@ func (c *Controller) stepDeleting(ctx context.Context, env *machineEnv, pr *mach
 	if why := c.ownershipComplaint(m, got); why != "" {
 		return c.quarantineMachine(ctx, env, m, why)
 	}
+	if err := c.st.SetMachineOwnershipVerified(ctx, m.ID, c.Now()); err != nil {
+		c.log.Warn("could not record a machine's ownership", "machine", m.ID, "error", err)
+	}
+	if issued {
+		// The delete finished and the resource is still there, so it did not
+		// work. The claim goes back rather than being held against a task that
+		// has already ended: the next attempt needs a handle of its own, and
+		// the delete timeout is what says when to stop asking.
+		return nil
+	}
 	if !got.Phase.AuthorisesDelete() {
 		// PhaseUnknown above all: what we cannot recognise we leave alone,
 		// which costs a stuck machine and saves somebody else's.
 		return errMachineWaiting
-	}
-	if err := c.st.SetMachineOwnershipVerified(ctx, m.ID, c.Now()); err != nil {
-		c.log.Warn("could not record a machine's ownership", "machine", m.ID, "error", err)
-	}
-
-	if m.OpHandle != "" {
-		status, err := pr.p.Operation(ctx, provider.OperationRef{Kind: provider.OpDelete, Handle: m.OpHandle})
-		switch {
-		case errors.Is(err, provider.ErrNotFound):
-		case err != nil:
-			return err
-		case !status.Done:
-			return errMachineWaiting
-		}
 	}
 	if held := c.mutationsHeld(); held != "" {
 		return fmt.Errorf("%w: %s", errMachineHeld, held)
