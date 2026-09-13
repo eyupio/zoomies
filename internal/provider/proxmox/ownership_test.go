@@ -1,6 +1,7 @@
 package proxmox
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -172,5 +173,34 @@ func TestTheFleetTagIsWhatASweepFiltersOn(t *testing.T) {
 				t.Errorf("HasFleetTag(%q) = %v, want %v", tc.tags, got, tc.want)
 			}
 		})
+	}
+}
+
+// The marks have to survive the wire as well as the round trip in memory: the
+// configuration endpoint is where a sweep reads them back from, and a delete
+// requires what it finds there to agree with the row.
+func TestTheMarksAreReadBackFromTheGuestsOwnConfiguration(t *testing.T) {
+	owner := provider.Owner{
+		ControllerID: "ctl_k3f9qz2mx7ab", ProviderID: "prv_ab2c3d4e5f6g",
+		MachineID: "mach_z7y6x5w4v3u2", Fingerprint: "9f8e7d6c5b4a",
+		CreatedAt: time.Date(2026, 3, 4, 9, 15, 30, 0, time.UTC),
+	}
+	f := newFakePVE(t, nil)
+	f.SetForeignVM(143, "zoomies-mach-z7y6x5w4v3u2")
+	f.SetVMDescription(143, Describe(owner, "zoomies-mach-z7y6x5w4v3u2"), EncodeTags("", Tags(owner)))
+
+	cfg, err := f.client(t).VMConfig(context.Background(), "pve-1", 143)
+	if err != nil {
+		t.Fatalf("VMConfig: %v", err)
+	}
+	got, ok := DecodeOwner(cfg.Description)
+	if !ok {
+		t.Fatalf("the guest carries no marks: %q", cfg.Description)
+	}
+	if !got.Matches(owner) {
+		t.Errorf("marks = %+v, want %+v", got, owner)
+	}
+	if !HasFleetTag(cfg.Tags) {
+		t.Errorf("tags = %q, which a sweep would not find", cfg.Tags)
 	}
 }

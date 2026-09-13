@@ -151,8 +151,9 @@ func newFakePVE(t *testing.T, routes map[string]http.HandlerFunc) *fakePVE {
 			writeFailure(w, http.StatusUnauthorized, "authentication failure")
 			return
 		}
-		if in, ok := f.stallFor(r); ok {
-			_ = in
+		if f.stalled(r) {
+			// The request has arrived and will never be answered, which is the
+			// only way to produce the outcome nobody heard.
 			select {
 			case <-r.Context().Done():
 			case <-f.stop:
@@ -329,15 +330,15 @@ func (f *fakePVE) errorFor(r *http.Request) (injected, bool) {
 	return injected{}, false
 }
 
-func (f *fakePVE) stallFor(r *http.Request) (injected, bool) {
+func (f *fakePVE) stalled(r *http.Request) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for _, in := range f.stalls {
 		if in.method == r.Method && strings.HasSuffix(r.URL.Path, in.suffix) {
-			return in, true
+			return true
 		}
 	}
-	return injected{}, false
+	return false
 }
 
 // newUPID mints a task handle in the wire's own shape, nine hex digits of

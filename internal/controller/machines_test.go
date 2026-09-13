@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/provider"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -25,8 +26,16 @@ func (h *harness) machineFleet(t *testing.T) (*store.Pool, *store.Provider) {
 	inst := h.installation()
 	pool := h.pool(inst, "linux-x64")
 	row := h.providerRow(t, "lab")
-	h.queuedJob(t, pool, pool.Labels)
+	h.queueWork(t)
 	return pool, row
+}
+
+// queueWork puts one job in the queue the way GitHub does, so that the pool's
+// demand is the scheduler's own reading rather than something a test asserted.
+func (h *harness) queueWork(t *testing.T) {
+	t.Helper()
+	h.deliverJob(jobEvent{Action: "queued", JobID: time.Now().UnixNano(),
+		Labels: []string{"self-hosted", "linux", "x64", "demo"}})
 }
 
 // enableProviders turns the machine loop's configuration on with a ceiling, so
@@ -128,7 +137,9 @@ func (h *harness) drive(t *testing.T, id string, want store.MachineState, passes
 		if m.State == want {
 			return m
 		}
-		h.clearMachineBackoff(t, id)
+		// A machine waiting out a backoff is waiting for a clock, and a test
+		// has one it can move.
+		h.pastBackoff(t, id)
 		h.machinePass(t)
 	}
 	m = h.machineByID(t, id)
@@ -139,23 +150,16 @@ func (h *harness) drive(t *testing.T, id string, want store.MachineState, passes
 	return m
 }
 
-// clearMachineBackoff takes a machine's wait away so that a test does not have
-// to sleep through a backoff the code is not what is under test.
-func (h *harness) clearMachineBackoff(t *testing.T, id string) {
+// pastBackoff moves the controller's clock past whatever a machine is waiting
+// out, which is the honest way for a test to reach the next attempt: the wait
+// is real, and a test that wrote the columns itself would be asserting on its
+// own arithmetic rather than on the fleet's.
+func (h *harness) pastBackoff(t *testing.T, id string) {
 	t.Helper()
 	m := h.machineByID(t, id)
-	if m.NextAttemptAt == nil && m.OpID == "" {
-		return
-	}
-	if m.OpID != "" {
-		// The claim is what a real pass waits out; a test waits out nothing.
-		if err := h.st.FinishMachineOperation(h.ctx, m.ID, m.OpID, store.MachineOpReleased, "", nil); err != nil {
-			t.Fatalf("FinishMachineOperation: %v", err)
-		}
-	}
-	if err := h.st.RecordMachineFailure(h.ctx, m.ID, store.MachineErrorProvider, m.ProviderError,
-		h.c.Now().Add(-time.Second)); err != nil {
-		t.Fatalf("clearing backoff: %v", err)
+	now := h.c.Now()
+	if m.NextAttemptAt != nil && m.NextAttemptAt.After(now) {
+		h.advance(m.NextAttemptAt.Sub(now) + time.Second)
 	}
 }
 
@@ -197,18 +201,12 @@ func (h *harness) assertOneResourcePerMachine(t *testing.T) {
 		}
 		seenName[m.Name] = m.ID
 	}
-	creates := map[string]int{}
-	for _, call := range h.fake.Calls() {
-		op, ref, ok := strings.Cut(call, " ")
-		if ok && op == "create" {
-			creates[ref]++
-		}
-	}
-	for ref, n := range creates {
-		if n > 1 {
-			t.Errorf("the provider was asked to create %s %d times; a machine is created once or the fleet pays twice", ref, n)
-		}
-	}
+	// A create ISSUED twice for one identity is not in itself the bug -- a
+	// create whose answer was lost and whose resource could not be found twice
+	// is deliberately re-issued with the same identity, which is a retry of one
+	// machine rather than the purchase of a second. The bug is a second
+	// machine, so that is what is counted: the provider must not be holding
+	// more machines than the fleet has rows naming one.
 	if got := len(h.fake.Machines()); got > len(seenResource) {
 		t.Errorf("the provider holds %d machines and the fleet has %d rows naming one; a resource with no row is a machine nobody is watching",
 			got, len(seenResource))
@@ -266,7 +264,7 @@ func TestAQueueWithNowhereToRunBuysAMachineAndEnrolsIt(t *testing.T) {
 func (h *harness) joinAsMachine(t *testing.T, m *store.Machine) {
 	t.Helper()
 	token := h.tokenFromBootstrap(t, m)
-	resp, err := h.c.Join(h.ctx, agentJoinRequest(m.Name, token), "203.0.113.9")
+	resp, err := h.c.Join(h.ctx, joinRequest(m.Name, token), "203.0.113.9")
 	if err != nil {
 		t.Fatalf("joining as machine %s: %v", m.Name, err)
 	}
@@ -414,6 +412,7 @@ func TestAProviderOutOfCapacitySaysSoAndStandsDown(t *testing.T) {
 
 	// And the drain half still runs: a machine that is already ready is
 	// released even while the provider refuses new ones.
+	h.fake.ClearFailures()
 	ready := h.readyMachine(t, row)
 	h.pauseProvider(t, row, "full")
 	h.beginDrainFor(t, ready)
@@ -456,7 +455,7 @@ func TestThreeFailedBootstrapsStandTheProviderDown(t *testing.T) {
 	for range breakerThreshold {
 		h.machinePass(t)
 		for _, m := range h.machines() {
-			h.clearMachineBackoff(t, m.ID)
+			h.pastBackoff(t, m.ID)
 		}
 	}
 	got, err := h.st.GetProvider(h.ctx, row.ID)
@@ -469,7 +468,8 @@ func TestThreeFailedBootstrapsStandTheProviderDown(t *testing.T) {
 	if got.PausedUntil == nil {
 		t.Fatal("three failures in a row did not stand the provider down; a bad template would burn machines until somebody noticed")
 	}
-	if held := h.c.provisioningHeld(got, h.c.Now()); held == "" {
+	// A second before the stand-down expires, nothing may be bought from it.
+	if held := h.c.provisioningHeld(got, got.PausedUntil.Add(-time.Second)); held == "" {
 		t.Fatal("a stood-down provider is not held, so the next pass buys another machine")
 	}
 }
@@ -562,10 +562,13 @@ func TestADrainWaitsForTheRunnersOnTheMachine(t *testing.T) {
 func TestAProviderThisBuildCannotMakeSaysSoRatherThanFailingLater(t *testing.T) {
 	h := newHarness(t)
 	h.enableProviders(t)
-	row := h.providerRow(t, "lab")
-	row.Kind = store.ProviderProxmox
-	if err := h.st.UpdateProvider(h.ctx, row); err != nil {
-		t.Fatalf("UpdateProvider: %v", err)
+	row := &store.Provider{
+		Kind: store.ProviderProxmox, Name: "pve", Endpoint: "https://pve.test:8006",
+		MachineCapacity: 2, MachineBackend: store.BackendDocker,
+		MaxMachines: 1, MaxCreatesInFlight: 1, Enabled: true,
+	}
+	if err := h.st.CreateProvider(h.ctx, row); err != nil {
+		t.Fatalf("CreateProvider: %v", err)
 	}
 
 	h.machinePass(t)

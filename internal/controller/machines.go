@@ -602,22 +602,13 @@ func (c *Controller) stepMachines(ctx context.Context, env *machineEnv) {
 		if kind == store.MachineOpNone {
 			continue
 		}
-		timeout := c.stepTimeout(pr)
-		// The claim outlasts the call it covers. Held for exactly the call's
-		// own deadline, it would expire at the instant the call gives up --
-		// while this pass is still classifying the failure and writing the
-		// outcome down -- and another pass arriving in that window would take
-		// the machine and act on a row that is about to be rewritten.
-		claimed, err := c.st.ClaimMachineOperation(ctx, m.ID, store.MachineOperation{
-			Kind: kind, Holder: env.holder, Timeout: timeout + machineClaimMargin,
-		}, env.now)
-		if err != nil {
-			if !errors.Is(err, store.ErrMachineBusy) {
-				c.log.Warn("could not claim a machine's next step", "machine", m.ID, "error", err)
-			}
+		claimed, ok := c.claimMachineStep(ctx, env, m, kind)
+		if !ok {
 			continue
 		}
 		*m = *claimed
+
+		timeout := c.stepTimeout(pr)
 
 		c.machines.calls.Add(1)
 		go func(m *store.Machine) {
@@ -627,6 +618,64 @@ func (c *Controller) stepMachines(ctx context.Context, env *machineEnv) {
 			c.runMachineStep(cctx, env, pr, m)
 		}(claimed)
 	}
+}
+
+// claimMachineStep takes this machine's next step, or carries on with the
+// operation it is already in the middle of.
+//
+// An operation outlives the pass that issued it: a create is asynchronous, its
+// handle lives in the same columns as the claim, and giving the claim back
+// would take the handle with it -- so a pass that has issued one keeps the
+// claim and the next pass polls what it finds. The claim's timeout is the
+// PHASE's budget rather than one request's, which is what makes an operation
+// whose controller died takeable exactly when it has run out of time.
+//
+// A live claim left by another holder is continued rather than refused. This
+// controller holds the database lease, so another holder is a previous life of
+// this fleet rather than a rival -- and the first thing a continuation does is
+// ask the provider what happened, which is safe whoever asked last.
+func (c *Controller) claimMachineStep(ctx context.Context, env *machineEnv, m *store.Machine, kind store.MachineOpKind) (*store.Machine, bool) {
+	if m.OpID != "" && m.OpDeadlineAt != nil && env.now.Before(*m.OpDeadlineAt) {
+		if m.OpKind != kind {
+			// The operation in flight is not the one this state calls for.
+			// Leaving it to finish is the only safe answer: its handle is the
+			// only record of what was issued.
+			return nil, false
+		}
+		return m, true
+	}
+	claimed, err := c.st.ClaimMachineOperation(ctx, m.ID, store.MachineOperation{
+		Kind: kind, Holder: env.holder, Timeout: c.operationBudget(kind),
+	}, env.now)
+	if err != nil {
+		if !errors.Is(err, store.ErrMachineBusy) {
+			c.log.Warn("could not claim a machine's next step", "machine", m.ID, "error", err)
+		}
+		return nil, false
+	}
+	return claimed, true
+}
+
+// operationBudget is how long a phase has before its claim is takeable. It is
+// the phase's own timeout, not one request's: a claim shorter than the work
+// would let a second pass start issuing while the first was still under way.
+func (c *Controller) operationBudget(kind store.MachineOpKind) time.Duration {
+	cfg := c.cfg().Provider
+	var d time.Duration
+	switch kind {
+	case store.MachineOpBootstrap:
+		d = cfg.BootstrapTimeout
+	case store.MachineOpDelete:
+		d = cfg.DeleteTimeout
+	default:
+		// Create, start and stop all live inside the budget for building a
+		// machine, because that is what they are steps of.
+		d = cfg.CreateTimeout
+	}
+	if d <= 0 {
+		d = 20 * time.Minute
+	}
+	return d + machineClaimMargin
 }
 
 // machineOperationFor is the one operation a machine in this state can be
@@ -674,7 +723,8 @@ func (c *Controller) runMachineStep(ctx context.Context, env *machineEnv, pr *ma
 		// walk the backoff up towards giving up on a machine nobody has tried.
 		c.finishMachineOperation(ctx, m, opID, store.MachineOpReleased, "", nil)
 	case errors.Is(err, errMachineWaiting):
-		c.finishMachineOperation(ctx, m, opID, store.MachineOpReleased, "", nil)
+		// Nothing is written at all. The operation is still in flight, and the
+		// claim is what carries its handle from this pass to the next.
 	case errors.Is(err, errMachineUnknownOutcome):
 		// Deliberately not finished. The operation is not over -- nobody knows
 		// whether it happened -- and the claim expiring on its own is what lets
@@ -838,12 +888,15 @@ func (c *Controller) stepPlanned(ctx context.Context, env *machineEnv, pr *machi
 	if err != nil {
 		return c.noteAmbiguity(ctx, m, err)
 	}
-	if !op.Zero() {
-		if err := c.st.SetMachineOperationHandle(ctx, m.ID, m.OpID, op.Handle); err != nil {
-			c.log.Warn("could not record a create's handle", "machine", m.ID, "error", err)
-		}
+	if op.Zero() {
+		// A synchronous provider: there is nothing to follow, and the next
+		// pass asks what exists.
+		return nil
 	}
-	return nil
+	if err := c.st.SetMachineOperationHandle(ctx, m.ID, m.OpID, op.Handle); err != nil {
+		c.log.Warn("could not record a create's handle", "machine", m.ID, "error", err)
+	}
+	return errMachineWaiting
 }
 
 // noteAmbiguity records a call whose outcome was never heard, and turns
@@ -969,12 +1022,13 @@ func (c *Controller) resolveMissing(ctx context.Context, env *machineEnv, pr *ma
 	if err != nil {
 		return c.noteAmbiguity(ctx, m, err)
 	}
-	if !op.Zero() {
-		if err := c.st.SetMachineOperationHandle(ctx, m.ID, m.OpID, op.Handle); err != nil {
-			c.log.Warn("could not record a create's handle", "machine", m.ID, "error", err)
-		}
+	if op.Zero() {
+		return nil
 	}
-	return nil
+	if err := c.st.SetMachineOperationHandle(ctx, m.ID, m.OpID, op.Handle); err != nil {
+		c.log.Warn("could not record a create's handle", "machine", m.ID, "error", err)
+	}
+	return errMachineWaiting
 }
 
 // stepStarting powers a machine on and waits for it to be running.

@@ -768,3 +768,55 @@ func deadAddress(t *testing.T) string {
 	}
 	return addr
 }
+
+// The worst case this package has to survive: the virtual machine was made and
+// the answer saying so was lost. It has to arrive as an unknown outcome, and
+// the machine has to be findable afterwards -- because the only safe next move
+// is to look for it, and a retry would leave one nobody is tracking running and
+// billing.
+func TestACloneWhoseAnswerWasLostIsUnknownRatherThanFailed(t *testing.T) {
+	f := newFakePVE(t, nil)
+	f.SetAmbiguousClone()
+	c := f.client(t)
+
+	_, err := c.CloneVM(context.Background(), "pve-1", 9000, CloneRequest{NewID: 143, Name: "zoomies-mach-abc"})
+	if got := provider.KindOf(err); got != provider.FailureAmbiguous {
+		t.Fatalf("kind = %q, want %q (%v)", got, provider.FailureAmbiguous, err)
+	}
+	if provider.Retryable(err) {
+		t.Error("an unknown outcome was reported as retryable")
+	}
+
+	guests, err := c.ClusterVMs(context.Background())
+	if err != nil {
+		t.Fatalf("ClusterVMs: %v", err)
+	}
+	var found bool
+	for _, g := range guests {
+		if g.Name == "zoomies-mach-abc" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the machine the clone made is not findable by name, so an ambiguous create could never be reconciled")
+	}
+}
+
+// A cluster with no room refuses in its own words. It is worth waiting for and
+// is never fixed by asking again immediately, which is a different answer from
+// "the call was refused".
+func TestAStorageWithNoRoomIsAQuotaRefusal(t *testing.T) {
+	f := newFakePVE(t, nil)
+	f.SetQuotaExhausted()
+
+	_, err := f.client(t).CloneVM(context.Background(), "pve-1", 9000, CloneRequest{NewID: 143})
+	if got := provider.KindOf(err); got != provider.FailureQuota {
+		t.Fatalf("kind = %q, want %q (%v)", got, provider.FailureQuota, err)
+	}
+	if !strings.Contains(err.Error(), "local-lvm") {
+		t.Errorf("the refusal does not say which storage is full: %v", err)
+	}
+	if !provider.Retryable(err) {
+		t.Error("a full storage is worth trying again once there is room")
+	}
+}

@@ -1,0 +1,273 @@
+package controller
+
+import (
+	"slices"
+	"testing"
+	"time"
+
+	"github.com/eyupio/zoomies/internal/provider"
+	"github.com/eyupio/zoomies/internal/store"
+)
+
+// A timeout says nothing about whether the work happened. Treating one as a
+// failure is how a fleet ends up with two machines and one row -- and the row
+// names only one of them, so the other is never drained, never deleted and
+// never anything but a line on the bill.
+func TestATimeoutIsNotEvidenceThatCreationFailed(t *testing.T) {
+	h := newHarness(t)
+	h.machineFleet(t)
+	h.fake.SetAmbiguousAfterWork("create")
+
+	h.machinePass(t)
+	m := h.onlyMachine(t)
+	if !m.OpOutcomeUnknown {
+		t.Fatal("a create whose answer was never heard was not recorded as unknown; the next pass would retry it")
+	}
+
+	// The connection comes back. Every pass from here resolves by asking.
+	h.fake.ClearFailures()
+	for range 3 {
+		h.pastBackoff(t, m.ID)
+		h.machinePass(t)
+	}
+	if got := h.callsTo("create"); got != 1 {
+		t.Fatalf("the provider was asked to create %d times after one ambiguous answer, want once", got)
+	}
+	if got := len(h.fake.Machines()); got != 1 {
+		t.Fatalf("the provider holds %d machines after one ambiguous create, want 1", got)
+	}
+	if got := h.machineByID(t, m.ID); got.OwnershipVerifiedAt == nil {
+		t.Fatal("the machine was never adopted: an ambiguous create is resolved by finding what was made")
+	}
+	h.assertOneResourcePerMachine(t)
+}
+
+// An ambiguous answer with nothing behind it is the same answer as one with a
+// machine behind it. The difference is only knowable by looking, and looking
+// twice before reusing the identity is what stops a provider that is slow to
+// admit a resource exists from being asked for a second one.
+func TestAnAmbiguousCreateIsResolvedByLookingNotByCreating(t *testing.T) {
+	h := newHarness(t)
+	h.machineFleet(t)
+	h.fake.SetAmbiguousBeforeWork("create")
+
+	h.machinePass(t)
+	m := h.onlyMachine(t)
+	h.fake.ClearFailures()
+
+	// The first look finds nothing and creates nothing.
+	h.pastBackoff(t, m.ID)
+	h.machinePass(t)
+	if got := h.callsTo("create"); got != 1 {
+		t.Fatalf("the provider was asked to create %d times after one look, want the first one only", got)
+	}
+
+	// The second, a call timeout later, reuses the identity rather than
+	// allocating a new one.
+	h.pastBackoff(t, m.ID)
+	h.machinePass(t)
+	if got := h.callsTo("allocate"); got != 1 {
+		t.Fatalf("a second identity was allocated (%d allocates); a retry of one machine reuses the identity it already has", got)
+	}
+	h.assertOneResourcePerMachine(t)
+}
+
+// Past the ambiguity timeout the honest answer is that nobody knows, and the
+// honest action is to ask a person. Retrying for ever would leave a machine
+// that may exist being paid for, with nothing on any page to say so.
+func TestAnUnresolvedAmbiguityIsQuarantinedRatherThanRetried(t *testing.T) {
+	h := newHarness(t)
+	h.machineFleet(t)
+	h.fake.SetAmbiguousBeforeWork("create")
+
+	h.machinePass(t)
+	m := h.onlyMachine(t)
+	h.fake.ClearFailures()
+	h.advance(h.cfg.Provider.AmbiguityTimeout + time.Minute)
+
+	h.machinePass(t)
+	got := h.machineByID(t, m.ID)
+	if got.State != store.MachineQuarantined {
+		t.Fatalf("an ambiguity nobody could resolve left the machine %s, want quarantined", got.State)
+	}
+	if !slices.Contains(h.problemCodes(), "provider.ownership_unverified") {
+		t.Fatalf("a quarantined machine raised %v, want provider.ownership_unverified", h.problemCodes())
+	}
+}
+
+// A machine wearing our naming and somebody else's ownership marks is another
+// fleet's. Deleting it would destroy a machine that is running somebody's work,
+// so it is quarantined and left exactly where it is.
+func TestAVMWearingOurNameWithAnotherOwnerIsQuarantinedNotDeleted(t *testing.T) {
+	h := newHarness(t)
+	_, row := h.machineFleet(t)
+
+	// A machine of another fleet's, wearing the naming this one mints: a
+	// recycled identifier, which is the realistic accident.
+	m := &store.Machine{ProviderID: row.ID, State: store.MachineCreating}
+	if err := h.st.CreateMachine(h.ctx, m); err != nil {
+		t.Fatalf("CreateMachine: %v", err)
+	}
+	h.fake.PlantForeign(m.Name)
+	theirs := h.fake.Machines()[0]
+	if err := h.st.SetMachineResource(h.ctx, m.ID, theirs.Ref.Zone, theirs.Ref.ID,
+		"ours", h.c.controllerID()); err != nil {
+		t.Fatalf("SetMachineResource: %v", err)
+	}
+
+	h.machinePass(t)
+
+	got := h.machineByID(t, m.ID)
+	if got.State != store.MachineQuarantined {
+		t.Fatalf("a resource owned by another fleet left our machine %s, want quarantined", got.State)
+	}
+	if got.OwnershipError == "" {
+		t.Fatal("a quarantined machine says nothing about what disagreed; the whole entry is for a person to read")
+	}
+	if h.callsTo("delete") != 0 {
+		t.Fatal("a resource this fleet could not prove it owns was deleted")
+	}
+}
+
+// A resource wearing this fleet's naming with no row at all is reported and
+// never removed. One left over from a database that was lost is the operator's
+// to remove; one still doing work belongs to something else, and a sweep cannot
+// tell the two apart.
+func TestAnUntrackedResourceIsReportedAndNeverDeleted(t *testing.T) {
+	h := newHarness(t)
+	_, row := h.machineFleet(t)
+	name := store.NewMachineName("mach_orphaned")
+	h.fake.PlantOrphan(name, provider.Owner{ControllerID: h.c.controllerID(), ProviderID: row.ID})
+
+	h.machinePass(t)
+
+	orphans := h.c.ProviderOrphans()[row.ID]
+	if !slices.Contains(orphans, name) {
+		t.Fatalf("the sweep reported orphans %v, want %s among them", orphans, name)
+	}
+	if !slices.Contains(h.problemCodes(), "provider.orphan_found") {
+		t.Fatalf("an untracked resource raised %v, want provider.orphan_found", h.problemCodes())
+	}
+	if h.callsTo("delete") != 0 {
+		t.Fatal("an untracked resource was deleted; it may be somebody else's and it may be running")
+	}
+	for _, got := range h.fake.Machines() {
+		if got.Ref.Name == name {
+			return
+		}
+	}
+	t.Fatal("the untracked resource is gone from the provider, and nothing here should have removed it")
+}
+
+// A resource that went away outside Zoomies is not a delete that worked: there
+// is nothing left to delete, whatever was running on it has been lost, and the
+// fleet has to say so rather than quietly recording a tidy removal.
+func TestAMachineThatVanishedOutsideZoomiesSaysSo(t *testing.T) {
+	h := newHarness(t)
+	_, row := h.machineFleet(t)
+	m := h.readyMachine(t, row)
+
+	h.fake.Vanish(m.ResourceID)
+	h.advance(h.cfg.Provider.SweepInterval + time.Minute)
+	h.machinePass(t)
+
+	got := h.machineByID(t, m.ID)
+	if got.State != store.MachineFailed {
+		t.Fatalf("a machine destroyed outside Zoomies is %s, want failed", got.State)
+	}
+	if got.DeletedAt != nil {
+		t.Fatal("a machine nobody deleted was recorded as deleted; that stamp is what frees the budget and it has to mean a delete")
+	}
+	if !slices.Contains(h.problemCodes(), "provider.machine_failed") {
+		t.Fatalf("a vanished machine raised %v, want provider.machine_failed", h.problemCodes())
+	}
+}
+
+// A sweep's answer goes stale. A delete needs a fresh look, in the pass that
+// deletes, because an observation from ten minutes ago is a statement about a
+// machine that may have been rebuilt since.
+func TestADeleteAlwaysInspectsAfresh(t *testing.T) {
+	h := newHarness(t)
+	_, row := h.machineFleet(t)
+	m := h.readyMachine(t, row)
+
+	before := h.callsTo("inspect")
+	h.beginDrainFor(t, m)
+	h.drive(t, m.ID, store.MachineDeleted, 8)
+
+	if h.callsTo("inspect") <= before {
+		t.Fatal("a machine was deleted without a fresh inspect; a sweep's answer is not evidence for a delete")
+	}
+	// And the view says the same thing to an operator: a machine whose last
+	// confirmation has gone stale is not offered a delete button.
+	stale := &store.Machine{ID: "mach_x", ResourceID: "143",
+		OwnershipVerifiedAt: ptrTime(h.c.Now().Add(-2 * observationMaxAge))}
+	if ok, why := machineSafeToDelete(stale, h.c.Now()); ok {
+		t.Fatalf("a machine last verified %s ago was offered as safe to delete (%q)", 2*observationMaxAge, why)
+	}
+}
+
+// A reservation that never became a create is released rather than left
+// holding a place in the ceiling for ever. Nothing was created -- the identity
+// is written before the call and this row has none -- so nothing is at risk.
+func TestAReservationThatNeverBecameACreateIsReleased(t *testing.T) {
+	h := newHarness(t)
+	_, row := h.machineFleet(t)
+	expires := h.c.Now().Add(-time.Minute)
+	m := &store.Machine{ProviderID: row.ID, State: store.MachinePlanned, ReservationExpiresAt: &expires}
+	if err := h.st.CreateMachine(h.ctx, m); err != nil {
+		t.Fatalf("CreateMachine: %v", err)
+	}
+
+	h.machinePass(t)
+	got := h.machineByID(t, m.ID)
+	if got.State != store.MachineFailed {
+		t.Fatalf("an expired reservation is %s, want failed so it stops holding a place in the ceiling", got.State)
+	}
+}
+
+// A repeated observation changes nothing. Deliveries and sweeps are
+// at-least-once, so a pass that saw the same thing twice must write the same
+// row twice rather than moving the machine on twice.
+func TestARepeatedProviderObservationChangesNothing(t *testing.T) {
+	h := newHarness(t)
+	_, row := h.machineFleet(t)
+	m := h.readyMachine(t, row)
+
+	before := h.machineByID(t, m.ID)
+	for range 3 {
+		h.advance(h.cfg.Provider.SweepInterval + time.Minute)
+		h.machinePass(t)
+	}
+	after := h.machineByID(t, m.ID)
+	if after.State != before.State {
+		t.Fatalf("three sweeps over an unchanged machine moved it from %s to %s", before.State, after.State)
+	}
+	if !after.ReadyAt.Equal(*before.ReadyAt) {
+		t.Fatal("a repeated observation rewrote when the machine became ready; the timeline is first-write-wins")
+	}
+	h.assertOneResourcePerMachine(t)
+}
+
+// A host an operator enrolled by hand never becomes a machine this controller
+// may destroy. Deletion authority is the existence of a machine row this
+// controller wrote before the resource existed, and there is no route that
+// attaches one to a host somebody already had.
+func TestAnImportedHostNeverAcquiresDeletionAuthority(t *testing.T) {
+	h := newHarness(t)
+	h.enableProviders(t)
+	host := h.host("imported-1")
+
+	if _, err := h.st.GetMachineByHost(h.ctx, host.ID); err == nil {
+		t.Fatal("a host nobody rented has a machine row, which is the only thing that grants a delete")
+	}
+	// Labelling it cannot change that: labels are the operator's and are
+	// writable through the API.
+	host.Labels = store.StringMap{"zoomies.machine": "mach_pretend"}
+	if err := h.st.UpdateHost(h.ctx, host); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+	if _, err := h.st.GetMachineByHost(h.ctx, host.ID); err == nil {
+		t.Fatal("a label gave a host a machine row; a host that can be labelled into deletion authority can be destroyed by anyone with the operator role")
+	}
+}
