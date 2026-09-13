@@ -20,15 +20,18 @@ test('runner queue context uses fleet totals and links to provisioning controls'
     'href',
     '/queue',
   );
-  await page.getByText('Explore fleet activity over the last hour', { exact: true }).click();
+  await page.getByText('Explore fleet activity over the last 24 hours', { exact: true }).click();
   await page.getByLabel('Fleet trend metric').selectOption('idle');
   await expect(page.getByRole('slider', { name: 'Inspect idle runners' })).toBeVisible();
   await page.getByRole('slider', { name: 'Inspect idle runners' }).press('Home');
-  await expect(page.getByText(/minutes observed · gaps mean no sample/)).toBeVisible();
 
-  // A wider window folds the minutes into intervals that carry their peak,
-  // and says so, so a day of samples is ninety-six points rather than a smear.
+  // The day is the window it opens on, and a wider window folds the minutes
+  // into intervals that carry their peak, and says so, so a day of samples is
+  // ninety-six points rather than a smear.
   const trend = page.getByRole('region', { name: 'Fleet activity', exact: true });
+  await expect(
+    trend.getByRole('img', { name: /Idle runners; \d+ observed 15-minute intervals/ }),
+  ).toBeVisible();
   await trend.getByRole('button', { name: 'The last 6 hours, in 5-minute peaks' }).click();
   await expect(trend.getByText(/5-minute intervals observed/)).toBeVisible();
   await expect(

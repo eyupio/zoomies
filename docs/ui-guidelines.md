@@ -117,16 +117,38 @@ these colours for anything else, because operators learn them.
 
 | State | Token | Light | Dark |
 | --- | --- | --- | --- |
-| idle / healthy / success | `--z-idle` | `#177245` | `#5FD68C` |
-| **busy / running** | `--z-busy` | `#0E7490` | `#3ED8F0` |
-| provisioning / registering / pending | `--z-pending` | `#8A5200` | `#F0B34C` |
-| draining / cordoned / paused | `--z-draining` | `#5E636D` | `#A6ABB5` |
-| failed / error / destructive | `--z-danger` | `#B32218` | `#FF9089` |
-| removed / neutral | `--z-neutral` | `#6E737C` | `#868B94` |
+| idle / healthy / success | `--z-idle` | `#0F7A3D` | `#5FD68C` |
+| **busy / running** | `--z-busy` | `#00757F` | `#3BD6E8` |
+| provisioning / registering / pending | `--z-pending` | `#9A6100` | `#F2B246` |
+| draining / cordoned / paused | `--z-draining` | `#4D3F5C` | `#D0BEE0` |
+| failed / error / destructive | `--z-danger` | `#BD2018` | `#FF8D84` |
+| removed / neutral | `--z-neutral` | `#686D76` | `#7F858E` |
 
 Busy is the Fast Cyan family: the brand asks for the accent to be used
 sparingly, and *this runner is executing a job right now* is the single most
 valuable "look here" signal on the page.
+
+**The six are separated in lightness and chroma, not only in hue**, because a
+legend is the one place they are read side by side. An earlier palette set all
+six within a few points of L\* 45 and let hue do the whole job, which worked for
+green against red and failed everywhere else: draining and neutral were two
+greys at the same lightness, six points of CIEDE2000 apart, where a pair has
+to be around twenty before a legend dot tells them apart at a glance — and
+busy, accent and the greys sat inside twenty points of each other. Two of them are now pulled off
+that plane. Draining carries a plum cast and the far end of the lightness range
+(dark on light, light on dark: it is a state an operator asked for, and should
+be findable), and neutral is the only flat grey left, sitting quietly at its
+contrast floor.
+
+Measured across all six plus `--z-accent`, the closest pair is now 19.3
+(CIEDE2000, light) and 21.7 (dark), against 6.1 and 10.2 before; no pair that
+can appear in one legend is under 19, and most are past 25. When a chart puts
+two of them within about twenty points — the executing and allocated lines in
+the usage chart, queued against cancelled work — the nearer of the two is drawn
+dashed, so the legend swatch carries a stroke style and not only a colour.
+
+Each status foreground clears 4.9:1 on its own theme's surface and 4.5:1 on its
+own `-subtle` ground, which is what a badge is.
 
 Each has a `-subtle` companion for badge and chart-fill backgrounds, and
 `--z-danger` has a `-contrast` for text on a destructive fill. Every status is
@@ -391,8 +413,9 @@ the top bar.
 
 The one page that has to earn the second monitor.
 
-* **The activity matrix**, first: a year of the fleet's days as one band of
-  squares, a column per week and a row per weekday, coloured by what finished
+* **The activity matrix**, first: today by the hour, and up to a year of the
+  fleet's days as one band of squares, a column per week and a row per
+  weekday, coloured by what finished
   — greener as more jobs finish, red the moment any fail, darker red the
   larger the share. Colour never carries it alone: a failing square has a hole
   in it, a square with work waiting and nothing finished is hollow, and every
@@ -400,7 +423,8 @@ The one page that has to earn the second monitor.
   is one tab stop walked with the arrow keys; selecting a square opens the
   day's hours and its links beneath the grid rather than in an overlay. Quick
   ranges cut the window -- a day and a week are drawn by the hour, the rest by
-  the day -- and the choice is a per-operator preference. It is cut to the
+  the day -- and the choice, the day it starts on aside, is a per-operator
+  preference. It is cut to the
   width of the screen rather than scrolled, so the newest week is always on
   it, and it is compact on purpose: every line it spends is a line the
   numbers under it lose. The component lives in `lib/insights/` because the

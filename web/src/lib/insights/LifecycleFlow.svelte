@@ -50,11 +50,13 @@
             <span class="count">{formatNumber(step.count)}</span>
           </a>
         </Tooltip>
-        {#if i < steps.length - 1}
-          <!-- Idle and busy trade places as jobs come and go; every other
-               step is one way. -->
-          <span class="arrow" aria-hidden="true">{step.state === 'idle' ? '⇄' : '→'}</span>
-        {/if}
+        <!-- Idle and busy trade places as jobs come and go; every other step
+             is one way. The arrow is kept in the layout past the last step,
+             and where a row ends, so that every card is the same width
+             however many columns the flow wraps to. -->
+        <span class="arrow" aria-hidden="true" class:spent={i === steps.length - 1}
+          >{step.state === 'idle' ? '⇄' : '→'}</span
+        >
       </li>
     {/each}
   </ol>
@@ -72,9 +74,13 @@
 </div>
 
 <style>
+  /* A grid rather than a wrapping row: wrapped flex items are as wide as
+     their own label, so "Provisioning" and "Registering" ended up different
+     sizes and the rows under them lined up with nothing. Equal columns keep
+     the steps in step whatever the width. */
   .steps {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     align-items: stretch;
     gap: var(--z-space-2);
     margin: 0;
@@ -82,16 +88,25 @@
     list-style: none;
   }
   .step {
-    display: flex;
-    align-items: center;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: stretch;
     gap: var(--z-space-2);
     min-width: 0;
   }
+  /* The tooltip wraps each card, so it is the grid cell that has to fill --
+     otherwise a card sits at its label's width again. */
+  .step :global(.tip-wrap) {
+    display: flex;
+    min-width: 0;
+  }
   .step a {
+    flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     gap: var(--z-space-1);
-    min-width: 7rem;
+    height: 100%;
     padding: var(--z-space-3) var(--z-space-4);
     border: var(--z-border-width) solid var(--z-border);
     border-left: var(--z-border-width-rail) solid var(--tone);
@@ -134,11 +149,14 @@
   }
   .head {
     display: inline-flex;
+    min-width: 0;
     align-items: center;
     gap: var(--z-space-2);
     font-size: var(--z-text-xs);
     color: var(--z-text-muted);
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .count {
     font-size: var(--z-text-xl);
@@ -148,8 +166,16 @@
     transition: color var(--z-motion-base) var(--z-ease);
   }
   .arrow {
+    align-self: center;
+    width: var(--z-space-4);
+    text-align: center;
     color: var(--z-text-subtle);
     font-size: var(--z-text-base);
+  }
+  /* The arrow after the last step never points anywhere; it holds its column
+     so the last card matches the others. */
+  .arrow.spent {
+    visibility: hidden;
   }
   .hint {
     display: block;
@@ -162,5 +188,35 @@
   }
   .failed {
     color: var(--z-danger);
+  }
+  @media (max-width: 1024px) {
+    .steps {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .step:nth-child(3n) .arrow {
+      visibility: hidden;
+    }
+  }
+  @media (max-width: 768px) {
+    .steps {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .step:nth-child(3n) .arrow {
+      visibility: visible;
+    }
+    .step:nth-child(2n) .arrow {
+      visibility: hidden;
+    }
+    /* Two columns on a 360px phone leave "Provisioning" barely enough room,
+       so the card gives back what the gaps and the arrow can spare. */
+    .step {
+      gap: var(--z-space-1);
+    }
+    .step a {
+      padding: var(--z-space-3);
+    }
+    .arrow {
+      width: var(--z-space-3);
+    }
   }
 </style>

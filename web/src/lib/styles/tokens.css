@@ -69,40 +69,51 @@
    * learn them. Colour is never the only carrier -- see StatusDot. Busy is
    * Fast Cyan, which is the brand's "used sparingly" accent spent on the one
    * thing that is actually moving.
+   *
+   * The six are separated in lightness and chroma as well as hue, because a
+   * legend is where they are read side by side and hue alone was not enough:
+   * every one of them used to sit within a few points of L* 45, which left
+   * draining and neutral -- two greys at the same lightness -- 6 points of
+   * CIEDE2000 apart, where a legend dot wants around 20. Draining now carries
+   * a plum cast and the far end of the lightness range (dark on light, light
+   * on dark, because it is a state an operator has asked for and should be
+   * able to find), and neutral is the only flat grey left, sitting quietly
+   * at its contrast floor. No pair that can share a legend is now under 19,
+   * and most are past 25. docs/ui-guidelines.md carries the measurements.
    * ------------------------------------------------------------------ */
-  --z-idle: #177245;
-  --z-idle-subtle: #e3f5ea;
-  --z-idle-border: #b3e0c6;
+  --z-idle: #0f7a3d;
+  --z-idle-subtle: #e7f1eb;
+  --z-idle-border: #bbd9c8;
 
-  --z-busy: #0e7490;
-  --z-busy-subtle: #e0f4f9;
-  --z-busy-border: #a9dced;
+  --z-busy: #00757f;
+  --z-busy-subtle: #e9f3f4;
+  --z-busy-border: #bddcde;
 
-  --z-pending: #8a5200;
-  --z-pending-subtle: #fbf0dd;
-  --z-pending-border: #f0d5a3;
+  --z-pending: #9a6100;
+  --z-pending-subtle: #f6f2e9;
+  --z-pending-border: #e6d8c1;
 
-  --z-draining: #5e636d;
-  --z-draining-subtle: #edeff2;
-  --z-draining-border: #d3d7de;
+  --z-draining: #4d3f5c;
+  --z-draining-subtle: #edecef;
+  --z-draining-border: #d2cfd6;
 
-  --z-danger: #b32218;
-  --z-danger-hover: #8f1b13;
-  --z-danger-subtle: #fce9e7;
-  --z-danger-border: #f3c2bd;
+  --z-danger: #bd2018;
+  --z-danger-hover: #96190f;
+  --z-danger-subtle: #faedec;
+  --z-danger-border: #efc9c8;
   --z-danger-contrast: #ffffff;
 
-  --z-neutral: #6e737c;
-  --z-neutral-subtle: #f0f1f4;
-  --z-neutral-border: #dcdfe5;
+  --z-neutral: #686d76;
+  --z-neutral-subtle: #f4f4f5;
+  --z-neutral-border: #dddee0;
 
   /* Categorical chart ramp, ordered for maximum adjacent separation. */
   --z-chart-1: #1a63d8;
-  --z-chart-2: #8a5200;
-  --z-chart-3: #177245;
-  --z-chart-4: #0e7490;
-  --z-chart-5: #b32218;
-  --z-chart-6: #5e636d;
+  --z-chart-2: #9a6100;
+  --z-chart-3: #0f7a3d;
+  --z-chart-4: #00757f;
+  --z-chart-5: #bd2018;
+  --z-chart-6: #4d3f5c;
 
   /* Focus ----------------------------------------------------------------
    * One look, two mechanisms. `outline` is the global rule in app.css and is
@@ -322,37 +333,37 @@
     --z-accent-contrast: #08131f;
 
     --z-idle: #5fd68c;
-    --z-idle-subtle: #0d2318;
-    --z-idle-border: #1c4630;
+    --z-idle-subtle: #111b17;
+    --z-idle-border: #20402e;
 
-    --z-busy: #3ed8f0;
-    --z-busy-subtle: #082630;
-    --z-busy-border: #12495c;
+    --z-busy: #3bd6e8;
+    --z-busy-subtle: #0e1c1f;
+    --z-busy-border: #174148;
 
-    --z-pending: #f0b34c;
-    --z-pending-subtle: #2a1f0c;
-    --z-pending-border: #4a3714;
+    --z-pending: #f2b246;
+    --z-pending-subtle: #1d1912;
+    --z-pending-border: #3c2f19;
 
-    --z-draining: #a6abb5;
-    --z-draining-subtle: #1a1d22;
-    --z-draining-border: #2e333b;
+    --z-draining: #d0bee0;
+    --z-draining-subtle: #201f25;
+    --z-draining-border: #3c3842;
 
-    --z-danger: #ff9089;
-    --z-danger-hover: #ffaba5;
-    --z-danger-subtle: #2d1310;
-    --z-danger-border: #542520;
+    --z-danger: #ff8d84;
+    --z-danger-hover: #ffa9a2;
+    --z-danger-subtle: #1d1516;
+    --z-danger-border: #3f2727;
     --z-danger-contrast: #1a0a08;
 
-    --z-neutral: #868b94;
-    --z-neutral-subtle: #16181c;
-    --z-neutral-border: #262a31;
+    --z-neutral: #7f858e;
+    --z-neutral-subtle: #16181a;
+    --z-neutral-border: #27292d;
 
     --z-chart-1: #78b4ff;
-    --z-chart-2: #f0b34c;
+    --z-chart-2: #f2b246;
     --z-chart-3: #5fd68c;
-    --z-chart-4: #3ed8f0;
-    --z-chart-5: #ff9089;
-    --z-chart-6: #a6abb5;
+    --z-chart-4: #3bd6e8;
+    --z-chart-5: #ff8d84;
+    --z-chart-6: #d0bee0;
 
     --z-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);
     --z-shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.6);
@@ -385,37 +396,37 @@
   --z-accent-contrast: #08131f;
 
   --z-idle: #5fd68c;
-  --z-idle-subtle: #0d2318;
-  --z-idle-border: #1c4630;
+  --z-idle-subtle: #111b17;
+  --z-idle-border: #20402e;
 
-  --z-busy: #3ed8f0;
-  --z-busy-subtle: #082630;
-  --z-busy-border: #12495c;
+  --z-busy: #3bd6e8;
+  --z-busy-subtle: #0e1c1f;
+  --z-busy-border: #174148;
 
-  --z-pending: #f0b34c;
-  --z-pending-subtle: #2a1f0c;
-  --z-pending-border: #4a3714;
+  --z-pending: #f2b246;
+  --z-pending-subtle: #1d1912;
+  --z-pending-border: #3c2f19;
 
-  --z-draining: #a6abb5;
-  --z-draining-subtle: #1a1d22;
-  --z-draining-border: #2e333b;
+  --z-draining: #d0bee0;
+  --z-draining-subtle: #201f25;
+  --z-draining-border: #3c3842;
 
-  --z-danger: #ff9089;
-  --z-danger-hover: #ffaba5;
-  --z-danger-subtle: #2d1310;
-  --z-danger-border: #542520;
+  --z-danger: #ff8d84;
+  --z-danger-hover: #ffa9a2;
+  --z-danger-subtle: #1d1516;
+  --z-danger-border: #3f2727;
   --z-danger-contrast: #1a0a08;
 
-  --z-neutral: #868b94;
-  --z-neutral-subtle: #16181c;
-  --z-neutral-border: #262a31;
+  --z-neutral: #7f858e;
+  --z-neutral-subtle: #16181a;
+  --z-neutral-border: #27292d;
 
   --z-chart-1: #78b4ff;
-  --z-chart-2: #f0b34c;
+  --z-chart-2: #f2b246;
   --z-chart-3: #5fd68c;
-  --z-chart-4: #3ed8f0;
-  --z-chart-5: #ff9089;
-  --z-chart-6: #a6abb5;
+  --z-chart-4: #3bd6e8;
+  --z-chart-5: #ff8d84;
+  --z-chart-6: #d0bee0;
 
   --z-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);
   --z-shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.6);

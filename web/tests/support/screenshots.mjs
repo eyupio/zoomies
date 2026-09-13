@@ -103,7 +103,9 @@ const SHOTS = [
     path: '/runners',
     heading: 'Runners',
     async prepare(page) {
-      await page.getByText('Explore fleet activity over the last hour', { exact: true }).click();
+      await page
+        .getByText('Explore fleet activity over the last 24 hours', { exact: true })
+        .click();
       await page
         .getByRole('region', { name: 'Fleet activity', exact: true })
         .scrollIntoViewIfNeeded();

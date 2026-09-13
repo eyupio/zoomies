@@ -141,7 +141,7 @@
           {
             label: 'Draining',
             value: r?.draining ?? 0,
-            tone: 'neutral' as const,
+            tone: 'draining' as const,
             href: '/runners?state=draining',
             hint: runnerStatus('draining').hint,
           },
