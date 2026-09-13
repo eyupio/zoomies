@@ -1855,3 +1855,27 @@ func TestARateLimitedInstallationHoldsCreatesButNotDrains(t *testing.T) {
 		t.Fatalf("got %d drains while held, want 1: draining asks GitHub for nothing", n)
 	}
 }
+
+// A host that goes quiet is given up as lost and its runners are failed, and
+// when it comes back with a job still running the workload is deliberately
+// left to finish. The reap must not undo that: removing the row removes the
+// container, and the job with it, for no reason but tidiness.
+func TestAFailedRunnerStillRunningAJobIsNotReaped(t *testing.T) {
+	p := testPool("linux-x64", "linux")
+	r := testRunner("r1", p, store.RunnerFailed, 11*time.Minute)
+	hosts := []*store.Host{testHost("host_a", 8, 1)}
+	running := &store.Job{ID: "job_1", PoolID: p.ID, RunnerID: "r1", State: store.JobInProgress,
+		Repo: "acme/widgets", InstallationID: testInstallation}
+
+	pp := only(t, Decide(snap([]*store.Pool{p}, []*store.Runner{r}, []*store.Job{running}, hosts)))
+	if got := actionsOf(pp.Actions, ActionRemove); len(got) != 0 {
+		t.Fatalf("a failed runner with a job still on it was removed: %+v", got)
+	}
+
+	// Once the job has ended the row goes the way every failed row goes.
+	running.State = store.JobCompleted
+	pp = only(t, Decide(snap([]*store.Pool{p}, []*store.Runner{r}, []*store.Job{running}, hosts)))
+	if got := actionsOf(pp.Actions, ActionRemove); len(got) != 1 || got[0].RunnerID != "r1" {
+		t.Fatalf("the failed runner was not removed once its job had finished: %+v", pp.Actions)
+	}
+}
