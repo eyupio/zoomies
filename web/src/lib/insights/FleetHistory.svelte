@@ -51,10 +51,12 @@
   let samples = $state.raw<FleetSample[]>([]);
   let current = $state(Date.now());
   let metric = $state('queue');
-  let windowKey = $state<WindowKey>('1h');
+  // The day is the default window everywhere a range is chosen: an hour is
+  // too narrow to show a fleet that goes quiet overnight and busy at nine.
+  let windowKey = $state<WindowKey>('24h');
   let failed = $state(false);
   let attempt = $state(0);
-  const chosen = $derived(WINDOWS.find((w) => w.value === windowKey) ?? WINDOWS[0]);
+  const chosen = $derived(WINDOWS.find((w) => w.value === windowKey) ?? WINDOWS[2]);
   const options = [
     { value: 'queue', label: 'Queued jobs' },
     { value: 'running', label: 'Running jobs' },

@@ -22,10 +22,11 @@ connecting GitHub.
 ## Overview
 
 The page that has to earn the second monitor. It opens on the activity
-matrix: a year of the fleet's days as one band of squares, laid out the way a
+matrix, showing today by the hour: a row of twenty-four squares coloured by
+what finished, greener as more jobs finish and red the moment any fail. Widen
+it to the year and the same band becomes the fleet's days laid out the way a
 contribution graph is — a column per week, a row per weekday, the month named
-above the week it begins in — and coloured by what finished, greener as more
-jobs finish and red the moment any fail. Hover a square and it says everything
+above the week it begins in. Hover a square and it says everything
 it holds: how many jobs were queued, started and finished, how they ended,
 the runner time they used and the pool-minutes spent at capacity. Select one
 and the day opens under the grid, hour by hour, with links to that day's jobs
@@ -34,7 +35,8 @@ runner time or how often a pool was blocked on capacity, so a queue that
 backs up every Monday is a shape rather than a table, and the quick ranges
 — 1d, 7d, 30d, 90d, 1y — cut the window: today and the last week are drawn by
 the hour, a row of twenty-four squares per day, which is the punch card that
-shows when the fleet is busy. The range you choose is remembered. The band is
+shows when the fleet is busy. It opens on today, and the range you choose
+instead is remembered. The band is
 cut to the width of the screen and the grid is one tab stop: the arrow keys
 walk it, Enter selects.
 
@@ -117,7 +119,8 @@ host's agent last reported it, and the live log.
 ![A busy runner's page: its current job, a timeline of its states, details and resource usage](screenshots/runner-light.webp#only-light){ .zoomies-shot }
 
 The expandable activity panel shows the queued jobs, running jobs, idle runners
-or live runners over the last hour, six hours or day — a wider window folds
+or live runners over the last day, six hours or hour — it opens on the day, and
+a wider window folds
 the minutes into intervals that carry their peak, so a spike is never averaged
 away. Hover the line for every figure at that moment, or inspect it with the
 timeline control; gaps indicate missing samples. Fleet context is independent
@@ -157,8 +160,8 @@ wrong.
 
 ## Usage
 
-Runner-hours, jobs and queue waits over a date range, grouped by pool,
-repository, workflow or installation, with an estimated cost wherever an
+Runner-hours, jobs and queue waits over a date range — today, until you widen
+it — grouped by pool, repository, workflow or installation, with an estimated cost wherever an
 administrator has given a pool a rate. Zoomies embeds no cloud prices. The
 table exports as CSV. The same activity matrix as the Overview's draws the
 chosen range — a square per day laid out as a calendar, or a square per hour

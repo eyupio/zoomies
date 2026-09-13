@@ -9,7 +9,7 @@
  * about it is that it is never load-bearing: the numbers arrive on their own,
  * and pressing it changes nothing about what the page says.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { browserOverride, FIXTURE, goto } from './support/fixtures';
 
 test.use(browserOverride);
@@ -17,6 +17,21 @@ test.use(browserOverride);
 test.beforeEach(async ({ page }) => {
   await goto(page, '/', 'Overview');
 });
+
+/**
+ * Widen the activity matrix to the year.
+ *
+ * The matrix opens on today, by the hour, like every other range control; the
+ * tests below are about the calendar of days, so they ask for it.
+ */
+async function yearOfDays(page: Page) {
+  const matrix = page.getByRole('region', { name: 'Activity matrix', exact: true });
+  await matrix
+    .getByRole('group', { name: 'Range' })
+    .getByRole('button', { name: 'The last year' })
+    .click();
+  await expect(matrix.getByRole('grid')).toHaveAccessibleName(/one square per day/);
+}
 
 /** A count. The tile's value paragraph is the only text that is only digits. */
 const COUNT = /^\d[\d,]*$/;
@@ -454,6 +469,7 @@ test('the subtitle names the window the figures actually cover', async ({ page }
 test('the activity matrix heads the page, and every square says what it holds', async ({
   page,
 }) => {
+  await yearOfDays(page);
   const matrix = page.getByRole('region', { name: 'Activity matrix', exact: true });
   await expect(matrix).toBeVisible();
   const grid = matrix.getByRole('grid');
@@ -489,6 +505,7 @@ test('the activity matrix heads the page, and every square says what it holds', 
 test('the matrix is one tab stop, walked with the arrow keys, with a tooltip on every square', async ({
   page,
 }) => {
+  await yearOfDays(page);
   const matrix = page.getByRole('region', { name: 'Activity matrix', exact: true });
   const grid = matrix.getByRole('grid');
   await expect(grid).toBeVisible();
@@ -525,6 +542,7 @@ test('the matrix is one tab stop, walked with the arrow keys, with a tooltip on 
 });
 
 test('selecting a day opens its hours and leads to its jobs', async ({ page }) => {
+  await yearOfDays(page);
   const matrix = page.getByRole('region', { name: 'Activity matrix', exact: true });
   const grid = matrix.getByRole('grid');
   const today = grid.locator('[role="gridcell"][tabindex="0"]');
@@ -596,15 +614,17 @@ test('the matrix can be coloured by a different figure', async ({ page }) => {
 test('the matrix has quick ranges, and remembers the one chosen', async ({ page }) => {
   const matrix = page.getByRole('region', { name: 'Activity matrix', exact: true });
   const ranges = matrix.getByRole('group', { name: 'Range' });
-  await expect(ranges.getByRole('button', { name: 'The last year' })).toHaveAttribute(
+  // Today alone, until an operator asks for more: one row of twenty-four.
+  await expect(ranges.getByRole('button', { name: 'Today, by the hour' })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
+  const grid = matrix.getByRole('grid');
+  await expect(grid.getByRole('gridcell')).toHaveCount(24);
 
   // A week by the hour: seven rows of twenty-four squares, the newest one
   // with jobs being the tab stop, and a square is an hour.
   await ranges.getByRole('button', { name: 'The last 7 days, by the hour' }).click();
-  const grid = matrix.getByRole('grid');
   await expect(grid).toHaveAccessibleName(/^7 days of this fleet's jobs, one square per hour$/);
   await expect(grid.getByRole('gridcell')).toHaveCount(7 * 24);
   // The newest hour with anything in it may be one where jobs are still
@@ -614,17 +634,13 @@ test('the matrix has quick ranges, and remembers the one chosen', async ({ page 
     /, \d\d?:\d\d( [AP]M)? to \d\d?:\d\d( [AP]M)?\. \d+ jobs? (finished|queued)/,
   );
 
-  // Today alone is one row.
-  await ranges.getByRole('button', { name: 'Today, by the hour' }).click();
-  await expect(grid.getByRole('gridcell')).toHaveCount(24);
-
   // The choice is the operator's, and survives a reload.
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
   const again = page.getByRole('region', { name: 'Activity matrix', exact: true });
-  await expect(again.getByRole('button', { name: 'Today, by the hour' })).toHaveAttribute(
+  await expect(again.getByRole('button', { name: 'The last 7 days, by the hour' })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
-  await expect(again.getByRole('grid').getByRole('gridcell')).toHaveCount(24);
+  await expect(again.getByRole('grid').getByRole('gridcell')).toHaveCount(7 * 24);
 });
