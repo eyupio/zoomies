@@ -813,6 +813,75 @@ func TestTheLaterOfTwoWaitingTasksIsTheOneKept(t *testing.T) {
 	}
 }
 
+// A task that never got a capacity slot before the agent shut down is
+// reported as such rather than dropped. Silence is the one outcome the
+// controller cannot act on: it would hold the task in flight until its lease
+// expired, where this answer has it redelivered to the next host that polls.
+func TestATaskShutDownBeforeItStartedIsReportedAsRedeliverable(t *testing.T) {
+	h := newHarness(t, 1)
+	h.be.mu.Lock()
+	h.be.createDelay = 3 * time.Second
+	h.be.mu.Unlock()
+
+	// The first create takes the host's only slot and holds it, so the second
+	// is still waiting for one when the agent is asked to stop.
+	h.tr.tasks <- []Task{createTask("task-slow", "runner-1")}
+	waitFn(t, "the first create to take the host's only slot", 5*time.Second, func() bool {
+		h.be.mu.Lock()
+		defer h.be.mu.Unlock()
+		return h.be.inflight == 1
+	})
+	h.tr.tasks <- []Task{createTask("task-waiting", "runner-2")}
+	time.Sleep(200 * time.Millisecond)
+	go h.stop()
+
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case res := <-h.tr.results:
+			if res.TaskID != "task-waiting" {
+				continue
+			}
+			if res.OK || !strings.Contains(res.Error, "safe to redeliver") {
+				t.Fatalf("result = %+v, want the waiting task reported as redeliverable", res)
+			}
+			return
+		case <-deadline:
+			t.Fatal("the task that never started was never reported")
+		}
+	}
+}
+
+// A claim released by an agent whose task loop is not running still hands the
+// task waiting behind it on. The handover carries a context of its own rather
+// than checking for a missing one, which is why this is the case that proves
+// it: the agent here has never started, so there is no poll loop to borrow
+// from, and a nil context would panic the goroutine the release starts.
+func TestAHandoverWorksBeforeTheTaskLoopIsRunning(t *testing.T) {
+	a, tr, _, _ := newAgent(t, 1)
+	if err := a.Join(context.Background(), "join-token"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if claimed, _ := a.claimOrQueue(createTask("task-1", "runner-1")); !claimed {
+		t.Fatal("the create did not take the claim")
+	}
+	remove := Task{ID: "task-2", Kind: TaskRemoveRunner, RunnerID: "runner-1"}
+	if _, held := a.claimOrQueue(remove); !held {
+		t.Fatal("the remove was not held behind the create")
+	}
+
+	a.release("runner-1")
+
+	select {
+	case res := <-tr.results:
+		if res.TaskID != "task-2" || !res.OK {
+			t.Fatalf("result = %+v, want the waiting remove reported", res)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the task waiting on the claim was never started")
+	}
+}
+
 // The reconciler's claim is not one anything can queue behind: it hands the
 // claim to nobody, so a task left waiting on it would never start. Those are
 // dropped, and the controller's redelivery is what brings them back.
