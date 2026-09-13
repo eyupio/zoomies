@@ -29,6 +29,7 @@ Files:
 | [baseline-6d12a72.md](baseline-6d12a72.md) | The reconciled baseline for the follow-on roadmap: what was run against `main` at `6d12a72` on 6 September 2026 and what was not. |
 | [load-7d9441b.md](load-7d9441b.md) | What the reads an operator's pages make cost against a fleet with a month of history: the fixture, the figures, what came out of them and what they do not cover. Written by `make measure`. |
 | [gate-f-readiness-2cc7d9c.md](gate-f-readiness-2cc7d9c.md) | What Gate F still needs at the end of Assignment A: which of its targets can be measured at all, what has never run, and what is the owner's to supply. |
+| [proxmox-qualification.md](proxmox-qualification.md) | What ZF-214b's live qualification needs, the procedure it must follow, and the fact that none of it has been run. Written before the runs so the procedure cannot become a description of whatever happened to work. |
 | [drills.md](drills.md) | Historical drill log. New CI runs append locally, publish the results in the job summary, and upload `drill-evidence-<commit>` artifacts retained for 90 days. CI does not push results to `main`; download evidence before expiry for longer retention. |
 
 Gate F, when it is attempted, gets a file of its own here, with the counts the
