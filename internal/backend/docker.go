@@ -71,6 +71,14 @@ const (
 	// therefore delete on removal. It is absent when the directory already
 	// existed, because deleting an operator's directory would be rude.
 	LabelWorkDir = LabelPrefix + "workdir"
+	// LabelCPUs and LabelMemoryMB record the limits a container was created
+	// with, and LabelLimitsFrom where they came from ("pool" or "host"). A
+	// throttle scales a container's quota from the first; an agent that
+	// adopted the container after a restart has no other record of it. The
+	// third decides what an out-of-memory kill tells the operator to change.
+	LabelCPUs       = LabelPrefix + "cpus"
+	LabelMemoryMB   = LabelPrefix + "memory-mb"
+	LabelLimitsFrom = LabelPrefix + "limits-from"
 )
 
 // Role label values.
@@ -280,6 +288,11 @@ func (b *DockerBackend) Probe(ctx context.Context) Info {
 		if sys.MemTotal > 0 {
 			info.MemoryMB = sys.MemTotal / (1 << 20)
 		}
+		// What the daemon can enforce, in its own words. Rootless Docker on a
+		// host that delegates only memory and pids to the user -- the default
+		// on Debian and Ubuntu -- says so here, and a CPU quota sent to it
+		// would be refused at create rather than quietly ignored.
+		info.Limits = store.LimitSupport{Known: true, CPU: sys.CPUCfsQuota, Memory: sys.MemoryLimit, Pids: sys.PidsLimit}
 	}
 	if !info.Rootless && IsRootlessEndpoint(b.api.SocketPath()) {
 		info.Rootless = true

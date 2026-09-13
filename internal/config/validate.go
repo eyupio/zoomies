@@ -638,6 +638,22 @@ func (c *Config) Validate() Findings {
 			Title: "max_creates_per_tick must be at least 1",
 		})
 	}
+	if !c.Scheduler.DefaultRunnerLimits {
+		add(Finding{
+			Code: "scheduler.default_runner_limits_off", Severity: SeverityWarning, Setting: "scheduler.default_runner_limits",
+			Title:  "runners whose pool sets no limits are given none",
+			Detail: "a pool that leaves cpus or memory_mb unset is still charged one slot's share of its host, but its runners are created with no cgroup limit at all, so a host's worth of them can each take every core and all of the memory. That is how a host gets overwhelmed and its Docker daemon stops answering.",
+			Fix:    "leave scheduler.default_runner_limits on, or set cpus and memory_mb on every pool.",
+		})
+	}
+	if !c.Scheduler.HostThrottling {
+		add(Finding{
+			Code: "scheduler.host_throttling_off", Severity: SeverityWarning, Setting: "scheduler.host_throttling",
+			Title:  "hosts are not throttled when they are overwhelmed",
+			Detail: "the pressure holds still refuse new starts while a host's CPU or memory is acutely short, but nothing outlasts a sample: a host pushed past its size on and off keeps being let back in at full capacity, and the runners already on it are never slowed down.",
+			Fix:    "leave scheduler.host_throttling on unless something outside Zoomies manages the hosts' load.",
+		})
+	}
 	if c.Scheduler.MaxRunnerLifetime > 0 && c.Scheduler.MaxRunnerLifetime < 10*time.Minute {
 		add(Finding{
 			Code: "scheduler.lifetime_short", Severity: SeverityWarning, Setting: "scheduler.max_runner_lifetime",

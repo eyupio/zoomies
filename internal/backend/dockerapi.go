@@ -319,6 +319,13 @@ type SystemInfo struct {
 	// Rootless is not part of Docker's /info, but Podman's compatibility
 	// endpoint sets it, so it is worth reading when present.
 	Rootless bool `json:"Rootless,omitempty"`
+	// CPUCfsQuota, MemoryLimit and PidsLimit are the daemon's own account of
+	// which limits its kernel and cgroup let it apply. They are false on a
+	// rootless daemon whose user has not been delegated the controller in
+	// question, and a container that asks for the limit anyway is refused.
+	CPUCfsQuota bool `json:"CPUCfsQuota"`
+	MemoryLimit bool `json:"MemoryLimit"`
+	PidsLimit   bool `json:"PidsLimit"`
 }
 
 // ContainerCreateRequest is the POST /containers/create body.

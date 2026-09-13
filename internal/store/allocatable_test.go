@@ -20,8 +20,19 @@ func TestAllocatableSeparatesUnmeasuredFromEmpty(t *testing.T) {
 		name: "the floors apply when the operator has set no reserve",
 		host: Host{CPUs: 8, MemoryMB: 16384, DiskTotalMB: 100_000, DiskFreeMB: 50_000},
 		want: HostAllocation{
-			CPUs: 8, MemoryMB: 16384 - MinHostReserveMemoryMB, DiskMB: 50_000 - MinHostReserveDiskMB,
+			CPUs: 8 - MinHostReserveCPUs, MemoryMB: 16384 - MinHostReserveMemoryMB, DiskMB: 50_000 - MinHostReserveDiskMB,
 			CPUsKnown: true, MemoryKnown: true, DiskKnown: true,
+		},
+	}, {
+		// The CPU floor grows with the machine: a daemon minding sixty-four
+		// containers needs more than the half core that serves a daemon
+		// minding four, and a fixed half core would be a rounding error on a
+		// host that size.
+		name: "the CPU floor is a twentieth of a large machine",
+		host: Host{CPUs: 64, MemoryMB: 262_144},
+		want: HostAllocation{
+			CPUs: 64 - 64*MinHostReserveCPUFraction, MemoryMB: 262_144 - MinHostReserveMemoryMB,
+			CPUsKnown: true, MemoryKnown: true,
 		},
 	}, {
 		name: "an operator's larger reserve wins over the floor",
@@ -40,21 +51,21 @@ func TestAllocatableSeparatesUnmeasuredFromEmpty(t *testing.T) {
 		// answer rather than a bug.
 		name: "a host smaller than its reserve allocates nothing, and still counts as measured",
 		host: Host{CPUs: 1, MemoryMB: 256, DiskTotalMB: 8000, DiskFreeMB: 100},
-		want: HostAllocation{CPUsKnown: true, MemoryKnown: true, DiskKnown: true, CPUs: 1},
+		want: HostAllocation{CPUsKnown: true, MemoryKnown: true, DiskKnown: true, CPUs: 1 - MinHostReserveCPUs},
 	}, {
 		// A disk that is genuinely full still reported a total, which is what
 		// says a measurement happened at all -- the encoding ZF-103a chose.
 		name: "a full disk is measured, an unmeasured one is not",
 		host: Host{CPUs: 4, MemoryMB: 8192, DiskTotalMB: 100_000, DiskFreeMB: 0},
 		want: HostAllocation{
-			CPUs: 4, MemoryMB: 8192 - MinHostReserveMemoryMB,
+			CPUs: 4 - MinHostReserveCPUs, MemoryMB: 8192 - MinHostReserveMemoryMB,
 			CPUsKnown: true, MemoryKnown: true, DiskKnown: true,
 		},
 	}, {
 		name: "a host that measured its size but not its disk",
 		host: Host{CPUs: 4, MemoryMB: 8192},
 		want: HostAllocation{
-			CPUs: 4, MemoryMB: 8192 - MinHostReserveMemoryMB,
+			CPUs: 4 - MinHostReserveCPUs, MemoryMB: 8192 - MinHostReserveMemoryMB,
 			CPUsKnown: true, MemoryKnown: true,
 		},
 	}}

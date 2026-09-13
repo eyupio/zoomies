@@ -16,6 +16,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/cryptox"
+	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -277,10 +278,13 @@ func TestSuggestPool(t *testing.T) {
 			det:      Detection{OS: "linux", Arch: "amd64", Distro: "ubuntu", OSVersion: "24.04", CPUs: 16},
 			backend:  store.BackendDocker,
 			capacity: 4,
+			// 3.8, not 4: a quarter of the 15.2 CPUs left once the scheduler's
+			// floor has kept 0.8 of the 16 for the daemon, so four of them fit
+			// the four slots beside them.
 			wantName: "zoomies-4vcpu-ubuntu-2404",
 			wantCmd: "zoomies pools create --name zoomies-4vcpu-ubuntu-2404 " +
 				"--labels linux,x64,zoomies,zoomies-4vcpu-ubuntu-2404 --backend docker --max 4 " +
-				"--installation inst_x --cpus 4 --os ubuntu --os-version 24.04 --arch amd64",
+				"--installation inst_x --cpus 3.8 --os ubuntu --os-version 24.04 --arch amd64",
 		},
 		{
 			name:     "arm64 is spelled out",
@@ -290,7 +294,7 @@ func TestSuggestPool(t *testing.T) {
 			wantName: "zoomies-4vcpu-debian-12-arm64",
 			wantCmd: "zoomies pools create --name zoomies-4vcpu-debian-12-arm64 " +
 				"--labels arm64,linux,zoomies,zoomies-4vcpu-debian-12-arm64 --backend podman --max 2 " +
-				"--installation inst_x --cpus 4 --os debian --os-version 12 --arch arm64",
+				"--installation inst_x --cpus 3.75 --os debian --os-version 12 --arch arm64",
 		},
 		{
 			// The host is the environment, so there is no image and no
@@ -302,7 +306,7 @@ func TestSuggestPool(t *testing.T) {
 			wantName: "zoomies-4vcpu-ubuntu-2404-host",
 			wantCmd: "zoomies pools create --name zoomies-4vcpu-ubuntu-2404-host " +
 				"--labels linux,x64,zoomies,zoomies-4vcpu-ubuntu-2404-host --backend process --max 1 " +
-				"--installation inst_x --cpus 4 --arch amd64",
+				"--installation inst_x --cpus 3.5 --arch amd64",
 		},
 		{
 			// A host that will not say which distribution it runs cannot
@@ -356,6 +360,16 @@ func TestTheSuggestedPoolFitsTheHostThatSuggestedIt(t *testing.T) {
 	if !sug.Platform.Matches(host.Platform()) {
 		t.Errorf("the suggested pool asks for %+v, which this host (%+v) does not satisfy",
 			sug.Platform, host.Platform())
+	}
+	// And the size fits too: a capacity's worth of the suggested runner has
+	// to go on the host that suggested it, or the very first install shows
+	// "3 of 4" and a pool short of CPU on a machine nobody mis-sized.
+	host.Capacity = 4
+	pool := &store.Pool{Backend: store.BackendDocker, Resources: store.Resources{CPUs: sug.CPUs}}
+	hs := scheduler.Reserve(pool, host)
+	if total := hs.CPUs * float64(host.Capacity); total > host.Allocatable().CPUs+1e-6 {
+		t.Errorf("%d runners of %v CPU want %v, and the host has %v to place on",
+			host.Capacity, sug.CPUs, total, host.Allocatable().CPUs)
 	}
 }
 

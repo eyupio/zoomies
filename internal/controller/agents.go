@@ -1448,6 +1448,7 @@ func hostBackends(infos []backend.Info) store.HostBackends {
 			Endpoint:     i.Endpoint,
 			Detail:       i.Detail,
 			SupportsDinD: i.SupportsDinD,
+			Limits:       i.Limits,
 		})
 	}
 	slices.SortFunc(out, func(a, b store.HostBackend) int {

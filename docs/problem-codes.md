@@ -113,6 +113,8 @@ on a public address the same setting is an error.
 | `scheduler.interval` | error | `scheduler.interval` | Must be positive. |
 | `scheduler.burst` | error | `scheduler.max_creates_per_tick` | Must be at least 1. |
 | `scheduler.lifetime_short` | warning | `scheduler.max_runner_lifetime` | Idle runners are recycled sooner than a long job takes, so work may be interrupted. |
+| `scheduler.default_runner_limits_off` | warning | `scheduler.default_runner_limits` | A pool that sets no `cpus` or `memory_mb` gets runners with no cgroup limit at all, so a host's worth of them can each take every core and all of the memory — the shape that stops Docker answering. Leave it on, or set both on every pool. |
+| `scheduler.host_throttling_off` | warning | `scheduler.host_throttling` | An overwhelmed host is never stepped down: the pressure holds still refuse new starts while CPU or memory is acutely short, but nothing outlasts a sample, and the runners already on the host are never slowed. Leave it on unless something outside Zoomies manages the hosts' load. |
 | `updates.interval_negative` | error | `updates.check_interval` | Must not be negative. Use a duration, or 0 to never ask. |
 | `updates.interval_too_fast` | warning | `updates.check_interval` | Releases are published far less often than this, and the check is unauthenticated. |
 | `images.refresh_negative` | error | `images.refresh_interval` | Must not be negative. Use a duration, or 0 to leave images alone. |
