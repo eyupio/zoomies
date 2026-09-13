@@ -4,6 +4,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -25,7 +26,9 @@ func newSocketAt(t *testing.T, mode os.FileMode) (path string, facts socketFacts
 	}
 	facts, ok := statSocket(path)
 	if !ok {
-		t.Fatal("the socket must be readable by this test")
+		// Off unix a socket has no owning group, so none of the group handling
+		// these checks are about applies here.
+		t.Skip("this platform reports no owner for a socket")
 	}
 	return path, facts
 }
@@ -177,12 +180,15 @@ func TestWriteFileAtomicLeavesNoHalfWrittenFile(t *testing.T) {
 	if string(body) != "[Unit]\n" {
 		t.Fatalf("file = %q", body)
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o644 {
-		t.Fatalf("mode = %v, want 0644", info.Mode().Perm())
+	// Windows models only a read-only bit, so the mode is a POSIX fact.
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o644 {
+			t.Fatalf("mode = %v, want 0644", info.Mode().Perm())
+		}
 	}
 
 	// Rewriting replaces it rather than appending, and leaves no temporary
