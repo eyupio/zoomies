@@ -28,44 +28,55 @@ func (c *Controller) backgroundLoop(ctx context.Context) {
 	ticker := time.NewTicker(housekeepingTick)
 	defer ticker.Stop()
 
-	var lastSample, lastPrune, lastImageRefresh, lastUpdateCheck time.Time
+	var last housekeeping
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 		}
+		c.housekeep(ctx, &last)
+	}
+}
 
-		now := c.Now()
-		c.sweepTasks(ctx, now)
-		c.checkHostHealth(ctx)
-		c.expireStaleQueuedJobs(ctx, now)
-		c.reconcileJobsWithoutThePoller(ctx, now)
-		// A host going quiet is a problem and a capacity change, and neither
-		// waits for the next reconcile pass to be told about.
-		c.publishDerived(ctx)
+// housekeeping remembers when each of the slower jobs last ran, so that one
+// ticker can pace work that wants a minute, an hour and a day apart.
+type housekeeping struct {
+	sample, prune, imageRefresh, updateCheck time.Time
+}
 
-		if now.Sub(lastSample) >= sampleInterval {
-			lastSample = now
-			if err := c.sample(ctx); err != nil {
-				c.log.Warn("could not record a fleet sample", "error", err)
-			}
+// housekeep is one pass of the background loop, pulled out of the ticker so
+// that a test can run a pass without waiting for one.
+func (c *Controller) housekeep(ctx context.Context, last *housekeeping) {
+	now := c.Now()
+	c.sweepTasks(ctx, now)
+	c.checkHostHealth(ctx)
+	c.expireStaleQueuedJobs(ctx, now)
+	c.reconcileJobsWithoutThePoller(ctx, now)
+	// A host going quiet is a problem and a capacity change, and neither
+	// waits for the next reconcile pass to be told about.
+	c.publishDerived(ctx)
+
+	if now.Sub(last.sample) >= sampleInterval {
+		last.sample = now
+		if err := c.sample(ctx); err != nil {
+			c.log.Warn("could not record a fleet sample", "error", err)
 		}
-		if now.Sub(lastPrune) >= pruneInterval {
-			lastPrune = now
-			c.prune(ctx)
-		}
-		// The zero time is deliberately allowed to fire on the first tick: a
-		// controller that has just come back up has no idea what moved while it
-		// was down, and the pass is idempotent.
-		if d := c.cfg().Images.RefreshInterval; d > 0 && now.Sub(lastImageRefresh) >= d {
-			lastImageRefresh = now
-			c.refreshPoolImages(ctx)
-		}
-		if d := c.cfg().Updates.CheckInterval; d > 0 && now.Sub(lastUpdateCheck) >= d {
-			lastUpdateCheck = now
-			c.checkForRelease(ctx)
-		}
+	}
+	if now.Sub(last.prune) >= pruneInterval {
+		last.prune = now
+		c.prune(ctx)
+	}
+	// The zero time is deliberately allowed to fire on the first tick: a
+	// controller that has just come back up has no idea what moved while it
+	// was down, and the pass is idempotent.
+	if d := c.cfg().Images.RefreshInterval; d > 0 && now.Sub(last.imageRefresh) >= d {
+		last.imageRefresh = now
+		c.refreshPoolImages(ctx)
+	}
+	if d := c.cfg().Updates.CheckInterval; d > 0 && now.Sub(last.updateCheck) >= d {
+		last.updateCheck = now
+		c.checkForRelease(ctx)
 	}
 }
 

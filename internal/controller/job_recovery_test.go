@@ -144,8 +144,13 @@ func TestAMissedCompletionIsStillRecoveredWithThePollerOff(t *testing.T) {
 		t.Fatal("the housekeeping loop checked jobs while the poller was on, which would double every GitHub call")
 	}
 
+	// Off, a housekeeping pass does the check. The pass is run whole, as the
+	// loop runs it, with the two jobs that would leave the fake switched off:
+	// the image refresh and the release check both have nowhere to go here.
 	h.cfg.GitHub.PollFallback = false
-	h.c.reconcileJobsWithoutThePoller(h.ctx, h.c.Now())
+	h.cfg.Images.RefreshInterval = 0
+	h.cfg.Updates.CheckInterval = 0
+	h.c.housekeep(h.ctx, &housekeeping{})
 	job, err = h.st.GetJobByGitHubID(h.ctx, q.ID)
 	if err != nil {
 		t.Fatal(err)
