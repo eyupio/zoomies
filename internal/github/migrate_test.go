@@ -282,3 +282,30 @@ func TestBranchNameIsUniquePerRun(t *testing.T) {
 		t.Error("two runs a second apart would collide on the same branch")
 	}
 }
+
+// GitHub decides which file is a repository's README, so the fake answers the
+// way GitHub does: any case, any extension, Markdown first.
+func TestReadReadmeFindsTheFileGitHubRenders(t *testing.T) {
+	f, c := migrationFake(t)
+	f.AddFile("acme/widgets", "readme.markdown", "# Widgets\n")
+	f.AddFile("acme/widgets", "README.txt", "widgets")
+	f.AddFile("acme/widgets", "docs/README.md", "not the front page")
+
+	got, err := c.ReadReadme(context.Background(), "acme/widgets")
+	if err != nil {
+		t.Fatalf("ReadReadme: %v", err)
+	}
+	if got.Path != "readme.markdown" || got.Content != "# Widgets\n" || got.SHA != blobSHA("# Widgets\n") {
+		t.Errorf("readme = %+v", got)
+	}
+}
+
+// A repository without a README is the normal case for a badge to have
+// nowhere to go, and it must read as that rather than as a broken App.
+func TestReadReadmeWithoutOne(t *testing.T) {
+	_, c := migrationFake(t)
+	_, err := c.ReadReadme(context.Background(), "acme/site")
+	if !errors.Is(err, ErrNoReadme) {
+		t.Errorf("err = %v, want ErrNoReadme", err)
+	}
+}

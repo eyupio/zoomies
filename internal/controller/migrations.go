@@ -112,6 +112,19 @@ type MigrationApplyRequest struct {
 	Title         string `json:"title"`
 	Body          string `json:"body"`
 	CommitMessage string `json:"commit_message"`
+	// Badge says whether each pull request also adds the "CI has the
+	// Zoomies" badge to the repository's README. It is a pointer because
+	// the default is yes: a client that does not know the field asks for the
+	// badge, and only an explicit false leaves the README alone. The badge is
+	// how the people who read a README find out what runs its CI, and a
+	// checkbox is a fair price for a line in somebody else's front page.
+	Badge *bool `json:"badge"`
+}
+
+// WantsBadge reports whether the request asks for the badge, which it does
+// unless it said not to.
+func (r MigrationApplyRequest) WantsBadge() bool {
+	return r.Badge == nil || *r.Badge
 }
 
 // ---------------------------------------------------------------------------
@@ -188,7 +201,25 @@ type MigrationResult struct {
 	Jobs int `json:"jobs"`
 	// Reason explains a skip or a failure.
 	Reason string `json:"reason,omitempty"`
+	// Badge says what became of the README badge on a pull request that was
+	// opened: "added", "present" when the README already carried it,
+	// "no_readme" when there was nowhere Markdown to put it, "unread" when
+	// GitHub would not hand the README over, and "off" when the request
+	// asked for none. BadgeReason says which of the no_readme and unread
+	// cases it was. A badge that could not be added never stops the
+	// migration: the runs-on lines are the work, and the badge is the thanks.
+	Badge       string `json:"badge,omitempty"`
+	BadgeReason string `json:"badge_reason,omitempty"`
 }
+
+// The values MigrationResult.Badge takes.
+const (
+	BadgeAdded    = "added"
+	BadgePresent  = "present"
+	BadgeNoReadme = "no_readme"
+	BadgeUnread   = "unread"
+	BadgeOff      = "off"
+)
 
 // MigrationOutcome is what applying a migration did.
 type MigrationOutcome struct {
@@ -382,7 +413,7 @@ func (c *Controller) ApplyMigration(ctx context.Context, req MigrationApplyReque
 		if err := ctx.Err(); err != nil {
 			break
 		}
-		out.Results = append(out.Results, migrateRepo(ctx, client, repo, m, only[strings.ToLower(repo.FullName)], branch, title, req.Body, commit))
+		out.Results = append(out.Results, migrateRepo(ctx, client, repo, m, only[strings.ToLower(repo.FullName)], branch, title, req.Body, commit, req.WantsBadge()))
 	}
 	for _, res := range out.Results {
 		switch res.Status {
@@ -402,7 +433,7 @@ func (c *Controller) ApplyMigration(ctx context.Context, req MigrationApplyReque
 // only, when not nil, is the set of workflow paths the operator chose in this
 // repository; every other file is left where it is.
 func migrateRepo(ctx context.Context, client github.Client, repo github.Repository,
-	m migrate.Mapping, only map[string]bool, branch, title, body, commit string) MigrationResult {
+	m migrate.Mapping, only map[string]bool, branch, title, body, commit string, badge bool) MigrationResult {
 
 	res := MigrationResult{Repo: repo.FullName, Status: "skipped"}
 	if repo.Archived {
@@ -441,17 +472,32 @@ func migrateRepo(ctx context.Context, client github.Client, repo github.Reposito
 		return res
 	}
 
+	// The badge rides along only once there is a pull request to ride: a
+	// repository with nothing to move gets no pull request, and a badge is
+	// not a reason to open one.
+	res.Badge = BadgeOff
+	if badge {
+		readme, change := badgeChange(ctx, client, repo.FullName)
+		res.Badge, res.BadgeReason = readme.Badge, readme.BadgeReason
+		if change != nil {
+			files = append(files, *change)
+		}
+	}
+
 	pr, err := client.OpenPullRequest(ctx, github.PullRequestRequest{
 		Repo:          repo.FullName,
 		Base:          repo.DefaultBranch,
 		Head:          branch,
 		Title:         title,
-		Body:          firstNonEmpty(body, pullRequestBody(plan)),
+		Body:          firstNonEmpty(body, pullRequestBody(plan, res.Badge == BadgeAdded)),
 		CommitMessage: commit,
 		Files:         files,
 	})
 	if err != nil {
+		// Nothing was opened, so nothing was added: a badge reported on a
+		// failed row would be a line that exists nowhere.
 		res.Status, res.Reason = "failed", err.Error()
+		res.Badge, res.BadgeReason = "", ""
 		return res
 	}
 	res.Status = "opened"
@@ -459,13 +505,39 @@ func migrateRepo(ctx context.Context, client github.Client, repo github.Reposito
 	return res
 }
 
+// badgeChange reads a repository's README and works out what adding the
+// badge to it would be: the file change to commit, when there is one, and
+// the outcome to report either way.
+//
+// Nothing here fails the migration. A README that cannot be read, or is not
+// Markdown, or is missing altogether, is reported and the pull request goes
+// ahead without the badge, because an operator who asked for their CI moved
+// should get their CI moved.
+func badgeChange(ctx context.Context, client github.Client, repo string) (MigrationResult, *github.FileChange) {
+	readme, err := client.ReadReadme(ctx, repo)
+	switch {
+	case errors.Is(err, github.ErrNoReadme):
+		return MigrationResult{Badge: BadgeNoReadme, BadgeReason: "the repository has no README"}, nil
+	case err != nil:
+		return MigrationResult{Badge: BadgeUnread, BadgeReason: err.Error()}, nil
+	case !migrate.IsMarkdownReadme(readme.Path):
+		return MigrationResult{Badge: BadgeNoReadme, BadgeReason: readme.Path + " is not Markdown, and the badge is a line of Markdown"}, nil
+	}
+	after, changed := migrate.AddBadge(readme.Content)
+	if !changed {
+		return MigrationResult{Badge: BadgePresent}, nil
+	}
+	return MigrationResult{Badge: BadgeAdded}, &github.FileChange{Path: readme.Path, Content: after, SHA: readme.SHA}
+}
+
 // pullRequestBody is what somebody reviewing the change reads first.
 //
 // It says what moved and what did not, because the skips are the part a
 // reviewer has to act on: a job left on `${{ matrix.os }}` is still running on
 // GitHub's runners after this merges, and nobody should have to work that out
-// from the diff.
-func pullRequestBody(plan migrate.RepoPlan) string {
+// from the diff. When the badge is in the diff too it says so, and says how to
+// take it out, because a line in somebody's README is theirs to decline.
+func pullRequestBody(plan migrate.RepoPlan, badge bool) string {
 	var b strings.Builder
 	b.WriteString("Moves this repository's CI onto self-hosted runners managed by [Zoomies](https://zoomies.sh).\n\n")
 
@@ -500,6 +572,12 @@ func pullRequestBody(plan migrate.RepoPlan) string {
 			fmt.Fprintf(&b, "- `%s` (`%s`): %s\n", where, sk.Value, sk.Reason)
 		}
 		b.WriteString("\nThose jobs still run on GitHub's runners.\n")
+	}
+	if badge {
+		b.WriteString("\n### The badge\n\n")
+		b.WriteString("The README gains one line, so the front page says where CI runs:\n\n")
+		b.WriteString(migrate.BadgeMarkdown + "\n\n")
+		b.WriteString("It is a badge like any other. Drop that line from this pull request if the README is better without it; nothing else depends on it.\n")
 	}
 	return b.String()
 }

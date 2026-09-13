@@ -154,6 +154,12 @@ func (d *demoClient) ListWorkflows(_ context.Context, repo string) ([]github.Wor
 	return out, nil
 }
 
+// ReadReadme answers as a repository with no README does. The demo cannot open
+// a pull request, so nothing would be written into one anyway.
+func (d *demoClient) ReadReadme(_ context.Context, repo string) (*github.Readme, error) {
+	return nil, fmt.Errorf("%s: %w", repo, github.ErrNoReadme)
+}
+
 func (d *demoClient) OpenPullRequest(context.Context, github.PullRequestRequest) (*github.PullRequest, error) {
 	return nil, fmt.Errorf("%w, so it cannot open a pull request; connect a real installation to migrate a repository", ErrDemoFixture)
 }

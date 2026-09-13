@@ -381,3 +381,25 @@ test('pausing a multi-page scan finishes the current batch and keeps unchecked r
     page.getByRole('checkbox', { name: 'acme/batch-third', exact: false }),
   ).toBeChecked();
 });
+
+test('the review step offers the badge, ticked, and shows the line it would add', async ({
+  page,
+}) => {
+  await walkTo(page, 4);
+
+  // On by default: the badge is how the people who read a README find out
+  // what runs its CI. It is a checkbox because the README is somebody else's.
+  const box = page.getByRole('checkbox', { name: 'Add the badge to each README' });
+  await expect(box).toBeChecked();
+
+  // The exact line, not a description of one, beside the badge it renders.
+  await expect(page.getByRole('img', { name: 'CI has the Zoomies' })).toBeVisible();
+  await expect(
+    page.getByText('[![CI has the Zoomies](https://zoomies.sh/badge.svg)'),
+  ).toBeVisible();
+
+  // Declining is one click, and the preview stays so it can be reconsidered.
+  await box.uncheck();
+  await expect(box).not.toBeChecked();
+  await expect(page.getByRole('img', { name: 'CI has the Zoomies' })).toBeVisible();
+});

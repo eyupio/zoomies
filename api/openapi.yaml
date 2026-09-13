@@ -1886,6 +1886,15 @@ paths:
                 title: { type: string, description: Overrides the default pull request title. }
                 body: { type: string, description: Overrides the generated body, which lists what moved and what was left alone. }
                 commit_message: { type: string, description: Overrides the default commit message. }
+                badge:
+                  type: boolean
+                  default: true
+                  description: >-
+                    Whether each pull request also adds the "CI has the Zoomies" badge to the
+                    repository's README, at the end of the row of badges it already has or on
+                    its own line under the title. On unless you say otherwise; a README that is
+                    missing, not Markdown, or already carries the badge is left alone and the
+                    result says so. The badge never stops a pull request being opened.
       responses:
         "200":
           description: What happened to each repository
@@ -2932,6 +2941,15 @@ components:
         workflows: { type: integer }
         jobs: { type: integer }
         reason: { type: string, description: Why it was skipped, or how it failed. }
+        badge:
+          type: string
+          enum: [added, present, no_readme, unread, off]
+          description: >-
+            What became of the README badge on a pull request that was opened. `present`
+            means the README already carried it; `no_readme` that there was no Markdown
+            README to put it in; `unread` that GitHub would not hand the README over; `off`
+            that the request asked for none.
+        badge_reason: { type: string, description: Which kind of nowhere a `no_readme` was, or what GitHub said for an `unread`. }
 
     MigrationOutcome:
       type: object
