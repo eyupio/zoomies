@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.34 · 13 September 2026 · derived from the owner's
+Version 2.35 · 13 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident, the deferred host-stewardship slice, and the four
@@ -1804,21 +1804,88 @@ workflows and matrix labels by explicit mapping or a stated refusal.
 
 **Dependencies:** ZF-201 and existing migration/API contracts.
 
-### ZF-214: one reference capacity integration
+### ZF-214: shared provider lifecycle, Proxmox first
 
-**Classification: extension; M.** Deliver one maintained receiver for the
-existing capacity-demand contract. Compare Proxmox and Hetzner first, choosing
-one based on an available test environment; AWS follows demonstrated demand.
-This receiver is separate from the pure scheduler and runner execution backend.
+**Classification: extension with new provider boundary; L, delivered in slices.**
+**Owner decision, 13 September 2026: Proxmox VE is the first target.**
+Use the existing capacity-demand contract as the entry point. Keep infrastructure
+provisioning outside the pure scheduler and separate from runner execution
+backends. A provisioned VM initially hosts the existing Zoomies agent and
+supported runner backend; this does not establish VM-per-job isolation.
 
-**Accept when:** repeated and replayed events set a desired slot target rather
-than add capacity repeatedly; a zero-host pool can request capacity; provider
-timeouts and restart do not duplicate hosts; spending and concurrency limits
-are enforced; only owned, idle, drained resources can be removed. Record costs
-and cleanup. An unavailable provider is explained in the UI.
+**214a — contract and fake provider (M).** Define a small, versioned contract:
+describe capabilities, validate configuration, create, inspect, list and delete;
+start/stop are optional capabilities. Define structured failure categories,
+operation IDs, bounded deadlines for every call, and an explicit compatibility
+policy. Use shared schemas for validation and guided UI forms, with advanced
+provider settings available. Keep provider credentials outside runner guests
+and bootstrap with scoped, short-lived enrollment credentials.
 
-**Dependencies:** ZF-208, lifecycle automation and host ownership/drain controls.
-First prove the receiver; a generic provider framework is not a prerequisite.
+One durable reconciler owns desired capacity, in-flight reservations, retries,
+backoff, operation recovery and ownership-aware cleanup. Providers implement
+infrastructure operations, not another scheduler. Preserve signed event
+verification, replay protection and schema checks. Reject stale observations;
+translate runner slots to machines explicitly and account for pending creates
+and overlapping pools without counting shared capacity twice. Prove demand
+from zero eligible hosts, extending the publisher if its current eligibility
+rules cannot emit that signal. Imported hosts never acquire deletion authority.
+
+**214b — complete Proxmox integration (M/L).** Connect using scoped API
+credentials and verified TLS; guide selection of allowed nodes, storage,
+network bridge and a prepared Linux VM template. Validate prerequisites before
+provisioning. Clone/bootstrap a VM, track asynchronous operations durably,
+enroll the Zoomies agent, run a real job, drain, and delete only resources whose
+recorded ownership has been verified. Persist resource identity before retrying
+ambiguous outcomes. A timeout is not evidence that creation failed.
+
+Reuse the existing host UI and expose provision/enroll/ready/drain/delete
+progress, actionable failure reasons, limits and pending cleanup. Allow only
+explicitly configured resource ranges and capacity/concurrency limits; report
+infrastructure costs as estimates where applicable. Provide an operator runbook
+for credentials, template preparation, recovery and orphan review. The initial
+template/OS/backend combination is qualified explicitly, not advertised as
+support for every Proxmox configuration.
+
+**214c — validate reuse with a second provider (M; after 214b).** Choose the
+second target from demonstrated demand and repeatable test access. Confirm it
+uses the same contract, reconciler, bootstrap, UI and acceptance suite without
+controller-specific branches. A broad catalogue or public plugin marketplace
+is not required. ZF-215 may start after 214b acceptance; it need not wait for
+214c.
+
+**Optional compatibility experiment (S; at most two engineering days).**
+Evaluate one pinned GARM provider's infrastructure operations and whether its
+bootstrap can be replaced with Zoomies enrollment. Record adopt/defer, licence
+and attribution obligations, dependency cost and a working proof if feasible.
+Do not assume binary compatibility: GARM bootstrap uses its own registration,
+callback and metadata lifecycle. Stop the experiment if adapting it costs more
+than implementing our small contract. It must not gate Proxmox delivery.
+Use [GARM's provider interface](https://github.com/cloudbase/garm/blob/main/doc/external_provider.md)
+and [bootstrap helpers](https://github.com/cloudbase/garm-provider-common/blob/main/README.md)
+as design references; verify the selected release before code reuse.
+
+**Accept when:** a reusable fake-provider suite covers duplicate/out-of-order
+events, concurrent demand, delayed creation, quota exhaustion, controller
+restart at every operation boundary, failed bootstrap and deletion retries.
+Desired targets converge without duplicate hosts; unknown outcomes are
+reconciled before another create. A kill switch blocks new provisioning while
+allowing drain, recovery and cleanup. Only owned, idle, drained resources can
+be removed; ambiguous ownership is quarantined for review.
+
+Proxmox release qualification requires at least 20 create/enroll/run/drain/delete
+cycles in designated disposable resources, including scale from zero, a
+multi-pool burst, restart, bootstrap failure and deletion retry. Reconcile the
+final VM and associated storage inventory: no unexplained owned resources may
+remain. Record exact versions, template, limits, timings and cleanup evidence.
+Fixture success is not live qualification.
+
+**Dependencies and ordering:** 214a design and fixtures can follow ZF-210a
+contract work while cache and portability slices continue. Enabling 214b
+mutations requires ZF-207/208 boundaries, ZF-210a enrollment/readiness,
+ZF-404 ownership/drain controls and accepted recovery evidence. Prepare the
+Proxmox test runbook while access is pending; missing live resources block
+qualification, not contract work. The parent is complete only when 214a–c meet
+their acceptance; record first-provider qualification separately.
 
 ### ZF-215: capacity fallback and scheduled readiness
 
@@ -1831,7 +1898,7 @@ or cost ceiling without an operator-approved mapping.
 reason; no duplicate jobs or retry storm; schedule timezone and idle cost
 are explicit; cold/warm measurements show the benefit.
 
-**Dependencies:** ZF-208 and ZF-214 for provider fallback; existing pools can
+**Dependencies:** ZF-208 and qualified ZF-214b for provider fallback; existing pools can
 be assessed independently.
 
 ### ZF-216: staged platform, GPU and VM coverage
@@ -1874,11 +1941,11 @@ description of a missing feature is not evidence it remains missing.
 | --- | --- | --- |
 | 1 | ZF-211 documentation reconciliation and evidence inventory | One current support story; historical gaps clearly dated |
 | 2 | ZF-208 resource limits; ZF-207 administration boundaries | Host/pool pressure and API/UI access boundaries verified |
-| 3 | ZF-210a unattended bootstrap and readiness | Fresh instance and agent without prompts or log scraping |
+| 3 | ZF-210a unattended bootstrap and readiness; then ZF-214a contract and fake-provider slice | Fresh instance and agent without prompts or log scraping; provider recovery contract proven in fixtures |
 | 4 | ZF-209 durable usage; then ZF-210b export and purge | Usage survives retention; export/purge respects installation boundaries |
 | 5 | ZF-212 cache recipes; existing-host/Tailcat reliability and ZF-401/403 UX | Faster representative builds and recoverable private-host onboarding |
 | 6 | ZF-213 configuration portability; ZF-404/404b ownership and maintenance | Repeatable fleet configuration and safe host operations |
-| 7 | ZF-214 one capacity receiver, then ZF-215 fallback/readiness | Bounded, recoverable infrastructure lifecycle on one provider |
+| 7 | ZF-214b Proxmox integration; then ZF-214c second-provider validation and ZF-215 fallback/readiness | Proxmox lifecycle qualified; reuse and fallback assessed without delaying the first provider |
 | 8 | ZF-216 platform/VM expansion; ZF-217 scale-set decision | Evidence per new platform and an explicit integration decision |
 
 **Keep two work streams moving:** operational qualification (ZF-301/302/303
@@ -1910,7 +1977,7 @@ their own release gates.
 | Exact reference versions and existing run links | ZF-211 support reconciliation | Reuse existing evidence; request only missing facts |
 | Disposable GitHub resources, runtime and credentials | Remaining real scenarios | Run only where authorised and available; otherwise record blocked |
 | Second operator session | Setup and diagnosis usability | Schedule when an operator is available; do not invent feedback |
-| Proxmox or Hetzner test environment and spending bound | ZF-214 receiver | Choose one before live provisioning |
+| Disposable Proxmox VE test scope, template, API credentials and resource limits | ZF-214b live qualification | Proxmox selected; designate allowed resources before live provisioning |
 | Windows, arm64, GPU or Apple hardware | ZF-216 | Qualify only the platforms actually exercised |
 | Review of provider, SSH and VM designs | Expanded execution/network boundaries | Record the decision before adding the relevant runtime capability |
 
@@ -1932,6 +1999,11 @@ runs, elapsed observation, benchmark results or user feedback. Keep implemented,
 validated and blocked distinct, and report the exact remaining dependency.
 
 ## 13. Change record
+
+* **13 September 2026 — Version 2.35:** confirm Proxmox as the first provider.
+  Split ZF-214 into shared contract/recovery, complete Proxmox lifecycle and
+  second-provider validation. Bring contract fixtures forward after bootstrap
+  design, retain mutation/qualification gates, and time-box optional GARM reuse.
 
 * **13 September 2026 — Version 2.34:** reconcile the delivery order with
   completed packages and a current competitor review. Add ZF-211 to ZF-217,
