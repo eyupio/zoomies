@@ -381,3 +381,41 @@ func TestPrunedRunnersAreAnnounced(t *testing.T) {
 		t.Fatalf("runner.deleted = %v, want the pruned runner %s", e, old.ID)
 	}
 }
+
+// A machine spends most of its life waiting -- for a clone, for a guest to
+// boot, for an agent to join -- and what moves on the page while it waits is
+// elapsed time and the counts around it, neither of which writes a row. The
+// pass's diff is what repaints it; without that, the one screen an operator
+// watches while a machine is being built would be the one screen that did not
+// move.
+func TestAMachineWhoseViewMovedIsRepublishedWithoutAnyoneAskingFor(t *testing.T) {
+	h := newHarness(t)
+	_, row := h.machineFleet(t)
+	h.machinePass(t)
+	m := h.onlyMachine(t)
+
+	sub := h.listen(events.KindMachineUpdated)
+	// The first pass with somebody watching sends what it has -- the machine
+	// moved while nobody was subscribed -- and the second says nothing, because
+	// a frame per machine per pass would cost every open tab a repaint of a row
+	// it already has.
+	h.c.publishDerived(h.ctx)
+	nextOfKind(t, sub, events.KindMachineUpdated)
+	h.c.publishDerived(h.ctx)
+	nothingFor(t, sub)
+
+	// A column written by something that does not publish -- here the sweep's
+	// own ownership stamp -- still reaches the page.
+	if err := h.st.SetMachineOwnershipError(h.ctx, m.ID, "the resource says it belongs to another machine"); err != nil {
+		t.Fatalf("SetMachineOwnershipError: %v", err)
+	}
+	h.c.publishDerived(h.ctx)
+	frame := nextOfKind(t, sub, events.KindMachineUpdated)
+	if frame["id"] != m.ID {
+		t.Fatalf("the frame is about %v, want machine %s", frame["id"], m.ID)
+	}
+	if frame["provider_name"] != row.Name {
+		t.Fatalf("the frame names provider %v, want %s: it has to be the shape the API returns",
+			frame["provider_name"], row.Name)
+	}
+}

@@ -3,7 +3,6 @@ package controller
 import (
 	"slices"
 	"testing"
-	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
@@ -173,8 +172,7 @@ func TestADisabledProviderKeepsItsMachinesAndBuysNoMore(t *testing.T) {
 func TestNothingIsRentedUntilProvidersAreSwitchedOn(t *testing.T) {
 	h := newHarness(t)
 	inst := h.installation()
-	pool := h.pool(inst, "linux-x64")
-	_ = pool
+	h.pool(inst, "linux-x64")
 	h.providerRow(t, "lab")
 	h.queueWork(t)
 
@@ -185,5 +183,4 @@ func TestNothingIsRentedUntilProvidersAreSwitchedOn(t *testing.T) {
 	if got := h.callsTo("allocate"); got != 0 {
 		t.Fatal("providers are off and one was called anyway")
 	}
-	_ = time.Second
 }

@@ -84,16 +84,6 @@ func (h *harness) machinePass(t *testing.T) {
 	h.c.machines.calls.Wait()
 }
 
-// machinePassOn runs a pass on a particular controller, which is how a test
-// carries on after a restart.
-func (h *harness) machinePassOn(t *testing.T, c *Controller) {
-	t.Helper()
-	if err := c.ReconcileMachines(h.ctx); err != nil {
-		t.Fatalf("ReconcileMachines: %v", err)
-	}
-	c.machines.calls.Wait()
-}
-
 // machines returns every machine row, oldest first.
 func (h *harness) machines() []*store.Machine {
 	h.t.Helper()

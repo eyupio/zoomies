@@ -66,3 +66,37 @@ func TestEveryTaskLeaseOutlastsTheWorkItCovers(t *testing.T) {
 		}
 	}
 }
+
+// A machine's life is a chain of deadlines, and each one has to outlast the
+// thing it bounds. Set the wrong way round they do not merely misbehave: an
+// ambiguity timeout shorter than a create quarantines machines that are simply
+// still being built, and a delete grace shorter than the silence that loses a
+// host destroys a machine in the middle of a job.
+func TestEveryMachineDeadlineOutlastsTheWorkItCovers(t *testing.T) {
+	p := config.Default().Provider
+	cases := []struct {
+		shorter, longer string
+		short, long     time.Duration
+		because         string
+	}{
+		{"provider.call_timeout", "provider.create_timeout", p.CallTimeout, p.CreateTimeout,
+			"one request has to fit inside the whole asynchronous create it starts"},
+		{"provider.create_timeout", "provider.ambiguity_timeout", p.CreateTimeout, p.AmbiguityTimeout,
+			"a create that is merely slow would otherwise be treated as one nobody can account for"},
+		{"the heartbeat timeout", "provider.enrol_timeout", store.HeartbeatTimeout, p.EnrolTimeout,
+			"a machine that joined and went briefly quiet would otherwise be given up on"},
+		{"hostLostAfter plus a housekeeping tick", "provider.delete_grace",
+			hostLostAfter + housekeepingTick, p.DeleteGrace,
+			"a network blip would otherwise destroy a machine that is in the middle of a job"},
+		{"hostLostAfter", "provider.idle_timeout", hostLostAfter, p.IdleTimeout,
+			"a machine whose host had merely gone quiet would otherwise be drained as idle"},
+		{"provider.enrol_timeout", "a machine join token's life",
+			p.EnrolTimeout, p.EnrolTimeout + machineTokenGrace,
+			"the credential has to outlast the window the machine is given to use it"},
+	}
+	for _, c := range cases {
+		if c.long <= c.short {
+			t.Errorf("%s is %s and %s is %s: %s", c.longer, c.long, c.shorter, c.short, c.because)
+		}
+	}
+}

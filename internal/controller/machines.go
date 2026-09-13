@@ -197,6 +197,13 @@ func (c *Controller) ReconcileMachines(ctx context.Context) error {
 	if c.leaseLost.Load() != nil {
 		return nil
 	}
+	// Off is off, whoever asked. The loop is not started when providers are
+	// switched off, and a pass forced by a test or an API call must refuse for
+	// the same reason: renting a machine spends money, and nothing should
+	// start doing that because a release added the ability to.
+	if !c.cfg().Provider.Enabled {
+		return nil
+	}
 
 	providers, err := c.st.ListProviders(ctx)
 	if err != nil {
@@ -734,7 +741,7 @@ func (c *Controller) runMachineStep(ctx context.Context, env *machineEnv, pr *ma
 		c.recordMachineFailure(ctx, env, pr, m, opID, err)
 	default:
 		c.finishMachineOperation(ctx, m, opID, store.MachineOpSucceeded, "", nil)
-		c.noteProviderSuccess(ctx, pr.row)
+		c.noteProviderSuccess(ctx, pr.row.ID)
 	}
 }
 
@@ -809,7 +816,7 @@ func (c *Controller) recordMachineFailure(ctx context.Context, env *machineEnv, 
 	}
 	c.finishMachineOperation(ctx, m, opID, store.MachineOpFailed, detail, &next)
 	c.noteProviderTrouble(pr.row.ID, err, m.ID, now)
-	c.noteProviderFailure(ctx, pr.row, m)
+	c.noteProviderFailure(ctx, pr.row.ID, m)
 
 	if terminal {
 		c.transitionMachine(ctx, env, m, store.MachineFailed, detail)
@@ -1341,14 +1348,22 @@ func (c *Controller) recordMachineAddress(ctx context.Context, m *store.Machine,
 // This is what stops a bad template burning fifty machines: three failures is
 // enough to tell an unlucky create from a broken one, and the window widens so
 // that a provider which is simply down is not hammered while it recovers.
-func (c *Controller) noteProviderFailure(ctx context.Context, row *store.Provider, m *store.Machine) {
+func (c *Controller) noteProviderFailure(ctx context.Context, providerID string, m *store.Machine) {
 	if m.ReadyAt != nil {
 		// A machine that worked once and failed later says nothing about the
 		// provider's ability to build one.
 		return
 	}
+	// Read afresh rather than counting on the pass's copy. Two machines of one
+	// provider are stepped at the same time, and the pass's row is shared
+	// between them: incrementing it in place would have the second failure
+	// overwrite the first as often as it followed it.
+	row, err := c.st.GetProvider(ctx, providerID)
+	if err != nil {
+		c.log.Warn("could not read a provider to record its failure", "provider", providerID, "error", err)
+		return
+	}
 	failures := row.ConsecutiveFailures + 1
-	row.ConsecutiveFailures = failures
 	var until *time.Time
 	if failures >= breakerThreshold {
 		wait := breakerBase << min(failures-breakerThreshold, 4)
@@ -1357,28 +1372,31 @@ func (c *Controller) noteProviderFailure(ctx context.Context, row *store.Provide
 		}
 		at := c.Now().Add(wait)
 		until = &at
-		row.PausedUntil = until
 		c.log.Warn("a provider was stood down after failing to build machines",
 			"provider", row.Name, "failures", failures, "until", at)
 	}
 	if err := c.st.SetProviderBreaker(ctx, row.ID, failures, until); err != nil {
 		c.log.Warn("could not record a provider's failures", "provider", row.ID, "error", err)
+		return
 	}
+	row.ConsecutiveFailures, row.PausedUntil = failures, until
 	c.publishProvider(ctx, row)
 }
 
 // noteProviderSuccess clears the breaker. One machine that worked is the whole
 // of the evidence needed: the breaker exists to stop a run of failures, not to
 // punish a provider for having had one.
-func (c *Controller) noteProviderSuccess(ctx context.Context, row *store.Provider) {
-	c.clearProviderTrouble(row.ID)
-	if row.ConsecutiveFailures == 0 && row.PausedUntil == nil {
+func (c *Controller) noteProviderSuccess(ctx context.Context, providerID string) {
+	c.clearProviderTrouble(providerID)
+	row, err := c.st.GetProvider(ctx, providerID)
+	if err != nil || (row.ConsecutiveFailures == 0 && row.PausedUntil == nil) {
+		return
+	}
+	if err := c.st.SetProviderBreaker(ctx, row.ID, 0, nil); err != nil {
+		c.log.Warn("could not clear a provider's failures", "provider", row.ID, "error", err)
 		return
 	}
 	row.ConsecutiveFailures, row.PausedUntil = 0, nil
-	if err := c.st.SetProviderBreaker(ctx, row.ID, 0, nil); err != nil {
-		c.log.Warn("could not clear a provider's failures", "provider", row.ID, "error", err)
-	}
 	c.publishProvider(ctx, row)
 }
 
