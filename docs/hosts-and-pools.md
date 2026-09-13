@@ -485,7 +485,7 @@ exactly what the `process` backend means on Linux, and
 Windows runner is a kill rather than an interrupt, because a service has no
 console to raise one on; the runner's registration is single-use either way.
 
-This is new in this beta and
+This is new in 1.0 and
 [not yet qualified](index.md#what-is-qualified): it is built and unit-tested,
 and the first job that runs on a real Windows host is what moves the row.
 
