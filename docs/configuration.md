@@ -170,12 +170,31 @@ retention:
   scaling_events: 8760h         # ZOOMIES_RETENTION_SCALING_EVENTS (365 days of scaling history; was retention.audit, which is still read)
   samples: 168h                 # ZOOMIES_RETENTION_SAMPLES
   webhooks: 168h                # ZOOMIES_RETENTION_WEBHOOKS
+  machines: 168h                # ZOOMIES_RETENTION_MACHINES  (7 days of deleted-machine rows -- what was rented, when, and what it cost)
 
 images:
   refresh_interval: 1h          # ZOOMIES_IMAGE_REFRESH_INTERVAL  -- 0 switches it off
 
 updates:
   check_interval: 24h           # ZOOMIES_UPDATE_CHECK_INTERVAL   -- 0 never asks
+
+provider:
+  enabled: false                # ZOOMIES_PROVIDER_ENABLED                -- off: renting machines spends money
+  paused: false                 # ZOOMIES_PROVIDER_PAUSED                 -- the kill switch; holds creation only
+  interval: 30s                 # ZOOMIES_PROVIDER_INTERVAL
+  sweep_interval: 10m           # ZOOMIES_PROVIDER_SWEEP_INTERVAL         -- how often each provider is asked what it is running
+  max_machines: 0               # ZOOMIES_PROVIDER_MAX_MACHINES           -- fleet-wide ceiling; 0 leaves per-provider limits alone, and is warned about
+  max_creates_in_flight: 2      # ZOOMIES_PROVIDER_MAX_CREATES_IN_FLIGHT
+  scale_up_delay: 0s            # ZOOMIES_PROVIDER_SCALE_UP_DELAY         -- a machine takes minutes; it has already waited
+  call_timeout: 30s             # ZOOMIES_PROVIDER_CALL_TIMEOUT
+  create_timeout: 20m           # ZOOMIES_PROVIDER_CREATE_TIMEOUT
+  bootstrap_timeout: 10m        # ZOOMIES_PROVIDER_BOOTSTRAP_TIMEOUT
+  enrol_timeout: 15m            # ZOOMIES_PROVIDER_ENROL_TIMEOUT
+  delete_timeout: 15m           # ZOOMIES_PROVIDER_DELETE_TIMEOUT
+  ambiguity_timeout: 30m        # ZOOMIES_PROVIDER_AMBIGUITY_TIMEOUT      -- then a person is asked
+  idle_timeout: 15m             # ZOOMIES_PROVIDER_IDLE_TIMEOUT
+  scale_down_cooldown: 15m      # ZOOMIES_PROVIDER_SCALE_DOWN_COOLDOWN    -- at least one idle_timeout, or the fleet churns
+  delete_grace: 10m             # ZOOMIES_PROVIDER_DELETE_GRACE           -- after a machine's host goes silent
 ```
 
 ---
@@ -764,6 +783,70 @@ fleet, or one that pins every pool to a digest, and Zoomies says so once at
 startup rather than leaving you to wonder.
 
 ---
+
+### `provider.max_machines` — the ceiling on what the fleet may rent
+
+```yaml
+provider:
+  enabled: true
+  max_machines: 6
+```
+
+`provider.enabled` decides whether Zoomies may rent hosts at all. It is off,
+and it stays off until somebody deliberately turns it on, because every machine
+behind it is a bill.
+
+`max_machines` is the ceiling across every provider put together, and it is the
+one number to set in the same edit as `enabled`. Each provider row carries its
+own limit as well, but those bound one hypervisor each; this is what bounds a
+mistake — a provider configured twice, a demand signal that never settles, a
+pool whose jobs nothing can run so the shortfall never closes. Zero means only
+the per-provider limits apply, and the validator warns about it, because the
+thing that notices an unbounded fleet is the invoice.
+
+`max_creates_in_flight` is the other half: how many machines may be being built
+at once. A burst of two hundred queued jobs should not become two hundred
+simultaneous clone requests, whatever the ceiling allows in total.
+
+### `provider.paused` — the kill switch
+
+```yaml
+provider:
+  paused: true
+```
+
+Holds the creation of new machines while leaving everything else running:
+machines already up keep working, idle ones still drain, drained ones are still
+deleted, an operation whose outcome was unknown is still resolved, and
+ownership is still verified. That asymmetry is the point. A switch that stopped
+deletion too would leave VMs running with nothing tending them, which is the
+opposite of what somebody reaching for a kill switch wants.
+
+The same switch exists per provider, as a row, and that is the one the Hosts
+page presses — so one misbehaving hypervisor can be held without stopping the
+rest. This setting is the fleet-wide version, in the file, for the case where a
+restart should come back held.
+
+### `provider.delete_grace` — how long a quiet machine is left alone
+
+```yaml
+provider:
+  delete_grace: 10m
+```
+
+A machine's host is counted unhealthy after 90 seconds without a heartbeat and
+lost after five minutes. This is how much longer still a machine is left alone
+before the fleet treats it as gone, and it must comfortably outlast both — a
+machine destroyed for a network blip takes the job it was running with it, and
+that job's owner sees a failure with no cause. The validator warns when it is
+set at or below the 90 seconds, which is the setting most likely to be tuned
+down by somebody impatient with a slow scale-down.
+
+`idle_timeout` and `scale_down_cooldown` are the other end of the same
+question: how long a machine's host must have been empty before it is drained,
+and how long that emptiness must hold continuously before anything is deleted.
+Set the cooldown below one idle period and a fleet pays the creation cost again
+in every gap between two bursts.
 
 ## Pool settings
 

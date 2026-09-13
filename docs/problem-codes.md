@@ -128,6 +128,22 @@ on a public address the same setting is an error.
 | `log.format` | error | `log.format` | Not a format. They are `text` and `json`. |
 | `log.debug` | info | `log.level` | Debug logging is on, which is loud and includes request detail. |
 
+## Configuration: infrastructure providers
+
+Every code here is silent while `provider.enabled` is false, which is the
+default. A deployment that does not rent machines is not told how to bound
+something it is not doing.
+
+| Code | Severity | Setting | What to do |
+| --- | --- | --- | --- |
+| `provider.interval` | error | `provider.interval` | Must be positive. It is how often machines are reconciled. |
+| `provider.timeouts` | error | `provider.create_timeout` | A provider operation has no bound, or `provider.ambiguity_timeout` is not longer than `provider.create_timeout` — which would quarantine machines that are merely still being built. |
+| `provider.enrol_timeout` | error | `provider.enrol_timeout` | Shorter than the silence that loses a host, so machines that did arrive would be given up on. |
+| `provider.unlimited` | warning | `provider.max_machines` | Nothing fleet-wide bounds how many machines may be rented; only each provider's own limit applies. The bill is the thing that notices. |
+| `provider.paused` | info | `provider.paused` | New machines are held by configuration. Draining, deleting, recovery and ownership checks all continue. |
+| `provider.delete_grace_short` | warning | `provider.delete_grace` | A machine whose host goes briefly quiet would be destroyed mid-job. Set it well above the 90 seconds that make a host unhealthy. |
+| `provider.scale_down_fast` | warning | `provider.scale_down_cooldown` | Machines are removed sooner than one idle period, so the quiet between two bursts pays the creation cost again. |
+
 ## Runtime: hosts and installations
 
 | Code | Severity | What it means |

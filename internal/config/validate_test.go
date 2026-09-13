@@ -4,6 +4,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -504,5 +505,114 @@ func TestRetentionAuditIsHonouredAsScalingEventsAndFlagged(t *testing.T) {
 	}
 	if loaded.Retention.ScalingEvents != 72*time.Hour {
 		t.Fatalf("scaling_events = %s, want 72h from ZOOMIES_RETENTION_SCALING_EVENTS", loaded.Retention.ScalingEvents)
+	}
+}
+
+// A deployment that is not renting machines is told nothing about how to bound
+// it. Every provider finding is conditional on provider.enabled, and the two
+// test harnesses that assert "no warnings" depend on the defaults staying
+// quiet -- so this is the test that keeps the defaults default.
+func TestTheProviderSectionIsSilentUntilItIsTurnedOn(t *testing.T) {
+	c := Default()
+	for _, f := range c.Validate() {
+		if strings.HasPrefix(f.Code, "provider.") {
+			t.Errorf("the default configuration raised %s: %s", f.Code, f.Title)
+		}
+	}
+}
+
+// Turning providers on with nothing fleet-wide holding them is the mistake
+// that costs money rather than uptime, so it is said out loud -- and it is a
+// warning, because a deployment that means it should still start.
+func TestEnablingProvidersWithNoCeilingIsAWarningNotARefusal(t *testing.T) {
+	c := Default()
+	c.Provider.Enabled = true
+
+	f := c.Validate()
+	if !hasCode(f, "provider.unlimited") {
+		t.Fatal("an unbounded fleet of rented machines drew no warning")
+	}
+	if err := f.Errors().Err(); err != nil {
+		t.Fatalf("an unbounded fleet refused to start: %v", err)
+	}
+
+	c.Provider.MaxMachines = 4
+	if f := c.Validate(); hasCode(f, "provider.unlimited") {
+		t.Fatal("a bounded fleet still drew the unbounded warning")
+	}
+}
+
+// The deadlines have to be ordered, and the two that matter are the ones an
+// operator is most likely to shorten: an ambiguity window inside the creation
+// window quarantines machines that are merely still being built, and an
+// enrolment window shorter than the silence that loses a host gives up on
+// machines that arrived and went briefly quiet.
+func TestProviderDeadlinesMustOutlastTheWorkTheyCover(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  func(*Config)
+		code string
+	}{
+		{"an unbounded call", func(c *Config) { c.Provider.CallTimeout = 0 }, "provider.timeouts"},
+		{"ambiguity inside creation", func(c *Config) { c.Provider.AmbiguityTimeout = c.Provider.CreateTimeout }, "provider.timeouts"},
+		{"enrolment shorter than a lost host", func(c *Config) { c.Provider.EnrolTimeout = HostLostAfter - time.Second }, "provider.enrol_timeout"},
+		{"no interval", func(c *Config) { c.Provider.Interval = 0 }, "provider.interval"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := Default()
+			c.Provider.Enabled = true
+			c.Provider.MaxMachines = 4
+			tc.set(c)
+
+			f := c.Validate()
+			if !hasCode(f, tc.code) {
+				t.Fatalf("%s passed validation; want %s. got %+v", tc.name, tc.code, f)
+			}
+			if len(f.Errors()) == 0 {
+				t.Fatalf("%s was not an error, so the controller would start with it", tc.name)
+			}
+		})
+	}
+}
+
+// The two scale-down settings are warnings rather than errors: both describe a
+// fleet that works and wastes money, which is a thing to be told about and not
+// a reason to refuse to start.
+func TestScaleDownSettingsThatCostMoneyAreWarnings(t *testing.T) {
+	c := Default()
+	c.Provider.Enabled = true
+	c.Provider.MaxMachines = 4
+	c.Provider.DeleteGrace = HostLostAfter
+	c.Provider.ScaleDownCooldown = c.Provider.IdleTimeout - time.Minute
+
+	f := c.Validate()
+	if !hasCode(f, "provider.delete_grace_short") {
+		t.Error("a delete grace no longer than the silence that loses a host drew no warning")
+	}
+	if !hasCode(f, "provider.scale_down_fast") {
+		t.Error("removing machines sooner than one idle period drew no warning")
+	}
+	if err := f.Err(); err != nil {
+		t.Fatalf("a wasteful but working fleet refused to start: %v", err)
+	}
+}
+
+// The pause is worth saying once, so that a fleet that is quiet because
+// somebody held it does not look like a fleet that is quiet because nothing is
+// queued.
+func TestThePauseSaysSoWithoutBeingAProblem(t *testing.T) {
+	c := Default()
+	c.Provider.Enabled = true
+	c.Provider.MaxMachines = 4
+	c.Provider.Paused = true
+
+	f := c.Validate()
+	if !hasCode(f, "provider.paused") {
+		t.Fatal("a paused provider said nothing at startup")
+	}
+	for _, got := range f {
+		if strings.HasPrefix(got.Code, "provider.") && got.Severity != SeverityInfo {
+			t.Fatalf("the pause was reported as something to fix: %+v", got)
+		}
 	}
 }
