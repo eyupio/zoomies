@@ -805,11 +805,11 @@ func (c *Config) Validate() Findings {
 		}
 		if c.Provider.MaxMachines <= 0 {
 			add(Finding{
-				Code: "provider.unlimited", Severity: SeverityWarning, Setting: "provider.max_machines",
-				Title: "nothing bounds how many machines the whole fleet may rent",
-				Detail: "each provider's own limit still applies, but a mistake that creates a provider " +
-					"with a high limit, or a demand signal that never stops, has no fleet-wide ceiling to hit. " +
-					"The bill is the thing that notices.",
+				Code: "provider.no_ceiling", Severity: SeverityWarning, Setting: "provider.max_machines",
+				Title: "providers are enabled but no machine may be rented",
+				Detail: "a maximum of none is none, as it is for a pool's max_runners, so nothing will be " +
+					"created however much work queues. The number is deliberately not optional: it is the " +
+					"one setting that decides the size of an invoice.",
 				Fix: "set provider.max_machines to the most machines you are willing to pay for at once.",
 			})
 		}

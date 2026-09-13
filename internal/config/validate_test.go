@@ -521,24 +521,25 @@ func TestTheProviderSectionIsSilentUntilItIsTurnedOn(t *testing.T) {
 	}
 }
 
-// Turning providers on with nothing fleet-wide holding them is the mistake
-// that costs money rather than uptime, so it is said out loud -- and it is a
-// warning, because a deployment that means it should still start.
+// A maximum of none is none, so a fleet told to rent machines without a ceiling
+// rents nothing -- which is the safe direction, and useless, and therefore
+// worth saying out loud. It is a warning rather than an error because the
+// controller is otherwise fine and everything else it does still works.
 func TestEnablingProvidersWithNoCeilingIsAWarningNotARefusal(t *testing.T) {
 	c := Default()
 	c.Provider.Enabled = true
 
 	f := c.Validate()
-	if !hasCode(f, "provider.unlimited") {
-		t.Fatal("an unbounded fleet of rented machines drew no warning")
+	if !hasCode(f, "provider.no_ceiling") {
+		t.Fatal("a fleet allowed to rent machines but capped at none drew no warning")
 	}
 	if err := f.Errors().Err(); err != nil {
-		t.Fatalf("an unbounded fleet refused to start: %v", err)
+		t.Fatalf("a fleet with no ceiling refused to start: %v", err)
 	}
 
 	c.Provider.MaxMachines = 4
-	if f := c.Validate(); hasCode(f, "provider.unlimited") {
-		t.Fatal("a bounded fleet still drew the unbounded warning")
+	if f := c.Validate(); hasCode(f, "provider.no_ceiling") {
+		t.Fatal("a fleet with a ceiling still drew the warning about not having one")
 	}
 }
 

@@ -183,7 +183,7 @@ provider:
   paused: false                 # ZOOMIES_PROVIDER_PAUSED                 -- the kill switch; holds creation only
   interval: 30s                 # ZOOMIES_PROVIDER_INTERVAL
   sweep_interval: 10m           # ZOOMIES_PROVIDER_SWEEP_INTERVAL         -- how often each provider is asked what it is running
-  max_machines: 0               # ZOOMIES_PROVIDER_MAX_MACHINES           -- fleet-wide ceiling; 0 leaves per-provider limits alone, and is warned about
+  max_machines: 0               # ZOOMIES_PROVIDER_MAX_MACHINES           -- fleet-wide ceiling; 0 rents nothing, and is warned about
   max_creates_in_flight: 2      # ZOOMIES_PROVIDER_MAX_CREATES_IN_FLIGHT
   scale_up_delay: 0s            # ZOOMIES_PROVIDER_SCALE_UP_DELAY         -- a machine takes minutes; it has already waited
   call_timeout: 30s             # ZOOMIES_PROVIDER_CALL_TIMEOUT
@@ -800,9 +800,13 @@ behind it is a bill.
 one number to set in the same edit as `enabled`. Each provider row carries its
 own limit as well, but those bound one hypervisor each; this is what bounds a
 mistake — a provider configured twice, a demand signal that never settles, a
-pool whose jobs nothing can run so the shortfall never closes. Zero means only
-the per-provider limits apply, and the validator warns about it, because the
-thing that notices an unbounded fleet is the invoice.
+pool whose jobs nothing can run so the shortfall never closes.
+
+**Zero rents nothing**, exactly as a pool's `max_runners` of zero runs nothing,
+and the validator says so rather than letting a fleet look enabled and do
+nothing. That is deliberate: the alternative reading, where an unset number
+means "as many as it takes", puts the one setting that decides the size of an
+invoice behind a value somebody can forget.
 
 `max_creates_in_flight` is the other half: how many machines may be being built
 at once. A burst of two hundred queued jobs should not become two hundred

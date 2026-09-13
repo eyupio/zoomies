@@ -124,10 +124,14 @@ type Provider struct {
 	// vanished underneath us are both found. It is paced rather than per pass
 	// because it is one API call per provider and the answer changes slowly.
 	SweepInterval time.Duration `yaml:"sweep_interval"`
-	// MaxMachines is the fleet-wide ceiling across every provider. Zero leaves
-	// each provider's own limit as the only bound, which is a deliberate
-	// choice rather than a default: the validator warns when providers are
-	// enabled with nothing fleet-wide holding them.
+	// MaxMachines is the fleet-wide ceiling across every provider.
+	//
+	// Zero rents nothing, exactly as a pool's max_runners of zero runs nothing:
+	// a maximum of none is none. It is the default, so a fleet that turns
+	// providers on has to say in the same breath how many machines it is
+	// willing to pay for, and the validator says so when it has not. The
+	// alternative -- zero meaning "unbounded" -- puts the one number that
+	// decides the size of an invoice behind a value somebody can leave unset.
 	MaxMachines int `yaml:"max_machines"`
 	// MaxCreatesInFlight caps how many machines may be being built at once
 	// across the fleet, so a burst of queued jobs cannot ask a hypervisor for

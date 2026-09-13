@@ -139,7 +139,7 @@ something it is not doing.
 | `provider.interval` | error | `provider.interval` | Must be positive. It is how often machines are reconciled. |
 | `provider.timeouts` | error | `provider.create_timeout` | A provider operation has no bound, or `provider.ambiguity_timeout` is not longer than `provider.create_timeout` — which would quarantine machines that are merely still being built. |
 | `provider.enrol_timeout` | error | `provider.enrol_timeout` | Shorter than the silence that loses a host, so machines that did arrive would be given up on. |
-| `provider.unlimited` | warning | `provider.max_machines` | Nothing fleet-wide bounds how many machines may be rented; only each provider's own limit applies. The bill is the thing that notices. |
+| `provider.no_ceiling` | warning | `provider.max_machines` | Providers are on but the ceiling is none, so nothing will be rented however much work queues. A maximum of none is none, as it is for a pool's `max_runners`. |
 | `provider.paused` | info | `provider.paused` | New machines are held by configuration. Draining, deleting, recovery and ownership checks all continue. |
 | `provider.delete_grace_short` | warning | `provider.delete_grace` | A machine whose host goes briefly quiet would be destroyed mid-job. Set it well above the 90 seconds that make a host unhealthy. |
 | `provider.scale_down_fast` | warning | `provider.scale_down_cooldown` | Machines are removed sooner than one idle period, so the quiet between two bursts pays the creation cost again. |
