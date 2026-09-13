@@ -918,7 +918,7 @@ func overprovisionedProblem(h *store.Host, defaults bool) (Problem, bool) {
 	var machine, allocatable []string
 	if a.CPUsKnown {
 		machine = append(machine, fmt.Sprintf("%d CPUs", h.CPUs))
-		allocatable = append(allocatable, cpuFigure(a.CPUs)+" allocatable CPUs")
+		allocatable = append(allocatable, scheduler.FormatCPUs(a.CPUs)+" allocatable CPUs")
 	}
 	if a.MemoryKnown {
 		machine = append(machine, fmt.Sprintf("%d MB of memory", h.MemoryMB))
@@ -930,7 +930,7 @@ func overprovisionedProblem(h *store.Host, defaults bool) (Problem, bool) {
 		share := scheduler.HostShare(h)
 		var each []string
 		if a.CPUsKnown {
-			each = append(each, cpuFigure(share.CPUs)+" CPUs")
+			each = append(each, scheduler.FormatCPUs(share.CPUs)+" CPUs")
 		}
 		if a.MemoryKnown {
 			each = append(each, fmt.Sprintf("%d MB of memory", share.MemoryMB))
@@ -964,13 +964,13 @@ func overprovisionedProblem(h *store.Host, defaults bool) (Problem, bool) {
 }
 
 // unenforceableProblem is host.limits_unenforceable for one backend of one
-// host: the daemon has said it cannot apply a CPU quota, a memory limit or
-// both. A CPU quota it cannot apply is refused at create, so a pool that sets
+// host: the daemon has said it cannot apply a CPU quota, a memory limit, a
+// pids limit, or several of them. A CPU quota it cannot apply is refused at create, so a pool that sets
 // one fails every runner it starts there; a memory limit is dropped, so the
 // pool's own limit binds nothing. No default is given on that field either
 // way, which is the one thing the controller can do about it on its own.
 func unenforceableProblem(h *store.Host, info store.HostBackend) (Problem, bool) {
-	if info.Limits.CPU && info.Limits.Memory {
+	if info.Limits.CPU && info.Limits.Memory && info.Limits.Pids {
 		return Problem{}, false
 	}
 	var cannot []string
@@ -979,6 +979,9 @@ func unenforceableProblem(h *store.Host, info store.HostBackend) (Problem, bool)
 	}
 	if !info.Limits.Memory {
 		cannot = append(cannot, "a memory limit (a runner asking for one starts without it)")
+	}
+	if !info.Limits.Pids {
+		cannot = append(cannot, "a pids limit (a pool's pids_limit is ignored there)")
 	}
 	daemon := string(info.Kind) + " daemon"
 	if info.Rootless {
@@ -1001,12 +1004,6 @@ func unenforceableProblem(h *store.Host, info store.HostBackend) (Problem, bool)
 		TargetKind: "host",
 		TargetID:   h.ID,
 	}, true
-}
-
-// cpuFigure renders a CPU count the way the pool form takes it: to the
-// hundredth, with no trailing zeros, so 6.5 is "6.5" and 8 is "8".
-func cpuFigure(v float64) string {
-	return strconv.FormatFloat(math.Round(v*100)/100, 'f', -1, 64)
 }
 
 func (c *Controller) jobProblems(ctx context.Context, out *[]Problem) error {

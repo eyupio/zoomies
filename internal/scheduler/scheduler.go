@@ -1277,6 +1277,11 @@ func plural(n int, unit string) string {
 	return fmt.Sprintf("%d %ss", n, unit)
 }
 
+// FormatDuration renders a duration the way every scheduler sentence does, so
+// a caller outside the package that names one of its constants -- the wizard
+// naming the throttle's recovery -- reads the same as the host card.
+func FormatDuration(d time.Duration) string { return formatDuration(d) }
+
 // formatDuration is time.Duration.String() without the trailing zero units, so
 // an operator reads "5m" and "6h" rather than "5m0s" and "6h0m0s".
 func formatDuration(d time.Duration) string {

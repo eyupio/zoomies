@@ -41,6 +41,11 @@ type BackendInfoView struct {
 	Endpoint  string            `json:"endpoint,omitempty"`
 	Detail    string            `json:"detail,omitempty"`
 	DinD      bool              `json:"supports_dind"`
+	// Limits is what the daemon said it can enforce, which is what the
+	// controller defaults a runner's limits from and what
+	// host.limits_unenforceable reasons about; the API carries it so a
+	// reader of the problem can see the fact behind it.
+	Limits store.LimitSupport `json:"limits"`
 }
 
 // HostView is one agent host and the room it has left.
@@ -246,6 +251,7 @@ func (c *Controller) HostView(h *store.Host) HostView {
 				Endpoint:  b.Endpoint,
 				Detail:    b.Detail,
 				DinD:      b.SupportsDinD,
+				Limits:    b.Limits,
 			})
 		}
 		return out

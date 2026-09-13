@@ -155,7 +155,7 @@ func unavailableReason(h *store.Host, now time.Time) string {
 		return "it is under pressure: " + scheduler.HostAdmissionReason(h, now)
 	case h.Throttle.Active() && h.ActiveRunners >= h.EffectiveCapacity():
 		return fmt.Sprintf("it is throttled to %d of its %d slots after sustained pressure and every one of them is in use; the throttle lifts one step after %s of calm, or an operator can clear it once the cause is fixed",
-			h.EffectiveCapacity(), h.Capacity, scheduler.ThrottleRecovery)
+			h.EffectiveCapacity(), h.Capacity, scheduler.FormatDuration(scheduler.ThrottleRecovery))
 	default:
 		return "it takes no new runners right now"
 	}

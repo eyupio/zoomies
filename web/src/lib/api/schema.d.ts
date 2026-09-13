@@ -2741,6 +2741,16 @@ export interface components {
             supports_dind?: boolean;
             /** @description Where the host daemon's socket lives */
             host_socket_path?: string;
+            /** @description What the daemon said it can enforce. A runner is given a default limit only on a field the daemon can apply, and host.limits_unenforceable names the fields it cannot; `known` is false from an agent too old to have asked, which defaults nothing. */
+            limits?: {
+                known?: boolean;
+                /** @description A CPU quota. A daemon that cannot apply one refuses the container. */
+                cpu?: boolean;
+                /** @description A memory limit. A daemon that cannot apply one starts the container without it. */
+                memory?: boolean;
+                /** @description A pids limit. A daemon that cannot apply one ignores it. */
+                pids?: boolean;
+            };
         };
         Host: {
             usage?: components["schemas"]["HostUsage"];

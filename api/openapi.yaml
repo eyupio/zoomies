@@ -3700,6 +3700,17 @@ components:
         detail: { type: string, description: When unavailable, what is wrong and how to fix it. }
         supports_dind: { type: boolean }
         host_socket_path: { type: string, description: Where the host daemon's socket lives, for pools that opt into host-socket mode. }
+        limits:
+          type: object
+          description: >-
+            What the daemon said it can enforce. A runner is given a default limit only on a
+            field the daemon can apply, and host.limits_unenforceable names the fields it
+            cannot; `known` is false from an agent too old to have asked, which defaults nothing.
+          properties:
+            known: { type: boolean }
+            cpu: { type: boolean, description: A CPU quota. A daemon that cannot apply one refuses the container. }
+            memory: { type: boolean, description: A memory limit. A daemon that cannot apply one starts the container without it. }
+            pids: { type: boolean, description: A pids limit. A daemon that cannot apply one ignores it. }
 
     Host:
       type: object
