@@ -73,14 +73,9 @@ func TestANonInteractiveRunNeverPrompts(t *testing.T) {
 	if isTerminal(nil) {
 		t.Error("a missing file was called a terminal")
 	}
-	f, err := os.Open(os.DevNull)
-	if err != nil {
-		t.Fatalf("opening %s: %v", os.DevNull, err)
-	}
-	defer func() { _ = f.Close() }()
-	if !isTerminal(f) {
-		t.Errorf("%s is a character device and should read as a terminal", os.DevNull)
-	}
+	// A file that is not a character device is not a terminal, on any
+	// platform: install.sh reconnects /dev/tty when the script was piped into
+	// sh, so a false here really does mean nobody is watching.
 	dir, err := os.Open(t.TempDir())
 	if err != nil {
 		t.Fatalf("opening a directory: %v", err)

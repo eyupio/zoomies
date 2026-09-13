@@ -13,8 +13,13 @@ import (
 // A port the installer would bind is checked by binding it, because a port
 // free in /proc can still be refused by a container's network namespace. The
 // honest test is the one the operator's host will perform.
+//
+// The port here is held on every interface, which is the scope checkPort uses:
+// Windows lets a wildcard bind succeed over one held on the loopback address
+// alone, so a test that held only 127.0.0.1 would be asking a question with
+// two different answers depending on the platform.
 func TestAPortInUseIsReportedWithTheReasonItCouldNotBeTaken(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatalf("taking a port: %v", err)
 	}
@@ -31,12 +36,14 @@ func TestAPortInUseIsReportedWithTheReasonItCouldNotBeTaken(t *testing.T) {
 	if strings.TrimSpace(busy.Detail) == "" {
 		t.Error("a port that could not be bound was reported with nothing to say why")
 	}
-	if PortFree("127.0.0.1", port) {
-		t.Errorf("PortFree said %d was free while this test held it", port)
+	if PortFree("", port) {
+		t.Errorf("PortFree said %d was free on every interface while this test held it", port)
 	}
 
 	// And once it is given up, both answers change.
-	_ = ln.Close()
+	if err := ln.Close(); err != nil {
+		t.Fatalf("giving the port back: %v", err)
+	}
 	if free := checkPort(port); !free.Free || free.Detail != "" {
 		t.Errorf("checkPort after the listener closed = %+v, want free and nothing to explain", free)
 	}
