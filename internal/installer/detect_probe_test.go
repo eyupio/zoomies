@@ -4,6 +4,7 @@ import (
 	"net"
 	"os"
 	"os/user"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -55,9 +56,18 @@ func TestAPortInUseIsReportedWithTheReasonItCouldNotBeTaken(t *testing.T) {
 // The host is described well enough to fill a plan: a name for the runner
 // pool, an OS and architecture for the image, and the directories the rest of
 // setup writes to.
+//
+// The installed binary is named rather than left to default. Detect asks an
+// installed binary its version by running it, and the default is this
+// process -- so a test that left it out ran the test binary again, as a child,
+// with every test in the package inside it. On Windows the still-running copy
+// then held its own file open and `go test` could not clean up after itself.
 func TestDetectDescribesTheHostThePlanNeeds(t *testing.T) {
 	cfg, state := t.TempDir(), t.TempDir()
-	d := Detect(t.Context(), Options{NonInteractive: true, ConfigDir: cfg, StateDir: state})
+	binary := filepath.Join(t.TempDir(), "zoomies")
+	d := Detect(t.Context(), Options{
+		NonInteractive: true, ConfigDir: cfg, StateDir: state, InstalledBinary: binary,
+	})
 
 	if d.OS != runtime.GOOS || d.Arch != runtime.GOARCH {
 		t.Errorf("detected %s/%s, want this host's own %s/%s", d.OS, d.Arch, runtime.GOOS, runtime.GOARCH)
@@ -80,8 +90,8 @@ func TestDetectDescribesTheHostThePlanNeeds(t *testing.T) {
 	if len(d.Ports) == 0 {
 		t.Error("no port was checked, so the summary cannot warn about one already in use")
 	}
-	if d.BinaryPath == "" {
-		t.Error("no binary path; the service unit would have nothing to run")
+	if d.BinaryPath != binary {
+		t.Errorf("binary path = %q, want the one install.sh named, %q", d.BinaryPath, binary)
 	}
 }
 
@@ -89,11 +99,12 @@ func TestDetectDescribesTheHostThePlanNeeds(t *testing.T) {
 // what it found is trusted over anything re-derived here.
 func TestTheScriptsFindingsWinOverLocalProbing(t *testing.T) {
 	d := Detect(t.Context(), Options{
-		NonInteractive: true,
-		ConfigDir:      t.TempDir(),
-		StateDir:       t.TempDir(),
-		DetectedDistro: "alpine",
-		DetectedInit:   string(InitOpenRC),
+		NonInteractive:  true,
+		ConfigDir:       t.TempDir(),
+		StateDir:        t.TempDir(),
+		InstalledBinary: filepath.Join(t.TempDir(), "zoomies"),
+		DetectedDistro:  "alpine",
+		DetectedInit:    string(InitOpenRC),
 	})
 	if d.Distro != "alpine" {
 		t.Errorf("distro = %q, want the script's own answer", d.Distro)
