@@ -42,14 +42,6 @@ func beat(t *testing.T, a *Agent, tr *fakeTransport, be *fakeBackend, d *Throttl
 	return be.resourceUpdates()[before:]
 }
 
-func handlesOf(updates []resourceUpdate) []backend.Handle {
-	out := make([]backend.Handle, 0, len(updates))
-	for _, u := range updates {
-		out = append(out, u.handle)
-	}
-	return out
-}
-
 // Once every runner on an overwhelmed host is busy, the effective capacity
 // reaches nothing: the jobs already running are what is overwhelming it. The
 // directive has to reach each of them, once, and the same directive on the
