@@ -96,6 +96,33 @@ func IsRunnerName(name string) bool {
 	return strings.HasPrefix(NormalizeLabel(name), RunnerNamePrefix)
 }
 
+// MachineNamePrefix is what every name NewMachineName mints starts with. A
+// sweep looking for machines this fleet rented matches on it, so nothing else
+// may be named this way.
+const MachineNamePrefix = BrandPrefix + PrefixMachine + "-"
+
+// NewMachineName is what the provider records a machine as. It carries the
+// "zoomies-" prefix for the same reason a runner name does: a cluster-wide
+// sweep must never mistake somebody else's VM for one of ours, and on a
+// hypervisor an operator shares with other work that mistake deletes something
+// nobody asked us to touch.
+//
+// The machine's own ID is what follows, so a VM in the Proxmox console and a
+// row on the machines page name each other without a lookup.
+func NewMachineName(machineID string) string {
+	_, fragment, ok := strings.Cut(machineID, "_")
+	if !ok || fragment == "" {
+		fragment = machineID
+	}
+	return MachineNamePrefix + SanitizeLabel(fragment)
+}
+
+// IsMachineName reports whether name looks like one NewMachineName minted,
+// which is as much as a sweep can know about a guest it finds at a provider.
+func IsMachineName(name string) bool {
+	return strings.HasPrefix(NormalizeLabel(name), MachineNamePrefix)
+}
+
 // BrandLabels returns labels with BrandLabel guaranteed present, normalised.
 //
 // Adding it is not cosmetic: it is what lets a workflow ask for this fleet

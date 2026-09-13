@@ -1280,6 +1280,13 @@ type JoinToken struct {
 	ExpiresAt time.Time  `json:"expires_at"`
 	UsedAt    *time.Time `json:"used_at,omitempty"`
 	UsedByID  string     `json:"used_by_id,omitempty"`
+	// MachineID and ExpectedName scope a token to the one machine it was
+	// minted for. Empty on the tokens an operator hands out by hand, which are
+	// theirs to look after; set on the ones that travel inside a guest, where
+	// the credential is readable by more people than the person who asked for
+	// it. Scoping is what stops a copied VM image enrolling as somebody else.
+	MachineID    string `json:"machine_id,omitempty"`
+	ExpectedName string `json:"expected_name,omitempty"`
 }
 
 // Usable reports whether the token can still be redeemed.

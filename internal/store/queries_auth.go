@@ -345,14 +345,14 @@ func (s *Store) DeleteAPIToken(ctx context.Context, id string) error {
 // ---------------------------------------------------------------------------
 
 const joinCols = `id, token_hash, prefix, created_by, labels, capacity, created_at,
-	expires_at, used_at, used_by_id`
+	expires_at, used_at, used_by_id, machine_id, expected_name`
 
 func scanJoin(sc interface{ Scan(...any) error }) (*JoinToken, error) {
 	var t JoinToken
 	var created, expires int64
 	var used sql.NullInt64
 	err := sc.Scan(&t.ID, &t.TokenHash, &t.Prefix, &t.CreatedBy, &t.Labels, &t.Capacity,
-		&created, &expires, &used, &t.UsedByID)
+		&created, &expires, &used, &t.UsedByID, &t.MachineID, &t.ExpectedName)
 	if err != nil {
 		return nil, err
 	}
@@ -366,9 +366,9 @@ func (s *Store) CreateJoinToken(ctx context.Context, t *JoinToken) error {
 		t.ID = NewID(PrefixJoin)
 	}
 	t.CreatedAt = s.Now()
-	_, err := s.exec(ctx, `INSERT INTO join_tokens (`+joinCols+`) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+	_, err := s.exec(ctx, `INSERT INTO join_tokens (`+joinCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
 		t.ID, t.TokenHash, t.Prefix, t.CreatedBy, t.Labels, t.Capacity,
-		ms(t.CreatedAt), ms(t.ExpiresAt), msp(t.UsedAt), t.UsedByID)
+		ms(t.CreatedAt), ms(t.ExpiresAt), msp(t.UsedAt), t.UsedByID, t.MachineID, t.ExpectedName)
 	return wrapWrite(err)
 }
 

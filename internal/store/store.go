@@ -63,6 +63,22 @@ var (
 	ErrJoinTokenExpired = errors.New("join token has expired")
 )
 
+// ErrOwnershipUnverified is a refusal, not a failure: the row and the resource
+// disagree about who owns it, and the answer is a person looking rather than a
+// retry.
+var ErrOwnershipUnverified = errors.New("this machine's ownership could not be verified")
+
+// ErrMachineBusy is a machine whose current step another pass already holds.
+// It is a sentinel because the caller's answer is to come back on the next
+// pass, which is not what it does with a database failure.
+var ErrMachineBusy = errors.New("an operation is already in flight for this machine")
+
+// ErrJoinTokenScope is a token redeemed by something other than the machine it
+// was minted for. It is separate from ErrJoinTokenUsed and ErrJoinTokenExpired
+// because it is the only one of the three that means somebody copied a
+// credential out of a guest.
+var ErrJoinTokenScope = errors.New("join token was issued for a different machine")
+
 // Store is the single owner of the SQLite database.
 //
 // SQLite allows exactly one writer at a time. Rather than hope callers behave,
