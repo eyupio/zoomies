@@ -137,6 +137,59 @@ test('the Hosts page leads here', async ({ page }) => {
   await expect(pageHeading(page, 'Add a host')).toBeVisible();
 });
 
+test('host usage distinguishes a connected agent from held new starts and recovers', async ({
+  page,
+}, testInfo) => {
+  await goto(page, '/hosts/new', 'Add a host');
+  await page.getByRole('button', { name: 'Get the command' }).click();
+  const token = await joinToken(page);
+  const name = `usage-host-${Date.now()}`;
+  let hostId = '';
+  try {
+    const join = await page.request.post('/api/v1/agent/join', {
+      data: {
+        protocol_version: 1,
+        join_token: token,
+        name,
+        capacity: 2,
+        os: 'linux',
+        arch: 'amd64',
+        cpus: 8,
+        memory_mb: 16384,
+        version: 'dev',
+        backends: [{ kind: 'docker', available: true }],
+      },
+    });
+    expect(join.ok()).toBeTruthy();
+    const credentials = (await join.json()) as { host_id: string; agent_token: string };
+    hostId = credentials.host_id;
+    const heartbeat = async (memory: number) => {
+      const response = await page.request.post('/api/v1/agent/heartbeat', {
+        headers: { Authorization: `Bearer ${credentials.agent_token}` },
+        data: { protocol_version: 1, usage: { cpu_percent: 20, memory_available_mb: memory } },
+      });
+      expect(response.ok()).toBeTruthy();
+    };
+    await heartbeat(0);
+    await goto(page, '/hosts', 'Hosts');
+    const card = page.getByRole('article', { name, exact: true });
+    await expect(card).toContainText('Agent connected');
+    await expect(card).toContainText('CPU usage 20%');
+    await expect(card).toContainText('0 B memory available');
+    await expect(card).toContainText('new starts held');
+    await expect(card).toContainText('Running jobs continue');
+    await testInfo.attach('host-pressure-hold', {
+      body: await card.screenshot(),
+      contentType: 'image/png',
+    });
+    await heartbeat(8192);
+    await expect(card).not.toContainText('new starts held');
+    await expect(card).toContainText('8.0 GB memory available');
+  } finally {
+    if (hostId) await page.request.delete(`/api/v1/hosts/${hostId}?force=true`);
+  }
+});
+
 test('runner capacity is adjustable from the host card without opening the full editor', async ({
   page,
 }) => {

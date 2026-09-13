@@ -119,6 +119,11 @@ In detail:
    that names no platform, and a host whose agent has not reported one, both
    constrain nothing, so adding a platform narrows placement and never widens
    it.
+   Eligible hosts are ranked by CPU and memory headroom after placement.
+   Optional usage measurements arrive on agent heartbeats; the controller
+   validates them and records its receipt time. The snapshot carries those
+   measurements and pressure holds, so the scheduler remains pure. Reservations
+   for pending and newly planned runners share one budget across pools.
 5. For each `create` action the controller picks the installation, resolves the
    runner image from the pool's own image or its platform, asks GitHub for a JIT
    configuration, writes a `runners` row in `provisioning`, and queues a task for

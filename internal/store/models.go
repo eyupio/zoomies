@@ -645,8 +645,9 @@ type Host struct {
 	Arch      string `json:"arch"`
 	// CPUs and MemoryMB are the machine's size, reported by the agent. They
 	// are what the host's canonical name and the Hosts page say out loud.
-	CPUs     int   `json:"cpus,omitempty"`
-	MemoryMB int64 `json:"memory_mb,omitempty"`
+	CPUs     int       `json:"cpus,omitempty"`
+	MemoryMB int64     `json:"memory_mb,omitempty"`
+	Usage    HostUsage `json:"usage,omitempty"`
 	// DiskTotalMB and DiskFreeMB measure the filesystem holding the agent's
 	// work directory, which is where a runner's checkout and its caches land.
 	// Free is what a runner may use rather than what is unused, since the two

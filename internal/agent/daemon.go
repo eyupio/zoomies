@@ -113,6 +113,9 @@ type Options struct {
 	// Machine overrides what this agent reports about the host it runs on.
 	// It exists for tests; leaving it nil makes the agent detect for itself.
 	Machine *machine.Facts
+	// SampleUsage replaces the local measurement for deterministic fixtures.
+	// Nil uses the non-blocking whole-host sampler.
+	SampleUsage func(int, int64) machine.Usage
 }
 
 // Agent is the half of Zoomies that runs on a host with a container runtime. It
@@ -121,11 +124,12 @@ type Options struct {
 //
 // Everything it does is outbound. Nothing dials an agent.
 type Agent struct {
-	opts     Options
-	log      *slog.Logger
-	tr       Transport
-	clock    func() time.Time
-	heartbtI time.Duration
+	usageSampler machine.UsageSampler
+	opts         Options
+	log          *slog.Logger
+	tr           Transport
+	clock        func() time.Time
+	heartbtI     time.Duration
 	// retention is Options.FinishedRetention: how long a finished runner's
 	// workload outlives its report before the reconciler deletes it.
 	retention time.Duration
@@ -646,6 +650,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	cpus, memoryMB := hostSize(infos, m)
 	total, free := a.workDirSpace()
 	resp, err := a.tr.Heartbeat(hctx, HeartbeatRequest{
+		Usage:           a.hostUsage(infos, cpus, memoryMB),
 		ProtocolVersion: ProtocolVersion,
 		Capacity:        a.opts.Capacity,
 		Version:         version.Version,

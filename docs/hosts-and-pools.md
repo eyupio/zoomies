@@ -304,10 +304,51 @@ flowchart TD
     ok --> pick["the eligible host with<br/>the most room wins"]
 ```
 
-Among eligible hosts the one with the most room left wins, so runners spread
-across the fleet rather than piling onto whichever host answered first — one
-busy machine should not become the fleet's single point of failure. Ties break
-on host ID, so the same snapshot always produces the same plan.
+Among eligible hosts Zoomies prefers the most CPU and memory headroom after
+placing the requested runner. It averages the remaining fractions, so a larger
+machine can carry more work while a smaller, quiet machine can still beat a
+busy one. Reservations made earlier in the same pass count immediately, across
+every pool sharing the host. Equal scores prefer more free slots, then host ID,
+so the same snapshot always produces the same plan.
+
+### Current usage and automatic holds
+
+Linux agents sample whole-host CPU occupancy and `MemAvailable` on their normal
+heartbeats, including work outside Zoomies. CPU uses counter differences, so
+the first sample reports memory only; I/O wait counts as occupied. Available
+memory includes reclaimable cache. Sampling reads procfs and makes no extra
+Docker requests.
+
+The Hosts page shows actual usage separately from **Committed** resources.
+Committed CPU is a reservation, not a measurement of CPU saturation. A fresh
+reading tightens memory admission and influences host ranking; it never raises
+the configured capacity or overrides the pool's limits and host reserves.
+Measured memory already contains running workloads, so their reservations are
+not subtracted from that measurement again. Runners still provisioning or
+registering, starts newer than the measurement, and all placements in the
+current pass are charged before another placement is allowed. The independent
+reservation budget remains enforced as well.
+
+| Observation | New runner placement |
+| --- | --- |
+| CPU below 85% | Balance across eligible hosts using CPU and memory headroom. |
+| CPU at least 85% | Start at most one runner at a time on that host. Other compatible hosts remain available. |
+| CPU at least 95% for 30 seconds across fresh samples | Hold new starts until CPU falls below 85%. |
+| Available memory at or below the host reserve | Hold new starts until memory becomes available. A pool whose next runner would not fit waits too. |
+| Usage missing, older than 90 seconds, or inconsistent with the reported host size | Use configured capacity and reservations; show usage as unavailable. |
+
+These controls affect new runners. Existing runners stay in place and running
+jobs finish normally; an idle runner already registered with GitHub may still
+receive a job. A host shared by several pools has one admission budget. An
+operator's cordon and capacity remain authoritative during recovery.
+
+Whole-host sampling currently covers local Linux hosts whose procfs CPU and
+memory totals match the reported machine. Remote Docker endpoints, other
+operating systems and differing cgroup views retain reservation-based
+placement. Samples are best-effort observations, not predictions of a job's
+peak memory demand. Continue setting appropriate pool limits and host reserves.
+The [host usage metrics](metrics.md) expose fresh measurements and admission
+holds for monitoring; diagnostic bundles include the same host view.
 
 Two ceilings apply at once, and both are hard: a pool never exceeds its
 `max_runners`, and a host never exceeds its capacity. A pool's `max_runners`

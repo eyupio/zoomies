@@ -673,6 +673,18 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 		}
 	}
 
+	if req.Usage != nil {
+		usage := store.ObserveHostUsage(h.Usage, *req.Usage, h.MemoryMB, now)
+		if err := c.st.SetHostUsage(ctx, hostID, usage); err != nil {
+			return nil, err
+		}
+		if h.Usage.CPUHeld != usage.CPUHeld {
+			c.log.Info("host CPU admission hold changed", "host", hostID, "held", usage.CPUHeld)
+		}
+		h.Usage = usage
+		c.Nudge()
+	}
+
 	if len(req.Runners) > 0 {
 		if err := c.applyReports(ctx, hostID, req.Runners); err != nil {
 			return nil, err

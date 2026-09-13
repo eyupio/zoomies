@@ -3612,6 +3612,14 @@ components:
         at: { type: string, format: date-time }
 
     # --- hosts ------------------------------------------------------------
+    HostUsage:
+      type: object
+      properties:
+        cpu_percent: { type: number, minimum: 0, maximum: 100, description: Whole-host CPU occupied between samples, including I/O wait. Absent when unmeasured. }
+        memory_available_mb: { type: integer, format: int64, minimum: 0, description: Whole-host available memory including reclaimable cache. Zero is a measured full host. }
+        sampled_at: { type: string, format: date-time, description: Controller receipt time. Agent-provided timestamps are ignored. }
+        cpu_high_since: { type: string, format: date-time, description: Beginning of sustained CPU pressure, owned by the controller. }
+        cpu_held: { type: boolean, description: Admission held after sustained CPU pressure. Running jobs continue. Owned by the controller. }
     BackendInfo:
       type: object
       properties:
@@ -3627,6 +3635,9 @@ components:
     Host:
       type: object
       properties:
+        usage: { $ref: "#/components/schemas/HostUsage" }
+        usage_fresh: { type: boolean, description: Usage is less than 90 seconds old. Unknown or stale readings retain reservation-based placement. }
+        admission_reason: { type: string, description: Why current host pressure is holding new runner starts. Empty when no pressure hold applies. }
         id: { type: string }
         name: { type: string }
         address: { type: string }
@@ -3836,6 +3847,7 @@ components:
     AgentHeartbeatRequest:
       type: object
       properties:
+        usage: { $ref: "#/components/schemas/HostUsage" }
         protocol_version: { type: integer }
         capacity: { type: integer, description: The agent's configured value, sent for the log. The controller does not write it. }
         version: { type: string }

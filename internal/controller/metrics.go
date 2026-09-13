@@ -7,6 +7,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 
+	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
 )
@@ -215,6 +216,14 @@ var (
 	descGitHubPaused = prometheus.NewDesc("zoomies_github_paused",
 		"1 while an installation is inside its GitHub rate-limit backoff and every background sweep is standing down from it, 0 otherwise.",
 		[]string{"installation"}, nil)
+	descHostCPUUsage = prometheus.NewDesc("zoomies_host_cpu_usage_percent",
+		"Recent whole-host CPU occupied, including I/O wait. Absent when stale or unmeasured.", []string{"host"}, nil)
+	descHostMemoryAvailable = prometheus.NewDesc("zoomies_host_memory_available_bytes",
+		"Recent whole-host memory available, including reclaimable cache. Absent when stale or unmeasured.", []string{"host"}, nil)
+	descHostAdmissionHeld = prometheus.NewDesc("zoomies_host_admission_held",
+		"1 while measured host pressure holds new starts, 0 otherwise. Does not describe operator cordons.", []string{"host"}, nil)
+	descHostUsageFresh = prometheus.NewDesc("zoomies_host_usage_fresh",
+		"1 when a host usage measurement is recent enough for placement, 0 otherwise.", []string{"host"}, nil)
 )
 
 // fleetCollector reads the fleet's shape from the database on each scrape.
@@ -232,6 +241,10 @@ func (f *fleetCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- descAllocatableMemory
 	ch <- descReservedCPUs
 	ch <- descReservedMemory
+	ch <- descHostCPUUsage
+	ch <- descHostMemoryAvailable
+	ch <- descHostAdmissionHeld
+	ch <- descHostUsageFresh
 }
 
 func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
@@ -320,6 +333,21 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 
 	var healthy, unhealthy, cordoned, capacity, used int
 	for _, h := range hosts {
+		fresh, held := 0.0, 0.0
+		if h.Usage.Fresh(now) {
+			fresh = 1
+			if v := h.Usage.CPUPercent; v != nil {
+				gauge(descHostCPUUsage, *v, h.ID)
+			}
+			if v := h.Usage.MemoryAvailableMB; v != nil {
+				gauge(descHostMemoryAvailable, float64(*v)*(1<<20), h.ID)
+			}
+		}
+		if scheduler.HostAdmissionReason(h, now) != "" {
+			held = 1
+		}
+		gauge(descHostUsageFresh, fresh, h.ID)
+		gauge(descHostAdmissionHeld, held, h.ID)
 		switch {
 		case !h.Healthy(now):
 			unhealthy++

@@ -27,7 +27,7 @@ and failure-mode review.
 The core binary is written in Go. The web UI is built with Svelte and embedded
 in that binary.
 
-- Go 1.26 or later
+- Go 1.27.1 or later (the version in `go.mod` and CI)
 - Node.js 22 or later and npm, when changing or rebuilding the UI
 - Git
 - Docker or Podman for backend and image work
@@ -97,6 +97,18 @@ make test-short
 make lint
 make test
 ```
+
+For documentation changes, install the pinned dependencies and run the same
+strict build as the site workflow:
+
+```sh
+python -m pip install --require-hashes -r docs/requirements.txt
+mkdocs build --strict
+```
+
+The build must produce `site/sitemap.xml`, `site/llms.txt` and `site/badge.svg`.
+These checks catch broken links and missing published assets before a PR is
+merged.
 
 For web UI changes, also run:
 

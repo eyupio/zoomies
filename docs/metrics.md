@@ -49,6 +49,10 @@ memory, so they are always current and never drift.
 | `zoomies_hosts` | gauge | `state` | Agent hosts, by `healthy`, `unhealthy` or `cordoned`. |
 | `zoomies_host_capacity` | gauge | — | Runner slots across healthy, uncordoned hosts. |
 | `zoomies_host_capacity_used` | gauge | — | Slots occupied. Divide by the previous for utilisation. |
+| `zoomies_host_cpu_usage_percent` | gauge | `host` | Recent whole-host CPU occupied, including I/O wait. Missing when stale or unmeasured. |
+| `zoomies_host_memory_available_bytes` | gauge | `host` | Recent available memory including reclaimable cache. Missing when stale or unmeasured. |
+| `zoomies_host_admission_held` | gauge | `host` | 1 while measured CPU or memory pressure holds new starts; running jobs continue. |
+| `zoomies_host_usage_fresh` | gauge | `host` | 1 when usage is less than 90 seconds old; 0 when placement falls back to reservations. |
 | `zoomies_host_allocatable_cpus` | gauge | — | CPUs across healthy, uncordoned hosts, less each host's reserve. |
 | `zoomies_host_allocatable_memory_bytes` | gauge | — | The same for memory. |
 | `zoomies_host_reserved_cpus` | gauge | — | What the live runners have promised away, as of the last scheduling pass. |

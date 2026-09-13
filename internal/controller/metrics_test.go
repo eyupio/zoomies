@@ -215,6 +215,9 @@ func TestNoMetricDeclaresAnUnboundedLabel(t *testing.T) {
 		"pool": true, "state": true, "conclusion": true, "direction": true,
 		"status": true, "installation": true, "result": true, "backend": true,
 		"outcome": true, "version": true, "commit": true,
+		// Registered hosts are operator-managed fleet entities like pools;
+		// ephemeral runner/container IDs remain excluded.
+		"host": true,
 	}
 
 	descs := make(chan *prometheus.Desc, 256)

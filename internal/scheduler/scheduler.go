@@ -811,8 +811,10 @@ func (t *tick) action(kind ActionKind, p *store.Pool, r *store.Runner, reason st
 // pools cannot both be promised the last free slot -- or the last four
 // gigabytes -- on the same host.
 type hostSet struct {
-	hosts []*store.Host
-	free  map[string]int
+	hosts       []*store.Host
+	free        map[string]int
+	observedCPU map[string]float64
+	warming     map[string]int
 	// left is the room still unpromised on each host, and alloc what the host
 	// had to begin with. They are separate because the second says which
 	// figures were measured at all, and an unmeasured figure constrains
@@ -836,11 +838,13 @@ type hostSet struct {
 // have written nothing yet.
 func newHostSet(hosts []*store.Host, pools []*store.Pool, runners map[string][]*store.Runner, now time.Time) *hostSet {
 	hs := &hostSet{
-		hosts: sortedHosts(hosts),
-		free:  make(map[string]int, len(hosts)),
-		left:  make(map[string]Reservation, len(hosts)),
-		alloc: make(map[string]store.HostAllocation, len(hosts)),
-		now:   now,
+		hosts:       sortedHosts(hosts),
+		free:        make(map[string]int, len(hosts)),
+		observedCPU: make(map[string]float64, len(hosts)),
+		warming:     make(map[string]int, len(hosts)),
+		left:        make(map[string]Reservation, len(hosts)),
+		alloc:       make(map[string]store.HostAllocation, len(hosts)),
+		now:         now,
 	}
 	for _, h := range hs.hosts {
 		hs.free[h.ID] = h.Free()
@@ -856,6 +860,19 @@ func newHostSet(hosts []*store.Host, pools []*store.Pool, runners map[string][]*
 		l := hs.left[h.ID]
 		l.CPUs -= res.CPUs
 		l.MemoryMB -= res.MemoryMB
+		if h.Usage.Fresh(now) {
+			pending := hs.pending(h, pools, runners)
+			if v := h.Usage.MemoryAvailableMB; v != nil {
+				// The host sample already includes running work. Subtract only
+				// starts whose demand the sample cannot yet contain, then take
+				// the tighter of measured headroom and reservation headroom.
+				available := *v - max(h.ReserveMemoryMB, store.MinHostReserveMemoryMB) - pending.MemoryMB
+				l.MemoryMB = min(l.MemoryMB, max(available, 0))
+			}
+			if v := h.Usage.CPUPercent; v != nil {
+				hs.observedCPU[h.ID] = max(float64(h.CPUs)*(1-*v/100)-float64(h.ReserveCPUs)-pending.CPUs, 0)
+			}
+		}
 		hs.left[h.ID] = l
 	}
 	return hs
@@ -871,27 +888,34 @@ func (hs *hostSet) place(p *store.Pool, n int) []string {
 			break
 		}
 		hs.free[h.ID]--
+		hs.warming[h.ID]++
 		res := Reserve(p, h)
 		l := hs.left[h.ID]
 		l.CPUs -= res.CPUs
 		l.MemoryMB -= res.MemoryMB
 		l.DiskMB -= res.DiskMB
 		hs.left[h.ID] = l
+		if cpu, ok := hs.observedCPU[h.ID]; ok {
+			hs.observedCPU[h.ID] = max(cpu-res.CPUs, 0)
+		}
 		out = append(out, h.ID)
 	}
 	return out
 }
 
-// pick returns the eligible host with the most room left. Spreading runners
-// over hosts keeps one busy host from becoming the fleet's single point of
-// failure; the host ID breaks ties so the choice is reproducible.
+// pick prefers the host with the most proportional headroom after placing
+// this pool's runner. It averages the CPU and memory fractions left, after
+// eligibility has enforced every limit. The score is recomputed after every
+// placement, across pools.
+// Hosts with no CPU/memory specifications retain the slot rule; the host ID
+// breaks exact ties.
 func (hs *hostSet) pick(p *store.Pool) *store.Host {
 	var best *store.Host
 	for _, h := range hs.hosts {
 		if !hs.eligible(h, p) {
 			continue
 		}
-		if best == nil || hs.free[h.ID] > hs.free[best.ID] {
+		if best == nil || hs.prefer(h, best, p) {
 			best = h
 		}
 	}
@@ -899,7 +923,8 @@ func (hs *hostSet) pick(p *store.Pool) *store.Host {
 }
 
 func (hs *hostSet) eligible(h *store.Host, p *store.Pool) bool {
-	return hs.free[h.ID] > 0 && hs.hasRoom(h, p) && HostCanRun(h, p, hs.now)
+	return hs.free[h.ID] > 0 && hs.hasRoom(h, p) && HostCanRun(h, p, hs.now) &&
+		!(hostUnderCPUPressure(h, hs.now) && hs.warming[h.ID] > 0)
 }
 
 // hasRoom reports whether what is still unpromised on the host covers one more
@@ -933,13 +958,14 @@ func HostIsPlatform(h *store.Host, p *store.Pool) bool {
 
 // HostAvailable reports whether a host may take new runners at all: its agent
 // is heartbeating, an operator has not cordoned it, and its agent speaks a
-// protocol this controller understands.
+// protocol this controller understands. Fresh pressure measurements may also
+// temporarily hold new starts without changing connectivity or the cordon.
 //
 // An incompatible agent is excluded here rather than refused at the door, so
 // its existing runners keep working and are drained as normal. A fleet
 // mid-upgrade shrinks host by host instead of falling over all at once.
 func HostAvailable(h *store.Host, now time.Time) bool {
-	return h.Healthy(now) && !h.Cordoned && !h.Incompatible
+	return h.Healthy(now) && !h.Cordoned && !h.Incompatible && HostAdmissionReason(h, now) == ""
 }
 
 // HostOffers reports whether a host's agent offers the pool's backend.
@@ -990,7 +1016,7 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 		}
 	}
 	var unhealthy, cordoned, incompatible, backend, platform, selector, tooSmall, full int
-	var shortCPU, shortMemory, lowDisk int
+	var shortCPU, shortMemory, lowDisk, held, warming int
 	var detail string
 	for _, h := range hs.hosts {
 		switch {
@@ -1015,6 +1041,13 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 			platform++
 		case !HostSelects(h, p):
 			selector++
+		case HostAdmissionReason(h, hs.now) != "":
+			held++
+			if detail == "" {
+				detail = h.Name + ": " + HostAdmissionReason(h, hs.now)
+			}
+		case hostUnderCPUPressure(h, hs.now) && hs.warming[h.ID] > 0:
+			warming++
 		case hs.alloc[h.ID].DiskKnown && hs.alloc[h.ID].DiskMB <= 0:
 			// The disk gate is asked before the sizing one, because a host at
 			// its reserve refuses every pool and "too small for this pool's
@@ -1062,6 +1095,8 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 	add(shortMemory, "short of memory")
 	add(shortCPU, "short of CPU")
 	add(lowDisk, "low on disk")
+	add(held, "holding new starts while host pressure clears")
+	add(warming, "starting one runner at a time while CPU is busy")
 	add(full, "at capacity")
 	b := blockage{
 		what: fmt.Sprintf("no host can take a new %s runner (%s)",
@@ -1074,6 +1109,8 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 		b.what += ". " + detail
 	}
 	switch {
+	case held+warming > 0:
+		b.fix = "wait for host pressure to clear, reduce other work on those hosts, or add a compatible host; running jobs continue"
 	case b.atCapacity:
 		b.fix = "wait for a job to finish, raise a host's capacity, or add a host"
 	case lowDisk > 0 && lowDisk+unhealthy+cordoned == len(hs.hosts):

@@ -274,7 +274,7 @@
       No heartbeat since <RelativeTime value={host.last_heartbeat} plain />. The agent is not
       reporting, so no runner will be placed here until it does.
     {:else}
-      Healthy · last heartbeat <RelativeTime value={host.last_heartbeat} plain />
+      Agent connected · last heartbeat <RelativeTime value={host.last_heartbeat} plain />
     {/if}
   </p>
 
@@ -290,7 +290,27 @@
     <p class="cordoned">
       Cordoned. Its running work finishes; no new runner is placed here until it is uncordoned.
     </p>
+  {:else if host.admission_reason}
+    <p class="cordoned">{host.admission_reason}. Running jobs continue.</p>
+  {:else if host.usage_fresh && (host.usage?.cpu_percent ?? 0) >= 85}
+    <p class="cordoned">CPU is busy. New runners start one at a time while pressure clears.</p>
   {/if}
+
+  <p class="meta" aria-label="Current host usage">
+    {#if host.usage_fresh && host.usage}
+      {#if host.usage.cpu_percent !== undefined}
+        <span class="tabular">CPU usage {round(host.usage.cpu_percent)}%</span>
+      {/if}
+      {#if host.usage.memory_available_mb !== undefined}
+        <span class="tabular"
+          >{formatMegabytes(host.usage.memory_available_mb)} memory available</span
+        >
+      {/if}
+      <span>Measured <RelativeTime value={host.usage.sampled_at} plain /></span>
+    {:else}
+      <span>Current usage unavailable. Placement uses configured capacity and reservations.</span>
+    {/if}
+  </p>
 
   <div class="capacity">
     <UtilisationBar
