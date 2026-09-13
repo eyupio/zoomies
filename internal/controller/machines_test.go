@@ -606,3 +606,58 @@ func TestAMachineFrameCarriesTheShapeTheAPIReturns(t *testing.T) {
 		t.Error("a machine frame carries the ownership fingerprint, which is the mark a delete is checked against")
 	}
 }
+
+// A drain is an intent, not an act. Work that comes back before the delete
+// starts takes the machine back: nothing has been deleted, its host is merely
+// cordoned, and uncordoning costs nothing where building another costs minutes.
+func TestWorkComingBackTakesADrainingMachineBack(t *testing.T) {
+	h := newHarness(t)
+	_, row := h.machineFleet(t)
+	m := h.readyMachine(t, row)
+	h.beginDrainFor(t, m)
+	// A drain cordons the host first, which is what puts the pool back to
+	// having nowhere to run: without that the fleet is not short of anything
+	// and there is nothing for the machine to come back for.
+	if err := h.st.SetHostCordoned(h.ctx, m.HostID, true); err != nil {
+		t.Fatalf("SetHostCordoned: %v", err)
+	}
+
+	h.queueWork(t)
+	h.machinePass(t)
+
+	got := h.machineByID(t, m.ID)
+	if got.State != store.MachineReady {
+		t.Fatalf("a draining machine with work back for its pools is %s, want ready", got.State)
+	}
+	if len(h.machines()) != 1 {
+		t.Fatalf("the fleet bought %d machines rather than taking back the one it was releasing", len(h.machines()))
+	}
+	host, err := h.st.GetHost(h.ctx, got.HostID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if host.Cordoned {
+		t.Fatal("the machine came back into service with its host still cordoned, so nothing can be placed on it")
+	}
+}
+
+// A delete that has not confirmed is a resource somebody may still be paying
+// for, so it is said out loud rather than assumed. Silence here is how a fleet
+// stops counting a machine that is still running.
+func TestADeleteThatHasNotConfirmedIsReported(t *testing.T) {
+	h := newHarness(t)
+	_, row := h.machineFleet(t)
+	m := h.readyMachine(t, row)
+	h.beginDrainFor(t, m)
+	h.fake.SetFailure("delete", provider.FailureUnreachable, "dial tcp: i/o timeout")
+
+	h.machinePass(t)
+	if got := h.machineByID(t, m.ID); got.State != store.MachineDeleting {
+		t.Fatalf("a machine whose delete could not be issued is %s, want deleting", got.State)
+	}
+	h.advance(h.cfg.Provider.DeleteTimeout + time.Minute)
+
+	if !slices.Contains(h.problemCodes(), "provider.delete_pending") {
+		t.Fatalf("a delete that has not confirmed raised %v, want provider.delete_pending", h.problemCodes())
+	}
+}
