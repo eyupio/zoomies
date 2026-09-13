@@ -27,9 +27,12 @@ Zoomies created it, knows it did, and is the only thing allowed to delete it.
     they are not.
 
     Renting machines is off until you turn it on: `provider.enabled` defaults to
-    `false`, and `provider.max_machines` defaults to no fleet-wide ceiling at
-    all. Set both in the same edit. The thing that notices an unbounded fleet is
-    the invoice.
+    `false`, and `provider.max_machines` defaults to **zero, which rents
+    nothing** — a maximum of none is none, exactly as it is for a pool's
+    `max_runners`. Set both in the same edit, or the fleet will look enabled and
+    buy nothing. That is deliberate: the alternative reading, where an unset
+    number means "as many as it takes", puts the one setting that decides the
+    size of an invoice behind a value somebody can forget.
 
 ## What you need
 
@@ -64,7 +67,7 @@ Grant the token these privileges, on these paths:
 | `VM.Audit` | `/vms` | inspecting a machine, and the ownership sweep |
 | `VM.Config.Disk`, `VM.Config.CPU`, `VM.Config.Memory`, `VM.Config.Network`, `VM.Config.Options` | `/vms` | sizing the clone and stamping ownership on it |
 | `VM.PowerMgmt` | `/vms` | starting and shutting down |
-| `VM.GuestAgent.Unrestricted` | `/vms` | installing the agent inside the guest |
+| `VM.GuestAgent.Unrestricted` | `/vms` | installing the agent inside the guest, and reading back what it said if that failed |
 | `Datastore.AllocateSpace` | `/storage/<your storage>` | the clone's disk |
 
 `VM.GuestAgent.Unrestricted` is the one worth pausing over: it lets the token
@@ -123,10 +126,14 @@ qualified — and, in one VM you then convert to a template:
     `agent.json` holds one host's identity. A template containing one clones
     that identity into every machine made from it, and two agents then share a
     host row and split its tasks between them — which shows up as work
-    vanishing, not as an error. Zoomies raises a problem when it sees a host's
-    agent session alternate, but the fix is in the image.
+    vanishing, not as an error.
 
-    The preflight check looks for this, and refuses a template that has it.
+    Nothing can check this for you, and it is worth being plain about why: the
+    template is powered off, so its guest agent is not running and no API call
+    can read a file inside it. Zoomies sees the *consequence* — it raises a
+    problem when a host's agent session alternates between two identities — but
+    by then you are debugging vanishing work rather than preparing an image.
+    Check it before you convert the VM.
 
 Zoomies never installs an operating system, applies updates, or reboots a
 machine it rents. If the image needs patching, rebuild the template: machines
@@ -142,7 +149,7 @@ before you commit to it.
 | Setting | What it means |
 | --- | --- |
 | Endpoint | `https://pve.example.com:8006`. Plain `http://` is refused: the API token would cross in the clear. |
-| Node | Which node the clones are made on. |
+| Nodes | Which nodes clones may be made on. Give more than one and machines are spread across them, each new clone going to the least loaded. |
 | Template VMID | The template prepared above. The preflight checks it exists and is a template. |
 | Storage | Where the clone's disk lands. Must accept disk images. |
 | Bridge | The network bridge the machine attaches to. It must reach the controller. |

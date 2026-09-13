@@ -218,9 +218,14 @@ func (pf *preflight) requiredPrivileges() []privilege {
 		{"Datastore.AllocateSpace", storage, "the disk a clone allocates"},
 	}
 	if pf.prereqs.GuestAgent {
+		// One privilege, not two. Proxmox accepts either VM.GuestAgent.FileWrite
+		// or VM.GuestAgent.Unrestricted for writing a file into a guest, and
+		// requires Unrestricted for running a command in one -- so Unrestricted
+		// alone is enough for both halves of the bootstrap, and asking for
+		// FileWrite as well refuses a token that was granted exactly what the
+		// runbook asks for.
 		required = append(required,
-			privilege{"VM.GuestAgent.FileWrite", vms, "writing the enrolment file inside a machine, which is how the credential reaches it without ever entering the guest's metadata"},
-			privilege{"VM.GuestAgent.Unrestricted", vms, "running the one command that starts the agent, and reading back what it said when it failed"},
+			privilege{"VM.GuestAgent.Unrestricted", vms, "writing the enrolment file inside a machine and running the one command that starts its agent, then reading back what it said when it failed"},
 		)
 	}
 	return required
