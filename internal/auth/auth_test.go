@@ -701,6 +701,58 @@ func TestJoinTokenIsSingleUseAndExpires(t *testing.T) {
 	}
 }
 
+// A machine's credential is scoped to the one name it was minted for, and the
+// refusal it produces is the agent operator's to act on -- an Invalid, which
+// the API answers with the sentence rather than with a request ID and a line in
+// the log nobody reading it will see.
+func TestAScopedJoinTokenRefusesAnotherNameInWordsAnOperatorCanAct(t *testing.T) {
+	s, st, _ := newService(t)
+	ctx := t.Context()
+
+	jt, plaintext, err := s.CreateScopedJoinToken(ctx, JoinScope{
+		TTL: 20 * time.Minute, Capacity: 2,
+		MachineID: "mach_abc", ExpectedName: "zoomies-mach-abc", CreatedBy: "machine mach_abc",
+	})
+	if err != nil {
+		t.Fatalf("CreateScopedJoinToken: %v", err)
+	}
+	if jt.MachineID != "mach_abc" || jt.ExpectedName != "zoomies-mach-abc" {
+		t.Fatalf("the token is scoped to machine %q named %q, want mach_abc named zoomies-mach-abc",
+			jt.MachineID, jt.ExpectedName)
+	}
+
+	h := &store.Host{Name: "somebody-elses-laptop", Capacity: 4}
+	if err := st.CreateHost(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.RedeemJoinToken(ctx, plaintext, store.JoinClaim{HostID: h.ID, Name: h.Name})
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("redeeming a machine's token under another name = %v, want an Invalid the caller can act on", err)
+	}
+	if !strings.Contains(err.Error(), h.Name) {
+		t.Errorf("the refusal is %q and does not name what was refused", err)
+	}
+}
+
+// The human path is unchanged: an operator who pastes a command picks the
+// host's name themselves, and an unscoped token accepts whatever they picked.
+func TestAnUnscopedJoinTokenAcceptsAnyName(t *testing.T) {
+	s, st, _ := newService(t)
+	ctx := t.Context()
+
+	_, plaintext, err := s.CreateJoinToken(ctx, time.Hour, nil, 0, "usr_1")
+	if err != nil {
+		t.Fatalf("CreateJoinToken: %v", err)
+	}
+	h := &store.Host{Name: "builder-07", Capacity: 4}
+	if err := st.CreateHost(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RedeemJoinToken(ctx, plaintext, store.JoinClaim{HostID: h.ID, Name: h.Name}); err != nil {
+		t.Fatalf("an unscoped token refused the name the operator chose: %v", err)
+	}
+}
+
 func TestAgentTokenAuthenticates(t *testing.T) {
 	s, st, _ := newService(t)
 	ctx := t.Context()
