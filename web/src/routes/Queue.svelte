@@ -371,7 +371,7 @@
         segments={[
           { label: 'Ready', value: counts.ready ?? 0, tone: 'idle' },
           { label: 'Run now', value: counts.expedited ?? 0, tone: 'accent' },
-          { label: 'Paused', value: counts.paused ?? 0, tone: 'pending' },
+          { label: 'Paused', value: counts.paused ?? 0, tone: 'draining' },
           { label: 'Removed', value: counts.deleted ?? 0, tone: 'neutral' },
         ]}
       />

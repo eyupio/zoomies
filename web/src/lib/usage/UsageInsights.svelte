@@ -167,6 +167,16 @@
             : `${(total.allocated / 3600).toFixed(2)} allocated runner-hours`,
     },
   ]);
+  /**
+   * The lines, and which of them is drawn dashed.
+   *
+   * Two lines a few points of CIEDE2000 apart are two lines an operator has
+   * to squint at, and on a chart they also cross. So the one nearest its
+   * neighbour in colour gets a second carrier: allocated runner time is the
+   * envelope the executing line sits inside, and cancelled work is the
+   * outcome the fleet had no hand in. Both read as reference quantities,
+   * which is what a dashed line already means.
+   */
   const series = $derived(
     metric === 'execution'
       ? [
@@ -174,26 +184,53 @@
             key: 'execution_seconds' as const,
             name: 'Executing (hours)',
             tone: 'var(--z-busy)',
+            dash: false,
             divisor: 3600,
           },
           {
             key: 'allocated_seconds' as const,
             name: 'Allocated (hours)',
             tone: 'var(--z-accent)',
+            dash: true,
             divisor: 3600,
           },
         ]
       : [
-          { key: 'queued' as const, name: 'Queued', tone: 'var(--z-accent)', divisor: 1 },
-          { key: 'succeeded' as const, name: 'Succeeded', tone: 'var(--z-idle)', divisor: 1 },
-          { key: 'failed' as const, name: 'Failed', tone: 'var(--z-danger)', divisor: 1 },
+          {
+            key: 'queued' as const,
+            name: 'Queued',
+            tone: 'var(--z-accent)',
+            dash: false,
+            divisor: 1,
+          },
+          {
+            key: 'succeeded' as const,
+            name: 'Succeeded',
+            tone: 'var(--z-idle)',
+            dash: false,
+            divisor: 1,
+          },
+          {
+            key: 'failed' as const,
+            name: 'Failed',
+            tone: 'var(--z-danger)',
+            dash: false,
+            divisor: 1,
+          },
           {
             key: 'cancelled' as const,
             name: 'Cancelled / skipped',
             tone: 'var(--z-neutral)',
+            dash: true,
             divisor: 1,
           },
-          { key: 'unknown' as const, name: 'Unknown', tone: 'var(--z-pending)', divisor: 1 },
+          {
+            key: 'unknown' as const,
+            name: 'Unknown',
+            tone: 'var(--z-pending)',
+            dash: false,
+            divisor: 1,
+          },
         ],
   );
   const visibleSeries = $derived(
@@ -252,7 +289,8 @@
       />{/snippet}
     {#if buckets.length}
       <div class="legend">
-        {#each visibleSeries as s (s.key)}<span><i style:background={s.tone}></i>{s.name}</span
+        {#each visibleSeries as s (s.key)}<span
+            ><i class:dashed={s.dash} style:--tone={s.tone}></i>{s.name}</span
           >{/each}
       </div>
       <svg
@@ -274,6 +312,7 @@
             fill="none"
             stroke={s.tone}
             stroke-width="2.5"
+            stroke-dasharray={s.dash ? '6 4' : undefined}
             vector-effect="non-scaling-stroke"
           />{/each}
         {#if selected !== null}<line
@@ -376,10 +415,20 @@
     align-items: center;
     gap: var(--z-space-2);
   }
+  /* A line rather than a dot, so the swatch can carry the stroke the chart
+     draws: the dashed series is dashed here too. */
   i {
-    width: var(--z-space-2);
-    height: var(--z-space-2);
+    width: var(--z-space-4);
+    height: var(--z-nudge-2);
     border-radius: var(--z-radius-full);
+    background: var(--tone);
+  }
+  i.dashed {
+    background: repeating-linear-gradient(
+      to right,
+      var(--tone) 0 var(--z-nudge-3),
+      transparent var(--z-nudge-3) var(--z-space-1)
+    );
   }
   svg {
     width: 100%;
