@@ -26,6 +26,7 @@ separates what a test has actually run on from what merely builds.*
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/eyupio/zoomies/badge)](https://scorecard.dev/viewer/?uri=github.com/eyupio/zoomies)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14604/badge)](https://www.bestpractices.dev/projects/14604)
 [![Website](https://github.com/eyupio/zoomies/actions/workflows/docs.yml/badge.svg)](https://zoomies.sh)
+[![CI has the Zoomies](https://zoomies.sh/badge.svg)](https://zoomies.sh)
 
 ```sh
 curl -fsSL https://zoomies.sh/install.sh | sh

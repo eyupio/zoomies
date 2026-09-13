@@ -36,6 +36,25 @@ const (
 // which is not a failure: most repositories in a large organisation do not.
 var ErrNoWorkflows = errors.New("github: the repository has no .github/workflows directory")
 
+// ErrNoReadme is returned when a repository has no README, which is not a
+// failure either: the badge has nowhere to go, and the migration goes ahead
+// without it.
+var ErrNoReadme = errors.New("github: the repository has no README")
+
+// Readme is a repository's README as GitHub finds it: whichever file at the
+// root it would render on the repository's front page, whatever its case or
+// extension.
+type Readme struct {
+	// Path is repository-relative -- "README.md", but also "readme.markdown"
+	// or "README.rst", which is why the caller checks it before writing
+	// Markdown into it.
+	Path string
+	// SHA is the blob SHA, for the same reason a workflow file carries one.
+	SHA string
+	// Content is the decoded file.
+	Content string
+}
+
 // ListRepositories returns the repositories this installation can see.
 //
 // For a repo-scoped installation that is the one repository, which is looked up
@@ -146,6 +165,37 @@ func (c *appClient) fileContent(ctx context.Context, owner, repo, filePath strin
 		return "", fmt.Errorf("github: read %s in %s/%s: %w", filePath, owner, repo, err)
 	}
 	return decoded, nil
+}
+
+// ReadReadme returns the README GitHub would render for a repository.
+//
+// It asks GitHub which file that is rather than guessing at README.md: the
+// repository decides its own README's name and case, and the file the badge
+// belongs in is the one people see on the front page.
+func (c *appClient) ReadReadme(ctx context.Context, repo string) (*Readme, error) {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return nil, err
+	}
+	file, resp, err := c.asInstallation.Repositories.GetReadme(ctx, owner, name, nil)
+	if err != nil {
+		e := classify(resp, err)
+		if errors.Is(e, ErrNotFound) {
+			return nil, fmt.Errorf("%s: %w", repo, ErrNoReadme)
+		}
+		return nil, c.migrationError("read the README of "+repo, e)
+	}
+	if size := file.GetSize(); size > maxWorkflowBytes {
+		// A README larger than a workflow file is allowed to be is a
+		// document, not a front page, and one line at its top is not worth
+		// shipping it through the API twice.
+		return nil, fmt.Errorf("%s: %w", repo, ErrNoReadme)
+	}
+	decoded, err := file.GetContent()
+	if err != nil {
+		return nil, fmt.Errorf("github: read the README of %s: %w", repo, err)
+	}
+	return &Readme{Path: file.GetPath(), SHA: file.GetSHA(), Content: decoded}, nil
 }
 
 func isWorkflowFile(name string) bool {

@@ -10,21 +10,30 @@
   The permission check sits at the top rather than the bottom: an App that
   cannot open a pull request should stop the operator here, not halfway through
   a batch with three of eight repositories done.
+
+  The badge is offered here too, ticked, because this is the step that shows
+  what the pull request will contain and the badge is part of it. It is one
+  line in somebody else's README, so it is a checkbox rather than a rule, and
+  the line itself is shown rather than described.
 -->
 <script lang="ts">
   import { AlertTriangle, ExternalLink, FileDiff } from '@lucide/svelte';
   import type { MigrationPlan, MigrationRepo } from '$lib/api/types';
+  import Checkbox from '$lib/components/Checkbox.svelte';
   import DiffView from './DiffView.svelte';
+  import { BADGE_ALT, BADGE_MARKDOWN } from './badge';
 
   interface Props {
     plan: MigrationPlan | null;
     repos: readonly MigrationRepo[];
     target: string;
+    /** Whether each pull request also adds the badge to the README. */
+    badge?: boolean;
     busy?: boolean;
     onrescan?: () => void;
   }
 
-  let { plan, repos, target }: Props = $props();
+  let { plan, repos, target, badge = $bindable(true) }: Props = $props();
 
   const missing = $derived(plan?.missing_permissions ?? []);
   const totals = $derived.by(() => {
@@ -90,6 +99,19 @@
       one says why below.
     {/if}
   </p>
+
+  <section class="badge" aria-labelledby="badge-heading">
+    <h3 id="badge-heading">The badge</h3>
+    <Checkbox
+      bind:checked={badge}
+      label="Add the badge to each README"
+      description="One line at the end of the README's row of badges, or under its title. A README that is missing, is not Markdown, or already has it is left alone, and the results say so."
+    />
+    <div class="badge-preview" class:off={!badge}>
+      <img src="/brand/badge.svg" alt={BADGE_ALT} width="153" height="20" />
+      <code>{BADGE_MARKDOWN}</code>
+    </div>
+  </section>
 
   <div class="repos">
     {#each repos as repo (repo.repo)}
@@ -178,6 +200,39 @@
   }
   .hint {
     opacity: 0.9;
+  }
+  .badge {
+    margin: 0 0 var(--z-space-5);
+    padding: var(--z-space-3) var(--z-space-4);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+  }
+  .badge h3 {
+    margin: 0 0 var(--z-space-2);
+    font-size: var(--z-text-base);
+    font-weight: var(--z-weight-medium);
+  }
+  .badge-preview {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--z-space-3);
+    margin-top: var(--z-space-3);
+  }
+  /* The preview stays on screen when the box is unticked, dimmed, so the
+     operator can see what they have just declined and tick it back. */
+  .badge-preview.off {
+    opacity: 0.5;
+  }
+  .badge-preview img {
+    display: block;
+    height: 20px;
+  }
+  .badge-preview code {
+    font-family: var(--z-font-mono);
+    font-size: var(--z-text-2xs);
+    color: var(--z-text-muted);
+    word-break: break-all;
   }
   .repos {
     display: flex;

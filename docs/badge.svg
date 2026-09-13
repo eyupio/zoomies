@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="153" height="20" role="img" aria-labelledby="t d">
+  <!--
+    The "CI has the Zoomies" badge, served at https://zoomies.sh/badge.svg.
+
+    It is self-contained on purpose: a README badge is fetched through
+    GitHub's image proxy, which follows no stylesheet, no web font and no
+    second request, so the paw/swish mark is carried inline as a tiny PNG
+    made from docs/brand/paw-swish-white.png and the text is pinned to a
+    width with textLength, so it lays out the same whichever font a viewer
+    has. Zoomies Black on the left, Runner Blue on the right, white on both:
+    the three colours docs/brand.md gives a badge to use.
+  -->
+  <title id="t">CI has the Zoomies</title>
+  <desc id="d">This repository's continuous integration runs on self-hosted GitHub Actions runners managed by Zoomies.</desc>
+  <clipPath id="r"><rect width="153" height="20" rx="3" fill="#fff"/></clipPath>
+  <g clip-path="url(#r)">
+    <rect width="49" height="20" fill="#080808"/>
+    <rect x="49" width="104" height="20" fill="#2F80ED"/>
+  </g>
+  <image x="5" y="4" width="20" height="12.5" xlink:href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAZCAYAAABD2GxlAAAEj0lEQVR42ryXa4hW1RfGn63+xdG/UWpZmqYlylRkGJkZBEVFF6KrHxwT+lIUZEG3D1lEQklRiFZ0MSjSrkN3tIbMFEEocopJzSwpyXICiZya7DLvb8WKdWJ3OGfmbag2HM579l577Wevy7PWO0SDHIA/i4BPgW7gATP7X4XcLOA1YCfwlJkdrP9iAIuBdmAj0Ijn4ZLMOXGBOwKgy7xsZv8uODM7FOgCro9Di/Eb0BoyhwOfA/OB/Zmcvyc1e9aQQQI8T1KHpGslpWJa0lBJbSFzq6QXJS2VNDqT83HiPwbQ3WFmY83sAjM73cyGSZoqaYSk6WVxSXPNzIEukDRFUpW1RjQLcFgdKEkjzazNzC6V9KWkR1NKXSklj61fJZ1R2lZYaEIAHyfp/JLlirFn0ADdQmZ2naRLJLVLmp9SOkTSAQcXY6uk1grruUCPmY2JudEVMj0ppc5BudjMppjZ3ZI+SSktlOSUsETSeDMbBZxqZsNTSm9L2leyTgoAmyV1l6yaj8cl/RL040l2kZmlZgLfXTcJOBZ4LujjzJhfDmwD+oIupgMLSxns43tgaux5r5S5/nQCY4EngFeB7TG/ckDqcZIFlgI7gMuKDcDFwAuhsDhwh5m1BIXsDHrZ4hbOOHAq8H7sOeAkHeCctO8CNmf6/OIT+wPnG9f5Rj84m0/AKjO7OpTkFrk5y/IhZjYOuBNYH9a/D5gAjCt0AjfF2ltl65rZ2S5bVRH+DzzobosDh7oFgdeBR4B3gGUld/rvrszKc4BdZuahsCEu4+Nb4PiQGRbfH1aEhgNcAPQCjznJ5wBb3b1hrdxlq30NeDbcXlbaG7F2lJczMzsN+KBCrjMs3JrFYnnsAyZnZdO/z81dfBjQEYtbgZOzC7TVKN4SDcMbwJXA/TVy/n1FuLuvApyvL87yoCOL29k+OT4r5Gvc5aX4HBo3yxX65rOiCXCgRwA9FQcXY0+c83RFqLwSlSdPruIibyoopRE00lKTRB6nSyKRPBvdnSuBj8xsBrC24uDyt+ufCdwWFOSXvsbdX9HGdReuV/jbFdzSZJvlHPhxcGNbZn1qAObvH4B5WTmt0j8xcsDHZ45+Y6xNaQKcc9X6lNIqSUdL8ve0moqRKr5HSXoGmJuVzXIPcG9UOPuj1AZ5bgK8/Fw4AEBX/lJWJeqycqC59ppKdk+m0xvdg/JEuCriZIWZHVmhYDjwU/BiowJgowmQxdhQEeOrM32OY3JdPT7BK4eZXW5mM4usNrOR3mYBP1fU2LrkoCY2b8wM4zV9d8x77D2UM0n6G120P89Lmlex7P3hOknvSvomGtIZ3rxKOkVS8Wdqr6Rlkp6MzntRxLDH21pJtxc9Z1OAKua85VoBfB3Z76TqdXpMP5dqMbPjonze4LwXJa0RdLLc1+uyOvUDcKSkOWY2LaW018y+SCl9JWn/n5tT+stFPJYkeR31+Dkmmlr//3GSJF9rRLPrTLBG0qaUUl9/hkpNWNK77llmNjsOnBh04U9LuNN/+4WQ1Cvpu3i8cd0taZek7ZK2pZR+bMqFMX4PAAD//7s0FJfCimaaAAAAAElFTkSuQmCC"/>
+  <g fill="#fff" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11" text-rendering="geometricPrecision">
+    <text x="29" y="14" textLength="15" lengthAdjust="spacingAndGlyphs">CI</text>
+    <text x="55" y="14" textLength="92" lengthAdjust="spacingAndGlyphs">has the zoomies</text>
+  </g>
+</svg>

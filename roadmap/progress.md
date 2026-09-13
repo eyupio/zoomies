@@ -793,3 +793,20 @@ Newest first. One line per event that changed a row.
   request (the stuck-runner tie-break, the compatibility paragraph).
 * 2026-09-06: record created from the reconciliation of the follow-on roadmap
   against `main` at `6d12a72`.
+
+## September competitive improvements
+
+Planning rows added 13 September 2026. No runtime implementation is claimed.
+Existing package status above remains unchanged; ROADMAP.md section 10 controls
+ordering. ZF-210a is bootstrap/readiness (ZF-203 and ZF-207); ZF-210b is
+export/purge (also ZF-209). The parent completes only when both are accepted.
+
+| ID | Package | Classification | Status | Depends on | Session | Evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| ZF-211 | Qualification and reproducible performance | extension | `not_started` | ZF-002, ZF-301/302 | Planning only | [September comparison](competitive-review-2026-09.md); acceptance in [ROADMAP.md](../ROADMAP.md) section 9 |
+| ZF-212 | Cache performance and bounded retention | extension/new | `not_started` | ZF-105, ZF-205 | Planning only | [September comparison](competitive-review-2026-09.md); acceptance in [ROADMAP.md](../ROADMAP.md) section 9 |
+| ZF-213 | Pool configuration as code and portable migration | extension | `not_started` | ZF-201, existing API | Planning only | [September comparison](competitive-review-2026-09.md); acceptance in [ROADMAP.md](../ROADMAP.md) section 9 |
+| ZF-214 | Shared provider lifecycle, Proxmox first (214a–c) | extension/new boundary | `not_started` | 214a: ZF-210a contract; 214b: ZF-207/208, ZF-210a, ZF-404 ownership/drain and recovery gates; 214c: qualified 214b | Planning only | Owner selected Proxmox on 13 September 2026. Contract/fake-provider slice precedes complete Proxmox lifecycle; second provider validates reuse. Optional GARM experiment is time-boxed and non-blocking. Acceptance and live qualification in [ROADMAP.md](../ROADMAP.md) section 9; no provider implemented by this planning update |
+| ZF-215 | Capacity fallback and scheduled readiness | extension | `not_started` | ZF-208; qualified ZF-214b for provider fallback | Planning only | [September comparison](competitive-review-2026-09.md); acceptance in [ROADMAP.md](../ROADMAP.md) section 9 |
+| ZF-216 | Staged platform, GPU and VM coverage | validation/new | `not_started` | ZF-211; lifecycle gates for new backends | Planning only | [September comparison](competitive-review-2026-09.md); acceptance in [ROADMAP.md](../ROADMAP.md) section 9 |
+| ZF-217 | GitHub scale-set integration assessment | design | `not_started` | ZF-211 | Planning only | [September comparison](competitive-review-2026-09.md); acceptance in [ROADMAP.md](../ROADMAP.md) section 9 |

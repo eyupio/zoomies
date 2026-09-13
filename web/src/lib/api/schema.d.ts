@@ -2017,6 +2017,13 @@ export interface components {
             jobs?: number;
             /** @description Why it was skipped */
             reason?: string;
+            /**
+             * @description What became of the README badge on a pull request that was opened. `present` means the README already carried it; `no_readme` that there was no Markdown README to put it in; `unread` that GitHub would not hand the README over; `off` that the request asked for none.
+             * @enum {string}
+             */
+            badge?: "added" | "present" | "no_readme" | "unread" | "off";
+            /** @description Which kind of nowhere a `no_readme` was */
+            badge_reason?: string;
         };
         MigrationOutcome: {
             results?: components["schemas"]["MigrationResult"][];
@@ -5022,6 +5029,11 @@ export interface operations {
                     body?: string;
                     /** @description Overrides the default commit message. */
                     commit_message?: string;
+                    /**
+                     * @description Whether each pull request also adds the "CI has the Zoomies" badge to the repository's README, at the end of the row of badges it already has or on its own line under the title. On unless you say otherwise; a README that is missing, not Markdown, or already carries the badge is left alone and the result says so. The badge never stops a pull request being opened.
+                     * @default true
+                     */
+                    badge?: boolean;
                 };
             };
         };

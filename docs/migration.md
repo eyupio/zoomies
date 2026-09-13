@@ -38,7 +38,8 @@ Open it at **Migrate** in the navigation, or `g` then `m`.
 4. **Shows you.** A unified diff of every file it would change, and every job it
    would not, with the reason.
 5. **Opens.** One pull request per repository, each on its own branch, changing
-   only the `runs-on` lines you reviewed.
+   only the `runs-on` lines you reviewed — and, unless you untick it, adding
+   [the badge](#the-badge) to the README.
 
 Nothing before step five writes anything.
 
@@ -98,10 +99,12 @@ then shows only the files you ticked, and the pull request touches only those.
 
 ## What it changes, and what it will not
 
-It rewrites `runs-on` and nothing else. Comments, indentation, quoting, key
-order, blank lines and line endings all survive byte for byte — it is a
-line-level edit, not a YAML round trip, because a pull request that reformats
-the whole file hides the one line that actually changed.
+In a workflow file it rewrites `runs-on` and nothing else. Comments,
+indentation, quoting, key order, blank lines and line endings all survive byte
+for byte — it is a line-level edit, not a YAML round trip, because a pull
+request that reformats the whole file hides the one line that actually changed.
+The only other file it touches is the README, for [the badge](#the-badge), and
+that is one inserted line on the same terms.
 
 ```diff
  jobs:
@@ -124,6 +127,42 @@ Four things it leaves alone, and says so:
 Each skip is listed in the review step and again in the pull request body, so
 whoever reviews the change can see which jobs are still running on GitHub after
 they merge it.
+
+## The badge
+
+A repository whose CI runs on Zoomies gets to say so on its front page:
+
+[![CI has the Zoomies](badge.svg)](https://zoomies.sh)
+
+The review step offers it, ticked, and the pull request adds it to the README
+in the same commit series as the `runs-on` change. Untick **Add the badge to
+each README** to leave every README alone; from the API, send `"badge": false`.
+It is on by default because the badge is how the people who read a README find
+out what runs its CI, and it is a checkbox because the README is somebody
+else's.
+
+Where it goes is where a maintainer would put it. A README that already has a
+row of badges — the licence, the build, the release — gets this one at the end
+of that row. One without such a row gets it on its own line under the title, or
+at the very top when there is no title. Nothing else in the file moves, and a
+CRLF README stays CRLF.
+
+Four things it will not do:
+
+| The repository | The wizard |
+| --- | --- |
+| Has no README | Opens the pull request without a badge, and the results say so. |
+| Has a README that is not Markdown — `README.rst`, `README.txt` | The same: a line of Markdown in the middle of reStructuredText is a broken line, not a badge. |
+| Already carries the badge, however it is worded or wherever it sits | Leaves it be. It is recognised by its image URL, so running the wizard twice never adds a second. |
+| Has nothing to migrate | Gets no pull request at all. A badge is not a reason to open one. |
+
+The badge never stops a pull request being opened. An operator who asked for
+their CI moved gets their CI moved, and the results screen says what became of
+the badge on each repository.
+
+The pull request body names the line and says it can be dropped from the pull
+request with nothing else depending on it. Anyone can add the badge by hand,
+to any repository, with the line on the [brand page](brand.md#the-badge).
 
 ## Coming from your own static runners
 
@@ -285,6 +324,11 @@ curl -sS -X POST https://zoomies.example.com/api/v1/migrations/pull-requests \
 object — `{"acme/widgets": [".github/workflows/ci.yml"]}` — to narrow a
 repository to the files named for it; a repository left out of it gets every
 file the mapping would change.
+
+`badge` is the checkbox on the review step. It defaults to `true`; send
+`false` to leave every README alone. Each result carries `badge` — `added`,
+`present`, `no_readme`, `unread` or `off` — and a `badge_reason` for the two
+kinds of nowhere.
 
 `overrides` is the Exceptions step, and it is optional on both endpoints. Each
 entry needs `repo`, `path` and `job`; a `to` of `""` leaves that one job on the

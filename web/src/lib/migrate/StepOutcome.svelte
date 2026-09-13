@@ -11,6 +11,7 @@
   import { CircleAlert, CircleCheck, CircleMinus, ExternalLink } from '@lucide/svelte';
   import type { MigrationOutcome } from '$lib/api/types';
   import EmptyState from '$lib/components/EmptyState.svelte';
+  import { describeBadge } from './badge';
 
   interface Props {
     outcome: MigrationOutcome | null;
@@ -34,8 +35,8 @@
 {:else}
   <p class="lede">
     {outcome?.opened ?? 0} opened, {outcome?.skipped ?? 0} skipped, {outcome?.failed ?? 0} failed. Each
-    pull request changes only the <code>runs-on</code> lines you reviewed; merging it is the repository's
-    own decision.
+    pull request changes only the <code>runs-on</code> lines you reviewed, plus the badge line where you
+    asked for one; merging it is the repository's own decision.
   </p>
 
   <ul class="results">
@@ -58,6 +59,9 @@
               {row.jobs}
               {row.jobs === 1 ? 'job' : 'jobs'} in {row.workflows}
               {row.workflows === 1 ? 'file' : 'files'}, on <code>{row.branch}</code>
+              {#if describeBadge(row.badge, row.badge_reason)}
+                <span class="badge-note">{describeBadge(row.badge, row.badge_reason)}</span>
+              {/if}
             {:else}
               {row.reason}
             {/if}
@@ -143,6 +147,10 @@
   .detail code {
     font-family: var(--z-font-mono);
     font-size: var(--z-text-2xs);
+  }
+  .badge-note {
+    display: block;
+    color: var(--z-text-subtle);
   }
   .note {
     margin: var(--z-space-4) 0 0;

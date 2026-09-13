@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.33 · 12 September 2026 · derived from the owner's
+Version 2.35 · 13 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident, the deferred host-stewardship slice, and the four
@@ -9,7 +9,9 @@ repository.
 
 This is the working plan for the next programme: make Zoomies a dependable,
 secure and easy-to-operate self-hosted GitHub Actions runner platform, and
-prove it in real use before expanding into host provisioning and paid hosting.
+prove it in real use while improving performance, host operations and platform coverage.
+The ordered delivery plan in section 10 supersedes earlier assignment ordering;
+completed work and operational qualification remain distinct.
 It replaces nothing: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) is the
 finished record of the code review, and this document starts where it ends.
 
@@ -82,11 +84,10 @@ ratified.
    evidence and the owner actions Gate F needs. Sixteen packages in one
    instruction contradicts the small-pull-request rule and cannot finish
    without owner input anyway. *Recommend: two.*
-5. **Phases 5 to 8 stay as direction.** Kept in this document as section 9,
-   labelled not authorised, with nothing stubbed for them: no operations
-   table, no ownership column, no provider skeleton, no VM backend kind.
-   Their contracts still inform Phase 1 and 2 schema choices, which is why
-   they stay in the same file. *Recommend: accept.*
+5. **Keep this plan scoped to self-hosted development.** Section 9 records
+   the next technical capabilities and their acceptance gates. Preserve existing
+   package IDs and working implementations; assess a new backend or provider
+   only when its own design and evidence justify it.
 6. **Gate F as measured.** The p95 scheduling target is relative to the
    reconcile interval (interval plus two seconds), the 200 attempts include
    three bursts beyond fleet capacity, the denominator excludes the demo
@@ -204,11 +205,9 @@ ratified.
 
 ### Noted, not yet due
 
-23. **Licence and contributor terms.** AGPL-3.0 with no contributor
-    agreement suits your own hosted service and shapes what contributors and
-    self-hosting customers who modify the code can expect. Nothing in Phases
-    0 to 3 depends on it; it is a Phase 5 precondition. *Recommend: decide
-    before Phase 5.*
+23. **Licence and contributor terms.** Keep the AGPL-3.0 licence visible
+    and document contributor expectations. No licence change is part of this
+    programme.
 24. **Whether Phase 4's bootstrap may make the controller dial a machine**,
     reversing "the controller never dials an agent", stated in five places
     and underpinning the NAT-friendly design; and whether an operations
@@ -225,8 +224,7 @@ ratified.
     retention/quota-driven cleanup of Zoomies-owned workspaces, runners,
     images and caches only. Every cleanup previews its scope, leaves
     non-Zoomies artefacts alone, is observable and is recoverable where
-    practical. This profile does not authorise unrelated-customer workloads;
-    that remains a Phase 7 isolation question. *Recommend: adopt before
+    practical. This profile does not establish isolation for mutually untrusted workloads; *Recommend: adopt before
     Phase 4 design begins.*
 26. **Windows runners, and which kind.** Add **ZF-206**, and decide the shape
     before any of it is written, because the two shapes differ by about five
@@ -250,26 +248,11 @@ ratified.
     on the owner's instruction to implement it ahead of Gate F and flag it as
     a beta-testing item; the support matrix row says what has and has not
     run.
-27. **Phase 5's shape, and what this repository owes it.** The source
-    roadmap's ZF-501 already chooses the shape: one controller, one database,
-    one encryption key and one set of agent credentials per customer, with
-    the existing application reused unchanged and only a small service layer
-    built to provision and supervise those instances. A review of the code
-    against the alternative — one shared controller with an organisation
-    column on every row — confirms the choice: the shared shape touches
-    roughly a hundred and fifty store methods, every handler, the scheduler's
-    placement, the event bus and both derived payloads, re-keys four unique
-    names and the jobs upsert, and turns the single writer and the
-    one-controller lease into a platform-wide ceiling. It is a second project,
-    not a step. So the shape is per-customer instances, and the service layer
-    that manages them is **not planned in this repository**: it is not a
-    package here, it has no seam here, and this document does not describe
-    it. What this repository provides is the four packages ZF-207 to ZF-210,
-    each of which stands on its own for a platform team running one instance
-    per team, an operator with a public controller, or anyone who provisions
-    with a compose file, and each of which the instance-per-customer shape
-    would otherwise have to work around. Decision 23 is unchanged by this and
-    is still due before any of Phase 5 proper. *Recommend: as stated.*
+27. **Separate platform administration from fleet operation.** ZF-207 to
+    ZF-210 support platform teams operating an instance for a product team:
+    scoped administration, bounded resource use, durable usage reporting and
+    repeatable lifecycle automation. One instance remains one trust domain.
+    These packages are part of Phase 2 and progress alongside qualification.
 
 ## 4. Delivery rules
 
@@ -1489,20 +1472,12 @@ Size L. Session: Claude Opus 5 at `xhigh` for the third pull request, which is
 the one where a wrong answer leaves processes on somebody's machine; `high`
 for the rest. Decisions: 26.
 
-### ZF-207 to ZF-210: an instance operated for somebody else
+### ZF-207 to ZF-210: repeatable instance operations
 
-Four packages, added in version 2.33 from decision 27. They share a reading
-rather than a dependency: today every role, every setting, every problem and
-every figure assumes the person looking at the page owns the process. That
-is true of a team running its own controller and false of a platform team
-running one per product team, of an operator whose controller is reachable
-from the internet, and of the per-customer shape Phase 5 chooses. Each
-package below is worth doing for the first two on its own, which is why they
-are Phase 2 rather than Phase 5, and none of them adds an organisation, an
-account, a plan or a quota per tenant: one instance stays one trust domain
-(delivery rule 3), and what these do is stop the instance leaking the
-operator's business to the fleet's users and stop the fleet's users spending
-the operator's resources without bound.
+These packages make a self-hosted instance easier to administer for a team.
+They separate process administration from fleet operation, bound resource use,
+retain explainable usage and make installation and recovery repeatable. They
+retain one database and one administrative trust domain per instance.
 
 ### ZF-207: two audiences for one instance
 
@@ -1540,7 +1515,7 @@ and sends people to "the controller log" they cannot read.
    that is about a person rather than about the fleet.
 
 **Accept when:** a viewer, an operator and an admin fixture each see no
-bind address, file path, key location or other tenant's example in any
+bind address, file path, key location or an unauthorised installation's example in any
 page or event frame, with a Playwright test per role; the platform role is
 the only one that can change a timer or lift the fence; the OpenAPI
 document, both clients and `docs/api-surface.md` say the same.
@@ -1594,9 +1569,7 @@ say where those rows begin rather than pretend otherwise. That is honest and
 not enough: a figure an operator charges a team for, or reconciles against
 an invoice from their own provider, has to survive the prune loop, be
 additive across adjacent reports, and be recomputable from a record that was
-written once and never edited. The source roadmap's ZF-801 describes the
-ledger a paid offer needs; this is the half of it that a single fleet needs
-today, and the half that costs nothing to carry forward.
+written once and never edited. A single fleet needs this for capacity planning and internal cost allocation.
 
 **Do:**
 
@@ -1607,8 +1580,7 @@ today, and the half that costs nothing to carry forward.
 2. A `usage_daily` roll-up per pool, host and installation, produced by the
    prune loop *before* it deletes the rows it is computed from, so the
    report is complete for every day the roll-up covers however short the
-   row retention is. Integer seconds and integer minor currency units, as
-   ZF-801 asks, so a sum is exact.
+   row retention is. Integer seconds and integer minor currency units keep sums exact.
 3. `/usage` reads the roll-up for days it covers and the rows for the rest,
    and `history_from` becomes the roll-up's start rather than the rows'.
    `/usage.csv` gains the same. `docs/metrics.md`'s "what happened last
@@ -1638,7 +1610,7 @@ deliveries, scaling events and capacity samples behind by design.
 
 1. `ZOOMIES_BOOTSTRAP_ADMIN` and `ZOOMIES_BOOTSTRAP_PASSWORD_FILE` (or
    `_TOKEN_FILE` for an API token instead of a password) create the first
-   administrator at start when the users table is empty, audited as
+   platform administrator at start when the users table is empty, audited as
    `auth.bootstrap` with actor `system`, and are ignored — with a warning
    naming them — once any user exists. The setup-token flow stays for
    people.
@@ -1658,8 +1630,9 @@ deliveries, scaling events and capacity samples behind by design.
 joined agent with no human step and no log scraping; export then purge of
 one installation leaves the other's rows and figures byte-identical.
 
-Depends on ZF-203 (the backup it sits beside) and ZF-209 (the sessions it
-exports). Size S. Session: Claude Sonnet 5 at `high`. Decisions: 27.
+ZF-210a (bootstrap, readiness and answer-file installation) depends on ZF-203
+and ZF-207's role contract. ZF-210b (export/purge) additionally depends on
+ZF-209's sessions. The parent remains incomplete until both are accepted. Size M. Session: Claude Sonnet 5 at `high`. Decisions: 27.
 
 ## 8. Phase 3: real use, drills and Gate F
 
@@ -1669,7 +1642,7 @@ adopted with the definitions the review corrected, are in
 the record that says whether they were met goes in
 [roadmap/validation/](roadmap/validation/), with "pending" and the exact
 action beside anything only the owner can supply. The release remains a
-trusted-workload beta; isolation between unrelated customers is not claimed.
+trusted-workload beta; isolation between mutually untrusted workloads is not claimed.
 
 ### ZF-301, ZF-302 and ZF-303: the harness, the drills and the beta
 
@@ -1760,301 +1733,286 @@ ZF-303. Size L. Session: Claude Fable 5.1 at `high` for the drill designs
 and the reading of their results, Claude Opus 5 at `high` for the harness
 code. Decisions: 11, 12.
 
-## 9. Phases 4 to 8: the direction, and what not to touch yet
+## 9. Next technical capabilities
 
-The source roadmap's Phases 4 to 8 (host onboarding over SSH, a hosted control
-plane, cloud providers, a VM backend, managed compute) are the commercial
-direction and are gated behind Gate F by the roadmap itself. The
-reconciliation confirmed that none of their deliverables exist and that the
-seams they would build on do: the single-use join-token enrolment flow, a
-narrow per-host execution backend interface with a registry, the advisory
-capacity-demand receiver contract with durable per-pool delivery rows, the
-read-time usage aggregate with an operator-supplied cost, and the host
-actions (patch, cordon, delete).
+The [competitive review](roadmap/competitive-review-2026-09.md) informs this
+order. A documented competitor capability is a reason to evaluate a gap, not
+proof that Zoomies lacks it or an instruction to clone it. Reconcile each
+package against current code before implementation. All new packages below
+start as planned work; this roadmap update implements no runtime behaviour.
 
-Their full text stays in
-[roadmap/source/](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md) and is
-not repeated here. Three things about them are decided now, because they
-change what the first assignment may do:
+### ZF-211: qualification and reproducible performance
 
-* **Nothing is stubbed for them during Phases 0 to 3.** No operations table,
-  no host-ownership column, no provider interface skeleton, no VM backend
-  kind. A wrong enum shipped in a migration is permanent under the
-  never-rename rule, and each of those shapes depends on a design that has
-  not been done. The one exception is documentation that is misleading today
-  regardless of the roadmap: the architecture page's "not a cloud provisioner"
-  sentence conflates a per-job VM backend (which the backend interface was
-  written for) with a host provisioner (which would be a separate
-  controller-side contract); and the capacity-demand receiver page lets an
-  event-id-idempotent receiver add the same capacity once per cooldown,
-  because the sender mints a new event id on every re-delivery of one unmet
-  shortfall. Both are corrected in Phase 1, the second with an additive
-  `schema_version` field on the payload.
-* **Phase 4 will reverse a documented invariant.** "The controller never
-  dials an agent" is stated in three places and underpins the NAT-friendly
-  design. Onboarding a rented server from the browser needs the controller to
-  dial that machine once. The decision to allow that for bootstrap only, with
-  the invariant reworded to "never dials an enrolled agent" and the
-  destination policy as the compensating control, is the owner's and belongs
-  in a decision record before ZF-402 starts. So does the choice to introduce a
-  durable operations table. The codebase has precedents to copy rather than
-  a rule against it: the image-prewarm table keeps per-target pending,
-  succeeded and failed state with its error and is returned in a 202 body;
-  the capacity-demand deliveries table records status, attempts and the
-  last error; the job-events table is an append-only history. The migration
-  service, which deliberately stores nothing, is the one counter-example,
-  and it re-plans a GitHub-side action rather than a half-installed host.
-* **Two of the source packages are already costed wrong.** ZF-402's "use the
-  existing Go SSH dependency" refers to a dependency that is present only for
-  argon2 and has no SSH code behind it. ZF-702's "behind the existing backend
-  interface" is true for Go but not for the schema: the pool backend is a SQL
-  `CHECK` over three names, so a VM kind needs a table-rebuild migration and
-  three enumerations, not a new struct.
+**Classification: extension; M.** Reconcile README, website, support matrix
+and package record against the same release. Distinguish a compiled Windows
+agent, a live Windows job, automated Docker tests and owner-run qualification.
+Do not replace completed work or manufacture a historical observation window.
 
-Two facts for the later design, found now: no outbound destination policy
-exists for any configurable callback (the capacity-demand URL only has to be
-an absolute address, so nothing today denies loopback, link-local or
-metadata destinations), and enrolling a host under an existing name reuses
-the row and cascades the old row's runners away, untested. ZF-104 records
-the first; ZF-102 tests the second.
+**Accept when:** every support claim names a platform, backend and evidence;
+a reproducible workload reports cold and warm queue-to-start, image pull,
+registration, execution and cleanup, with p50/p95, concurrency, versions,
+hardware and sample counts. Run cancellation, host loss and restore cases.
+Reuse ZF-002 and ZF-301/302; ZF-303 remains the readiness decision.
 
-What that leaves for the first assignment is exactly what the source roadmap
-says: Phases 0 to 3. Phase 4 additionally carries the deliberately deferred
-ZF-404b host-stewardship slice from decision 25: use it to define safe,
-opt-in maintenance for dedicated runner hosts without making imported or shared
-machines invasive by default.
+**Dependencies:** ZF-002 and existing harness. Documentation reconciliation
+can start now; measurements wait only for their actual resources.
 
-**Phase 5's shape is decided (decision 27), and its service layer is not
-here.** The source roadmap's ZF-501 chooses one instance per customer and
-says not to convert the core to shared tenancy as a first commercial step;
-version 2.33's review of the code against the shared alternative agrees, for
-reasons the decision records. What follows for this repository is narrow:
-the layer that provisions, routes and supervises instances is a separate
-piece of software with its own plan, and nothing in this document, in the
-package record or in the code stubs it. What this repository does is make an
-instance honest about being operated for somebody else, which is ZF-207 to
-ZF-210 in Phase 2, each justified without reference to Phase 5. A reader
-looking here for accounts, entitlements, billing or routing will not find
-them, and that is deliberate rather than an omission.
+### ZF-212: cache performance and bounded retention
 
-## 10. The first sequence
+**Classification: extension, then design-led new work; M/L.** Inventory
+existing caches and prewarming before adding a service. First publish tested
+dependency and BuildKit cache recipes. Then assess S3-compatible storage with
+an explicit compatibility matrix, key scoping, quotas, retention and UI status.
+Do not promise transparent replacement of every GitHub cache action.
 
-Dependency order. Slices marked ∥ can run in parallel sessions. This section
-says what order the work goes in; where a package has got to is
-[roadmap/progress.md](roadmap/progress.md), which is the only place a status
-lives.
+**Accept when:** two representative builds publish cold/warm timings and
+storage costs; trust boundaries prevent untrusted jobs poisoning protected
+caches; active caches survive pruning; credentials are scoped and redacted;
+cache misses or storage failure leave builds usable. Existing defaults remain.
 
-**Assignment A**, from `main` at `6d12a72` to `a829a85`; its last package
-merged in pull request #120. Every step below is merged except where it says
-otherwise.
+**Dependencies:** ZF-105, ZF-205; new storage design requires its own review.
 
-1. ZF-001 and ZF-002: the reconciliation pull request that wrote this
-   document, plus its two Phase 0 fixes (the stuck-runner tie-break, the
-   compatibility paragraph) and the small code slice (applied migrations on
-   `/readyz`, the `waiting` and `approved` timeline kinds, the four-way stats
-   split). ZF-002 cannot reach `validated` without the owner's reference host.
-2. ZF-003, hygiene; no dependency.
-3. ZF-105's first pull request, the listing-failure defect; it ships alone.
-4. ZF-101 (first pull request, migration `0012`) ∥ ZF-102 (invariants, lock
-   and lease, log-relay host binding).
-5. ZF-301a (the harness's honesty) then ZF-301b (the drill tier with a
-   remote agent), the fixture everything after it uses. It runs the built
-   binary against a fake GitHub on the `process` backend, so what it
-   qualifies is the controller, the agent, the join and the backend seam --
-   not the Docker backend, whose runtime the readiness note records as the
-   largest untested surface.
-6. ZF-102 (adoption on agent start; late reports and the restart table) ∥
-   ZF-101 (per-installation freshness and backoff; visibility).
-7. ZF-105 (the rest) ∥ ZF-103a, the reporting half alone: an agent reports
-   its host's CPUs, memory and work-directory disk, the `hosts` row gains
-   those columns beside the operator's reserve, and the Hosts page shows the
-   figures. The scheduler still places by slots at the end of it.
-8. ZF-104.
-9. **Not done: tag the pre-release (decision 9).** Assignment A ends with a
-   readiness note in `roadmap/validation/` saying what Gate F still needs,
-   and that note is written; the tag is the owner's and has not been cut.
+### ZF-401 to ZF-404b: complete existing-host operations
 
-**Assignment B**, issued after A's evidence and the owner actions in
-decision 12, and not before — the gate is not a formality, because ZF-301c
-and Gate F need the disposable organisation and everything with it, and
-ZF-204's upgrade drill needs the pre-release tag step 9 leaves open. In order:
-ZF-103b first, the half of ZF-103 that changes a placement decision and so the
-half every scheduling-latency and capacity figure taken after it is measured
-against — section 6's second ZF-103 pull request entire, plus what its third
-left behind. Then ZF-201, ZF-202, ZF-203, ZF-204, ZF-205 in whichever order
-the sessions are available (203 before 204; 202 after 102), then ZF-301c,
-ZF-302's record and ZF-303.
+**Classification: extension/new; L in narrow slices.** Prefer the existing
+outbound join and Tailcat flow. Add preflight, resumable operation IDs, clear
+partial failures, cancellation, verification and revocation. Explicit SSH
+bootstrap is optional and follows a destination-policy and trust-verification
+decision; it must not become a prerequisite for private hosts.
 
-**Alongside Assignment B**, in any session that is free, because none of it
-waits on Gate F: ZF-004 is done. ZF-208 needs only the drill tier and can go
-next. ZF-209 follows ZF-105 and ZF-205, both merged, and should land before
-ZF-303's beta so the beta's figures are the ledger's. ZF-207 waits for
-ZF-202's drawer. ZF-210 waits for ZF-203 and ZF-209.
+**Accept when:** a private host joins, reconnects after controller/agent restart
+and can be drained and revoked from the UI. An interrupted operation resumes
+without duplicate agents or retained bootstrap secrets. Imported hosts remain
+non-invasive. Dedicated-host maintenance is opt-in, scoped to owned resources,
+previewed and audited; no broad prune, automatic OS upgrade or unrequested reboot.
 
-**After Gate F**, and not before it: ZF-206, Windows runners. It is sequenced
-here rather than in Assignment B because it widens the platform surface, and
-the support matrix's rule — a row moves right only when a test runs on the
-thing — means a platform added while the project is still proving the one it
-has would widen Gate F rather than pass it. Its first pull request was the
-exception and **has been taken**: it added no behaviour and only stopped the
-product implying a platform it has not got. **The other three were taken on
-12 September 2026 at the owner's instruction**, ahead of this paragraph's
-sequencing and with the platform flagged as a beta-testing item rather than a
-qualified one; decision 26 was taken with them, and the support matrix
-records what has run (a hosted Windows runner vets and tests the code) and
-what has not (a job on a Windows host). Gate F is unchanged by it: the
-reference configuration is still Linux amd64, and a Windows row that says
-"not run" does not widen what the gate measures.
+**Dependencies:** core qualification for release of expanded host operations;
+ZF-207/208/210a for administration and onboarding boundaries. Tailcat regression
+coverage and documentation can proceed before that release gate.
 
-## 11. What the owner provides, and when
+### ZF-213: pool configuration as code and portable migration
 
-**When** is the commitment as it was set, not a forecast; **State** is where it
-stands. A session that finds one of these done updates the row rather than
-leaving the table to rot. Every row was outstanding at the end of Assignment A,
-which is why the assignment could end while three of its gates stayed shut.
+**Classification: extension; M.** Add a versioned, secret-free pool manifest
+with export, validation and a reviewed diff before apply. Preserve labels,
+the UI/API contract and existing migration PR behaviour; never silently
+overwrite drift or broaden repository access.
 
-| Needed for | What | When | State |
-| --- | --- | --- | --- |
-| ZF-002 | A fresh Ubuntu 24.04 LTS amd64 host with `main` deployed natively; its versions recorded in `roadmap/validation/` | Now | Outstanding since Phase 0. Nothing in `roadmap/validation/` records a host, and ZF-002 cannot reach `validated` without one |
-| ZF-301c, Gate F | A disposable organisation, a GitHub App installed on it with one organisation and one repository target, a repository carrying the scenario workflows, secrets in a protected environment, a tunnel or public host for the webhook run | Before Assignment B | Outstanding. Every real-GitHub scenario and Gate F itself waits on it; the fake and the drill tier go no further |
-| ZF-204 | Immutable releases enabled; `v0.1-alpha` marked as a prerelease; the pre-release tag at the end of Assignment A | End of Assignment A | Two of three done. Both releases are marked prerelease, and the tag is no longer needed by ZF-204: its upgrade check upgrades from the last published release, which is what people actually have. Immutable releases stay outstanding, though the release workflow now refuses to rebuild a published tag itself |
-| ZF-303 | A second operator for one setup-and-diagnose session | Any time; the drill tier provides the injected failure | Outstanding |
-| Everything | The decisions in section 3 ratified or changed | Now | Records exist for decisions 1 and 2 in `roadmap/decisions/`, both still marked proposed; the rest have been worked to as written without being ratified |
+**Accept when:** export/import round-trips platform, labels and limits; repeat
+apply is idempotent; conflicting edits produce a readable diff; absent fields
+have documented semantics; dry-run creates no resources. Cover reusable
+workflows and matrix labels by explicit mapping or a stated refusal.
 
-## 12. The coding-agent instruction
+**Dependencies:** ZF-201 and existing migration/API contracts.
 
-One instruction per assignment, copied with the whole document into the
-session's first message. It replaces the source roadmap's section 15.
+### ZF-214: shared provider lifecycle, Proxmox first
 
-### Assignment A — spent
+**Classification: extension with new provider boundary; L, delivered in slices.**
+**Owner decision, 13 September 2026: Proxmox VE is the first target.**
+Use the existing capacity-demand contract as the entry point. Keep infrastructure
+provisioning outside the pure scheduler and separate from runner execution
+backends. A provisioned VM initially hosts the existing Zoomies agent and
+supported runner backend; this does not establish VM-per-job isolation.
 
-This is the instruction Assignment A was issued with, kept as the record of
-what was asked for. **Do not copy it into a new session as it stands.**
-Assignment A has run and ended with the readiness note in
-[roadmap/validation/](roadmap/validation/); what it did not reach is section
-10's step 9 and the owner rows in section 11. The commit it names is the one
-sections 5 to 8's classifications were taken against, not the state of `main`,
-so read a classification as history and confirm it against the code before
-acting on it. Everything it says about *how* to work still stands, and the
-Assignment B instruction below inherits it rather than repeating it.
+**214a — contract and fake provider (M).** Define a small, versioned contract:
+describe capabilities, validate configuration, create, inspect, list and delete;
+start/stop are optional capabilities. Define structured failure categories,
+operation IDs, bounded deadlines for every call, and an explicit compatibility
+policy. Use shared schemas for validation and guided UI forms, with advanced
+provider settings available. Keep provider credentials outside runner guests
+and bootstrap with scoped, short-lived enrollment credentials.
 
-> Work in `eyupio/zoomies` on the follow-on roadmap in `ROADMAP.md`. Read
-> `CLAUDE.md`, `docs/architecture.md` and `docs/upgrading.md` first; there is
-> no `AGENTS.md`. `main` at `6d12a72` is the reconciled baseline and
-> `roadmap/validation/baseline-6d12a72.md` says what was proved on it.
-> Preserve existing work, architecture, UI conventions and public behaviour;
-> the progress record already says which packages exist and need evidence
-> rather than code.
->
-> This assignment is Phase 0, Phase 1, ZF-301a, ZF-301b and ZF-003, in the
-> order section 10 gives, with the decisions in section 3 taken as written
-> unless the owner has changed one in `roadmap/decisions/`. Keep every change
-> in a small pull request with one behaviour and one imperative-sentence
-> message; add the tests the package names; update the OpenAPI document,
-> both generated clients and the docs pages in the same change; keep
-> `roadmap/progress.md` current, including the model and effort that did the
-> work. Migrations take the next unused prefix; never rename a shipped one.
->
-> Do not build for Phases 4 to 8: no schema, configuration keys, RBAC
-> actions, UI or dependencies for them. Do not add a database service,
-> Kubernetes or a distributed architecture. Do not start SSH or cloud
-> provisioning, payments, multi-tenancy or a VM backend.
->
-> Run real external tests only with the designated disposable resources.
-> Never invent elapsed observation time, real GitHub runs, benchmark
-> results, operator feedback or a completed security review; a skipped test
-> is not a pass. When something needs access or a decision only the owner
-> can give, do everything that does not depend on it, then say exactly what
-> is needed. Report code status separately from gate status, and never
-> announce readiness because CI is green.
->
-> Before reporting progress, audit each claim against a tool result from
-> this session; report failures with their output and skipped steps as
-> skipped. Do not add features, refactor or introduce abstractions beyond
-> what a package asks; report anything else you notice as a follow-up.
+One durable reconciler owns desired capacity, in-flight reservations, retries,
+backoff, operation recovery and ownership-aware cleanup. Providers implement
+infrastructure operations, not another scheduler. Preserve signed event
+verification, replay protection and schema checks. Reject stale observations;
+translate runner slots to machines explicitly and account for pending creates
+and overlapping pools without counting shared capacity twice. Prove demand
+from zero eligible hosts, extending the publisher if its current eligibility
+rules cannot emit that signal. Imported hosts never acquire deletion authority.
 
-### Assignment B — not yet issued
+**214b — complete Proxmox integration (M/L).** Connect using scoped API
+credentials and verified TLS; guide selection of allowed nodes, storage,
+network bridge and a prepared Linux VM template. Validate prerequisites before
+provisioning. Clone/bootstrap a VM, track asynchronous operations durably,
+enroll the Zoomies agent, run a real job, drain, and delete only resources whose
+recorded ownership has been verified. Persist resource identity before retrying
+ambiguous outcomes. A timeout is not evidence that creation failed.
 
-Decision 4 holds this until Assignment A's evidence and the owner actions in
-decision 12 are in hand, and section 11 says every one of those rows is still
-outstanding. Do not send it because ZF-201's dependencies inside the repository
-happen to be merged: ZF-201 proves a job through the UI against real GitHub,
-and ZF-204's upgrade drill runs from a tag nobody has cut.
+Reuse the existing host UI and expose provision/enroll/ready/drain/delete
+progress, actionable failure reasons, limits and pending cleanup. Allow only
+explicitly configured resource ranges and capacity/concurrency limits; report
+infrastructure costs as estimates where applicable. Provide an operator runbook
+for credentials, template preparation, recovery and orphan review. The initial
+template/OS/backend combination is qualified explicitly, not advertised as
+support for every Proxmox configuration.
 
-> Work in `eyupio/zoomies` on the follow-on roadmap in `ROADMAP.md`. Read
-> `CLAUDE.md`, `docs/architecture.md` and `docs/upgrading.md` first; there is
-> no `AGENTS.md`. Then read `roadmap/progress.md`, which is the only current
-> record of where each package has got to, and
-> `roadmap/validation/gate-f-readiness-2cc7d9c.md`, which says what Gate F
-> still needs and what has never been run. `main` at `6d12a72` is only the
-> commit sections 5 to 8's classifications were taken against; the whole of
-> Phase 1 has landed since, so confirm a classification against the code
-> before acting on it.
->
-> This assignment is ZF-103b, then Phase 2 and the rest of Phase 3, in the
-> order section 10 gives, with the decisions in section 3 taken as written
-> unless the owner has changed one in `roadmap/decisions/`. Keep every change
-> in a small pull request with one behaviour and one imperative-sentence
-> message; add the tests the package names; update the OpenAPI document, both
-> generated clients and the docs pages in the same change; keep
-> `roadmap/progress.md` current, including the model and effort that did the
-> work. Migrations take the next unused prefix; never rename a shipped one,
-> and a migration that touches `jobs` is added to the rebuild test as well as
-> to `shippedMigrations`.
->
-> `make test` and `make lint` are the floor before a push, `make test-ui`
-> when the UI changed, and `make test-drill` alongside them: the drill tier in
-> `test/drill/` is the only place the product runs as two real processes, and
-> CI runs it on every pull request. `make test-e2e-required` is the
-> owner-gated one; without the credentials it records `blocked`, which is not
-> a pass.
->
-> A behavioural test is kept only once it has been run against the code with
-> its rule removed and seen to fail. An assertion that cannot be made to fail
-> is deleted rather than shipped, and the pull request says which assertions
-> were checked this way. Assignment A found three real defects this way that a
-> green suite hid, and one of its own packages was marked done for a column
-> that had never existed — so before building anything a package describes,
-> check whether it is already there.
->
-> Do not build for Phases 4 to 8: no schema, configuration keys, RBAC
-> actions, UI or dependencies for them. Do not add a database service,
-> Kubernetes or a distributed architecture. Do not start SSH or cloud
-> provisioning, payments, multi-tenancy or a VM backend.
->
-> Run real external tests only with the designated disposable resources.
-> Never invent elapsed observation time, real GitHub runs, benchmark results,
-> operator feedback or a completed security review; a skipped test is not a
-> pass. When something needs access or a decision only the owner can give, do
-> everything that does not depend on it, then say exactly what is needed.
-> Report code status separately from gate status, and never announce
-> readiness because CI is green.
->
-> Before reporting progress, audit each claim against a tool result from this
-> session; report failures with their output and skipped steps as skipped. Do
-> not add features, refactor or introduce abstractions beyond what a package
-> asks; report anything else you notice as a follow-up.
+**214c — validate reuse with a second provider (M; after 214b).** Choose the
+second target from demonstrated demand and repeatable test access. Confirm it
+uses the same contract, reconciler, bootstrap, UI and acceptance suite without
+controller-specific branches. A broad catalogue or public plugin marketplace
+is not required. ZF-215 may start after 214b acceptance; it need not wait for
+214c.
 
+**Optional compatibility experiment (S; at most two engineering days).**
+Evaluate one pinned GARM provider's infrastructure operations and whether its
+bootstrap can be replaced with Zoomies enrollment. Record adopt/defer, licence
+and attribution obligations, dependency cost and a working proof if feasible.
+Do not assume binary compatibility: GARM bootstrap uses its own registration,
+callback and metadata lifecycle. Stop the experiment if adapting it costs more
+than implementing our small contract. It must not gate Proxmox delivery.
+Use [GARM's provider interface](https://github.com/cloudbase/garm/blob/main/doc/external_provider.md)
+and [bootstrap helpers](https://github.com/cloudbase/garm-provider-common/blob/main/README.md)
+as design references; verify the selected release before code reuse.
+
+**Accept when:** a reusable fake-provider suite covers duplicate/out-of-order
+events, concurrent demand, delayed creation, quota exhaustion, controller
+restart at every operation boundary, failed bootstrap and deletion retries.
+Desired targets converge without duplicate hosts; unknown outcomes are
+reconciled before another create. A kill switch blocks new provisioning while
+allowing drain, recovery and cleanup. Only owned, idle, drained resources can
+be removed; ambiguous ownership is quarantined for review.
+
+Proxmox release qualification requires at least 20 create/enroll/run/drain/delete
+cycles in designated disposable resources, including scale from zero, a
+multi-pool burst, restart, bootstrap failure and deletion retry. Reconcile the
+final VM and associated storage inventory: no unexplained owned resources may
+remain. Record exact versions, template, limits, timings and cleanup evidence.
+Fixture success is not live qualification.
+
+**Dependencies and ordering:** 214a design and fixtures can follow ZF-210a
+contract work while cache and portability slices continue. Enabling 214b
+mutations requires ZF-207/208 boundaries, ZF-210a enrollment/readiness,
+ZF-404 ownership/drain controls and accepted recovery evidence. Prepare the
+Proxmox test runbook while access is pending; missing live resources block
+qualification, not contract work. The parent is complete only when 214a–c meet
+their acceptance; record first-provider qualification separately.
+
+### ZF-215: capacity fallback and scheduled readiness
+
+**Classification: extension; M.** Reconcile existing idle/prewarm features.
+Add bounded schedules and explicit fallback among compatible pools or provider
+choices. Fallback never changes installation, OS, architecture, trust policy
+or cost ceiling without an operator-approved mapping.
+
+**Accept when:** scarce capacity follows the declared policy with a visible
+reason; no duplicate jobs or retry storm; schedule timezone and idle cost
+are explicit; cold/warm measurements show the benefit.
+
+**Dependencies:** ZF-208 and qualified ZF-214b for provider fallback; existing pools can
+be assessed independently.
+
+### ZF-216: staged platform, GPU and VM coverage
+
+**Classification: validation first, new backends separately; L/XL.** Qualify
+the already implemented ZF-206 Windows process backend before expanding it.
+Next qualify Linux arm64 and a documented GPU path. Evaluate macOS on owned
+Apple hardware and one disposable-VM backend as separate designs with real
+test hardware, licensing prerequisites and a clear isolation model.
+
+**Accept when:** every promoted support row has a real job and cleanup/recovery
+evidence. Process runners explicitly retain host state; container disposal
+is not described as VM isolation. GPU admission prevents oversubscription.
+VM work proves reset, network/storage isolation and bounded resource use.
+No support claim is inferred merely from cross-compilation.
+
+**Dependencies:** ZF-211; new backends also need ownership and lifecycle gates.
+macOS and VM expansion do not block improvements to existing Linux fleets.
+
+### ZF-217: GitHub scale-set integration assessment
+
+**Classification: time-boxed design; S.** Compare native scale-set APIs with
+the existing webhook/poller path for reliability, permissions, GitHub Enterprise
+Server compatibility and operator complexity. Preserve current workflows.
+
+**Accept when:** a decision record uses a small disposable prototype and
+states adopt/defer, measured benefit, compatibility and migration cost. This
+authorises evaluation, not a second scheduler or a wholesale rewrite.
+
+**Dependencies:** ZF-211 baseline; no new runtime dependency before decision.
+
+## 10. Ordered delivery plan
+
+This sequence supersedes earlier Assignment A/B scheduling, which described
+a baseline from 6 September. Consult [progress.md](roadmap/progress.md) before
+starting: Phase 1 and substantial Phase 2 work have already landed. An old
+description of a missing feature is not evidence it remains missing.
+
+| Order | Work | Exit criterion |
+| --- | --- | --- |
+| 1 | ZF-211 documentation reconciliation and evidence inventory | One current support story; historical gaps clearly dated |
+| 2 | ZF-208 resource limits; ZF-207 administration boundaries | Host/pool pressure and API/UI access boundaries verified |
+| 3 | ZF-210a unattended bootstrap and readiness; then ZF-214a contract and fake-provider slice | Fresh instance and agent without prompts or log scraping; provider recovery contract proven in fixtures |
+| 4 | ZF-209 durable usage; then ZF-210b export and purge | Usage survives retention; export/purge respects installation boundaries |
+| 5 | ZF-212 cache recipes; existing-host/Tailcat reliability and ZF-401/403 UX | Faster representative builds and recoverable private-host onboarding |
+| 6 | ZF-213 configuration portability; ZF-404/404b ownership and maintenance | Repeatable fleet configuration and safe host operations |
+| 7 | ZF-214b Proxmox integration; then ZF-214c second-provider validation and ZF-215 fallback/readiness | Proxmox lifecycle qualified; reuse and fallback assessed without delaying the first provider |
+| 8 | ZF-216 platform/VM expansion; ZF-217 scale-set decision | Evidence per new platform and an explicit integration decision |
+
+**Keep two work streams moving:** operational qualification (ZF-301/302/303
+and ZF-211) runs alongside the next ready product slice. An unavailable
+reference host blocks that evidence, not unrelated documentation or already
+authorised core hardening. Critical correctness and security defects interrupt
+either stream. Use roughly two core-operation slices for each performance or
+platform-expansion slice until steps 2–4 are accepted, then rebalance using
+measured operator pain. This is a capacity guideline, not a promise of dates.
+
+**Split ZF-210 without changing its ID:** 210a is bootstrap, answer-file
+installation and readiness; it depends on ZF-203 and the ZF-207 role design,
+not on the usage ledger. 210b is installation export/purge and depends on
+ZF-209. The parent is complete only when both meet acceptance. Bootstrap must
+use the authoritative platform role and preserve interactive self-hosted setup.
+
+**Gate F:** retain the Linux reference and actual readiness requirements.
+The owner's RC1 live qualification is recorded in the support matrix; it
+does not invent the historical seven-day dataset. Do not revive superseded
+owner prerequisites as universal blockers, or label an unmeasured target as
+passed. Windows implementation remains a beta-testing item until live
+qualification. Expanded host provisioning and new isolation backends keep
+their own release gates.
+
+## 11. Evidence and owner inputs
+
+| Input | Needed for | Current treatment |
+| --- | --- | --- |
+| Exact reference versions and existing run links | ZF-211 support reconciliation | Reuse existing evidence; request only missing facts |
+| Disposable GitHub resources, runtime and credentials | Remaining real scenarios | Run only where authorised and available; otherwise record blocked |
+| Second operator session | Setup and diagnosis usability | Schedule when an operator is available; do not invent feedback |
+| Disposable Proxmox VE test scope, template, API credentials and resource limits | ZF-214b live qualification | Proxmox selected; designate allowed resources before live provisioning |
+| Windows, arm64, GPU or Apple hardware | ZF-216 | Qualify only the platforms actually exercised |
+| Review of provider, SSH and VM designs | Expanded execution/network boundaries | Record the decision before adding the relevant runtime capability |
+
+## 12. Instruction for the next implementation session
+
+Read `CLAUDE.md`, `docs/architecture.md`, `docs/upgrading.md`, this
+roadmap and `roadmap/progress.md`. Start at the first unfinished,
+unblocked slice in section 10. Inspect current code before interpreting
+historical classifications. Preserve completed work and package IDs.
+
+Deliver one reviewable behaviour per PR, with acceptance evidence, applicable
+API/client/documentation updates and a progress-row update. Preserve the single
+binary, SQLite and pure scheduler. No provider or VM framework is introduced
+by planning alone. No live infrastructure is changed without task authority.
+
+Use the repository's applicable checks for behaviour changes. Documentation-only
+changes need link, cross-reference, status and scope checks. Do not invent live
+runs, elapsed observation, benchmark results or user feedback. Keep implemented,
+validated and blocked distinct, and report the exact remaining dependency.
 
 ## 13. Change record
 
-* **12 September 2026 — Version 2.33:** the code read with one question —
-  what breaks when the person operating the controller and the people whose
-  fleet it runs are not the same — and two things came of it. Six defects
-  that are wrong for a single team too, fixed as ZF-004: a real identifier
-  could pass as demo data and be skipped by every sweep; installation targets
-  matched by case, so `Acme` scaled for nobody; the scheduler kept asking a
-  rate-limited installation for credentials the poller had already stood
-  down from; the usage report was silently three weeks short; the retention
-  key called `audit` pruned scaling events; and the public webhook read and
-  checked five megabytes against every secret before deciding it was
-  unsigned. And decision 27, which settles the shape of Phase 5 the way the
-  source roadmap already proposed, says its service layer is not this
-  repository's, and adds the four Phase 2 packages — ZF-207 to ZF-210 —
-  that an instance operated on somebody else's behalf needs and that a
-  platform team or a public controller needs just the same. The shared
-  alternative was costed and is recorded in the decision; it is a second
-  project, not a step.
+* **13 September 2026 — Version 2.35:** confirm Proxmox as the first provider.
+  Split ZF-214 into shared contract/recovery, complete Proxmox lifecycle and
+  second-provider validation. Bring contract fixtures forward after bootstrap
+  design, retain mutation/qualification gates, and time-box optional GARM reuse.
+
+* **13 September 2026 — Version 2.34:** reconcile the delivery order with
+  completed packages and a current competitor review. Add ZF-211 to ZF-217,
+  prioritise ZF-207/208 and split ZF-210 by its actual dependencies. Keep
+  qualification alongside product work. Scope the roadmap to self-hosted
+  development and retain existing package acceptance criteria.
+
+* **12 September 2026 — Version 2.33:** record six narrow correctness fixes
+  as ZF-004 and add ZF-207 to ZF-210 for repeatable instance administration.
 
 * **9 September 2026 — Version 2.32:** the dead-socket drill, in the half a
   tier with no daemon can do honestly: a second agent joins with its Docker

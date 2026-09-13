@@ -40,6 +40,9 @@ type fakeRepo struct {
 	// pulls counts the pull requests opened, which is where the next number
 	// comes from.
 	pulls int
+	// pullBodies keeps each pull request's body by number, so a test can read
+	// what a reviewer would read.
+	pullBodies map[int]string
 }
 
 // AddWorkflow puts a workflow file in a repository, creating the repository if
@@ -50,6 +53,13 @@ func (f *FakeGitHub) AddWorkflow(repo, path, content string) {
 	f.addRepoLocked(repo)
 	r := f.repoLocked(repo)
 	r.files[path] = content
+}
+
+// AddFile puts any file in a repository, creating the repository if this is
+// the first thing in it. It is AddWorkflow under a name that does not lie
+// about a README.
+func (f *FakeGitHub) AddFile(repo, path, content string) {
+	f.AddWorkflow(repo, path, content)
 }
 
 // SetDefaultBranch names a repository's default branch. It is "main" until
@@ -84,6 +94,18 @@ func (f *FakeGitHub) FileContent(repo, path string) (string, bool) {
 	}
 	content, ok := r.files[path]
 	return content, ok
+}
+
+// PullRequestBody returns the body a pull request was opened with, or "" for
+// one that was never opened.
+func (f *FakeGitHub) PullRequestBody(repo string, number int) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r, ok := f.contents[repo]
+	if !ok {
+		return ""
+	}
+	return r.pullBodies[number]
 }
 
 // Branches returns a repository's branch names, sorted.
@@ -129,6 +151,7 @@ func (f *FakeGitHub) registerMigrationRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /repos/{owner}/{repo}", f.getRepo)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/contents/{path...}", f.getContents)
 	mux.HandleFunc("PUT /repos/{owner}/{repo}/contents/{path...}", f.putContents)
+	mux.HandleFunc("GET /repos/{owner}/{repo}/readme", f.getReadme)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/git/ref/{ref...}", f.getRef)
 	mux.HandleFunc("POST /repos/{owner}/{repo}/git/refs", f.createRef)
 	mux.HandleFunc("POST /repos/{owner}/{repo}/pulls", f.createPull)
@@ -199,6 +222,51 @@ func (f *FakeGitHub) getContents(w http.ResponseWriter, r *http.Request) {
 		return entries[i]["path"].(string) < entries[j]["path"].(string)
 	})
 	writeJSON(w, http.StatusOK, entries)
+}
+
+// getReadme answers as GitHub does: the file at the repository root whose
+// name is README in any case and with any extension, and a 404 when there is
+// none. Which of several wins is GitHub's own preference order, so a test can
+// prove the badge goes in the file people actually see.
+func (f *FakeGitHub) getReadme(w http.ResponseWriter, r *http.Request) {
+	full := fullName(r)
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !slices.Contains(f.repos, full) || !f.canReadContentsLocked() {
+		writeError(w, http.StatusNotFound, "Not Found")
+		return
+	}
+	repo := f.repoLocked(full)
+	var names []string
+	for p := range repo.files {
+		if strings.Contains(p, "/") {
+			continue
+		}
+		if base := strings.ToLower(p); base == "readme" || strings.HasPrefix(base, "readme.") {
+			names = append(names, p)
+		}
+	}
+	if len(names) == 0 {
+		writeError(w, http.StatusNotFound, "Not Found")
+		return
+	}
+	sort.Slice(names, func(i, j int) bool {
+		return readmeRank(names[i]) < readmeRank(names[j]) || (readmeRank(names[i]) == readmeRank(names[j]) && names[i] < names[j])
+	})
+	writeJSON(w, http.StatusOK, contentEntry(names[0], repo.files[names[0]]))
+}
+
+// readmeRank orders README candidates the way GitHub prefers them: a Markdown
+// one before any other markup, and markup before plain text.
+func readmeRank(name string) int {
+	switch strings.ToLower(name[strings.LastIndex(name, ".")+1:]) {
+	case "md", "markdown":
+		return 0
+	case "rst", "adoc", "org", "textile":
+		return 1
+	}
+	return 2
 }
 
 func contentEntry(path, content string) map[string]any {
@@ -369,6 +437,10 @@ func (f *FakeGitHub) createPull(w http.ResponseWriter, r *http.Request) {
 	}
 	repo.pulls++
 	number := repo.pulls
+	if repo.pullBodies == nil {
+		repo.pullBodies = map[int]string{}
+	}
+	repo.pullBodies[number] = body.Body
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"number":   number,
 		"title":    body.Title,

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/eyupio/zoomies/internal/migrate"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -172,3 +173,108 @@ func TestMigrationPoolsAreScopedToTheirInstallation(t *testing.T) {
 		t.Fatalf("migrationPools = %v, want only the enabled pool of this installation (%s)", got, wanted.Name)
 	}
 }
+
+// The badge is on by default and rides in the same pull request as the
+// runs-on change, in the README GitHub renders, at the end of the row of
+// badges that is already there.
+func TestApplyMigrationAddsTheBadgeByDefault(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	h.pool(inst, "linux-x64", "zoomies-linux-x64")
+	h.gh.AddWorkflow("acme/widgets", ".github/workflows/ci.yml", "jobs:\n  build:\n    runs-on: ubuntu-latest\n")
+	h.gh.AddFile("acme/widgets", "README.md", "# Widgets\n\n[![CI](https://x/ci.svg)](https://x)\n\nProse.\n")
+
+	out, err := h.c.ApplyMigration(h.ctx, MigrationApplyRequest{
+		InstallationID: inst.ID,
+		Repos:          []string{"acme/widgets"},
+		Mapping:        map[string]string{"ubuntu-latest": "zoomies-linux-x64"},
+	})
+	if err != nil {
+		t.Fatalf("ApplyMigration: %v", err)
+	}
+	if len(out.Results) != 1 || out.Results[0].Status != "opened" {
+		t.Fatalf("results = %+v", out.Results)
+	}
+	res := out.Results[0]
+	if res.Badge != BadgeAdded || res.BadgeReason != "" {
+		t.Errorf("badge = %q (%q), want %q", res.Badge, res.BadgeReason, BadgeAdded)
+	}
+	// The pull request changed one workflow file; the README is not counted
+	// as one, because "files" on the results screen means workflow files.
+	if res.Workflows != 1 || res.Jobs != 1 {
+		t.Errorf("workflows=%d jobs=%d, want 1 and 1", res.Workflows, res.Jobs)
+	}
+	got, _ := h.gh.FileContent("acme/widgets", "README.md")
+	want := "# Widgets\n\n[![CI](https://x/ci.svg)](https://x)\n" + migrate.BadgeMarkdown + "\n\nProse.\n"
+	if got != want {
+		t.Errorf("README on GitHub:\n%s\nwant:\n%s", got, want)
+	}
+	if wf, _ := h.gh.FileContent("acme/widgets", ".github/workflows/ci.yml"); !strings.Contains(wf, "zoomies-linux-x64") {
+		t.Errorf("the workflow was not rewritten alongside the badge: %q", wf)
+	}
+	if body := h.gh.PullRequestBody("acme/widgets", 1); !strings.Contains(body, migrate.BadgeMarkdown) {
+		t.Errorf("the pull request body does not say the badge is in it:\n%s", body)
+	}
+}
+
+// The README is somebody else's front page, so one word from the operator
+// leaves it alone -- and a README that is missing, not Markdown, or already
+// badged is reported rather than either failing the migration or being
+// written into anyway.
+func TestApplyMigrationBadgeIsDeclinedAndReported(t *testing.T) {
+	no := false
+	cases := map[string]struct {
+		readme  string // "" for no README
+		path    string
+		badge   *bool
+		want    string
+		touched bool
+	}{
+		"declined":         {readme: "# W\n", path: "README.md", badge: &no, want: BadgeOff},
+		"no readme":        {want: BadgeNoReadme},
+		"not markdown":     {readme: "Widgets\n=======\n", path: "README.rst", want: BadgeNoReadme},
+		"already there":    {readme: "# W\n\n" + migrate.BadgeMarkdown + "\n", path: "README.md", want: BadgePresent},
+		"explicitly asked": {readme: "# W\n", path: "README.md", badge: ptr(true), want: BadgeAdded, touched: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			inst := h.installation()
+			h.pool(inst, "linux-x64", "zoomies-linux-x64")
+			h.gh.AddWorkflow("acme/widgets", ".github/workflows/ci.yml", "jobs:\n  build:\n    runs-on: ubuntu-latest\n")
+			if tc.path != "" {
+				h.gh.AddFile("acme/widgets", tc.path, tc.readme)
+			}
+			out, err := h.c.ApplyMigration(h.ctx, MigrationApplyRequest{
+				InstallationID: inst.ID,
+				Repos:          []string{"acme/widgets"},
+				Mapping:        map[string]string{"ubuntu-latest": "zoomies-linux-x64"},
+				Badge:          tc.badge,
+			})
+			if err != nil {
+				t.Fatalf("ApplyMigration: %v", err)
+			}
+			res := out.Results[0]
+			if res.Status != "opened" {
+				t.Fatalf("the migration itself must go ahead whatever the badge does: %+v", res)
+			}
+			if res.Badge != tc.want {
+				t.Errorf("badge = %q (%q), want %q", res.Badge, res.BadgeReason, tc.want)
+			}
+			if tc.want == BadgeNoReadme && res.BadgeReason == "" {
+				t.Error("no_readme carries no reason, so the results screen cannot say which kind of nowhere")
+			}
+			if tc.path != "" {
+				got, _ := h.gh.FileContent("acme/widgets", tc.path)
+				if touched := got != tc.readme; touched != tc.touched {
+					t.Errorf("README changed = %v, want %v:\n%s", touched, tc.touched, got)
+				}
+			}
+			if body := h.gh.PullRequestBody("acme/widgets", 1); strings.Contains(body, "### The badge") != tc.touched {
+				t.Errorf("the body mentions the badge = %v, want %v", !tc.touched, tc.touched)
+			}
+		})
+	}
+}
+
+func ptr[T any](v T) *T { return &v }
