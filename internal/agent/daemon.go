@@ -154,6 +154,9 @@ type Agent struct {
 	waiting  map[string]Task
 	// taskCtx is the task loop's context, so a task handed a claim as it is
 	// released runs under the same cancellation as one delivered by a poll.
+	// It is never nil: an agent that is not running still releases claims --
+	// the reconciler takes them, and so does a test -- and a handover that
+	// had to check for a missing context would be a branch nothing exercises.
 	taskCtx context.Context
 	// orphans records when an unclaimed workload was first seen, which is how
 	// "the controller has not mentioned it in a while" is measured.
@@ -299,6 +302,7 @@ func New(opts Options) (*Agent, error) {
 		inflight:  make(map[string]bool),
 		running:   make(map[string]TaskKind),
 		waiting:   make(map[string]Task),
+		taskCtx:   context.Background(),
 		orphans:   make(map[backend.Handle]time.Time),
 	}
 	a.logs = newLogRelay(opts.Transport, log)
@@ -1679,9 +1683,6 @@ func (a *Agent) release(runnerID string) {
 	a.mu.Unlock()
 	if !ok {
 		return
-	}
-	if ctx == nil {
-		ctx = context.Background()
 	}
 	a.start(ctx, next)
 }
