@@ -1,19 +1,26 @@
 # Zoomies follow-on roadmap
 
-Version 2.35 · 13 September 2026 · derived from the owner's
+Version 2.37 · 13 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident, the deferred host-stewardship slice, and the four
 packages an instance operated on somebody else's behalf needs from this
 repository.
 
-This is the working plan for the next programme: make Zoomies a dependable,
-secure and easy-to-operate self-hosted GitHub Actions runner platform, and
-prove it in real use while improving performance, host operations and platform coverage.
-The ordered delivery plan in section 10 supersedes earlier assignment ordering;
+This is the sole active roadmap and delivery-order source of truth for the
+next programme: make Zoomies a dependable, secure and easy-to-operate
+self-hosted GitHub Actions runner platform, and prove it in real use while
+improving performance, host operations and platform coverage. The ordered
+delivery plan in section 10 supersedes all earlier assignment ordering;
 completed work and operational qualification remain distinct.
-It replaces nothing: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) is the
-finished record of the code review, and this document starts where it ends.
+
+[IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) is a finished code-review
+record, and [roadmap/source/](roadmap/source/) contains historical inputs.
+They explain why work existed, but neither may add, reorder or authorise
+current work. [roadmap/progress.md](roadmap/progress.md) is the corresponding
+status/evidence record: it records delivery of packages defined here but does
+not define a competing plan. New or changed delivery work belongs in this
+file first.
 
 ## 1. Where it starts
 
@@ -31,8 +38,9 @@ distinction: *implemented* and *validated* are different statuses in the
 
 ## 2. How to use this document
 
-Each work package keeps the ID the source roadmap gave it, so the two can be
-read side by side. Each has a **classification** from the reconciliation:
+Each work package keeps the ID the source roadmap gave it, so historic material
+can be read side by side without becoming an alternative instruction. Each has
+a **classification** from the reconciliation:
 
 * **existing, needs validation**: the capability is there; the work is proving
   it under the failure the package names, and the deliverable is mostly tests
@@ -1930,6 +1938,83 @@ authorises evaluation, not a second scheduler or a wholesale rewrite.
 
 **Dependencies:** ZF-211 baseline; no new runtime dependency before decision.
 
+### ZF-218: VPS marketplace one-click deployment foundation
+
+**Classification: new; L, implementation first.** **Owner decision, 13
+September 2026:** Zoomies `v1.0.0` is being released today and becomes the
+first stable baseline for this work once published. Build the complete
+provider-neutral deployment package before undertaking its end-to-end test
+campaign. This is preparation for one friendly VPS-provider pilot, not an
+official marketplace submission or a multi-provider programme.
+
+**218a — stable release and image-reference contract (S).** Record the
+controller, agent and runner image references used by the deployment package
+from the `v1.0.0` release, including immutable digests where the registry
+provides them. The generated deployment configuration must keep controller and
+agent on the same release unless an operator deliberately overrides it. `latest`
+may remain a convenience channel for ordinary self-installs, but it is never
+the unqualified reference in a marketplace artefact.
+
+**218b — provider-neutral package (M).** Add `deploy/marketplace/` containing
+a generic Cloud-Init/bootstrap artefact, a non-interactive answer file and a
+small, documented set of provider inputs: hostname, public HTTPS URL, DNS
+assumption, image reference, administrator bootstrap and persistent-data
+location. It must install a pinned Zoomies release, persist only the minimum
+configuration needed for upgrades, start the controller safely and make its
+health endpoint locally observable. It must not embed GitHub App private keys,
+registration tokens or a provider credential in image metadata, cloud-init
+user-data examples or logs.
+
+**218c — provider-neutral HTTPS and secure first-run journey (M).** Deliver a
+documented reverse-proxy/TLS path that does not require Cloudflare and works
+with a provider's DNS and certificate offering or an operator-owned proxy.
+The first-run journey must take the administrator from the deployed controller
+to a secure GitHub App connection, external URL and webhook delivery without
+asking them to place long-lived secrets in a marketplace form. Retain the
+existing Cloudflare path as an optional deployment choice.
+
+**218d — operator and partner hand-off (S).** Add a marketplace-facing
+deployment guide, a 10-minute first-workflow guide, sizing profiles, data and
+backup/restore guidance, upgrade and clean-uninstall instructions, a
+`SUPPORT.md` escalation boundary and early-pilot wording. Make the public
+positioning explicit: Zoomies is open source, self-hosted and
+bring-your-own-infrastructure; the one-click install deploys the controller,
+then the customer connects and owns their runner capacity.
+
+**Implementation acceptance:** the four artefacts above are reviewable,
+provider-neutral and use the published `v1.0.0` image contract; no secret is
+required before the secure bootstrap flow; and no documentation claims an
+untested provider integration. Functional and pristine-VPS testing deliberately
+follows this completed implementation in ZF-219 rather than being represented
+as already proven by this package.
+
+**Dependencies:** the `v1.0.0` release and its published images. This work may
+proceed alongside ZF-211 and does not wait for Proxmox lifecycle work. It does
+not change the controlled hosted-control-plane/BYO-compute direction.
+
+### ZF-219: one-click verification and friendly-provider pilot readiness
+
+**Classification: validation after ZF-218; M.** Start only when ZF-218a–d are
+implemented. Test the exact, released deployment artefact on a pristine Ubuntu
+24.04 LTS VPS using the pinned images and a real HTTPS/DNS configuration. Add
+the smallest sustainable automated checks after the implementation exists:
+Cloud-Init/answer-file syntax and rendering, secret-redaction assertions,
+health/readiness, restart and upgrade/rollback checks. Then run the human
+first-workflow journey through GitHub connection, webhook delivery, host join,
+one workflow and backup/restore evidence.
+
+**Accept when:** the documented path reaches a secure, healthy controller and
+a completed workflow without manual file edits or leaked credentials; the
+exact release tag/digests, VPS size, timings, DNS/TLS route and recovery
+results are recorded; and an independent operator can follow the guide.
+Complete one friendly VPS-provider pilot review only after that evidence. Do
+not submit to an official marketplace, advertise broad provider support or
+begin a second provider before the pilot produces a supportable result.
+
+**Dependencies:** complete ZF-218 implementation, disposable VPS/DNS/GitHub
+resources and an authorised pilot provider. This is validation evidence, not a
+new runner engine or a hosted Zoomies service.
+
 ## 10. Ordered delivery plan
 
 This sequence supersedes earlier Assignment A/B scheduling, which described
@@ -1939,14 +2024,16 @@ description of a missing feature is not evidence it remains missing.
 
 | Order | Work | Exit criterion |
 | --- | --- | --- |
-| 1 | ZF-211 documentation reconciliation and evidence inventory | One current support story; historical gaps clearly dated |
-| 2 | ZF-208 resource limits; ZF-207 administration boundaries | Host/pool pressure and API/UI access boundaries verified |
-| 3 | ZF-210a unattended bootstrap and readiness; then ZF-214a contract and fake-provider slice | Fresh instance and agent without prompts or log scraping; provider recovery contract proven in fixtures |
-| 4 | ZF-209 durable usage; then ZF-210b export and purge | Usage survives retention; export/purge respects installation boundaries |
-| 5 | ZF-212 cache recipes; existing-host/Tailcat reliability and ZF-401/403 UX | Faster representative builds and recoverable private-host onboarding |
-| 6 | ZF-213 configuration portability; ZF-404/404b ownership and maintenance | Repeatable fleet configuration and safe host operations |
-| 7 | ZF-214b Proxmox integration; then ZF-214c second-provider validation and ZF-215 fallback/readiness | Proxmox lifecycle qualified; reuse and fallback assessed without delaying the first provider |
-| 8 | ZF-216 platform/VM expansion; ZF-217 scale-set decision | Evidence per new platform and an explicit integration decision |
+| 1 | ZF-218a–d one-click deployment foundation, against today's `v1.0.0` release once published | Complete provider-neutral artefact and partner hand-off; implementation is complete but not yet qualified |
+| 2 | ZF-219 post-implementation verification and friendly-provider pilot readiness | Pristine-VPS and first-workflow evidence; one pilot can be invited, not yet broadly listed |
+| 3 | ZF-211 documentation reconciliation and evidence inventory | One current support story; historical gaps clearly dated |
+| 4 | ZF-208 resource limits; ZF-207 administration boundaries | Host/pool pressure and API/UI access boundaries verified |
+| 5 | ZF-210a unattended bootstrap and readiness; then ZF-214a contract and fake-provider slice | Fresh instance and agent without prompts or log scraping; provider recovery contract proven in fixtures |
+| 6 | ZF-209 durable usage; then ZF-210b export and purge | Usage survives retention; export/purge respects installation boundaries |
+| 7 | ZF-212 cache recipes; existing-host/Tailcat reliability and ZF-401/403 UX | Faster representative builds and recoverable private-host onboarding |
+| 8 | ZF-213 configuration portability; ZF-404/404b ownership and maintenance | Repeatable fleet configuration and safe host operations |
+| 9 | ZF-214b Proxmox integration; then ZF-214c second-provider validation and ZF-215 fallback/readiness | Proxmox lifecycle qualified; reuse and fallback assessed without delaying the first provider |
+| 10 | ZF-216 platform/VM expansion; ZF-217 scale-set decision | Evidence per new platform and an explicit integration decision |
 
 **Keep two work streams moving:** operational qualification (ZF-301/302/303
 and ZF-211) runs alongside the next ready product slice. An unavailable
@@ -1999,6 +2086,19 @@ runs, elapsed observation, benchmark results or user feedback. Keep implemented,
 validated and blocked distinct, and report the exact remaining dependency.
 
 ## 13. Change record
+
+* **13 September 2026 — Version 2.37:** make repository-root `ROADMAP.md` the
+  sole active source of truth for scope, ordering and authorisation of roadmap
+  work. `IMPLEMENTATION_PLAN.md` and `roadmap/source/` are historical records;
+  `roadmap/progress.md` records status and evidence only.
+
+* **13 September 2026 — Version 2.36:** record the `v1.0.0` release in
+  progress as the stable baseline for a VPS one-click-install track once
+  published. Add ZF-218 for the
+  tangible, provider-neutral deployment, HTTPS/bootstrap and partner-hand-off
+  work, followed by ZF-219 for testing and one friendly-provider pilot
+  readiness. Testing intentionally follows completed implementation; no
+  official marketplace submission is implied.
 
 * **13 September 2026 — Version 2.35:** confirm Proxmox as the first provider.
   Split ZF-214 into shared contract/recovery, complete Proxmox lifecycle and
@@ -2395,4 +2495,3 @@ validated and blocked distinct, and report the exact remaining dependency.
   gate. Added the deliberately deferred **ZF-404b** host-stewardship and
   bounded-housekeeping slice; it is not authorised for implementation before
   Gate F.
-
