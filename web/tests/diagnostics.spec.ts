@@ -49,7 +49,10 @@ test('the throttled host says its step, its reason and what it was stepped down 
 }) => {
   await goto(page, '/hosts', 'Hosts');
   const card = page.getByRole('article', { name: STUCK.throttledHost, exact: true });
-  await expect(card.getByTitle(/^Throttled, step 2 of 3/)).toContainText('Throttled');
+  await expect(card.getByText('Throttled', { exact: true })).toHaveAttribute(
+    'title',
+    /^Throttled, step 2 of 3/,
+  );
   await expect(card).toContainText(
     "throttled to 2 of 4 slots (step 2 of 3) after sustained pressure: the 1-minute load average is 30.0, at least twice the host's 8 CPUs",
   );

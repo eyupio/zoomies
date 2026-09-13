@@ -251,7 +251,10 @@ test('a host under sustained pressure is throttled, says why, and an operator ca
     await goto(page, '/hosts', 'Hosts');
     const card = page.getByRole('article', { name, exact: true });
     // The badge carries the step in its title, so hovering answers "how bad".
-    await expect(card.getByTitle(/^Throttled, step 1 of 3/)).toContainText('Throttled');
+    await expect(card.getByText('Throttled', { exact: true })).toHaveAttribute(
+      'title',
+      /^Throttled, step 1 of 3/,
+    );
     await expect(card).toContainText(
       "throttled to 3 of 4 slots (step 1 of 3) after sustained pressure: the 1-minute load average is 20.0, at least twice the host's 8 CPUs",
     );

@@ -124,3 +124,35 @@ func TestAHostCountsTheLiveRunnersNoCPULimitBinds(t *testing.T) {
 		t.Fatalf("active = %d, unlimited = %d; want 2 live of which 1 has no CPU limit", got.ActiveRunners, got.UnlimitedRunners)
 	}
 }
+
+// The throttle column is JSON, and it has to come back from every shape the
+// driver hands over: a string, bytes, and the NULL a row written before the
+// column existed would have carried had the migration not defaulted it.
+func TestAThrottleScansFromEveryShapeTheDriverOffers(t *testing.T) {
+	since := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	want := HostThrottle{Level: 2, Since: &since, Reason: "memory at the reserve"}
+	v, err := want.Value()
+	if err != nil {
+		t.Fatalf("Value: %v", err)
+	}
+	raw, ok := v.(string)
+	if !ok {
+		t.Fatalf("Value() = %T, want the JSON as a string", v)
+	}
+	for name, in := range map[string]any{"string": raw, "bytes": []byte(raw)} {
+		var got HostThrottle
+		if err := got.Scan(in); err != nil {
+			t.Fatalf("Scan(%s): %v", name, err)
+		}
+		if got.Level != 2 || got.Reason != want.Reason || got.Since == nil || !got.Since.Equal(since) {
+			t.Fatalf("Scan(%s) = %+v, want %+v", name, got, want)
+		}
+	}
+	var empty HostThrottle
+	if err := empty.Scan(nil); err != nil || empty.Active() {
+		t.Fatalf("Scan(nil) = %+v, %v; want an inactive throttle and no error", empty, err)
+	}
+	if err := empty.Scan(42); err == nil {
+		t.Fatal("a number scanned as a throttle")
+	}
+}
