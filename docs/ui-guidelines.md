@@ -296,7 +296,10 @@ almost everything gets, on `:focus-visible` only, so a mouse click draws no ring
 and a keyboard tab does. `--z-focus-ring` is the same ring as a `box-shadow`,
 for the controls whose outline a scrolling or clipping parent would cut off. A
 consumer on a raised surface overrides `--z-focus-gap` so the ring's inner gap
-matches what it is drawn on.
+matches what it is drawn on. A parent that clips for a different reason makes
+room instead: a grid cell truncates its content, and pushes that clip out by an
+offset and a width so the ring of whatever is focused inside it still has
+somewhere to be drawn.
 
 The ring is never removed. Removing it and replacing it with a colour change
 does not count: a border that goes from grey to blue is invisible to anyone who
@@ -627,18 +630,24 @@ action inline:
   how many of them exist."* + **Create a pool**
 * Runners: *"No runners right now. That is normal when nothing is queued —
   runners are created on demand."*
-* Jobs: *"No jobs have run on this fleet. This view shows jobs a pool claims or
-  a runner here ran."* + **Include other runners**
+* Jobs: *"Nothing is running right now. No runner here is working on a job at
+  this moment, which on a quiet fleet is the ordinary state."* + **Show every
+  status** — the page opens on what is running, so that is the empty grid an
+  operator meets first
 
 **An empty grid that is empty because of a filter says so instead**, naming the
 filter rather than the noun: "No pools match those filters", "No runners match
 these filters". The two are different facts and an operator acts on them
 differently — one is a fleet with nothing in it, the other is a search with
 nothing in it. The Jobs page carries this furthest, because an empty grid there
-means three different things: with other runners included it is "no jobs
-recorded yet", which points at webhook delivery; without them it is "no jobs
-have run on this fleet", which offers to widen the view; and under the unmatched
-filter it is "no unmatched jobs", which is good news and says so.
+means six different things, and the page says which: under the unmatched filter
+it is "no unmatched jobs", which is good news and says so; under the failed one
+it is "no failed jobs"; in the status views the page opens on it is "nothing is
+running right now" or "nothing is queued", each offering **Show every status**
+rather than a narrower filter, because the way out of a status view is the same
+page without it; with other runners included it is "no jobs recorded yet", which
+points at webhook delivery; and without them it is "no jobs have run on this
+fleet", which offers to widen the view.
 
 ### Keyboard
 
@@ -740,6 +749,12 @@ Three things make it fit, in this order:
 The same card layout is written out by hand in the tables that are not grids —
 the usage report, the accounts and API-token lists, the outstanding join tokens.
 A new table of any size belongs in one of those two places.
+
+All of them, the grid included, spell their ARIA roles out rather than leaving
+them to the element. A browser drops a row's implicit role the moment `display`
+stops being `table-row`, so a card layout that says nothing is a run of loose
+text to a screen reader — the values are all there and nothing says which record
+any of them belongs to.
 
 ---
 

@@ -36,6 +36,13 @@
   twenty-five times down a page is twenty-five buttons a screen reader cannot
   tell apart, and because a test that reaches for the one in the selection bar
   should not find a row instead.
+
+  An action already in force is refused rather than removed: `aria-disabled`,
+  not the attribute. A natively disabled button cannot be focused, which cost
+  the keyboard twice over -- the reason it gives for refusing was reachable
+  only with a pointer, and confirming an action that made its own button
+  unavailable dropped focus to the top of the document, because the button the
+  dialog meant to give focus back to could no longer take it.
 -->
 <script lang="ts">
   interface Props {
@@ -48,56 +55,37 @@
   let { actions, subject, class: className = '' }: Props = $props();
 
   let group = $state<HTMLDivElement | null>(null);
-  /** Where the arrow keys have got to. */
+  /** Where the arrow keys have got to, and so the one button in the tab order. */
   let active = $state(0);
+  const tabStop = $derived(active < actions.length ? active : 0);
 
-  /**
-   * The one button in the tab order.
-   *
-   * Never a disabled one: a disabled button cannot take focus, so a tab stop
-   * on it is no tab stop at all and the whole toolbar falls out of the keyboard
-   * order -- which on a row whose first action is already in force is every
-   * such row on the page. `-1` when nothing here can be pressed, which is the
-   * truth rather than a trap.
-   */
-  const tabStop = $derived(
-    active < actions.length && !actions[active]?.disabled
-      ? active
-      : actions.findIndex((action) => !action.disabled),
-  );
-
-  /** The next button along that can actually be pressed, wrapping round. */
-  function step(from: number, delta: number): void {
-    for (let i = 1; i <= actions.length; i++) {
-      const next = (from + delta * i + actions.length * i) % actions.length;
-      if (!actions[next]?.disabled) {
-        active = next;
-        group?.querySelector<HTMLElement>(`[data-action-index="${next}"]`)?.focus();
-        return;
-      }
-    }
+  /** Move along the row, wrapping round. */
+  function focusAt(index: number): void {
+    if (actions.length === 0) return;
+    const next = ((index % actions.length) + actions.length) % actions.length;
+    active = next;
+    group?.querySelector<HTMLElement>(`[data-action-index="${next}"]`)?.focus();
   }
 
   function onKeydown(event: KeyboardEvent): void {
     switch (event.key) {
       case 'ArrowRight':
         event.preventDefault();
-        step(active, 1);
+        focusAt(active + 1);
         break;
       case 'ArrowLeft':
         event.preventDefault();
-        step(active, -1);
+        focusAt(active - 1);
         break;
+      // Prevented, or the page jumps to its top and bottom under a toolbar
+      // that has its own ends to go to.
       case 'Home':
-        // Stopped as well as prevented: the grid reads Home as "the first row".
         event.preventDefault();
-        event.stopPropagation();
-        step(actions.length - 1, 1);
+        focusAt(0);
         break;
       case 'End':
         event.preventDefault();
-        event.stopPropagation();
-        step(0, -1);
+        focusAt(actions.length - 1);
         break;
       default:
         break;
@@ -126,16 +114,21 @@
 >
   {#each actions as action, index (action.id)}
     {@const Icon = action.icon}
+    {@const refused = action.disabled ? (action.reason ?? '') : ''}
     <button
       type="button"
       data-action-index={index}
       class:danger={action.danger}
       tabindex={index === tabStop ? 0 : -1}
-      disabled={action.disabled}
-      aria-label="{action.label}: {subject}"
-      title={action.disabled && action.reason ? action.reason : action.label}
+      aria-disabled={action.disabled ? 'true' : undefined}
+      aria-label={refused
+        ? `${action.label}: ${subject}. ${refused}`
+        : `${action.label}: ${subject}`}
+      title={refused || action.label}
       onfocus={() => (active = index)}
-      onclick={action.onSelect}
+      onclick={() => {
+        if (!action.disabled) action.onSelect();
+      }}
     >
       <Icon size={14} aria-hidden="true" />
     </button>
@@ -164,17 +157,17 @@
       background-color var(--z-motion-fast) var(--z-ease),
       color var(--z-motion-fast) var(--z-ease);
   }
-  button:hover:not(:disabled) {
+  button:not([aria-disabled]):hover {
     background: var(--z-surface-hover);
     color: var(--z-text);
   }
   button.danger {
     color: var(--z-danger);
   }
-  button.danger:hover:not(:disabled) {
+  button.danger:not([aria-disabled]):hover {
     background: var(--z-danger-subtle);
   }
-  button:disabled {
+  button[aria-disabled='true'] {
     opacity: 0.5;
     cursor: not-allowed;
   }

@@ -62,37 +62,53 @@
   />
 {:else}
   <div class="scroll {className}">
-    <table>
+    <!--
+      Every role is spelled out rather than left to the table's own display
+      type. The rows become cards on a phone, which means `display` stops
+      being `table-row`, and a browser drops the implicit row and cell roles
+      the moment it does -- leaving a screen reader a run of loose text with
+      nothing saying which value belongs to which record.
+    -->
+    <!-- svelte-ignore a11y_no_redundant_roles -->
+    <table role="table">
       <caption class="sr-only">Outstanding join tokens</caption>
-      <thead>
-        <tr>
-          <th scope="col">Prefix</th>
-          <th scope="col">State</th>
-          <th scope="col">Capacity</th>
-          <th scope="col">Labels</th>
-          <th scope="col">Created by</th>
-          <th scope="col">Expires</th>
-          <th scope="col"><span class="sr-only">Actions</span></th>
+      <!-- svelte-ignore a11y_no_redundant_roles -->
+      <thead role="rowgroup">
+        <!-- svelte-ignore a11y_no_redundant_roles -->
+        <tr role="row">
+          <th role="columnheader" scope="col">Prefix</th>
+          <th role="columnheader" scope="col">State</th>
+          <th role="columnheader" scope="col">Capacity</th>
+          <th role="columnheader" scope="col">Labels</th>
+          <th role="columnheader" scope="col">Created by</th>
+          <th role="columnheader" scope="col">Expires</th>
+          <th role="columnheader" scope="col"><span class="sr-only">Actions</span></th>
         </tr>
       </thead>
-      <tbody>
+      <!-- svelte-ignore a11y_no_redundant_roles -->
+      <tbody role="rowgroup">
         {#each tokens as token (token.id)}
-          <tr>
-            <td data-label="Prefix" class="mono">{token.prefix ?? '--'}</td>
-            <td data-label="State">
+          <!-- svelte-ignore a11y_no_redundant_roles -->
+          <tr role="row">
+            <td role="cell" data-label="Prefix" class="mono">{token.prefix ?? '--'}</td>
+            <td role="cell" data-label="State">
               <Badge status={joinTokenStatus(token)} size="sm" />
             </td>
-            <td data-label="Capacity" class="tabular">{formatNumber(token.capacity ?? 0)}</td>
-            <td data-label="Labels" class="mono labels">{labelText(token.labels) || '--'}</td>
-            <td data-label="Created by">{token.created_by || '--'}</td>
-            <td data-label="Expires">
+            <td role="cell" data-label="Capacity" class="tabular"
+              >{formatNumber(token.capacity ?? 0)}</td
+            >
+            <td role="cell" data-label="Labels" class="mono labels"
+              >{labelText(token.labels) || '--'}</td
+            >
+            <td role="cell" data-label="Created by">{token.created_by || '--'}</td>
+            <td role="cell" data-label="Expires">
               {#if token.used_at}
                 <span class="muted">Used <RelativeTime value={token.used_at} plain /></span>
               {:else}
                 <RelativeTime value={token.expires_at} />
               {/if}
             </td>
-            <td data-label="Actions" class="actions">
+            <td role="cell" data-label="Actions" class="actions">
               {#if !token.used_at}
                 <IconButton
                   icon={Trash2}
@@ -181,7 +197,7 @@
     heading. Nothing is dropped and nothing is truncated; the list reads down
     instead of across.
   */
-  @media (max-width: 767px) {
+  @media (max-width: 768px) {
     .scroll {
       overflow-x: visible;
       /*

@@ -325,31 +325,43 @@
     <span>{rows.length} groups · execution and allocation in hours</span>
   </div>
   <div class="frame">
-    <table>
+    <!--
+    Every role is spelled out rather than left to the table's own display
+    type. The rows become cards on a phone, which means `display` stops
+    being `table-row`, and a browser drops the implicit row and cell roles
+    the moment it does -- leaving a screen reader a run of loose text with
+    nothing saying which value belongs to which record.
+  -->
+    <!-- svelte-ignore a11y_no_redundant_roles -->
+    <table role="table">
       <caption class="sr-only">
         Usage by {grouping} between {since} and {until}
       </caption>
-      <thead>
-        <tr>
-          <th scope="col" class="key-header">{KEY_HEADER[grouping]}</th>
-          <th scope="col" class="end">Queued</th>
-          <th scope="col" class="end">Started</th>
-          <th scope="col" class="end">Completed</th>
-          <th scope="col" class="end">Peak at once</th>
-          <th scope="col" class="end">Average queue wait</th>
-          <th scope="col" class="end">Executing</th>
+      <!-- svelte-ignore a11y_no_redundant_roles -->
+      <thead role="rowgroup">
+        <!-- svelte-ignore a11y_no_redundant_roles -->
+        <tr role="row">
+          <th role="columnheader" scope="col" class="key-header">{KEY_HEADER[grouping]}</th>
+          <th role="columnheader" scope="col" class="end">Queued</th>
+          <th role="columnheader" scope="col" class="end">Started</th>
+          <th role="columnheader" scope="col" class="end">Completed</th>
+          <th role="columnheader" scope="col" class="end">Peak at once</th>
+          <th role="columnheader" scope="col" class="end">Average queue wait</th>
+          <th role="columnheader" scope="col" class="end">Executing</th>
           {#if attributable}
-            <th scope="col" class="end">Runner-hours</th>
-            <th scope="col" class="end">Busy share</th>
-            <th scope="col" class="end">Estimated cost</th>
+            <th role="columnheader" scope="col" class="end">Runner-hours</th>
+            <th role="columnheader" scope="col" class="end">Busy share</th>
+            <th role="columnheader" scope="col" class="end">Estimated cost</th>
           {/if}
         </tr>
       </thead>
-      <tbody>
+      <!-- svelte-ignore a11y_no_redundant_roles -->
+      <tbody role="rowgroup">
         {#each rows as row (row.key)}
           {@const rowKind = kind(row.key)}
-          <tr>
-            <th scope="row" class="key" title={row.key || undefined}>
+          <!-- svelte-ignore a11y_no_redundant_roles -->
+          <tr role="row">
+            <th role="rowheader" scope="row" class="key" title={row.key || undefined}>
               <span class="name" class:muted={rowKind !== 'live'}>{label(row.key)}</span>
               {#if rowKind === 'gone'}
                 <span class="tag">deleted</span>
@@ -357,24 +369,32 @@
                 <span class="tag">no pool</span>
               {/if}
             </th>
-            <td class="end tabular" data-label="Queued">{formatNumber(row.jobs)}</td>
-            <td class="end tabular" data-label="Started">{formatNumber(row.jobs_started)}</td>
-            <td class="end tabular" data-label="Completed">{formatNumber(row.jobs_completed)}</td>
-            <td class="end tabular" data-label="Peak at once"
+            <td role="cell" class="end tabular" data-label="Queued">{formatNumber(row.jobs)}</td>
+            <td role="cell" class="end tabular" data-label="Started"
+              >{formatNumber(row.jobs_started)}</td
+            >
+            <td role="cell" class="end tabular" data-label="Completed"
+              >{formatNumber(row.jobs_completed)}</td
+            >
+            <td role="cell" class="end tabular" data-label="Peak at once"
               >{formatNumber(row.peak_concurrency)}</td
             >
-            <td class="end tabular" data-label="Average queue wait"
+            <td role="cell" class="end tabular" data-label="Average queue wait"
               >{wait(row.average_queue_wait_seconds)}</td
             >
-            <td class="end tabular" data-label="Executing">{hours(row.job_execution_seconds)}</td>
+            <td role="cell" class="end tabular" data-label="Executing"
+              >{hours(row.job_execution_seconds)}</td
+            >
             {#if attributable}
-              <td class="end tabular" data-label="Runner-hours"
+              <td role="cell" class="end tabular" data-label="Runner-hours"
                 >{hours(row.allocated_runner_seconds)}</td
               >
-              <td class="end tabular" data-label="Busy share"
+              <td role="cell" class="end tabular" data-label="Busy share"
                 >{utilisation(row.job_execution_seconds, row.allocated_runner_seconds)}</td
               >
-              <td class="end tabular" data-label="Estimated cost">{cost(row.estimated_cost)}</td>
+              <td role="cell" class="end tabular" data-label="Estimated cost"
+                >{cost(row.estimated_cost)}</td
+              >
             {/if}
           </tr>
         {/each}
@@ -548,7 +568,7 @@
     a card on a laptop's half-screen window, so the threshold here is
     `--z-bp-lg` rather than `--z-bp-md`.
   */
-  @media (max-width: 1179px) {
+  @media (max-width: 1180px) {
     .frame {
       border: 0;
       background: none;

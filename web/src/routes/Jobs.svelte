@@ -115,7 +115,7 @@
     // bar, and a cast sends the typo straight to the server as a filter that
     // matches nothing, so the page comes back empty with no explanation.
     state: defaulted
-      ? DEFAULT_JOB_STATE
+      ? [...DEFAULT_JOB_STATE]
       : router
           .paramList('state')
           .filter((value): value is JobState => (JOB_STATES as readonly string[]).includes(value)),
@@ -135,20 +135,37 @@
    */
   function patch(next: Partial<JobFilterState>): void {
     const out: Record<string, string | readonly string[] | null> = { offset: null };
+    const choosingStatus = STATUS_KEYS.some((key) => next[key] !== undefined);
+
     /*
-     * The default holds only while nothing has been asked. The moment an
-     * operator narrows something else -- types a word in the search box, picks
-     * a repository -- the status they can see in force is written down, or
-     * that keystroke would quietly widen the page from "running" to every job
-     * the fleet has ever seen.
-     *
-     * A patch that touches the status is choosing a view and says what it
-     * wants, so it is left alone. `unmatched` is one of those: the server
-     * reads it as queued-and-unclaimed, and a running job can be neither.
+     * Narrowing something else never moves the status. The status in force is
+     * written down as part of the same change, because it is only ever implied
+     * by what is absent -- the default when nothing is asked, and "every
+     * status" when a link asked for something narrower and said nothing about
+     * status. Without this, one keystroke in the search box took the page from
+     * "running" to every job the fleet has ever run, and removing the last chip
+     * from a link that asked for every status took it the other way, down to
+     * running. Both are the page answering a question nobody asked.
      */
-    if (defaulted && !STATUS_KEYS.some((key) => next[key] !== undefined)) {
-      out.state = DEFAULT_JOB_STATE;
+    if (!choosingStatus) {
+      out.state = filters.state.length > 0 ? filters.state : [...JOB_STATES];
     }
+
+    /*
+     * The two switches own the status they contradict, the way a view button
+     * does. `unmatched` is queued-and-unclaimed on the server, so a state
+     * beside it can only subtract -- and from the default view, where the
+     * status has just been written down, `state=in_progress&unmatched=true`
+     * matched nothing at all and left the operator on an empty page with no
+     * sign of why. "Failed" is the server's own reckoning of a job that went
+     * wrong, which is not a state either.
+     */
+    if (next.unmatched === true) {
+      out.state = [];
+      out.conclusion = [];
+    }
+    if (next.failed === true) out.state = [];
+
     for (const [key, value] of Object.entries(next)) {
       if (typeof value === 'boolean') out[key] = value ? 'true' : null;
       else if (Array.isArray(value)) out[key] = value;
@@ -248,9 +265,11 @@
           ? 'Nothing is running right now'
           : view === 'queued'
             ? 'Nothing is queued'
-            : filters.all
-              ? 'No jobs recorded yet'
-              : 'No jobs have run on this fleet',
+            : view === 'finished'
+              ? 'Nothing has finished yet'
+              : filters.all
+                ? 'No jobs recorded yet'
+                : 'No jobs have run on this fleet',
   );
 
   const emptyDescription = $derived(
@@ -262,9 +281,11 @@
           ? 'No runner here is working on a job at this moment, which on a quiet fleet is the ordinary state. Queued shows what is waiting for one, and All shows everything this fleet has been asked to do.'
           : view === 'queued'
             ? 'Nothing is waiting for a runner, so the fleet is keeping up with what GitHub is asking of it. Running shows what is being worked on now.'
-            : filters.all
-              ? 'Zoomies records a job the first time GitHub tells it about one, over a webhook delivery. If workflows are running and nothing appears here, the delivery is not arriving.'
-              : 'This view shows jobs a pool claims or a runner here ran. Include other runners to see everything GitHub has reported, hosted runners included.',
+            : view === 'finished'
+              ? 'Nothing has ended within these filters. Running and Queued show the work still in hand, and All shows every status at once.'
+              : filters.all
+                ? 'Zoomies records a job the first time GitHub tells it about one, over a webhook delivery. If workflows are running and nothing appears here, the delivery is not arriving.'
+                : 'This view shows jobs a pool claims or a runner here ran. Include other runners to see everything GitHub has reported, hosted runners included.',
   );
 
   /* -- the grid ---------------------------------------------------------------- */

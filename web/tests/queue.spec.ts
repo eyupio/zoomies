@@ -3,6 +3,11 @@ import { browserOverride, goto } from './support/fixtures';
 
 test.use(browserOverride);
 
+/** A job's name is not a pattern: it carries slashes and dots of its own. */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 test('queue controls persist, filter and restore demand without changing GitHub state', async ({
   page,
   request,
@@ -101,14 +106,28 @@ test("a row's actions are one stop on the keyboard, and the arrows move along th
     page.getByRole('button', { name: `Pause: ${subject}`, exact: true }).first(),
   ).toBeFocused();
 
-  // Resume is already in force on a ready item, so the arrow goes past it.
+  /*
+   * Resume is already in force on a ready item, and the arrow lands on it all
+   * the same. An action that cannot be taken is refused, not removed: it stays
+   * focusable so that the reason it gives is reachable without a pointer, and
+   * so that confirming an action which makes its own button unavailable does
+   * not drop focus to the top of the document.
+   */
+  await page.keyboard.press('ArrowRight');
+  const resume = page
+    .getByRole('button', { name: new RegExp(`^Resume: ${escapeRegExp(subject)}\\.`) })
+    .first();
+  await expect(resume).toBeFocused();
+  await expect(resume).toHaveAttribute('aria-disabled', 'true');
+  // The reason is part of what the control is called, so it is announced with it.
+  await expect(resume).toHaveAccessibleName(/Already provisioning normally/);
+
+  // Pressing it does nothing rather than opening a confirmation for a no-op.
+  await resume.press('Enter');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+
   await page.keyboard.press('ArrowRight');
   await expect(
     page.getByRole('button', { name: `Delete from queue: ${subject}`, exact: true }).first(),
   ).toBeFocused();
-
-  // And it says why it cannot be pressed rather than simply refusing.
-  await expect(
-    page.getByRole('button', { name: `Resume: ${subject}`, exact: true }).first(),
-  ).toHaveAttribute('title', /Already provisioning normally/);
 });

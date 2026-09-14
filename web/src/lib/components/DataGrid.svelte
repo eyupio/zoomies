@@ -114,6 +114,7 @@
   } from '@tanstack/svelte-table';
   import { layers } from '../keys';
   import { prefs } from '../state/prefs.svelte';
+  import { viewport } from '../state/viewport.svelte';
   import { router } from '../router';
   import Button from './Button.svelte';
   import Checkbox from './Checkbox.svelte';
@@ -382,8 +383,18 @@
   $effect(() => {
     const element = frame;
     if (!element) return;
-    const root = parseFloat(getComputedStyle(document.documentElement).fontSize);
-    if (Number.isFinite(root) && root > 0) remPx = root;
+    /*
+      Re-read with every measurement rather than once: a `fixed` column is
+      emitted in absolute pixels, so a root font size that changed under the
+      page -- a browser's own font setting, which Chrome applies live -- would
+      leave those columns sized against a rem that no longer exists. A font
+      change resizes the frame too, so the observer is already firing.
+    */
+    const readRem = (): void => {
+      const root = parseFloat(getComputedStyle(document.documentElement).fontSize);
+      if (Number.isFinite(root) && root > 0) remPx = root;
+    };
+    readRem();
     /*
       Measured in the observer, acted on a frame later, and coalesced: a resize
       notification is delivered inside the browser's own rendering steps, and
@@ -395,6 +406,7 @@
     let queued = 0;
     const measure = (): void => {
       queued = 0;
+      readRem();
       frameWidth = element.clientWidth;
     };
     const observer = new ResizeObserver(() => {
@@ -427,36 +439,17 @@
     return measure![2] === 'px' ? value : value * rem;
   }
 
-  /**
-   * The narrow-desktop band, where a `wide` column waits for a window with the
-   * room to show it properly.
-   *
-   * Asked of the browser rather than written as a CSS rule, because the column
-   * widths are worked out here: a column hidden by CSS would still have been
-   * given its share of the frame, and the columns left would be smaller than
-   * the space they actually have. Below this band there is no band -- the rows
-   * are cards, and every column has a line of its own again.
+  /*
+   * Which band the window is in, from the app's one listener rather than two
+   * more per grid. Asked of script at all -- rather than left to a media query,
+   * where a responsive rule belongs -- because the column widths are worked out
+   * here: a column hidden by CSS would still have been given its share of the
+   * frame, and the columns left would be narrower than the space they actually
+   * have. `viewport.phone` is the card threshold; below it there is no band,
+   * because every column has a line of its own again.
    */
-  const NARROW_DESKTOP = '(min-width: 768px) and (max-width: 1179px)';
-  /** Below this the rows are cards, and a column has no width to be given. */
-  const CARDS = '(max-width: 767px)';
-  let narrowDesktop = $state(false);
-  let cards = $state(false);
-
-  $effect(() => {
-    const watch = (media: string, set: (on: boolean) => void): (() => void) => {
-      const query = window.matchMedia(media);
-      const update = (): void => set(query.matches);
-      update();
-      query.addEventListener('change', update);
-      return () => query.removeEventListener('change', update);
-    };
-    const stop = [
-      watch(NARROW_DESKTOP, (on) => (narrowDesktop = on)),
-      watch(CARDS, (on) => (cards = on)),
-    ];
-    return () => stop.forEach((off) => off());
-  });
+  const narrowDesktop = $derived(viewport.narrow);
+  const cards = $derived(viewport.phone);
 
   const byId = $derived(new Map(columns.map((c) => [c.id, c])));
   const visibleColumns = $derived(
@@ -686,8 +679,18 @@
       {#if chooserOpen}
         <div class="chooser" id="{gridId}-columns" role="group" aria-label="Columns to show">
           {#each hideable as column (column.id)}
+            <!--
+              A column the window is too narrow for is still listed, and still
+              takes the operator's choice, because that choice is theirs and
+              outlives this window size -- but it says why ticking it changes
+              nothing they can see. A tick that does nothing and does not say so
+              is the kind of control that gets reported as broken.
+            -->
             <Checkbox
               label={column.header}
+              description={narrowDesktop && column.priority === 'wide'
+                ? 'Shown when the window is wider'
+                : undefined}
               checked={visibility[column.id] !== false}
               onchange={(on) => toggleColumn(column.id, on)}
             />
@@ -706,10 +709,19 @@
       at offset + 2.
     -->
     <table role="grid" aria-label={label} aria-rowcount={total} onkeydown={onBodyKeydown}>
-      <thead>
-        <tr aria-rowindex={1}>
+      <!--
+        The rest of the roles are spelled out for the reason the row's and the
+        cell's are: below the phone breakpoint `thead`, `tbody` and the heading
+        row all stop being table boxes, and a browser drops an implicit role the
+        moment that happens -- which would leave the grid with an
+        `aria-rowcount` and nothing to count.
+      -->
+      <!-- svelte-ignore a11y_no_redundant_roles -->
+      <thead role="rowgroup">
+        <!-- svelte-ignore a11y_no_redundant_roles -->
+        <tr role="row" aria-rowindex={1}>
           {#if selectable}
-            <th class="pick" scope="col" style:width={columnWidths.pick}>
+            <th role="columnheader" class="pick" scope="col" style:width={columnWidths.pick}>
               <Checkbox
                 checked={allSelected}
                 indeterminate={someSelected}
@@ -720,6 +732,7 @@
           {/if}
           {#each visibleColumns as column, index (column.id)}
             <th
+              role="columnheader"
               scope="col"
               style:width={columnWidths.columns[index]}
               class:end={column.align === 'end'}
@@ -744,7 +757,8 @@
           {/each}
         </tr>
       </thead>
-      <tbody bind:this={body}>
+      <!-- svelte-ignore a11y_no_redundant_roles -->
+      <tbody role="rowgroup" bind:this={body}>
         {#if !settled}
           {#each Array.from({ length: 8 }, (_, i) => i) as line (line)}
             <!-- svelte-ignore a11y_no_redundant_roles -->
@@ -813,7 +827,17 @@
                 -->
                 <td role="gridcell" data-label={column.header} class:end={column.align === 'end'}>
                   {#if column.cell}
-                    <div class="cell-body" class:loose={column.overflows}>
+                    <!--
+                      The title is the plain renderer's, for the same reason: a
+                      cell cut off at its column's edge has to keep the whole
+                      value somewhere, and a column that draws itself still
+                      knows what it is worth in words.
+                    -->
+                    <div
+                      class="cell-body"
+                      class:loose={column.overflows}
+                      title={column.value?.(row.original) || undefined}
+                    >
                       {@render column.cell(row.original)}
                     </div>
                   {:else}
@@ -1011,6 +1035,18 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    /*
+      The clip is pushed a ring's width outwards and pulled straight back, so
+      the box that cuts content off is wider than the box that lays it out. A
+      link sits flush against its cell's leading edge, and the global ring is
+      drawn `--z-focus-offset` clear of it: without this the clip started at
+      the link's own edge and a keyboard user saw three sides of a rectangle.
+      Padding and margin cancel, so nothing moves and the ellipsis still
+      lands where the column ends.
+    */
+    --z-cell-ring: calc(var(--z-focus-offset) + var(--z-focus-width));
+    margin: calc(-1 * var(--z-cell-ring));
+    padding: var(--z-cell-ring);
   }
   .cell-body.loose {
     overflow: visible;
@@ -1053,7 +1089,7 @@
     The frame keeps its `overflow-y` and its height so the sticky page around
     it is unchanged; it is the table inside that stops being a table.
   */
-  @media (max-width: 767px) {
+  @media (max-width: 768px) {
     table {
       display: block;
       table-layout: auto;
@@ -1070,8 +1106,7 @@
       screen reader still needs a column header to associate a cell with, and
       removing them outright would leave the grid with rows and no columns.
     */
-    thead,
-    thead tr {
+    thead {
       display: block;
     }
     thead tr {
@@ -1083,8 +1118,8 @@
     }
     thead th {
       position: absolute;
-      width: 1px;
-      height: 1px;
+      width: var(--z-nudge-1);
+      height: var(--z-nudge-1);
       padding: 0;
       border: 0;
       overflow: hidden;
@@ -1178,12 +1213,24 @@
     }
     /*
       A value has the width of a card now, so it wraps rather than truncating:
-      a name cut short is the thing this layout exists to stop.
+      a name cut short is the thing this layout exists to stop. Both renderers,
+      because a cell drawn by a snippet is no less a value than a plain one --
+      leaving `.cell-body` clipped here would have kept every badge, label and
+      link on one cut-off line while the plain cells beside them wrapped.
     */
-    .plain {
+    .plain,
+    .cell-body {
       overflow: visible;
       white-space: normal;
       overflow-wrap: anywhere;
+      /*
+        Shrinkable, or the value does not wrap at all: these are flex items of
+        the card's row, and a flex item refuses to go below the width its
+        content wants unless told it may. While the cell clipped, that width
+        was nothing and the question never arose; now that it wraps, a runner
+        name would otherwise push the whole card wider than the screen.
+      */
+      min-width: 0;
     }
   }
 </style>
