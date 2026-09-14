@@ -354,6 +354,9 @@ export const cancelJobWorkflow = (id: string, body: Body<'cancelJobWorkflow'>) =
 export const listHosts = (signal?: AbortSignal) =>
   api.get<Result<'listHosts'>>('/hosts', { signal });
 
+export const listHostSamples = (query?: Query<'listHostSamples'>, signal?: AbortSignal) =>
+  api.get<Result<'listHostSamples'>>('/hosts/samples', { query, signal });
+
 export const getHost = (id: string, signal?: AbortSignal) =>
   api.get<Result<'getHost'>>(`/hosts/${enc(id)}`, { signal });
 

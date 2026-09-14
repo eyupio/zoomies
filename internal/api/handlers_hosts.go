@@ -36,6 +36,32 @@ func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, newList(out))
 }
 
+// handleListHostSamples answers GET /api/v1/hosts/samples: every host's
+// minute samples, for the capacity map. It takes `since` or `window` exactly
+// as /samples does, and `host_id` narrows it to one host.
+func (s *Server) handleListHostSamples(w http.ResponseWriter, r *http.Request) {
+	since, err := queryTime(r, "since")
+	if err != nil {
+		badRequestField(w, "since", err.Error())
+		return
+	}
+	if since == nil {
+		window, werr := queryDuration(r, "window", defaultStatsWindow)
+		if werr != nil {
+			badRequestField(w, "window", werr.Error())
+			return
+		}
+		t := s.ctrl.Now().Add(-window)
+		since = &t
+	}
+	samples, err := s.ctrl.HostSamples(r.Context(), *since, r.URL.Query().Get("host_id"))
+	if err != nil {
+		s.internal(w, r, "reading host samples", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newList(samples))
+}
+
 // handleGetHost answers GET /api/v1/hosts/{id}.
 func (s *Server) handleGetHost(w http.ResponseWriter, r *http.Request) {
 	h, err := s.ctrl.Store().GetHost(r.Context(), chiURLParam(r, "id"))

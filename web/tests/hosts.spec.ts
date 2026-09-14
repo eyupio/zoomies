@@ -302,12 +302,172 @@ test('runner capacity is adjustable from the host card without opening the full 
   });
 
   await card.getByRole('button', { name: 'Adjust', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Runner capacity' });
+  const dialog = page.getByRole('dialog', { name: 'Adjust demo-builder-1' });
   await dialog.getByRole('spinbutton', { name: 'Maximum runners on this host' }).fill('7');
-  await dialog.getByRole('button', { name: 'Save capacity' }).click();
+  // The slider is the same setting: it followed the typed figure.
+  await expect(dialog.getByRole('slider', { name: 'Runner slots' })).toHaveAttribute(
+    'aria-valuetext',
+    '7 runners',
+  );
+  await dialog.getByRole('button', { name: 'Save changes' }).click();
 
   await expect(dialog).toBeHidden();
-  await expect.poll(() => patched).toEqual({ capacity: 7 });
+  // The reserve travels with the capacity, because the host reports both
+  // figures and the dialog offers both. Its value is whatever the host had
+  // -- another spec on this shared server may have set it -- so only the
+  // figure this test typed is pinned.
+  await expect.poll(() => patched).toMatchObject({ capacity: 7 });
+  expect(Object.keys(patched ?? {}).sort()).toEqual([
+    'capacity',
+    'reserve_cpus',
+    'reserve_memory_mb',
+  ]);
+});
+
+/*
+ * The adjust dialog says what fits and marks it on each slider. Past that
+ * mark it warns rather than refuses -- the operator who knows the jobs are
+ * light is right to go past it -- and one press puts everything back on the
+ * recommendation.
+ */
+test('the adjust dialog recommends, warns past the recommendation and can set itself to it', async ({
+  page,
+}) => {
+  await goto(page, '/hosts', 'Hosts');
+  // demo-builder-1: 16 cores, 32 GB. The demo pools ask for two cores and
+  // 4 GB, so what fits today follows from whatever reserve the host has --
+  // another spec on this shared server may have set one -- and seven fit
+  // once the recommended core and 3 GB are held back.
+  const builder = await page.request
+    .get('/api/v1/hosts')
+    .then((r) => r.json() as Promise<{ items: Record<string, number | string>[] }>)
+    .then((page) => page.items.find((h) => h.name === 'demo-builder-1'));
+  if (!builder) throw new Error('demo-builder-1 is not in the fixture');
+  const reservedCores = Number(builder.reserve_cpus ?? 0);
+  const reservedMb = Number(builder.reserve_memory_mb ?? 0);
+  const fits = Math.max(
+    1,
+    Math.min(Math.floor((16 - reservedCores) / 2), Math.floor((32768 - reservedMb) / 4096)),
+  );
+  const card = page.getByRole('article', { name: 'demo-builder-1', exact: true });
+  await card.getByRole('button', { name: 'Adjust', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Adjust demo-builder-1' });
+  await expect(dialog).toContainText(`room for ${fits} runner`);
+
+  const slots = dialog.getByRole('slider', { name: 'Runner slots' });
+  const cores = dialog.getByRole('slider', { name: 'Cores held back' });
+  const memory = dialog.getByRole('slider', { name: 'Memory held back' });
+  await expect(slots).toHaveAttribute('aria-valuetext', `${builder.capacity} runners`);
+
+  // Past the recommendation on slots: the callout says by how much.
+  await dialog.getByRole('spinbutton', { name: 'Maximum runners on this host' }).fill('12');
+  const warning = dialog.getByRole('status').filter({ hasText: 'Above the recommendation' });
+  await expect(warning).toContainText('12 runners would ask for 24 cores');
+
+  // Too much held back: a different sentence, on the reserve. End is the
+  // last notch, all but one core.
+  await cores.focus();
+  await page.keyboard.press('End');
+  await expect(cores).toHaveAttribute('aria-valuetext', '15 cores');
+  await expect(
+    dialog.getByRole('status').filter({ hasText: 'More cores held back than recommended' }),
+  ).toBeVisible();
+
+  // One press: everything back on the mark, and the warnings gone. The
+  // reserve takes a core, so the capacity that fits is one fewer.
+  await dialog.getByRole('button', { name: 'Set to recommendations' }).click();
+  await expect(dialog).toContainText('room for 7 runners');
+  await expect(slots).toHaveAttribute('aria-valuetext', '7 runners');
+  await expect(cores).toHaveAttribute('aria-valuetext', '1 core');
+  await expect(memory).toHaveAttribute('aria-valuetext', '3 GB');
+  await expect(dialog.getByRole('status')).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Set to recommendations' })).toBeDisabled();
+  // A step past it re-enables the button: the recommendation is a place to
+  // come back to, not a lock.
+  await memory.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(memory).toHaveAttribute('aria-valuetext', '4 GB');
+  await expect(dialog.getByRole('button', { name: 'Set to recommendations' })).toBeEnabled();
+});
+
+/*
+ * The capacity map is one chart of every host, and the operator chooses
+ * which hosts and which figures are on it. The choice survives a reload:
+ * somebody watching two machines out of forty wants them there tomorrow.
+ */
+test('the host capacity map toggles hosts and measurements, and remembers the choice', async ({
+  page,
+}) => {
+  await goto(page, '/hosts', 'Hosts');
+  const map = page.getByRole('region', { name: 'Host capacity map', exact: true });
+  const chart = map.getByRole('img').first();
+  // Two measurements on by default, across every host the fixture has: the
+  // demo fleet and whatever the diagnostics fixture adds beside it.
+  const hostList = await page.request
+    .get('/api/v1/hosts')
+    .then((r) => r.json() as Promise<{ items: { id: string }[] }>);
+  const n = hostList.items.length;
+  expect(n).toBeGreaterThanOrEqual(3);
+  await expect(chart).toHaveAttribute(
+    'aria-label',
+    new RegExp(`^${2 * n} lines across ${n} of ${n} hosts`),
+  );
+
+  // History came from the samples route: a series for every host, and the
+  // demo hosts' measured CPU on it.
+  const samples = await page.request
+    .get('/api/v1/hosts/samples?window=1h')
+    .then((r) => r.json() as Promise<{ items: { host_id: string; cpu_percent?: number }[] }>);
+  // Every host now in the fleet has a series; a host another spec deleted
+  // keeps its rows until the prune, and is not a host on this chart.
+  const sampled = new Set(samples.items.map((s) => s.host_id));
+  for (const host of hostList.items) expect(sampled.has(host.id)).toBe(true);
+  expect(samples.items.some((s) => typeof s.cpu_percent === 'number')).toBe(true);
+
+  const measurements = map.getByRole('group', { name: 'Measurements shown' });
+  await measurements.getByRole('button', { name: 'Memory used' }).click();
+  await expect(chart).toHaveAttribute(
+    'aria-label',
+    new RegExp(`^${3 * n} lines across ${n} of ${n} hosts`),
+  );
+  await measurements.getByRole('button', { name: 'CPU used' }).click();
+  await expect(chart).toHaveAttribute(
+    'aria-label',
+    new RegExp(`^${2 * n} lines across ${n} of ${n} hosts`),
+  );
+
+  const hosts = map.getByRole('group', { name: 'Hosts shown' });
+  const arm = hosts.getByRole('button', { name: /^demo-arm-1/ });
+  await arm.click();
+  await expect(arm).toHaveAttribute('aria-pressed', 'false');
+  await expect(chart).toHaveAttribute(
+    'aria-label',
+    new RegExp(`^${2 * (n - 1)} lines across ${n - 1} of ${n} hosts`),
+  );
+  // "Only" narrows the chart to one host.
+  await hosts.getByRole('button', { name: 'Only' }).first().click();
+  await expect(chart).toHaveAttribute('aria-label', new RegExp(`across 1 of ${n} hosts`));
+
+  // The window is a control of the panel too.
+  await map.getByRole('button', { name: 'The last hour, minute by minute' }).click();
+  await expect(chart).toHaveAttribute('aria-label', /the last hour, minute by minute/);
+
+  await page.reload();
+  await page.getByRole('heading', { level: 1, name: 'Hosts' }).waitFor();
+  await expect(map.getByRole('img').first()).toHaveAttribute(
+    'aria-label',
+    new RegExp(`^2 lines across 1 of ${n} hosts, the last hour, minute by minute`),
+  );
+  // The legend row says which host is on, in words as well as in colour:
+  // the first row is demo-arm-1, the hosts being listed by name.
+  await expect(hosts.getByRole('button', { name: /^demo-arm-1/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(hosts.getByRole('button', { name: /^demo-builder-1/ })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
 });
 
 /**

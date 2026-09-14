@@ -1,4 +1,19 @@
-<!-- A deliberately small path for the setting changed most often on a host. -->
+<!--
+  Adjust a host: how many runners it may hold, and what it keeps for itself.
+
+  Three settings, each on a slider that moves between notches, with the
+  recommendation marked on it and a sentence that says where the
+  recommendation came from -- the machine's size, less the reserve, divided
+  by what a runner in this fleet asks for. A setting past its recommendation
+  says so in a callout rather than refusing: an operator who knows the jobs
+  are light is right to go past it, and one who does not is told what it
+  costs. "Set to recommendations" puts all three back in one press.
+
+  Only the fields the host has reported are offered. A reserve held back from
+  a figure nobody has measured is a number the scheduler ignores, and a host
+  that has not said how big it is gets no recommendation rather than a made
+  up one.
+-->
 <script lang="ts">
   import { ApiError, updateHost } from '$lib/api/client';
   import type { Host } from '$lib/api/types';
@@ -9,6 +24,18 @@
   import Dialog from '$lib/components/Dialog.svelte';
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
+  import Slider from '$lib/components/Slider.svelte';
+  import { Sparkles, TriangleAlert } from '@lucide/svelte';
+  import {
+    capacityCeiling,
+    memoryLabel,
+    memoryNotches,
+    overcommit,
+    recommendedCapacity,
+    recommendedReserveCores,
+    recommendedReserveMemoryMb,
+    runnerAsk,
+  } from './recommend';
 
   interface Props {
     open?: boolean;
@@ -18,10 +45,14 @@
 
   let { open = $bindable(false), host, onclose }: Props = $props();
   let capacity = $state('');
+  let reserveCores = $state(0);
+  let reserveMb = $state(0);
   let saving = $state(false);
-  let serverError = $state('');
+  let errors = $state<Record<string, string>>({});
   let loadedFor = $state<string | null>(null);
 
+  // Reload the form when a different host is opened, and only then: an SSE
+  // update to the host must not overwrite what is being moved.
   $effect(() => {
     if (!open || !host) {
       loadedFor = null;
@@ -30,18 +61,99 @@
     if (loadedFor === host.id) return;
     loadedFor = host.id ?? null;
     capacity = String(host.capacity ?? 0);
-    serverError = '';
+    reserveCores = host.reserve_cpus ?? 0;
+    reserveMb = host.reserve_memory_mb ?? 0;
+    errors = {};
   });
 
+  /* -- the machine, and what a runner asks of it ----------------------------- */
+
+  const shape = $derived({ cpus: host?.cpus ?? 0, memoryMb: host?.memory_mb ?? 0 });
+  const sized = $derived(shape.cpus > 0 || shape.memoryMb > 0);
+  const ask = $derived(runnerAsk(fleet.pools));
+  const recCores = $derived(recommendedReserveCores(shape.cpus));
+  const recMb = $derived(recommendedReserveMemoryMb(shape.memoryMb));
+  const recCapacity = $derived(recommendedCapacity(shape, reserveCores, reserveMb, ask));
+
+  /* -- capacity ---------------------------------------------------------------- */
+
   const parsed = $derived(Number(capacity));
-  const error = $derived(
-    serverError ||
+  const capacityError = $derived(
+    errors.capacity ??
       (capacity.trim() === ''
         ? 'Give a number. Use 0 to pause new runner placement on this host.'
         : !Number.isInteger(parsed) || parsed < 0
           ? 'Runner capacity must be a whole number of zero or more.'
           : ''),
   );
+  const ceiling = $derived(
+    capacityCeiling(shape, recCapacity, Number.isFinite(parsed) ? parsed : 0),
+  );
+  const capacityNotches = $derived(Array.from({ length: ceiling + 1 }, (_, i) => i));
+  const capacityMarks = $derived.by(() => {
+    const marks: { value: number; label: string; recommended?: boolean }[] = [
+      { value: 0, label: 'paused' },
+    ];
+    if (recCapacity > 0)
+      marks.push({ value: recCapacity, label: 'recommended', recommended: true });
+    if (shape.cpus > 0 && shape.cpus <= ceiling && shape.cpus !== recCapacity)
+      marks.push({ value: shape.cpus, label: 'one per core' });
+    if (!marks.some((m) => m.value === ceiling))
+      marks.push({ value: ceiling, label: String(ceiling) });
+    return marks.sort((a, b) => a.value - b.value);
+  });
+  const over = $derived(
+    overcommit(shape, Number.isFinite(parsed) ? parsed : 0, reserveCores, reserveMb, ask),
+  );
+  const aboveCapacity = $derived(recCapacity > 0 && parsed > recCapacity);
+
+  const gb = (mb: number) =>
+    `${(mb / 1024).toLocaleString(undefined, { maximumFractionDigits: 1 })} GB`;
+  const placeableCores = $derived(shape.cpus - reserveCores);
+  const placeableMb = $derived(shape.memoryMb - reserveMb);
+
+  /* -- the reserve --------------------------------------------------------------- */
+
+  const coreNotches = $derived(
+    shape.cpus > 1 ? Array.from({ length: shape.cpus }, (_, i) => i) : [0],
+  );
+  const coreMarks = $derived.by(() => {
+    const marks: { value: number; label: string; recommended?: boolean }[] = [
+      { value: 0, label: 'none' },
+    ];
+    if (recCores > 0) marks.push({ value: recCores, label: 'recommended', recommended: true });
+    const half = Math.floor(shape.cpus / 2);
+    if (half > recCores && half < shape.cpus - 1)
+      marks.push({ value: half, label: 'half the machine' });
+    const top = shape.cpus - 1;
+    if (top > 0 && !marks.some((m) => m.value === top))
+      marks.push({ value: top, label: `${top} of ${shape.cpus}` });
+    return marks;
+  });
+  const mbNotches = $derived(memoryNotches(shape.memoryMb));
+  const mbMarks = $derived.by(() => {
+    const marks: { value: number; label: string; recommended?: boolean }[] = [
+      { value: 0, label: 'none' },
+    ];
+    if (recMb > 0 && mbNotches.includes(recMb))
+      marks.push({ value: recMb, label: 'recommended', recommended: true });
+    const top = mbNotches[mbNotches.length - 1] ?? 0;
+    if (top > 0 && top !== recMb) marks.push({ value: top, label: memoryLabel(top) });
+    return marks;
+  });
+  const aboveCores = $derived(recCores > 0 && reserveCores > recCores);
+  const aboveMb = $derived(recMb > 0 && reserveMb > recMb);
+
+  const atRecommendation = $derived(
+    parsed === recCapacity && reserveCores === recCores && reserveMb === recMb,
+  );
+  function recommend(): void {
+    // The reserve first, then the capacity that follows from it, so the
+    // number set is the one the sentence beneath the slider explains.
+    reserveCores = recCores;
+    reserveMb = recMb;
+    capacity = String(recommendedCapacity(shape, recCores, recMb, ask));
+  }
 
   function close(): void {
     open = false;
@@ -49,17 +161,26 @@
   }
 
   async function save(): Promise<void> {
-    if (!host?.id || error) return;
+    if (!host?.id || capacityError) return;
     saving = true;
-    serverError = '';
+    errors = {};
     try {
-      await updateHost(host.id, { capacity: parsed });
+      await updateHost(host.id, {
+        capacity: parsed,
+        // Only what this host can honour: a field it has never reported is
+        // left alone rather than sent as a zero it would have to refuse.
+        ...(shape.cpus > 0 ? { reserve_cpus: reserveCores } : {}),
+        ...(shape.memoryMb > 0 ? { reserve_memory_mb: reserveMb } : {}),
+      });
       await fleet.reconcile();
-      toasts.success(`${host.name || host.id} runner capacity set to ${parsed}`);
+      toasts.success(
+        `${host.name || host.id} adjusted`,
+        `${pluralise(parsed, 'runner slot')}${sized ? `, ${reserveCores === 0 && reserveMb === 0 ? 'nothing held back beyond the floors' : `${pluralise(reserveCores, 'core')} and ${memoryLabel(reserveMb)} held back`}` : ''}. The scheduler uses it on its next pass.`,
+      );
       close();
     } catch (cause) {
-      if (cause instanceof ApiError) serverError = cause.fieldErrors().capacity ?? '';
-      toasts.fromError(cause, 'That host capacity was not changed');
+      if (cause instanceof ApiError) errors = cause.fieldErrors();
+      toasts.fromError(cause, 'That host was not adjusted');
     } finally {
       saving = false;
     }
@@ -68,39 +189,181 @@
 
 <Dialog
   bind:open
-  size="sm"
-  title="Runner capacity"
-  description="Change only how many runners {host?.name || 'this host'} may hold."
+  title="Adjust {host?.name || 'host'}"
+  description="How many runners it may hold, and what it keeps for itself. The scheduler uses it on its next pass."
   onclose={close}
 >
   <form
     id="host-capacity-form"
+    class="form"
     onsubmit={(event) => {
       event.preventDefault();
       void save();
     }}
   >
+    <div class="recommend">
+      <p>
+        {#if sized && recCapacity > 0}
+          A runner here asks for <strong>{ask.cpus} {ask.cpus === 1 ? 'core' : 'cores'}</strong>
+          and <strong>{gb(ask.memoryMb)}</strong>{ask.source === 'pools'
+            ? ', the largest ask across your enabled pools'
+            : ', the default a new pool gets'}. On {shape.cpus > 0
+            ? `${shape.cpus} cores`
+            : 'an unknown number of cores'}
+          and {shape.memoryMb > 0 ? gb(shape.memoryMb) : 'unknown memory'}, that is room for
+          <strong>{pluralise(recCapacity, 'runner')}</strong> once the reserve is kept.
+        {:else}
+          This host has not said how big it is, so there is no recommendation to make. An agent on
+          the current release reports its cores and memory on its next heartbeat.
+        {/if}
+      </p>
+      {#if sized && recCapacity > 0}
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={Sparkles}
+          disabled={atRecommendation}
+          onclick={recommend}
+        >
+          Set to recommendations
+        </Button>
+      {/if}
+    </div>
+
     <Field
       label="Maximum runners on this host"
-      {error}
+      error={capacityError}
       hint="It is running {pluralise(
         host?.active_runners ?? 0,
         'runner',
       )} now. Lowering this does not interrupt them; it only stops new placement until there is room."
     >
       {#snippet children({ id, describedBy, invalid })}
-        <Input
-          bind:value={capacity}
-          {id}
-          {describedBy}
-          {invalid}
-          type="number"
-          min={0}
-          step={1}
-          mono
-        />
+        <div class="slots">
+          <Slider
+            values={capacityNotches}
+            value={Number.isFinite(parsed) ? parsed : 0}
+            label="Runner slots"
+            valuetext={(v) => (v === 0 ? 'Paused' : pluralise(v, 'runner'))}
+            marks={capacityMarks}
+            tone={aboveCapacity ? 'warning' : 'accent'}
+            readout={false}
+            {describedBy}
+            onchange={(v) => (capacity = String(v))}
+          />
+          <Input
+            bind:value={capacity}
+            {id}
+            {describedBy}
+            {invalid}
+            type="number"
+            min={0}
+            step={1}
+            size="sm"
+            mono
+          />
+        </div>
       {/snippet}
     </Field>
+    {#if aboveCapacity}
+      <div class="callout" role="status">
+        <TriangleAlert size={16} aria-hidden="true" />
+        <div>
+          <p class="title">Above the recommendation</p>
+          <p>
+            {pluralise(parsed, 'runner')} would ask for {parsed * ask.cpus} cores and {gb(
+              parsed * ask.memoryMb,
+            )} on a host with {placeableCores} cores and {gb(placeableMb)} to place on{over.cpus >
+              0 || over.memoryMb > 0
+              ? `: ${[over.cpus > 0 ? `${over.cpus} cores` : '', over.memoryMb > 0 ? gb(over.memoryMb) : ''].filter(Boolean).join(' and ')} more than there is`
+              : ''}. The scheduler still places only what fits, so the extra slots read as free
+            while jobs wait on them; and a runner without a CPU limit can push the host past what a
+            throttle can calm.
+          </p>
+        </div>
+      </div>
+    {/if}
+
+    {#if sized}
+      <fieldset class="reserve">
+        <legend>Held back for the machine</legend>
+        <p class="note">
+          What the scheduler leaves alone: the room this host needs to be a working machine rather
+          than a pool of capacity. A floor applies even at none: half a core or a twentieth of the
+          machine, whichever is larger, and 512 MB of memory.
+        </p>
+        {#if shape.cpus > 1}
+          <Field
+            label="Cores"
+            hint="Of {shape.cpus} on this host."
+            error={errors.reserve_cpus ?? ''}
+          >
+            {#snippet children({ id, describedBy })}
+              <Slider
+                {id}
+                values={coreNotches}
+                bind:value={reserveCores}
+                label="Cores held back"
+                valuetext={(v) => (v === 0 ? 'None' : pluralise(v, 'core'))}
+                marks={coreMarks}
+                tone={aboveCores ? 'warning' : 'accent'}
+                {describedBy}
+              />
+            {/snippet}
+          </Field>
+          {#if aboveCores}
+            <div class="callout" role="status">
+              <TriangleAlert size={16} aria-hidden="true" />
+              <div>
+                <p class="title">More cores held back than recommended</p>
+                <p>
+                  {pluralise(placeableCores, 'core')} left for runners, which is room for about {pluralise(
+                    Math.max(0, Math.floor(placeableCores / ask.cpus)),
+                    'runner',
+                  )} at {ask.cpus} each. The recommendation is {pluralise(recCores, 'core')}: enough
+                  for the daemon, the agent and the kernel on a machine this size.
+                </p>
+              </div>
+            </div>
+          {/if}
+        {/if}
+        {#if shape.memoryMb > 1024}
+          <Field
+            label="Memory"
+            hint="Of {gb(shape.memoryMb)} on this host."
+            error={errors.reserve_memory_mb ?? ''}
+          >
+            {#snippet children({ id, describedBy })}
+              <Slider
+                {id}
+                values={mbNotches}
+                bind:value={reserveMb}
+                label="Memory held back"
+                valuetext={(v) => (v === 0 ? 'None' : memoryLabel(v))}
+                marks={mbMarks}
+                tone={aboveMb ? 'warning' : 'accent'}
+                {describedBy}
+              />
+            {/snippet}
+          </Field>
+          {#if aboveMb}
+            <div class="callout" role="status">
+              <TriangleAlert size={16} aria-hidden="true" />
+              <div>
+                <p class="title">More memory held back than recommended</p>
+                <p>
+                  {gb(placeableMb)} left for runners, which is room for about {pluralise(
+                    Math.max(0, Math.floor(placeableMb / ask.memoryMb)),
+                    'runner',
+                  )} at {gb(ask.memoryMb)} each. The recommendation is {memoryLabel(recMb)}: a tenth
+                  of the machine, for the page cache and the daemon.
+                </p>
+              </div>
+            </div>
+          {/if}
+        {/if}
+      </fieldset>
+    {/if}
   </form>
 
   {#snippet footer()}
@@ -110,9 +373,100 @@
       type="submit"
       form="host-capacity-form"
       loading={saving}
-      disabled={Boolean(error)}
+      disabled={Boolean(capacityError)}
     >
-      Save capacity
+      Save changes
     </Button>
   {/snippet}
 </Dialog>
+
+<style>
+  .form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-4);
+    padding-bottom: var(--z-space-2);
+  }
+  .recommend {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--z-space-4);
+    padding: var(--z-space-3) var(--z-space-4);
+    border: var(--z-border-width) solid var(--z-accent-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-accent-subtle);
+  }
+  .recommend p {
+    margin: 0;
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text-muted);
+  }
+  .recommend strong {
+    color: var(--z-text);
+    font-weight: var(--z-weight-semibold);
+    font-variant-numeric: tabular-nums;
+  }
+  /* The exact number beside the slider, for the operator who knows the
+     figure: the two are one setting and move together. */
+  .slots {
+    display: grid;
+    grid-template-columns: 1fr 6rem;
+    align-items: start;
+    gap: var(--z-space-4);
+  }
+  .callout {
+    display: flex;
+    gap: var(--z-space-3);
+    padding: var(--z-space-3) var(--z-space-4);
+    border: var(--z-border-width) solid var(--z-pending-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-pending-subtle);
+    color: var(--z-pending);
+  }
+  .callout p {
+    margin: 0;
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text-muted);
+  }
+  .callout .title {
+    color: var(--z-pending);
+    font-weight: var(--z-weight-semibold);
+    margin-bottom: var(--z-nudge-2);
+  }
+  .callout :global(svg) {
+    flex: none;
+    margin-top: var(--z-nudge-2);
+  }
+  .reserve {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-4);
+    margin: 0;
+    padding: var(--z-space-4);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+  }
+  legend {
+    padding: 0 var(--z-space-1);
+    font-size: var(--z-text-xs);
+    font-weight: var(--z-weight-medium);
+    color: var(--z-text-muted);
+  }
+  .note {
+    margin: 0;
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text-subtle);
+  }
+  @media (max-width: 480px) {
+    .recommend {
+      flex-direction: column;
+    }
+    .slots {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

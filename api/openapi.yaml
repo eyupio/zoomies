@@ -1569,6 +1569,43 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/Host" }
 
+  /hosts/samples:
+    get:
+      operationId: listHostSamples
+      tags: [hosts]
+      summary: Per-host minute samples for the capacity map
+      description: >-
+        One row per host per minute: its slots, what its agent measured (CPU,
+        the one-minute load average, available memory), what the scheduler had
+        promised away on it, and its disk. A measurement the host had not made,
+        or one older than 90 seconds when the minute was sampled, is absent
+        rather than zero, so a host that stopped reporting draws a gap rather
+        than a flat line. Kept for `retention.samples`, like the fleet samples.
+      x-zoomies-role: viewer
+      parameters:
+        - name: window
+          in: query
+          schema: { type: string, default: "1h" }
+        - name: since
+          in: query
+          description: An exact instant to resume from. Wins over `window` when both are given.
+          schema: { type: string, format: date-time }
+        - name: host_id
+          in: query
+          description: One host's samples only. Left out, every host's.
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/HostSample" }
+
   /hosts/{id}:
     parameters: [{ $ref: "#/components/parameters/PathID" }]
     get:
@@ -4052,6 +4089,26 @@ components:
             a load of at least twice the CPUs is what steps the throttle up, because a
             runnable queue that deep is a machine that has stopped keeping up even when the
             CPU figure saturates at 100.
+    HostSample:
+      type: object
+      description: One host at one minute. Absent measurements are gaps, never zero.
+      required: [host_id, at, capacity, active_runners]
+      properties:
+        host_id: { type: string }
+        at: { type: string, format: date-time }
+        capacity: { type: integer, description: The slots the host was taking that minute -- its configured capacity stepped down by any throttle. }
+        active_runners: { type: integer }
+        cpu_percent: { type: number, minimum: 0, maximum: 100, description: Whole-host CPU occupied, as the agent measured it. Absent when unmeasured or stale. }
+        load_average_1m: { type: number, minimum: 0, description: The kernel's one-minute load average. Absent when unmeasured or stale. }
+        cpus: { type: integer, description: The machine's CPUs, carried on every row so the chart can draw load against size. }
+        memory_mb: { type: integer, format: int64 }
+        memory_available_mb: { type: integer, format: int64, minimum: 0, description: Whole-host available memory including reclaimable cache. Absent when unmeasured or stale. }
+        allocatable_cpus: { type: number, description: The machine less its reserve, with the floors applied. }
+        allocatable_memory_mb: { type: integer, format: int64 }
+        reserved_cpus: { type: number, description: What the live runners had promised away, from the last scheduling pass. Absent before one has run. }
+        reserved_memory_mb: { type: integer, format: int64 }
+        disk_total_mb: { type: integer, format: int64 }
+        disk_free_mb: { type: integer, format: int64 }
     HostThrottle:
       type: object
       description: >-

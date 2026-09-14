@@ -190,7 +190,61 @@ func (c *Controller) sample(ctx context.Context) error {
 		return err
 	}
 	s.FleetQueuedJobs, s.FleetRunningJobs = fleet.Queued, fleet.Running
-	return c.st.RecordSample(ctx, s)
+	if err := c.st.RecordSample(ctx, s); err != nil {
+		return err
+	}
+	return c.sampleHosts(ctx, s.At)
+}
+
+// sampleHosts writes the same minute for every host: its slots, what its
+// agent last measured, and what the scheduler has promised away on it. It is
+// what lets the Hosts page say whether "CPU 93%" is a spike or the whole
+// afternoon, which a card with one number cannot.
+//
+// A measurement older than HostUsageMaxAge is left out rather than carried
+// forward. A host that stopped reporting would otherwise draw a flat line at
+// its last reading, and a flat line is exactly what a healthy, quiet machine
+// draws too.
+func (c *Controller) sampleHosts(ctx context.Context, now time.Time) error {
+	hosts, err := c.st.ListHosts(ctx)
+	if err != nil {
+		return err
+	}
+	samples := make([]store.HostSample, 0, len(hosts))
+	for _, h := range hosts {
+		samples = append(samples, c.hostSample(h, now))
+	}
+	return c.st.RecordHostSamples(ctx, samples)
+}
+
+// hostSample is one host as one row of history, from the same figures the
+// host's view is rendered from, so the newest point of the chart and the card
+// beside it never disagree.
+func (c *Controller) hostSample(h *store.Host, now time.Time) store.HostSample {
+	alloc := h.Allocatable()
+	s := store.HostSample{
+		HostID:              h.ID,
+		At:                  now,
+		Capacity:            h.EffectiveCapacity(),
+		ActiveRunners:       h.ActiveRunners,
+		CPUs:                int64(h.CPUs),
+		MemoryMB:            h.MemoryMB,
+		AllocatableCPUs:     alloc.CPUs,
+		AllocatableMemoryMB: alloc.MemoryMB,
+		DiskTotalMB:         h.DiskTotalMB,
+		DiskFreeMB:          h.DiskFreeMB,
+	}
+	if h.Usage.Fresh(now) {
+		s.CPUPercent = h.Usage.CPUPercent
+		s.LoadAverage1 = h.Usage.LoadAverage1
+		s.MemoryAvailableMB = h.Usage.MemoryAvailableMB
+	}
+	if res, ok := c.reservedOn(h.ID); ok {
+		cpus, mem := res.CPUs, res.MemoryMB
+		s.ReservedCPUs = &cpus
+		s.ReservedMemoryMB = &mem
+	}
+	return s
 }
 
 // prune enforces the retention windows and expires credentials.
@@ -217,6 +271,7 @@ func (c *Controller) prune(ctx context.Context) {
 			return int64(len(ids)), err
 		}},
 		{"fleet samples", r.Samples, c.st.PruneSamples},
+		{"host samples", r.Samples, c.st.PruneHostSamples},
 		{"webhook deliveries", r.Webhooks, c.st.PruneDeliveries},
 		// The audit rows themselves have no prune: an audit trail a process can
 		// quietly delete is not one, so store deliberately offers no way.
