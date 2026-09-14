@@ -149,7 +149,7 @@ func yamlName(f reflect.StructField) string {
 func encode(s Setting, f reflect.Value) any {
 	switch s.Kind {
 	case KindDuration:
-		return time.Duration(f.Int()).String()
+		return TidyDuration(time.Duration(f.Int()))
 	case KindOptionalBool:
 		if f.IsNil() {
 			return nil
@@ -289,7 +289,19 @@ func parseString(s Setting, raw string) (any, error) {
 		return nil, &SettingError{s.Key, fmt.Sprintf(format, args...)}
 	}
 	switch s.Kind {
-	case KindBool, KindOptionalBool:
+	case KindOptionalBool:
+		// Empty text is how "nothing has been said about this" is written, and
+		// for a tri-state that is an answer rather than a mistake: it puts the
+		// setting back to being derived from the ones it follows.
+		if strings.TrimSpace(raw) == "" {
+			return nil, nil
+		}
+		b, err := strconv.ParseBool(strings.TrimSpace(raw))
+		if err != nil {
+			return fail("%q is not true, false or empty", raw)
+		}
+		return b, nil
+	case KindBool:
 		b, err := strconv.ParseBool(strings.TrimSpace(raw))
 		if err != nil {
 			return fail("%q is not a boolean (use true or false)", raw)
@@ -316,21 +328,30 @@ func parseString(s Setting, raw string) (any, error) {
 
 // Text renders a value the way parseString reads it back, so what the database
 // stores round-trips through what an operator would have typed.
+//
+// It dispatches on the setting's kind rather than on the value's Go type. A
+// value that arrived as JSON is []any and map[string]any rather than []string
+// and map[string]string, and a type switch that fell through to fmt.Sprint for
+// those wrote "[openid profile email groups]" into the database -- a list that
+// read back as one item whose name was the whole list.
 func Text(s Setting, value any) string {
-	switch v := value.(type) {
-	case nil:
+	if value == nil {
 		return ""
-	case string:
-		return v
-	case bool:
-		return strconv.FormatBool(v)
-	case int:
-		return strconv.Itoa(v)
-	case []string:
-		return strings.Join(v, ",")
-	case map[string]string:
-		keys := make([]string, 0, len(v))
-		for k := range v {
+	}
+	switch s.Kind {
+	case KindStrings:
+		list, err := asStrings(value)
+		if err != nil {
+			return ""
+		}
+		return strings.Join(list, ",")
+	case KindLabels:
+		pairs, err := asLabels(value)
+		if err != nil {
+			return ""
+		}
+		keys := make([]string, 0, len(pairs))
+		for k := range pairs {
 			keys = append(keys, k)
 		}
 		// Sorted, so the same map always renders the same text: a row that
@@ -338,12 +359,53 @@ func Text(s Setting, value any) string {
 		sort.Strings(keys)
 		parts := make([]string, 0, len(keys))
 		for _, k := range keys {
-			parts = append(parts, k+"="+v[k])
+			parts = append(parts, k+"="+pairs[k])
 		}
 		return strings.Join(parts, ",")
-	default:
-		return fmt.Sprint(v)
+	case KindDuration:
+		switch v := value.(type) {
+		case string:
+			return v
+		case time.Duration:
+			return TidyDuration(v)
+		}
+	case KindBool, KindOptionalBool:
+		if b, err := asBool(value); err == nil {
+			return strconv.FormatBool(b)
+		}
+		return ""
+	case KindInt:
+		if n, err := asInt(value); err == nil {
+			return strconv.Itoa(n)
+		}
+		return ""
 	}
+	if text, ok := value.(string); ok {
+		return text
+	}
+	return fmt.Sprint(value)
+}
+
+// TidyDuration is a duration as an operator writes it: 168h, not 168h0m0s.
+//
+// Go's own rendering is exact and unreadable past an hour, and it is what both
+// the settings page and the stored row would otherwise carry -- so a retention
+// window somebody typed as "720h" came back as "720h0m0s" and looked like
+// something the product had decided rather than something they had said. The
+// result still parses, which is the only constraint: it is what goes into the
+// database and what comes back out of it.
+func TidyDuration(d time.Duration) string {
+	s := d.String()
+	// Only a whole trailing unit is dropped, never digits: "30s" must not
+	// become "3". Go writes the units largest first, so a zero seconds can only
+	// follow a minutes unit, and a zero minutes can only follow an hours one.
+	if strings.HasSuffix(s, "m0s") {
+		s = strings.TrimSuffix(s, "0s")
+	}
+	if strings.HasSuffix(s, "h0m") {
+		s = strings.TrimSuffix(s, "0m")
+	}
+	return s
 }
 
 func asBool(value any) (bool, error) {

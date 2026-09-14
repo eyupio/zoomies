@@ -18,7 +18,7 @@
   Secrets are absent rather than starred out: the API does not send them at all.
 -->
 <script lang="ts">
-  import { RotateCcw, Search, TriangleAlert } from '@lucide/svelte';
+  import { Lock, RotateCcw, Search, TriangleAlert } from '@lucide/svelte';
   import { getSettings, updateSettings, ApiError } from '$lib/api/client';
   import type { Problem, Setting, Settings } from '$lib/api/types';
   import { severityStatus } from '$lib/status';
@@ -30,7 +30,7 @@
   import Segmented from '$lib/components/Segmented.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import SettingRow from './SettingRow.svelte';
-  import { SECTION_BLURB, matches } from './settings';
+  import { SECTION_BLURB, displayValue, matches } from './settings';
 
   interface Props {
     class?: string;
@@ -102,16 +102,24 @@
     all.filter((s) => {
       if (!matches(s, query)) return false;
       if (view === 'changed') return s.source !== 'default';
-      if (view === 'attention')
-        return s.pending || (findingsBySetting[s.key]?.length ?? 0) > 0;
+      if (view === 'attention') return s.pending || (findingsBySetting[s.key]?.length ?? 0) > 0;
       return true;
     }),
   );
 
+  /*
+    A setting the environment is holding is not something an administrator can
+    do anything about from here, so it does not belong among the ones they can.
+    It is gathered at the end instead, where it answers "why is that value not
+    what I set" without standing between somebody and the setting they came for.
+  */
+  const held = $derived(visible.filter((s) => s.source === 'environment'));
+  const changeable = $derived(visible.filter((s) => s.source !== 'environment'));
+
   /* The API already orders the list, so grouping preserves that order. */
   const sections = $derived.by(() => {
     const out: { name: string; rows: Setting[] }[] = [];
-    for (const setting of visible) {
+    for (const setting of changeable) {
       const name = setting.section ?? 'other';
       const last = out[out.length - 1];
       if (last?.name === name) last.rows.push(setting);
@@ -128,9 +136,6 @@
   );
 
   const pending = $derived(settings?.pending_restart ?? []);
-  const pinned = $derived(settings?.pinned_by_environment ?? []);
-  /* The notice names the variable to go and change, not only the key it holds. */
-  const pinnedSettings = $derived(all.filter((s) => pinned.includes(s.key)));
 
   /* -- changing one --------------------------------------------------------- */
 
@@ -178,8 +183,8 @@
       <p>
         What this controller is running, and where each value came from. Settings are kept in this
         fleet's database, so a change made here survives a restart. Four layers stack — the built-in
-        defaults, then the configuration file, then the database, then <code>ZOOMIES_*</code> in the
-        environment — and each one wins over the one before it.
+        defaults, then the configuration file, then the database, then <code>ZOOMIES_*</code> in the environment
+        — and each one wins over the one before it.
       </p>
     </div>
   </header>
@@ -207,32 +212,6 @@
             <ul class="keys">
               {#each pending as key (key)}
                 <li class="mono">{key}</li>
-              {/each}
-            </ul>
-          </div>
-        </section>
-      {/if}
-
-      {#if pinned.length > 0}
-        <section class="notice pinned" aria-labelledby="pinned-by-env">
-          <Badge tone="pending" label="Pinned" size="sm" dot={false} />
-          <div>
-            <h3 id="pinned-by-env">
-              {pinned.length === 1
-                ? 'One setting is held by an environment variable'
-                : `${pinned.length} settings are held by environment variables`}
-            </h3>
-            <p>
-              The environment is the last word, so a change made here would be stored and then
-              overridden at the next restart. Change them where they are set — usually the
-              deployment's environment file — or unset the variable to manage them here.
-            </p>
-            <ul class="pins">
-              {#each pinnedSettings as setting (setting.key)}
-                <li>
-                  <span class="pin-env mono">{setting.env}</span>
-                  <span class="pin-key">{setting.label}</span>
-                </li>
               {/each}
             </ul>
           </div>
@@ -291,7 +270,9 @@
               showValue
             />
           {:else}
-            <span class="meta-value">None. Everything comes from the database and the defaults.</span>
+            <span class="meta-value"
+              >None. Everything comes from the database and the defaults.</span
+            >
           {/if}
         </div>
         <div>
@@ -304,7 +285,7 @@
         </div>
       </div>
 
-      {#if sections.length === 0}
+      {#if sections.length === 0 && held.length === 0}
         <p class="empty">
           <RotateCcw size={14} aria-hidden="true" />
           Nothing matches
@@ -325,6 +306,32 @@
           {/each}
         </section>
       {/each}
+
+      {#if held.length > 0}
+        <fieldset class="held">
+          <legend>
+            <Lock size={13} aria-hidden="true" />
+            Held by the environment
+          </legend>
+          <p class="held-note">
+            {held.length === 1 ? 'This setting is' : 'These settings are'} set by a
+            <code>ZOOMIES_*</code> variable, and the environment is the last word — it overrides
+            both the database and the configuration file. To change
+            {held.length === 1 ? 'it' : 'them'}, amend the environment file this controller starts
+            with and restart it. Removing a variable hands that setting back to this page.
+          </p>
+          <ul class="held-rows">
+            {#each held as setting (setting.key)}
+              <li>
+                <span class="held-env mono">{setting.env}</span>
+                <span class="held-label">{setting.label}</span>
+                <span class="held-value mono">{displayValue(setting)}</span>
+                <span class="held-key mono">{setting.key}</span>
+              </li>
+            {/each}
+          </ul>
+        </fieldset>
+      {/if}
     {/if}
   </LoadingBoundary>
 </div>
@@ -371,10 +378,6 @@
   .notice.waiting {
     background: var(--z-draining-subtle);
     box-shadow: inset var(--z-nudge-1) 0 0 0 var(--z-draining);
-  }
-  .notice.pinned {
-    background: var(--z-pending-subtle);
-    box-shadow: inset var(--z-nudge-1) 0 0 0 var(--z-pending);
   }
   .notice h3 {
     margin: 0;
@@ -536,5 +539,94 @@
   }
   section:last-child :global(.row:last-child) {
     border-bottom: 0;
+  }
+
+  /*
+    A real fieldset, because that is what this is: a group of controls with one
+    explanation that applies to all of them. It is quiet and it is last -- the
+    settings nobody can change from here should not be the first thing between
+    an operator and the ones they can.
+  */
+  .held {
+    margin: var(--z-space-5);
+    padding: var(--z-space-4);
+    border: var(--z-border-width) solid var(--z-pending-border);
+    border-radius: var(--z-radius-sm);
+    background: var(--z-pending-subtle);
+    min-width: 0;
+  }
+  .held legend {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-2);
+    padding: 0 var(--z-space-2);
+    font-size: var(--z-text-sm);
+    font-weight: var(--z-weight-semibold);
+    color: var(--z-text);
+  }
+  .held-note {
+    margin: 0 0 var(--z-space-3);
+    max-width: 80ch;
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text-muted);
+  }
+  .held-note code {
+    font-size: var(--z-text-2xs);
+  }
+  .held-rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .held-rows li {
+    display: grid;
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+    gap: 0 var(--z-space-3);
+    align-items: baseline;
+    padding-top: var(--z-space-3);
+    border-top: var(--z-border-width) solid var(--z-pending-border);
+  }
+  .held-rows li:first-child {
+    padding-top: 0;
+    border-top: 0;
+  }
+  .held-env {
+    grid-column: 1;
+    font-size: var(--z-text-xs);
+    font-weight: var(--z-weight-medium);
+    color: var(--z-text);
+    overflow-wrap: anywhere;
+  }
+  .held-value {
+    grid-column: 2;
+    font-size: var(--z-text-xs);
+    color: var(--z-text);
+    overflow-wrap: anywhere;
+  }
+  .held-label {
+    grid-column: 1;
+    font-size: var(--z-text-2xs);
+    color: var(--z-text-muted);
+  }
+  .held-key {
+    grid-column: 2;
+    font-size: var(--z-text-2xs);
+    color: var(--z-text-subtle);
+    overflow-wrap: anywhere;
+  }
+  @media (max-width: 768px) {
+    .held-rows li {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .held-env,
+    .held-value,
+    .held-label,
+    .held-key {
+      grid-column: 1;
+    }
   }
 </style>

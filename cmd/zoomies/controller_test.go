@@ -3,13 +3,16 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -186,5 +189,97 @@ func TestBuildBackendsLeavesOutBackendsThisHostVisiblyLacks(t *testing.T) {
 	kinds := reg.Kinds()
 	if len(kinds) != 1 || kinds[0] != store.BackendDocker {
 		t.Fatalf("registered %v, want only the configured docker backend (its socket may be down, and is still reported on)", kinds)
+	}
+}
+
+// The upgrade path: an instance that has been running on a configuration file
+// meets this build with an empty settings table.
+//
+// Without the import it would get a settings page showing every value as "from
+// the file" and offering to store a second copy of each one. With it, the
+// file's settings are the fleet's settings, the file stays as the layer
+// underneath them, and nothing about what the controller runs changes.
+func TestAConfigurationFileIsCarriedIntoTheDatabaseOnce(t *testing.T) {
+	dir := isolateHost(t)
+	ctx := context.Background()
+	path := filepath.Join(dir, "zoomies.yaml")
+	if err := os.WriteFile(path, []byte(
+		"scheduler:\n  interval: 25s\nretention:\n  jobs: 1440h\n"), 0o600); err != nil {
+		t.Fatalf("writing the file: %v", err)
+	}
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	st := keyStore(t)
+	key, err := cryptox.GenerateKey()
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+
+	findings, err := seedSettingsFromFile(ctx, st, cfg, key, discardLogger())
+	if err != nil {
+		t.Fatalf("seedSettingsFromFile: %v", err)
+	}
+	if len(findings) != 1 || findings[0].Code != "settings.imported_from_file" {
+		t.Errorf("the import said nothing an operator would see: %v", findings)
+	}
+	rows, err := st.InstanceSettings(ctx)
+	if err != nil {
+		t.Fatalf("InstanceSettings: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("imported %d settings, want 2: %+v", len(rows), rows)
+	}
+
+	// Once, and only once. An operator who then clears a setting back to its
+	// default must not find the file poured back in at the next start.
+	if err := st.DeleteInstanceSettings(ctx, []string{"scheduler.interval"}); err != nil {
+		t.Fatalf("DeleteInstanceSettings: %v", err)
+	}
+	again, err := seedSettingsFromFile(ctx, st, cfg, key, discardLogger())
+	if err != nil {
+		t.Fatalf("the second import: %v", err)
+	}
+	if len(again) != 0 {
+		t.Errorf("the import ran a second time: %v", again)
+	}
+	if _, err := st.GetInstanceSetting(ctx, "scheduler.interval"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("a cleared setting came back from the file: %v", err)
+	}
+}
+
+// A fleet already configured through the settings page is not one the file has
+// anything to say about, so nothing is imported over it.
+func TestAFleetWithStoredSettingsIsNotOverwrittenByItsFile(t *testing.T) {
+	dir := isolateHost(t)
+	ctx := context.Background()
+	path := filepath.Join(dir, "zoomies.yaml")
+	if err := os.WriteFile(path, []byte("scheduler:\n  interval: 25s\n"), 0o600); err != nil {
+		t.Fatalf("writing the file: %v", err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	st := keyStore(t)
+	if err := st.PutInstanceSettings(ctx, "an administrator", []store.InstanceSetting{
+		{Key: "scheduler.interval", Value: "5s"},
+	}); err != nil {
+		t.Fatalf("PutInstanceSettings: %v", err)
+	}
+
+	key, _ := cryptox.GenerateKey()
+	if _, err := seedSettingsFromFile(ctx, st, cfg, key, discardLogger()); err != nil {
+		t.Fatalf("seedSettingsFromFile: %v", err)
+	}
+	row, err := st.GetInstanceSetting(ctx, "scheduler.interval")
+	if err != nil {
+		t.Fatalf("GetInstanceSetting: %v", err)
+	}
+	if row.Value != "5s" {
+		t.Errorf("the file overwrote a stored setting: %q", row.Value)
 	}
 }

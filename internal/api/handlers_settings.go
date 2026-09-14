@@ -396,7 +396,17 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			}
 			continue
 		}
-		ch.before, ch.value = before, value
+		// What gets stored and applied is what the configuration made of the
+		// request, not the request itself. A list arrives from JSON as []any
+		// and a duration as free text; reading the value back gives the typed,
+		// normalised thing, so the row in the database and the value in the
+		// running snapshot are the same value rendered the same way.
+		parsed, err := candidate.Value(key)
+		if err != nil {
+			fields = append(fields, fieldError{key, err.Error()})
+			continue
+		}
+		ch.before, ch.value = before, parsed
 		staged = append(staged, ch)
 	}
 

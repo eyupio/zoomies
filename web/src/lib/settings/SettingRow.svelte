@@ -159,7 +159,7 @@
   class="row {className}"
   class:has-findings={findings.length > 0}
   class:pending={setting.pending}
-  class:pinned={pinned}
+  class:pinned
 >
   <div class="key">
     <span class="label">{setting.label}</span>

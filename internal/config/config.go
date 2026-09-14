@@ -622,18 +622,92 @@ func Load(path string) (*Config, error) {
 // missing one is not. It is what the daemon entry points call.
 func LoadOrDefault(path string) (*Config, error) { return Load(path) }
 
-// Save writes the config to path with 0640 permissions.
+// Save writes the configuration to path with 0640 permissions.
+//
+// It writes what an operator actually chose, not the whole struct. The two
+// keys that get the database open go in whatever they are set to -- the file
+// is the only place they can live -- and so does everything a standalone agent
+// needs to reach its controller. Beyond that, only a value that differs from
+// the built-in default is written.
+//
+// This used to marshal every field, which put all eighty-nine settings in the
+// file of every fresh install. That was merely noisy while the file was the
+// only source of configuration; now that the database is the one an operator
+// edits, it would be worse than noisy -- a key spelled in the file is a key the
+// file is in charge of, so a generated file listing all of them would hand the
+// whole configuration back to a text editor on the controller's host on the day
+// it was installed.
+//
+// It also stops writing the defaults *as* defaults. agent.capacity comes from
+// this machine's core count and database.path from this machine's state
+// directory, so a file that spells them freezes one host's answers, and a
+// second host given a copy of that file inherits them.
 func (c *Config) Save(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
-	b, err := yaml.Marshal(c)
+	b, err := yaml.Marshal(c.sparse())
 	if err != nil {
 		return err
 	}
-	header := "# zoomies.yaml -- see https://github.com/eyupio/zoomies/blob/main/docs/configuration.md\n" +
-		"# Every setting here can be overridden with a ZOOMIES_* environment variable.\n\n"
+	header := "# zoomies.yaml -- the settings this host needs before it can read the rest.\n" +
+		"#\n" +
+		"# Everything else lives in the database named below and is changed on the\n" +
+		"# settings page. A key written here is still honoured -- it is the layer\n" +
+		"# underneath the database -- and a ZOOMIES_* environment variable still\n" +
+		"# overrides both. See https://github.com/eyupio/zoomies/blob/main/docs/configuration.md\n\n"
 	return os.WriteFile(path, append([]byte(header), b...), 0o640)
+}
+
+// sparse renders the configuration as the nested tree Save writes: the keys
+// that have to be in a file, plus anything that is not the default.
+func (c *Config) sparse() map[string]any {
+	defaults := Default()
+	out := map[string]any{}
+	for _, s := range Settings() {
+		value, err := c.Value(s.Key)
+		if err != nil {
+			continue
+		}
+		text := Text(s, value)
+		// A bootstrap key is always written: the file is the only place it can
+		// live, so leaving it out because it happens to equal the default would
+		// mean the next start had to guess. Everything else, including the
+		// agent transport keys, is written only when it differs -- an agent
+		// setting at its default is a setting nobody has chosen.
+		if s.Scope != ScopeBootstrap {
+			if def, derr := defaults.Value(s.Key); derr == nil && Text(s, def) == text {
+				continue
+			}
+		} else if text == "" {
+			continue
+		}
+		putPath(out, s.Key, yamlValue(s, value))
+	}
+	return out
+}
+
+// yamlValue renders a value the way the strict decoder reads it back: a
+// duration as the text an operator writes, and everything else as itself.
+func yamlValue(s Setting, value any) any {
+	if s.Kind == KindDuration {
+		return Text(s, value)
+	}
+	return value
+}
+
+// putPath writes a dotted key into a tree of maps.
+func putPath(into map[string]any, key string, value any) {
+	parts := strings.Split(key, ".")
+	for _, part := range parts[:len(parts)-1] {
+		child, ok := into[part].(map[string]any)
+		if !ok {
+			child = map[string]any{}
+			into[part] = child
+		}
+		into = child
+	}
+	into[parts[len(parts)-1]] = value
 }
 
 // normalize fills in values that depend on other values.

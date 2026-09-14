@@ -163,9 +163,12 @@ func TestSettings(t *testing.T) {
 	patched.mustStatus(t, http.StatusOK, "patch settings")
 	var after settingsResponse
 	patched.into(t, &after)
+	// Durations are rendered the way an operator writes them, not the way Go
+	// prints them: somebody who typed 48h should not be shown 48h0m0s and left
+	// wondering what the product decided on their behalf.
 	retention, _ := after.Config["retention"].(map[string]any)
-	if retention["jobs"] != "48h0m0s" {
-		t.Errorf("retention.jobs = %v, want 48h0m0s", retention["jobs"])
+	if retention["jobs"] != "48h" {
+		t.Errorf("retention.jobs = %v, want 48h", retention["jobs"])
 	}
 	if h.ctrl.Config().Retention.Jobs.String() != "48h0m0s" {
 		t.Errorf("the running configuration was not changed: %s", h.ctrl.Config().Retention.Jobs)
