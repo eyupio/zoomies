@@ -675,6 +675,107 @@ test('the runner lifecycle keeps its steps in columns when it wraps', async ({ p
 });
 
 /*
+ * The two phone layouts, and who decides between them.
+ *
+ * Cards are the default and the reason the phone breakpoint exists at all --
+ * ten columns in 412 pixels is not a table. But a fleet is also scanned rather
+ * than read, and one line per runner is what that wants, which is the layout
+ * these grids had before the cards. So both are on offer: a toggle above each
+ * grid for the page, and a default in Settings for the rest. The trade in the
+ * row layout is the sideways scroll, and it is the grid's own frame that takes
+ * it -- the page around it never does.
+ */
+
+/** How far the table overflows its frame, and the document its window. */
+async function gridOverflow(
+  page: Page,
+  label: string,
+): Promise<{ table: number; document: number }> {
+  return grid(page, label).evaluate((table) => {
+    const frame = table.parentElement as HTMLElement;
+    return {
+      table: table.scrollWidth - frame.clientWidth,
+      document: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+}
+
+/** The layout toggle above a grid, as the operator presses it. */
+function layout(page: Page, choice: 'Cards' | 'Rows'): Locator {
+  return page.getByRole('button', { name: new RegExp(`^${choice}:`) });
+}
+
+test('a grid can be read as rows instead of cards, and remembers which', async ({ page }) => {
+  await goto(page, '/runners', 'Runners');
+  const rows = dataRows(grid(page, 'Runners'));
+  await expect(rows.first()).toBeVisible();
+
+  // Cards to begin with. Every value has a line of its own, so a row is many
+  // lines tall and the table is exactly as wide as the screen.
+  const card = (await rows.first().boundingBox())!;
+  expect(card.height, 'a card is one line tall, so it is not a card').toBeGreaterThan(100);
+  expect((await gridOverflow(page, 'Runners')).table).toBeLessThanOrEqual(1);
+
+  await layout(page, 'Rows').click();
+
+  // One line per runner now, and the columns at the widths they declare --
+  // which is wider than the phone, so the frame has something to scroll.
+  const line = (await rows.first().boundingBox())!;
+  expect(line.height, 'the row layout is still stacking values').toBeLessThan(card.height / 2);
+  const overflow = await gridOverflow(page, 'Runners');
+  expect(overflow.table, 'the table fits, so there is nothing to scroll to').toBeGreaterThan(0);
+  expect(
+    overflow.document,
+    'the grid took the page sideways with it instead of scrolling inside its own frame',
+  ).toBeLessThanOrEqual(0);
+  await expectNoSidewaysScroll(page, 'the Runners grid in the row layout');
+
+  // The choice is the operator's and outlives the visit.
+  await page.reload();
+  await expect(pageHeading(page, 'Runners')).toBeVisible();
+  await expect(layout(page, 'Rows')).toHaveAttribute('aria-pressed', 'true');
+  expect((await dataRows(grid(page, 'Runners')).first().boundingBox())!.height).toBeLessThan(
+    card.height / 2,
+  );
+
+  // It is this grid's choice, not every grid's: Jobs has made none, so it is
+  // still cards.
+  await goto(page, '/jobs', 'Jobs');
+  await expect(layout(page, 'Cards')).toHaveAttribute('aria-pressed', 'true');
+
+  // And back again: a layout that can be chosen and not unchosen is a trap.
+  await goto(page, '/runners', 'Runners');
+  await layout(page, 'Cards').click();
+  await expect(layout(page, 'Cards')).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('the Settings default decides for every grid that has not chosen', async ({ page }) => {
+  await goto(page, '/settings?tab=appearance', 'Settings');
+  const rowsDefault = page.getByRole('radio', { name: /^Rows/ });
+  await rowsDefault.check();
+
+  // Neither Jobs nor Pools has a choice of its own, so both follow the default
+  // -- and each says so on its own toggle, which is where an operator would go
+  // to change that one back.
+  for (const [path, heading, label] of [
+    ['/jobs', 'Jobs', 'Jobs'],
+    ['/pools', 'Pools', 'Pools'],
+  ] as const) {
+    await goto(page, path, heading);
+    await expect(dataRows(grid(page, label)).first()).toBeVisible();
+    await expect(layout(page, 'Rows')).toHaveAttribute('aria-pressed', 'true');
+    expect((await gridOverflow(page, label)).table).toBeGreaterThan(0);
+    await expectNoSidewaysScroll(page, `the ${heading} grid following the row default`);
+  }
+
+  // The default goes back too, and takes the grids following it with it.
+  await goto(page, '/settings?tab=appearance', 'Settings');
+  await page.getByRole('radio', { name: /^Cards/ }).check();
+  await goto(page, '/jobs', 'Jobs');
+  await expect(layout(page, 'Cards')).toHaveAttribute('aria-pressed', 'true');
+});
+
+/*
  * The capacity map read the chart by hover, and a finger cannot hover: the
  * reading appeared under the fingertip and was gone the moment it lifted.
  * On a phone a tap chooses the moment, the reading sits under the chart

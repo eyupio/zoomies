@@ -113,7 +113,7 @@
     type ColumnDef,
   } from '@tanstack/svelte-table';
   import { layers } from '../keys';
-  import { prefs } from '../state/prefs.svelte';
+  import { prefs, type GridView } from '../state/prefs.svelte';
   import { viewport } from '../state/viewport.svelte';
   import { router } from '../router';
   import Button from './Button.svelte';
@@ -121,6 +121,7 @@
   import EmptyState from './EmptyState.svelte';
   import ErrorState from './ErrorState.svelte';
   import Pagination from './Pagination.svelte';
+  import Segmented from './Segmented.svelte';
   import Skeleton from './Skeleton.svelte';
 
   interface Props {
@@ -449,7 +450,23 @@
    * because every column has a line of its own again.
    */
   const narrowDesktop = $derived(viewport.narrow);
-  const cards = $derived(viewport.phone);
+  /*
+    Which of the two phone layouts this grid is in, and the operator's answer
+    wins: `cards` gives every value a line of its own, `rows` keeps the table
+    and lets the frame scroll to the columns that do not fit. The choice is
+    only asked below the phone threshold, because above it there is room for
+    the table and the cards never appear.
+  */
+  const view = $derived<GridView>(prefs.gridViewFor(gridId));
+  const cards = $derived(viewport.phone && view === 'cards');
+  /*
+    The table on a phone. The columns cannot divide 360 pixels between them and
+    still say anything, so here alone a declared width is taken as the measure
+    it names and the frame scrolls sideways to reach the rest -- which is the
+    trade the operator made by asking for this layout. The page around it still
+    does not scroll: the frame clips.
+  */
+  const phoneRows = $derived(viewport.phone && view === 'rows');
 
   const byId = $derived(new Map(columns.map((c) => [c.id, c])));
   const visibleColumns = $derived(
@@ -482,6 +499,18 @@
     const wanted = visibleColumns.map((column) => share(column.width, remPx));
     // The tick is a control like any other, so it is measured rather than shared.
     const pick = selectable ? PICK_SHARE_REM * remPx : 0;
+    /*
+      Scrolling, so there is no frame to divide: every column gets exactly what
+      it asked for. The widths are still emitted rather than left to the
+      automatic layout, or the longest repository name on the page would decide
+      how wide the table is and the ellipsis could never fire.
+    */
+    if (phoneRows) {
+      return {
+        pick: selectable ? `${pick}px` : undefined,
+        columns: wanted.map((value) => `${value}px`),
+      };
+    }
     const measured =
       pick +
       visibleColumns.reduce((sum, column, index) => sum + (column.fixed ? wanted[index]! : 0), 0);
@@ -502,6 +531,18 @@
         column.fixed ? `${wanted[index]!}px` : of(wanted[index]!),
       ),
     };
+  });
+
+  /**
+   * How wide the table is when it scrolls, so it is not squeezed back into the
+   * frame. Only the phone's row layout has one: everywhere else the table is
+   * exactly the frame, which is the point of dividing the width.
+   */
+  const tableWidth = $derived.by(() => {
+    if (!phoneRows) return undefined;
+    const pick = selectable ? PICK_SHARE_REM * remPx : 0;
+    const total = visibleColumns.reduce((sum, column) => sum + share(column.width, remPx), pick);
+    return total > 0 ? `${total.toFixed(2)}px` : undefined;
   });
 
   function toggleColumn(id: string, visible: boolean): void {
@@ -643,7 +684,7 @@
   const isEmpty = $derived(settled && !error && modelRows.length === 0);
 </script>
 
-<div class="grid {className}">
+<div class="grid {className}" class:rows={phoneRows}>
   <div class="toolbar">
     {#if selectable && selected.length > 0}
       <div class="bulk" role="group" aria-label="Actions for the selected {noun}">
@@ -663,6 +704,23 @@
         {/each}
         <Button size="sm" variant="ghost" onclick={() => (selected = [])}>Clear selection</Button>
       </div>
+    {/if}
+    {#if viewport.phone}
+      <!--
+        The layout choice, offered where the layouts differ. It is this grid's
+        alone and outlives the visit; Settings holds the default every grid
+        nobody has decided for follows.
+      -->
+      <Segmented
+        class="view"
+        label="How a {noun.replace(/s$/, '')} is laid out"
+        value={view}
+        options={[
+          { value: 'cards', label: 'Cards', name: 'Cards: every value on its own line' },
+          { value: 'rows', label: 'Rows', name: 'Rows: the table, scrolling sideways' },
+        ]}
+        onchange={(next) => prefs.setGridView(gridId, next as GridView)}
+      />
     {/if}
     <div class="chooser-wrap" bind:this={chooser}>
       <Button
@@ -708,7 +766,13 @@
       count it was given becomes noise. The header is row 1, so the data starts
       at offset + 2.
     -->
-    <table role="grid" aria-label={label} aria-rowcount={total} onkeydown={onBodyKeydown}>
+    <table
+      role="grid"
+      aria-label={label}
+      aria-rowcount={total}
+      style:min-width={tableWidth}
+      onkeydown={onBodyKeydown}
+    >
       <!--
         The rest of the roles are spelled out for the reason the row's and the
         cell's are: below the phone breakpoint `thead`, `tbody` and the heading
@@ -1090,7 +1154,7 @@
     it is unchanged; it is the table inside that stops being a table.
   */
   @media (max-width: 768px) {
-    table {
+    .grid:not(.rows) table {
       display: block;
       table-layout: auto;
     }
@@ -1106,17 +1170,17 @@
       screen reader still needs a column header to associate a cell with, and
       removing them outright would leave the grid with rows and no columns.
     */
-    thead {
+    .grid:not(.rows) thead {
       display: block;
     }
-    thead tr {
+    .grid:not(.rows) thead tr {
       display: flex;
       align-items: center;
       flex-wrap: wrap;
       gap: var(--z-space-2);
       padding: 0 var(--z-space-3);
     }
-    thead th {
+    .grid:not(.rows) thead th {
       position: absolute;
       width: var(--z-nudge-1);
       height: var(--z-nudge-1);
@@ -1125,8 +1189,8 @@
       overflow: hidden;
       clip-path: inset(50%);
     }
-    thead th.pick,
-    thead th.sortable {
+    .grid:not(.rows) thead th.pick,
+    .grid:not(.rows) thead th.sortable {
       position: static;
       display: flex;
       align-items: center;
@@ -1139,43 +1203,43 @@
     }
     /* Each sort reads as the small control it now is, rather than as the
        heading of a column that is no longer beside it. */
-    thead th.sortable .sort {
+    .grid:not(.rows) thead th.sortable .sort {
       padding: var(--z-space-1) var(--z-space-2);
       border: var(--z-border-width) solid var(--z-border);
       border-radius: var(--z-radius-sm);
       background: var(--z-surface-sunken);
     }
-    thead th[aria-sort] .sort {
+    .grid:not(.rows) thead th[aria-sort] .sort {
       border-color: var(--z-accent-border);
       background: var(--z-accent-subtle);
       color: var(--z-accent);
     }
-    tbody {
+    .grid:not(.rows) tbody {
       display: flex;
       flex-direction: column;
       gap: var(--z-space-3);
       padding: var(--z-space-3);
       border-top: var(--z-border-width) solid var(--z-border);
     }
-    tbody tr {
+    .grid:not(.rows) tbody tr {
       display: block;
       border: var(--z-border-width) solid var(--z-border);
       border-radius: var(--z-radius-md);
       background: var(--z-surface);
     }
-    tbody tr.selected {
+    .grid:not(.rows) tbody tr.selected {
       border-color: var(--z-accent-border);
       background: var(--z-accent-subtle);
     }
     /* The hover and selection tints belong to the card now, not to its cells. */
-    tbody tr:hover td,
-    tbody tr.selected td {
+    .grid:not(.rows) tbody tr:hover td,
+    .grid:not(.rows) tbody tr.selected td {
       background: none;
     }
-    tbody tr:last-child td {
+    .grid:not(.rows) tbody tr:last-child td {
       border-bottom: 0;
     }
-    tbody td {
+    .grid:not(.rows) tbody td {
       display: flex;
       align-items: baseline;
       justify-content: space-between;
@@ -1185,10 +1249,10 @@
       overflow: visible;
       text-align: right;
     }
-    td.end {
+    .grid:not(.rows) td.end {
       text-align: right;
     }
-    tbody td::before {
+    .grid:not(.rows) tbody td::before {
       content: attr(data-label);
       flex: none;
       color: var(--z-text-muted);
@@ -1202,13 +1266,13 @@
       The tick is the card's own control rather than a figure in it, so it
       keeps the heading row's wording and sits at the top on its own.
     */
-    td.pick {
+    .grid:not(.rows) td.pick {
       justify-content: flex-start;
       width: auto;
       padding: var(--z-space-3) var(--z-space-3) var(--z-space-2);
       border-bottom: var(--z-border-width) solid var(--z-border);
     }
-    td.pick::before {
+    .grid:not(.rows) td.pick::before {
       content: 'Select';
     }
     /*
@@ -1218,8 +1282,8 @@
       leaving `.cell-body` clipped here would have kept every badge, label and
       link on one cut-off line while the plain cells beside them wrapped.
     */
-    .plain,
-    .cell-body {
+    .grid:not(.rows) .plain,
+    .grid:not(.rows) .cell-body {
       overflow: visible;
       white-space: normal;
       overflow-wrap: anywhere;
@@ -1231,6 +1295,25 @@
         name would otherwise push the whole card wider than the screen.
       */
       min-width: 0;
+    }
+
+    /*
+      The other phone layout: the table, kept. The columns take the widths they
+      declare and the frame scrolls to the ones past the edge -- which the rest
+      of this product refuses to do, and does here because it is what the
+      operator asked for by pressing Rows. The scrolling is the frame's alone:
+      it clips, so the page behind it is the width of the window either way.
+    */
+    .grid.rows .scroll {
+      overflow-x: auto;
+    }
+    /*
+      Three controls where there were one or two, and a phone has no room for
+      them side by side once rows are selected. They wrap instead of pushing
+      the Columns button off the edge.
+    */
+    .toolbar {
+      flex-wrap: wrap;
     }
   }
 </style>
