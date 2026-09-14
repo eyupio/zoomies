@@ -6,8 +6,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-
-	"github.com/eyupio/zoomies/internal/config"
 )
 
 // runProviders is `zoomies providers ...`: where machines are rented from, and
@@ -19,6 +17,9 @@ import (
 func runProviders(ctx context.Context, e *env, args []string) error {
 	return runGroup(ctx, e, "providers", "Where machines are rented from, and the machines themselves.", []*subcommand{
 		{"list", "", "Every provider, with its machines and whether it is buying", providersList},
+		{"kinds", "", "What this build can rent from, and the settings each kind asks for", providersKinds},
+		{"add", "<kind> [flags]", "Add a provider from the terminal, then ask it what it would refuse", providersAdd},
+		{"edit", "<name|id> [flags]", "Change the settings you name and nothing else", providersEdit},
 		{"check", "<name|id>", "Ask a provider what it would refuse, changing nothing", providersCheck},
 		{"pause", "<name|id>", "Stop buying new machines; drains and deletes continue", providersPause},
 		{"resume", "<name|id>", "Let it buy machines again", providersResume},
@@ -56,7 +57,7 @@ func providersList(ctx context.Context, e *env, args []string) error {
 		return p.emit(raw)
 	}
 	if len(out.Items) == 0 {
-		p.note("No providers. Add one in the UI under Providers; a credential belongs in the database, sealed, rather than in a configuration file.")
+		p.note("No providers. Add one with: zoomies providers add proxmox --name <n> --endpoint <url> ... (or in the UI under Providers); a credential belongs in the database, sealed, rather than in a configuration file.")
 		return nil
 	}
 
@@ -123,33 +124,15 @@ func providersCheck(ctx context.Context, e *env, args []string) error {
 	if err != nil {
 		return err
 	}
-
-	var report providerCheckItem
-	raw, err := client.post(ctx, "/providers/"+url.PathEscape(provider.ID)+"/check", nil, nil, &report)
-	if err != nil {
-		return err
-	}
 	if p.structured() {
+		var report providerCheckItem
+		raw, err := client.post(ctx, "/providers/"+url.PathEscape(provider.ID)+"/check", nil, nil, &report)
+		if err != nil {
+			return err
+		}
 		return p.emit(raw)
 	}
-
-	if !report.Reachable {
-		p.note("%s could not be reached at %s.", provider.Name, dash(provider.Endpoint))
-	} else if report.Version != "" {
-		p.note("%s answered: %s.", provider.Name, report.Version)
-	}
-	// printFindings verbatim, because "what is wrong with this provider" should
-	// read exactly like "what is wrong with this configuration".
-	printFindings(e.out, report.Findings)
-	if !report.OK {
-		return fmt.Errorf("%s would refuse to create a machine as configured; fix what is above and check it again", provider.Name)
-	}
-	if n := len(config.Findings(report.Findings).Warnings()); n > 0 {
-		p.note("%s is usable, with %s above.", provider.Name, pluralWarnings(n))
-		return nil
-	}
-	p.note("%s is usable and nothing above weakens the defaults.", provider.Name)
-	return nil
+	return checkProvider(ctx, e, p, client, provider)
 }
 
 func providersPause(ctx context.Context, e *env, args []string) error {

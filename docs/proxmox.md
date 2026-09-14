@@ -158,6 +158,27 @@ before you commit to it.
 | Machine shape | CPUs, memory and disk for each machine, and the labels, capacity and backend the host will report. |
 | Maximum machines | How many this provider may run at once. |
 
+The same form is one line in a terminal, for a machine with no browser or a
+setup somebody wants to keep in a script:
+
+```sh
+zoomies providers add proxmox --name proxmox-lab \
+  --endpoint https://pve.example.com:8006 --endpoint-ca-file pve-root-ca.pem \
+  --nodes pve1 --template 9000 --storage local-lvm --bridge vmbr0 \
+  --vmid-range 9000-9099 --max-machines 4
+```
+
+It asks for the API token without echoing it — or reads it from standard
+input, or from `--credential-file` — checks the answers before saving anything,
+and then runs the same check the **Check** button does, so the first thing it
+prints after "created" is what the cluster would refuse. The nodes, storage and
+bridge have to be typed rather than picked from a list, because the list comes
+from the credential and the credential is not saved until the provider is;
+`zoomies providers check` names anything the cluster does not recognise.
+`zoomies providers edit proxmox-lab --max-machines 8` raises the ceiling later,
+and `--setting key=value` reaches the advanced settings the form keeps behind a
+disclosure; `zoomies providers kinds` lists them. See [the CLI](cli.md#zoomies-providers).
+
 A cluster on a home network usually has no address a controller in the cloud
 can reach. Run `zoomies gateway --target <node-ip>:8006` on the node, or on any
 machine beside it, choose **Private connection** in the form and paste the

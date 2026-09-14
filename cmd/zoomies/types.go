@@ -310,21 +310,22 @@ type tokenItem struct {
 // here because it is not in the response: the server reports whether one is
 // configured and never what it is.
 type providerItem struct {
-	ID                    string         `json:"id"`
-	Kind                  string         `json:"kind"`
-	Name                  string         `json:"name"`
-	Endpoint              string         `json:"endpoint"`
-	CredentialsConfigured bool           `json:"credentials_configured"`
-	MaxMachines           int            `json:"max_machines"`
-	Enabled               bool           `json:"enabled"`
-	Paused                bool           `json:"paused"`
-	PausedReason          string         `json:"paused_reason"`
-	Held                  string         `json:"held"`
-	LastCheckAt           *time.Time     `json:"last_check_at"`
-	LastCheckError        string         `json:"last_check_error"`
-	LastSweepAt           *time.Time     `json:"last_sweep_at"`
-	Machines              map[string]int `json:"machines"`
-	Owned                 int            `json:"owned"`
+	ID                    string            `json:"id"`
+	Kind                  string            `json:"kind"`
+	Name                  string            `json:"name"`
+	Endpoint              string            `json:"endpoint"`
+	Settings              map[string]string `json:"settings"`
+	CredentialsConfigured bool              `json:"credentials_configured"`
+	MaxMachines           int               `json:"max_machines"`
+	Enabled               bool              `json:"enabled"`
+	Paused                bool              `json:"paused"`
+	PausedReason          string            `json:"paused_reason"`
+	Held                  string            `json:"held"`
+	LastCheckAt           *time.Time        `json:"last_check_at"`
+	LastCheckError        string            `json:"last_check_error"`
+	LastSweepAt           *time.Time        `json:"last_sweep_at"`
+	Machines              map[string]int    `json:"machines"`
+	Owned                 int               `json:"owned"`
 }
 
 // providerCheckItem is a preflight result. Its findings are config.Finding so
@@ -335,6 +336,34 @@ type providerCheckItem struct {
 	Reachable  bool            `json:"reachable"`
 	Version    string          `json:"version"`
 	Findings   config.Findings `json:"findings"`
+}
+
+// providerValidation is the dry run's verdict: every field that is wrong, and
+// the driver's own warnings about answers that are legal and still cost
+// something.
+type providerValidation struct {
+	Valid  bool `json:"valid"`
+	Errors []struct {
+		Field   string `json:"field"`
+		Message string `json:"message"`
+	} `json:"errors"`
+	Warnings config.Findings `json:"warnings"`
+}
+
+// providerKindItem is one driver this build ships and the questions its form
+// asks, which is what --setting needs a list of.
+type providerKindItem struct {
+	Kind     string `json:"kind"`
+	Label    string `json:"label"`
+	Settings []struct {
+		Key      string `json:"key"`
+		Label    string `json:"label"`
+		Kind     string `json:"kind"`
+		Required bool   `json:"required"`
+		Advanced bool   `json:"advanced"`
+		Help     string `json:"help"`
+		Default  string `json:"default"`
+	} `json:"settings"`
 }
 
 // machineItem is one rented machine.
