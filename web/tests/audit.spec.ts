@@ -34,22 +34,29 @@ const SEEDED = [
 ] as const;
 
 test('the log lists what was done, by whom, newest first', async ({ page }) => {
-  await goto(page, '/audit', 'Audit');
-  await expect(rows(page).first()).toBeVisible();
-
+  // Each seeded entry is reached through the page's own action filter rather
+  // than looked for in the first page of the unfiltered log. Every other spec
+  // writes rows here just by doing its job, so whether a seeded entry is still
+  // on page one is a fact about how much ran before this file -- and the same
+  // accumulation the counts above are careful not to assert on was quietly
+  // deciding whether these assertions could see their rows at all.
   for (const entry of SEEDED) {
+    await goto(page, `/audit?action=${entry.action}`, 'Audit');
     await expect(
-      rows(page).filter({ hasText: entry.action }).filter({ hasText: entry.actor }),
+      rows(page).filter({ hasText: entry.actor }),
       `${entry.actor} did ${entry.action}`,
-    ).toHaveCount(1);
+    ).not.toHaveCount(0);
   }
 
   // An actor is a person, a token or the controller, and the page says which.
-  // The controller's rows are taken one at a time: the hosts specs leave
-  // system rows behind -- a host throttled after the pressure they simulate is
-  // audited as the fleet's own decision -- and the claim here is that a system
-  // actor is shown as one, not that the fleet has decided exactly one thing.
-  await expect(rows(page).filter({ hasText: 'ci-bot' })).toContainText('token');
+  // Taken one row at a time under the action that seeded it: the hosts specs
+  // leave system rows behind -- a host throttled after the pressure they
+  // simulate is audited as the fleet's own decision -- and the claim here is
+  // that a system actor is shown as one, not that the fleet has decided
+  // exactly one thing.
+  await goto(page, '/audit?action=pool.update', 'Audit');
+  await expect(rows(page).filter({ hasText: 'ci-bot' }).first()).toContainText('token');
+  await goto(page, '/audit?action=host.join', 'Audit');
   await expect(rows(page).filter({ hasText: 'zoomies' }).first()).toContainText('system');
 });
 
@@ -126,8 +133,10 @@ test('a search that matches nothing settles on an empty state that offers a way 
 });
 
 test('an entry opens and says what changed', async ({ page }) => {
-  await goto(page, '/audit', 'Audit');
-  await rows(page).filter({ hasText: 'pool.create' }).click();
+  // Filtered for the same reason the listing test is: the seeded row is in the
+  // log whatever else the suite has written, but not necessarily on page one.
+  await goto(page, '/audit?action=pool.create', 'Audit');
+  await rows(page).filter({ hasText: 'alice' }).first().click();
 
   const drawer = page.getByRole('dialog');
   await expect(drawer).toBeVisible();

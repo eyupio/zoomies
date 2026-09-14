@@ -80,4 +80,16 @@
   .none {
     color: var(--z-text-subtle);
   }
+  /*
+    The one line is a grid's constraint, not the labels'. Below the phone
+    threshold a grid row is a card with a line per cell, so there is room to
+    wrap -- and without this the chips kept their single line and carried the
+    card off the side of the screen.
+  */
+  @media (max-width: 768px) {
+    .labels:not(.wrap) {
+      flex-wrap: wrap;
+      overflow: visible;
+    }
+  }
 </style>

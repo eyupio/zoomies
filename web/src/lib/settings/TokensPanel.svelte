@@ -171,47 +171,58 @@
     {/snippet}
 
     <div class="scroll">
-      <table>
+      <!--
+      Every role is spelled out rather than left to the table's own display
+      type. The rows become cards on a phone, which means `display` stops
+      being `table-row`, and a browser drops the implicit row and cell roles
+      the moment it does -- leaving a screen reader a run of loose text with
+      nothing saying which value belongs to which record.
+    -->
+      <!-- svelte-ignore a11y_no_redundant_roles -->
+      <table role="table">
         <caption class="sr-only">API tokens</caption>
-        <thead>
-          <tr>
-            <th scope="col">Name</th>
-            <th scope="col">Prefix</th>
-            <th scope="col">Role</th>
-            <th scope="col">Scopes</th>
-            <th scope="col">Last used</th>
-            <th scope="col">Expires</th>
-            <th scope="col"><span class="sr-only">Actions</span></th>
+        <!-- svelte-ignore a11y_no_redundant_roles -->
+        <thead role="rowgroup">
+          <!-- svelte-ignore a11y_no_redundant_roles -->
+          <tr role="row">
+            <th role="columnheader" scope="col">Name</th>
+            <th role="columnheader" scope="col">Prefix</th>
+            <th role="columnheader" scope="col">Role</th>
+            <th role="columnheader" scope="col">Scopes</th>
+            <th role="columnheader" scope="col">Last used</th>
+            <th role="columnheader" scope="col">Expires</th>
+            <th role="columnheader" scope="col"><span class="sr-only">Actions</span></th>
           </tr>
         </thead>
-        <tbody>
+        <!-- svelte-ignore a11y_no_redundant_roles -->
+        <tbody role="rowgroup">
           {#each tokens as token (token.id)}
             {@const state = apiTokenStatus(token)}
-            <tr class:revoked={token.revoked}>
-              <td data-label="Name" class="name">{token.name}</td>
-              <td data-label="Prefix" class="mono">{token.prefix ?? '--'}</td>
-              <td data-label="Role">{roleLabel(token.role)}</td>
-              <td data-label="Scopes" class="scopes mono">
+            <tr role="row" class:revoked={token.revoked}>
+              <td role="cell" data-label="Name" class="name">{token.name}</td>
+              <td role="cell" data-label="Prefix" class="mono">{token.prefix ?? '--'}</td>
+              <td role="cell" data-label="Role">{roleLabel(token.role)}</td>
+              <td role="cell" data-label="Scopes" class="scopes mono">
                 {#if (token.scopes ?? []).length === 0}
                   <span class="muted">Whatever the role allows</span>
                 {:else}
                   {(token.scopes ?? []).join(' ')}
                 {/if}
               </td>
-              <td data-label="Last used">
+              <td role="cell" data-label="Last used">
                 {#if token.last_used_at}
                   <RelativeTime value={token.last_used_at} />
                 {:else}
                   <span class="muted">Never used</span>
                 {/if}
               </td>
-              <td data-label="Expires">
+              <td role="cell" data-label="Expires">
                 <Badge status={state} size="sm" />
                 {#if token.expires_at && !token.revoked}
                   <span class="second"><RelativeTime value={token.expires_at} plain /></span>
                 {/if}
               </td>
-              <td data-label="Actions" class="actions">
+              <td role="cell" data-label="Actions" class="actions">
                 {#if !token.revoked}
                   <Button
                     size="sm"
@@ -425,7 +436,7 @@
     heading. Nothing is dropped and nothing is truncated; the list reads down
     instead of across.
   */
-  @media (max-width: 767px) {
+  @media (max-width: 768px) {
     .scroll {
       overflow-x: visible;
       /*

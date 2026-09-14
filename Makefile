@@ -92,7 +92,14 @@ cover: ## Run tests with a coverage report
 
 .PHONY: test-ui
 test-ui: ## Run the Playwright suite (builds the binary first)
-	$(MAKE) build
+	# Built as CI builds it, which is a plain `go build` with no version stamp
+	# and so the "dev" default. A working tree is normally dirty while the UI
+	# is being worked on, and `git describe --dirty` then stamps a version that
+	# is neither a release nor a main build -- so the controller correctly
+	# declines to pin new hosts to a channel that does not exist, and the hosts
+	# spec, which asserts the pin CI produces, fails for no reason anyone can
+	# see from the diff they are testing.
+	$(MAKE) build VERSION=dev
 	cd $(UI_DIR) && $(NPM) run test:e2e
 
 .PHONY: test-e2e

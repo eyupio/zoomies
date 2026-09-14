@@ -94,7 +94,7 @@ export const JOB_VIEWS: readonly JobViewDef[] = [
  * carries a filter has already said what it wants, and narrowing it to running
  * would answer a different question than the one the sender asked.
  */
-export const DEFAULT_JOB_STATE: JobState[] = ['in_progress'];
+export const DEFAULT_JOB_STATE: readonly JobState[] = ['in_progress'];
 
 function sameSet(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && [...a].sort().join() === [...b].sort().join();

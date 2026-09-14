@@ -83,7 +83,19 @@
   // page belongs to the list where destroying nothing is guaranteed.
   const releaseColumns = $derived<GridColumn<Machine>[]>([
     ...machineColumns,
-    { id: 'release', header: '', width: '7rem', align: 'end', hideable: false, cell: releaseCell },
+    // A column of buttons takes its width outright: under the grid's arithmetic
+    // a declared width is otherwise a share of the frame, and the button would
+    // be squeezed out of its own column on a narrow desktop.
+    {
+      id: 'release',
+      header: '',
+      fixed: true,
+      overflows: true,
+      width: '7rem',
+      align: 'end',
+      hideable: false,
+      cell: releaseCell,
+    },
   ]);
 
   let releasing = $state<Machine | null>(null);

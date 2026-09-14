@@ -349,43 +349,55 @@
     {/snippet}
 
     <div class="scroll">
-      <table>
+      <!--
+      Every role is spelled out rather than left to the table's own display
+      type. The rows become cards on a phone, which means `display` stops
+      being `table-row`, and a browser drops the implicit row and cell roles
+      the moment it does -- leaving a screen reader a run of loose text with
+      nothing saying which value belongs to which record.
+    -->
+      <!-- svelte-ignore a11y_no_redundant_roles -->
+      <table role="table">
         <caption class="sr-only">Accounts</caption>
-        <thead>
-          <tr>
-            <th scope="col">Account</th>
-            <th scope="col">Role</th>
-            <th scope="col">State</th>
-            <th scope="col">Last signed in</th>
-            <th scope="col"><span class="sr-only">Actions</span></th>
+        <!-- svelte-ignore a11y_no_redundant_roles -->
+        <thead role="rowgroup">
+          <!-- svelte-ignore a11y_no_redundant_roles -->
+          <tr role="row">
+            <th role="columnheader" scope="col">Account</th>
+            <th role="columnheader" scope="col">Role</th>
+            <th role="columnheader" scope="col">State</th>
+            <th role="columnheader" scope="col">Last signed in</th>
+            <th role="columnheader" scope="col"><span class="sr-only">Actions</span></th>
           </tr>
         </thead>
-        <tbody>
+        <!-- svelte-ignore a11y_no_redundant_roles -->
+        <tbody role="rowgroup">
           {#each users as user (user.id)}
-            <tr>
-              <td data-label="Account">
+            <!-- svelte-ignore a11y_no_redundant_roles -->
+            <tr role="row">
+              <td role="cell" data-label="Account">
                 <span class="name">{user.username}</span>
                 {#if user.display_name}<span class="second">{user.display_name}</span>{/if}
                 {#if user.email}<span class="second">{user.email}</span>{/if}
                 {#if user.oidc_subject}<span class="second">Single sign-on</span>{/if}
               </td>
-              <td data-label="Role">
+              <td role="cell" data-label="Role">
                 {roleLabel(user.role)}
               </td>
-              <td data-label="State">
+              <td role="cell" data-label="State">
                 <Badge status={accountStatus(user.disabled)} size="sm" />
                 {#if user.must_change_password}
                   <span class="second">Must change password</span>
                 {/if}
               </td>
-              <td data-label="Last signed in">
+              <td role="cell" data-label="Last signed in">
                 {#if user.last_login_at}
                   <RelativeTime value={user.last_login_at} />
                 {:else}
                   <span class="never">Never</span>
                 {/if}
               </td>
-              <td data-label="Actions" class="actions">
+              <td role="cell" data-label="Actions" class="actions">
                 <DropdownMenu
                   items={actionsFor(user)}
                   label="Actions for {user.username ?? 'this account'}"
@@ -676,7 +688,7 @@
     heading. Nothing is dropped and nothing is truncated; the list reads down
     instead of across.
   */
-  @media (max-width: 767px) {
+  @media (max-width: 768px) {
     .scroll {
       overflow-x: visible;
       /*
