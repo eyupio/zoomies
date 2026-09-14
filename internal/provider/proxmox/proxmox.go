@@ -154,8 +154,74 @@ func capabilities(operator provider.Deadlines) provider.Capabilities {
 		// No cost unit: a cluster somebody already owns has no per-machine
 		// price this integration could honestly quote, which is not the same
 		// as a machine being free.
-		CostUnit:  "",
-		Deadlines: d,
+		CostUnit:        "",
+		Deadlines:       d,
+		EndpointExample: "https://pve.example.com:8006",
+		EndpointSource: "The URL you open the Proxmox console at, port 8006 included: https://<any node>:8006. " +
+			"HTTPS only; the token would otherwise cross the network in the clear.",
+		CredentialSource: "Datacenter -> Permissions -> API Tokens. Add a token to a dedicated user (zoomies@pve) with " +
+			"privilege separation on; Proxmox shows the secret once. Paste the whole line, user@realm!tokenid=secret.",
+		CASource: "/etc/pve/pve-root-ca.pem on any node -- the certificate, not the .key beside it. " +
+			"Leave it empty when the cluster's certificate is signed by a public CA.",
+		Guide: guide(),
+	}
+}
+
+// guide is what has to exist on the cluster before this provider can rent a
+// machine. It is served with the kind, so the wizard shows it before its first
+// question and the CLI can print it, and the docs page says the same things
+// at more length.
+//
+// Proxmox ships no templates, and the standard answer is a distribution's
+// cloud image imported with qm: the commands below are that recipe for the
+// one image that has been qualified, and the only step that cannot be a
+// command is the one done inside the guest.
+func guide() []provider.GuideStep {
+	return []provider.GuideStep{
+		{
+			Title: "A Proxmox VE 8 cluster this controller can reach",
+			Detail: "The API listens on port 8006 over HTTPS on every node; https://<node>:8006 is the address " +
+				"the form asks for. A cluster on a home network with no route from the controller can be " +
+				"reached through `zoomies gateway` instead: run it beside the cluster and choose a private connection.",
+		},
+		{
+			Title: "An API token that can clone, start and delete guests",
+			Detail: "Datacenter -> Permissions -> Users: add zoomies@pve. Then API Tokens: add a token to it with " +
+				"privilege separation on, and copy the whole line Proxmox prints once, user@realm!tokenid=secret. " +
+				"Grant the token VM.Clone on the template, and VM.Allocate, VM.Audit, VM.Config.*, VM.PowerMgmt " +
+				"and VM.GuestAgent.Unrestricted on /vms, plus Datastore.AllocateSpace on the storage. The check " +
+				"after saving names any privilege that is missing. Or, on any node, as root:",
+			Command: `pveum user add zoomies@pve
+pveum role add Zoomies -privs "VM.Clone VM.Allocate VM.Audit VM.Config.Disk VM.Config.CPU VM.Config.Memory VM.Config.Network VM.Config.Options VM.PowerMgmt VM.GuestAgent.Unrestricted Datastore.AllocateSpace"
+pveum acl modify /vms -user zoomies@pve -role Zoomies
+pveum acl modify /storage/local-lvm -user zoomies@pve -role Zoomies
+pveum user token add zoomies@pve ci --privsep 1`,
+		},
+		{
+			Title: "A template with Docker, the guest agent and the Zoomies agent in it",
+			Detail: "Proxmox ships no templates. Start from Ubuntu 24.04's cloud image, which is the one that has " +
+				"been qualified: import it as a VM, boot it once, install what a runner needs inside, and convert " +
+				"it. Inside the guest: the Docker engine, qemu-guest-agent, and `zoomies agent install`, which " +
+				"leaves the agent's service disabled for this controller to enable in each clone. Never leave an " +
+				"enrolled agent (/var/lib/zoomies/work/agent.json) in the template. On the node, as root:",
+			Command: `wget https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
+qm create 9000 --name zoomies-template --memory 4096 --cores 2 --cpu host --ostype l26 \
+  --net0 virtio,bridge=vmbr0 --scsihw virtio-scsi-pci --agent enabled=1 --serial0 socket --vga serial0
+qm set 9000 --scsi0 local-lvm:0,import-from=$PWD/noble-server-cloudimg-amd64.img --boot order=scsi0
+qm set 9000 --ide2 local-lvm:cloudinit --ciuser ubuntu --sshkeys ~/.ssh/id_ed25519.pub --ipconfig0 ip=dhcp
+qm resize 9000 scsi0 32G && qm start 9000
+# inside the guest, over ssh:
+#   curl -fsSL https://get.docker.com | sh && sudo apt-get install -y qemu-guest-agent
+#   curl -fsSL https://zoomies.sh/install.sh | sh -s -- --no-init && sudo zoomies agent install
+#   sudo cloud-init clean && sudo poweroff
+qm template 9000`,
+		},
+		{
+			Title: "A block of VMIDs nothing else allocates from",
+			Detail: "Zoomies takes the lowest free identifier inside the block, so it is both a budget and a blast " +
+				"radius: a guest outside it is, by construction, not one of ours. 9000-9099 is the default; keep it " +
+				"out of whatever your other tooling numbers from, and out of the template's own VMID.",
+		},
 	}
 }
 
@@ -1155,18 +1221,21 @@ func (Factory) Settings() []provider.SettingSpec {
 			Discovers:   "nodes",
 			Help:        "The cluster nodes machines may be built on.",
 			Consequence: "Machines are spread across these, fewest guests first. A node not named here is never touched.",
+			Source:      "The node names in the tree on the left of the Proxmox console, or `pvesh get /nodes` on any node.",
 		},
 		{
 			Key: SettingTemplateID, Label: "Template VMID", Kind: provider.SettingChoice, Required: true,
 			Discovers:   "templates",
 			Help:        "The prepared template every machine is cloned from.",
 			Consequence: "What is in the template is what a runner gets: Zoomies installs nothing that is not already there.",
+			Source:      "The number beside the template in the console tree; `qm list` on its node shows every guest with its VMID.",
 		},
 		{
 			Key: SettingStorage, Label: "Storage", Kind: provider.SettingChoice, Required: true,
 			Discovers:   "storages",
 			Help:        "Where a clone's disk lands.",
 			Consequence: "A storage only one node can see means machines can only be built on that node.",
+			Source:      "Datacenter -> Storage. It has to allow the Disk image content type, and a storage only one node can see confines machines to that node.",
 		},
 		{
 			Key: SettingBridge, Label: "Network bridge", Kind: provider.SettingChoice, Required: true,
@@ -1174,29 +1243,34 @@ func (Factory) Settings() []provider.SettingSpec {
 			Default:     "vmbr0",
 			Help:        "The bridge a machine's network interface is attached to.",
 			Consequence: "A machine that cannot reach this controller from this bridge boots, costs money and never joins.",
+			Source:      "A node -> System -> Network. vmbr0 is the bridge a default install creates; `ip link` inside a working guest shows which one it is on.",
 		},
 		{
 			Key: SettingVMIDMin, Label: "Lowest VMID", Kind: provider.SettingNumber, Required: true,
 			Default:     "9000",
 			Help:        "The bottom of the block of VM identifiers Zoomies may allocate from.",
 			Consequence: "The range is a blast radius as well as a budget: a guest outside it is, by construction, not one of ours.",
+			Source:      "Your choice, not something to look up. Pick a block no other tooling numbers from; `qm list` on each node shows what is taken.",
 		},
 		{
 			Key: SettingVMIDMax, Label: "Highest VMID", Kind: provider.SettingNumber, Required: true,
 			Default:     "9099",
 			Help:        "The top of that block.",
 			Consequence: "It also caps how many machines can exist at once, whatever the fleet's other limits say.",
+			Source:      "The top of the same block. The template itself must sit outside it.",
 		},
 		{
 			Key: SettingTemplateNode, Label: "Template's node", Kind: provider.SettingChoice, Advanced: true,
 			Discovers:   "nodes",
 			Help:        "Where the template itself lives. Empty means the first node above.",
 			Consequence: "Cloning to a different node needs the template's disk on shared storage; Proxmox refuses it otherwise.",
+			Source:      "The node the template appears under in the console tree.",
 		},
 		{
 			Key: SettingPool, Label: "Resource pool", Kind: provider.SettingText, Advanced: true,
 			Help:        "A Proxmox pool new guests are put in.",
 			Consequence: "A pool is also a path privileges can be granted on, which is how this token is kept away from the rest of the cluster.",
+			Source:      "Datacenter -> Permissions -> Pools; the pool must already exist.",
 		},
 		{
 			Key: SettingFullClone, Label: "Full clone", Kind: provider.SettingBool, Advanced: true,
@@ -1219,11 +1293,13 @@ func (Factory) Settings() []provider.SettingSpec {
 			Key: SettingControllerURL, Label: "Controller URL for machines", Kind: provider.SettingText, Advanced: true,
 			Help:        "How a machine on this cluster reaches this controller, when that is not the fleet's external URL.",
 			Consequence: "Machines on a private network usually cannot use the address a browser does.",
+			Source:      "The address a machine on this bridge would use to reach the controller: usually the external URL, or its LAN address when the cluster is on the same network.",
 		},
 		{
 			Key: SettingTokenID, Label: "API token id", Kind: provider.SettingText, Advanced: true,
 			Help:        "user@realm!tokenid. Leave it empty when the token is pasted whole as user@realm!tokenid=secret.",
 			Consequence: "It is not a secret: it is what every message asking for a privilege to be granted has to quote.",
+			Source:      "Datacenter -> Permissions -> API Tokens, as user@realm!tokenid.",
 		},
 	}
 }
@@ -1239,4 +1315,33 @@ func (Factory) Validate(settings map[string]string) []config.Finding {
 // is nothing to dial here, because reachability is Preflight's answer to give.
 func (Factory) New(_ context.Context, cfg provider.Config) (provider.Provider, error) {
 	return NewProvider(cfg)
+}
+
+// DiscoverDraft lists what a credential can see with nothing but the address
+// and the credential, which is the state a wizard is in when it wants the
+// menu: the node, storage and template it is about to ask for are exactly the
+// settings NewProvider would refuse to build without.
+func (Factory) DiscoverDraft(ctx context.Context, cfg provider.Config) (provider.Discovery, error) {
+	tokenID, secret, err := splitCredential(cfg.Settings[SettingTokenID], cfg.Credential)
+	if err != nil {
+		return provider.Discovery{}, err
+	}
+	log := cfg.Logger
+	if log == nil {
+		log = slog.Default()
+	}
+	client, err := New(Options{
+		Endpoint:    cfg.Endpoint,
+		TokenID:     tokenID,
+		Secret:      secret,
+		CAPEM:       cfg.CAPEM,
+		Insecure:    cfg.Insecure,
+		DialContext: cfg.DialContext,
+		HTTPClient:  cfg.HTTPClient,
+		Logger:      log,
+	})
+	if err != nil {
+		return provider.Discovery{}, err
+	}
+	return Discover(ctx, client)
 }

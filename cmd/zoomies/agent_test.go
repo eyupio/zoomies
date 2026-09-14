@@ -59,3 +59,16 @@ func TestServiceChoice(t *testing.T) {
 		t.Errorf("without --no-service the supervisor should be detected, got %q", got)
 	}
 }
+
+// `agent install` takes no positional argument: the machine it prepares is
+// the one it runs on, and a stray word is more likely a join command typed on
+// the wrong line than anything this should guess at.
+func TestAgentInstallTakesNoArguments(t *testing.T) {
+	e, _, errOut := newTestEnv(t)
+	if code := dispatch(context.Background(), e, []string{"agent", "install", "https://zoomies.example.com"}); code != exitUsage {
+		t.Fatalf("exit code = %d, want %d\n%s", code, exitUsage, errOut)
+	}
+	if !strings.Contains(errOut.String(), "unexpected argument") {
+		t.Errorf("the error does not name the stray argument:\n%s", errOut)
+	}
+}

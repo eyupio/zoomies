@@ -8,6 +8,13 @@
   and `SettingSpec.consequence` are the driver's own sentences and are shown as
   written.
 
+  Three things come from the driver's description of itself rather than from
+  here: what to prepare before the first question (the guide), where each
+  answer is found (a help icon beside the label), and the menus discovery can
+  offer once there is a credential to ask with. The same form is also shown as
+  the `zoomies providers add` line it would be in a terminal, on the review
+  step, because a wizard somebody wants to script is a wizard they read once.
+
   Two things are borrowed from the pool wizard on purpose. Numbers are held as
   strings in the draft, because '' and '0' are different answers and
   `max_machines: 0` is the setting that rents nothing. And the server is asked
@@ -20,6 +27,8 @@
   import {
     ApiError,
     createProvider,
+    discoverProviderDraft,
+    getProviderDiscovery,
     listProviderKinds,
     updateProvider,
     validateProvider,
@@ -27,6 +36,8 @@
   import type {
     Body,
     Provider,
+    ProviderChoice,
+    ProviderDiscovery,
     ProviderKind,
     ProviderSetting,
     ProviderValidation,
@@ -36,7 +47,9 @@
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
   import Badge from '$lib/components/Badge.svelte';
+  import Button from '$lib/components/Button.svelte';
   import Checkbox from '$lib/components/Checkbox.svelte';
+  import CopyButton from '$lib/components/CopyButton.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
@@ -48,13 +61,18 @@
   import Wizard from '$lib/components/Wizard.svelte';
   import LabelMapEditor from '$lib/hosts/LabelMapEditor.svelte';
   import {
+    applyDiscovery,
     applySettingDefaults,
+    choicesFor,
     draftErrors,
     draftFromProvider,
     emptyDraft,
     FIELD_LABELS,
+    normaliseEndpoint,
+    providerCommand,
     stepForField,
     STEP_FIELDS,
+    suggestName,
     toProviderBody,
     willRentNothing,
     WIZARD_STEPS,
@@ -108,6 +126,14 @@
   let verdict = $state<ProviderValidation | null>(null);
   let validating = $state(false);
 
+  // What the credential can see, asked for once the connect step is done and
+  // again whenever its answers change. `discoveryNote` is the sentence shown
+  // when the cluster could not be asked; the boxes then take typed answers.
+  let discovery = $state<ProviderDiscovery | null>(null);
+  let discoveryNote = $state('');
+  let discovering = $state(false);
+  let discoveryAttempt = $state(0);
+
   const reviewStep = WIZARD_STEPS.length - 1;
   const placementStep = WIZARD_STEPS.findIndex((step) => step.id === 'placement');
 
@@ -119,6 +145,35 @@
   const clientErrors = $derived(draftErrors(draft, specs, { editing }));
   const body = $derived(toProviderBody(draft));
   const nothingRented = $derived(willRentNothing(draft));
+  const command = $derived(
+    providerCommand(draft, { editing, existingName: provider?.name ?? undefined, specs }),
+  );
+  /** The host the credential is being asked about, for the sentences below. */
+  const endpointHost = $derived.by(() => {
+    try {
+      return new URL(draft.endpoint).host;
+    } catch {
+      return draft.endpoint || 'the provider';
+    }
+  });
+  /**
+   * The connect step's answers, as one string, so discovery runs again exactly
+   * when one of them changes and not on every keystroke elsewhere.
+   */
+  const connectKey = $derived(
+    JSON.stringify([
+      draft.kind,
+      draft.endpoint,
+      draft.credential,
+      draft.ca_pem,
+      draft.insecure_skip_verify,
+      draft.connection,
+      draft.tailcat_address,
+    ]),
+  );
+  const connectComplete = $derived(
+    Object.keys(clientErrors).every((field) => !(STEP_FIELDS[0] ?? []).includes(field)),
+  );
 
   /** Client rules show once a field has been left; server rules show at once. */
   const errors = $derived.by(() => {
@@ -201,6 +256,53 @@
       list,
     );
     if (next !== untrack(() => draft)) draft = next;
+  });
+
+  /* -- what the credential can see ------------------------------------------- */
+
+  $effect(() => {
+    void discoveryAttempt;
+    const key = connectKey;
+    if (current < placementStep || !connectComplete || !kind?.can_discover) return;
+    // An edit with the box left blank keeps the sealed credential, so the
+    // saved provider is the one to ask; a draft, or an edit with a new
+    // credential typed, is asked about as it stands.
+    const payload = body;
+    const existingID = provider?.id;
+    const useSaved = editing && existingID && draft.credential.trim() === '';
+    const controller = new AbortController();
+    discovering = true;
+    discoveryNote = '';
+    void key;
+    const request = useSaved
+      ? getProviderDiscovery(existingID, controller.signal)
+      : discoverProviderDraft(payload, controller.signal);
+    request
+      .then((found) => {
+        discovery = found;
+        if (found.unavailable) {
+          discoveryNote = found.unavailable;
+          return;
+        }
+        const next = applyDiscovery(
+          untrack(() => draft),
+          untrack(() => specs),
+          found,
+        );
+        if (next !== untrack(() => draft)) draft = next;
+      })
+      .catch((cause: unknown) => {
+        if (cause instanceof DOMException && cause.name === 'AbortError') return;
+        discovery = null;
+        discoveryNote =
+          cause instanceof ApiError
+            ? cause.message
+            : 'The provider could not be asked what it can see.';
+      })
+      .finally(() => {
+        discovering = false;
+      });
+    return () => controller.abort();
   });
 
   /* -- the server's verdict, before anything is created --------------------- */
@@ -286,6 +388,22 @@
     }
   }
 
+  /* -- filling the connect step in ------------------------------------------- */
+
+  /**
+   * On leaving the address box: give it the scheme and port it was typed
+   * without, and name the provider after the host when nobody has named it.
+   */
+  function leaveEndpoint(): void {
+    draft.endpoint = normaliseEndpoint(draft.endpoint, kind?.endpoint_example);
+    if (draft.name.trim() === '' && !touched.name && draft.endpoint !== '')
+      draft.name = suggestName(draft.endpoint, draft.kind || 'provider');
+    touch('endpoint');
+  }
+
+  /** Whether the connect step has everything discovery needs to ask with. */
+  const canDiscover = $derived(connectComplete && Boolean(kind?.can_discover));
+
   /* -- rendering one driver setting ------------------------------------------ */
 
   function settingValue(key: string): string {
@@ -294,6 +412,36 @@
 
   function setSetting(key: string, value: string): void {
     draft.settings = { ...draft.settings, [key]: value };
+  }
+
+  /** A list setting is comma-separated in the draft; the checkboxes edit it as a set. */
+  function listHas(key: string, value: string): boolean {
+    return settingValue(key)
+      .split(',')
+      .map((v) => v.trim())
+      .includes(value);
+  }
+
+  function toggleListValue(key: string, value: string, on: boolean): void {
+    const current = settingValue(key)
+      .split(',')
+      .map((v) => v.trim())
+      .filter((v) => v !== '' && v !== value);
+    if (on) current.push(value);
+    setSetting(key, current.join(','));
+    touch(`settings.${key}`);
+  }
+
+  function choiceLabel(choice: ProviderChoice): string {
+    return choice.label && choice.label !== choice.value
+      ? `${choice.label} (${choice.value})`
+      : choice.value;
+  }
+
+  /** What picking the current answer means, in the driver's words. */
+  function chosenConsequence(spec: ProviderSetting): string {
+    const value = settingValue(spec.key);
+    return choicesFor(spec, discovery).find((c) => c.value === value)?.consequence ?? '';
   }
 
   const OS_OPTIONS = [
@@ -330,15 +478,40 @@
 </script>
 
 {#snippet setting(spec: ProviderSetting)}
+  {@const choices = choicesFor(spec, discovery)}
   <Field
     label={spec.label || spec.key}
     hint={spec.help}
-    notice={spec.consequence}
+    help={spec.source}
+    notice={chosenConsequence(spec) || spec.consequence}
     error={errors[`settings.${spec.key}`]}
     required={spec.required}
   >
     {#snippet children({ id, describedBy, invalid })}
-      {#if spec.kind === 'bool'}
+      {#if choices.length > 0 && spec.kind === 'list'}
+        <!-- Discovery listed them, so they are chosen rather than typed. -->
+        <div class="choice-list" role="group" aria-labelledby="{id}-legend">
+          <span class="sr-only" id="{id}-legend">{spec.label || spec.key}</span>
+          {#each choices as choice (choice.value)}
+            <Checkbox
+              checked={listHas(spec.key, choice.value)}
+              label={choiceLabel(choice)}
+              description={choice.consequence}
+              onchange={(on) => toggleListValue(spec.key, choice.value, on)}
+            />
+          {/each}
+        </div>
+      {:else if choices.length > 0 && (spec.kind === 'choice' || spec.kind === 'text')}
+        <Select
+          bind:value={() => settingValue(spec.key), (next) => setSetting(spec.key, next)}
+          {id}
+          {describedBy}
+          {invalid}
+          placeholder={spec.required ? 'Choose one' : 'None'}
+          options={choices.map((c) => ({ value: c.value, label: choiceLabel(c) }))}
+          onchange={() => touch(`settings.${spec.key}`)}
+        />
+      {:else if spec.kind === 'bool'}
         <Checkbox
           checked={settingValue(spec.key) === 'true'}
           label={spec.label || spec.key}
@@ -391,6 +564,36 @@
             onretry={() => (kindsAttempt += 1)}
           />
         {/if}
+        {#if kind && (kind.guide?.length ?? 0) > 0}
+          <!-- Before the first question: every one of these is done somewhere
+               other than this form, and asking for the result without saying
+               how to get it is how a wizard gets abandoned. Open for a new
+               provider; a provider being edited has been through it. -->
+          <details class="guide" open={!editing}>
+            <summary>Before you start: what {kind.label || kind.kind} needs from you</summary>
+            <ol class="guide-steps">
+              {#each kind.guide ?? [] as step, i (step.title)}
+                <li>
+                  <p class="guide-title">{step.title}</p>
+                  {#if step.detail}<p class="guide-detail">{step.detail}</p>{/if}
+                  {#if step.command}
+                    <div class="command small">
+                      <pre class="mono"><code>{step.command}</code></pre>
+                      <div class="command-actions">
+                        <CopyButton
+                          value={step.command}
+                          label="Copy the commands for step {i + 1}"
+                          showLabel
+                        />
+                      </div>
+                    </div>
+                  {/if}
+                </li>
+              {/each}
+            </ol>
+          </details>
+        {/if}
+
         <Field
           label="Kind"
           hint="Which infrastructure this rents machines from."
@@ -430,7 +633,8 @@
 
         <Field
           label="Address"
-          hint="Where this controller reaches it, scheme and port included."
+          hint="Where this controller reaches it. A bare host name gets the scheme and the port filled in."
+          help={kind?.endpoint_source}
           error={errors.endpoint}
           required
         >
@@ -442,8 +646,8 @@
               {invalid}
               type="url"
               mono
-              placeholder="https://pve.example.com:8006"
-              onblur={() => touch('endpoint')}
+              placeholder={kind?.endpoint_example || 'https://provider.example.com'}
+              onblur={leaveEndpoint}
             />
           {/snippet}
         </Field>
@@ -495,6 +699,7 @@
           hint={editing
             ? 'Sealed in the database and never shown again. Leave this empty to keep the stored one.'
             : 'Sealed with the instance key. It is never returned, never logged, and never reaches a guest.'}
+          help={kind?.credential_source}
           error={errors.credential}
           required={!editing}
         >
@@ -516,6 +721,7 @@
         <Field
           label="Certificate authority"
           hint="The certificate to trust for this address. Leave empty to use the system trust store."
+          help={kind?.ca_source}
         >
           {#snippet children({ id, describedBy })}
             <Textarea
@@ -534,6 +740,32 @@
           description="The credential then travels to whatever answers at that address. A homelab hypervisor's certificate is usually its own, which is why this exists rather than being refused — but pasting the certificate above is better."
         />
       {:else if step.id === 'placement'}
+        {#if kind?.can_discover}
+          <div class="discovery" aria-live="polite">
+            {#if discovering}
+              <p class="note">Asking {endpointHost} what this credential can see…</p>
+            {:else if discoveryNote}
+              <p class="note">
+                <strong>{endpointHost} could not be asked what it has.</strong>
+                {discoveryNote}
+                Type the identifiers below; the check after saving confirms them against the cluster.
+              </p>
+              <Button size="sm" variant="secondary" onclick={() => (discoveryAttempt += 1)}>
+                Ask again
+              </Button>
+            {:else if discovery}
+              <p class="note ok">
+                Filled in from {endpointHost}: what this credential can see is offered below, and
+                anything with one answer is already chosen.
+              </p>
+            {:else if !canDiscover}
+              <p class="note">
+                Finish the Connect step and the nodes, storages, bridges and templates are offered
+                as a menu here instead of typed.
+              </p>
+            {/if}
+          </div>
+        {/if}
         {#if specs.length === 0}
           <p class="prose">
             This driver has no settings of its own. Everything it needs is on the other steps.
@@ -769,6 +1001,20 @@
           </div>
         </dl>
 
+        <section class="terminal" aria-label="The same thing from a terminal">
+          <p class="prose">
+            {editing ? 'The same change' : 'The same provider'}, as one command for a shell that can
+            reach this controller — for a setup you would rather keep in a script. It asks for the
+            credential itself, so nothing secret is in the line.
+          </p>
+          <div class="command">
+            <pre class="mono"><code>{command}</code></pre>
+            <div class="command-actions">
+              <CopyButton value={command} label="Copy the command" size="md" showLabel />
+            </div>
+          </div>
+        </section>
+
         <section class="verdict" aria-live="polite" aria-label="What the controller makes of it">
           {#if validating && !verdict}
             <p class="note">Asking the controller…</p>
@@ -835,6 +1081,92 @@
     font-size: var(--z-text-sm);
     line-height: var(--z-leading-sm);
     color: var(--z-text-muted);
+  }
+  .guide {
+    border: var(--z-border-width) solid var(--z-pending-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-pending-subtle);
+  }
+  .guide summary {
+    padding: var(--z-space-2) var(--z-space-3);
+    cursor: pointer;
+    font-size: var(--z-text-sm);
+    font-weight: var(--z-weight-medium);
+    color: var(--z-text);
+  }
+  .guide-steps {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-4);
+    margin: 0;
+    padding: var(--z-space-3) var(--z-space-3) var(--z-space-4) var(--z-space-6);
+    border-top: var(--z-border-width) solid var(--z-border);
+  }
+  .guide-steps li {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-2);
+  }
+  .guide-title {
+    margin: 0;
+    font-size: var(--z-text-sm);
+    font-weight: var(--z-weight-medium);
+    color: var(--z-text);
+  }
+  .guide-detail {
+    margin: 0;
+    max-width: 80ch;
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text-muted);
+  }
+  .command {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-3);
+    padding: var(--z-space-4);
+    border: var(--z-border-width) solid var(--z-pending-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-pending-subtle);
+  }
+  .command.small {
+    padding: var(--z-space-3);
+    border-color: var(--z-border);
+    background: var(--z-surface-sunken);
+  }
+  .command pre {
+    margin: 0;
+    padding: var(--z-space-3);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-sm);
+    background: var(--z-surface);
+    color: var(--z-text);
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .command-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--z-space-3);
+  }
+  .discovery {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--z-space-2);
+  }
+  .choice-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-2);
+  }
+  .terminal {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-3);
   }
   .advanced {
     border: var(--z-border-width) solid var(--z-border);

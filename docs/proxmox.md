@@ -106,20 +106,49 @@ API token in flight. It exists for a first ten minutes, not for a deployment.
 The template is the part you own. Zoomies clones it and installs nothing that
 is not already there, so what is in the image is what a runner gets.
 
-Start from a distribution cloud image — Ubuntu 24.04 LTS is what has been
-qualified — and, in one VM you then convert to a template:
+Proxmox ships no templates, and the standard answer is a distribution's cloud
+image: a disk image with cloud-init in it, published for exactly this purpose.
+Start from Ubuntu 24.04 LTS — it is what has been qualified — and, in one VM
+you then convert to a template:
 
 1. **Install the Docker engine**, or whichever runner backend the machines will
    offer, and make sure the service starts at boot.
 2. **Install `qemu-guest-agent`** and enable it. This is how Zoomies reaches
    inside the guest to enrol it, and a template without it is a machine that
    boots, costs money and never joins. Set `agent: enabled=1` on the VM.
-3. **Install the Zoomies agent binary** at `/usr/local/bin/zoomies` and its
-   systemd unit — `zoomies agent install --no-start` writes both — and leave
-   the unit **disabled**. Zoomies enables it once the machine has a credential.
-4. **Remove any agent state.** Delete `/var/lib/zoomies/agent.json` if one
-   exists.
+3. **Install the Zoomies agent** and its systemd unit, joined to nothing:
+   `zoomies agent install` writes the unit so that it reads the enrolment file
+   the controller drops into each clone, and leaves it **disabled**. Zoomies
+   enables it inside a clone once the clone has a credential of its own.
+4. **Remove any agent state.** `zoomies agent install` refuses to run on a
+   machine that has already joined, because `/var/lib/zoomies/work/agent.json`
+   holds one host's identity; if you are converting a host that once joined,
+   delete that file first.
 5. Shut the VM down and **convert it to a template**.
+
+The same recipe as commands, on a node as root — the wizard's *Before you
+start* panel carries them too, with a copy button:
+
+```sh
+wget https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
+qm create 9000 --name zoomies-template --memory 4096 --cores 2 --cpu host --ostype l26 \
+  --net0 virtio,bridge=vmbr0 --scsihw virtio-scsi-pci --agent enabled=1 --serial0 socket --vga serial0
+qm set 9000 --scsi0 local-lvm:0,import-from=$PWD/noble-server-cloudimg-amd64.img --boot order=scsi0
+qm set 9000 --ide2 local-lvm:cloudinit --ciuser ubuntu --sshkeys ~/.ssh/id_ed25519.pub --ipconfig0 ip=dhcp
+qm resize 9000 scsi0 32G && qm start 9000
+```
+
+Then, inside the guest over SSH:
+
+```sh
+curl -fsSL https://get.docker.com | sh && sudo apt-get install -y qemu-guest-agent
+curl -fsSL https://zoomies.sh/install.sh | sh -s -- --no-init && sudo zoomies agent install
+sudo cloud-init clean && sudo poweroff
+```
+
+And back on the node, `qm template 9000`. Give the template a VMID outside the
+block you hand to Zoomies: it must never be one of the identifiers a clone can
+be allocated.
 
 !!! danger "Never leave an enrolled agent in the template"
 
@@ -141,10 +170,17 @@ are disposable, which is what makes that cheap.
 
 ## The provider
 
-**Providers → Add provider → Proxmox VE**. The form asks for what the
-credential can actually see — the nodes, storages and bridges come from the
-cluster, not from a text box — and shows you the consequence of each choice
-before you commit to it.
+**Providers → Add provider → Proxmox VE**. The form opens with a *Before you
+start* panel — the token, the template, the VMID block, each with the commands
+that make it — and every box has a help icon saying where in the Proxmox
+console its answer is found. Once the address and the token are in, the form
+asks the cluster what that token can see: the nodes, storages, bridges and
+templates come from the cluster as a menu, not from a text box, anything with
+one answer is filled in, and the consequence of each choice is shown before
+you commit to it. If the cluster cannot be asked yet, the boxes take typed
+identifiers and the check after saving confirms them. The review step shows
+the same provider as the one `zoomies providers add` line it would be in a
+terminal, for a setup you would rather keep in a script.
 
 | Setting | What it means |
 | --- | --- |
@@ -157,6 +193,27 @@ before you commit to it.
 | VMID range | The block of identifiers Zoomies may allocate from, and nothing else may. |
 | Machine shape | CPUs, memory and disk for each machine, and the labels, capacity and backend the host will report. |
 | Maximum machines | How many this provider may run at once. |
+
+The same form is one line in a terminal, for a machine with no browser or a
+setup somebody wants to keep in a script:
+
+```sh
+zoomies providers add proxmox --name proxmox-lab \
+  --endpoint https://pve.example.com:8006 --endpoint-ca-file pve-root-ca.pem \
+  --nodes pve1 --template 9000 --storage local-lvm --bridge vmbr0 \
+  --vmid-range 9000-9099 --max-machines 4
+```
+
+It asks for the API token without echoing it — or reads it from standard
+input, or from `--credential-file` — checks the answers before saving anything,
+and then runs the same check the **Check** button does, so the first thing it
+prints after "created" is what the cluster would refuse. The nodes, storage and
+bridge have to be typed rather than picked from a list, because the list comes
+from the credential and the credential is not saved until the provider is;
+`zoomies providers check` names anything the cluster does not recognise.
+`zoomies providers edit proxmox-lab --max-machines 8` raises the ceiling later,
+and `--setting key=value` reaches the advanced settings the form keeps behind a
+disclosure; `zoomies providers kinds` lists them. See [the CLI](cli.md#zoomies-providers).
 
 A cluster on a home network usually has no address a controller in the cloud
 can reach. Run `zoomies gateway --target <node-ip>:8006` on the node, or on any

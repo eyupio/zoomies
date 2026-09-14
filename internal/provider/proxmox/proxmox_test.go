@@ -970,3 +970,46 @@ func TestConfiguringAMachineKeepsTheAddressItsInterfaceAlreadyHas(t *testing.T) 
 		})
 	}
 }
+
+// The form asks for identifiers an operator has to go and look up, so every
+// required setting says where; and what has to exist before the first machine
+// -- the token, the template, the block of VMIDs -- is served with the kind so
+// the wizard says it before its first question rather than after its first
+// failure.
+func TestTheFormSaysWhereEachAnswerComesFromAndWhatToPrepareFirst(t *testing.T) {
+	for _, spec := range NewFactory().Settings() {
+		if spec.Required && spec.Source == "" {
+			t.Errorf("required setting %q does not say where its answer is found", spec.Key)
+		}
+	}
+	caps := NewFactory().Describe()
+	if caps.EndpointExample == "" {
+		t.Error("no endpoint example: the form cannot show what an address looks like or fill the port in")
+	}
+	if len(caps.Guide) < 3 {
+		t.Fatalf("the guide has %d steps; the token, the template and the VMID block each need one", len(caps.Guide))
+	}
+	var template, token bool
+	for _, step := range caps.Guide {
+		if step.Title == "" || step.Detail == "" {
+			t.Errorf("guide step %+v has no title or no detail", step)
+		}
+		if strings.Contains(step.Command, "qm template") {
+			template = true
+			// The recipe has to leave the agent's unit in the image, joined to
+			// nothing, or the machines it makes boot and never join.
+			if !strings.Contains(step.Command, "zoomies agent install") {
+				t.Error("the template recipe never installs the agent's service")
+			}
+		}
+		if strings.Contains(step.Command, "pveum user token add") {
+			token = true
+		}
+	}
+	if !template {
+		t.Error("no guide step converts a VM into a template")
+	}
+	if !token {
+		t.Error("no guide step creates the API token")
+	}
+}

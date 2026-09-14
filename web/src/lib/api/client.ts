@@ -514,6 +514,14 @@ export const checkProvider = (id: string) =>
 export const getProviderDiscovery = (id: string, signal?: AbortSignal) =>
   api.get<Result<'getProviderDiscovery'>>(`/providers/${enc(id)}/discovery`, { signal });
 
+/**
+ * What a draft's credential can see, before the draft is saved. A hypervisor
+ * that does not answer is a 200 with the reason in `unavailable`, because
+ * halfway through the wizard that is the expected state.
+ */
+export const discoverProviderDraft = (body: Body<'discoverProviderDraft'>, signal?: AbortSignal) =>
+  api.post<Result<'discoverProviderDraft'>>('/providers/discover', { body, signal });
+
 export const getProviderOrphans = (id: string, signal?: AbortSignal) =>
   api.get<Result<'getProviderOrphans'>>(`/providers/${enc(id)}/orphans`, { signal });
 

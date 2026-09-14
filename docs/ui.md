@@ -250,12 +250,23 @@ lifecycle is a link somebody else can open.
 
 Adding one is five steps: where it is and how we sign in, where a machine is
 built, what shape it is, what it may spend, and what the controller makes of
-it. The placement step is drawn from the settings the API serves for the chosen
+it. The first step opens with what the driver needs you to have done first —
+for Proxmox, the API token, the template and the block of VMIDs — each with
+the commands that make it and a copy button, because every one of those is
+done somewhere other than this form. Every box carries a help icon saying where
+in the provider's own console its answer is found. Once the address and the
+credential are in, the form asks the provider what that credential can see, and
+the placement step offers nodes, storages, bridges and templates as menus,
+choosing anything that has only one answer; when the provider cannot be asked
+yet, the boxes take typed identifiers and the check after saving confirms them.
+The placement step is drawn from the settings the API serves for the chosen
 driver rather than written into the page, so a driver that gains a setting
 gains a question here, with the driver's own help text and its own note of what
 choosing it costs; the settings it marks advanced sit behind a disclosure, so
 the questions every deployment has to answer are the ones on the page and the
-rest is one press away. From that step on, the draft is sent to the controller
+rest is one press away. The review step also shows the whole provider as the
+one `zoomies providers add` line it would be in a terminal, with a copy button,
+for a setup somebody would rather keep in a script. From that step on, the draft is sent to the controller
 for a verdict as it is typed: rejections and warnings appear next to the answer
 that caused them, named in the words the form uses, while there is still a
 reason to change it. Nothing is

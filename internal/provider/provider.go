@@ -162,6 +162,15 @@ type Factory interface {
 	New(ctx context.Context, cfg Config) (Provider, error)
 }
 
+// DraftDiscoverer is a Factory that can answer what a credential sees before
+// there is a provider to build: the address and the credential are enough to
+// list what exists, and a form asks that question while the placement answers
+// -- which New refuses to build without -- are still blank. A factory that
+// does not implement it is asked through a fully built provider instead.
+type DraftDiscoverer interface {
+	DiscoverDraft(ctx context.Context, cfg Config) (Discovery, error)
+}
+
 // Config carries what a factory needs and nothing more. The credential arrives
 // as plaintext, unsealed by the controller for the life of this call: the store
 // keeps it sealed and unsealing is the caller's job, exactly as
@@ -238,6 +247,35 @@ type Capabilities struct {
 	// when the provider has no opinion, which is not the same as free.
 	CostUnit  string
 	Deadlines Deadlines
+	// EndpointExample is what an address for this kind looks like, scheme
+	// and port included, so the form can show one and fill the port in for
+	// somebody who typed only a host name.
+	EndpointExample string
+	// EndpointSource, CredentialSource and CASource say where the three
+	// answers every kind is asked for are found -- the address, the
+	// credential and the certificate -- in the provider's own console's
+	// terms. The form's labels are the same for every kind; where to look
+	// is not.
+	EndpointSource   string
+	CredentialSource string
+	CASource         string
+	// Guide is what has to exist before a provider of this kind can rent a
+	// machine, in the order it is done: the credential to create, the image
+	// to prepare, the block of identifiers to set aside. The form shows it
+	// before it asks its first question, because every one of these is a
+	// thing the operator does elsewhere, and a form that asks for the result
+	// without saying how to get it is a form that gets abandoned.
+	Guide []GuideStep
+}
+
+// GuideStep is one thing to do before a provider of some kind can be used.
+type GuideStep struct {
+	Title string
+	// Detail says what to do and why, in prose the form shows as written.
+	Detail string
+	// Command is a shell snippet to copy, or empty when the step is done in
+	// a console rather than a terminal.
+	Command string
 }
 
 // Deadlines are the provider's own honest budgets. The controller applies the
@@ -499,6 +537,10 @@ type SettingSpec struct {
 	// somebody to type an identifier they have to go and look up.
 	Discovers string
 	Default   string
+	// Source says where the answer is found when discovery cannot fill it in:
+	// which page of the provider's own console, or which command on one of
+	// its machines. Help says what the setting is; this says where to look.
+	Source string
 }
 
 // Report is a preflight result. Its findings are config.Finding so the problems

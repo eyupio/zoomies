@@ -97,6 +97,11 @@ type ServiceSpec struct {
 	// LogFile is where launchd sends stdout and stderr, since macOS has no
 	// journal.
 	LogFile string
+	// EnvFile is an environment file the unit reads before it starts, and is
+	// allowed not to exist. A machine a provider clones is enrolled by having
+	// this file written into it, so the unit in the template has to name it
+	// before the file is there.
+	EnvFile string
 }
 
 // Label is the launchd job label, which doubles as the plist's file name.

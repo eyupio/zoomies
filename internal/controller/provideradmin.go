@@ -49,13 +49,29 @@ type ProviderKindView struct {
 	// one capability an operator has to care about before they buy anything:
 	// "metadata" means the payload is readable by anyone who can read the
 	// machine's metadata.
-	Bootstrap        string                `json:"bootstrap"`
-	CanStartStop     bool                  `json:"can_start_stop"`
-	CanDiscover      bool                  `json:"can_discover"`
-	CanMarkOwnership bool                  `json:"can_mark_ownership"`
-	AsyncOperations  bool                  `json:"async_operations"`
-	CostUnit         string                `json:"cost_unit,omitempty"`
-	Settings         []ProviderSettingView `json:"settings"`
+	Bootstrap        string `json:"bootstrap"`
+	CanStartStop     bool   `json:"can_start_stop"`
+	CanDiscover      bool   `json:"can_discover"`
+	CanMarkOwnership bool   `json:"can_mark_ownership"`
+	AsyncOperations  bool   `json:"async_operations"`
+	CostUnit         string `json:"cost_unit,omitempty"`
+	EndpointExample  string `json:"endpoint_example,omitempty"`
+	// Where the three answers every kind is asked for are found, in the
+	// provider's own console's terms.
+	EndpointSource   string `json:"endpoint_source,omitempty"`
+	CredentialSource string `json:"credential_source,omitempty"`
+	CASource         string `json:"ca_source,omitempty"`
+	// Guide is what has to exist before this kind can rent anything, in the
+	// order it is done, so the wizard can say it before its first question.
+	Guide    []ProviderGuideStepView `json:"guide"`
+	Settings []ProviderSettingView   `json:"settings"`
+}
+
+// ProviderGuideStepView is one thing to do before a provider of a kind works.
+type ProviderGuideStepView struct {
+	Title   string `json:"title"`
+	Detail  string `json:"detail,omitempty"`
+	Command string `json:"command,omitempty"`
 }
 
 // ProviderSettingView is one answer a provider needs.
@@ -72,6 +88,8 @@ type ProviderSettingView struct {
 	Consequence string `json:"consequence,omitempty"`
 	Discovers   string `json:"discovers,omitempty"`
 	Default     string `json:"default,omitempty"`
+	// Source says where to find the answer when discovery cannot offer it.
+	Source string `json:"source,omitempty"`
 }
 
 // ProviderKinds is every driver this build can speak, in the registry's stable
@@ -94,7 +112,15 @@ func (c *Controller) ProviderKinds() []ProviderKindView {
 			CanMarkOwnership: caps.CanMarkOwnership,
 			AsyncOperations:  caps.AsyncOperations,
 			CostUnit:         caps.CostUnit,
+			EndpointExample:  caps.EndpointExample,
+			EndpointSource:   caps.EndpointSource,
+			CredentialSource: caps.CredentialSource,
+			CASource:         caps.CASource,
+			Guide:            make([]ProviderGuideStepView, 0, len(caps.Guide)),
 			Settings:         make([]ProviderSettingView, 0, len(f.Settings())),
+		}
+		for _, step := range caps.Guide {
+			v.Guide = append(v.Guide, ProviderGuideStepView{Title: step.Title, Detail: step.Detail, Command: step.Command})
 		}
 		for _, spec := range f.Settings() {
 			v.Settings = append(v.Settings, ProviderSettingView{
@@ -107,6 +133,7 @@ func (c *Controller) ProviderKinds() []ProviderKindView {
 				Consequence: spec.Consequence,
 				Discovers:   spec.Discovers,
 				Default:     spec.Default,
+				Source:      spec.Source,
 			})
 		}
 		out = append(out, v)
@@ -218,6 +245,11 @@ type ProviderDiscoveryView struct {
 	Storages  []ProviderChoiceView `json:"storages"`
 	Bridges   []ProviderChoiceView `json:"bridges"`
 	Templates []ProviderChoiceView `json:"templates"`
+	// Unavailable is why the lists are empty when the provider could not be
+	// asked: the address did not answer, the credential was refused. A draft
+	// in a wizard is expected to be wrong at first, and a sentence beside the
+	// form is what corrects it; the form asks for identifiers meanwhile.
+	Unavailable string `json:"unavailable,omitempty"`
 }
 
 // ProviderChoiceView is one option in a guided form.
@@ -234,6 +266,56 @@ func (c *Controller) DiscoverProvider(ctx context.Context, row *store.Provider) 
 	if err != nil {
 		return ProviderDiscoveryView{}, providerBuildError(row, err)
 	}
+	return c.discover(ctx, pr)
+}
+
+// DiscoverDraft asks a provider that has not been saved what its credential
+// can see, so the wizard can offer the nodes, storages, bridges and templates
+// as a menu before there is a row to save them on.
+//
+// The secrets arrive in plaintext because there is no row to unseal them
+// from, and they go nowhere: the client is built for this one call and
+// dropped, and a private connection opened for it is closed with it. Nothing
+// is cached, because a draft has no identity to cache under and its
+// credential may be about to be corrected.
+func (c *Controller) DiscoverDraft(ctx context.Context, row *store.Provider, credential, address string) (ProviderDiscoveryView, error) {
+	if address != "" && !c.cfg().Server.TailcatEnabled {
+		return ProviderDiscoveryView{}, errPrivateConnectionsDisabled(row)
+	}
+	f, err := c.providers.Get(row.Kind)
+	if err != nil {
+		return ProviderDiscoveryView{}, providerBuildError(row, err)
+	}
+	if dd, ok := f.(provider.DraftDiscoverer); ok {
+		// The address and the credential are enough: the placement answers
+		// a built provider would insist on are the ones the menu is for.
+		cfg, tunnel, err := c.providerConfig(row, credential, address)
+		if err != nil {
+			return ProviderDiscoveryView{}, err
+		}
+		if tunnel != nil {
+			defer tunnel.Close()
+		}
+		callCtx, cancel := context.WithTimeout(ctx, c.providerDeadlines().Call)
+		defer cancel()
+		got, err := dd.DiscoverDraft(callCtx, cfg)
+		if err != nil {
+			return ProviderDiscoveryView{}, err
+		}
+		return discoveryView(got), nil
+	}
+	p, tunnel, err := c.buildProvider(ctx, row, credential, address)
+	if err != nil {
+		return ProviderDiscoveryView{}, providerBuildError(row, err)
+	}
+	if tunnel != nil {
+		defer tunnel.Close()
+	}
+	return c.discover(ctx, &machineProvider{row: row, p: p})
+}
+
+func (c *Controller) discover(ctx context.Context, pr *machineProvider) (ProviderDiscoveryView, error) {
+	row := pr.row
 	d, ok := pr.p.(provider.Discoverer)
 	if !ok {
 		return ProviderDiscoveryView{}, fmt.Errorf("%w: %s is a %s provider", ErrDiscoveryUnsupported, row.Name, row.Kind)
@@ -244,12 +326,16 @@ func (c *Controller) DiscoverProvider(ctx context.Context, row *store.Provider) 
 	if err != nil {
 		return ProviderDiscoveryView{}, err
 	}
+	return discoveryView(got), nil
+}
+
+func discoveryView(got provider.Discovery) ProviderDiscoveryView {
 	return ProviderDiscoveryView{
 		Nodes:     choiceViews(got.Nodes),
 		Storages:  choiceViews(got.Storages),
 		Bridges:   choiceViews(got.Bridges),
 		Templates: choiceViews(got.Templates),
-	}, nil
+	}
 }
 
 func choiceViews(in []provider.Choice) []ProviderChoiceView {

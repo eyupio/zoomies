@@ -22,6 +22,9 @@ func runAgent(ctx context.Context, e *env, args []string) error {
 	if len(args) > 0 && args[0] == "join" {
 		return runAgentJoin(ctx, e, args[1:])
 	}
+	if len(args) > 0 && args[0] == "install" {
+		return runAgentInstall(ctx, e, args[1:])
+	}
 	return runAgentDaemon(ctx, e, args)
 }
 
@@ -205,6 +208,36 @@ func runAgentJoin(ctx context.Context, e *env, args []string) error {
 		AssumeYes:          *assumeYes,
 		Out:                e.out,
 		In:                 e.in,
+	})
+}
+
+// runAgentInstall is `zoomies agent install`: the agent's service on a machine
+// that is about to become a template, joined to nothing. A provider clones the
+// template and enrols each clone by writing its environment file and enabling
+// the unit this leaves disabled.
+func runAgentInstall(ctx context.Context, e *env, args []string) error {
+	fs := newFlagSet(e, "zoomies agent install",
+		"Install the agent service without joining anything, on a machine about to become a provider's template. The unit is left disabled; the controller enables it inside each clone.")
+	serviceUser := fs.String("service-user", "", "the account the agent service runs as")
+	configDir := fs.String("config-dir", "", "where to write the agent's configuration (default: "+config.ConfigDir()+")")
+	stateDir := fs.String("state-dir", "", "where the agent keeps its credentials and scratch space (default: "+config.StateDir()+")")
+	binary := fs.String("installed-binary", "", "the zoomies binary the unit runs (default: this one)")
+	fs.example(
+		"sudo zoomies agent install",
+		"sudo zoomies agent install --service-user runner",
+	)
+	if err := fs.parse(args); err != nil {
+		return err
+	}
+	if err := fs.noMoreArgs(); err != nil {
+		return err
+	}
+	return installer.PrepareAgent(ctx, installer.PrepareOptions{
+		ConfigDir:   *configDir,
+		StateDir:    *stateDir,
+		BinaryPath:  *binary,
+		ServiceUser: *serviceUser,
+		Out:         e.out,
 	})
 }
 

@@ -797,6 +797,75 @@ func (s *Server) handleProviderDiscovery(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, found)
 }
 
+// handleDiscoverDraft answers POST /api/v1/providers/discover: what a draft's
+// credential can see, before the draft is saved.
+//
+// It always answers 200 for a draft that is well formed: a hypervisor that
+// does not answer, or refuses the token, is the normal state of a wizard
+// halfway through, and comes back as a sentence in `unavailable` for the form
+// to show beside the boxes it then asks to be typed into. What is refused
+// here is a draft the create would refuse too, with the same field errors, so
+// the wizard never asks a provider about a body it could not save.
+func (s *Server) handleDiscoverDraft(w http.ResponseWriter, r *http.Request) {
+	var in providerInput
+	if !decode(w, r, &in) {
+		return
+	}
+	p := defaultProvider()
+	// Only the connect step's answers are judged. The placement settings a
+	// create insists on are the very ones the menu is being asked for, and a
+	// draft's name may well still be the placeholder.
+	var errs []fieldError
+	for _, e := range in.apply(p) {
+		switch e.Field {
+		case "endpoint", "ca_pem", "connection", "tailcat_address":
+			errs = append(errs, e)
+		}
+	}
+	switch {
+	case p.Kind == "":
+		errs = append(errs, fieldError{"kind", "say what this provider is; GET /api/v1/providers/kinds lists what this build can rent from"})
+	case !p.Kind.Valid():
+		errs = append(errs, fieldError{"kind", fmt.Sprintf("%q is not a provider kind this build knows", p.Kind)})
+	}
+	if p.Endpoint == "" {
+		errs = append(errs, fieldError{"endpoint", "give the address this controller reaches the provider on"})
+	}
+	errs = append(errs, s.connectionErrors(&in, p)...)
+	credential := ""
+	if in.Credential != nil {
+		credential = strings.TrimSpace(*in.Credential)
+	}
+	if credential == "" {
+		errs = append(errs, fieldError{"credential", "the provider can only be asked what it can see with a credential to ask with"})
+	}
+	if len(errs) > 0 {
+		unprocessable(w, "this draft cannot be asked about as described", errs)
+		return
+	}
+	address := ""
+	if in.TailcatAddress != nil {
+		address = strings.TrimSpace(*in.TailcatAddress)
+	}
+	if p.Name == "" {
+		p.Name = "draft"
+	}
+	found, err := s.ctrl.DiscoverDraft(r.Context(), p, credential, address)
+	switch {
+	case err == nil:
+	case errors.Is(err, controller.ErrProviderKindUnknown), errors.Is(err, controller.ErrDiscoveryUnsupported):
+		s.providerFailed(w, r, "asking the draft what it can see", err)
+		return
+	default:
+		found = providerDiscoveryResponse{
+			Nodes: []controller.ProviderChoiceView{}, Storages: []controller.ProviderChoiceView{},
+			Bridges: []controller.ProviderChoiceView{}, Templates: []controller.ProviderChoiceView{},
+			Unavailable: err.Error(),
+		}
+	}
+	writeJSON(w, http.StatusOK, found)
+}
+
 // handleProviderOrphans answers GET /api/v1/providers/{id}/orphans: the three
 // ways a row and a resource can disagree. Nothing on it is acted on
 // automatically, which is why it is a page rather than a background job.

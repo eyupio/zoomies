@@ -428,6 +428,58 @@ func (c *Controller) providerFor(ctx context.Context, row *store.Provider) (*mac
 	if err != nil {
 		return nil, err
 	}
+	var address string
+	if len(row.TailcatAddressEnc) > 0 {
+		if !c.cfg().Server.TailcatEnabled {
+			return nil, errPrivateConnectionsDisabled(row)
+		}
+		address, err = c.unsealString(row.TailcatAddressEnc, "provider "+row.Name+"'s private connection address")
+		if err != nil {
+			return nil, err
+		}
+	}
+	p, tunnel, err := c.buildProvider(ctx, row, credential, address)
+	if err != nil {
+		return nil, err
+	}
+	c.machines.cacheMu.Lock()
+	if old, ok := c.machines.cache[row.ID]; ok && old.tunnel != nil {
+		old.tunnel.Close()
+	}
+	c.machines.cache[row.ID] = &builtProvider{p: p, updatedAt: row.UpdatedAt, tunnel: tunnel}
+	c.machines.cacheMu.Unlock()
+	return &machineProvider{row: row, p: p}, nil
+}
+
+// errPrivateConnectionsDisabled is the refusal for a row that is reached
+// through a gateway on a controller with the tunnel switched off.
+func errPrivateConnectionsDisabled(row *store.Provider) error {
+	return errors.New("provider " + row.Name + " is reached over a private connection, and private connections are disabled; set server.tailcat_enabled to true and restart the controller, or switch the provider to a direct connection")
+}
+
+// buildProvider makes one client from a row and its already-unsealed secrets,
+// and owns nothing afterwards: the caller caches the tunnel or closes it. It
+// is separate from providerFor so that a draft the wizard has not saved --
+// which has no row to unseal from and nothing to cache under -- can be built
+// the same way and asked what its credential can see.
+func (c *Controller) buildProvider(ctx context.Context, row *store.Provider, credential, address string) (provider.Provider, *privateDialer, error) {
+	cfg, tunnel, err := c.providerConfig(row, credential, address)
+	if err != nil {
+		return nil, nil, err
+	}
+	p, err := c.providers.New(ctx, row.Kind, cfg)
+	if err != nil {
+		if tunnel != nil {
+			tunnel.Close()
+		}
+		return nil, nil, err
+	}
+	return p, tunnel, nil
+}
+
+// providerConfig is what a factory is handed for one row, with the private
+// connection opened when the row has one. The caller owns the tunnel.
+func (c *Controller) providerConfig(row *store.Provider, credential, address string) (provider.Config, *privateDialer, error) {
 	cfg := provider.Config{
 		ProviderID: row.ID,
 		Owner:      provider.Owner{ControllerID: c.controllerID(), ProviderID: row.ID},
@@ -445,34 +497,15 @@ func (c *Controller) providerFor(ctx context.Context, row *store.Provider) (*mac
 		Logger:     c.log.With("provider", row.Name),
 	}
 	var tunnel *privateDialer
-	if len(row.TailcatAddressEnc) > 0 {
-		if !c.cfg().Server.TailcatEnabled {
-			return nil, errors.New("provider " + row.Name + " is reached over a private connection, and private connections are disabled; set server.tailcat_enabled to true and restart the controller, or switch the provider to a direct connection")
-		}
-		address, err := c.unsealString(row.TailcatAddressEnc, "provider "+row.Name+"'s private connection address")
-		if err != nil {
-			return nil, err
-		}
+	if address != "" {
+		var err error
 		tunnel, err = newPrivateDialer(address)
 		if err != nil {
-			return nil, errors.New("provider " + row.Name + ": " + err.Error())
+			return provider.Config{}, nil, errors.New("provider " + row.Name + ": " + err.Error())
 		}
 		cfg.DialContext = tunnel.DialContext
 	}
-	p, err := c.providers.New(ctx, row.Kind, cfg)
-	if err != nil {
-		if tunnel != nil {
-			tunnel.Close()
-		}
-		return nil, err
-	}
-	c.machines.cacheMu.Lock()
-	if old, ok := c.machines.cache[row.ID]; ok && old.tunnel != nil {
-		old.tunnel.Close()
-	}
-	c.machines.cache[row.ID] = &builtProvider{p: p, updatedAt: row.UpdatedAt, tunnel: tunnel}
-	c.machines.cacheMu.Unlock()
-	return &machineProvider{row: row, p: p}, nil
+	return cfg, tunnel, nil
 }
 
 // closeProviderTunnels releases every private connection the cache holds. It
