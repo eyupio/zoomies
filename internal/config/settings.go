@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 )
 
 // The settings registry: one row per configuration key, and the single answer
@@ -123,6 +124,12 @@ type Setting struct {
 	// RestartReason says why a change waits for a restart, for the keys where
 	// the reason is not obvious. Empty for a Live setting.
 	RestartReason string `json:"restart_reason,omitempty"`
+	// Floor is the smallest useful positive value of a duration. Zero is
+	// always still allowed, because switching a timer off is a real answer;
+	// what the floor refuses is a value that is technically a duration and
+	// practically an outage. A poll interval of one millisecond is a denial of
+	// service against GitHub, not a configuration choice.
+	Floor time.Duration `json:"floor_ms,omitempty"`
 }
 
 // Stored reports whether this setting's value belongs in the database.
@@ -156,7 +163,7 @@ var registry = buildRegistry([]Setting{
 		RestartReason: "the shell's sharing metadata and the single sign-on redirect are built from it at startup",
 	},
 	{
-		Key: "server.tls.mode", Label: "TLS", Env: "ZOOMIES_TLS_MODE", Kind: KindEnum, Scope: ScopeInstance,
+		Key: "server.tls.mode", Label: "TLS mode", Env: "ZOOMIES_TLS_MODE", Kind: KindEnum, Scope: ScopeInstance,
 		Choices:       []string{string(TLSOff), string(TLSSelfSigned), string(TLSFiles)},
 		Summary:       "How the listener terminates TLS: off behind a reverse proxy, self-signed for a generated certificate, files for one of your own.",
 		RestartReason: "the certificate is handed to the listener when it is created",
@@ -270,6 +277,7 @@ var registry = buildRegistry([]Setting{
 	},
 	{
 		Key: "github.poll_interval", Label: "Poll interval", Env: "ZOOMIES_POLL_INTERVAL", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Floor:   time.Second,
 		Summary: "How often the fallback poller looks for queued jobs.",
 	},
 	{
@@ -410,6 +418,7 @@ var registry = buildRegistry([]Setting{
 	// ---------------------------------------------------------------------
 	{
 		Key: "scheduler.interval", Label: "Scheduler interval", Env: "ZOOMIES_SCHEDULER_INTERVAL", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Floor:   time.Second,
 		Summary: "How often the scheduler runs a pass even with nothing to react to.",
 	},
 	{

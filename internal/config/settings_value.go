@@ -194,7 +194,13 @@ func decode(s Setting, f reflect.Value, value any) error {
 			return fail("%q is not a duration (try 30s, 5m, 2h)", text)
 		}
 		if d < 0 {
-			return fail("%q is negative, and a duration here is a length of time", text)
+			return fail("%q cannot be negative; use 0 to switch it off", text)
+		}
+		// Zero is always allowed: switching a timer off is a real answer. The
+		// floor refuses what is technically a duration and practically an
+		// outage.
+		if s.Floor > 0 && d > 0 && d < s.Floor {
+			return fail("%s is too short; the smallest useful value is %s", d, s.Floor)
 		}
 		f.SetInt(int64(d))
 
@@ -221,12 +227,17 @@ func decode(s Setting, f reflect.Value, value any) error {
 		if err != nil {
 			return fail("%v is not a whole number", value)
 		}
+		// Every whole number in this configuration counts something -- runners,
+		// attempts, megabytes -- so none of them can be negative.
+		if n < 0 {
+			return fail("%d cannot be negative", n)
+		}
 		f.SetInt(int64(n))
 
 	case KindEnum:
 		text, ok := value.(string)
 		if !ok {
-			return fail("%v is not one of %s", value, strings.Join(s.Choices, ", "))
+			return fail("expected a string, got %T", value)
 		}
 		text = strings.ToLower(strings.TrimSpace(text))
 		found := false
@@ -237,7 +248,10 @@ func decode(s Setting, f reflect.Value, value any) error {
 			}
 		}
 		if !found {
-			return fail("%q is not one of %s", text, strings.Join(s.Choices, ", "))
+			// Named, not enumerated: "is not a log level" is what somebody
+			// searches for and what they will recognise, and the list of what
+			// it could have been comes after it.
+			return fail("%q is not a %s; use %s", text, strings.ToLower(s.Label), orList(s.Choices))
 		}
 		f.SetString(text)
 
@@ -406,6 +420,17 @@ func TidyDuration(d time.Duration) string {
 		s = strings.TrimSuffix(s, "0m")
 	}
 	return s
+}
+
+// orList reads the way somebody would say it: "debug, info, warn or error".
+func orList(items []string) string {
+	switch len(items) {
+	case 0:
+		return ""
+	case 1:
+		return items[0]
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " or " + items[len(items)-1]
 }
 
 func asBool(value any) (bool, error) {
