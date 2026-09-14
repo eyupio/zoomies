@@ -145,6 +145,14 @@ screenshots: build ## Recapture docs/screenshots from the real UI (needs Pillow:
 .PHONY: lint
 lint: ## Vet, format check, and staticcheck when available
 	$(GO) vet ./...
+# The tagged suites too. An ordinary `go vet ./...` never compiles them, which
+# is how test/e2e sat with a non-test file referring to a symbol only its
+# _test.go half defined: every gate was green and the package did not build
+# under its own tag. Vet rather than build, because vet compiles the tests as
+# well and it is the test halves that carry most of this code.
+	$(GO) vet -tags e2e ./...
+	$(GO) vet -tags drill ./...
+	$(GO) vet -tags load ./...
 	@out=$$(gofmt -l $$(git ls-files '*.go')); \
 	 if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
 	@if command -v staticcheck >/dev/null 2>&1; then staticcheck ./...; \
