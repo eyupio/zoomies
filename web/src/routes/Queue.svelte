@@ -20,7 +20,8 @@
   import PageHeader from '$lib/components/PageHeader.svelte';
   import DataGrid from '$lib/components/DataGrid.svelte';
   import type { BulkAction, GridColumn, GridQuery } from '$lib/components/DataGrid.svelte';
-  import DropdownMenu from '$lib/components/DropdownMenu.svelte';
+  import RowActions from '$lib/components/RowActions.svelte';
+  import type { RowAction } from '$lib/components/RowActions.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import Dialog from '$lib/components/Dialog.svelte';
   import Input from '$lib/components/Input.svelte';
@@ -159,6 +160,46 @@
   function status(job: Job): Status {
     return job.provisioning || (job.provision_now ? 'expedited' : 'ready');
   }
+  /** What an action acts on. Names the row's toolbar, and every button in it. */
+  function subjectOf(job: Job): string {
+    return `${job.repo ?? 'this repository'} / ${job.job_name ?? 'this job'}`;
+  }
+  /**
+   * The four actions, on the row.
+   *
+   * They were behind a menu, which cost a press before any of them could be
+   * reached -- and pausing a repository's worth of demand is the job an
+   * operator opens this page to do, one row after another. An action already
+   * in force is disabled and says why: a control that refuses without a reason
+   * is a control that gets reported as broken.
+   */
+  function rowActions(job: Job): RowAction[] {
+    const now = status(job);
+    const reasons: Record<Action, string> = {
+      run_now: 'Already prioritised to run now.',
+      pause: 'Already paused.',
+      resume: 'Already provisioning normally, with nothing to restore.',
+      delete: 'Already removed from the queue.',
+    };
+    return actions.map((a) => {
+      const disabled =
+        (a.id === 'pause' && now === 'paused') ||
+        (a.id === 'delete' && now === 'deleted') ||
+        (a.id === 'run_now' && now === 'expedited') ||
+        (a.id === 'resume' && now === 'ready');
+      return {
+        id: a.id,
+        label: a.label,
+        icon: a.icon,
+        danger: a.danger,
+        disabled,
+        reason: reasons[a.id],
+        onSelect: () => {
+          void ask(a.id, [rowId(job)]);
+        },
+      };
+    });
+  }
   function openJob(job: Job): void {
     selectedJob = job;
     drawerOpen = true;
@@ -237,11 +278,28 @@
       cell: repoCell,
       value: (j) => j.repo ?? '',
     },
-    { id: 'pool', header: 'Pool / priority', cell: poolCell, value: (j) => j.pool_name ?? '' },
-    { id: 'labels', header: 'Labels', cell: labelsCell },
+    {
+      id: 'pool',
+      header: 'Pool / priority',
+      priority: 'wide',
+      cell: poolCell,
+      value: (j) => j.pool_name ?? '',
+    },
+    { id: 'labels', header: 'Labels', priority: 'wide', cell: labelsCell },
     { id: 'queued_at', header: 'Waiting', sortable: true, cell: waitCell, width: '7rem' },
     ...(canOperate
-      ? [{ id: 'actions', header: 'Actions', hideable: false, width: '5rem', cell: actionCell }]
+      ? [
+          {
+            id: 'actions',
+            header: 'Actions',
+            fixed: true,
+            hideable: false,
+            // Four buttons and the gaps between them, plus the cell's padding.
+            width: '9rem',
+            align: 'end' as const,
+            cell: actionCell,
+          },
+        ]
       : []),
   ]);
 
@@ -308,22 +366,7 @@
 {#snippet labelsCell(job: Job)}<JobLabels labels={job.labels} />{/snippet}
 {#snippet waitCell(job: Job)}<Duration from={job.queued_at} live />{/snippet}
 {#snippet actionCell(job: Job)}
-  <div role="presentation" onclick={(event) => event.stopPropagation()}>
-    <DropdownMenu
-      label="Provisioning actions for {job.job_name}"
-      size="sm"
-      items={actions.map((a) => ({
-        ...a,
-        disabled:
-          (a.id === 'pause' && job.provisioning === 'paused') ||
-          (a.id === 'delete' && job.provisioning === 'deleted') ||
-          (a.id === 'run_now' && job.provision_now && !job.provisioning),
-        onSelect: () => {
-          void ask(a.id, [rowId(job)]);
-        },
-      }))}
-    />
-  </div>
+  <RowActions actions={rowActions(job)} subject={subjectOf(job)} />
 {/snippet}
 
 <PageHeader

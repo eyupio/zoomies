@@ -31,6 +31,9 @@ const PAGES = [
   { path: '/pools', heading: 'Pools' },
   { path: '/runners', heading: 'Runners' },
   { path: '/jobs', heading: 'Jobs' },
+  // The Queue puts four buttons on every row rather than a menu, which is four
+  // times as many controls to get the name of right.
+  { path: '/queue', heading: 'Queue' },
   { path: '/usage', heading: 'Usage' },
   { path: '/hosts', heading: 'Hosts' },
   { path: '/providers', heading: 'Providers' },
@@ -54,7 +57,7 @@ const PAGES = [
 ] as const;
 
 /** The pages whose main content is a grid of rows to wait for. */
-const GRID_PAGES = new Set(['/pools', '/runners', '/jobs', '/audit']);
+const GRID_PAGES = new Set(['/pools', '/runners', '/jobs', '/queue', '/audit']);
 
 /**
  * Let the page finish rendering before auditing it.
@@ -285,7 +288,16 @@ test('a drawer keeps focus the way a dialog does, and gives it back', async ({ p
 
   await page.keyboard.press('Escape');
   await expect(drawer).toBeHidden();
-  expect(await focusIsInMain(page), 'focus comes back to the page').toBe(true);
+  // Waited for rather than sampled once, for the reason the dialog above gives:
+  // the overlay hands focus back a frame after it has gone, because clearing
+  // the `inert` it put on the page has to happen first. Which frame that lands
+  // on is the browser's business -- on a grid page it is a frame later again
+  // when the columns have just been remeasured -- and it is not what this test
+  // is about, which is that focus comes back at all rather than being left on
+  // <body> at the top of the document.
+  await expect
+    .poll(() => focusIsInMain(page), { message: 'focus comes back to the page' })
+    .toBe(true);
 });
 
 test('asking for less motion gets none', async ({ page }) => {

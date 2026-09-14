@@ -193,9 +193,8 @@ test('the grids stay inside the screen instead of overflowing it', async ({ page
   // stretched, a visually-hidden `.sr-only` span in a cell 500px along a
   // 1200px table was positioned against the page rather than against the
   // grid's own scroll frame, escaped its clipping, and made the document that
-  // wide -- so the page scrolled sideways instead of the grid scrolling inside
-  // its frame, and Chrome zoomed out to fit until the toolbar and the row
-  // actions could not be pressed.
+  // wide -- so the page scrolled sideways, and Chrome zoomed out to fit until
+  // the toolbar and the row actions could not be pressed.
 
   for (const [path, heading, label] of [
     ['/runners', 'Runners', 'Runners'],
@@ -205,8 +204,9 @@ test('the grids stay inside the screen instead of overflowing it', async ({ page
     await goto(page, path, heading);
     await expect(dataRows(grid(page, label)).first()).toBeVisible();
 
-    // A wide table is fine -- it may scroll inside its own frame -- but the
-    // page around it must not.
+    // The page must not scroll sideways, and nor may the grid: at this width
+    // its rows are cards. `tables.spec.ts` is where that is held to be true at
+    // every width; what this one guards is the page around it.
     await expectNoSidewaysScroll(page, `the ${heading} grid`);
   }
 });

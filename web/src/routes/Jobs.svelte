@@ -17,6 +17,13 @@
   something here could have -- and the "Include other runners" switch widens it
   to everything GitHub has reported.
 
+  Status is the filter this page is opened for, so it is a row of buttons above
+  the grid rather than a menu to open, and a page nobody has asked anything of
+  answers "what is running?" before being asked. That default holds for a bare
+  visit only: a link that already carries a filter -- the problems panel's, the
+  Overview's, a colleague's -- said what it wanted, and narrowing it to running
+  would answer a different question.
+
   The note explaining unmatched jobs belongs to the filtered view, not to the
   default one. An organisation that also rents runners elsewhere keeps queueing
   jobs this fleet has no pool for, and the ones whose labels leave any doubt are
@@ -50,12 +57,52 @@
   import JobFilters from '$lib/jobs/JobFilters.svelte';
   import type { JobFilterState } from '$lib/jobs/JobFilters.svelte';
   import JobLabels from '$lib/jobs/JobLabels.svelte';
+  import JobViewFilter from '$lib/jobs/JobViewFilter.svelte';
   import UnmatchedNote from '$lib/jobs/UnmatchedNote.svelte';
+  import { currentJobView, DEFAULT_JOB_STATE, JOB_VIEWS, type JobView } from '$lib/jobs/views';
 
   /* -- filter state, held in the URL ---------------------------------------
    * The keys are the API's own, so the address bar and the request agree and a
    * pasted link reproduces exactly what the sender was looking at.
    * --------------------------------------------------------------------- */
+
+  /** Every key a filter lives under, so "has this page been asked anything?" has one answer. */
+  const FILTER_KEYS = [
+    'q',
+    'repo',
+    'workflow',
+    'pool_id',
+    'label',
+    'conclusion',
+    'state',
+    'since',
+    'until',
+    'unmatched',
+    'failed',
+    'all',
+  ] as const;
+
+  /** The status keys a view owns. A patch touching one of them is choosing a view. */
+  const STATUS_KEYS = ['state', 'conclusion', 'failed', 'unmatched'] as const;
+
+  /**
+   * Nobody has asked this page anything yet, so it answers the question it is
+   * opened with: what is running.
+   *
+   * Scoped to a URL with no filter at all, not to an absent `state`, because
+   * seven of the ten links into this page carry a filter and no state -- the
+   * problems panel's unmatched link, the Overview's failed and outcome links,
+   * a date range off the activity matrix. Each of those said what it wanted,
+   * and narrowing it to running would answer a different question than the one
+   * the sender asked. The address bar is left alone the way Queue's
+   * provisioning statuses and Settings' tab are: an absent key means the
+   * default, and pressing "All" writes every state out in full so that the two
+   * stay distinguishable.
+   */
+  const defaulted = $derived.by(() => {
+    const query = router.query;
+    return !FILTER_KEYS.some((key) => query.has(key));
+  });
 
   const filters = $derived<JobFilterState>({
     q: router.param('q'),
@@ -67,9 +114,11 @@
     // Validated rather than asserted: `?state=` is whatever was in the address
     // bar, and a cast sends the typo straight to the server as a filter that
     // matches nothing, so the page comes back empty with no explanation.
-    state: router
-      .paramList('state')
-      .filter((value): value is JobState => (JOB_STATES as readonly string[]).includes(value)),
+    state: defaulted
+      ? DEFAULT_JOB_STATE
+      : router
+          .paramList('state')
+          .filter((value): value is JobState => (JOB_STATES as readonly string[]).includes(value)),
     since: router.param('since'),
     until: router.param('until'),
     unmatched: router.param('unmatched') === 'true',
@@ -86,6 +135,20 @@
    */
   function patch(next: Partial<JobFilterState>): void {
     const out: Record<string, string | readonly string[] | null> = { offset: null };
+    /*
+     * The default holds only while nothing has been asked. The moment an
+     * operator narrows something else -- types a word in the search box, picks
+     * a repository -- the status they can see in force is written down, or
+     * that keystroke would quietly widen the page from "running" to every job
+     * the fleet has ever seen.
+     *
+     * A patch that touches the status is choosing a view and says what it
+     * wants, so it is left alone. `unmatched` is one of those: the server
+     * reads it as queued-and-unclaimed, and a running job can be neither.
+     */
+    if (defaulted && !STATUS_KEYS.some((key) => next[key] !== undefined)) {
+      out.state = DEFAULT_JOB_STATE;
+    }
     for (const [key, value] of Object.entries(next)) {
       if (typeof value === 'boolean') out[key] = value ? 'true' : null;
       else if (Array.isArray(value)) out[key] = value;
@@ -94,22 +157,27 @@
     router.setQuery(out);
   }
 
+  /**
+   * Clearing every filter is a return to the default view, not to everything:
+   * a page with nothing asked of it is the page an operator arrives at, and
+   * "All" is one button away and says so.
+   */
   function clearFilters(): void {
-    router.setQuery({
-      q: null,
-      repo: null,
-      workflow: null,
-      pool_id: null,
-      label: null,
-      conclusion: null,
-      state: null,
-      since: null,
-      until: null,
-      unmatched: null,
-      failed: null,
-      all: null,
-      offset: null,
-    });
+    router.setQuery({ ...Object.fromEntries(FILTER_KEYS.map((k) => [k, null])), offset: null });
+  }
+
+  /* -- the status views -----------------------------------------------------
+   * The row of buttons above the grid. A view owns the status keys outright,
+   * so pressing one gives exactly what it says; everything narrower the
+   * operator has set -- repository, workflow, pool, labels, dates -- survives
+   * the change, because they were still looking at that.
+   * ---------------------------------------------------------------------- */
+
+  const view = $derived(currentJobView(filters));
+
+  function setView(next: JobView): void {
+    const chosen = JOB_VIEWS.find((v) => v.id === next);
+    if (chosen) patch(chosen.filters);
   }
 
   /* -- facets and live rows -------------------------------------------------- */
@@ -176,9 +244,13 @@
       ? 'No unmatched jobs'
       : filters.failed
         ? 'No failed jobs'
-        : filters.all
-          ? 'No jobs recorded yet'
-          : 'No jobs have run on this fleet',
+        : view === 'running'
+          ? 'Nothing is running right now'
+          : view === 'queued'
+            ? 'Nothing is queued'
+            : filters.all
+              ? 'No jobs recorded yet'
+              : 'No jobs have run on this fleet',
   );
 
   const emptyDescription = $derived(
@@ -186,9 +258,13 @@
       ? 'Nothing is queued with labels no pool claims, which is how it should be. Jobs that already ran are not counted here however their labels read.'
       : filters.failed
         ? 'Nothing GitHub reported as failed or timed out, and no runner here has stopped under a job. Widen the dates to look further back.'
-        : filters.all
-          ? 'Zoomies records a job the first time GitHub tells it about one, over a webhook delivery. If workflows are running and nothing appears here, the delivery is not arriving.'
-          : 'This view shows jobs a pool claims or a runner here ran. Include other runners to see everything GitHub has reported, hosted runners included.',
+        : view === 'running'
+          ? 'No runner here is working on a job at this moment, which on a quiet fleet is the ordinary state. Queued shows what is waiting for one, and All shows everything this fleet has been asked to do.'
+          : view === 'queued'
+            ? 'Nothing is waiting for a runner, so the fleet is keeping up with what GitHub is asking of it. Running shows what is being worked on now.'
+            : filters.all
+              ? 'Zoomies records a job the first time GitHub tells it about one, over a webhook delivery. If workflows are running and nothing appears here, the delivery is not arriving.'
+              : 'This view shows jobs a pool claims or a runner here ran. Include other runners to see everything GitHub has reported, hosted runners included.',
   );
 
   /* -- the grid ---------------------------------------------------------------- */
@@ -259,18 +335,31 @@
       value: (job) => jobStatus(job.state, job.conclusion).label,
       cell: stateCell,
     },
-    { id: 'failed_at', header: 'Failed at', value: failedAt, cell: failedAtCell },
+    { id: 'failed_at', header: 'Failed at', priority: 'wide', value: failedAt, cell: failedAtCell },
     { id: 'repo', header: 'Repository', sortable: true, value: (job) => job.repo ?? '' },
     { id: 'workflow', header: 'Workflow', sortable: true, value: (job) => job.workflow ?? '' },
     { id: 'job_name', header: 'Job', value: (job) => job.job_name ?? '' },
     {
       id: 'labels',
       header: 'Labels',
+      priority: 'wide',
       value: (job) => (job.labels ?? []).join(' '),
       cell: labelsCell,
     },
-    { id: 'pool', header: 'Pool', value: (job) => job.pool_name ?? '', cell: poolCell },
-    { id: 'runner', header: 'Runner', value: (job) => job.runner_name ?? '', cell: runnerCell },
+    {
+      id: 'pool',
+      header: 'Pool',
+      priority: 'wide',
+      value: (job) => job.pool_name ?? '',
+      cell: poolCell,
+    },
+    {
+      id: 'runner',
+      header: 'Runner',
+      priority: 'wide',
+      value: (job) => job.runner_name ?? '',
+      cell: runnerCell,
+    },
     {
       id: 'queue_wait',
       header: 'Queue wait',
@@ -297,7 +386,7 @@
       value: (job) => job.queued_at ?? '',
       cell: queuedCell,
     },
-    { id: 'link', header: 'Run', width: '4rem', align: 'end', cell: linkCell },
+    { id: 'link', header: 'Run', priority: 'wide', width: '4rem', align: 'end', cell: linkCell },
   ]);
 </script>
 
@@ -396,7 +485,10 @@
   />
 </details>
 <div class="content">
+  <JobViewFilter value={view} onchange={setView} />
+
   <JobFilters
+    statusChips={view === ''}
     value={filters}
     {facets}
     pools={fleet.pools}
@@ -426,7 +518,14 @@
     {emptyDescription}
   >
     {#snippet emptyAction()}
-      {#if !filters.unmatched}
+      {#if view !== '' && view !== 'all'}
+        <!--
+          A narrowed status view that came back empty is the one case where the
+          way out is not another filter but the same page without this one, so
+          it is offered as a button rather than left to be found in the row.
+        -->
+        <Button variant="secondary" onclick={() => setView('all')}>Show every status</Button>
+      {:else if !filters.unmatched}
         {#if filters.all}
           <Button variant="secondary" href="/installations">Check webhook delivery</Button>
         {:else}

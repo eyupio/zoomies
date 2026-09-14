@@ -300,6 +300,7 @@
       {
         id: 'host',
         header: 'Host',
+        priority: 'wide',
         sortable: true,
         width: '10rem',
         value: (row) => row.host_name ?? '',
@@ -313,6 +314,7 @@
       {
         id: 'created_at',
         header: 'Age',
+        priority: 'wide',
         sortable: true,
         align: 'end',
         width: '7rem',
@@ -322,6 +324,7 @@
       {
         id: 'jobs',
         header: 'Jobs handled',
+        priority: 'wide',
         sortable: true,
         align: 'end',
         width: '7rem',
@@ -330,6 +333,7 @@
       {
         id: 'cpu',
         header: 'CPU',
+        priority: 'wide',
         align: 'end',
         width: '6rem',
         value: (row) =>
@@ -338,6 +342,7 @@
       {
         id: 'memory',
         header: 'Memory',
+        priority: 'wide',
         align: 'end',
         width: '7rem',
         value: (row) => (row.memory_bytes === undefined ? '--' : formatBytes(row.memory_bytes)),
@@ -347,6 +352,9 @@
       list.push({
         id: 'actions',
         header: 'Actions',
+        fixed: true,
+        // The menu is anchored in this cell, so the cell must let it out.
+        overflows: true,
         hideable: false,
         align: 'end',
         width: '5rem',

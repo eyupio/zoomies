@@ -27,8 +27,43 @@
     sortable?: boolean;
     /** Whether the operator may hide it. Defaults to true. */
     hideable?: boolean;
+    /**
+     * How much of the frame this column is worth, as a `rem` or `px` measure.
+     *
+     * It is a share rather than a measure: the grid never scrolls sideways, so
+     * the columns divide whatever width there is and a declared width says how
+     * generously. A column that leaves it out gets an ordinary share.
+     */
     width?: string;
+    /**
+     * Take `width` as a measure rather than a share.
+     *
+     * A column of controls cannot be narrower than the controls in it -- a
+     * button squeezed to two thirds of itself is a button half outside its
+     * column -- so it takes its width outright and the columns of text divide
+     * whatever is left.
+     */
+    fixed?: boolean;
     align?: 'start' | 'end';
+    /**
+     * Whether this column's cell may paint outside its column.
+     *
+     * A cell is one line, cut off at its column's edge, so that one long
+     * runner name cannot make every row in the table three lines tall. The
+     * exception is a cell that opens something anchored inside it -- a menu, a
+     * popover -- which has to be let out or it is cut off at the row's edge.
+     */
+    overflows?: boolean;
+    /**
+     * `wide` columns are the ones a narrow desktop does without.
+     *
+     * Twelve columns in the 660 pixels a 768px window leaves is 55 pixels
+     * each, which fits and says nothing. The columns that answer the page's
+     * own question stay; the rest wait for the room to show them properly, and
+     * come back in full on a phone, where every row is a card and there is a
+     * whole line for each of them.
+     */
+    priority?: 'wide';
   }
 
   export interface BulkAction {
@@ -329,14 +364,152 @@
     },
   });
 
+  /* -- how wide the columns are ---------------------------------------------
+   * The table never scrolls sideways, so the frame's width is the whole budget
+   * and the columns divide it. A declared width is a share of that budget
+   * rather than a measure, except where a column says it is `fixed`, and the
+   * arithmetic is done here rather than in CSS because a percentage inside a
+   * `calc()` does not resolve for a column of a fixed-layout table -- Chrome
+   * quietly falls back to dividing the width equally, which throws away every
+   * proportion the pages asked for.
+   * ---------------------------------------------------------------------- */
+
+  let frame = $state<HTMLDivElement | null>(null);
+  let frameWidth = $state(0);
+  /** What a rem is worth here, read once: the root font size is not ours to assume. */
+  let remPx = $state(16);
+
+  $effect(() => {
+    const element = frame;
+    if (!element) return;
+    const root = parseFloat(getComputedStyle(document.documentElement).fontSize);
+    if (Number.isFinite(root) && root > 0) remPx = root;
+    /*
+      Measured in the observer, acted on a frame later, and coalesced: a resize
+      notification is delivered inside the browser's own rendering steps, and
+      writing state there lays the frame out a second time -- which is both the
+      "ResizeObserver loop" warning and a frame of work charged to whatever
+      else was queued. A frame's delay in a column width nobody can see is the
+      cheaper side of that trade.
+    */
+    let queued = 0;
+    const measure = (): void => {
+      queued = 0;
+      frameWidth = element.clientWidth;
+    };
+    const observer = new ResizeObserver(() => {
+      if (queued === 0) queued = requestAnimationFrame(measure);
+    });
+    observer.observe(element);
+    frameWidth = element.clientWidth;
+    return () => {
+      observer.disconnect();
+      if (queued !== 0) cancelAnimationFrame(queued);
+    };
+  });
+
+  /** What a column with nothing to say about its width is worth. */
+  const DEFAULT_SHARE_REM = 8;
+  /** The tick column, which is a control rather than a column of data. */
+  const PICK_SHARE_REM = 2.5;
+
+  /**
+   * A declared width in pixels.
+   *
+   * Anything the browser could be trusted to parse but this cannot -- a
+   * `clamp()`, a percentage -- falls back to an ordinary share rather than to
+   * a NaN, which would take the whole table's arithmetic with it.
+   */
+  function share(width: string | undefined, rem: number): number {
+    const measure = width ? /^([\d.]+)(rem|px)$/.exec(width.trim()) : null;
+    const value = measure ? Number(measure[1]) : Number.NaN;
+    if (!Number.isFinite(value) || value <= 0) return DEFAULT_SHARE_REM * rem;
+    return measure![2] === 'px' ? value : value * rem;
+  }
+
+  /**
+   * The narrow-desktop band, where a `wide` column waits for a window with the
+   * room to show it properly.
+   *
+   * Asked of the browser rather than written as a CSS rule, because the column
+   * widths are worked out here: a column hidden by CSS would still have been
+   * given its share of the frame, and the columns left would be smaller than
+   * the space they actually have. Below this band there is no band -- the rows
+   * are cards, and every column has a line of its own again.
+   */
+  const NARROW_DESKTOP = '(min-width: 768px) and (max-width: 1179px)';
+  /** Below this the rows are cards, and a column has no width to be given. */
+  const CARDS = '(max-width: 767px)';
+  let narrowDesktop = $state(false);
+  let cards = $state(false);
+
+  $effect(() => {
+    const watch = (media: string, set: (on: boolean) => void): (() => void) => {
+      const query = window.matchMedia(media);
+      const update = (): void => set(query.matches);
+      update();
+      query.addEventListener('change', update);
+      return () => query.removeEventListener('change', update);
+    };
+    const stop = [
+      watch(NARROW_DESKTOP, (on) => (narrowDesktop = on)),
+      watch(CARDS, (on) => (cards = on)),
+    ];
+    return () => stop.forEach((off) => off());
+  });
+
   const byId = $derived(new Map(columns.map((c) => [c.id, c])));
   const visibleColumns = $derived(
     table
       .getVisibleLeafColumns()
       .map((c) => byId.get(c.id))
-      .filter((c): c is GridColumn<T> => Boolean(c)),
+      .filter((c): c is GridColumn<T> => Boolean(c))
+      .filter((c) => !(narrowDesktop && c.priority === 'wide')),
   );
   const modelRows = $derived(table.getRowModel().rows);
+
+  /**
+   * Every visible column's width, in the proportions the declared widths ask
+   * for and adding up to exactly the frame.
+   *
+   * Under a fixed layout a declared width is taken literally, so nine columns
+   * that each know what they are worth add up to a table wider than the window
+   * -- which is the sideways scroll this grid is not supposed to have. Sharing
+   * the frame out instead keeps the same relative weights, fills the width
+   * exactly at any size, and means no column is ever squeezed to nothing while
+   * another keeps its full measure.
+   */
+  const columnWidths = $derived.by(() => {
+    const none = { pick: undefined, columns: visibleColumns.map(() => undefined) };
+    // A card has no columns to divide, and a width left on the heading strip
+    // would squeeze the sort controls into the shapes of columns that are no
+    // longer there.
+    if (cards || frameWidth <= 0) return none;
+
+    const wanted = visibleColumns.map((column) => share(column.width, remPx));
+    // The tick is a control like any other, so it is measured rather than shared.
+    const pick = selectable ? PICK_SHARE_REM * remPx : 0;
+    const measured =
+      pick +
+      visibleColumns.reduce((sum, column, index) => sum + (column.fixed ? wanted[index]! : 0), 0);
+    const shared = visibleColumns.reduce(
+      (sum, column, index) => sum + (column.fixed ? 0 : wanted[index]!),
+      0,
+    );
+    if (shared <= 0) return none;
+
+    // What the measured columns leave, divided in the proportions the rest
+    // asked for. Never below zero: a frame narrower than the controls in it is
+    // a frame the phone's card layout has already taken over.
+    const spare = Math.max(0, frameWidth - measured);
+    const of = (value: number) => `${((value / shared) * spare).toFixed(2)}px`;
+    return {
+      pick: selectable ? `${pick}px` : undefined,
+      columns: visibleColumns.map((column, index) =>
+        column.fixed ? `${wanted[index]!}px` : of(wanted[index]!),
+      ),
+    };
+  });
 
   function toggleColumn(id: string, visible: boolean): void {
     visibility = { ...visibility, [id]: visible };
@@ -524,7 +697,7 @@
     </div>
   </div>
 
-  <div class="scroll">
+  <div class="scroll" bind:this={frame}>
     <!--
       aria-rowcount is the server's total, not this page's length, so every row
       has to say which of that total it is. Without aria-rowindex a screen
@@ -536,7 +709,7 @@
       <thead>
         <tr aria-rowindex={1}>
           {#if selectable}
-            <th class="pick" scope="col">
+            <th class="pick" scope="col" style:width={columnWidths.pick}>
               <Checkbox
                 checked={allSelected}
                 indeterminate={someSelected}
@@ -545,11 +718,12 @@
               />
             </th>
           {/if}
-          {#each visibleColumns as column (column.id)}
+          {#each visibleColumns as column, index (column.id)}
             <th
               scope="col"
-              style:width={column.width}
+              style:width={columnWidths.columns[index]}
               class:end={column.align === 'end'}
+              class:sortable={column.sortable}
               aria-sort={sort === column.id
                 ? order === 'asc'
                   ? 'ascending'
@@ -573,19 +747,30 @@
       <tbody bind:this={body}>
         {#if !settled}
           {#each Array.from({ length: 8 }, (_, i) => i) as line (line)}
-            <tr class="skeleton-row" aria-rowindex={offset + line + 2}>
-              {#if selectable}<td class="pick"
+            <!-- svelte-ignore a11y_no_redundant_roles -->
+            <tr role="row" class="skeleton-row" aria-rowindex={offset + line + 2}>
+              {#if selectable}<td role="gridcell" class="pick"
                   ><Skeleton width="var(--z-control-box)" height="var(--z-control-box)" /></td
                 >{/if}
               {#each visibleColumns as column (column.id)}
-                <td><Skeleton width={column.align === 'end' ? '3rem' : '70%'} height="0.9rem" /></td
+                <td role="gridcell"
+                  ><Skeleton width={column.align === 'end' ? '3rem' : '70%'} height="0.9rem" /></td
                 >
               {/each}
             </tr>
           {/each}
         {:else}
           {#each modelRows as row, index (row.id)}
+            <!--
+              `role` is spelled out on the row and every cell rather than left
+              to the table's own display type. On a phone the rows become
+              cards, which means `display` is no longer `table-row`, and a
+              browser drops the implicit row and cell roles the moment that
+              happens -- so the grid would keep its `role="grid"` and lose the
+              rows inside it.
+            -->
             <tr
+              role="row"
               data-row={index}
               aria-rowindex={offset + index + 2}
               tabindex={index === focused || (focused === -1 && index === 0) ? 0 : -1}
@@ -607,7 +792,7 @@
                   path is unaffected, which is exactly why it went unnoticed.
                   Every other cell that holds a control does the same.
                 -->
-                <td class="pick" onclick={(event) => event.stopPropagation()}>
+                <td role="gridcell" class="pick" onclick={(event) => event.stopPropagation()}>
                   <Checkbox
                     checked={isSelected(row.id)}
                     ariaLabel="Select this row"
@@ -621,9 +806,16 @@
               {/if}
               {#each visibleColumns as column (column.id)}
                 {@const plain = column.cell ? '' : (column.value?.(row.original) ?? '')}
-                <td class:end={column.align === 'end'}>
+                <!--
+                  `data-label` is what the cell calls itself once the heading
+                  row is gone and the row is a card, so a figure is never left
+                  on a phone without the word that says what it is.
+                -->
+                <td role="gridcell" data-label={column.header} class:end={column.align === 'end'}>
                   {#if column.cell}
-                    {@render column.cell(row.original)}
+                    <div class="cell-body" class:loose={column.overflows}>
+                      {@render column.cell(row.original)}
+                    </div>
                   {:else}
                     <!--
                       One line and an ellipsis, with the whole value in a title.
@@ -706,7 +898,15 @@
     box-shadow: var(--z-shadow-md);
   }
   .scroll {
-    overflow: auto;
+    /*
+      Down, never across. A grid that scrolls sideways hides the column an
+      operator is looking for behind a gesture nobody makes on a page that has
+      already scrolled once, and puts the row's name off the left edge as soon
+      as they do -- so the table is made to fit instead, below, and the frame
+      is told plainly that it has nothing to scroll horizontally.
+    */
+    overflow-x: hidden;
+    overflow-y: auto;
     max-height: 70vh;
     /*
       Also the containing block for anything absolutely positioned inside it.
@@ -720,6 +920,17 @@
   }
   table {
     width: 100%;
+    /*
+      Fixed, so the frame decides the width and the columns divide it, rather
+      than the longest repository name in the page deciding for everybody. Under
+      the automatic layout a declared width is a floor and `width: 100%` is a
+      floor as well, so a wide row made the table wider than its frame and the
+      ellipsis on a truncating cell could never fire -- there was always more
+      room to be had by growing. Here a declared width is what the column gets,
+      what is left over is shared between the rest, and a cell too small for its
+      content says so with an ellipsis and keeps the whole value in its title.
+    */
+    table-layout: fixed;
     border-collapse: separate;
     border-spacing: 0;
     font-size: var(--z-text-sm);
@@ -739,6 +950,14 @@
     text-transform: uppercase;
     letter-spacing: var(--z-tracking-wide);
     white-space: nowrap;
+    /* A heading is as narrow as its column now, so it truncates like a cell. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* The sort button is the heading, so it has to truncate as the heading does. */
+  .sort > span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   th.end,
   td.end {
@@ -746,7 +965,7 @@
   }
   th.pick,
   td.pick {
-    width: var(--z-space-8);
+    /* The width is a share of the frame like every other column's, set inline. */
     padding-left: var(--z-space-3);
     padding-right: 0;
   }
@@ -776,6 +995,26 @@
     color: var(--z-text);
     vertical-align: middle;
   }
+  /*
+    Content is cut off inside the cell rather than by it. The cell itself has
+    to stay unclipped -- a menu or a popover opened from a row is anchored in
+    one, and a cell that clipped its own overflow would cut it off at the row's
+    edge -- so the clipping happens one level in, where a column that opens
+    something can say it wants none.
+
+    A row is one line high whatever is in it. A runner name is hyphenated, and
+    a cell narrow enough to wrap it puts one segment per line, which makes
+    every row in the table as tall as the longest name in it -- the same
+    failure the default renderer has always guarded against.
+  */
+  .cell-body {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .cell-body.loose {
+    overflow: visible;
+  }
   .plain {
     display: block;
     overflow: hidden;
@@ -800,5 +1039,151 @@
   }
   .skeleton-row td {
     padding: var(--z-space-3) var(--z-space-4);
+  }
+
+  /*
+    On a phone a dozen columns in 360 pixels is not a table, whatever is done
+    to it: every repository is "acme/pl..." and indistinguishable from the next,
+    and the figure reached by scrolling belongs to a row that can no longer be
+    named. So each row becomes a card and each cell carries its own heading,
+    which is what the usage report and the Hosts page already do with the same
+    problem. Nothing is dropped and nothing is truncated -- the grid reads down
+    instead of across.
+
+    The frame keeps its `overflow-y` and its height so the sticky page around
+    it is unchanged; it is the table inside that stops being a table.
+  */
+  @media (max-width: 767px) {
+    table {
+      display: block;
+      table-layout: auto;
+    }
+    /*
+      The headings have moved onto the cells, so most of the row of them is
+      noise -- but not all of it. What is left is the two things a heading row
+      does that a card cannot: the tick that selects every row on the page, and
+      the sort, which is the whole of "which of these is slowest?" and the one
+      question a phone is as good at asking as a desktop. They become a strip of
+      small controls above the cards.
+
+      The rest are taken out of the layout rather than out of the document: a
+      screen reader still needs a column header to associate a cell with, and
+      removing them outright would leave the grid with rows and no columns.
+    */
+    thead,
+    thead tr {
+      display: block;
+    }
+    thead tr {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: var(--z-space-2);
+      padding: 0 var(--z-space-3);
+    }
+    thead th {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      border: 0;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+    thead th.pick,
+    thead th.sortable {
+      position: static;
+      display: flex;
+      align-items: center;
+      width: auto;
+      height: auto;
+      padding: var(--z-space-2) 0;
+      overflow: visible;
+      background: none;
+      clip-path: none;
+    }
+    /* Each sort reads as the small control it now is, rather than as the
+       heading of a column that is no longer beside it. */
+    thead th.sortable .sort {
+      padding: var(--z-space-1) var(--z-space-2);
+      border: var(--z-border-width) solid var(--z-border);
+      border-radius: var(--z-radius-sm);
+      background: var(--z-surface-sunken);
+    }
+    thead th[aria-sort] .sort {
+      border-color: var(--z-accent-border);
+      background: var(--z-accent-subtle);
+      color: var(--z-accent);
+    }
+    tbody {
+      display: flex;
+      flex-direction: column;
+      gap: var(--z-space-3);
+      padding: var(--z-space-3);
+      border-top: var(--z-border-width) solid var(--z-border);
+    }
+    tbody tr {
+      display: block;
+      border: var(--z-border-width) solid var(--z-border);
+      border-radius: var(--z-radius-md);
+      background: var(--z-surface);
+    }
+    tbody tr.selected {
+      border-color: var(--z-accent-border);
+      background: var(--z-accent-subtle);
+    }
+    /* The hover and selection tints belong to the card now, not to its cells. */
+    tbody tr:hover td,
+    tbody tr.selected td {
+      background: none;
+    }
+    tbody tr:last-child td {
+      border-bottom: 0;
+    }
+    tbody td {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: var(--z-space-4);
+      padding: var(--z-space-2) var(--z-space-3);
+      border: 0;
+      overflow: visible;
+      text-align: right;
+    }
+    td.end {
+      text-align: right;
+    }
+    tbody td::before {
+      content: attr(data-label);
+      flex: none;
+      color: var(--z-text-muted);
+      font-size: var(--z-text-2xs);
+      font-weight: var(--z-weight-medium);
+      text-transform: uppercase;
+      letter-spacing: var(--z-tracking-wide);
+      text-align: left;
+    }
+    /*
+      The tick is the card's own control rather than a figure in it, so it
+      keeps the heading row's wording and sits at the top on its own.
+    */
+    td.pick {
+      justify-content: flex-start;
+      width: auto;
+      padding: var(--z-space-3) var(--z-space-3) var(--z-space-2);
+      border-bottom: var(--z-border-width) solid var(--z-border);
+    }
+    td.pick::before {
+      content: 'Select';
+    }
+    /*
+      A value has the width of a card now, so it wraps rather than truncating:
+      a name cut short is the thing this layout exists to stop.
+    */
+    .plain {
+      overflow: visible;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
   }
 </style>

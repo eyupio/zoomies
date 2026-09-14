@@ -78,21 +78,21 @@
       <tbody>
         {#each tokens as token (token.id)}
           <tr>
-            <td class="mono">{token.prefix ?? '--'}</td>
-            <td>
+            <td data-label="Prefix" class="mono">{token.prefix ?? '--'}</td>
+            <td data-label="State">
               <Badge status={joinTokenStatus(token)} size="sm" />
             </td>
-            <td class="tabular">{formatNumber(token.capacity ?? 0)}</td>
-            <td class="mono labels">{labelText(token.labels) || '--'}</td>
-            <td>{token.created_by || '--'}</td>
-            <td>
+            <td data-label="Capacity" class="tabular">{formatNumber(token.capacity ?? 0)}</td>
+            <td data-label="Labels" class="mono labels">{labelText(token.labels) || '--'}</td>
+            <td data-label="Created by">{token.created_by || '--'}</td>
+            <td data-label="Expires">
               {#if token.used_at}
                 <span class="muted">Used <RelativeTime value={token.used_at} plain /></span>
               {:else}
                 <RelativeTime value={token.expires_at} />
               {/if}
             </td>
-            <td class="actions">
+            <td data-label="Actions" class="actions">
               {#if !token.used_at}
                 <IconButton
                   icon={Trash2}
@@ -131,11 +131,17 @@
   }
   table {
     width: 100%;
+    /* The frame decides the width and the columns divide it, so the list never
+       scrolls sideways -- see "Tables fit the window" in the UI guidelines. */
+    table-layout: fixed;
     border-collapse: separate;
     border-spacing: 0;
     font-size: var(--z-text-sm);
   }
   th {
+    /* A heading has nowhere to wrap when it is one word, and one cut to
+       "Last sig..." names nothing, so it breaks instead. */
+    overflow-wrap: anywhere;
     padding: var(--z-space-2) var(--z-space-4);
     border-bottom: var(--z-border-width) solid var(--z-border);
     color: var(--z-text-muted);
@@ -144,9 +150,10 @@
     text-align: left;
     text-transform: uppercase;
     letter-spacing: var(--z-tracking-wide);
-    white-space: nowrap;
   }
   td {
+    overflow: hidden;
+    overflow-wrap: anywhere;
     padding: var(--z-space-3) var(--z-space-4);
     border-bottom: var(--z-border-width) solid var(--z-border);
     color: var(--z-text);
@@ -166,5 +173,61 @@
   .actions {
     text-align: right;
     white-space: nowrap;
+  }
+  /*
+    On a phone this is 7 columns in 360 pixels, and no amount of scrolling
+    makes that a table -- the same problem, and the same answer, as the usage
+    report and the grids: each row becomes a card and each cell carries its own
+    heading. Nothing is dropped and nothing is truncated; the list reads down
+    instead of across.
+  */
+  @media (max-width: 767px) {
+    .scroll {
+      overflow-x: visible;
+      /*
+        Nothing is clipped here any more -- the cards fit -- and the paint
+        containment that kept a wide table from growing the layout viewport
+        would now cut off a menu opened from the last row of a card.
+      */
+      contain: none;
+    }
+    table {
+      display: block;
+    }
+    thead {
+      display: none;
+    }
+    tbody {
+      display: flex;
+      flex-direction: column;
+      gap: var(--z-space-3);
+      padding: var(--z-space-3);
+    }
+    tbody tr {
+      display: block;
+      border: var(--z-border-width) solid var(--z-border);
+      border-radius: var(--z-radius-md);
+      background: var(--z-surface);
+    }
+    tbody td {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: var(--z-space-4);
+      padding: var(--z-space-2) var(--z-space-3);
+      border: 0;
+      text-align: right;
+      overflow-wrap: anywhere;
+    }
+    tbody td::before {
+      content: attr(data-label);
+      flex: none;
+      color: var(--z-text-muted);
+      font-size: var(--z-text-2xs);
+      font-weight: var(--z-weight-medium);
+      text-transform: uppercase;
+      letter-spacing: var(--z-tracking-wide);
+      text-align: left;
+    }
   }
 </style>

@@ -22,10 +22,13 @@ test('the scrollbar is wide enough to take hold of, and out of the way on a phon
   page,
   isMobile,
 }) => {
-  // Jobs has more rows than its grid shows at once, so the frame around the
-  // table scrolls. Reached structurally: nothing in the accessibility tree
-  // names a scroll frame, and the grid is the element inside it.
-  await goto(page, '/jobs', 'Jobs');
+  // The finished jobs are more rows than the grid shows at once, so the frame
+  // around the table scrolls. Asked for by name rather than left to the page's
+  // own view, which opens on what is running and on a quiet fleet is three
+  // rows -- not enough to scroll, and the scrollbar is the whole subject here.
+  // Reached structurally: nothing in the accessibility tree names a scroll
+  // frame, and the grid is the element inside it.
+  await goto(page, '/jobs?state=completed', 'Jobs');
   const jobs = grid(page, 'Jobs');
   await waitForRows(jobs);
 

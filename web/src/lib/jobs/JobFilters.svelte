@@ -69,6 +69,16 @@
 
   interface Props {
     queue?: boolean;
+    /**
+     * Whether the status filters in force are worth a chip.
+     *
+     * The Jobs page's row of status buttons says which view is in force, and a
+     * chip repeating it would be a second, differently-shaped control for the
+     * same thing -- one of which cannot be removed, since clearing the status
+     * is what the default puts back. The page passes `false` whenever a button
+     * is pressed, and `true` for a status no button says.
+     */
+    statusChips?: boolean;
     value: JobFilterState;
     /** Distinct values from GET /jobs/facets. */
     facets: { repos?: string[]; workflows?: string[]; conclusions?: string[] };
@@ -79,7 +89,16 @@
     onclear: () => void;
   }
 
-  let { queue = false, value, facets, pools, labelOptions, onchange, onclear }: Props = $props();
+  let {
+    queue = false,
+    statusChips = true,
+    value,
+    facets,
+    pools,
+    labelOptions,
+    onchange,
+    onclear,
+  }: Props = $props();
 
   let searchElement = $state<HTMLInputElement | null>(null);
 
@@ -135,7 +154,7 @@
     ...listChip('pool_id', 'Pool', (v) => poolName.get(v) ?? v),
     ...listChip('label', 'Label'),
     ...listChip('conclusion', 'Outcome', (v) => jobStatus('completed', v).label),
-    ...listChip('state', 'State', (v) => jobStatus(v as JobState).label),
+    ...(statusChips ? listChip('state', 'State', (v) => jobStatus(v as JobState).label) : []),
     ...(value.since
       ? [
           {
@@ -159,7 +178,7 @@
           },
         ]
       : []),
-    ...(value.failed
+    ...(value.failed && statusChips
       ? [
           {
             id: 'failed',
