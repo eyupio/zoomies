@@ -16,11 +16,12 @@ a route below.
 Conventions:
 
 * Base path `/api/v1`. JSON in, JSON out, UTF-8.
-* The three long lists, `/runners`, `/jobs` and `/audit`, take `limit` (default
-  50, max 500), `offset`, `sort` and `order` (`asc`/`desc`) and return
-  `{ "items": [...], "total": <int>, "limit": <int>, "offset": <int> }`. Every
-  other list returns `{ "items": [...] }` whole; `/scaling-events` and
-  `/webhook-deliveries` take a `limit` and return the newest that many.
+* The long lists — `/runners`, `/jobs`, `/provisioning`, `/machines` and
+  `/audit` — take `limit` (default 50, max 500), `offset`, `sort` and `order`
+  (`asc`/`desc`) and return `{ "items": [...], "total": <int>, "limit": <int>,
+  "offset": <int> }`. Every other list returns `{ "items": [...] }` whole;
+  `/scaling-events` and `/webhook-deliveries` take a `limit` and return the
+  newest that many.
 * Every API response carries `Cache-Control: no-store`; nothing under `/api/v1`
   is meant to be cached by a browser or a proxy.
 * Errors return `{ "error": { "code": "...", "message": "...", "field": "...",
@@ -82,6 +83,7 @@ Conventions:
 | GET | `/api/v1/installations/{id}/runner-groups` | viewer | Populates the pool wizard. |
 | GET | `/api/v1/installations/{id}/rate-limit` | viewer | Remaining GitHub API quota. |
 | POST | `/api/v1/installations/manifest` | admin | Builds the GitHub App manifest and returns the URL to POST it to. |
+| POST | `/api/v1/installations/manifest/handoff` | admin | A browser navigation, not a JSON call: the setup page submits GitHub's manifest back here as a form and is answered with a `307` to GitHub, so the POST body is carried on unchanged. The controller checks the pending handshake, the manifest and the destination first, because the redirect is what decides where a credential-creating form is posted. The state is spent by the exchange below, not by this. |
 | POST | `/api/v1/installations/manifest/exchange` | admin | Exchanges the manifest `code` for App credentials and creates the installation. |
 | GET | `/api/v1/webhook-deliveries` | viewer | Recent deliveries. `?status=rejected`. Each carries `installation_id`: the installation whose webhook secret verified the delivery, which is not necessarily the one covering the repository — when none does, every configured secret is tried and this says which one answered. |
 | POST | `/api/v1/webhook-test` | operator | Asks GitHub to redeliver / pings the configured URL and reports whether this controller is reachable, with the specific fix when it is not. |
@@ -147,6 +149,19 @@ give each repository a cache without an installation per repository.
 | GET | `/api/v1/jobs/{id}/events` | viewer | The job's timeline: what Zoomies observed and did about it, oldest first, each entry a sentence with its `kind` (`queued`, `waiting`, `approved`, `claimed`, `unmatched`, `started`, `completed`, `runner_lost`, `runner_returned`, `cancel_requested`) and `source` (`webhook`, `poller`, `agent`, `controller`). Written from what each delivery changed rather than from the delivery itself, so a redelivery adds nothing. `runner_lost` is the one entry GitHub cannot produce: the runner died under the job, and GitHub will report an ordinary failure. `waiting` and `approved` bracket a deployment review: the time between them is GitHub's, and the queue wait starts at `approved`. Every change to it is accompanied by a `job.updated` frame, which is when the UI refetches it. |
 | GET | `/api/v1/jobs/{id}/explanation` | viewer | Why this job is where it is, in one sentence with a detail and, where there is something to do, a fix. Computed on the controller from the last scheduler plan, the pool that claimed it, and the runner and host behind it — so `blocked` distinguishes a fleet that is merely busy, which clears itself, from one that will never place this job. It is a separate route rather than a field on the job because it is computed from the fleet around the job rather than from its row, and a copy of the job delivered by the event stream would carry a stale one. |
 | GET | `/api/v1/jobs/facets` | viewer | Distinct repos, workflows and conclusions, for the filter menus. |
+
+## Provisioning queue
+
+The demand behind the runners, rather than the runners: one row per queued job
+this fleet would build a runner for. Suppressing demand is not cancelling a
+job — GitHub still has it, and a runner that already exists may still pick it
+up — which is why these are their own routes rather than a field on `/jobs`.
+
+| Method | Path | Role | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/provisioning` | viewer | Always queued jobs this fleet has a hand in. Takes `/jobs`'s filters plus `branch` and `provisioning` (`ready`, `expedited`, `paused`, `deleted`), and carries `counts` beside the items, computed with every filter applied **except** the provisioning status — so selecting one status does not empty the other three cards. |
+| GET | `/api/v1/provisioning/selection` | viewer | The IDs matching the current filters, at most 5,000. The point is the snapshot: a bulk action applies to the IDs the operator was looking at, so work that queues between the two calls cannot be swept in silently. |
+| POST | `/api/v1/provisioning/bulk` | operator | `{ids, action: "pause"\|"resume"\|"delete"\|"run_now"}`. Returns a result per unique id, so a partial failure is visible; a job that started or finished in the meantime is skipped with its own error. `run_now` resumes and expedites within the pool's priority tier and bypasses the scale-up delay only — pool and host limits, quotas, backoff and recovery fencing all still apply. |
 
 ## Usage
 

@@ -378,3 +378,288 @@ func TestDemoRefreshLeavesRealRunnersAlone(t *testing.T) {
 		t.Fatalf("problems = %v, want a real runner stuck for an hour to still be reported", got)
 	}
 }
+
+// The Providers and Machines pages open on nothing until the fixture rents
+// something, and the two halves of what they render -- a machine that became a
+// host, and one the fleet is still waiting for -- have to be two different
+// machines.
+func TestSeedDemoRentsTwoUnalikeMachinesFromOneProvider(t *testing.T) {
+	h := newHarness(t)
+	if err := h.c.SeedDemo(h.ctx); err != nil {
+		t.Fatalf("SeedDemo: %v", err)
+	}
+
+	providers, err := h.st.ListProviders(h.ctx)
+	if err != nil {
+		t.Fatalf("ListProviders: %v", err)
+	}
+	if len(providers) != 1 {
+		t.Fatalf("seeded %d providers, want 1", len(providers))
+	}
+	p := providers[0]
+	switch {
+	case p.Kind != store.ProviderProxmox:
+		t.Errorf("the demo provider is %q, want the one kind this build can actually rent from", p.Kind)
+	case !p.Enabled || p.Paused:
+		t.Errorf("the demo provider is enabled=%v paused=%v, want one that would buy a machine", p.Enabled, p.Paused)
+	case len(p.CredentialsEnc) == 0:
+		t.Error("the demo provider has no sealed credential, so its card renders the no-credential badge")
+	case p.LastCheckAt == nil || p.LastCheckError != "":
+		t.Errorf("the demo provider's preflight is %v / %q, want one that passed", p.LastCheckAt, p.LastCheckError)
+	case p.MaxMachines == 0:
+		t.Error("the demo provider's ceiling is zero, which rents nothing")
+	}
+	// The answers docs/proxmox.md asks for. A provider with half of them blank
+	// is what the page would teach somebody a configured one looks like.
+	for _, key := range []string{"nodes", "template_id", "storage", "bridge", "vmid_min", "vmid_max"} {
+		if p.Settings[key] == "" {
+			t.Errorf("the demo provider has no %s, which is a setting Proxmox cannot be used without", key)
+		}
+	}
+
+	machines := h.machines()
+	if len(machines) != 2 {
+		t.Fatalf("seeded %d machines, want 2", len(machines))
+	}
+	states := map[store.MachineState]int{}
+	for _, m := range machines {
+		states[m.State]++
+		if m.ProviderID != p.ID {
+			t.Errorf("machine %s belongs to %q, not to the seeded provider", m.ID, m.ProviderID)
+		}
+		if !m.Owns() {
+			t.Errorf("machine %s owns no resource, so it counts against nothing and can never be deleted", m.ID)
+		}
+	}
+	if states[store.MachineReady] != 1 {
+		t.Errorf("machine states = %v, want exactly one ready machine for the host link", states)
+	}
+	if pending := len(machines) - states[store.MachineReady]; pending != 1 {
+		t.Errorf("machine states = %v, want one machine still on its way for the lifecycle band", states)
+	}
+}
+
+// The ready machine's host link is what HostCard's provider badge and "delete
+// the machine instead" are drawn from, and it is only true if a token this
+// machine minted was spent by that host.
+func TestTheDemoReadyMachineIsEnrolledTheWayARealOneIs(t *testing.T) {
+	h := newHarness(t)
+	if err := h.c.SeedDemo(h.ctx); err != nil {
+		t.Fatalf("SeedDemo: %v", err)
+	}
+
+	m := h.machineByID(t, demoMachineReadyID)
+	if m.HostID == "" {
+		t.Fatal("the ready demo machine has no host, so the Hosts page has no rented host to badge")
+	}
+	host, err := h.st.GetHost(h.ctx, m.HostID)
+	if err != nil {
+		t.Fatalf("GetHost %s: %v", m.HostID, err)
+	}
+	// The link has to be findable from the host as well: that is the read the
+	// API makes before it refuses to forget a host Zoomies is paying for.
+	back, err := h.st.GetMachineByHost(h.ctx, host.ID)
+	if err != nil {
+		t.Fatalf("GetMachineByHost %s: %v", host.ID, err)
+	}
+	if back.ID != m.ID {
+		t.Errorf("host %s says it is machine %s, want %s", host.ID, back.ID, m.ID)
+	}
+	if m.Address != host.Address {
+		t.Errorf("machine address %q and host address %q are the same computer", m.Address, host.Address)
+	}
+
+	tok, err := h.st.GetJoinToken(h.ctx, m.JoinTokenID)
+	if err != nil {
+		t.Fatalf("GetJoinToken %s: %v", m.JoinTokenID, err)
+	}
+	switch {
+	case tok.MachineID != m.ID || tok.ExpectedName != m.Name:
+		t.Errorf("the token is scoped to machine %q / name %q, want %q / %q",
+			tok.MachineID, tok.ExpectedName, m.ID, m.Name)
+	case tok.UsedAt == nil || tok.UsedByID != host.ID:
+		t.Errorf("the token was spent at %v by %q, want it spent by %s", tok.UsedAt, tok.UsedByID, host.ID)
+	case tok.Usable(tok.CreatedAt):
+		t.Error("the machine's join token is still usable; a credential that did its job is spent")
+	}
+}
+
+// The timeline is the panel the machine page exists for, and a fixture whose
+// phases share one instant draws it as a column of zeroes.
+func TestTheDemoMachineOnItsWayHasATimelineWithRealDurations(t *testing.T) {
+	h := newHarness(t)
+	if err := h.c.SeedDemo(h.ctx); err != nil {
+		t.Fatalf("SeedDemo: %v", err)
+	}
+
+	m := h.machineByID(t, demoMachineBuildingID)
+	if m.State.Terminal() || !m.State.Pending() {
+		t.Fatalf("machine %s is %s, want one the fleet is still waiting for", m.ID, m.State)
+	}
+	entries := machineTimeline(m)
+	// Planned, creating, created, starting: the clone and the boot are the two
+	// halves an operator is trying to tell apart when they open this page.
+	if len(entries) < 4 {
+		t.Fatalf("the timeline has %d phases (%v), want the phases either side of the clone", len(entries), entries)
+	}
+	for i := 1; i < len(entries); i++ {
+		gap := entries[i].At.Sub(entries[i-1].At)
+		if gap <= 0 {
+			t.Errorf("phase %s is %s after %s; a timeline that does not move draws every bar at zero",
+				entries[i].Phase, gap, entries[i-1].Phase)
+		}
+	}
+	if _, ok := map[string]bool{"starting": true}[entries[len(entries)-1].Phase]; !ok {
+		t.Errorf("the last phase is %q, want the one the live row counts from", entries[len(entries)-1].Phase)
+	}
+}
+
+// Everything the two pages render comes back through the views the API
+// renders, so the fixture is checked the way a request would see it rather
+// than as rows.
+func TestTheDemoMachinesRenderWithTheirProviderPoolAndHost(t *testing.T) {
+	h := newHarness(t)
+	if err := h.c.SeedDemo(h.ctx); err != nil {
+		t.Fatalf("SeedDemo: %v", err)
+	}
+
+	view, err := h.c.MachineRenderer(h.ctx)
+	if err != nil {
+		t.Fatalf("MachineRenderer: %v", err)
+	}
+	machines := h.machines()
+	for _, m := range machines {
+		got := view.View(m)
+		switch {
+		case got.ProviderName == "" || got.Kind == "":
+			t.Errorf("machine %s renders provider %q / kind %q; the page has nothing to name it by",
+				m.ID, got.ProviderName, got.Kind)
+		case got.PoolName == "":
+			t.Errorf("machine %s renders no pool, so the page cannot answer why it exists", m.ID)
+		case len(got.Timeline) == 0:
+			t.Errorf("machine %s renders an empty timeline", m.ID)
+		}
+	}
+	if got := view.View(h.machineByID(t, demoMachineReadyID)); got.HostName == "" {
+		t.Error("the ready machine renders no host name, so the link off the machine page has no label")
+	}
+
+	providers, err := h.st.ListProviders(h.ctx)
+	if err != nil {
+		t.Fatalf("ListProviders: %v", err)
+	}
+	p := h.c.ProviderView(providers[0], machines)
+	if p.Owned != 2 {
+		t.Errorf("the provider owns %d machines, want both of them counted against its ceiling", p.Owned)
+	}
+	if len(p.Machines) != 2 {
+		t.Errorf("the provider's machines by state = %v, want the two states apart", p.Machines)
+	}
+	if !p.CredentialsConfigured {
+		t.Error("the provider renders as having no credential")
+	}
+	if p.Held != "" {
+		t.Errorf("the provider is held: %q; a demo fleet opens on one that is not", p.Held)
+	}
+}
+
+// A machine may only be deleted on an observation younger than a minute, and a
+// demo has no hypervisor behind it to make a second one. Left alone the fixture
+// ages into a page where every machine reads "nothing has confirmed this
+// resource is ours recently enough to act on" -- the heartbeat's own failure
+// mode, on the half of the fleet that spends money.
+func TestTheDemoFleetDoesNotAgeIntoMachinesNothingCanAccountFor(t *testing.T) {
+	h := newHarness(t)
+	if err := h.c.SeedDemo(h.ctx); err != nil {
+		t.Fatalf("SeedDemo: %v", err)
+	}
+
+	// An hour into an instance somebody left open on a second monitor.
+	future := time.Now().Add(time.Hour)
+	h.c.clock = func() time.Time { return future }
+
+	m := h.machineByID(t, demoMachineReadyID)
+	if ok, _ := machineSafeToDelete(m, future); ok {
+		t.Fatal("an hour-old observation was still good enough to delete on, so this test proves nothing")
+	}
+
+	h.c.freshenDemoMachines(h.ctx)
+
+	m = h.machineByID(t, demoMachineReadyID)
+	if ok, why := machineSafeToDelete(m, future); !ok {
+		t.Errorf("the demo machine still cannot be deleted an hour in: %s", why)
+	}
+	p, err := h.st.GetProvider(h.ctx, demoProviderID)
+	if err != nil {
+		t.Fatalf("GetProvider: %v", err)
+	}
+	if p.LastSweepAt == nil || future.Sub(*p.LastSweepAt) > time.Minute {
+		t.Errorf("the demo provider was last swept at %v, want a sweep as recent as the fleet's clock", p.LastSweepAt)
+	}
+}
+
+// And it never touches a machine it did not seed: an operator who set
+// ZOOMIES_SEED_DEMO on an instance with a real provider must not have a
+// resource nothing could account for quietly vouched for.
+func TestDemoRefreshLeavesRealMachinesAlone(t *testing.T) {
+	h := newHarness(t)
+	row := h.providerRow(t, "real-pve")
+	m := &store.Machine{
+		ID:             "mach_realone",
+		ProviderID:     row.ID,
+		Name:           "zoomies-mach-realone",
+		State:          store.MachineReady,
+		ResourceZone:   "zone-a",
+		ResourceID:     "4242",
+		OwnershipError: "the guest at 4242 carries somebody else's owner tag",
+	}
+	if err := h.st.CreateMachine(h.ctx, m); err != nil {
+		t.Fatalf("CreateMachine: %v", err)
+	}
+
+	h.c.freshenDemoMachines(h.ctx)
+
+	got := h.machineByID(t, m.ID)
+	if got.OwnershipVerifiedAt != nil || got.OwnershipError == "" {
+		t.Errorf("a real machine was vouched for by the demo refresh: verified=%v error=%q",
+			got.OwnershipVerifiedAt, got.OwnershipError)
+	}
+	fresh, err := h.st.GetProvider(h.ctx, row.ID)
+	if err != nil {
+		t.Fatalf("GetProvider: %v", err)
+	}
+	if fresh.LastSweepAt != nil {
+		t.Errorf("a real provider was recorded as swept at %v by the demo refresh", fresh.LastSweepAt)
+	}
+}
+
+// The provider, its machines and the credential between them are fixtures too,
+// and a fixture that is mistakable for a real row is one the prober, the
+// poller and the reap would treat as somebody's fleet.
+func TestTheProviderAndMachineFixturesAreRecognisedAsFixtures(t *testing.T) {
+	h := newHarness(t)
+	if err := h.c.SeedDemo(h.ctx); err != nil {
+		t.Fatalf("SeedDemo: %v", err)
+	}
+
+	ids := []string{demoProviderID, demoMachineReadyID, demoMachineBuildingID, demoJoinTokenID}
+	for _, m := range h.machines() {
+		ids = append(ids, m.ID)
+	}
+	for _, id := range ids {
+		if !IsDemoID(id) {
+			t.Errorf("fixture %q is not recognised as demo data", id)
+		}
+		if store.LooksGenerated(id) {
+			t.Errorf("fixture %q has the shape of a real identifier", id)
+		}
+	}
+	// And the rows are really there under those identifiers, or the list above
+	// is a list of constants that agree with each other and nothing else.
+	if _, err := h.st.GetProvider(h.ctx, demoProviderID); err != nil {
+		t.Errorf("GetProvider %s: %v", demoProviderID, err)
+	}
+	if _, err := h.st.GetJoinToken(h.ctx, demoJoinTokenID); err != nil {
+		t.Errorf("GetJoinToken %s: %v", demoJoinTokenID, err)
+	}
+}
