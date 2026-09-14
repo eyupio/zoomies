@@ -225,6 +225,56 @@ export function hostSeries(
   return foldMinutes(minuteSeries(points, now, minutes), step);
 }
 
+/**
+ * How many absent intervals in a row a line is drawn across. One missing
+ * minute between two observed ones is the sampler having been a moment late
+ * for the minute, or a tab that slept through it, and a line broken at every
+ * such minute reads as a machine flickering in and out of existence. Two in
+ * a row is a host that has stopped reporting, and that stays a gap: a flat
+ * line is what a healthy, quiet machine draws too.
+ */
+export const BRIDGE = 1;
+
+/**
+ * The observed points of a line, grouped into the runs one stroke joins. A
+ * point inside a run that was not observed is left out of it, so the line
+ * passes straight from the reading before to the reading after and no marker
+ * claims a figure for that minute.
+ */
+export function lineRuns(
+  points: readonly SignalPoint[],
+  bridge = BRIDGE,
+): { i: number; value: number }[][] {
+  const out: { i: number; value: number }[][] = [];
+  let run: { i: number; value: number }[] = [];
+  let missing = 0;
+  points.forEach((p, i) => {
+    if (p.value === null) {
+      missing += 1;
+      return;
+    }
+    if (run.length && missing > bridge) {
+      out.push(run);
+      run = [];
+    }
+    missing = 0;
+    run.push({ i, value: p.value });
+  });
+  if (run.length) out.push(run);
+  return out;
+}
+
+/**
+ * The top of the lane above the axis, or 0 when nothing needs one. Every
+ * figure but load is a share of the machine and stops at 100; load may pass
+ * it, and the highest load in view sets the lane's own scale, rounded up to
+ * the next 50 so the label is a round number.
+ */
+export function overflowCeiling(peak: number | null): number {
+  if (peak === null || !Number.isFinite(peak) || peak <= 100) return 0;
+  return Math.ceil(peak / 50) * 50;
+}
+
 /** The windows on offer: how far back, and how many minutes one point folds. */
 export const WINDOWS = [
   { value: '1h', label: '1h', name: 'The last hour, minute by minute', minutes: 60, step: 1 },

@@ -80,3 +80,50 @@ func TestPruningHostSamplesFollowsTheSampleRetention(t *testing.T) {
 		t.Fatalf("samples after the prune = %d, want the one inside the window", len(left))
 	}
 }
+
+// The store keys a sample on the minute and the chart draws a point per
+// minute, so the sampler has to land in every minute. It used to fire once
+// sixty seconds had passed since the last sample, from a thirty-second
+// ticker: a tick that arrived a few milliseconds short skipped, the next one
+// wrote, and the rows fell ninety seconds apart -- every third minute on the
+// capacity map an empty slot. Jitter is a property of every ticker, so the
+// passes here are given exactly that jitter.
+func TestSamplingLandsInEveryMinuteWhateverTheTickerJitter(t *testing.T) {
+	h := newHarness(t)
+	host := h.host("vm-1")
+	now := h.c.Now()
+	// Start 200ms into a minute, then let the second tick come 100ms early,
+	// which is all it took to lose a minute.
+	first := now.Truncate(time.Minute).Add(time.Minute + 200*time.Millisecond)
+	h.advance(first.Sub(now))
+	var last housekeeping
+	h.c.housekeep(h.ctx, &last)
+	for _, d := range []time.Duration{
+		30 * time.Second,
+		30*time.Second - 100*time.Millisecond,
+		30 * time.Second,
+		30 * time.Second,
+	} {
+		h.advance(d)
+		h.c.housekeep(h.ctx, &last)
+	}
+
+	// Five passes at :00.2, :30.2, :00.1, :30.1 and :00.1 span three minutes,
+	// and every one of them wants a row.
+	samples, err := h.st.ListHostSamples(h.ctx, first.Add(-time.Minute), host.ID)
+	if err != nil {
+		t.Fatalf("ListHostSamples: %v", err)
+	}
+	var minutes []time.Time
+	for _, s := range samples {
+		minutes = append(minutes, s.At.UTC())
+	}
+	if len(minutes) != 3 {
+		t.Fatalf("sampled minutes = %v, want one row in each of the three minutes the passes covered", minutes)
+	}
+	for i, at := range minutes {
+		if want := first.UTC().Truncate(time.Minute).Add(time.Duration(i) * time.Minute); !at.Equal(want) {
+			t.Errorf("sample %d at %v, want %v: a minute was skipped", i, at, want)
+		}
+	}
+}

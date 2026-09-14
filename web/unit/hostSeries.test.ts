@@ -2,10 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   hostSeries,
+  lineRuns,
   liveSample,
   mergeHostSamples,
   metricText,
   metricValue,
+  overflowCeiling,
   timeTicks,
 } from '../src/lib/insights/hostSeries.ts';
 import type { Host, HostSample } from '../src/lib/api/types.ts';
@@ -121,4 +123,50 @@ test('labels fall on round local times, not on evenly spaced odd minutes', () =>
   // An hour is labelled at the quarter hours.
   const hour = timeTicks(end - 60 * 60_000, end, 5).map((at) => new Date(at).getMinutes());
   assert.deepEqual(hour, [15, 30, 45, 0]);
+});
+
+test('a line is drawn across one missing minute and broken by two', () => {
+  // The sampler a moment late for a minute, or a tab that slept through one,
+  // is not a host that stopped reporting; a line broken at every such minute
+  // would read as a machine flickering in and out of existence.
+  const at = (i: number) => Date.UTC(2026, 2, 1, 9, i);
+  const v = (i: number, value: number | null) => ({ at: at(i), value });
+  const points = [v(0, 10), v(1, null), v(2, 30), v(3, null), v(4, null), v(5, 50), v(6, 60)];
+  const runs = lineRuns(points);
+  assert.deepEqual(
+    runs.map((run) => run.map((p) => p.i)),
+    [
+      [0, 2],
+      [5, 6],
+    ],
+  );
+  // The bridged minute is not in the run: nothing claims a figure for it.
+  assert.deepEqual(
+    runs[0]?.map((p) => p.value),
+    [10, 30],
+  );
+  // Leading and trailing gaps are no run at all.
+  assert.deepEqual(
+    lineRuns([v(0, null), v(1, 5), v(2, null)]).map((run) => run.map((p) => p.i)),
+    [[1]],
+  );
+  assert.deepEqual(lineRuns([v(0, null), v(1, null)]), []);
+  // With no bridging every gap breaks the line, which is what the fold's
+  // wider intervals used to do too.
+  assert.deepEqual(
+    lineRuns(points, 0).map((run) => run.map((p) => p.i)),
+    [[0], [2], [5, 6]],
+  );
+});
+
+test('only load past the cores opens a lane, and its ceiling is a round number', () => {
+  // Every other figure stops at 100, so a chart of them has no lane; a load
+  // of 8.4 times the CPUs draws in a lane scaled to 850, not one that
+  // stretches every other line into a strip.
+  assert.equal(overflowCeiling(null), 0);
+  assert.equal(overflowCeiling(100), 0);
+  assert.equal(overflowCeiling(72), 0);
+  assert.equal(overflowCeiling(101), 150);
+  assert.equal(overflowCeiling(840), 850);
+  assert.equal(overflowCeiling(Number.NaN), 0);
 });

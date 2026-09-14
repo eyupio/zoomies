@@ -15,7 +15,6 @@ import (
 // at shutdown instead of one.
 const (
 	housekeepingTick = 30 * time.Second
-	sampleInterval   = time.Minute
 	pruneInterval    = time.Hour
 )
 
@@ -58,7 +57,16 @@ func (c *Controller) housekeep(ctx context.Context, last *housekeeping) {
 	// waits for the next reconcile pass to be told about.
 	c.publishDerived(ctx)
 
-	if now.Sub(last.sample) >= sampleInterval {
+	// The minute is the unit: the store keys a sample on it and the chart
+	// draws a point per minute, so the sampler has to land in every one.
+	// Firing "once sixty seconds have passed" from a thirty-second ticker
+	// looked the same and was not: a tick that arrived a few milliseconds
+	// short of the minute skipped, the next one wrote, and the rows fell
+	// ninety seconds apart -- every third minute on the chart an empty slot.
+	// Firing when the minute has changed puts a row in each, whatever the
+	// ticker's jitter, and the store's upsert makes a second pass in the same
+	// minute harmless.
+	if now.Truncate(time.Minute).After(last.sample.Truncate(time.Minute)) {
 		last.sample = now
 		if err := c.sample(ctx); err != nil {
 			c.log.Warn("could not record a fleet sample", "error", err)
