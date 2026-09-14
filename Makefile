@@ -99,6 +99,10 @@ test-ui: ## Run the Playwright suite (builds the binary first)
 test-e2e: ## Docker-based end-to-end test; needs GitHub credentials, skipped without
 	$(GO) test -count=1 -tags e2e -timeout 30m ./test/e2e/...
 
+.PHONY: test-e2e-proxmox
+test-e2e-proxmox: ## Live Proxmox qualification: needs a cluster and ZOOMIES_PROXMOX_*, skipped without. Hours, not minutes -- not in CI.
+	$(GO) test -count=1 -v -tags e2e -timeout 10h ./test/e2e/proxmox/...
+
 .PHONY: test-drill
 test-drill: build-nogui ## Runtime drills: the built binary as a real controller and agent, against a fake GitHub
 	$(GO) test -count=1 -v -tags drill -timeout 10m ./test/drill/...
