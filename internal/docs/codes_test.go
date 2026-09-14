@@ -19,11 +19,17 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/eyupio/zoomies/internal/config"
 )
 
 // The files that raise problems, and the page that documents them.
 const (
-	validatorSource  = "../config/validate.go"
+	validatorSource = "../config/validate.go"
+	// The database layer raises its own findings -- about the rows rather than
+	// about what any one setting says -- and they reach the same two places as
+	// the validator's, so they need the same row here.
+	databaseSource   = "../config/database.go"
 	controllerSource = "../controller/problems.go"
 	viewsSource      = "../controller/views.go"
 	reference        = "../../docs/problem-codes.md"
@@ -72,7 +78,8 @@ func providerSources(t *testing.T) []string {
 // problemSources is every file a code an operator can be shown may come from.
 func problemSources(t *testing.T) []string {
 	t.Helper()
-	return append(append([]string{validatorSource}, controllerSources...), providerSources(t)...)
+	sources := append([]string{validatorSource, databaseSource}, controllerSources...)
+	return append(sources, providerSources(t)...)
 }
 
 // codesIn returns every string assigned to a `Code:` field in a Go file.
@@ -405,5 +412,46 @@ func TestTheLayoutBlocksDescribeTheRepositoryAsItIs(t *testing.T) {
 				t.Errorf("%s does not say what %s/ is for", filepath.Base(doc), dir)
 			}
 		}
+	}
+}
+
+// Every configuration key is on the page that claims to list them all.
+//
+// docs/configuration.md opens with "Every zoomies.yaml key and its ZOOMIES_*
+// environment override", and until this test it was a promise kept by hand.
+// The keys that had quietly stopped being kept were the ones nobody used, which
+// is exactly backwards: a setting an operator has never heard of is the one
+// they need the documentation for.
+//
+// The registry in internal/config is the source, because it is what the
+// product itself reads -- the settings page, the environment, the database and
+// this page are all descriptions of that one list, and this holds the last of
+// them to the other three.
+func TestEveryConfigurationKeyIsDocumented(t *testing.T) {
+	const page = "../../docs/configuration.md"
+	reference, err := os.ReadFile(page)
+	if err != nil {
+		t.Fatalf("reading %s: %v", page, err)
+	}
+	text := string(reference)
+
+	var missingKey, missingEnv []string
+	for _, s := range config.Settings() {
+		if !strings.Contains(text, s.Key) {
+			missingKey = append(missingKey, s.Key)
+		}
+		if !strings.Contains(text, s.Env) {
+			missingEnv = append(missingEnv, s.Env)
+		}
+	}
+	sort.Strings(missingKey)
+	sort.Strings(missingEnv)
+	if len(missingKey) > 0 {
+		t.Errorf("these settings exist but are not on docs/configuration.md:\n  %s",
+			strings.Join(missingKey, "\n  "))
+	}
+	if len(missingEnv) > 0 {
+		t.Errorf("these environment overrides exist but are not on docs/configuration.md:\n  %s",
+			strings.Join(missingEnv, "\n  "))
 	}
 }

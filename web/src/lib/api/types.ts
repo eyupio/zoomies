@@ -128,6 +128,10 @@ export type User = Schemas['User'];
 export type Identity = Schemas['Identity'];
 export type APIToken = Schemas['APIToken'];
 export type Settings = Schemas['Settings'];
+export type Setting = Schemas['Setting'];
+export type SettingKind = NonNullable<Setting['kind']>;
+export type SettingSource = NonNullable<Setting['source']>;
+export type SettingScope = NonNullable<Setting['scope']>;
 export type RunnerGroup = NonNullable<Result<'listRunnerGroups'>['items']>[number];
 
 /** A resource that no longer exists. Carried by the `*.deleted` SSE kinds. */

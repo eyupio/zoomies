@@ -1,21 +1,92 @@
 ---
 description: >-
-  Every zoomies.yaml key and its ZOOMIES_* environment override, with
-  defaults, plus the startup warnings that name any setting weakening your
-  posture.
+  Where Zoomies keeps its settings — the fleet's database, a small file, and the
+  ZOOMIES_* environment — with every key, its default, and the startup warnings
+  that name any setting weakening your posture.
 ---
 
 # Configuring Zoomies
 
-One file, `zoomies.yaml`, and every key can be overridden with a `ZOOMIES_*`
-environment variable. Environment wins over file; file wins over defaults.
+Almost every setting lives in the fleet's own SQLite database and is changed on
+the **Settings → Configuration** page. A change made there is kept: it survives
+a restart, it is written to the audit trail, and it applies to this controller
+and nothing else.
 
-If no file exists and none was named explicitly, defaults plus environment are
-used — which is what makes the container image work with nothing but
-environment variables.
+Three keys cannot live there, because they are what gets that database open:
+`database.path`, and `security.encryption_key` or `security.encryption_key_file`.
+A setting that unlocks a store cannot be stored in that store. Those go in
+`zoomies.yaml` or the environment, and that is the whole of what a fresh
+install's file contains.
+
+### The four layers
+
+```mermaid
+flowchart LR
+    d["built-in defaults"] --> f["zoomies.yaml"]
+    f --> db["the fleet's database<br/>(the settings page)"]
+    db --> e["ZOOMIES_* environment"]
+    e --> v{"config.Validate"}
+    v -->|"an error"| stop["startup stops, and the message<br/>names what to change"]
+    v -->|"a warning"| warn["startup continues -- printed here, and shown<br/>in the UI's problems drawer while it is true"]
+    v -->|"info"| note["startup continues -- a default worth knowing<br/>rather than anything wrong"]
+    v -->|"nothing to say"| ok["running"]
+```
+
+Each layer wins over the one before it, and the settings page says which layer
+each value came from, so "I changed it and nothing happened" is a question the
+page answers rather than one you have to work out.
+
+**The environment is deliberately last.** It is the way back in when a stored
+setting has locked you out of the interface that would fix it — a bind address
+nothing can reach, an external URL that breaks the login redirect — and it is
+what keeps every containerised deployment working, since those ship their
+configuration as environment variables. The cost is that a value typed on the
+settings page can be silently overridden, so it is not left silent: a setting an
+environment variable is holding is shown in its own group at the foot of the
+page, naming the variable, and the API refuses to change it rather than storing
+something that would be overridden at the next restart.
+
+To hand such a setting over to the settings page, remove the variable from the
+deployment's environment file and restart.
+
+### Upgrading from a file-only install
+
+On the first start after the upgrade, the settings your `zoomies.yaml` actually
+spells are copied into the database, attributed to the file, and the file stays
+as the layer underneath them. Nothing about what the controller runs changes —
+you simply gain the ability to change them. It happens once, so a setting you
+later clear back to its default is not poured back in at the next restart, and
+an info finding (`settings.imported_from_file`) says it happened.
+
+A key the file never mentioned is left alone. The defaults are worked out on the
+host that reads them — the database path from its state directory, the agent's
+capacity from its cores — so a row claiming to be "the default" would freeze one
+machine's answers for every machine after it.
+
+### From a terminal
+
+When the settings page is the thing that is broken, `zoomies config` does the
+same job against a stopped controller:
+
+```sh
+zoomies config list                       # what this fleet has stored, and where each value came from
+zoomies config get server.bind            # one setting, and which layer won
+zoomies config set server.bind 127.0.0.1:8080
+zoomies config unset server.bind          # back to the file, or the built-in default
+```
+
+It refuses to run while a controller is up, because writing settings under a
+process that has already read them leaves the two disagreeing with no way for
+either to find out.
+
+### The file
 
 The parser is strict. A misspelled key is an error naming the line, not a
 setting that silently does nothing.
+
+If no file exists and none was named explicitly, the database plus the
+environment plus the defaults are used — which is what makes the container image
+work with nothing but environment variables.
 
 ### Where things live
 
@@ -31,24 +102,14 @@ system and on whether the process is running as root.
 | Windows | `%ProgramData%\zoomies` | same |
 
 The configuration directory holds `zoomies.yaml` and the encryption key; the
-state directory holds the database and the agents' work areas. Every default
+state directory holds the database — which is where the settings themselves
+live — and the agents' work areas. Every default
 path below that begins `<config dir>` or `<state dir>` resolves through this
 table, and `zoomies config print` says what they came out as on this host.
 
 `ZOOMIES_STATE_DIR` is the one to reach for when the database belongs on a
 different disk from everything else — it moves the database and the work
 directories together, so the two do not have to be set separately.
-
-```mermaid
-flowchart LR
-    d["built-in defaults"] --> f["zoomies.yaml"]
-    f --> e["ZOOMIES_* environment"]
-    e --> v{"config.Validate"}
-    v -->|"an error"| stop["startup stops, and the message<br/>names what to change"]
-    v -->|"a warning"| warn["startup continues -- printed here, and shown<br/>in the UI's problems drawer while it is true"]
-    v -->|"info"| note["startup continues -- a default worth knowing<br/>rather than anything wrong"]
-    v -->|"nothing to say"| ok["running"]
-```
 
 Every finding carries a code, and the code is the stable half: it is what you
 search for and alert on, while the sentence beside it is written for whoever is
@@ -59,8 +120,13 @@ the validator's and the running controller's — with severities and what to do.
 
 ## Everything at once
 
+Every setting, with its default and its environment override. These are the
+values the settings page edits; the block below is the same list in the shape
+`zoomies.yaml` takes, for the deployments that still configure from a file.
+
 The defaults below are the actual defaults. A file containing only the settings
-you want to change is the normal case.
+you want to change is the normal case — and a fresh install's file contains only
+the two or three keys that have to be in one.
 
 ```yaml
 server:
@@ -200,6 +266,188 @@ provider:
 ```
 
 ---
+
+## Every key
+
+Where each setting can live, and when a change to it takes effect. "At once"
+means the running controller picks it up on its next pass; "next restart" means
+the change is stored and applied when the controller starts again, which the
+settings page reports rather than refusing the edit.
+
+### `agent`
+
+| Key | Environment | Takes effect | What it is |
+| --- | --- | --- | --- |
+| `agent.agent_token` | `ZOOMIES_AGENT_TOKEN` | on the agent's own host | Agent token — The credential a standalone agent carries afterwards. It is configured on that agent's own host. |
+| `agent.allow_insecure_http` | `ZOOMIES_AGENT_ALLOW_INSECURE_HTTP` | on the agent's own host | Allow plain HTTP to the controller — Let a standalone agent use a plain http:// controller URL off loopback, which puts its token and every runner credential on the wire in the clear. It is configured on that agent's own host. |
+| `agent.allow_unverified_runner_download` | `ZOOMIES_AGENT_ALLOW_UNVERIFIED_RUNNER_DOWNLOAD` | next restart | Allow unverified runner downloads — Let the process backend install a runner archive whose digest it cannot check. The alternative to checking is executing whatever the network handed over. |
+| `agent.backend` | `ZOOMIES_AGENT_BACKEND` | next restart | Runner backend — What a runner runs in: a Docker container, a Podman container, or a bare process on this host. |
+| `agent.ca_file` | `ZOOMIES_AGENT_CA_FILE` | on the agent's own host | Controller certificate — The certificate a standalone agent pins for its controller. It is configured on that agent's own host. |
+| `agent.capacity` | `ZOOMIES_AGENT_CAPACITY` | next restart | Runners per host — How many runners this host will hold at once. It defaults to one per two cores, which leaves the machine room to breathe. |
+| `agent.client_cert_file` | `ZOOMIES_AGENT_CLIENT_CERT_FILE` | on the agent's own host | Client certificate — A standalone agent's client certificate, for mutual TLS. It is configured on that agent's own host. |
+| `agent.client_key_file` | `ZOOMIES_AGENT_CLIENT_KEY_FILE` | on the agent's own host | Client private key — The key for that client certificate. It is configured on that agent's own host. |
+| `agent.controller_url` | `ZOOMIES_CONTROLLER_URL` | on the agent's own host | Controller URL — The controller a standalone agent connects to. It is configured on that agent's own host. |
+| `agent.docker_build_cache_mb` | `ZOOMIES_AGENT_DOCKER_BUILD_CACHE_MB` | next restart | Docker build cache target — The target size for unused Docker builder cache. 0 leaves a shared or externally managed daemon alone. |
+| `agent.docker_host` | `ZOOMIES_DOCKER_HOST` | next restart | Docker socket — The Docker or Podman socket. Empty finds one, preferring a rootless socket over the root one. |
+| `agent.embedded` | `ZOOMIES_AGENT_EMBEDDED` | next restart | Run an agent in this controller — Run an agent inside this controller, so a single machine needs one process. Off makes a controller that schedules runners onto other hosts and starts none itself. |
+| `agent.finished_retention` | `ZOOMIES_AGENT_FINISHED_RETENTION` | next restart | Keep finished containers for — How long a finished runner's container stays on the host before the agent deletes it. It is the window for reading a finished runner's log, and it is host disk: 0 deletes on the next pass. |
+| `agent.heartbeat_interval` | `ZOOMIES_HEARTBEAT_INTERVAL` | next restart | Heartbeat interval — How often an agent reports in. A host that goes quiet for 90 seconds is counted lost, so this has to be comfortably under that. |
+| `agent.insecure_skip_verify` | `ZOOMIES_AGENT_INSECURE_SKIP_VERIFY` | on the agent's own host | Skip certificate verification — Let a standalone agent skip verifying its controller's certificate. It is configured on that agent's own host. |
+| `agent.join_token` | `ZOOMIES_JOIN_TOKEN` | on the agent's own host | Join token — The single-use token a standalone agent redeems to enrol. It is configured on that agent's own host. |
+| `agent.labels` | `ZOOMIES_AGENT_LABELS` | next restart | Host labels — Key=value labels describing this host, which a pool can require of the hosts it runs on. |
+| `agent.name` | `ZOOMIES_AGENT_NAME` | next restart | Host name — What this host is called in the fleet. Empty names it after the machine it is on. |
+| `agent.network` | `ZOOMIES_AGENT_NETWORK` | next restart | Container network — An existing container network to attach runners to. Empty uses the daemon's default bridge. |
+| `agent.registry_auth` | `ZOOMIES_REGISTRY_AUTH` | next restart | Registry credentials — A base64 X-Registry-Auth value the container backends send when they pull. Without it a pool on a private registry cannot use pinned-only pulls at all. |
+| `agent.runner_download_url` | `ZOOMIES_AGENT_RUNNER_DOWNLOAD_URL` | next restart | Runner download mirror — Where the process backend fetches runner archives from, for hosts that mirror releases internally. The path below it is the same. |
+| `agent.runner_sha256` | `ZOOMIES_AGENT_RUNNER_SHA256` | next restart | Runner archive digest — The expected digest of the actions/runner archive the process backend downloads. Zoomies ships the digest for the release it pins; supply one when you pin another. |
+| `agent.work_dir` | `ZOOMIES_WORK_DIR` | next restart | Working directory — Where runner working directories and the agent's own credentials live. |
+
+### `capacity_demand`
+
+| Key | Environment | Takes effect | What it is |
+| --- | --- | --- | --- |
+| `capacity_demand.cooldown` | `ZOOMIES_CAPACITY_DEMAND_COOLDOWN` | at once | Cooldown — How long to wait before asking for capacity for the same pool again. |
+| `capacity_demand.destination_url` | `ZOOMIES_CAPACITY_DEMAND_URL` | at once | Destination URL — Where signed requests for host capacity are posted. Empty disables the integration. |
+| `capacity_demand.pools` | `ZOOMIES_CAPACITY_DEMAND_POOLS` | at once | Pools to publish for — Which pools to publish demand for. Empty publishes for all of them. |
+| `capacity_demand.signing_secret` | `ZOOMIES_CAPACITY_DEMAND_SIGNING_SECRET` | at once | Signing secret — The secret those requests are signed with. Anyone holding it can forge one, so it is stored sealed. |
+| `capacity_demand.timeout` | `ZOOMIES_CAPACITY_DEMAND_TIMEOUT` | at once | Request timeout — How long one of those requests may take. |
+
+### `database`
+
+| Key | Environment | Takes effect | What it is |
+| --- | --- | --- | --- |
+| `database.path` | `ZOOMIES_DB_PATH` | file or environment only | Database file — The SQLite file holding this fleet, including every setting below. It is named in the configuration file or the environment because nothing can read it from inside itself. |
+
+### `github`
+
+| Key | Environment | Takes effect | What it is |
+| --- | --- | --- | --- |
+| `github.allow_workflow_cancellation` | `ZOOMIES_ALLOW_WORKFLOW_CANCELLATION` | at once | Allow cancelling workflow runs — Let operators ask GitHub to cancel the workflow run that owns a job. Turning it off is what a read-only Actions grant wants. |
+| `github.api_base_url` | `ZOOMIES_GITHUB_API_BASE_URL` | at once | GitHub API base URL — https://api.github.com for github.com, or your Enterprise Server's /api/v3. It is the default for a new installation; each existing one keeps the base it was added with. |
+| `github.poll_fallback` | `ZOOMIES_POLL_FALLBACK` | next restart | Poll for queued jobs — List queued jobs on a timer as well as waiting for webhooks. On by default: a controller that silently stops scaling because a webhook was misconfigured is worse than a few extra API calls. |
+| `github.poll_interval` | `ZOOMIES_POLL_INTERVAL` | at once | Poll interval — How often the fallback poller looks for queued jobs. |
+| `github.runner_image` | `ZOOMIES_RUNNER_IMAGE` | at once | Default runner image — The container image a new pool runs when it names neither an image nor an operating system. |
+| `github.runner_version` | `ZOOMIES_RUNNER_VERSION` | at once | Pinned runner release — Pin the actions/runner release. Empty tracks whatever the image carries. |
+| `github.upload_base_url` | `ZOOMIES_GITHUB_UPLOAD_BASE_URL` | at once | GitHub upload base URL — The upload endpoint, when your Enterprise Server puts it somewhere other than beside the API. |
+| `github.webhook_path` | `ZOOMIES_WEBHOOK_PATH` | next restart | Webhook path — The path GitHub posts deliveries to. Changing it means changing the App's webhook URL too. |
+
+### `images`
+
+| Key | Environment | Takes effect | What it is |
+| --- | --- | --- | --- |
+| `images.refresh_interval` | `ZOOMIES_IMAGE_REFRESH_INTERVAL` | at once | Image refresh interval — How often every pool's image is prewarmed again, so a moving tag reaches the hosts. 0 switches it off, which is what an air-gapped fleet wants. |
+
+### `log`
+
+| Key | Environment | Takes effect | What it is |
+| --- | --- | --- | --- |
+| `log.format` | `ZOOMIES_LOG_FORMAT` | next restart | Log format — json for a log collector, text for a person reading a terminal. |
+| `log.level` | `ZOOMIES_LOG_LEVEL` | at once | Log level — How much detail the controller logs. |
+
+### `metrics`
+
+| Key | Environment | Takes effect | What it is |
+| --- | --- | --- | --- |
+| `metrics.enabled` | `ZOOMIES_METRICS_ENABLED` | next restart | Prometheus endpoint — Serve the Prometheus endpoint. |
+| `metrics.path` | `ZOOMIES_METRICS_PATH` | next restart | Metrics path — Where it is served. |
+| `metrics.public` | `ZOOMIES_METRICS_PUBLIC` | next restart | Serve metrics without authentication — Serve it without authentication. Off by default, because job and repository names are visible in the label set. |
+
+### `oidc`
+
+| Key | Environment | Takes effect | What it is |
+| --- | --- | --- | --- |
+| `oidc.admin_groups` | `ZOOMIES_OIDC_ADMIN_GROUPS` | next restart | Administrator groups — Provider groups whose members get the administrator role. |
+| `oidc.allow_signup` | `ZOOMIES_OIDC_ALLOW_SIGNUP` | next restart | Create accounts on first sign-in — Create an account on a first successful single sign-on, rather than refusing anyone not already here. |
+| `oidc.client_id` | `ZOOMIES_OIDC_CLIENT_ID` | next restart | Client ID — The client this controller identifies itself as. |
+| `oidc.client_secret` | `ZOOMIES_OIDC_CLIENT_SECRET` | next restart | Client secret — The client secret that goes with it. |
+| `oidc.enabled` | `ZOOMIES_OIDC_ENABLED` | next restart | Single sign-on — Offer single sign-on as well as local accounts. |
+| `oidc.groups_claim` | `ZOOMIES_OIDC_GROUPS_CLAIM` | next restart | Groups claim — The token claim listing the groups a user is in. |
+| `oidc.issuer` | `ZOOMIES_OIDC_ISSUER` | next restart | Issuer URL — The identity provider's issuer URL, from which its endpoints are discovered. |
+| `oidc.link_by_username` | `ZOOMIES_OIDC_LINK_BY_USERNAME` | next restart | Link sign-on to local accounts — Let a first single sign-on take over an existing local account with the same username. Turn it on for the one migration where that is the intention, then turn it off again. |
+| `oidc.operator_groups` | `ZOOMIES_OIDC_OPERATOR_GROUPS` | next restart | Operator groups — Provider groups whose members get the operator role. A user in no mapped group is a viewer. |
+| `oidc.redirect_url` | `ZOOMIES_OIDC_REDIRECT_URL` | next restart | Redirect URL — Where the provider sends the browser back to. Empty derives it from the external URL. |
+| `oidc.scopes` | `ZOOMIES_OIDC_SCOPES` | next restart | Scopes — The scopes asked for at sign-in. |
+| `oidc.username_claim` | `ZOOMIES_OIDC_USERNAME_CLAIM` | next restart | Username claim — The token claim that becomes a Zoomies username. |
+
+### `provider`
+
+| Key | Environment | Takes effect | What it is |
+| --- | --- | --- | --- |
+| `provider.ambiguity_timeout` | `ZOOMIES_PROVIDER_AMBIGUITY_TIMEOUT` | next restart | Unknown-outcome timeout — How long an operation whose outcome is unknown is reconciled by looking before a person is asked instead. It must outlast the creation timeout: a create that is merely slow is not an unknown outcome. |
+| `provider.bootstrap_timeout` | `ZOOMIES_PROVIDER_BOOTSTRAP_TIMEOUT` | next restart | Agent install timeout — How long installing the agent inside a machine that is already up may take. |
+| `provider.call_timeout` | `ZOOMIES_PROVIDER_CALL_TIMEOUT` | next restart | Provider request timeout — How long one API request to a provider may take. |
+| `provider.create_timeout` | `ZOOMIES_PROVIDER_CREATE_TIMEOUT` | next restart | Machine creation timeout — How long the whole asynchronous creation of a machine may take, rather than the request that starts it. |
+| `provider.delete_grace` | `ZOOMIES_PROVIDER_DELETE_GRACE` | next restart | Grace before a silent machine is lost — How long a machine whose host has gone silent is left alone before it is treated as lost. It has to outlast the controller's own judgement that a host is gone, or a network blip would destroy a machine in the middle of a job. |
+| `provider.delete_timeout` | `ZOOMIES_PROVIDER_DELETE_TIMEOUT` | next restart | Deletion timeout — How long an asynchronous deletion may take. |
+| `provider.enabled` | `ZOOMIES_PROVIDER_ENABLED` | next restart | Rent machines — Whether the machine loop runs at all. Off by default: renting a machine spends money, and nothing here should start doing that because a release added the ability to. |
+| `provider.enrol_timeout` | `ZOOMIES_PROVIDER_ENROL_TIMEOUT` | next restart | Enrolment timeout — How long a bootstrapped machine has to appear as a host. It has to outlast a heartbeat timeout, or a machine that joined and went briefly quiet would be given up on. |
+| `provider.idle_timeout` | `ZOOMIES_PROVIDER_IDLE_TIMEOUT` | at once | Idle before draining — How long a machine's host must have had no runner on it before the machine is drained. |
+| `provider.interval` | `ZOOMIES_PROVIDER_INTERVAL` | next restart | Machine loop interval — How often the machine loop runs. It is slower than the scheduler's on purpose: a clone takes minutes, and the pass that watches one gains nothing from a ten-second tick. |
+| `provider.max_creates_in_flight` | `ZOOMIES_PROVIDER_MAX_CREATES_IN_FLIGHT` | at once | Machines built at once — How many machines may be being built at once across the fleet, so a burst of queued jobs cannot ask a hypervisor for fifty clones in one pass. |
+| `provider.max_machines` | `ZOOMIES_PROVIDER_MAX_MACHINES` | at once | Machines the fleet may rent — The ceiling across every provider. Zero rents nothing, exactly as a pool's max_runners of zero runs nothing: a maximum of none is none. |
+| `provider.paused` | `ZOOMIES_PROVIDER_PAUSED` | at once | Pause new machines — Stop creating machines while leaving draining, deleting, recovering and verifying ownership running. A switch that stopped those too would strand running machines nobody is watching. |
+| `provider.scale_down_cooldown` | `ZOOMIES_PROVIDER_SCALE_DOWN_COOLDOWN` | next restart | Cooldown before deleting — How long that idleness must hold continuously before anything is deleted, so a quiet minute between two bursts does not destroy the machines the second burst is about to want. |
+| `provider.scale_up_delay` | `ZOOMIES_PROVIDER_SCALE_UP_DELAY` | next restart | Delay before renting — How long a pool's demand must stand before a machine is bought for it. Zero, unlike the scheduler's: a machine that takes four minutes to arrive has already spent the delay by being slow. |
+| `provider.sweep_interval` | `ZOOMIES_PROVIDER_SWEEP_INTERVAL` | next restart | Ownership sweep interval — How often each provider is asked for everything it believes it is running, which is how an orphaned machine and one that vanished underneath us are both found. |
+
+### `retention`
+
+| Key | Environment | Takes effect | What it is |
+| --- | --- | --- | --- |
+| `retention.jobs` | `ZOOMIES_RETENTION_JOBS` | at once | Keep job history for — How long job history is kept. |
+| `retention.machines` | `ZOOMIES_RETENTION_MACHINES` | at once | Keep deleted machines for — How long a deleted machine's row is kept, so what the fleet rented and gave back is still answerable after the machine itself is gone. |
+| `retention.runners` | `ZOOMIES_RETENTION_RUNNERS` | at once | Keep finished runners for — How long finished runners are kept. |
+| `retention.samples` | `ZOOMIES_RETENTION_SAMPLES` | at once | Keep Overview samples for — How long the Overview's samples are kept. |
+| `retention.scaling_events` | `ZOOMIES_RETENTION_SCALING_EVENTS` | at once | Keep scaling history for — How long scaling decisions are kept. Audit rows are not covered by this, or by anything: they are never deleted. |
+| `retention.webhooks` | `ZOOMIES_RETENTION_WEBHOOKS` | at once | Keep webhook deliveries for — How long webhook deliveries are kept. |
+
+### `scheduler`
+
+| Key | Environment | Takes effect | What it is |
+| --- | --- | --- | --- |
+| `scheduler.default_runner_limits` | `ZOOMIES_DEFAULT_RUNNER_LIMITS` | at once | Default runner limits — Give a runner whose pool sets no CPU or memory limit one slot's share of its host as a real limit. Off, a host's worth of them can each take every core. |
+| `scheduler.drain_timeout` | `ZOOMIES_DRAIN_TIMEOUT` | at once | Drain timeout — Fail a runner that has been draining this long with no job left on it. A runner still finishing a job is never touched by it. |
+| `scheduler.host_throttling` | `ZOOMIES_HOST_THROTTLING` | at once | Throttle hosts under pressure — Let the controller throttle a host its measurements say is overwhelmed, and step it back up after a stretch of calm. |
+| `scheduler.interval` | `ZOOMIES_SCHEDULER_INTERVAL` | at once | Scheduler interval — How often the scheduler runs a pass even with nothing to react to. |
+| `scheduler.max_creates_per_tick` | `ZOOMIES_MAX_CREATES_PER_TICK` | at once | Runners created per pass — How many runners may be created in one pass, so a thundering herd of queued jobs cannot exhaust a host in one go. |
+| `scheduler.max_runner_lifetime` | `ZOOMIES_MAX_RUNNER_LIFETIME` | at once | Maximum runner lifetime — Drain a runner that has lived this long, next time it is not busy. It bounds how long a runner's credentials live; it never ends a job. |
+| `scheduler.provision_timeout` | `ZOOMIES_PROVISION_TIMEOUT` | at once | Provision timeout — Fail a runner that never finishes registering, so a bad image does not hold a host slot for ever. |
+| `scheduler.scale_up_delay` | `ZOOMIES_SCALE_UP_DELAY` | at once | Scale-up delay — How long a job must have been queued before it counts as demand. It damps churn when jobs arrive in bursts; 0 reacts at once. |
+
+### `security`
+
+| Key | Environment | Takes effect | What it is |
+| --- | --- | --- | --- |
+| `security.cookie_secure` | `ZOOMIES_COOKIE_SECURE` | next restart | Secure session cookies — Force the Secure attribute on session cookies. Unset derives it from the external URL and the TLS mode, which is right unless a proxy in front makes it wrong. |
+| `security.disable_auth` | `ZOOMIES_DISABLE_AUTH` | next restart | Disable authentication — Remove all authentication. It exists for local development, and it is refused wherever this controller looks reachable. |
+| `security.encryption_key` | `ZOOMIES_ENCRYPTION_KEY` | file or environment only | Encryption key — The 32-byte key, base64 or hex, that seals GitHub App private keys, webhook secrets and the stored credentials below. Prefer the key file or the environment variable: a key written into zoomies.yaml is a key in your configuration management system. |
+| `security.encryption_key_file` | `ZOOMIES_ENCRYPTION_KEY_FILE` | file or environment only | Encryption key file — Where that key is read from, and written to on a first run. Back it up beside the database: without it the sealed rows cannot be read. |
+| `security.rate_limit_logins` | `ZOOMIES_RATE_LIMIT_LOGINS` | next restart | Login attempts per minute — Password attempts allowed per source address per minute, and five times that per account. |
+| `security.session_ttl` | `ZOOMIES_SESSION_TTL` | next restart | Session lifetime — How long a browser login lasts before it has to be made again. |
+
+### `server`
+
+| Key | Environment | Takes effect | What it is |
+| --- | --- | --- | --- |
+| `server.allow_indexing` | `ZOOMIES_ALLOW_INDEXING` | next restart | Allow search engine indexing — Invite search engines into the UI. Off by default: a controller is somebody's infrastructure rather than somebody's website. |
+| `server.allowed_origins` | `ZOOMIES_ALLOWED_ORIGINS` | next restart | Allowed browser origins — Extra browser origins allowed to make state-changing requests. Empty means same-origin only, which is what the built-in UI needs. |
+| `server.bind` | `ZOOMIES_BIND` | next restart | Listen address — The address the controller listens on. 127.0.0.1:8080 is this machine only; 0.0.0.0:8080 is every interface. |
+| `server.external_url` | `ZOOMIES_EXTERNAL_URL` | next restart | External URL — How GitHub and browsers reach this controller. It forms the webhook URL, so webhooks need it. |
+| `server.idle_timeout` | `ZOOMIES_IDLE_TIMEOUT` | next restart | Idle timeout — How long an idle keep-alive connection is held open. |
+| `server.read_timeout` | `ZOOMIES_READ_TIMEOUT` | next restart | Read timeout — How long a client may take to send its request. |
+| `server.tailcat_enabled` | `ZOOMIES_TAILCAT_ENABLED` | next restart | Private agent network — Permit private agent connections, started on first enrolment. |
+| `server.tls.cert_file` | `ZOOMIES_TLS_CERT_FILE` | next restart | Certificate file — The certificate the listener serves, when the mode is files. |
+| `server.tls.hosts` | `ZOOMIES_TLS_HOSTS` | next restart | Certificate host names — The names baked into a generated self-signed certificate. |
+| `server.tls.key_file` | `ZOOMIES_TLS_KEY_FILE` | next restart | Private key file — The private key for that certificate. The file stays on disk; only its path is stored here. |
+| `server.tls.mode` | `ZOOMIES_TLS_MODE` | next restart | TLS mode — How the listener terminates TLS: off behind a reverse proxy, self-signed for a generated certificate, files for one of your own. |
+| `server.trusted_proxies` | `ZOOMIES_TRUSTED_PROXIES` | next restart | Trusted proxies — CIDRs whose X-Forwarded-For header is believed, or the word cloudflare for Cloudflare's published ranges. Empty takes client addresses from the socket, which is the safe answer. |
+| `server.write_timeout` | `ZOOMIES_WRITE_TIMEOUT` | next restart | Write timeout — How long a response may take. It is 0, and should stay 0: the event stream and a followed log are responses that never end. |
+
+### `updates`
+
+| Key | Environment | Takes effect | What it is |
+| --- | --- | --- | --- |
+| `updates.check_interval` | `ZOOMIES_UPDATE_CHECK_INTERVAL` | at once | Update check interval — How often github.com is asked which release of Zoomies is current. 0 never asks, and is the one request that is not about your fleet. Nothing is ever downloaded by it. |
 
 ## The settings that matter most
 

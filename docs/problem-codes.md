@@ -72,6 +72,19 @@ on a public address the same setting is an error.
 | `crypto.no_key` | warning | `security.encryption_key_file` | One will be generated on first start, and it is the only copy. Back it up: without it the stored GitHub App private key and webhook secrets cannot be decrypted. |
 | `crypto.key_in_config` | warning | `security.encryption_key` | The key is in the config file, so anything that reads the file — a backup, a support bundle — reads every stored secret. Point at a file instead. |
 
+## Configuration: the settings in the database
+
+These are raised while assembling the configuration, after the database is open
+and before anything is built from it. They are about the rows themselves rather
+than about what any one setting says.
+
+| Code | Severity | Setting | What to do |
+| --- | --- | --- | --- |
+| `settings.stored_invalid` | warning | the setting named | A stored value will not parse, so the layer underneath it is in force — the configuration file, or the built-in default. Set it again on the settings page, or clear it with `zoomies config unset <key>`. |
+| `settings.stored_unknown` | info | — | Settings are stored that this version does not have, usually because a newer one set them and this is a rollback. They are kept untouched, so upgrading again picks them up where it left off. |
+| `settings.stored_unreadable` | error | — | A stored credential was sealed with a different encryption key. Starting anyway would run the fleet with credentials silently missing. Restore the key it was sealed with, or clear the setting and set it again. |
+| `settings.imported_from_file` | info | — | The settings your `zoomies.yaml` spells have been copied into the database, once, on the first start after upgrading. Nothing about what the controller runs has changed; the file is still the layer underneath them. |
+
 ## Configuration: authentication
 
 | Code | Severity | Setting | What to do |

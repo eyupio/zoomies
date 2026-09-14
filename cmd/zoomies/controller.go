@@ -54,11 +54,13 @@ func runController(ctx context.Context, e *env, args []string) error {
 	if err != nil {
 		return err
 	}
-	findings := cfg.Validate()
-	printFindings(e.err, findings)
-	if err := findings.Err(); err != nil {
-		return err
-	}
+
+	// The configuration is not validated yet, and cannot be: most of it lives
+	// in the database, and the database is not open. What Load has produced so
+	// far is enough to open it -- the path, and the key that unseals what is
+	// inside -- and the whole configuration is assembled and checked below,
+	// once both are in hand. A file that fails to parse still stops here,
+	// because that is a fault in the one layer this early step does read.
 
 	log, level := setupLogging(cfg)
 
@@ -99,6 +101,33 @@ func runController(ctx context.Context, e *env, args []string) error {
 
 	key, err := loadOrCreateKey(ctx, st, cfg, log)
 	if err != nil {
+		return err
+	}
+
+	// Now the whole configuration exists: the file underneath, this fleet's
+	// own settings over it, and the environment over both. Everything from
+	// here reads the assembled thing.
+	seeded, err := seedSettingsFromFile(ctx, st, cfg, key, log)
+	if err != nil {
+		return err
+	}
+	stored, err := st.InstanceSettings(ctx)
+	if err != nil {
+		return err
+	}
+	storedFindings, err := cfg.Rebuild(stored, key)
+	if err != nil {
+		return err
+	}
+	applyLogLevel(level, cfg)
+
+	log.Info("configuration assembled",
+		"file", configSource(cfg), "stored", len(stored), "pinned_by_environment", len(cfg.PinnedByEnvironment()))
+
+	findings := append(storedFindings, seeded...)
+	findings = append(findings, cfg.Validate()...)
+	printFindings(e.err, findings)
+	if err := findings.Err(); err != nil {
 		return err
 	}
 
@@ -209,6 +238,17 @@ func takeControllerLease(ctx context.Context, st *store.Store, takeover bool) (*
 // setupLogging installs the process logger and returns the level it is filtered
 // at, so that SIGHUP can move it without rebuilding every logger the controller
 // and the API have already captured.
+// applyLogLevel re-tunes the gate after the configuration has been assembled.
+//
+// The level is set once before the store opens, because the store's own startup
+// has things to say and there is nowhere else to say them. That first setting
+// can only know the file and the environment, so it has to be made again once
+// the layer between them has been read -- otherwise the one setting the
+// registry calls live is the one a fresh start ignores.
+func applyLogLevel(level *slog.LevelVar, cfg *config.Config) {
+	level.Set(config.ParseLogLevel(cfg.Log.Level))
+}
+
 func setupLogging(cfg *config.Config) (*slog.Logger, *slog.LevelVar) {
 	level := new(slog.LevelVar)
 	level.Set(config.ParseLogLevel(cfg.Log.Level))
@@ -345,6 +385,63 @@ func loadOrCreateKey(ctx context.Context, st *store.Store, cfg *config.Config, l
 		"detail", "it is the only copy, and without it the stored GitHub App private keys and webhook secrets cannot be decrypted",
 		"fix", "back up "+path+" now, alongside your database")
 	return key, nil
+}
+
+// seedSettingsFromFile carries an existing zoomies.yaml into the database, once.
+//
+// It is the upgrade path. An instance that has been running on a configuration
+// file meets this build with an empty settings table, and without this it would
+// get a settings page showing every value as "From the file" and offering to
+// store a second copy of each one. Instead the file's settings are copied in,
+// the file stays as the layer underneath them, and nothing about what the
+// controller is running changes -- the operator simply gains the ability to
+// change them.
+//
+// It happens once and leaves a note saying so, in the store's own settings
+// table rather than in the fleet's: an operator who then clears every setting
+// back to its defaults must not have the file silently poured back in at the
+// next start.
+func seedSettingsFromFile(ctx context.Context, st *store.Store, cfg *config.Config, key *cryptox.Key, log *slog.Logger) (config.Findings, error) {
+	if cfg.Path() == "" {
+		return nil, nil
+	}
+	done, err := st.GetSetting(ctx, config.SeedKey)
+	if err != nil {
+		return nil, err
+	}
+	if done != "" {
+		return nil, nil
+	}
+	// A database that already holds settings was configured through the API, so
+	// there is nothing to import and the file is not in charge of it.
+	if has, err := st.HasInstanceSettings(ctx); err != nil {
+		return nil, err
+	} else if has {
+		return nil, st.SetSetting(ctx, config.SeedKey, "skipped: settings were already stored", false)
+	}
+
+	rows, err := config.SeedFromFile(cfg, key)
+	if err != nil {
+		// A file this process has already parsed cannot fail to parse here, so
+		// this is a read error -- worth saying, not worth refusing to start
+		// over, since the file is still the layer underneath.
+		log.Warn("could not import the configuration file into the database",
+			"path", cfg.Path(), "error", err)
+		return nil, nil
+	}
+	if len(rows) == 0 {
+		return nil, st.SetSetting(ctx, config.SeedKey, "skipped: the file set nothing that belongs in the database", false)
+	}
+	if err := st.PutInstanceSettings(ctx, "the configuration file", rows); err != nil {
+		return nil, err
+	}
+	if err := st.SetSetting(ctx, config.SeedKey, cfg.Path(), false); err != nil {
+		return nil, err
+	}
+	log.Info("imported the configuration file into the database",
+		"path", cfg.Path(), "settings", len(rows),
+		"detail", "they can now be changed on the settings page, and the file remains the layer underneath them")
+	return config.Findings{config.SeedFinding(cfg.Path(), len(rows))}, nil
 }
 
 // socketExists reports whether a unix socket path is present. A TCP endpoint

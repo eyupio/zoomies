@@ -181,8 +181,17 @@ It needs an admin token, because the document contains the settings section.
 | `zoomies restore <backup-directory> [--replace]` | Put a backup's database back at `database.path`, after checking that the copy is sound, that this build can read its schema, and that this host's encryption key is the one that sealed it. Ends every session, removes unredeemed join tokens, and fences the fleet; `--revoke-api-tokens` and `--reset-agent-tokens` go further. `--replace` is required to overwrite an existing database, and moves it aside rather than deleting it. See [Backup and restore](backup-and-restore.md). |
 | `zoomies config check [--config path]` | Validate a file without starting anything. Warnings print and exit 0; errors exit 1. |
 | `zoomies config print [--config path]` | The effective configuration — file, environment and defaults combined — with secrets blanked. `--output` is `yaml` or `json` here, and defaults to `yaml`. |
+| `zoomies config list [--all]` | What this fleet has stored, and which layer each value came from. `--all` lists every setting, including the ones nobody has changed. |
+| `zoomies config get <key>` | One setting's effective value, and whether it came from the defaults, the file, the database or the environment. |
+| `zoomies config set <key> <value>` | Store one setting in the fleet's database — the same thing the settings page does, for when the settings page is the thing that is broken. |
+| `zoomies config unset <key>` | Forget a stored setting, so the configuration file or the built-in default decides it again. |
 | `zoomies healthcheck --url <url>` | Probe a controller's `/healthz`. Exit 0 when it answers. This is what the container image's `HEALTHCHECK` runs. |
 | `zoomies version` | The version this binary was built from. `--short` or `--json`. |
+
+`config set` and `config unset` need the controller stopped: it holds the
+database lock, and writing settings under a process that has already read them
+would leave the two disagreeing with no way for either to find out. Everything
+else in this group reads only.
 
 `init` also accepts eight `--detected-*` flags. They are how `install.sh` passes
 on what it already probed, and you will not normally type one.

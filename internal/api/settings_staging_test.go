@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -91,7 +92,7 @@ func TestSettingsRefusalsSayWhatIsWrongWithTheValue(t *testing.T) {
 		want string
 	}{
 		{"an unknown key", map[string]any{"nonsense.key": "1s"}, "not a setting"},
-		{"a log level that is not one", map[string]any{"log.level": "chatty"}, "is not a log level"},
+		{"a log level that is not one", map[string]any{"log.level": "chatty"}, "is not a log level; use debug, info, warn or error"},
 		{"a level that is not even a string", map[string]any{"log.level": 3}, "expected a string"},
 		{"a duration that is not one", map[string]any{"retention.jobs": "a while"}, "is not a duration"},
 		{"a negative duration", map[string]any{"retention.jobs": "-1h"}, "cannot be negative"},
@@ -132,21 +133,51 @@ func TestASettingsCapMayBeWrittenAsAString(t *testing.T) {
 }
 
 // Zero switches a duration off, and that is a real answer rather than a value
-// below the floor -- "never expire these" is a supported choice.
+// below the floor -- "never poll" is a supported choice.
 func TestZeroSwitchesADurationOffRatherThanFailingTheFloor(t *testing.T) {
 	h := newHarness(t)
 	admin, _ := h.user("admin", store.RoleAdmin)
 
 	resp := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: h.session(admin),
-		body: map[string]any{"github.poll_interval": "0s", "scheduler.max_creates_per_tick": 0}})
+		body: map[string]any{"github.poll_interval": "0s"}})
 	if resp.status != http.StatusOK {
 		t.Fatalf("status = %d: %s", resp.status, resp.body)
 	}
-	cfg := h.ctrl.Config()
-	if cfg.GitHub.PollInterval != 0 {
-		t.Errorf("poll interval = %s, want it switched off", cfg.GitHub.PollInterval)
+	if got := h.ctrl.Config().GitHub.PollInterval; got != 0 {
+		t.Errorf("poll interval = %s, want it switched off", got)
 	}
-	if cfg.Scheduler.MaxCreatesPerTick != 0 {
-		t.Errorf("max creates per tick = %d, want no cap", cfg.Scheduler.MaxCreatesPerTick)
+}
+
+// But a zero that the validator calls an error is refused, even though the
+// same number switches a duration off two lines above.
+//
+// scheduler.max_creates_per_tick is the case: config.Validate has always said
+// it must be at least 1 and refused to start below that, while this API used to
+// accept 0 and describe it as "no cap". That contradiction was survivable while
+// a settings change lasted only until the next restart -- the bad value simply
+// vanished. Now that settings are kept, accepting it would store a value that
+// stops the controller coming back, and the operator who found that out would
+// be the one who could no longer reach this page to undo it.
+func TestASettingsChangeThatWouldStopTheControllerStartingIsRefused(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("admin", store.RoleAdmin)
+	before := h.ctrl.Config().Scheduler.MaxCreatesPerTick
+
+	resp := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: h.session(admin),
+		body: map[string]any{"scheduler.max_creates_per_tick": 0}})
+	if resp.status != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422: %s", resp.status, resp.body)
+	}
+	// The refusal names the setting and quotes what the validator would have
+	// said at startup, so it is the same sentence either way round.
+	if !strings.Contains(string(resp.body), "must be at least 1") {
+		t.Errorf("the refusal does not say why:\n%s", resp.body)
+	}
+	if got := h.ctrl.Config().Scheduler.MaxCreatesPerTick; got != before {
+		t.Errorf("max creates per tick = %d after a refused change, want %d", got, before)
+	}
+	// And nothing was stored, so the next start is unaffected.
+	if _, err := h.ctrl.Store().GetInstanceSetting(t.Context(), "scheduler.max_creates_per_tick"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("a refused change was written anyway: %v", err)
 	}
 }

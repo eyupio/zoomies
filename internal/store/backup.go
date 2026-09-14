@@ -149,7 +149,8 @@ func (s *Store) HasSealedSecrets(ctx context.Context) (bool, error) {
 		   OR (webhook_secret_enc IS NOT NULL AND LENGTH(webhook_secret_enc) > 0)
 		) + (SELECT COUNT(*) FROM settings WHERE key='tailcat.identity.v1' AND value<>'')
 		  + (SELECT COUNT(*) FROM providers
-		WHERE credentials_enc IS NOT NULL AND LENGTH(credentials_enc) > 0)`).Scan(&n)
+		WHERE credentials_enc IS NOT NULL AND LENGTH(credentials_enc) > 0)
+		  + (SELECT COUNT(*) FROM instance_settings WHERE secret=1 AND value<>'')`).Scan(&n)
 	if err != nil {
 		return false, fmt.Errorf("store: counting sealed secrets: %w", err)
 	}
