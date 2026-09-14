@@ -230,6 +230,22 @@ Docker socket, so the embedded agent is off and nothing on that host can start
 a runner: join agents from machines that do have a container runtime, exactly
 as below. See [docs/paas.md](docs/paas.md).
 
+### From a provider's marketplace
+
+`deploy/marketplace/` renders a cloud-config that boots an instance into a
+running controller: pinned images, HTTPS however you want it in front — a
+Cloudflare Tunnel with no inbound rule at all, Cloudflare in front of a
+published origin, a certificate from Let's Encrypt, one of your own, or your
+load balancer — and no credential in the instance metadata. The first
+administrator is created in the browser with the setup token the controller
+prints, and GitHub is connected there too.
+
+It deploys a **controller**. Zoomies stays self-hosted and
+bring-your-own-infrastructure: you own the runner capacity, whether that is the
+same instance, your own machines, or a hypervisor. See
+[docs/marketplace.md](docs/marketplace.md) — including what it has not yet been
+tested on.
+
 ### Add another host
 
 **Hosts → Add a host** comes filled in from what the controller already knows

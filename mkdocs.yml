@@ -151,6 +151,7 @@ nav:
       - Proxmox VE: proxmox.md
       - Migrating repositories: migration.md
       - Deploying on a PaaS: paas.md
+      - One-click deployment: marketplace.md
       - Security: security.md
       - Troubleshooting: troubleshooting.md
       - Upgrading: upgrading.md

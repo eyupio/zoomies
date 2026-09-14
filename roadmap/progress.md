@@ -82,6 +82,16 @@ evidence.
 
 ## Log
 
+* 2026-09-14: `v1.0.0` published on 13 September, so ZF-218 proceeded: 218a-d
+  implemented in one stacked change and the package is `implemented`. Its
+  evidence record, [validation/marketplace-deployment.md](validation/marketplace-deployment.md),
+  is written and every row reads `not run`. ZF-219 is now the next unblocked
+  work and waits only on a disposable VPS, a DNS name and a GitHub
+  organisation. ZF-220's row records which half of it `v1.0.0` carries, since
+  the deployment package pins that release. Roadmap item 28 notes a container
+  per job on Proxmox from the published runner image, recommending a spike
+  before any package.
+
 * 2026-09-12: ZF-004 done in one pull request; the package is `implemented`.
   ZF-207 to ZF-210 added from decision 27 (ROADMAP v2.33), all
   `not_started`; none waits on Gate F, and section 10 of the roadmap says
@@ -813,8 +823,15 @@ export/purge (also ZF-209). The parent completes only when both are accepted.
 | ZF-216 | Staged platform, GPU and VM coverage | validation/new | `not_started` | ZF-211; lifecycle gates for new backends | Planning only | [September comparison](competitive-review-2026-09.md); acceptance in [ROADMAP.md](../ROADMAP.md) section 9 |
 | ZF-217 | GitHub scale-set integration assessment | design | `not_started` | ZF-211 | Planning only | [September comparison](competitive-review-2026-09.md); acceptance in [ROADMAP.md](../ROADMAP.md) section 9 |
 
+## One-click deployment foundation
+
+| ID | Package | Classification | Status | Depends on | Session | Evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| ZF-218 | VPS marketplace one-click deployment foundation (218a-d) | new | `implemented` | the published `v1.0.0` release | Claude Opus 5, `high`; one session, stacked per slice | `v1.0.0` was published on 13 September 2026, which is the baseline the package is written against, so 218a-d proceeded. All four slices merged together: `deploy/marketplace/` carries the pinned release contract and its generated image lock, the provider-neutral cloud-config and its renderer, the non-interactive answer template, the first-boot script and the certificate holder; [docs/marketplace.md](../docs/marketplace.md) is the operator and partner guide and `SUPPORT.md` the escalation boundary. Tests in `internal/docs` run the real bootstrap's rendering half and assert the answer file it writes is one `zoomies init` accepts, that each of the three certificate arrangements produces a listener and a holder that agree, that the rendered cloud-config carries every file the instance will look for, and that the image lock still covers the runner catalogue. **No deployment has been run.** Every row of [validation/marketplace-deployment.md](validation/marketplace-deployment.md) reads `not run`; rendering that is checked by tests is not a deployment that worked. |
+| ZF-219 | One-click verification and friendly-provider pilot readiness | validation | `not_started` | implemented ZF-218; a disposable VPS, DNS and GitHub resources; an authorised pilot provider | Planning only | Starts now that ZF-218 is implemented. Needs resources this work has no access to: a pristine Ubuntu 24.04 VPS, a real DNS name and certificate, and a GitHub organisation to connect. Acceptance in [ROADMAP.md](../ROADMAP.md) section 9. |
+
 ## Resource-aware allocation for release review
 
 | ID | Package | Classification | Status | Depends on | Session | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| ZF-220 | Resource-aware host allocation and pressure admission | extension | `in_progress` | ZF-103, ZF-202 | Codex, one implementation session; independent review pending | Implementation and tests present in this PR: Linux usage sampling and optional heartbeats, receipt-time validation, shared pending-start accounting, proportional CPU/memory placement, pressure holds and recovery, host-card explanations and monitoring gauges. Go short and race tests passed in every package except the Tailcat private-connection test; unchanged `main` at `3cea153` fails too, and a direct probe confirms this workspace refuses netlink access (`operation not permitted`). `make lint`, staticcheck v0.8.1, govulncheck v1.7.0, Svelte checks, 18 UI unit tests and the UI build passed. MkDocs passed `build --strict` with the hash-pinned dependencies; rendered guidance, sitemap, llms.txt and badge checks passed. UI, architecture, troubleshooting, upgrade and contributor documentation is current. Desktop/mobile Playwright coverage is added; local Chromium downloads timed out or returned HTTP 502, so execution awaits CI. Review, CI and live fleet qualification remain outstanding; the owner authorised the GitHub commit and PR on 13 September. No release publication or live infrastructure changes. |
+| ZF-220 | Resource-aware host allocation and pressure admission | extension | `in_progress` | ZF-103, ZF-202 | Codex, one implementation session; independent review pending | Implementation and tests present in this PR: Linux usage sampling and optional heartbeats, receipt-time validation, shared pending-start accounting, proportional CPU/memory placement, pressure holds and recovery, host-card explanations and monitoring gauges. Go short and race tests passed in every package except the Tailcat private-connection test; unchanged `main` at `3cea153` fails too, and a direct probe confirms this workspace refuses netlink access (`operation not permitted`). `make lint`, staticcheck v0.8.1, govulncheck v1.7.0, Svelte checks, 18 UI unit tests and the UI build passed. MkDocs passed `build --strict` with the hash-pinned dependencies; rendered guidance, sitemap, llms.txt and badge checks passed. UI, architecture, troubleshooting, upgrade and contributor documentation is current. Desktop/mobile Playwright coverage is added; local Chromium downloads timed out or returned HTTP 502, so execution awaits CI. Review, CI and live fleet qualification remain outstanding; the owner authorised the GitHub commit and PR on 13 September. No release publication or live infrastructure changes. **What `v1.0.0` carries, recorded here because the deployment package pins that release:** the tag sits at the merge of #260, so it contains the first slice (#258) and none of the follow-ups. The pressure holds, the default runner limits, the utilisation chart and the machine loop waiting out a hold rather than buying machines for it are on `main` after the tag. A marketplace instance therefore runs the release without them until the package is repinned. |

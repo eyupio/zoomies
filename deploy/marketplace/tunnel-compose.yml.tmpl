@@ -1,0 +1,25 @@
+# The tunnel daemon, when ZOOMIES_TLS is tunnel.
+#
+# It dials out to Cloudflare and Cloudflare serves HTTPS on the public name, so
+# this instance needs no inbound rule, no port published to the internet, no
+# DNS record of its own and no certificate. That is the arrangement for a
+# machine on a home network, behind somebody else's firewall, or on a provider
+# that charges for a static address.
+#
+# Its own compose project, like the ACME proxy: the installer writes the
+# controller's compose file and `zoomies upgrade` rewrites it.
+name: zoomies-tunnel
+
+services:
+  tunnel:
+    image: __ZOOMIES_TUNNEL_IMAGE__
+    restart: unless-stopped
+    # The host's network, so the daemon reaches the controller on loopback and
+    # nothing has to be published for it.
+    network_mode: host
+    # The token names one tunnel and authorises serving it. It lives in the
+    # .env beside this file at mode 0600 rather than on this line, so that a
+    # compose file which is safe to copy stays safe to copy.
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?put the tunnel token in .env beside this file}
+    command: ["tunnel", "--no-autoupdate", "run"]

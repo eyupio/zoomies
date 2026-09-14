@@ -1,0 +1,21 @@
+# The certificate holder, when ZOOMIES_TLS is acme.
+#
+# Its own compose project rather than a service in the controller's: the
+# installer writes that file, and a deployment that edited it would be editing
+# something `zoomies upgrade` rewrites.
+name: zoomies-proxy
+
+services:
+  proxy:
+    image: __ZOOMIES_PROXY_IMAGE__
+    restart: unless-stopped
+    # The host's network, so ports 80 and 443 are this instance's and the
+    # controller can be reached on loopback without being published anywhere.
+    network_mode: host
+    volumes:
+      - /etc/zoomies/proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # The certificate and the account key live with the rest of the
+      # instance's state, so the provider's attached disk holds them and a
+      # rebuilt container does not ask Let's Encrypt for a new certificate --
+      # which is rate limited, and the limit is low enough to reach by accident.
+      - __ZOOMIES_DATA_DIR__/caddy:/data

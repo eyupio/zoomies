@@ -1,0 +1,55 @@
+# The answers `zoomies init` is given on this instance's first boot.
+#
+# Rendered by bootstrap.sh into /etc/zoomies/answers.yaml. Every key is one
+# question the interactive installer would have asked, so this file is also the
+# record of what setup decided -- worth reading before wondering why the
+# controller came up the way it did.
+#
+# What is deliberately absent matters as much as what is here: no GitHub App
+# credentials, no webhook secret and no administrator password. A containerised
+# deployment creates its first administrator in the browser, and GitHub is
+# connected there too, so nothing secret has to survive in instance metadata or
+# on this disk to get from a booted image to a working fleet.
+
+# single runs an agent inside the controller; controller runs none.
+mode: __ZOOMIES_MODE__
+
+# compose, because upgrading is then pulling one pinned image, and because the
+# database lives in a volume the installer never opens -- which is what makes
+# the browser-side administrator bootstrap the supported path.
+deployment: compose
+deployment_dir: /etc/zoomies
+image: __ZOOMIES_CONTROLLER_IMAGE__
+config_dir: /etc/zoomies
+
+backend: docker
+
+# For a containerised deployment this is the address the container is published
+# on, not the listener: inside the container Zoomies always binds :8080, and
+# what is chosen here is what the host exposes. Loopback means only this
+# instance and whatever proxies from it can connect, which is what every
+# arrangement except a certificate of your own wants.
+bind: __ZOOMIES_BIND__
+
+tls:
+  # Quoted: an unquoted off is a boolean in YAML, not a word.
+  #
+  # "files" means Zoomies terminates TLS itself with the certificate below and
+  # is published straight on 443. Anything else means something in front holds
+  # the certificate -- the bundled proxy, or a load balancer of the provider's.
+  mode: "__ZOOMIES_TLS_MODE__"
+  # Empty unless the mode is files. The paths are the host's, and the
+  # deployment mounts them into the container unchanged.
+  cert_file: __ZOOMIES_TLS_CERT_FILE__
+  key_file: __ZOOMIES_TLS_KEY_FILE__
+
+trusted_proxies: [__ZOOMIES_TRUSTED_PROXIES__]
+
+# How GitHub and the browser reach this controller.
+external_url: __ZOOMIES_EXTERNAL_URL__
+
+github:
+  # Connected in the UI, by an administrator who is already signed in. The
+  # unattended path would need an App's private key and webhook secret in this
+  # file, which is exactly what a marketplace form must not collect.
+  skip: true

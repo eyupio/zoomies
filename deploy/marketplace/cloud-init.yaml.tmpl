@@ -1,0 +1,66 @@
+#cloud-config
+# Zoomies, deployed from a provider's marketplace.
+#
+# This is a template. render.sh fills in the three blocks below from
+# release.env and an inputs file, and what it prints is the user-data a
+# provider boots. Rendering rather than templating in the provider's own
+# console is the point: the rendered file is a fixed artefact that can be
+# diffed, reviewed and archived beside the release it installs.
+#
+# Nothing secret belongs in here. Instance metadata is readable by anything on
+# the instance that can reach the metadata service, it is kept in the
+# provider's database, and it is printed in cloud-init's own log -- so the
+# first administrator and the GitHub App are set up in the browser afterwards,
+# and this file carries only settings.
+
+write_files:
+  # What the bootstrap was told, and what the release pins. Mode 0600 because
+  # it is configuration for root, not because any of it is a credential.
+  - path: /etc/zoomies/marketplace.env
+    owner: root:root
+    permissions: '0600'
+    content: |
+      __ZOOMIES_ENV__
+
+  # The answers `zoomies init` is given, with the instance's own values still
+  # to be substituted at boot.
+  - path: /etc/zoomies/answers.yaml.tmpl
+    owner: root:root
+    permissions: '0600'
+    content: |
+      __ZOOMIES_ANSWERS_TMPL__
+
+  # The certificate holder, used only when ZOOMIES_TLS is acme. Written either
+  # way: an instance that is later moved onto its own certificate, or off one,
+  # should not need a different image to do it.
+  - path: /etc/zoomies/Caddyfile.tmpl
+    owner: root:root
+    permissions: '0644'
+    content: |
+      __ZOOMIES_CADDYFILE__
+
+  - path: /etc/zoomies/proxy-compose.yml.tmpl
+    owner: root:root
+    permissions: '0644'
+    content: |
+      __ZOOMIES_PROXY_COMPOSE__
+
+  # The tunnel daemon, used only when ZOOMIES_TLS is tunnel. Written either
+  # way, for the same reason as the proxy above.
+  - path: /etc/zoomies/tunnel-compose.yml.tmpl
+    owner: root:root
+    permissions: '0644'
+    content: |
+      __ZOOMIES_TUNNEL_COMPOSE__
+
+  - path: /usr/local/sbin/zoomies-bootstrap
+    owner: root:root
+    permissions: '0700'
+    content: |
+      __ZOOMIES_BOOTSTRAP__
+
+runcmd:
+  # One command, so that a failure is one exit status and cloud-init's own
+  # status reports it. The script is idempotent: a boot that failed halfway can
+  # be resumed by running it again over SSH.
+  - [/usr/local/sbin/zoomies-bootstrap]

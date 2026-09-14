@@ -1,0 +1,22 @@
+# The reverse proxy in front of the controller, when this deployment gets its
+# certificate automatically.
+#
+# Zoomies terminates TLS itself when it is handed a certificate, so this exists
+# for the one case it cannot cover: no certificate to hand, and no Cloudflare.
+# Caddy asks Let's Encrypt for one, renews it, and redirects port 80 to 443 on
+# its own -- which is the whole of what is needed and the reason the file is
+# this short.
+#
+# It proxies to the controller on loopback, so the controller is never
+# published to the internet itself.
+{
+	__ZOOMIES_ACME_GLOBAL__
+}
+
+__ZOOMIES_HOSTNAME__ {
+	# X-Forwarded-For is set by Caddy, and the controller believes it because
+	# the answer file names this proxy in trusted_proxies. Without that pair,
+	# every audit row would record the proxy and the login rate limiter would
+	# throttle the whole internet as one caller.
+	reverse_proxy __ZOOMIES_PUBLISH_ADDR__:8080
+}
