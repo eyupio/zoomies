@@ -10,6 +10,10 @@ import (
 
 // The harness's waits must fit inside the timeout the Makefile gives it.
 //
+// "The harness's" means every scenario's, summed: they run in one test binary
+// under one -timeout, so a suite whose scenarios each fit but whose total does
+// not is killed partway through the last one.
+//
 // They did not: the scenario asked for twenty-seven minutes of waiting behind
 // `-timeout 20m`, so it could never have reached its own last assertion. A run
 // that was going to fail on a leftover registration would have been reported
@@ -36,9 +40,11 @@ func TestTheScenarioFitsInsideTheMakefilesTimeout(t *testing.T) {
 		if err != nil {
 			t.Fatalf("the Makefile's e2e timeout %q is not a duration: %v", m[1], err)
 		}
-		if limit <= scenarioBudget {
-			t.Errorf("the Makefile allows %s but the scenario's waits and cleanup need %s; "+
-				"the test would be killed before its own last assertion", limit, scenarioBudget)
+		if limit <= totalBudget {
+			t.Errorf("the Makefile allows %s but the scenarios' waits and cleanup need %s "+
+				"(%s for the GitHub scenario, %s for the installer); "+
+				"the suite would be killed before its own last assertion",
+				limit, totalBudget, scenarioBudget, installerBudget)
 		}
 	}
 }

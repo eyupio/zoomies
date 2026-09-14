@@ -39,3 +39,8 @@ coverage.out
 
 # Python bytecode from the site build hook
 __pycache__/
+
+# Per-run end-to-end scenario results. The harness writes one JSON file per
+# scenario per run (see test/e2e/README.md); the records are evidence about a
+# run, not about the tree.
+roadmap/validation/e2e/

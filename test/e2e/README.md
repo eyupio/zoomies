@@ -1,18 +1,36 @@
-# End-to-end test
+# End-to-end tests
 
-This is the test that proves the whole thing works: it starts a real
+Two scenarios, covering the two halves of the product a person actually meets.
+
+**`ephemeral_runner_runs_a_real_job`** proves the fleet works: it starts a real
 controller, points it at a real GitHub App, creates a pool, triggers a real
 workflow in a real repository, and asserts that an ephemeral runner appeared,
 ran the job, and was destroyed afterwards.
 
-It creates things on somebody's real GitHub organisation, so most of what
-follows is about making sure it never leaves them there.
+**`installer_provisions_and_removes_a_host`** proves setup works: it lets
+`zoomies init` loose on a throwaway container, then asserts what it did to that
+machine — the service account, the modes on `/etc/zoomies`, the sealed key, a
+controller that actually serves — and that `zoomies uninstall` gives the
+machine back.
+
+The first creates things on somebody's real GitHub organisation, so most of
+what follows is about making sure it never leaves them there. The second
+creates nothing outside its own container, and needs no GitHub credentials at
+all: a gate with no App installed still runs it.
 
 ## Running it
 
-You need a GitHub App installed on an organisation (or a repository) you are
-willing to run workflows in, a Docker daemon, an authenticated `gh` CLI, and a
-repository containing the workflow in `testdata/e2e-workflow.yml`.
+The installer scenario needs only a Docker daemon and a Linux build:
+
+```sh
+make build
+ZOOMIES_E2E=1 make test-e2e      # the runner scenario skips, the installer one runs
+```
+
+The runner scenario needs more: a GitHub App installed on an organisation (or a
+repository) you are willing to run workflows in, a Docker daemon, an
+authenticated `gh` CLI, and a repository containing the workflow in
+`testdata/e2e-workflow.yml`.
 
 ```sh
 export ZOOMIES_E2E=1
@@ -62,7 +80,7 @@ the workflow run, anything the run created and could not remove
 (`residual_cleanup` — empty is the only good value), and anything the start-up
 sweep cleared up after an earlier run.
 
-## What it asserts
+## What the runner scenario asserts
 
 1. The controller starts and reports healthy.
 2. The installation verifies: credentials good, permissions sufficient.
@@ -80,6 +98,43 @@ sweep cleared up after an earlier run.
    Both are asked of something other than Zoomies on purpose. Zoomies' own
    `/runners` endpoint says "removed" exactly when Zoomies believes it removed
    something, and that belief is the thing under test.
+
+## What the installer scenario asserts
+
+It needs a Docker daemon and a Linux build of the binary, and nothing else.
+The binary is bind-mounted into a `debian:stable-slim` container
+(`ZOOMIES_E2E_INSTALLER_IMAGE` overrides it) and `zoomies init` is run there
+unattended from an answer file, at the **default system paths**.
+
+The default paths are the point. Several of the installer's guards are keyed to
+them — `serviceUserToRemove` refuses to delete the service account unless the
+install really is the one that owns `/etc/zoomies` — so a test pointed at a
+temporary directory proves nothing about the code that runs for an operator.
+Installing for real is only safe because the machine is disposable, which is
+what the container is for.
+
+1. `zoomies init` succeeds unattended, and its summary names the encryption key
+   the operator now has to back up.
+2. `/etc/zoomies` and `/var/lib/zoomies` exist, mode 0750, owned by `zoomies`.
+3. The encryption key is mode **0600** and the configuration is 0640 — asked of
+   the filesystem, not of the installer's own summary.
+4. The key is in its own file and `encryption_key` in `zoomies.yaml` is empty.
+   A key written into the config would be copied by every backup and every
+   configuration-management run that touches it.
+5. A real system account exists and **cannot be logged into**.
+6. The database was created.
+7. The controller that install configured **actually serves**: `/healthz`
+   answers 200 over the published port, and `/api/v1/pools` answers **401**.
+   The safe configuration is the default, so an install that left the API open
+   is a failed install however healthy it reports.
+8. `zoomies uninstall` reports a clean removal — and then, asking the machine
+   rather than believing the report, both directories and the service account
+   are gone.
+
+What it does not cover is the service manager: a plain container has no
+systemd, so the installer correctly chooses "no supervisor" and the unit-file
+path is not exercised here. The templates it would write are covered by
+`internal/installer`'s own tests.
 
 ## One run cannot collide with another
 
@@ -122,8 +177,10 @@ docker ps -a --filter label=io.zoomies.managed=true
 
 ## Timeouts
 
-The scenario's waits are constants in `budget.go`, and their sum must fit
-inside the `-timeout` the Makefile passes. `budget_test.go` checks that, and it
+Every scenario's waits are constants in `budget.go`, and **their total** must
+fit inside the `-timeout` the Makefile passes — the scenarios share one test
+binary and one timeout, so a suite whose scenarios each fit but whose sum does
+not is killed partway through the last one. `budget_test.go` checks that, and it
 carries no build tag so it runs in ordinary CI: the harness previously asked for
 twenty-seven minutes of waiting behind a twenty-minute timeout, so it could
 never have reached its own last assertion, and a run that was going to fail on

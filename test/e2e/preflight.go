@@ -6,8 +6,30 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
+
+// builtBinary is the zoomies the scenarios run: the one `make build` left in
+// the repository root, never one built on the fly.
+//
+// It lives in an ordinary file rather than beside the scenario that reads it,
+// because preflight.go and installer.go are ordinary files too and a _test.go
+// file's symbols are invisible to them. Keeping it here is what makes
+// `go build -tags e2e ./...` compile.
+func builtBinary() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "zoomies"
+	}
+	for range 6 {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return filepath.Join(dir, "zoomies")
+		}
+		dir = filepath.Dir(dir)
+	}
+	return "zoomies"
+}
 
 // env is everything the scenario needs from outside itself.
 type env struct {

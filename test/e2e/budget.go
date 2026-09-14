@@ -30,7 +30,32 @@ const (
 	waitCleanup = 2 * time.Minute
 )
 
-// scenarioBudget is the longest one scenario may legitimately take, cleanup
-// included. The Makefile's -timeout must exceed it.
+// The installer scenario's waits. It creates nothing on GitHub and pulls one
+// small base image rather than a runner image, so it is much the cheaper of
+// the two -- but it still crosses a registry, and a machine that has never
+// pulled the image pays for that once.
+const (
+	waitInstallerImage = 3 * time.Minute
+	// waitInstalledControllerHealthy is longer than the other scenario's
+	// equivalent because this controller is starting for the first time on a
+	// fresh database, so it migrates before it listens.
+	waitInstalledControllerHealthy = 90 * time.Second
+	// waitInstallerSteps covers `zoomies init` and `zoomies uninstall`: making
+	// an account, writing the files, creating the administrator, and taking it
+	// all off again.
+	waitInstallerSteps = 3 * time.Minute
+)
+
+// installerBudget is the longest the installer scenario may legitimately take.
+const installerBudget = waitInstallerImage + waitInstalledControllerHealthy + waitInstallerSteps
+
+// scenarioBudget is the longest the GitHub scenario may legitimately take,
+// cleanup included.
 const scenarioBudget = waitControllerHealthy + waitRunnerCreated + waitRunnerRegistered +
 	waitJobCompleted + waitRunnerDestroyed + waitCleanup
+
+// totalBudget is what one `go test` invocation may need, because the
+// scenarios run in the same binary under one -timeout. Adding a scenario and
+// forgetting this is how a suite starts being killed partway through its
+// second one and reporting a timeout rather than a result.
+const totalBudget = scenarioBudget + installerBudget
