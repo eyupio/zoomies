@@ -499,3 +499,82 @@ func TestTheSweepBudgetGrowsWithTheMachinesItHasToReadAndStopsAtTheInterval(t *t
 		t.Errorf("the budget is %s, want it capped at the interval that paces it", got)
 	}
 }
+
+// A quarantined machine's host stops taking work.
+//
+// The scheduler's snapshot carries hosts and never machines, so it cannot work
+// this out for itself: without the cordon a machine can be recorded as one the
+// fleet cannot prove it owns while its host goes on accepting runners. Whoever
+// the resource really belongs to may power it off at any moment, and every
+// runner placed after the quarantine is a job lost.
+//
+// Driven through quarantineMachine rather than through a sweep because the
+// store will not let a test repoint a machine that already has a resource --
+// "a machine has one resource for its whole life" -- and a ready machine, which
+// is the only kind with a host, always has one.
+func TestQuarantiningAMachineStopsItsHostTakingNewWork(t *testing.T) {
+	h := newHarness(t)
+	_, row := h.machineFleet(t)
+	m := h.readyMachine(t, row)
+	if m.HostID == "" {
+		t.Fatal("a ready machine has no host; the fixture is not what this test needs")
+	}
+	host, err := h.st.GetHost(h.ctx, m.HostID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if host.Cordoned {
+		t.Fatal("the host was already cordoned before the quarantine")
+	}
+
+	if err := h.c.quarantineMachine(h.ctx, &machineEnv{now: h.c.Now()}, m,
+		"that resource's ownership record says another machine"); err != nil {
+		t.Fatalf("quarantineMachine: %v", err)
+	}
+
+	if got := h.machineByID(t, m.ID); got.State != store.MachineQuarantined {
+		t.Fatalf("the machine is %s, want quarantined", got.State)
+	}
+	fresh, err := h.st.GetHost(h.ctx, m.HostID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if !fresh.Cordoned {
+		t.Error("a quarantined machine's host is still taking new runners")
+	}
+	if h.callsTo("delete") != 0 {
+		t.Error("a resource this fleet could not prove it owns was deleted")
+	}
+}
+
+// And a quarantine raised before there is a host cordons nothing, because there
+// is nothing to cordon -- every pre-enrolment quarantine is in that position.
+func TestQuarantiningAMachineWithNoHostYetCordonsNothing(t *testing.T) {
+	h := newHarness(t)
+	_, row := h.machineFleet(t)
+	m := &store.Machine{ProviderID: row.ID, State: store.MachineCreating}
+	if err := h.st.CreateMachine(h.ctx, m); err != nil {
+		t.Fatalf("CreateMachine: %v", err)
+	}
+	h.fake.PlantForeign(m.Name)
+	theirs := h.fake.Machines()[0]
+	if err := h.st.SetMachineResource(h.ctx, m.ID, theirs.Ref.Zone, theirs.Ref.ID,
+		"ours", h.c.controllerID()); err != nil {
+		t.Fatalf("SetMachineResource: %v", err)
+	}
+
+	h.machinePass(t)
+
+	if got := h.machineByID(t, m.ID); got.State != store.MachineQuarantined {
+		t.Fatalf("the machine is %s, want quarantined", got.State)
+	}
+	hosts, err := h.st.ListHosts(h.ctx)
+	if err != nil {
+		t.Fatalf("ListHosts: %v", err)
+	}
+	for _, host := range hosts {
+		if host.Cordoned {
+			t.Errorf("host %s was cordoned by a quarantine that had no host of its own", host.ID)
+		}
+	}
+}

@@ -1300,6 +1300,27 @@ func (c *Controller) quarantineMachine(ctx context.Context, env *machineEnv, m *
 	if err := c.st.SetMachineOwnershipError(ctx, m.ID, why); err != nil {
 		c.log.Warn("could not record why a machine was quarantined", "machine", m.ID, "error", err)
 	}
+	// Nothing automatic will move this machine again, so its host has to stop
+	// taking work. The scheduler cannot work this out for itself: its snapshot
+	// carries hosts and never machines, so a quarantined machine's host stays
+	// as placeable as any other, and the fleet would keep starting runners on a
+	// resource it has just recorded it cannot prove it owns. Whoever the
+	// resource does belong to may power it off at any moment, and every runner
+	// placed after that is work lost.
+	//
+	// Cordoned rather than drained, so the runners already on it finish, and so
+	// an operator who decides the machine was ours after all has one switch to
+	// undo. A cordon that could not be written is logged and never stops the
+	// quarantine: the row saying nothing may touch this machine is the more
+	// important of the two.
+	if m.HostID != "" {
+		if err := c.st.SetHostCordoned(ctx, m.HostID, true); err != nil {
+			c.log.Warn("could not cordon a quarantined machine's host",
+				"machine", m.ID, "host", m.HostID, "error", err)
+		} else if h, err := c.st.GetHost(ctx, m.HostID); err == nil {
+			c.publishHost(h)
+		}
+	}
 	c.transitionMachine(ctx, env, m, store.MachineQuarantined, why)
 	c.log.Error("a machine was quarantined and nothing will act on it until a person does",
 		"machine", m.ID, "name", m.Name, "reason", why)
