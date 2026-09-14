@@ -7,7 +7,7 @@
  * clock: the caller passes `now`.
  */
 import type { Host, HostSample } from '../api/types';
-import { foldMinutes, minuteSeries, type SignalPoint } from './signals';
+import type { SignalPoint } from './signals';
 
 export type MetricKey =
   'cpu' | 'memory' | 'load' | 'slots' | 'cpu_committed' | 'memory_committed' | 'disk';
@@ -180,49 +180,97 @@ export function liveSample(host: Host, now: number): HostSample {
   };
 }
 
-/** Samples keyed by host, one per minute inside the window; later inputs win. */
+/**
+ * The finest slot a sample is kept at, in seconds, for a window whose points
+ * fold `bucket` seconds each. The controller writes one sample a minute, so a
+ * window drawn by the minute or coarser keeps one sample per minute and folds
+ * from there; a window drawn finer than a minute keeps every slot the stream
+ * fills, which is what lets the last ten minutes show a heartbeat at a time.
+ */
+export function grainOf(bucket: number): number {
+  return Math.min(bucket, 60);
+}
+
+/** The slot a sample falls in: its instant, floored to the grain. */
+function slotOf(at: number, grain: number): number {
+  return Math.floor(at / (grain * 1000)) * grain * 1000;
+}
+
+/**
+ * The slots a window covers, `bucket` seconds to a point: the last slot of
+ * the last point is the current one, so the right-hand edge of every window
+ * is now, and every point is a whole bucket ending on a slot boundary rather
+ * than a partial one aligned to the clock.
+ */
+export function windowSlots(
+  now: number,
+  seconds: number,
+  bucket: number,
+): { start: number; end: number; count: number; grain: number } {
+  const grain = grainOf(bucket);
+  const count = Math.ceil(seconds / bucket);
+  const end = slotOf(now, grain);
+  const start = end - (count * bucket - grain) * 1000;
+  return { start, end, count, grain };
+}
+
+/**
+ * Samples keyed by host, one per slot inside the window; later inputs win.
+ * `seconds` is how far back the window reaches and `grain` how fine a slot
+ * is kept: a minute for the windows drawn by the minute, and finer for the
+ * ones that show the last few minutes as the stream delivered them.
+ */
 export function mergeHostSamples(
   history: readonly HostSample[],
   live: readonly HostSample[],
   now: number,
-  minutes: number,
+  seconds: number,
+  grain = 60,
 ): Map<string, HostSample[]> {
-  const end = Math.floor(now / 60_000) * 60_000;
-  const start = end - (minutes - 1) * 60_000;
+  const end = slotOf(now, grain);
+  const start = end - (seconds - grain) * 1000;
   const byHost = new Map<string, Map<number, HostSample>>();
   for (const s of [...history, ...live]) {
-    const at = Math.floor(new Date(s.at ?? '').getTime() / 60_000) * 60_000;
+    const at = slotOf(new Date(s.at ?? '').getTime(), grain);
     if (!Number.isFinite(at) || at < start || at > end) continue;
-    let minutesOf = byHost.get(s.host_id);
-    if (!minutesOf) byHost.set(s.host_id, (minutesOf = new Map()));
-    minutesOf.set(at, s);
+    let slots = byHost.get(s.host_id);
+    if (!slots) byHost.set(s.host_id, (slots = new Map()));
+    slots.set(at, s);
   }
   const out = new Map<string, HostSample[]>();
-  for (const [id, minutesOf] of byHost) {
+  for (const [id, slots] of byHost) {
     out.set(
       id,
-      [...minutesOf.entries()].sort(([a], [b]) => a - b).map(([, s]) => s),
+      [...slots.entries()].sort(([a], [b]) => a - b).map(([, s]) => s),
     );
   }
   return out;
 }
 
 /**
- * One host's line for one metric: a point per interval carrying the peak of
- * its minutes, and a gap wherever nothing was observed.
+ * One host's line for one metric: a point per bucket carrying the peak of
+ * its slots, and a gap wherever nothing was observed. A spike is never
+ * averaged away by a wider window, which is the same promise the fleet trend
+ * makes.
  */
 export function hostSeries(
   samples: readonly HostSample[],
   metric: MetricKey,
   now: number,
-  minutes: number,
-  step: number,
+  seconds: number,
+  bucket: number,
 ): SignalPoint[] {
-  const points = samples.map((s) => ({
-    at: new Date(s.at ?? '').getTime(),
-    value: metricValue(s, metric),
-  }));
-  return foldMinutes(minuteSeries(points, now, minutes), step);
+  const { start, end, count, grain } = windowSlots(now, seconds, bucket);
+  const peaks: (number | null)[] = Array.from({ length: count }, () => null);
+  for (const s of samples) {
+    const at = slotOf(new Date(s.at ?? '').getTime(), grain);
+    if (!Number.isFinite(at) || at < start || at > end) continue;
+    const i = Math.floor((at - start) / (bucket * 1000));
+    const value = metricValue(s, metric);
+    if (value === null) continue;
+    peaks[i] = Math.max(peaks[i] ?? value, value);
+  }
+  return peaks.map((value, i) => ({ at: start + i * bucket * 1000, value }));
 }
 
 /**
@@ -234,6 +282,17 @@ export function hostSeries(
  * line is what a healthy, quiet machine draws too.
  */
 export const BRIDGE = 1;
+
+/**
+ * The bridge for a window drawn `bucket` seconds to a point. By the minute
+ * it is the one above. Finer than that, the stored samples are still a minute
+ * apart and a heartbeat thirty seconds, so the line joins across a minute of
+ * silence between observations; the ninety seconds after which the controller
+ * counts a host lost stays a gap, as it does at every other resolution.
+ */
+export function bridgeFor(bucket: number): number {
+  return bucket >= 60 ? BRIDGE : Math.ceil(60 / bucket);
+}
 
 /**
  * The observed points of a line, grouped into the runs one stroke joins. A
@@ -275,31 +334,80 @@ export function overflowCeiling(peak: number | null): number {
   return Math.ceil(peak / 50) * 50;
 }
 
-/** The windows on offer: how far back, and how many minutes one point folds. */
+/**
+ * The windows on offer: how far back, in seconds, and how many seconds one
+ * point folds. The three shortest are drawn finer than the controller's
+ * minute samples, from what the stream delivers while the page is open: a
+ * heartbeat is thirty seconds, so ten-second points show each one where a
+ * minute-by-minute line would show the last of every two. Their history is
+ * still the minute samples, so the first minutes after opening the page are
+ * drawn a minute at a time and fill in as the stream arrives.
+ */
 export const WINDOWS = [
-  { value: '1h', label: '1h', name: 'The last hour, minute by minute', minutes: 60, step: 1 },
-  { value: '6h', label: '6h', name: 'The last 6 hours, in 5-minute peaks', minutes: 360, step: 5 },
+  {
+    value: '1m',
+    label: '1m',
+    name: 'The last minute, in 10-second points',
+    seconds: 60,
+    bucket: 10,
+  },
+  {
+    value: '5m',
+    label: '5m',
+    name: 'The last 5 minutes, in 10-second points',
+    seconds: 300,
+    bucket: 10,
+  },
+  {
+    value: '10m',
+    label: '10m',
+    name: 'The last 10 minutes, in 10-second points',
+    seconds: 600,
+    bucket: 10,
+  },
+  { value: '1h', label: '1h', name: 'The last hour, minute by minute', seconds: 3600, bucket: 60 },
+  {
+    value: '6h',
+    label: '6h',
+    name: 'The last 6 hours, in 5-minute peaks',
+    seconds: 21600,
+    bucket: 300,
+  },
   {
     value: '24h',
     label: '24h',
     name: 'The last 24 hours, in 15-minute peaks',
-    minutes: 1440,
-    step: 15,
+    seconds: 86400,
+    bucket: 900,
   },
-  { value: '7d', label: '7d', name: 'The last 7 days, in hourly peaks', minutes: 10080, step: 60 },
+  {
+    value: '7d',
+    label: '7d',
+    name: 'The last 7 days, in hourly peaks',
+    seconds: 604800,
+    bucket: 3600,
+  },
 ] as const;
 export type WindowKey = (typeof WINDOWS)[number]['value'];
+export type Window = (typeof WINDOWS)[number];
+
+/** The furthest back any window reaches, and the furthest any sub-minute one does. */
+export const LONGEST_WINDOW: Window = WINDOWS[WINDOWS.length - 1]!;
+export const LONGEST_FINE_WINDOW: Window = [...WINDOWS].reverse().find((w) => w.bucket < 60)!;
 
 /**
  * Where to put the labels along the bottom: on round times -- the hour, the
  * quarter hour, midnight -- rather than at four evenly spaced instants that
  * happen to be 11:19 and 19:19. The step is the smallest of the candidates
  * that fits about five labels in the window, and the ticks are the multiples
- * of it in local time, so a day's chart is labelled at 00:00, 06:00, 12:00.
+ * of it in local time, so a day's chart is labelled at 00:00, 06:00, 12:00
+ * and a minute's at :10, :20, :30.
  */
 export function timeTicks(start: number, end: number, target = 5): number[] {
   const MINUTE = 60_000;
-  const steps = [5, 10, 15, 30, 60, 120, 180, 360, 720, 1440].map((m) => m * MINUTE);
+  const steps = [
+    10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400,
+  ].map((s) => s * 1000);
   const span = end - start;
   const step = steps.find((s) => span / s <= target) ?? steps[steps.length - 1]!;
   // Multiples of the step in local time, which is what the labels say.

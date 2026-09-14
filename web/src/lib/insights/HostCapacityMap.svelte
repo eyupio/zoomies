@@ -23,9 +23,18 @@
   though -- it is a sampler a moment late or a tab that slept -- so the line
   is drawn across it and only two absent in a row break it.
 
+  The three shortest windows -- the last minute, five, ten -- are drawn ten
+  seconds to a point, from what the stream delivers while the page is open,
+  because an operator watching a job land wants each heartbeat and not the
+  last of every two. Behind them the minute samples are still the history,
+  so those windows fill in as the stream arrives.
+
   Hosts and measurements switch on and off with a click and the choice is
   remembered, because an operator watching two machines out of forty wants
-  them there tomorrow as well.
+  them there tomorrow as well. A moment is chosen by a click or a tap, and
+  scrubbed by dragging, so the chart reads the same under a finger as under
+  a mouse; the reading sits beside the crosshair on a desktop and under the
+  chart on a phone.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
@@ -40,8 +49,12 @@
   import { hostStatus } from '$lib/status';
   import {
     DEFAULT_METRICS,
+    LONGEST_FINE_WINDOW,
+    LONGEST_WINDOW,
     METRICS,
     WINDOWS,
+    bridgeFor,
+    grainOf,
     hostSeries,
     hostTone,
     lineRuns,
@@ -51,6 +64,7 @@
     metricValue,
     overflowCeiling,
     timeTicks,
+    windowSlots,
     type MetricKey,
     type WindowKey,
   } from './hostSeries';
@@ -89,15 +103,22 @@
   $effect(() => storage.set(`${KEY}.metrics`, JSON.stringify(enabled)));
   $effect(() => storage.set(`${KEY}.hidden`, JSON.stringify(hidden)));
 
-  const chosen = $derived(WINDOWS.find((w) => w.value === windowKey) ?? WINDOWS[2]);
+  const chosen = $derived(
+    WINDOWS.find((w) => w.value === windowKey) ?? WINDOWS.find((w) => w.value === '24h')!,
+  );
 
   /* -- the samples ----------------------------------------------------------- */
 
   let history = $state.raw<HostSample[]>([]);
   let observed = $state.raw<HostSample[]>([]);
+  let recent = $state.raw<HostSample[]>([]);
   let current = $state(Date.now());
   let failed = $state(false);
   let attempt = $state(0);
+
+  /** The window's slots: its edges, how many points it has, how fine a slot is. */
+  const slots = $derived(windowSlots(current, chosen.seconds, chosen.bucket));
+  const bucketMs = $derived(chosen.bucket * 1000);
 
   $effect(() => {
     void attempt;
@@ -114,7 +135,9 @@
         if (disposed || (cause instanceof DOMException && cause.name === 'AbortError')) return;
         failed = true;
       });
-    const timer = setInterval(() => (current = Date.now()), 30_000);
+    // The right-hand edge moves on every point: once a minute is enough for
+    // a window drawn by the minute, and a window drawn finer keeps step.
+    const timer = setInterval(() => (current = Date.now()), Math.min(30_000, window.bucket * 1000));
     return () => {
       disposed = true;
       controller.abort();
@@ -125,13 +148,31 @@
   // The newest point of every line is the host as the stream last showed it.
   // Off, the chart is history alone, which is the honest picture when the
   // question is "what did yesterday look like" rather than "what is it doing".
+  //
+  // Two buffers, because the two kinds of window want different things kept.
+  // The long one holds a point a minute for as far back as the widest window
+  // reaches, which is what the windows drawn by the minute fold from. The
+  // short one holds every ten-second slot for the last ten minutes, so the
+  // sub-minute windows can show each heartbeat: kept at that grain for a
+  // week it would be tens of thousands of samples a host, re-sorted on every
+  // frame, for detail no window that wide could draw.
   $effect(() => {
     if (!live) return;
     const now = Date.now();
     const fresh = hosts.map((h) => liveSample(h, now));
     untrack(() => {
-      const merged = mergeHostSamples(observed, fresh, now, WINDOWS[3].minutes);
-      observed = [...merged.values()].flat();
+      observed = [
+        ...mergeHostSamples(observed, fresh, now, LONGEST_WINDOW.seconds).values(),
+      ].flat();
+      recent = [
+        ...mergeHostSamples(
+          recent,
+          fresh,
+          now,
+          LONGEST_FINE_WINDOW.seconds,
+          grainOf(LONGEST_FINE_WINDOW.bucket),
+        ).values(),
+      ].flat();
       current = now;
     });
   });
@@ -165,8 +206,16 @@
   const BOTTOM = $derived(H - 24);
   const SPAN = $derived(RIGHT - LEFT);
 
-  const byHost = $derived(mergeHostSamples(history, live ? observed : [], current, chosen.minutes));
-  const count = $derived(Math.ceil(chosen.minutes / chosen.step));
+  const byHost = $derived(
+    mergeHostSamples(
+      history,
+      live ? [...observed, ...recent] : [],
+      current,
+      chosen.seconds,
+      slots.grain,
+    ),
+  );
+  const count = $derived(slots.count);
   const visibleHosts = $derived(hosts.filter((h) => !hidden.includes(h.id ?? '')));
   const metrics = $derived(METRICS.filter((m) => enabled.includes(m.key)));
 
@@ -205,7 +254,7 @@
 
   /** Every run of observed intervals a stroke joins, as one path each. */
   function runsOf(points: SignalPoint[]): string[] {
-    return lineRuns(points).map((run) => {
+    return lineRuns(points, bridgeFor(chosen.bucket)).map((run) => {
       const d = run
         .map((p, n) => `${n ? 'L' : 'M'}${x(p.i).toFixed(1)},${y(p.value).toFixed(1)}`)
         .join(' ');
@@ -221,7 +270,7 @@
       if (hidden.includes(host.id ?? '')) return;
       const samples = byHost.get(host.id ?? '') ?? [];
       for (const metric of metrics) {
-        const points = hostSeries(samples, metric.key, current, chosen.minutes, chosen.step);
+        const points = hostSeries(samples, metric.key, current, chosen.seconds, chosen.bucket);
         let last: Series['last'] = null;
         for (let i = points.length - 1; i >= 0; i--) {
           const v = points[i]?.value;
@@ -252,21 +301,47 @@
   let hover = $state<number | null>(null);
   let selected = $state<number | null>(null);
   const activeIndex = $derived(Math.min(count - 1, hover ?? selected ?? count - 1));
-  const activeAt = $derived(
-    Math.floor(current / 60_000) * 60_000 - (count - 1 - activeIndex) * chosen.step * 60_000,
-  );
+  /** The last slot of the active point, which is the moment its label names. */
+  const activeAt = $derived(slots.end - (count - 1 - activeIndex) * bucketMs);
 
-  function onPointer(event: PointerEvent): void {
+  /** Which point is under a pointer, from where it is across the chart. */
+  function indexAt(event: PointerEvent): number {
     const rect = (event.currentTarget as SVGSVGElement).getBoundingClientRect();
     const viewX = ((event.clientX - rect.left) / rect.width) * W;
     const i = Math.round(((viewX - LEFT) / SPAN) * Math.max(1, count - 1));
-    hover = Math.max(0, Math.min(count - 1, i));
+    return Math.max(0, Math.min(count - 1, i));
   }
 
+  // A mouse reads the chart by passing over it, and the reading goes when it
+  // leaves. A finger cannot hover: it arrives, and the moment it leaves the
+  // glass the pointer has left too, so a reading that lived only under the
+  // pointer was gone before it could be read. So a touch chooses the moment,
+  // the way the timeline control does, and dragging across the chart scrubs
+  // it. A click does the same, because a chosen moment that stays put is
+  // useful with a mouse as well: it is how two hosts get compared at one
+  // instant without holding still.
+  function onPress(event: PointerEvent): void {
+    selected = indexAt(event);
+    if (event.pointerType === 'mouse') return;
+    // Capture so a drag that wanders off the chart keeps scrubbing. A drag
+    // the browser takes for a vertical scroll cancels the pointer instead,
+    // which is `touch-action: pan-y` doing its job.
+    (event.currentTarget as SVGSVGElement).setPointerCapture(event.pointerId);
+  }
+  function onPointer(event: PointerEvent): void {
+    if (event.pointerType === 'mouse') hover = indexAt(event);
+    else if (event.buttons) selected = indexAt(event);
+  }
+
+  const fine = $derived(chosen.bucket < 60);
   const time = (at: number) =>
-    new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    new Date(at).toLocaleTimeString(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+      ...(fine ? { second: '2-digit' } : {}),
+    });
   const stamp = (at: number) =>
-    chosen.minutes > 1440
+    chosen.seconds > 86400
       ? new Date(at).toLocaleString(undefined, {
           weekday: 'short',
           hour: '2-digit',
@@ -275,8 +350,8 @@
       : time(at);
 
   /** The window's edges, and the round times between them for the labels. */
-  const end = $derived(Math.floor(current / 60_000) * 60_000);
-  const start = $derived(end - (count - 1) * chosen.step * 60_000);
+  const end = $derived(slots.end);
+  const start = $derived(end - (count - 1) * bucketMs);
   const ticks = $derived(
     timeTicks(start, end, narrow ? 3 : 5).map((at) => ({
       at,
@@ -289,9 +364,17 @@
   const reading = $derived(
     visibleHosts.map((host, n) => {
       const index = hosts.indexOf(host);
-      const minute = byHost
-        .get(host.id ?? '')
-        ?.find((s) => Math.floor(new Date(s.at ?? '').getTime() / 60_000) * 60_000 === activeAt);
+      // The sample in the active slot, for the exact figure: only where one
+      // point is one slot, since a folded point is a peak of several.
+      const grainMs = slots.grain * 1000;
+      const sample =
+        chosen.bucket === slots.grain
+          ? byHost
+              .get(host.id ?? '')
+              ?.find(
+                (s) => Math.floor(new Date(s.at ?? '').getTime() / grainMs) * grainMs === activeAt,
+              )
+          : undefined;
       return {
         host,
         tone: hostTone(index),
@@ -303,7 +386,7 @@
           return {
             metric,
             percent: point?.value ?? null,
-            exact: chosen.step === 1 && minute ? metricText(minute, metric.key) : null,
+            exact: sample ? metricText(sample, metric.key) : null,
           };
         }),
       };
@@ -376,6 +459,7 @@
         viewBox={`0 0 ${W} ${H}`}
         role="img"
         aria-label={`${series.length} lines across ${visibleHosts.length} of ${hosts.length} hosts, ${chosen.name.toLowerCase()}. Inspect the timeline below for exact values.`}
+        onpointerdown={onPress}
         onpointermove={onPointer}
         onpointerleave={() => (hover = null)}
       >
@@ -453,8 +537,8 @@
           aria-hidden="true"
         >
           <p class="when">
-            {stamp(activeAt)}{#if chosen.step > 1}
-              · {chosen.step}-minute peak{/if}
+            {stamp(activeAt)}{#if chosen.bucket > 60}
+              · {chosen.bucket / 60}-minute peak{/if}
           </p>
           {#each reading as r (r.host.id)}
             <div class="row">
@@ -511,6 +595,12 @@
         />
       </label>
       <output>{stamp(activeAt)}</output>
+      {#if selected !== null}
+        <!-- A chosen moment stays chosen until it is let go of, so there has
+             to be a way to let go: on a phone, where a tap chose it, there is
+             no pointer to move away. -->
+        <button type="button" class="text" onclick={() => (selected = null)}>Back to now</button>
+      {/if}
     </div>
 
     <div class="hosts" role="group" aria-label="Hosts shown">
@@ -915,6 +1005,40 @@
     }
     .figures {
       justify-content: flex-start;
+    }
+    /* On a phone the reading sits under the chart rather than beside the
+       crosshair: a card at the finger is a card under the finger, and one
+       twenty-two rems wide beside a point near the edge is off the screen. */
+    .card,
+    .card.right {
+      position: static;
+      transform: none;
+      max-width: none;
+      margin-top: var(--z-space-2);
+    }
+  }
+  /* A finger is wider than a pointer. Every target on the map -- the chips,
+     the hosts' switches, Only and Manage, the timeline's thumb -- rises to
+     the touch size where the pointer is coarse, and nowhere else: the desktop
+     rows stay dense, since a mouse is fine with a row of text. */
+  @media (pointer: coarse) {
+    .metric,
+    .toggle,
+    .text,
+    .host-actions a {
+      min-height: var(--z-control-touch);
+    }
+    .text,
+    .host-actions a {
+      display: inline-flex;
+      align-items: center;
+      padding: 0 var(--z-space-2);
+    }
+    .scrub input {
+      height: var(--z-control-touch);
+    }
+    .host {
+      padding-block: 0;
     }
   }
 </style>

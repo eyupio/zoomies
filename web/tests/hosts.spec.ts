@@ -703,3 +703,40 @@ test('an older remote agent offers a copyable upgrade command without a join tok
     .toBe(command);
   await expect(card).not.toContainText('--join-token');
 });
+
+/*
+ * The map's shortest windows are drawn finer than the controller's minute
+ * samples, ten seconds to a point, so an operator watching a job land can
+ * see each heartbeat rather than the last of every two. The history behind
+ * them is still the samples route, asked for the same span.
+ */
+test('the host capacity map has windows down to the last minute, drawn ten seconds to a point', async ({
+  page,
+}) => {
+  await goto(page, '/hosts', 'Hosts');
+  const map = page.getByRole('region', { name: 'Host capacity map', exact: true });
+  const chart = map.getByRole('img').first();
+  const windows = map.getByRole('group', { name: 'Window' });
+  await expect(windows.getByRole('button')).toHaveText([
+    '1m',
+    '5m',
+    '10m',
+    '1h',
+    '6h',
+    '24h',
+    '7d',
+  ]);
+
+  const fetched = page.waitForRequest((r) => r.url().includes('/api/v1/hosts/samples?window=5m'));
+  await windows.getByRole('button', { name: 'The last 5 minutes, in 10-second points' }).click();
+  await fetched;
+  await expect(chart).toHaveAttribute('aria-label', /the last 5 minutes, in 10-second points/);
+  // Thirty points across five minutes, and the timeline control steps through them.
+  await expect(map.getByRole('slider', { name: 'Inspect a moment' })).toHaveAttribute('max', '29');
+  // A moment in a sub-minute window is named to the second.
+  await expect(map.locator('output')).toHaveText(/^\d{1,2}:\d{2}:\d{2}/);
+
+  await windows.getByRole('button', { name: 'The last minute, in 10-second points' }).click();
+  await expect(map.getByRole('slider', { name: 'Inspect a moment' })).toHaveAttribute('max', '5');
+  await expect(chart).toHaveAttribute('aria-label', /the last minute, in 10-second points/);
+});
