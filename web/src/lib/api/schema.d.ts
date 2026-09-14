@@ -1740,8 +1740,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The effective configuration
-         * @description Every secret is blanked. The validator's findings are included so the UI can show them next to the setting they concern.
+         * The effective configuration, key by key
+         * @description Every key with its value, its kind, the layer it came from and whether it can be changed here, plus the same configuration as a nested object. No secret's value is ever sent. The validator's findings are included so the UI can show each one next to the setting it concerns.
          */
         get: operations["getSettings"];
         put?: never;
@@ -1750,10 +1750,24 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Change the settings that are safe to change at runtime
-         * @description Retention, scheduler tunables, the poll interval and the log level.
-         *     Anything needing a restart is rejected with a message saying which
-         *     setting it was and that the process must be restarted.
+         * Change this fleet's settings
+         * @description Keys may be sent nested (`{"retention":{"jobs":"720h"}}`) or dotted
+         *     (`{"retention.jobs":"720h"}`). A `null` value clears the stored setting,
+         *     so the key goes back to whatever the configuration file or the built-in
+         *     default says.
+         *
+         *     Every key is checked before any is written, and the whole request is
+         *     refused if one fails — including when the result would be a controller
+         *     that will not start, which the validator is asked about before anything
+         *     is stored.
+         *
+         *     An accepted change is always kept. One the running process can apply
+         *     does so at once; one it cannot — rebinding the listener, rebuilding the
+         *     backends — is stored and named in `pending_restart`.
+         *
+         *     Refused: a key that is read before the database opens, one that belongs
+         *     to a standalone agent's own host, and one an environment variable is
+         *     pinning. Each refusal says which it is and what to do instead.
          */
         patch: operations["updateSettings"];
         trace?: never;
@@ -3536,14 +3550,85 @@ export interface components {
             /** Format: date-time */
             last_used_at?: string | null;
         };
+        /** @description One configuration key: what it is, what this controller is running, where that value came from, and whether an administrator may change it here. */
+        Setting: {
+            /**
+             * @description The dotted key
+             * @example scheduler.interval
+             */
+            key: string;
+            /**
+             * @description The setting's name in prose
+             * @example Scheduler interval
+             */
+            label: string;
+            /**
+             * @description The part before the first dot
+             * @example scheduler
+             */
+            section: string;
+            /**
+             * @description How to parse and render the value. `duration` is carried as the text an operator writes (30s, 5m, 168h) rather than as a number. `optional_bool` has three states, because unset means the value is derived from another setting.
+             * @enum {string}
+             */
+            kind: "string" | "enum" | "bool" | "optional_bool" | "int" | "duration" | "strings" | "labels";
+            /** @description The permitted values, when the kind is `enum`. */
+            choices?: string[];
+            /** @description One line saying what the setting does. */
+            summary: string;
+            /** @description What this controller is running. Absent for a secret. */
+            value?: unknown;
+            /** @description What Zoomies uses when nothing says otherwise. Absent for a secret. */
+            default?: unknown;
+            /** @description A credential. Its value is never sent; `configured` says whether one is set. */
+            secret: boolean;
+            /** @description Whether the effective value is non-empty. */
+            configured: boolean;
+            /**
+             * @description Which layer won. They stack in that order, so a value from the environment is overriding one in the database, which is overriding one in the file.
+             * @enum {string}
+             */
+            source: "default" | "file" | "database" | "environment";
+            /**
+             * @description The ZOOMIES_* variable that overrides this key.
+             * @example ZOOMIES_SCHEDULER_INTERVAL
+             */
+            env: string;
+            /** @description Whether this fleet's database holds a value for this key. */
+            stored: boolean;
+            /** @description Whether an administrator may change it through this API. */
+            editable: boolean;
+            /**
+             * @description `instance` lives in the fleet's database. `bootstrap` is read before that database can be opened, so it cannot. `local` belongs to a standalone agent's own host.
+             * @enum {string}
+             */
+            scope: "instance" | "bootstrap" | "local";
+            /** @description Why it is not editable */
+            reason?: string;
+            /** @description Whether a change is in force by the time the response is written. */
+            live: boolean;
+            /** @description Why a change waits for a restart. */
+            restart_reason?: string;
+            /** @description A stored value is waiting for that restart. */
+            pending: boolean;
+            /** Format: date-time */
+            updated_at?: string;
+            updated_by?: string;
+        };
         Settings: {
-            /** @description The effective configuration, with every secret blanked. */
+            /** @description The effective configuration as a nested object, shaped like the file. A secret never appears; each one contributes a `<key>_configured` boolean instead. */
             config?: {
                 [key: string]: unknown;
             };
+            /** @description Every configuration key, in the order the documentation lists them. */
+            settings?: components["schemas"]["Setting"][];
             findings?: components["schemas"]["Problem"][];
+            /** @description Settings stored since this process started that it cannot apply to itself. */
+            pending_restart?: string[];
+            /** @description Settings an environment variable is holding. A change to one of these would be stored and then overridden at the next restart, so it is refused. */
+            pinned_by_environment?: string[];
             config_path?: string;
-            /** @description Keys that exist but cannot be changed without restarting the process. */
+            /** @description Every key whose change waits for a restart, whether or not one is waiting now. */
             restart_required_keys?: string[];
             version?: string;
             database_path?: string;

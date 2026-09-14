@@ -109,7 +109,9 @@ on its own runners, and cannot read pools, jobs, users or the audit log.
 | --- | --- | --- |
 | GitHub App private key (PEM) | `installations.private_key_enc` | AES-256-GCM, key from env or key file |
 | Webhook HMAC secret | `installations.webhook_secret_enc` | Same |
-| OIDC client secret | config / `settings` | Sealed when stored in the database |
+| OIDC client secret | `instance_settings` | AES-256-GCM, sealed with the same key, then base64 |
+| Registry credential | `instance_settings` | Same |
+| Capacity-demand signing secret | `instance_settings` | Same |
 | User passwords | `users.password_hash` | argon2id, 64 MiB × 2 passes × 4 lanes, 16-byte salt |
 | Session cookies | `sessions.token_hash` | SHA-256 of a 32-byte random token |
 | API tokens | `api_tokens.token_hash` | SHA-256; the plaintext is shown exactly once. Revoked with the account they belong to: disabling or deleting a user revokes their tokens, and one whose owner is disabled or gone is refused even if it was not |
@@ -129,9 +131,11 @@ on its own runners, and cannot read pools, jobs, users or the audit log.
    anything that can read your config (backups, configuration management, a
    support bundle) can then decrypt every stored secret
 
-**Back this key up.** Losing it means re-entering the GitHub App private key and
-webhook secret. It does not mean losing the fleet's state — pools, runners, jobs
-and the audit log are not encrypted.
+**Back this key up.** Losing it means re-entering the GitHub App private key, the
+webhook secret, and any credential held as a setting — the single sign-on client
+secret, the registry credential, the capacity-demand signing secret. It does not
+mean losing the fleet's state: pools, runners, jobs, the audit log and every
+setting that is not a credential are not encrypted.
 
 Rotation: change the key and restart; Zoomies will fail to decrypt the existing
 installation rows and tell you which ones to re-enter. There is no automatic

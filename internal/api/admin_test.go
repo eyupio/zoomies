@@ -163,28 +163,71 @@ func TestSettings(t *testing.T) {
 	patched.mustStatus(t, http.StatusOK, "patch settings")
 	var after settingsResponse
 	patched.into(t, &after)
+	// Durations are rendered the way an operator writes them, not the way Go
+	// prints them: somebody who typed 48h should not be shown 48h0m0s and left
+	// wondering what the product decided on their behalf.
 	retention, _ := after.Config["retention"].(map[string]any)
-	if retention["jobs"] != "48h0m0s" {
-		t.Errorf("retention.jobs = %v, want 48h0m0s", retention["jobs"])
+	if retention["jobs"] != "48h" {
+		t.Errorf("retention.jobs = %v, want 48h", retention["jobs"])
 	}
 	if h.ctrl.Config().Retention.Jobs.String() != "48h0m0s" {
 		t.Errorf("the running configuration was not changed: %s", h.ctrl.Config().Retention.Jobs)
 	}
 
-	// A setting that needs a restart is refused with a message that says so.
-	refused := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
+	// A setting this process cannot apply to itself is stored rather than
+	// refused, and says it is waiting. Refusing it, which is what this used to
+	// do, never stopped anybody wanting the change -- it only moved the work to
+	// a text editor on the controller's host and left no record that anyone had
+	// asked for it.
+	stored := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
 		body: map[string]any{"server": map[string]any{"bind": "0.0.0.0:9000"}}})
-	refused.mustStatus(t, http.StatusUnprocessableEntity, "patch a restart-only setting")
-	var env errorEnvelope
-	refused.into(t, &env)
-	if len(env.Errors) == 0 || env.Errors[0].Field != "server.bind" {
-		t.Fatalf("expected a field error on server.bind: %+v", env)
-	}
-	if !strings.Contains(env.Errors[0].Message, "restart") {
-		t.Errorf("the message does not say a restart is needed: %q", env.Errors[0].Message)
+	stored.mustStatus(t, http.StatusOK, "patch a restart-only setting")
+	var waiting settingsResponse
+	stored.into(t, &waiting)
+	if !slices.Contains(waiting.PendingRestart, "server.bind") {
+		t.Errorf("server.bind was stored but is not reported as pending: %v", waiting.PendingRestart)
 	}
 	if h.ctrl.Config().Server.Bind == "0.0.0.0:9000" {
-		t.Error("a refused setting was applied anyway")
+		t.Error("a listener was rebound under live connections")
+	}
+	if view := findSetting(t, waiting, "server.bind"); !view.Pending || view.Live || !view.Stored {
+		t.Errorf("server.bind = %+v, want stored and pending but not live", view)
+	}
+	// And it survives: the next start reads it from the database, which is the
+	// whole of why it was accepted.
+	if row, err := h.ctrl.Store().GetInstanceSetting(t.Context(), "server.bind"); err != nil {
+		t.Errorf("server.bind was not written: %v", err)
+	} else if row.Value != "0.0.0.0:9000" {
+		t.Errorf("server.bind stored as %q", row.Value)
+	}
+
+	// A change that would leave a controller that cannot start is refused
+	// before it is stored, because the operator who discovers it otherwise is
+	// the one who can no longer reach this page.
+	locked := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
+		body: map[string]any{"server.bind": "0.0.0.0:9000", "security.disable_auth": true}})
+	locked.mustStatus(t, http.StatusUnprocessableEntity, "patch that disables auth on a public bind")
+
+	// A value cleared with null goes back to the layer underneath.
+	cleared := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
+		body: map[string]any{"server.bind": nil}})
+	cleared.mustStatus(t, http.StatusOK, "clear a setting")
+	if _, err := h.ctrl.Store().GetInstanceSetting(t.Context(), "server.bind"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("clearing server.bind left a row: %v", err)
+	}
+
+	// A key that is read before the database opens cannot be stored in it, and
+	// the refusal says where to set it instead.
+	boot := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
+		body: map[string]any{"database.path": "/tmp/elsewhere.db"}})
+	boot.mustStatus(t, http.StatusUnprocessableEntity, "patch a bootstrap setting")
+	var env errorEnvelope
+	boot.into(t, &env)
+	if len(env.Errors) == 0 || env.Errors[0].Field != "database.path" {
+		t.Fatalf("expected a field error on database.path: %+v", env)
+	}
+	if !strings.Contains(env.Errors[0].Message, "ZOOMIES_DB_PATH") {
+		t.Errorf("the refusal does not name the variable to use instead: %q", env.Errors[0].Message)
 	}
 
 	// So is an unparseable value.
@@ -912,9 +955,16 @@ func TestAMachineCeilingMayBeZeroButNotNegative(t *testing.T) {
 	}
 }
 
-// The bounds a restart has to honour are not writable here, and the UI renders
-// them read-only from this list rather than discovering one at a time by being
-// refused.
+// The bounds a restart has to honour are still named as such, and the UI renders
+// them from that list rather than discovering one at a time by being refused.
+//
+// What changed with settings moving into the database is what happens when one
+// is sent anyway: it is stored and reported as waiting, not refused. A deadline
+// bounds an operation that may already be in flight, so a running controller
+// cannot adopt a new one without two passes disagreeing about when to give up on
+// a half-built machine -- but wanting it changed is not a mistake, and making an
+// operator edit a file and restart to express that was never the safety, only
+// the friction.
 func TestTheProviderDeadlinesNeedARestart(t *testing.T) {
 	h := newHarness(t)
 	admin, _ := h.user("root", store.RoleAdmin)
@@ -930,7 +980,73 @@ func TestTheProviderDeadlinesNeedARestart(t *testing.T) {
 		}
 	}
 
-	refused := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
+	stored := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
 		body: map[string]any{"provider.create_timeout": "5m"}})
-	refused.mustStatus(t, http.StatusUnprocessableEntity, "patch a restart-only provider setting")
+	stored.mustStatus(t, http.StatusOK, "patch a restart-only provider setting")
+
+	var after settingsResponse
+	stored.into(t, &after)
+	if !slices.Contains(after.PendingRestart, "provider.create_timeout") {
+		t.Errorf("it was stored but is not reported as waiting: %v", after.PendingRestart)
+	}
+	// The running controller is untouched, which is the half that matters: a
+	// machine already being built keeps the deadline it was given.
+	if got := h.ctrl.Config().Provider.CreateTimeout.String(); got == "5m0s" {
+		t.Error("a deadline was changed under an operation already in flight")
+	}
+}
+
+// findSetting picks one key out of a settings response, so a test can assert
+// about the metadata the UI draws its editors from.
+func findSetting(t *testing.T, res settingsResponse, key string) settingView {
+	t.Helper()
+	for _, v := range res.Settings {
+		if v.Key == key {
+			return v
+		}
+	}
+	t.Fatalf("%s is not in the settings response", key)
+	return settingView{}
+}
+
+// A stored value that will not parse is reported on the page it is about.
+//
+// config.Validate cannot produce these: it works on an in-memory snapshot and
+// has never seen the rows. Printing them once at startup and dropping them left
+// the one page where each is actionable as the one place it did not appear.
+func TestAStoredRowThatCannotBeUsedIsReportedOnTheSettingsPage(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("root", store.RoleAdmin)
+	cookie := h.session(admin)
+
+	// Written straight to the store, because the API would have refused it --
+	// which is exactly how such a row arrives in practice: from a different
+	// version, or a hand-edited database.
+	if err := h.ctrl.Store().PutInstanceSettings(t.Context(), "a newer version", []store.InstanceSetting{
+		{Key: "retention.jobs", Value: "forever"},
+		{Key: "a.setting.from.the.future", Value: "1"},
+	}); err != nil {
+		t.Fatalf("PutInstanceSettings: %v", err)
+	}
+
+	res := h.do(request{method: http.MethodGet, path: "/api/v1/settings", cookie: cookie})
+	res.mustStatus(t, http.StatusOK, "settings")
+	var settings settingsResponse
+	res.into(t, &settings)
+
+	codes := map[string]bool{}
+	for _, f := range settings.Findings {
+		codes[f.Code] = true
+	}
+	if !codes["settings.stored_invalid"] {
+		t.Errorf("a stored value that will not parse is invisible on the settings page: %v", codes)
+	}
+	if !codes["settings.stored_unknown"] {
+		t.Errorf("a key this version does not have is invisible on the settings page: %v", codes)
+	}
+	// And the setting itself still shows what the controller is actually
+	// running, which is the value underneath the unusable row.
+	if view := findSetting(t, settings, "retention.jobs"); view.Value == "forever" {
+		t.Error("the page shows a value the controller is not using")
+	}
 }

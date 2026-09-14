@@ -1,0 +1,133 @@
+/**
+ * Settings: the configuration.
+ *
+ * This is the page that can change what the controller is, so the things worth
+ * testing are the ones that stop it doing that by accident: that a change is
+ * kept rather than lost at the next restart, that a value nothing can apply
+ * says so instead of pretending, that a setting an environment variable is
+ * holding is out of the way and explained rather than editable and futile, and
+ * that a bad value is refused with a sentence somebody can act on.
+ *
+ * Every test puts back what it changed. The fixture's controller is shared with
+ * the rest of the suite, and a retention window or a scheduler interval left
+ * altered is a change every later spec runs against.
+ */
+import { expect, test, type Page } from '@playwright/test';
+import { browserOverride, goto } from './support/fixtures';
+
+test.use(browserOverride);
+
+/** One setting's row, found by the name a person reads rather than its key. */
+const row = (page: Page, label: string) =>
+  page.locator('.row').filter({ has: page.getByText(label, { exact: true }) });
+
+async function openConfiguration(page: Page): Promise<void> {
+  await goto(page, '/settings?tab=configuration', 'Settings');
+  await expect(page.getByRole('heading', { name: 'Configuration', exact: true })).toBeVisible();
+}
+
+/** Change one setting through its own row, and wait for the row to settle. */
+async function change(page: Page, label: string, value: string): Promise<void> {
+  const target = row(page, label);
+  await target.getByRole('button', { name: 'Change' }).click();
+  const field = target.getByRole('textbox');
+  await field.fill(value);
+  await target.getByRole('button', { name: /^Save / }).click();
+  await expect(target.getByRole('button', { name: 'Change' })).toBeVisible();
+}
+
+test('a change to a live setting is applied and kept', async ({ page }) => {
+  await openConfiguration(page);
+
+  // A retention window is safe to move: nothing else in the suite asserts it,
+  // and the pruning it drives is not on any spec's path.
+  await change(page, 'Keep webhook deliveries for', '96h');
+  const target = row(page, 'Keep webhook deliveries for');
+  await expect(target).toContainText('96h');
+
+  // Kept, not merely applied: the value is in the database, so the row now
+  // says where it came from.
+  await expect(target.getByText('Saved here')).toBeVisible();
+
+  // A reload reads it back from the server rather than from anything the page
+  // is still holding.
+  await page.reload();
+  await expect(row(page, 'Keep webhook deliveries for')).toContainText('96h');
+
+  // Put it back, so the next spec sees the fixture it expects.
+  await row(page, 'Keep webhook deliveries for').getByRole('button', { name: 'Reset' }).click();
+  await expect(row(page, 'Keep webhook deliveries for').getByText('Saved here')).toBeHidden();
+});
+
+test('a setting the controller cannot apply to itself is stored and says it is waiting', async ({
+  page,
+}) => {
+  await openConfiguration(page);
+
+  // Rebinding a listener under live connections is not something a process can
+  // do to itself. Refusing the edit, which is what this page used to do, never
+  // stopped anybody wanting the change -- it only moved the work to a text
+  // editor and left no record that anyone had asked.
+  await change(page, 'Session lifetime', '48h');
+
+  const target = row(page, 'Session lifetime');
+  await expect(target.getByText('Waiting for a restart')).toBeVisible();
+  await expect(page.getByRole('heading', { name: /waiting for a restart/i })).toBeVisible();
+
+  await target.getByRole('button', { name: 'Reset' }).click();
+  await expect(target.getByText('Waiting for a restart')).toBeHidden();
+});
+
+test('a value that will not parse is refused under the field that was typed in', async ({
+  page,
+}) => {
+  await openConfiguration(page);
+
+  const target = row(page, 'Scheduler interval');
+  await target.getByRole('button', { name: 'Change' }).click();
+  await target.getByRole('textbox').fill('soon');
+  await target.getByRole('button', { name: /^Save / }).click();
+
+  // Under the field, not in a toast that floats away while somebody is still
+  // reading it -- and saying what shape was wanted, not only that this one was
+  // wrong.
+  const failure = target.getByRole('alert');
+  await expect(failure).toContainText('is not a duration');
+  await expect(failure).toContainText('30s, 5m, 2h');
+
+  await target.getByRole('button', { name: /^Cancel editing / }).click();
+});
+
+test('settings held by the environment are gathered at the end and name their variable', async ({
+  page,
+}) => {
+  await openConfiguration(page);
+
+  // The fixture's controller runs with ZOOMIES_DISABLE_AUTH set, which is
+  // exactly the state this group exists for: the page shows one value, the
+  // file may say another, and nothing an administrator does here changes it.
+  const held = page.getByRole('group', { name: /Held by the environment/i });
+  await expect(held).toBeVisible();
+  await expect(held).toContainText('ZOOMIES_DISABLE_AUTH');
+  await expect(held).toContainText('amend the environment file');
+
+  // And it is not among the settings somebody can change, because it cannot be.
+  await expect(row(page, 'Disable authentication')).toHaveCount(0);
+});
+
+test('the page can be searched and filtered down to what has been changed', async ({ page }) => {
+  await openConfiguration(page);
+
+  // Eighty-eight settings is too many to scroll, so the search matches the key,
+  // the summary and the environment variable alike.
+  await page.getByRole('textbox', { name: 'Search settings' }).fill('ZOOMIES_PROVISION_TIMEOUT');
+  await expect(row(page, 'Provision timeout')).toBeVisible();
+  await expect(row(page, 'Log level')).toHaveCount(0);
+
+  await page.getByRole('textbox', { name: 'Search settings' }).fill('');
+  await page.getByText(/^Changed/).click();
+  await expect(page.getByRole('heading', { name: 'Configuration', exact: true })).toBeVisible();
+
+  // Whatever the fixture has changed, nothing still at its default is listed.
+  await expect(row(page, 'Provision timeout')).toHaveCount(0);
+});

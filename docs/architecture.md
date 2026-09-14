@@ -220,7 +220,7 @@ by trying again.
 | Package | Responsibility |
 | --- | --- |
 | `internal/store` | The only place SQL is written. Domain types, embedded migrations, every query. Enforces the runner state machine. |
-| `internal/config` | `zoomies.yaml` + `ZOOMIES_*`. Splits findings into errors that stop startup and warnings that name every dangerous setting. |
+| `internal/config` | The settings registry, and the four layers that fill it: defaults, `zoomies.yaml`, the fleet's database, `ZOOMIES_*`. Splits findings into errors that stop startup and warnings that name every dangerous setting. |
 | `internal/cryptox` | AES-256-GCM for secrets at rest; argon2id for passwords; SHA-256 for bearer tokens. |
 | `internal/scheduler` | Pure scaling decisions, label matching and platform fit. No I/O. |
 | `internal/naming` | The `zoomies-*` naming grammar for pools and hosts, and the runner image catalogue. No I/O; see [Naming and platforms](naming.md). |

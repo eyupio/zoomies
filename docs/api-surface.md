@@ -296,8 +296,8 @@ for: Contents (write), Pull requests (write) and Workflows (write).
 | GET | `/api/v1/tokens` | admin | Metadata only. |
 | POST | `/api/v1/tokens` | admin | `{name, role, scopes, expires_in}` → the plaintext **once**. |
 | DELETE | `/api/v1/tokens/{id}` | admin | Revokes. |
-| GET | `/api/v1/settings` | admin | Effective config with every secret blanked, plus the validator's findings. |
-| PATCH | `/api/v1/settings` | admin | The subset that is safe to change at runtime: retention, scheduler tunables, poll interval, log level. Anything requiring a restart is rejected with a message saying so. |
+| GET | `/api/v1/settings` | admin | Every setting with its value, its kind, the layer it came from and whether it can be changed here, plus the same configuration as a nested object and the validator's findings. No secret's value is ever sent. |
+| PATCH | `/api/v1/settings` | admin | Change the fleet's settings. Keys may be nested or dotted; `null` clears one, so it goes back to the file or the default. An accepted change is always stored: one the running process can apply does so at once, and one it cannot is named in `pending_restart`. Refused: a key read before the database opens, one belonging to a standalone agent's own host, one an environment variable is pinning, and any change that would leave a controller which will not start. |
 
 ## Recovery
 
