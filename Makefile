@@ -280,6 +280,10 @@ openapi: ## Regenerate the TypeScript client from api/openapi.yaml
 generate: ## Rewrite everything generated from internal/naming's image catalogue
 	go run internal/naming/gen_catalogue.go
 
+.PHONY: marketplace-lock
+marketplace-lock: ## Re-resolve deploy/marketplace/images.lock against the registry (needs network)
+	go run deploy/marketplace/gen_lock.go
+
 .PHONY: clean
 clean: ## Remove build output
 	rm -rf $(BIN) $(DIST) $(UI_OUT) coverage.out
