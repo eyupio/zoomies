@@ -316,6 +316,29 @@ function trimmedMap(map: Record<string, string>): Record<string, string> {
 const DURATION = /^\d+(\.\d+)?(ns|us|µs|ms|s|m|h)$/;
 
 /**
+ * Whether an address names the machine the controller is on, which is the one
+ * case where plain HTTP carries nothing off the box.
+ *
+ * The server decides this too and its answer is the one that counts -- the form
+ * asks it on every keystroke. This exists so the wizard does not offer
+ * "or switch certificate checking off" as a way round a rule that is not about
+ * certificates: a provider saved that way is refused by the driver at its first
+ * call, long after the row was written.
+ */
+export function isLoopbackEndpoint(endpoint: string): boolean {
+  let host: string;
+  try {
+    host = new URL(endpoint).hostname;
+  } catch {
+    return false;
+  }
+  host = host.replace(/^\[|\]$/g, '');
+  if (host.toLowerCase() === 'localhost') return true;
+  if (host === '::1') return true;
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+}
+
+/**
  * What is wrong with the draft, keyed by the field name the API would use.
  *
  * Client rules only. Anything that needs the hypervisor -- whether the node
@@ -335,9 +358,10 @@ export function draftErrors(
   if (endpoint === '') out.endpoint = 'Give the address this controller reaches the provider on.';
   else if (!/^https?:\/\//i.test(endpoint))
     out.endpoint = 'The address needs a scheme: https://pve.example.com:8006.';
-  else if (/^http:\/\//i.test(endpoint) && !draft.insecure_skip_verify)
+  else if (/^http:\/\//i.test(endpoint) && !isLoopbackEndpoint(endpoint))
     out.endpoint =
-      'Plain HTTP sends the credential in the clear. Use https, or say so deliberately below.';
+      'Plain HTTP would send the credential across the network in the clear, and that credential can ' +
+      'create and destroy machines. Use https. Turning certificate verification off does not permit this.';
   // An edit leaves the stored credential alone, so an empty box is an answer
   // there and a missing one only on the way in.
   if (!options.editing && draft.credential.trim() === '')

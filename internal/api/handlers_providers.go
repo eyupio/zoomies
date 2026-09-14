@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -52,6 +53,17 @@ type providerOrphansResponse = controller.OrphanReportView
 // uses rather than one listing of every machine in the fleet: providers are
 // counted in single figures, and a page of machines would be capped while the
 // count on a card must not be.
+// loopbackHost reports whether an address names this machine, which is the one
+// case where plain HTTP carries nothing off the box.
+func loopbackHost(host string) bool {
+	host = strings.Trim(strings.TrimSpace(host), "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 func (s *Server) handleListProviders(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.ctrl.Store().ListProviders(r.Context())
 	if err != nil {
@@ -233,8 +245,22 @@ func (in *providerInput) apply(p *store.Provider) []fieldError {
 		add("name", "give this provider a name; it is what the machines page, the audit log and every problem about it will call it")
 	}
 	if p.Endpoint != "" {
-		if u, err := url.Parse(p.Endpoint); err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		u, err := url.Parse(p.Endpoint)
+		switch {
+		case err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https"):
 			add("endpoint", fmt.Sprintf("%q is not an address this controller can reach; write it as https://pve.example.com:8006", p.Endpoint))
+		case u.Scheme == "http" && !loopbackHost(u.Hostname()):
+			// Refused here rather than left to the driver, because the driver
+			// refuses it at the first call and by then the row is saved: the
+			// check answers 500 with the reason only in the log, the machine
+			// loop files the same error under a kind the problems drawer has no
+			// case for, and machines sit in planned with nothing on any page
+			// saying why. Certificate verification is a different question and
+			// switching it off does not answer this one -- the credential on
+			// this row can create and destroy machines.
+			add("endpoint", fmt.Sprintf("%q would send this provider's credential across the network in the clear, "+
+				"and that credential can create and destroy machines. Use https://. "+
+				"Turning certificate verification off does not permit this.", p.Endpoint))
 		}
 	}
 	if !p.MachineBackend.Valid() {

@@ -563,12 +563,23 @@ test('a complete draft is accepted, and every missing answer is reported under i
   assert.deepEqual(Object.keys(empty).sort(), ['credential', 'endpoint', 'kind', 'name']);
 });
 
-test('plain HTTP is refused unless the operator switched certificate checks off deliberately', () => {
-  // The credential goes over this connection. An operator who has decided to
-  // accept that has said so in the box below; anyone who has not gets told why.
+test('plain HTTP off the box is refused, and the certificate switch is not a way round it', () => {
+  // The credential on this row can create and destroy machines, and turning
+  // certificate verification off is an answer to a different question. The
+  // driver refuses this address at its first call whatever the switch says --
+  // and by then the row is saved, the check answers 500 with the reason only in
+  // the log, and machines sit in `planned` with nothing on any page saying why.
+  // So the form must not offer the switch as an override it cannot honour.
   const http = { ...valid(), endpoint: 'http://pve.example.com:8006' };
-  assert.match(draftErrors(http, []).endpoint ?? '', /in the clear/);
-  assert.equal(draftErrors({ ...http, insecure_skip_verify: true }, []).endpoint, undefined);
+  for (const insecure of [false, true]) {
+    const got = draftErrors({ ...http, insecure_skip_verify: insecure }, []).endpoint ?? '';
+    assert.match(got, /in the clear/);
+    assert.match(got, /does not permit this/);
+  }
+  // Loopback carries nothing off the box, so it stays allowed.
+  for (const endpoint of ['http://localhost:8006', 'http://127.0.0.1:8006', 'http://[::1]:8006']) {
+    assert.equal(draftErrors({ ...valid(), endpoint }, []).endpoint, undefined, endpoint);
+  }
   assert.match(
     draftErrors({ ...valid(), endpoint: 'pve.example.com' }, []).endpoint ?? '',
     /scheme/,

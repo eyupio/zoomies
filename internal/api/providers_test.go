@@ -400,3 +400,61 @@ func (h *harness) lastMachine(providerID string) *store.Machine {
 	}
 	return machines[len(machines)-1]
 }
+
+// An address that would put the credential on the wire in the clear is refused
+// where it can still be changed.
+//
+// The driver refuses it too, but only at the first call, and by then the row is
+// saved: the check answers 500 with the driver's sentence in the log and
+// nowhere else, the machine loop files the same error under a kind the problems
+// drawer has no case for, and the machines sit in `planned` with nothing on any
+// page saying why. Turning certificate verification off is an answer to a
+// different question and must not read as a way round this one -- the
+// credential on this row can create and destroy machines.
+func TestAnEndpointThatWouldSendTheCredentialInTheClearIsRefused(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("admin", store.RoleAdmin)
+	cookie := h.session(admin)
+
+	draft := func(endpoint string, insecure bool) map[string]any {
+		return map[string]any{
+			"kind": "fake", "name": "draft", "endpoint": endpoint,
+			"insecure_skip_verify": insecure,
+			"settings":             map[string]string{"zone": "zone-a"},
+		}
+	}
+	endpointError := func(t *testing.T, body map[string]any) string {
+		t.Helper()
+		resp := h.do(request{method: http.MethodPost, path: "/api/v1/providers/validate",
+			cookie: cookie, body: body})
+		resp.mustStatus(t, http.StatusOK, "validate a draft")
+		var out validateProviderResponse
+		resp.into(t, &out)
+		for _, e := range out.Errors {
+			if e.Field == "endpoint" {
+				return e.Message
+			}
+		}
+		return ""
+	}
+
+	for _, insecure := range []bool{false, true} {
+		got := endpointError(t, draft("http://pve.example.com:8006", insecure))
+		if got == "" {
+			t.Fatalf("plain HTTP was accepted with insecure_skip_verify=%v", insecure)
+		}
+		if !strings.Contains(got, "in the clear") || !strings.Contains(got, "does not permit this") {
+			t.Errorf("the refusal does not say why, or reads as overridable: %q", got)
+		}
+	}
+
+	// Loopback carries nothing off the box, so it stays allowed.
+	for _, endpoint := range []string{"http://localhost:8006", "http://127.0.0.1:8006", "http://[::1]:8006"} {
+		if got := endpointError(t, draft(endpoint, false)); got != "" {
+			t.Errorf("%s was refused: %s", endpoint, got)
+		}
+	}
+	if got := endpointError(t, draft("https://pve.example.com:8006", false)); got != "" {
+		t.Errorf("https was refused: %s", got)
+	}
+}
