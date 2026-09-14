@@ -55,9 +55,7 @@ test('a change to a live setting is applied and kept', async ({ page }) => {
   await expect(row(page, 'Keep webhook deliveries for')).toContainText('96h');
 
   // Put it back, so the next spec sees the fixture it expects.
-  await row(page, 'Keep webhook deliveries for')
-    .getByRole('button', { name: 'Reset' })
-    .click();
+  await row(page, 'Keep webhook deliveries for').getByRole('button', { name: 'Reset' }).click();
   await expect(row(page, 'Keep webhook deliveries for').getByText('Saved here')).toBeHidden();
 });
 

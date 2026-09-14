@@ -283,3 +283,33 @@ func TestAFleetWithStoredSettingsIsNotOverwrittenByItsFile(t *testing.T) {
 		t.Errorf("the file overwrote a stored setting: %q", row.Value)
 	}
 }
+
+// A log level stored in the database is in force from the first line the
+// assembled configuration could have affected.
+//
+// The gate is set before the store opens -- the store's own startup has things
+// to say, and there is nowhere else to say them -- so that first setting knows
+// only the file and the environment. Without a second one after the rows are
+// read, log.level would be the one setting the registry calls live and the one
+// a fresh start quietly ignored.
+func TestAStoredLogLevelIsInForceAfterTheDatabaseIsRead(t *testing.T) {
+	isolateHost(t)
+	cfg := config.Default()
+	_, level := setupLogging(cfg)
+	if level.Level() != slog.LevelInfo {
+		t.Fatalf("the default level is %s, want info", level.Level())
+	}
+
+	key, err := cryptox.GenerateKey()
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	if _, err := cfg.Rebuild([]store.InstanceSetting{{Key: "log.level", Value: "debug"}}, key); err != nil {
+		t.Fatalf("Rebuild: %v", err)
+	}
+	applyLogLevel(level, cfg)
+
+	if level.Level() != slog.LevelDebug {
+		t.Errorf("the gate is at %s after a stored debug level, want debug", level.Level())
+	}
+}

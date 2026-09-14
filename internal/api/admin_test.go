@@ -859,3 +859,45 @@ func findSetting(t *testing.T, res settingsResponse, key string) settingView {
 	t.Fatalf("%s is not in the settings response", key)
 	return settingView{}
 }
+
+// A stored value that will not parse is reported on the page it is about.
+//
+// config.Validate cannot produce these: it works on an in-memory snapshot and
+// has never seen the rows. Printing them once at startup and dropping them left
+// the one page where each is actionable as the one place it did not appear.
+func TestAStoredRowThatCannotBeUsedIsReportedOnTheSettingsPage(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("root", store.RoleAdmin)
+	cookie := h.session(admin)
+
+	// Written straight to the store, because the API would have refused it --
+	// which is exactly how such a row arrives in practice: from a different
+	// version, or a hand-edited database.
+	if err := h.ctrl.Store().PutInstanceSettings(t.Context(), "a newer version", []store.InstanceSetting{
+		{Key: "retention.jobs", Value: "forever"},
+		{Key: "a.setting.from.the.future", Value: "1"},
+	}); err != nil {
+		t.Fatalf("PutInstanceSettings: %v", err)
+	}
+
+	res := h.do(request{method: http.MethodGet, path: "/api/v1/settings", cookie: cookie})
+	res.mustStatus(t, http.StatusOK, "settings")
+	var settings settingsResponse
+	res.into(t, &settings)
+
+	codes := map[string]bool{}
+	for _, f := range settings.Findings {
+		codes[f.Code] = true
+	}
+	if !codes["settings.stored_invalid"] {
+		t.Errorf("a stored value that will not parse is invisible on the settings page: %v", codes)
+	}
+	if !codes["settings.stored_unknown"] {
+		t.Errorf("a key this version does not have is invisible on the settings page: %v", codes)
+	}
+	// And the setting itself still shows what the controller is actually
+	// running, which is the value underneath the unusable row.
+	if view := findSetting(t, settings, "retention.jobs"); view.Value == "forever" {
+		t.Error("the page shows a value the controller is not using")
+	}
+}

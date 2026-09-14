@@ -716,7 +716,14 @@ func (c *Config) normalize() {
 	// positive value carries over: zero is what an unset key reads as, and
 	// treating it as "keep everything" would turn every file that never
 	// mentioned the key into one that switched pruning off.
-	if c.Retention.Audit > 0 {
+	//
+	// It does not carry over a value the fleet has stored. normalize runs last,
+	// after the database layer, so without this an administrator who set the
+	// scaling-history window on the settings page would get a 200, an audit
+	// row, a stored value -- and a controller quietly running the number in a
+	// years-old file. The finding asking for the rename is still raised, which
+	// is what eventually removes the file's key altogether.
+	if c.Retention.Audit > 0 && c.Source("retention.scaling_events") != SourceDatabase {
 		c.Retention.ScalingEvents = c.Retention.Audit
 	}
 	c.Log.Level = strings.ToLower(strings.TrimSpace(c.Log.Level))

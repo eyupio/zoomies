@@ -303,10 +303,20 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		pinned = append(pinned, st.Key)
 	}
 
+	// The findings about the rows themselves -- a stored value that will not
+	// parse, keys a newer version left behind -- are recomputed here rather
+	// than kept from startup. config.Validate cannot produce them: it works on
+	// an in-memory snapshot and has never seen the rows. Printing them once at
+	// startup and dropping them left the one page where each is actionable as
+	// the one place it did not appear.
+	stale := *c
+	stale.SetSources(c.Sources())
+	findings := append(config.ApplyStored(&stale, sealed, s.key).ForUI(), c.Validate().ForUI()...)
+
 	writeJSON(w, http.StatusOK, settingsResponse{
 		Config:              s.settingsConfig(),
 		Settings:            s.settingViews(rows, pending),
-		Findings:            c.Validate().ForUI(),
+		Findings:            findings,
 		PendingRestart:      emptySlice(pending),
 		PinnedByEnvironment: emptySlice(pinned),
 		RestartRequiredKeys: restartRequiredKeys(),
@@ -489,9 +499,9 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	s.handleGetSettings(w, r)
 }
 
-// writeSettings puts the batch in the database: one transaction for the values
-// and one for the clearings, so a request that both sets and unsets cannot
-// half-apply.
+// writeSettings puts the whole batch in the database in one transaction, so a
+// request that both sets a key and clears another cannot half-apply -- which
+// would leave an audit row claiming both halves took.
 func (s *Server) writeSettings(ctx context.Context, by string, staged []change) error {
 	var rows []store.InstanceSetting
 	var clear []string
@@ -506,10 +516,7 @@ func (s *Server) writeSettings(ctx context.Context, by string, staged []change) 
 		}
 		rows = append(rows, row)
 	}
-	if err := s.ctrl.Store().PutInstanceSettings(ctx, by, rows); err != nil {
-		return err
-	}
-	return s.ctrl.Store().DeleteInstanceSettings(ctx, clear)
+	return s.ctrl.Store().ApplyInstanceSettings(ctx, by, rows, clear)
 }
 
 // newErrors returns the validation errors the candidate has and the running

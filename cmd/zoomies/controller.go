@@ -117,6 +117,8 @@ func runController(ctx context.Context, e *env, args []string) error {
 	if err != nil {
 		return err
 	}
+	applyLogLevel(level, cfg)
+
 	log.Info("configuration assembled",
 		"file", configSource(cfg), "stored", len(stored), "pinned_by_environment", len(cfg.PinnedByEnvironment()))
 
@@ -228,6 +230,17 @@ func takeControllerLease(ctx context.Context, st *store.Store, takeover bool) (*
 // setupLogging installs the process logger and returns the level it is filtered
 // at, so that SIGHUP can move it without rebuilding every logger the controller
 // and the API have already captured.
+// applyLogLevel re-tunes the gate after the configuration has been assembled.
+//
+// The level is set once before the store opens, because the store's own startup
+// has things to say and there is nowhere else to say them. That first setting
+// can only know the file and the environment, so it has to be made again once
+// the layer between them has been read -- otherwise the one setting the
+// registry calls live is the one a fresh start ignores.
+func applyLogLevel(level *slog.LevelVar, cfg *config.Config) {
+	level.Set(config.ParseLogLevel(cfg.Log.Level))
+}
+
 func setupLogging(cfg *config.Config) (*slog.Logger, *slog.LevelVar) {
 	level := new(slog.LevelVar)
 	level.Set(config.ParseLogLevel(cfg.Log.Level))

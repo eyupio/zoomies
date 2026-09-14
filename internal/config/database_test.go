@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/store"
@@ -259,4 +260,47 @@ func contains(list []string, want string) bool {
 // operator's file holds rather than build one field by field.
 func writeFileForTest(path, body string) error {
 	return os.WriteFile(path, []byte(strings.TrimLeft(body, "\n")), 0o600)
+}
+
+// The old name for the scaling-history window still works, and no longer eats a
+// value somebody typed on the settings page.
+//
+// normalize runs last, after the database layer, so the legacy carry-over used
+// to overwrite a stored value unconditionally: the administrator got a 200, an
+// audit row and a stored setting, and the controller quietly ran the number in
+// a years-old file. A key in the file still beats the built-in default, which
+// is what honouring it at all means.
+func TestTheLegacyRetentionKeyDoesNotEatAStoredValue(t *testing.T) {
+	key := testKey(t)
+
+	fromFileOnly := Default()
+	fromFileOnly.Retention.Audit = 48 * time.Hour
+	if _, err := fromFileOnly.Rebuild(nil, key); err != nil {
+		t.Fatalf("Rebuild: %v", err)
+	}
+	if fromFileOnly.Retention.ScalingEvents != 48*time.Hour {
+		t.Errorf("the legacy key stopped working: %s", fromFileOnly.Retention.ScalingEvents)
+	}
+
+	stored := Default()
+	stored.Retention.Audit = 48 * time.Hour
+	if _, err := stored.Rebuild([]store.InstanceSetting{
+		{Key: "retention.scaling_events", Value: "72h"},
+	}, key); err != nil {
+		t.Fatalf("Rebuild: %v", err)
+	}
+	if stored.Retention.ScalingEvents != 72*time.Hour {
+		t.Errorf("a stored value was eaten by the legacy key: %s", stored.Retention.ScalingEvents)
+	}
+	// And the finding asking for the rename is still raised, because the file's
+	// key is still there and still wants removing.
+	var asked bool
+	for _, f := range stored.Validate() {
+		if f.Code == "retention.audit_renamed" {
+			asked = true
+		}
+	}
+	if !asked {
+		t.Error("nothing asked the operator to remove the old key")
+	}
 }

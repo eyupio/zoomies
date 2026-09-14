@@ -111,12 +111,21 @@ func (s *Store) GetInstanceSetting(ctx context.Context, key string) (*InstanceSe
 // nobody asked for, and would do it without an audit row saying which half took
 // effect. An empty value is written, not skipped -- see GetInstanceSetting.
 func (s *Store) PutInstanceSettings(ctx context.Context, by string, values []InstanceSetting) error {
-	if len(values) == 0 {
+	return s.ApplyInstanceSettings(ctx, by, values, nil)
+}
+
+// ApplyInstanceSettings writes and clears in one transaction.
+//
+// One request from the settings page is one change, and a request that both
+// sets a key and clears another has to be one too: two transactions can leave
+// half of it in effect, with an audit row claiming both halves took.
+func (s *Store) ApplyInstanceSettings(ctx context.Context, by string, put []InstanceSetting, clear []string) error {
+	if len(put) == 0 && len(clear) == 0 {
 		return nil
 	}
 	now := ms(s.Now())
 	return s.tx(ctx, func(tx *sql.Tx) error {
-		for _, v := range values {
+		for _, v := range put {
 			_, err := tx.ExecContext(ctx,
 				`INSERT INTO instance_settings (key, value, secret, updated_at, updated_by)
 				 VALUES (?,?,?,?,?)
@@ -128,6 +137,11 @@ func (s *Store) PutInstanceSettings(ctx context.Context, by string, values []Ins
 				return fmt.Errorf("store: writing setting %s: %w", v.Key, err)
 			}
 		}
+		for _, key := range clear {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM instance_settings WHERE key = ?`, key); err != nil {
+				return fmt.Errorf("store: clearing setting %s: %w", key, err)
+			}
+		}
 		return nil
 	})
 }
@@ -136,17 +150,7 @@ func (s *Store) PutInstanceSettings(ctx context.Context, by string, values []Ins
 // whatever the layer beneath it says. It is not an error to delete a key that
 // was never set: the caller asked for it to be unset, and it is.
 func (s *Store) DeleteInstanceSettings(ctx context.Context, keys []string) error {
-	if len(keys) == 0 {
-		return nil
-	}
-	return s.tx(ctx, func(tx *sql.Tx) error {
-		for _, key := range keys {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM instance_settings WHERE key = ?`, key); err != nil {
-				return fmt.Errorf("store: clearing setting %s: %w", key, err)
-			}
-		}
-		return nil
-	})
+	return s.ApplyInstanceSettings(ctx, "", nil, keys)
 }
 
 // HasInstanceSettings reports whether anything has been stored at all.

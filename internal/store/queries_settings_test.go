@@ -168,3 +168,30 @@ func TestASealedSettingCountsAsASealedSecret(t *testing.T) {
 		t.Errorf("a sealed setting was not counted: %v, %v", sealed, err)
 	}
 }
+
+// A request that both sets a key and clears another is one change, so it is one
+// transaction. Two would leave half of it in effect with an audit row claiming
+// both halves took.
+func TestSettingAndClearingInOneRequestIsOneTransaction(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	if err := s.PutInstanceSettings(ctx, "root", []InstanceSetting{
+		{Key: "scheduler.interval", Value: "30s"},
+	}); err != nil {
+		t.Fatalf("PutInstanceSettings: %v", err)
+	}
+	if err := s.ApplyInstanceSettings(ctx, "root",
+		[]InstanceSetting{{Key: "retention.jobs", Value: "720h"}},
+		[]string{"scheduler.interval"}); err != nil {
+		t.Fatalf("ApplyInstanceSettings: %v", err)
+	}
+
+	rows, err := s.InstanceSettings(ctx)
+	if err != nil {
+		t.Fatalf("InstanceSettings: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Key != "retention.jobs" {
+		t.Errorf("rows = %+v, want only retention.jobs", rows)
+	}
+}
