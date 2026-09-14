@@ -1260,6 +1260,27 @@ func (c *Controller) hostName(ctx context.Context, hostID string) string {
 	return hostID
 }
 
+// observeRunnerReady records how long a runner took to become usable, once it
+// has. Both timings are only meaningful for a runner that reached idle or busy
+// with a registration behind it, which is why every caller that can produce one
+// goes through here rather than keeping its own copy of the rule.
+func (c *Controller) observeRunnerReady(ctx context.Context, before, updated *store.Runner) {
+	if updated == nil || updated.RegisteredAt == nil {
+		return
+	}
+	if updated.State != store.RunnerIdle && updated.State != store.RunnerBusy {
+		return
+	}
+	p, err := c.st.GetPool(ctx, updated.PoolID)
+	if err != nil {
+		return
+	}
+	if before != nil && before.ContainerStartedAt != nil {
+		observeDuration(c.metrics.containerToRegistered, p.Name, string(p.Backend), *before.ContainerStartedAt, *updated.RegisteredAt)
+	}
+	observeDuration(c.metrics.registeredToReady, p.Name, string(p.Backend), *updated.RegisteredAt, c.Now())
+}
+
 // applyRunnerState performs a reported transition when it is legal, and
 // publishes it. An illegal one is dropped rather than forced: the store's
 // state machine is what stops a confused agent corrupting the accounting.
@@ -1277,14 +1298,7 @@ func (c *Controller) applyRunnerState(ctx context.Context, r *store.Runner, stat
 		c.log.Warn("could not apply a runner state an agent reported", "runner", r.ID, "state", state, "error", err)
 		return
 	}
-	if (state == store.RunnerIdle || state == store.RunnerBusy) && updated.RegisteredAt != nil {
-		if p, e := c.st.GetPool(ctx, r.PoolID); e == nil {
-			if r.ContainerStartedAt != nil {
-				observeDuration(c.metrics.containerToRegistered, p.Name, string(p.Backend), *r.ContainerStartedAt, *updated.RegisteredAt)
-			}
-			observeDuration(c.metrics.registeredToReady, p.Name, string(p.Backend), *updated.RegisteredAt, c.Now())
-		}
-	}
+	c.observeRunnerReady(ctx, r, updated)
 	c.publishRunner(ctx, events.KindRunnerUpdated, updated)
 	if state == store.RunnerFailed {
 		// A clean exit under a job is the ordinary race between GitHub's

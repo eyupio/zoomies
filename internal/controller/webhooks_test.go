@@ -224,6 +224,134 @@ func TestInProgressDeliveryLinksTheRunner(t *testing.T) {
 	}
 }
 
+// The row is allowed to be behind. GitHub saying a job is running on a runner
+// means that runner registered and took the work, whatever the fleet has got
+// round to writing down -- the agent's create result and this delivery race,
+// and on a loaded host the delivery wins often enough to matter.
+//
+// Before this the two halves of the handler disagreed: the job was linked and
+// the transition was dropped, leaving a runner carrying a job it was not busy
+// with. The agent cannot put it right -- it stops asserting a state once the
+// workload is up, so busy has exactly one source -- so the row lands in one of
+// two wrong places. From provisioning it stays there until the provision timeout
+// fails a runner mid-build; from registering the next report asks GitHub, is
+// told "online" (which a busy runner also is), promotes it to idle, and idle
+// clears the job link, leaving the fleet holding a runner it thinks is free.
+// reconcileKnownJobs re-applies the delivery two minutes later, which is what
+// makes this a window rather than a wedge -- and two minutes of being wrong
+// about who is working is still worth closing.
+func TestAJobStartIsNotLostOnARunnerTheRowHasNotCaughtUpWith(t *testing.T) {
+	// Both states a runner can still be in when the delivery lands. The second
+	// is what CI hit: the agent's create result had already committed
+	// registering, and the copy the handler was judging against still said
+	// provisioning.
+	for i, from := range []store.RunnerState{store.RunnerProvisioning, store.RunnerRegistering} {
+		t.Run(string(from), func(t *testing.T) {
+			h := newHarness(t)
+			_, pool, host := h.fleet()
+			r := h.runnerRow(pool, host, from)
+			labels := []string{"self-hosted", "linux", "x64", "demo"}
+			id := int64(6101 + i)
+
+			h.deliverJob(jobEvent{Action: "queued", JobID: id, Name: "build", Workflow: "CI", Labels: labels})
+			h.deliverJob(jobEvent{Action: "in_progress", JobID: id, Name: "build", Workflow: "CI",
+				Labels: labels, RunnerName: r.Name})
+
+			job, err := h.st.GetJobByGitHubID(h.ctx, id)
+			if err != nil {
+				t.Fatalf("GetJobByGitHubID: %v", err)
+			}
+			after := h.runnerByID(t, r.ID)
+			if after.State != store.RunnerBusy {
+				t.Errorf("runner is %q, want busy: GitHub said a job is running on it", after.State)
+			}
+			if after.CurrentJobID != job.ID {
+				t.Errorf("runner.CurrentJobID = %q, want %q", after.CurrentJobID, job.ID)
+			}
+			if after.RegisteredAt == nil || after.StartedAt == nil {
+				t.Error("a runner that reached busy by this route is missing the timings every other one has")
+			}
+		})
+	}
+}
+
+// Bringing a behind row forward must not become a way to move a runner between
+// jobs. A second start naming a runner that is already working is the fleet
+// being told something it cannot act on, not permission to reassign it.
+func TestAJobStartNeverTakesARunnerOffTheJobItIsOn(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerIdle)
+	labels := []string{"self-hosted", "linux", "x64", "demo"}
+
+	h.deliverJob(jobEvent{Action: "queued", JobID: 6102, Name: "first", Workflow: "CI", Labels: labels})
+	h.deliverJob(jobEvent{Action: "in_progress", JobID: 6102, Name: "first", Workflow: "CI",
+		Labels: labels, RunnerName: r.Name})
+	first, err := h.st.GetJobByGitHubID(h.ctx, 6102)
+	if err != nil {
+		t.Fatalf("GetJobByGitHubID: %v", err)
+	}
+
+	h.deliverJob(jobEvent{Action: "queued", JobID: 6103, Name: "second", Workflow: "CI", Labels: labels})
+	h.deliverJob(jobEvent{Action: "in_progress", JobID: 6103, Name: "second", Workflow: "CI",
+		Labels: labels, RunnerName: r.Name})
+
+	after := h.runnerByID(t, r.ID)
+	if after.CurrentJobID != first.ID {
+		t.Errorf("runner.CurrentJobID = %q, want the job it was already on (%q)", after.CurrentJobID, first.ID)
+	}
+}
+
+// A drain waits for the job on the runner, and the drain timeout only fires on
+// a drain with nothing left to wait for. So a start that arrives after the drain
+// began still has to write the link, or the timeout would fail a runner that is
+// doing exactly what the drain asked. The state stays draining: the runner is
+// still on its way out.
+func TestAJobStartStillLinksADrainingRunnerSoItsDrainWaits(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerDraining)
+	labels := []string{"self-hosted", "linux", "x64", "demo"}
+
+	h.deliverJob(jobEvent{Action: "queued", JobID: 6104, Name: "build", Workflow: "CI", Labels: labels})
+	h.deliverJob(jobEvent{Action: "in_progress", JobID: 6104, Name: "build", Workflow: "CI",
+		Labels: labels, RunnerName: r.Name})
+
+	job, err := h.st.GetJobByGitHubID(h.ctx, 6104)
+	if err != nil {
+		t.Fatalf("GetJobByGitHubID: %v", err)
+	}
+	after := h.runnerByID(t, r.ID)
+	if after.CurrentJobID != job.ID {
+		t.Errorf("runner.CurrentJobID = %q, want %q; the drain timeout would fail a runner mid-job", after.CurrentJobID, job.ID)
+	}
+	if after.State != store.RunnerDraining {
+		t.Errorf("runner is %q, want draining; a start does not call a drain off", after.State)
+	}
+}
+
+// A runner that is finished with is finished with. Linking a job to it would
+// point the Jobs page at a runner nobody can look at, and the row's own
+// contract is that a terminal state carries no current job.
+func TestAJobStartLeavesAFinishedRunnerAlone(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerRemoved)
+	labels := []string{"self-hosted", "linux", "x64", "demo"}
+
+	h.deliverJob(jobEvent{Action: "queued", JobID: 6105, Name: "build", Workflow: "CI", Labels: labels})
+	h.deliverJob(jobEvent{Action: "in_progress", JobID: 6105, Name: "build", Workflow: "CI",
+		Labels: labels, RunnerName: r.Name})
+
+	after := h.runnerByID(t, r.ID)
+	if after.CurrentJobID != "" {
+		t.Errorf("runner.CurrentJobID = %q, want none: the runner is %q", after.CurrentJobID, after.State)
+	}
+	if after.State != store.RunnerRemoved {
+		t.Errorf("runner is %q, want removed", after.State)
+	}
+}
+
 func TestCompletedJobExplicitlyRemovesItsEphemeralRunner(t *testing.T) {
 	h := newHarness(t)
 	_, _, host := h.fleet()
