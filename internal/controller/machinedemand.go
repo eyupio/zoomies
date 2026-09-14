@@ -50,6 +50,11 @@ type MachineLimits struct {
 	// ScaleDownCooldown is how long idleness has to keep being true before a
 	// machine is given up, on top of the idle timeout that started it.
 	ScaleDownCooldown time.Duration
+	// DeleteGrace is how long a machine's host has to have been silent before
+	// that silence is believed. Without it a blip releases a machine, because a
+	// quiet host is ruled out for every pool and the test that would have said
+	// "the fleet still wants this" is skipped rather than failed.
+	DeleteGrace time.Duration
 }
 
 // MachineSnapshot is everything the decision reads. It is a value rather than a
@@ -416,6 +421,16 @@ func drainable(s MachineSnapshot, byProvider map[string]*store.Provider, pools [
 			continue
 		}
 		if m.IdleSince == nil || s.Now.Sub(*m.IdleSince) < idleTimeout(p, s.Limits)+s.Limits.ScaleDownCooldown {
+			continue
+		}
+		// A host that has gone quiet is ruled out for every pool below, so the
+		// spare-capacity test is not failed by a machine the fleet still wants
+		// -- it is never reached, and a network blip releases the machine.
+		// provider.delete_grace is how long the silence has to last before it
+		// is treated as the machine being gone. It is longer than the
+		// host-lost judgement, so by then the runners that were on it have
+		// already been failed and the emptiness is real rather than reported.
+		if !host.Healthy(s.Now) && s.Now.Sub(host.LastHeartbeat) < s.Limits.DeleteGrace {
 			continue
 		}
 		served := make([]*store.Pool, 0, len(pools))

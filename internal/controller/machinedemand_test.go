@@ -651,3 +651,68 @@ func clonePointers[T any](in []*T) []*T {
 	}
 	return out
 }
+
+// A blip is not a machine that has gone away.
+//
+// A silent host is ruled out for every pool, so the test that would have said
+// "the fleet still wants this machine" is skipped rather than failed, and an
+// idle machine becomes releasable the moment its host stops answering. That
+// turns a network partition into a delete: the VM is up, doing nothing wrong,
+// and would answer again in five minutes. provider.delete_grace is how long the
+// silence has to last before it is believed, and it is deliberately longer than
+// the host-lost judgement so that by the time it expires the runners that were
+// on the host have already been failed and the emptiness is real.
+func TestAMachineIsNotReleasedWhileItsHostsSilenceIsStillShorterThanTheGrace(t *testing.T) {
+	limits := demandLimits()
+	limits.DeleteGrace = 10 * time.Minute
+
+	build := func(silentFor time.Duration) MachineSnapshot {
+		p := demandProvider("lab")
+		pool := demandPool("alpha")
+		host := demandHost("host_1", 2, 0)
+		host.LastHeartbeat = machineNow.Add(-silentFor)
+		m := demandMachine("mach_1", p, store.MachineReady, 4*time.Hour)
+		m.HostID = host.ID
+		m.IdleSince = ptrTime(machineNow.Add(-2 * time.Hour))
+		return MachineSnapshot{
+			Now: machineNow, Pools: []*store.Pool{pool}, Hosts: []*store.Host{host},
+			Providers: []*store.Provider{p}, Machines: []*store.Machine{m},
+			Limits: limits,
+			Plan:   scheduler.Plan{Pools: []scheduler.PoolPlan{demandPoolPlan(pool, 0, 0, 0, "")}},
+		}
+	}
+
+	// Quiet for two minutes: past the health timeout, nowhere near the grace.
+	if got := planFor(t, DecideMachines(build(2*time.Minute)), "prv_lab"); len(got.Drain) != 0 {
+		t.Errorf("a machine was released after two minutes of silence: %v", got.Drain)
+	}
+	// Quiet for fifteen: the silence has outlasted the grace and is believed.
+	if got := planFor(t, DecideMachines(build(15*time.Minute)), "prv_lab"); len(got.Drain) != 1 {
+		t.Errorf("a machine silent past its grace was kept: drain = %v", got.Drain)
+	}
+	// And a machine whose host is answering is unaffected by any of it.
+	if got := planFor(t, DecideMachines(build(0)), "prv_lab"); len(got.Drain) != 1 {
+		t.Errorf("a healthy idle machine was kept: drain = %v", got.Drain)
+	}
+}
+
+// An unset grace leaves the decision exactly as it was, which is how the
+// validator already treats it.
+func TestAnUnsetDeleteGraceChangesNothing(t *testing.T) {
+	p := demandProvider("lab")
+	pool := demandPool("alpha")
+	host := demandHost("host_1", 2, 0)
+	host.LastHeartbeat = machineNow.Add(-2 * time.Minute)
+	m := demandMachine("mach_1", p, store.MachineReady, 4*time.Hour)
+	m.HostID = host.ID
+	m.IdleSince = ptrTime(machineNow.Add(-2 * time.Hour))
+	s := MachineSnapshot{
+		Now: machineNow, Pools: []*store.Pool{pool}, Hosts: []*store.Host{host},
+		Providers: []*store.Provider{p}, Machines: []*store.Machine{m},
+		Limits: demandLimits(),
+		Plan:   scheduler.Plan{Pools: []scheduler.PoolPlan{demandPoolPlan(pool, 0, 0, 0, "")}},
+	}
+	if got := planFor(t, DecideMachines(s), p.ID); len(got.Drain) != 1 {
+		t.Errorf("an unset grace withheld a release: drain = %v", got.Drain)
+	}
+}

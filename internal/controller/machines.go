@@ -281,6 +281,7 @@ func (e *machineEnv) demand() MachineSnapshot {
 			MaxCreatesInFlight: e.cfg.Provider.MaxCreatesInFlight,
 			IdleTimeout:        e.cfg.Provider.IdleTimeout,
 			ScaleDownCooldown:  e.cfg.Provider.ScaleDownCooldown,
+			DeleteGrace:        e.cfg.Provider.DeleteGrace,
 		},
 	}
 }
