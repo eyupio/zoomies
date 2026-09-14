@@ -141,6 +141,11 @@ type Agent struct {
 	sem   chan struct{}
 	tasks sync.WaitGroup
 
+	// startup serialises creates and image prewarming across every pool on
+	// this host. Capacity bounds running jobs, not concurrent image extraction
+	// and DinD startup, which can overwhelm an otherwise healthy daemon.
+	startup chan struct{}
+
 	mu sync.Mutex
 	// hostID is empty until Join or a restored state file provides one.
 	hostID   string
@@ -322,6 +327,7 @@ func New(opts Options) (*Agent, error) {
 		heartbtI:  interval,
 		retention: opts.FinishedRetention,
 		sem:       make(chan struct{}, opts.Capacity),
+		startup:   make(chan struct{}, 1),
 		runners:   make(map[string]*tracked),
 		inflight:  make(map[string]bool),
 		running:   make(map[string]TaskKind),
@@ -1053,6 +1059,26 @@ func (a *Agent) start(ctx context.Context, task Task) {
 			})
 		}
 		defer release()
+		// Wait before taking a lifecycle slot, so queued starts cannot crowd
+		// out stops and removals. The backend's create timeout begins only
+		// after admission, and shutdown still cancels work waiting here.
+		if task.Kind == TaskCreateRunner || task.Kind == TaskPrewarmImage {
+			a.log.Debug("waiting for this host's startup slot",
+				"task", task.ID, "kind", task.Kind, "runner", task.RunnerID)
+			select {
+			case a.startup <- struct{}{}:
+				defer func() { <-a.startup }()
+			case <-ctx.Done():
+				release()
+				a.reportFailure(ctx, task, "agent shut down before this task started; it is safe to redeliver")
+				return
+			}
+		}
+		if ctx.Err() != nil {
+			release()
+			a.reportFailure(ctx, task, "agent shut down before this task started; it is safe to redeliver")
+			return
+		}
 		select {
 		case a.sem <- struct{}{}:
 		case <-ctx.Done():
@@ -1068,6 +1094,31 @@ func (a *Agent) start(ctx context.Context, task Task) {
 			return
 		}
 		defer func() { <-a.sem }()
+		if ctx.Err() != nil {
+			release()
+			a.reportFailure(ctx, task, "agent shut down before this task started; it is safe to redeliver")
+			return
+		}
+		if task.Kind == TaskCreateRunner {
+			// A cancellation or cordon may have arrived while this create
+			// waited. Do not build a runner just to remove it immediately.
+			a.mu.Lock()
+			_, superseded := a.waiting[task.RunnerID]
+			a.mu.Unlock()
+			if superseded {
+				release()
+				a.report(ctx, TaskResult{
+					TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID,
+					OK: true, CompletedAt: a.now(),
+				})
+				return
+			}
+			if why := a.refuseNewWork(); why != "" {
+				release()
+				a.reportFailure(ctx, task, why)
+				return
+			}
+		}
 		a.runTask(ctx, task, release)
 	}()
 }
