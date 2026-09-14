@@ -1322,10 +1322,20 @@ func (c *Controller) ownershipComplaint(m *store.Machine, got provider.Machine) 
 		Fingerprint:  m.OwnerFingerprint,
 	}
 	switch {
+	case got.Ref.Name != "" && got.Ref.Name != m.Name:
+		// Checked before the marks, because a name is the one identity an
+		// unmarked resource still carries. Our guest destroyed out of band and
+		// its identifier reused by another tool is the accident this exists to
+		// catch -- and it arrives wearing no marks, so an unmarked-is-ours rule
+		// that ran first would authorise a delete on the strength of our own
+		// row. That is how a fleet destroys somebody else's machine.
+		return fmt.Sprintf("machine %s names %s on %s, but that resource is called %q rather than %q. "+
+			"Nothing has been deleted", m.ID, m.ResourceID, m.ResourceZone, got.Ref.Name, m.Name)
 	case got.Owner.Zero():
 		// An unmarked resource is not evidence of a second fleet: a provider
 		// that cannot write marks leaves every resource like this, and the
-		// store is then the only record of who made it.
+		// store is then the only record of who made it. Safe only because the
+		// name has already been agreed above.
 		return ""
 	case got.Owner.MachineID != "" && got.Owner.MachineID != m.ID:
 		return fmt.Sprintf("machine %s names %s on %s, but that resource's ownership record says machine %s. "+
@@ -1336,9 +1346,6 @@ func (c *Controller) ownershipComplaint(m *store.Machine, got provider.Machine) 
 		return fmt.Sprintf("machine %s names %s on %s, but that resource was created by another controller. "+
 			"Nothing has been deleted. Check the provider's console before releasing this row",
 			m.ID, m.ResourceID, m.ResourceZone)
-	case got.Ref.Name != "" && got.Ref.Name != m.Name:
-		return fmt.Sprintf("machine %s names %s on %s, but that resource is called %q rather than %q. "+
-			"Nothing has been deleted", m.ID, m.ResourceID, m.ResourceZone, got.Ref.Name, m.Name)
 	}
 	return ""
 }

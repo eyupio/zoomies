@@ -726,3 +726,93 @@ func TestTheDemoProvidersFixtureIsNeverRentedFrom(t *testing.T) {
 		t.Errorf("the machine was rented from %s, want the real provider %s", ms[0].ProviderID, lab.ID)
 	}
 }
+
+// A resource is not ours because our row points at its identifier.
+//
+// The name is the primary ownership mark -- provider.MachineRef says so, and it
+// is the one thing a cluster-wide sweep can filter on without reading every
+// resource's config -- so it has to be agreed before anything else is, and
+// especially before the rule that an unmarked resource is nobody's evidence of
+// a second fleet. An identifier is recycled; a name is not.
+func TestOwnershipIsRefusedOnTheNameBeforeItIsExcusedOnMissingMarks(t *testing.T) {
+	h := newHarness(t)
+	mine := &store.Machine{
+		ID: "mach_mine", ProviderID: "prv_lab", Name: "zoomies-mach-mine",
+		ResourceZone: "zone-a", ResourceID: "150",
+		OwnerControllerID: h.c.controllerID(), OwnerFingerprint: "ours",
+	}
+	ref := func(name string) provider.MachineRef {
+		return provider.MachineRef{Zone: "zone-a", ID: "150", Name: name}
+	}
+	ours := provider.Owner{
+		ControllerID: h.c.controllerID(), ProviderID: "prv_lab",
+		MachineID: "mach_mine", Fingerprint: "ours",
+	}
+
+	for _, tc := range []struct {
+		name     string
+		got      provider.Machine
+		complain bool
+	}{
+		{
+			// The accident this exists to catch: our guest destroyed in the
+			// console, its identifier reused by another tool. It carries no
+			// marks, because whoever made it never heard of us.
+			name:     "unmarked, and called something else",
+			got:      provider.Machine{Ref: ref("db-primary")},
+			complain: true,
+		},
+		{
+			// A provider that cannot write marks leaves every resource like
+			// this, and the store is then the only record of who made it.
+			name: "unmarked, but called what we called ours",
+			got:  provider.Machine{Ref: ref("zoomies-mach-mine")},
+		},
+		{
+			// Between the create and the name being written there is nothing
+			// to compare, and a machine still being built must not be
+			// quarantined for it.
+			name: "unmarked, and not yet named",
+			got:  provider.Machine{Ref: ref("")},
+		},
+		{
+			name: "ours, and agreed on every fact",
+			got:  provider.Machine{Ref: ref("zoomies-mach-mine"), Owner: ours},
+		},
+		{
+			// Marked or not, a disagreeing name is a disagreeing name.
+			name:     "marked as ours, but called something else",
+			got:      provider.Machine{Ref: ref("db-primary"), Owner: ours},
+			complain: true,
+		},
+		{
+			name: "marked for another machine",
+			got: provider.Machine{Ref: ref("zoomies-mach-mine"), Owner: provider.Owner{
+				ControllerID: h.c.controllerID(), ProviderID: "prv_lab",
+				MachineID: "mach_theirs", Fingerprint: "ours",
+			}},
+			complain: true,
+		},
+		{
+			name: "marked by another controller",
+			got: provider.Machine{Ref: ref("zoomies-mach-mine"), Owner: provider.Owner{
+				ControllerID: "ctl_somebodyelse", ProviderID: "prv_lab",
+				MachineID: "mach_mine", Fingerprint: "theirs",
+			}},
+			complain: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := h.c.ownershipComplaint(mine, tc.got)
+			switch {
+			case tc.complain && got == "":
+				t.Errorf("%s was accepted as ours; a delete on it would have been authorised", tc.name)
+			case !tc.complain && got != "":
+				t.Errorf("%s was refused: %s", tc.name, got)
+			}
+			if tc.complain && got != "" && !strings.Contains(got, "Nothing has been deleted") {
+				t.Errorf("a refusal does not say nothing was deleted, which is the sentence a person needs: %s", got)
+			}
+		})
+	}
+}
