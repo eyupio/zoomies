@@ -463,6 +463,23 @@ func errPrivateConnectionsDisabled(row *store.Provider) error {
 // which has no row to unseal from and nothing to cache under -- can be built
 // the same way and asked what its credential can see.
 func (c *Controller) buildProvider(ctx context.Context, row *store.Provider, credential, address string) (provider.Provider, *privateDialer, error) {
+	cfg, tunnel, err := c.providerConfig(row, credential, address)
+	if err != nil {
+		return nil, nil, err
+	}
+	p, err := c.providers.New(ctx, row.Kind, cfg)
+	if err != nil {
+		if tunnel != nil {
+			tunnel.Close()
+		}
+		return nil, nil, err
+	}
+	return p, tunnel, nil
+}
+
+// providerConfig is what a factory is handed for one row, with the private
+// connection opened when the row has one. The caller owns the tunnel.
+func (c *Controller) providerConfig(row *store.Provider, credential, address string) (provider.Config, *privateDialer, error) {
 	cfg := provider.Config{
 		ProviderID: row.ID,
 		Owner:      provider.Owner{ControllerID: c.controllerID(), ProviderID: row.ID},
@@ -484,18 +501,11 @@ func (c *Controller) buildProvider(ctx context.Context, row *store.Provider, cre
 		var err error
 		tunnel, err = newPrivateDialer(address)
 		if err != nil {
-			return nil, nil, errors.New("provider " + row.Name + ": " + err.Error())
+			return provider.Config{}, nil, errors.New("provider " + row.Name + ": " + err.Error())
 		}
 		cfg.DialContext = tunnel.DialContext
 	}
-	p, err := c.providers.New(ctx, row.Kind, cfg)
-	if err != nil {
-		if tunnel != nil {
-			tunnel.Close()
-		}
-		return nil, nil, err
-	}
-	return p, tunnel, nil
+	return cfg, tunnel, nil
 }
 
 // closeProviderTunnels releases every private connection the cache holds. It

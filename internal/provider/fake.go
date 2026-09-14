@@ -747,3 +747,13 @@ func (f *FakeFactory) Validate(settings map[string]string) []config.Finding {
 func (f *FakeFactory) New(_ context.Context, _ Config) (Provider, error) {
 	return NewFake(f.opts...), nil
 }
+
+// DiscoverDraft answers as the built fake would, so a test of the wizard's
+// draft discovery exercises the same path a real driver takes.
+func (f *FakeFactory) DiscoverDraft(ctx context.Context, _ Config) (Discovery, error) {
+	d, ok := NewFake(f.opts...).(Discoverer)
+	if !ok {
+		return Discovery{}, ErrUnsupported
+	}
+	return d.Discover(ctx)
+}

@@ -496,8 +496,9 @@ export function shellWord(value: string): string {
  */
 export function providerCommand(
   draft: ProviderDraft,
-  options: { editing?: boolean; existingName?: string } = {},
+  options: { editing?: boolean; existingName?: string; specs?: readonly ProviderSetting[] } = {},
 ): string {
+  const defaults = new Map((options.specs ?? []).map((spec) => [spec.key, spec.default ?? '']));
   const parts: string[] = ['zoomies', 'providers'];
   if (options.editing) {
     parts.push('edit', shellWord(options.existingName || draft.name.trim() || '<name>'));
@@ -512,13 +513,25 @@ export function providerCommand(
   if (draft.insecure_skip_verify) parts.push('--endpoint-insecure');
   if (draft.connection === 'tailcat') parts.push('--gateway', '<address zoomies gateway printed>');
 
+  // The driver's answers in a fixed order -- the named flags first, then the
+  // rest alphabetically -- so the same draft always renders the same line.
+  // A value that is the driver's own default is left out on a create, where
+  // the CLI supplies it too; an edit sends what was typed.
   const settings = trimmedMap(draft.settings);
-  const min = settings.vmid_min;
-  const max = settings.vmid_max;
-  if (min !== undefined || max !== undefined)
-    parts.push('--vmid-range', `${min ?? ''}-${max ?? ''}`);
-  for (const [key, value] of Object.entries(settings)) {
-    if (value === '' || key === 'vmid_min' || key === 'vmid_max') continue;
+  const isDefault = (key: string, value: string) =>
+    !options.editing && defaults.has(key) && defaults.get(key) === value;
+  const min = settings.vmid_min ?? '';
+  const max = settings.vmid_max ?? '';
+  if ((min !== '' || max !== '') && !(isDefault('vmid_min', min) && isDefault('vmid_max', max)))
+    parts.push('--vmid-range', `${min}-${max}`);
+  const named = Object.keys(SETTING_FLAGS);
+  const rank = (key: string) => (named.includes(key) ? named.indexOf(key) : named.length);
+  const keys = Object.keys(settings)
+    .filter((key) => key !== 'vmid_min' && key !== 'vmid_max' && settings[key] !== '')
+    .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  for (const key of keys) {
+    const value = settings[key] ?? '';
+    if (isDefault(key, value)) continue;
     const flag = SETTING_FLAGS[key];
     if (flag) parts.push(flag, shellWord(value));
     else parts.push('--setting', shellWord(`${key}=${value}`));

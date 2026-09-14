@@ -603,6 +603,12 @@ func TestADraftCanBeAskedWhatItsCredentialSees(t *testing.T) {
 		t.Errorf("a provider that answered is reported unavailable: %q", discovery.Unavailable)
 	}
 
+	// The connect step is all a wizard has when it asks: no name yet, none of
+	// the placement settings the menu is for. That is enough.
+	bare := h.do(request{method: http.MethodPost, path: "/api/v1/providers/discover", cookie: cookie,
+		body: map[string]any{"kind": "fake", "endpoint": "https://pve.example.com:8006", "credential": "tok"}})
+	bare.mustStatus(t, http.StatusOK, "discover with only the connect step filled in")
+
 	noToken := h.do(request{method: http.MethodPost, path: "/api/v1/providers/discover", cookie: cookie,
 		body: map[string]any{"kind": "fake", "name": "draft", "endpoint": "https://pve.example.com:8006",
 			"settings": map[string]string{"zone": "zone-a"}}})

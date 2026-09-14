@@ -282,6 +282,28 @@ func (c *Controller) DiscoverDraft(ctx context.Context, row *store.Provider, cre
 	if address != "" && !c.cfg().Server.TailcatEnabled {
 		return ProviderDiscoveryView{}, errPrivateConnectionsDisabled(row)
 	}
+	f, err := c.providers.Get(row.Kind)
+	if err != nil {
+		return ProviderDiscoveryView{}, providerBuildError(row, err)
+	}
+	if dd, ok := f.(provider.DraftDiscoverer); ok {
+		// The address and the credential are enough: the placement answers
+		// a built provider would insist on are the ones the menu is for.
+		cfg, tunnel, err := c.providerConfig(row, credential, address)
+		if err != nil {
+			return ProviderDiscoveryView{}, err
+		}
+		if tunnel != nil {
+			defer tunnel.Close()
+		}
+		callCtx, cancel := context.WithTimeout(ctx, c.providerDeadlines().Call)
+		defer cancel()
+		got, err := dd.DiscoverDraft(callCtx, cfg)
+		if err != nil {
+			return ProviderDiscoveryView{}, err
+		}
+		return discoveryView(got), nil
+	}
 	p, tunnel, err := c.buildProvider(ctx, row, credential, address)
 	if err != nil {
 		return ProviderDiscoveryView{}, providerBuildError(row, err)
@@ -304,12 +326,16 @@ func (c *Controller) discover(ctx context.Context, pr *machineProvider) (Provide
 	if err != nil {
 		return ProviderDiscoveryView{}, err
 	}
+	return discoveryView(got), nil
+}
+
+func discoveryView(got provider.Discovery) ProviderDiscoveryView {
 	return ProviderDiscoveryView{
 		Nodes:     choiceViews(got.Nodes),
 		Storages:  choiceViews(got.Storages),
 		Bridges:   choiceViews(got.Bridges),
 		Templates: choiceViews(got.Templates),
-	}, nil
+	}
 }
 
 func choiceViews(in []provider.Choice) []ProviderChoiceView {

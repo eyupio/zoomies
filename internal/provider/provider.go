@@ -162,6 +162,15 @@ type Factory interface {
 	New(ctx context.Context, cfg Config) (Provider, error)
 }
 
+// DraftDiscoverer is a Factory that can answer what a credential sees before
+// there is a provider to build: the address and the credential are enough to
+// list what exists, and a form asks that question while the placement answers
+// -- which New refuses to build without -- are still blank. A factory that
+// does not implement it is asked through a fully built provider instead.
+type DraftDiscoverer interface {
+	DiscoverDraft(ctx context.Context, cfg Config) (Discovery, error)
+}
+
 // Config carries what a factory needs and nothing more. The credential arrives
 // as plaintext, unsealed by the controller for the life of this call: the store
 // keeps it sealed and unsealing is the caller's job, exactly as

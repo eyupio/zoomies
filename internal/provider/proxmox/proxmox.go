@@ -1316,3 +1316,32 @@ func (Factory) Validate(settings map[string]string) []config.Finding {
 func (Factory) New(_ context.Context, cfg provider.Config) (provider.Provider, error) {
 	return NewProvider(cfg)
 }
+
+// DiscoverDraft lists what a credential can see with nothing but the address
+// and the credential, which is the state a wizard is in when it wants the
+// menu: the node, storage and template it is about to ask for are exactly the
+// settings NewProvider would refuse to build without.
+func (Factory) DiscoverDraft(ctx context.Context, cfg provider.Config) (provider.Discovery, error) {
+	tokenID, secret, err := splitCredential(cfg.Settings[SettingTokenID], cfg.Credential)
+	if err != nil {
+		return provider.Discovery{}, err
+	}
+	log := cfg.Logger
+	if log == nil {
+		log = slog.Default()
+	}
+	client, err := New(Options{
+		Endpoint:    cfg.Endpoint,
+		TokenID:     tokenID,
+		Secret:      secret,
+		CAPEM:       cfg.CAPEM,
+		Insecure:    cfg.Insecure,
+		DialContext: cfg.DialContext,
+		HTTPClient:  cfg.HTTPClient,
+		Logger:      log,
+	})
+	if err != nil {
+		return provider.Discovery{}, err
+	}
+	return Discover(ctx, client)
+}

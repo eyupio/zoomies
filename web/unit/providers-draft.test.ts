@@ -10,6 +10,79 @@ import {
 } from '../src/lib/providers/draft.ts';
 import type { ProviderDiscovery, ProviderSetting } from '../src/lib/api/types.ts';
 
+const specs: ProviderSetting[] = [
+  {
+    key: 'nodes',
+    label: 'Nodes',
+    kind: 'list',
+    required: true,
+    advanced: false,
+    discovers: 'nodes',
+  },
+  {
+    key: 'template_id',
+    label: 'Template VMID',
+    kind: 'choice',
+    required: true,
+    advanced: false,
+    discovers: 'templates',
+  },
+  {
+    key: 'bridge',
+    label: 'Network bridge',
+    kind: 'choice',
+    required: true,
+    advanced: false,
+    discovers: 'bridges',
+    default: 'vmbr0',
+  },
+  {
+    key: 'storage',
+    label: 'Storage',
+    kind: 'choice',
+    required: true,
+    advanced: false,
+    discovers: 'storages',
+  },
+];
+
+const fullSpecs: ProviderSetting[] = [
+  ...specs,
+  {
+    key: 'vmid_min',
+    label: 'Lowest VMID',
+    kind: 'number',
+    required: true,
+    advanced: false,
+    default: '9000',
+  },
+  {
+    key: 'vmid_max',
+    label: 'Highest VMID',
+    kind: 'number',
+    required: true,
+    advanced: false,
+    default: '9099',
+  },
+  {
+    key: 'full_clone',
+    label: 'Full clone',
+    kind: 'bool',
+    required: false,
+    advanced: true,
+    default: 'true',
+  },
+  {
+    key: 'ipconfig0',
+    label: 'IP',
+    kind: 'text',
+    required: false,
+    advanced: true,
+    default: 'ip=dhcp',
+  },
+  { key: 'pool', label: 'Pool', kind: 'text', required: false, advanced: true },
+];
+
 function proxmoxDraft() {
   const draft = emptyDraft();
   draft.kind = 'proxmox';
@@ -52,6 +125,25 @@ test('the form renders itself as the providers add line the CLI takes', () => {
   }
   assert.ok(!line.includes('secret'), `the credential leaked into the line:\n${line}`);
   assert.ok(!line.includes('--capacity'), 'a default is not repeated as a flag');
+});
+
+test('the line is in a fixed order, and leaves out what the driver defaults anyway', () => {
+  const draft = proxmoxDraft();
+  draft.settings = { ...draft.settings, full_clone: 'true', ipconfig0: 'ip=dhcp' };
+  const line = providerCommand(draft, { specs: fullSpecs });
+  const order = ['--nodes', '--template', '--storage', '--setting', '--labels'];
+  const positions = order.map((flag) => line.indexOf(flag));
+  assert.deepEqual(
+    [...positions].sort((a, b) => a - b),
+    positions,
+    line,
+  );
+  assert.ok(!line.includes('--bridge'), 'vmbr0 is the driver default and the CLI default');
+  assert.ok(!line.includes('--vmid-range'), '9000-9099 is the default block');
+  assert.ok(!line.includes('full_clone'), 'a default advanced setting is not repeated');
+  assert.ok(line.includes("--setting 'pool=ci pool'"), line);
+  // An edit sends what was typed, defaults included: it is the whole answer.
+  assert.ok(providerCommand(draft, { editing: true, specs: fullSpecs }).includes('--bridge vmbr0'));
 });
 
 test('a certificate and a private connection become the placeholders only the operator can fill', () => {
@@ -101,42 +193,6 @@ test('a name is suggested from the host, and the kind stands in when there is no
   assert.equal(suggestName('https://10.0.0.5:8006', 'proxmox'), 'proxmox');
   assert.equal(suggestName('', 'proxmox'), 'proxmox');
 });
-
-const specs: ProviderSetting[] = [
-  {
-    key: 'nodes',
-    label: 'Nodes',
-    kind: 'list',
-    required: true,
-    advanced: false,
-    discovers: 'nodes',
-  },
-  {
-    key: 'template_id',
-    label: 'Template VMID',
-    kind: 'choice',
-    required: true,
-    advanced: false,
-    discovers: 'templates',
-  },
-  {
-    key: 'bridge',
-    label: 'Network bridge',
-    kind: 'choice',
-    required: true,
-    advanced: false,
-    discovers: 'bridges',
-    default: 'vmbr0',
-  },
-  {
-    key: 'storage',
-    label: 'Storage',
-    kind: 'choice',
-    required: true,
-    advanced: false,
-    discovers: 'storages',
-  },
-];
 
 // Discovery fills in what is not a question -- one node, one template -- and
 // replaces a published default the cluster does not have when there is one

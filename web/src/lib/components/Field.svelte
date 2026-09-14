@@ -91,12 +91,7 @@
            focus; the sentence itself is in the description, so it is never
            only in the bubble. -->
       <Tooltip text={help} placement="right">
-        <button
-          type="button"
-          class="help"
-          aria-label="Where to find it"
-          aria-describedby={helpId}
-        >
+        <button type="button" class="help" aria-label="Where to find it" aria-describedby={helpId}>
           <CircleHelp size={14} aria-hidden="true" />
         </button>
       </Tooltip>

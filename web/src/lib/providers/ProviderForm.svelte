@@ -146,7 +146,7 @@
   const body = $derived(toProviderBody(draft));
   const nothingRented = $derived(willRentNothing(draft));
   const command = $derived(
-    providerCommand(draft, { editing, existingName: provider?.name ?? undefined }),
+    providerCommand(draft, { editing, existingName: provider?.name ?? undefined, specs }),
   );
   /** The host the credential is being asked about, for the sentences below. */
   const endpointHost = $derived.by(() => {

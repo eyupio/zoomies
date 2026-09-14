@@ -812,8 +812,25 @@ func (s *Server) handleDiscoverDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := defaultProvider()
-	errs := in.apply(p)
-	errs = append(errs, s.validateProvider(r, p, "")...)
+	// Only the connect step's answers are judged. The placement settings a
+	// create insists on are the very ones the menu is being asked for, and a
+	// draft's name may well still be the placeholder.
+	var errs []fieldError
+	for _, e := range in.apply(p) {
+		switch e.Field {
+		case "endpoint", "ca_pem", "connection", "tailcat_address":
+			errs = append(errs, e)
+		}
+	}
+	switch {
+	case p.Kind == "":
+		errs = append(errs, fieldError{"kind", "say what this provider is; GET /api/v1/providers/kinds lists what this build can rent from"})
+	case !p.Kind.Valid():
+		errs = append(errs, fieldError{"kind", fmt.Sprintf("%q is not a provider kind this build knows", p.Kind)})
+	}
+	if p.Endpoint == "" {
+		errs = append(errs, fieldError{"endpoint", "give the address this controller reaches the provider on"})
+	}
 	errs = append(errs, s.connectionErrors(&in, p)...)
 	credential := ""
 	if in.Credential != nil {
