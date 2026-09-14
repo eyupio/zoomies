@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  WINDOWS,
+  bridgeFor,
   hostSeries,
   lineRuns,
   liveSample,
@@ -9,6 +11,7 @@ import {
   metricValue,
   overflowCeiling,
   timeTicks,
+  windowSlots,
 } from '../src/lib/insights/hostSeries.ts';
 import type { Host, HostSample } from '../src/lib/api/types.ts';
 
@@ -97,18 +100,18 @@ test('merging keeps one sample per host per minute and the newer input wins', ()
     sample({ host_id: 'host_b', at: '2026-03-01T09:58:20Z', cpu_percent: 50 }),
   ];
   const live = [sample({ at: '2026-03-01T09:58:40Z', cpu_percent: 20 })];
-  const merged = mergeHostSamples(history, live, now, 60);
+  const merged = mergeHostSamples(history, live, now, 3600);
   assert.deepEqual([...merged.keys()].sort(), ['host_a', 'host_b']);
   const a = merged.get('host_a') ?? [];
   assert.equal(a.length, 1);
   assert.equal(a[0]?.cpu_percent, 20);
 
-  const series = hostSeries(a, 'cpu', now, 60, 1);
+  const series = hostSeries(a, 'cpu', now, 3600, 60);
   assert.equal(series.length, 60);
   assert.equal(series[58]?.value, 20);
   assert.equal(series[59]?.value, null);
   // Folded into five-minute peaks, the gap either side stays a gap.
-  const folded = hostSeries(a, 'cpu', now, 60, 5);
+  const folded = hostSeries(a, 'cpu', now, 3600, 300);
   assert.equal(folded.length, 12);
   assert.equal(folded[11]?.value, 20);
   assert.equal(folded[10]?.value, null);
@@ -123,6 +126,75 @@ test('labels fall on round local times, not on evenly spaced odd minutes', () =>
   // An hour is labelled at the quarter hours.
   const hour = timeTicks(end - 60 * 60_000, end, 5).map((at) => new Date(at).getMinutes());
   assert.deepEqual(hour, [15, 30, 45, 0]);
+  // A minute is labelled at the tens of seconds, and five minutes by the minute.
+  const minute = timeTicks(end - 50_000, end, 5).map((at) => new Date(at).getSeconds());
+  assert.deepEqual(minute, [10, 20, 30, 40, 50, 0]);
+  const five = timeTicks(end - 290_000, end, 5).map((at) => new Date(at).getMinutes());
+  assert.deepEqual(five, [0, 1, 2, 3, 4]);
+});
+
+test('a short window keeps every ten-second slot and folds nothing away', () => {
+  // The controller writes one sample a minute, but a heartbeat is thirty
+  // seconds and the stream carries each one: a window drawn ten seconds to a
+  // point shows both, where a minute-by-minute line kept only the later.
+  const now = Date.UTC(2026, 2, 1, 9, 59, 55);
+  const live = [
+    sample({ at: '2026-03-01T09:59:00Z', cpu_percent: 10 }),
+    sample({ at: '2026-03-01T09:59:30Z', cpu_percent: 40 }),
+    sample({ at: '2026-03-01T09:59:34Z', cpu_percent: 45 }), // same slot as the one before
+    sample({ at: '2026-03-01T09:58:50Z', cpu_percent: 99 }), // before the minute
+  ];
+  const fine = mergeHostSamples([], live, now, 60, 10).get('host_a') ?? [];
+  assert.deepEqual(
+    fine.map((s) => s.cpu_percent),
+    [10, 45],
+  );
+  // By the minute the same samples are one point: the last one wins.
+  const coarse = mergeHostSamples([], live, now, 60, 60).get('host_a') ?? [];
+  assert.deepEqual(
+    coarse.map((s) => s.cpu_percent),
+    [45],
+  );
+
+  const series = hostSeries(fine, 'cpu', now, 60, 10);
+  assert.equal(series.length, 6);
+  assert.deepEqual(
+    series.map((p) => p.value),
+    [10, null, null, 45, null, null],
+  );
+  // The window ends on the current slot, so its right-hand edge is now.
+  const slots = windowSlots(now, 60, 10);
+  assert.equal(slots.end, Date.UTC(2026, 2, 1, 9, 59, 50));
+  assert.equal(slots.start, Date.UTC(2026, 2, 1, 9, 59, 0));
+  assert.equal(slots.count, 6);
+  // And a wide window still ends on the current minute, a whole bucket back.
+  const day = windowSlots(now, 86400, 900);
+  assert.equal(day.end, Date.UTC(2026, 2, 1, 9, 59));
+  assert.equal(day.count, 96);
+  assert.equal(day.start, day.end - (96 * 900 - 60) * 1000);
+});
+
+test('a fine window bridges a minute of silence and a minute-wide one bridges a minute', () => {
+  // At ten seconds a point the stored samples are six points apart and a
+  // heartbeat three, so both join; ninety seconds, which is a lost host,
+  // does not. By the minute the rule is the one the comment on BRIDGE gives.
+  assert.equal(bridgeFor(10), 6);
+  assert.equal(bridgeFor(60), 1);
+  assert.equal(bridgeFor(900), 1);
+  const at = (i: number) => Date.UTC(2026, 2, 1, 9, 0, i * 10);
+  const v = (i: number, value: number | null) => ({ at: at(i), value });
+  const points = [v(0, 10), ...Array.from({ length: 5 }, (_, i) => v(i + 1, null)), v(6, 20)];
+  assert.deepEqual(
+    lineRuns(points, bridgeFor(10)).map((run) => run.map((p) => p.i)),
+    [[0, 6]],
+  );
+  const lost = [v(0, 10), ...Array.from({ length: 8 }, (_, i) => v(i + 1, null)), v(9, 20)];
+  assert.deepEqual(
+    lineRuns(lost, bridgeFor(10)).map((run) => run.map((p) => p.i)),
+    [[0], [9]],
+  );
+  // Every window's span is a whole number of its points.
+  for (const w of WINDOWS) assert.equal(w.seconds % w.bucket, 0, w.value);
 });
 
 test('a line is drawn across one missing minute and broken by two', () => {

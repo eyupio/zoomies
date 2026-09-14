@@ -269,7 +269,12 @@ low against a 13px line. Anything that *can* sit on the spacing scale does.
 The drawn controls have their own sizes, for the same reason: `--z-control-box`
 (15px, the checkbox and radio box), `--z-control-thumb` (14px, the switch), and
 `--z-control-icon` (14px, the icon inside a button). Field and button *heights*
-are on the spacing scale and stay there.
+are on the spacing scale and stay there, with one exception: `--z-control-touch`
+(44px) is the height a control read by a finger takes under
+`@media (pointer: coarse)` — the segmented choices, the capacity map's chips
+and legend switches, a slider's thumb — because a 24px row a mouse is fine with
+is two rows under one fingertip. It applies only where the pointer is coarse,
+so the desktop keeps its density.
 
 Dialogs and drawers are cut to their content's comfortable measure rather than
 to the viewport, so each has three widths and they are the three shapes we

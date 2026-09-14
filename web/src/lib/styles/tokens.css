@@ -230,6 +230,11 @@
   /* iOS zooms the page when a focused field's text is under 16px, so under
      the phone breakpoint every text control steps up to this. */
   --z-control-font-touch: 16px;
+  /* The smallest target a finger hits reliably, which both platforms' own
+     guidance puts at 44 to 48 points. A control read by touch -- the chart
+     chips, a segmented choice, a legend's switches -- takes this as its height
+     where the pointer is coarse, and keeps its dense desktop height elsewhere. */
+  --z-control-touch: 44px;
 
   /* Tracking -------------------------------------------------------------
    * Uppercase text needs air or it sets as a block; display text at 28px and

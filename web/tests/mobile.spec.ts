@@ -673,3 +673,49 @@ test('the runner lifecycle keeps its steps in columns when it wraps', async ({ p
     .evaluateAll((els) => els.map((el) => getComputedStyle(el).visibility));
   expect(arrows).toEqual(['visible', 'hidden', 'visible', 'hidden', 'hidden']);
 });
+
+/*
+ * The capacity map read the chart by hover, and a finger cannot hover: the
+ * reading appeared under the fingertip and was gone the moment it lifted.
+ * On a phone a tap chooses the moment, the reading sits under the chart
+ * rather than under the finger, and every control on the map is tall
+ * enough to hit.
+ */
+test('the host capacity map is read by touch', async ({ page }) => {
+  await goto(page, '/hosts', 'Hosts');
+  const map = page.getByRole('region', { name: 'Host capacity map', exact: true });
+  const chart = map.getByRole('img').first();
+  await expect(chart).toBeVisible();
+
+  // A tap on the chart chooses a moment, and the reading stays put after the
+  // finger has gone, below the chart where it can be read.
+  await chart.tap();
+  const card = map.locator('.card');
+  await expect(card).toBeVisible();
+  const chartBox = await chart.boundingBox();
+  const cardBox = await card.boundingBox();
+  expect(cardBox!.y, 'the reading sits under the chart, not on it').toBeGreaterThanOrEqual(
+    chartBox!.y + chartBox!.height - 1,
+  );
+  expect(cardBox!.x + cardBox!.width).toBeLessThanOrEqual(chartBox!.x + chartBox!.width + 1);
+  await map.getByRole('button', { name: 'Back to now' }).tap();
+  await expect(card).toBeHidden();
+
+  // Every target is finger-sized: the window choice, the measurement chips,
+  // the hosts' switches and the per-host actions.
+  const targets = [
+    map.getByRole('group', { name: 'Window' }).getByRole('button', { name: '1m' }),
+    map.getByRole('group', { name: 'Measurements shown' }).getByRole('button').first(),
+    map.getByRole('group', { name: 'Hosts shown' }).getByRole('button').first(),
+    map.getByRole('button', { name: 'Only' }).first(),
+    map.getByRole('link', { name: /^History/ }).first(),
+  ];
+  for (const target of targets) {
+    const box = await target.boundingBox();
+    expect(box, 'the target is on the page').not.toBeNull();
+    expect(box!.height, `${await target.innerText()} is too short to tap`).toBeGreaterThanOrEqual(
+      44,
+    );
+  }
+  await expectNoSidewaysScroll(page, 'the Hosts page with the capacity map');
+});
