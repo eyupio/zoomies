@@ -57,7 +57,7 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := metaResponse{
-		TailcatAvailable:            s.cfg().Server.TailcatEnabled && !s.cfg().Security.DisableAuth && s.key != nil,
+		TailcatAvailable:            s.tailcatAvailable(),
 		Version:                     version.Short(),
 		VersionChannel:              version.Channel(version.Version),
 		Commit:                      version.Commit,

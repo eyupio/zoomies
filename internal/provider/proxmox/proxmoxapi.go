@@ -98,8 +98,13 @@ type Options struct {
 	// refused because a homelab cluster's certificate is usually its own, and
 	// every construction with it set says what it costs.
 	Insecure bool
+	// DialContext, when set, opens every connection instead of the network,
+	// and no proxy is consulted. It is how a cluster behind a private
+	// connection is reached; the endpoint's host is then only the name the
+	// certificate is checked against.
+	DialContext func(ctx context.Context, network, address string) (net.Conn, error)
 	// HTTPClient replaces the client's own. Tests use it; production leaves it
-	// nil so that the TLS settings above take effect.
+	// nil so that the TLS settings above and DialContext take effect.
 	HTTPClient *http.Client
 	Logger     *slog.Logger
 }
@@ -162,22 +167,29 @@ func New(opts Options) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	transport := &http.Transport{
+		TLSClientConfig:       tlsCfg,
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: dialTimeout, KeepAlive: 30 * time.Second}).DialContext,
+		MaxIdleConns:          8,
+		MaxIdleConnsPerHost:   4,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: responseHeaderTimeout,
+		ExpectContinueTimeout: time.Second,
+		ForceAttemptHTTP2:     true,
+	}
+	if opts.DialContext != nil {
+		// A proxy would take the connection out of the private tunnel, and
+		// the address it would be sent to does not exist from here anyway.
+		transport.DialContext = opts.DialContext
+		transport.Proxy = nil
+	}
 	c.http = &http.Client{
 		// No Client.Timeout on purpose: a deadline that applies to every call
 		// equally is either too short for a clone or too long for a status
 		// read, so each call sets its own on the context instead.
-		Transport: &http.Transport{
-			TLSClientConfig:       tlsCfg,
-			Proxy:                 http.ProxyFromEnvironment,
-			DialContext:           (&net.Dialer{Timeout: dialTimeout, KeepAlive: 30 * time.Second}).DialContext,
-			MaxIdleConns:          8,
-			MaxIdleConnsPerHost:   4,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ResponseHeaderTimeout: responseHeaderTimeout,
-			ExpectContinueTimeout: time.Second,
-			ForceAttemptHTTP2:     true,
-		},
+		Transport: transport,
 	}
 	return c, nil
 }

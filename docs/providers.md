@@ -204,3 +204,12 @@ Two tests keep the contract honest in the other direction: one asserts the
 package imports nothing beyond the domain types, and one fails on any identifier
 or comment in it that names a specific provider. A contract that has learned the
 word `vmid` has stopped being one.
+
+A provider that opens its own connections has one more rule to keep. `Config`
+carries a `DialContext`, set when the operator reached the provider through a
+[private connection](private-hosts.md#private-providers), and every socket the
+provider opens has to go through it, with no proxy in between: the endpoint's
+host is then only the name TLS verifies the certificate against, and a provider
+that dialled it directly would report a hypervisor down that is merely at home.
+The Proxmox client does this in one place, in its `http.Transport`, which is
+where a new provider should do it too.

@@ -350,6 +350,14 @@
                   <dd class="mono">{p.endpoint || 'Not set'}</dd>
                 </div>
                 <div>
+                  <dt>Connection</dt>
+                  <dd>
+                    {p.connection === 'tailcat'
+                      ? 'Private, through a zoomies gateway beside the provider. Its address is sealed and never shown.'
+                      : 'Direct. This controller dials the address over the network.'}
+                  </dd>
+                </div>
+                <div>
                   <dt>Credential</dt>
                   <dd>
                     {p.credentials_configured

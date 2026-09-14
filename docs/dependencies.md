@@ -16,7 +16,7 @@ Two things are deliberately **not** here, and both were close calls — see
 
 | Module | Why |
 | --- | --- |
-| `github.com/tailscale/tailcat` | Built-in encrypted private agent transport, NAT traversal and relay fallback; avoids installing and supervising a separate tunnel process. Pinned to v0.6.0; requires Go 1.27.1. |
+| `github.com/tailscale/tailcat` | Built-in encrypted private transport for agents and, through `zoomies gateway`, for providers on a home network; NAT traversal and relay fallback without installing and supervising a separate tunnel process. Pinned to v0.6.0; requires Go 1.27.1. |
 | `tailscale.com` | Tailcat’s network and key types, plus a local DERP test relay to verify real tunnel behaviour without hosted infrastructure. |
 | `modernc.org/sqlite` | Pure-Go SQLite. No cgo means the binary is static, cross-compiles to five platforms from one machine, and runs on distroless. |
 | `github.com/go-chi/chi/v5` | Router. `net/http`'s 1.22 mux nearly suffices, but chi's middleware chaining and sub-router mounting keep the API's role and audit middleware readable. Small, stable, no reflection. |

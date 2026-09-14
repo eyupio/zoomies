@@ -1023,6 +1023,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/hosts/samples": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Per-host minute samples for the capacity map
+         * @description One row per host per minute: its slots, what its agent measured (CPU, the one-minute load average, available memory), what the scheduler had promised away on it, and its disk. A measurement the host had not made, or one older than 90 seconds when the minute was sampled, is absent rather than zero, so a host that stopped reporting draws a gap rather than a flat line. Kept for `retention.samples`, like the fleet samples.
+         */
+        get: operations["listHostSamples"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/hosts/{id}": {
         parameters: {
             query?: never;
@@ -3025,6 +3045,40 @@ export interface components {
             /** @description The kernel's one-minute load average for the whole machine, as the agent read it from /proc/loadavg. Absent when unmeasured. Judged against the host's CPU count: a load of at least twice the CPUs is what steps the throttle up, because a runnable queue that deep is a machine that has stopped keeping up even when the CPU figure saturates at 100. */
             load_average_1m?: number;
         };
+        /** @description One host at one minute. Absent measurements are gaps, never zero. */
+        HostSample: {
+            host_id: string;
+            /** Format: date-time */
+            at: string;
+            /** @description The slots the host was taking that minute -- its configured capacity stepped down by any throttle. */
+            capacity: number;
+            active_runners: number;
+            /** @description Whole-host CPU occupied */
+            cpu_percent?: number;
+            /** @description The kernel's one-minute load average. Absent when unmeasured or stale. */
+            load_average_1m?: number;
+            /** @description The machine's CPUs */
+            cpus?: number;
+            /** Format: int64 */
+            memory_mb?: number;
+            /**
+             * Format: int64
+             * @description Whole-host available memory including reclaimable cache. Absent when unmeasured or stale.
+             */
+            memory_available_mb?: number;
+            /** @description The machine less its reserve */
+            allocatable_cpus?: number;
+            /** Format: int64 */
+            allocatable_memory_mb?: number;
+            /** @description What the live runners had promised away */
+            reserved_cpus?: number;
+            /** Format: int64 */
+            reserved_memory_mb?: number;
+            /** Format: int64 */
+            disk_total_mb?: number;
+            /** Format: int64 */
+            disk_free_mb?: number;
+        };
         /** @description The rung the controller has stepped a host down to after sustained pressure. The controller owns every field: a heartbeat carries the measurements and never the decision, and an agent cannot set or clear one. Absent from a host on no rung. */
         HostThrottle: {
             /** @description The rung, 1 to 3. Each takes a quarter of the host's slots (to 75%, 50%, 25% of capacity, never below one slot) and lowers the CPU quota of every runner here that has one, down to half. Owned by the controller. */
@@ -3224,6 +3278,11 @@ export interface components {
             endpoint?: string;
             /** @description Certificate verification is off for this provider */
             insecure_skip_verify?: boolean;
+            /**
+             * @description How the controller reaches the endpoint: over the network, or through a `zoomies gateway` running beside the provider, for a hypervisor on a home network with no address the controller can route to. The gateway's address is sealed on the row and never returned, for the credential's reason.
+             * @enum {string}
+             */
+            connection?: "direct" | "tailcat";
             /** @description The non-secret answers to this driver's own settings, keyed as GET /providers/kinds describes them. */
             settings?: {
                 [key: string]: string;
@@ -3296,6 +3355,13 @@ export interface components {
             /** @description The certificate to trust for this endpoint */
             ca_pem?: string;
             insecure_skip_verify?: boolean;
+            /**
+             * @description Direct, or through a `zoomies gateway` beside the provider. Choosing direct on a provider that had a private connection clears its stored address.
+             * @enum {string}
+             */
+            connection?: "direct" | "tailcat";
+            /** @description The address `zoomies gateway` printed. Sealed with the instance key and never returned; an empty string on a PATCH leaves the stored one alone. Giving one without naming a connection means tailcat. */
+            tailcat_address?: string;
             settings?: {
                 [key: string]: string;
             };
@@ -5504,6 +5570,34 @@ export interface operations {
                 content: {
                     "application/json": {
                         items?: components["schemas"]["Host"][];
+                    };
+                };
+            };
+        };
+    };
+    listHostSamples: {
+        parameters: {
+            query?: {
+                window?: string;
+                /** @description An exact instant to resume from. Wins over `window` when both are given. */
+                since?: string;
+                /** @description One host's samples only. Left out, every host's. */
+                host_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items?: components["schemas"]["HostSample"][];
                     };
                 };
             };

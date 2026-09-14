@@ -6,7 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/tailscale/tailcat"
 )
 
 // A provider's credential reaches a hypervisor: anyone holding it can create,
@@ -456,5 +458,124 @@ func TestAnEndpointThatWouldSendTheCredentialInTheClearIsRefused(t *testing.T) {
 	}
 	if got := endpointError(t, draft("https://pve.example.com:8006", false)); got != "" {
 		t.Errorf("https was refused: %s", got)
+	}
+}
+
+func privateAddress(t *testing.T) string {
+	t.Helper()
+	identity := tailcat.NewPrivateKey()
+	identity.Public.RegionID = 1
+	return string(identity.Public.Addr())
+}
+
+// The gateway's address is a lasting capability to open connections to a
+// hypervisor's API, so it is handled the way the credential is: it goes in
+// once, is never returned, and a blank box on an edit leaves it alone.
+func TestAProvidersPrivateConnectionAddressIsSealedAndNeverReturned(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("admin", store.RoleAdmin)
+	cookie := h.session(admin)
+	address := privateAddress(t)
+
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/providers", cookie: cookie,
+		body: map[string]any{"kind": "fake", "name": "home-lab", "endpoint": "https://pve.lan:8006",
+			"credential": "zoomies@pve!ci=secret", "tailcat_address": address, "settings": map[string]string{"zone": "zone-a"}}})
+	created.mustStatus(t, http.StatusCreated, "create a private provider")
+	var made providerResponse
+	created.into(t, &made)
+	if made.Connection != "tailcat" {
+		t.Fatalf("connection = %q, want tailcat", made.Connection)
+	}
+	for _, resp := range []*response{
+		created,
+		h.do(request{method: http.MethodGet, path: "/api/v1/providers", cookie: cookie}),
+		h.do(request{method: http.MethodGet, path: "/api/v1/providers/" + made.ID, cookie: cookie}),
+		h.do(request{method: http.MethodGet, path: "/api/v1/audit", cookie: cookie}),
+	} {
+		if strings.Contains(string(resp.body), address) {
+			t.Fatalf("a response carries the private connection address: %s", truncate(resp.body))
+		}
+	}
+	row, err := h.st.GetProvider(h.ctx, made.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(row.TailcatAddressEnc) == 0 || strings.Contains(string(row.TailcatAddressEnc), address) {
+		t.Fatal("the address was not sealed into the row")
+	}
+
+	// A rename from a form whose address box is blank keeps the connection.
+	h.do(request{method: http.MethodPatch, path: "/api/v1/providers/" + made.ID, cookie: cookie,
+		body: map[string]any{"name": "home-lab-2", "tailcat_address": "", "connection": "tailcat"}}).mustStatus(t, http.StatusOK, "rename")
+	after, _ := h.st.GetProvider(h.ctx, made.ID)
+	if string(after.TailcatAddressEnc) != string(row.TailcatAddressEnc) {
+		t.Fatal("an edit that did not give an address changed the sealed one")
+	}
+	// The dry run of that same edit is judged against the stored address.
+	dry := h.do(request{method: http.MethodPost, path: "/api/v1/providers/validate?id=" + made.ID, cookie: cookie,
+		body: map[string]any{"kind": "fake", "name": "home-lab-2", "endpoint": "https://pve.lan:8006", "connection": "tailcat", "settings": map[string]string{"zone": "zone-a"}}})
+	dry.mustStatus(t, http.StatusOK, "validate")
+	var verdict validateProviderResponse
+	dry.into(t, &verdict)
+	if !verdict.Valid {
+		t.Fatalf("the dry run of an edit that keeps the connection was refused: %+v", verdict.Errors)
+	}
+
+	// Choosing a direct connection is the deliberate act that clears it.
+	direct := h.do(request{method: http.MethodPatch, path: "/api/v1/providers/" + made.ID, cookie: cookie,
+		body: map[string]any{"connection": "direct"}})
+	direct.mustStatus(t, http.StatusOK, "switch to direct")
+	var view providerResponse
+	direct.into(t, &view)
+	if view.Connection != "direct" {
+		t.Fatalf("connection = %q after switching to direct", view.Connection)
+	}
+	cleared, _ := h.st.GetProvider(h.ctx, made.ID)
+	if len(cleared.TailcatAddressEnc) != 0 {
+		t.Fatal("switching to a direct connection left the address sealed on the row")
+	}
+}
+
+func TestAPrivateProviderNeedsAWholeAddressAndPrivateConnectionsTurnedOn(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("admin", store.RoleAdmin)
+	cookie := h.session(admin)
+	base := map[string]any{"kind": "fake", "name": "home-lab", "endpoint": "https://pve.lan:8006", "credential": "x", "settings": map[string]string{"zone": "zone-a"}}
+	with := func(extra map[string]any) map[string]any {
+		body := map[string]any{}
+		for k, v := range base {
+			body[k] = v
+		}
+		for k, v := range extra {
+			body[k] = v
+		}
+		return body
+	}
+	for name, tc := range map[string]struct {
+		body  map[string]any
+		field string
+	}{
+		"no address":         {with(map[string]any{"connection": "tailcat"}), "tailcat_address"},
+		"not an address":     {with(map[string]any{"tailcat_address": "tc-not-really-secret"}), "tailcat_address"},
+		"address but direct": {with(map[string]any{"connection": "direct", "tailcat_address": privateAddress(t)}), "connection"},
+		"neither":            {with(map[string]any{"connection": "carrier-pigeon"}), "connection"},
+	} {
+		resp := h.do(request{method: http.MethodPost, path: "/api/v1/providers", cookie: cookie, body: tc.body})
+		resp.mustStatus(t, http.StatusUnprocessableEntity, name)
+		if !strings.Contains(string(resp.body), `"field":"`+tc.field+`"`) {
+			t.Errorf("%s: the refusal names the wrong field: %s", name, truncate(resp.body))
+		}
+		if strings.Contains(string(resp.body), "tc-not-really-secret") {
+			t.Errorf("%s: the refusal quotes the address", name)
+		}
+	}
+
+	off := newHarness(t, func(c *config.Config) { c.Server.TailcatEnabled = false })
+	offAdmin, _ := off.user("admin", store.RoleAdmin)
+	resp := off.do(request{method: http.MethodPost, path: "/api/v1/providers", cookie: off.session(offAdmin),
+		body: with(map[string]any{"tailcat_address": privateAddress(t)})})
+	resp.mustStatus(t, http.StatusUnprocessableEntity, "private connections off")
+	if !strings.Contains(string(resp.body), "server.tailcat_enabled") {
+		t.Fatalf("the refusal does not say what to turn on: %s", truncate(resp.body))
 	}
 }

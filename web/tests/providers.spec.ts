@@ -44,7 +44,9 @@ const next = (page: Page) => page.getByRole('button', { name: 'Next' });
 async function connectStep(page: Page, name: string): Promise<void> {
   await expect(page.getByLabel('Kind')).toHaveValue('proxmox');
   await page.getByLabel('Name').fill(name);
-  await page.getByLabel('Address').fill('https://pve.e2e.example:8006');
+  // By role: the connection choice below it describes itself with the word
+  // too, and a radio is not where a URL goes.
+  await page.getByRole('textbox', { name: /^Address/ }).fill('https://pve.e2e.example:8006');
   await page.getByLabel('Credential').fill('zoomies@pve!e2e=not-a-token');
   await next(page).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Placement' })).toBeVisible();
@@ -538,4 +540,42 @@ test('the Providers page leads to the wizard, and a machine leads back to its pr
   await goto(page, `/machines/${FIXTURE.readyMachineId}`, FIXTURE.readyMachine);
   await page.getByRole('link', { name: FIXTURE.provider }).first().click();
   await expect(pageHeading(page, FIXTURE.provider)).toBeVisible();
+});
+
+test('a private connection is offered only where the controller can make one, and asks for the gateway address', async ({
+  page,
+}) => {
+  // The e2e binary runs with authentication off, where private connections
+  // are unavailable: the choice is there, disabled, with the reason beside it.
+  await goto(page, '/providers/new', 'Add a provider');
+  await expect(page.getByRole('radio', { name: /Private connection/ })).toBeDisabled();
+  await expect(page.getByRole('radio', { name: 'Direct' })).toBeChecked();
+  await expect(page.getByText(/Private connections need authentication/)).toBeVisible();
+
+  await page.route('**/api/v1/meta', async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({
+      response,
+      json: { ...(await response.json()), tailcat_available: true },
+    });
+  });
+  await goto(page, '/providers/new', 'Add a provider');
+  await page.getByRole('textbox', { name: /^Address/ }).fill('https://pve.e2e.example:8006');
+  await expect(page.getByLabel('Private connection address')).toHaveCount(0);
+  await page.getByRole('radio', { name: /Private connection/ }).check();
+  const address = page.getByLabel('Private connection address');
+  await expect(address).toBeVisible();
+  await expect(address).toHaveAttribute('type', 'password');
+  await address.fill('not an address');
+  await address.blur();
+  await expect(page.getByText(/Copy the whole address the gateway printed/)).toBeVisible();
+  // The endpoint is still what the certificate is checked against, so it
+  // stays required and untouched by the choice.
+  await expect(page.getByRole('textbox', { name: /^Address/ })).toHaveValue(
+    'https://pve.e2e.example:8006',
+  );
+  // Nothing about the choice is a matter for the browser alone: what leaves
+  // the page names the connection, and the address travels only with it.
+  await page.getByRole('radio', { name: 'Direct' }).check();
+  await expect(page.getByLabel('Private connection address')).toHaveCount(0);
 });

@@ -6,8 +6,9 @@
 // cannot show a page the product does not have, and refreshing them after a
 // UI change is one command:
 //
-//   make screenshots                         writes docs/screenshots/*.webp
-//   node tests/support/screenshots.mjs DIR   writes them somewhere else
+//   make screenshots                                 writes docs/screenshots/*.webp
+//   node tests/support/screenshots.mjs DIR           writes them somewhere else
+//   node tests/support/screenshots.mjs DIR hosts,usage  only the shots named
 //
 // Each theme gets a controller of its own. The fixture is placed relative to
 // the moment it is seeded and the scheduler starts working on it at once --
@@ -33,6 +34,8 @@ const PORT = 8097;
 const root = resolve(import.meta.dirname, '..', '..', '..');
 const binary = join(root, 'zoomies');
 const outDir = resolve(process.argv[2] ?? join(root, 'docs', 'screenshots'));
+/** Shot names to capture, for a change to one page; empty means every shot. */
+const only = (process.argv[3] ?? '').split(',').filter(Boolean);
 
 /** The administrator every shot is signed in as. The database is thrown away. */
 const ADMIN = { username: 'alice', password: 'screenshots-only-not-a-secret' };
@@ -362,6 +365,7 @@ async function capture(browser, scheme, pngDir) {
     await pingWebhook(baseURL);
 
     for (const shot of SHOTS) {
+      if (only.length > 0 && !only.includes(shot.name)) continue;
       console.log(`  capturing ${shot.name}-${scheme}`);
       let context = desktop;
       if (shot.device) {
@@ -409,4 +413,4 @@ try {
   await browser.close();
   rmSync(pngDir, { recursive: true, force: true });
 }
-console.log(`wrote ${SHOTS.length * 2} screenshots to ${outDir}`);
+console.log(`wrote ${(only.length > 0 ? only.length : SHOTS.length) * 2} screenshots to ${outDir}`);

@@ -14,7 +14,7 @@
   fleet does.
 -->
 <script lang="ts">
-  import HostLandscape from '$lib/insights/HostLandscape.svelte';
+  import HostCapacityMap from '$lib/insights/HostCapacityMap.svelte';
   import { hostSignals } from '$lib/insights/signals';
   import MetricGrid from '$lib/components/MetricGrid.svelte';
   import { Plus, Server } from '@lucide/svelte';
@@ -356,7 +356,7 @@
       />
     {/if}
     <div class="capacity-map">
-      <HostLandscape
+      <HostCapacityMap
         {hosts}
         onmanage={(host) => {
           const heading = document.getElementById(`host-${host.id}-name`);

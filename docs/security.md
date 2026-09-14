@@ -118,6 +118,7 @@ on its own runners, and cannot read pools, jobs, users or the audit log.
 | Agent tokens | `hosts.token_hash` | SHA-256; issued once at join |
 | Join tokens | `join_tokens.token_hash` | SHA-256, single-use, short TTL. One minted for a rented machine is scoped to that machine's name as well, so a token read out of a guest cannot enrol anything else |
 | Provider credentials | `providers.credentials_enc` | AES-256-GCM, key from env or key file. Unsealed only for the life of one API client, and never sent to a guest, an API response, an audit row or a log line |
+| Provider private connection address | `providers.tailcat_address_enc` | Same. The address of a `zoomies gateway` is a lasting capability to open connections to the hypervisor's API, so it is handled exactly as the credential beside it: every read reports `connection: tailcat` instead |
 | JIT runner configs | Never stored | Passed to the agent in a task and to the container in its environment |
 
 ### The instance encryption key

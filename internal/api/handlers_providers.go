@@ -12,6 +12,7 @@ import (
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/tailscale/tailcat"
 )
 
 // The provider routes are the configuration half of renting machines: where
@@ -134,6 +135,13 @@ type providerInput struct {
 	InsecureSkipVerify *bool               `json:"insecure_skip_verify"`
 	Settings           *map[string]string  `json:"settings"`
 	Credential         *string             `json:"credential"`
+	// Connection is "direct" or "tailcat". TailcatAddress is the gateway's
+	// address, handled exactly as the credential is: sealed, never returned,
+	// and an empty string on a PATCH leaves the stored one alone. Switching
+	// back to a direct connection is what clears it, so a form that cannot
+	// read the address back cannot erase it by accident either.
+	Connection     *string `json:"connection"`
+	TailcatAddress *string `json:"tailcat_address"`
 
 	MachineLabels   *map[string]string `json:"machine_labels"`
 	MachineCapacity *int               `json:"machine_capacity"`
@@ -379,6 +387,7 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 	p := defaultProvider()
 	errs := in.apply(p)
 	errs = append(errs, s.validateProvider(r, p, "")...)
+	errs = append(errs, s.connectionErrors(&in, p)...)
 	if len(errs) > 0 {
 		unprocessable(w, "this provider cannot be created as described", errs)
 		return
@@ -392,6 +401,9 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 		if !s.sealProviderCredential(w, r, p.ID, *in.Credential) {
 			return
 		}
+	}
+	if !s.applyConnection(w, r, &in, p) {
+		return
 	}
 	// Read back, because the credential was written by a second statement and
 	// the response says whether one is configured.
@@ -420,7 +432,8 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	if in.Credential != nil && strings.TrimSpace(*in.Credential) != "" && s.key == nil {
+	if s.key == nil && (in.Credential != nil && strings.TrimSpace(*in.Credential) != "" ||
+		in.TailcatAddress != nil && strings.TrimSpace(*in.TailcatAddress) != "") {
 		s.noEncryptionKey(w)
 		return
 	}
@@ -435,6 +448,7 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 			"a provider's kind cannot be changed after it is created: the machines it already owns are %s machines. Create a second provider instead.", before.Kind)})
 	}
 	errs = append(errs, s.validateProvider(r, &p, row.ID)...)
+	errs = append(errs, s.connectionErrors(&in, &p)...)
 	if len(errs) > 0 {
 		unprocessable(w, "this provider cannot be changed as described", errs)
 		return
@@ -448,6 +462,9 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 		if !s.sealProviderCredential(w, r, p.ID, *in.Credential) {
 			return
 		}
+	}
+	if !s.applyConnection(w, r, &in, &p) {
+		return
 	}
 	fresh, err := s.ctrl.Store().GetProvider(r.Context(), p.ID)
 	if err != nil {
@@ -465,6 +482,95 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.ctrl.ProviderView(fresh, machines))
+}
+
+// connection is what the request asked for, resolved against what the row
+// already has: the connection named, the address to seal (empty for none), and
+// whether the stored address is to be cleared.
+//
+// An address with no connection named means a private one -- the address is
+// the whole of the answer -- and an address beside "direct" is a contradiction
+// rather than a choice, because one of the two would have to be ignored and
+// the form could not tell which.
+func (in *providerInput) connection(p *store.Provider) (kind, address string, drop bool, errs []fieldError) {
+	if in.TailcatAddress != nil {
+		address = strings.TrimSpace(*in.TailcatAddress)
+	}
+	switch {
+	case in.Connection != nil:
+		kind = strings.ToLower(strings.TrimSpace(*in.Connection))
+	case address != "":
+		kind = "tailcat"
+	case len(p.TailcatAddressEnc) > 0:
+		kind = "tailcat"
+	default:
+		kind = "direct"
+	}
+	switch kind {
+	case "direct":
+		if address != "" {
+			errs = append(errs, fieldError{"connection", "a direct connection has no private address; choose tailcat to use it, or leave it out"})
+		}
+		drop = len(p.TailcatAddressEnc) > 0
+	case "tailcat":
+		if address == "" && len(p.TailcatAddressEnc) == 0 {
+			errs = append(errs, fieldError{"tailcat_address", "a private connection needs the gateway's address; run `zoomies gateway --target <hypervisor-api>` beside the provider and paste the address it prints"})
+		}
+		if address != "" {
+			// Refused here, offline, rather than at the first clone. The
+			// message never quotes the address: it is a capability, and a
+			// 422 body is copied into bug reports.
+			info, err := tailcat.ParseAddr(tailcat.Addr(address))
+			if err != nil || info.PresharedKey.IsZero() {
+				errs = append(errs, fieldError{"tailcat_address", "that is not a complete Tailcat address; copy the whole address the gateway printed, beginning with tc"})
+			}
+		}
+	default:
+		errs = append(errs, fieldError{"connection", "choose direct or tailcat"})
+	}
+	return kind, address, drop, errs
+}
+
+// tailcatAvailable says private connections can be used at all, on the same
+// terms the hosts' enrolment and GET /meta apply.
+func (s *Server) tailcatAvailable() bool {
+	return s.cfg().Server.TailcatEnabled && !s.cfg().Security.DisableAuth && s.key != nil
+}
+
+// connectionErrors is the connection half of validating a request, shared by
+// create, update and the dry run. The availability check sits here rather
+// than in apply because it is a fact about this deployment, not the draft.
+func (s *Server) connectionErrors(in *providerInput, p *store.Provider) []fieldError {
+	kind, address, _, errs := in.connection(p)
+	if kind == "tailcat" && (address != "" || len(p.TailcatAddressEnc) == 0) && !s.tailcatAvailable() {
+		errs = append(errs, fieldError{"connection", "private connections are disabled; enable authentication, set server.tailcat_enabled to true and configure a controller encryption key, then restart the controller"})
+	}
+	return errs
+}
+
+// applyConnection writes the connection half of a request after the row has
+// been saved: the sealed address, or its removal. It answers the client itself
+// on failure and reports whether the caller may carry on.
+func (s *Server) applyConnection(w http.ResponseWriter, r *http.Request, in *providerInput, p *store.Provider) bool {
+	_, address, drop, _ := in.connection(p)
+	switch {
+	case address != "":
+		sealed, err := s.key.SealString(address)
+		if err != nil {
+			s.internal(w, r, "sealing the provider's private connection address", err)
+			return false
+		}
+		if err := s.ctrl.Store().SetProviderTailcatAddress(r.Context(), p.ID, sealed); err != nil {
+			s.fail(w, r, "saving the provider's private connection address", err)
+			return false
+		}
+	case drop:
+		if err := s.ctrl.Store().SetProviderTailcatAddress(r.Context(), p.ID, nil); err != nil {
+			s.fail(w, r, "switching the provider to a direct connection", err)
+			return false
+		}
+	}
+	return true
 }
 
 // sealProviderCredential seals a credential with the instance key and writes
@@ -515,7 +621,17 @@ func (s *Server) handleValidateProvider(w http.ResponseWriter, r *http.Request) 
 	}
 	p := defaultProvider()
 	errs := in.apply(p)
-	errs = append(errs, s.validateProvider(r, p, strings.TrimSpace(r.URL.Query().Get("id")))...)
+	existingID := strings.TrimSpace(r.URL.Query().Get("id"))
+	errs = append(errs, s.validateProvider(r, p, existingID)...)
+	if existingID != "" {
+		// The dry run of an edit is judged against the row it edits, so a
+		// form that leaves the address box blank on a provider that already
+		// has one is told nothing is wrong, exactly as the PATCH will.
+		if row, err := s.ctrl.Store().GetProvider(r.Context(), existingID); err == nil {
+			p.TailcatAddressEnc = row.TailcatAddressEnc
+		}
+	}
+	errs = append(errs, s.connectionErrors(&in, p)...)
 
 	// Only the driver's own findings. This endpoint is offline, so the
 	// warnings that need the hypervisor -- a certificate nobody checks, a
