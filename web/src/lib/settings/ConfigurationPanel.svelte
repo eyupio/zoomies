@@ -322,10 +322,17 @@
           </p>
           <ul class="held-rows">
             {#each held as setting (setting.key)}
+              <!--
+                The order here is the order the grid places them in: the
+                variable and its value on one line, the setting's name and its
+                key underneath. A `display: contents` row flows in document
+                order, so the columns are assigned by where each span sits
+                rather than by the grid-column it asks for.
+              -->
               <li>
                 <span class="held-env mono">{setting.env}</span>
-                <span class="held-label">{setting.label}</span>
                 <span class="held-value mono">{displayValue(setting)}</span>
+                <span class="held-label">{setting.label}</span>
                 <span class="held-key mono">{setting.key}</span>
               </li>
             {/each}
