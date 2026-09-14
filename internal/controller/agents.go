@@ -537,6 +537,10 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 		h.ReserveCPUs = existing.ReserveCPUs
 		h.ReserveMemoryMB = existing.ReserveMemoryMB
 		h.ReserveDiskMB = existing.ReserveDiskMB
+		// The throttle is deliberately not carried over. It was decided from
+		// measurements of a machine that has just been rebuilt or restarted,
+		// and a rebuilt machine starts on no rung: if the pressure is still
+		// there its first heartbeats put it straight back on one.
 	}
 	if err := c.st.CreateHost(ctx, h); err != nil {
 		return nil, fmt.Errorf("registering host %s: %w", name, err)
@@ -709,6 +713,14 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 		h.Usage = usage
 		c.Nudge()
 	}
+	// The ladder runs on the measurements just recorded, and on every beat
+	// rather than only the ones that carry a sample: a host whose agent has
+	// stopped measuring is lifted here after StaleThrottleReset, not left on a
+	// rung until housekeeping happens to look. With throttling off nothing is
+	// decided, and housekeeping lifts whatever still stands.
+	if c.cfg().Scheduler.HostThrottling {
+		c.settleThrottle(ctx, h, now)
+	}
 
 	if len(req.Runners) > 0 {
 		if err := c.applyReports(ctx, hostID, req.Runners); err != nil {
@@ -738,6 +750,7 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 		ControllerVersion:  version.Short(),
 		ResyncRequested:    c.markHostSeen(hostID, false),
 		UnknownRunners:     c.unknownRunners(ctx, hostID, req.Runners),
+		Throttle:           throttleDirective(h),
 	}, nil
 }
 
@@ -1473,6 +1486,9 @@ func hostBackends(infos []backend.Info) store.HostBackends {
 			Endpoint:     i.Endpoint,
 			Detail:       i.Detail,
 			SupportsDinD: i.SupportsDinD,
+			CPUs:         i.CPUs,
+			MemoryMB:     i.MemoryMB,
+			Limits:       i.Limits,
 		})
 	}
 	slices.SortFunc(out, func(a, b store.HostBackend) int {

@@ -131,7 +131,7 @@ give each repository a cache without an installation per repository.
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
 | GET | `/api/v1/runners` | viewer | Filters: `pool_id`, `host_id`, `state` (repeatable), `q`, `include_removed`. |
-| GET | `/api/v1/runners/{id}` | viewer | Includes the current job and the host. |
+| GET | `/api/v1/runners/{id}` | viewer | Includes the current job and the host, and what the runner was given: `allocated_cpus` and `allocated_memory_mb` (each omitted when the runner has no limit on that field) with `allocation_source`, `pool` when the pool set the limit and `host` when it is the host's default share, omitted when the runner has neither. Recorded at create, so a pool edited since does not change the answer. |
 | GET | `/api/v1/runners/{id}/timeline` | viewer | State transitions with durations, for the detail page. |
 | POST | `/api/v1/runners/{id}/drain` | operator | Stop taking new work and exit. A job still running is given five minutes to finish; if it takes longer the runner is stopped and GitHub marks that job failed. Draining a busy runner is therefore refused with `409` unless `?confirm=true` says you accept that. A runner that is not busy drains without it. |
 | DELETE | `/api/v1/runners/{id}` | operator | `?force=true` kills immediately; without it, behaves as drain-then-remove. Deregisters from GitHub. |
@@ -195,10 +195,11 @@ for the whole report, so a client can drop the column rather than print zeroes.
 
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
-| GET | `/api/v1/hosts` | viewer | Includes health, capacity, active runners, backend capabilities, and `upgrade_command`, `upgrade_version`, `upgrade_note` when a remote agent needs version guidance. The copyable command contains no credentials. Also `protocol_version` and `incompatible`: a host whose agent speaks a protocol this controller does not is excluded from placement exactly as a cordoned one is, and nothing else — its runners keep working and are drained as normal. |
+| GET | `/api/v1/hosts` | viewer | Includes health, capacity, active runners, backend capabilities, and `upgrade_command`, `upgrade_version`, `upgrade_note` when a remote agent needs version guidance. The copyable command contains no credentials. Also `protocol_version` and `incompatible`: a host whose agent speaks a protocol this controller does not is excluded from placement exactly as a cordoned one is, and nothing else — its runners keep working and are drained as normal. The throttle is four fields: `effective_capacity` (always present; the configured capacity stepped down by the throttle, equal to it when there is none, and what `free` is measured against), `throttle_reason` (always present, empty when not throttled: the operator sentence), `throttle` (only while throttled: `level` 1–3, `since`, `changed_at`, `calm_since` and `reason`) and `unlimited_runners` (omitted when zero: live runners here created with no CPU quota, the ones a sustained CPU hold can mean something about). `usage` carries `load_average_1m` beside the CPU and memory samples. |
 | GET | `/api/v1/hosts/{id}` | viewer | |
-| PATCH | `/api/v1/hosts/{id}` | operator | Capacity, labels and the reserve (`reserve_cpus`, `reserve_memory_mb`, `reserve_disk_mb`) — what the machine keeps for itself, in the units the host reports its own figures in. Each field is independent, and a reserve on a figure the host has never reported, or one that would leave nothing to place on, is refused rather than clamped. The reserve is written by its own statement, never by the path a heartbeat takes: a host cannot talk its way out of the room its operator kept for it. |
-| POST | `/api/v1/hosts/{id}/cordon` | operator | `{cordoned: bool}`. Keeps existing runners, accepts no new ones. |
+| PATCH | `/api/v1/hosts/{id}` | operator | Capacity, labels and the reserve (`reserve_cpus`, `reserve_memory_mb`, `reserve_disk_mb`) — what the machine keeps for itself, in the units the host reports its own figures in. Each field is independent, and a reserve on a figure the host has never reported, or one that would leave nothing to place on, is refused rather than clamped. The reserve is written by its own statement, never by the path a heartbeat takes: a host cannot talk its way out of the room its operator kept for it. A change to the capacity or to any reserve also clears a standing throttle, since it was decided against figures that have just moved. |
+| POST | `/api/v1/hosts/{id}/cordon` | operator | `{cordoned: bool}`. Keeps existing runners, accepts no new ones. A cordon keeps a throttle. |
+| POST | `/api/v1/hosts/{id}/throttle/clear` | operator | Lifts the throttle the controller has this host on, whatever rung, and answers with the host. The operator's way out once the cause is fixed rather than a way to switch throttling off: nothing pins a clear, and the next heartbeat puts the host back on the first rung if the pressure is still there. A host on no rung is returned unchanged. Audited as `host.throttle_clear` under the caller's identity; the ladder's own steps are `host.throttle` and `host.throttle_lift` under the system's. |
 | DELETE | `/api/v1/hosts/{id}` | admin | Refuses while the host has live runners unless `?force=true`. |
 | GET | `/api/v1/join-tokens` | admin | Outstanding and spent join tokens. Never the secret. |
 | POST | `/api/v1/join-tokens` | admin | `{ttl, labels, capacity, controller_url}` → returns the plaintext token **once**, plus the ready-to-paste install command. `controller_url` is optional and replaces `server.external_url` in that command; `capacity` 0 lets the agent decide from the host's CPU count. |
@@ -387,8 +388,10 @@ Three rules are what make the stream enough to keep a page current, so that no
 client ever has to poll or ask the operator to reload:
 
 * **A `*.created` or `*.updated` frame is the resource's `GET` response**, in
-  exactly that shape: `host.updated` carries `healthy` and `free`,
-  `runner.updated` carries `pool_name` and `host_name`, `pool.updated` carries
+  exactly that shape: `host.updated` carries `healthy`, `free`,
+  `effective_capacity` and `throttle_reason` (so a throttle stepping up or
+  lifting repaints the card with the slots it actually has), `runner.updated`
+  carries `pool_name` and `host_name`, `pool.updated` carries
   its counts and warnings. A client replaces the row it holds rather than
   merging into it. The views are rendered once, in
   `internal/controller/views.go`, for both transports, so the two cannot drift.
@@ -406,10 +409,11 @@ client ever has to poll or ask the operator to reload:
   a host nobody has touched marshals to the same bytes and gets nothing. None of
   this is computed while nobody is connected to the stream.
 * **An operator's change is announced by the handler that made it.** Creating,
-  editing, enabling, disabling or deleting a pool; editing, cordoning or
-  deleting a host; adding, editing or removing an installation -- each
-  publishes before its response is written, so every other open dashboard sees
-  it. Removing an installation announces each of its pools as deleted first.
+  editing, enabling, disabling or deleting a pool; editing, cordoning, clearing
+  the throttle on or deleting a host; adding, editing or removing an
+  installation -- each publishes before its response is written, so every
+  other open dashboard sees it. The controller's own throttle steps are
+  published the same way, from the heartbeat that decided them. Removing an installation announces each of its pools as deleted first.
 
 ## CLI mapping
 

@@ -19,6 +19,7 @@
   import MetricGrid from '$lib/components/MetricGrid.svelte';
   import { Plus, Server } from '@lucide/svelte';
   import {
+    clearHostThrottle,
     cordonHost,
     listJoinTokens,
     listMachines,
@@ -207,6 +208,29 @@
     }
   }
 
+  /**
+   * Lift a throttle by hand. Optimistic like a cordon: the card shows the
+   * host on its configured capacity at once, and comes back if the controller
+   * refuses. The toast says what the lift does and does not promise, because
+   * nothing pins it -- a host still under pressure is stepped down again on
+   * its next heartbeat.
+   */
+  async function liftThrottle(host: Host): Promise<void> {
+    if (!host.id) return;
+    const name = host.name || host.id;
+    const result = await fleet.optimistic(
+      host.id,
+      { throttle: undefined, throttle_reason: '', effective_capacity: host.capacity },
+      () => clearHostThrottle(host.id ?? ''),
+      `The throttle on ${name} was not lifted`,
+    );
+    if (result === undefined) return;
+    toasts.success(
+      `Throttle lifted on ${name}`,
+      'It takes its configured capacity again on the next pass, and its runners get their full CPU allocation on its next heartbeat. If the pressure is still there, that heartbeat throttles it again.',
+    );
+  }
+
   function edit(host: Host): void {
     editing = host;
     editOpen = true;
@@ -350,6 +374,7 @@
           {canOperate}
           {canAdmin}
           oncordon={(target, next) => void cordon(target, next)}
+          onthrottle={(target) => void liftThrottle(target)}
           oncapacity={size}
           onedit={edit}
           ondelete={remove}

@@ -115,7 +115,14 @@ hover them.
 
 A runner's page carries the job it is on, a timeline of how long it spent in
 each state — provisioning, registering, idle, busy — its resource usage as the
-host's agent last reported it, and the live log.
+host's agent last reported it, and the live log. Beside the usage is the
+**allocation**: the CPU and memory the runner was created with, and whether the
+pool set them or the host gave it its default share of the machine. The source
+is the thing to read when a runner was killed for exceeding its memory: a limit
+from the pool is raised on the pool, and a host's share is raised by lowering
+the host's capacity or by giving the pool a `memory_mb` of its own. The page
+also says when the runner's host is throttled, because a job running at half
+its allocation is slow for a reason the runner itself cannot show.
 
 ![A busy runner's page: its current job, a timeline of its states, details and resource usage](screenshots/runner-dark.webp#only-dark){ .zoomies-shot }
 ![A busy runner's page: its current job, a timeline of its states, details and resource usage](screenshots/runner-light.webp#only-light){ .zoomies-shot }
@@ -188,13 +195,25 @@ alone for the machine's own sake. A cordoned host keeps its runners and takes no
 ones. *Add a host* mints a join token and prints the one line to paste on the
 new machine.
 
-**Agent connected** describes the heartbeat. Recent **CPU usage** and
-**memory available** describe the machine's actual load, separately from its
-committed resources. A pressure warning says whether new starts are held or
-limited to one at a time; recovery happens automatically and keeps any manual
-cordon. A missing or stale reading is shown as unavailable. See
+**Agent connected** describes the heartbeat. Recent **CPU usage**,
+**memory available** and the one-minute **load** describe the machine's actual
+load, separately from its committed resources. A pressure warning says whether
+new starts are held or limited to one at a time; recovery happens automatically
+and keeps any manual cordon. A missing or stale reading is shown as unavailable.
+See
 [current usage and automatic holds](hosts-and-pools.md#current-usage-and-automatic-holds)
 for the thresholds and the limits of these measurements.
+
+A host the controller has stepped down after sustained pressure wears a
+**Throttled** badge, with the step in its title, and its slots line reads
+"*n* of *m* slots in use · throttled from *capacity*": the smaller figure is
+what the host is taking right now, and the configured capacity is untouched.
+The notice under it is the throttle's own sentence — what was taken, which
+measurement did it, what the running jobs are getting, and that it lifts one
+step after five minutes of calm — and **Lift the throttle** beside it clears the
+throttle by hand once the cause is fixed. The edit dialog's note about the
+floors under a reserve names the CPU floor too: half a core, or a twentieth of
+the machine, held back for the daemon whatever the operator sets.
 
 ![The Hosts page: fleet health and eligible slots, with a capacity map showing host state, slot use, CPU and memory commitments and disk free space](screenshots/hosts-dark.webp#only-dark){ .zoomies-shot }
 ![The Hosts page: fleet health and eligible slots, with a capacity map showing host state, slot use, CPU and memory commitments and disk free space](screenshots/hosts-light.webp#only-light){ .zoomies-shot }

@@ -51,6 +51,7 @@ func (c *Controller) housekeep(ctx context.Context, last *housekeeping) {
 	now := c.Now()
 	c.sweepTasks(ctx, now)
 	c.checkHostHealth(ctx)
+	c.settleThrottles(ctx, now)
 	c.expireStaleQueuedJobs(ctx, now)
 	c.reconcileJobsWithoutThePoller(ctx, now)
 	// A host going quiet is a problem and a capacity change, and neither

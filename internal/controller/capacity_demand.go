@@ -96,11 +96,15 @@ func (c *Controller) capacityPoolAllowed(p *store.Pool) bool {
 	return len(a) == 0 || slices.Contains(a, p.ID) || slices.Contains(a, p.Name)
 }
 
+// eligibleCapacity is the slots the pool can be placed into right now, which
+// is a throttled host's effective capacity rather than its configured one: a
+// provisioner told the fleet has eight slots while the throttle leaves it four
+// would never be asked for the capacity the queue is actually short of.
 func eligibleCapacity(p *store.Pool, hosts []*store.Host, now time.Time) int {
 	n := 0
 	for _, h := range hosts {
 		if scheduler.HostCanRun(h, p, now) {
-			n += h.Capacity
+			n += h.EffectiveCapacity()
 		}
 	}
 	return n

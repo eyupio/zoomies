@@ -319,6 +319,13 @@ type SystemInfo struct {
 	// Rootless is not part of Docker's /info, but Podman's compatibility
 	// endpoint sets it, so it is worth reading when present.
 	Rootless bool `json:"Rootless,omitempty"`
+	// CPUCfsQuota, MemoryLimit and PidsLimit are the daemon's own account of
+	// which limits its kernel and cgroup let it apply. They are false on a
+	// rootless daemon whose user has not been delegated the controller in
+	// question, and a container that asks for the limit anyway is refused.
+	CPUCfsQuota bool `json:"CPUCfsQuota"`
+	MemoryLimit bool `json:"MemoryLimit"`
+	PidsLimit   bool `json:"PidsLimit"`
 }
 
 // ContainerCreateRequest is the POST /containers/create body.
@@ -628,6 +635,24 @@ func (c *APIClient) ContainerRemove(ctx context.Context, id string, force bool) 
 		q.Set("force", "1")
 	}
 	return c.do(ctx, http.MethodDelete, "/containers/"+id, q, nil, nil)
+}
+
+// UpdateConfig is the body of POST /containers/{id}/update. Only the fields
+// set are changed: the daemon treats a zero as "leave it alone", which is what
+// lets a CPU quota move on a live container without touching its memory limit.
+type UpdateConfig struct {
+	NanoCPUs int64 `json:"NanoCpus,omitempty"`
+}
+
+// ContainerUpdate changes a running container's resource limits in place.
+//
+// It is how a throttle reaches a job that is already running: a CPU quota can
+// be lowered and raised again without stopping anything, which is the one
+// lever a host has left once every runner on it is busy. Memory is deliberately
+// not here -- lowering a live container's memory limit below what it is using
+// is refused by the daemon or kills the process, and neither is a throttle.
+func (c *APIClient) ContainerUpdate(ctx context.Context, id string, cfg UpdateConfig) error {
+	return c.do(ctx, http.MethodPost, "/containers/"+id+"/update", nil, cfg, nil)
 }
 
 // ContainerInspect returns the full state of one container.

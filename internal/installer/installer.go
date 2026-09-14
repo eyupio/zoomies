@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -830,8 +831,11 @@ type PoolSuggestion struct {
 	Platform   store.Platform
 	Backend    store.BackendKind
 	MaxRunners int
-	// CPUs is the per-runner vCPU share the name advertises.
-	CPUs int
+	// CPUs is the per-runner CPU share the pool is given, and the name
+	// advertises the whole number above it: a share of the host less the
+	// floor the scheduler keeps for its daemon comes out at 3.8 on a
+	// 16-core box with four slots, and 3.8 is what the pool asks for.
+	CPUs float64
 }
 
 // SuggestPool builds the suggestion from what this host is and the backend it
@@ -847,9 +851,16 @@ type PoolSuggestion struct {
 // and an operator who wants fatter runners changes one number.
 func SuggestPool(det Detection, kind store.BackendKind, capacity int) PoolSuggestion {
 	maxRunners := max(capacity, 1)
-	cpus := 1
+	cpus := 1.0
 	if det.CPUs > 0 {
-		cpus = max(det.CPUs/maxRunners, 1)
+		// A share of what the host will place on, not of the machine: the
+		// scheduler holds a floor back from the CPUs for the daemon and the
+		// agent, and a pool sized from the whole machine would fit one runner
+		// fewer than the capacity beside it promises, on the first install.
+		// Floored to the hundredth the pool form takes, never rounded up, so
+		// the capacity's worth of them still fits.
+		placeable := float64(det.CPUs) - (&store.Host{CPUs: det.CPUs}).CPUReserve()
+		cpus = max(math.Floor(placeable/float64(maxRunners)*100)/100, 0.5)
 	}
 	platform := store.Platform{
 		OS: firstNonEmpty(det.Distro, det.OS), OSVersion: det.OSVersion, Arch: det.Arch,
@@ -948,7 +959,7 @@ func (p PoolSuggestion) Command(installationID string) string {
 	// given: they pick its runner image and keep it off hosts that are
 	// something else.
 	if p.CPUs > 0 {
-		cmd += fmt.Sprintf(" --cpus %d", p.CPUs)
+		cmd += " --cpus " + strconv.FormatFloat(p.CPUs, 'f', -1, 64)
 	}
 	if p.Platform.OS != "" {
 		cmd += " --os " + p.Platform.OS

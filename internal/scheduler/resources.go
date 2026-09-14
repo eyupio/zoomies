@@ -201,6 +201,11 @@ func charged(set, dind bool) string {
 	return ""
 }
 
+// FormatCPUs is formatCPUs for the problems that quote a host's share, so the
+// figure an operator reads there is rendered by the one function that renders
+// it everywhere else.
+func FormatCPUs(v float64) string { return formatCPUs(v) }
+
 // formatCPUs writes a CPU count the way the pool form takes one: whole where
 // it is whole, and a share where the host's capacity did not divide evenly.
 // Two decimals is where a share stops being worth reading -- the rounding this

@@ -746,6 +746,7 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "PATCH", path: "/api/v1/hosts/" + ids.host, role: store.RoleOperator, body: map[string]any{}, action: auth.ActionHostsWrite},
 		{method: "POST", path: "/api/v1/hosts/" + ids.host + "/cordon", role: store.RoleOperator, action: auth.ActionHostsCordon,
 			body: map[string]any{"cordoned": false}},
+		{method: "POST", path: "/api/v1/hosts/" + ids.host + "/throttle/clear", role: store.RoleOperator, action: auth.ActionHostsWrite},
 		{method: "DELETE", path: "/api/v1/hosts/missing", role: store.RoleAdmin, action: auth.ActionHostsDelete},
 
 		{method: "GET", path: "/api/v1/providers", role: store.RoleViewer, action: auth.ActionProvidersRead},

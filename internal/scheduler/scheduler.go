@@ -878,7 +878,7 @@ func newHostSet(hosts []*store.Host, pools []*store.Pool, runners map[string][]*
 				l.MemoryMB = min(l.MemoryMB, max(available, 0))
 			}
 			if v := h.Usage.CPUPercent; v != nil {
-				hs.observedCPU[h.ID] = max(float64(h.CPUs)*(1-*v/100)-float64(h.ReserveCPUs)-pending.CPUs, 0)
+				hs.observedCPU[h.ID] = max(float64(h.CPUs)*(1-*v/100)-h.CPUReserve()-pending.CPUs, 0)
 			}
 		}
 		hs.left[h.ID] = l
@@ -1033,7 +1033,7 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 		}
 	}
 	var unhealthy, cordoned, incompatible, backend, platform, selector, tooSmall, full int
-	var shortCPU, shortMemory, lowDisk, held, warming int
+	var shortCPU, shortMemory, lowDisk, held, warming, throttled int
 	var detail string
 	for _, h := range hs.hosts {
 		switch {
@@ -1065,6 +1065,15 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 			}
 		case hostUnderCPUPressure(h, hs.now) && hs.warming[h.ID] > 0:
 			warming++
+		case h.Throttle.Active() && hs.free[h.ID] <= 0 && h.ActiveRunners < h.Capacity:
+			// Slots the operator configured and the throttle has taken back.
+			// It is its own count because "at capacity" would send an
+			// operator to raise a capacity that is not the problem: the host
+			// is being pushed too hard at the slots it already has.
+			throttled++
+			if detail == "" {
+				detail = h.Name + ": " + ThrottleReason(h)
+			}
 		case hs.alloc[h.ID].DiskKnown && hs.alloc[h.ID].DiskMB <= 0:
 			// The disk gate is asked before the sizing one, because a host at
 			// its reserve refuses every pool and "too small for this pool's
@@ -1114,15 +1123,23 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 	add(lowDisk, "low on disk")
 	add(held, "holding new starts while host pressure clears")
 	add(warming, "starting one runner at a time while CPU is busy")
+	add(throttled, "throttled after sustained pressure")
 	add(full, "at capacity")
 	b := blockage{
 		what: fmt.Sprintf("no host can take a new %s runner (%s)",
 			p.Backend, strings.Join(parts, ", ")),
-		atCapacity: full == len(hs.hosts),
-		// Not one host was merely full, so nothing finishing frees a slot this
-		// pool could use. The counts above already say which way each host
-		// failed; this says only that none of them can be waited out.
-		noEligibleHost: full == 0,
+		// A throttled host is full at the slots it has left, and to a
+		// provisioner that is the same fact as full: more hosts is the one
+		// answer that helps either way, so a fleet blocked only by throttles
+		// asks for capacity exactly as a full one does.
+		atCapacity: full+throttled == len(hs.hosts),
+		// Not one host was merely full or throttled, so nothing finishing --
+		// and no pressure easing -- frees a slot this pool could use. The
+		// counts above already say which way each host failed; this says only
+		// that none of them can be waited out. A throttle lifts on its own, so
+		// counting a throttled host here would buy a machine for a fleet that
+		// needed a minute.
+		noEligibleHost: full+throttled == 0,
 	}
 	if detail != "" {
 		// The agent's own words about the backend it could not use. They name
@@ -1130,6 +1147,12 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 		b.what += ". " + detail
 	}
 	switch {
+	case throttled > 0 && held+warming == 0:
+		// A throttle outlasts the pressure that raised it, so "wait for it
+		// to clear" is only half the answer: a host that keeps being pushed
+		// past its size is a host with too many slots, or pools whose limits
+		// let a job take more of it than a slot's worth.
+		b.fix = "wait for the throttle to lift, lower those hosts' capacity or the pools' limits so their runners fit the machine, or add a host; running jobs continue"
 	case held+warming > 0:
 		b.fix = "wait for host pressure to clear, reduce other work on those hosts, or add a compatible host; running jobs continue"
 	case b.atCapacity:
@@ -1277,6 +1300,11 @@ func plural(n int, unit string) string {
 	}
 	return fmt.Sprintf("%d %ss", n, unit)
 }
+
+// FormatDuration renders a duration the way every scheduler sentence does, so
+// a caller outside the package that names one of its constants -- the wizard
+// naming the throttle's recovery -- reads the same as the host card.
+func FormatDuration(d time.Duration) string { return formatDuration(d) }
 
 // formatDuration is time.Duration.String() without the trailing zero units, so
 // an operator reads "5m" and "6h" rather than "5m0s" and "6h0m0s".

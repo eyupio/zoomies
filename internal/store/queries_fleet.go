@@ -491,7 +491,7 @@ const hostCols = `id, name, address, embedded, capacity, backends, backend_info,
 	last_heartbeat, created_at, agent_session_id, agent_session_prev,
 	agent_session_alternations, agent_session_alt_at,
 	disk_total_mb, disk_free_mb, reserve_cpus, reserve_memory_mb, reserve_disk_mb,
-	protocol_version, incompatible, connection, usage`
+	protocol_version, incompatible, connection, usage, throttle`
 
 func scanHost(sc interface{ Scan(...any) error }) (*Host, error) {
 	var h Host
@@ -503,7 +503,7 @@ func scanHost(sc interface{ Scan(...any) error }) (*Host, error) {
 		&h.MemoryMB, &h.Version, &cordoned, &h.TokenHash, &heartbeat, &created,
 		&h.AgentSessionID, &h.AgentSessionPrev, &h.AgentSessionAlternations, &altAt,
 		&h.DiskTotalMB, &h.DiskFreeMB, &h.ReserveCPUs, &h.ReserveMemoryMB, &h.ReserveDiskMB,
-		&h.ProtocolVersion, &incompatible, &h.Connection, &h.Usage)
+		&h.ProtocolVersion, &incompatible, &h.Connection, &h.Usage, &h.Throttle)
 	if err != nil {
 		return nil, err
 	}
@@ -526,13 +526,13 @@ func (s *Store) CreateHost(ctx context.Context, h *Host) error {
 		h.LastHeartbeat = h.CreatedAt
 	}
 	_, err := s.exec(ctx, `INSERT INTO hosts (`+hostCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		h.ID, h.Name, h.Address, boolInt(h.Embedded), h.Capacity, h.Backends, h.BackendInfo,
 		h.Labels, h.OS, h.Distro, h.OSVersion, h.Arch, h.CPUs, h.MemoryMB, h.Version,
 		boolInt(h.Cordoned), h.TokenHash, ms(h.LastHeartbeat), ms(h.CreatedAt),
 		h.AgentSessionID, h.AgentSessionPrev, h.AgentSessionAlternations, msp(h.AgentSessionAltAt),
 		h.DiskTotalMB, h.DiskFreeMB, h.ReserveCPUs, h.ReserveMemoryMB, h.ReserveDiskMB,
-		h.ProtocolVersion, boolInt(h.Incompatible), h.Connection, h.Usage)
+		h.ProtocolVersion, boolInt(h.Incompatible), h.Connection, h.Usage, h.Throttle)
 	return wrapWrite(err)
 }
 
@@ -571,26 +571,33 @@ func (s *Store) fillHostCounts(ctx context.Context, hosts ...*Host) error {
 		return err
 	}
 	for _, h := range hosts {
-		h.ActiveRunners = counts[h.ID]
+		h.ActiveRunners = counts[h.ID].live
+		h.UnlimitedRunners = counts[h.ID].unlimited
 	}
 	return nil
 }
 
-func (s *Store) countRunnersByHost(ctx context.Context) (map[string]int, error) {
-	rows, err := s.read.QueryContext(ctx, `SELECT host_id, COUNT(*) FROM runners
+// hostRunnerCounts is what one host's live rows add up to: how many there
+// are, and how many of them were created with no CPU quota.
+type hostRunnerCounts struct {
+	live, unlimited int
+}
+
+func (s *Store) countRunnersByHost(ctx context.Context) (map[string]hostRunnerCounts, error) {
+	rows, err := s.read.QueryContext(ctx, `SELECT host_id, COUNT(*), SUM(allocated_cpus <= 0) FROM runners
 		WHERE state NOT IN ('removed','failed') GROUP BY host_id`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[string]int{}
+	out := map[string]hostRunnerCounts{}
 	for rows.Next() {
 		var id string
-		var n int
-		if err := rows.Scan(&id, &n); err != nil {
+		var n, unlimited int
+		if err := rows.Scan(&id, &n, &unlimited); err != nil {
 			return nil, err
 		}
-		out[id] = n
+		out[id] = hostRunnerCounts{live: n, unlimited: unlimited}
 	}
 	return out, rows.Err()
 }
@@ -780,7 +787,8 @@ const runnerCols = `id, pool_id, host_id, name, state, github_runner_id, contain
 	last_idle_at, finished_at, message, jobs_handled, cpu_percent, memory_bytes,
 	image_pull_ms, container_started_at, registered_at, task_issued_at,
 	cleanup_error, cleanup_failed_at, cleanup_attempts, registration_deleted_at, cleaned_up_at,
-	draining_since, create_task_issued_at, host_removed_at, cleanup_estimated_at`
+	draining_since, create_task_issued_at, host_removed_at, cleanup_estimated_at,
+	allocated_cpus, allocated_memory_mb, allocation_source`
 
 func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 	var r Runner
@@ -794,7 +802,8 @@ func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 		&created, &started, &idle, &finished, &r.Message, &r.JobsHandled,
 		&r.CPUPercent, &r.MemoryBytes, &pullMS, &containerStarted, &registered, &taskIssued,
 		&r.CleanupError, &cleanupFailed, &r.CleanupAttempts, &registrationDeleted, &cleanedUp,
-		&drainingSince, &createIssued, &hostRemoved, &cleanupEstimated)
+		&drainingSince, &createIssued, &hostRemoved, &cleanupEstimated,
+		&r.AllocatedCPUs, &r.AllocatedMemoryMB, &r.AllocationSource)
 	if err != nil {
 		return nil, err
 	}
@@ -824,7 +833,7 @@ func (s *Store) CreateRunner(ctx context.Context, r *Runner) error {
 	}
 	r.CreatedAt = s.Now()
 	_, err := s.exec(ctx, `INSERT INTO runners (`+runnerCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		r.ID, r.PoolID, r.HostID, r.Name, string(r.State), r.GitHubRunnerID, r.ContainerID,
 		boolInt(r.Ephemeral), r.Labels, r.Image, r.ImageDigest, r.RunnerVersion, r.CurrentJobID,
 		ms(r.CreatedAt), msp(r.StartedAt), msp(r.LastIdleAt), msp(r.FinishedAt),
@@ -832,7 +841,8 @@ func (s *Store) CreateRunner(ctx context.Context, r *Runner) error {
 		msp(r.ContainerStartedAt), msp(r.RegisteredAt), msp(r.TaskIssuedAt),
 		r.CleanupError, msp(r.CleanupFailedAt), r.CleanupAttempts,
 		msp(r.RegistrationDeletedAt), msp(r.CleanedUpAt), msp(r.DrainingSince),
-		msp(r.CreateTaskIssuedAt), msp(r.HostRemovedAt), msp(r.CleanupEstimatedAt))
+		msp(r.CreateTaskIssuedAt), msp(r.HostRemovedAt), msp(r.CleanupEstimatedAt),
+		r.AllocatedCPUs, r.AllocatedMemoryMB, r.AllocationSource)
 	return wrapWrite(err)
 }
 
@@ -1033,12 +1043,14 @@ func (s *Store) UpdateRunner(ctx context.Context, r *Runner) error {
 		github_runner_id=?, container_id=?, ephemeral=?, labels=?, image=?, image_digest=?,
 		runner_version=?, current_job_id=?, started_at=?, last_idle_at=?, finished_at=?,
 		message=?, jobs_handled=?, cpu_percent=?, memory_bytes=?, image_pull_ms=?,
-		container_started_at=?, registered_at=? WHERE id=?`,
+		container_started_at=?, registered_at=?, allocated_cpus=?, allocated_memory_mb=?,
+		allocation_source=? WHERE id=?`,
 		r.PoolID, r.HostID, r.Name, string(r.State), r.GitHubRunnerID, r.ContainerID,
 		boolInt(r.Ephemeral), r.Labels, r.Image, r.ImageDigest, r.RunnerVersion, r.CurrentJobID,
 		msp(r.StartedAt), msp(r.LastIdleAt), msp(r.FinishedAt), r.Message,
 		r.JobsHandled, r.CPUPercent, r.MemoryBytes, durationMS(r.ImagePullDuration),
-		msp(r.ContainerStartedAt), msp(r.RegisteredAt), r.ID)
+		msp(r.ContainerStartedAt), msp(r.RegisteredAt), r.AllocatedCPUs, r.AllocatedMemoryMB,
+		r.AllocationSource, r.ID)
 	if err != nil {
 		return wrapWrite(err)
 	}

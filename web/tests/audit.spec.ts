@@ -45,8 +45,12 @@ test('the log lists what was done, by whom, newest first', async ({ page }) => {
   }
 
   // An actor is a person, a token or the controller, and the page says which.
+  // The controller's rows are taken one at a time: the hosts specs leave
+  // system rows behind -- a host throttled after the pressure they simulate is
+  // audited as the fleet's own decision -- and the claim here is that a system
+  // actor is shown as one, not that the fleet has decided exactly one thing.
   await expect(rows(page).filter({ hasText: 'ci-bot' })).toContainText('token');
-  await expect(rows(page).filter({ hasText: 'zoomies' })).toContainText('system');
+  await expect(rows(page).filter({ hasText: 'zoomies' }).first()).toContainText('system');
 });
 
 test('the newest change is at the top, and the order can be turned round', async ({ page }) => {

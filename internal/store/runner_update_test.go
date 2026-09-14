@@ -47,6 +47,9 @@ func TestUpdateRunnerRoundTripsEveryColumn(t *testing.T) {
 	r.JobsHandled = 3
 	r.CPUPercent = 12.5
 	r.MemoryBytes = 1 << 30
+	r.AllocatedCPUs = 2.5
+	r.AllocatedMemoryMB = 6144
+	r.AllocationSource = AllocationFromHost
 	if err := s.UpdateRunner(ctx, r); err != nil {
 		t.Fatalf("UpdateRunner: %v", err)
 	}
@@ -73,6 +76,9 @@ func TestUpdateRunnerRoundTripsEveryColumn(t *testing.T) {
 	check("JobsHandled", got.JobsHandled, 3)
 	check("CPUPercent", got.CPUPercent, 12.5)
 	check("MemoryBytes", got.MemoryBytes, int64(1<<30))
+	check("AllocatedCPUs", got.AllocatedCPUs, 2.5)
+	check("AllocatedMemoryMB", got.AllocatedMemoryMB, int64(6144))
+	check("AllocationSource", got.AllocationSource, AllocationFromHost)
 	if got.ImagePullDuration == nil || *got.ImagePullDuration != pull {
 		t.Errorf("ImagePullDuration = %v, want %v", got.ImagePullDuration, pull)
 	}

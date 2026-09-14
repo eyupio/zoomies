@@ -11,6 +11,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -296,6 +297,30 @@ type HostBackend struct {
 	// SupportsDinD reports whether this backend can give a job its own Docker
 	// daemon in a sidecar.
 	SupportsDinD bool `json:"supports_dind"`
+	// CPUs and MemoryMB are the machine the daemon runs on, as it reported
+	// them, kept beside the limits it can apply because a default CPU share
+	// is a request to that daemon: one above its own core count is refused
+	// outright, however many cores the agent's machine has.
+	CPUs     int   `json:"cpus,omitempty"`
+	MemoryMB int64 `json:"memory_mb,omitempty"`
+	// Limits is whether the daemon behind this backend can enforce a CPU
+	// quota, a memory limit and a pids limit at all. A rootless daemon on
+	// cgroup v1, or on cgroup v2 with no cpu controller delegated to the user,
+	// refuses a container that asks for a CPU quota rather than ignoring it
+	// -- so a default limit sent to such a host would fail every create, and
+	// the controller has to know before it sends one.
+	Limits LimitSupport `json:"limits"`
+}
+
+// LimitSupport is what a container daemon said about the limits it can apply.
+// Known is false from an agent too old to ask, and nothing may read that as
+// "cannot": it is read as "do not default anything here", which is what every
+// host did before defaults existed.
+type LimitSupport struct {
+	Known  bool `json:"known"`
+	CPU    bool `json:"cpu"`
+	Memory bool `json:"memory"`
+	Pids   bool `json:"pids"`
 }
 
 // HostBackends is a probe result persisted as a JSON array in a TEXT column.
@@ -648,6 +673,12 @@ type Host struct {
 	CPUs     int       `json:"cpus,omitempty"`
 	MemoryMB int64     `json:"memory_mb,omitempty"`
 	Usage    HostUsage `json:"usage,omitempty"`
+	// Throttle is the controller's answer to a host that its measurements say
+	// is overwhelmed: how far it has stepped the host's admission and its
+	// runners' CPU quotas down, and why. It is the controller's alone -- a
+	// heartbeat carries the measurements it is decided from and never the
+	// decision -- and it is written by its own statement, like the reserve.
+	Throttle HostThrottle `json:"throttle,omitempty"`
 	// DiskTotalMB and DiskFreeMB measure the filesystem holding the agent's
 	// work directory, which is where a runner's checkout and its caches land.
 	// Free is what a runner may use rather than what is unused, since the two
@@ -700,6 +731,13 @@ type Host struct {
 	AgentSessionAltAt        *time.Time `json:"agent_session_alt_at,omitempty"`
 	// Live counters, filled by the store on read.
 	ActiveRunners int `json:"active_runners"`
+	// UnlimitedRunners is how many of those live runners were created with no
+	// CPU quota: a pool with none and defaults off, a process-backend pool, a
+	// host whose daemon cannot apply one, or a row from before allocations
+	// were recorded. They are the runners a sustained CPU hold can mean
+	// something about -- a host whose every runner is inside its quota is
+	// running the work it was sized for, however busy that looks.
+	UnlimitedRunners int `json:"unlimited_runners,omitempty"`
 }
 
 // Platform is what this machine is, in the terms a pool asks in.
@@ -753,7 +791,26 @@ func (h *Host) Healthy(now time.Time) bool {
 
 // Available reports whether the scheduler may place a new runner here.
 func (h *Host) Available(now time.Time) bool {
-	return h.Healthy(now) && !h.Cordoned && h.ActiveRunners < h.Capacity
+	return h.Healthy(now) && !h.Cordoned && h.ActiveRunners < h.EffectiveCapacity()
+}
+
+// EffectiveCapacity is how many runners this host takes right now: its
+// configured capacity, stepped down by an active throttle. Capacity is the
+// operator's and the throttle never writes it; this is the two read together,
+// and it is what every slot count on the host is measured against while the
+// throttle stands.
+//
+// It never falls below one while the capacity is at least one. A throttle is
+// a host being pushed too hard, not a host being taken out of the fleet: the
+// pressure holds already refuse every new start while the pressure is acute,
+// and the throttle is what outlasts them. A host it took to zero would look
+// exactly like a cordon, and an operator reading "0 slots" would go looking
+// for who cordoned it.
+func (h *Host) EffectiveCapacity() int {
+	if h.Capacity <= 0 || !h.Throttle.Active() {
+		return h.Capacity
+	}
+	return max(1, int(math.Floor(float64(h.Capacity)*h.Throttle.Factor())))
 }
 
 // The selector keys every host answers for without an operator typing
@@ -785,13 +842,25 @@ func (h *Host) SelectorValue(key string) string {
 	return ""
 }
 
-// Free returns the number of additional runners this host can take.
+// Free returns the number of additional runners this host can take, against
+// its effective capacity: a throttled host has fewer slots free than its
+// configured capacity would say, and that is the number the scheduler and the
+// Hosts page both have to use, or the page promises slots the pass refuses.
 func (h *Host) Free() int {
-	if n := h.Capacity - h.ActiveRunners; n > 0 {
+	if n := h.EffectiveCapacity() - h.ActiveRunners; n > 0 {
 		return n
 	}
 	return 0
 }
+
+// Where a runner's resource limits came from.
+const (
+	// AllocationFromPool means the pool set the limit itself.
+	AllocationFromPool = "pool"
+	// AllocationFromHost means the pool left the limit unset and the runner
+	// was given one slot's share of the host it was placed on.
+	AllocationFromHost = "host"
+)
 
 // Runner is one runner instance: a row that the controller creates in
 // "provisioning" and an agent then materialises, reports on, and tears down.
@@ -865,6 +934,17 @@ type Runner struct {
 	// CPUPercent and MemoryBytes are best-effort samples from the agent.
 	CPUPercent  float64 `json:"cpu_percent,omitempty"`
 	MemoryBytes int64   `json:"memory_bytes,omitempty"`
+	// AllocatedCPUs and AllocatedMemoryMB are the limits this runner's
+	// workload was created with, and AllocationSource says whether they came
+	// from the pool's own resources or from the host's default share of its
+	// machine. They are recorded here rather than recomputed because the
+	// question they answer is historical: a runner killed for exceeding a
+	// memory limit needs to say which limit, and a pool edited since or a host
+	// whose capacity moved would give a different answer today. Zero and
+	// empty on rows from before the allocation was recorded.
+	AllocatedCPUs     float64 `json:"allocated_cpus,omitempty"`
+	AllocatedMemoryMB int64   `json:"allocated_memory_mb,omitempty"`
+	AllocationSource  string  `json:"allocation_source,omitempty"`
 }
 
 // Age returns how long the runner has existed.
@@ -1348,13 +1428,35 @@ func NormalizeLabels(in []string) []string {
 // job's first step. Both failures land on a job rather than on the machine, so
 // the operator who did not set a reserve never learns it was theirs to set.
 //
-// CPU has no floor, because a CPU reservation is a share of the one resource
-// that is never exhausted, only contended: an oversubscribed machine is slow,
-// and a slow machine still finishes the job.
+// CPU has a floor too, and it is there for the daemon rather than for the
+// jobs. A CPU quota is a share of the one resource that is never exhausted,
+// only contended, and a contended machine does still finish the job -- but
+// the runners' quotas are not the only thing on the machine. dockerd,
+// containerd and the agent have to answer in the gaps the quotas leave, and a
+// host whose quotas add up to every core leaves none: the daemon stops
+// answering, creates time out, and the fleet reads a busy host as a broken
+// one. Half a core, or a twentieth of the machine on a large one, is what
+// those three need to keep answering while every runner is flat out.
 const (
 	MinHostReserveMemoryMB int64 = 512
 	MinHostReserveDiskMB   int64 = 2048
+	// MinHostReserveCPUs is the least CPU held back from placement, and
+	// MinHostReserveCPUFraction raises it in step with the machine: a
+	// sixty-four core host runs a daemon with sixty-four containers to mind.
+	MinHostReserveCPUs        float64 = 0.5
+	MinHostReserveCPUFraction float64 = 0.05
 )
+
+// CPUReserve is what is held back from placement on this host's CPUs: the
+// operator's reserve, or the floor when that is larger. Zero on a host that
+// has not reported its CPUs, where there is nothing to hold back from.
+func (h *Host) CPUReserve() float64 {
+	if h.CPUs <= 0 {
+		return 0
+	}
+	floor := max(MinHostReserveCPUs, MinHostReserveCPUFraction*float64(h.CPUs))
+	return max(float64(h.ReserveCPUs), floor)
+}
 
 // HostAllocation is what the scheduler may hand out on a host: the machine as
 // its agent measured it, less what its operator and the floors above hold
@@ -1389,7 +1491,7 @@ func (h *Host) Allocatable() HostAllocation {
 		DiskKnown: h.DiskTotalMB > 0,
 	}
 	if a.CPUsKnown {
-		a.CPUs = max(float64(h.CPUs-h.ReserveCPUs), 0)
+		a.CPUs = max(float64(h.CPUs)-h.CPUReserve(), 0)
 	}
 	if a.MemoryKnown {
 		a.MemoryMB = max(h.MemoryMB-max(h.ReserveMemoryMB, MinHostReserveMemoryMB), 0)

@@ -134,6 +134,15 @@ type HeartbeatResponse struct {
 	// ResyncRequested asks the agent to send a full runner report next time,
 	// which the controller sets after its own restart.
 	ResyncRequested bool `json:"resync_requested"`
+	// Throttle is the controller's current throttle for this host: how far
+	// it has stepped the CPU quota of every runner here down, after the
+	// host's own measurements said it was overwhelmed. The agent applies the
+	// factor to each live container it can, and applies it again when the
+	// factor moves. It is sent on every beat rather than only when it changes,
+	// so an agent that restarted or missed the beat the throttle lifted on
+	// still restores its runners. Nil from a controller too old to send it,
+	// which an agent reads as no throttle at all.
+	Throttle *ThrottleDirective `json:"throttle,omitempty"`
 	// UnknownRunners names the runners this host reported that the controller
 	// has no live row for. They are the ones whose workloads may be removed.
 	//
@@ -145,6 +154,15 @@ type HeartbeatResponse struct {
 	// controller sends nothing here, and an agent that receives nothing simply
 	// keeps what it adopted, which is the safe direction.
 	UnknownRunners []string `json:"unknown_runners,omitempty"`
+}
+
+// ThrottleDirective is what a throttled host's agent is told to do about it.
+type ThrottleDirective struct {
+	// Level is the rung the host is on, for the log line; zero is none.
+	Level int `json:"level"`
+	// CPUFactor is the share of its allocated CPU each runner is to be left:
+	// 1 restores every runner to what it was created with.
+	CPUFactor float64 `json:"cpu_factor"`
 }
 
 // RunnerReport is the agent's observation of one runner. The controller merges

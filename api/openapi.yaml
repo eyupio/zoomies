@@ -1648,6 +1648,29 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Host" }
 
+  /hosts/{id}/throttle/clear:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: clearHostThrottle
+      tags: [hosts]
+      summary: Lift a host's throttle
+      description: |
+        Lifts the throttle the controller has this host on, whatever rung it is on:
+        the host takes its configured capacity again on the next scheduling pass and
+        every runner here with a CPU limit is restored to its full quota on the agent's
+        next heartbeat. Nothing pins it the other way -- if the pressure is still there,
+        the next heartbeat steps it back up -- so this is for a host whose cause is
+        known and fixed, not a way to switch throttling off. A host on no rung is
+        returned unchanged. Audited as `host.throttle_clear` under the caller's identity.
+      x-zoomies-role: operator
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Host" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /join-tokens:
     get:
       operationId: listJoinTokens
@@ -3484,7 +3507,7 @@ components:
         runner_version: { type: string }
         min_runners: { type: integer }
         max_runners: { type: integer }
-        repository_scale_up_limit: { type: integer, minimum: 0, description: Best-effort per-repository runner creation throttle; zero disables it. This cannot prevent GitHub from assigning work to compatible idle runners and is not a strict execution concurrency cap. }
+        repository_scale_up_limit: { type: integer, minimum: 0, description: Best-effort per-repository runner creation limit; zero disables it. This cannot prevent GitHub from assigning work to compatible idle runners and is not a strict execution concurrency cap. }
         cost_per_runner_hour: { type: number, minimum: 0, nullable: true, description: Optional administrator-assigned rate used only for estimates. }
         priority: { type: integer, default: 0, description: Higher-priority pools receive creation capacity before lower-priority pools. }
         idle_timeout: { $ref: "#/components/schemas/Duration" }
@@ -3586,7 +3609,7 @@ components:
         runner_version: { type: string }
         min_runners: { type: integer, default: 0, minimum: 0 }
         max_runners: { type: integer, default: 4, minimum: 1 }
-        repository_scale_up_limit: { type: integer, minimum: 0, description: Best-effort creation throttle, not a strict execution concurrency cap. }
+        repository_scale_up_limit: { type: integer, minimum: 0, description: Best-effort creation limit, not a strict execution concurrency cap. }
         cost_per_runner_hour: { type: number, minimum: 0, nullable: true }
         priority: { type: integer, default: 0 }
         idle_timeout: { allOf: [{ $ref: "#/components/schemas/Duration" }], default: "5m" }
@@ -3625,7 +3648,7 @@ components:
         runner_version: { type: string }
         min_runners: { type: integer, minimum: 0 }
         max_runners: { type: integer, minimum: 1 }
-        repository_scale_up_limit: { type: integer, minimum: 0, description: Best-effort creation throttle, not a strict execution concurrency cap. }
+        repository_scale_up_limit: { type: integer, minimum: 0, description: Best-effort creation limit, not a strict execution concurrency cap. }
         cost_per_runner_hour: { type: number, minimum: 0, nullable: true }
         priority: { type: integer }
         idle_timeout: { $ref: "#/components/schemas/Duration" }
@@ -3662,6 +3685,24 @@ components:
         jobs_handled: { type: integer }
         cpu_percent: { type: number, format: double }
         memory_bytes: { type: integer, format: int64 }
+        allocated_cpus:
+          type: number
+          format: double
+          description: >-
+            The CPU quota this runner's workload was created with. Omitted when it has none.
+            With `allocation_source` it is what tells an OOM kill or a slow job on a defaulted
+            limit apart from one on a limit somebody set.
+        allocated_memory_mb:
+          type: integer
+          format: int64
+          description: The memory limit this runner's workload was created with. Omitted when it has none.
+        allocation_source:
+          type: string
+          enum: [pool, host, ""]
+          description: >-
+            Where the allocation came from: `pool` for the pool's own limits, `host` for one
+            slot's share of the host it landed on (the default when the pool sets none). Omitted
+            when the runner was created with no limit at all.
         created_at: { type: string, format: date-time }
         container_started_at:
           type: string
@@ -4002,6 +4043,34 @@ components:
         sampled_at: { type: string, format: date-time, description: Controller receipt time. Agent-provided timestamps are ignored. }
         cpu_high_since: { type: string, format: date-time, description: Beginning of sustained CPU pressure, owned by the controller. }
         cpu_held: { type: boolean, description: Admission held after sustained CPU pressure. Running jobs continue. Owned by the controller. }
+        load_average_1m:
+          type: number
+          minimum: 0
+          description: >-
+            The kernel's one-minute load average for the whole machine, as the agent read it
+            from /proc/loadavg. Absent when unmeasured. Judged against the host's CPU count:
+            a load of at least twice the CPUs is what steps the throttle up, because a
+            runnable queue that deep is a machine that has stopped keeping up even when the
+            CPU figure saturates at 100.
+    HostThrottle:
+      type: object
+      description: >-
+        The rung the controller has stepped a host down to after sustained pressure. The
+        controller owns every field: a heartbeat carries the measurements and never the
+        decision, and an agent cannot set or clear one. Absent from a host on no rung.
+      properties:
+        level:
+          type: integer
+          minimum: 1
+          maximum: 3
+          description: >-
+            The rung, 1 to 3. Each takes a quarter of the host's slots (to 75%, 50%, 25% of
+            capacity, never below one slot) and lowers the CPU quota of every runner here that
+            has one, down to half. Owned by the controller.
+        since: { type: string, format: date-time, description: When this episode began, the first step up from none. Owned by the controller. }
+        changed_at: { type: string, format: date-time, description: The last step in either direction, which the next step up is paced from. Owned by the controller. }
+        calm_since: { type: string, format: date-time, description: The start of the calm streak the next step down waits on. Absent while the host is not calm. Owned by the controller. }
+        reason: { type: string, description: Which measurement took the last step up, as one sentence. Owned by the controller. }
     BackendInfo:
       type: object
       properties:
@@ -4013,6 +4082,17 @@ components:
         detail: { type: string, description: When unavailable, what is wrong and how to fix it. }
         supports_dind: { type: boolean }
         host_socket_path: { type: string, description: Where the host daemon's socket lives, for pools that opt into host-socket mode. }
+        limits:
+          type: object
+          description: >-
+            What the daemon said it can enforce. A runner is given a default limit only on a
+            field the daemon can apply, and host.limits_unenforceable names the fields it
+            cannot; `known` is false from an agent too old to have asked, which defaults nothing.
+          properties:
+            known: { type: boolean }
+            cpu: { type: boolean, description: A CPU quota. A daemon that cannot apply one refuses the container. }
+            memory: { type: boolean, description: A memory limit. A daemon that cannot apply one starts the container without it. }
+            pids: { type: boolean, description: A pids limit. A daemon that cannot apply one ignores it. }
 
     Host:
       type: object
@@ -4020,6 +4100,30 @@ components:
         usage: { $ref: "#/components/schemas/HostUsage" }
         usage_fresh: { type: boolean, description: Usage is less than 90 seconds old. Unknown or stale readings retain reservation-based placement. }
         admission_reason: { type: string, description: Why current host pressure is holding new runner starts. Empty when no pressure hold applies. }
+        throttle:
+          allOf:
+            - $ref: "#/components/schemas/HostThrottle"
+          description: The throttle the controller has this host on. Absent when it is on none.
+        throttle_reason:
+          type: string
+          description: >-
+            The operator sentence for the throttle: what it took, why, what it is doing to the
+            jobs already running, and how it ends. Empty when the host is not throttled.
+          examples:
+            - "throttled to 2 of 4 slots (step 2 of 3) after sustained pressure: the 1-minute load average is 30.0, at least twice the host's 8 CPUs; running jobs continue, the 1 runner with a CPU limit at 50% of it, and the throttle lifts one step after 5m of calm"
+        effective_capacity:
+          type: integer
+          description: >-
+            The slots this host takes right now: capacity stepped down by the throttle, and
+            capacity itself when there is none. `free` is measured against it, so a throttled
+            host never advertises a slot the next pass would refuse.
+        unlimited_runners:
+          type: integer
+          description: >-
+            How many of the live runners here were created with no CPU quota -- a pool with
+            none and default limits off, a process pool, a daemon that cannot apply one, or a
+            runner from before allocations were recorded. Omitted when zero. They are the
+            runners a CPU hold can mean something about, since a throttle cannot slow them.
         id: { type: string }
         name: { type: string }
         address: { type: string }
@@ -4046,8 +4150,10 @@ components:
           type: number
           description: >-
             The machine less its reserve: what the scheduler may place onto. The documented
-            floors under the reserve -- 512 MB of memory and 2 GB of disk, with no CPU floor --
-            are applied here, so what is shown is what is used.
+            floors under the reserve -- half a core or a twentieth of the machine, whichever is
+            larger, 512 MB of memory and 2 GB of disk -- are applied here, so what is shown is
+            what is used. The CPU floor is what keeps the daemon, the agent and the kernel a
+            core the runners' quotas can never take.
         allocatable_memory_mb: { type: integer, format: int64 }
         allocatable_disk_mb: { type: integer, format: int64 }
         reserved_cpus:

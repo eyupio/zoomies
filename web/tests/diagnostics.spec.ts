@@ -28,7 +28,59 @@ const STUCK = {
   neverRegistered: 'run_demo06',
   noContainer: 'run_demo07',
   blockedPool: 'pool_demostuckblocked',
+  /**
+   * The fixture's throttled host -- eight CPUs, four slots stepped to two --
+   * and the busy demo runner the seed moves onto it with a defaulted
+   * allocation. See seedThrottledHost in internal/controller/seed_stuck.go.
+   */
+  throttledHost: 'demo-throttled-1',
+  throttledRunner: 'run_demo00',
 };
+
+/**
+ * These two live here rather than in hosts.spec.ts and runners.spec.ts
+ * because the fixture they read is seeded for this project alone: the demo
+ * fleet the other projects run against never throttles, and a runner's
+ * allocation is written by the controller at create time, so neither shape
+ * can be made through the API from a browser.
+ */
+test('the throttled host says its step, its reason and what it was stepped down from', async ({
+  page,
+}) => {
+  await goto(page, '/hosts', 'Hosts');
+  const card = page.getByRole('article', { name: STUCK.throttledHost, exact: true });
+  await expect(card.getByText('Throttled', { exact: true })).toHaveAttribute(
+    'title',
+    /^Throttled, step 2 of 3/,
+  );
+  await expect(card).toContainText(
+    "throttled to 2 of 4 slots (step 2 of 3) after sustained pressure: the 1-minute load average is 30.0, at least twice the host's 8 CPUs",
+  );
+  // One busy runner with a CPU limit is on it, running at half its quota.
+  await expect(card).toContainText('the 1 runner with a CPU limit at 50% of it');
+  await expect(card).toContainText(/1 of 2 slots in use\s*· throttled from 4/);
+  await expect(card).toContainText('load 30');
+});
+
+test('a runner shows the allocation it was given and that its host is throttling it', async ({
+  page,
+}) => {
+  await goto(page, `/runners/${STUCK.throttledRunner}`);
+  const usage = page.getByRole('region', { name: 'Resource usage' });
+  // (8 - 0.5) / 4 CPUs floored to the hundredth and (16384 - 512) / 4 MB: the
+  // share a four-slot host of this size hands out, and it says so rather than
+  // pointing at a pool field nobody set.
+  await expect(usage).toContainText("1.87 CPU · 3.9 GB, the host's default share");
+  await expect(usage).toContainText('of 1.87 allowed');
+  await expect(usage).toContainText('of 3.9 GB allowed');
+  // The sentence is decided from the runner's own recorded allocation and its
+  // pool's backend, never from the pool's current limits: this one was created
+  // with a share on a Docker pool, so the agent is lowering its quota and the
+  // page may say so.
+  const throttle = page.getByTestId('runner-throttle');
+  await expect(throttle).toContainText('step 2 of 3');
+  await expect(throttle).toContainText('CPU allocation is throttled to 50%');
+});
 
 test('a runner whose container came up but never registered says exactly that', async ({
   page,

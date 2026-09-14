@@ -6,6 +6,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -98,5 +99,42 @@ func TestEveryMachineDeadlineOutlastsTheWorkItCovers(t *testing.T) {
 		if c.long <= c.short {
 			t.Errorf("%s is %s and %s is %s: %s", c.longer, c.long, c.shorter, c.short, c.because)
 		}
+	}
+}
+
+// The throttle ladder's four constants were each chosen against one in
+// another package, and a change to any of them has to say what it does to
+// the other side.
+func TestTheThrottleLadderIsPacedAgainstTheMeasurementsItClimbsOn(t *testing.T) {
+	// A step down waits for a stretch of calm, and calm is only ever judged
+	// from a fresh sample. If the recovery were shorter than a sample's life,
+	// one calm reading could take a host down a rung before a second reading
+	// had a chance to disagree, and a host under pressure that lulled for a
+	// moment would bounce between rungs.
+	if scheduler.ThrottleRecovery <= store.HostUsageMaxAge {
+		t.Fatalf("scheduler.ThrottleRecovery is %s, not longer than store.HostUsageMaxAge at %s; a single calm sample could step a host down", scheduler.ThrottleRecovery, store.HostUsageMaxAge)
+	}
+	// A rung may not be climbed faster than the CPU hold that feeds the
+	// ladder can trip: the hold needs CPUHoldWindow of saturation, and a step
+	// shorter than that would let the ladder climb on measurements the hold
+	// had not yet judged sustained.
+	if scheduler.ThrottleStep < store.CPUHoldWindow {
+		t.Fatalf("scheduler.ThrottleStep is %s, shorter than the %s CPU hold that feeds it; the ladder would climb on pressure the hold had not called sustained", scheduler.ThrottleStep, store.CPUHoldWindow)
+	}
+	// A host that stops measuring is lifted after StaleThrottleReset, and a
+	// host that stops heartbeating is given up on after hostLostAfter. The
+	// reset has to be the later of the two: a host whose runners were just
+	// reclaimed as lost is a host that is about to come back, and it should
+	// come back on no rung -- but a host lifted before it was lost would have
+	// its full capacity handed back while it was merely late.
+	if scheduler.StaleThrottleReset <= hostLostAfter {
+		t.Fatalf("scheduler.StaleThrottleReset is %s, not later than hostLostAfter at %s; a late host would be handed its slots back before it was even given up on", scheduler.StaleThrottleReset, hostLostAfter)
+	}
+	// Half speed doubles a job's time, which the timeout-minutes most
+	// workflows set survives; a quarter turns "slow" into "timed out", and a
+	// throttle that made jobs fail would be doing the thing it exists to
+	// prevent. The top rung takes slots and nothing else.
+	if store.MinCPUFactor < 0.5 {
+		t.Fatalf("store.MinCPUFactor is %v, below the half speed a running job is promised; a throttled job would time out rather than finish late", store.MinCPUFactor)
 	}
 }

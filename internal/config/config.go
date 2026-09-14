@@ -360,6 +360,18 @@ type Scheduler struct {
 	// MaxCreatesPerTick caps how many runners may be created in one pass, so a
 	// thundering herd of queued jobs cannot exhaust a host in one go.
 	MaxCreatesPerTick int `yaml:"max_creates_per_tick"`
+	// DefaultRunnerLimits gives a runner whose pool sets no CPU or memory
+	// limit one slot's share of its host's machine as a real cgroup limit --
+	// the same share the scheduler already charges it. Off, such a runner is
+	// given no limit at all, and a host's worth of them can each take every
+	// core, which is the overload this setting exists to prevent.
+	DefaultRunnerLimits bool `yaml:"default_runner_limits"`
+	// HostThrottling lets the controller throttle a host whose measurements
+	// say it is overwhelmed: fewer slots, and a lower CPU quota on the runners
+	// already on it, stepped back up after a stretch of calm. Off, the
+	// pressure holds still refuse new starts while the pressure is acute, and
+	// nothing outlasts them.
+	HostThrottling bool `yaml:"host_throttling"`
 }
 
 // Log configures structured logging.
@@ -471,12 +483,14 @@ func Default() *Config {
 			DockerBuildCacheMB: 5120,
 		},
 		Scheduler: Scheduler{
-			Interval:          10 * time.Second,
-			ScaleUpDelay:      0,
-			MaxRunnerLifetime: 6 * time.Hour,
-			ProvisionTimeout:  5 * time.Minute,
-			DrainTimeout:      15 * time.Minute,
-			MaxCreatesPerTick: 10,
+			Interval:            10 * time.Second,
+			ScaleUpDelay:        0,
+			MaxRunnerLifetime:   6 * time.Hour,
+			ProvisionTimeout:    5 * time.Minute,
+			DrainTimeout:        15 * time.Minute,
+			MaxCreatesPerTick:   10,
+			DefaultRunnerLimits: true,
+			HostThrottling:      true,
 		},
 		Log:     Log{Level: "info", Format: "json"},
 		Metrics: Metrics{Enabled: true, Path: "/metrics"},
@@ -1018,6 +1032,8 @@ func (c *Config) applyEnv() error {
 	dur("ZOOMIES_PROVISION_TIMEOUT", &c.Scheduler.ProvisionTimeout)
 	dur("ZOOMIES_DRAIN_TIMEOUT", &c.Scheduler.DrainTimeout)
 	integer("ZOOMIES_MAX_CREATES_PER_TICK", &c.Scheduler.MaxCreatesPerTick)
+	boolean("ZOOMIES_DEFAULT_RUNNER_LIMITS", &c.Scheduler.DefaultRunnerLimits)
+	boolean("ZOOMIES_HOST_THROTTLING", &c.Scheduler.HostThrottling)
 
 	str("ZOOMIES_LOG_LEVEL", &c.Log.Level)
 	str("ZOOMIES_LOG_FORMAT", &c.Log.Format)

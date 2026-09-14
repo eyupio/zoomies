@@ -65,6 +65,67 @@ new runner starts and do not clear operator cordons. No new configuration is
 required. This remains a schema migration, so the backup and rollback rules
 below apply.
 
+## Default allocations and throttling during a rolling upgrade
+
+Migration `0029_host_throttle_and_runner_allocation.sql` adds the throttle
+column to hosts and the allocation columns to runners, and the release that
+carries it changes what a runner is given. Both halves are **on by upgrade**:
+`scheduler.default_runner_limits` and `scheduler.host_throttling` default to
+true, and each is a warning when turned off. What that means for a fleet, in
+the order it will be noticed:
+
+* **A pool that sets no `cpus` or `memory_mb` no longer gets unlimited
+  containers.** Its runners are created with one slot's share of their host's
+  allocatable CPU and memory as a real cgroup limit — the same share the
+  scheduler was already charging them. A job that used to have the whole
+  machine to itself on a quiet host now has its share of it, and a job that
+  needed more memory than its share is killed for exceeding a limit nobody
+  typed. The runner's message says the limit was the host's default share and
+  names the two ways out: set `memory_mb` on the pool, or lower the host's
+  capacity so each runner's share is larger. `host.overprovisioned` says
+  before any job does when a host's capacity gives each runner less than a
+  core or under 2 GB. [Default
+  allocations](hosts-and-pools.md#default-allocations) has the rules.
+* **The host's CPU reserve now has a floor** of half a core, or a twentieth of
+  the machine on a large one, held back for the daemon. A fleet whose explicit
+  pool CPU limits summed to exactly the host's CPUs — four pools of 2 CPU on
+  an 8-CPU box, say — takes **one runner fewer per host** than it did, because
+  the last one no longer fits; pools with no limits simply get a slightly
+  smaller share. A host's `allocatable_cpus` in the API and its committed CPU
+  bar on the card show the figure the floor leaves. An operator's own
+  `reserve_cpus` replaces the floor where it is larger.
+* **Runners created before the upgrade keep whatever limit their pool set** —
+  none where it set none — but carry no recorded allocation and an empty
+  `allocation_source`: the allocation is written when a runner is made, and
+  nothing is applied to a live container retroactively. Two things follow
+  while such a runner is on a host. It is counted among the host's
+  `unlimited_runners` whatever its pool's limit, so a sustained CPU hold there
+  can still throttle the host; and the throttle cannot slow it, because the
+  agent lowers only a quota whose allocation was recorded with the container,
+  so its job runs at full speed and only the host's smaller effective capacity
+  applies. Both end when its pool's next runner replaces it, which for an
+  ephemeral runner is after one job.
+* **Upgrade the agents before expecting either half.** The controller gives a
+  default only where the host's daemon has said it can apply the limit, and an
+  agent from before the probe has not said, so its hosts get no defaults and
+  `host.limits_unverified` names them until the agent is upgraded. Throttling
+  needs the agent's measurements — including the load average, which older
+  agents do not send — and needs the agent to understand the throttle
+  directive in the heartbeat response; an older agent ignores it, its running
+  jobs are never slowed, and only the smaller effective capacity applies.
+  Everything else about an older agent holds as before: a host with no fresh
+  usage is placed by its configured capacity, and a throttle whose host stops
+  measuring is lifted after ten minutes rather than left standing.
+
+To turn either half off: `scheduler.default_runner_limits: false`
+(`ZOOMIES_DEFAULT_RUNNER_LIMITS=false`) restores unlimited containers for pools
+that set no limits, and `scheduler.host_throttling: false`
+(`ZOOMIES_HOST_THROTTLING=false`) stops the controller stepping hosts down and
+lifts any throttle already standing. Each is warned about at startup and in the
+problems drawer for as long as it stands, because both are the thing that keeps
+a host's Docker daemon answering. The CPU floor has no switch; a fleet that
+wants every core placed has a smaller reserve than the daemon needs.
+
 ## What happens to work in flight
 
 A restart does not touch a running job. The runner is a container on its host,

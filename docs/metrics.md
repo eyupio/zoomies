@@ -47,12 +47,15 @@ memory, so they are always current and never drift.
 | `zoomies_runners` | gauge | `pool`, `state` | Runners by pool and state. The main shape-of-the-fleet series. |
 | `zoomies_jobs_queued` | gauge | `pool` | Jobs waiting for a runner, under the pool that claimed them. This is the backlog worth alerting on. |
 | `zoomies_hosts` | gauge | `state` | Agent hosts, by `healthy`, `unhealthy` or `cordoned`. |
-| `zoomies_host_capacity` | gauge | — | Runner slots across healthy, uncordoned hosts. |
-| `zoomies_host_capacity_used` | gauge | — | Slots occupied. Divide by the previous for utilisation. |
+| `zoomies_host_capacity` | gauge | — | Configured runner slots across healthy, uncordoned hosts: what their operators set. |
+| `zoomies_host_effective_capacity` | gauge | — | The same slots as the hosts' throttles leave them. Equal to the previous while no host is throttled; the gap between the two is the throttle. |
+| `zoomies_host_capacity_used` | gauge | — | Slots occupied. Divide by the effective figure for utilisation. |
 | `zoomies_host_cpu_usage_percent` | gauge | `host` | Recent whole-host CPU occupied, including I/O wait. Missing when stale or unmeasured. |
 | `zoomies_host_memory_available_bytes` | gauge | `host` | Recent available memory including reclaimable cache. Missing when stale or unmeasured. |
 | `zoomies_host_admission_held` | gauge | `host` | 1 while measured CPU or memory pressure holds new starts; running jobs continue. |
 | `zoomies_host_usage_fresh` | gauge | `host` | 1 when usage is less than 90 seconds old; 0 when placement falls back to reservations. |
+| `zoomies_host_load_average_1m` | gauge | `host` | Recent whole-host one-minute load average. Missing when stale or unmeasured. Past twice the host's CPUs it is what throttles the host; under one per CPU is calm. |
+| `zoomies_host_throttle_level` | gauge | `host` | The rung of the throttle ladder the host is on after sustained pressure, 0 to 3. Reported for every host, throttled or not, so a threshold rule keeps matching when nothing is wrong. |
 | `zoomies_host_allocatable_cpus` | gauge | — | CPUs across healthy, uncordoned hosts, less each host's reserve. |
 | `zoomies_host_allocatable_memory_bytes` | gauge | — | The same for memory. |
 | `zoomies_host_reserved_cpus` | gauge | — | What the live runners have promised away, as of the last scheduling pass. |
@@ -61,6 +64,13 @@ memory, so they are always current and never drift.
 | `zoomies_github_paused` | gauge | `installation` | 1 while that installation is inside its GitHub rate-limit backoff and every background sweep is standing down from it. |
 | `zoomies_provider_machines` | gauge | `provider`, `state` | Machines a provider is renting, by state. Every state is reported including the zeroes, so a provider that has stopped buying is visible rather than absent. |
 | `zoomies_provider_machines_quarantined` | gauge | — | Machines whose ownership could not be proved. Nothing will move one until a person does, so this is a queue of work rather than a shape — alert on any sustained non-zero value. |
+
+**Configured and effective slots are kept apart rather than one replacing the
+other.** The effective figure is the utilisation denominator while a throttle
+stands — it is what `free` is measured against, on the Hosts page and in the
+scheduler — and the configured one is what the operator set, so an alert on
+"the fleet shrank" can tell a host somebody resized from a host the controller
+stepped down. `zoomies_host_throttle_level` names which.
 
 **Slots and resources answer different questions too.** `zoomies_host_capacity`
 counts what the fleet will *take*; the allocatable and reserved pairs say
@@ -185,6 +195,9 @@ being down:
   `zoomies_github_paused` stuck at 1: both are the control loop not running,
   which no gauge about the fleet's shape will show you.
 * `zoomies_hosts{state="unhealthy"}` above zero.
+* `zoomies_host_throttle_level` above zero for longer than a job takes, which
+  is a host with too many slots for its machine rather than a host having a
+  bad afternoon.
 * `absent(zoomies_runners)`, which catches the case above where the gauges stop
   being reported at all.
 

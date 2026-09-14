@@ -1078,7 +1078,9 @@ func TestTheWizardSaysWhichHostItsSelectorReachedAndCouldNotUse(t *testing.T) {
 	if got.Host != "zoomies-12vcpu" || got.Code != controller.ExcludedSize {
 		t.Errorf("excluded = %+v, want the 12-CPU host turned down on size", got)
 	}
-	if !strings.Contains(got.Reason, "12 CPU") || !strings.Contains(got.Reason, "charged 16") {
+	// 11.4 CPU rather than 12: the reason names what may be placed on, and
+	// the scheduler keeps a twentieth of the machine back for the daemon.
+	if !strings.Contains(got.Reason, "11.4 CPU") || !strings.Contains(got.Reason, "charged 16") {
 		t.Errorf("reason = %q, want what the host has against what a runner costs", got.Reason)
 	}
 
