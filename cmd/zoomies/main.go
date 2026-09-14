@@ -84,6 +84,7 @@ func commands() []*command {
 	return []*command{
 		{"controller", groupRun, "Run the control plane, and an agent alongside it unless told otherwise", runController},
 		{"agent", groupRun, "Run a runner host's agent, or join this host to a controller", runAgent},
+		{"gateway", groupRun, "Publish a private provider API, such as a Proxmox cluster at home, to a controller over Tailcat", runGateway},
 
 		{"status", groupFleet, "The Overview, in a terminal", runStatus},
 		{"pools", groupFleet, "What runners to make, and how many", runPools},

@@ -284,3 +284,42 @@ func TestProvidersAreListedByName(t *testing.T) {
 		}
 	}
 }
+
+// The private connection address is a lasting capability to open connections
+// to a hypervisor's API, so it lives beside the credential: sealed, cleared
+// only on purpose, and never carried by a form that did not mention it.
+func TestAProvidersPrivateConnectionSurvivesAnEditAndIsClearedOnPurpose(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	p := seedProvider(t, s)
+
+	if err := s.SetProviderTailcatAddress(ctx, p.ID, []byte("sealed-address")); err != nil {
+		t.Fatalf("SetProviderTailcatAddress: %v", err)
+	}
+	stale := *p
+	stale.MaxMachines = 4
+	if err := s.UpdateProvider(ctx, &stale); err != nil {
+		t.Fatalf("UpdateProvider: %v", err)
+	}
+	got, err := s.GetProvider(ctx, p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got.TailcatAddressEnc) != "sealed-address" {
+		t.Fatalf("an edit that never mentioned the connection changed it: %q", got.TailcatAddressEnc)
+	}
+
+	if err := s.SetProviderTailcatAddress(ctx, p.ID, nil); err != nil {
+		t.Fatalf("clearing: %v", err)
+	}
+	got, err = s.GetProvider(ctx, p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.TailcatAddressEnc) != 0 {
+		t.Fatal("clearing the private connection left it in place")
+	}
+	if err := s.SetProviderTailcatAddress(ctx, "prv_missing", []byte("x")); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("a missing provider returned %v, want ErrNotFound", err)
+	}
+}

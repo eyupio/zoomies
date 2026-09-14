@@ -110,6 +110,10 @@ type providerTrouble struct {
 type builtProvider struct {
 	p         provider.Provider
 	updatedAt time.Time
+	// tunnel is the private connection the client dials through, or nil for
+	// a provider reached directly. It is closed when the row it was built
+	// for changes, because the new row may point somewhere else.
+	tunnel *privateDialer
 }
 
 func newMachineRuntime() *machineRuntime {
@@ -424,7 +428,7 @@ func (c *Controller) providerFor(ctx context.Context, row *store.Provider) (*mac
 	if err != nil {
 		return nil, err
 	}
-	p, err := c.providers.New(ctx, row.Kind, provider.Config{
+	cfg := provider.Config{
 		ProviderID: row.ID,
 		Owner:      provider.Owner{ControllerID: c.controllerID(), ProviderID: row.ID},
 		Endpoint:   row.Endpoint,
@@ -433,16 +437,57 @@ func (c *Controller) providerFor(ctx context.Context, row *store.Provider) (*mac
 		CAPEM:      row.CAPEM,
 		Insecure:   row.InsecureSkipVerify,
 		Deadlines:  c.providerDeadlines(),
-		HTTPClient: c.httpClient,
+		// Only an injected client is handed on. The default one this
+		// controller keeps for its own requests knows nothing about the
+		// row's certificate settings or its private connection, and a
+		// provider given a ready-made client uses it as it is.
+		HTTPClient: c.providerHTTP,
 		Logger:     c.log.With("provider", row.Name),
-	})
+	}
+	var tunnel *privateDialer
+	if len(row.TailcatAddressEnc) > 0 {
+		if !c.cfg().Server.TailcatEnabled {
+			return nil, errors.New("provider " + row.Name + " is reached over a private connection, and private connections are disabled; set server.tailcat_enabled to true and restart the controller, or switch the provider to a direct connection")
+		}
+		address, err := c.unsealString(row.TailcatAddressEnc, "provider "+row.Name+"'s private connection address")
+		if err != nil {
+			return nil, err
+		}
+		tunnel, err = newPrivateDialer(address)
+		if err != nil {
+			return nil, errors.New("provider " + row.Name + ": " + err.Error())
+		}
+		cfg.DialContext = tunnel.DialContext
+	}
+	p, err := c.providers.New(ctx, row.Kind, cfg)
 	if err != nil {
+		if tunnel != nil {
+			tunnel.Close()
+		}
 		return nil, err
 	}
 	c.machines.cacheMu.Lock()
-	c.machines.cache[row.ID] = &builtProvider{p: p, updatedAt: row.UpdatedAt}
+	if old, ok := c.machines.cache[row.ID]; ok && old.tunnel != nil {
+		old.tunnel.Close()
+	}
+	c.machines.cache[row.ID] = &builtProvider{p: p, updatedAt: row.UpdatedAt, tunnel: tunnel}
 	c.machines.cacheMu.Unlock()
 	return &machineProvider{row: row, p: p}, nil
+}
+
+// closeProviderTunnels releases every private connection the cache holds. It
+// runs when the controller stops; a row that is deleted while running keeps
+// its client until the controller restarts, which costs an idle userspace
+// network stack and nothing else.
+func (c *Controller) closeProviderTunnels() {
+	c.machines.cacheMu.Lock()
+	defer c.machines.cacheMu.Unlock()
+	for id, built := range c.machines.cache {
+		if built.tunnel != nil {
+			built.tunnel.Close()
+		}
+		delete(c.machines.cache, id)
+	}
 }
 
 // providerDeadlines is the operator's half of the budget. A provider may ask

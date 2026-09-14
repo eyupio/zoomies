@@ -1001,9 +1001,15 @@ type ProviderView struct {
 	// Endpoint is where this controller reaches the provider. It is not a
 	// secret -- it is the address an operator typed -- and showing it is how
 	// somebody tells two clusters apart on a page listing both.
-	Endpoint           string            `json:"endpoint,omitempty"`
-	InsecureSkipVerify bool              `json:"insecure_skip_verify,omitempty"`
-	Settings           map[string]string `json:"settings"`
+	Endpoint           string `json:"endpoint,omitempty"`
+	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"`
+	// Connection is how the endpoint is reached: "direct" over the network,
+	// or "tailcat" through a gateway beside the provider. The gateway's
+	// address is sealed on the row and, like the credential, has no field
+	// here: it is a lasting capability to open connections to the
+	// hypervisor's API, and this view is on every page and in every audit row.
+	Connection string            `json:"connection"`
+	Settings   map[string]string `json:"settings"`
 	// CredentialsConfigured says a credential is sealed in the row. The value
 	// never leaves this process, so this is what the form renders instead.
 	CredentialsConfigured bool `json:"credentials_configured"`
@@ -1046,6 +1052,15 @@ type ProviderView struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// providerConnection names how a provider is reached, from the one fact the
+// row holds about it.
+func providerConnection(p *store.Provider) string {
+	if len(p.TailcatAddressEnc) > 0 {
+		return "tailcat"
+	}
+	return "direct"
+}
+
 // ProviderView renders a provider with its machine counts and whatever is
 // currently holding it back.
 func (c *Controller) ProviderView(p *store.Provider, machines []*store.Machine) ProviderView {
@@ -1055,6 +1070,7 @@ func (c *Controller) ProviderView(p *store.Provider, machines []*store.Machine) 
 		Name:                  p.Name,
 		Endpoint:              p.Endpoint,
 		InsecureSkipVerify:    p.InsecureSkipVerify,
+		Connection:            providerConnection(p),
 		Settings:              emptyMap(p.Settings),
 		CredentialsConfigured: len(p.CredentialsEnc) > 0,
 		MachineLabels:         emptyMap(p.MachineLabels),

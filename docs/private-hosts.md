@@ -118,6 +118,7 @@ auth-disabled demo mode.
 | A Tailcat host is offline | Check the Zoomies agent service and outbound internet access. The agent retries transient connection failures; existing jobs are not deliberately killed by a tunnel interruption. Prolonged loss follows the normal host-health and recovery rules. |
 | Host has no matching pool | Set host labels and pool selectors to match, and check runtime/platform compatibility and capacity. The tunnel does not change scheduling rules. |
 | Restored controller cannot decrypt its identity | Restore the encryption key from the same backup as the database. |
+| A private provider is unreachable | Check that `zoomies gateway` is still running beside it and that its `--target` is the API the endpoint names; the gateway logs a warning each time it cannot reach the target. If the gateway was started from a new state directory, its address changed and the provider has to be given the new one. |
 
 Tailscale describes its hosted Tailcat relays as rate-limited and not intended
 for high-throughput use. They retain metadata logs. A relayed live-log stream
@@ -129,6 +130,51 @@ and [upstream source](https://github.com/tailscale/tailcat).
 The tunnel serves the agent connection only. GitHub webhook ingress and access
 to the Zoomies UI are configured separately. A fully private controller can
 use the existing GitHub polling fallback when webhooks cannot reach it.
+
+## Private providers
+
+The hypervisor a home lab rents machines from is behind the same router the
+hosts are. A Proxmox cluster on `192.168.1.10` has no address a controller in
+the cloud can dial, and the same private connection that brings a host in
+brings the cluster's API in too, with the direction reversed: a host connects
+out to the controller, so the controller listens inside the tunnel; a provider
+is something the controller connects to, so a **gateway** listens instead.
+
+`zoomies gateway` runs on the hypervisor node or on any machine beside it that
+can reach the API. It forwards every connection that arrives through the tunnel
+to that one address and nothing else — no port on the machine, no route into
+the LAN, no second destination — and TLS is not terminated there: the
+controller still verifies the cluster's certificate end to end, so the gateway
+reads none of the API token that passes through it.
+
+1. On a machine beside the hypervisor, run
+   `zoomies gateway --target 192.168.1.10:8006`. It prints a Tailcat address
+   beginning with `tc`.
+2. Open **Providers → Add provider**, keep the endpoint as
+   `https://192.168.1.10:8006` — the name the certificate is checked against —
+   choose **Private connection · Tailcat**, and paste the address.
+3. Press **Check**. The preflight now reaches the cluster through the gateway,
+   and the provider card shows **Tailcat** beside the endpoint.
+
+Leave the gateway running: as a systemd unit, a compose service or however you
+keep the agent alive on that machine. It keeps its identity in `--state-dir`
+(the same directory as the agent's credentials by default, mode 0600), so a
+restart keeps the same address and the provider row keeps working. Moving that
+file aside starts the gateway with a new address, which the provider then has
+to be given.
+
+**The address is a credential.** Whoever holds it can open connections to the
+hypervisor's API, so it is handled exactly as the API token is: sealed on the
+provider row with the instance key, never returned by the API, never in an
+audit row. A form that cannot read it back cannot erase it by accident either —
+switching the provider back to **Direct** is what clears it. Run the gateway
+with `--quiet` where its output goes to a log, and read the address from the
+state file instead.
+
+The same setting that stops private hosts stops private providers:
+`ZOOMIES_TAILCAT_ENABLED=false` makes the controller refuse to build a client
+for a provider with a private connection, naming the setting, rather than
+dialling an address it cannot reach.
 
 ## Why this is different
 

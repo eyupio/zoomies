@@ -55,6 +55,12 @@ type Provider struct {
 	// has lost its key refuses to generate a new one rather than starting and
 	// failing inside its first call to the hypervisor.
 	CredentialsEnc []byte `json:"-"`
+	// TailcatAddressEnc is the sealed address of a `zoomies gateway` in front
+	// of the provider's API, for a hypervisor on a home network the controller
+	// cannot otherwise reach. Empty means the endpoint is dialled directly.
+	// Sealed for the same reason the credential is: the address is a lasting
+	// capability to open connections to that API, not a name.
+	TailcatAddressEnc []byte `json:"-"`
 
 	// The one machine shape this provider offers. Every machine it buys is
 	// this shape, and a second shape is a second provider row.

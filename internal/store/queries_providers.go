@@ -25,7 +25,7 @@ const providerCols = `id, kind, name, endpoint, ca_pem, insecure_skip_verify, se
 	machine_cpus, machine_memory_mb, machine_disk_mb, pool_selector, max_machines,
 	max_creates_in_flight, idle_timeout_ms, cost_per_machine_hour, enabled, paused,
 	paused_reason, paused_until, consecutive_failures, last_check_at, last_check_error,
-	last_sweep_at, created_at, updated_at`
+	last_sweep_at, created_at, updated_at, tailcat_address_enc`
 
 func scanProvider(sc interface{ Scan(...any) error }) (*Provider, error) {
 	var p Provider
@@ -38,7 +38,7 @@ func scanProvider(sc interface{ Scan(...any) error }) (*Provider, error) {
 		&p.MachineCPUs, &p.MachineMemoryMB, &p.MachineDiskMB, &p.PoolSelector, &p.MaxMachines,
 		&p.MaxCreatesInFlight, &idle, &p.CostPerMachineHour, &enabled, &paused,
 		&p.PausedReason, &pausedUntil, &p.ConsecutiveFailures, &checked, &p.LastCheckError,
-		&swept, &created, &updated)
+		&swept, &created, &updated, &p.TailcatAddressEnc)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +70,7 @@ func (s *Store) CreateProvider(ctx context.Context, p *Provider) error {
 		return err
 	}
 	_, err = s.exec(ctx, `INSERT INTO providers (`+providerCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		p.ID, string(p.Kind), p.Name, p.Endpoint, p.CAPEM, boolInt(p.InsecureSkipVerify),
 		p.Settings, p.CredentialsEnc, p.MachineLabels, p.MachineCapacity,
 		string(p.MachineBackend), platform, p.MachineCPUs, p.MachineMemoryMB, p.MachineDiskMB,
@@ -78,7 +78,7 @@ func (s *Store) CreateProvider(ctx context.Context, p *Provider) error {
 		p.IdleTimeout.Duration().Milliseconds(), p.CostPerMachineHour,
 		boolInt(p.Enabled), boolInt(p.Paused), p.PausedReason, msp(p.PausedUntil),
 		p.ConsecutiveFailures, msp(p.LastCheckAt), p.LastCheckError, msp(p.LastSweepAt),
-		ms(p.CreatedAt), ms(p.UpdatedAt))
+		ms(p.CreatedAt), ms(p.UpdatedAt), p.TailcatAddressEnc)
 	return wrapWrite(err)
 }
 
@@ -150,6 +150,28 @@ func (s *Store) UpdateProvider(ctx context.Context, p *Provider) error {
 // not also re-submitting the ceilings from the page they opened yesterday.
 func (s *Store) SetProviderCredentials(ctx context.Context, id string, enc []byte) error {
 	res, err := s.exec(ctx, `UPDATE providers SET credentials_enc=?, updated_at=? WHERE id=?`,
+		enc, ms(s.Now()), id)
+	if err != nil {
+		return err
+	}
+	return affected(res, "provider", id)
+}
+
+// SetProviderTailcatAddress replaces the sealed private connection address, or
+// clears it when enc is empty, which puts the provider back on a direct
+// connection.
+//
+// Its own writer for the credential's reason: switching a provider between a
+// direct and a private connection is one deliberate act, and an edit to the
+// ceilings from a stale page must not undo it. It moves updated_at because
+// the controller's cache of built clients is keyed on it, and a client that
+// kept dialling the old way after the connection changed would be exactly the
+// kind of silent failure this column exists to avoid.
+func (s *Store) SetProviderTailcatAddress(ctx context.Context, id string, enc []byte) error {
+	if len(enc) == 0 {
+		enc = nil
+	}
+	res, err := s.exec(ctx, `UPDATE providers SET tailcat_address_enc=?, updated_at=? WHERE id=?`,
 		enc, ms(s.Now()), id)
 	if err != nil {
 		return err

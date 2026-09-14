@@ -82,6 +82,15 @@
         {#if provider.enabled === false}
           <Badge tone="draining" label="Disabled" size="sm" dot={false} />
         {/if}
+        {#if provider.connection === 'tailcat'}
+          <Badge
+            tone="accent"
+            label="Tailcat"
+            size="sm"
+            dot={false}
+            title="Reached through a zoomies gateway over a private encrypted connection. The gateway's address is sealed and never shown."
+          />
+        {/if}
         {#if provider.insecure_skip_verify}
           <Badge
             tone="danger"

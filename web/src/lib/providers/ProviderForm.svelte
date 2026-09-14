@@ -33,12 +33,14 @@
   } from '$lib/api/types';
   import { pluralise } from '$lib/format';
   import { severityStatus } from '$lib/status';
+  import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
   import Badge from '$lib/components/Badge.svelte';
   import Checkbox from '$lib/components/Checkbox.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
+  import RadioGroup from '$lib/components/RadioGroup.svelte';
   import RemedyText from '$lib/components/RemedyText.svelte';
   import Select from '$lib/components/Select.svelte';
   import Switch from '$lib/components/Switch.svelte';
@@ -70,6 +72,23 @@
   let { provider = null, oncancel, ondone, class: className = '' }: Props = $props();
 
   const editing = $derived(Boolean(provider?.id));
+  const tailcatAvailable = $derived(session.meta?.tailcat_available === true);
+  const connectionOptions = $derived([
+    {
+      value: 'direct',
+      label: 'Direct',
+      description:
+        'This controller dials the address over the network. Works on your LAN or over HTTPS.',
+    },
+    {
+      value: 'tailcat',
+      label: 'Private connection · Tailcat',
+      description: tailcatAvailable
+        ? 'For a hypervisor at home with no address this controller can reach. Run zoomies gateway beside it and paste the address it prints.'
+        : 'Private connections need authentication, a controller encryption key and server.tailcat_enabled. Ask your administrator to enable these and restart Zoomies.',
+      disabled: !tailcatAvailable,
+    },
+  ]);
 
   // The draft starts from the provider being edited and is the operator's
   // from then on, so this reads the prop once on purpose.
@@ -429,6 +448,48 @@
           {/snippet}
         </Field>
 
+        <RadioGroup
+          bind:value={draft.connection}
+          name="provider-connection"
+          legend="Connection"
+          options={connectionOptions}
+          onchange={() => touch('connection')}
+        />
+        {#if errors.connection}
+          <p class="note bad" role="alert">{errors.connection}</p>
+        {/if}
+
+        {#if draft.connection === 'tailcat'}
+          <Field
+            label="Private connection address"
+            hint={draft.tailcat_configured
+              ? 'Stored, sealed with the instance key. Leave this empty to keep it, or paste a new one if the gateway was started with a new identity.'
+              : 'What zoomies gateway printed. Sealed like the credential: anyone holding it can open connections to the hypervisor, so it is never shown again.'}
+            error={errors.tailcat_address}
+            required={!draft.tailcat_configured}
+          >
+            {#snippet children({ id, describedBy, invalid })}
+              <Input
+                bind:value={draft.tailcat_address}
+                {id}
+                {describedBy}
+                {invalid}
+                type="password"
+                mono
+                autocomplete="off"
+                placeholder={draft.tailcat_configured ? 'Unchanged' : 'tc…'}
+                onblur={() => touch('tailcat_address')}
+              />
+            {/snippet}
+          </Field>
+          <p class="prose">
+            The address above stays what the certificate is checked against; the gateway forwards
+            the connection to it and reads nothing. Run
+            <code>zoomies gateway --target &lt;hypervisor-ip&gt;:8006</code> on a machine that can reach
+            the hypervisor, and keep it running.
+          </p>
+        {/if}
+
         <Field
           label="Credential"
           hint={editing
@@ -691,6 +752,10 @@
           <div>
             <dt>Address</dt>
             <dd class="mono">{draft.endpoint || 'Not set'}</dd>
+          </div>
+          <div>
+            <dt>Connection</dt>
+            <dd>{draft.connection === 'tailcat' ? 'Private · Tailcat' : 'Direct'}</dd>
           </div>
           <div>
             <dt>Machine</dt>

@@ -79,6 +79,10 @@ type Options struct {
 	Clock func() time.Time
 	// HTTPClient delivers capacity-demand events. Tests may inject a transport.
 	HTTPClient *http.Client
+	// ProviderHTTPClient replaces the client every provider would build for
+	// itself. Tests use it to reach a fake hypervisor; production leaves it
+	// nil so that a row's certificate settings and private connection apply.
+	ProviderHTTPClient *http.Client
 	// LogLevel is the gate the process logger is filtered at, when the caller
 	// built one that can move. UpdateConfig sets it from log.level, so that a
 	// level changed through PATCH /settings or SIGHUP is the level the process
@@ -109,6 +113,8 @@ type Controller struct {
 	log        *slog.Logger
 	clock      func() time.Time
 	httpClient *http.Client
+	// providerHTTP is Options.ProviderHTTPClient, nil in production.
+	providerHTTP *http.Client
 
 	metrics *metrics
 	clients *clientCache
@@ -318,6 +324,7 @@ func New(opts Options) (*Controller, error) {
 		log:             log,
 		clock:           clock,
 		httpClient:      opts.HTTPClient,
+		providerHTTP:    opts.ProviderHTTPClient,
 		nudges:          make(chan struct{}, 1),
 		settingsChanged: make(chan struct{}, 1),
 		hostHealthy:     map[string]bool{},
@@ -587,6 +594,9 @@ func (c *Controller) Stop(ctx context.Context) error {
 	case <-ctx.Done():
 		c.log.Warn("controller shutdown timed out waiting for its loops; exiting anyway, runners are unaffected")
 	}
+	// After the last provider call, not before: a tunnel closed under a
+	// create would turn a request in flight into an outcome nobody recorded.
+	c.closeProviderTunnels()
 
 	// One last sample so the Overview's sparkline does not show a gap that
 	// looks like an outage when it was a restart.

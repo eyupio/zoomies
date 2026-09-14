@@ -820,3 +820,36 @@ func TestAStorageWithNoRoomIsAQuotaRefusal(t *testing.T) {
 		t.Error("a full storage is worth trying again once there is room")
 	}
 }
+
+// A cluster on a home network has no address the controller can route to. The
+// controller hands the client a dialer for the private connection instead, and
+// the client has to use it for every socket -- and consult no proxy, which
+// would take the connection straight back out of the tunnel -- while the
+// endpoint's host stays the name the certificate is verified against.
+func TestClientDialsThroughTheProvidedDialerAndUsesNoProxy(t *testing.T) {
+	f := newFakePVE(t, nil)
+	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+	var dialled []string
+	c, err := New(Options{
+		// example.com is what httptest's certificate is issued for, and it is
+		// not where the fake listens: only the dialer can get there.
+		Endpoint: "https://example.com:8006",
+		TokenID:  tokenID, Secret: tokenSecret, CAPEM: f.caPEM(t),
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			dialled = append(dialled, address)
+			return (&net.Dialer{}).DialContext(ctx, network, f.Listener.Addr().String())
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr := c.http.Transport.(*http.Transport); tr.Proxy != nil {
+		t.Fatal("a proxy could take the connection out of the private tunnel")
+	}
+	if _, err := c.Version(context.Background()); err != nil {
+		t.Fatalf("Version through the dialer: %v", err)
+	}
+	if len(dialled) == 0 || dialled[0] != "example.com:8006" {
+		t.Fatalf("the dialer was asked for %v, want the endpoint's host and port", dialled)
+	}
+}

@@ -24,6 +24,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 
@@ -178,8 +179,20 @@ type Config struct {
 	// Insecure records that certificate verification was turned off. It is
 	// carried rather than refused because a homelab hypervisor's certificate is
 	// usually its own, and the validator warns about it instead.
-	Insecure   bool
-	Deadlines  Deadlines
+	Insecure  bool
+	Deadlines Deadlines
+	// DialContext, when set, opens every connection the provider makes to its
+	// endpoint. The controller sets it for a provider reached over a private
+	// connection -- a hypervisor on a home network with no address the
+	// controller can route to -- and a provider that opens its own sockets
+	// must use it rather than the network, with no proxy in between: the
+	// endpoint's host is then a name for TLS to verify and nothing else. A
+	// provider that ignores it would dial an address that does not exist from
+	// where the controller is, and report the hypervisor down.
+	DialContext func(ctx context.Context, network, address string) (net.Conn, error)
+	// HTTPClient replaces the client a provider would build for itself. Tests
+	// use it; production leaves it nil so that CAPEM, Insecure and DialContext
+	// take effect, which a ready-made client cannot know about.
 	HTTPClient *http.Client
 	Logger     *slog.Logger
 }
