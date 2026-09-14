@@ -661,3 +661,68 @@ func TestADeleteThatHasNotConfirmedIsReported(t *testing.T) {
 		t.Fatalf("a delete that has not confirmed raised %v, want provider.delete_pending", h.problemCodes())
 	}
 }
+
+// The demo fixture's provider is never acted on, however the fleet is
+// configured.
+//
+// The fixture is a Proxmox cluster at an address that does not resolve, so an
+// instance seeded for a demo and then switched on would spend every pass
+// dialling it: a provider nobody configured in the problems drawer, DNS
+// failures in the log, and two fictional machines counted against the fleet's
+// ceiling. It is the same reason the credential prober and the registration
+// reaper skip the fixtures they would otherwise reach out on behalf of, and it
+// is worth a test because the thing that would break it -- a second place that
+// lists providers -- looks harmless.
+func TestTheDemoProvidersFixtureIsNeverRentedFrom(t *testing.T) {
+	h := newHarness(t)
+	h.enableProviders(t)
+	inst := h.installation()
+	h.pool(inst, "linux-x64")
+
+	demo := &store.Provider{
+		ID:                 "prv_demofixture",
+		Kind:               store.ProviderFake,
+		Name:               "demo-pve",
+		Endpoint:           "https://pve.acme.example:8006",
+		Settings:           store.StringMap{"zone": "zone-a"},
+		MachineLabels:      store.StringMap{},
+		MachineCapacity:    2,
+		MachineBackend:     store.BackendDocker,
+		MaxMachines:        5,
+		MaxCreatesInFlight: 5,
+		IdleTimeout:        store.Duration(15 * time.Minute),
+		Enabled:            true,
+	}
+	if err := h.st.CreateProvider(h.ctx, demo); err != nil {
+		t.Fatalf("CreateProvider: %v", err)
+	}
+	h.queueWork(t)
+
+	for range 3 {
+		h.machinePass(t)
+	}
+
+	if got := h.callsTo("allocate"); got != 0 {
+		t.Errorf("the demo provider was asked to allocate %d times", got)
+	}
+	if got := h.callsTo("create"); got != 0 {
+		t.Errorf("the demo provider was asked to create %d times", got)
+	}
+	if ms := h.machines(); len(ms) != 0 {
+		for _, m := range ms {
+			t.Errorf("a machine was planned against the demo fixture: %s on %s, %s", m.ID, m.ProviderID, m.State)
+		}
+	}
+
+	// And a real provider beside it is rented from as usual, so the skip is a
+	// skip rather than the machine loop having stopped.
+	lab := h.providerRow(t, "lab")
+	h.machinePass(t)
+	ms := h.machines()
+	if len(ms) != 1 {
+		t.Fatalf("expected the real provider to get one machine, got %d", len(ms))
+	}
+	if ms[0].ProviderID != lab.ID {
+		t.Errorf("the machine was rented from %s, want the real provider %s", ms[0].ProviderID, lab.ID)
+	}
+}

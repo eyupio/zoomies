@@ -205,9 +205,27 @@ func (c *Controller) ReconcileMachines(ctx context.Context) error {
 		return nil
 	}
 
-	providers, err := c.st.ListProviders(ctx)
+	rows, err := c.st.ListProviders(ctx)
 	if err != nil {
 		return fmt.Errorf("listing providers: %w", err)
+	}
+	// The demo fixture's provider has no hypervisor behind it, and its address
+	// is a name that does not resolve. Left in, an instance seeded for a demo
+	// and then switched on would spend every pass dialling it, fill the
+	// problems drawer with a provider nobody configured, and count its two
+	// fictional machines against the fleet's ceiling -- the same reason the
+	// credential prober and the registration reaper skip the fixtures they
+	// would otherwise reach out on behalf of.
+	//
+	// Filtered here rather than at each step so that recovery, the sweep, the
+	// plan and the machine loop all agree about which providers exist: a
+	// fixture that were visible to one of them and not the others is worse
+	// than one visible to all.
+	providers := rows[:0:0]
+	for _, p := range rows {
+		if !IsDemoID(p.ID) {
+			providers = append(providers, p)
+		}
 	}
 	if len(providers) == 0 {
 		return nil
