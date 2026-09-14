@@ -42,7 +42,7 @@
   import HostCard from '$lib/hosts/HostCard.svelte';
   import HostCapacityDialog from '$lib/hosts/HostCapacityDialog.svelte';
   import HostDeleteDialog from '$lib/hosts/HostDeleteDialog.svelte';
-  import HostEditDialog from '$lib/hosts/HostEditDialog.svelte';
+  import HostLabelsDialog from '$lib/hosts/HostLabelsDialog.svelte';
   import JoinTokenList from '$lib/hosts/JoinTokenList.svelte';
   import MachineBand from '$lib/providers/MachineBand.svelte';
 
@@ -417,7 +417,7 @@
 
 <HostCapacityDialog bind:open={sizeOpen} host={sizing} onclose={() => (sizing = null)} />
 
-<HostEditDialog bind:open={editOpen} host={editing} onclose={() => (editing = null)} />
+<HostLabelsDialog bind:open={editOpen} host={editing} onclose={() => (editing = null)} />
 <HostDeleteDialog bind:open={deleteOpen} host={deleting} onclose={() => (deleting = null)} />
 
 <style>

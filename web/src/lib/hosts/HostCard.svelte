@@ -229,7 +229,7 @@
     },
     {
       id: 'edit',
-      label: 'Edit capacity and labels',
+      label: 'Edit labels',
       icon: Pencil,
       disabled: !canOperate,
       onSelect: () => onedit(host),
@@ -459,7 +459,14 @@
   </section>
 
   <section class="block" aria-label="Labels on {host.name || host.id}">
-    <h4>Labels</h4>
+    <!-- Edited from here, as capacity is from the slot bar: the two settings
+         a host has are each reached from the thing they describe. -->
+    <div class="block-head">
+      <h4>Labels</h4>
+      {#if canOperate}
+        <Button size="sm" variant="ghost" icon={Pencil} onclick={() => onedit(host)}>Edit</Button>
+      {/if}
+    </div>
     {#if labels.length === 0}
       <p class="none">None. Pools that select hosts by label will not choose this one.</p>
     {:else}
@@ -655,6 +662,12 @@
   }
   .muted {
     color: var(--z-text-subtle);
+  }
+  .block-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--z-space-3);
   }
   .block {
     display: flex;

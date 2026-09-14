@@ -320,6 +320,7 @@ test('runner capacity is adjustable from the host card without opening the full 
   expect(Object.keys(patched ?? {}).sort()).toEqual([
     'capacity',
     'reserve_cpus',
+    'reserve_disk_mb',
     'reserve_memory_mb',
   ]);
 });
@@ -524,16 +525,22 @@ test('a host shows what the fleet has committed on it, and lets an operator hold
   await expect(committed).toContainText('Memory');
   await expect(committed).toContainText(/of 15\.2/);
 
-  // And the reserve is settable from the same card, against the figures this
-  // host has actually reported.
+  // And the reserve is settable from the same card, in Adjust -- the one place
+  // that owns this host's resources -- against the figures it has reported.
   await plantMarker(page);
-  await card.getByRole('button', { name: /Actions for/ }).click();
-  await page.getByRole('menuitem', { name: 'Edit capacity and labels' }).click();
-  const dialog = page.getByRole('dialog');
+  await card.getByRole('button', { name: 'Adjust', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Adjust demo-builder-1' });
   await expect(dialog).toBeVisible();
-  const memory = dialog.getByLabel('Memory (MB)');
+  const memory = dialog.getByRole('slider', { name: 'Memory held back' });
   await expect(memory).toBeVisible();
-  await memory.fill('8192');
+  // 8 GB is a notch on a 32 GB machine; the slider is driven by the keyboard
+  // because that is what an operator without a mouse has.
+  await memory.focus();
+  await page.keyboard.press('Home');
+  for (let i = 0; i < 20 && (await memory.getAttribute('aria-valuetext')) !== '8 GB'; i++) {
+    await page.keyboard.press('ArrowRight');
+  }
+  await expect(memory).toHaveAttribute('aria-valuetext', '8 GB');
   await dialog.getByRole('button', { name: 'Save changes' }).click();
   await expect(dialog).not.toBeVisible();
 
@@ -545,18 +552,56 @@ test('a host shows what the fleet has committed on it, and lets an operator hold
 
 /**
  * A reserve larger than the machine leaves nothing placeable, and is what
- * typing megabytes where you meant gigabytes looks like. It is refused, and
- * the refusal says what is wrong rather than failing silently on save.
+ * typing megabytes where you meant gigabytes looks like.
+ *
+ * The sliders cannot reach it -- their last notch leaves room to place on --
+ * so this is pinned where a hand-written request still arrives: the API
+ * refuses it, and the refusal says what is wrong rather than clamping.
  */
 test('a reserve that would leave nothing to place on is refused', async ({ page }) => {
+  const hosts = await page.request
+    .get('/api/v1/hosts')
+    .then((r) => r.json() as Promise<{ items: Record<string, unknown>[] }>);
+  const host = hosts.items.find((h) => h.name === 'demo-builder-2');
+  expect(host, 'demo-builder-2 is in the fixture').toBeTruthy();
+  const refused = await page.request.patch(`/api/v1/hosts/${String(host?.id)}`, {
+    data: { reserve_memory_mb: Number(host?.memory_mb ?? 0) },
+  });
+  expect(refused.status()).toBe(422);
+  expect(await refused.text()).toContain('nothing to place on');
+});
+
+/**
+ * The two settings a host has, each reached from the thing it describes: the
+ * resources from Adjust beside the slot bar, and the labels from the block
+ * that lists them. Capacity was on both once, with two different ideas of a
+ * good number, and only one of them knew what a runner in this fleet asks for.
+ */
+test('the labels dialog edits labels and nothing else', async ({ page }) => {
   await goto(page, '/hosts', 'Hosts');
-  const card = page.getByRole('article', { name: 'demo-builder-2', exact: true });
+  const card = page.getByRole('article', { name: 'demo-builder-1', exact: true });
+  let patched: Record<string, unknown> | null = null;
+  await page.route('**/api/v1/hosts/*', async (route) => {
+    if (route.request().method() !== 'PATCH') {
+      await route.continue();
+      return;
+    }
+    patched = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+  });
+
   await card.getByRole('button', { name: /Actions for/ }).click();
-  await page.getByRole('menuitem', { name: 'Edit capacity and labels' }).click();
-  const dialog = page.getByRole('dialog');
-  await dialog.getByLabel('Memory (MB)').fill('16384');
-  await expect(dialog).toContainText('nothing to place on');
-  await expect(dialog.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+  await page.getByRole('menuitem', { name: 'Edit labels' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Labels on demo-builder-1' });
+  await expect(dialog).toBeVisible();
+  // No resource setting in here at all: that is Adjust's, and the dialog says so.
+  await expect(dialog).toContainText('Capacity and the reserve are under Adjust');
+  await expect(dialog.getByRole('slider')).toHaveCount(0);
+  await expect(dialog.getByRole('spinbutton')).toHaveCount(0);
+
+  await dialog.getByRole('button', { name: 'Save changes' }).click();
+  await expect(dialog).toBeHidden();
+  expect(Object.keys(patched ?? {})).toEqual(['labels']);
 });
 
 /**

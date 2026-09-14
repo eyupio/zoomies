@@ -197,8 +197,14 @@ the exact command to run when one is missing — and the labels pools select it
 by. Slots and the committed bars answer different questions: the first is
 whether the fleet will place another runner here, the second whether the machine
 can carry it, and a host with free slots and no memory left takes nothing.
-*Edit* sets the capacity, the labels and the reserve — what the scheduler leaves
-alone for the machine's own sake. A cordoned host keeps its runners and takes no new
+Each of the two settings a host has is reached from the thing it describes.
+*Adjust*, beside the slot bar, owns the resources: how many runners the host may
+hold, and the reserve — the cores, memory and disk the scheduler leaves alone
+for the machine's own sake. Each sits on a slider with the recommendation marked
+on it, worked out from the machine's size and the largest ask across your enabled
+pools, and *Set to recommendations* puts all four back in one press; a setting
+past its mark warns rather than refuses. *Edit*, beside the labels, sets the
+labels and nothing else. A cordoned host keeps its runners and takes no new
 ones. *Add a host* mints a join token and prints the one line to paste on the
 new machine.
 
@@ -218,7 +224,7 @@ what the host is taking right now, and the configured capacity is untouched.
 The notice under it is the throttle's own sentence — what was taken, which
 measurement did it, what the running jobs are getting, and that it lifts one
 step after five minutes of calm — and **Lift the throttle** beside it clears the
-throttle by hand once the cause is fixed. The edit dialog's note about the
+throttle by hand once the cause is fixed. The adjust dialog's note about the
 floors under a reserve names the CPU floor too: half a core, or a twentieth of
 the machine, held back for the daemon whatever the operator sets.
 

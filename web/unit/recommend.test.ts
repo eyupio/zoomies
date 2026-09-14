@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import {
   DEFAULT_ASK,
   capacityCeiling,
+  diskNotches,
   memoryNotches,
   overcommit,
   recommendedCapacity,
   recommendedReserveCores,
+  recommendedReserveDiskMb,
   recommendedReserveMemoryMb,
   runnerAsk,
 } from '../src/lib/hosts/recommend.ts';
@@ -32,6 +34,20 @@ test('the reserve keeps a core and a tenth of memory, and never the whole machin
   // A tenth of sixteen gigabytes is between two notches; the next one up.
   assert.equal(recommendedReserveMemoryMb(16384), 2048);
   assert.equal(recommendedReserveMemoryMb(262144), 8192);
+});
+
+test('the disk reserve is a tenth of the filesystem, on a notch the slider stops at', () => {
+  // Nothing worth holding back on a disk barely larger than the floor.
+  assert.equal(recommendedReserveDiskMb(4096), 0);
+  assert.deepEqual(diskNotches(4096), [0]);
+  // 100 GB: a tenth is 10 GB, and 8 GB is the notch nearest it.
+  assert.equal(recommendedReserveDiskMb(102_400), 8192);
+  // Capped, so a terabyte does not hold back a hundred gigabytes.
+  assert.equal(recommendedReserveDiskMb(1_048_576), 65_536);
+  // The notches double from the scheduler's own floor, and never reach the
+  // whole disk -- a reserve that leaves nothing to place on is refused.
+  assert.deepEqual(diskNotches(65_536), [0, 2048, 4096, 8192, 16_384, 32_768]);
+  assert.ok((diskNotches(65_536).at(-1) ?? 0) < 65_536);
 });
 
 test('capacity is what fits after the reserve, on the tighter of CPU and memory', () => {
