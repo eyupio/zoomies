@@ -41,7 +41,27 @@ export interface GridPrefs {
   /** Column ids the operator has hidden. Stored as the exception, so new columns appear. */
   hidden?: string[];
   pageSize?: number;
+  /**
+   * How this grid lays a row out on a phone, when the operator has said. Absent
+   * means the default below, so changing that default moves every grid nobody
+   * has decided for.
+   */
+  view?: GridView;
 }
+
+/**
+ * How a grid lays a row out on a phone.
+ *
+ * `cards` gives each row a card and each value a line of its own, which is what
+ * makes ten columns readable in 360 pixels. `rows` keeps the table: one line per
+ * row, the columns at the widths they declare, and the frame scrolling sideways
+ * to reach the ones that do not fit. Scanning a fleet for the one busy runner is
+ * what that is good at, and it is the layout this grid had before the cards --
+ * so it stays on offer rather than being decided for everybody.
+ */
+export const GRID_VIEWS = ['cards', 'rows'] as const;
+export type GridView = (typeof GRID_VIEWS)[number];
+export const DEFAULT_GRID_VIEW: GridView = 'cards';
 
 interface StoredPrefs {
   navCollapsed?: boolean;
@@ -67,6 +87,13 @@ interface StoredPrefs {
    * choice recorded it starts at today, the range the fleet is running in.
    */
   activityRange?: ActivityRangeKey;
+  /**
+   * The phone layout a grid takes when the operator has not chosen one for it
+   * itself. One setting for the whole app: an operator who prefers to scan rows
+   * prefers it on every page, and the per-grid choice is for the page that is
+   * the exception.
+   */
+  gridView?: GridView;
 }
 
 /** The quick ranges the activity matrix offers, as the buttons name them. */
@@ -119,6 +146,7 @@ class Prefs {
   #dismissed = $state<string[]>([]);
   #otherRunners = $state(false);
   #activityRange = $state<ActivityRangeKey>('1d');
+  #gridView = $state<GridView>(DEFAULT_GRID_VIEW);
 
   constructor() {
     const stored = load();
@@ -138,6 +166,11 @@ class Prefs {
     )
       ? (stored.activityRange as ActivityRangeKey)
       : '1d';
+    // Validated for the same reason, and for one more: a grid told to lay
+    // itself out in a way this build does not have would render nothing.
+    this.#gridView = (GRID_VIEWS as readonly string[]).includes(stored.gridView ?? '')
+      ? (stored.gridView as GridView)
+      : DEFAULT_GRID_VIEW;
     this.#applyNav();
   }
 
@@ -177,6 +210,29 @@ class Prefs {
 
   set activityRange(value: ActivityRangeKey) {
     this.#activityRange = value;
+    this.#persist();
+  }
+
+  /**
+   * The phone layout grids take unless one has been told otherwise. Set in
+   * Settings; each grid's own toggle overrides it for that grid alone.
+   */
+  get gridView(): GridView {
+    return this.#gridView;
+  }
+
+  set gridView(value: GridView) {
+    this.#gridView = value;
+    this.#persist();
+  }
+
+  /** How this grid lays a row out on a phone: its own choice, or the default. */
+  gridViewFor(gridId: string): GridView {
+    return this.#grids[gridId]?.view ?? this.#gridView;
+  }
+
+  setGridView(gridId: string, view: GridView): void {
+    this.#grids = { ...this.#grids, [gridId]: { ...this.#grids[gridId], view } };
     this.#persist();
   }
 
@@ -234,6 +290,7 @@ class Prefs {
         dismissed: this.#dismissed,
         otherRunners: this.#otherRunners,
         activityRange: this.#activityRange,
+        gridView: this.#gridView,
       } satisfies StoredPrefs),
     );
   }

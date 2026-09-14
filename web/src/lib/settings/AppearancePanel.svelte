@@ -8,6 +8,7 @@
 <script lang="ts">
   import { CLOCK_INTERVAL_MS } from '$lib/format';
   import { prefs } from '$lib/state/prefs.svelte';
+  import type { GridView } from '$lib/state/prefs.svelte';
   import { theme } from '$lib/state/theme.svelte';
   import type { ThemeChoice } from '$lib/state/theme.svelte';
   import RadioGroup from '$lib/components/RadioGroup.svelte';
@@ -17,6 +18,26 @@
     { value: 'system', label: 'Match the system', description: 'Follows the operating system.' },
     { value: 'light', label: 'Light', description: 'Always light, whatever the system says.' },
     { value: 'dark', label: 'Dark', description: 'Always dark.' },
+  ];
+
+  /*
+    What a grid does with a row on a phone. Both layouts exist because they
+    answer different questions: cards are how ten columns are read one-handed,
+    rows are how a fleet is scanned for the one that is different. This is only
+    the default -- each grid's own toggle, above its rows, overrides it there.
+  */
+  const GRID_VIEWS = [
+    {
+      value: 'cards',
+      label: 'Cards',
+      description: 'Each row is a card and every value gets a line of its own. Nothing is cut off.',
+    },
+    {
+      value: 'rows',
+      label: 'Rows',
+      description:
+        'Keeps the table: one line per row, and the table scrolls sideways to the columns that do not fit.',
+    },
   ];
 
   const seconds = Math.round(CLOCK_INTERVAL_MS / 1000);
@@ -54,6 +75,21 @@
         checked={prefs.navCollapsed}
         onchange={(on) => (prefs.navCollapsed = on)}
       />
+    </section>
+
+    <section aria-labelledby="grid-view-heading">
+      <h3 id="grid-view-heading">Tables on a phone</h3>
+      <RadioGroup
+        value={prefs.gridView}
+        name="grid-view"
+        options={GRID_VIEWS}
+        onchange={(value) => (prefs.gridView = value as GridView)}
+      />
+      <p class="note">
+        Only below 768px, where a dozen columns do not fit across the screen; wider than that every
+        grid is the table. Each grid carries the same choice above its rows, and a grid told there
+        keeps it whatever this says.
+      </p>
     </section>
 
     <section aria-labelledby="time-heading">
