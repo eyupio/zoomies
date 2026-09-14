@@ -9,13 +9,19 @@
   scheduler has promised against what it may place on, disk -- so seven
   different figures sit on one 0-100% axis and can be read against each other.
   Only load may pass 100, because a load of twice the CPUs is a real thing and
-  is what steps a throttle up.
+  is what steps a throttle up. It gets a lane of its own above the axis, on
+  its own scale up to the highest load in view: a spike to eight times the
+  cores is still drawn as a spike, and the axis everything else is read on
+  keeps its room rather than being squashed into the bottom tenth of the chart
+  behind thirty labels.
 
   The controller writes one sample per host per minute; the stream keeps the
   newest point moving between them, from the same host view the cards below
   are drawn from, so the chart's right-hand edge and the card never disagree.
   A host that stops reporting draws a gap, not a flat line: a flat line is
-  what a healthy, quiet machine draws too.
+  what a healthy, quiet machine draws too. One missing minute is not that,
+  though -- it is a sampler a moment late or a tab that slept -- so the line
+  is drawn across it and only two absent in a row break it.
 
   Hosts and measurements switch on and off with a click and the choice is
   remembered, because an operator watching two machines out of forty wants
@@ -38,10 +44,12 @@
     WINDOWS,
     hostSeries,
     hostTone,
+    lineRuns,
     liveSample,
     mergeHostSamples,
     metricText,
     metricValue,
+    overflowCeiling,
     timeTicks,
     type MetricKey,
     type WindowKey,
@@ -173,32 +181,38 @@
     last: { i: number; value: number } | null;
   }
 
-  const ceiling = $derived.by(() => {
-    let top = 100;
+  // The axis is 0-100% and stays so. Load is the one figure that can pass it,
+  // and when it does in this window it gets a lane above the axis on its own
+  // scale, rather than stretching the axis to wherever it reached and
+  // squashing every other line into a strip at the bottom.
+  const LANE = 40;
+  const overflow = $derived.by(() => {
+    if (!enabled.includes('load')) return 0;
+    let peak: number | null = null;
     for (const host of visibleHosts)
       for (const s of byHost.get(host.id ?? '') ?? [])
-        if (enabled.includes('load')) top = Math.max(top, metricValue(s, 'load') ?? 0);
-    return Math.ceil(top / 50) * 50;
+        peak = Math.max(peak ?? 0, metricValue(s, 'load') ?? 0);
+    return overflowCeiling(peak);
   });
+  /** Where 100% sits: the top of the drawing, or under the lane when there is one. */
+  const AXIS_TOP = $derived(overflow ? TOP + LANE : TOP);
   const x = (i: number) => LEFT + (i * SPAN) / Math.max(1, count - 1);
-  const y = (value: number) => BOTTOM - (Math.min(value, ceiling) / ceiling) * (BOTTOM - TOP);
+  const y = (value: number) => {
+    if (value <= 100 || !overflow)
+      return AXIS_TOP + (1 - Math.min(value, 100) / 100) * (BOTTOM - AXIS_TOP);
+    return AXIS_TOP - ((Math.min(value, overflow) - 100) / (overflow - 100)) * LANE;
+  };
 
-  /** Every unbroken run of observed intervals, as one path each. */
+  /** Every run of observed intervals a stroke joins, as one path each. */
   function runsOf(points: SignalPoint[]): string[] {
-    const out: string[] = [];
-    let run: string[] = [];
-    points.forEach((p, i) => {
-      if (p.value === null) {
-        if (run.length) out.push(run.join(' '));
-        run = [];
-        return;
-      }
-      run.push(`${run.length ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`);
+    return lineRuns(points).map((run) => {
+      const d = run
+        .map((p, n) => `${n ? 'L' : 'M'}${x(p.i).toFixed(1)},${y(p.value).toFixed(1)}`)
+        .join(' ');
+      // A single observed interval has no length to stroke: give it a dot's
+      // worth so the line cap draws it.
+      return run.length > 1 ? d : `${d} l0.01,0`;
     });
-    if (run.length) out.push(run.join(' '));
-    // A single observed interval has no length to stroke: give it a dot's
-    // worth so the line cap draws it.
-    return out.map((d) => (d.includes('L') ? d : `${d} l0.01,0`));
   }
 
   const series = $derived.by((): Series[] => {
@@ -269,9 +283,7 @@
       x: LEFT + ((at - start) / Math.max(1, end - start)) * SPAN,
     })),
   );
-  const grid = $derived(
-    Array.from({ length: ceiling / 25 + 1 }, (_, n) => n * 25).filter((v) => v <= ceiling),
-  );
+  const grid = [0, 25, 50, 75, 100];
 
   /** What every visible host read at the active moment, for the card. */
   const reading = $derived(
@@ -334,7 +346,7 @@
     </div>
   {/snippet}
 
-  <div class="map" style:--ceiling={ceiling}>
+  <div class="map">
     <div class="metrics" role="group" aria-label="Measurements shown">
       {#each METRICS as metric (metric.key)}
         <button
@@ -367,11 +379,29 @@
         onpointermove={onPointer}
         onpointerleave={() => (hover = null)}
       >
+        {#if overflow}
+          <!-- The lane for load past the cores, on its own scale up to the
+               peak in view. Its floor is the axis's 100%, which is why the
+               line there is drawn firmer than the grid. -->
+          <rect class="lane" x={LEFT} y={TOP} width={SPAN} height={LANE} />
+          <line class="grid" x1={LEFT} x2={RIGHT} y1={TOP} y2={TOP} />
+          <text class="axis" x={LEFT - 8} y={TOP + 4} text-anchor="end">{overflow}%</text>
+          <text class="lane-label" x={RIGHT - 6} y={TOP + 12} text-anchor="end">
+            load past the cores
+          </text>
+        {/if}
         <!-- The pressure band: what a throttle steps a host down for. -->
         <rect class="pressure" x={LEFT} y={y(100)} width={SPAN} height={y(90) - y(100)} />
         <text class="band-label" x={LEFT + 6} y={y(95) + 4}>pressure</text>
         {#each grid as value (value)}
-          <line class="grid" x1={LEFT} x2={RIGHT} y1={y(value)} y2={y(value)} />
+          <line
+            class="grid"
+            class:edge={value === 100 && overflow > 0}
+            x1={LEFT}
+            x2={RIGHT}
+            y1={y(value)}
+            y2={y(value)}
+          />
           <text class="axis" x={LEFT - 8} y={y(value) + 4} text-anchor="end">{value}%</text>
         {/each}
         {#each series as s (s.id)}
@@ -616,15 +646,28 @@
   .pressure {
     fill: var(--z-pending-subtle);
   }
-  .band-label {
-    fill: var(--z-pending);
+  .band-label,
+  .lane-label {
     font-size: 10px;
     letter-spacing: 0.04em;
     text-transform: uppercase;
   }
+  .band-label {
+    fill: var(--z-pending);
+  }
   .grid {
     stroke: var(--z-border);
     stroke-dasharray: 2 4;
+  }
+  .grid.edge {
+    stroke: var(--z-border-strong);
+    stroke-dasharray: none;
+  }
+  .lane {
+    fill: var(--z-surface-sunken);
+  }
+  .lane-label {
+    fill: var(--z-text-subtle);
   }
   .axis {
     fill: var(--z-text-muted);
