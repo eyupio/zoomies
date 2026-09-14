@@ -1,11 +1,11 @@
 # Zoomies follow-on roadmap
 
-Version 2.38 · 13 September 2026 · derived from the owner's
+Version 2.39 · 14 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
-closed N02 incident, the deferred host-stewardship slice, and the four
+closed N02 incident, the deferred host-stewardship slice, the four
 packages an instance operated on somebody else's behalf needs from this
-repository.
+repository, and the publication of `v1.0.0`, which was ZF-218's precondition.
 
 This is the sole active roadmap and delivery-order source of truth for the
 next programme: make Zoomies a dependable, secure and easy-to-operate
@@ -261,6 +261,27 @@ ratified.
     scoped administration, bounded resource use, durable usage reporting and
     repeatable lifecycle automation. One instance remains one trust domain.
     These packages are part of Phase 2 and progress alongside qualification.
+28. **A container per job on Proxmox, from the runner image we already
+    publish.** Proxmox VE 9.1 can create an LXC container from an OCI image:
+    one API call pulls a reference into a container template, and `entrypoint`
+    and `env` on the create call carry the OCI contract, so
+    `ghcr.io/eyupio/zoomies-runner` could be a container per job with no VM
+    and no Docker daemon under it. It would arrive as a *backend* beside
+    Docker, Podman and process — not as a second provider — because renting a
+    machine and placing a runner are separate contracts and this is the
+    second. Three things make it a decision rather than a work package. It
+    *weakens* isolation: today a job on a rented machine sits behind a
+    hardware boundary, and an LXC per job shares the hypervisor's kernel, so
+    it needs the honest warning the process backend already carries, in the
+    same words. It gives jobs no Docker at first: the sidecar pattern has no
+    equivalent when two containers cannot share a network namespace, and
+    privileged nesting costs `Sys.Modify` on `/`. And there is no API to
+    stream a container's stdout, which is what `Backend.Logs` feeds. Proxmox
+    still calls application containers a technology preview and lists maturing
+    them as future work. *Recommend: a one-day spike first — does the runner
+    image boot as an application container, register with a JIT config, run
+    one job as the runner account and stop — and assess the package only if
+    it passes and ZF-214c has run. Not before either.*
 
 ## 4. Delivery rules
 
@@ -2062,8 +2083,8 @@ description of a missing feature is not evidence it remains missing.
 | Order | Work | Exit criterion |
 | --- | --- | --- |
 | 0 | ZF-220 resource-aware host allocation and pressure admission | Reviewed implementation and automated checks; live fleet qualification reported separately before release inclusion |
-| 1 | ZF-218a–d one-click deployment foundation, against today's `v1.0.0` release once published | Complete provider-neutral artefact and partner hand-off; implementation is complete but not yet qualified |
-| 2 | ZF-219 post-implementation verification and friendly-provider pilot readiness | Pristine-VPS and first-workflow evidence; one pilot can be invited, not yet broadly listed |
+| 1 | ZF-218a–d one-click deployment foundation, against the published `v1.0.0` release | Complete provider-neutral artefact and partner hand-off; **implementation complete, not qualified** — the artefact is in `deploy/marketplace/` and no deployment has been run |
+| 2 | ZF-219 post-implementation verification and friendly-provider pilot readiness — **now the next unblocked work** | Pristine-VPS and first-workflow evidence, recorded in [marketplace-deployment.md](roadmap/validation/marketplace-deployment.md); one pilot can be invited, not yet broadly listed |
 | 3 | ZF-211 documentation reconciliation and evidence inventory | One current support story; historical gaps clearly dated |
 | 4 | ZF-208 resource limits; ZF-207 administration boundaries | Host/pool pressure and API/UI access boundaries verified |
 | 5 | ZF-210a unattended bootstrap and readiness; then ZF-214a contract and fake-provider slice | Fresh instance and agent without prompts or log scraping; provider recovery contract proven in fixtures |
