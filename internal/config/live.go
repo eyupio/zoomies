@@ -44,11 +44,18 @@ func (l *Live) Load() *Config { return l.p.Load() }
 // The copy is shallow. fn may assign any field, including a whole slice or
 // map, but must not alter a slice or map the old snapshot shares, because a
 // reader may be in the middle of ranging over it.
+//
+// The one map the copy does not share is the record of where each value came
+// from: fn changes a setting, and a setting that has been changed has a new
+// source, so every fn would otherwise have to remember to replace that map
+// before writing to it. Doing it here means a caller that forgets cannot
+// produce the race, rather than merely being told not to.
 func (l *Live) Update(fn func(*Config)) (before, after *Config) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	before = l.p.Load()
 	next := *before
+	next.sources = before.copySources()
 	fn(&next)
 	l.p.Store(&next)
 	return before, &next

@@ -93,3 +93,47 @@ func TestTheStartingConfigurationIsTheFirstSnapshot(t *testing.T) {
 		t.Fatal("Update did not leave the old snapshot alone and publish a new one")
 	}
 }
+
+// A snapshot's record of where each value came from is its own, so a reader
+// asking about one setting cannot be reading the map a writer is changing.
+//
+// config.Live's whole design is that a reader takes a pointer and sees one
+// consistent whole with no lock. The copy it makes is shallow, which is safe
+// for the fields fn assigns wholesale -- and was not safe for the source
+// record, because changing a setting also changes where that setting came
+// from, so fn writes into that map rather than replacing it. Run with -race,
+// this is the test that says so.
+func TestEachSnapshotHasItsOwnRecordOfWhereValuesCameFrom(t *testing.T) {
+	live := NewLive(Default())
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					_ = live.Load().Source("scheduler.interval")
+					_ = live.Load().Sources()
+				}
+			}
+		}()
+	}
+
+	for i := range 200 {
+		live.Update(func(c *Config) {
+			c.Scheduler.Interval = time.Duration(i+1) * time.Second
+			c.Note("scheduler.interval", SourceDatabase)
+		})
+	}
+	close(stop)
+	wg.Wait()
+
+	if got := live.Load().Source("scheduler.interval"); got != SourceDatabase {
+		t.Errorf("source = %q after the updates, want database", got)
+	}
+}

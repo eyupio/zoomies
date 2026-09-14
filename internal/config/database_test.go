@@ -10,6 +10,29 @@ import (
 	"github.com/eyupio/zoomies/internal/store"
 )
 
+// isolateEnvironment removes every ZOOMIES_* variable for the duration of a
+// test, so a test about the layers is not also a test of whatever the machine
+// running it happens to export.
+//
+// This repository builds itself on its own runners, and those set
+// ZOOMIES_DOCKER_HOST and ZOOMIES_RUNNER_VERSION -- so a test asserting which
+// settings the environment is holding passed on every laptop and failed in the
+// one place it had to pass.
+func isolateEnvironment(t *testing.T) {
+	t.Helper()
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if !strings.HasPrefix(key, "ZOOMIES_") && key != "DOCKER_HOST" {
+			continue
+		}
+		was := os.Getenv(key)
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatalf("unsetting %s: %v", key, err)
+		}
+		t.Cleanup(func() { _ = os.Setenv(key, was) })
+	}
+}
+
 func testKey(t *testing.T) *cryptox.Key {
 	t.Helper()
 	key, err := cryptox.GenerateKey()
@@ -28,6 +51,7 @@ func testKey(t *testing.T) *cryptox.Key {
 // be invisibly overridden, which is why the layer each value came from is
 // recorded rather than left to be worked out.
 func TestTheEnvironmentBeatsTheDatabaseAndTheDatabaseBeatsTheFile(t *testing.T) {
+	isolateEnvironment(t)
 	key := testKey(t)
 	cfg := Default()
 	cfg.Scheduler.Interval = 11
@@ -138,6 +162,7 @@ func TestACredentialIsSealedInTheDatabase(t *testing.T) {
 // pretended about. A setting the environment is pinning never waits, because
 // its stored value is not coming into force at the next start either.
 func TestOnlyASettingThatWillActuallyChangeIsPending(t *testing.T) {
+	isolateEnvironment(t)
 	key := testKey(t)
 	running := Default()
 	t.Setenv("ZOOMIES_AGENT_CAPACITY", "4")
@@ -163,6 +188,7 @@ func TestOnlyASettingThatWillActuallyChangeIsPending(t *testing.T) {
 // directory, the agent's capacity from its cores -- so a row claiming to be
 // "the default" would freeze one machine's answers for every machine after it.
 func TestTheImporterTakesOnlyWhatTheFileSpells(t *testing.T) {
+	isolateEnvironment(t)
 	dir := t.TempDir()
 	path := dir + "/zoomies.yaml"
 	if err := writeFileForTest(path, `
@@ -271,6 +297,7 @@ func writeFileForTest(path, body string) error {
 // a years-old file. A key in the file still beats the built-in default, which
 // is what honouring it at all means.
 func TestTheLegacyRetentionKeyDoesNotEatAStoredValue(t *testing.T) {
+	isolateEnvironment(t)
 	key := testKey(t)
 
 	fromFileOnly := Default()
