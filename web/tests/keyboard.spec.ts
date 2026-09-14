@@ -31,6 +31,7 @@ const JUMPS = [
   { key: 'j', path: '/jobs', heading: 'Jobs' },
   { key: 'u', path: '/usage', heading: 'Usage' },
   { key: 'h', path: '/hosts', heading: 'Hosts' },
+  { key: 'v', path: '/providers', heading: 'Providers' },
   { key: 'i', path: '/installations', heading: 'Installations' },
   { key: 'm', path: '/migrate', heading: 'Migrate repositories' },
   { key: 'a', path: '/audit', heading: 'Audit' },
