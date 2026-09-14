@@ -155,6 +155,24 @@ problems list -- are worked out again after every pass and sent when they
 differ. Each frame is the resource's `GET` shape, rendered by the same code
 (see [api-surface.md](api-surface.md#sse-event-kinds)).
 
+### Runner starts on one host
+
+Each agent admits one runner create or image prewarm at a time, shared across
+all pools and backends on that host. The slot covers image preparation, the
+DinD sidecar, runner creation and failure cleanup. Once creation finishes, the
+next task can start; running jobs still use the host's configured capacity,
+and different hosts start independently.
+
+Waiting starts do not hold lifecycle slots, so stop and removal requests can
+still run. A queued create superseded by a stop or removal is skipped before
+touching the backend. Shutdown cancels waiting tasks, and a cordon is checked
+again when a create reaches the front.
+
+The backend's create timeout starts after admission. The controller's
+`scheduler.provision_timeout` still covers the whole provisioning period,
+including this wait; hosts with long cold pulls should prewarm their images
+and allow enough provisioning time for their expected burst.
+
 ### When webhooks cannot reach you
 
 If `github.poll_fallback` is on (the default), a poller lists queued jobs on an

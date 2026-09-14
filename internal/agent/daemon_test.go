@@ -5,12 +5,12 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"maps"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/backend"
@@ -719,45 +719,38 @@ func TestEveryPrewarmInABatchIsPulled(t *testing.T) {
 // task's lease expired minutes later, long after the runner had gone from the
 // UI. The later task waits for the claim instead of being thrown away.
 func TestARemoveArrivingDuringACreateRunsOnceTheCreateIsDone(t *testing.T) {
-	h := newHarness(t, 2)
-	h.be.mu.Lock()
-	h.be.createDelay = 150 * time.Millisecond
-	h.be.mu.Unlock()
+	synctest.Test(t, func(t *testing.T) {
+		a, tr, b := startupAgent(t)
+		ctx := context.Background()
+		a.dispatch(ctx, createTask("task-create", "runner-1"))
+		synctest.Wait()
+		startupEntered(t, b, "runner-1")
+		// Deliver after the backend has begun, to distinguish cancellation
+		// of active work from a create still waiting for its startup slot.
+		a.dispatch(ctx, Task{ID: "task-remove", Kind: TaskRemoveRunner, RunnerID: "runner-1"})
+		b.finish <- nil
+		synctest.Wait()
+		a.tasks.Wait()
 
-	h.tr.tasks <- []Task{
-		createTask("task-create", "runner-1"),
-		{ID: "task-remove", Kind: TaskRemoveRunner, RunnerID: "runner-1"},
-	}
-
-	results := map[string]TaskResult{}
-	for range 2 {
-		res := h.nextResult()
-		results[res.TaskID] = res
-	}
-	if res, ok := results["task-create"]; !ok || !res.OK {
-		t.Fatalf("create result = %+v (reported: %v)", res, slices.Sorted(maps.Keys(results)))
-	}
-	res, ok := results["task-remove"]
-	if !ok || !res.OK {
-		t.Fatalf("remove result = %+v (reported: %v)", res, slices.Sorted(maps.Keys(results)))
-	}
-	if res.State != store.RunnerRemoved {
-		t.Fatalf("remove reported state %q, want removed", res.State)
-	}
-
-	h.be.mu.Lock()
-	removed := len(h.be.removed)
-	h.be.mu.Unlock()
-	if removed == 0 {
-		t.Fatal("the runner's workload was left on the host, so the container outlives the row the operator deleted")
-	}
-
-	// And the claim itself is free afterwards: a claim handed from one task to
-	// the next must still be given up by the one that finishes last.
-	if !h.agent.claim("runner-1") {
-		t.Fatal("runner-1 is still claimed after both tasks finished")
-	}
-	h.agent.release("runner-1")
+		results := map[string]TaskResult{}
+		for range 2 {
+			res := <-tr.results
+			results[res.TaskID] = res
+		}
+		if !results["task-create"].OK || !results["task-remove"].OK {
+			t.Fatalf("lifecycle tasks failed: %+v", results)
+		}
+		if results["task-remove"].State != store.RunnerRemoved {
+			t.Fatalf("remove did not confirm removal: %+v", results)
+		}
+		if _, _, removed := b.counts(); removed == 0 {
+			t.Fatal("the runner's workload was left on the host")
+		}
+		if !a.claim("runner-1") {
+			t.Fatal("runner-1 is still claimed after both tasks finished")
+		}
+		a.release("runner-1")
+	})
 }
 
 // A duplicate of the task already running is still dropped. The controller
