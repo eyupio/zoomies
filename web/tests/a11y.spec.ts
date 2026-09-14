@@ -288,7 +288,16 @@ test('a drawer keeps focus the way a dialog does, and gives it back', async ({ p
 
   await page.keyboard.press('Escape');
   await expect(drawer).toBeHidden();
-  expect(await focusIsInMain(page), 'focus comes back to the page').toBe(true);
+  // Waited for rather than sampled once, for the reason the dialog above gives:
+  // the overlay hands focus back a frame after it has gone, because clearing
+  // the `inert` it put on the page has to happen first. Which frame that lands
+  // on is the browser's business -- on a grid page it is a frame later again
+  // when the columns have just been remeasured -- and it is not what this test
+  // is about, which is that focus comes back at all rather than being left on
+  // <body> at the top of the document.
+  await expect
+    .poll(() => focusIsInMain(page), { message: 'focus comes back to the page' })
+    .toBe(true);
 });
 
 test('asking for less motion gets none', async ({ page }) => {

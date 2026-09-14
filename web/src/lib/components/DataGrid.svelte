@@ -384,10 +384,28 @@
     if (!element) return;
     const root = parseFloat(getComputedStyle(document.documentElement).fontSize);
     if (Number.isFinite(root) && root > 0) remPx = root;
-    const observer = new ResizeObserver(() => (frameWidth = element.clientWidth));
+    /*
+      Measured in the observer, acted on a frame later, and coalesced: a resize
+      notification is delivered inside the browser's own rendering steps, and
+      writing state there lays the frame out a second time -- which is both the
+      "ResizeObserver loop" warning and a frame of work charged to whatever
+      else was queued. A frame's delay in a column width nobody can see is the
+      cheaper side of that trade.
+    */
+    let queued = 0;
+    const measure = (): void => {
+      queued = 0;
+      frameWidth = element.clientWidth;
+    };
+    const observer = new ResizeObserver(() => {
+      if (queued === 0) queued = requestAnimationFrame(measure);
+    });
     observer.observe(element);
     frameWidth = element.clientWidth;
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (queued !== 0) cancelAnimationFrame(queued);
+    };
   });
 
   /** What a column with nothing to say about its width is worth. */
