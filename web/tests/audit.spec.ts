@@ -26,31 +26,38 @@ const rows = (page: Page) => dataRows(log(page));
  * a test of what ran before it rather than of this page.
  */
 const SEEDED = [
-  { actor: 'alice', action: 'pool.create' },
-  { actor: 'alice', action: 'installation.create' },
-  { actor: 'bob', action: 'runner.drain' },
-  { actor: 'ci-bot', action: 'pool.update' },
-  { actor: 'zoomies', action: 'host.join' },
+  { actor: 'alice', action: 'pool.create', kind: 'user' },
+  { actor: 'alice', action: 'installation.create', kind: 'user' },
+  { actor: 'bob', action: 'runner.drain', kind: 'user' },
+  { actor: 'ci-bot', action: 'pool.update', kind: 'token' },
+  { actor: 'zoomies', action: 'host.join', kind: 'system' },
 ] as const;
 
 test('the log lists what was done, by whom, newest first', async ({ page }) => {
   await goto(page, '/audit', 'Audit');
   await expect(rows(page).first()).toBeVisible();
 
+  // Each seeded row is read through the page's own action filter rather than
+  // off the first page of the whole log. The seed dates these rows hours in
+  // the past, the log is newest first and one page long, and every other spec
+  // writes to it just by doing its job -- so whether a seeded row is on page
+  // one is a fact about how many specs ran before this one, not about the page.
   for (const entry of SEEDED) {
-    await expect(
-      rows(page).filter({ hasText: entry.action }).filter({ hasText: entry.actor }),
-      `${entry.actor} did ${entry.action}`,
-    ).toHaveCount(1);
+    await goto(page, `/audit?action=${entry.action}`, 'Audit');
+    const seeded = rows(page).filter({ hasText: entry.action }).filter({ hasText: entry.actor });
+    if (entry.kind === 'system') {
+      // The controller's rows are taken one at a time: the hosts specs leave
+      // system rows behind -- a host throttled after the pressure they
+      // simulate is audited as the fleet's own decision -- and the claim here
+      // is that the seeded one is there, not that the fleet decided exactly
+      // one thing.
+      await expect(seeded.first(), `${entry.actor} did ${entry.action}`).toBeVisible();
+    } else {
+      await expect(seeded, `${entry.actor} did ${entry.action}`).toHaveCount(1);
+    }
+    // An actor is a person, a token or the controller, and the page says which.
+    await expect(seeded.first()).toContainText(entry.kind);
   }
-
-  // An actor is a person, a token or the controller, and the page says which.
-  // The controller's rows are taken one at a time: the hosts specs leave
-  // system rows behind -- a host throttled after the pressure they simulate is
-  // audited as the fleet's own decision -- and the claim here is that a system
-  // actor is shown as one, not that the fleet has decided exactly one thing.
-  await expect(rows(page).filter({ hasText: 'ci-bot' })).toContainText('token');
-  await expect(rows(page).filter({ hasText: 'zoomies' }).first()).toContainText('system');
 });
 
 test('the newest change is at the top, and the order can be turned round', async ({ page }) => {
@@ -126,8 +133,10 @@ test('a search that matches nothing settles on an empty state that offers a way 
 });
 
 test('an entry opens and says what changed', async ({ page }) => {
-  await goto(page, '/audit', 'Audit');
-  await rows(page).filter({ hasText: 'pool.create' }).click();
+  // Through the action filter, for the reason the listing test gives: the
+  // seeded row is hours old and the first page belongs to whatever ran last.
+  await goto(page, '/audit?action=pool.create', 'Audit');
+  await rows(page).filter({ hasText: 'pool.create' }).filter({ hasText: 'alice' }).click();
 
   const drawer = page.getByRole('dialog');
   await expect(drawer).toBeVisible();
