@@ -454,20 +454,6 @@ func sweepGitHub(t *testing.T, e env, label string) {
 // controller
 // --------------------------------------------------------------------------
 
-func builtBinary() string {
-	dir, err := os.Getwd()
-	if err != nil {
-		return "zoomies"
-	}
-	for range 6 {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return filepath.Join(dir, "zoomies")
-		}
-		dir = filepath.Dir(dir)
-	}
-	return "zoomies"
-}
-
 func resultsDir(t *testing.T) string {
 	t.Helper()
 	if d := os.Getenv("ZOOMIES_E2E_RESULTS_DIR"); d != "" {
