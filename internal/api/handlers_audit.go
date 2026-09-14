@@ -18,6 +18,14 @@ var auditReadActions = map[string]auth.Action{
 	"api_token":  auth.ActionTokensRead,
 	"join_token": auth.ActionJoinsRead,
 	"settings":   auth.ActionSettingsRead,
+	// Providers and machines are readable at viewer like pools are, so these
+	// two rows withhold nothing from a person. They are here for the other
+	// gate: a token narrowed to a few scopes is refused the documents for a
+	// resource it was not given, and a token that cannot read providers
+	// should not read a provider's whole configuration out of the row
+	// recording a change to it.
+	"provider": auth.ActionProvidersRead,
+	"machine":  auth.ActionMachinesRead,
 }
 
 // handleListAudit answers GET /api/v1/audit.

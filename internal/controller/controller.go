@@ -36,6 +36,7 @@ import (
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/github"
+	"github.com/eyupio/zoomies/internal/provider"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
@@ -68,7 +69,12 @@ type Options struct {
 	GitHub github.Factory
 	// Backends is only needed when this process also runs the embedded agent.
 	Backends *backend.Registry
-	Logger   *slog.Logger
+	// Providers is the set of infrastructure providers this build can make.
+	// Nil is an empty registry, so a configuration row naming a kind nothing
+	// can build is refused with a sentence rather than a nil dereference on
+	// the first pass that tries to rent a machine.
+	Providers *provider.Registry
+	Logger    *slog.Logger
 	// Clock is injectable so tests can freeze time.
 	Clock func() time.Time
 	// HTTPClient delivers capacity-demand events. Tests may inject a transport.
@@ -108,6 +114,12 @@ type Controller struct {
 	clients *clientCache
 	queues  *taskQueues
 	relay   *logRelay
+	// providers is what this build can build, and machines is everything the
+	// machine loop owns: its mutex, its cursor, its provider cache and the
+	// notes the problems drawer reads. They are a sub-struct for the reason
+	// clients and queues are -- the loop's state is the loop's.
+	providers *provider.Registry
+	machines  *machineRuntime
 
 	// pollsInFlight is how many agent task polls are being held right now.
 	// An idle fleet still costs one held connection per host, so this is the
@@ -218,6 +230,10 @@ type Controller struct {
 	lastStats    []byte
 	lastProblems []byte
 	lastHosts    map[string][]byte
+	// lastMachines is the same memoisation for machines, which are in the tens
+	// like hosts: a machine whose elapsed phase time moved with no row written
+	// repaints from the pass's diff rather than needing a publish call.
+	lastMachines map[string][]byte
 
 	startMu sync.Mutex
 	started bool
@@ -315,10 +331,22 @@ func New(opts Options) (*Controller, error) {
 	if c.httpClient == nil {
 		c.httpClient = &http.Client{}
 	}
+	c.providers = opts.Providers
+	if c.providers == nil {
+		// An empty registry rather than nil: a provider row for a kind this
+		// build has no factory for then gets ErrUnsupported and a problem
+		// naming the kind, which is what an operator can act on.
+		empty, err := provider.NewRegistry()
+		if err != nil {
+			return nil, fmt.Errorf("controller: building an empty provider registry: %w", err)
+		}
+		c.providers = empty
+	}
 	c.metrics = newMetrics(c)
 	c.clients = newClientCache(c)
 	c.queues = newTaskQueues()
 	c.relay = newLogRelay(c)
+	c.machines = newMachineRuntime()
 	return c, nil
 }
 
@@ -374,6 +402,14 @@ func (c *Controller) Start(ctx context.Context) error {
 	c.spawn("poller", loopCtx, c.pollLoop)
 	c.spawn("installations", loopCtx, c.probeLoop)
 	c.spawn("background", loopCtx, c.backgroundLoop)
+	// Its own loop, not a step of the reconcile pass. A clone takes minutes
+	// and reconcileMu is held for a whole scheduling pass, so a machine step
+	// inside it would stop the fleet placing runners for as long as a
+	// hypervisor felt like taking -- the same argument that moved
+	// capacity-demand delivery out of the pass.
+	if c.cfg().Provider.Enabled {
+		c.spawn("machines", loopCtx, c.machineLoop)
+	}
 	if c.lease != nil {
 		c.spawn("lease", loopCtx, c.leaseLoop)
 	}
@@ -486,6 +522,17 @@ func (c *Controller) Unfence(ctx context.Context) error {
 	if err := c.LoadFence(ctx); err != nil {
 		return err
 	}
+	// Every machine's proof of ownership goes with the fence. A fenced
+	// database may be a restored copy, so its machine rows may describe
+	// resources a different, live controller owns; a delete on the strength of
+	// yesterday's verification is the worst thing this system could do.
+	// Deletes resume for the machines a fresh sweep confirms, and no others.
+	if n, err := c.st.MarkMachinesUnverified(ctx); err != nil {
+		c.log.Warn("could not take away the machines' ownership proofs when the fence was lifted; "+
+			"they will be refused a delete until the next ownership sweep confirms them", "error", err)
+	} else if n > 0 {
+		c.log.Info("every machine must prove its ownership again before anything is deleted", "machines", n)
+	}
 	c.log.Info("the recovery fence was lifted; this fleet will create, drain and remove runners again")
 	// The fleet has been standing still: decide now rather than at the next
 	// tick, because everything queued during the fence is waiting on this.
@@ -528,6 +575,11 @@ func (c *Controller) Stop(ctx context.Context) error {
 		// own bounded context; letting the process exit under it would lose
 		// the record of how it went.
 		c.deliveries.Wait()
+		// A provider call decided in the last machine pass is worse again:
+		// exiting under a create leaves a machine whose outcome nobody
+		// recorded, which is the one state this design spends everything to
+		// avoid.
+		c.machines.calls.Wait()
 		close(done)
 	}()
 	select {
@@ -855,6 +907,96 @@ func (c *Controller) PublishInstallation(ctx context.Context, inst *store.Instal
 // PublishInstallationDeleted announces that an installation is gone.
 func (c *Controller) PublishInstallationDeleted(id string) {
 	c.publish(events.KindInstallationDeleted, "installation:"+id, deletedPayload{ID: id})
+}
+
+// publishProvider announces a provider change in the shape GET /providers/{id}
+// returns. The view, never the row: the row carries a sealed credential, and
+// the page needs counts the row does not have.
+func (c *Controller) publishProvider(ctx context.Context, p *store.Provider) {
+	if p == nil || c.bus == nil {
+		return
+	}
+	machines, err := c.st.ListMachinesForProvider(ctx, p.ID)
+	if err != nil {
+		c.log.Warn("could not read a provider's machines for the event stream", "provider", p.ID, "error", err)
+		return
+	}
+	c.publish(events.KindProviderUpdated, "provider:"+p.ID, c.ProviderView(p, machines))
+}
+
+// PublishProvider announces a provider an operator created or changed.
+func (c *Controller) PublishProvider(ctx context.Context, p *store.Provider) {
+	c.publishProvider(ctx, p)
+}
+
+// PublishProviderDeleted announces that a provider is gone.
+func (c *Controller) PublishProviderDeleted(id string) {
+	c.publish(events.KindProviderDeleted, "provider:"+id, deletedPayload{ID: id})
+}
+
+// publishMachine announces a machine change, in the shape GET /machines/{id}
+// returns and never the store row: the row names a provider and a host by id,
+// and the page shows both by name.
+//
+// Like publishHost it records the bytes it sent, so the pass's own diff does
+// not repeat a frame that has just gone out.
+func (c *Controller) publishMachine(ctx context.Context, m *store.Machine) {
+	if m == nil || c.bus == nil {
+		return
+	}
+	view, err := c.MachineRenderer(ctx)
+	if err != nil {
+		c.log.Warn("could not render a machine for the event stream", "machine", m.ID, "error", err)
+		return
+	}
+	raw, err := json.Marshal(view.View(m))
+	if err != nil {
+		c.log.Error("could not marshal a machine for the event stream", "machine", m.ID, "error", err)
+		return
+	}
+	c.rememberMachine(m.ID, raw)
+	c.publish(events.KindMachineUpdated, "machine:"+m.ID, json.RawMessage(raw))
+}
+
+// PublishMachine announces a machine an operator acted on.
+func (c *Controller) PublishMachine(ctx context.Context, m *store.Machine) { c.publishMachine(ctx, m) }
+
+// rememberMachine records the form a machine was last published in, so the
+// derived diff does not send it twice.
+func (c *Controller) rememberMachine(id string, raw []byte) {
+	c.derivedMu.Lock()
+	defer c.derivedMu.Unlock()
+	if c.lastMachines == nil {
+		c.lastMachines = map[string][]byte{}
+	}
+	c.lastMachines[id] = raw
+}
+
+// PublishMachineDeleted announces that a machine row is gone.
+//
+// The row, not the resource: a machine whose VM was destroyed keeps its row
+// until retention takes it, because the row is the only record of what was
+// rented and what it cost.
+func (c *Controller) PublishMachineDeleted(id string) {
+	c.derivedMu.Lock()
+	delete(c.lastMachines, id)
+	c.derivedMu.Unlock()
+	c.publish(events.KindMachineDeleted, "machine:"+id, deletedPayload{ID: id})
+}
+
+// publishMachinesDeleted announces a set of deleted machine rows, collapsing a
+// large prune into one resync exactly as the runners do.
+func (c *Controller) publishMachinesDeleted(ids []string) {
+	if len(ids) > announceEach {
+		c.publish(events.KindResync, "", map[string]any{
+			"reason": "many machine rows were removed at once; fetch the resources again",
+			"count":  len(ids),
+		})
+		return
+	}
+	for _, id := range ids {
+		c.PublishMachineDeleted(id)
+	}
 }
 
 // deletedPayload is what every *.deleted frame carries: the id, and nothing

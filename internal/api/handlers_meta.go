@@ -42,6 +42,11 @@ type metaResponse struct {
 	PollerEnabled               bool       `json:"poller_enabled"`
 	PollerLastPollAt            *time.Time `json:"poller_last_poll_at,omitempty"`
 	WorkflowCancellationEnabled bool       `json:"workflow_cancellation_enabled"`
+	// ProvidersAvailable says this deployment can rent machines: a driver to
+	// rent from, and an operator who has turned the machine loop on. The nav
+	// asks it so that a build with no drivers does not offer a page whose
+	// every button would refuse.
+	ProvidersAvailable bool `json:"providers_available"`
 }
 
 // handleMeta answers GET /api/v1/meta.
@@ -64,6 +69,7 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		PollingOnly:                 s.ctrl.PollingOnly(),
 		PollerEnabled:               s.ctrl.PollerEnabled(),
 		WorkflowCancellationEnabled: s.cfg().GitHub.AllowWorkflowCancellation,
+		ProvidersAvailable:          s.ctrl.ProvidersAvailable(),
 	}
 	if last := s.ctrl.LastPollAt(); !last.IsZero() {
 		out.PollerLastPollAt = &last

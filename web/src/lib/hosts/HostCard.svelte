@@ -10,7 +10,7 @@
 <script lang="ts">
   import { navigate } from '$lib/router';
   import { CircleDashed, Gauge, Pencil, ServerCog, Trash2 } from '@lucide/svelte';
-  import type { Host } from '$lib/api/types';
+  import type { Host, Machine } from '$lib/api/types';
   import { formatMegabytes, formatNumber } from '$lib/format';
   import { hostStatus, throttled } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
@@ -25,6 +25,12 @@
 
   interface Props {
     host: Host;
+    /**
+     * The machine this host is, when Zoomies rented it. Handed down rather
+     * than fetched here: the Hosts page already has the list for its own band,
+     * and a card that fetched its own would be one request per host.
+     */
+    machine?: Machine | null;
     canOperate?: boolean;
     canAdmin?: boolean;
     oncordon: (host: Host, cordoned: boolean) => void;
@@ -38,6 +44,7 @@
 
   let {
     host,
+    machine = null,
     canOperate = false,
     canAdmin = false,
     oncordon,
@@ -172,6 +179,21 @@
     return total > 0 && (host.disk_free_mb ?? 0) / total < DISK_LOW;
   });
 
+  /**
+   * "Proxmox · pve-1 · 143": which provider, and which resource there.
+   *
+   * The resource identifier is the half that matters during an incident -- it
+   * is what an operator types into the hypervisor's own console -- so it is on
+   * the card rather than a click away.
+   */
+  const machineLabel = $derived.by(() => {
+    if (!machine) return '';
+    const parts = [machine.provider_kind || machine.provider_name || 'Provider'];
+    if (machine.resource_zone) parts.push(machine.resource_zone);
+    if (machine.resource_id) parts.push(machine.resource_id);
+    return parts.join(' · ');
+  });
+
   const actions = $derived<MenuItem[]>([
     {
       id: 'usage',
@@ -214,12 +236,18 @@
     },
     {
       id: 'delete',
-      label: 'Remove this host',
+      // A machine-backed host is removed by deleting the machine, because the
+      // resource outlives the row: forgetting the host here would leave a VM
+      // running and on somebody's bill with nothing left that remembers it.
+      label: machine ? 'Delete the machine instead' : 'Remove this host',
       icon: Trash2,
       danger: true,
       separated: true,
       disabled: !canAdmin || host.embedded === true,
-      onSelect: () => ondelete(host),
+      onSelect: () => {
+        if (machine?.id) navigate(`/machines/${machine.id}`);
+        else ondelete(host);
+      },
     },
   ]);
 </script>
@@ -256,6 +284,19 @@
             size="sm"
             dot={false}
             title="This agent has not reported the machine's CPUs, memory or disk, so this host is placed by its slot count alone. Upgrade the agent and the figures appear on its next heartbeat."
+          />
+        {/if}
+        {#if machine}
+          <!-- Neutral, never the status palette. Which provider built this
+               host and which resource it is are facts about it, not states of
+               it, and the six status hues already mean something an operator
+               has learned. -->
+          <Badge
+            tone="neutral"
+            label={machineLabel}
+            size="sm"
+            dot={false}
+            title="Zoomies created this host. Deleting the machine removes the resource too; removing the host here would leave it running, and on the bill."
           />
         {/if}
         {#if host.connection === 'tailcat'}
@@ -310,6 +351,16 @@
     <p class="cordoned">
       {host.incompatible_reason ||
         'This agent speaks a protocol the controller does not, so no new runner is placed here. Its running work finishes and is drained as normal.'}
+    </p>
+  {:else if machine?.state === 'draining' || machine?.state === 'deleting'}
+    <!-- Before the plain cordon sentence, because this host is cordoned and
+         saying only that would leave an operator waiting for it to come back.
+         It is not coming back: the machine under it is on its way out. -->
+    <p class="cordoned">
+      This host is a machine Zoomies created. It is draining because the pools it serves have had no
+      queued work for long enough to stop paying for it; the machine is deleted when the last runner
+      finishes.
+      <a href="/machines/{machine.id}">Open the machine</a>
     </p>
   {:else if host.cordoned}
     <p class="cordoned">

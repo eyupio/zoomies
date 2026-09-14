@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/events"
+	"github.com/eyupio/zoomies/internal/store"
 )
 
 // statsEventWindow is the window a `stats` frame summarises. It is the
@@ -50,6 +51,54 @@ func (c *Controller) publishDerived(ctx context.Context) {
 	}
 
 	c.publishHostChanges(ctx)
+	c.publishMachineChanges(ctx)
+}
+
+// publishMachineChanges announces every machine whose rendered view has moved
+// since it was last sent. Called with derivedMu held.
+//
+// It exists for the same reason publishHostChanges does, and for one more. A
+// machine spends most of its life waiting -- for a clone, for a guest to boot,
+// for an agent to join -- and what moves on the page while it waits is elapsed
+// time and the counts around it, neither of which writes a row. Without this
+// the one screen an operator watches while a machine is being built would be
+// the one screen that did not move.
+//
+// Machines are in the tens, like hosts, so diffing the rendered view is cheap;
+// this is deliberately not how the runners are done.
+func (c *Controller) publishMachineChanges(ctx context.Context) {
+	if !c.cfg().Provider.Enabled {
+		return
+	}
+	view, err := c.MachineRenderer(ctx)
+	if err != nil {
+		c.log.Warn("could not read the providers for the event stream", "error", err)
+		return
+	}
+	machines, _, err := c.st.ListMachines(ctx, store.MachineFilter{}, store.Page{Limit: 500})
+	if err != nil {
+		c.log.Warn("could not read the machines for the event stream", "error", err)
+		return
+	}
+	if c.lastMachines == nil {
+		c.lastMachines = make(map[string][]byte, len(machines))
+	}
+	live := make(map[string]struct{}, len(machines))
+	for _, m := range machines {
+		live[m.ID] = struct{}{}
+		last := c.lastMachines[m.ID]
+		raw, changed := c.derivedChanged(&last, view.View(m))
+		if !changed {
+			continue
+		}
+		c.lastMachines[m.ID] = last
+		c.bus.Publish(events.KindMachineUpdated, "machine:"+m.ID, json.RawMessage(raw))
+	}
+	for id := range c.lastMachines {
+		if _, ok := live[id]; !ok {
+			delete(c.lastMachines, id)
+		}
+	}
 }
 
 // publishHostChanges announces every host whose rendered view has moved since

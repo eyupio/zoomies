@@ -1879,3 +1879,132 @@ func TestAFailedRunnerStillRunningAJobIsNotReaped(t *testing.T) {
 		t.Fatalf("the failed runner was not removed once its job had finished: %+v", pp.Actions)
 	}
 }
+
+// An empty fleet is demand, not a full fleet.
+//
+// Until this was said out loud, a pool with queued jobs and nowhere at all to
+// put a runner reported neither blockage: `why` answers the empty fleet before
+// it counts anything, so `atCapacity` stayed false and the only signal a host
+// provisioner listens for was never raised. Scaling from zero -- the whole
+// point of renting a host -- was silent.
+func TestAPoolWithNoHostsAtAllStillSaysItsJobsHaveNowhereToGo(t *testing.T) {
+	pp := only(t, Decide(snap([]*store.Pool{testPool("linux-x64", "linux")}, nil,
+		[]*store.Job{queued("j1", time.Minute, "linux")}, nil)))
+
+	if !pp.BlockedNoEligibleHost {
+		t.Fatalf("plan = %+v, want an empty fleet reported as one no job will clear", pp)
+	}
+	// The two flags mean different things and the distinction is load-bearing:
+	// "full" is a fleet working, and problems.go and the usage record both read
+	// it that way.
+	if pp.BlockedAtCapacity {
+		t.Fatal("an empty fleet is not a fleet at capacity")
+	}
+	if pp.Blocked == "" {
+		t.Fatal("a blocked pool still has to say so in words")
+	}
+}
+
+// The fleet being busy and the fleet being wrong are different answers, and an
+// operator told to wait for the second one waits for ever.
+func TestAFullFleetIsStillDistinguishedFromAFleetThatCanNeverRunThePool(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		hosts          []*store.Host
+		atCapacity     bool
+		noEligibleHost bool
+	}{
+		{
+			name:       "every host busy",
+			hosts:      []*store.Host{testHost("host_a", 1, 1), testHost("host_b", 2, 2)},
+			atCapacity: true,
+		},
+		{
+			name: "every host offering another backend",
+			hosts: func() []*store.Host {
+				h := testHost("host_a", 8, 0)
+				h.Backends = store.StringSlice{"process"}
+				return []*store.Host{h}
+			}(),
+			noEligibleHost: true,
+		},
+		{
+			name: "one host busy and one that could never run it",
+			hosts: func() []*store.Host {
+				other := testHost("host_b", 8, 0)
+				other.Backends = store.StringSlice{"process"}
+				return []*store.Host{testHost("host_a", 1, 1), other}
+			}(),
+			// Neither: one host is only busy, so a finished job would clear it.
+		},
+		{
+			// A pressure hold is the most transient blockage there is: a job
+			// spikes the CPU, new starts pause for a few seconds, and it
+			// clears on its own. Reading it as "no host can ever run this"
+			// would clone virtual machines for a thirty-second spike -- and
+			// tell an external provisioner to scale from zero as well -- while
+			// the hold lifts long before the first clone finishes.
+			name: "every host under a momentary pressure hold",
+			hosts: func() []*store.Host {
+				h := withUsage(sized("host_a", 4, 4, 8192, 100000), 99, 12000)
+				h.Usage.CPUHeld = true
+				return []*store.Host{h}
+			}(),
+			// Neither: the hold is waited out, not bought around.
+		},
+		{
+			// And a hold on one host does not excuse the rest: the others are
+			// wrong in a way no waiting fixes, but this one is not.
+			name: "one host held and one that could never run it",
+			hosts: func() []*store.Host {
+				h := withUsage(sized("host_a", 4, 4, 8192, 100000), 99, 12000)
+				h.Usage.CPUHeld = true
+				other := testHost("host_b", 8, 0)
+				other.Backends = store.StringSlice{"process"}
+				return []*store.Host{h, other}
+			}(),
+			// Neither: the held host clears itself.
+		},
+		{
+			// A throttle is the fleet being busy, not the fleet being wrong.
+			// It asks for capacity like a full host does, because more hosts
+			// is the answer either way -- but it lifts on its own, so a fleet
+			// blocked only by throttles must never read as one no host can
+			// ever run. That would buy a machine for a fleet that needed a
+			// minute, and the machine would outlive the pressure.
+			name: "every host throttled back to no slots",
+			hosts: func() []*store.Host {
+				h := testHost("host_a", 4, 1)
+				h.Throttle = store.HostThrottle{Level: store.MaxThrottleLevel}
+				return []*store.Host{h}
+			}(),
+			atCapacity: true,
+		},
+		{
+			// And a throttle on one host does not excuse the rest: the others
+			// are wrong in a way no waiting fixes, but this one is not, so
+			// there is still something to wait for.
+			name: "one host throttled and one that could never run it",
+			hosts: func() []*store.Host {
+				h := testHost("host_a", 4, 1)
+				h.Throttle = store.HostThrottle{Level: store.MaxThrottleLevel}
+				other := testHost("host_b", 8, 0)
+				other.Backends = store.StringSlice{"process"}
+				return []*store.Host{h, other}
+			}(),
+			// Neither: the throttled host clears itself.
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pp := only(t, Decide(snap([]*store.Pool{testPool("linux-x64", "linux")}, nil,
+				[]*store.Job{queued("j1", time.Minute, "linux")}, tc.hosts)))
+
+			if pp.BlockedAtCapacity != tc.atCapacity {
+				t.Errorf("BlockedAtCapacity = %v, want %v (%s)", pp.BlockedAtCapacity, tc.atCapacity, pp.Blocked)
+			}
+			if pp.BlockedNoEligibleHost != tc.noEligibleHost {
+				t.Errorf("BlockedNoEligibleHost = %v, want %v (%s)", pp.BlockedNoEligibleHost, tc.noEligibleHost, pp.Blocked)
+			}
+		})
+	}
+}

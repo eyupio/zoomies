@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -434,6 +435,11 @@ var runtimeWritable = map[string]string{
 	"retention.scaling_events":       "how long scaling history is kept; audit rows are never deleted",
 	"retention.samples":              "how long the Overview's samples are kept",
 	"retention.webhooks":             "how long webhook deliveries are kept",
+	"retention.machines":             "how long a deleted machine's row is kept",
+	"provider.paused":                "whether new machines may be created; drains, deletes and recovery always continue",
+	"provider.max_machines":          "the most machines the whole fleet may rent at once",
+	"provider.max_creates_in_flight": "how many machines may be being built at once",
+	"provider.idle_timeout":          "how long a machine's host must be empty before it is drained",
 	"images.refresh_interval":        "how often every pool's image is prewarmed again, so a moving tag reaches the hosts",
 	"updates.check_interval":         "how often github.com is asked which release of Zoomies is current; 0 never asks",
 }
@@ -460,6 +466,10 @@ var restartRequiredKeys = sync.OnceValue(func() []string {
 		"oidc.admin_groups", "oidc.operator_groups", "oidc.allow_signup",
 		"oidc.link_by_username",
 		"metrics.enabled", "metrics.path", "metrics.public",
+		"provider.enabled", "provider.interval", "provider.sweep_interval",
+		"provider.scale_up_delay", "provider.call_timeout", "provider.create_timeout",
+		"provider.bootstrap_timeout", "provider.enrol_timeout", "provider.delete_timeout",
+		"provider.ambiguity_timeout", "provider.scale_down_cooldown", "provider.delete_grace",
 	}
 	slices.Sort(keys)
 	return keys
@@ -557,12 +567,34 @@ func (s *Server) settingsConfig() map[string]any {
 			"scaling_events": c.Retention.ScalingEvents.String(),
 			"samples":        c.Retention.Samples.String(),
 			"webhooks":       c.Retention.Webhooks.String(),
+			"machines":       c.Retention.Machines.String(),
 		},
 		"images": map[string]any{
 			"refresh_interval": c.Images.RefreshInterval.String(),
 		},
 		"updates": map[string]any{
 			"check_interval": c.Updates.CheckInterval.String(),
+		},
+		// Every bound the machine loop honours, and not one provider
+		// credential: those are rows, sealed at rest, and this document is
+		// readable by an administrator and copied into a diagnostics bundle.
+		"provider": map[string]any{
+			"enabled":               c.Provider.Enabled,
+			"paused":                c.Provider.Paused,
+			"interval":              c.Provider.Interval.String(),
+			"sweep_interval":        c.Provider.SweepInterval.String(),
+			"max_machines":          c.Provider.MaxMachines,
+			"max_creates_in_flight": c.Provider.MaxCreatesInFlight,
+			"scale_up_delay":        c.Provider.ScaleUpDelay.String(),
+			"call_timeout":          c.Provider.CallTimeout.String(),
+			"create_timeout":        c.Provider.CreateTimeout.String(),
+			"bootstrap_timeout":     c.Provider.BootstrapTimeout.String(),
+			"enrol_timeout":         c.Provider.EnrolTimeout.String(),
+			"delete_timeout":        c.Provider.DeleteTimeout.String(),
+			"ambiguity_timeout":     c.Provider.AmbiguityTimeout.String(),
+			"idle_timeout":          c.Provider.IdleTimeout.String(),
+			"scale_down_cooldown":   c.Provider.ScaleDownCooldown.String(),
+			"delete_grace":          c.Provider.DeleteGrace.String(),
 		},
 	}
 }
@@ -720,6 +752,49 @@ func (s *Server) stageSetting(key string, value any) (func(*config.Config) any, 
 		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Retention.Samples }, 0)
 	case "retention.webhooks":
 		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Retention.Webhooks }, 0)
+	case "retention.machines":
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Retention.Machines }, 0)
+
+	// The kill switch has to be reachable while the fleet is misbehaving, which
+	// is the one moment nobody wants to restart the controller.
+	case "provider.paused":
+		b, err := boolSetting(value)
+		if err != nil {
+			return nil, err
+		}
+		return func(c *config.Config) any {
+			prev := c.Provider.Paused
+			c.Provider.Paused = b
+			return prev
+		}, nil
+	case "provider.max_machines":
+		n, err := intValue(value)
+		if err != nil {
+			return nil, err
+		}
+		if n < 0 {
+			return nil, errors.New("this cannot be negative; use 0 to leave each provider's own limit as the only bound")
+		}
+		return func(c *config.Config) any {
+			prev := c.Provider.MaxMachines
+			c.Provider.MaxMachines = n
+			return prev
+		}, nil
+	case "provider.max_creates_in_flight":
+		n, err := intValue(value)
+		if err != nil {
+			return nil, err
+		}
+		if n < 0 {
+			return nil, errors.New("this cannot be negative; use 0 for no cap")
+		}
+		return func(c *config.Config) any {
+			prev := c.Provider.MaxCreatesInFlight
+			c.Provider.MaxCreatesInFlight = n
+			return prev
+		}, nil
+	case "provider.idle_timeout":
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Provider.IdleTimeout }, 0)
 
 	case "images.refresh_interval":
 		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Images.RefreshInterval }, 0)
@@ -762,6 +837,23 @@ func stringValue(v any) (string, error) {
 		return "", fmt.Errorf("expected a string, got %T", v)
 	}
 	return s, nil
+}
+
+// boolSetting accepts what both clients actually send: JSON's own true/false,
+// and the string a form field produces before anything has parsed it.
+func boolSetting(v any) (bool, error) {
+	switch b := v.(type) {
+	case bool:
+		return b, nil
+	case string:
+		parsed, err := strconv.ParseBool(strings.TrimSpace(b))
+		if err != nil {
+			return false, fmt.Errorf("%q is not true or false", b)
+		}
+		return parsed, nil
+	default:
+		return false, fmt.Errorf("expected true or false, got %T", v)
+	}
 }
 
 func intValue(v any) (int, error) {

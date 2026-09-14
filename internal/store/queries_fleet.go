@@ -1338,6 +1338,92 @@ func (s *Store) AssignRunnerJob(ctx context.Context, runnerID, jobID string) err
 	return err
 }
 
+// StartRunnerJob atomically links a runner to the job GitHub says is running on
+// it and takes it busy. It is the other half of CompleteRunnerJob, and it is
+// atomic for the same reason: the link and the state are one fact, and two
+// writes can disagree.
+//
+// GitHub's in_progress is authoritative that the runner registered and picked up
+// work, so a row that is merely behind -- still provisioning or registering,
+// because the agent's create result has not landed yet -- is brought forward
+// rather than argued with. Nothing else can produce busy: the agent stops
+// asserting a state once the workload is up, because whether GitHub has given it
+// a job is not the agent's call.
+//
+// So losing this leaves the row in one of two wrong places. A row still on
+// provisioning stays there holding the job, until the provision timeout fails a
+// runner in the middle of somebody's build. A row that has already reached
+// registering lands somewhere subtler: the next report finds no state asserted
+// and a workload running, asks GitHub, and is told "online" -- which a busy
+// runner also is -- so it goes idle, and idle clears the job link. The fleet is
+// then holding a runner it believes is free with a build running on it, free to
+// hand it another job or drain it as idle. reconcileKnownJobs does eventually
+// re-apply the delivery and put that right, but not until the job is two minutes
+// old and its turn comes round in a rotating batch of ten, which is a long time
+// to be wrong about who is working.
+//
+// A runner already working keeps the job it has -- never take one off another
+// job -- and only a missing link is filled in, which is what a drain needs: the
+// drain timeout only fires on a drain with nothing left to wait for.
+func (s *Store) StartRunnerJob(ctx context.Context, runnerID, jobID, message string) (*Runner, bool, error) {
+	var out *Runner
+	changed := false
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		row := tx.QueryRowContext(ctx, `SELECT `+runnerCols+` FROM runners WHERE id = ?`, runnerID)
+		r, err := scanRunner(row)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("runner %s: %w", runnerID, ErrNotFound)
+		}
+		if err != nil {
+			return err
+		}
+		out = r
+		switch {
+		case r.State.Terminal():
+			// Removed or failed. Linking a job to a runner that is gone would
+			// point the Jobs page at something nobody can look at.
+			return nil
+		case r.State == RunnerBusy || r.State == RunnerDraining:
+			// Already working, or finishing the work it has. A redelivery of
+			// the same start must not restamp it, and a different job must
+			// never displace the one it is on.
+			if r.CurrentJobID != "" {
+				return nil
+			}
+		}
+
+		now := s.Now()
+		r.CurrentJobID = jobID
+		if r.State == RunnerProvisioning || r.State == RunnerRegistering || r.State == RunnerIdle {
+			r.State = RunnerBusy
+			if message != "" {
+				r.Message = message
+			}
+			// Stamped the same way TransitionRunner stamps a move to busy, so
+			// a runner that reached busy by this route is not missing the
+			// timings every other one has.
+			if r.RegisteredAt == nil {
+				t := now
+				r.RegisteredAt = &t
+			}
+			if r.StartedAt == nil {
+				t := now
+				r.StartedAt = &t
+			}
+			r.LastIdleAt = nil
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE runners SET state=?, message=?, started_at=?,
+			last_idle_at=?, current_job_id=?, registered_at=? WHERE id=?`,
+			string(r.State), r.Message, msp(r.StartedAt), msp(r.LastIdleAt),
+			r.CurrentJobID, msp(r.RegisteredAt), r.ID); err != nil {
+			return err
+		}
+		out, changed = r, true
+		return nil
+	})
+	return out, changed, err
+}
+
 // CompleteRunnerJob atomically releases a runner from the job GitHub says has
 // finished. Persistent runners return to idle; ephemeral runners are finished
 // immediately so a missed workload-exit report cannot leave one busy forever.

@@ -31,6 +31,7 @@ const (
 	bundleMaxJobs          = 300
 	bundleMaxExplanations  = 50
 	bundleMaxScalingEvents = 200
+	bundleMaxMachines      = 200
 	bundleMaxLogPointers   = 50
 
 	// bundleMaxBytes is what an operator can paste into a support case
@@ -65,7 +66,13 @@ type supportBundle struct {
 	Installations []installationResponse   `json:"installations,omitempty"`
 	Pools         []poolResponse           `json:"pools,omitempty"`
 	Hosts         []hostResponse           `json:"hosts,omitempty"`
-	Runners       []runnerResponse         `json:"runners,omitempty"`
+	// Providers and Machines are the evidence a pending cleanup or an orphan
+	// review needs, and they cost nothing: both sections are the renderings
+	// the API already serves, so a machine stuck mid-create arrives in a bug
+	// report with its operation handle and its provider's own words.
+	Providers []providerResponse `json:"providers,omitempty"`
+	Machines  []machineResponse  `json:"machines,omitempty"`
+	Runners   []runnerResponse   `json:"runners,omitempty"`
 	// Jobs is the work in flight rather than the history. A bundle is taken
 	// because something is stuck, and finished jobs would be most of the bytes
 	// while answering none of it; the history is a query away on the same
@@ -243,6 +250,39 @@ func (s *Server) supportBundle(ctx context.Context) supportBundle {
 		for _, h := range hosts {
 			b.Hosts = append(b.Hosts, s.ctrl.HostView(h))
 		}
+		return nil
+	})
+
+	gather("providers", func() error {
+		rows, err := s.ctrl.Store().ListProviders(ctx)
+		if err != nil {
+			return err
+		}
+		for _, row := range rows {
+			machines, err := s.ctrl.Store().ListMachinesForProvider(ctx, row.ID)
+			if err != nil {
+				return err
+			}
+			b.Providers = append(b.Providers, s.ctrl.ProviderView(row, machines))
+		}
+		return nil
+	})
+	gather("machines", func() error {
+		// Deleted machines are left out for the reason finished jobs are: a
+		// fleet that has been renting for a month has far more history than
+		// present, and a bundle is taken because something is stuck now.
+		found, total, err := s.ctrl.Store().ListMachines(ctx, store.MachineFilter{}, store.Page{Limit: bundleMaxMachines})
+		if err != nil {
+			return err
+		}
+		view, err := s.ctrl.MachineRenderer(ctx)
+		if err != nil {
+			return err
+		}
+		for _, m := range found {
+			b.Machines = append(b.Machines, view.View(m))
+		}
+		b.note(total > len(found), "machines", len(found), fmt.Sprintf("the fleet has %d; a bundle carries the newest %d", total, bundleMaxMachines))
 		return nil
 	})
 

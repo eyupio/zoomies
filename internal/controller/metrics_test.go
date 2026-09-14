@@ -218,6 +218,12 @@ func TestNoMetricDeclaresAnUnboundedLabel(t *testing.T) {
 		// Registered hosts are operator-managed fleet entities like pools;
 		// ephemeral runner/container IDs remain excluded.
 		"host": true,
+		// A provider is a configuration row somebody wrote, like a pool, and
+		// there are a handful of them. "kind" is the five operations the
+		// provider contract defines, which is a closed set in the source --
+		// neither grows with the fleet's work, which is what this test is
+		// about; a machine id would, and is deliberately absent.
+		"provider": true, "kind": true,
 	}
 
 	descs := make(chan *prometheus.Desc, 256)
@@ -294,5 +300,40 @@ func TestCleanupOutcomesAreCounted(t *testing.T) {
 	}
 	if got, _ := gatherValue(t, h.c, "zoomies_runner_cleanups_total", map[string]string{"outcome": "succeeded"}); got != 1 {
 		t.Errorf("successful cleanups = %v after the retry worked, want 1", got)
+	}
+}
+
+// A runner's startup timings are read off the row the store handed back, not
+// off whatever the caller was holding.
+//
+// The create result is what stamps container_started_at, and it is also what
+// races GitHub's in_progress delivery -- which is how a job start came to be
+// dropped in the first place. The webhook handler's copy of the runner is
+// several writes old by the time the start is applied, so taking the container
+// time from it would lose the container-to-registered timing for exactly the
+// runners whose startup was slow enough to race.
+func TestRunnerStartupTimingsAreReadOffTheRowTheStoreReturned(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+
+	started := time.Now().Add(-30 * time.Second)
+	registered := started.Add(20 * time.Second)
+	row := &store.Runner{
+		PoolID:             pool.ID,
+		State:              store.RunnerBusy,
+		ContainerStartedAt: &started,
+		RegisteredAt:       &registered,
+	}
+
+	if n := testutil.CollectAndCount(h.c.metrics.containerToRegistered); n != 0 {
+		t.Fatalf("the container timing already has %d series before anything was observed", n)
+	}
+	h.c.observeRunnerReady(h.ctx, row)
+	if n := testutil.CollectAndCount(h.c.metrics.containerToRegistered); n != 1 {
+		t.Errorf("container-to-registered has %d series, want 1: the timing was taken from a copy that did not have it", n)
+	}
+	if n := testutil.CollectAndCount(h.c.metrics.registeredToReady); n != 1 {
+		t.Errorf("registered-to-ready has %d series, want 1", n)
 	}
 }

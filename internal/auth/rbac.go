@@ -64,6 +64,24 @@ const (
 	ActionInstallationsVerify Action = "installations.verify"
 )
 
+// Provider and machine actions. A provider's credential reaches a hypervisor,
+// so configuring one is admin-class as an installation is; pausing is operator,
+// because the person on call at three in the morning has to be able to press
+// the kill switch without waiting for somebody with an admin account.
+//
+// Draining a machine is separated from deleting one for the reason runners are:
+// a drain finishes the work that is on it, and a delete destroys a machine
+// somebody is paying for.
+const (
+	ActionProvidersRead   Action = "providers.read"
+	ActionProvidersWrite  Action = "providers.write"
+	ActionProvidersDelete Action = "providers.delete"
+	ActionProvidersPause  Action = "providers.pause"
+	ActionMachinesRead    Action = "machines.read"
+	ActionMachinesDrain   Action = "machines.drain"
+	ActionMachinesDelete  Action = "machines.delete"
+)
+
 // Webhook actions cover the delivery log and the reachability test.
 const (
 	ActionWebhooksRead Action = "webhooks.read"
@@ -149,6 +167,14 @@ var actionRoles = map[Action]store.Role{
 
 	ActionWebhooksRead: store.RoleViewer,
 	ActionWebhooksTest: store.RoleOperator,
+
+	ActionProvidersRead:   store.RoleViewer,
+	ActionProvidersWrite:  store.RoleAdmin,
+	ActionProvidersDelete: store.RoleAdmin,
+	ActionProvidersPause:  store.RoleOperator,
+	ActionMachinesRead:    store.RoleViewer,
+	ActionMachinesDrain:   store.RoleOperator,
+	ActionMachinesDelete:  store.RoleAdmin,
 
 	ActionAuditRead: store.RoleViewer,
 

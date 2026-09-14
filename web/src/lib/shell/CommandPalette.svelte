@@ -10,6 +10,7 @@
     Boxes,
     ChartNoAxesCombined,
     CircleSlash,
+    Cloud,
     GitPullRequestArrow,
     HardDrive,
     LayoutDashboard,
@@ -117,6 +118,13 @@
         label: 'Hosts',
         icon: HardDrive,
         run: () => router.navigate('/hosts'),
+      },
+      {
+        id: 'go-providers',
+        group: 'Go to',
+        label: 'Providers',
+        icon: Cloud,
+        run: () => router.navigate('/providers'),
       },
       {
         id: 'go-installations',

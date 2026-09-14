@@ -111,6 +111,63 @@ func TestADatabaseFromAnOlderReleaseMigratesToHead(t *testing.T) {
 	}
 }
 
+// The providers migration is the first one to add a column to a table that
+// already has rows in a real fleet's database, and the first to add tables that
+// point at two of them. An upgrade that left an existing join token unreadable
+// -- because a NOT NULL column arrived without a default -- would take every
+// agent enrolment with it, and the failure would arrive at the worst moment:
+// after the upgrade, on a fleet that was working.
+func TestADatabaseWithRowsInItStillTakesTheProviderTables(t *testing.T) {
+	ctx := context.Background()
+	path := atSchema(t, len(shippedMigrations)-1)
+
+	// A join token written by the older release, with none of the columns the
+	// upgrade is about to add.
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO join_tokens
+		(id, token_hash, prefix, created_by, labels, capacity, created_at, expires_at, used_by_id)
+		VALUES ('join_old', 'hash', 'zjt_', 'alice', '{}', 2, 1, 9999999999999, '')`); err != nil {
+		t.Fatalf("planting a join token at the old schema: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Open(ctx, Options{Path: path})
+	if err != nil {
+		t.Fatalf("opening a database from the release before providers: %v", err)
+	}
+	defer s.Close()
+
+	tokens, err := s.ListJoinTokens(ctx)
+	if err != nil {
+		t.Fatalf("reading a join token written before the upgrade: %v", err)
+	}
+	if len(tokens) != 1 || tokens[0].MachineID != "" || tokens[0].ExpectedName != "" {
+		t.Fatalf("the pre-upgrade join token came back as %+v, want it unscoped and readable", tokens)
+	}
+
+	// And the new tables work on an upgraded database, not only on one this
+	// build created from nothing.
+	p := &Provider{Kind: ProviderFake, Name: "lab", MaxMachines: 2}
+	if err := s.CreateProvider(ctx, p); err != nil {
+		t.Fatalf("the upgraded database will not take a provider: %v", err)
+	}
+	m := &Machine{ProviderID: p.ID}
+	if err := s.CreateMachine(ctx, m); err != nil {
+		t.Fatalf("the upgraded database will not take a machine: %v", err)
+	}
+	if _, err := s.GetMachine(ctx, m.ID); err != nil {
+		t.Fatalf("reading it back: %v", err)
+	}
+	if err := s.IntegrityCheck(ctx); err != nil {
+		t.Errorf("the upgraded database does not pass its integrity check: %v", err)
+	}
+}
+
 // A migration that fails has to stop startup and leave the ledger clean, so
 // the next start tries it again. The failure mode this prevents is the worst
 // one available: a half-applied migration recorded as done, which nothing will

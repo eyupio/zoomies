@@ -12,6 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -141,6 +142,8 @@ func TestResponsesMatchTheSpecShapes(t *testing.T) {
 	}
 	u, _ := h.user("admin", store.RoleAdmin)
 	cookie := h.session(u)
+	prov := h.provider("proxmox-lab")
+	h.machine(prov, "zoomies-mach-shapes")
 
 	t.Run("Pool", func(t *testing.T) {
 		resp := h.do(request{method: http.MethodGet, path: "/api/v1/pools", cookie: cookie})
@@ -253,6 +256,112 @@ func TestResponsesMatchTheSpecShapes(t *testing.T) {
 		assertShape(t, doc, "SupportBundle", resp.body)
 	})
 
+	t.Run("Provider", func(t *testing.T) {
+		resp := h.do(request{method: http.MethodGet, path: "/api/v1/providers/" + prov.ID, cookie: cookie})
+		resp.mustStatus(t, http.StatusOK, "provider")
+		assertShape(t, doc, "Provider", resp.body)
+	})
+
+	t.Run("ProviderKind", func(t *testing.T) {
+		resp := h.do(request{method: http.MethodGet, path: "/api/v1/providers/kinds", cookie: cookie})
+		resp.mustStatus(t, http.StatusOK, "provider kinds")
+		var listed struct {
+			Items []json.RawMessage `json:"items"`
+		}
+		resp.into(t, &listed)
+		if len(listed.Items) == 0 {
+			t.Fatal("this build ships no provider driver, so the wizard would have nothing to offer")
+		}
+		assertShape(t, doc, "ProviderKind", listed.Items[0])
+
+		var kind struct {
+			Settings []json.RawMessage `json:"settings"`
+		}
+		if err := json.Unmarshal(listed.Items[0], &kind); err != nil {
+			t.Fatalf("reading the driver's settings: %v", err)
+		}
+		if len(kind.Settings) == 0 {
+			t.Fatal("the driver asks for nothing, so ProviderSetting is unchecked")
+		}
+		assertShape(t, doc, "ProviderSetting", kind.Settings[0])
+		var setting providerSettingResponse
+		if err := json.Unmarshal(kind.Settings[0], &setting); err != nil {
+			t.Fatalf("reading a setting: %v", err)
+		}
+		if setting.Key == "" || setting.Label == "" {
+			t.Errorf("a setting with no key or label cannot be rendered as a field: %+v", setting)
+		}
+	})
+
+	t.Run("ProviderValidation", func(t *testing.T) {
+		resp := h.do(request{method: http.MethodPost, path: "/api/v1/providers/validate", cookie: cookie,
+			body: map[string]any{"kind": "fake", "name": "a draft", "settings": map[string]string{"zone": "zone-a"}}})
+		resp.mustStatus(t, http.StatusOK, "validate a draft provider")
+		assertShape(t, doc, "ProviderValidation", resp.body)
+	})
+
+	t.Run("ProviderCheck", func(t *testing.T) {
+		resp := h.do(request{method: http.MethodPost, path: "/api/v1/providers/" + prov.ID + "/check", cookie: cookie})
+		resp.mustStatus(t, http.StatusOK, "provider check")
+		assertShape(t, doc, "ProviderCheck", resp.body)
+	})
+
+	t.Run("ProviderDiscovery", func(t *testing.T) {
+		resp := h.do(request{method: http.MethodGet, path: "/api/v1/providers/" + prov.ID + "/discovery", cookie: cookie})
+		resp.mustStatus(t, http.StatusOK, "provider discovery")
+		assertShape(t, doc, "ProviderDiscovery", resp.body)
+	})
+
+	t.Run("ProviderOrphans", func(t *testing.T) {
+		resp := h.do(request{method: http.MethodGet, path: "/api/v1/providers/" + prov.ID + "/orphans", cookie: cookie})
+		resp.mustStatus(t, http.StatusOK, "provider orphans")
+		assertShape(t, doc, "ProviderOrphans", resp.body)
+	})
+
+	t.Run("Orphan", func(t *testing.T) {
+		// An untracked resource is found by an ownership sweep against a live
+		// provider, which no test harness has, so the type is checked against
+		// the document directly. That is the contract either way: the view is
+		// what the route renders.
+		raw, err := json.Marshal(controller.OrphanView{Name: "zoomies-mach-k3f9q", Note: "look at it yourself"})
+		if err != nil {
+			t.Fatalf("marshalling an orphan: %v", err)
+		}
+		assertShape(t, doc, "Orphan", raw)
+	})
+
+	t.Run("Machine", func(t *testing.T) {
+		resp := h.do(request{method: http.MethodGet, path: "/api/v1/machines", cookie: cookie})
+		resp.mustStatus(t, http.StatusOK, "list machines")
+		var listed struct {
+			Items []json.RawMessage `json:"items"`
+		}
+		resp.into(t, &listed)
+		if len(listed.Items) == 0 {
+			t.Fatal("no machines returned")
+		}
+		assertShape(t, doc, "Machine", listed.Items[0])
+		var timeline struct {
+			Timeline []json.RawMessage `json:"timeline"`
+		}
+		if err := json.Unmarshal(listed.Items[0], &timeline); err != nil {
+			t.Fatalf("reading the machine's timeline: %v", err)
+		}
+		if len(timeline.Timeline) == 0 {
+			t.Fatal("a machine reached no phase at all, so MachineTimelineEntry is unchecked")
+		}
+		assertShape(t, doc, "MachineTimelineEntry", timeline.Timeline[0])
+		var phase machineTimelineResponse
+		if err := json.Unmarshal(timeline.Timeline[0], &phase); err != nil {
+			t.Fatalf("reading a phase: %v", err)
+		}
+		if phase.Phase == "" || phase.At.IsZero() {
+			// A zero timestamp in a timeline reads as 1970, which is why a
+			// phase a machine skipped is absent rather than empty.
+			t.Errorf("a timeline entry names no phase or no time: %+v", phase)
+		}
+	})
+
 	t.Run("ErrorEnvelope", func(t *testing.T) {
 		resp := h.do(request{method: http.MethodGet, path: "/api/v1/pools/pool_nope", cookie: cookie})
 		resp.mustStatus(t, http.StatusNotFound, "missing pool")
@@ -282,10 +391,26 @@ func TestSecretsAreNeverInAResponse(t *testing.T) {
 		t.Error("the ready-to-paste command does not carry the token")
 	}
 
-	secrets := []string{tokenPlain, join.Token, "PRIVATE KEY", "webhook-secret", testKey}
+	// A Proxmox API token, in the shape a hypervisor actually issues one, so a
+	// hit is a leak rather than a coincidence.
+	const proxmoxToken = "zoomies@pve!ci=9f1c0e2a-7b44-4d18-9f0a-nobody-may-ever-see"
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/providers", cookie: cookie,
+		body: map[string]any{"kind": "fake", "name": "proxmox-lab", "endpoint": "https://pve.example.com:8006",
+			"credential": proxmoxToken, "settings": map[string]string{"zone": "zone-a"}}})
+	created.mustStatus(t, http.StatusCreated, "create provider")
+	var prov struct {
+		ID string `json:"id"`
+	}
+	created.into(t, &prov)
+
+	secrets := []string{tokenPlain, join.Token, "PRIVATE KEY", "webhook-secret", testKey, proxmoxToken}
 	paths := []string{
 		"/api/v1/installations",
 		"/api/v1/installations/" + inst.ID,
+		// A provider's credential reaches a hypervisor, and the row it is
+		// sealed in is read by every page that lists providers.
+		"/api/v1/providers",
+		"/api/v1/providers/" + prov.ID,
 		"/api/v1/tokens",
 		"/api/v1/join-tokens",
 		"/api/v1/users",
@@ -336,6 +461,9 @@ func TestSecretsAreNeverInAFailure(t *testing.T) {
 		keyMarker  = "theAppKeyNobodyMayEverSee"
 		hookSecret = "webhook-hmac-nobody-may-ever-see"
 		password   = "the-operators-own-password-12345"
+		// The credential a Proxmox API token is: it reaches a hypervisor, so
+		// a leak of it is a leak of every machine on the cluster.
+		proxmoxToken = "zoomies@pve!ci=9f1c0e2a-7b44-4d18-9f0a-nobody-may-ever-see"
 	)
 
 	created := h.do(request{method: http.MethodPost, path: "/api/v1/installations", cookie: cookie,
@@ -349,6 +477,15 @@ func TestSecretsAreNeverInAFailure(t *testing.T) {
 		ID string `json:"id"`
 	}
 	created.into(t, &inst)
+
+	madeProvider := h.do(request{method: http.MethodPost, path: "/api/v1/providers", cookie: cookie,
+		body: map[string]any{"kind": "fake", "name": "proxmox-lab", "endpoint": "https://pve.example.com:8006",
+			"credential": proxmoxToken, "settings": map[string]string{"zone": "zone-a"}}})
+	madeProvider.mustStatus(t, http.StatusCreated, "create provider")
+	var prov struct {
+		ID string `json:"id"`
+	}
+	madeProvider.into(t, &prov)
 
 	pool := h.pool(&store.Installation{ID: inst.ID}, "linux-x64")
 	hostID, agentToken := h.agentToken("vm-1")
@@ -388,6 +525,7 @@ func TestSecretsAreNeverInAFailure(t *testing.T) {
 		{"an API token", apiToken},
 		{"a join token", join.Token},
 		{"the instance encryption key", testKey},
+		{"a provider's API token", proxmoxToken},
 	}
 	seen := func(t *testing.T, what string, body []byte) {
 		t.Helper()
@@ -421,6 +559,11 @@ func TestSecretsAreNeverInAFailure(t *testing.T) {
 				body: map[string]any{"app_id": 0, "installation_id": 0, "target": "", "target_type": "",
 					"private_key": appKey, "webhook_secret": hookSecret}}, false},
 			{"a failed verify", request{method: http.MethodPost, path: "/api/v1/installations/" + inst.ID + "/verify", cookie: cookie}, true},
+			// The credential is in the body that is refused, which is the case
+			// most likely to echo it back: a validator quoting what it was
+			// given is an ordinary and helpful thing to write.
+			{"a rejected provider carrying a credential", request{method: http.MethodPost, path: "/api/v1/providers", cookie: cookie,
+				body: map[string]any{"kind": "fake", "name": "", "credential": proxmoxToken, "settings": map[string]string{}}}, false},
 			{"a wrong setup token", request{method: http.MethodPost, path: "/api/v1/auth/bootstrap",
 				body: map[string]any{"username": "mallory", "password": password,
 					"setup_token": h.setupToken() + "-wrong"}}, false},
@@ -457,6 +600,7 @@ func TestSecretsAreNeverInAFailure(t *testing.T) {
 			"/api/v1/runners", "/api/v1/runners/" + run.ID,
 			"/api/v1/pools", "/api/v1/pools/" + pool.ID,
 			"/api/v1/jobs", "/api/v1/stats", "/api/v1/problems", "/api/v1/scaling-events",
+			"/api/v1/providers", "/api/v1/providers/" + prov.ID, "/api/v1/machines",
 		} {
 			resp := h.do(request{method: http.MethodGet, path: path, cookie: cookie})
 			resp.mustStatus(t, http.StatusOK, path)
