@@ -27,13 +27,21 @@ backend: docker
 # For a containerised deployment this is the address the container is published
 # on, not the listener: inside the container Zoomies always binds :8080, and
 # what is chosen here is what the host exposes. Loopback means only this
-# instance and whatever proxies from it can connect.
-bind: __ZOOMIES_PUBLISH_ADDR__:8080
+# instance and whatever proxies from it can connect, which is what every
+# arrangement except a certificate of your own wants.
+bind: __ZOOMIES_BIND__
 
 tls:
-  # Quoted: an unquoted off is a boolean in YAML, not a word. Something in
-  # front terminates TLS -- see ZOOMIES_TLS in the inputs.
-  mode: "off"
+  # Quoted: an unquoted off is a boolean in YAML, not a word.
+  #
+  # "files" means Zoomies terminates TLS itself with the certificate below and
+  # is published straight on 443. Anything else means something in front holds
+  # the certificate -- the bundled proxy, or a load balancer of the provider's.
+  mode: "__ZOOMIES_TLS_MODE__"
+  # Empty unless the mode is files. The paths are the host's, and the
+  # deployment mounts them into the container unchanged.
+  cert_file: __ZOOMIES_TLS_CERT_FILE__
+  key_file: __ZOOMIES_TLS_KEY_FILE__
 
 trusted_proxies: [__ZOOMIES_TRUSTED_PROXIES__]
 

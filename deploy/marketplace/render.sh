@@ -29,6 +29,7 @@ pinned_release=$ZOOMIES_RELEASE
 pinned_installer=$ZOOMIES_INSTALLER_URL
 pinned_sum=$ZOOMIES_INSTALLER_SHA256
 default_image=$ZOOMIES_CONTROLLER_IMAGE
+pinned_proxy=$ZOOMIES_PROXY_IMAGE
 
 # shellcheck disable=SC1090
 . "$inputs"
@@ -36,12 +37,16 @@ default_image=$ZOOMIES_CONTROLLER_IMAGE
 ZOOMIES_RELEASE=$pinned_release
 ZOOMIES_INSTALLER_URL=$pinned_installer
 ZOOMIES_INSTALLER_SHA256=$pinned_sum
+ZOOMIES_PROXY_IMAGE=$pinned_proxy
 
 : "${ZOOMIES_HOSTNAME:?set ZOOMIES_HOSTNAME in $inputs to the DNS name that points at this instance}"
 ZOOMIES_EXTERNAL_URL=${ZOOMIES_EXTERNAL_URL:-https://$ZOOMIES_HOSTNAME}
 ZOOMIES_CONTROLLER_IMAGE=${ZOOMIES_CONTROLLER_IMAGE:-$default_image}
 ZOOMIES_MODE=${ZOOMIES_MODE:-single}
-ZOOMIES_TLS=${ZOOMIES_TLS:-off}
+ZOOMIES_TLS=${ZOOMIES_TLS:-acme}
+ZOOMIES_ACME_EMAIL=${ZOOMIES_ACME_EMAIL:-}
+ZOOMIES_TLS_CERT_FILE=${ZOOMIES_TLS_CERT_FILE:-}
+ZOOMIES_TLS_KEY_FILE=${ZOOMIES_TLS_KEY_FILE:-}
 ZOOMIES_DNS=${ZOOMIES_DNS:-pending}
 ZOOMIES_PUBLISH_ADDR=${ZOOMIES_PUBLISH_ADDR:-127.0.0.1}
 ZOOMIES_TRUSTED_PROXIES=${ZOOMIES_TRUSTED_PROXIES:-127.0.0.1/32,::1/128}
@@ -69,11 +74,15 @@ ZOOMIES_RELEASE=$ZOOMIES_RELEASE
 ZOOMIES_INSTALLER_URL=$ZOOMIES_INSTALLER_URL
 ZOOMIES_INSTALLER_SHA256=$ZOOMIES_INSTALLER_SHA256
 ZOOMIES_CONTROLLER_IMAGE=$ZOOMIES_CONTROLLER_IMAGE
+ZOOMIES_PROXY_IMAGE=$ZOOMIES_PROXY_IMAGE
 ZOOMIES_HOSTNAME=$ZOOMIES_HOSTNAME
 ZOOMIES_EXTERNAL_URL=$ZOOMIES_EXTERNAL_URL
 ZOOMIES_DNS=$ZOOMIES_DNS
 ZOOMIES_MODE=$ZOOMIES_MODE
 ZOOMIES_TLS=$ZOOMIES_TLS
+ZOOMIES_ACME_EMAIL=$ZOOMIES_ACME_EMAIL
+ZOOMIES_TLS_CERT_FILE=$ZOOMIES_TLS_CERT_FILE
+ZOOMIES_TLS_KEY_FILE=$ZOOMIES_TLS_KEY_FILE
 ZOOMIES_PUBLISH_ADDR=$ZOOMIES_PUBLISH_ADDR
 ZOOMIES_TRUSTED_PROXIES=$ZOOMIES_TRUSTED_PROXIES
 ZOOMIES_DATA_DIR=$ZOOMIES_DATA_DIR
@@ -91,7 +100,9 @@ trap 'rm -f "${TMPDIR:-/tmp}/zoomies-render-env.$$"' EXIT INT TERM
 awk \
   -v env_file="${TMPDIR:-/tmp}/zoomies-render-env.$$" \
   -v answers_file="$here/answers.yaml.tmpl" \
-  -v bootstrap_file="$here/bootstrap.sh" '
+  -v bootstrap_file="$here/bootstrap.sh" \
+  -v caddy_file="$here/Caddyfile.tmpl" \
+  -v proxy_file="$here/proxy-compose.yml.tmpl" '
 function emit(file, indent,   line) {
   while ((getline line < file) > 0) {
     if (line == "") print ""
@@ -103,6 +114,8 @@ function emit(file, indent,   line) {
   if ($0 ~ /__ZOOMIES_ENV__$/)            { match($0, /^ */); emit(env_file,       substr($0, 1, RLENGTH)); next }
   if ($0 ~ /__ZOOMIES_ANSWERS_TMPL__$/)   { match($0, /^ */); emit(answers_file,   substr($0, 1, RLENGTH)); next }
   if ($0 ~ /__ZOOMIES_BOOTSTRAP__$/)      { match($0, /^ */); emit(bootstrap_file, substr($0, 1, RLENGTH)); next }
+  if ($0 ~ /__ZOOMIES_CADDYFILE__$/)      { match($0, /^ */); emit(caddy_file,     substr($0, 1, RLENGTH)); next }
+  if ($0 ~ /__ZOOMIES_PROXY_COMPOSE__$/)  { match($0, /^ */); emit(proxy_file,     substr($0, 1, RLENGTH)); next }
   print
 }
 ' "$here/cloud-init.yaml.tmpl"

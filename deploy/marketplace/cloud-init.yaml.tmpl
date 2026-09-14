@@ -30,6 +30,21 @@ write_files:
     content: |
       __ZOOMIES_ANSWERS_TMPL__
 
+  # The certificate holder, used only when ZOOMIES_TLS is acme. Written either
+  # way: an instance that is later moved onto its own certificate, or off one,
+  # should not need a different image to do it.
+  - path: /etc/zoomies/Caddyfile.tmpl
+    owner: root:root
+    permissions: '0644'
+    content: |
+      __ZOOMIES_CADDYFILE__
+
+  - path: /etc/zoomies/proxy-compose.yml.tmpl
+    owner: root:root
+    permissions: '0644'
+    content: |
+      __ZOOMIES_PROXY_COMPOSE__
+
   - path: /usr/local/sbin/zoomies-bootstrap
     owner: root:root
     permissions: '0700'

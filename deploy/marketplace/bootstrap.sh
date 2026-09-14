@@ -24,6 +24,9 @@ set -eu
 ENV_FILE=${ZOOMIES_ENV_FILE:-/etc/zoomies/marketplace.env}
 ANSWERS_TMPL=${ZOOMIES_ANSWERS_TEMPLATE:-/etc/zoomies/answers.yaml.tmpl}
 ANSWERS=${ZOOMIES_ANSWERS_FILE:-/etc/zoomies/answers.yaml}
+CADDY_TMPL=${ZOOMIES_CADDY_TEMPLATE:-/etc/zoomies/Caddyfile.tmpl}
+PROXY_TMPL=${ZOOMIES_PROXY_TEMPLATE:-/etc/zoomies/proxy-compose.yml.tmpl}
+PROXY_DIR=${ZOOMIES_PROXY_DIR:-/etc/zoomies/proxy}
 NOTES=${ZOOMIES_NOTES_FILE:-/etc/zoomies/first-login.txt}
 LOG_TAG=zoomies-bootstrap
 
@@ -39,9 +42,12 @@ die() { echo "[$LOG_TAG] $*" >&2; exit 1; }
 : "${ZOOMIES_RELEASE:?the rendered inputs name no release}"
 : "${ZOOMIES_INSTALLER_URL:?the rendered inputs name no installer}"
 : "${ZOOMIES_INSTALLER_SHA256:?the rendered inputs name no installer checksum}"
+ZOOMIES_PROXY_IMAGE=${ZOOMIES_PROXY_IMAGE:-}
 
 ZOOMIES_HOSTNAME=${ZOOMIES_HOSTNAME:-}
 [ -n "$ZOOMIES_HOSTNAME" ] || die "no hostname was given: set ZOOMIES_HOSTNAME to the DNS name that points at this instance"
+
+ZOOMIES_PUBLISH_ADDR=${ZOOMIES_PUBLISH_ADDR:-127.0.0.1}
 
 ZOOMIES_MODE=${ZOOMIES_MODE:-single}
 case "$ZOOMIES_MODE" in
@@ -49,17 +55,41 @@ case "$ZOOMIES_MODE" in
   *) die "mode $ZOOMIES_MODE is not one this package installs: use single or controller" ;;
 esac
 
-# Only one terminating arrangement is implemented so far. Refusing the others
-# by name beats installing a controller that serves plain HTTP to the internet
-# because an input was spelled in a way nothing here reads.
-ZOOMIES_TLS=${ZOOMIES_TLS:-off}
+# How this deployment gets a certificate. Refusing an unknown value by name
+# beats installing a controller that serves plain HTTP to the internet because
+# an input was spelled in a way nothing here reads.
+ZOOMIES_TLS=${ZOOMIES_TLS:-acme}
 case "$ZOOMIES_TLS" in
-  off) ;;
-  *) die "TLS mode $ZOOMIES_TLS is not available in this package: use off, with a proxy or load balancer terminating TLS in front" ;;
+  acme|files|off) ;;
+  *) die "TLS mode $ZOOMIES_TLS is not one this package installs: use acme, files or off" ;;
 esac
 
+ZOOMIES_ACME_EMAIL=${ZOOMIES_ACME_EMAIL:-}
+ZOOMIES_TLS_CERT_FILE=${ZOOMIES_TLS_CERT_FILE:-}
+ZOOMIES_TLS_KEY_FILE=${ZOOMIES_TLS_KEY_FILE:-}
+if [ "$ZOOMIES_TLS" = "files" ]; then
+  [ -n "$ZOOMIES_TLS_CERT_FILE" ] && [ -n "$ZOOMIES_TLS_KEY_FILE" ] || \
+    die "TLS mode files needs ZOOMIES_TLS_CERT_FILE and ZOOMIES_TLS_KEY_FILE: the certificate this instance serves, and its key"
+fi
+
+# The listener, and what the instance exposes. Only a certificate of our own
+# puts Zoomies on 443; in every other arrangement it stays on loopback and
+# whatever holds the certificate reaches it there.
+if [ "$ZOOMIES_TLS" = "files" ]; then
+  ZOOMIES_BIND=0.0.0.0:443
+  ZOOMIES_TLS_MODE=files
+  # -k, because the question is whether the controller is answering, not
+  # whether a certificate issued for the public name matches 127.0.0.1.
+  HEALTH_URL=https://127.0.0.1/healthz
+  HEALTH_CURL_OPTS=-k
+else
+  ZOOMIES_BIND=$ZOOMIES_PUBLISH_ADDR:8080
+  ZOOMIES_TLS_MODE=off
+  HEALTH_URL=http://$ZOOMIES_PUBLISH_ADDR:8080/healthz
+  HEALTH_CURL_OPTS=
+fi
+
 ZOOMIES_EXTERNAL_URL=${ZOOMIES_EXTERNAL_URL:-https://$ZOOMIES_HOSTNAME}
-ZOOMIES_PUBLISH_ADDR=${ZOOMIES_PUBLISH_ADDR:-127.0.0.1}
 ZOOMIES_TRUSTED_PROXIES=${ZOOMIES_TRUSTED_PROXIES:-127.0.0.1/32,::1/128}
 ZOOMIES_DATA_DIR=${ZOOMIES_DATA_DIR:-/var/lib/zoomies}
 ZOOMIES_CONTROLLER_IMAGE=${ZOOMIES_CONTROLLER_IMAGE:-}
@@ -142,7 +172,10 @@ render_answers() {
   sed \
     -e "s|__ZOOMIES_MODE__|$ZOOMIES_MODE|g" \
     -e "s|__ZOOMIES_CONTROLLER_IMAGE__|$ZOOMIES_CONTROLLER_IMAGE|g" \
-    -e "s|__ZOOMIES_PUBLISH_ADDR__|$ZOOMIES_PUBLISH_ADDR|g" \
+    -e "s|__ZOOMIES_BIND__|$ZOOMIES_BIND|g" \
+    -e "s|__ZOOMIES_TLS_MODE__|$ZOOMIES_TLS_MODE|g" \
+    -e "s|__ZOOMIES_TLS_CERT_FILE__|$ZOOMIES_TLS_CERT_FILE|g" \
+    -e "s|__ZOOMIES_TLS_KEY_FILE__|$ZOOMIES_TLS_KEY_FILE|g" \
     -e "s|__ZOOMIES_TRUSTED_PROXIES__|$trusted|g" \
     -e "s|__ZOOMIES_EXTERNAL_URL__|$ZOOMIES_EXTERNAL_URL|g" \
     "$ANSWERS_TMPL" > "$ANSWERS"
@@ -171,6 +204,46 @@ run_installer() {
   say "installing Zoomies $ZOOMIES_RELEASE"
   sh "$script" --answers "$ANSWERS" --version "$ZOOMIES_RELEASE"
   rm -f "$script"
+}
+
+# ----------------------------------------------------------------- the proxy
+
+render_proxy() {
+  [ "$ZOOMIES_TLS" = "acme" ] || return 0
+  [ -r "$CADDY_TMPL" ] && [ -r "$PROXY_TMPL" ] || \
+    die "the ACME path needs $CADDY_TMPL and $PROXY_TMPL, and the image was rendered without them"
+  [ -n "$ZOOMIES_PROXY_IMAGE" ] || die "the rendered inputs name no proxy image, so the ACME path has nothing to run"
+
+  say "writing the configuration for a certificate holder in front of the controller"
+  mkdir -p "$PROXY_DIR" "$ZOOMIES_DATA_DIR/caddy"
+
+  # An empty email is not the same as no email: "email" alone is not a
+  # directive, so the whole line goes rather than its value.
+  acme_global=""
+  [ -n "$ZOOMIES_ACME_EMAIL" ] && acme_global="email $ZOOMIES_ACME_EMAIL"
+
+  sed \
+    -e "s|__ZOOMIES_ACME_GLOBAL__|$acme_global|g" \
+    -e "s|__ZOOMIES_HOSTNAME__|$ZOOMIES_HOSTNAME|g" \
+    -e "s|__ZOOMIES_PUBLISH_ADDR__|$ZOOMIES_PUBLISH_ADDR|g" \
+    "$CADDY_TMPL" > "$PROXY_DIR/Caddyfile"
+
+  sed \
+    -e "s|__ZOOMIES_PROXY_IMAGE__|$ZOOMIES_PROXY_IMAGE|g" \
+    -e "s|__ZOOMIES_DATA_DIR__|$ZOOMIES_DATA_DIR|g" \
+    "$PROXY_TMPL" > "$PROXY_DIR/docker-compose.yml"
+}
+
+start_proxy() {
+  [ "$ZOOMIES_TLS" = "acme" ] || return 0
+  docker compose -f "$PROXY_DIR/docker-compose.yml" up -d
+
+  if [ "${ZOOMIES_DNS:-pending}" != "ready" ]; then
+    # Not a failure. Caddy retries, so an instance booted before its DNS record
+    # existed becomes healthy on its own once the record does -- which is the
+    # usual order when the provider assigns the address at boot.
+    say "the certificate cannot be issued until $ZOOMIES_HOSTNAME resolves to this instance; the proxy will keep trying"
+  fi
 }
 
 # ----------------------------------------------------------------- the notes
@@ -220,8 +293,9 @@ wait_for_health() {
   # leaves a healthy-looking `up -d` behind it.
   i=0
   while [ "$i" -lt 60 ]; do
-    if curl -fsS -o /dev/null "http://$ZOOMIES_PUBLISH_ADDR:8080/healthz"; then
-      say "the controller is answering on $ZOOMIES_PUBLISH_ADDR:8080"
+    # shellcheck disable=SC2086
+    if curl -fsS $HEALTH_CURL_OPTS -o /dev/null "$HEALTH_URL"; then
+      say "the controller is answering on $HEALTH_URL"
       return 0
     fi
     i=$((i + 1))
@@ -234,6 +308,7 @@ wait_for_health() {
 # decided. Stopping here is how the tests read those decisions.
 if [ "${ZOOMIES_RENDER_ONLY:-}" = "1" ]; then
   render_answers
+  render_proxy
   say "rendered $ANSWERS and stopped, because ZOOMIES_RENDER_ONLY is set"
   exit 0
 fi
@@ -243,6 +318,8 @@ prepare_data_dir
 render_answers
 run_installer
 wait_for_health
+render_proxy
+start_proxy
 write_notes
 
 say "done. $NOTES says how to finish setup."

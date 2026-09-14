@@ -69,6 +69,9 @@ func run() error {
 	}
 
 	refs := []string{stripDigest(env["ZOOMIES_CONTROLLER_IMAGE"])}
+	if proxy := stripDigest(env["ZOOMIES_PROXY_IMAGE"]); proxy != "" {
+		refs = append(refs, proxy)
+	}
 	for _, img := range naming.Images() {
 		tag := img.Tag() + "-" + release
 		refs = append(refs,
@@ -113,15 +116,15 @@ func run() error {
 // asking; the digest is the header the registry answers a manifest request
 // with, which is exactly the value `docker pull` would pin.
 func resolve(client *http.Client, ref string) (string, error) {
-	repo, tag, ok := strings.Cut(strings.TrimPrefix(ref, "ghcr.io/"), ":")
-	if !ok {
-		return "", fmt.Errorf("%q names no tag", ref)
-	}
-	token, err := ghcrToken(client, repo)
+	host, repo, tag, err := split(ref)
 	if err != nil {
 		return "", err
 	}
-	req, err := http.NewRequest(http.MethodHead, "https://ghcr.io/v2/"+repo+"/manifests/"+tag, nil)
+	token, err := pullToken(client, host, repo)
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequest(http.MethodHead, "https://"+registryHost(host)+"/v2/"+repo+"/manifests/"+tag, nil)
 	if err != nil {
 		return "", err
 	}
@@ -142,8 +145,43 @@ func resolve(client *http.Client, ref string) (string, error) {
 	return d, nil
 }
 
-func ghcrToken(client *http.Client, repo string) (string, error) {
-	resp, err := client.Get("https://ghcr.io/token?scope=repository:" + repo + ":pull&service=ghcr.io")
+// split breaks a reference into the registry it lives on, the repository path
+// that registry knows it by, and the tag. Docker Hub is the awkward one: its
+// references carry no host at all, official images live under an implied
+// library/ prefix, and its API is on a different name from its references.
+func split(ref string) (host, repo, tag string, err error) {
+	rest := ref
+	host = "docker.io"
+	if i := strings.Index(ref, "/"); i >= 0 && strings.Contains(ref[:i], ".") {
+		host, rest = ref[:i], ref[i+1:]
+	}
+	repo, tag, ok := strings.Cut(rest, ":")
+	if !ok {
+		return "", "", "", fmt.Errorf("%q names no tag", ref)
+	}
+	if host == "docker.io" && !strings.Contains(repo, "/") {
+		repo = "library/" + repo
+	}
+	return host, repo, tag, nil
+}
+
+// registryHost is where the API lives, which is not always where references say
+// the image does.
+func registryHost(host string) string {
+	if host == "docker.io" {
+		return "registry-1.docker.io"
+	}
+	return host
+}
+
+// pullToken asks for anonymous pull access. Both registries hand one out for
+// the asking on a public repository; neither serves a manifest without it.
+func pullToken(client *http.Client, host, repo string) (string, error) {
+	authURL := "https://" + host + "/token?scope=repository:" + repo + ":pull&service=" + host
+	if host == "docker.io" {
+		authURL = "https://auth.docker.io/token?scope=repository:" + repo + ":pull&service=registry.docker.io"
+	}
+	resp, err := client.Get(authURL)
 	if err != nil {
 		return "", err
 	}
