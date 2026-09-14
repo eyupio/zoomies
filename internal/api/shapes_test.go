@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -124,6 +125,19 @@ func TestResponsesMatchTheSpecShapes(t *testing.T) {
 	job := h.job(pool, store.JobInProgress)
 	if err := h.st.AssignRunnerJob(h.ctx, run.ID, job.ID); err != nil {
 		t.Fatalf("AssignRunnerJob: %v", err)
+	}
+	// A host on a rung and a runner with a defaulted allocation, so the
+	// fields that are omitted when empty are present to be checked: a check
+	// that never sees them would pass on a document that does not have them.
+	since := time.Now().Add(-time.Minute)
+	if err := h.st.SetHostThrottle(h.ctx, host.ID, store.HostThrottle{
+		Level: 1, Since: &since, ChangedAt: &since, Reason: "available memory is at or below the host's reserve",
+	}, 0); err != nil {
+		t.Fatalf("SetHostThrottle: %v", err)
+	}
+	run.AllocatedCPUs, run.AllocatedMemoryMB, run.AllocationSource = 1.87, 3968, store.AllocationFromHost
+	if err := h.st.UpdateRunner(h.ctx, run); err != nil {
+		t.Fatalf("UpdateRunner: %v", err)
 	}
 	u, _ := h.user("admin", store.RoleAdmin)
 	cookie := h.session(u)

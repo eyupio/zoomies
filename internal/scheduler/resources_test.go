@@ -16,6 +16,10 @@ func sized(id string, capacity, cpus int, memoryMB, diskFreeMB int64) *store.Hos
 	h.MemoryMB = memoryMB
 	h.DiskTotalMB = diskFreeMB * 2
 	h.DiskFreeMB = diskFreeMB
+	// A measured host whose daemon can apply every limit, which is what a
+	// rootful Docker on cgroup v2 reports and the shape most tests want.
+	h.BackendInfo = store.HostBackends{{Kind: store.BackendDocker, Available: true,
+		Limits: store.LimitSupport{Known: true, CPU: true, Memory: true, Pids: true}}}
 	return h
 }
 
@@ -276,8 +280,11 @@ func TestTheShortfallNamesTheDoubledDockerInDockerCharge(t *testing.T) {
 	p := limited("builders", 8, 0)
 	p.DockerMode = store.DockerDinD
 
+	// 11.4 rather than 12: the floor under the CPU reserve keeps a
+	// twentieth of the machine for the daemon, and the shortfall names what
+	// may actually be placed on, which is the figure the pass fits against.
 	got := HostShortfall(h, p)
-	for _, want := range []string{"12 CPU", "charged 16", "sidecar"} {
+	for _, want := range []string{"11.4 CPU", "charged 16", "sidecar"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("HostShortfall = %q, want it to mention %q", got, want)
 		}

@@ -194,30 +194,36 @@ type backendInfo struct {
 }
 
 type hostItem struct {
-	ID            string            `json:"id"`
-	Name          string            `json:"name"`
-	Address       string            `json:"address"`
-	Embedded      bool              `json:"embedded"`
-	Capacity      int               `json:"capacity"`
-	ActiveRunners int               `json:"active_runners"`
-	Free          int               `json:"free"`
-	Backends      []string          `json:"backends"`
-	BackendInfo   []backendInfo     `json:"backend_info"`
-	Labels        map[string]string `json:"labels"`
-	OS            string            `json:"os"`
-	Distro        string            `json:"distro"`
-	OSVersion     string            `json:"os_version"`
-	Arch          string            `json:"arch"`
-	CPUs          int               `json:"cpus"`
-	MemoryMB      int64             `json:"memory_mb"`
-	Platform      platformItem      `json:"platform"`
-	PlatformLabel string            `json:"platform_label"`
-	CanonicalName string            `json:"canonical_name"`
-	Version       string            `json:"version"`
-	Cordoned      bool              `json:"cordoned"`
-	Healthy       bool              `json:"healthy"`
-	LastHeartbeat time.Time         `json:"last_heartbeat"`
-	CreatedAt     time.Time         `json:"created_at"`
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Address       string `json:"address"`
+	Embedded      bool   `json:"embedded"`
+	Capacity      int    `json:"capacity"`
+	ActiveRunners int    `json:"active_runners"`
+	Free          int    `json:"free"`
+	// EffectiveCapacity is the slots the host takes right now, which is
+	// Capacity stepped down by a throttle; ThrottleReason is the sentence
+	// explaining the throttle, empty when there is none. A controller older
+	// than either sends neither, and zero here is read as "not throttled".
+	EffectiveCapacity int               `json:"effective_capacity"`
+	ThrottleReason    string            `json:"throttle_reason"`
+	Backends          []string          `json:"backends"`
+	BackendInfo       []backendInfo     `json:"backend_info"`
+	Labels            map[string]string `json:"labels"`
+	OS                string            `json:"os"`
+	Distro            string            `json:"distro"`
+	OSVersion         string            `json:"os_version"`
+	Arch              string            `json:"arch"`
+	CPUs              int               `json:"cpus"`
+	MemoryMB          int64             `json:"memory_mb"`
+	Platform          platformItem      `json:"platform"`
+	PlatformLabel     string            `json:"platform_label"`
+	CanonicalName     string            `json:"canonical_name"`
+	Version           string            `json:"version"`
+	Cordoned          bool              `json:"cordoned"`
+	Healthy           bool              `json:"healthy"`
+	LastHeartbeat     time.Time         `json:"last_heartbeat"`
+	CreatedAt         time.Time         `json:"created_at"`
 }
 
 type joinTokenItem struct {

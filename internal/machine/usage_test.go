@@ -19,15 +19,26 @@ func TestUsageMeasuresDeltasAndAvailableMemoryWithoutSleeping(t *testing.T) {
 	}
 	write("meminfo", "MemTotal: 8388608 kB\nMemFree: 1024 kB\nMemAvailable: 4194304 kB\n")
 	write("stat", "cpu 100 0 0 100 0 0 0 0 99 0\ncpu0 0\ncpu1 0\n")
+	write("loadavg", "5.25 3.10 1.00 3/512 4242\n")
 	s := UsageSampler{root: root}
 	first := s.Sample(2, 8192)
 	if first.CPUPercent != nil || first.MemoryAvailableMB == nil || *first.MemoryAvailableMB != 4096 {
 		t.Fatalf("first sample must report available memory but no CPU delta: %+v", first)
 	}
+	// The load average needs no delta, but it does need the CPU count to be
+	// the machine's: a figure of 5 means something different beside 2 cores
+	// than beside 64, so it is reported only once procfs has been checked
+	// against the caller's view, which the first sample establishes.
+	if first.LoadAverage1 == nil || *first.LoadAverage1 != 5.25 {
+		t.Fatalf("load average = %v, want 5.25 from the first field of /proc/loadavg", first.LoadAverage1)
+	}
 	write("stat", "cpu 125 0 0 175 0 0 0 0 124 0\ncpu0 0\ncpu1 0\n")
 	u := s.Sample(2, 8192)
 	if u.CPUPercent == nil || *u.CPUPercent != 25 {
 		t.Fatalf("CPU = %v, want 25%% (guest already counted)", u.CPUPercent)
+	}
+	if u.LoadAverage1 == nil || *u.LoadAverage1 != 5.25 {
+		t.Fatalf("load average = %v on the second sample, want 5.25", u.LoadAverage1)
 	}
 	// A reboot or CPU topology change starts a new baseline, not an enormous
 	// negative utilisation that attracts every queued job.
@@ -35,8 +46,23 @@ func TestUsageMeasuresDeltasAndAvailableMemoryWithoutSleeping(t *testing.T) {
 	if s.Sample(2, 8192).CPUPercent != nil {
 		t.Fatal("counter reset became a valid CPU sample")
 	}
-	if got := s.Sample(1, 2048); got.CPUPercent != nil || got.MemoryAvailableMB != nil {
+	if got := s.Sample(1, 2048); got.CPUPercent != nil || got.MemoryAvailableMB != nil || got.LoadAverage1 != nil {
 		t.Fatalf("physical host figures were attributed to a smaller cgroup: %+v", got)
+	}
+}
+
+// A load average is read from the same file every Linux kernel writes, and the
+// two ways it can be wrong are the two ways any procfs figure can be: absent,
+// or not a number. Neither may become a reading of zero, because zero load is
+// the one value that would let an overwhelmed host look idle.
+func TestLoadAverageRejectsWhatItCannotRead(t *testing.T) {
+	for _, raw := range []string{"", "x y z", "-1 0 0 1/2 3", "NaN 0 0 1/2 3", "1.5"} {
+		if _, ok := loadAverage(raw); ok {
+			t.Errorf("accepted %q", raw)
+		}
+	}
+	if v, ok := loadAverage("0.00 0.01 0.05 1/100 200"); !ok || v != 0 {
+		t.Fatalf("a measured idle host was rejected: %v %v", v, ok)
 	}
 }
 

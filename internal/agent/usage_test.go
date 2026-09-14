@@ -24,19 +24,20 @@ func TestHeartbeatCarriesWholeHostUsageEvenWhenTheAgentHasASmallerCgroup(t *test
 	a.backendInfo = []backend.Info{{Kind: store.BackendDocker, Available: true,
 		Endpoint: "unix:///var/run/docker.sock", CPUs: 16, MemoryMB: 32768}}
 	a.probedAt = a.now()
-	cpu, memory := 72.0, int64(12000)
+	cpu, memory, load := 72.0, int64(12000), 21.5
 	a.opts.SampleUsage = func(cpus int, memoryMB int64) machine.Usage {
 		if cpus != 16 || memoryMB != 32768 {
 			t.Fatalf("sample used agent cgroup size %d/%d", cpus, memoryMB)
 		}
-		return machine.Usage{CPUPercent: &cpu, MemoryAvailableMB: &memory}
+		return machine.Usage{CPUPercent: &cpu, MemoryAvailableMB: &memory, LoadAverage1: &load}
 	}
 	if err := a.heartbeat(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	beat := <-tr.beats
 	if beat.Usage == nil || beat.Usage.CPUPercent == nil || *beat.Usage.CPUPercent != cpu ||
-		beat.Usage.MemoryAvailableMB == nil || *beat.Usage.MemoryAvailableMB != memory || beat.CPUs != 16 {
+		beat.Usage.MemoryAvailableMB == nil || *beat.Usage.MemoryAvailableMB != memory || beat.CPUs != 16 ||
+		beat.Usage.LoadAverage1 == nil || *beat.Usage.LoadAverage1 != load {
 		t.Fatalf("measurement did not reach heartbeat: %+v", beat)
 	}
 }

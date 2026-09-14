@@ -607,6 +607,34 @@ func TestAPIClientNetworkEnsure(t *testing.T) {
 	}
 }
 
+// A throttle reaches a running job through the update endpoint, and it has to
+// send only the quota: a body that also carried a zero memory limit would be
+// read by the daemon as a request to remove the memory limit altogether.
+func TestAPIClientContainerUpdateSendsOnlyTheCPUQuota(t *testing.T) {
+	var body map[string]any
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"POST " + v + "/containers/c/update": func(w http.ResponseWriter, r *http.Request) {
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("decoding the update body: %v", err)
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"Warnings": []string{}})
+		},
+	})
+	c := f.client(t)
+	if err := c.ContainerUpdate(context.Background(), "c", UpdateConfig{NanoCPUs: 1_500_000_000}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if got := body["NanoCpus"]; got != float64(1_500_000_000) {
+		t.Fatalf("NanoCpus = %v, want 1.5 CPUs in nanoseconds", got)
+	}
+	if _, ok := body["Memory"]; ok {
+		t.Fatal("the update named a memory limit, which the daemon would apply")
+	}
+	if len(body) != 1 {
+		t.Fatalf("the update body carries more than the quota: %v", body)
+	}
+}
+
 func TestAPIClientStats(t *testing.T) {
 	f := newFakeEngine(t, map[string]http.HandlerFunc{
 		"GET " + v + "/containers/c/stats": func(w http.ResponseWriter, r *http.Request) {

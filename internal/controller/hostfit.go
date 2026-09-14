@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/scheduler"
@@ -135,17 +136,28 @@ func (c *Controller) HostFit(ctx context.Context, p *store.Pool) (HostFit, error
 	return fit, nil
 }
 
-// unavailableReason says which of the three ways a host takes no new runner it
-// is in. They read alike on a Hosts page and are three different jobs: wait for
-// an agent, uncordon a machine, upgrade a release.
+// unavailableReason says which of the ways a host takes no new runner it is
+// in. They read alike on a Hosts page and are different jobs: wait for an
+// agent, uncordon a machine, wait out a pressure hold or a throttle, upgrade a
+// release. The order is the scheduler's own, so the reason given is the first
+// rule the host actually failed; the incompatible agent is last because it
+// used to be the default answer for every host that failed for a reason this
+// function had no case for, and a held host was told to upgrade its agent.
 func unavailableReason(h *store.Host, now time.Time) string {
 	switch {
 	case !h.Healthy(now):
 		return "it is not heartbeating, so nothing is placed there until its agent checks in again"
 	case h.Cordoned:
 		return "it is cordoned, so it takes no new runners until it is uncordoned"
-	default:
+	case h.Incompatible:
 		return "its agent speaks a protocol this controller does not, so it takes no new runners until it is upgraded"
+	case scheduler.HostAdmissionReason(h, now) != "":
+		return "it is under pressure: " + scheduler.HostAdmissionReason(h, now)
+	case h.Throttle.Active() && h.ActiveRunners >= h.EffectiveCapacity():
+		return fmt.Sprintf("it is throttled to %d of its %d slots after sustained pressure and every one of them is in use; the throttle lifts one step after %s of calm, or an operator can clear it once the cause is fixed",
+			h.EffectiveCapacity(), h.Capacity, scheduler.FormatDuration(scheduler.ThrottleRecovery))
+	default:
+		return "it takes no new runners right now"
 	}
 }
 

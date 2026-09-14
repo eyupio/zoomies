@@ -187,7 +187,13 @@ var (
 	descHosts = prometheus.NewDesc("zoomies_hosts",
 		"Agent hosts by state.", []string{"state"}, nil)
 	descHostCapacity = prometheus.NewDesc("zoomies_host_capacity",
-		"Total runner slots across healthy, uncordoned hosts.", nil, nil)
+		"Total configured runner slots across healthy, uncordoned hosts.", nil, nil)
+	// Configured and effective are kept apart rather than one replacing the
+	// other: the gap between them is the throttle, and an operator alerting
+	// on "the fleet shrank" needs to tell a host somebody resized from a host
+	// the controller stepped down.
+	descHostEffectiveCapacity = prometheus.NewDesc("zoomies_host_effective_capacity",
+		"Runner slots across healthy, uncordoned hosts as their throttles leave them; equals zoomies_host_capacity while no host is throttled.", nil, nil)
 	descHostCapacityUsed = prometheus.NewDesc("zoomies_host_capacity_used",
 		"Runner slots currently occupied.", nil, nil)
 	// Slots say how many runners a fleet will take; these say whether the
@@ -224,6 +230,10 @@ var (
 		"1 while measured host pressure holds new starts, 0 otherwise. Does not describe operator cordons.", []string{"host"}, nil)
 	descHostUsageFresh = prometheus.NewDesc("zoomies_host_usage_fresh",
 		"1 when a host usage measurement is recent enough for placement, 0 otherwise.", []string{"host"}, nil)
+	descHostLoadAverage = prometheus.NewDesc("zoomies_host_load_average_1m",
+		"Recent whole-host one-minute load average. Absent when stale or unmeasured.", []string{"host"}, nil)
+	descHostThrottleLevel = prometheus.NewDesc("zoomies_host_throttle_level",
+		"The throttle rung a host is on after sustained pressure, 0 to 3; 0 while it is not throttled.", []string{"host"}, nil)
 )
 
 // fleetCollector reads the fleet's shape from the database on each scrape.
@@ -245,6 +255,9 @@ func (f *fleetCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- descHostMemoryAvailable
 	ch <- descHostAdmissionHeld
 	ch <- descHostUsageFresh
+	ch <- descHostLoadAverage
+	ch <- descHostThrottleLevel
+	ch <- descHostEffectiveCapacity
 }
 
 func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
@@ -331,7 +344,7 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 		gauge(descGitHubPaused, v, inst.ID)
 	}
 
-	var healthy, unhealthy, cordoned, capacity, used int
+	var healthy, unhealthy, cordoned, capacity, effective, used int
 	for _, h := range hosts {
 		fresh, held := 0.0, 0.0
 		if h.Usage.Fresh(now) {
@@ -342,12 +355,19 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 			if v := h.Usage.MemoryAvailableMB; v != nil {
 				gauge(descHostMemoryAvailable, float64(*v)*(1<<20), h.ID)
 			}
+			if v := h.Usage.LoadAverage1; v != nil {
+				gauge(descHostLoadAverage, *v, h.ID)
+			}
 		}
 		if scheduler.HostAdmissionReason(h, now) != "" {
 			held = 1
 		}
 		gauge(descHostUsageFresh, fresh, h.ID)
 		gauge(descHostAdmissionHeld, held, h.ID)
+		// Every host reports a level, throttled or not, for the same reason
+		// the paused gauge does: a series that only exists while something
+		// is wrong cannot be alerted on with a threshold.
+		gauge(descHostThrottleLevel, float64(h.Throttle.Level), h.ID)
 		switch {
 		case !h.Healthy(now):
 			unhealthy++
@@ -358,6 +378,7 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 		}
 		if h.Healthy(now) && !h.Cordoned {
 			capacity += h.Capacity
+			effective += h.EffectiveCapacity()
 		}
 		used += h.ActiveRunners
 	}
@@ -388,5 +409,6 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 	gauge(descHosts, float64(unhealthy), "unhealthy")
 	gauge(descHosts, float64(cordoned), "cordoned")
 	gauge(descHostCapacity, float64(capacity))
+	gauge(descHostEffectiveCapacity, float64(effective))
 	gauge(descHostCapacityUsed, float64(used))
 }

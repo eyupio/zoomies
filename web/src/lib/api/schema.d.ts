@@ -1071,6 +1071,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/hosts/{id}/throttle/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Lift a host's throttle
+         * @description Lifts the throttle the controller has this host on, whatever rung it is on:
+         *     the host takes its configured capacity again on the next scheduling pass and
+         *     every runner here with a CPU limit is restored to its full quota on the agent's
+         *     next heartbeat. Nothing pins it the other way -- if the pressure is still there,
+         *     the next heartbeat steps it back up -- so this is for a host whose cause is
+         *     known and fixed, not a way to switch throttling off. A host on no rung is
+         *     returned unchanged. Audited as `host.throttle_clear` under the caller's identity.
+         */
+        post: operations["clearHostThrottle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/join-tokens": {
         parameters: {
             query?: never;
@@ -2190,7 +2219,7 @@ export interface components {
             runner_version?: string;
             min_runners?: number;
             max_runners?: number;
-            /** @description Best-effort per-repository runner creation throttle; zero disables it. This cannot prevent GitHub from assigning work to compatible idle runners and is not a strict execution concurrency cap. */
+            /** @description Best-effort per-repository runner creation limit; zero disables it. This cannot prevent GitHub from assigning work to compatible idle runners and is not a strict execution concurrency cap. */
             repository_scale_up_limit?: number;
             /** @description Optional administrator-assigned rate used only for estimates. */
             cost_per_runner_hour?: number | null;
@@ -2271,7 +2300,7 @@ export interface components {
             min_runners: number;
             /** @default 4 */
             max_runners: number;
-            /** @description Best-effort creation throttle */
+            /** @description Best-effort creation limit */
             repository_scale_up_limit?: number;
             cost_per_runner_hour?: number | null;
             /** @default 0 */
@@ -2310,7 +2339,7 @@ export interface components {
             runner_version?: string;
             min_runners?: number;
             max_runners?: number;
-            /** @description Best-effort creation throttle */
+            /** @description Best-effort creation limit */
             repository_scale_up_limit?: number;
             cost_per_runner_hour?: number | null;
             priority?: number;
@@ -2353,6 +2382,21 @@ export interface components {
             cpu_percent?: number;
             /** Format: int64 */
             memory_bytes?: number;
+            /**
+             * Format: double
+             * @description The CPU quota this runner's workload was created with. Omitted when it has none. With `allocation_source` it is what tells an OOM kill or a slow job on a defaulted limit apart from one on a limit somebody set.
+             */
+            allocated_cpus?: number;
+            /**
+             * Format: int64
+             * @description The memory limit this runner's workload was created with. Omitted when it has none.
+             */
+            allocated_memory_mb?: number;
+            /**
+             * @description Where the allocation came from: `pool` for the pool's own limits, `host` for one slot's share of the host it landed on (the default when the pool sets none). Omitted when the runner was created with no limit at all.
+             * @enum {string}
+             */
+            allocation_source?: "pool" | "host" | "";
             /** Format: date-time */
             created_at?: string;
             /**
@@ -2661,6 +2705,30 @@ export interface components {
             cpu_high_since?: string;
             /** @description Admission held after sustained CPU pressure. Running jobs continue. Owned by the controller. */
             cpu_held?: boolean;
+            /** @description The kernel's one-minute load average for the whole machine, as the agent read it from /proc/loadavg. Absent when unmeasured. Judged against the host's CPU count: a load of at least twice the CPUs is what steps the throttle up, because a runnable queue that deep is a machine that has stopped keeping up even when the CPU figure saturates at 100. */
+            load_average_1m?: number;
+        };
+        /** @description The rung the controller has stepped a host down to after sustained pressure. The controller owns every field: a heartbeat carries the measurements and never the decision, and an agent cannot set or clear one. Absent from a host on no rung. */
+        HostThrottle: {
+            /** @description The rung, 1 to 3. Each takes a quarter of the host's slots (to 75%, 50%, 25% of capacity, never below one slot) and lowers the CPU quota of every runner here that has one, down to half. Owned by the controller. */
+            level?: number;
+            /**
+             * Format: date-time
+             * @description When this episode began
+             */
+            since?: string;
+            /**
+             * Format: date-time
+             * @description The last step in either direction
+             */
+            changed_at?: string;
+            /**
+             * Format: date-time
+             * @description The start of the calm streak the next step down waits on. Absent while the host is not calm. Owned by the controller.
+             */
+            calm_since?: string;
+            /** @description Which measurement took the last step up */
+            reason?: string;
         };
         BackendInfo: {
             kind?: components["schemas"]["BackendKind"];
@@ -2673,6 +2741,16 @@ export interface components {
             supports_dind?: boolean;
             /** @description Where the host daemon's socket lives */
             host_socket_path?: string;
+            /** @description What the daemon said it can enforce. A runner is given a default limit only on a field the daemon can apply, and host.limits_unenforceable names the fields it cannot; `known` is false from an agent too old to have asked, which defaults nothing. */
+            limits?: {
+                known?: boolean;
+                /** @description A CPU quota. A daemon that cannot apply one refuses the container. */
+                cpu?: boolean;
+                /** @description A memory limit. A daemon that cannot apply one starts the container without it. */
+                memory?: boolean;
+                /** @description A pids limit. A daemon that cannot apply one ignores it. */
+                pids?: boolean;
+            };
         };
         Host: {
             usage?: components["schemas"]["HostUsage"];
@@ -2680,6 +2758,17 @@ export interface components {
             usage_fresh?: boolean;
             /** @description Why current host pressure is holding new runner starts. Empty when no pressure hold applies. */
             admission_reason?: string;
+            /** @description The throttle the controller has this host on. Absent when it is on none. */
+            throttle?: components["schemas"]["HostThrottle"];
+            /**
+             * @description The operator sentence for the throttle: what it took, why, what it is doing to the jobs already running, and how it ends. Empty when the host is not throttled.
+             * @example throttled to 2 of 4 slots (step 2 of 3) after sustained pressure: the 1-minute load average is 30.0, at least twice the host's 8 CPUs; running jobs continue, the 1 runner with a CPU limit at 50% of it, and the throttle lifts one step after 5m of calm
+             */
+            throttle_reason?: string;
+            /** @description The slots this host takes right now: capacity stepped down by the throttle, and capacity itself when there is none. `free` is measured against it, so a throttled host never advertises a slot the next pass would refuse. */
+            effective_capacity?: number;
+            /** @description How many of the live runners here were created with no CPU quota -- a pool with none and default limits off, a process pool, a daemon that cannot apply one, or a runner from before allocations were recorded. Omitted when zero. They are the runners a CPU hold can mean something about, since a throttle cannot slow them. */
+            unlimited_runners?: number;
             id?: string;
             name?: string;
             address?: string;
@@ -2725,7 +2814,7 @@ export interface components {
             reserve_memory_mb?: number;
             /** Format: int64 */
             reserve_disk_mb?: number;
-            /** @description The machine less its reserve: what the scheduler may place onto. The documented floors under the reserve -- 512 MB of memory and 2 GB of disk, with no CPU floor -- are applied here, so what is shown is what is used. */
+            /** @description The machine less its reserve: what the scheduler may place onto. The documented floors under the reserve -- half a core or a twentieth of the machine, whichever is larger, 512 MB of memory and 2 GB of disk -- are applied here, so what is shown is what is used. The CPU floor is what keeps the daemon, the agent and the kernel a core the runners' quotas can never take. */
             allocatable_cpus?: number;
             /** Format: int64 */
             allocatable_memory_mb?: number;
@@ -4852,6 +4941,30 @@ export interface operations {
                     "application/json": components["schemas"]["Host"];
                 };
             };
+        };
+    };
+    clearHostThrottle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Host"];
+                };
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     listJoinTokens: {

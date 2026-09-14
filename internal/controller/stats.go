@@ -210,9 +210,11 @@ func (c *Controller) Stats(ctx context.Context, window time.Duration) (*Stats, e
 			out.Hosts.Cordoned++
 		}
 		// An unhealthy host's capacity is not capacity anyone can use, so it
-		// is left out rather than flattering the total.
+		// is left out rather than flattering the total. A throttled host's
+		// slots are counted as the throttle leaves them, for the same reason:
+		// the Overview's "capacity" is what the fleet will take right now.
 		if h.Healthy(now) && !h.Cordoned {
-			out.Hosts.Capacity += h.Capacity
+			out.Hosts.Capacity += h.EffectiveCapacity()
 		}
 		out.Hosts.Used += h.ActiveRunners
 	}

@@ -41,6 +41,28 @@ func TestCPUAdmissionRequiresSustainedPressureAndHasRecoveryHysteresis(t *testin
 	}
 }
 
+// A load average is the one figure with no upper bound, so the validation is
+// about the lower one and about numbers that are not numbers: a negative,
+// a NaN or an infinity is an agent reading the wrong file, and none of them
+// may become a reading the throttle then acts on.
+func TestLoadAverageIsKeptWhenSaneAndDroppedWhenNot(t *testing.T) {
+	now := time.Now()
+	for _, v := range []float64{0, 0.5, 17.25, 400} {
+		load := v
+		u := ObserveHostUsage(HostUsage{}, HostUsage{LoadAverage1: &load}, 8192, now)
+		if u.LoadAverage1 == nil || *u.LoadAverage1 != v || !u.Fresh(now) {
+			t.Fatalf("a load average of %v was not kept: %+v", v, u)
+		}
+	}
+	for _, v := range []float64{-1, math.NaN(), math.Inf(1), math.Inf(-1)} {
+		load := v
+		u := ObserveHostUsage(HostUsage{}, HostUsage{LoadAverage1: &load}, 8192, now)
+		if u.LoadAverage1 != nil || u.Fresh(now) {
+			t.Fatalf("a load average of %v became a measurement: %+v", v, u)
+		}
+	}
+}
+
 func TestUsageIgnoresAgentTimestampsAndRejectsImpossibleValues(t *testing.T) {
 	now := time.Now()
 	zero, full := 0.0, int64(0)

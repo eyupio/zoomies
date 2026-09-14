@@ -21,8 +21,8 @@ func (a *Agent) hostUsage(infos []backend.Info, cpus int, memoryMB int64) *store
 		sample = a.usageSampler.Sample
 	}
 	u := sample(cpus, memoryMB)
-	if u.CPUPercent == nil && u.MemoryAvailableMB == nil {
+	if u.CPUPercent == nil && u.MemoryAvailableMB == nil && u.LoadAverage1 == nil {
 		return nil
 	}
-	return &store.HostUsage{CPUPercent: u.CPUPercent, MemoryAvailableMB: u.MemoryAvailableMB}
+	return &store.HostUsage{CPUPercent: u.CPUPercent, MemoryAvailableMB: u.MemoryAvailableMB, LoadAverage1: u.LoadAverage1}
 }

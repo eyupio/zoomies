@@ -9,10 +9,10 @@
 -->
 <script lang="ts">
   import { navigate } from '$lib/router';
-  import { Gauge, Pencil, ServerCog, Trash2 } from '@lucide/svelte';
+  import { CircleDashed, Gauge, Pencil, ServerCog, Trash2 } from '@lucide/svelte';
   import type { Host } from '$lib/api/types';
   import { formatMegabytes, formatNumber } from '$lib/format';
-  import { hostStatus } from '$lib/status';
+  import { hostStatus, throttled } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
@@ -28,6 +28,8 @@
     canOperate?: boolean;
     canAdmin?: boolean;
     oncordon: (host: Host, cordoned: boolean) => void;
+    /** Lift the throttle the controller has this host on. */
+    onthrottle: (host: Host) => void;
     oncapacity: (host: Host) => void;
     onedit: (host: Host) => void;
     ondelete: (host: Host) => void;
@@ -39,13 +41,19 @@
     canOperate = false,
     canAdmin = false,
     oncordon,
+    onthrottle,
     oncapacity,
     onedit,
     ondelete,
     class: className = '',
   }: Props = $props();
 
-  const status = $derived(hostStatus({ healthy: host.healthy, cordoned: host.cordoned }));
+  const status = $derived(
+    hostStatus({ healthy: host.healthy, cordoned: host.cordoned, throttle: host.throttle }),
+  );
+  // Whether the controller has stepped this host down. The slots line, the
+  // bar and the menu all follow it; the sentence itself is the controller's.
+  const isThrottled = $derived(throttled(host.throttle));
 
   // How this host's release stands to the controller's, and whether its agent
   // speaks a protocol the controller understands at all. Both come from the
@@ -67,7 +75,11 @@
   // holds a page of runners, so counting it would undercount a busy host.
   const active = $derived(host.active_runners ?? 0);
   const capacity = $derived(host.capacity ?? 0);
-  const free = $derived(host.free ?? Math.max(0, capacity - active));
+  // What the host takes right now: its capacity stepped down by the throttle,
+  // and its capacity when there is none. Free is measured against it by the
+  // controller, so the card never promises a slot the next pass would refuse.
+  const effective = $derived(isThrottled ? (host.effective_capacity ?? capacity) : capacity);
+  const free = $derived(host.free ?? Math.max(0, effective - active));
   const labels = $derived(Object.entries(host.labels ?? {}));
   // What this machine is, in the terms a pool asks in. The controller renders
   // the sentence; the kernel and architecture are the fallback for an agent too
@@ -173,6 +185,19 @@
       disabled: !canOperate,
       onSelect: () => oncordon(host, !host.cordoned),
     },
+    // Only while there is one to lift: an action that says "lift the
+    // throttle" on a host that is not throttled is a question with no answer.
+    ...(isThrottled
+      ? [
+          {
+            id: 'throttle',
+            label: 'Lift the throttle',
+            icon: CircleDashed,
+            disabled: !canOperate,
+            onSelect: () => onthrottle(host),
+          },
+        ]
+      : []),
     {
       id: 'capacity',
       label: 'Adjust runner capacity',
@@ -290,6 +315,12 @@
     <p class="cordoned">
       Cordoned. Its running work finishes; no new runner is placed here until it is uncordoned.
     </p>
+  {:else if isThrottled && host.throttle_reason}
+    <!-- The controller's sentence, whole: it already says what was taken,
+         why, what the running jobs are doing and how it ends. It takes the
+         pending colour because a throttle is the fleet attending to
+         something, not the operator having stopped it. -->
+    <p class="cordoned throttled">{host.throttle_reason}</p>
   {:else if host.admission_reason}
     <p class="cordoned">{host.admission_reason}. Running jobs continue.</p>
   {:else if host.usage_fresh && (host.usage?.cpu_percent ?? 0) >= 85}
@@ -306,24 +337,47 @@
           >{formatMegabytes(host.usage.memory_available_mb)} memory available</span
         >
       {/if}
+      {#if host.usage.load_average_1m !== undefined}
+        <!-- The runnable queue, which is what catches a machine that has
+             stopped keeping up while its CPU figure sits at 100. -->
+        <span class="tabular" title="One-minute load average, against {host.cpus ?? '?'} CPUs"
+          >load {round(host.usage.load_average_1m)}</span
+        >
+      {/if}
       <span>Measured <RelativeTime value={host.usage.sampled_at} plain /></span>
+    {:else if isThrottled}
+      <!-- A throttle outlives the sample that put it there: the rung stands
+           on the last measurements and is lifted after ten minutes without a
+           fresh one, so "cannot be throttled" would be untrue on this card. -->
+      <span
+        >Current usage unavailable. The throttle stands on its last measurements and lifts after ten
+        minutes without a fresh one.</span
+      >
     {:else}
-      <span>Current usage unavailable. Placement uses configured capacity and reservations.</span>
+      <span
+        >Current usage unavailable. Placement uses configured capacity and reservations, and this
+        host cannot be throttled.</span
+      >
     {/if}
   </p>
 
   <div class="capacity">
     <UtilisationBar
       busy={active}
-      live={capacity}
+      live={effective}
       tone="capacity"
       label="Runner slots in use on {host.name || host.id}"
       showText={false}
     />
     <div class="capacity-line">
       <p class="capacity-text tabular">
-        <strong>{formatNumber(active)}</strong> of {formatNumber(capacity)} slots in use
-        <span class="muted">· {formatNumber(free)} free</span>
+        {#if isThrottled}
+          <strong>{formatNumber(active)}</strong> of {formatNumber(effective)} slots in use
+          <span class="muted">· throttled from {formatNumber(capacity)}</span>
+        {:else}
+          <strong>{formatNumber(active)}</strong> of {formatNumber(capacity)} slots in use
+          <span class="muted">· {formatNumber(free)} free</span>
+        {/if}
       </p>
       {#if canOperate}
         <Button size="sm" icon={Gauge} onclick={() => oncapacity(host)}>Adjust</Button>
@@ -521,6 +575,12 @@
     font-size: var(--z-text-xs);
     line-height: var(--z-leading-xs);
     color: var(--z-text-muted);
+  }
+  /* A throttle is the fleet's doing and lifts itself, so it takes the
+     pending tone the badge uses rather than the draining one a cordon has. */
+  .cordoned.throttled {
+    border-color: var(--z-pending-border);
+    background: var(--z-pending-subtle);
   }
   .capacity {
     display: flex;

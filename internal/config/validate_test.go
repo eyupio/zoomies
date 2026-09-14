@@ -199,6 +199,15 @@ func TestQuietDangerousValuesAreNamed(t *testing.T) {
 			c.OIDC.ClientID = "zoomies"
 			c.Server.ExternalURL = "https://zoomies.example.com"
 		}},
+		// The two stability toggles: each is what keeps a host from being
+		// overwhelmed, and switching either off is a choice worth a line at
+		// startup rather than a surprise on the day the fleet falls over.
+		{"runners without default limits", "scheduler.default_runner_limits_off", func(c *Config) {
+			c.Scheduler.DefaultRunnerLimits = false
+		}},
+		{"hosts that are never throttled", "scheduler.host_throttling_off", func(c *Config) {
+			c.Scheduler.HostThrottling = false
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -112,6 +112,12 @@ type Info struct {
 	// not say, which includes every backend that is not a container runtime.
 	CPUs     int   `json:"cpus,omitempty"`
 	MemoryMB int64 `json:"memory_mb,omitempty"`
+	// Limits is whether the daemon can apply a CPU quota, a memory limit and
+	// a pids limit. A daemon that cannot apply a quota refuses the container
+	// outright rather than ignoring the request, so the controller reads this
+	// before it gives a runner a default limit; Known is false from a backend
+	// that has not asked, which the controller reads as "default nothing".
+	Limits store.LimitSupport `json:"limits"`
 }
 
 // Credentials carry whatever the runner needs to attach itself to GitHub.
@@ -150,9 +156,16 @@ type Spec struct {
 	Env         map[string]string `json:"env,omitempty"`
 	Ephemeral   bool              `json:"ephemeral"`
 	Resources   store.Resources   `json:"resources"`
-	Cache       store.CacheConfig `json:"cache"`
-	Repository  string            `json:"repository,omitempty"`
-	DockerMode  store.DockerMode  `json:"docker_mode"`
+	// ResourcesSource says where Resources came from: the pool's own limits,
+	// or the host's default share of its machine (store.AllocationFromPool
+	// and store.AllocationFromHost). A backend records it on the workload,
+	// because the difference decides what a runner killed for exceeding its
+	// memory limit should tell the operator to change. Empty from a
+	// controller that predates it, which a backend reads as the pool's.
+	ResourcesSource string            `json:"resources_source,omitempty"`
+	Cache           store.CacheConfig `json:"cache"`
+	Repository      string            `json:"repository,omitempty"`
+	DockerMode      store.DockerMode  `json:"docker_mode"`
 	// RunAsRoot keeps the container's default user instead of dropping to the
 	// unprivileged "runner" account.
 	RunAsRoot bool `json:"run_as_root"`
@@ -276,6 +289,25 @@ type Workload struct {
 	// sidecar when the controller asked for the runner and leave the real
 	// container running somebody's job unattended.
 	Sidecar bool `json:"sidecar,omitempty"`
+	// Resources are the limits the workload was created with, read back from
+	// the labels the backend stamped on it. They are what a throttle scales
+	// from, and they have to come from the workload rather than from the
+	// agent's memory because the agent adopts what it finds after a restart
+	// and remembers nothing about how it was made.
+	Resources store.Resources `json:"resources,omitempty"`
+}
+
+// ResourceUpdater is implemented by a backend that can change a running
+// workload's limits in place. It is how a throttle reaches a job that is
+// already running: the one lever a host has left once every runner on it is
+// busy, and one that slows a job rather than ending it.
+//
+// Only the CPU quota is expected to move. A backend may ignore any other
+// field, and the container backends do: a memory limit lowered under a live
+// process is refused by the daemon or kills the process, and neither is a
+// throttle.
+type ResourceUpdater interface {
+	UpdateResources(ctx context.Context, h Handle, res store.Resources) error
 }
 
 // LabelPrefix namespaces the container labels Zoomies writes.

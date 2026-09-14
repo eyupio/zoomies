@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -60,6 +61,13 @@ func TestTheHostViewCarriesWhatTheFleetHasPromisedAway(t *testing.T) {
 // which is what keeps an upgrade from emptying a fleet -- and the page has to
 // say so, because a card with every figure missing reads as broken rather than
 // as old.
+//
+// How loudly it says so depends on what the fleet does with a measurement.
+// With default limits on, an unmeasured host is the one host whose runners
+// get no default -- their share of a machine nobody has measured cannot be
+// computed -- so a pool with no limits of its own runs unlimited there, and
+// that is a warning. With defaults off nothing is different about the host and
+// it stays a note.
 func TestAHostThatHasNotMeasuredItselfSaysSo(t *testing.T) {
 	h := newHarness(t)
 	silent := &store.Host{Name: "old-agent", Capacity: 2, Backends: store.StringSlice{"docker"},
@@ -71,22 +79,24 @@ func TestAHostThatHasNotMeasuredItselfSaysSo(t *testing.T) {
 	if h.c.HostView(silent).ResourcesKnown {
 		t.Error("a host that has reported nothing claims its resources are known")
 	}
-	problems := h.problemCodes()
-	if !contains(problems, "host.resources_unknown") {
-		t.Fatalf("problems = %v, want host.resources_unknown", problems)
-	}
-	all, err := h.c.Problems(h.ctx)
-	if err != nil {
-		t.Fatalf("Problems: %v", err)
-	}
-	for _, p := range all {
-		if p.Code == "host.resources_unknown" {
-			if !strings.Contains(p.Detail, "old-agent") {
-				t.Errorf("the note does not name the host: %q", p.Detail)
-			}
-			if p.Severity != "info" {
-				t.Errorf("severity = %q, want info: nothing is wrong with an old agent, it is just unmeasured", p.Severity)
-			}
+	for _, tc := range []struct {
+		defaults bool
+		want     string
+		because  string
+	}{
+		{true, "warning", "its runners are given no default limit, so a pool without limits runs unlimited there"},
+		{false, "info", "nothing is wrong with an old agent, it is just unmeasured"},
+	} {
+		h.c.UpdateConfig(func(cfg *config.Config) { cfg.Scheduler.DefaultRunnerLimits = tc.defaults })
+		p := h.problem(t, "host.resources_unknown")
+		if !strings.Contains(p.Detail, "old-agent") {
+			t.Errorf("the note does not name the host: %q", p.Detail)
+		}
+		if string(p.Severity) != tc.want {
+			t.Errorf("defaults=%v: severity = %q, want %s: %s", tc.defaults, p.Severity, tc.want, tc.because)
+		}
+		if tc.defaults && !strings.Contains(p.Detail, "no default") {
+			t.Errorf("with defaults on the detail does not say the runners get none: %q", p.Detail)
 		}
 	}
 }

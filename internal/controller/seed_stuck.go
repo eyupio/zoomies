@@ -4,10 +4,14 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/version"
 )
 
 // StuckSeedEnvVar names the environment variable that adds the diagnostics
@@ -32,6 +36,10 @@ const (
 	stuckPoolID    = "pool_demostuckblocked"
 	stuckPoolName  = "zoomies-demo-stuck-blocked"
 	stuckHeldJobID = "job_demostuckheldjob"
+	// StuckThrottledHostName is the fixture's throttled host, named here so
+	// a browser test can find its card.
+	StuckThrottledHostName = "demo-throttled-1"
+	stuckThrottledHostID   = demoHostPrefix + "stuckthrottled"
 )
 
 // stuckSeedRequested reports whether the diagnostics fixture was asked for.
@@ -95,6 +103,9 @@ func (c *Controller) SeedStuck(ctx context.Context) error {
 		return err
 	}
 	if err := c.seedHeldJob(ctx, now); err != nil {
+		return err
+	}
+	if err := c.seedThrottledHost(ctx, now); err != nil {
 		return err
 	}
 	c.log.Info("seeded the diagnostics fixture", "env", StuckSeedEnvVar, "stuck_runners", aged)
@@ -161,4 +172,91 @@ func (c *Controller) seedHeldJob(ctx context.Context, now time.Time) error {
 		return fmt.Errorf("seeding the held job: %w", err)
 	}
 	return c.seedJobTimeline(ctx, saved, change)
+}
+
+// seedThrottledHost writes a host the controller has stepped down after
+// sustained pressure, with a live runner on it that was given one slot's
+// share of the machine, so the host card's throttle notice, the runner
+// detail's allocation and the problems drawer's host.throttled entry all
+// have something to render.
+//
+// It is throttled for its load average rather than for a CPU hold, because
+// that is the signal the ladder was added for: a machine whose CPU pinned at
+// 100% and stopped saying anything, while the runnable queue kept growing.
+// The measurements are the shape of that machine -- CPU at 60% because the
+// throttle has already halved every runner's quota, load still at thirty on
+// eight cores because the work is still there -- and the demo heartbeat keeps
+// the sample fresh so the card can keep explaining itself. Housekeeping leaves
+// the demo's hosts alone, so the rung does not climb or lift on its own.
+func (c *Controller) seedThrottledHost(ctx context.Context, now time.Time) error {
+	if _, err := c.st.GetHost(ctx, stuckThrottledHostID); err == nil {
+		return nil
+	}
+	cpu, load, memory := 60.0, 30.0, int64(4096)
+	since := now.Add(-7 * time.Minute)
+	changed := now.Add(-3 * time.Minute)
+	h := &store.Host{
+		ID:       stuckThrottledHostID,
+		Name:     StuckThrottledHostName,
+		Address:  "10.0.0.14",
+		Capacity: 4,
+		Backends: store.StringSlice{"docker"},
+		BackendInfo: store.HostBackends{
+			{Kind: store.BackendDocker, Available: true, Version: "27.1.1",
+				Rootless: true, Endpoint: "unix:///run/user/1000/docker.sock", SupportsDinD: true,
+				Limits: store.LimitSupport{Known: true, CPU: true, Memory: true, Pids: true}},
+		},
+		Labels:      store.StringMap{"arch": "amd64", "zone": "demo"},
+		OS:          "linux",
+		Distro:      "ubuntu",
+		OSVersion:   "24.04",
+		Arch:        "amd64",
+		CPUs:        8,
+		MemoryMB:    16384,
+		DiskTotalMB: 524_288,
+		DiskFreeMB:  301_989,
+		Usage: store.HostUsage{
+			CPUPercent:        &cpu,
+			LoadAverage1:      &load,
+			MemoryAvailableMB: &memory,
+			SampledAt:         now,
+		},
+		Throttle: store.HostThrottle{
+			Level:     2,
+			Since:     &since,
+			ChangedAt: &changed,
+			Reason:    "the 1-minute load average is 30.0, at least twice the host's 8 CPUs",
+		},
+		Version:         version.Version,
+		ProtocolVersion: agent.ProtocolVersion,
+		LastHeartbeat:   now,
+	}
+	if err := c.st.CreateHost(ctx, h); err != nil {
+		return fmt.Errorf("seeding the throttled host: %w", err)
+	}
+	// One of the demo's busy runners moves here and is given the share a
+	// four-slot host of this size hands out: (8 - 0.5) / 4 CPUs, floored to
+	// the hundredth, and (16384 - 512) / 4 MB. Moved rather than written
+	// afresh so the fixture's runner count stays what the demo's tests pin.
+	runners, _, err := c.st.ListRunners(ctx, store.RunnerFilter{
+		States: []store.RunnerState{store.RunnerBusy},
+	}, store.Page{Limit: 100})
+	if err != nil {
+		return fmt.Errorf("listing the runners to place on the throttled host: %w", err)
+	}
+	slices.SortFunc(runners, func(a, b *store.Runner) int { return strings.Compare(a.ID, b.ID) })
+	for _, r := range runners {
+		if !IsDemoID(r.ID) {
+			continue
+		}
+		r.HostID = h.ID
+		r.AllocatedCPUs = 1.87
+		r.AllocatedMemoryMB = 3968
+		r.AllocationSource = store.AllocationFromHost
+		if err := c.st.UpdateRunner(ctx, r); err != nil {
+			return fmt.Errorf("placing runner %s on the throttled host: %w", r.ID, err)
+		}
+		return nil
+	}
+	return fmt.Errorf("no demo runner was busy, so none can be placed on the throttled host; is %s set too?", SeedEnvVar)
 }

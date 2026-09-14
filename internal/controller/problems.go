@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -370,27 +372,36 @@ func (c *Controller) hostSkewProblems(ctx context.Context, out *[]Problem) error
 	return nil
 }
 
-// hostResourceProblems names the hosts that have never said what machine they
-// are, and the pools whose limits nothing on their backend enforces.
+// hostResourceProblems is everything the resource model has to say about the
+// hosts: the ones that have never said what machine they are, the ones given
+// more slots than the machine can carry, the ones whose daemon cannot apply
+// the limits their runners are given or has not said whether it can, the
+// ones the controller has throttled -- and, after them, the pools whose
+// limits nothing on their backend enforces.
 //
-// The first is a note rather than a warning: a host that reports no CPU, no
-// memory and no disk is placed by slots alone, exactly as every host was before
-// the resource model existed, so nothing is broken -- but every figure on its
-// card is missing and an operator looking at it deserves to be told which of
-// "old agent" and "broken agent" they are looking at.
+// The unmeasured host used to be a note and is now a warning whenever default
+// limits are on: a host that reports no CPU, no memory and no disk is placed
+// by slots alone, exactly as every host was before the resource model existed,
+// but its runners are also given no default limit, because their share of a
+// machine nobody has measured cannot be computed -- so a pool with no limits
+// of its own runs unlimited there, which is the shape defaults exist to stop.
+// With defaults off nothing is different about such a host and it stays a
+// note, so an operator can tell "old agent" from "broken agent".
 //
-// The second is a warning, because it is a promise that is not kept. A pool's
-// `resources` become cgroup limits on Docker and Podman, including the
-// docker-in-docker sidecar, and the process backend applies none of them: a
-// runner there can use the whole machine. The reservation still holds the room
-// -- the fleet does not oversubscribe -- but the room is bookkeeping, and a job
-// that runs away takes the host with it.
+// The process-pool warning is a promise that is not kept. A pool's `resources`
+// become cgroup limits on Docker and Podman, including the docker-in-docker
+// sidecar, and the process backend applies none of them: a runner there can
+// use the whole machine. The reservation still holds the room -- the fleet
+// does not oversubscribe -- but the room is bookkeeping, and a job that runs
+// away takes the host with it.
 func (c *Controller) hostResourceProblems(ctx context.Context, out *[]Problem) error {
 	hosts, err := c.st.ListHosts(ctx)
 	if err != nil {
 		return fmt.Errorf("listing hosts: %w", err)
 	}
-	var unknown []string
+	defaults := c.cfg().Scheduler.DefaultRunnerLimits
+	var unknown, unverified, throttled []string
+	var throttledID string
 	for _, h := range hosts {
 		// An incompatible host is already excluded from placement and already
 		// says so; a second entry about the same machine helps nobody.
@@ -401,9 +412,42 @@ func (c *Controller) hostResourceProblems(ctx context.Context, out *[]Problem) e
 		if !a.CPUsKnown && !a.MemoryKnown && !a.DiskKnown {
 			unknown = append(unknown, h.Name)
 		}
+		// A cordoned host is one an operator is already dealing with, and
+		// nothing below places onto it until they are done.
+		if h.Cordoned {
+			continue
+		}
+		if h.Throttle.Active() {
+			throttled = append(throttled, h.Name+": "+scheduler.ThrottleReason(h))
+			throttledID = h.ID
+		}
+		if p, ok := overprovisionedProblem(h, defaults); ok {
+			*out = append(*out, p)
+		}
+		for _, kind := range h.Backends {
+			if kind == string(store.BackendProcess) {
+				continue
+			}
+			// A host with no stored probe at all is left out: every live
+			// host stores one on its first heartbeat, so a row without one
+			// is a fixture, not an agent that failed to say.
+			info, ok := h.BackendInfo.Find(store.BackendKind(kind))
+			if !ok {
+				continue
+			}
+			if !info.Limits.Known {
+				if defaults && (a.CPUsKnown || a.MemoryKnown) && !slices.Contains(unverified, h.Name) {
+					unverified = append(unverified, h.Name)
+				}
+				continue
+			}
+			if p, ok := unenforceableProblem(h, info); ok {
+				*out = append(*out, p)
+			}
+		}
 	}
 	if len(unknown) > 0 {
-		*out = append(*out, Problem{
+		p := Problem{
 			Code:     "host.resources_unknown",
 			Severity: config.SeverityInfo,
 			Title:    "some hosts have not reported what machine they are",
@@ -416,7 +460,37 @@ func (c *Controller) hostResourceProblems(ctx context.Context, out *[]Problem) e
 			// so the only thing standing between this host and its size is a
 			// build that has the code, and before v0.2-beta-plus none did.
 			Fix: agentUpgradeFix("the figures appear on the next heartbeat, with no re-join."),
+		}
+		if defaults {
+			p.Severity = config.SeverityWarning
+			p.Detail = fmt.Sprintf("%s reporting no CPUs, memory or disk: %s. They are placed by slot count alone, and their runners are given no default CPU or memory limit, because a runner's share of a machine nobody has measured cannot be computed -- so a pool that sets no limits of its own runs unlimited there, and every runner on the host can take every core.",
+				plural(len(unknown), "host"), strings.Join(unknown, ", "))
+		}
+		*out = append(*out, p)
+	}
+	if len(unverified) > 0 {
+		*out = append(*out, Problem{
+			Code:     "host.limits_unverified",
+			Severity: config.SeverityInfo,
+			Title:    "some hosts have not said whether their daemon can apply limits",
+			Detail: fmt.Sprintf("%s whose agent predates the limits probe: %s. A runner there is given no default CPU or memory limit, because a limit sent to a daemon that cannot apply it fails the create, and the agent has not said whether its daemon can. Pools that set their own limits are unaffected.",
+				plural(len(unverified), "host"), strings.Join(unverified, ", ")),
+			Fix: agentUpgradeFix("the probe arrives with the next heartbeat, with no re-join, and defaults start on the next runner."),
 		})
+	}
+	if len(throttled) > 0 {
+		p := Problem{
+			Code:     "host.throttled",
+			Severity: config.SeverityWarning,
+			Title:    "some hosts are throttled after sustained pressure",
+			Detail:   strings.Join(throttled, ". ") + ".",
+			Fix: "wait for it to lift, lower the host's capacity or the pools' limits so its runners fit the machine, " +
+				"or lift it from the host card (Lift the throttle) once the cause is fixed. A lifted throttle comes back on the next heartbeat if the pressure is still there.",
+		}
+		if len(throttled) == 1 {
+			p.TargetKind, p.TargetID = "host", throttledID
+		}
+		*out = append(*out, p)
 	}
 
 	pools, err := c.st.ListPools(ctx)
@@ -807,6 +881,151 @@ func pluralDeliveries(n int) string {
 		return "1 webhook delivery"
 	}
 	return fmt.Sprintf("%d webhook deliveries", n)
+}
+
+// overprovisionedSlotMemoryMB is the least memory a slot should have behind
+// it: two gigabytes, which is what a checkout, a compiler and a test run need
+// between them before the machine starts swapping. A runner given less is
+// not refused -- the limit is a warning about the host, not a rule on the
+// pool -- but it is the size below which "the jobs crawl" is the usual
+// report.
+const overprovisionedSlotMemoryMB int64 = 2048
+
+// overprovisionedProblem is host.overprovisioned for one measured host: more
+// slots than the allocatable CPUs, or more than the allocatable memory in
+// 2 GB slots, whichever the machine runs out of first.
+//
+// The fix names the largest capacity that fits, never below one, because a
+// host of capacity zero is a host that takes nothing and the operator has a
+// cordon for that. When even one slot does not fit -- under a core, or under
+// 2 GB, after the reserve -- the sentence says the machine is too small to
+// run a runner well, rather than pretending a capacity of one is the answer.
+func overprovisionedProblem(h *store.Host, defaults bool) (Problem, bool) {
+	a := h.Allocatable()
+	if h.Capacity <= 0 || (!a.CPUsKnown && !a.MemoryKnown) {
+		return Problem{}, false
+	}
+	fits := math.MaxInt
+	if a.CPUsKnown {
+		fits = min(fits, max(1, int(math.Floor(a.CPUs))))
+	}
+	if a.MemoryKnown {
+		fits = min(fits, max(1, int(a.MemoryMB/overprovisionedSlotMemoryMB)))
+	}
+	if h.Capacity <= fits {
+		return Problem{}, false
+	}
+	var machine, allocatable []string
+	if a.CPUsKnown {
+		machine = append(machine, fmt.Sprintf("%d CPUs", h.CPUs))
+		allocatable = append(allocatable, scheduler.FormatCPUs(a.CPUs)+" allocatable CPUs")
+	}
+	if a.MemoryKnown {
+		machine = append(machine, fmt.Sprintf("%d MB of memory", h.MemoryMB))
+		allocatable = append(allocatable, fmt.Sprintf("%d MB of allocatable memory", a.MemoryMB))
+	}
+	detail := fmt.Sprintf("%s has capacity %d on %s (%s, less the reserve)",
+		h.Name, h.Capacity, strings.Join(allocatable, " and "), strings.Join(machine, " and "))
+	// The share is named only where it is given. A host offering only the
+	// process backend, or a daemon that cannot apply the limit, or an agent
+	// that has not said, gives its runners no default at all, and a sentence
+	// about "each runner's default share" there would describe a limit that
+	// does not exist.
+	bindCPU, bindMemory := scheduler.DefaultsBind(h)
+	var each []string
+	if defaults {
+		share := scheduler.HostShare(h)
+		if a.CPUsKnown && bindCPU {
+			each = append(each, scheduler.FormatCPUs(share.CPUs)+" CPUs")
+		}
+		if a.MemoryKnown && bindMemory {
+			each = append(each, fmt.Sprintf("%d MB of memory", share.MemoryMB))
+		}
+	}
+	switch {
+	case len(each) > 0:
+		detail += fmt.Sprintf(", so each runner's default share is %s; a runner with less than a core or under %d MB crawls through a build, and %d of them together are what the machine was already too small for.",
+			strings.Join(each, " and "), overprovisionedSlotMemoryMB, h.Capacity)
+	case defaults:
+		detail += fmt.Sprintf(", and its runners are given no default limit here -- its daemon cannot apply one, or its agent has not said whether it can, or it runs only the process backend -- so nothing limits them: each of the %d can take the whole machine at once, which is the shape that stops Docker answering.", h.Capacity)
+	default:
+		detail += fmt.Sprintf(", and scheduler.default_runner_limits is off, so nothing limits its runners: each of the %d can take the whole machine at once, which is the shape that stops Docker answering.", h.Capacity)
+	}
+	// Capacity is decided once, at join, and a heartbeat never rewrites it:
+	// agent.capacity answers only for the embedded host, and a remote host
+	// is resized on its card or with a PATCH. A join token's --capacity is
+	// named for what it is -- the figure the host takes at its next join --
+	// so an operator who edits zoomies.yaml on a remote host and restarts
+	// the agent is not left wondering why the warning stayed.
+	where := "lower the host's capacity to " + strconv.Itoa(fits)
+	if h.Embedded {
+		where += " (agent.capacity in the controller's zoomies.yaml, or PATCH /api/v1/hosts/" + h.ID + ")"
+	} else {
+		where += " (on the host card, or PATCH /api/v1/hosts/" + h.ID + "; --capacity on a fresh join token applies only at the host's next join)"
+	}
+	where += ", or add a host"
+	tooSmall := (a.CPUsKnown && a.CPUs < 1) || (a.MemoryKnown && a.MemoryMB < overprovisionedSlotMemoryMB)
+	fix := where + "."
+	if tooSmall {
+		fix = fmt.Sprintf("the machine is too small to run a runner well: after its reserve it has %s to give, and one runner wants a core and %d MB. %s, and give it lighter jobs or replace it with a larger machine.",
+			strings.Join(allocatable, " and "), overprovisionedSlotMemoryMB, where)
+	}
+	p := Problem{
+		Code:       "host.overprovisioned",
+		Severity:   config.SeverityWarning,
+		Title:      "a host has more slots than its machine can carry",
+		Detail:     detail,
+		Fix:        fix,
+		TargetKind: "host",
+		TargetID:   h.ID,
+	}
+	if h.Embedded {
+		p.Setting = "agent.capacity"
+	}
+	return p, true
+}
+
+// unenforceableProblem is host.limits_unenforceable for one backend of one
+// host: the daemon has said it cannot apply a CPU quota, a memory limit, a
+// pids limit, or several of them. A CPU quota it cannot apply is refused at create, so a pool that sets
+// one fails every runner it starts there; a memory limit is dropped, so the
+// pool's own limit binds nothing. No default is given on that field either
+// way, which is the one thing the controller can do about it on its own.
+func unenforceableProblem(h *store.Host, info store.HostBackend) (Problem, bool) {
+	if info.Limits.CPU && info.Limits.Memory && info.Limits.Pids {
+		return Problem{}, false
+	}
+	var cannot []string
+	if !info.Limits.CPU {
+		cannot = append(cannot, "a CPU quota (a runner asking for one is refused at create)")
+	}
+	if !info.Limits.Memory {
+		cannot = append(cannot, "a memory limit (a runner asking for one starts without it)")
+	}
+	if !info.Limits.Pids {
+		cannot = append(cannot, "a pids limit (a pool's pids_limit is ignored there)")
+	}
+	daemon := string(info.Kind) + " daemon"
+	if info.Rootless {
+		daemon = "rootless " + daemon
+	}
+	fix := "on a cgroup v2 host, delegate the controllers to the user the daemon runs as: put " +
+		"`[Service]` and `Delegate=cpu cpuset io memory pids` in a drop-in for its user slice (`sudo systemctl edit user@$(id -u).service`), " +
+		"then `systemctl --user restart " + string(info.Kind) + "`. A host still on cgroup v1 needs cgroup v2 first (`systemd.unified_cgroup_hierarchy=1` on the kernel command line)."
+	if !info.Rootless {
+		fix = "the daemon runs as root, so the kernel or the cgroup mount is what is missing: a host on cgroup v1 needs cgroup v2 " +
+			"(`systemd.unified_cgroup_hierarchy=1` on the kernel command line), and a kernel built without CFS bandwidth control or the memory controller cannot apply the limit at all."
+	}
+	return Problem{
+		Code:     "host.limits_unenforceable",
+		Severity: config.SeverityWarning,
+		Title:    "a host's daemon cannot apply the limits its runners are given",
+		Detail: fmt.Sprintf("the %s on %s reports that it cannot apply %s. Its runners are given no default on that field, and a pool that sets one explicitly is the pool that fails or runs unlimited there.",
+			daemon, h.Name, strings.Join(cannot, " or ")),
+		Fix:        fix,
+		TargetKind: "host",
+		TargetID:   h.ID,
+	}, true
 }
 
 func (c *Controller) jobProblems(ctx context.Context, out *[]Problem) error {

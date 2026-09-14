@@ -362,6 +362,8 @@ export const updateHost = (id: string, body: Body<'updateHost'>) =>
 
 export const cordonHost = (id: string, body: Body<'cordonHost'>) =>
   api.post<Result<'cordonHost'>>(`/hosts/${enc(id)}/cordon`, { body });
+export const clearHostThrottle = (id: string) =>
+  api.post<Result<'clearHostThrottle'>>(`/hosts/${enc(id)}/throttle/clear`);
 
 export const deleteHost = (id: string, query?: Query<'deleteHost'>) =>
   api.del<Result<'deleteHost'>>(`/hosts/${enc(id)}`, { query });

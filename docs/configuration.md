@@ -133,6 +133,8 @@ scheduler:
   provision_timeout: 5m         # ZOOMIES_PROVISION_TIMEOUT
   drain_timeout: 15m            # ZOOMIES_DRAIN_TIMEOUT
   max_creates_per_tick: 10      # ZOOMIES_MAX_CREATES_PER_TICK
+  default_runner_limits: true   # ZOOMIES_DEFAULT_RUNNER_LIMITS -- a pool with no cpus or memory_mb gets one slot's share of its host; off is warned about
+  host_throttling: true         # ZOOMIES_HOST_THROTTLING -- step an overwhelmed host down and lift it after calm; off is warned about
 
 capacity_demand:
   destination_url: ""           # ZOOMIES_CAPACITY_DEMAND_URL (empty disables)
@@ -536,6 +538,13 @@ available across matching hosts.
 Default is half the CPU count, on the reasoning that a job usually wants more
 than one core and the host still has to breathe.
 
+With `scheduler.default_runner_limits` on, the capacity also sets each runner's
+share: a runner whose pool sets no `cpus` or `memory_mb` is given the host's
+allocatable CPU and memory divided by this number, as a real cgroup limit. A
+capacity that is more slots than the machine has cores, or than it has 2 GB of
+memory for, is warned about as `host.overprovisioned`, with the largest
+capacity that fits.
+
 ### `agent.finished_retention`
 
 A finished runner is removed from its host on the reconcile pass after the
@@ -725,6 +734,52 @@ no cause. Ending a job that hangs is the workflow's `timeout-minutes`.
 
 `0s` leaves a drain unbounded, which is the behaviour before this setting
 existed.
+
+### `scheduler.default_runner_limits`
+
+Whether a runner whose pool leaves `cpus` or `memory_mb` unset is created with
+one slot's share of its host's allocatable machine as a cgroup limit on that
+field — the same share the scheduler already charges it. On by default.
+
+The charge was always there; what was missing was the limit. A pool with no
+limits was charged a slot's worth of the host, so the books balanced, and its
+runners were created with no cgroup limit at all, so eight of them could each
+take every core while the books said everything fitted. That is how a host's
+Docker daemon stops answering, and it is what this setting prevents. The share
+is given only where it would bind — a container backend whose daemon has said
+it can apply the limit, on a host that has reported its size — and a pool's
+own limits win on every field it set. Where a runner's limits came from is on
+its page as `allocation_source`, and an out-of-memory kill on a defaulted
+limit says so, with the two ways out. [Default
+allocations](hosts-and-pools.md#default-allocations) has the rules in full.
+
+`false` restores unlimited containers for pools that set no limits, and raises
+`scheduler.default_runner_limits_off` at startup and in the problems drawer
+for as long as it stands. Set `cpus` and `memory_mb` on every pool if you turn
+it off; a fleet whose pools all set their own limits is unaffected either way.
+
+### `scheduler.host_throttling`
+
+Whether the controller steps a host down when its measurements say it is
+overwhelmed: fewer slots, and a lower CPU quota on the runners already on it,
+climbed back up one rung at a time after a stretch of calm. On by default.
+
+The pressure holds refuse every new start while a host's CPU or memory is
+acutely short, and release the moment a sample says otherwise; a host that is
+overwhelmed on and off for an hour spends that hour being let back in at full
+capacity and given a fresh runner each time. The throttle is what outlasts a
+sample. Each rung takes a quarter of the host's slots and, down to half, a
+quarter of every runner's CPU quota; it climbs every two minutes while the
+pressure keeps coming back, to a top rung of three, and comes down after five
+minutes of calm. A running job is never slowed below half its allocation, so a
+throttle slows work and never fails it. [Current usage and automatic
+holds](hosts-and-pools.md#current-usage-and-automatic-holds) has the ladder,
+what ends a throttle, and which hosts can be throttled at all.
+
+`false` raises `scheduler.host_throttling_off`, and a throttle standing when
+the setting is switched off is lifted rather than left on a rung nothing will
+ever step down. Leave it on unless something outside Zoomies manages the
+hosts' load.
 
 ### `images.refresh_interval` — keeping a moving tag current
 

@@ -144,7 +144,7 @@ and says `incompatible` on its card.
 
 | What | Where it comes from | Why it matters |
 | --- | --- | --- |
-| Capacity | `agent.capacity`, `--capacity`, or half the CPU count | A hard ceiling the scheduler respects, per host. |
+| Capacity | `agent.capacity`, `--capacity`, or half the CPU count | A hard ceiling the scheduler respects, per host — and, with default limits on, what one slot's share of the machine is divided by. |
 | Backends | Probed by the agent at startup, and again as sockets appear | A pool is only placed on a host that offers its backend. |
 | Labels | `agent.labels` or `--labels` | What a pool's `host_selector` matches against. |
 | OS, arch, version | The agent | Shown in **Hosts**. A pool's `host_selector` can match `os` and `arch` directly, so keeping work on arm64 needs no labelling at all. |
@@ -313,11 +313,14 @@ so the same snapshot always produces the same plan.
 
 ### Current usage and automatic holds
 
-Linux agents sample whole-host CPU occupancy and `MemAvailable` on their normal
-heartbeats, including work outside Zoomies. CPU uses counter differences, so
-the first sample reports memory only; I/O wait counts as occupied. Available
-memory includes reclaimable cache. Sampling reads procfs and makes no extra
-Docker requests.
+Linux agents sample whole-host CPU occupancy, `MemAvailable` and the one-minute
+load average on their normal heartbeats, including work outside Zoomies. CPU
+uses counter differences, so the first sample reports memory and load only; I/O
+wait counts as occupied. Available memory includes reclaimable cache. The load
+average is there because CPU occupancy pins at 100% and then stops saying
+anything: load keeps counting what is queued behind the cores, so it is what
+says a host has been pushed *past* them rather than merely to them. Sampling
+reads procfs and makes no extra Docker requests.
 
 The Hosts page shows actual usage separately from **Committed** resources.
 Committed CPU is a reservation, not a measurement of CPU saturation. A fresh
@@ -336,11 +339,75 @@ reservation budget remains enforced as well.
 | CPU at least 95% for 30 seconds across fresh samples | Hold new starts until CPU falls below 85%. |
 | Available memory at or below the host reserve | Hold new starts until memory becomes available. A pool whose next runner would not fit waits too. |
 | Usage missing, older than 90 seconds, or inconsistent with the reported host size | Use configured capacity and reservations; show usage as unavailable. |
+| **Overwhelmed** on a fresh sample: CPU at or above 95% for 30 seconds while a runner with no CPU limit is on the host, the one-minute load average at least twice the host's CPUs, or available memory at or below the reserve | **Throttle, step 1 of 3.** The host is stepped down to three quarters of its slots, and every runner on it that has a CPU limit is left 75% of it. The host card says so, `host.throttled` is raised, and the step is audited as `host.throttle`. |
+| Still overwhelmed two minutes after the last step | **Step 2:** half the slots, and running jobs at half their CPU allocation. |
+| Still overwhelmed two minutes after that | **Step 3:** a quarter of the slots. Running jobs stay at half — the top rung takes slots and nothing else. |
+| **Calm** — CPU below 85%, load average under one per CPU, memory above the reserve — for five minutes without a break | **One step back down**, audited as `host.throttle_lift`. The streak starts again, and the throttle is gone once the last step is taken. |
+| Neither — 90% CPU, say | The rung is kept and the calm streak is broken. Not overwhelmed, and not a host to give slots back to either. |
+| Usage stale for ten minutes while throttled | The throttle is lifted anyway. A host nobody can measure is placed by its configured capacity, exactly as the holds fall back. |
 
-These controls affect new runners. Existing runners stay in place and running
+The holds affect new runners only. Existing runners stay in place and running
 jobs finish normally; an idle runner already registered with GitHub may still
 receive a job. A host shared by several pools has one admission budget. An
 operator's cordon and capacity remain authoritative during recovery.
+
+The throttle is what outlasts a sample. A hold releases the moment a reading
+says the pressure is gone, so a host that is overwhelmed on and off for an hour
+spends that hour bouncing in and out of the holds, taking a fresh runner each
+time it is let back in. The throttle is a ladder instead: each rung takes a
+quarter of the host's slots, it climbs while the pressure keeps coming back,
+and it comes down one rung at a time after a stretch of calm long enough to
+mean something. The slots it takes come off the host's **effective capacity**
+— the configured capacity stepped down by the rung — and that is the figure
+`free` is measured against, on the Hosts page, in `zoomies hosts list` and in
+the scheduler alike, while the throttle stands. The configured capacity is the
+operator's, and the throttle never writes it.
+
+It touches running jobs in exactly one way. On the next heartbeat the agent
+lowers the CPU quota of every runner on the host that has one — the runner and,
+for a `dind` pool, its sidecar — to the rung's share of what it was created
+with, and **never below half**. Half speed doubles a job's time, which the
+`timeout-minutes` most workflows set survives; a quarter turns "slow" into
+"timed out", and a throttle that made jobs fail would be doing the thing it
+exists to prevent. That is why the third rung takes slots and nothing else. A
+runner with no CPU limit has nothing to lower and is left alone, and a memory
+limit is never lowered on a live container, because that can kill it: memory
+pressure is relieved by the smaller effective capacity only. The `throttle_reason`
+on the host says all of this in one sentence — what was taken, which
+measurement did it, what the running jobs are getting, and how it ends.
+
+Not every host can be throttled, because not every host is measured.
+Throttling needs a Linux agent on the machine it measures — the same hosts the
+sampling above covers — so a remote Docker endpoint, which is never sampled, is
+never throttled. Lowering a quota needs a Docker or Podman daemon beside that
+agent: a host that offers only the `process` backend has no container to
+update, so its throttle is slots only, and its reason says so.
+
+**How a throttle ends.** Five minutes of calm — every fresh sample under 85%
+CPU, under one runnable task per core and above the memory reserve — lifts one
+rung, and the streak starts again for the next; a sample that is neither calm
+nor overwhelmed breaks the streak without moving the rung. Recovery is longer
+than a step up on purpose: a host that recovered in a minute and was pushed
+straight back over would otherwise oscillate with the ladder rather than settle
+on it. If the samples stop — an agent downgraded to a build that does not send
+them, or a host that went away — the rung is kept for ten minutes and then
+lifted, so a host that comes back is not still throttled for pressure nobody
+can see. An operator can end one sooner, three ways: a `PATCH /hosts/{id}` that
+changes the capacity or a reserve clears it, since it was decided against
+figures that have just changed; a re-join clears it, since the row is made
+afresh; and **Lift the throttle** on the host card
+(`POST /api/v1/hosts/{id}/throttle/clear`, operator role, audited as
+`host.throttle_clear`) clears it by hand once the cause is fixed. Nothing pins
+one: a clear that was premature is answered by the next heartbeat putting the
+host back on the first rung. A cordon keeps the throttle, and switching
+`scheduler.host_throttling` off lifts every standing one.
+
+At small capacities the ladder has less to take. The effective capacity never
+falls below one — a host taken to nothing would look exactly like a cordon, and
+an operator reading "0 slots" would go looking for who cordoned it — so a host
+of capacity 4 steps through 3, 2 and 1; one of capacity 2 drops to 1 on the
+first rung and stays there; and one of capacity 1 keeps its slot on every rung,
+where the throttle is the CPU quota and nothing else.
 
 Whole-host sampling currently covers local Linux hosts whose procfs CPU and
 memory totals match the reported machine. Remote Docker endpoints, other
@@ -378,13 +445,21 @@ an agent reports what it measured and never writes these. Set them with
 `PATCH /hosts/{id}` or on the host's card; a reserve on a figure the host has
 never reported, or one that would leave nothing to place on, is refused rather
 than clamped, because an operator who typed megabytes for gigabytes should be
-told and not quietly obeyed. Both memory and disk
-have a floor, applied when the operator has set nothing: **512 MB** of memory
-and **2 GB** of disk. Neither is generous, and both exist because a machine with
-nothing left over does not run jobs slowly, it has one of them killed or fails a
-checkout before its first step. CPU has no floor: a CPU reservation is a share
-of the one resource that is never exhausted, only contended, and a contended
-machine still finishes the job.
+told and not quietly obeyed. All three have a floor, which is what holds when
+the operator has set nothing or set less: **512 MB** of memory, **2 GB** of
+disk, and **half a CPU, or a twentieth of the machine on a large one**. The
+first two exist because a machine with nothing left over does not run jobs
+slowly, it has one of them killed or fails a checkout before its first step.
+The CPU floor is there for the daemon rather than for the jobs. A CPU quota is
+a share of the one resource that is never exhausted, only contended, and a
+contended machine does still finish the job — but the runners' quotas are not
+the only thing on the machine. dockerd, containerd and the agent have to answer
+in the gaps the quotas leave, and a host whose quotas add up to every core
+leaves none: the daemon stops answering, creates time out, and the fleet reads
+a busy host as a broken one. Half a core, or a twentieth of a sixty-four core
+box with sixty-four containers to mind, is what those three need to keep
+answering while every runner is flat out. An operator's own `reserve_cpus` is
+whole cores and replaces the floor where it is larger.
 
 A pool's `resources` are enforced as cgroup limits on the `docker` and `podman`
 backends, including the docker-in-docker sidecar. The `process` backend applies
@@ -392,6 +467,75 @@ none of them, and a pool that sets limits on it raises
 `pool.resources_unenforced`: the scheduler still holds the room, so the fleet
 does not oversubscribe, but the room is bookkeeping and a job that runs away
 takes the machine with it.
+
+#### Default allocations
+
+A charge is bookkeeping, and for a long time nothing turned the charge for an
+unset field into a limit: the books balanced while eight runners of a pool with
+no limits each took every core on the machine, which is how a host's Docker
+daemon stops answering. With `scheduler.default_runner_limits` on — the default
+— a runner whose pool leaves `cpus` or `memory_mb` unset is created with **one
+slot's share of the host's allocatable** on that field as a real cgroup limit:
+exactly what it was charged, and nothing the pool did not already pay for. The
+share is the allocatable figure divided by the capacity. An 8-CPU, 16 GB host
+with capacity 4 keeps half a core and 512 MB for itself and gives each runner
+1.87 CPUs and 3968 MB; the CPU share is floored to the hundredth the pool form
+takes limits in, rather than rounded, because three runners rounded up from
+0.667 to 0.67 would together be promised a hundredth of a core the host does
+not have, and the daemon refuses a quota above the machine. The memory default
+is a hard limit, exactly like an explicit `memory_mb`. A pool's own limits win
+on every field it set; the default fills only what it left empty, so a pool
+that sets memory and leaves CPU alone has said something about memory and
+nothing about CPU, and is treated that way.
+
+A default is given only where it would bind. The host's own probe says what
+its daemon can enforce — a CPU quota, a memory limit, both or neither, read
+from the daemon's `/info` — and a field the daemon cannot apply gets no
+default, because a daemon that cannot apply a CPU quota refuses the container
+rather than ignoring the request, and a default sent there would fail every
+create on the host. A probe from an agent too old to say is read as "nothing",
+which is what every host did before; `host.limits_unverified` names such a host
+and `host.limits_unenforceable` names one whose daemon has said it cannot. A
+host that has not reported its size gets no default either, since a share of a
+machine nobody has measured cannot be computed, and `host.resources_unknown`
+becomes a warning while defaults are on. The `process` backend never gets one:
+it applies no limit at all, and a defaulted figure on one of its runners would
+be a number on the Runners page saying the opposite of the truth.
+
+A `dind` pool's sidecar receives the same limits the runner does, from the same
+spec, so a defaulted pair may burst to two shares between them. That is the
+one place the allocation is looser than the charge, and it is looser on
+purpose: the alternative is half a share each, which hobbles the build for the
+sake of a symmetry the charge does not keep either — a defaulted pair is
+charged one share, not two — and two shares is still strictly less than the
+whole machine, which is what the pair had before.
+
+What a runner was given, and why, is on its page and in
+`GET /api/v1/runners/{id}`: `allocated_cpus`, `allocated_memory_mb` and
+`allocation_source`, which is `pool` when the pool set the limit and `host`
+when the runner was given the host's default share. They are recorded at
+create rather than recomputed, because the question they answer is historical:
+a pool edited since, or a host whose capacity moved, would give a different
+answer today. The container carries the same three as labels
+(`io.zoomies.cpus`, `io.zoomies.memory-mb`, `io.zoomies.limits-from`), which
+is how an agent that restarts knows what each workload it adopts was given.
+
+The source is what an out-of-memory kill turns on. A runner killed for
+exceeding a limit the pool set is told to raise the pool's `memory_mb`. One
+killed on a host default is told the limit was the host's default share of its
+memory, and offered the two ways out: set `memory_mb` on the pool, so its
+runners carry a limit of their own, or lower the host's capacity, so each
+runner's share is larger. A default share is the machine divided by its slots,
+so a job that needs more than its share is either a pool that should say what
+it needs or a host with too many slots — and `host.overprovisioned` warns about
+the second before any job finds out: a measured host with more slots than it
+has allocatable CPUs, or more than it has 2 GB of allocatable memory for, is
+named with the share each runner is getting and the largest capacity that
+fits.
+
+`scheduler.default_runner_limits: false` restores unlimited containers for
+pools that set no limits, and is warned about as
+`scheduler.default_runner_limits_off` for as long as it stands.
 
 Free disk is a gate rather than a budget. A host at or below its disk reserve
 takes no new runner at all, whatever the pool asks for; nothing is evicted to
@@ -415,7 +559,8 @@ says so as the limits are typed: it names each host its selector reaches that
 could not run the pool, and what that host has against what a runner costs. Note also what a
 reservation is not: it is a promise the fleet accounts for, and what actually
 binds a runner is the cgroup limit the container backends apply from the same
-`resources`. The `process` backend applies none, so on a `process` pool the
+`resources`, or from the host's [default share](#default-allocations) where
+the pool set none. The `process` backend applies none, so on a `process` pool the
 reservation is bookkeeping and nothing enforces it.
 
 ### When nothing can be placed
@@ -439,6 +584,7 @@ Read the counts, because they name the fix:
 | `too small for this pool's limits` | The machine could not hold one runner of this pool even when empty. Lower the pool's CPU or memory limits, or add a bigger host. Waiting will not help. |
 | `short of memory`, `short of CPU` | The host is the right size and has already promised what it has to the runners on it. Wait, lower the pool's limits, or add a host. |
 | `low on disk` | The work directory's filesystem is at or below the host's disk reserve. Free space on it, lower the pool's `disk_gb`, or add a host — no job finishing will return this, because a runner leaves its caches behind on purpose. |
+| `throttled after sustained pressure` | The host is on a rung of the [throttle ladder](#current-usage-and-automatic-holds) and every slot the rung left it is in use. Wait for it to lift, lower the host's capacity or the pools' limits so its runners fit the machine, or add a host; running jobs continue. A host that keeps being throttled has too many slots for its machine, or pools whose limits let a job take more than a slot's worth of it. |
 
 The distinction the reasons keep is between a fleet that is merely **full**,
 which clears itself, and one that is **misconfigured**, which never will.
@@ -532,7 +678,7 @@ and the first job that runs on a real Windows host is what moves the row.
 
 **Separating a noisy repository.** Give it a pool with its own labels and its own
 `max_runners`. Note the limit of `repository_scale_up_limit` on a shared pool: it
-throttles creation attributed to one repository, but GitHub may still hand a
+limits creation attributed to one repository, but GitHub may still hand a
 queued job to any compatible idle runner. Strict isolation means a pool of its
 own, with `runs-on` labels no other repository uses.
 

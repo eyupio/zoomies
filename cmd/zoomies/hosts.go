@@ -62,15 +62,32 @@ func hostsList(ctx context.Context, e *env, args []string) error {
 		if h.Cordoned {
 			health = p.paint(colourYellow, "cordoned")
 		}
+		// The slots the host is taking right now, which is what the throttle
+		// leaves it rather than what the operator configured: a throttled
+		// host shown as 2/8 reads as a host with six slots free, and the
+		// scheduler will refuse all six.
+		slots := h.EffectiveCapacity
+		if !hostThrottled(h) {
+			slots = h.Capacity
+		}
 		used := 0.0
-		if h.Capacity > 0 {
-			used = float64(h.ActiveRunners) / float64(h.Capacity)
+		if slots > 0 {
+			used = float64(h.ActiveRunners) / float64(slots)
+		}
+		runners := fmt.Sprintf("%d/%d", h.ActiveRunners, slots)
+		if hostThrottled(h) {
+			runners += fmt.Sprintf(" (of %d)", h.Capacity)
+			// The throttle is the state worth a word only on a host that
+			// is otherwise fine: unreachable and cordoned each say more.
+			if h.Healthy && !h.Cordoned {
+				health = p.paint(colourYellow, "throttled")
+			}
 		}
 		rows = append(rows, []string{
 			h.Name,
 			h.ID,
 			health,
-			fmt.Sprintf("%d/%d", h.ActiveRunners, h.Capacity),
+			runners,
 			p.bar(used, 10),
 			dash(strings.Join(h.Backends, ",")),
 			dash(hostPlatform(h)),
@@ -80,6 +97,13 @@ func hostsList(ctx context.Context, e *env, args []string) error {
 	}
 	p.table([]string{"name", "id", "state", "runners", "used", "backends", "platform", "size", "last seen"}, rows)
 
+	// A throttled host's row says how many slots it has been stepped down to
+	// and not why; the controller's own sentence says why, and what ends it.
+	for _, h := range out.Items {
+		if hostThrottled(h) {
+			p.note("%s is %s.", h.Name, h.ThrottleReason)
+		}
+	}
 	// A host with no usable backend is connected, healthy and completely
 	// useless: no pool matches it, so its jobs queue with nothing to say why.
 	// The agent already explained it -- repeat that here rather than leaving a
@@ -96,6 +120,14 @@ func hostsList(ctx context.Context, e *env, args []string) error {
 		}
 	}
 	return nil
+}
+
+// hostThrottled reports whether the controller has stepped this host's slots
+// down. It is decided from the reason rather than from the two capacities
+// disagreeing: a controller older than the field sends no effective capacity
+// at all, and a zero there is an old controller, not a host with no slots.
+func hostThrottled(h hostItem) bool {
+	return h.ThrottleReason != "" && h.EffectiveCapacity > 0
 }
 
 // hostPlatform is what this machine is, in the terms a pool asks in. The

@@ -297,6 +297,11 @@
           cpuPercent={runner.cpu_percent}
           memoryBytes={runner.memory_bytes}
           limits={runner.pool?.resources}
+          allocatedCpus={runner.allocated_cpus}
+          allocatedMemoryMb={runner.allocated_memory_mb}
+          allocationSource={runner.allocation_source}
+          hostThrottle={(fleet.host(runner.host_id) ?? runner.host)?.throttle}
+          backend={(runner.pool ?? fleet.pool(runner.pool_id))?.backend}
         />
       </Panel>
     </div>
