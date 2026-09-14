@@ -10,6 +10,7 @@
 import {
   Boxes,
   ChartNoAxesCombined,
+  Cloud,
   GitPullRequestArrow,
   HardDrive,
   LayoutDashboard,
@@ -45,6 +46,7 @@ export const SECTIONS: readonly NavItem[] = [
   { path: '/jobs', label: 'Jobs', icon: ListChecks, key: 'j', primary: true },
   { path: '/usage', label: 'Usage', icon: ChartNoAxesCombined, key: 'u' },
   { path: '/hosts', label: 'Hosts', icon: HardDrive, key: 'h' },
+  { path: '/providers', label: 'Providers', icon: Cloud, key: 'v' },
   { path: '/installations', label: 'Installations', icon: Plug, key: 'i' },
   { path: '/migrate', label: 'Migrate', icon: GitPullRequestArrow, key: 'm' },
   { path: '/audit', label: 'Audit', icon: ScrollText, key: 'a' },

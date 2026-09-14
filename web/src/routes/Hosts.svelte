@@ -18,8 +18,17 @@
   import { hostSignals } from '$lib/insights/signals';
   import MetricGrid from '$lib/components/MetricGrid.svelte';
   import { Plus, Server } from '@lucide/svelte';
-  import { cordonHost, listJoinTokens } from '$lib/api/client';
-  import type { Host, JoinToken } from '$lib/api/types';
+  import {
+    cordonHost,
+    listJoinTokens,
+    listMachines,
+    listProviders,
+    pauseProvider,
+    resumeProvider,
+  } from '$lib/api/client';
+  import { SvelteMap } from 'svelte/reactivity';
+  import { events } from '$lib/api/sse';
+  import type { Host, JoinToken, Machine, Provider } from '$lib/api/types';
   import { pluralise } from '$lib/format';
   import { fleet } from '$lib/state/fleet.svelte';
   import { session } from '$lib/state/session.svelte';
@@ -34,6 +43,7 @@
   import HostDeleteDialog from '$lib/hosts/HostDeleteDialog.svelte';
   import HostEditDialog from '$lib/hosts/HostEditDialog.svelte';
   import JoinTokenList from '$lib/hosts/JoinTokenList.svelte';
+  import MachineBand from '$lib/providers/MachineBand.svelte';
 
   const canOperate = $derived(session.can('operator'));
   const canAdmin = $derived(session.can('admin'));
@@ -44,6 +54,90 @@
   const healthy = $derived(hosts.filter((h) => h.healthy === true).length);
   const capacity = $derived(hosts.reduce((sum, h) => sum + (h.capacity ?? 0), 0));
   const inUse = $derived(hosts.reduce((sum, h) => sum + (h.active_runners ?? 0), 0));
+
+  /* -- the machines behind the hosts -------------------------------------------
+   * Fetched here and kept out of the fleet cache deliberately: a fourth
+   * collection there would cost every signed-in tab a request on every
+   * reconcile pass, and the app shell weight the budget has none of. The live
+   * half is one subscription, which costs nothing when nobody is on this page.
+   * ------------------------------------------------------------------------ */
+
+  let machines = $state<Machine[]>([]);
+  let providers = $state<Provider[]>([]);
+  let machinesReload = $state(0);
+
+  $effect(() => {
+    void machinesReload;
+    const controller = new AbortController();
+    void Promise.all([
+      listProviders(controller.signal),
+      listMachines({ limit: 200 }, controller.signal),
+    ])
+      .then(([providerPage, machinePage]) => {
+        providers = providerPage.items ?? [];
+        machines = machinePage.items ?? [];
+      })
+      .catch((cause: unknown) => {
+        // Not an error state. The hosts are the page; the band above them is
+        // context, and a fleet with no providers configured answers 200 with
+        // nothing in it anyway.
+        if (cause instanceof DOMException && cause.name === 'AbortError') return;
+      });
+    return () => controller.abort();
+  });
+
+  $effect(() => {
+    const stop = [
+      events.subscribe('machine.updated', (row) => {
+        const index = machines.findIndex((m) => m.id === row.id);
+        machines = index === -1 ? [...machines, row] : machines.with(index, row);
+      }),
+      events.subscribe('machine.deleted', (payload) => {
+        machines = machines.filter((m) => m.id !== payload.id);
+      }),
+      events.subscribe('provider.updated', (row) => {
+        providers = providers.map((p) => (p.id === row.id ? row : p));
+      }),
+    ];
+    return () => {
+      for (const off of stop) off();
+    };
+  });
+
+  /** The machine a host is, for the hosts Zoomies rented. */
+  const machineByHost = $derived.by(() => {
+    const out = new SvelteMap<string, Machine>();
+    for (const machine of machines) {
+      if (machine.host_id) out.set(machine.host_id, machine);
+    }
+    return out;
+  });
+
+  async function pauseAll(paused: boolean): Promise<void> {
+    for (const provider of providers) {
+      if (!provider.id || provider.paused === paused) continue;
+      try {
+        const saved = paused
+          ? await pauseProvider(provider.id, { reason: 'Paused from the Hosts page' })
+          : await resumeProvider(provider.id);
+        providers = providers.map((p) => (p.id === saved.id ? saved : p));
+      } catch (cause) {
+        toasts.fromError(
+          cause,
+          paused ? `${provider.name} was not paused` : `${provider.name} was not resumed`,
+        );
+        return;
+      }
+    }
+    if (paused) {
+      toasts.info(
+        'New machines paused',
+        'Nothing new is bought. Drains, deletes and machines already on their way carry on.',
+      );
+    } else {
+      toasts.success('New machines resumed', 'Machines may be bought again.');
+    }
+  }
 
   /* -- join tokens ------------------------------------------------------------
    * Admin only, and fetched here rather than kept in the fleet cache: they
@@ -89,6 +183,7 @@
    */
   async function refreshPage(): Promise<void> {
     tokensReload += 1;
+    machinesReload += 1;
     await fleet.reconcile();
   }
 
@@ -227,6 +322,15 @@
         },
       ]}
     />
+    {#if providers.length > 0}
+      <MachineBand
+        class="machine-band"
+        {machines}
+        {providers}
+        {canOperate}
+        onpause={(paused) => void pauseAll(paused)}
+      />
+    {/if}
     <div class="capacity-map">
       <HostLandscape
         {hosts}
@@ -242,6 +346,7 @@
       {#each hosts as host (host.id)}
         <HostCard
           {host}
+          machine={host.id ? machineByHost.get(host.id) : null}
           {canOperate}
           {canAdmin}
           oncordon={(target, next) => void cordon(target, next)}
@@ -292,6 +397,9 @@
 
 <style>
   .capacity-map {
+    margin-bottom: var(--z-space-5);
+  }
+  .content :global(.machine-band) {
     margin-bottom: var(--z-space-5);
   }
   .controls-heading {
