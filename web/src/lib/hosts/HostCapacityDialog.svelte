@@ -1,13 +1,13 @@
 <!--
   Adjust a host: how many runners it may hold, and what it keeps for itself.
 
-  Three settings, each on a slider that moves between notches, with the
+  Four settings, each on a slider that moves between notches, with the
   recommendation marked on it and a sentence that says where the
   recommendation came from -- the machine's size, less the reserve, divided
   by what a runner in this fleet asks for. A setting past its recommendation
   says so in a callout rather than refusing: an operator who knows the jobs
   are light is right to go past it, and one who does not is told what it
-  costs. "Set to recommendations" puts all three back in one press.
+  costs. "Set to recommendations" puts all four back in one press.
 
   Only the fields the host has reported are offered. A reserve held back from
   a figure nobody has measured is a number the scheduler ignores, and a host
@@ -28,11 +28,13 @@
   import { Sparkles, TriangleAlert } from '@lucide/svelte';
   import {
     capacityCeiling,
+    diskNotches,
     memoryLabel,
     memoryNotches,
     overcommit,
     recommendedCapacity,
     recommendedReserveCores,
+    recommendedReserveDiskMb,
     recommendedReserveMemoryMb,
     runnerAsk,
   } from './recommend';
@@ -47,6 +49,7 @@
   let capacity = $state('');
   let reserveCores = $state(0);
   let reserveMb = $state(0);
+  let reserveDiskMb = $state(0);
   let saving = $state(false);
   let errors = $state<Record<string, string>>({});
   let loadedFor = $state<string | null>(null);
@@ -63,16 +66,22 @@
     capacity = String(host.capacity ?? 0);
     reserveCores = host.reserve_cpus ?? 0;
     reserveMb = host.reserve_memory_mb ?? 0;
+    reserveDiskMb = host.reserve_disk_mb ?? 0;
     errors = {};
   });
 
   /* -- the machine, and what a runner asks of it ----------------------------- */
 
   const shape = $derived({ cpus: host?.cpus ?? 0, memoryMb: host?.memory_mb ?? 0 });
-  const sized = $derived(shape.cpus > 0 || shape.memoryMb > 0);
+  /** The work directory's filesystem, which the capacity recommendation does
+      not follow -- a pool asks for cores and memory, never for disk -- but
+      which runs out first and says nothing when it does. */
+  const diskTotalMb = $derived(host?.disk_total_mb ?? 0);
+  const sized = $derived(shape.cpus > 0 || shape.memoryMb > 0 || diskTotalMb > 0);
   const ask = $derived(runnerAsk(fleet.pools));
   const recCores = $derived(recommendedReserveCores(shape.cpus));
   const recMb = $derived(recommendedReserveMemoryMb(shape.memoryMb));
+  const recDiskMb = $derived(recommendedReserveDiskMb(diskTotalMb));
   const recCapacity = $derived(recommendedCapacity(shape, reserveCores, reserveMb, ask));
 
   /* -- capacity ---------------------------------------------------------------- */
@@ -141,17 +150,34 @@
     if (top > 0 && top !== recMb) marks.push({ value: top, label: memoryLabel(top) });
     return marks;
   });
+  const diskNotchList = $derived(diskNotches(diskTotalMb));
+  const diskMarks = $derived.by(() => {
+    const marks: { value: number; label: string; recommended?: boolean }[] = [
+      { value: 0, label: 'none' },
+    ];
+    if (recDiskMb > 0 && diskNotchList.includes(recDiskMb))
+      marks.push({ value: recDiskMb, label: 'recommended', recommended: true });
+    const top = diskNotchList[diskNotchList.length - 1] ?? 0;
+    if (top > 0 && top !== recDiskMb) marks.push({ value: top, label: memoryLabel(top) });
+    return marks;
+  });
   const aboveCores = $derived(recCores > 0 && reserveCores > recCores);
   const aboveMb = $derived(recMb > 0 && reserveMb > recMb);
+  const aboveDisk = $derived(recDiskMb > 0 && reserveDiskMb > recDiskMb);
+  const placeableDiskMb = $derived(diskTotalMb - reserveDiskMb);
 
   const atRecommendation = $derived(
-    parsed === recCapacity && reserveCores === recCores && reserveMb === recMb,
+    parsed === recCapacity &&
+      reserveCores === recCores &&
+      reserveMb === recMb &&
+      reserveDiskMb === recDiskMb,
   );
   function recommend(): void {
     // The reserve first, then the capacity that follows from it, so the
     // number set is the one the sentence beneath the slider explains.
     reserveCores = recCores;
     reserveMb = recMb;
+    reserveDiskMb = recDiskMb;
     capacity = String(recommendedCapacity(shape, recCores, recMb, ask));
   }
 
@@ -171,6 +197,7 @@
         // left alone rather than sent as a zero it would have to refuse.
         ...(shape.cpus > 0 ? { reserve_cpus: reserveCores } : {}),
         ...(shape.memoryMb > 0 ? { reserve_memory_mb: reserveMb } : {}),
+        ...(diskTotalMb > 0 ? { reserve_disk_mb: reserveDiskMb } : {}),
       });
       await fleet.reconcile();
       toasts.success(
@@ -290,7 +317,7 @@
         <p class="note">
           What the scheduler leaves alone: the room this host needs to be a working machine rather
           than a pool of capacity. A floor applies even at none: half a core or a twentieth of the
-          machine, whichever is larger, and 512 MB of memory.
+          machine, whichever is larger, 512 MB of memory and 2 GB of disk.
         </p>
         {#if shape.cpus > 1}
           <Field
@@ -357,6 +384,39 @@
                     'runner',
                   )} at {gb(ask.memoryMb)} each. The recommendation is {memoryLabel(recMb)}: a tenth
                   of the machine, for the page cache and the daemon.
+                </p>
+              </div>
+            </div>
+          {/if}
+        {/if}
+        {#if diskNotchList.length > 1}
+          <Field
+            label="Disk"
+            hint="Of {gb(diskTotalMb)} on the work directory's filesystem."
+            error={errors.reserve_disk_mb ?? ''}
+          >
+            {#snippet children({ id, describedBy })}
+              <Slider
+                {id}
+                values={diskNotchList}
+                bind:value={reserveDiskMb}
+                label="Disk held back"
+                valuetext={(v) => (v === 0 ? 'None' : memoryLabel(v))}
+                marks={diskMarks}
+                tone={aboveDisk ? 'warning' : 'accent'}
+                {describedBy}
+              />
+            {/snippet}
+          </Field>
+          {#if aboveDisk}
+            <div class="callout" role="status">
+              <TriangleAlert size={16} aria-hidden="true" />
+              <div>
+                <p class="title">More disk held back than recommended</p>
+                <p>
+                  {gb(placeableDiskMb)} left for the checkouts and caches every runner here writes. The
+                  recommendation is {memoryLabel(recDiskMb)}: a tenth of the filesystem, so the
+                  machine keeps working when a job fills its share.
                 </p>
               </div>
             </div>

@@ -66,6 +66,22 @@ export function recommendedReserveMemoryMb(memoryMb: number): number {
   return best;
 }
 
+/**
+ * Disk to hold back for the machine: a tenth of the filesystem, between the
+ * scheduler's own two-gigabyte floor and sixty-four gigabytes, on the nearest
+ * notch of the slider. Runner checkouts and caches land here, so the reserve
+ * is what stops a full disk turning into a job that fails part-way through.
+ */
+export function recommendedReserveDiskMb(diskTotalMb: number): number {
+  if (diskTotalMb <= 4096) return 0;
+  const tenth = Math.min(diskTotalMb - 2048, Math.max(2048, Math.min(65536, diskTotalMb * 0.1)));
+  let best = 0;
+  for (const n of diskNotches(diskTotalMb)) {
+    if (Math.abs(n - tenth) <= Math.abs(best - tenth)) best = n;
+  }
+  return best;
+}
+
 /** How many runners of this ask fit on what is left after the reserve. At least one. */
 export function recommendedCapacity(
   host: HostShape,
@@ -98,6 +114,19 @@ export function memoryNotches(memoryMb: number): number[] {
     out.push(next);
     next += 16384;
   }
+  return out;
+}
+
+/**
+ * The notches of the disk slider: two gigabytes -- the scheduler's floor --
+ * and then doublings. A disk is two orders of magnitude larger than memory,
+ * and a slider that stepped it in gigabytes would be a thousand notches long.
+ */
+export function diskNotches(diskTotalMb: number): number[] {
+  if (diskTotalMb <= 4096) return [0];
+  const top = diskTotalMb - 2048;
+  const out = [0];
+  for (let step = 2048; step <= top; step *= 2) out.push(step);
   return out;
 }
 
