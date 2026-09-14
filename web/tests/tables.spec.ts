@@ -12,7 +12,15 @@
  * side of them, and the two phone widths the mobile project uses.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { browserOverride, dataRows, goto, grid, waitForRows } from './support/fixtures';
+import {
+  browserOverride,
+  dataRows,
+  goto,
+  grid,
+  SECTIONS,
+  sectionHeading,
+  waitForRows,
+} from './support/fixtures';
 
 test.use(browserOverride);
 
@@ -30,6 +38,9 @@ const GRIDS = [
  * `--z-bp-lg` and just below it, `--z-bp-md`, and the two phone widths.
  */
 const WIDTHS = [1440, 1180, 1179, 768, 412, 360] as const;
+
+/** The two of those the mobile project runs at, where a card layout is in force. */
+const PHONES = [412, 360] as const;
 
 /**
  * How far the table overflows the frame around it, and how far the document
@@ -76,6 +87,44 @@ for (const width of WIDTHS) {
       const measured = await overflow(page, label);
       expect(measured.table, `the ${heading} table is wider than its frame`).toBeLessThanOrEqual(1);
       expect(measured.document, `the ${heading} page scrolls sideways`).toBeLessThanOrEqual(1);
+    }
+  });
+}
+
+/*
+ * The tables are the hard half of fitting a phone, but they are not the whole
+ * claim: a page that holds its tables inside the window and then puts a chart,
+ * a wizard or a row of buttons through the side of it is still a page nobody
+ * can read one-handed. So every section is walked at both phone widths, and
+ * the document itself is measured.
+ *
+ * The whole document rather than a chosen element, because whatever is too wide
+ * is by definition the thing nobody thought to measure -- and the failure names
+ * what stuck out, so the next person does not have to go looking for it.
+ */
+for (const width of PHONES) {
+  test(`no page scrolls sideways at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+
+    for (const section of SECTIONS) {
+      await goto(page, section.path, sectionHeading(section));
+
+      // Polled, because a page settles: a grid's columns are shared out once
+      // it has measured its frame, and a skeleton one frame wide is not a
+      // mobile view anybody sees.
+      const culprits = async (): Promise<string[]> =>
+        page.evaluate(() => {
+          const root = document.documentElement;
+          // A pixel of slack, for the same reason the tables get one.
+          if (root.scrollWidth - root.clientWidth <= 1) return [];
+          return [...document.querySelectorAll<HTMLElement>('main *')]
+            .filter((el) => el.getBoundingClientRect().right > root.clientWidth + 1)
+            .map((el) => `${el.tagName.toLowerCase()}.${el.className?.toString().trim()}`)
+            .slice(0, 5);
+        });
+      await expect
+        .poll(culprits, { message: `${sectionHeading(section)} scrolls sideways at ${width}px` })
+        .toEqual([]);
     }
   });
 }
