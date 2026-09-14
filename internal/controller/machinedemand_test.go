@@ -716,3 +716,48 @@ func TestAnUnsetDeleteGraceChangesNothing(t *testing.T) {
 		t.Errorf("an unset grace withheld a release: drain = %v", got.Drain)
 	}
 }
+
+// A throttled host has already given back slots it will not re-place, and a
+// machine must not be released to cover work those slots can no longer do.
+//
+// The throttle takes capacity from future placements and leaves the runners
+// already on the host alone, so a throttled host sits over its effective
+// capacity until they finish. Counting the operator's configured number there
+// says the fleet has room it does not have: the machine goes, the next burst
+// queues, the pool reports itself at capacity because the throttle-taken slots
+// count as full, and the fleet buys the same machine again -- two clones paid
+// for, and the queue latency of the second.
+func TestAMachineIsKeptWhileAThrottleHasTakenTheSlotsThatWouldReplaceIt(t *testing.T) {
+	// The operator's own host, full and throttled a rung: four configured
+	// slots, three once the throttle has had its share, and four runners on it
+	// that the throttle does not evict.
+	build := func(level int) MachineSnapshot {
+		p := demandProvider("lab")
+		pool := demandPool("alpha")
+		busy := demandHost("host_busy", 4, 4)
+		busy.Throttle = store.HostThrottle{Level: level}
+		rented := demandHost("host_rented", 2, 0)
+		m := demandMachine("mach_1", p, store.MachineReady, 4*time.Hour)
+		m.HostID = rented.ID
+		m.IdleSince = ptrTime(machineNow.Add(-2 * time.Hour))
+		return MachineSnapshot{
+			Now: machineNow, Pools: []*store.Pool{pool},
+			Hosts:     []*store.Host{busy, rented},
+			Providers: []*store.Provider{p}, Machines: []*store.Machine{m},
+			Limits: demandLimits(),
+			// The pool is satisfied only because the busy host's four runners
+			// are still going.
+			Plan: scheduler.Plan{Pools: []scheduler.PoolPlan{demandPoolPlan(pool, 4, 4, 4, "")}},
+		}
+	}
+
+	// Unthrottled the fleet really does have the slack, so the machine goes.
+	if got := planFor(t, DecideMachines(build(0)), "prv_lab"); len(got.Drain) != 1 {
+		t.Errorf("an idle machine beside an unthrottled fleet was kept: drain = %v", got.Drain)
+	}
+	// Throttled one rung, the busy host will re-place only three of its four,
+	// so the fleet is short and the machine is what covers it.
+	if got := planFor(t, DecideMachines(build(1)), "prv_lab"); len(got.Drain) != 0 {
+		t.Errorf("a machine was released against slots a throttle had already taken: drain = %v", got.Drain)
+	}
+}

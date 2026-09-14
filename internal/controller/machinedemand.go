@@ -391,12 +391,21 @@ func drainable(s MachineSnapshot, byProvider map[string]*store.Provider, pools [
 	// every runner it is aiming at. It is a ledger too: a drain granted here
 	// spends the slack of every pool that host served, so two machines are
 	// never both released against the same spare capacity.
+	//
+	// The slots counted are the ones a throttle leaves, not the ones the
+	// operator configured. A throttled host keeps the runners placed before
+	// the throttle and will re-place fewer when they finish, so counting the
+	// slots it has just given back would release a machine to cover work
+	// nothing can place -- and the fleet would buy the same machine again on
+	// the next burst, having paid twice for one clone. Every site below reads
+	// the same figure, or the ledger stops balancing and two machines could be
+	// released against one host's spare slots.
 	slack := make(map[string]int, len(pools))
 	for _, pool := range pools {
 		capacity := 0
 		for _, h := range hosts {
 			if scheduler.HostCanRun(h, pool, s.Now) {
-				capacity += h.Capacity
+				capacity += h.EffectiveCapacity()
 			}
 		}
 		slack[pool.ID] = capacity - planned[pool.ID].Desired
@@ -440,7 +449,7 @@ func drainable(s MachineSnapshot, byProvider map[string]*store.Provider, pools [
 				continue
 			}
 			pp := planned[pool.ID]
-			if slack[pool.ID] < host.Capacity || pp.Desired > pp.Current {
+			if slack[pool.ID] < host.EffectiveCapacity() || pp.Desired > pp.Current {
 				spare = false
 				break
 			}
@@ -450,7 +459,7 @@ func drainable(s MachineSnapshot, byProvider map[string]*store.Provider, pools [
 			continue
 		}
 		for _, pool := range served {
-			slack[pool.ID] -= host.Capacity
+			slack[pool.ID] -= host.EffectiveCapacity()
 		}
 		out[p.ID] = append(out[p.ID], m.ID)
 	}
