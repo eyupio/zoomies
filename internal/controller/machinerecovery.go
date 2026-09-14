@@ -177,9 +177,48 @@ func (c *Controller) sweepProviders(ctx context.Context, env *machineEnv) {
 //
 // Anything live and unexplained is left alone. That is reap's rule about GitHub
 // registrations, applied where the mistake costs a running machine.
+// sweepTimeout is one provider's sweep budget.
+//
+// A call apiece, because a sweep is a listing plus a read per candidate rather
+// than the two requests stepTimeout budgets for -- Proxmox reads one
+// configuration per guest in the range to find its marks. Never longer than the
+// interval that paces it: a sweep still running when the next one is due has
+// already failed at being paced. Derived from provider.call_timeout, which on
+// this path was otherwise never consulted at all.
+func (c *Controller) sweepTimeout(env *machineEnv, pr *machineProvider) time.Duration {
+	d := env.cfg.Provider.CallTimeout
+	if d <= 0 {
+		d = 30 * time.Second
+	}
+	if ask := pr.p.Capabilities().Deadlines.Call; ask > d {
+		d = ask
+	}
+	rows := 0
+	for _, m := range env.list {
+		if m.ProviderID == pr.row.ID {
+			rows++
+		}
+	}
+	// Two spare, so a provider with no rows yet still has room for the listing
+	// and for the orphan it is about to find.
+	budget := d * time.Duration(rows+2)
+	if ceiling := env.cfg.Provider.SweepInterval; ceiling > 0 && budget > ceiling {
+		budget = ceiling
+	}
+	return budget
+}
+
 func (c *Controller) sweepProvider(ctx context.Context, env *machineEnv, pr *machineProvider) {
 	owner := provider.Owner{ControllerID: c.controllerID(), ProviderID: pr.row.ID}
-	seen, err := pr.p.List(ctx, owner)
+	// Bounded, because this call is made from inside the pass and everything
+	// after it -- every reservation, every drain and every delete -- waits on
+	// it. A sweep cut short is retried by the next pass with nothing stamped
+	// and nothing acted on, which is much the cheaper of the two failures.
+	// Only the call: the store writes below must not inherit a deadline a slow
+	// List has already spent.
+	listCtx, cancel := context.WithTimeout(ctx, c.sweepTimeout(env, pr))
+	seen, err := pr.p.List(listCtx, owner)
+	cancel()
 	if err != nil {
 		c.noteProviderTrouble(pr.row.ID, err, "", env.now)
 		c.log.Warn("could not list a provider's resources", "provider", pr.row.Name, "error", err)

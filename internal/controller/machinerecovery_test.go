@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"github.com/eyupio/zoomies/internal/config"
 	"slices"
 	"testing"
 	"time"
@@ -409,5 +410,92 @@ func TestAMachineDestroyedOutsideZoomiesCordonsItsHostAndSaysSo(t *testing.T) {
 	}
 	if !gotHost.Cordoned {
 		t.Fatal("the host of a machine that no longer exists is still taking work")
+	}
+}
+
+// A provider that answers its listing slowly cannot hold up the fleet.
+//
+// The sweep runs inside the pass, before demand, so everything behind it waits:
+// every reservation, every drain and every delete. Proxmox reads one
+// configuration per guest to find its marks, so a cluster whose API has wedged
+// stalls once per candidate rather than once -- which is how a sweep nobody
+// bounded blocks a pass for many minutes and leaves a drained machine powered
+// on and billed. A sweep cut short costs nothing: the next pass retries it with
+// nothing stamped and nothing acted on.
+func TestASlowSweepIsCutShortRatherThanHoldingUpThePass(t *testing.T) {
+	h := newHarness(t)
+	_, row := h.machineFleet(t)
+	// The interval is the ceiling on the budget, so it is the cheap way to
+	// make this test's bound small; the provider's own asking price would
+	// otherwise set it.
+	h.c.UpdateConfig(func(c *config.Config) {
+		c.Provider.CallTimeout = 20 * time.Millisecond
+		c.Provider.SweepInterval = 200 * time.Millisecond
+	})
+	h.cfg = h.c.Config()
+	h.fake.SetDelay("list", 30*time.Second)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.machinePass(t)
+	}()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("a pass was still waiting on a provider's listing; the sweep is not bounded")
+	}
+
+	// The sweep did not finish, so it is not recorded as having happened: the
+	// interval is paced by that stamp, and a sweep cut short has to be tried
+	// again rather than counted.
+	fresh, err := h.st.GetProvider(h.ctx, row.ID)
+	if err != nil {
+		t.Fatalf("GetProvider: %v", err)
+	}
+	if fresh.LastSweepAt != nil {
+		t.Errorf("a sweep that timed out was recorded as done at %v", fresh.LastSweepAt)
+	}
+}
+
+// The budget is a call apiece, because a sweep is a listing plus a read per
+// candidate -- and never longer than the interval that paces it, since a sweep
+// still running when the next is due has already failed at being paced.
+func TestTheSweepBudgetGrowsWithTheMachinesItHasToReadAndStopsAtTheInterval(t *testing.T) {
+	h := newHarness(t)
+	_, row := h.machineFleet(t)
+	h.c.UpdateConfig(func(c *config.Config) {
+		c.Provider.CallTimeout = time.Second
+		c.Provider.SweepInterval = time.Hour
+	})
+	h.cfg = h.c.Config()
+	pr, err := h.c.providerFor(h.ctx, row)
+	if err != nil {
+		t.Fatalf("building the provider: %v", err)
+	}
+	// A provider may ask for longer than the operator's timeout and never for
+	// less supervision, so the per-call figure is whichever is larger. Read it
+	// rather than assumed, so this test says the rule instead of a number.
+	call := h.c.Config().Provider.CallTimeout
+	if ask := pr.p.Capabilities().Deadlines.Call; ask > call {
+		call = ask
+	}
+
+	env := &machineEnv{cfg: h.c.Config()}
+	if got := h.c.sweepTimeout(env, pr); got != 2*call {
+		t.Errorf("with no machines the budget is %s, want %s: room for the listing and one orphan", got, 2*call)
+	}
+	for range 4 {
+		env.list = append(env.list, &store.Machine{ProviderID: row.ID})
+	}
+	// Another provider's machines are not this sweep's to read.
+	env.list = append(env.list, &store.Machine{ProviderID: "prv_elsewhere"})
+	if got := h.c.sweepTimeout(env, pr); got != 6*call {
+		t.Errorf("with four machines the budget is %s, want %s: a call apiece plus two", got, 6*call)
+	}
+
+	env.cfg.Provider.SweepInterval = call / 2
+	if got := h.c.sweepTimeout(env, pr); got != call/2 {
+		t.Errorf("the budget is %s, want it capped at the interval that paces it", got)
 	}
 }
