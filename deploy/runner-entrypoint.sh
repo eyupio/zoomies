@@ -58,10 +58,8 @@ if [ -n "${DOCKER_HOST:-}" ] || [ -S /var/run/docker.sock ]; then
   if ! command -v docker >/dev/null 2>&1; then
     log "this pool provides a docker daemon, but this image has no docker client,"
     log "so jobs that run docker, buildx or compose will fail on it."
-    log "a current controller switches a pool on the stock runner image to"
-    log "ghcr.io/eyupio/zoomies-runner-docker when it asks for a daemon; if this is"
-    log "the stock image, upgrade the controller or set that image on the pool."
-    log "an image of your own needs docker-ce-cli installed in it."
+    log "set the pool image to a Docker-capable runner image, or install docker-ce-cli in your custom image."
+    exit 78
   fi
 fi
 
@@ -72,22 +70,35 @@ fi
 # workflow's first docker step race it and fail with "Cannot connect to the
 # Docker daemon".
 #
-# A daemon that never answers is not fatal. The runner still takes jobs that do
-# not touch Docker, and one that does gets the client's own error, which says
-# more than anything this script could invent.
+# A pool that provides Docker must not accept a job until it can use it.
+# Bound both the overall wait and each probe: a hung client used to make the
+# nominal thirty-second wait unbounded.
 wait_for_docker() {
-  local waited=0
   local limit=${ZOOMIES_DOCKER_WAIT:-30}
-  while [ "$waited" -lt "$limit" ]; do
-    if docker version >/dev/null 2>&1; then
-      [ "$waited" -gt 0 ] && log "the docker daemon answered after ${waited}s"
+  if ! [[ "$limit" =~ ^[0-9]{1,4}$ ]] || [ "$limit" -eq 0 ] || [ "$limit" -gt 3600 ]; then
+    log "ZOOMIES_DOCKER_WAIT must be a whole number of seconds from 1 to 3600."
+    return 78
+  fi
+  limit=$((10#$limit))
+  if ! command -v timeout >/dev/null 2>&1; then
+    log "this Docker-capable runner image needs the coreutils timeout command."
+    return 78
+  fi
+  local started=$SECONDS
+  local deadline=$((SECONDS + limit))
+  local remaining probe
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    remaining=$((deadline - SECONDS))
+    probe=$remaining
+    [ "$probe" -gt 5 ] && probe=5
+    if timeout --signal=KILL "${probe}s" docker version >/dev/null 2>&1; then
+      log "the docker daemon is ready after $((SECONDS - started))s"
       return 0
     fi
-    sleep 1
-    waited=$((waited + 1))
+    [ "$SECONDS" -lt "$deadline" ] && sleep 1
   done
-  log "warning: no docker daemon answered at ${DOCKER_HOST:-/var/run/docker.sock} within ${limit}s."
-  log "jobs that run docker will fail until it comes up."
+  log "the required docker daemon did not become ready within ${limit}s; this runner will not accept a job."
+  return 1
 }
 
 if [ -n "${DOCKER_HOST:-}" ] || [ -S /var/run/docker.sock ]; then

@@ -908,6 +908,16 @@ func (b *DockerBackend) PrewarmImage(ctx context.Context, image string, policy s
 	return digest, err
 }
 
+// PrewarmDinD prepares this host's configured sidecar image. The controller
+// cannot name it itself because agents may use different registry mirrors.
+func (b *DockerBackend) PrewarmDinD(ctx context.Context) error {
+	if !b.fl.supportsDinD {
+		return fmt.Errorf("backend: the %s backend cannot run docker-in-docker", b.fl.kind)
+	}
+	_, err := b.ensureImage(ctx, b.dind)
+	return err
+}
+
 // ensureNetwork creates a user-defined network on demand. The daemon's built-in
 // modes are passed through untouched.
 func (b *DockerBackend) ensureNetwork(ctx context.Context, name string) error {
@@ -1018,15 +1028,15 @@ func oomMessage(insp *ContainerInspect) string {
 	return "container was killed for exceeding its memory limit; raise the pool's memory_mb"
 }
 
-// Stats samples one container. A daemon that cannot answer yields a zero sample
-// rather than an error, because a missing metric must not fail a heartbeat.
+// Stats samples one container. The agent handles sampling failures separately
+// from lifecycle observations, retaining the last successful sample.
 func (b *DockerBackend) Stats(ctx context.Context, h Handle) (Stats, error) {
 	s, err := b.api.ContainerStats(ctx, string(h))
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return Stats{}, err
 		}
-		return Stats{}, nil
+		return Stats{}, err
 	}
 	return Stats(s), nil
 }
