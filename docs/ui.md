@@ -150,9 +150,16 @@ when provisioning demand is held; these are separate measures.
 ## Jobs
 
 Everything this fleet claims, runs or is waiting to run, with each job's queue
-wait and duration. The filters — repository, workflow, pool, label, outcome,
-state, dates — live in the URL, so a view can be pasted into a chat. A queued
-job that no enabled pool claims is one filter away — *Unmatched only* — and the
+wait and duration. Status is the filter this page is opened for, so it is a row
+of buttons above the grid — **Running**, **Queued**, **Failed**, **Finished**,
+**All** — and the page opens on *Running*, which is the question an operator
+arrives with. That default is for a bare visit only: every link into this page
+that already carries a filter keeps it, so the problems drawer's unmatched link
+and the Overview's outcome links still show what they promised.
+
+The rest of the filters — repository, workflow, pool, label, outcome, dates —
+live in the URL alongside it, so a view can be pasted into a chat. A queued job
+that no enabled pool claims is one filter away — *Unmatched only* — and the
 problems drawer links straight to it: on an organisation that also rents
 runners elsewhere, most such jobs are somebody else's rather than a fault.
 
@@ -215,8 +222,8 @@ throttle by hand once the cause is fixed. The edit dialog's note about the
 floors under a reserve names the CPU floor too: half a core, or a twentieth of
 the machine, held back for the daemon whatever the operator sets.
 
-![The Hosts page: fleet health and eligible slots, with a capacity map showing host state, slot use, CPU and memory commitments and disk free space](screenshots/hosts-dark.webp#only-dark){ .zoomies-shot }
-![The Hosts page: fleet health and eligible slots, with a capacity map showing host state, slot use, CPU and memory commitments and disk free space](screenshots/hosts-light.webp#only-light){ .zoomies-shot }
+![The Hosts page: fleet health and eligible slots, and the capacity map — every host's measured and committed utilisation on one chart over the last day, with the hosts and measurements to draw switched on and off beneath it](screenshots/hosts-dark.webp#only-dark){ .zoomies-shot }
+![The Hosts page: fleet health and eligible slots, and the capacity map — every host's measured and committed utilisation on one chart over the last day, with the hosts and measurements to draw switched on and off beneath it](screenshots/hosts-light.webp#only-light){ .zoomies-shot }
 
 ## Providers
 
@@ -366,6 +373,10 @@ that already exists.
 | Resume | Restore normal demand and clear Run now priority. Also restores deleted items. |
 | Delete from queue | Suppress demand persistently. Use the Deleted view to find and restore it. |
 | Run now | Resume and expedite demand within the pool's priority tier, bypassing the scale-up delay. |
+
+All four are buttons on the row itself, one press each, as well as on the bulk
+bar for a selection. An action already in force is disabled and says why. On the
+keyboard a row's buttons are one stop, with the arrow keys moving along them.
 
 These controls do not cancel GitHub jobs or retract provisioning tasks already
 issued to agents. Pool minimums and normal runner lifecycle rules still apply;

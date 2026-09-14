@@ -222,7 +222,7 @@
       : []),
     {
       id: 'capacity',
-      label: 'Adjust runner capacity',
+      label: 'Adjust capacity and reserve',
       icon: Gauge,
       disabled: !canOperate,
       onSelect: () => oncapacity(host),

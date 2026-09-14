@@ -353,18 +353,21 @@
       {
         id: 'target',
         header: 'Target',
+        priority: 'wide',
         sortable: true,
         value: (row) => row.installation_target ?? '',
       },
       {
         id: 'backend',
         header: 'Backend',
+        priority: 'wide',
         sortable: true,
         value: (row) => backendLabel(row.backend),
       },
       {
         id: 'platform',
         header: 'Platform',
+        priority: 'wide',
         sortable: true,
         value: (row) => platformLabelOrAny(row.platform),
       },
@@ -379,6 +382,7 @@
       {
         id: 'queued',
         header: 'Queued',
+        priority: 'wide',
         sortable: true,
         align: 'end',
         width: '6rem',
@@ -388,6 +392,7 @@
       {
         id: 'idle_timeout',
         header: 'Idle timeout',
+        priority: 'wide',
         sortable: true,
         align: 'end',
         value: (row) => formatGoDuration(row.idle_timeout),
@@ -395,11 +400,13 @@
       {
         id: 'ephemeral',
         header: 'Lifetime',
+        priority: 'wide',
         value: (row) => (row.ephemeral === false ? 'Reused' : 'One job'),
       },
       {
         id: 'docker_mode',
         header: 'Docker',
+        priority: 'wide',
         value: (row) => dockerModeLabel(row.docker_mode),
       },
       {
@@ -415,6 +422,9 @@
       list.push({
         id: 'actions',
         header: 'Actions',
+        fixed: true,
+        // The menu is anchored in this cell, so the cell must let it out.
+        overflows: true,
         hideable: false,
         align: 'end',
         width: '5rem',

@@ -92,6 +92,7 @@ export type JobEvent = Schemas['JobEvent'];
 export type JobEventKind = Schemas['JobEventKind'];
 export type BackendInfo = Schemas['BackendInfo'];
 export type Host = Schemas['Host'];
+export type HostSample = Schemas['HostSample'];
 export type HostThrottle = Schemas['HostThrottle'];
 export type HostExclusion = Schemas['HostExclusion'];
 export type JoinToken = Schemas['JoinToken'];

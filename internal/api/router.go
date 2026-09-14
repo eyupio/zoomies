@@ -180,6 +180,8 @@ func (s *Server) apiRoutes() chi.Router {
 		// Hosts and enrolment.
 		r.Route("/hosts", func(r chi.Router) {
 			r.With(s.require(auth.ActionHostsRead)).Get("/", s.handleListHosts)
+			// Before /{id}, or chi would look for a host whose id is "samples".
+			r.With(s.require(auth.ActionHostsRead)).Get("/samples", s.handleListHostSamples)
 			r.With(s.require(auth.ActionHostsRead)).Get("/{id}", s.handleGetHost)
 			r.With(s.require(auth.ActionHostsWrite)).Patch("/{id}", s.handleUpdateHost)
 			r.With(s.require(auth.ActionHostsCordon)).Post("/{id}/cordon", s.handleCordonHost)

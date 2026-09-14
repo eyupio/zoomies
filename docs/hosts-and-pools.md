@@ -29,8 +29,8 @@ machine without touching a pool, and add a pool without touching a machine.
 
 ## Adding a host
 
-![The Hosts page: fleet health and eligible slots, with a capacity map showing host state, slot use, CPU and memory commitments and disk free space](screenshots/hosts-dark.webp#only-dark){ .zoomies-shot }
-![The Hosts page: fleet health and eligible slots, with a capacity map showing host state, slot use, CPU and memory commitments and disk free space](screenshots/hosts-light.webp#only-light){ .zoomies-shot }
+![The Hosts page: fleet health and eligible slots, and the capacity map — every host's measured and committed utilisation on one chart over the last day, with the hosts and measurements to draw switched on and off beneath it](screenshots/hosts-dark.webp#only-dark){ .zoomies-shot }
+![The Hosts page: fleet health and eligible slots, and the capacity map — every host's measured and committed utilisation on one chart over the last day, with the hosts and measurements to draw switched on and off beneath it](screenshots/hosts-light.webp#only-light){ .zoomies-shot }
 
 **Hosts → Add a host** in the UI does the whole thing on one page: it mints a
 join token and prints the command to paste on the new machine, already filled in

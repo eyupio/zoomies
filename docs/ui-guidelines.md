@@ -515,6 +515,7 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 | `RelativeTime` | "4m ago", absolute ISO timestamp in the tooltip, updates itself |
 | `Duration` | humanised, tabular numerals |
 | `Sparkline` | inline SVG, no chart library, `role="img"` with a text summary |
+| `Slider` | the browser's own range control between notches, with the recommended notch ringed and words at the ones worth naming; a second row when two would collide. `aria-valuetext` says the value in the same words the readout shows |
 | `UtilisationBar` | busy/live with min and max ticks |
 | `ConfirmDialog` | destructive confirmation that **names the thing** ("Delete pool `linux-x64`? 3 runners will be drained.") and requires typing the name for anything irreversible |
 
@@ -522,7 +523,8 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 
 | Component | Notes |
 | --- | --- |
-| `DataGrid` | TanStack Table core + our own markup. Server-side pagination, sorting and filtering; column show/hide persisted per grid; sticky header; row selection with a bulk action bar; full keyboard navigation (`↑ ↓` rows, `Enter` opens, `Space` selects, `Shift+↑/↓` range) |
+| `DataGrid` | TanStack Table core + our own markup. Server-side pagination, sorting and filtering; column show/hide persisted per grid; sticky header; row selection with a bulk action bar; full keyboard navigation (`↑ ↓` rows, `Enter` opens, `Space` selects, `Shift+↑/↓` range); never scrolls sideways — see *Tables fit the window* |
+| `RowActions` | a row's actions as buttons rather than a menu, as an ARIA toolbar: one tab stop per row, `← →` along it, and every button's name carries what it acts on |
 | `FilterBar` | chips for active filters, each individually removable, plus a clear-all |
 | `PageHeader` | title, subtitle, breadcrumb, primary action, and the refresh button where the page passes `onrefresh` |
 | `RefreshButton` | the one refresh: registers the page's handler so the button, `R` and the palette all run it; turning icon while it works |
@@ -665,11 +667,11 @@ ranges:
   Collapsing is a *desktop* idea and the phone must never inherit it — a bar
   along the bottom has nothing to collapse, and `.nav.collapsed` outranking the
   phone's own rules is what once made that bar 56px wide with every entry piled
-  into the corner. Metric tiles stack, a grid scrolls inside its own frame
-  rather than widening the page, text controls step up to
-  `--z-control-font-touch` so iOS does not zoom, and every control stays usable:
-  the Playwright suite's mobile project runs the whole suite at this width,
-  drains and wizard included.
+  into the corner. Metric tiles stack, every table's rows become cards — read
+  down, one heading per line, nothing dropped and nothing truncated — text
+  controls step up to `--z-control-font-touch` so iOS does not zoom, and every
+  control stays usable: the Playwright suite's mobile project runs the whole
+  suite at this width, drains and wizard included.
 * `768–1180px` — **tablet.** The nav starts collapsed to icons unless the
   operator has chosen otherwise. That default is bounded at both ends, in
   `prefs.svelte.ts` and in the inline script in `index.html` that applies it
@@ -701,6 +703,43 @@ this on a phone" rule written to a width somebody eyeballed. They are all 768px
 now. A media query cannot say "above 1180" without naming the next pixel, so the
 one `min-width: 1181px` in `FleetMetrics.svelte` is the same threshold from the
 other side and carries a comment saying so.
+
+### Tables fit the window
+
+**No table in Zoomies scrolls sideways.** A table that does hides the column
+somebody is looking for behind a gesture they have no reason to try, and takes
+the row's name off the left edge the moment they do — so the value they scrolled
+to belongs to a row they can no longer name. `web/tests/tables.spec.ts` holds
+that true at 1440, 1180, 1179, 768, 412 and 360 pixels.
+
+Three things make it fit, in this order:
+
+* **The columns divide the frame.** The table is `table-layout: fixed`, and
+  `DataGrid` works out each column's width from the frame it measures rather
+  than from its content. A column's declared `width` is a *share* of that frame,
+  not a measure — `9.5rem` beside `4rem` means "a good deal wider", and both
+  shrink together on a smaller screen. A column of controls says `fixed: true`
+  and takes its width outright, because a button squeezed to two thirds of
+  itself is a button half outside its column; the columns of text divide what is
+  left. A cell too small for its content truncates and keeps the whole value in
+  its `title`.
+* **A narrow desktop shows fewer columns.** Twelve columns in the 660 pixels a
+  768px window leaves is 55 pixels each, which fits and says nothing. Between
+  `--z-bp-md` and `--z-bp-lg`, columns marked `priority: 'wide'` wait for a
+  window with the room to show them properly. Which ones those are is each
+  page's judgement: the columns that answer the page's own question stay.
+* **A phone reads down.** Below `--z-bp-md` every row becomes a card and every
+  cell carries its own heading, taken from its `data-label` — the shape the
+  usage report and the Hosts page already had. Nothing is dropped and nothing is
+  truncated; a `wide` column is back, because a card has a line for it. Two
+  things a heading row does that a card cannot are kept as a strip above the
+  cards: the sort, and the tick that takes every row on the page. The rest of
+  the heading row stays in the document, out of the layout, so a screen reader
+  still has a column header to associate each cell with.
+
+The same card layout is written out by hand in the tables that are not grids —
+the usage report, the accounts and API-token lists, the outstanding join tokens.
+A new table of any size belongs in one of those two places.
 
 ---
 

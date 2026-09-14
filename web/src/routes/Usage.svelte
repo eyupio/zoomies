@@ -448,6 +448,9 @@
   }
   table {
     width: 100%;
+    /* The frame decides the width and the columns divide it, so the report
+       never scrolls sideways -- see "Tables fit the window". */
+    table-layout: fixed;
     border-collapse: collapse;
     font-size: var(--z-text-sm);
   }
@@ -455,14 +458,38 @@
   td {
     padding: var(--z-space-3) var(--z-space-4);
     text-align: left;
-    white-space: nowrap;
+    /*
+      Wrapped, not truncated. The column widths are settled by the fixed layout
+      above, so wrapping cannot widen the table -- and "Average queue wait" cut
+      to "Averag..." is a heading nobody can read, while a figure has no spaces
+      to wrap at and stays on its line regardless.
+    */
+    white-space: normal;
+    overflow: hidden;
+    text-overflow: ellipsis;
     border-bottom: var(--z-border-width) solid var(--z-border);
+  }
+  /* The key is the long one, and the only one worth more than its share:
+     every other column is a figure, and a figure cut short is the wrong
+     figure rather than a shorter one. The name itself stays on one line --
+     there is a whole card for it below the breakpoint -- and its title
+     carries the rest. */
+  .key-header,
+  th.key {
+    width: 20%;
+  }
+  th.key {
+    white-space: nowrap;
   }
   tbody tr:last-child th,
   tbody tr:last-child td {
     border-bottom: 0;
   }
   thead th {
+    /* A single long word -- "Completed", "Estimated cost" -- has nowhere to
+       wrap, and a heading cut to "COMPLE..." names nothing. Breaking it is the
+       lesser of the two. */
+    overflow-wrap: anywhere;
     font-size: var(--z-text-2xs);
     font-weight: var(--z-weight-medium);
     text-transform: uppercase;
@@ -510,12 +537,18 @@
     you scrolled to belongs to a row you can no longer name. Pinning the first
     column fixed only the last of those.
 
-    So on a phone each row becomes a card, which is what the Hosts page does
-    with the same problem, and each figure carries its own heading. Nothing is
-    dropped and nothing is truncated; the report simply reads down instead of
-    across.
+    So each row becomes a card, which is what the Hosts page does with the same
+    problem, and each figure carries its own heading. Nothing is dropped and
+    nothing is truncated; the report simply reads down instead of across.
+
+    It reads down for longer than a phone, unlike every other table in the
+    product. Ten columns is 79 pixels each in the 794 a 900px window leaves,
+    and a number squeezed to eight characters is not a smaller number -- it is
+    the wrong one. The same argument that makes this a card on a phone makes it
+    a card on a laptop's half-screen window, so the threshold here is
+    `--z-bp-lg` rather than `--z-bp-md`.
   */
-  @media (max-width: 768px) {
+  @media (max-width: 1179px) {
     .frame {
       border: 0;
       background: none;

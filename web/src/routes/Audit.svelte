@@ -307,7 +307,14 @@
       cell: actionCell,
     },
     { id: 'target', header: 'Target', value: (row) => row.target_id ?? '', cell: targetCell },
-    { id: 'ip', header: 'From', width: '9rem', value: (row) => row.ip ?? '', cell: ipCell },
+    {
+      id: 'ip',
+      header: 'From',
+      priority: 'wide',
+      width: '9rem',
+      value: (row) => row.ip ?? '',
+      cell: ipCell,
+    },
   ]);
 </script>
 

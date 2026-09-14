@@ -10,7 +10,7 @@ and links that explain the work visible on each page.
 | Pools | Matched queue depth, enabled/disabled totals, pools at their configured ceiling, ranked demand and headroom |
 | Pool and runner detail | Pool queue depth, live runner state, headroom, provisioning state and links to the corresponding queue and usage report |
 | Jobs | Current queue/running counts, completion outcomes as a bar whose segments are ways into the jobs they count, P95 queue wait and the same fleet trend |
-| Hosts | Eligible slot headroom, resource commitment map, disk-free context and direct access to host controls and usage history |
+| Hosts | Eligible slot headroom, then the capacity map: every host's utilisation on one chart, live and over the last hour, six hours, day or week — measured CPU, memory and load beside committed CPU, memory, runner slots and disk, each as a share of the machine — with the hosts and measurements to draw toggled beneath it, a crosshair and card for any moment, and each host's row leading to its controls and usage history |
 | Overview | The activity matrix across the top: a year of days as a contribution graph, coloured by outcome, queue depth, runner time or capacity pressure, with a tooltip per square and an hourly breakdown per selected day; then a compact host capacity map beside existing fleet, pool, scaling and outcome information |
 | Installations | Connection health, dependent pool totals, low API quota count and per-connection quota meters |
 
