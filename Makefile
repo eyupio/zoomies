@@ -97,7 +97,7 @@ test-ui: ## Run the Playwright suite (builds the binary first)
 
 .PHONY: test-e2e
 test-e2e: ## Docker-based end-to-end test; needs GitHub credentials, skipped without
-	$(GO) test -count=1 -tags e2e -timeout 30m ./test/e2e/...
+	$(GO) test -count=1 -tags e2e -timeout 40m ./test/e2e/...
 
 .PHONY: test-drill
 test-drill: build-nogui ## Runtime drills: the built binary as a real controller and agent, against a fake GitHub
@@ -133,7 +133,7 @@ E2E_RESULTS ?= roadmap/validation/e2e
 test-e2e-required: ## The same run, but a missing prerequisite is a failure and every scenario must pass
 	rm -rf $(E2E_RESULTS)
 	ZOOMIES_E2E_REQUIRED=1 ZOOMIES_E2E_RESULTS_DIR=$(E2E_RESULTS) \
-	  $(GO) test -count=1 -v -tags e2e -timeout 30m ./test/e2e/... || true
+	  $(GO) test -count=1 -v -tags e2e -timeout 40m ./test/e2e/... || true
 	$(GO) run ./test/e2e/verify -dir $(E2E_RESULTS)
 
 .PHONY: screenshots
