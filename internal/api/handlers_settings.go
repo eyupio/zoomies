@@ -53,6 +53,7 @@ import (
 // and all four had drifted.
 type settingView struct {
 	Key     string   `json:"key"`
+	Label   string   `json:"label"`
 	Section string   `json:"section"`
 	Kind    string   `json:"kind"`
 	Choices []string `json:"choices,omitempty"`
@@ -201,6 +202,7 @@ func (s *Server) settingViews(rows []store.InstanceSetting, pending []string) []
 
 		v := settingView{
 			Key:           st.Key,
+			Label:         st.Label,
 			Section:       st.Section(),
 			Kind:          string(st.Kind),
 			Choices:       st.Choices,
@@ -248,7 +250,7 @@ func (s *Server) editable(st config.Setting, c *config.Config) (bool, string) {
 	}
 	if c.Source(st.Key) == config.SourceEnvironment {
 		return false, fmt.Sprintf(
-			"%s is setting this in the environment, and the environment is the last word. A change made here would be stored and then overridden at the next restart, so unset the variable first -- or change it where it is set.",
+			"%s is setting this in the environment, and the environment is the last word. A change made here would be stored and then overridden at the next restart, so unset the variable first \u2014 or change it where it is set.",
 			st.Env)
 	}
 	return true, ""
@@ -407,22 +409,29 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Would the controller this makes still start? The validator answers for
-	// the whole configuration, so its errors are attributed to the key they
-	// name when they name one of ours, and reported against the request as a
-	// whole when they do not.
+	// Would this change leave a controller that will not start?
+	//
+	// Only the errors this request introduces count. An instance can already be
+	// running with one -- a deployment that disabled authentication and later
+	// gained an external URL is the common way -- and refusing every edit on
+	// that instance would lock the operator out of the settings page that is
+	// the one place they could fix it. So the validator is run twice and the
+	// difference is what is refused.
 	candidate.Normalize()
-	if errs := candidate.Validate().Errors(); len(errs) > 0 {
+	if introduced := newErrors(current, &candidate); len(introduced) > 0 {
 		changed := map[string]bool{}
 		for _, ch := range staged {
 			changed[ch.setting.Key] = true
 		}
-		for _, f := range errs {
+		for _, f := range introduced {
 			field := f.Setting
 			if !changed[field] {
+				// The error is about a setting this request did not touch, so
+				// it belongs to the request rather than to a field: it is the
+				// combination that is wrong.
 				field = ""
 			}
-			fields = append(fields, fieldError{field, f.Title + " " + f.Fix})
+			fields = append(fields, fieldError{field, findingSentence(f)})
 		}
 		unprocessable(w, "that would leave a controller that will not start", fields)
 		return
@@ -491,6 +500,33 @@ func (s *Server) writeSettings(ctx context.Context, by string, staged []change) 
 		return err
 	}
 	return s.ctrl.Store().DeleteInstanceSettings(ctx, clear)
+}
+
+// newErrors returns the validation errors the candidate has and the running
+// configuration does not, matched by code and setting so that the same error
+// moving from one setting to another still counts as new.
+func newErrors(running, candidate *config.Config) config.Findings {
+	had := map[string]bool{}
+	for _, f := range running.Validate().Errors() {
+		had[f.Code+"\x00"+f.Setting] = true
+	}
+	var out config.Findings
+	for _, f := range candidate.Validate().Errors() {
+		if !had[f.Code+"\x00"+f.Setting] {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// findingSentence puts a validator finding into one line an operator can act
+// on: what is true, then what to do about it.
+func findingSentence(f config.Finding) string {
+	title := strings.TrimRight(f.Title, ".")
+	if f.Fix == "" {
+		return title + "."
+	}
+	return title + ". " + f.Fix
 }
 
 func sortedKeys(m map[string]any) []string {

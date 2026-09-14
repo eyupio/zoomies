@@ -3930,9 +3930,10 @@ components:
       description: >-
         One configuration key: what it is, what this controller is running, where
         that value came from, and whether an administrator may change it here.
-      required: [key, section, kind, summary, secret, configured, source, env, stored, editable, scope, live, pending]
+      required: [key, label, section, kind, summary, secret, configured, source, env, stored, editable, scope, live, pending]
       properties:
         key: { type: string, description: The dotted key, spelled as it is in zoomies.yaml., examples: ["scheduler.interval"] }
+        label: { type: string, description: The setting's name in prose, for a person reading a form., examples: ["Scheduler interval"] }
         section: { type: string, description: The part before the first dot, which the UI groups under., examples: ["scheduler"] }
         kind:
           type: string

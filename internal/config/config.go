@@ -880,3 +880,17 @@ func parseKV(v string) (map[string]string, error) {
 // assigning into a copy and has to derive the rest of it before asking the
 // validator whether the result would start.
 func (c *Config) Normalize() { c.normalize() }
+
+// readFile and decodeYAML are Load's two halves, separated so the seed importer
+// can read the same file the same strict way without also applying the
+// environment over it -- which is exactly what it must not do.
+func readFile(path string) ([]byte, error) { return os.ReadFile(path) }
+
+func decodeYAML(doc []byte, into *Config) error {
+	dec := yaml.NewDecoder(strings.NewReader(string(doc)))
+	dec.KnownFields(true)
+	if err := dec.Decode(into); err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	return nil
+}

@@ -105,6 +105,10 @@ func runController(ctx context.Context, e *env, args []string) error {
 	// Now the whole configuration exists: the file underneath, this fleet's
 	// own settings over it, and the environment over both. Everything from
 	// here reads the assembled thing.
+	seeded, err := seedSettingsFromFile(ctx, st, cfg, key, log)
+	if err != nil {
+		return err
+	}
 	stored, err := st.InstanceSettings(ctx)
 	if err != nil {
 		return err
@@ -116,7 +120,8 @@ func runController(ctx context.Context, e *env, args []string) error {
 	log.Info("configuration assembled",
 		"file", configSource(cfg), "stored", len(stored), "pinned_by_environment", len(cfg.PinnedByEnvironment()))
 
-	findings := append(storedFindings, cfg.Validate()...)
+	findings := append(storedFindings, seeded...)
+	findings = append(findings, cfg.Validate()...)
 	printFindings(e.err, findings)
 	if err := findings.Err(); err != nil {
 		return err
@@ -359,6 +364,63 @@ func loadOrCreateKey(ctx context.Context, st *store.Store, cfg *config.Config, l
 		"detail", "it is the only copy, and without it the stored GitHub App private keys and webhook secrets cannot be decrypted",
 		"fix", "back up "+path+" now, alongside your database")
 	return key, nil
+}
+
+// seedSettingsFromFile carries an existing zoomies.yaml into the database, once.
+//
+// It is the upgrade path. An instance that has been running on a configuration
+// file meets this build with an empty settings table, and without this it would
+// get a settings page showing every value as "From the file" and offering to
+// store a second copy of each one. Instead the file's settings are copied in,
+// the file stays as the layer underneath them, and nothing about what the
+// controller is running changes -- the operator simply gains the ability to
+// change them.
+//
+// It happens once and leaves a note saying so, in the store's own settings
+// table rather than in the fleet's: an operator who then clears every setting
+// back to its defaults must not have the file silently poured back in at the
+// next start.
+func seedSettingsFromFile(ctx context.Context, st *store.Store, cfg *config.Config, key *cryptox.Key, log *slog.Logger) (config.Findings, error) {
+	if cfg.Path() == "" {
+		return nil, nil
+	}
+	done, err := st.GetSetting(ctx, config.SeedKey)
+	if err != nil {
+		return nil, err
+	}
+	if done != "" {
+		return nil, nil
+	}
+	// A database that already holds settings was configured through the API, so
+	// there is nothing to import and the file is not in charge of it.
+	if has, err := st.HasInstanceSettings(ctx); err != nil {
+		return nil, err
+	} else if has {
+		return nil, st.SetSetting(ctx, config.SeedKey, "skipped: settings were already stored", false)
+	}
+
+	rows, err := config.SeedFromFile(cfg, key)
+	if err != nil {
+		// A file this process has already parsed cannot fail to parse here, so
+		// this is a read error -- worth saying, not worth refusing to start
+		// over, since the file is still the layer underneath.
+		log.Warn("could not import the configuration file into the database",
+			"path", cfg.Path(), "error", err)
+		return nil, nil
+	}
+	if len(rows) == 0 {
+		return nil, st.SetSetting(ctx, config.SeedKey, "skipped: the file set nothing that belongs in the database", false)
+	}
+	if err := st.PutInstanceSettings(ctx, "the configuration file", rows); err != nil {
+		return nil, err
+	}
+	if err := st.SetSetting(ctx, config.SeedKey, cfg.Path(), false); err != nil {
+		return nil, err
+	}
+	log.Info("imported the configuration file into the database",
+		"path", cfg.Path(), "settings", len(rows),
+		"detail", "they can now be changed on the settings page, and the file remains the layer underneath them")
+	return config.Findings{config.SeedFinding(cfg.Path(), len(rows))}, nil
 }
 
 // socketExists reports whether a unix socket path is present. A TCP endpoint

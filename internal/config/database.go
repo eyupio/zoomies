@@ -65,7 +65,7 @@ func ApplyStored(cfg *Config, rows []store.InstanceSetting, key *cryptox.Key) Fi
 				Severity: SeverityWarning,
 				Setting:  row.Key,
 				Title:    fmt.Sprintf("The stored value for %s cannot be used", row.Key),
-				Detail: fmt.Sprintf("It %s, so this controller is running the value underneath it instead -- "+
+				Detail: fmt.Sprintf("It %s, so this controller is running the value underneath it instead \u2014 "+
 					"whichever of the configuration file and the built-in default applies.", reason),
 				Fix: fmt.Sprintf("Set %s again on the settings page, or clear it with `zoomies config unset %s`.", row.Key, row.Key),
 			})
@@ -82,7 +82,7 @@ func ApplyStored(cfg *Config, rows []store.InstanceSetting, key *cryptox.Key) Fi
 			Title:    fmt.Sprintf("%s stored that this version does not have", countOf(len(unknown), "One setting is", "settings are")),
 			Detail: "They are kept untouched, so a controller upgraded again picks them up where it left off: " +
 				strings.Join(unknown, ", ") + ".",
-			Fix: "Nothing, unless they were meant for this version -- in which case check the spelling on the settings page.",
+			Fix: "Nothing, unless they were meant for this version \u2014 in which case check the spelling on the settings page.",
 		})
 	}
 	if len(unreadable) > 0 {
@@ -227,4 +227,75 @@ func countOf(n int, one, many string) string {
 		return one
 	}
 	return fmt.Sprintf("%d %s", n, many)
+}
+
+// SeedKey is the row that records the one-time import of a configuration file
+// into the database. It lives in the store's own settings table rather than in
+// instance_settings, because it is a fact the product keeps about itself and
+// not a setting anybody may change.
+const SeedKey = "config.file_imported"
+
+// SeedFromFile returns the rows that carry a configuration file's settings into
+// the database, so an instance upgraded into this design keeps running exactly
+// as it did and gains a settings page that works.
+//
+// Only what the file actually spells is taken. A key it never mentioned is left
+// alone, because the defaults are computed on the host that reads them -- the
+// database path from the state directory, the agent's capacity from the number
+// of cores, its name from the machine -- and freezing one host's answers into
+// rows would quietly make every later host inherit them.
+//
+// A key the environment is pinning is taken too. The value stored is the one
+// the file gave, not the one the environment is currently winning with: the
+// import is a copy of the file, and writing the environment's value would turn
+// a temporary override into a permanent setting the moment somebody unset the
+// variable.
+func SeedFromFile(cfg *Config, key *cryptox.Key) ([]store.InstanceSetting, error) {
+	fromFile := &Config{path: cfg.path}
+	if cfg.path == "" {
+		return nil, nil
+	}
+	doc, err := readFile(cfg.path)
+	if err != nil {
+		return nil, err
+	}
+	if err := decodeYAML(doc, fromFile); err != nil {
+		return nil, err
+	}
+
+	var rows []store.InstanceSetting
+	for _, spelled := range keysIn(doc) {
+		s, ok := LookupSetting(spelled)
+		if !ok || !s.Stored() {
+			continue
+		}
+		value, err := fromFile.Value(spelled)
+		if err != nil {
+			continue
+		}
+		row, err := EncodeStored(s, value, key)
+		if err != nil {
+			// A credential with no key to seal it stays in the file, where it
+			// still works. Refusing the whole import over one of them would
+			// leave an upgraded instance with no settings at all.
+			continue
+		}
+		rows = append(rows, row)
+	}
+	sort.Slice(rows, func(i, j int) bool { return CompareKeys(rows[i].Key, rows[j].Key) < 0 })
+	return rows, nil
+}
+
+// SeedFinding says what the import did, so an operator who upgraded finds out
+// from the startup output rather than from a settings page that has quietly
+// changed hands.
+func SeedFinding(path string, n int) Finding {
+	return Finding{
+		Code:     "settings.imported_from_file",
+		Severity: SeverityInfo,
+		Title:    fmt.Sprintf("%s moved into this fleet's database", countOf(n, "One setting from "+path+" has", "settings from "+path+" have")),
+		Detail: "Settings now live in the database, so they can be changed on the settings page and kept. " +
+			"The file is still read as the layer underneath them, so nothing has changed about what this controller is running.",
+		Fix: "Nothing. The file can stay as it is; a value changed on the settings page takes precedence over it from now on.",
+	}
 }

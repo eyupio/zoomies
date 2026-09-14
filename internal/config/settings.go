@@ -93,6 +93,12 @@ const (
 type Setting struct {
 	// Key is the dotted path, spelled as it is in zoomies.yaml.
 	Key string `json:"key"`
+	// Label is the setting's name in prose, for a person reading a form.
+	// "agent.docker_build_cache_mb" is what it is called in a file and in a
+	// bug report; "Docker build cache target" is what it is called out loud,
+	// and a settings page that only offers the first makes an operator
+	// translate eighty-eight of them in their head.
+	Label string `json:"label"`
 	// Env is the ZOOMIES_* variable that overrides it.
 	Env string `json:"env"`
 	// Kind says how to parse and render the value.
@@ -140,68 +146,68 @@ var registry = buildRegistry([]Setting{
 	// server -- the listener, and how the world reaches it.
 	// ---------------------------------------------------------------------
 	{
-		Key: "server.bind", Env: "ZOOMIES_BIND", Kind: KindString, Scope: ScopeInstance,
+		Key: "server.bind", Label: "Listen address", Env: "ZOOMIES_BIND", Kind: KindString, Scope: ScopeInstance,
 		Summary:       "The address the controller listens on. 127.0.0.1:8080 is this machine only; 0.0.0.0:8080 is every interface.",
 		RestartReason: "the listener is already bound, and rebinding it under live connections is how a reload becomes an outage",
 	},
 	{
-		Key: "server.external_url", Env: "ZOOMIES_EXTERNAL_URL", Kind: KindString, Scope: ScopeInstance,
+		Key: "server.external_url", Label: "External URL", Env: "ZOOMIES_EXTERNAL_URL", Kind: KindString, Scope: ScopeInstance,
 		Summary:       "How GitHub and browsers reach this controller. It forms the webhook URL, so webhooks need it.",
 		RestartReason: "the shell's sharing metadata and the single sign-on redirect are built from it at startup",
 	},
 	{
-		Key: "server.tls.mode", Env: "ZOOMIES_TLS_MODE", Kind: KindEnum, Scope: ScopeInstance,
+		Key: "server.tls.mode", Label: "TLS", Env: "ZOOMIES_TLS_MODE", Kind: KindEnum, Scope: ScopeInstance,
 		Choices:       []string{string(TLSOff), string(TLSSelfSigned), string(TLSFiles)},
 		Summary:       "How the listener terminates TLS: off behind a reverse proxy, self-signed for a generated certificate, files for one of your own.",
 		RestartReason: "the certificate is handed to the listener when it is created",
 	},
 	{
-		Key: "server.tls.cert_file", Env: "ZOOMIES_TLS_CERT_FILE", Kind: KindString, Scope: ScopeInstance,
+		Key: "server.tls.cert_file", Label: "Certificate file", Env: "ZOOMIES_TLS_CERT_FILE", Kind: KindString, Scope: ScopeInstance,
 		Summary:       "The certificate the listener serves, when the mode is files.",
 		RestartReason: "the certificate is handed to the listener when it is created",
 	},
 	{
-		Key: "server.tls.key_file", Env: "ZOOMIES_TLS_KEY_FILE", Kind: KindString, Scope: ScopeInstance,
+		Key: "server.tls.key_file", Label: "Private key file", Env: "ZOOMIES_TLS_KEY_FILE", Kind: KindString, Scope: ScopeInstance,
 		Summary:       "The private key for that certificate. The file stays on disk; only its path is stored here.",
 		RestartReason: "the certificate is handed to the listener when it is created",
 	},
 	{
-		Key: "server.tls.hosts", Env: "ZOOMIES_TLS_HOSTS", Kind: KindStrings, Scope: ScopeInstance,
+		Key: "server.tls.hosts", Label: "Certificate host names", Env: "ZOOMIES_TLS_HOSTS", Kind: KindStrings, Scope: ScopeInstance,
 		Summary:       "The names baked into a generated self-signed certificate.",
 		RestartReason: "the certificate is generated once, at startup",
 	},
 	{
-		Key: "server.trusted_proxies", Env: "ZOOMIES_TRUSTED_PROXIES", Kind: KindStrings, Scope: ScopeInstance,
+		Key: "server.trusted_proxies", Label: "Trusted proxies", Env: "ZOOMIES_TRUSTED_PROXIES", Kind: KindStrings, Scope: ScopeInstance,
 		Summary:       "CIDRs whose X-Forwarded-For header is believed, or the word cloudflare for Cloudflare's published ranges. Empty takes client addresses from the socket, which is the safe answer.",
 		RestartReason: "the ranges are parsed once and consulted on every request",
 	},
 	{
-		Key: "server.allowed_origins", Env: "ZOOMIES_ALLOWED_ORIGINS", Kind: KindStrings, Scope: ScopeInstance,
+		Key: "server.allowed_origins", Label: "Allowed browser origins", Env: "ZOOMIES_ALLOWED_ORIGINS", Kind: KindStrings, Scope: ScopeInstance,
 		Summary:       "Extra browser origins allowed to make state-changing requests. Empty means same-origin only, which is what the built-in UI needs.",
 		RestartReason: "the list is compiled into the request middleware at startup",
 	},
 	{
-		Key: "server.allow_indexing", Env: "ZOOMIES_ALLOW_INDEXING", Kind: KindBool, Scope: ScopeInstance,
+		Key: "server.allow_indexing", Label: "Allow search engine indexing", Env: "ZOOMIES_ALLOW_INDEXING", Kind: KindBool, Scope: ScopeInstance,
 		Summary:       "Invite search engines into the UI. Off by default: a controller is somebody's infrastructure rather than somebody's website.",
 		RestartReason: "robots.txt is rendered once, with the rest of the shell",
 	},
 	{
-		Key: "server.tailcat_enabled", Env: "ZOOMIES_TAILCAT_ENABLED", Kind: KindBool, Scope: ScopeInstance,
+		Key: "server.tailcat_enabled", Label: "Private agent network", Env: "ZOOMIES_TAILCAT_ENABLED", Kind: KindBool, Scope: ScopeInstance,
 		Summary:       "Permit private agent connections, started on first enrolment.",
 		RestartReason: "the private network is joined at startup",
 	},
 	{
-		Key: "server.read_timeout", Env: "ZOOMIES_READ_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance,
+		Key: "server.read_timeout", Label: "Read timeout", Env: "ZOOMIES_READ_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance,
 		Summary:       "How long a client may take to send its request.",
 		RestartReason: "it is a field of the HTTP server, set when that server is built",
 	},
 	{
-		Key: "server.write_timeout", Env: "ZOOMIES_WRITE_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance,
+		Key: "server.write_timeout", Label: "Write timeout", Env: "ZOOMIES_WRITE_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance,
 		Summary:       "How long a response may take. It is 0, and should stay 0: the event stream and a followed log are responses that never end.",
 		RestartReason: "it is a field of the HTTP server, set when that server is built",
 	},
 	{
-		Key: "server.idle_timeout", Env: "ZOOMIES_IDLE_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance,
+		Key: "server.idle_timeout", Label: "Idle timeout", Env: "ZOOMIES_IDLE_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance,
 		Summary:       "How long an idle keep-alive connection is held open.",
 		RestartReason: "it is a field of the HTTP server, set when that server is built",
 	},
@@ -211,37 +217,37 @@ var registry = buildRegistry([]Setting{
 	// database, and the ones that guard the door.
 	// ---------------------------------------------------------------------
 	{
-		Key: "database.path", Env: "ZOOMIES_DB_PATH", Kind: KindString, Scope: ScopeBootstrap,
+		Key: "database.path", Label: "Database file", Env: "ZOOMIES_DB_PATH", Kind: KindString, Scope: ScopeBootstrap,
 		Summary:       "The SQLite file holding this fleet, including every setting below. It is named in the configuration file or the environment because nothing can read it from inside itself.",
 		RestartReason: "the database is open",
 	},
 	{
-		Key: "security.encryption_key", Env: "ZOOMIES_ENCRYPTION_KEY", Kind: KindString, Scope: ScopeBootstrap, Secret: true,
+		Key: "security.encryption_key", Label: "Encryption key", Env: "ZOOMIES_ENCRYPTION_KEY", Kind: KindString, Scope: ScopeBootstrap, Secret: true,
 		Summary:       "The 32-byte key, base64 or hex, that seals GitHub App private keys, webhook secrets and the stored credentials below. Prefer the key file or the environment variable: a key written into zoomies.yaml is a key in your configuration management system.",
 		RestartReason: "everything sealed in the database was sealed with the key this process started with",
 	},
 	{
-		Key: "security.encryption_key_file", Env: "ZOOMIES_ENCRYPTION_KEY_FILE", Kind: KindString, Scope: ScopeBootstrap,
+		Key: "security.encryption_key_file", Label: "Encryption key file", Env: "ZOOMIES_ENCRYPTION_KEY_FILE", Kind: KindString, Scope: ScopeBootstrap,
 		Summary:       "Where that key is read from, and written to on a first run. Back it up beside the database: without it the sealed rows cannot be read.",
 		RestartReason: "the key is read once, before anything that needs it",
 	},
 	{
-		Key: "security.session_ttl", Env: "ZOOMIES_SESSION_TTL", Kind: KindDuration, Scope: ScopeInstance,
+		Key: "security.session_ttl", Label: "Session lifetime", Env: "ZOOMIES_SESSION_TTL", Kind: KindDuration, Scope: ScopeInstance,
 		Summary:       "How long a browser login lasts before it has to be made again.",
 		RestartReason: "the authentication service takes its security settings when it is built",
 	},
 	{
-		Key: "security.cookie_secure", Env: "ZOOMIES_COOKIE_SECURE", Kind: KindOptionalBool, Scope: ScopeInstance,
+		Key: "security.cookie_secure", Label: "Secure session cookies", Env: "ZOOMIES_COOKIE_SECURE", Kind: KindOptionalBool, Scope: ScopeInstance,
 		Summary:       "Force the Secure attribute on session cookies. Unset derives it from the external URL and the TLS mode, which is right unless a proxy in front makes it wrong.",
 		RestartReason: "the authentication service takes its security settings when it is built",
 	},
 	{
-		Key: "security.disable_auth", Env: "ZOOMIES_DISABLE_AUTH", Kind: KindBool, Scope: ScopeInstance,
+		Key: "security.disable_auth", Label: "Disable authentication", Env: "ZOOMIES_DISABLE_AUTH", Kind: KindBool, Scope: ScopeInstance,
 		Summary:       "Remove all authentication. It exists for local development, and it is refused wherever this controller looks reachable.",
 		RestartReason: "the authentication service takes its security settings when it is built",
 	},
 	{
-		Key: "security.rate_limit_logins", Env: "ZOOMIES_RATE_LIMIT_LOGINS", Kind: KindInt, Scope: ScopeInstance,
+		Key: "security.rate_limit_logins", Label: "Login attempts per minute", Env: "ZOOMIES_RATE_LIMIT_LOGINS", Kind: KindInt, Scope: ScopeInstance,
 		Summary:       "Password attempts allowed per source address per minute, and five times that per account.",
 		RestartReason: "the limiters are built with their limit when the authentication service is",
 	},
@@ -250,37 +256,37 @@ var registry = buildRegistry([]Setting{
 	// github
 	// ---------------------------------------------------------------------
 	{
-		Key: "github.api_base_url", Env: "ZOOMIES_GITHUB_API_BASE_URL", Kind: KindString, Scope: ScopeInstance, Live: true,
+		Key: "github.api_base_url", Label: "GitHub API base URL", Env: "ZOOMIES_GITHUB_API_BASE_URL", Kind: KindString, Scope: ScopeInstance, Live: true,
 		Summary: "https://api.github.com for github.com, or your Enterprise Server's /api/v3. It is the default for a new installation; each existing one keeps the base it was added with.",
 	},
 	{
-		Key: "github.upload_base_url", Env: "ZOOMIES_GITHUB_UPLOAD_BASE_URL", Kind: KindString, Scope: ScopeInstance, Live: true,
+		Key: "github.upload_base_url", Label: "GitHub upload base URL", Env: "ZOOMIES_GITHUB_UPLOAD_BASE_URL", Kind: KindString, Scope: ScopeInstance, Live: true,
 		Summary: "The upload endpoint, when your Enterprise Server puts it somewhere other than beside the API.",
 	},
 	{
-		Key: "github.webhook_path", Env: "ZOOMIES_WEBHOOK_PATH", Kind: KindString, Scope: ScopeInstance,
+		Key: "github.webhook_path", Label: "Webhook path", Env: "ZOOMIES_WEBHOOK_PATH", Kind: KindString, Scope: ScopeInstance,
 		Summary:       "The path GitHub posts deliveries to. Changing it means changing the App's webhook URL too.",
 		RestartReason: "the route is mounted once, when the router is built",
 	},
 	{
-		Key: "github.poll_interval", Env: "ZOOMIES_POLL_INTERVAL", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "github.poll_interval", Label: "Poll interval", Env: "ZOOMIES_POLL_INTERVAL", Kind: KindDuration, Scope: ScopeInstance, Live: true,
 		Summary: "How often the fallback poller looks for queued jobs.",
 	},
 	{
-		Key: "github.poll_fallback", Env: "ZOOMIES_POLL_FALLBACK", Kind: KindBool, Scope: ScopeInstance,
+		Key: "github.poll_fallback", Label: "Poll for queued jobs", Env: "ZOOMIES_POLL_FALLBACK", Kind: KindBool, Scope: ScopeInstance,
 		Summary:       "List queued jobs on a timer as well as waiting for webhooks. On by default: a controller that silently stops scaling because a webhook was misconfigured is worse than a few extra API calls.",
 		RestartReason: "the poll loop stops when it is turned off and is started again at startup",
 	},
 	{
-		Key: "github.allow_workflow_cancellation", Env: "ZOOMIES_ALLOW_WORKFLOW_CANCELLATION", Kind: KindBool, Scope: ScopeInstance, Live: true,
+		Key: "github.allow_workflow_cancellation", Label: "Allow cancelling workflow runs", Env: "ZOOMIES_ALLOW_WORKFLOW_CANCELLATION", Kind: KindBool, Scope: ScopeInstance, Live: true,
 		Summary: "Let operators ask GitHub to cancel the workflow run that owns a job. Turning it off is what a read-only Actions grant wants.",
 	},
 	{
-		Key: "github.runner_image", Env: "ZOOMIES_RUNNER_IMAGE", Kind: KindString, Scope: ScopeInstance, Live: true,
+		Key: "github.runner_image", Label: "Default runner image", Env: "ZOOMIES_RUNNER_IMAGE", Kind: KindString, Scope: ScopeInstance, Live: true,
 		Summary: "The container image a new pool runs when it names neither an image nor an operating system.",
 	},
 	{
-		Key: "github.runner_version", Env: "ZOOMIES_RUNNER_VERSION", Kind: KindString, Scope: ScopeInstance, Live: true,
+		Key: "github.runner_version", Label: "Pinned runner release", Env: "ZOOMIES_RUNNER_VERSION", Kind: KindString, Scope: ScopeInstance, Live: true,
 		Summary: "Pin the actions/runner release. Empty tracks whatever the image carries.",
 	},
 
@@ -288,78 +294,78 @@ var registry = buildRegistry([]Setting{
 	// agent -- the runner-executing half.
 	// ---------------------------------------------------------------------
 	{
-		Key: "agent.embedded", Env: "ZOOMIES_AGENT_EMBEDDED", Kind: KindBool, Scope: ScopeInstance,
+		Key: "agent.embedded", Label: "Run an agent in this controller", Env: "ZOOMIES_AGENT_EMBEDDED", Kind: KindBool, Scope: ScopeInstance,
 		Summary:       "Run an agent inside this controller, so a single machine needs one process. Off makes a controller that schedules runners onto other hosts and starts none itself.",
 		RestartReason: "the backends and the agent are built at startup, and runners are already running against them",
 	},
 	{
-		Key: "agent.name", Env: "ZOOMIES_AGENT_NAME", Kind: KindString, Scope: ScopeInstance,
+		Key: "agent.name", Label: "Host name", Env: "ZOOMIES_AGENT_NAME", Kind: KindString, Scope: ScopeInstance,
 		Summary:       "What this host is called in the fleet. Empty names it after the machine it is on.",
 		RestartReason: "the host row is claimed under this name when the agent enrols",
 	},
 	{
-		Key: "agent.capacity", Env: "ZOOMIES_AGENT_CAPACITY", Kind: KindInt, Scope: ScopeInstance,
+		Key: "agent.capacity", Label: "Runners per host", Env: "ZOOMIES_AGENT_CAPACITY", Kind: KindInt, Scope: ScopeInstance,
 		Summary:       "How many runners this host will hold at once. It defaults to one per two cores, which leaves the machine room to breathe.",
 		RestartReason: "the agent reports its capacity when it enrols",
 	},
 	{
-		Key: "agent.backend", Env: "ZOOMIES_AGENT_BACKEND", Kind: KindEnum, Scope: ScopeInstance,
+		Key: "agent.backend", Label: "Runner backend", Env: "ZOOMIES_AGENT_BACKEND", Kind: KindEnum, Scope: ScopeInstance,
 		Choices:       []string{"docker", "podman", "process"},
 		Summary:       "What a runner runs in: a Docker container, a Podman container, or a bare process on this host.",
 		RestartReason: "the backend is built at startup, and runners are already running against it",
 	},
 	{
-		Key: "agent.docker_host", Env: "ZOOMIES_DOCKER_HOST", Kind: KindString, Scope: ScopeInstance,
+		Key: "agent.docker_host", Label: "Docker socket", Env: "ZOOMIES_DOCKER_HOST", Kind: KindString, Scope: ScopeInstance,
 		Summary:       "The Docker or Podman socket. Empty finds one, preferring a rootless socket over the root one.",
 		RestartReason: "the backend is built at startup, and runners are already running against it",
 	},
 	{
-		Key: "agent.work_dir", Env: "ZOOMIES_WORK_DIR", Kind: KindString, Scope: ScopeInstance,
+		Key: "agent.work_dir", Label: "Working directory", Env: "ZOOMIES_WORK_DIR", Kind: KindString, Scope: ScopeInstance,
 		Summary:       "Where runner working directories and the agent's own credentials live.",
 		RestartReason: "the agent's credentials are read from it at startup",
 	},
 	{
-		Key: "agent.labels", Env: "ZOOMIES_AGENT_LABELS", Kind: KindLabels, Scope: ScopeInstance,
+		Key: "agent.labels", Label: "Host labels", Env: "ZOOMIES_AGENT_LABELS", Kind: KindLabels, Scope: ScopeInstance,
 		Summary:       "Key=value labels describing this host, which a pool can require of the hosts it runs on.",
 		RestartReason: "the labels are reported when the agent enrols",
 	},
 	{
-		Key: "agent.network", Env: "ZOOMIES_AGENT_NETWORK", Kind: KindString, Scope: ScopeInstance,
+		Key: "agent.network", Label: "Container network", Env: "ZOOMIES_AGENT_NETWORK", Kind: KindString, Scope: ScopeInstance,
 		Summary:       "An existing container network to attach runners to. Empty uses the daemon's default bridge.",
 		RestartReason: "the backend is built with it, and runners are already attached",
 	},
 	{
-		Key: "agent.heartbeat_interval", Env: "ZOOMIES_HEARTBEAT_INTERVAL", Kind: KindDuration, Scope: ScopeInstance,
+		Key: "agent.heartbeat_interval", Label: "Heartbeat interval", Env: "ZOOMIES_HEARTBEAT_INTERVAL", Kind: KindDuration, Scope: ScopeInstance,
 		Summary:       "How often an agent reports in. A host that goes quiet for 90 seconds is counted lost, so this has to be comfortably under that.",
 		RestartReason: "the agent's heartbeat timer is set when it starts",
 	},
 	{
-		Key: "agent.finished_retention", Env: "ZOOMIES_AGENT_FINISHED_RETENTION", Kind: KindDuration, Scope: ScopeInstance,
+		Key: "agent.finished_retention", Label: "Keep finished containers for", Env: "ZOOMIES_AGENT_FINISHED_RETENTION", Kind: KindDuration, Scope: ScopeInstance,
 		Summary:       "How long a finished runner's container stays on the host before the agent deletes it. It is the window for reading a finished runner's log, and it is host disk: 0 deletes on the next pass.",
 		RestartReason: "the agent is told its retention when it starts",
 	},
 	{
-		Key: "agent.docker_build_cache_mb", Env: "ZOOMIES_AGENT_DOCKER_BUILD_CACHE_MB", Kind: KindInt, Scope: ScopeInstance,
+		Key: "agent.docker_build_cache_mb", Label: "Docker build cache target", Env: "ZOOMIES_AGENT_DOCKER_BUILD_CACHE_MB", Kind: KindInt, Scope: ScopeInstance,
 		Summary:       "The target size for unused Docker builder cache. 0 leaves a shared or externally managed daemon alone.",
 		RestartReason: "the agent is told its cache target when it starts",
 	},
 	{
-		Key: "agent.registry_auth", Env: "ZOOMIES_REGISTRY_AUTH", Kind: KindString, Scope: ScopeInstance, Secret: true,
+		Key: "agent.registry_auth", Label: "Registry credentials", Env: "ZOOMIES_REGISTRY_AUTH", Kind: KindString, Scope: ScopeInstance, Secret: true,
 		Summary:       "A base64 X-Registry-Auth value the container backends send when they pull. Without it a pool on a private registry cannot use pinned-only pulls at all.",
 		RestartReason: "the backend is built with it",
 	},
 	{
-		Key: "agent.runner_sha256", Env: "ZOOMIES_AGENT_RUNNER_SHA256", Kind: KindString, Scope: ScopeInstance,
+		Key: "agent.runner_sha256", Label: "Runner archive digest", Env: "ZOOMIES_AGENT_RUNNER_SHA256", Kind: KindString, Scope: ScopeInstance,
 		Summary:       "The expected digest of the actions/runner archive the process backend downloads. Zoomies ships the digest for the release it pins; supply one when you pin another.",
 		RestartReason: "the process backend is built with it",
 	},
 	{
-		Key: "agent.allow_unverified_runner_download", Env: "ZOOMIES_AGENT_ALLOW_UNVERIFIED_RUNNER_DOWNLOAD", Kind: KindBool, Scope: ScopeInstance,
+		Key: "agent.allow_unverified_runner_download", Label: "Allow unverified runner downloads", Env: "ZOOMIES_AGENT_ALLOW_UNVERIFIED_RUNNER_DOWNLOAD", Kind: KindBool, Scope: ScopeInstance,
 		Summary:       "Let the process backend install a runner archive whose digest it cannot check. The alternative to checking is executing whatever the network handed over.",
 		RestartReason: "the process backend is built with it",
 	},
 	{
-		Key: "agent.runner_download_url", Env: "ZOOMIES_AGENT_RUNNER_DOWNLOAD_URL", Kind: KindString, Scope: ScopeInstance,
+		Key: "agent.runner_download_url", Label: "Runner download mirror", Env: "ZOOMIES_AGENT_RUNNER_DOWNLOAD_URL", Kind: KindString, Scope: ScopeInstance,
 		Summary:       "Where the process backend fetches runner archives from, for hosts that mirror releases internally. The path below it is the same.",
 		RestartReason: "the process backend is built with it",
 	},
@@ -367,35 +373,35 @@ var registry = buildRegistry([]Setting{
 	// can come from the controller's database, because a host that cannot yet
 	// reach the controller is exactly the host that needs these values.
 	{
-		Key: "agent.controller_url", Env: "ZOOMIES_CONTROLLER_URL", Kind: KindString, Scope: ScopeLocal,
+		Key: "agent.controller_url", Label: "Controller URL", Env: "ZOOMIES_CONTROLLER_URL", Kind: KindString, Scope: ScopeLocal,
 		Summary: "The controller a standalone agent connects to. It is configured on that agent's own host.",
 	},
 	{
-		Key: "agent.join_token", Env: "ZOOMIES_JOIN_TOKEN", Kind: KindString, Scope: ScopeLocal, Secret: true,
+		Key: "agent.join_token", Label: "Join token", Env: "ZOOMIES_JOIN_TOKEN", Kind: KindString, Scope: ScopeLocal, Secret: true,
 		Summary: "The single-use token a standalone agent redeems to enrol. It is configured on that agent's own host.",
 	},
 	{
-		Key: "agent.agent_token", Env: "ZOOMIES_AGENT_TOKEN", Kind: KindString, Scope: ScopeLocal, Secret: true,
+		Key: "agent.agent_token", Label: "Agent token", Env: "ZOOMIES_AGENT_TOKEN", Kind: KindString, Scope: ScopeLocal, Secret: true,
 		Summary: "The credential a standalone agent carries afterwards. It is configured on that agent's own host.",
 	},
 	{
-		Key: "agent.ca_file", Env: "ZOOMIES_AGENT_CA_FILE", Kind: KindString, Scope: ScopeLocal,
+		Key: "agent.ca_file", Label: "Controller certificate", Env: "ZOOMIES_AGENT_CA_FILE", Kind: KindString, Scope: ScopeLocal,
 		Summary: "The certificate a standalone agent pins for its controller. It is configured on that agent's own host.",
 	},
 	{
-		Key: "agent.client_cert_file", Env: "ZOOMIES_AGENT_CLIENT_CERT_FILE", Kind: KindString, Scope: ScopeLocal,
+		Key: "agent.client_cert_file", Label: "Client certificate", Env: "ZOOMIES_AGENT_CLIENT_CERT_FILE", Kind: KindString, Scope: ScopeLocal,
 		Summary: "A standalone agent's client certificate, for mutual TLS. It is configured on that agent's own host.",
 	},
 	{
-		Key: "agent.client_key_file", Env: "ZOOMIES_AGENT_CLIENT_KEY_FILE", Kind: KindString, Scope: ScopeLocal,
+		Key: "agent.client_key_file", Label: "Client private key", Env: "ZOOMIES_AGENT_CLIENT_KEY_FILE", Kind: KindString, Scope: ScopeLocal,
 		Summary: "The key for that client certificate. It is configured on that agent's own host.",
 	},
 	{
-		Key: "agent.insecure_skip_verify", Env: "ZOOMIES_AGENT_INSECURE_SKIP_VERIFY", Kind: KindBool, Scope: ScopeLocal,
+		Key: "agent.insecure_skip_verify", Label: "Skip certificate verification", Env: "ZOOMIES_AGENT_INSECURE_SKIP_VERIFY", Kind: KindBool, Scope: ScopeLocal,
 		Summary: "Let a standalone agent skip verifying its controller's certificate. It is configured on that agent's own host.",
 	},
 	{
-		Key: "agent.allow_insecure_http", Env: "ZOOMIES_AGENT_ALLOW_INSECURE_HTTP", Kind: KindBool, Scope: ScopeLocal,
+		Key: "agent.allow_insecure_http", Label: "Allow plain HTTP to the controller", Env: "ZOOMIES_AGENT_ALLOW_INSECURE_HTTP", Kind: KindBool, Scope: ScopeLocal,
 		Summary: "Let a standalone agent use a plain http:// controller URL off loopback, which puts its token and every runner credential on the wire in the clear. It is configured on that agent's own host.",
 	},
 
@@ -403,35 +409,35 @@ var registry = buildRegistry([]Setting{
 	// scheduler -- every one of these is read fresh on each pass.
 	// ---------------------------------------------------------------------
 	{
-		Key: "scheduler.interval", Env: "ZOOMIES_SCHEDULER_INTERVAL", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "scheduler.interval", Label: "Scheduler interval", Env: "ZOOMIES_SCHEDULER_INTERVAL", Kind: KindDuration, Scope: ScopeInstance, Live: true,
 		Summary: "How often the scheduler runs a pass even with nothing to react to.",
 	},
 	{
-		Key: "scheduler.scale_up_delay", Env: "ZOOMIES_SCALE_UP_DELAY", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "scheduler.scale_up_delay", Label: "Scale-up delay", Env: "ZOOMIES_SCALE_UP_DELAY", Kind: KindDuration, Scope: ScopeInstance, Live: true,
 		Summary: "How long a job must have been queued before it counts as demand. It damps churn when jobs arrive in bursts; 0 reacts at once.",
 	},
 	{
-		Key: "scheduler.max_runner_lifetime", Env: "ZOOMIES_MAX_RUNNER_LIFETIME", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "scheduler.max_runner_lifetime", Label: "Maximum runner lifetime", Env: "ZOOMIES_MAX_RUNNER_LIFETIME", Kind: KindDuration, Scope: ScopeInstance, Live: true,
 		Summary: "Drain a runner that has lived this long, next time it is not busy. It bounds how long a runner's credentials live; it never ends a job.",
 	},
 	{
-		Key: "scheduler.provision_timeout", Env: "ZOOMIES_PROVISION_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "scheduler.provision_timeout", Label: "Provision timeout", Env: "ZOOMIES_PROVISION_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance, Live: true,
 		Summary: "Fail a runner that never finishes registering, so a bad image does not hold a host slot for ever.",
 	},
 	{
-		Key: "scheduler.drain_timeout", Env: "ZOOMIES_DRAIN_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "scheduler.drain_timeout", Label: "Drain timeout", Env: "ZOOMIES_DRAIN_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance, Live: true,
 		Summary: "Fail a runner that has been draining this long with no job left on it. A runner still finishing a job is never touched by it.",
 	},
 	{
-		Key: "scheduler.max_creates_per_tick", Env: "ZOOMIES_MAX_CREATES_PER_TICK", Kind: KindInt, Scope: ScopeInstance, Live: true,
+		Key: "scheduler.max_creates_per_tick", Label: "Runners created per pass", Env: "ZOOMIES_MAX_CREATES_PER_TICK", Kind: KindInt, Scope: ScopeInstance, Live: true,
 		Summary: "How many runners may be created in one pass, so a thundering herd of queued jobs cannot exhaust a host in one go.",
 	},
 	{
-		Key: "scheduler.default_runner_limits", Env: "ZOOMIES_DEFAULT_RUNNER_LIMITS", Kind: KindBool, Scope: ScopeInstance, Live: true,
+		Key: "scheduler.default_runner_limits", Label: "Default runner limits", Env: "ZOOMIES_DEFAULT_RUNNER_LIMITS", Kind: KindBool, Scope: ScopeInstance, Live: true,
 		Summary: "Give a runner whose pool sets no CPU or memory limit one slot's share of its host as a real limit. Off, a host's worth of them can each take every core.",
 	},
 	{
-		Key: "scheduler.host_throttling", Env: "ZOOMIES_HOST_THROTTLING", Kind: KindBool, Scope: ScopeInstance, Live: true,
+		Key: "scheduler.host_throttling", Label: "Throttle hosts under pressure", Env: "ZOOMIES_HOST_THROTTLING", Kind: KindBool, Scope: ScopeInstance, Live: true,
 		Summary: "Let the controller throttle a host its measurements say is overwhelmed, and step it back up after a stretch of calm.",
 	},
 
@@ -439,12 +445,12 @@ var registry = buildRegistry([]Setting{
 	// log
 	// ---------------------------------------------------------------------
 	{
-		Key: "log.level", Env: "ZOOMIES_LOG_LEVEL", Kind: KindEnum, Scope: ScopeInstance, Live: true,
+		Key: "log.level", Label: "Log level", Env: "ZOOMIES_LOG_LEVEL", Kind: KindEnum, Scope: ScopeInstance, Live: true,
 		Choices: []string{"debug", "info", "warn", "error"},
 		Summary: "How much detail the controller logs.",
 	},
 	{
-		Key: "log.format", Env: "ZOOMIES_LOG_FORMAT", Kind: KindEnum, Scope: ScopeInstance,
+		Key: "log.format", Label: "Log format", Env: "ZOOMIES_LOG_FORMAT", Kind: KindEnum, Scope: ScopeInstance,
 		Choices:       []string{"json", "text"},
 		Summary:       "json for a log collector, text for a person reading a terminal.",
 		RestartReason: "the log handler is built before anything else, including the database this setting is read from",
@@ -454,62 +460,62 @@ var registry = buildRegistry([]Setting{
 	// oidc -- single sign-on.
 	// ---------------------------------------------------------------------
 	{
-		Key: "oidc.enabled", Env: "ZOOMIES_OIDC_ENABLED", Kind: KindBool, Scope: ScopeInstance,
+		Key: "oidc.enabled", Label: "Single sign-on", Env: "ZOOMIES_OIDC_ENABLED", Kind: KindBool, Scope: ScopeInstance,
 		Summary:       "Offer single sign-on as well as local accounts.",
 		RestartReason: "the provider is discovered at startup, and discovery is a network call that must not happen inside a settings request",
 	},
 	{
-		Key: "oidc.issuer", Env: "ZOOMIES_OIDC_ISSUER", Kind: KindString, Scope: ScopeInstance,
+		Key: "oidc.issuer", Label: "Issuer URL", Env: "ZOOMIES_OIDC_ISSUER", Kind: KindString, Scope: ScopeInstance,
 		Summary:       "The identity provider's issuer URL, from which its endpoints are discovered.",
 		RestartReason: "the provider is discovered at startup",
 	},
 	{
-		Key: "oidc.client_id", Env: "ZOOMIES_OIDC_CLIENT_ID", Kind: KindString, Scope: ScopeInstance,
+		Key: "oidc.client_id", Label: "Client ID", Env: "ZOOMIES_OIDC_CLIENT_ID", Kind: KindString, Scope: ScopeInstance,
 		Summary:       "The client this controller identifies itself as.",
 		RestartReason: "the provider is configured at startup",
 	},
 	{
-		Key: "oidc.client_secret", Env: "ZOOMIES_OIDC_CLIENT_SECRET", Kind: KindString, Scope: ScopeInstance, Secret: true,
+		Key: "oidc.client_secret", Label: "Client secret", Env: "ZOOMIES_OIDC_CLIENT_SECRET", Kind: KindString, Scope: ScopeInstance, Secret: true,
 		Summary:       "The client secret that goes with it.",
 		RestartReason: "the provider is configured at startup",
 	},
 	{
-		Key: "oidc.redirect_url", Env: "ZOOMIES_OIDC_REDIRECT_URL", Kind: KindString, Scope: ScopeInstance,
+		Key: "oidc.redirect_url", Label: "Redirect URL", Env: "ZOOMIES_OIDC_REDIRECT_URL", Kind: KindString, Scope: ScopeInstance,
 		Summary:       "Where the provider sends the browser back to. Empty derives it from the external URL.",
 		RestartReason: "the provider is configured at startup",
 	},
 	{
-		Key: "oidc.scopes", Env: "ZOOMIES_OIDC_SCOPES", Kind: KindStrings, Scope: ScopeInstance,
+		Key: "oidc.scopes", Label: "Scopes", Env: "ZOOMIES_OIDC_SCOPES", Kind: KindStrings, Scope: ScopeInstance,
 		Summary:       "The scopes asked for at sign-in.",
 		RestartReason: "the provider is configured at startup",
 	},
 	{
-		Key: "oidc.username_claim", Env: "ZOOMIES_OIDC_USERNAME_CLAIM", Kind: KindString, Scope: ScopeInstance,
+		Key: "oidc.username_claim", Label: "Username claim", Env: "ZOOMIES_OIDC_USERNAME_CLAIM", Kind: KindString, Scope: ScopeInstance,
 		Summary:       "The token claim that becomes a Zoomies username.",
 		RestartReason: "the provider is configured at startup",
 	},
 	{
-		Key: "oidc.groups_claim", Env: "ZOOMIES_OIDC_GROUPS_CLAIM", Kind: KindString, Scope: ScopeInstance,
+		Key: "oidc.groups_claim", Label: "Groups claim", Env: "ZOOMIES_OIDC_GROUPS_CLAIM", Kind: KindString, Scope: ScopeInstance,
 		Summary:       "The token claim listing the groups a user is in.",
 		RestartReason: "the provider is configured at startup",
 	},
 	{
-		Key: "oidc.admin_groups", Env: "ZOOMIES_OIDC_ADMIN_GROUPS", Kind: KindStrings, Scope: ScopeInstance,
+		Key: "oidc.admin_groups", Label: "Administrator groups", Env: "ZOOMIES_OIDC_ADMIN_GROUPS", Kind: KindStrings, Scope: ScopeInstance,
 		Summary:       "Provider groups whose members get the administrator role.",
 		RestartReason: "the provider is configured at startup",
 	},
 	{
-		Key: "oidc.operator_groups", Env: "ZOOMIES_OIDC_OPERATOR_GROUPS", Kind: KindStrings, Scope: ScopeInstance,
+		Key: "oidc.operator_groups", Label: "Operator groups", Env: "ZOOMIES_OIDC_OPERATOR_GROUPS", Kind: KindStrings, Scope: ScopeInstance,
 		Summary:       "Provider groups whose members get the operator role. A user in no mapped group is a viewer.",
 		RestartReason: "the provider is configured at startup",
 	},
 	{
-		Key: "oidc.allow_signup", Env: "ZOOMIES_OIDC_ALLOW_SIGNUP", Kind: KindBool, Scope: ScopeInstance,
+		Key: "oidc.allow_signup", Label: "Create accounts on first sign-in", Env: "ZOOMIES_OIDC_ALLOW_SIGNUP", Kind: KindBool, Scope: ScopeInstance,
 		Summary:       "Create an account on a first successful single sign-on, rather than refusing anyone not already here.",
 		RestartReason: "the provider is configured at startup",
 	},
 	{
-		Key: "oidc.link_by_username", Env: "ZOOMIES_OIDC_LINK_BY_USERNAME", Kind: KindBool, Scope: ScopeInstance,
+		Key: "oidc.link_by_username", Label: "Link sign-on to local accounts", Env: "ZOOMIES_OIDC_LINK_BY_USERNAME", Kind: KindBool, Scope: ScopeInstance,
 		Summary:       "Let a first single sign-on take over an existing local account with the same username. Turn it on for the one migration where that is the intention, then turn it off again.",
 		RestartReason: "the provider is configured at startup",
 	},
@@ -518,17 +524,17 @@ var registry = buildRegistry([]Setting{
 	// metrics
 	// ---------------------------------------------------------------------
 	{
-		Key: "metrics.enabled", Env: "ZOOMIES_METRICS_ENABLED", Kind: KindBool, Scope: ScopeInstance,
+		Key: "metrics.enabled", Label: "Prometheus endpoint", Env: "ZOOMIES_METRICS_ENABLED", Kind: KindBool, Scope: ScopeInstance,
 		Summary:       "Serve the Prometheus endpoint.",
 		RestartReason: "the route is mounted once, when the router is built",
 	},
 	{
-		Key: "metrics.path", Env: "ZOOMIES_METRICS_PATH", Kind: KindString, Scope: ScopeInstance,
+		Key: "metrics.path", Label: "Metrics path", Env: "ZOOMIES_METRICS_PATH", Kind: KindString, Scope: ScopeInstance,
 		Summary:       "Where it is served.",
 		RestartReason: "the route is mounted once, when the router is built",
 	},
 	{
-		Key: "metrics.public", Env: "ZOOMIES_METRICS_PUBLIC", Kind: KindBool, Scope: ScopeInstance,
+		Key: "metrics.public", Label: "Serve metrics without authentication", Env: "ZOOMIES_METRICS_PUBLIC", Kind: KindBool, Scope: ScopeInstance,
 		Summary:       "Serve it without authentication. Off by default, because job and repository names are visible in the label set.",
 		RestartReason: "the authentication around the route is decided when the router is built",
 	},
@@ -537,23 +543,23 @@ var registry = buildRegistry([]Setting{
 	// retention -- audit rows are deliberately absent; they are never pruned.
 	// ---------------------------------------------------------------------
 	{
-		Key: "retention.jobs", Env: "ZOOMIES_RETENTION_JOBS", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "retention.jobs", Label: "Keep job history for", Env: "ZOOMIES_RETENTION_JOBS", Kind: KindDuration, Scope: ScopeInstance, Live: true,
 		Summary: "How long job history is kept.",
 	},
 	{
-		Key: "retention.runners", Env: "ZOOMIES_RETENTION_RUNNERS", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "retention.runners", Label: "Keep finished runners for", Env: "ZOOMIES_RETENTION_RUNNERS", Kind: KindDuration, Scope: ScopeInstance, Live: true,
 		Summary: "How long finished runners are kept.",
 	},
 	{
-		Key: "retention.scaling_events", Env: "ZOOMIES_RETENTION_SCALING_EVENTS", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "retention.scaling_events", Label: "Keep scaling history for", Env: "ZOOMIES_RETENTION_SCALING_EVENTS", Kind: KindDuration, Scope: ScopeInstance, Live: true,
 		Summary: "How long scaling decisions are kept. Audit rows are not covered by this, or by anything: they are never deleted.",
 	},
 	{
-		Key: "retention.samples", Env: "ZOOMIES_RETENTION_SAMPLES", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "retention.samples", Label: "Keep Overview samples for", Env: "ZOOMIES_RETENTION_SAMPLES", Kind: KindDuration, Scope: ScopeInstance, Live: true,
 		Summary: "How long the Overview's samples are kept.",
 	},
 	{
-		Key: "retention.webhooks", Env: "ZOOMIES_RETENTION_WEBHOOKS", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "retention.webhooks", Label: "Keep webhook deliveries for", Env: "ZOOMIES_RETENTION_WEBHOOKS", Kind: KindDuration, Scope: ScopeInstance, Live: true,
 		Summary: "How long webhook deliveries are kept.",
 	},
 
@@ -561,11 +567,11 @@ var registry = buildRegistry([]Setting{
 	// images and updates
 	// ---------------------------------------------------------------------
 	{
-		Key: "images.refresh_interval", Env: "ZOOMIES_IMAGE_REFRESH_INTERVAL", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "images.refresh_interval", Label: "Image refresh interval", Env: "ZOOMIES_IMAGE_REFRESH_INTERVAL", Kind: KindDuration, Scope: ScopeInstance, Live: true,
 		Summary: "How often every pool's image is prewarmed again, so a moving tag reaches the hosts. 0 switches it off, which is what an air-gapped fleet wants.",
 	},
 	{
-		Key: "updates.check_interval", Env: "ZOOMIES_UPDATE_CHECK_INTERVAL", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "updates.check_interval", Label: "Update check interval", Env: "ZOOMIES_UPDATE_CHECK_INTERVAL", Kind: KindDuration, Scope: ScopeInstance, Live: true,
 		Summary: "How often github.com is asked which release of Zoomies is current. 0 never asks, and is the one request that is not about your fleet. Nothing is ever downloaded by it.",
 	},
 
@@ -573,23 +579,23 @@ var registry = buildRegistry([]Setting{
 	// capacity_demand -- publishing a request for more hosts to a provisioner.
 	// ---------------------------------------------------------------------
 	{
-		Key: "capacity_demand.destination_url", Env: "ZOOMIES_CAPACITY_DEMAND_URL", Kind: KindString, Scope: ScopeInstance, Live: true,
+		Key: "capacity_demand.destination_url", Label: "Destination URL", Env: "ZOOMIES_CAPACITY_DEMAND_URL", Kind: KindString, Scope: ScopeInstance, Live: true,
 		Summary: "Where signed requests for host capacity are posted. Empty disables the integration.",
 	},
 	{
-		Key: "capacity_demand.signing_secret", Env: "ZOOMIES_CAPACITY_DEMAND_SIGNING_SECRET", Kind: KindString, Scope: ScopeInstance, Secret: true, Live: true,
+		Key: "capacity_demand.signing_secret", Label: "Signing secret", Env: "ZOOMIES_CAPACITY_DEMAND_SIGNING_SECRET", Kind: KindString, Scope: ScopeInstance, Secret: true, Live: true,
 		Summary: "The secret those requests are signed with. Anyone holding it can forge one, so it is stored sealed.",
 	},
 	{
-		Key: "capacity_demand.cooldown", Env: "ZOOMIES_CAPACITY_DEMAND_COOLDOWN", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "capacity_demand.cooldown", Label: "Cooldown", Env: "ZOOMIES_CAPACITY_DEMAND_COOLDOWN", Kind: KindDuration, Scope: ScopeInstance, Live: true,
 		Summary: "How long to wait before asking for capacity for the same pool again.",
 	},
 	{
-		Key: "capacity_demand.timeout", Env: "ZOOMIES_CAPACITY_DEMAND_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "capacity_demand.timeout", Label: "Request timeout", Env: "ZOOMIES_CAPACITY_DEMAND_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance, Live: true,
 		Summary: "How long one of those requests may take.",
 	},
 	{
-		Key: "capacity_demand.pools", Env: "ZOOMIES_CAPACITY_DEMAND_POOLS", Kind: KindStrings, Scope: ScopeInstance, Live: true,
+		Key: "capacity_demand.pools", Label: "Pools to publish for", Env: "ZOOMIES_CAPACITY_DEMAND_POOLS", Kind: KindStrings, Scope: ScopeInstance, Live: true,
 		Summary: "Which pools to publish demand for. Empty publishes for all of them.",
 	},
 })
@@ -614,6 +620,9 @@ func buildRegistry(list []Setting) map[string]Setting {
 		}
 		if s.Live && s.RestartReason != "" {
 			panic("config: " + s.Key + " is live and also gives a reason it needs a restart")
+		}
+		if s.Label == "" || s.Summary == "" {
+			panic("config: " + s.Key + " has no label or no summary, and the settings page has nothing to call it")
 		}
 		out[s.Key] = s
 	}
