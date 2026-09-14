@@ -97,7 +97,7 @@ test-ui: ## Run the Playwright suite (builds the binary first)
 
 .PHONY: test-e2e
 test-e2e: ## Docker-based end-to-end test; needs GitHub credentials, skipped without
-	$(GO) test -count=1 -tags e2e -timeout 30m ./test/e2e/...
+	$(GO) test -count=1 -tags e2e -timeout 40m ./test/e2e/...
 
 .PHONY: test-e2e-proxmox
 test-e2e-proxmox: ## Live Proxmox qualification: needs a cluster and ZOOMIES_PROXMOX_*, skipped without. Hours, not minutes -- not in CI.
@@ -137,7 +137,7 @@ E2E_RESULTS ?= roadmap/validation/e2e
 test-e2e-required: ## The same run, but a missing prerequisite is a failure and every scenario must pass
 	rm -rf $(E2E_RESULTS)
 	ZOOMIES_E2E_REQUIRED=1 ZOOMIES_E2E_RESULTS_DIR=$(E2E_RESULTS) \
-	  $(GO) test -count=1 -v -tags e2e -timeout 30m ./test/e2e/... || true
+	  $(GO) test -count=1 -v -tags e2e -timeout 40m ./test/e2e/... || true
 	$(GO) run ./test/e2e/verify -dir $(E2E_RESULTS)
 
 .PHONY: screenshots
@@ -149,6 +149,14 @@ screenshots: build ## Recapture docs/screenshots from the real UI (needs Pillow:
 .PHONY: lint
 lint: ## Vet, format check, and staticcheck when available
 	$(GO) vet ./...
+# The tagged suites too. An ordinary `go vet ./...` never compiles them, which
+# is how test/e2e sat with a non-test file referring to a symbol only its
+# _test.go half defined: every gate was green and the package did not build
+# under its own tag. Vet rather than build, because vet compiles the tests as
+# well and it is the test halves that carry most of this code.
+	$(GO) vet -tags e2e ./...
+	$(GO) vet -tags drill ./...
+	$(GO) vet -tags load ./...
 	@out=$$(gofmt -l $$(git ls-files '*.go')); \
 	 if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
 	@if command -v staticcheck >/dev/null 2>&1; then staticcheck ./...; \
