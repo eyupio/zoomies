@@ -37,10 +37,11 @@
   only how an operator settles the question of whether they have.
 -->
 <script lang="ts">
-  import HostLandscape from '$lib/insights/HostLandscape.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Switch from '$lib/components/Switch.svelte';
+  import HostCapacityMap from '$lib/insights/HostCapacityMap.svelte';
+  import { navigate } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
   import { describeWindow } from '$lib/format';
   import { prefs } from '$lib/state/prefs.svelte';
@@ -128,7 +129,14 @@
       </div>
       <ActiveJobs />
     </div>
-    {#if fleet.loaded}<HostLandscape hosts={fleet.hosts} compact />{/if}
+    <!-- The same chart the Hosts page draws, not a summary of it: an operator
+         who has learnt to read one should not meet a different picture of the
+         same machines here. A host's controls live on the Hosts page, so
+         "Manage" goes there. -->
+    {#if fleet.loaded}<HostCapacityMap
+        hosts={fleet.hosts}
+        onmanage={() => navigate('/hosts')}
+      />{/if}
     <RecentOutcomes />
   </div>
 {/if}
