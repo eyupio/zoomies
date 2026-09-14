@@ -143,7 +143,8 @@ func (s *Store) HasSealedSecrets(ctx context.Context) (bool, error) {
 	err := s.read.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM installations
 		WHERE (private_key_enc IS NOT NULL AND LENGTH(private_key_enc) > 0)
 		   OR (webhook_secret_enc IS NOT NULL AND LENGTH(webhook_secret_enc) > 0)
-		) + (SELECT COUNT(*) FROM settings WHERE key='tailcat.identity.v1' AND value<>'')`).Scan(&n)
+		) + (SELECT COUNT(*) FROM settings WHERE key='tailcat.identity.v1' AND value<>'')
+		  + (SELECT COUNT(*) FROM instance_settings WHERE secret=1 AND value<>'')`).Scan(&n)
 	if err != nil {
 		return false, fmt.Errorf("store: counting sealed secrets: %w", err)
 	}

@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -170,20 +171,60 @@ func TestSettings(t *testing.T) {
 		t.Errorf("the running configuration was not changed: %s", h.ctrl.Config().Retention.Jobs)
 	}
 
-	// A setting that needs a restart is refused with a message that says so.
-	refused := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
+	// A setting this process cannot apply to itself is stored rather than
+	// refused, and says it is waiting. Refusing it, which is what this used to
+	// do, never stopped anybody wanting the change -- it only moved the work to
+	// a text editor on the controller's host and left no record that anyone had
+	// asked for it.
+	stored := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
 		body: map[string]any{"server": map[string]any{"bind": "0.0.0.0:9000"}}})
-	refused.mustStatus(t, http.StatusUnprocessableEntity, "patch a restart-only setting")
-	var env errorEnvelope
-	refused.into(t, &env)
-	if len(env.Errors) == 0 || env.Errors[0].Field != "server.bind" {
-		t.Fatalf("expected a field error on server.bind: %+v", env)
-	}
-	if !strings.Contains(env.Errors[0].Message, "restart") {
-		t.Errorf("the message does not say a restart is needed: %q", env.Errors[0].Message)
+	stored.mustStatus(t, http.StatusOK, "patch a restart-only setting")
+	var waiting settingsResponse
+	stored.into(t, &waiting)
+	if !slices.Contains(waiting.PendingRestart, "server.bind") {
+		t.Errorf("server.bind was stored but is not reported as pending: %v", waiting.PendingRestart)
 	}
 	if h.ctrl.Config().Server.Bind == "0.0.0.0:9000" {
-		t.Error("a refused setting was applied anyway")
+		t.Error("a listener was rebound under live connections")
+	}
+	if view := findSetting(t, waiting, "server.bind"); !view.Pending || view.Live || !view.Stored {
+		t.Errorf("server.bind = %+v, want stored and pending but not live", view)
+	}
+	// And it survives: the next start reads it from the database, which is the
+	// whole of why it was accepted.
+	if row, err := h.ctrl.Store().GetInstanceSetting(t.Context(), "server.bind"); err != nil {
+		t.Errorf("server.bind was not written: %v", err)
+	} else if row.Value != "0.0.0.0:9000" {
+		t.Errorf("server.bind stored as %q", row.Value)
+	}
+
+	// A change that would leave a controller that cannot start is refused
+	// before it is stored, because the operator who discovers it otherwise is
+	// the one who can no longer reach this page.
+	locked := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
+		body: map[string]any{"server.bind": "0.0.0.0:9000", "security.disable_auth": true}})
+	locked.mustStatus(t, http.StatusUnprocessableEntity, "patch that disables auth on a public bind")
+
+	// A value cleared with null goes back to the layer underneath.
+	cleared := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
+		body: map[string]any{"server.bind": nil}})
+	cleared.mustStatus(t, http.StatusOK, "clear a setting")
+	if _, err := h.ctrl.Store().GetInstanceSetting(t.Context(), "server.bind"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("clearing server.bind left a row: %v", err)
+	}
+
+	// A key that is read before the database opens cannot be stored in it, and
+	// the refusal says where to set it instead.
+	boot := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
+		body: map[string]any{"database.path": "/tmp/elsewhere.db"}})
+	boot.mustStatus(t, http.StatusUnprocessableEntity, "patch a bootstrap setting")
+	var env errorEnvelope
+	boot.into(t, &env)
+	if len(env.Errors) == 0 || env.Errors[0].Field != "database.path" {
+		t.Fatalf("expected a field error on database.path: %+v", env)
+	}
+	if !strings.Contains(env.Errors[0].Message, "ZOOMIES_DB_PATH") {
+		t.Errorf("the refusal does not name the variable to use instead: %q", env.Errors[0].Message)
 	}
 
 	// So is an unparseable value.
@@ -801,4 +842,17 @@ func TestJoinCommandPinsTheControllersOwnRelease(t *testing.T) {
 			}
 		})
 	}
+}
+
+// findSetting picks one key out of a settings response, so a test can assert
+// about the metadata the UI draws its editors from.
+func findSetting(t *testing.T, res settingsResponse, key string) settingView {
+	t.Helper()
+	for _, v := range res.Settings {
+		if v.Key == key {
+			return v
+		}
+	}
+	t.Fatalf("%s is not in the settings response", key)
+	return settingView{}
 }

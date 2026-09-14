@@ -1,0 +1,526 @@
+package api
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"slices"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/version"
+)
+
+// The settings surface.
+//
+// Every configuration key except the three that get the database open lives in
+// the database, so this is where an administrator changes the fleet rather than
+// where they are told to go and edit a file on the controller's host. Two
+// things follow from that, and both are the point:
+//
+// A change is kept. It used to be that a PATCH altered the running process and
+// nothing else, so a setting that was also in zoomies.yaml quietly went back to
+// the file's value at the next restart -- the API said so in as many words, and
+// it was still a surprise every time. Now the value is written, and the file is
+// a layer underneath it.
+//
+// A change that cannot be applied now is still accepted. Rebinding a listener
+// under live connections is not something a process can do to itself, so
+// server.bind is stored and reported in pending_restart instead of refused.
+// Refusing it never stopped anybody wanting it changed; it only moved the work
+// to a text editor and left no record that anyone had asked.
+//
+// What is refused is a change that would not survive: a key an environment
+// variable is pinning would be written, overridden at the next start, and
+// appear to have been forgotten. The refusal names the variable.
+
+// ---------------------------------------------------------------------------
+// The shapes
+// ---------------------------------------------------------------------------
+
+// settingView is one configuration key as the settings page sees it: what it
+// is, what it is set to, where that value came from, and whether this
+// administrator can change it here.
+//
+// It is generated from the registry in internal/config rather than written out
+// by hand. The lists it replaces -- the fourteen keys the API would write, the
+// forty-seven it would refuse, the nested map it rendered from, and the two
+// constants the browser kept -- were four hand-maintained copies of one fact,
+// and all four had drifted.
+type settingView struct {
+	Key     string   `json:"key"`
+	Section string   `json:"section"`
+	Kind    string   `json:"kind"`
+	Choices []string `json:"choices,omitempty"`
+	Summary string   `json:"summary"`
+
+	// Value is what this controller is running. A secret's value is never
+	// here; Configured says whether one is set, which is the useful fact.
+	Value      any  `json:"value"`
+	Secret     bool `json:"secret"`
+	Configured bool `json:"configured"`
+	// Default is what Zoomies would use if nothing said otherwise, so the UI
+	// can offer "put it back" and show what that means.
+	Default any `json:"default"`
+
+	// Source is which layer won: default, file, database or environment.
+	Source string `json:"source"`
+	// Env is the variable that overrides this key, named so an operator can
+	// find the one that is pinning it.
+	Env string `json:"env"`
+	// Stored says a value for this key is in the database.
+	Stored bool `json:"stored"`
+
+	// Editable says an administrator may change it here. Scope and Source are
+	// between them the reason when it is false, and Reason says it in a
+	// sentence.
+	Editable bool   `json:"editable"`
+	Scope    string `json:"scope"`
+	Reason   string `json:"reason,omitempty"`
+
+	// Live says a change is in force by the time the response is written.
+	// False means it is stored and applies at the next restart.
+	Live          bool   `json:"live"`
+	RestartReason string `json:"restart_reason,omitempty"`
+	// Pending says a stored value is waiting for that restart.
+	Pending bool `json:"pending"`
+
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+	UpdatedBy string     `json:"updated_by,omitempty"`
+}
+
+// settingsResponse is the whole settings page in one document.
+type settingsResponse struct {
+	// Config is the effective configuration as a nested object, every secret
+	// absent. It is what `zoomies config print` shows and what the diagnostics
+	// bundle carries, kept because a person reading a configuration wants it
+	// shaped like the file rather than as a list of rows.
+	Config   map[string]any   `json:"config"`
+	Settings []settingView    `json:"settings"`
+	Findings []config.Finding `json:"findings"`
+
+	// PendingRestart names the settings stored since this process started that
+	// it cannot apply to itself.
+	PendingRestart []string `json:"pending_restart"`
+	// PinnedByEnvironment names the settings an environment variable is
+	// holding, which is why the page will not let them be changed.
+	PinnedByEnvironment []string `json:"pinned_by_environment"`
+	// RestartRequiredKeys is every setting whose change waits for a restart,
+	// whether or not one is waiting now. The UI labels them before an
+	// administrator edits one rather than after.
+	RestartRequiredKeys []string `json:"restart_required_keys"`
+
+	ConfigPath       string `json:"config_path,omitempty"`
+	Version          string `json:"version"`
+	DatabasePath     string `json:"database_path"`
+	EventSubscribers int    `json:"event_subscribers"`
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+
+// settingsConfig renders the effective configuration as a nested object.
+//
+// It is generated from the registry, and a secret cannot appear in it: the
+// registry says which keys are credentials, and this writes `<key>_configured`
+// -- a boolean -- for each of them instead of the value. The old hand-written
+// version got the same safety from being hand-written, which held right up
+// until somebody added a key and forgot.
+func (s *Server) settingsConfig() map[string]any {
+	c := s.cfg()
+	out := map[string]any{}
+	for _, st := range config.Settings() {
+		v, err := c.Value(st.Key)
+		if err != nil {
+			continue
+		}
+		if st.Secret {
+			setNested(out, st.Key+"_configured", config.Text(st, v) != "")
+			continue
+		}
+		setNested(out, st.Key, v)
+	}
+
+	// The encryption key's presence is the one thing here that is not read off
+	// the configuration: it may have come from a file this process read at
+	// startup rather than from a key any layer holds.
+	setNested(out, "security.encryption_key_configured", s.key != nil)
+
+	// Three values that are derived rather than configured, and are here
+	// because they are what an operator actually wants to see next to the
+	// settings they came from.
+	setNested(out, "github.webhook_url", c.WebhookURL())
+	setNested(out, "github.polling_only", s.ctrl.PollingOnly())
+	setNested(out, "oidc.redirect_url", s.oidcRedirectURL())
+	return out
+}
+
+// setNested writes a dotted key into a tree of maps.
+func setNested(into map[string]any, key string, value any) {
+	parts := strings.Split(key, ".")
+	for _, part := range parts[:len(parts)-1] {
+		child, ok := into[part].(map[string]any)
+		if !ok {
+			child = map[string]any{}
+			into[part] = child
+		}
+		into = child
+	}
+	into[parts[len(parts)-1]] = value
+}
+
+func (s *Server) oidcRedirectURL() string {
+	if s.oidc.Enabled() {
+		return s.oidc.RedirectURL()
+	}
+	return s.cfg().OIDC.RedirectURL
+}
+
+// settingViews renders every key, in the order the documentation lists them.
+func (s *Server) settingViews(rows []store.InstanceSetting, pending []string) []settingView {
+	c := s.cfg()
+	defaults := config.Default()
+	stored := map[string]store.InstanceSetting{}
+	for _, row := range rows {
+		stored[row.Key] = row
+	}
+
+	out := make([]settingView, 0, len(config.Settings()))
+	for _, st := range config.Settings() {
+		value, err := c.Value(st.Key)
+		if err != nil {
+			continue
+		}
+		row, isStored := stored[st.Key]
+		source := string(c.Source(st.Key))
+
+		v := settingView{
+			Key:           st.Key,
+			Section:       st.Section(),
+			Kind:          string(st.Kind),
+			Choices:       st.Choices,
+			Summary:       st.Summary,
+			Secret:        st.Secret,
+			Configured:    config.Text(st, value) != "",
+			Source:        source,
+			Env:           st.Env,
+			Stored:        isStored,
+			Scope:         string(st.Scope),
+			Live:          st.Live,
+			RestartReason: st.RestartReason,
+			Pending:       slices.Contains(pending, st.Key),
+		}
+		if !st.Secret {
+			v.Value = value
+			if d, derr := defaults.Value(st.Key); derr == nil {
+				v.Default = d
+			}
+		}
+		if isStored {
+			at := row.UpdatedAt
+			v.UpdatedAt, v.UpdatedBy = &at, row.UpdatedBy
+		}
+		v.Editable, v.Reason = s.editable(st, c)
+		out = append(out, v)
+	}
+	sort.Slice(out, func(i, j int) bool { return config.CompareKeys(out[i].Key, out[j].Key) < 0 })
+	return out
+}
+
+// editable says whether this administrator may change a key here, and when they
+// may not, why -- in a sentence written for the person reading it, because
+// "not editable" with no reason is the thing that sends somebody to the source.
+func (s *Server) editable(st config.Setting, c *config.Config) (bool, string) {
+	switch st.Scope {
+	case config.ScopeBootstrap:
+		return false, fmt.Sprintf(
+			"This is read before the database is open, so it cannot live in it. Set it in %s or as %s, and restart.",
+			s.configFileName(), st.Env)
+	case config.ScopeLocal:
+		return false, fmt.Sprintf(
+			"This belongs to a standalone agent's own host, not to the fleet. Set it there, in that agent's configuration or as %s.",
+			st.Env)
+	}
+	if c.Source(st.Key) == config.SourceEnvironment {
+		return false, fmt.Sprintf(
+			"%s is setting this in the environment, and the environment is the last word. A change made here would be stored and then overridden at the next restart, so unset the variable first -- or change it where it is set.",
+			st.Env)
+	}
+	return true, ""
+}
+
+func (s *Server) configFileName() string {
+	if p := s.cfg().Path(); p != "" {
+		return p
+	}
+	return "zoomies.yaml"
+}
+
+// restartRequiredKeys is every setting a change to which waits for a restart.
+// A fresh slice each time: the old version returned one backing array to every
+// response, which a caller that sorted it would have corrupted for all of them.
+func restartRequiredKeys() []string {
+	var out []string
+	for _, st := range config.StoredSettings() {
+		if !st.Live {
+			out = append(out, st.Key)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// ---------------------------------------------------------------------------
+// GET
+// ---------------------------------------------------------------------------
+
+// handleGetSettings answers GET /api/v1/settings.
+func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
+	c := s.cfg()
+	rows, err := s.ctrl.Store().ListInstanceSettings(r.Context())
+	if err != nil {
+		s.internal(w, r, "reading the stored settings", err)
+		return
+	}
+	// PendingRestart needs the sealed values to compare a stored credential
+	// against the running one, so it reads the unblanked rows.
+	sealed, err := s.ctrl.Store().InstanceSettings(r.Context())
+	if err != nil {
+		s.internal(w, r, "reading the stored settings", err)
+		return
+	}
+	pending := config.PendingRestart(c, sealed, s.key)
+
+	var pinned []string
+	for _, st := range c.PinnedByEnvironment() {
+		pinned = append(pinned, st.Key)
+	}
+
+	writeJSON(w, http.StatusOK, settingsResponse{
+		Config:              s.settingsConfig(),
+		Settings:            s.settingViews(rows, pending),
+		Findings:            c.Validate().ForUI(),
+		PendingRestart:      emptySlice(pending),
+		PinnedByEnvironment: emptySlice(pinned),
+		RestartRequiredKeys: restartRequiredKeys(),
+		ConfigPath:          c.Path(),
+		Version:             version.Short(),
+		DatabasePath:        s.ctrl.Store().Path(),
+		EventSubscribers:    s.ctrl.Events().Subscribers(),
+	})
+}
+
+// ---------------------------------------------------------------------------
+// PATCH
+// ---------------------------------------------------------------------------
+
+// change is one staged edit, checked but not yet written.
+type change struct {
+	setting config.Setting
+	// unset asks for the stored row to be removed, so the key goes back to
+	// whatever the configuration file or the built-in default says. A JSON
+	// null means this, which reads the same way for every kind: "say nothing
+	// about it".
+	unset bool
+	value any
+	// before is what the setting was, for the audit trail.
+	before any
+}
+
+// handleUpdateSettings changes the fleet's settings.
+//
+// Every key is checked before any is written, and the whole request is refused
+// if one fails. A request is one change: applying the keys that parsed and
+// answering 422 for the one that did not would leave an operator told their
+// change was refused while half of it was in effect, with an audit row for
+// neither half.
+//
+// The order of what follows matters. The candidate configuration is validated
+// first, so a value that would stop the next startup is refused now rather than
+// discovered at the next restart by an operator who can no longer reach this
+// page. Then the rows are written, because a stored change that is not yet in
+// force is recoverable and an applied change that was never stored is not.
+// Then the live keys are pushed into the running snapshot.
+func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
+	var raw map[string]any
+	if !decode(w, r, &raw) {
+		return
+	}
+	flat := map[string]any{}
+	flatten("", raw, flat)
+
+	current := s.cfg()
+	// A scratch copy to try the whole request on. Validating the result is
+	// what makes it safe to let a settings page write a listener address.
+	candidate := *current
+	candidate.SetSources(current.Sources())
+
+	var fields []fieldError
+	staged := make([]change, 0, len(flat))
+	for _, key := range sortedKeys(flat) {
+		value := flat[key]
+		st, ok := config.LookupSetting(key)
+		if !ok {
+			fields = append(fields, fieldError{key, fmt.Sprintf("%q is not a setting this version has", key)})
+			continue
+		}
+		if editable, reason := s.editable(st, current); !editable {
+			fields = append(fields, fieldError{key, reason})
+			continue
+		}
+
+		ch := change{setting: st}
+		if value == nil && st.Kind != config.KindOptionalBool {
+			ch.unset = true
+			// Clearing a key means the layers underneath decide, and what they
+			// say is only known once the row is gone -- so the candidate gets
+			// the default, which is the floor of those layers and the only
+			// value that is certainly no worse.
+			def, _ := config.Default().Value(key)
+			value = def
+		}
+		before, err := candidate.SetValue(key, value)
+		if err != nil {
+			var se *config.SettingError
+			if errors.As(err, &se) {
+				fields = append(fields, fieldError{key, se.Error()})
+			} else {
+				fields = append(fields, fieldError{key, err.Error()})
+			}
+			continue
+		}
+		ch.before, ch.value = before, value
+		staged = append(staged, ch)
+	}
+
+	if len(fields) > 0 {
+		unprocessable(w, "these settings could not be changed", fields)
+		return
+	}
+	if len(staged) == 0 {
+		s.handleGetSettings(w, r)
+		return
+	}
+
+	// Would the controller this makes still start? The validator answers for
+	// the whole configuration, so its errors are attributed to the key they
+	// name when they name one of ours, and reported against the request as a
+	// whole when they do not.
+	candidate.Normalize()
+	if errs := candidate.Validate().Errors(); len(errs) > 0 {
+		changed := map[string]bool{}
+		for _, ch := range staged {
+			changed[ch.setting.Key] = true
+		}
+		for _, f := range errs {
+			field := f.Setting
+			if !changed[field] {
+				field = ""
+			}
+			fields = append(fields, fieldError{field, f.Title + " " + f.Fix})
+		}
+		unprocessable(w, "that would leave a controller that will not start", fields)
+		return
+	}
+
+	if err := s.writeSettings(r.Context(), Identity(r.Context()).Name, staged); err != nil {
+		s.internal(w, r, "storing the settings", err)
+		return
+	}
+
+	// Only the live half reaches the running snapshot. The rest is stored and
+	// waiting, which is what pending_restart in the response says.
+	applied, before := map[string]any{}, map[string]any{}
+	var live []change
+	for _, ch := range staged {
+		before[ch.setting.Key] = ch.before
+		if ch.unset {
+			applied[ch.setting.Key] = nil
+		} else {
+			applied[ch.setting.Key] = ch.value
+		}
+		if ch.setting.Live {
+			live = append(live, ch)
+		}
+	}
+	if len(live) > 0 {
+		// One update for the whole request, so two keys sent together land in
+		// the same snapshot and no reader sees one without the other.
+		s.ctrl.UpdateConfig(func(c *config.Config) {
+			for _, ch := range live {
+				if _, err := c.SetValue(ch.setting.Key, ch.value); err != nil {
+					continue // Already parsed against the candidate; cannot fail here.
+				}
+				if ch.unset {
+					c.Note(ch.setting.Key, config.SourceDefault)
+				} else {
+					c.Note(ch.setting.Key, config.SourceDatabase)
+				}
+			}
+			c.Normalize()
+		})
+	}
+
+	s.auth.Auditor().Updated(r.Context(), Identity(r.Context()), "settings", "settings", before, applied)
+	s.handleGetSettings(w, r)
+}
+
+// writeSettings puts the batch in the database: one transaction for the values
+// and one for the clearings, so a request that both sets and unsets cannot
+// half-apply.
+func (s *Server) writeSettings(ctx context.Context, by string, staged []change) error {
+	var rows []store.InstanceSetting
+	var clear []string
+	for _, ch := range staged {
+		if ch.unset {
+			clear = append(clear, ch.setting.Key)
+			continue
+		}
+		row, err := config.EncodeStored(ch.setting, ch.value, s.key)
+		if err != nil {
+			return err
+		}
+		rows = append(rows, row)
+	}
+	if err := s.ctrl.Store().PutInstanceSettings(ctx, by, rows); err != nil {
+		return err
+	}
+	return s.ctrl.Store().DeleteInstanceSettings(ctx, clear)
+}
+
+func sortedKeys(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// flatten turns a nested settings object into dotted keys, so that a client may
+// send either {"retention":{"jobs":"720h"}} or {"retention.jobs":"720h"} -- the
+// UI's form produces one and a script written by hand produces the other.
+//
+// A key the registry knows is never descended into, so agent.labels -- the one
+// setting whose value is itself a map -- arrives as one value rather than as a
+// key per label.
+func flatten(prefix string, in map[string]any, out map[string]any) {
+	for k, v := range in {
+		key := k
+		if prefix != "" {
+			key = prefix + "." + k
+		}
+		if _, known := config.LookupSetting(key); !known {
+			if nested, ok := v.(map[string]any); ok && len(nested) > 0 {
+				flatten(key, nested, out)
+				continue
+			}
+		}
+		out[key] = v
+	}
+}

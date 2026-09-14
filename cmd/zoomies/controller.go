@@ -52,11 +52,13 @@ func runController(ctx context.Context, e *env, args []string) error {
 	if err != nil {
 		return err
 	}
-	findings := cfg.Validate()
-	printFindings(e.err, findings)
-	if err := findings.Err(); err != nil {
-		return err
-	}
+
+	// The configuration is not validated yet, and cannot be: most of it lives
+	// in the database, and the database is not open. What Load has produced so
+	// far is enough to open it -- the path, and the key that unseals what is
+	// inside -- and the whole configuration is assembled and checked below,
+	// once both are in hand. A file that fails to parse still stops here,
+	// because that is a fault in the one layer this early step does read.
 
 	log, level := setupLogging(cfg)
 
@@ -97,6 +99,26 @@ func runController(ctx context.Context, e *env, args []string) error {
 
 	key, err := loadOrCreateKey(ctx, st, cfg, log)
 	if err != nil {
+		return err
+	}
+
+	// Now the whole configuration exists: the file underneath, this fleet's
+	// own settings over it, and the environment over both. Everything from
+	// here reads the assembled thing.
+	stored, err := st.InstanceSettings(ctx)
+	if err != nil {
+		return err
+	}
+	storedFindings, err := cfg.Rebuild(stored, key)
+	if err != nil {
+		return err
+	}
+	log.Info("configuration assembled",
+		"file", configSource(cfg), "stored", len(stored), "pinned_by_environment", len(cfg.PinnedByEnvironment()))
+
+	findings := append(storedFindings, cfg.Validate()...)
+	printFindings(e.err, findings)
+	if err := findings.Err(); err != nil {
 		return err
 	}
 

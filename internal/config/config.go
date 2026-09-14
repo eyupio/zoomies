@@ -17,7 +17,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -50,6 +49,11 @@ type Config struct {
 	// warning about a key in the config file has to look at where the key came
 	// from, not at whether one is present.
 	keyInFile bool `yaml:"-"`
+	// sources records which layer set each key -- see sources.go. It is what
+	// the settings page reads to say whether a value came from the file, the
+	// database or the environment, and therefore whether changing it here will
+	// survive a restart.
+	sources map[string]Source `yaml:"-"`
 }
 
 // Images controls how the fleet keeps the images its pools run up to date.
@@ -598,6 +602,9 @@ func Load(path string) (*Config, error) {
 		}
 		cfg.path = path
 		cfg.keyInFile = cfg.Security.EncryptionKey != ""
+		for _, key := range keysIn(b) {
+			cfg.note(key, SourceFile)
+		}
 	case os.IsNotExist(err) && !explicit:
 		// Defaults plus environment.
 	default:
@@ -791,177 +798,50 @@ func (c *Config) ExternalURLIsLocal() bool {
 
 // applyEnv overlays ZOOMIES_* environment variables.
 func (c *Config) applyEnv() error {
-	str := func(key string, dst *string) {
-		if v, ok := os.LookupEnv(key); ok {
-			*dst = v
-		}
-	}
-	strs := func(key string, dst *[]string) {
-		if v, ok := os.LookupEnv(key); ok {
-			*dst = splitList(v)
-		}
-	}
 	var errs []string
-	boolean := func(key string, dst *bool) {
-		v, ok := os.LookupEnv(key)
+	for _, s := range Settings() {
+		raw, ok := os.LookupEnv(s.Env)
 		if !ok {
-			return
+			continue
 		}
-		b, err := strconv.ParseBool(strings.TrimSpace(v))
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("%s=%q is not a boolean (use true or false)", key, v))
-			return
+		if _, err := c.SetValueString(s.Key, raw); err != nil {
+			// The variable is what the operator wrote, so the variable is what
+			// the message names -- not the dotted key they would have to work
+			// back to.
+			var se *SettingError
+			if errors.As(err, &se) {
+				errs = append(errs, fmt.Sprintf("%s: %s", s.Env, se.Reason))
+			} else {
+				errs = append(errs, fmt.Sprintf("%s: %s", s.Env, err))
+			}
+			continue
 		}
-		*dst = b
+		c.note(s.Key, SourceEnvironment)
 	}
-	integer := func(key string, dst *int) {
-		v, ok := os.LookupEnv(key)
-		if !ok {
-			return
-		}
-		n, err := strconv.Atoi(strings.TrimSpace(v))
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("%s=%q is not an integer", key, v))
-			return
-		}
-		*dst = n
-	}
-	dur := func(key string, dst *time.Duration) {
-		v, ok := os.LookupEnv(key)
-		if !ok {
-			return
-		}
+
+	// retention.audit has no registry row -- it is the old spelling of
+	// retention.scaling_events rather than a setting of its own -- but a
+	// deployment still setting the variable is honoured, and normalize says so.
+	if v, ok := os.LookupEnv("ZOOMIES_RETENTION_AUDIT"); ok {
 		d, err := time.ParseDuration(strings.TrimSpace(v))
 		if err != nil {
-			errs = append(errs, fmt.Sprintf("%s=%q is not a duration (try 30s, 5m, 2h)", key, v))
-			return
-		}
-		*dst = d
-	}
-
-	str("ZOOMIES_BIND", &c.Server.Bind)
-	boolean("ZOOMIES_TAILCAT_ENABLED", &c.Server.TailcatEnabled)
-	dur("ZOOMIES_READ_TIMEOUT", &c.Server.ReadTimeout)
-	dur("ZOOMIES_WRITE_TIMEOUT", &c.Server.WriteTimeout)
-	dur("ZOOMIES_IDLE_TIMEOUT", &c.Server.IdleTimeout)
-	str("ZOOMIES_EXTERNAL_URL", &c.Server.ExternalURL)
-	if v, ok := os.LookupEnv("ZOOMIES_TLS_MODE"); ok {
-		c.Server.TLS.Mode = TLSMode(strings.ToLower(strings.TrimSpace(v)))
-	}
-	str("ZOOMIES_TLS_CERT_FILE", &c.Server.TLS.CertFile)
-	str("ZOOMIES_TLS_KEY_FILE", &c.Server.TLS.KeyFile)
-	strs("ZOOMIES_TLS_HOSTS", &c.Server.TLS.Hosts)
-	strs("ZOOMIES_TRUSTED_PROXIES", &c.Server.TrustedProxies)
-	strs("ZOOMIES_ALLOWED_ORIGINS", &c.Server.AllowedOrigins)
-	boolean("ZOOMIES_ALLOW_INDEXING", &c.Server.AllowIndexing)
-
-	str("ZOOMIES_DB_PATH", &c.Database.Path)
-
-	str("ZOOMIES_ENCRYPTION_KEY", &c.Security.EncryptionKey)
-	str("ZOOMIES_ENCRYPTION_KEY_FILE", &c.Security.EncryptionKeyFile)
-	dur("ZOOMIES_SESSION_TTL", &c.Security.SessionTTL)
-	boolean("ZOOMIES_DISABLE_AUTH", &c.Security.DisableAuth)
-	integer("ZOOMIES_RATE_LIMIT_LOGINS", &c.Security.RateLimitLogins)
-	if v, ok := os.LookupEnv("ZOOMIES_COOKIE_SECURE"); ok {
-		b, err := strconv.ParseBool(strings.TrimSpace(v))
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("ZOOMIES_COOKIE_SECURE=%q is not a boolean", v))
+			errs = append(errs, fmt.Sprintf("ZOOMIES_RETENTION_AUDIT=%q is not a duration (try 30s, 5m, 2h)", v))
 		} else {
-			c.Security.CookieSecure = &b
+			c.Retention.Audit = d
 		}
 	}
 
-	str("ZOOMIES_GITHUB_API_BASE_URL", &c.GitHub.APIBaseURL)
-	str("ZOOMIES_GITHUB_UPLOAD_BASE_URL", &c.GitHub.UploadBaseURL)
-	str("ZOOMIES_WEBHOOK_PATH", &c.GitHub.WebhookPath)
-	dur("ZOOMIES_POLL_INTERVAL", &c.GitHub.PollInterval)
-	boolean("ZOOMIES_POLL_FALLBACK", &c.GitHub.PollFallback)
-	boolean("ZOOMIES_ALLOW_WORKFLOW_CANCELLATION", &c.GitHub.AllowWorkflowCancellation)
-	str("ZOOMIES_RUNNER_IMAGE", &c.GitHub.RunnerImage)
-	str("ZOOMIES_RUNNER_VERSION", &c.GitHub.RunnerVersion)
-
-	boolean("ZOOMIES_AGENT_EMBEDDED", &c.Agent.Embedded)
-	str("ZOOMIES_AGENT_NAME", &c.Agent.Name)
-	integer("ZOOMIES_AGENT_CAPACITY", &c.Agent.Capacity)
-	str("ZOOMIES_AGENT_BACKEND", &c.Agent.Backend)
-	str("ZOOMIES_DOCKER_HOST", &c.Agent.DockerHost)
 	// Docker's own variable is honoured only when Zoomies' is not set. The
 	// compose file hands the whole .env to the container, and an operator
 	// whose daemon is rootless or remote keeps DOCKER_HOST in that file for
 	// docker and compose themselves; read second, it would silently override
 	// the socket the compose file names explicitly.
 	if _, explicit := os.LookupEnv("ZOOMIES_DOCKER_HOST"); !explicit {
-		str("DOCKER_HOST", &c.Agent.DockerHost)
-	}
-	str("ZOOMIES_WORK_DIR", &c.Agent.WorkDir)
-	str("ZOOMIES_REGISTRY_AUTH", &c.Agent.RegistryAuth)
-	str("ZOOMIES_CONTROLLER_URL", &c.Agent.ControllerURL)
-	str("ZOOMIES_JOIN_TOKEN", &c.Agent.JoinToken)
-	str("ZOOMIES_AGENT_TOKEN", &c.Agent.AgentToken)
-	str("ZOOMIES_AGENT_CA_FILE", &c.Agent.CAFile)
-	str("ZOOMIES_AGENT_CLIENT_CERT_FILE", &c.Agent.ClientCertFile)
-	str("ZOOMIES_AGENT_CLIENT_KEY_FILE", &c.Agent.ClientKeyFile)
-	boolean("ZOOMIES_AGENT_INSECURE_SKIP_VERIFY", &c.Agent.InsecureSkipVerify)
-	boolean("ZOOMIES_AGENT_ALLOW_INSECURE_HTTP", &c.Agent.AllowInsecureHTTP)
-	dur("ZOOMIES_HEARTBEAT_INTERVAL", &c.Agent.HeartbeatInterval)
-	str("ZOOMIES_AGENT_NETWORK", &c.Agent.Network)
-	dur("ZOOMIES_AGENT_FINISHED_RETENTION", &c.Agent.FinishedRetention)
-	integer("ZOOMIES_AGENT_DOCKER_BUILD_CACHE_MB", &c.Agent.DockerBuildCacheMB)
-	str("ZOOMIES_AGENT_RUNNER_SHA256", &c.Agent.RunnerSHA256)
-	boolean("ZOOMIES_AGENT_ALLOW_UNVERIFIED_RUNNER_DOWNLOAD", &c.Agent.AllowUnverifiedRunnerDownload)
-	str("ZOOMIES_AGENT_RUNNER_DOWNLOAD_URL", &c.Agent.RunnerDownloadURL)
-	if v, ok := os.LookupEnv("ZOOMIES_AGENT_LABELS"); ok {
-		m, err := parseKV(v)
-		if err != nil {
-			errs = append(errs, "ZOOMIES_AGENT_LABELS: "+err.Error())
-		} else {
-			c.Agent.Labels = m
+		if v, ok := os.LookupEnv("DOCKER_HOST"); ok {
+			c.Agent.DockerHost = v
+			c.note("agent.docker_host", SourceEnvironment)
 		}
 	}
-
-	dur("ZOOMIES_SCHEDULER_INTERVAL", &c.Scheduler.Interval)
-	dur("ZOOMIES_SCALE_UP_DELAY", &c.Scheduler.ScaleUpDelay)
-	dur("ZOOMIES_MAX_RUNNER_LIFETIME", &c.Scheduler.MaxRunnerLifetime)
-	dur("ZOOMIES_PROVISION_TIMEOUT", &c.Scheduler.ProvisionTimeout)
-	dur("ZOOMIES_DRAIN_TIMEOUT", &c.Scheduler.DrainTimeout)
-	integer("ZOOMIES_MAX_CREATES_PER_TICK", &c.Scheduler.MaxCreatesPerTick)
-	boolean("ZOOMIES_DEFAULT_RUNNER_LIMITS", &c.Scheduler.DefaultRunnerLimits)
-	boolean("ZOOMIES_HOST_THROTTLING", &c.Scheduler.HostThrottling)
-
-	str("ZOOMIES_LOG_LEVEL", &c.Log.Level)
-	str("ZOOMIES_LOG_FORMAT", &c.Log.Format)
-
-	boolean("ZOOMIES_OIDC_ENABLED", &c.OIDC.Enabled)
-	str("ZOOMIES_OIDC_ISSUER", &c.OIDC.Issuer)
-	str("ZOOMIES_OIDC_CLIENT_ID", &c.OIDC.ClientID)
-	str("ZOOMIES_OIDC_CLIENT_SECRET", &c.OIDC.ClientSecret)
-	str("ZOOMIES_OIDC_REDIRECT_URL", &c.OIDC.RedirectURL)
-	strs("ZOOMIES_OIDC_SCOPES", &c.OIDC.Scopes)
-	str("ZOOMIES_OIDC_USERNAME_CLAIM", &c.OIDC.UsernameClaim)
-	str("ZOOMIES_OIDC_GROUPS_CLAIM", &c.OIDC.GroupsClaim)
-	strs("ZOOMIES_OIDC_ADMIN_GROUPS", &c.OIDC.AdminGroups)
-	strs("ZOOMIES_OIDC_OPERATOR_GROUPS", &c.OIDC.OperatorGroups)
-	boolean("ZOOMIES_OIDC_ALLOW_SIGNUP", &c.OIDC.AllowSignup)
-	boolean("ZOOMIES_OIDC_LINK_BY_USERNAME", &c.OIDC.LinkByUsername)
-
-	boolean("ZOOMIES_METRICS_ENABLED", &c.Metrics.Enabled)
-	str("ZOOMIES_METRICS_PATH", &c.Metrics.Path)
-	boolean("ZOOMIES_METRICS_PUBLIC", &c.Metrics.Public)
-
-	dur("ZOOMIES_RETENTION_JOBS", &c.Retention.Jobs)
-	dur("ZOOMIES_RETENTION_RUNNERS", &c.Retention.Runners)
-	dur("ZOOMIES_RETENTION_SCALING_EVENTS", &c.Retention.ScalingEvents)
-	dur("ZOOMIES_RETENTION_AUDIT", &c.Retention.Audit)
-	dur("ZOOMIES_RETENTION_SAMPLES", &c.Retention.Samples)
-	dur("ZOOMIES_RETENTION_WEBHOOKS", &c.Retention.Webhooks)
-
-	dur("ZOOMIES_IMAGE_REFRESH_INTERVAL", &c.Images.RefreshInterval)
-	dur("ZOOMIES_UPDATE_CHECK_INTERVAL", &c.Updates.CheckInterval)
-	str("ZOOMIES_CAPACITY_DEMAND_URL", &c.CapacityDemand.DestinationURL)
-	str("ZOOMIES_CAPACITY_DEMAND_SIGNING_SECRET", &c.CapacityDemand.SigningSecret)
-	dur("ZOOMIES_CAPACITY_DEMAND_COOLDOWN", &c.CapacityDemand.Cooldown)
-	dur("ZOOMIES_CAPACITY_DEMAND_TIMEOUT", &c.CapacityDemand.Timeout)
-	strs("ZOOMIES_CAPACITY_DEMAND_POOLS", &c.CapacityDemand.Pools)
 
 	if len(errs) > 0 {
 		return fmt.Errorf("invalid environment configuration:\n  - %s", strings.Join(errs, "\n  - "))
@@ -994,3 +874,9 @@ func parseKV(v string) (map[string]string, error) {
 	}
 	return out, nil
 }
+
+// Normalize fills in the values that are derived from other values. It is
+// exported for the settings API, which builds a candidate configuration by
+// assigning into a copy and has to derive the rest of it before asking the
+// validator whether the result would start.
+func (c *Config) Normalize() { c.normalize() }
