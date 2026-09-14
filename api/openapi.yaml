@@ -1899,6 +1899,34 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ProviderValidation" }
 
+  /providers/discover:
+    post:
+      operationId: discoverProviderDraft
+      tags: [providers]
+      summary: Ask a draft provider what its credential can see
+      description: >-
+        The same lists as `GET /providers/{id}/discovery`, for a provider that has not been
+        saved yet, so the wizard can offer nodes, storages, bridges and templates as a
+        menu before there is a row. The draft is checked exactly as a create would check
+        it and refused with the same field errors, so nothing is asked about a body that
+        could not be saved. A hypervisor that does not answer or refuses the token is
+        200 with empty lists and the reason in `unavailable`: halfway through a wizard
+        that is the expected state, and the form asks for identifiers instead.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProviderInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProviderDiscovery" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
   /providers/kinds:
     get:
       operationId: listProviderKinds
@@ -4455,13 +4483,42 @@ components:
           type: string
           description: Which discovery list fills the choices, e.g. nodes.
         default: { type: string }
+        source:
+          type: string
+          description: >-
+            Where the answer is found when discovery cannot offer it: which page of the
+            provider's own console, or which command on one of its machines. `help` says
+            what the setting is; this says where to look.
+
+    ProviderGuideStep:
+      type: object
+      required: [title]
+      description: One thing to do before a provider of this kind can rent anything.
+      properties:
+        title: { type: string, examples: [An API token that can clone, start and delete guests] }
+        detail: { type: string, description: What to do and why, shown as written. }
+        command: { type: string, description: A shell snippet to copy, when the step is done in a terminal. }
 
     ProviderKind:
       type: object
-      required: [kind, label, bootstrap, settings]
+      required: [kind, label, bootstrap, guide, settings]
       properties:
         kind: { $ref: "#/components/schemas/ProviderKindName" }
         label: { type: string, examples: [Proxmox VE] }
+        endpoint_example:
+          type: string
+          description: What an address for this kind looks like, scheme and port included, so the form can show one and fill the port in.
+          examples: ["https://pve.example.com:8006"]
+        endpoint_source: { type: string, description: Where the address is found, in the provider's own console's terms. }
+        credential_source: { type: string, description: Where the credential is made, and what shape to paste it in. }
+        ca_source: { type: string, description: Where the certificate to trust is found, and when to leave it empty. }
+        guide:
+          type: array
+          description: >-
+            What has to exist before this kind can rent a machine, in the order it is done.
+            The wizard shows it before its first question, because each step is done
+            somewhere other than the form.
+          items: { $ref: "#/components/schemas/ProviderGuideStep" }
         bootstrap:
           type: string
           enum: [guest_agent, metadata, none]
@@ -4527,6 +4584,12 @@ components:
         storages: { type: array, items: { $ref: "#/components/schemas/ProviderChoice" } }
         bridges: { type: array, items: { $ref: "#/components/schemas/ProviderChoice" } }
         templates: { type: array, items: { $ref: "#/components/schemas/ProviderChoice" } }
+        unavailable:
+          type: string
+          description: >-
+            Why the lists are empty, when the provider could not be asked: the address did
+            not answer, the credential was refused. Only a draft's discovery sets it; the
+            saved provider's route answers with an error instead.
 
     Orphan:
       type: object

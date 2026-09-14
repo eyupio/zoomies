@@ -103,6 +103,7 @@ export type ProviderKindName = Schemas['ProviderKindName'];
 /** What a driver can do, and the schema its form renders from. */
 export type ProviderKind = Schemas['ProviderKind'];
 export type ProviderSetting = Schemas['ProviderSetting'];
+export type ProviderGuideStep = Schemas['ProviderGuideStep'];
 export type ProviderValidation = Schemas['ProviderValidation'];
 export type ProviderCheck = Schemas['ProviderCheck'];
 export type ProviderChoice = Schemas['ProviderChoice'];

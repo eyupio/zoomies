@@ -1,6 +1,7 @@
 # systemd unit for a standalone Zoomies agent.
 #
-# Written by `zoomies agent join`. The agent connects outbound to the
+# Written by `zoomies agent join`, and by `zoomies agent install` on a machine
+# about to become a template. The agent connects outbound to the
 # controller; nothing dials it, so no inbound firewall rule is needed.
 
 [Unit]
@@ -20,6 +21,12 @@ User={{.User}}
 Group={{.Group}}
 {{- if .SupplementaryGroups}}
 SupplementaryGroups={{join .SupplementaryGroups " "}}
+{{- end}}
+{{- if .EnvFile}}
+# Read by systemd itself, before privileges are dropped, so the file can stay
+# root-owned and 0600 around the join token it carries. The dash makes a
+# missing file a non-event: a host that joined by hand has none.
+EnvironmentFile=-{{.EnvFile}}
 {{- end}}
 ExecStart={{.ExecPath}} {{.Command}} --config {{.ConfigFile}}
 Restart=always

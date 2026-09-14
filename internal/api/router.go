@@ -202,6 +202,10 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionProvidersRead)).Get("/", s.handleListProviders)
 			r.With(s.require(auth.ActionProvidersWrite)).Post("/", s.handleCreateProvider)
 			r.With(s.require(auth.ActionProvidersWrite)).Post("/validate", s.handleValidateProvider)
+			// Discovery on a draft uses the credential the way the saved
+			// provider's discovery does, and is admin because only an admin
+			// can hold a draft: creating the provider is admin's.
+			r.With(s.require(auth.ActionProvidersWrite)).Post("/discover", s.handleDiscoverDraft)
 			r.With(s.require(auth.ActionProvidersRead)).Get("/kinds", s.handleProviderKinds)
 			r.With(s.require(auth.ActionProvidersRead)).Get("/{id}", s.handleGetProvider)
 			r.With(s.require(auth.ActionProvidersWrite)).Patch("/{id}", s.handleUpdateProvider)

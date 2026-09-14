@@ -579,3 +579,55 @@ func TestAPrivateProviderNeedsAWholeAddressAndPrivateConnectionsTurnedOn(t *test
 		t.Fatalf("the refusal does not say what to turn on: %s", truncate(resp.body))
 	}
 }
+
+// The wizard can ask what a credential sees before it saves anything, so the
+// nodes and storages are a menu rather than identifiers somebody looks up.
+// What it may not do is ask about a draft the create would refuse, or ask
+// without a credential: both are the create's own field errors, and nothing
+// is dialled.
+func TestADraftCanBeAskedWhatItsCredentialSees(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("admin", store.RoleAdmin)
+	cookie := h.session(admin)
+
+	found := h.do(request{method: http.MethodPost, path: "/api/v1/providers/discover", cookie: cookie,
+		body: map[string]any{"kind": "fake", "name": "draft", "endpoint": "https://pve.example.com:8006",
+			"credential": "zoomies@pve!ci=secret", "settings": map[string]string{"zone": "zone-a"}}})
+	found.mustStatus(t, http.StatusOK, "discover for a draft")
+	var discovery providerDiscoveryResponse
+	found.into(t, &discovery)
+	if len(discovery.Nodes) == 0 {
+		t.Error("the fake sees nodes, and the draft was told about none")
+	}
+	if discovery.Unavailable != "" {
+		t.Errorf("a provider that answered is reported unavailable: %q", discovery.Unavailable)
+	}
+
+	noToken := h.do(request{method: http.MethodPost, path: "/api/v1/providers/discover", cookie: cookie,
+		body: map[string]any{"kind": "fake", "name": "draft", "endpoint": "https://pve.example.com:8006",
+			"settings": map[string]string{"zone": "zone-a"}}})
+	noToken.mustStatus(t, http.StatusUnprocessableEntity, "discover with no credential")
+	if !strings.Contains(string(noToken.body), `"credential"`) {
+		t.Errorf("the refusal does not name the credential field: %s", string(noToken.body))
+	}
+
+	// Nothing was created along the way: discovery is a question, not a save.
+	listed := h.do(request{method: http.MethodGet, path: "/api/v1/providers", cookie: cookie})
+	if strings.Contains(string(listed.body), `"draft"`) {
+		t.Errorf("asking about a draft saved it: %s", string(listed.body))
+	}
+}
+
+// The kinds route carries what to prepare and where each answer is found, in
+// the shape the spec promises: a guide that is a list even when a driver has
+// nothing to say, because the wizard iterates it.
+func TestProviderKindsCarryAGuideAndAnEndpointExample(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("admin", store.RoleAdmin)
+	cookie := h.session(admin)
+	kinds := h.do(request{method: http.MethodGet, path: "/api/v1/providers/kinds", cookie: cookie})
+	kinds.mustStatus(t, http.StatusOK, "list provider kinds")
+	if !strings.Contains(string(kinds.body), `"guide":[`) {
+		t.Errorf("the guide is missing or null rather than a list: %s", string(kinds.body))
+	}
+}

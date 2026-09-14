@@ -6,7 +6,9 @@
   the label always points at the right thing.
 -->
 <script lang="ts">
+  import { CircleHelp } from '@lucide/svelte';
   import type { Snippet } from 'svelte';
+  import Tooltip from './Tooltip.svelte';
 
   interface FieldContext {
     id: string;
@@ -19,6 +21,14 @@
     /** Supply one when something outside needs to reference the control. */
     id?: string;
     hint?: string;
+    /**
+     * Where the answer comes from, when it is something the operator has to
+     * go and look up: which page of another product's console, which command
+     * on which machine. The hint says what the control is; this says where to
+     * find what goes in it. It sits behind a help icon beside the label, on
+     * hover and on focus, and is in the accessible description at all times.
+     */
+    help?: string;
     /**
      * Something true about the control right now that is neither its
      * permanent explanation nor a validation failure -- caps lock being on,
@@ -43,6 +53,7 @@
     label,
     id: providedId,
     hint,
+    help,
     notice,
     error,
     required = false,
@@ -56,23 +67,42 @@
   const uid = $props.id();
   const id = $derived(providedId ?? `field-${uid}`);
   const hintId = $derived(hint ? `${id}-hint` : undefined);
+  const helpId = $derived(help ? `${id}-help` : undefined);
   const noticeId = $derived(notice ? `${id}-notice` : undefined);
   const errorId = $derived(error ? `${id}-error` : undefined);
   // The hint is dropped from the description when an error replaces it on
   // screen: naming an element that is not in the document leaves the control
   // describing itself by a dangling reference.
   const describedBy = $derived(
-    [errorId, noticeId, error ? undefined : hintId].filter(Boolean).join(' ') || undefined,
+    [errorId, noticeId, error ? undefined : hintId, helpId].filter(Boolean).join(' ') || undefined,
   );
 </script>
 
 <div class="field {className}">
-  <label for={id} class:sr-only={hideLabel}>
-    {label}
-    {#if required}<span class="required" aria-hidden="true">*</span><span class="sr-only"
-        >(required)</span
-      >{/if}
-  </label>
+  <div class="label-row" class:sr-only={hideLabel}>
+    <label for={id}>
+      {label}
+      {#if required}<span class="required" aria-hidden="true">*</span><span class="sr-only"
+          >(required)</span
+        >{/if}
+    </label>
+    {#if help}
+      <!-- A button, so the keyboard reaches it and the tooltip opens on
+           focus; the sentence itself is in the description, so it is never
+           only in the bubble. -->
+      <Tooltip text={help} placement="right">
+        <button
+          type="button"
+          class="help"
+          aria-label="Where to find it"
+          aria-describedby={helpId}
+        >
+          <CircleHelp size={14} aria-hidden="true" />
+        </button>
+      </Tooltip>
+      <span class="sr-only" id={helpId}>{help}</span>
+    {/if}
+  </div>
   {@render children({ id, describedBy, invalid: Boolean(error) })}
   {#if notice}
     <p class="notice" id={noticeId} aria-live="polite">{notice}</p>
@@ -105,10 +135,28 @@
     flex-direction: column;
     gap: var(--z-space-2);
   }
+  .label-row {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-1);
+  }
   label {
     font-size: var(--z-text-xs);
     font-weight: var(--z-weight-medium);
     color: var(--z-text-muted);
+  }
+  .help {
+    display: inline-flex;
+    align-items: center;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--z-text-subtle);
+    cursor: help;
+  }
+  .help:hover,
+  .help:focus-visible {
+    color: var(--z-text);
   }
   .required {
     color: var(--z-danger);

@@ -1215,6 +1215,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/providers/discover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask a draft provider what its credential can see
+         * @description The same lists as `GET /providers/{id}/discovery`, for a provider that has not been saved yet, so the wizard can offer nodes, storages, bridges and templates as a menu before there is a row. The draft is checked exactly as a create would check it and refused with the same field errors, so nothing is asked about a body that could not be saved. A hypervisor that does not answer or refuses the token is 200 with empty lists and the reason in `unavailable`: halfway through a wizard that is the expected state, and the form asks for identifiers instead.
+         */
+        post: operations["discoverProviderDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/providers/kinds": {
         parameters: {
             query?: never;
@@ -3408,11 +3428,38 @@ export interface components {
             /** @description Which discovery list fills the choices, e.g. nodes. */
             discovers?: string;
             default?: string;
+            /** @description Where the answer is found when discovery cannot offer it: which page of the provider's own console, or which command on one of its machines. `help` says what the setting is; this says where to look. */
+            source?: string;
+        };
+        /** @description One thing to do before a provider of this kind can rent anything. */
+        ProviderGuideStep: {
+            /**
+             * @example An API token that can clone
+             * @example start and delete guests
+             */
+            title: string;
+            /** @description What to do and why */
+            detail?: string;
+            /** @description A shell snippet to copy */
+            command?: string;
         };
         ProviderKind: {
             kind: components["schemas"]["ProviderKindName"];
             /** @example Proxmox VE */
             label: string;
+            /**
+             * @description What an address for this kind looks like, scheme and port included, so the form can show one and fill the port in.
+             * @example https://pve.example.com:8006
+             */
+            endpoint_example?: string;
+            /** @description Where the address is found */
+            endpoint_source?: string;
+            /** @description Where the credential is made */
+            credential_source?: string;
+            /** @description Where the certificate to trust is found */
+            ca_source?: string;
+            /** @description What has to exist before this kind can rent a machine, in the order it is done. The wizard shows it before its first question, because each step is done somewhere other than the form. */
+            guide: components["schemas"]["ProviderGuideStep"][];
             /**
              * @description How the enrolment payload reaches a guest. "metadata" means it is readable by anyone who can read the machine's metadata, which is worth knowing before anything is bought.
              * @enum {string}
@@ -3457,6 +3504,8 @@ export interface components {
             storages: components["schemas"]["ProviderChoice"][];
             bridges: components["schemas"]["ProviderChoice"][];
             templates: components["schemas"]["ProviderChoice"][];
+            /** @description Why the lists are empty, when the provider could not be asked: the address did not answer, the credential was refused. Only a draft's discovery sets it; the saved provider's route answers with an error instead. */
+            unavailable?: string;
         };
         Orphan: {
             /** @example zoomies-mach-k3f9q */
@@ -5959,6 +6008,32 @@ export interface operations {
                     "application/json": components["schemas"]["ProviderValidation"];
                 };
             };
+        };
+    };
+    discoverProviderDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderDiscovery"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     listProviderKinds: {
