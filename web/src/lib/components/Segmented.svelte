@@ -7,6 +7,10 @@
   Buttons with aria-pressed rather than radios: the choice takes effect at
   once, there is nothing to submit, and a screen reader says "pressed" for
   the one in force, which is the whole state.
+
+  An option's full name is spoken in front of the label rather than instead
+  of it: an accessible name that dropped the "1m" the button visibly says
+  leaves someone driving the page by voice with nothing to ask for.
 -->
 <script lang="ts">
   export interface SegmentedOption<T extends string = string> {
@@ -34,7 +38,7 @@
     <button
       type="button"
       aria-pressed={value === option.value}
-      aria-label={option.name}
+      aria-label={option.name ? `${option.label} — ${option.name}` : undefined}
       title={option.name}
       onclick={() => onchange(option.value)}>{option.label}</button
     >

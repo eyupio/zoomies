@@ -13,6 +13,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -38,6 +39,11 @@ const (
 	codeRateLimited   = "rate_limited"
 	codeInternal      = "internal"
 )
+
+// statusClientClosed is nginx's 499: the client hung up before the response.
+// No client ever reads it -- by then there is none -- but the access log
+// separates a request the browser abandoned from one the controller failed.
+const statusClientClosed = 499
 
 // fieldError names one thing wrong with a request body, in the words the form
 // field it belongs to should display.
@@ -182,6 +188,16 @@ func (s *Server) internal(w http.ResponseWriter, r *http.Request, doing string, 
 	id := ""
 	if info != nil {
 		id = info.id
+	}
+	// A browser that leaves the page cancels whatever it still had in flight,
+	// and the query comes back context.Canceled. Nothing is wrong with the
+	// controller and nobody is left to read a 500, so it is noted at debug:
+	// at error level a page of them teaches an operator to scroll past the
+	// failures that do need them.
+	if errors.Is(err, context.Canceled) && r.Context().Err() != nil {
+		s.logger(r).Debug("the client went away before its response", "doing", doing, "request_id", id)
+		w.WriteHeader(statusClientClosed)
+		return
 	}
 	s.logger(r).Error("request failed", "doing", doing, "error", err, "request_id", id)
 	detail := ""
