@@ -396,7 +396,7 @@ func (c *Controller) applyWorkflowJob(ctx context.Context, e *github.WorkflowJob
 				c.log.Warn("could not start a runner on the job GitHub says is running on it",
 					"runner", runner.ID, "job", saved.ID, "error", err)
 			} else if changed {
-				c.observeRunnerReady(ctx, runner, started)
+				c.observeRunnerReady(ctx, started)
 				c.publishRunner(ctx, events.KindRunnerUpdated, started)
 			}
 		case store.JobCompleted:

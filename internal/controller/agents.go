@@ -1264,7 +1264,13 @@ func (c *Controller) hostName(ctx context.Context, hostID string) string {
 // has. Both timings are only meaningful for a runner that reached idle or busy
 // with a registration behind it, which is why every caller that can produce one
 // goes through here rather than keeping its own copy of the rule.
-func (c *Controller) observeRunnerReady(ctx context.Context, before, updated *store.Runner) {
+//
+// Every field is read off the row the store handed back, never off the copy the
+// caller was holding. The create result is what stamps container_started_at, and
+// it is also what races an in_progress delivery -- so a caller whose copy
+// predates it would drop the container-to-registered timing for exactly the
+// runners whose startup was interesting enough to race.
+func (c *Controller) observeRunnerReady(ctx context.Context, updated *store.Runner) {
 	if updated == nil || updated.RegisteredAt == nil {
 		return
 	}
@@ -1275,8 +1281,8 @@ func (c *Controller) observeRunnerReady(ctx context.Context, before, updated *st
 	if err != nil {
 		return
 	}
-	if before != nil && before.ContainerStartedAt != nil {
-		observeDuration(c.metrics.containerToRegistered, p.Name, string(p.Backend), *before.ContainerStartedAt, *updated.RegisteredAt)
+	if updated.ContainerStartedAt != nil {
+		observeDuration(c.metrics.containerToRegistered, p.Name, string(p.Backend), *updated.ContainerStartedAt, *updated.RegisteredAt)
 	}
 	observeDuration(c.metrics.registeredToReady, p.Name, string(p.Backend), *updated.RegisteredAt, c.Now())
 }
@@ -1298,7 +1304,7 @@ func (c *Controller) applyRunnerState(ctx context.Context, r *store.Runner, stat
 		c.log.Warn("could not apply a runner state an agent reported", "runner", r.ID, "state", state, "error", err)
 		return
 	}
-	c.observeRunnerReady(ctx, r, updated)
+	c.observeRunnerReady(ctx, updated)
 	c.publishRunner(ctx, events.KindRunnerUpdated, updated)
 	if state == store.RunnerFailed {
 		// A clean exit under a job is the ordinary race between GitHub's

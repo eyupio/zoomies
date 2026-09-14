@@ -302,3 +302,38 @@ func TestCleanupOutcomesAreCounted(t *testing.T) {
 		t.Errorf("successful cleanups = %v after the retry worked, want 1", got)
 	}
 }
+
+// A runner's startup timings are read off the row the store handed back, not
+// off whatever the caller was holding.
+//
+// The create result is what stamps container_started_at, and it is also what
+// races GitHub's in_progress delivery -- which is how a job start came to be
+// dropped in the first place. The webhook handler's copy of the runner is
+// several writes old by the time the start is applied, so taking the container
+// time from it would lose the container-to-registered timing for exactly the
+// runners whose startup was slow enough to race.
+func TestRunnerStartupTimingsAreReadOffTheRowTheStoreReturned(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+
+	started := time.Now().Add(-30 * time.Second)
+	registered := started.Add(20 * time.Second)
+	row := &store.Runner{
+		PoolID:             pool.ID,
+		State:              store.RunnerBusy,
+		ContainerStartedAt: &started,
+		RegisteredAt:       &registered,
+	}
+
+	if n := testutil.CollectAndCount(h.c.metrics.containerToRegistered); n != 0 {
+		t.Fatalf("the container timing already has %d series before anything was observed", n)
+	}
+	h.c.observeRunnerReady(h.ctx, row)
+	if n := testutil.CollectAndCount(h.c.metrics.containerToRegistered); n != 1 {
+		t.Errorf("container-to-registered has %d series, want 1: the timing was taken from a copy that did not have it", n)
+	}
+	if n := testutil.CollectAndCount(h.c.metrics.registeredToReady); n != 1 {
+		t.Errorf("registered-to-ready has %d series, want 1", n)
+	}
+}
