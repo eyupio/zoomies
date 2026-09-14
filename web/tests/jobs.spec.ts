@@ -37,6 +37,37 @@ const DURATION = /(\d+(\.\d+)?(ms|s)\b|\d+[mhd] \d{2}[smh])/;
 
 const jobs = (page: Page) => grid(page, 'Jobs');
 
+/** The row of status buttons above the grid. */
+const statusFilter = (page: Page) => page.getByRole('group', { name: 'Filter jobs by status' });
+
+/**
+ * Every State cell, once the grid has answered the question just asked of it.
+ *
+ * The grid refetches on a short debounce, so reading the column the instant the
+ * URL changes reads the page before it: polled rather than sampled once.
+ */
+async function statesSettle(page: Page, matches: RegExp): Promise<void> {
+  await expect
+    .poll(async () => {
+      const states = (await columnTexts(jobs(page), 'State')).map((state) => state.trim());
+      return states.length > 0 && states.every((state) => matches.test(state));
+    })
+    .toBe(true);
+}
+
+/**
+ * Press "All" in the status row.
+ *
+ * The page opens on what is running, which is the question an operator opens it
+ * with and is not the question most of these tests ask: they are about the
+ * grid, the facets and the drawer, and those want the whole history in front of
+ * them.
+ */
+async function everyStatus(page: Page): Promise<void> {
+  await statusFilter(page).getByRole('button', { name: 'All', exact: true }).click();
+  await expect(rowCount(page)).toContainText(`of ${FIXTURE.managedJobs} jobs`);
+}
+
 test('the grid lists jobs with their queue wait and duration', async ({ page }) => {
   await goto(page, '/jobs', 'Jobs');
   const rows = dataRows(jobs(page));
@@ -45,7 +76,7 @@ test('the grid lists jobs with their queue wait and duration', async ({ page }) 
   // The seed writes fifty jobs and nothing adds more: no webhook ever arrives.
   // One of them ran on a hosted-runner vendor, and the default view leaves it
   // out.
-  await expect(rowCount(page)).toContainText(`of ${FIXTURE.managedJobs} jobs`);
+  await everyStatus(page);
   await expect(jobs(page).getByRole('columnheader', { name: 'Queue wait' })).toBeVisible();
   await expect(jobs(page).getByRole('columnheader', { name: 'Duration' })).toBeVisible();
 
@@ -65,7 +96,7 @@ test('the grid lists jobs with their queue wait and duration', async ({ page }) 
 test('a repository facet narrows the rows and is shareable', async ({ page }) => {
   await goto(page, '/jobs', 'Jobs');
   await expect(dataRows(jobs(page)).first()).toBeVisible();
-  await expect(rowCount(page)).toContainText(`of ${FIXTURE.managedJobs} jobs`);
+  await everyStatus(page);
 
   await facetTrigger(page, 'Repository').click();
   const menu = page.getByRole('group', { name: 'Filter by repository' });
@@ -84,7 +115,8 @@ test('a repository facet narrows the rows and is shareable', async ({ page }) =>
     expect(repo.trim()).toBe('acme/api');
   }
 
-  // Removing the chip puts every job back.
+  // Removing the chip puts every job back. The status row is untouched by a
+  // facet, so the view is still every status.
   await page.getByRole('button', { name: 'Remove the Repository filter acme/api' }).click();
   await expect(rowCount(page)).toContainText(`of ${FIXTURE.managedJobs} jobs`);
 });
@@ -115,6 +147,97 @@ test('the unmatched filter finds the job no pool claims and explains it', async 
   await expect(note.getByRole('link', { name: 'Check the pools and their labels' })).toBeVisible();
 });
 
+/*
+ * Status is the filter this page is opened for, and it used to be three clicks
+ * down a menu. It is a row of buttons now, and a page nobody has asked anything
+ * of answers the question it is opened with -- what is running -- rather than
+ * listing six months of finished work first.
+ *
+ * The default is for a bare visit only. Every link into this page from the
+ * Overview, the insights and the problems panel already says what it wants, and
+ * a default that overrode those would answer a different question than the one
+ * the sender asked; that half matters more than the default itself, so it is
+ * checked here rather than left to the tests that happen to use those links.
+ */
+test('the page opens on what is running, and the status row moves between views', async ({
+  page,
+}) => {
+  await goto(page, '/jobs', 'Jobs');
+  const running = statusFilter(page).getByRole('button', { name: 'Running', exact: true });
+  await expect(running).toHaveAttribute('aria-pressed', 'true');
+  await expect(rowCount(page)).toContainText(`of ${FIXTURE.runningJobs} jobs`);
+  await statesSettle(page, /^Running$/);
+
+  // The status is already on the row, so it is not repeated as a chip -- and a
+  // chip for the default could not be removed, since removing it is what puts
+  // the default back.
+  await expect(page.getByRole('group', { name: 'Filters in effect' })).toHaveCount(0);
+
+  // Another view is one press, and it is a link somebody else can open.
+  await statusFilter(page).getByRole('button', { name: 'Queued', exact: true }).click();
+  await expect(page).toHaveURL(/[?&]state=queued/);
+  await expect(running).toHaveAttribute('aria-pressed', 'false');
+  await statesSettle(page, /Queued/);
+
+  // "Failed" is not a state at all -- it is the server's own reckoning of a job
+  // that went wrong, runner faults included -- so pressing it has to clear the
+  // state it replaces rather than stack on top of it and match nothing.
+  await statusFilter(page).getByRole('button', { name: 'Failed', exact: true }).click();
+  await expect(page).toHaveURL(/[?&]failed=true/);
+  await expect(page).not.toHaveURL(/[?&]state=/);
+  await statesSettle(page, /Failure|Timed out|Runner lost/);
+
+  // And "All" is written out rather than left absent, because an absent status
+  // is what the default reads as "running".
+  await everyStatus(page);
+  await expect(page).toHaveURL(/[?&]state=in_progress/);
+  await expect(page).not.toHaveURL(/[?&]failed=true/);
+});
+
+/*
+ * A narrower filter must not quietly widen the status. Typing in the search box
+ * puts something in the address bar, and the default only holds while nothing is
+ * there -- so without carrying the status along, one keystroke would take an
+ * operator from "what is running" to every job the fleet has ever run.
+ */
+test('narrowing something else keeps the status the page is showing', async ({ page }) => {
+  await goto(page, '/jobs', 'Jobs');
+  await expect(dataRows(jobs(page)).first()).toBeVisible();
+
+  await facetTrigger(page, 'Repository').click();
+  await page
+    .getByRole('group', { name: 'Filter by repository' })
+    .getByRole('checkbox', { name: FIXTURE.repos[0] })
+    .check();
+  await page.keyboard.press('Escape');
+
+  await expect(page).toHaveURL(/[?&]state=in_progress/);
+  await expect(
+    statusFilter(page).getByRole('button', { name: 'Running', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
+});
+
+/*
+ * An idle fleet is the ordinary state of a small one, and the page it opens on
+ * is then empty. What it must not do is say something false about it: "no jobs
+ * have run on this fleet" is the sentence the empty state exists to avoid, and
+ * the way out is the same page without this one filter.
+ */
+test('an empty running view says the fleet is idle and offers the way out', async ({ page }) => {
+  // A window nothing ran in, so the view is honestly empty whatever the fleet
+  // is doing while the suite runs.
+  await goto(page, '/jobs?state=in_progress&since=2020-01-01&until=2020-01-02', 'Jobs');
+
+  await expect(page.getByText('Nothing is running right now')).toBeVisible();
+  await page.getByRole('button', { name: 'Show every status', exact: true }).click();
+
+  // The dates the operator chose are still theirs; only the status widened.
+  await expect(page).toHaveURL(/since=2020-01-01/);
+  await expect(
+    statusFilter(page).getByRole('button', { name: 'All', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
+});
+
 test('a job that already ran is never called unmatched, whatever its labels say', async ({
   page,
 }) => {
@@ -143,6 +266,7 @@ test('a job that already ran is never called unmatched, whatever its labels say'
 test('the unmatched explanation waits to be asked for', async ({ page }) => {
   await goto(page, '/jobs', 'Jobs');
   await expect(dataRows(jobs(page)).first()).toBeVisible();
+  await everyStatus(page);
 
   // The job is listed, and its row says what it is.
   await expect(jobs(page)).toContainText('Unmatched');
@@ -159,7 +283,8 @@ test('the unmatched explanation waits to be asked for', async ({ page }) => {
   await expect(jobs(page).getByText('blacksmith-4vcpu-ubuntu-2404')).toHaveCount(0);
 
   // The problems panel links straight here with the filter already on, which
-  // is how an operator who has not gone looking still finds it.
+  // is how an operator who has not gone looking still finds it. A link that
+  // carries a filter keeps it: the page's own default is for a bare visit.
   await goto(page, '/jobs?unmatched=true', 'Jobs');
   await expect(page.getByRole('note')).toContainText('1 queued job has no pool here');
 });
@@ -174,7 +299,7 @@ test('the unmatched explanation waits to be asked for', async ({ page }) => {
 test('other runners are hidden by default and one switch brings them back', async ({ page }) => {
   await goto(page, '/jobs', 'Jobs');
   await expect(dataRows(jobs(page)).first()).toBeVisible();
-  await expect(rowCount(page)).toContainText(`of ${FIXTURE.managedJobs} jobs`);
+  await everyStatus(page);
   await expect(jobs(page).getByText('blacksmith-4vcpu-ubuntu-2404')).toHaveCount(0);
 
   await page.getByRole('switch', { name: 'Include other runners' }).click();
@@ -192,10 +317,10 @@ test('other runners are hidden by default and one switch brings them back', asyn
   await expect(vendorQueued.filter({ hasText: 'Queued' })).toHaveCount(1);
   await expect(vendorQueued.filter({ hasText: 'Queued' })).toContainText('Hosted elsewhere');
 
-  // A queued job nothing claims stays in the default view either way: nothing
+  // A queued job nothing claims is listed whichever runners are shown: nothing
   // ran it, so it is this fleet's problem to see. The row is how it is seen --
   // the explanation above the grid waits for the filter.
-  await goto(page, '/jobs', 'Jobs');
+  await goto(page, '/jobs?state=queued', 'Jobs');
   await expect(jobs(page).getByText('cuda12')).toBeVisible();
   await expect(jobs(page)).toContainText('Unmatched');
 });
@@ -272,13 +397,15 @@ test("a job whose runner died under it is called the fleet's failure", async ({ 
 test('the failed filter is one switch and survives a copied link', async ({ page }) => {
   await goto(page, '/jobs', 'Jobs');
   await expect(dataRows(jobs(page)).first()).toBeVisible();
-  await expect(rowCount(page)).toContainText(`of ${FIXTURE.managedJobs} jobs`);
+  await everyStatus(page);
 
   await page.getByRole('switch', { name: 'Failed only' }).click();
   await expect(page).toHaveURL(/[?&]failed=true/);
-  await expect(page.getByRole('group', { name: 'Filters in effect' })).toContainText(
-    'jobs that went wrong',
-  );
+  // The status row is what says which view is in force, so the switch presses
+  // the Failed button rather than adding a chip that repeats it.
+  await expect(
+    statusFilter(page).getByRole('button', { name: 'Failed', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
   // Fewer than everything, and every one of them a failure of some kind. The
   // grid keeps the old count until the narrowed page lands, so wait for it.
   await expect(rowCount(page)).not.toContainText(`of ${FIXTURE.managedJobs} jobs`);

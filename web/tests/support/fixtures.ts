@@ -96,11 +96,17 @@ export const FIXTURE = {
   /** Every job the seed writes; nothing adds more, since no webhook arrives. */
   totalJobs: 52,
   /**
-   * What the Jobs page shows by default: everything except the three jobs the
+   * Every job this fleet has a hand in: everything except the three jobs the
    * seed runs on a hosted-runner vendor -- one finished, one running and one
    * still queued -- which this fleet had no hand in.
    */
   managedJobs: 49,
+  /**
+   * What the Jobs page shows before it is asked anything: the jobs running on
+   * this fleet's own runners, one on each busy runner the seed leaves behind.
+   * The vendor's running job is not one of them.
+   */
+  runningJobs: 3,
   /**
    * Jobs in acme/api: the seed cycles three repositories over fifty jobs. The
    * hosted-runner job the default view hides belongs to acme/widgets, so this
@@ -259,12 +265,19 @@ export function rowCount(page: Page): Locator {
   return page.getByRole('navigation', { name: 'Pagination' }).locator('p');
 }
 
-/** The index of a column, so a cell can be read by what its header says. */
+/**
+ * The index of a column, so a cell can be read by what its header says.
+ *
+ * Read from the elements rather than from the accessibility tree: on a phone
+ * every row is a card and the heading row is hidden, so `columnheader` does not
+ * resolve there -- but the column is still the same column, in the same place,
+ * and its cell still carries the heading as its own label.
+ */
 export async function columnIndex(gridLocator: Locator, header: string): Promise<number> {
-  const headers = await gridLocator.getByRole('columnheader').allInnerTexts();
-  const index = headers.findIndex((text) =>
-    text.trim().toLowerCase().startsWith(header.toLowerCase()),
-  );
+  const headers = await gridLocator
+    .locator('thead th')
+    .evaluateAll((cells) => cells.map((cell) => (cell.textContent ?? '').trim()));
+  const index = headers.findIndex((text) => text.toLowerCase().startsWith(header.toLowerCase()));
   expect(index, `the grid has a "${header}" column`).toBeGreaterThanOrEqual(0);
   return index;
 }

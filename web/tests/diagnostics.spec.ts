@@ -141,7 +141,9 @@ test('a pool nothing can place says so rather than reading as a busy fleet', asy
 test('a job GitHub is holding says it is held, and is not charged a queue wait', async ({
   page,
 }) => {
-  await goto(page, '/jobs');
+  // A held job is waiting, not running, so the view is asked for: the page
+  // opens on what is running.
+  await goto(page, '/jobs?state=waiting');
 
   await page.getByText('deploy-production').first().click();
 
@@ -156,7 +158,7 @@ test('a job GitHub is holding says it is held, and is not charged a queue wait',
 });
 
 test('a blocked pool says blocked in the drawer, not merely waiting', async ({ page }) => {
-  await goto(page, '/jobs');
+  await goto(page, '/jobs?state=waiting');
 
   // The distinction the explanation exists for: a fleet that is merely busy
   // clears itself, and a pool whose selector matches nothing never will. The

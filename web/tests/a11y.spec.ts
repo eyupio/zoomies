@@ -31,6 +31,9 @@ const PAGES = [
   { path: '/pools', heading: 'Pools' },
   { path: '/runners', heading: 'Runners' },
   { path: '/jobs', heading: 'Jobs' },
+  // The Queue puts four buttons on every row rather than a menu, which is four
+  // times as many controls to get the name of right.
+  { path: '/queue', heading: 'Queue' },
   { path: '/usage', heading: 'Usage' },
   { path: '/hosts', heading: 'Hosts' },
   // The two journey pages. They are not in the navigation, which is exactly
@@ -46,7 +49,7 @@ const PAGES = [
 ] as const;
 
 /** The pages whose main content is a grid of rows to wait for. */
-const GRID_PAGES = new Set(['/pools', '/runners', '/jobs', '/audit']);
+const GRID_PAGES = new Set(['/pools', '/runners', '/jobs', '/queue', '/audit']);
 
 /**
  * Let the page finish rendering before auditing it.

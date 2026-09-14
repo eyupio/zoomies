@@ -18,11 +18,13 @@ test('queue controls persist, filter and restore demand without changing GitHub 
     await expect(
       page.getByRole('button', { name: 'Select all matching', exact: true }),
     ).toBeEnabled();
-    const menu = page
-      .getByRole('button', { name: `Provisioning actions for ${job.job_name}`, exact: true })
-      .first();
-    await menu.click();
-    await page.getByRole('menuitem', { name: 'Pause', exact: true }).click();
+    // The row's own actions are buttons, not a menu, so pausing one item is a
+    // single press. Each carries what it acts on in its name, which is what
+    // keeps it apart from the identically-worded button in the selection bar.
+    await page
+      .getByRole('button', { name: `Pause: ${job.repo} / ${job.job_name}`, exact: true })
+      .first()
+      .click();
     await page.getByRole('dialog').getByRole('button', { name: 'Pause', exact: true }).click();
     await expect(page.getByRole('status').filter({ hasText: '1 updated' })).toBeVisible();
     await page.reload();
@@ -67,4 +69,46 @@ test('queue views preserve combined filters and cancel leaves demand unchanged',
   await page.getByRole('button', { name: 'Delete from queue', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.getByText('Snapshot across all pages')).toBeVisible();
+});
+
+/*
+ * The actions are on the row rather than behind a menu, which is four buttons
+ * per row instead of one trigger. That is a hundred tab stops on a full page if
+ * each is a stop of its own, so the four are one toolbar: Tab reaches it once
+ * and the arrow keys move along it. The arrows skip what cannot be pressed,
+ * because focus that lands on a disabled button is focus an operator has to get
+ * out of by guessing.
+ */
+test("a row's actions are one stop on the keyboard, and the arrows move along them", async ({
+  page,
+}) => {
+  const response = await page.request.get('/api/v1/provisioning?limit=1&sort=queued_at&order=asc');
+  const { items } = await response.json();
+  const job = items[0];
+  const subject = `${job.repo} / ${job.job_name}`;
+
+  await goto(page, '/queue', 'Queue');
+  const runNow = page.getByRole('button', { name: `Run now: ${subject}`, exact: true }).first();
+  await expect(runNow).toBeVisible();
+
+  // Reached the way the keyboard reaches it, rather than by being clicked: a
+  // click would say nothing about the tab order.
+  await runNow.focus();
+  await expect(runNow).toBeFocused();
+
+  await page.keyboard.press('ArrowRight');
+  await expect(
+    page.getByRole('button', { name: `Pause: ${subject}`, exact: true }).first(),
+  ).toBeFocused();
+
+  // Resume is already in force on a ready item, so the arrow goes past it.
+  await page.keyboard.press('ArrowRight');
+  await expect(
+    page.getByRole('button', { name: `Delete from queue: ${subject}`, exact: true }).first(),
+  ).toBeFocused();
+
+  // And it says why it cannot be pressed rather than simply refusing.
+  await expect(
+    page.getByRole('button', { name: `Resume: ${subject}`, exact: true }).first(),
+  ).toHaveAttribute('title', /Already provisioning normally/);
 });
