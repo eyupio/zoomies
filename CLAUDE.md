@@ -237,7 +237,7 @@ has a consistent voice, and matching it is part of a change looking finished.
 ## Layout
 
 ```text
-cmd/zoomies         the binary: controller, agent, init, CLI
+cmd/zoomies         the binary: controller, agent, gateway, init, CLI
 internal/store      domain model, SQLite schema, every query
 internal/config     zoomies.yaml + env, and the validator that warns
 internal/scheduler  pure scaling decisions and label matching
@@ -248,6 +248,7 @@ internal/api        REST, SSE, metrics, and the embedded UI
 internal/provider   the infrastructure-provider contract, its fake, and Proxmox
 internal/controller the reconcile loop, the machine loop and the agent task queue
 internal/agent      the runner-executing half
+internal/gateway    zoomies gateway: a private provider's end of the tunnel
 internal/installer  zoomies init / uninstall / agent join, and the unit,
                     compose and env templates they write
 internal/cryptox    AES-256-GCM at rest, argon2id, token hashing

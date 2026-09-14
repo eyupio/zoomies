@@ -149,6 +149,7 @@ before you commit to it.
 | Setting | What it means |
 | --- | --- |
 | Endpoint | `https://pve.example.com:8006`. Plain `http://` is refused: the API token would cross in the clear. |
+| Connection | Direct, or private through a `zoomies gateway` running beside the cluster when it lives on a network the controller cannot reach — a home lab behind a router, typically. See [Private providers](private-hosts.md#private-providers). |
 | Nodes | Which nodes clones may be made on. Give more than one and machines are spread across them, each new clone going to the least loaded. |
 | Template VMID | The template prepared above. The preflight checks it exists and is a template. |
 | Storage | Where the clone's disk lands. Must accept disk images. |
@@ -156,6 +157,12 @@ before you commit to it.
 | VMID range | The block of identifiers Zoomies may allocate from, and nothing else may. |
 | Machine shape | CPUs, memory and disk for each machine, and the labels, capacity and backend the host will report. |
 | Maximum machines | How many this provider may run at once. |
+
+A cluster on a home network usually has no address a controller in the cloud
+can reach. Run `zoomies gateway --target <node-ip>:8006` on the node, or on any
+machine beside it, choose **Private connection** in the form and paste the
+address it prints. The endpoint stays `https://…:8006` and the certificate is
+still verified end to end: the gateway forwards bytes and reads none of them.
 
 The **VMID range** is worth setting deliberately. Zoomies allocates the lowest
 free identifier inside it, so the range is both a budget and a blast radius: a

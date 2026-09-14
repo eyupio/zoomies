@@ -653,3 +653,48 @@ test('a provider that would rent nothing says so as a note beside the setting, n
   assert.equal(willRentNothing({ ...emptyDraft(), max_machines: '3' }), '');
   assert.equal(draftErrors({ ...valid(), max_machines: '0' }, []).max_machines, undefined);
 });
+
+test('a private connection address goes out once and a blank box on an edit keeps the stored one', () => {
+  const fresh = {
+    ...emptyDraft(),
+    kind: 'proxmox',
+    name: 'home',
+    endpoint: 'https://pve.lan:8006',
+  };
+  assert.equal(toProviderBody(fresh).connection, 'direct');
+  assert.equal('tailcat_address' in toProviderBody(fresh), false);
+
+  const errors = draftErrors({ ...fresh, connection: 'tailcat', credential: 'x' }, []);
+  assert.ok(errors.tailcat_address, 'a private connection with no address is not one');
+  assert.equal(
+    draftErrors(
+      { ...fresh, connection: 'tailcat', credential: 'x', tailcat_address: 'not it' },
+      [],
+    ).tailcat_address?.includes('beginning with tc'),
+    true,
+  );
+  const address = 'tc' + 'a'.repeat(40);
+  const body = toProviderBody({ ...fresh, connection: 'tailcat', tailcat_address: ` ${address} ` });
+  assert.equal(body.connection, 'tailcat');
+  assert.equal(body.tailcat_address, address);
+
+  // An existing private provider comes back without its address, and an edit
+  // that leaves the box blank is valid and sends no address at all.
+  const stored = draftFromProvider({
+    id: 'prv_1',
+    kind: 'proxmox',
+    name: 'home',
+    endpoint: 'https://pve.lan:8006',
+    connection: 'tailcat',
+  } as Provider);
+  assert.equal(stored.connection, 'tailcat');
+  assert.equal(stored.tailcat_configured, true);
+  assert.equal(stored.tailcat_address, '');
+  assert.equal(draftErrors(stored, [], { editing: true }).tailcat_address, undefined);
+  assert.equal('tailcat_address' in toProviderBody(stored), false);
+  // Switching back to direct is the deliberate act that clears it, and an
+  // address typed under direct is never sent.
+  const direct = toProviderBody({ ...stored, connection: 'direct', tailcat_address: address });
+  assert.equal(direct.connection, 'direct');
+  assert.equal('tailcat_address' in direct, false);
+});

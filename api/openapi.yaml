@@ -4336,6 +4336,14 @@ components:
           description: Where this controller reaches the provider. Not a secret - it is the address an operator typed - and showing it is how somebody tells two clusters apart on a page listing both.
           examples: ["https://pve.example.com:8006"]
         insecure_skip_verify: { type: boolean, description: Certificate verification is off for this provider, which the validator warns about rather than refusing. }
+        connection:
+          type: string
+          enum: [direct, tailcat]
+          description: >-
+            How the controller reaches the endpoint: over the network, or through a
+            `zoomies gateway` running beside the provider, for a hypervisor on a home
+            network with no address the controller can route to. The gateway's address
+            is sealed on the row and never returned, for the credential's reason.
         settings:
           type: object
           additionalProperties: { type: string }
@@ -4400,6 +4408,18 @@ components:
         endpoint: { type: string }
         ca_pem: { type: string, description: The certificate to trust for this endpoint, instead of turning verification off. }
         insecure_skip_verify: { type: boolean }
+        connection:
+          type: string
+          enum: [direct, tailcat]
+          description: >-
+            Direct, or through a `zoomies gateway` beside the provider. Choosing direct on a
+            provider that had a private connection clears its stored address.
+        tailcat_address:
+          type: string
+          description: >-
+            The address `zoomies gateway` printed. Sealed with the instance key and never
+            returned; an empty string on a PATCH leaves the stored one alone. Giving one
+            without naming a connection means tailcat.
         settings: { type: object, additionalProperties: { type: string } }
         credential:
           type: string

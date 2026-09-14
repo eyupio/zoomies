@@ -102,13 +102,14 @@ func NewProvider(cfg provider.Config) (*Provider, error) {
 		log = slog.Default()
 	}
 	client, err := New(Options{
-		Endpoint:   cfg.Endpoint,
-		TokenID:    tokenID,
-		Secret:     secret,
-		CAPEM:      cfg.CAPEM,
-		Insecure:   cfg.Insecure,
-		HTTPClient: cfg.HTTPClient,
-		Logger:     log,
+		Endpoint:    cfg.Endpoint,
+		TokenID:     tokenID,
+		Secret:      secret,
+		CAPEM:       cfg.CAPEM,
+		Insecure:    cfg.Insecure,
+		DialContext: cfg.DialContext,
+		HTTPClient:  cfg.HTTPClient,
+		Logger:      log,
 	})
 	if err != nil {
 		return nil, err

@@ -233,6 +233,7 @@ by trying again.
 | `internal/provider/proxmox` | The first provider: a hand-rolled Proxmox VE API client, and the machine lifecycle over it. |
 | `internal/controller` | Wiring: the reconcile loop, the machine loop, webhook ingest, the agent task queue, the log relay. |
 | `internal/agent` | The runner-executing half and its transport to the controller. |
+| `internal/gateway` | `zoomies gateway`: the provider-side end of a private connection. Runs beside a hypervisor the controller cannot reach and forwards the tunnel to that one API. |
 | `internal/installer` | `zoomies init`, `zoomies uninstall`, the GitHub App manifest flow, service installation. |
 | `internal/events` | In-process pub/sub that the SSE endpoint fans out. |
 | `internal/migrate` | Rewriting a workflow's `runs-on` line, and nothing else in the file. |

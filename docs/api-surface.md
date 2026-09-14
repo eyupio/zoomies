@@ -229,7 +229,12 @@ wire types.
 A provider is one place machines can be rented from. Its credential goes in
 once, sealed with the instance key, and never comes back: every read reports
 `credentials_configured` instead, because an audit row and a screenshot both
-outlive the person who took them.
+outlive the person who took them. A provider on a network the controller cannot
+route to — a hypervisor at home — is reached through a `zoomies gateway`
+running beside it, and the gateway's Tailcat address is handled the same way:
+`tailcat_address` goes in once, sealed, and every read reports
+`connection: tailcat`. Choosing `connection: direct` is what clears it. See
+[Private hosts and providers](private-hosts.md#private-providers).
 
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
@@ -238,7 +243,7 @@ outlive the person who took them.
 | POST | `/api/v1/providers/validate` | admin | A dry run over a draft. Always 200 — the verdict is in the body — and it writes nothing and dials nothing, so a form can run it as somebody types. `?id=` says the draft is an edit to that provider, so the name check does not refuse it about itself. |
 | GET | `/api/v1/providers/kinds` | viewer | What this build can rent from, and the questions each driver's form has to ask. |
 | GET | `/api/v1/providers/{id}` | viewer | |
-| PATCH | `/api/v1/providers/{id}` | admin | Every field independent; what is not named is left alone. A `credential` of `""` leaves the stored one alone, so a form with a blank password box does not erase it. A provider's kind cannot be changed — the machines it owns are that kind. |
+| PATCH | `/api/v1/providers/{id}` | admin | Every field independent; what is not named is left alone. A `credential` or `tailcat_address` of `""` leaves the stored one alone, so a form with a blank password box does not erase it. A provider's kind cannot be changed — the machines it owns are that kind. |
 | DELETE | `/api/v1/providers/{id}` | admin | 409 while any of its machines still holds a resource, naming how many. The rows are the only record of what was rented. |
 | POST | `/api/v1/providers/{id}/check` | operator | The live preflight. Read-only at the hypervisor, audited here, and recorded on the row so a check run in a terminal quiets the warning the UI is showing. |
 | GET | `/api/v1/providers/{id}/discovery` | operator | The nodes, storages, bridges and templates this credential can see. 409 from a driver that cannot list them, and the form asks for identifiers instead. |

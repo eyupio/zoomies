@@ -57,7 +57,16 @@ export const WIZARD_STEPS: readonly WizardStepDef[] = [
 
 /** Which API field names live on which step, so a rejection lands on the right one. */
 export const STEP_FIELDS: readonly (readonly string[])[] = [
-  ['kind', 'name', 'endpoint', 'credential', 'ca_pem', 'insecure_skip_verify'],
+  [
+    'kind',
+    'name',
+    'endpoint',
+    'connection',
+    'tailcat_address',
+    'credential',
+    'ca_pem',
+    'insecure_skip_verify',
+  ],
   ['settings'],
   [
     'machine_capacity',
@@ -77,6 +86,8 @@ export const FIELD_LABELS: Readonly<Record<string, string>> = {
   kind: 'Kind',
   name: 'Name',
   endpoint: 'Address',
+  connection: 'Connection',
+  tailcat_address: 'Private connection address',
   credential: 'Credential',
   ca_pem: 'Certificate authority',
   insecure_skip_verify: 'Certificate verification',
@@ -119,6 +130,16 @@ export interface ProviderDraft {
   endpoint: string;
   ca_pem: string;
   insecure_skip_verify: boolean;
+  /** How the controller reaches the address: 'direct' or 'tailcat'. */
+  connection: string;
+  /**
+   * The gateway's address. Handled as the credential is: never populated from
+   * a provider that already exists, and an empty box on an edit means "leave
+   * the stored one alone". `tailcat_configured` is what the form is told
+   * instead, so it can show that one is set without holding it.
+   */
+  tailcat_address: string;
+  tailcat_configured: boolean;
   /**
    * Never populated from a provider that already exists: the controller seals
    * it and never gives it back, so an empty box on an edit means "leave the
@@ -150,6 +171,9 @@ export function emptyDraft(): ProviderDraft {
     endpoint: '',
     ca_pem: '',
     insecure_skip_verify: false,
+    connection: 'direct',
+    tailcat_address: '',
+    tailcat_configured: false,
     credential: '',
     settings: {},
     machine_labels: {},
@@ -183,6 +207,8 @@ export function draftFromProvider(provider: Provider): ProviderDraft {
     name: provider.name ?? '',
     endpoint: provider.endpoint ?? '',
     insecure_skip_verify: provider.insecure_skip_verify === true,
+    connection: provider.connection === 'tailcat' ? 'tailcat' : 'direct',
+    tailcat_configured: provider.connection === 'tailcat',
     settings: { ...(provider.settings ?? {}) },
     machine_labels: { ...(provider.machine_labels ?? {}) },
     machine_capacity: fromNumber(provider.machine_capacity) || base.machine_capacity,
@@ -259,6 +285,7 @@ export function toProviderBody(
     name: draft.name.trim(),
     endpoint: draft.endpoint.trim(),
     insecure_skip_verify: draft.insecure_skip_verify,
+    connection: draft.connection === 'tailcat' ? 'tailcat' : 'direct',
     settings: trimmedMap(draft.settings),
     machine_labels: trimmedMap(draft.machine_labels),
     machine_capacity: num(draft.machine_capacity) ?? 2,
@@ -269,6 +296,11 @@ export function toProviderBody(
   };
   if (draft.kind !== '') body.kind = draft.kind as ProviderKindName;
   if (draft.credential.trim() !== '') body.credential = draft.credential;
+  // Only ever sent alongside a private connection, and never empty: the
+  // server reads an empty one as "keep the stored address", and naming
+  // 'direct' is what clears it.
+  if (draft.connection === 'tailcat' && draft.tailcat_address.trim() !== '')
+    body.tailcat_address = draft.tailcat_address.trim();
   if (draft.ca_pem.trim() !== '' || complete) body.ca_pem = draft.ca_pem.trim();
 
   const platform: NonNullable<ProviderInput['machine_platform']> = {};
@@ -366,6 +398,15 @@ export function draftErrors(
   // there and a missing one only on the way in.
   if (!options.editing && draft.credential.trim() === '')
     out.credential = 'A credential is needed before anything can be created.';
+  if (draft.connection === 'tailcat') {
+    const address = draft.tailcat_address.trim();
+    if (address === '' && !draft.tailcat_configured)
+      out.tailcat_address =
+        'Paste the address zoomies gateway printed. It begins with tc and is the whole of the connection.';
+    else if (address !== '' && !/^tc[A-Za-z0-9_-]{16,}$/.test(address))
+      out.tailcat_address =
+        'That does not look like a Tailcat address. Copy the whole address the gateway printed, beginning with tc.';
+  }
 
   for (const spec of specs) {
     const value = (draft.settings[spec.key] ?? '').trim();
