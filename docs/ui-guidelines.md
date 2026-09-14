@@ -515,6 +515,7 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 | `RelativeTime` | "4m ago", absolute ISO timestamp in the tooltip, updates itself |
 | `Duration` | humanised, tabular numerals |
 | `Sparkline` | inline SVG, no chart library, `role="img"` with a text summary |
+| `Slider` | the browser's own range control between notches, with the recommended notch ringed and words at the ones worth naming; a second row when two would collide. `aria-valuetext` says the value in the same words the readout shows |
 | `UtilisationBar` | busy/live with min and max ticks |
 | `ConfirmDialog` | destructive confirmation that **names the thing** ("Delete pool `linux-x64`? 3 runners will be drained.") and requires typing the name for anything irreversible |
 

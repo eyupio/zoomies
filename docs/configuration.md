@@ -236,7 +236,7 @@ retention:
   jobs: 720h                    # ZOOMIES_RETENTION_JOBS      (30 days)
   runners: 168h                 # ZOOMIES_RETENTION_RUNNERS   (7 days; the row, not the container -- see agent.finished_retention)
   scaling_events: 8760h         # ZOOMIES_RETENTION_SCALING_EVENTS (365 days of scaling history; was retention.audit, which is still read)
-  samples: 168h                 # ZOOMIES_RETENTION_SAMPLES
+  samples: 168h                 # ZOOMIES_RETENTION_SAMPLES   (7 days of the per-minute fleet and per-host samples the Overview and the Hosts page draw)
   webhooks: 168h                # ZOOMIES_RETENTION_WEBHOOKS
   machines: 168h                # ZOOMIES_RETENTION_MACHINES  (7 days of deleted-machine rows -- what was rented, when, and what it cost)
 

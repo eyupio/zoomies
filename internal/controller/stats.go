@@ -234,3 +234,9 @@ func percentile(values []int64, q float64) int64 {
 func (c *Controller) Samples(ctx context.Context, since time.Time) ([]store.FleetSample, error) {
 	return c.st.ListSamples(ctx, since)
 }
+
+// HostSamples returns every host's minute samples since a cutoff, for the
+// Hosts page's capacity map. An empty hostID means every host.
+func (c *Controller) HostSamples(ctx context.Context, since time.Time, hostID string) ([]store.HostSample, error) {
+	return c.st.ListHostSamples(ctx, since, hostID)
+}

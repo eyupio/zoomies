@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"math/rand/v2"
 	"slices"
 	"strings"
@@ -201,6 +202,9 @@ func (c *Controller) SeedDemo(ctx context.Context) error {
 	if err := c.seedSamples(ctx, now, rng); err != nil {
 		return err
 	}
+	if err := c.seedHostSamples(ctx, now, hosts, runners); err != nil {
+		return err
+	}
 
 	c.log.Info("seeded the demo fleet",
 		"pools", len(demoPoolNames), "hosts", len(hosts), "runners", len(runners),
@@ -307,6 +311,12 @@ func (c *Controller) seedHosts(ctx context.Context, now time.Time) ([]*store.Hos
 		if s.arch == "arm64" {
 			h.Connection = "tailcat"
 		}
+		// A measurement on every host, kept fresh by the demo heartbeat: the
+		// capacity map draws measured CPU and memory, and a fixture fleet that
+		// had only committed figures would show the chart's headline series
+		// as "not measured" in every screenshot.
+		usage := demoHostUsage(s.cpus, s.memoryMB, i, now, now)
+		h.Usage = usage
 		if err := c.st.CreateHost(ctx, h); err != nil {
 			return nil, fmt.Errorf("seeding host %s: %w", s.name, err)
 		}
@@ -1241,6 +1251,119 @@ func (c *Controller) seedSamples(ctx context.Context, now time.Time, rng *rand.R
 // jitter returns a value in [lo, hi]. The fixtures use a seeded source, so the
 // shape is the same on every run and a screenshot taken today matches one taken
 // last week.
+// demoHostUsage is what a demo host measured at `at`: a working day drawn
+// as a curve rather than a random walk, so the capacity map shows the shape
+// an operator recognises -- quiet overnight, climbing from nine, a lunchtime
+// dip, an afternoon peak -- and each host sits on its own band of it. The
+// third host is the cordoned one and idles. Deterministic, so two controllers
+// seeded in the same minute draw the same chart.
+func demoHostUsage(cpus int, memoryMB int64, host int, at, now time.Time) store.HostUsage {
+	local := at.In(time.Local)
+	hour := float64(local.Hour()) + float64(local.Minute())/60
+	// The day's shape, 0..1.
+	var day float64
+	switch {
+	case hour < 7:
+		day = 0.08
+	case hour < 9:
+		day = 0.08 + (hour-7)/2*0.5
+	case hour < 12.5:
+		day = 0.58 + (hour-9)/3.5*0.3
+	case hour < 13.5:
+		day = 0.55
+	case hour < 17:
+		day = 0.6 + (hour-13.5)/3.5*0.35
+	case hour < 20:
+		day = 0.95 - (hour-17)/3*0.7
+	default:
+		day = 0.25 - (hour-20)/4*0.17
+	}
+	// Ten-minute texture on top, so the line reads as a measurement and not
+	// a drawing; the phase differs per host so their peaks do not coincide.
+	minute := float64(at.Unix()/60) + float64(host*7)
+	texture := 0.06*math.Sin(minute/10*2*math.Pi/6) + 0.04*math.Sin(minute/3.3)
+	band := []float64{0.9, 0.7, 0.2}[host%3]
+	cpu := math.Max(1, math.Min(92, 100*(day*band+texture+0.05)))
+	// The most recent point is the one the card shows, and the throttle
+	// ladder reads it too: the first builder is under real pressure at the
+	// afternoon peak and nowhere else.
+	load := cpu / 100 * float64(cpus) * 1.15
+	memUsed := 0.25 + 0.55*day*band + texture/2
+	available := int64(float64(memoryMB) * (1 - memUsed))
+	if available < 256 {
+		available = 256
+	}
+	return store.HostUsage{
+		CPUPercent:        &cpu,
+		LoadAverage1:      &load,
+		MemoryAvailableMB: &available,
+		SampledAt:         now,
+	}
+}
+
+// seedHostSamples writes a day of per-minute history for every demo host, so
+// the Hosts page's capacity map has a past to draw on a controller that was
+// started a moment ago. The runner counts follow the same curve as the
+// measurements: a host is busy because its slots are.
+func (c *Controller) seedHostSamples(ctx context.Context, now time.Time, hosts []*store.Host, runners []*store.Runner) error {
+	const minutes = 24 * 60
+	// The closing hour carries the runners the fixture actually has, so the
+	// chart's history meets its live edge instead of stepping to it: the
+	// newest point is drawn from the fleet, and a line that jumps there
+	// reads as a fault in the chart rather than a fact about the host.
+	live := map[string]int{}
+	for _, r := range runners {
+		if !r.State.Terminal() {
+			live[r.HostID]++
+		}
+	}
+	start := now.Add(-minutes * time.Minute).Truncate(time.Minute)
+	samples := make([]store.HostSample, 0, (minutes+1)*len(hosts))
+	for i, h := range hosts {
+		alloc := h.Allocatable()
+		for m := 0; m <= minutes; m++ {
+			at := start.Add(time.Duration(m) * time.Minute)
+			usage := demoHostUsage(h.CPUs, h.MemoryMB, i, at, at)
+			busy := int(math.Round(*usage.CPUPercent / 100 * float64(h.Capacity)))
+			if h.Cordoned {
+				busy = 0
+			}
+			// Over the last hour the curve's count gives way to the fixture's
+			// real one, so the line arrives at the live edge rather than
+			// stepping to it.
+			if left := minutes - m; left <= 60 {
+				t := math.Min(1, float64(60-left)/45)
+				busy = int(math.Round(float64(busy) + (float64(live[h.ID])-float64(busy))*t))
+			}
+			reservedCPUs := float64(busy) * 2
+			reservedMem := int64(busy) * 4096
+			samples = append(samples, store.HostSample{
+				HostID:              h.ID,
+				At:                  at,
+				Capacity:            h.Capacity,
+				ActiveRunners:       busy,
+				CPUPercent:          usage.CPUPercent,
+				LoadAverage1:        usage.LoadAverage1,
+				CPUs:                int64(h.CPUs),
+				MemoryMB:            h.MemoryMB,
+				MemoryAvailableMB:   usage.MemoryAvailableMB,
+				AllocatableCPUs:     alloc.CPUs,
+				AllocatableMemoryMB: alloc.MemoryMB,
+				ReservedCPUs:        &reservedCPUs,
+				ReservedMemoryMB:    &reservedMem,
+				DiskTotalMB:         h.DiskTotalMB,
+				// Disk fills slowly through the day: the caches a runner
+				// leaves behind, which is what the second builder is short of.
+				DiskFreeMB: h.DiskFreeMB + int64(minutes-m)*8,
+			})
+		}
+	}
+	if err := c.st.RecordHostSamples(ctx, samples); err != nil {
+		return fmt.Errorf("seeding host samples: %w", err)
+	}
+	return nil
+}
+
 func jitter(rng *rand.Rand, lo, hi int) int {
 	if hi <= lo {
 		return lo
