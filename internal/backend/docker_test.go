@@ -951,7 +951,7 @@ func TestDockerStopKillsWhatIgnoresTheStop(t *testing.T) {
 	}
 }
 
-func TestDockerStatsNeverFailsAHeartbeat(t *testing.T) {
+func TestDockerStatsReportsSamplingFailureToTheAgent(t *testing.T) {
 	f := newFakeEngine(t, map[string]http.HandlerFunc{
 		"GET " + v + "/containers/c1/stats": func(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "cgroup unavailable"})
@@ -960,8 +960,8 @@ func TestDockerStatsNeverFailsAHeartbeat(t *testing.T) {
 	b := dockerBackendFor(t, f, DockerOptions{})
 
 	got, err := b.Stats(context.Background(), "c1")
-	if err != nil {
-		t.Fatalf("an unmeasurable container must not be an error: %v", err)
+	if StatusCode(err) != http.StatusInternalServerError {
+		t.Fatalf("the sampler needs the failure to retain its previous reading: %v", err)
 	}
 	if got != (Stats{}) {
 		t.Fatalf("stats = %+v", got)

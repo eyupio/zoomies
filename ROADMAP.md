@@ -2052,6 +2052,63 @@ implementation checks separately from live fleet qualification. The release
 owner decides inclusion after review; ZF-218 continues against the published
 stable baseline.
 
+### ZF-221: runner resilience and efficient startup
+
+**Classification: correctness fixes and bounded extensions. Owner approved
+14 September 2026.** Build on PR #276's per-agent start serialisation. Keep
+ZF-211 as the measurement programme and ZF-212 as the cache programme.
+
+**Implementation prepared, awaiting CI and live qualification:**
+
+- Keep Docker request contexts alive through response-body consumption and
+  preserve explicit graceful-stop budgets. Distinguish timeouts from missing
+  sockets in diagnostics.
+- Refuse create-by-name after an uncertain existing-runner lookup. Leave the
+  task unacknowledged for existing bounded redelivery; do not turn an unknown
+  inventory into an immediate failed-runner report.
+- Require Docker readiness before the stock Docker-capable runner registers,
+  with a validated overall deadline and individually bounded probes.
+- Queue starts FIFO, ahead of background prewarming. Runtime failures impose
+  a five-second exponential cooldown capped at one minute; successful startup
+  clears it. Existing jobs and lifecycle cleanup remain independent.
+- Sample resource usage separately from lifecycle reconciliation with bounded
+  concurrency and deadlines.
+- Prewarm the configured DinD image and coalesce equivalent successful
+  background preparations across pools for one minute.
+
+**Remaining implementation, not implied complete by this slice:**
+
+1. Controller-side bounded admission and fair sharing across pools, before
+   credentials and task leases are issued. Separate queue wait, active create,
+   Docker readiness and GitHub registration budgets. Preserve cancellation,
+   ownership and restart recovery; do not extend credentials past validity.
+2. Durable runtime incidents and visible recovery status, including operation,
+   duration, retry history and host pressure. Surface resource sample age in
+   API/UI rather than presenting cached readings as current.
+3. Safely reconcile ambiguous create/start responses against labels and
+   ownership before retrying. Existing failed-create cleanup remains in place;
+   no blanket retries of mutating Docker calls are authorised by this design.
+4. Evaluate separate runner/sidecar budgets using actual workloads before
+   changing allocation defaults. Continue ZF-212 dependency/BuildKit recipes
+   and ZF-215 scheduled warm capacity under their existing boundaries.
+
+**Acceptance and qualification:** run bursts of 1, 4, 8 and 16 requests on a
+reference host with cold and warm images. Record startup success, p50/p95
+queue-to-ready latency, image pull and registration time, host CPU/memory,
+Docker request latency and remaining runner/sidecar containers after cleanup.
+Inject delayed response bodies, a stalled Docker probe, inventory failure,
+cancellation and an agent restart. Record host size, versions and sample
+counts. Automated fixtures are not live Docker evidence.
+
+No runtime or shell executor is available in the authoring session; tests are
+added for CI and live measurements remain blocked on an executable reference
+environment. No performance gain, benchmark result or runtime recovery on the
+affected host is claimed.
+
+**Dependencies:** PR #276, ZF-102/105 lifecycle invariants, ZF-211 measurement
+and ZF-220 admission. Fix critical correctness defects before optional cache
+or platform expansion. Keep the above status current in this root roadmap.
+
 ## 10. Ordered delivery plan
 
 This sequence supersedes earlier Assignment A/B scheduling, which described
@@ -2061,6 +2118,7 @@ description of a missing feature is not evidence it remains missing.
 
 | Order | Work | Exit criterion |
 | --- | --- | --- |
+| 0a | ZF-221 runner resilience: correctness fixes, then controller admission and recovery visibility | CI plus live failure and burst qualification; cached metrics expose freshness before being treated as current |
 | 0 | ZF-220 resource-aware host allocation and pressure admission | Reviewed implementation and automated checks; live fleet qualification reported separately before release inclusion |
 | 1 | ZF-218a–d one-click deployment foundation, against today's `v1.0.0` release once published | Complete provider-neutral artefact and partner hand-off; implementation is complete but not yet qualified |
 | 2 | ZF-219 post-implementation verification and friendly-provider pilot readiness | Pristine-VPS and first-workflow evidence; one pilot can be invited, not yet broadly listed |

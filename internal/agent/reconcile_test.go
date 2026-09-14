@@ -226,7 +226,7 @@ func TestReconcileTreatsAStoppedRunnerAsRemoved(t *testing.T) {
 	}
 }
 
-func TestReconcileSamplesStatsForRunningWorkloads(t *testing.T) {
+func TestReconcileCarriesSeparatelySampledStatsForRunningWorkloads(t *testing.T) {
 	a, _, be, _ := newAgent(t, 2)
 	a.polled.Store(true)
 	track(a, "runner-1", "wl-1", true)
@@ -234,6 +234,7 @@ func TestReconcileSamplesStatsForRunningWorkloads(t *testing.T) {
 	be.mu.Lock()
 	be.stats = backend.Stats{CPUPercent: 12.5, MemoryBytes: 1 << 20}
 	be.mu.Unlock()
+	a.sampleStats(context.Background())
 
 	reports, err := a.ReconcileOnce(context.Background())
 	if err != nil {

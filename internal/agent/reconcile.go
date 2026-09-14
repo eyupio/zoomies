@@ -178,12 +178,9 @@ func (a *Agent) observe(ctx context.Context, b backend.Backend, r tracked, w bac
 		}, true
 
 	default:
-		stats, err := b.Stats(ctx, w.Handle)
-		if err != nil && !errors.Is(err, backend.ErrNotFound) {
-			// Stats are best effort: a backend that cannot measure is not a
-			// reason to stop reporting that the runner is alive.
-			a.log.Debug("could not sample runner stats", "runner", r.runnerID, "handle", w.Handle, "error", err)
-		}
+		// Resource sampling runs separately, so a slow stats endpoint cannot
+		// delay noticing exits or returning lifecycle observations.
+		stats := r.stats
 		a.markRunning(r.runnerID, w, stats, now)
 		// No lifecycle state is claimed for a live runner. Whether it is idle
 		// or busy is GitHub's answer, not the host's, and guessing here would
@@ -440,7 +437,7 @@ func (a *Agent) markRunning(runnerID string, w backend.Workload, stats backend.S
 	}
 	r.handle = w.Handle
 	r.phase = w.Status.Phase
-	r.stats = stats
+	// The stats loop owns r.stats; this observation may carry an older copy.
 	r.observedAt = now
 	if r.name == "" {
 		r.name = w.Name

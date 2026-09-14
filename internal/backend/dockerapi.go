@@ -173,7 +173,12 @@ func StatusCode(err error) int {
 // permission denied" on its own has sent many operators to the wrong place.
 func (c *APIClient) unavailable(err error) error {
 	where := c.host
+	var timeout net.Error
 	switch {
+	case errors.Is(err, context.Canceled):
+		return fmt.Errorf("docker api: request cancelled: %w", err)
+	case errors.As(err, &timeout) && timeout.Timeout():
+		return fmt.Errorf("%w: Docker at %s did not answer in time; the daemon may be busy or stalled: %w", ErrUnavailable, where, err)
 	case errors.Is(err, syscall.ENOENT):
 		return fmt.Errorf("%w: no socket at %s; the daemon is not running or is listening elsewhere -- start it (systemctl --user start docker, or systemctl start docker) or set agent.docker_host: %w", ErrUnavailable, where, err)
 	case errors.Is(err, syscall.EACCES), errors.Is(err, syscall.EPERM):
@@ -212,13 +217,20 @@ func (c *APIClient) doRaw(ctx context.Context, method, path string, q url.Values
 		rdr = strings.NewReader(string(b))
 	}
 
+	var cancel context.CancelFunc
 	if !stream {
 		if _, ok := ctx.Deadline(); !ok {
-			var cancel context.CancelFunc
+			// Cancellation must outlive the returned response body. Explicit
+			// caller budgets, including graceful stops, remain authoritative.
 			ctx, cancel = context.WithTimeout(ctx, defaultCallTimeout)
-			defer cancel()
 		}
 	}
+	handedOff := false
+	defer func() {
+		if cancel != nil && !handedOff {
+			cancel()
+		}
+	}()
 
 	req, err := http.NewRequestWithContext(ctx, method, c.urlFor(path, q), rdr)
 	if err != nil {
@@ -241,7 +253,22 @@ func (c *APIClient) doRaw(ctx context.Context, method, path string, q url.Values
 		defer resp.Body.Close()
 		return nil, &APIError{Status: resp.StatusCode, Method: method, Path: path, Message: decodeMessage(resp.Body)}
 	}
+	if cancel != nil {
+		resp.Body = &cancelOnCloseBody{ReadCloser: resp.Body, cancel: cancel}
+		handedOff = true
+	}
 	return resp, nil
+}
+
+// The response owns its deadline until its caller finishes reading it.
+type cancelOnCloseBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *cancelOnCloseBody) Close() error {
+	defer b.cancel()
+	return b.ReadCloser.Close()
 }
 
 // do performs a request, optionally decodes a JSON response into out, and
