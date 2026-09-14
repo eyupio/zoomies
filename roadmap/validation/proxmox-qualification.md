@@ -26,7 +26,15 @@ format. It proves nothing whatever about a hypervisor.
 
 The harness lives in `test/e2e/proxmox/` behind the `e2e` build tag and skips
 itself when the credentials are absent, which is everywhere they have not been
-deliberately supplied.
+deliberately supplied. Run it with `make test-e2e-proxmox`; its README lists
+every setting, and set `ZOOMIES_PROXMOX_REQUIRED=1` when running it in earnest,
+because on the machine somebody is qualifying a cluster from a skip looks
+exactly like a pass.
+
+It writes its evidence into a copy of this page named for the commit and the
+run, so the figures below are filled in from a file the harness produced rather
+than typed from memory — and it writes every resource it is about to create to
+a ledger first, so a run that dies part-way still names what it left behind.
 
 ## Setup, to be recorded
 
