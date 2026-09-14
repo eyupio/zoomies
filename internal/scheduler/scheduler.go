@@ -1133,13 +1133,21 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 		// answer that helps either way, so a fleet blocked only by throttles
 		// asks for capacity exactly as a full one does.
 		atCapacity: full+throttled == len(hs.hosts),
-		// Not one host was merely full or throttled, so nothing finishing --
-		// and no pressure easing -- frees a slot this pool could use. The
-		// counts above already say which way each host failed; this says only
-		// that none of them can be waited out. A throttle lifts on its own, so
-		// counting a throttled host here would buy a machine for a fleet that
-		// needed a minute.
-		noEligibleHost: full+throttled == 0,
+		// Not one host was merely full, throttled, held or warming, so nothing
+		// finishing -- and no pressure easing -- frees a slot this pool could
+		// use. The counts above already say which way each host failed; this
+		// says only that none of them can be waited out.
+		//
+		// All four lift on their own, and each is a reason to wait rather than
+		// to buy: a machine takes minutes to clone, and a hold raised by a
+		// thirty-second CPU spike is gone before the clone finishes. They
+		// count in NEITHER flag on purpose. In this one a held host would say
+		// no host could ever run the pool, which is how a spike buys virtual
+		// machines and tells an external provisioner to scale from zero; in
+		// atCapacity it would ask for the same machines from the other
+		// direction. Counted in neither, the pool is simply skipped and the
+		// next pass decides again, a minute older and usually clear.
+		noEligibleHost: full+throttled+held+warming == 0,
 	}
 	if detail != "" {
 		// The agent's own words about the backend it could not use. They name

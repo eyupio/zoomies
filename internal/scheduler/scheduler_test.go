@@ -1938,6 +1938,34 @@ func TestAFullFleetIsStillDistinguishedFromAFleetThatCanNeverRunThePool(t *testi
 			// Neither: one host is only busy, so a finished job would clear it.
 		},
 		{
+			// A pressure hold is the most transient blockage there is: a job
+			// spikes the CPU, new starts pause for a few seconds, and it
+			// clears on its own. Reading it as "no host can ever run this"
+			// would clone virtual machines for a thirty-second spike -- and
+			// tell an external provisioner to scale from zero as well -- while
+			// the hold lifts long before the first clone finishes.
+			name: "every host under a momentary pressure hold",
+			hosts: func() []*store.Host {
+				h := withUsage(sized("host_a", 4, 4, 8192, 100000), 99, 12000)
+				h.Usage.CPUHeld = true
+				return []*store.Host{h}
+			}(),
+			// Neither: the hold is waited out, not bought around.
+		},
+		{
+			// And a hold on one host does not excuse the rest: the others are
+			// wrong in a way no waiting fixes, but this one is not.
+			name: "one host held and one that could never run it",
+			hosts: func() []*store.Host {
+				h := withUsage(sized("host_a", 4, 4, 8192, 100000), 99, 12000)
+				h.Usage.CPUHeld = true
+				other := testHost("host_b", 8, 0)
+				other.Backends = store.StringSlice{"process"}
+				return []*store.Host{h, other}
+			}(),
+			// Neither: the held host clears itself.
+		},
+		{
 			// A throttle is the fleet being busy, not the fleet being wrong.
 			// It asks for capacity like a full host does, because more hosts
 			// is the answer either way -- but it lifts on its own, so a fleet
