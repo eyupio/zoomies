@@ -98,7 +98,29 @@ func TestEnsureSocketAccessOnAHostWithNoSocketYet(t *testing.T) {
 	}
 }
 
+// socketsHaveOwners reports whether this build can say who owns a file, which
+// is the question both tests below are really asking.
+//
+// Listening on a unix socket is not the platform test it looks like: Windows
+// has had AF_UNIX for years, so the listen succeeds there and then fileOwner --
+// which has no answer off unix by design -- leaves the socket with no owning
+// group and no gid to name. A test guarded only by the listen therefore passes
+// or fails by the runner it lands on, not by the code, which is how this one
+// went green on one Windows image and red on the next.
+func socketsHaveOwners(t *testing.T) bool {
+	t.Helper()
+	fi, err := os.Stat(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, ok := fileOwner(fi)
+	return ok
+}
+
 func TestEnsureSocketAccessNamesTheCommandForAnAccountThatDoesNotExistYet(t *testing.T) {
+	if !socketsHaveOwners(t) {
+		t.Skip("this platform has no owning group for a socket, so there is no group to name")
+	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "docker.sock")
 	l, err := net.Listen("unix", path)
@@ -161,6 +183,9 @@ func TestJudgeContainerSocket(t *testing.T) {
 
 // And the printing says the one thing an operator has to change.
 func TestCheckContainerSocketAccessNamesTheGidToSet(t *testing.T) {
+	if !socketsHaveOwners(t) {
+		t.Skip("this platform has no owning group for a socket, so there is no gid to name")
+	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "docker.sock")
 	l, err := net.Listen("unix", path)
