@@ -69,8 +69,10 @@ func run() error {
 	}
 
 	refs := []string{stripDigest(env["ZOOMIES_CONTROLLER_IMAGE"])}
-	if proxy := stripDigest(env["ZOOMIES_PROXY_IMAGE"]); proxy != "" {
-		refs = append(refs, proxy)
+	for _, key := range []string{"ZOOMIES_PROXY_IMAGE", "ZOOMIES_TUNNEL_IMAGE"} {
+		if ref := stripDigest(env[key]); ref != "" {
+			refs = append(refs, ref)
+		}
 	}
 	for _, img := range naming.Images() {
 		tag := img.Tag() + "-" + release

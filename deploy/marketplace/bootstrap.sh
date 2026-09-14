@@ -27,6 +27,8 @@ ANSWERS=${ZOOMIES_ANSWERS_FILE:-/etc/zoomies/answers.yaml}
 CADDY_TMPL=${ZOOMIES_CADDY_TEMPLATE:-/etc/zoomies/Caddyfile.tmpl}
 PROXY_TMPL=${ZOOMIES_PROXY_TEMPLATE:-/etc/zoomies/proxy-compose.yml.tmpl}
 PROXY_DIR=${ZOOMIES_PROXY_DIR:-/etc/zoomies/proxy}
+TUNNEL_TMPL=${ZOOMIES_TUNNEL_TEMPLATE:-/etc/zoomies/tunnel-compose.yml.tmpl}
+TUNNEL_DIR=${ZOOMIES_TUNNEL_DIR:-/etc/zoomies/tunnel}
 NOTES=${ZOOMIES_NOTES_FILE:-/etc/zoomies/first-login.txt}
 LOG_TAG=zoomies-bootstrap
 
@@ -43,11 +45,11 @@ die() { echo "[$LOG_TAG] $*" >&2; exit 1; }
 : "${ZOOMIES_INSTALLER_URL:?the rendered inputs name no installer}"
 : "${ZOOMIES_INSTALLER_SHA256:?the rendered inputs name no installer checksum}"
 ZOOMIES_PROXY_IMAGE=${ZOOMIES_PROXY_IMAGE:-}
+ZOOMIES_TUNNEL_IMAGE=${ZOOMIES_TUNNEL_IMAGE:-}
+ZOOMIES_TUNNEL_TOKEN=${ZOOMIES_TUNNEL_TOKEN:-}
 
 ZOOMIES_HOSTNAME=${ZOOMIES_HOSTNAME:-}
 [ -n "$ZOOMIES_HOSTNAME" ] || die "no hostname was given: set ZOOMIES_HOSTNAME to the DNS name that points at this instance"
-
-ZOOMIES_PUBLISH_ADDR=${ZOOMIES_PUBLISH_ADDR:-127.0.0.1}
 
 ZOOMIES_MODE=${ZOOMIES_MODE:-single}
 case "$ZOOMIES_MODE" in
@@ -55,13 +57,16 @@ case "$ZOOMIES_MODE" in
   *) die "mode $ZOOMIES_MODE is not one this package installs: use single or controller" ;;
 esac
 
-# How this deployment gets a certificate. Refusing an unknown value by name
-# beats installing a controller that serves plain HTTP to the internet because
-# an input was spelled in a way nothing here reads.
+# Who holds the certificate for the public name. Refusing an unknown value by
+# name beats publishing an origin to the internet in the clear because an input
+# was spelled in a way nothing here reads.
+#
+# Three of the four leave the controller speaking plain HTTP, which is correct:
+# the origin is not the public endpoint, and something in front of it is.
 ZOOMIES_TLS=${ZOOMIES_TLS:-acme}
 case "$ZOOMIES_TLS" in
-  acme|files|off) ;;
-  *) die "TLS mode $ZOOMIES_TLS is not one this package installs: use acme, files or off" ;;
+  acme|files|tunnel|cloudflare|off) ;;
+  *) die "TLS mode $ZOOMIES_TLS is not one this package installs: use acme, files, tunnel, cloudflare or off" ;;
 esac
 
 ZOOMIES_ACME_EMAIL=${ZOOMIES_ACME_EMAIL:-}
@@ -72,25 +77,53 @@ if [ "$ZOOMIES_TLS" = "files" ]; then
     die "TLS mode files needs ZOOMIES_TLS_CERT_FILE and ZOOMIES_TLS_KEY_FILE: the certificate this instance serves, and its key"
 fi
 
-# The listener, and what the instance exposes. Only a certificate of our own
-# puts Zoomies on 443; in every other arrangement it stays on loopback and
-# whatever holds the certificate reaches it there.
-if [ "$ZOOMIES_TLS" = "files" ]; then
-  ZOOMIES_BIND=0.0.0.0:443
-  ZOOMIES_TLS_MODE=files
-  # -k, because the question is whether the controller is answering, not
-  # whether a certificate issued for the public name matches 127.0.0.1.
-  HEALTH_URL=https://127.0.0.1/healthz
-  HEALTH_CURL_OPTS=-k
-else
-  ZOOMIES_BIND=$ZOOMIES_PUBLISH_ADDR:8080
-  ZOOMIES_TLS_MODE=off
-  HEALTH_URL=http://$ZOOMIES_PUBLISH_ADDR:8080/healthz
-  HEALTH_CURL_OPTS=
-fi
+# The listener, what the instance exposes, and which proxies it believes.
+#
+# The last of those is the one that goes wrong silently. X-Forwarded-For is
+# read only from a peer in trusted_proxies, and CF-Connecting-IP only from a
+# peer that is Cloudflare's own edge -- so the right answer differs between
+# Cloudflare in front of a published origin and a tunnel, even though both are
+# Cloudflare. Getting it wrong costs every audit row the real client's address
+# and throttles the whole internet as one caller, and nothing reports it.
+case "$ZOOMIES_TLS" in
+  files)
+    # The only arrangement where Zoomies itself is the public endpoint.
+    ZOOMIES_PUBLISH_ADDR=${ZOOMIES_PUBLISH_ADDR:-0.0.0.0}
+    ZOOMIES_TRUSTED_PROXIES=${ZOOMIES_TRUSTED_PROXIES:-127.0.0.1/32,::1/128}
+    ZOOMIES_BIND=0.0.0.0:443
+    ZOOMIES_TLS_MODE=files
+    # -k, because the question is whether the controller is answering, not
+    # whether a certificate issued for the public name matches 127.0.0.1.
+    HEALTH_URL=https://127.0.0.1/healthz
+    HEALTH_CURL_OPTS=-k
+    ;;
+  cloudflare)
+    # Cloudflare's edge connects to a published origin over plain HTTP on 80,
+    # so the peer is Cloudflare and the word expands to its ranges -- which is
+    # what makes CF-Connecting-IP, the one header a client cannot forge, count.
+    ZOOMIES_PUBLISH_ADDR=${ZOOMIES_PUBLISH_ADDR:-0.0.0.0}
+    ZOOMIES_BIND=$ZOOMIES_PUBLISH_ADDR:80
+    ZOOMIES_TLS_MODE=off
+    ZOOMIES_TRUSTED_PROXIES=${ZOOMIES_TRUSTED_PROXIES:-cloudflare}
+    HEALTH_URL=http://127.0.0.1:80/healthz
+    HEALTH_CURL_OPTS=
+    ;;
+  *)
+    # acme, tunnel and off all reach the controller on loopback. For a tunnel
+    # the peer is cloudflared on this machine rather than Cloudflare's edge, so
+    # trusting Cloudflare's ranges would trust nothing that ever connects: the
+    # address to believe is the local daemon's, and the header that survives is
+    # X-Forwarded-For.
+    ZOOMIES_PUBLISH_ADDR=${ZOOMIES_PUBLISH_ADDR:-127.0.0.1}
+    ZOOMIES_TRUSTED_PROXIES=${ZOOMIES_TRUSTED_PROXIES:-127.0.0.1/32,::1/128}
+    ZOOMIES_BIND=$ZOOMIES_PUBLISH_ADDR:8080
+    ZOOMIES_TLS_MODE=off
+    HEALTH_URL=http://$ZOOMIES_PUBLISH_ADDR:8080/healthz
+    HEALTH_CURL_OPTS=
+    ;;
+esac
 
 ZOOMIES_EXTERNAL_URL=${ZOOMIES_EXTERNAL_URL:-https://$ZOOMIES_HOSTNAME}
-ZOOMIES_TRUSTED_PROXIES=${ZOOMIES_TRUSTED_PROXIES:-127.0.0.1/32,::1/128}
 ZOOMIES_DATA_DIR=${ZOOMIES_DATA_DIR:-/var/lib/zoomies}
 ZOOMIES_CONTROLLER_IMAGE=${ZOOMIES_CONTROLLER_IMAGE:-}
 [ -n "$ZOOMIES_CONTROLLER_IMAGE" ] || die "the rendered inputs name no controller image"
@@ -234,6 +267,35 @@ render_proxy() {
     "$PROXY_TMPL" > "$PROXY_DIR/docker-compose.yml"
 }
 
+render_tunnel() {
+  [ "$ZOOMIES_TLS" = "tunnel" ] || return 0
+  [ -r "$TUNNEL_TMPL" ] || die "the tunnel path needs $TUNNEL_TMPL, and the image was rendered without it"
+  [ -n "$ZOOMIES_TUNNEL_IMAGE" ] || die "the rendered inputs name no tunnel image, so the tunnel path has nothing to run"
+
+  say "writing the tunnel daemon's configuration"
+  mkdir -p "$TUNNEL_DIR"
+  sed -e "s|__ZOOMIES_TUNNEL_IMAGE__|$ZOOMIES_TUNNEL_IMAGE|g" "$TUNNEL_TMPL" > "$TUNNEL_DIR/docker-compose.yml"
+
+  # The token is written beside the compose file rather than into it, and only
+  # if there is one. A deployment rendered without a token is the better shape:
+  # the operator pastes it here over SSH and it never passes through instance
+  # metadata, the provider's database or cloud-init's log.
+  if [ -n "$ZOOMIES_TUNNEL_TOKEN" ]; then
+    (umask 077; printf 'TUNNEL_TOKEN=%s\n' "$ZOOMIES_TUNNEL_TOKEN" > "$TUNNEL_DIR/.env")
+  elif [ ! -f "$TUNNEL_DIR/.env" ]; then
+    (umask 077; printf '# Paste the tunnel token from the Cloudflare dashboard, then:\n#   docker compose -f %s/docker-compose.yml up -d\nTUNNEL_TOKEN=\n' "$TUNNEL_DIR" > "$TUNNEL_DIR/.env")
+  fi
+}
+
+start_tunnel() {
+  [ "$ZOOMIES_TLS" = "tunnel" ] || return 0
+  if ! grep -q '^TUNNEL_TOKEN=.' "$TUNNEL_DIR/.env" 2>/dev/null; then
+    say "no tunnel token yet, so the tunnel is not started; $NOTES says where to paste one"
+    return 0
+  fi
+  docker compose -f "$TUNNEL_DIR/docker-compose.yml" up -d
+}
+
 start_proxy() {
   [ "$ZOOMIES_TLS" = "acme" ] || return 0
   docker compose -f "$PROXY_DIR/docker-compose.yml" up -d
@@ -274,6 +336,48 @@ Finish setup in three steps.
 3. Connect GitHub from the UI. Nothing runs until a pool exists, so make one
    after that.
 NOTE
+
+  # What each arrangement still needs from a person, which is the part a
+  # generic note would leave them to work out on their own.
+  case "$ZOOMIES_TLS" in
+    tunnel)
+      cat >> "$NOTES" <<NOTE
+
+This deployment publishes no port. Cloudflare serves HTTPS on
+$ZOOMIES_HOSTNAME and a tunnel daemon on this instance dials out to it, so
+there is no inbound rule, no DNS record of this machine's own and no
+certificate here.
+NOTE
+      if grep -q '^TUNNEL_TOKEN=.' "$TUNNEL_DIR/.env" 2>/dev/null; then
+        cat >> "$NOTES" <<NOTE
+The tunnel is running with the token this instance was rendered with.
+NOTE
+      else
+        cat >> "$NOTES" <<NOTE
+The tunnel is not running yet, because it has no token. Create the tunnel in
+the Cloudflare dashboard, point its public hostname at
+http://127.0.0.1:8080, then:
+
+  \$EDITOR $TUNNEL_DIR/.env          # paste the token
+  docker compose -f $TUNNEL_DIR/docker-compose.yml up -d
+
+Pasting it here rather than into the provider's form is deliberate: a token in
+instance metadata is also in the provider's database and in cloud-init's log.
+NOTE
+      fi
+      ;;
+    cloudflare)
+      cat >> "$NOTES" <<NOTE
+
+This instance serves plain HTTP on port 80 for Cloudflare to proxy, and
+believes X-Forwarded-For and CF-Connecting-IP from Cloudflare's own ranges.
+
+Firewall port 80 to those ranges. Left open to everything, the origin is
+reachable directly and Cloudflare is merely in front of it rather than in the
+way -- so a caller who finds this address bypasses every rule set at the edge.
+NOTE
+      ;;
+  esac
   chmod 0644 "$NOTES"
 
   if [ -d /etc/update-motd.d ]; then
@@ -309,6 +413,7 @@ wait_for_health() {
 if [ "${ZOOMIES_RENDER_ONLY:-}" = "1" ]; then
   render_answers
   render_proxy
+  render_tunnel
   say "rendered $ANSWERS and stopped, because ZOOMIES_RENDER_ONLY is set"
   exit 0
 fi
@@ -320,6 +425,8 @@ run_installer
 wait_for_health
 render_proxy
 start_proxy
+render_tunnel
+start_tunnel
 write_notes
 
 say "done. $NOTES says how to finish setup."

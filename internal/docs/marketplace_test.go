@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/installer"
 	"github.com/eyupio/zoomies/internal/naming"
 )
@@ -211,21 +213,32 @@ func TestEveryTLSArrangementIsAnsweredCompletely(t *testing.T) {
 		t.Skip("the bootstrap is a POSIX shell script; it is rendered and run on Unix")
 	}
 	cases := []struct {
-		tls      string
-		extra    map[string]string
-		wantBind string
-		wantMode string
+		tls           string
+		extra         map[string]string
+		wantBind      string
+		wantMode      string
+		wantProxy     string
+		wantPlainHTTP bool
 	}{
 		// A certificate of our own is the only arrangement where Zoomies
-		// itself is exposed, and the only one where it terminates TLS.
-		{tls: "files", wantBind: "0.0.0.0:443", wantMode: "files", extra: map[string]string{
+		// itself is the public endpoint, and the only one where it
+		// terminates TLS.
+		{tls: "files", wantBind: "0.0.0.0:443", wantMode: "files", wantProxy: "127.0.0.1/32", extra: map[string]string{
 			"ZOOMIES_TLS_CERT_FILE": "/etc/zoomies/tls/fullchain.pem",
 			"ZOOMIES_TLS_KEY_FILE":  "/etc/zoomies/tls/privkey.pem",
 		}},
-		// Otherwise something in front holds it and reaches the controller on
-		// loopback, so the controller is never published to the internet.
-		{tls: "acme", wantBind: "127.0.0.1:8080", wantMode: "off"},
-		{tls: "off", wantBind: "127.0.0.1:8080", wantMode: "off"},
+		// Cloudflare's edge connects from outside to a published origin over
+		// plain HTTP, so the origin is exposed and the peer is Cloudflare --
+		// which is what makes CF-Connecting-IP, the header a client cannot
+		// forge, count. Trusting loopback here would believe nothing that ever
+		// connects.
+		{tls: "cloudflare", wantBind: "0.0.0.0:80", wantMode: "off", wantProxy: config.TrustedProxyCloudflare, wantPlainHTTP: true},
+		// A tunnel is the other Cloudflare shape and wants the opposite
+		// answer: the daemon runs here, so the peer is loopback and
+		// CF-Connecting-IP is deliberately not believed from it.
+		{tls: "tunnel", wantBind: "127.0.0.1:8080", wantMode: "off", wantProxy: "127.0.0.1/32", wantPlainHTTP: true},
+		{tls: "acme", wantBind: "127.0.0.1:8080", wantMode: "off", wantProxy: "127.0.0.1/32"},
+		{tls: "off", wantBind: "127.0.0.1:8080", wantMode: "off", wantProxy: "127.0.0.1/32", wantPlainHTTP: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.tls, func(t *testing.T) {
@@ -249,8 +262,17 @@ func TestEveryTLSArrangementIsAnsweredCompletely(t *testing.T) {
 			if parsed.ExternalURL == "" || !strings.HasPrefix(parsed.ExternalURL, "https://") {
 				t.Errorf("TLS %s gave GitHub the external URL %q; a webhook is not delivered to anything else", tc.tls, parsed.ExternalURL)
 			}
-			if len(parsed.TrustedProxies) == 0 {
-				t.Errorf("TLS %s trusts no proxy, so every audit row would record one", tc.tls)
+			// Which proxy is believed is the half that fails silently:
+			// wrong, every audit row records the proxy instead of the person
+			// and the rate limiter throttles the internet as one caller.
+			if !slices.Contains(parsed.TrustedProxies, tc.wantProxy) {
+				t.Errorf("TLS %s trusts %v, which does not include %q", tc.tls, parsed.TrustedProxies, tc.wantProxy)
+			}
+			// Three of the five leave the origin speaking plain HTTP, and that
+			// is correct rather than a lapse: the origin is not the public
+			// endpoint. What must never happen is the public URL being plain.
+			if tc.wantPlainHTTP && parsed.TLS.Mode != "off" {
+				t.Errorf("TLS %s made the origin terminate TLS; something in front of it holds the certificate", tc.tls)
 			}
 		})
 	}
@@ -306,6 +328,7 @@ func runBootstrap(t *testing.T, dir string, inputs map[string]string) (string, e
 		"ZOOMIES_INSTALLER_SHA256=" + env["ZOOMIES_INSTALLER_SHA256"],
 		"ZOOMIES_CONTROLLER_IMAGE=" + env["ZOOMIES_CONTROLLER_IMAGE"],
 		"ZOOMIES_PROXY_IMAGE=" + env["ZOOMIES_PROXY_IMAGE"],
+		"ZOOMIES_TUNNEL_IMAGE=" + env["ZOOMIES_TUNNEL_IMAGE"],
 	}
 	for _, k := range sortedKeys(inputs) {
 		lines = append(lines, k+"="+inputs[k])
@@ -321,7 +344,9 @@ func runBootstrap(t *testing.T, dir string, inputs map[string]string) (string, e
 		"ZOOMIES_ANSWERS_FILE="+filepath.Join(dir, "answers.yaml"),
 		"ZOOMIES_CADDY_TEMPLATE="+filepath.Join(marketplaceDir, "Caddyfile.tmpl"),
 		"ZOOMIES_PROXY_TEMPLATE="+filepath.Join(marketplaceDir, "proxy-compose.yml.tmpl"),
+		"ZOOMIES_TUNNEL_TEMPLATE="+filepath.Join(marketplaceDir, "tunnel-compose.yml.tmpl"),
 		"ZOOMIES_PROXY_DIR="+filepath.Join(dir, "proxy"),
+		"ZOOMIES_TUNNEL_DIR="+filepath.Join(dir, "tunnel"),
 		"ZOOMIES_DATA_DIR="+filepath.Join(dir, "data"),
 	)
 	out, err := cmd.CombinedOutput()
@@ -471,11 +496,12 @@ func TestTheRenderedCloudConfigCarriesTheWholePackage(t *testing.T) {
 	want := map[string]string{
 		// The settings are mode 0600 because they are root's configuration.
 		// The bootstrap is 0700 because it is the only thing that runs.
-		"/etc/zoomies/marketplace.env":        "0600",
-		"/etc/zoomies/answers.yaml.tmpl":      "0600",
-		"/etc/zoomies/Caddyfile.tmpl":         "0644",
-		"/etc/zoomies/proxy-compose.yml.tmpl": "0644",
-		"/usr/local/sbin/zoomies-bootstrap":   "0700",
+		"/etc/zoomies/marketplace.env":         "0600",
+		"/etc/zoomies/answers.yaml.tmpl":       "0600",
+		"/etc/zoomies/Caddyfile.tmpl":          "0644",
+		"/etc/zoomies/proxy-compose.yml.tmpl":  "0644",
+		"/etc/zoomies/tunnel-compose.yml.tmpl": "0644",
+		"/usr/local/sbin/zoomies-bootstrap":    "0700",
 	}
 	got := map[string]string{}
 	for _, f := range config.WriteFiles {
@@ -522,4 +548,92 @@ func blockPlaceholders(t *testing.T) []string {
 		t.Fatal("cloud-init.yaml.tmpl embeds no files at all, which cannot be right")
 	}
 	return out
+}
+
+// TestTheTunnelTokenStaysOutOfTheControllersConfiguration covers the one
+// credential this package is willing to carry.
+//
+// A tunnel token is allowed where a GitHub App key is not: it names one tunnel
+// and is rotated by deleting that tunnel. Allowed is not the same as loose --
+// it belongs to the daemon that dials out, and it must not end up in the answer
+// file, which is world-readable configuration that setup echoes and that an
+// operator is told to read when wondering what was decided.
+func TestTheTunnelTokenStaysOutOfTheControllersConfiguration(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the bootstrap is a POSIX shell script; it is rendered and run on Unix")
+	}
+	const token = "eyJhIjoiZXhhbXBsZS10b2tlbiJ9"
+	dir := t.TempDir()
+	if _, err := runBootstrap(t, dir, map[string]string{
+		"ZOOMIES_HOSTNAME":     "zoomies.example.com",
+		"ZOOMIES_TLS":          "tunnel",
+		"ZOOMIES_TUNNEL_TOKEN": token,
+	}); err != nil {
+		t.Fatalf("the bootstrap refused to render a tunnel: %v", err)
+	}
+
+	answers, err := os.ReadFile(filepath.Join(dir, "answers.yaml"))
+	if err != nil {
+		t.Fatalf("reading the answer file: %v", err)
+	}
+	if strings.Contains(string(answers), token) {
+		t.Error("the tunnel token reached the answer file, which is not where it belongs")
+	}
+
+	// It belongs here, and only a root-readable file will do: compose reads it
+	// from beside its own file, which is what keeps the compose file itself
+	// safe to copy.
+	envPath := filepath.Join(dir, "tunnel", ".env")
+	info, err := os.Stat(envPath)
+	if err != nil {
+		t.Fatalf("the bootstrap wrote no tunnel environment: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("the tunnel token is written %04o, want 0600", perm)
+	}
+	written, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatalf("reading the tunnel environment: %v", err)
+	}
+	if !strings.Contains(string(written), token) {
+		t.Error("the tunnel token did not reach the daemon that needs it")
+	}
+	compose, err := os.ReadFile(filepath.Join(dir, "tunnel", "docker-compose.yml"))
+	if err != nil {
+		t.Fatalf("reading the tunnel compose file: %v", err)
+	}
+	if strings.Contains(string(compose), token) {
+		t.Error("the tunnel token was written into the compose file, which is meant to stay copyable")
+	}
+}
+
+// TestATunnelRenderedWithoutATokenIsStillReadyForOne is the shape the docs
+// recommend: the instance boots complete, and the token is pasted over SSH so
+// that it never passes through instance metadata at all.
+//
+// That is only worth recommending if it actually works, which means the compose
+// file has to exist and the placeholder has to be there to fill in.
+func TestATunnelRenderedWithoutATokenIsStillReadyForOne(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the bootstrap is a POSIX shell script; it is rendered and run on Unix")
+	}
+	dir := t.TempDir()
+	if _, err := runBootstrap(t, dir, map[string]string{
+		"ZOOMIES_HOSTNAME": "zoomies.example.com",
+		"ZOOMIES_TLS":      "tunnel",
+	}); err != nil {
+		t.Fatalf("the bootstrap refused to render a tunnel without a token: %v", err)
+	}
+	for _, name := range []string{"docker-compose.yml", ".env"} {
+		if _, err := os.Stat(filepath.Join(dir, "tunnel", name)); err != nil {
+			t.Errorf("a tunnel rendered without a token is missing %s: %v", name, err)
+		}
+	}
+	env, err := os.ReadFile(filepath.Join(dir, "tunnel", ".env"))
+	if err != nil {
+		t.Fatalf("reading the tunnel environment: %v", err)
+	}
+	if !strings.Contains(string(env), "TUNNEL_TOKEN=") {
+		t.Error("the tunnel environment has no line to paste a token into")
+	}
 }

@@ -19,6 +19,7 @@ instance, so it can execute jobs from the first minute; set `ZOOMIES_MODE` to
 | `answers.yaml.tmpl` | The answers `zoomies init` is given, with the instance's own values still to substitute. |
 | `bootstrap.sh` | First boot: install a container runtime, render the answers, run the pinned installer, wait for health, put a certificate holder in front if one is wanted, leave a note. |
 | `Caddyfile.tmpl`, `proxy-compose.yml.tmpl` | The certificate holder, for `ZOOMIES_TLS=acme`. |
+| `tunnel-compose.yml.tmpl` | The Cloudflare Tunnel daemon, for `ZOOMIES_TLS=tunnel`. |
 | `cloud-init.yaml.tmpl` | The cloud-config the three files above are rendered into. |
 | `render.sh` | Does the rendering. |
 
@@ -37,8 +38,10 @@ connect GitHub, make a pool.
 
 ## What it will not do
 
-**It carries no secret.** Not the GitHub App's private key, not the webhook
-secret, not an administrator password, not a join token. Everything a provider's
+**It carries no secret you have an alternative to.** Not the GitHub App's
+private key, not the webhook secret, not an administrator password, not a join
+token. A Cloudflare Tunnel token is the single exception, and it is optional:
+leave it out and the instance still boots ready for you to paste it over SSH. Everything a provider's
 form collects becomes instance metadata, which is readable by anything on the
 instance that can reach the metadata service, kept in the provider's own
 database, and printed in cloud-init's log — and a credential that has been
@@ -50,11 +53,14 @@ connection the operator already trusts. The first administrator is created with
 the setup token the controller prints while no account exists; GitHub is
 connected from the UI by an administrator who is already signed in.
 
-**It has no plain-HTTP option.** `ZOOMIES_TLS` chooses who holds the
-certificate — a proxy on the instance that gets one from Let's Encrypt, Zoomies
-itself with one you supply, or a load balancer in front — and an unrecognised
-value is refused by name rather than defaulted into serving an origin in the
-clear. [docs/marketplace.md](../../docs/marketplace.md) has the three in full.
+**It offers no plain-HTTP public endpoint.** The origin often speaks HTTP —
+that is what three of the five arrangements do — but something in front always
+holds a certificate for the public name: a Cloudflare Tunnel dialling out from
+this instance, Cloudflare in front of a published origin, a proxy here with a
+certificate from Let's Encrypt, Zoomies itself with one you supply, or a load
+balancer of yours. An unrecognised `ZOOMIES_TLS` is refused by name rather than
+defaulted. [docs/marketplace.md](../../docs/marketplace.md) has all five, and
+the table of which proxy each one believes.
 
 **It has not been tested on a provider yet.** The implementation is complete and
 its rendering is checked by tests in `internal/docs`; a pristine-VPS run, the

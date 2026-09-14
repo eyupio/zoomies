@@ -233,8 +233,10 @@ as below. See [docs/paas.md](docs/paas.md).
 ### From a provider's marketplace
 
 `deploy/marketplace/` renders a cloud-config that boots an instance into a
-running controller: pinned images, a certificate from Let's Encrypt or one of
-your own, and no credential anywhere in the instance metadata — the first
+running controller: pinned images, HTTPS however you want it in front — a
+Cloudflare Tunnel with no inbound rule at all, Cloudflare in front of a
+published origin, a certificate from Let's Encrypt, one of your own, or your
+load balancer — and no credential in the instance metadata. The first
 administrator is created in the browser with the setup token the controller
 prints, and GitHub is connected there too.
 

@@ -45,6 +45,14 @@ write_files:
     content: |
       __ZOOMIES_PROXY_COMPOSE__
 
+  # The tunnel daemon, used only when ZOOMIES_TLS is tunnel. Written either
+  # way, for the same reason as the proxy above.
+  - path: /etc/zoomies/tunnel-compose.yml.tmpl
+    owner: root:root
+    permissions: '0644'
+    content: |
+      __ZOOMIES_TUNNEL_COMPOSE__
+
   - path: /usr/local/sbin/zoomies-bootstrap
     owner: root:root
     permissions: '0700'

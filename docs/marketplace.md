@@ -34,8 +34,8 @@ between one customer's deployment and the next.
 | --- | --- |
 | `ZOOMIES_HOSTNAME` | **Required.** The DNS name that will point at this instance. Webhook deliveries, the session cookie's `Secure` flag and every link in the UI are built from it. |
 | `ZOOMIES_EXTERNAL_URL` | The public address, when something in front publishes this instance under a different name. Derived from the hostname otherwise. |
-| `ZOOMIES_DNS` | Whether that record already points here at boot, or is created afterwards — which is the usual order when the provider assigns the address at boot. |
-| `ZOOMIES_TLS` | How this deployment gets its certificate. See below. |
+| `ZOOMIES_DNS` | Whether that record already points here at boot, or is created afterwards — which is the usual order when the provider assigns the address at boot. It does not apply to a tunnel, where Cloudflare maps the hostname and this instance has no record of its own. |
+| `ZOOMIES_TLS` | Who holds the certificate for the public name: `tunnel`, `cloudflare`, `acme`, `files` or `off`. See below. |
 | `ZOOMIES_CONTROLLER_IMAGE` | The image to run. Defaults to the pinned, tested one in `release.env`. |
 | `ZOOMIES_DATA_DIR` | Where the database, the encryption key and the runners' work area live — the directory to put on an attached volume, and the one a backup copies. |
 
@@ -49,49 +49,103 @@ one.
 
 ## Getting a certificate
 
-Three arrangements, none of which needs Cloudflare. The difference between them
-is only who holds the certificate.
+Five arrangements, and the difference between them is only who holds the
+certificate for the public name. Three of them leave the controller speaking
+plain HTTP, which is correct rather than a compromise: the origin is not the
+public endpoint, and something in front of it is.
 
 ```mermaid
 flowchart LR
+  subgraph tunnel["ZOOMIES_TLS=tunnel"]
+    T1[Browser and GitHub] -->|443| T2[Cloudflare]
+    T2 -.->|outbound tunnel| T3[cloudflared here]
+    T3 -->|loopback, HTTP| T4[Controller]
+  end
+  subgraph cf["ZOOMIES_TLS=cloudflare"]
+    D1[Browser and GitHub] -->|443| D2[Cloudflare]
+    D2 -->|port 80, HTTP| D3[Controller]
+  end
   subgraph acme["ZOOMIES_TLS=acme"]
-    A1[Browser and GitHub] -->|443| A2[Proxy on this instance]
-    A2 -->|loopback| A3[Controller]
+    A1[Browser and GitHub] -->|443| A2[Proxy here]
+    A2 -->|loopback, HTTP| A3[Controller]
   end
   subgraph files["ZOOMIES_TLS=files"]
     B1[Browser and GitHub] -->|443| B3[Controller]
   end
   subgraph off["ZOOMIES_TLS=off"]
     C1[Browser and GitHub] -->|443| C2[Your load balancer]
-    C2 -->|loopback| C3[Controller]
+    C2 -->|HTTP| C3[Controller]
   end
 ```
 
+**`tunnel` — a Cloudflare Tunnel, and no inbound rule at all.** A daemon on the
+instance dials out to Cloudflare, Cloudflare serves HTTPS on the public name,
+and the controller answers plain HTTP on loopback. Nothing is published, this
+machine needs no DNS record of its own, and no certificate lives here. It is
+the arrangement for a home network, a machine behind somebody else's firewall,
+or a provider that charges for a static address.
+
+The tunnel needs a token, and it is the one credential this package will carry.
+Leave `ZOOMIES_TUNNEL_TOKEN` empty and the instance still boots ready for it:
+the first-login notes name the file to paste it into and the single command
+that starts the tunnel, so the token never passes through instance metadata,
+the provider's database or cloud-init's log. Set it in the inputs only when a
+form has to produce a working instance unattended, knowing where it ends up —
+`render.sh` says so on the way past.
+
+**`cloudflare` — Cloudflare in front of a published origin.** The classic
+arrangement: this instance serves plain HTTP on port 80 and Cloudflare proxies
+to it. **Firewall port 80 to Cloudflare's ranges.** Left open, the origin is
+reachable directly and Cloudflare is merely in front of it rather than in the
+way, so anyone who finds the address bypasses every rule set at the edge.
+
 **`acme` — a certificate, automatically.** A small reverse proxy on the
 instance asks Let's Encrypt for one and renews it. The controller stays on
-loopback and is never published. This needs the DNS record to point at the
-instance and ports 80 and 443 reachable; until the record exists the proxy
-keeps trying, so an instance booted before its DNS was ready becomes healthy on
-its own once it is. Set `ZOOMIES_ACME_EMAIL` and Let's Encrypt will warn you
-before a renewal that stopped working becomes an outage.
+loopback. This needs the DNS record to point at the instance and ports 80 and
+443 reachable; until the record exists the proxy keeps trying, so an instance
+booted before its DNS was ready becomes healthy on its own once it is. Set
+`ZOOMIES_ACME_EMAIL` and Let's Encrypt will warn you before a renewal that
+stopped working becomes an outage.
 
 **`files` — a certificate you already have**, from the provider's own
 certificate offering or anywhere else. Zoomies serves it itself, published on
-443, and runs no proxy at all. Give it `ZOOMIES_TLS_CERT_FILE` and
+443, and runs no proxy. Give it `ZOOMIES_TLS_CERT_FILE` and
 `ZOOMIES_TLS_KEY_FILE`; the deployment mounts both into the container at the
-paths you name.
+paths you name. This is the only arrangement where the controller is the public
+endpoint.
 
-**`off` — something in front already terminates TLS**: a load balancer of the
-provider's, or a proxy you run. The controller is published on loopback and
-`ZOOMIES_TRUSTED_PROXIES` has to name what proxies to it, or every audit row
-records the proxy instead of the person and the login rate limiter throttles
-the whole internet as one caller.
+**`off` — something else in front already terminates TLS**: a load balancer of
+the provider's, or a proxy you run.
 
-There is no plain-HTTP option. GitHub does not deliver webhooks to one, the
-session cookie cannot be marked `Secure` without TLS, and an instance that came
-up serving an origin in the clear is the failure this package is most able to
-cause and least able to notice. An unrecognised `ZOOMIES_TLS` is refused by
-name rather than defaulted.
+### Which proxy is believed
+
+This is the half that fails silently, so the arrangement sets it rather than
+leaving it to be remembered. `X-Forwarded-For` is read only from a peer listed
+in `trusted_proxies`, and `CF-Connecting-IP` — the one header a client cannot
+forge — only from a peer that is Cloudflare's own edge.
+
+| Arrangement | Trusted | Why |
+| --- | --- | --- |
+| `cloudflare` | the word `cloudflare` | The peer *is* Cloudflare's edge, so `CF-Connecting-IP` counts |
+| `tunnel` | loopback | The peer is the tunnel daemon on this machine, not Cloudflare, so `CF-Connecting-IP` is deliberately not believed and `X-Forwarded-For` is what survives |
+| `acme`, `files` | loopback | Whatever reaches the controller does so from this instance |
+| `off` | **yours to set** | Only you know what fronts it |
+
+Both Cloudflare arrangements are Cloudflare and they want opposite answers.
+Trusting Cloudflare's ranges behind a tunnel would trust nothing that ever
+connects; trusting loopback in front of a proxied origin would trust nothing
+either. Get it wrong and every audit row records the proxy instead of the
+person, and the login rate limiter throttles the whole internet as one caller —
+with nothing anywhere reporting it. Setting `ZOOMIES_TRUSTED_PROXIES` yourself
+overrides the arrangement's choice.
+
+### What is not offered
+
+A public endpoint that is plain HTTP. GitHub does not deliver webhooks to one,
+the session cookie cannot be marked `Secure` without TLS, and an instance that
+came up serving its public address in the clear is the failure this package is
+most able to cause and least able to notice. An unrecognised `ZOOMIES_TLS` is
+refused by name rather than defaulted.
 
 ## The first run
 
@@ -225,12 +279,16 @@ zoomies uninstall --yes --volumes      # and the database with it
 ```
 
 The second is irreversible and is asked about separately for that reason: the
-volume *is* the database. If the deployment runs the ACME proxy, it is its own
-compose project and goes separately:
+volume *is* the database. The ACME proxy and the tunnel daemon are their own
+compose projects, so whichever the deployment runs goes separately:
 
 ```sh
-docker compose -f /etc/zoomies/proxy/docker-compose.yml down
+docker compose -f /etc/zoomies/proxy/docker-compose.yml down     # ZOOMIES_TLS=acme
+docker compose -f /etc/zoomies/tunnel/docker-compose.yml down    # ZOOMIES_TLS=tunnel
 ```
+
+Delete the tunnel in the Cloudflare dashboard as well, which is also how its
+token is revoked.
 
 Runners registered with GitHub are ephemeral and remove themselves, so nothing
 is left behind on GitHub's side except the App, which you delete there.
