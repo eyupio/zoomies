@@ -134,6 +134,14 @@ brings them back. Two are dealt with by default:
 * **Every unredeemed join token.** Each one enrols a new host. The redeemed
   ones are kept: they cannot be used again, and they are the record of how each
   host got here.
+* **Every rented machine's proof of ownership.** If you rent hosts from an
+  infrastructure [provider](providers.md), a restored database is a *copy*, and
+  the machines it names may since have been destroyed, rebuilt, or handed to a
+  different controller. Zoomies will not delete a machine it cannot currently
+  prove it owns, so the restore takes that proof away and each one has to be
+  re-established against the hypervisor before anything can act on it. Nothing
+  else about the machines changes — the rows, the resources and the hosts are
+  all still there.
 
 Two more are flags, because each has a cost only you can weigh:
 
@@ -209,6 +217,14 @@ bring with it:
   reports it. The controller reclaims runners from a host that has stopped
   heartbeating, so this resolves itself, but the first few minutes will show
   failures for work that had already gone.
+* **The rented machines, if you have any.** While the fence is on, no machine
+  is created *or deleted* — deletion is fenced too, which it is not for runners,
+  and the asymmetry is deliberate. A restored copy's rows may describe virtual
+  machines a different, still-running controller owns, and deleting one of
+  those on the strength of a restored row is the worst thing this system could
+  do. Lifting the fence does not resume deleting either: each machine's
+  ownership has to be proved against the provider first, and one whose row and
+  resource disagree is quarantined for you to look at rather than destroyed.
 
 Then lift the fence:
 

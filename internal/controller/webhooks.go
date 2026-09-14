@@ -382,11 +382,23 @@ func (c *Controller) applyWorkflowJob(ctx context.Context, e *github.WorkflowJob
 	if runner != nil {
 		switch saved.State {
 		case store.JobInProgress:
-			if err := c.st.AssignRunnerJob(ctx, runner.ID, saved.ID); err != nil {
-				c.log.Warn("could not link a job to its runner", "runner", runner.ID, "job", saved.ID, "error", err)
-			}
-			c.applyRunnerState(ctx, runner, store.RunnerBusy,
+			// GitHub's start is authoritative, like its completion below: it
+			// means the runner registered and took the job, whatever the row
+			// still says. Linked and taken busy in one statement, because the
+			// runner read at the top of this handler is already several writes
+			// old by the time it gets here -- long enough for the agent's
+			// create result to land in between and for a check made against
+			// that copy to refuse provisioning -> busy on a row that had since
+			// reached registering.
+			started, changed, err := c.st.StartRunnerJob(ctx, runner.ID, saved.ID,
 				fmt.Sprintf("running %s / %s", saved.Workflow, saved.JobName))
+			if err != nil {
+				c.log.Warn("could not start a runner on the job GitHub says is running on it",
+					"runner", runner.ID, "job", saved.ID, "error", err)
+			} else if changed {
+				c.observeRunnerReady(ctx, started)
+				c.publishRunner(ctx, events.KindRunnerUpdated, started)
+			}
 		case store.JobCompleted:
 			// GitHub's completion is authoritative. An ephemeral runner normally
 			// exits and is reported gone by its agent, but relying on that second

@@ -37,10 +37,19 @@ const (
 	// KindInstallationDeleted is sent when an installation is removed; the
 	// pools that depended on it go with it, each with its own pool.deleted.
 	KindInstallationDeleted Kind = "installation.deleted"
-	KindProblems            Kind = "problems.updated"
-	KindStats               Kind = "stats"
-	KindAudit               Kind = "audit"
-	KindWebhook             Kind = "webhook.delivery"
+	// The provider and machine kinds carry the same JSON their GET routes
+	// return, as every other resource frame does. A machine is deleted from
+	// the page only when its row goes -- the row outlives the resource on
+	// purpose -- so machine.deleted is the prune's frame rather than the
+	// hypervisor's.
+	KindProviderUpdated Kind = "provider.updated"
+	KindProviderDeleted Kind = "provider.deleted"
+	KindMachineUpdated  Kind = "machine.updated"
+	KindMachineDeleted  Kind = "machine.deleted"
+	KindProblems        Kind = "problems.updated"
+	KindStats           Kind = "stats"
+	KindAudit           Kind = "audit"
+	KindWebhook         Kind = "webhook.delivery"
 	// KindHeartbeat is an empty keep-alive so that proxies do not close an
 	// idle SSE connection.
 	KindHeartbeat Kind = "heartbeat"

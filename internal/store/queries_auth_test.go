@@ -599,7 +599,7 @@ func TestRedeemJoinTokenIsSingleUse(t *testing.T) {
 		t.Fatalf("CreateJoinToken: %v", err)
 	}
 
-	redeemed, err := s.RedeemJoinToken(ctx, "h-1", "hst_1", now)
+	redeemed, err := s.RedeemJoinToken(ctx, "h-1", JoinClaim{HostID: "hst_1"}, now)
 	if err != nil {
 		t.Fatalf("RedeemJoinToken: %v", err)
 	}
@@ -607,7 +607,7 @@ func TestRedeemJoinTokenIsSingleUse(t *testing.T) {
 		t.Fatalf("redeemed token = %+v", redeemed)
 	}
 
-	if _, err := s.RedeemJoinToken(ctx, "h-1", "hst_2", now); !errors.Is(err, ErrJoinTokenUsed) {
+	if _, err := s.RedeemJoinToken(ctx, "h-1", JoinClaim{HostID: "hst_2"}, now); !errors.Is(err, ErrJoinTokenUsed) {
 		t.Fatalf("second redemption error = %v, want ErrJoinTokenUsed", err)
 	}
 	stored, err := s.GetJoinToken(ctx, tok.ID)
@@ -629,10 +629,10 @@ func TestRedeemJoinTokenRefusesAnExpiredOrUnknownToken(t *testing.T) {
 		t.Fatalf("CreateJoinToken: %v", err)
 	}
 
-	if _, err := s.RedeemJoinToken(ctx, "h-1", "hst_1", now.Add(time.Hour)); !errors.Is(err, ErrJoinTokenExpired) {
+	if _, err := s.RedeemJoinToken(ctx, "h-1", JoinClaim{HostID: "hst_1"}, now.Add(time.Hour)); !errors.Is(err, ErrJoinTokenExpired) {
 		t.Fatalf("expired redemption error = %v, want ErrJoinTokenExpired", err)
 	}
-	if _, err := s.RedeemJoinToken(ctx, "nope", "hst_1", now); !errors.Is(err, ErrNotFound) {
+	if _, err := s.RedeemJoinToken(ctx, "nope", JoinClaim{HostID: "hst_1"}, now); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown redemption error = %v, want ErrNotFound", err)
 	}
 }
@@ -650,7 +650,7 @@ func TestPruneJoinTokensSparesSpentAndLiveOnes(t *testing.T) {
 			t.Fatalf("CreateJoinToken: %v", err)
 		}
 	}
-	if _, err := s.RedeemJoinToken(ctx, "h-spent", "hst_1", now); err != nil {
+	if _, err := s.RedeemJoinToken(ctx, "h-spent", JoinClaim{HostID: "hst_1"}, now); err != nil {
 		t.Fatalf("RedeemJoinToken: %v", err)
 	}
 

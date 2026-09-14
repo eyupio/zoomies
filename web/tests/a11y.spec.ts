@@ -36,12 +36,20 @@ const PAGES = [
   { path: '/queue', heading: 'Queue' },
   { path: '/usage', heading: 'Usage' },
   { path: '/hosts', heading: 'Hosts' },
-  // The two journey pages. They are not in the navigation, which is exactly
+  { path: '/providers', heading: 'Providers' },
+  // The three journey pages. They are not in the navigation, which is exactly
   // why they were missed: an operator setting a fleet up for the first time
   // spends more time on these than on anything in the sidebar, and every
   // control on them is one they have never seen before.
   { path: '/hosts/new', heading: 'Add a host' },
   { path: '/pools/new', heading: 'Create a pool' },
+  { path: '/providers/new', heading: 'Add a provider' },
+  // The two pages an operator reaches from a card rather than from the
+  // navigation, and the pair a machine that is taking too long is diagnosed
+  // from. Both are named after a fixture row, because a detail page with
+  // nothing behind it is an error state rather than the page.
+  { path: `/providers/${FIXTURE.providerId}`, heading: FIXTURE.provider },
+  { path: `/machines/${FIXTURE.readyMachineId}`, heading: FIXTURE.readyMachine },
   { path: '/installations', heading: 'Installations' },
   { path: '/migrate', heading: 'Migrate repositories' },
   { path: '/audit', heading: 'Audit' },

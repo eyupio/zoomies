@@ -59,6 +59,7 @@ export const SECTIONS = [
   { path: '/jobs', label: 'Jobs' },
   { path: '/usage', label: 'Usage' },
   { path: '/hosts', label: 'Hosts' },
+  { path: '/providers', label: 'Providers' },
   { path: '/installations', label: 'Installations' },
   { path: '/migrate', label: 'Migrate', heading: 'Migrate repositories' },
   { path: '/audit', label: 'Audit' },
@@ -93,6 +94,21 @@ export const FIXTURE = {
   migratedRepo: 'acme/infra',
   /** Has two workflow files, so the wizard can be made to choose between them. */
   multiWorkflowRepo: 'acme/widgets',
+  /** The one place the demo fleet rents machines from, and its id. */
+  provider: 'demo-pve',
+  providerId: 'prv_demoproxmox',
+  /**
+   * The two machines it has rented, deliberately unalike: one that finished and
+   * became a host, one still on its way. The first is what the provider badge
+   * and the machine-to-host link are drawn from, the second what the lifecycle
+   * band and the timeline's still-running last row are.
+   */
+  readyMachine: 'zoomies-mach-demo01',
+  readyMachineId: 'mach_demo01',
+  buildingMachine: 'zoomies-mach-demo02',
+  buildingMachineId: 'mach_demo02',
+  /** The host the ready machine became. */
+  machineHost: 'demo-builder-2',
   /** Every job the seed writes; nothing adds more, since no webhook arrives. */
   totalJobs: 52,
   /**

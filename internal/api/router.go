@@ -193,6 +193,38 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionJoinsWrite)).Delete("/{id}", s.handleDeleteJoinToken)
 		})
 
+		// Providers and the machines they rent. Both blocks register their
+		// static sub-paths before /{id}, or chi would route /providers/kinds
+		// to the provider whose id is "kinds".
+		r.Route("/providers", func(r chi.Router) {
+			r.With(s.require(auth.ActionProvidersRead)).Get("/", s.handleListProviders)
+			r.With(s.require(auth.ActionProvidersWrite)).Post("/", s.handleCreateProvider)
+			r.With(s.require(auth.ActionProvidersWrite)).Post("/validate", s.handleValidateProvider)
+			r.With(s.require(auth.ActionProvidersRead)).Get("/kinds", s.handleProviderKinds)
+			r.With(s.require(auth.ActionProvidersRead)).Get("/{id}", s.handleGetProvider)
+			r.With(s.require(auth.ActionProvidersWrite)).Patch("/{id}", s.handleUpdateProvider)
+			r.With(s.require(auth.ActionProvidersDelete)).Delete("/{id}", s.handleDeleteProvider)
+			// The preflight and discovery both use the credential to talk to
+			// the hypervisor, and both change nothing there, so they are the
+			// operator's to run rather than the admin's.
+			r.With(s.require(auth.ActionProvidersPause)).Post("/{id}/check", s.handleCheckProvider)
+			r.With(s.require(auth.ActionProvidersPause)).Get("/{id}/discovery", s.handleProviderDiscovery)
+			// The orphan review is admin because its one act is destructive
+			// and because it names resources this fleet does not own.
+			r.With(s.require(auth.ActionProvidersWrite)).Get("/{id}/orphans", s.handleProviderOrphans)
+			r.With(s.require(auth.ActionProvidersPause)).Post("/{id}/pause", s.handlePauseProvider)
+			r.With(s.require(auth.ActionProvidersPause)).Post("/{id}/resume", s.handleResumeProvider)
+		})
+		// There is no POST /machines: a machine exists because demand asked
+		// for one, and handlers_machines.go says why that matters.
+		r.Route("/machines", func(r chi.Router) {
+			r.With(s.require(auth.ActionMachinesRead)).Get("/", s.handleListMachines)
+			r.With(s.require(auth.ActionMachinesRead)).Get("/{id}", s.handleGetMachine)
+			r.With(s.require(auth.ActionMachinesDrain)).Post("/{id}/drain", s.handleDrainMachine)
+			r.With(s.require(auth.ActionMachinesDelete)).Delete("/{id}", s.handleDeleteMachine)
+			r.With(s.require(auth.ActionMachinesDelete)).Post("/{id}/release", s.handleReleaseMachine)
+		})
+
 		// Migrations: what moving a repository's workflows onto this fleet
 		// would change, and then doing it. The plan writes nothing.
 		r.Route("/migrations", func(r chi.Router) {

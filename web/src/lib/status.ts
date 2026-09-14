@@ -33,6 +33,7 @@ import type {
   JobEventKind,
   JobState,
   JoinToken,
+  MachineState,
   Pool,
   Runner,
   RunnerState,
@@ -417,6 +418,119 @@ export function hostStatus(host: Pick<Host, 'healthy' | 'cordoned' | 'throttle'>
     );
   }
   return meta('healthy', 'Healthy', 'idle', 'hollow', Circle);
+}
+
+/* -- machines -------------------------------------------------------------- */
+
+/**
+ * Where a rented machine is in its life.
+ *
+ * The tones are the fixed mapping every other page uses, and deliberately the
+ * same ones a runner gets for the same idea: a machine being built reads as
+ * pending exactly as a runner being provisioned does, so an operator learns one
+ * vocabulary rather than two. `hasRunners` is what separates a machine that has
+ * arrived from one that is carrying work -- the row itself cannot say, because
+ * a ready machine and a busy one are the same state.
+ */
+export function machineStatus(state: MachineState | undefined, hasRunners = false): StatusMeta {
+  switch (state) {
+    case 'planned':
+      return meta(
+        'planned',
+        'Planned',
+        'pending',
+        'dashed',
+        CircleDashed,
+        'The row exists and nothing has been created yet.',
+      );
+    case 'creating':
+      return meta(
+        'creating',
+        'Creating',
+        'pending',
+        'dashed',
+        CircleDashed,
+        'The provider is building the machine.',
+      );
+    case 'starting':
+      return meta(
+        'starting',
+        'Starting',
+        'pending',
+        'dashed',
+        CircleDashed,
+        'The machine exists and is being powered on.',
+      );
+    case 'bootstrapping':
+      return meta(
+        'bootstrapping',
+        'Bootstrapping',
+        'pending',
+        'dashed',
+        CircleDashed,
+        'The guest is up and the agent is being installed.',
+      );
+    case 'enrolling':
+      return meta(
+        'enrolling',
+        'Enrolling',
+        'pending',
+        'dashed',
+        CircleDashed,
+        'The agent has its credential and has not joined yet.',
+      );
+    case 'ready':
+      return hasRunners
+        ? meta('busy', 'Running work', 'busy', 'filled', Play, 'A host, with runners on it.')
+        : meta('ready', 'Ready', 'idle', 'hollow', Circle, 'A host, waiting for work.');
+    case 'draining':
+      return meta(
+        'draining',
+        'Draining',
+        'draining',
+        'slash',
+        CircleSlash,
+        'Its runners finish; the machine is deleted when the last one does.',
+      );
+    case 'deleting':
+      return meta(
+        'deleting',
+        'Deleting',
+        'draining',
+        'slash',
+        CircleSlash,
+        'A delete was issued and the provider has not confirmed the resource is gone.',
+      );
+    case 'failed':
+      return meta(
+        'failed',
+        'Failed',
+        'danger',
+        'triangle',
+        TriangleAlert,
+        'The lifecycle was given up on. The resource behind it may still exist, and still cost money.',
+      );
+    case 'quarantined':
+      return meta(
+        'quarantined',
+        'Quarantined',
+        'danger',
+        'triangle',
+        TriangleAlert,
+        'Ownership of this resource could not be proved, so nothing here will act on it. Only a person moves it.',
+      );
+    case 'deleted':
+      return meta(
+        'deleted',
+        'Deleted',
+        'neutral',
+        'square',
+        CircleMinus,
+        'The provider confirmed the resource is gone.',
+      );
+    default:
+      return UNKNOWN;
+  }
 }
 
 /* -- pools ---------------------------------------------------------------- */

@@ -192,11 +192,81 @@ func TestJoinTokenIsSingleUse(t *testing.T) {
 	if err := s.CreateJoinToken(ctx, tok); err != nil {
 		t.Fatalf("CreateJoinToken: %v", err)
 	}
-	if _, err := s.RedeemJoinToken(ctx, "hash", "host_1", now); err != nil {
+	if _, err := s.RedeemJoinToken(ctx, "hash", JoinClaim{HostID: "host_1"}, now); err != nil {
 		t.Fatalf("first redeem: %v", err)
 	}
-	if _, err := s.RedeemJoinToken(ctx, "hash", "host_2", now); err == nil {
+	if _, err := s.RedeemJoinToken(ctx, "hash", JoinClaim{HostID: "host_2"}, now); err == nil {
 		t.Fatal("second redeem succeeded; join tokens must be single use")
+	}
+}
+
+// A token that travels inside a guest is readable by more people than one an
+// operator pastes into a terminal, so it is pinned to the one name it was
+// minted for. The check runs inside the transaction that spends the token,
+// which is what stops a copied VM image enrolling as somebody else even in a
+// race with the machine the token belongs to.
+func TestAJoinTokenMintedForOneMachineCannotEnrolAnother(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	tok := &JoinToken{TokenHash: "hash", Prefix: "abcd", Capacity: 2, ExpiresAt: now.Add(time.Hour),
+		MachineID: "mach_abc", ExpectedName: "zoomies-mach-abc"}
+	if err := s.CreateJoinToken(ctx, tok); err != nil {
+		t.Fatalf("CreateJoinToken: %v", err)
+	}
+
+	_, err := s.RedeemJoinToken(ctx, "hash", JoinClaim{HostID: "host_1", Name: "somebody-elses-laptop"}, now)
+	if !errors.Is(err, ErrJoinTokenScope) {
+		t.Fatalf("redeeming under another name = %v, want ErrJoinTokenScope", err)
+	}
+	// And the refusal did not spend it: a token burnt by a claim it refused
+	// would let anyone who copied it stop the machine it was minted for from
+	// ever enrolling.
+	spent, err := s.GetJoinToken(ctx, tok.ID)
+	if err != nil {
+		t.Fatalf("GetJoinToken: %v", err)
+	}
+	if spent.UsedAt != nil {
+		t.Fatal("a refused claim spent the token")
+	}
+	if _, err := s.RedeemJoinToken(ctx, "hash", JoinClaim{HostID: "host_1", Name: "zoomies-mach-abc"}, now); err != nil {
+		t.Fatalf("the machine the token was minted for could not redeem it: %v", err)
+	}
+}
+
+// A scoped token is still single-use, and exactly one of two agents racing with
+// a copy of it enrols. Two machines sharing one host row is what
+// Host.AgentSessionAlternations exists to detect, and this is the half that
+// stops it happening in the first place.
+func TestAMachineTokenIsSingleUseAcrossARace(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	tok := &JoinToken{TokenHash: "hash", Prefix: "abcd", Capacity: 2, ExpiresAt: now.Add(time.Hour),
+		MachineID: "mach_abc", ExpectedName: "zoomies-mach-abc"}
+	if err := s.CreateJoinToken(ctx, tok); err != nil {
+		t.Fatalf("CreateJoinToken: %v", err)
+	}
+
+	const racers = 8
+	results := make(chan error, racers)
+	for i := range racers {
+		go func(i int) {
+			_, err := s.RedeemJoinToken(ctx, "hash",
+				JoinClaim{HostID: fmt.Sprintf("host_%d", i), Name: "zoomies-mach-abc"}, now)
+			results <- err
+		}(i)
+	}
+	won := 0
+	for range racers {
+		if err := <-results; err == nil {
+			won++
+		} else if !errors.Is(err, ErrJoinTokenUsed) {
+			t.Errorf("a loser was refused with %v, want ErrJoinTokenUsed", err)
+		}
+	}
+	if won != 1 {
+		t.Fatalf("%d of %d racing agents enrolled with one token, want exactly 1", won, racers)
 	}
 }
 
@@ -217,7 +287,7 @@ func TestJoinTokenRemembersWhichHostUsedIt(t *testing.T) {
 	if !fresh.Usable(now) || fresh.UsedByID != "" {
 		t.Fatalf("an unredeemed token reads as %+v", fresh)
 	}
-	if _, err := s.RedeemJoinToken(ctx, "hash", "host_1", now); err != nil {
+	if _, err := s.RedeemJoinToken(ctx, "hash", JoinClaim{HostID: "host_1"}, now); err != nil {
 		t.Fatalf("redeem: %v", err)
 	}
 	spent, err := s.GetJoinToken(ctx, tok.ID)

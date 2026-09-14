@@ -24,6 +24,7 @@ import (
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/github"
+	"github.com/eyupio/zoomies/internal/provider"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -57,6 +58,12 @@ type harness struct {
 	key     *cryptox.Key
 	cfg     *config.Config
 	ctx     context.Context
+	// fake is the provider every machine test drives, and providers the
+	// registry the controller builds it from. One fake, shared by the
+	// controller and the test, so that a test can ask what was actually asked
+	// of the provider rather than inferring it from the rows.
+	fake      provider.Fake
+	providers *provider.Registry
 	// offset is added to the wall clock the controller reads, in nanoseconds.
 	// It is zero unless a test calls advance, so time still passes normally
 	// for everything that does not ask; a lease that has to expire is the one
@@ -108,20 +115,42 @@ func newHarness(t *testing.T) *harness {
 	factory := &fakeFactory{gh: gh}
 	offset := new(atomic.Int64)
 
+	fake := provider.NewFake()
+	providers, err := provider.NewRegistry(&sharedFakeFactory{fake: fake})
+	if err != nil {
+		t.Fatalf("provider.NewRegistry: %v", err)
+	}
+
 	c, err := New(Options{
-		Store:  st,
-		Config: cfg,
-		Key:    key,
-		Auth:   auth.New(st, cfg, bus),
-		Events: bus,
-		GitHub: factory,
-		Logger: slog.New(slog.DiscardHandler),
-		Clock:  func() time.Time { return time.Now().Add(time.Duration(offset.Load())) },
+		Store:     st,
+		Config:    cfg,
+		Key:       key,
+		Auth:      auth.New(st, cfg, bus),
+		Events:    bus,
+		GitHub:    factory,
+		Providers: providers,
+		Logger:    slog.New(slog.DiscardHandler),
+		Clock:     func() time.Time { return time.Now().Add(time.Duration(offset.Load())) },
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	return &harness{t: t, c: c, st: st, gh: gh, factory: factory, key: key, cfg: cfg, ctx: ctx, offset: offset}
+	return &harness{t: t, c: c, st: st, gh: gh, factory: factory, key: key, cfg: cfg, ctx: ctx,
+		offset: offset, fake: fake, providers: providers}
+}
+
+// sharedFakeFactory hands out one fake rather than building a new one per
+// call, which is what lets a test ask the provider what it was asked to do.
+// provider.NewFakeFactory deliberately builds a fresh fake each time, which is
+// right for the registry's own tests and useless here.
+type sharedFakeFactory struct{ fake provider.Fake }
+
+func (f *sharedFakeFactory) Kind() store.ProviderKind                    { return store.ProviderFake }
+func (f *sharedFakeFactory) Describe() provider.Capabilities             { return f.fake.Capabilities() }
+func (f *sharedFakeFactory) Settings() []provider.SettingSpec            { return nil }
+func (f *sharedFakeFactory) Validate(map[string]string) []config.Finding { return nil }
+func (f *sharedFakeFactory) New(context.Context, provider.Config) (provider.Provider, error) {
+	return f.fake, nil
 }
 
 // installation seeds a GitHub App installation on the "acme" organisation with
@@ -378,14 +407,15 @@ func (h *harness) restart() *Controller {
 	h.t.Helper()
 	bus := events.New()
 	c, err := New(Options{
-		Store:  h.st,
-		Config: h.cfg,
-		Key:    h.key,
-		Auth:   auth.New(h.st, h.cfg, bus),
-		Events: bus,
-		GitHub: h.factory,
-		Logger: slog.New(slog.DiscardHandler),
-		Clock:  func() time.Time { return time.Now().Add(time.Duration(h.offset.Load())) },
+		Store:     h.st,
+		Config:    h.cfg,
+		Key:       h.key,
+		Auth:      auth.New(h.st, h.cfg, bus),
+		Events:    bus,
+		GitHub:    h.factory,
+		Providers: h.providers,
+		Logger:    slog.New(slog.DiscardHandler),
+		Clock:     func() time.Time { return time.Now().Add(time.Duration(h.offset.Load())) },
 	})
 	if err != nil {
 		h.t.Fatalf("restarting the controller: %v", err)

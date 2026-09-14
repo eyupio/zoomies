@@ -10,7 +10,7 @@
  *   403  the message names the role required. Show it verbatim.
  *   422  `errors` names the offending fields so a form can attach them.
  */
-import type { Body, ErrorCode, FieldError, Query, Result } from './types';
+import type { Body, ErrorCode, FieldError, OptionalBody, Query, Result } from './types';
 
 const BASE = '/api/v1';
 
@@ -461,6 +461,80 @@ export const createToken = (body: Body<'createToken'>) =>
   api.post<Result<'createToken'>>('/tokens', { body });
 
 export const revokeToken = (id: string) => api.del<Result<'revokeToken'>>(`/tokens/${enc(id)}`);
+
+/* -- providers and machines ------------------------------------------------
+ * "Provider" is the infrastructure a machine is rented from, and "machine" is
+ * the thing rented. Neither is `listProvisioning` below, which is the queued
+ * job demand queue -- the two words look alike and mean nothing like each
+ * other, so nothing here is spelled "provisioning".
+ * ------------------------------------------------------------------------ */
+
+export const listProviders = (signal?: AbortSignal) =>
+  api.get<Result<'listProviders'>>('/providers', { signal });
+
+/** What each driver can do, and the settings schema its form renders from. */
+export const listProviderKinds = (signal?: AbortSignal) =>
+  api.get<Result<'listProviderKinds'>>('/providers/kinds', { signal });
+
+export const getProvider = (id: string, signal?: AbortSignal) =>
+  api.get<Result<'getProvider'>>(`/providers/${enc(id)}`, { signal });
+
+export const createProvider = (body: Body<'createProvider'>) =>
+  api.post<Result<'createProvider'>>('/providers', { body });
+
+export const updateProvider = (id: string, body: Body<'updateProvider'>) =>
+  api.patch<Result<'updateProvider'>>(`/providers/${enc(id)}`, { body });
+
+export const deleteProvider = (id: string) =>
+  api.del<Result<'deleteProvider'>>(`/providers/${enc(id)}`);
+
+/**
+ * A dry run over a draft. Always answers 200: whether the draft is usable is
+ * in the body, so the form can show a verdict beside the setting that changes
+ * it rather than waiting for a failed save.
+ */
+export const validateProvider = (
+  body: Body<'validateProvider'>,
+  id?: string,
+  signal?: AbortSignal,
+) =>
+  api.post<Result<'validateProvider'>>('/providers/validate', {
+    body,
+    query: id ? { id } : undefined,
+    signal,
+  });
+
+/** The live preflight. Read-only: it changes nothing at the provider. */
+export const checkProvider = (id: string) =>
+  api.post<Result<'checkProvider'>>(`/providers/${enc(id)}/check`);
+
+export const getProviderDiscovery = (id: string, signal?: AbortSignal) =>
+  api.get<Result<'getProviderDiscovery'>>(`/providers/${enc(id)}/discovery`, { signal });
+
+export const getProviderOrphans = (id: string, signal?: AbortSignal) =>
+  api.get<Result<'getProviderOrphans'>>(`/providers/${enc(id)}/orphans`, { signal });
+
+export const pauseProvider = (id: string, body?: OptionalBody<'pauseProvider'>) =>
+  api.post<Result<'pauseProvider'>>(`/providers/${enc(id)}/pause`, { body });
+
+export const resumeProvider = (id: string) =>
+  api.post<Result<'resumeProvider'>>(`/providers/${enc(id)}/resume`);
+
+export const listMachines = (query?: Query<'listMachines'>, signal?: AbortSignal) =>
+  api.get<Result<'listMachines'>>('/machines', { query, signal });
+
+export const getMachine = (id: string, signal?: AbortSignal) =>
+  api.get<Result<'getMachine'>>(`/machines/${enc(id)}`, { signal });
+
+export const drainMachine = (id: string) =>
+  api.post<Result<'drainMachine'>>(`/machines/${enc(id)}/drain`);
+
+export const deleteMachine = (id: string, query?: Query<'deleteMachine'>) =>
+  api.del<Result<'deleteMachine'>>(`/machines/${enc(id)}`, { query });
+
+/** Forget a quarantined row without touching the resource behind it. */
+export const releaseMachine = (id: string, body: Body<'releaseMachine'>) =>
+  api.post<Result<'releaseMachine'>>(`/machines/${enc(id)}/release`, { body });
 
 /* -- usage ---------------------------------------------------------------- */
 

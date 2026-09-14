@@ -357,6 +357,12 @@ func invalidateAfterRestore(ctx context.Context, live, src string, m *backupMani
 	}
 	lines = append(lines, fmt.Sprintf("Removed %s that had never been redeemed; the redeemed ones are history and were kept.", countOf(int(joins), "join token")))
 
+	machines, err := st.MarkMachinesUnverified(ctx)
+	if err != nil {
+		return nil, err
+	}
+	lines = append(lines, fmt.Sprintf("Marked %s as unverified: this copy proves it still owns a rented machine before it may delete one.", countOf(int(machines), "machine")))
+
 	// The two that are flags rather than defaults, because each has a cost the
 	// operator is the one to weigh: revoking API tokens breaks whatever
 	// automation holds them, and resetting agent tokens means walking every

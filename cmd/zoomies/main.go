@@ -90,6 +90,7 @@ func commands() []*command {
 		{"runners", groupFleet, "The runners that exist right now", runRunners},
 		{"jobs", groupFleet, "Job history, queue waits and outcomes", runJobs},
 		{"hosts", groupFleet, "Agents, their capacity, and enrolment", runHosts},
+		{"providers", groupFleet, "Where machines are rented from, and the machines themselves", runProviders},
 		{"installations", groupFleet, "GitHub App installations", runInstallations},
 		{"audit", groupFleet, "Who did what", runAudit},
 		{"diagnostics", groupFleet, "Collect a support bundle for a bug report", runDiagnostics},

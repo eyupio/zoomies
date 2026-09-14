@@ -767,6 +767,98 @@ func (c *Config) Validate() Findings {
 		})
 	}
 
+	// --- Infrastructure providers ---
+	//
+	// Every finding below is silent while provider.enabled is false, which is
+	// the default. A deployment that has not asked to rent machines should not
+	// be told how to bound something it is not doing, and a warning nobody can
+	// act on is what teaches people to ignore the drawer.
+	if c.Provider.Enabled {
+		if c.Provider.Interval <= 0 {
+			add(Finding{
+				Code: "provider.interval", Severity: SeverityError, Setting: "provider.interval",
+				Title: "the provider interval must be positive",
+				Fix:   "set provider.interval to how often machines should be reconciled, such as 30s.",
+			})
+		}
+		for _, t := range []struct {
+			setting string
+			value   time.Duration
+		}{
+			{"provider.call_timeout", c.Provider.CallTimeout},
+			{"provider.create_timeout", c.Provider.CreateTimeout},
+			{"provider.bootstrap_timeout", c.Provider.BootstrapTimeout},
+			{"provider.delete_timeout", c.Provider.DeleteTimeout},
+			{"provider.ambiguity_timeout", c.Provider.AmbiguityTimeout},
+		} {
+			if t.value <= 0 {
+				add(Finding{
+					Code: "provider.timeouts", Severity: SeverityError, Setting: t.setting,
+					Title: fmt.Sprintf("%s must be positive", t.setting),
+					Fix:   "give every provider operation a bound; an unbounded one wedges the machine loop.",
+				})
+			}
+		}
+		if c.Provider.AmbiguityTimeout > 0 && c.Provider.CreateTimeout > 0 &&
+			c.Provider.AmbiguityTimeout <= c.Provider.CreateTimeout {
+			add(Finding{
+				Code: "provider.timeouts", Severity: SeverityError, Setting: "provider.ambiguity_timeout",
+				Title: "provider.ambiguity_timeout is not longer than provider.create_timeout",
+				Detail: "an operation whose outcome is unknown is given this long to be resolved by looking. " +
+					"Set below the create timeout, a machine that is merely still being built is treated as " +
+					"one nobody can account for, and quarantined while it is working.",
+				Fix: "set provider.ambiguity_timeout comfortably longer than provider.create_timeout.",
+			})
+		}
+		if c.Provider.EnrolTimeout <= 0 || c.Provider.EnrolTimeout < HostLostAfter {
+			add(Finding{
+				Code: "provider.enrol_timeout", Severity: SeverityError, Setting: "provider.enrol_timeout",
+				Title: "provider.enrol_timeout is shorter than the silence that loses a host",
+				Detail: fmt.Sprintf("a machine that has joined and gone quiet for %s is still only unhealthy, "+
+					"so giving enrolment less than that gives up on machines that arrived.", HostLostAfter),
+				Fix: "set provider.enrol_timeout to how long a machine may take to boot and join, such as 15m.",
+			})
+		}
+		if c.Provider.MaxMachines <= 0 {
+			add(Finding{
+				Code: "provider.no_ceiling", Severity: SeverityWarning, Setting: "provider.max_machines",
+				Title: "providers are enabled but no machine may be rented",
+				Detail: "a maximum of none is none, as it is for a pool's max_runners, so nothing will be " +
+					"created however much work queues. The number is deliberately not optional: it is the " +
+					"one setting that decides the size of an invoice.",
+				Fix: "set provider.max_machines to the most machines you are willing to pay for at once.",
+			})
+		}
+		if c.Provider.Paused {
+			add(Finding{
+				Code: "provider.paused", Severity: SeverityInfo, Setting: "provider.paused",
+				Title:  "new machines are paused by configuration",
+				Detail: "existing machines still drain, delete, recover and have their ownership verified. Only creation is held.",
+				Fix:    "set provider.paused to false to let the fleet rent machines again.",
+			})
+		}
+		if c.Provider.DeleteGrace > 0 && c.Provider.DeleteGrace <= HostLostAfter {
+			add(Finding{
+				Code: "provider.delete_grace_short", Severity: SeverityWarning, Setting: "provider.delete_grace",
+				Title: "provider.delete_grace is no longer than the silence that loses a host",
+				Detail: fmt.Sprintf("a host is only counted lost after %s without a heartbeat, so a grace at "+
+					"or below that destroys a machine for a network blip -- taking the job it was running with it.",
+					HostLostAfter),
+				Fix: "set provider.delete_grace well above that, such as 10m.",
+			})
+		}
+		if c.Provider.ScaleDownCooldown > 0 && c.Provider.IdleTimeout > 0 &&
+			c.Provider.ScaleDownCooldown < c.Provider.IdleTimeout {
+			add(Finding{
+				Code: "provider.scale_down_fast", Severity: SeverityWarning, Setting: "provider.scale_down_cooldown",
+				Title: "machines are removed sooner than one idle period",
+				Detail: "a fleet that buys a machine on every burst and removes it in the quiet between two " +
+					"of them pays the creation cost repeatedly and is never warm when the work arrives.",
+				Fix: "set provider.scale_down_cooldown to at least provider.idle_timeout.",
+			})
+		}
+	}
+
 	return fs
 }
 

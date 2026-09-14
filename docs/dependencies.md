@@ -102,6 +102,19 @@ buys Podman support almost free, because `podman.sock` speaks the same protocol.
 The one genuinely fiddly part, demultiplexing the log stream's 8-byte frame
 headers, is unit-tested.
 
+**A Proxmox VE client.** The Go clients for it — `luthermonson/go-proxmox`,
+`Telmate/proxmox-api-go` — model most of a hypervisor for what Zoomies asks of
+one: clone a template, start it, write a file into the guest, destroy it, and
+poll a task. That is a dozen endpoints, and `internal/provider/proxmox` reaches
+them with the same hand-rolled `net/http` approach as the Engine API client
+above. The deciding argument is not the dependency tree, though: it is that the
+one classification the whole design rests on — whether a deadline or a reset
+happened *before or after* the request body went out, which is the difference
+between "nothing happened" and "we do not know" — can only be made inside the
+transport, and no third-party client exposes it. A client that reports both as
+one error would have Zoomies retry a create that already worked, and rent a
+second machine nobody is tracking.
+
 **A charting library.** The Overview needs sparklines and utilisation bars.
 Those are inline SVG paths of a few dozen lines each. The smallest credible
 charting library is larger than the entire rest of the app shell.

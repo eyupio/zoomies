@@ -80,6 +80,33 @@ export const ROUTES: readonly RouteDef[] = [
     load: () => import('../routes/AddHost.svelte'),
   },
   {
+    name: 'providers',
+    path: '/providers',
+    title: 'Providers',
+    load: () => import('../routes/Providers.svelte'),
+  },
+  {
+    // Before `/providers/:id`, or adding one would try to open a provider
+    // called "new" -- the same order `/pools/new` is listed in, for the same
+    // reason.
+    name: 'provider-new',
+    path: '/providers/new',
+    title: 'Add a provider',
+    load: () => import('../routes/ProviderWizard.svelte'),
+  },
+  {
+    name: 'provider',
+    path: '/providers/:id',
+    title: 'Provider',
+    load: () => import('../routes/ProviderDetail.svelte'),
+  },
+  {
+    name: 'machine',
+    path: '/machines/:id',
+    title: 'Machine',
+    load: () => import('../routes/MachineDetail.svelte'),
+  },
+  {
     name: 'installations',
     path: '/installations',
     title: 'Installations',

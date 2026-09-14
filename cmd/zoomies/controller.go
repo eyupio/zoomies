@@ -20,6 +20,8 @@ import (
 	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/logging"
+	"github.com/eyupio/zoomies/internal/provider"
+	"github.com/eyupio/zoomies/internal/provider/proxmox"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
 )
@@ -112,14 +114,20 @@ func runController(ctx context.Context, e *env, args []string) error {
 		}
 	}
 
+	providers, err := buildProviders()
+	if err != nil {
+		return err
+	}
+
 	ctrl, err := controller.New(controller.Options{
-		Store:    st,
-		Config:   cfg,
-		Key:      key,
-		Backends: backends,
-		Logger:   log,
-		LogLevel: level,
-		Lease:    lease,
+		Store:     st,
+		Config:    cfg,
+		Key:       key,
+		Backends:  backends,
+		Providers: providers,
+		Logger:    log,
+		LogLevel:  level,
+		Lease:     lease,
 	})
 	if err != nil {
 		return err
@@ -347,6 +355,23 @@ func socketExists(path string) bool {
 	}
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// buildProviders is every infrastructure provider this build can rent machines
+// from.
+//
+// It is built whatever the configuration says, and unconditionally: a
+// deployment that rents nothing still has to be able to show which kinds it
+// could, and a provider row whose kind has no factory here is answered with a
+// problem naming the kind rather than with silence. Registering one is a line
+// in this list; the registry refuses a factory whose contract range does not
+// contain this build's, which is the earliest that mismatch can be caught.
+func buildProviders() (*provider.Registry, error) {
+	registry, err := provider.NewRegistry(proxmox.NewFactory())
+	if err != nil {
+		return nil, fmt.Errorf("preparing the infrastructure providers: %w", err)
+	}
+	return registry, nil
 }
 
 // buildBackends prepares the runner backends this host can use.

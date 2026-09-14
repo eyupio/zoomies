@@ -276,7 +276,10 @@ func (s *Server) handleCordonHost(w http.ResponseWriter, r *http.Request) {
 //
 // It refuses while the host still has live runners unless forced, because
 // deleting the row cascades to those runners and their workloads would be left
-// running on a machine Zoomies no longer knows about.
+// running on a machine Zoomies no longer knows about. It refuses a host that is
+// a machine Zoomies rented for a second reason: the row is what says a VM
+// exists and who is paying for it, and forgetting it here would leave the VM
+// running with nothing tracking it.
 func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 	id := chiURLParam(r, "id")
 	force := queryBool(r, "force", false)
@@ -285,6 +288,22 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.fail(w, r, "reading the host", err)
 		return
+	}
+	if !force {
+		switch m, merr := s.ctrl.Store().GetMachineByHost(r.Context(), id); {
+		case merr == nil && m != nil:
+			rentedFrom := m.ProviderID
+			if row, perr := s.ctrl.Store().GetProvider(r.Context(), m.ProviderID); perr == nil {
+				rentedFrom = row.Name
+			}
+			conflict(w, fmt.Sprintf("host %s is a machine Zoomies created on %s. Delete the machine instead "+
+				"(that removes the VM too), or repeat this with ?force=true to forget the host and leave the VM running.",
+				h.Name, rentedFrom))
+			return
+		case merr != nil && !errors.Is(merr, store.ErrNotFound):
+			s.internal(w, r, "checking whether the host is a machine Zoomies created", merr)
+			return
+		}
 	}
 	live, err := s.ctrl.Store().ListRunnersForHost(r.Context(), id)
 	if err != nil {

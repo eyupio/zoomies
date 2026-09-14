@@ -20,6 +20,7 @@ export type DockerMode = Schemas['DockerMode'];
 export type RunnerState = Schemas['RunnerState'];
 export type JobState = Schemas['JobState'];
 export type Severity = Schemas['Severity'];
+export type MachineState = Schemas['MachineState'];
 export type GoDuration = Schemas['Duration'];
 export type ErrorCode = Schemas['ErrorEnvelope']['error']['code'];
 
@@ -36,6 +37,25 @@ export const RUNNER_STATES: readonly RunnerState[] = [
 
 /** Every job state. */
 export const JOB_STATES: readonly JobState[] = ['waiting', 'queued', 'in_progress', 'completed'];
+
+/**
+ * Every machine state, in the order a machine passes through them. Deleted,
+ * failed and quarantined are exits from the flow rather than steps of it, and
+ * come last for that reason.
+ */
+export const MACHINE_STATES: readonly MachineState[] = [
+  'planned',
+  'creating',
+  'starting',
+  'bootstrapping',
+  'enrolling',
+  'ready',
+  'draining',
+  'deleting',
+  'deleted',
+  'failed',
+  'quarantined',
+];
 
 /** The roles, weakest first. `atLeast` below compares by this order. */
 export const ROLES: readonly Role[] = ['viewer', 'operator', 'admin'];
@@ -75,6 +95,21 @@ export type Host = Schemas['Host'];
 export type HostThrottle = Schemas['HostThrottle'];
 export type HostExclusion = Schemas['HostExclusion'];
 export type JoinToken = Schemas['JoinToken'];
+export type Provider = Schemas['Provider'];
+export type ProviderInput = Schemas['ProviderInput'];
+/** The enum: which infrastructure a provider rents from. */
+export type ProviderKindName = Schemas['ProviderKindName'];
+/** What a driver can do, and the schema its form renders from. */
+export type ProviderKind = Schemas['ProviderKind'];
+export type ProviderSetting = Schemas['ProviderSetting'];
+export type ProviderValidation = Schemas['ProviderValidation'];
+export type ProviderCheck = Schemas['ProviderCheck'];
+export type ProviderChoice = Schemas['ProviderChoice'];
+export type ProviderDiscovery = Schemas['ProviderDiscovery'];
+export type ProviderOrphans = Schemas['ProviderOrphans'];
+export type Orphan = Schemas['Orphan'];
+export type Machine = Schemas['Machine'];
+export type MachineTimelineEntry = Schemas['MachineTimelineEntry'];
 export type MigrationPlan = Schemas['MigrationPlan'];
 export type MigrationRepo = Schemas['MigrationRepo'];
 export type MigrationWorkflow = Schemas['MigrationWorkflow'];
@@ -127,6 +162,17 @@ export type Body<K extends keyof Ops> = Ops[K] extends {
   ? B
   : never;
 
+/**
+ * The JSON body of an operation whose request body is optional -- a pause that
+ * takes a reason, say. `Body` cannot answer for one, because an optional
+ * `requestBody` does not match its required shape.
+ */
+export type OptionalBody<K extends keyof Ops> = Ops[K] extends {
+  requestBody?: { content: { 'application/json': infer B } };
+}
+  ? B
+  : never;
+
 /** The query parameters an operation accepts. */
 export type Query<K extends keyof Ops> = Ops[K] extends { parameters: { query?: infer Q } }
   ? NonNullable<Q>
@@ -158,6 +204,10 @@ export interface EventPayloads {
   'job.updated': Job;
   'host.updated': Host;
   'host.deleted': Deleted;
+  'provider.updated': Provider;
+  'provider.deleted': Deleted;
+  'machine.updated': Machine;
+  'machine.deleted': Deleted;
   scaling: ScalingEvent;
   'installation.updated': Installation;
   'installation.deleted': Deleted;

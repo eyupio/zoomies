@@ -1066,13 +1066,43 @@ func (s *Service) RevokeAPIToken(ctx context.Context, id string) error {
 // being created.
 const DefaultJoinTTL = time.Hour
 
+// JoinScope is everything a join token may be pinned to.
+//
+// The two scope fields are what separates a credential a person pastes into a
+// terminal from one that travels inside a guest, where it is readable by
+// everyone who can read that guest's disk. Both are empty on the human path.
+type JoinScope struct {
+	// TTL is how long the token lasts. A machine's is the enrolment timeout
+	// plus a grace rather than DefaultJoinTTL: an hour is a long time for a
+	// credential nobody is watching.
+	TTL      time.Duration
+	Labels   map[string]string
+	Capacity int
+	// MachineID is the machine this token was minted for, and ExpectedName the
+	// name it must join under. The store refuses any other name inside the
+	// transaction that spends the token.
+	MachineID    string
+	ExpectedName string
+	CreatedBy    string
+}
+
 // CreateJoinToken mints the single-use credential that lets a new agent enrol.
 // Like an API token, the plaintext is returned exactly once.
 func (s *Service) CreateJoinToken(ctx context.Context, ttl time.Duration, labels map[string]string, capacity int, createdBy string) (*store.JoinToken, string, error) {
+	return s.CreateScopedJoinToken(ctx, JoinScope{
+		TTL: ttl, Labels: labels, Capacity: capacity, CreatedBy: createdBy,
+	})
+}
+
+// CreateScopedJoinToken is CreateJoinToken with the two scope fields. The
+// unscoped signature stays for the human path, where a person pastes a command
+// and picks the host's name themselves.
+func (s *Service) CreateScopedJoinToken(ctx context.Context, sc JoinScope) (*store.JoinToken, string, error) {
+	ttl := sc.TTL
 	if ttl <= 0 {
 		ttl = DefaultJoinTTL
 	}
-	if capacity < 0 {
+	if sc.Capacity < 0 {
 		return nil, "", Invalid("capacity cannot be negative; leave it at 0 to let the agent decide from its CPU count")
 	}
 	id := store.NewID(store.PrefixJoin)
@@ -1080,13 +1110,15 @@ func (s *Service) CreateJoinToken(ctx context.Context, ttl time.Duration, labels
 	plaintext := prefix + "_" + store.NewSecret(secretBytes)
 
 	t := &store.JoinToken{
-		ID:        id,
-		TokenHash: cryptox.HashToken(plaintext),
-		Prefix:    prefix,
-		CreatedBy: createdBy,
-		Labels:    store.StringMap(labels),
-		Capacity:  capacity,
-		ExpiresAt: s.Now().Add(ttl),
+		ID:           id,
+		TokenHash:    cryptox.HashToken(plaintext),
+		Prefix:       prefix,
+		CreatedBy:    sc.CreatedBy,
+		Labels:       store.StringMap(sc.Labels),
+		Capacity:     sc.Capacity,
+		ExpiresAt:    s.Now().Add(ttl),
+		MachineID:    sc.MachineID,
+		ExpectedName: sc.ExpectedName,
 	}
 	if err := s.store.CreateJoinToken(ctx, t); err != nil {
 		return nil, "", fmt.Errorf("creating join token: %w", err)
@@ -1097,11 +1129,15 @@ func (s *Service) CreateJoinToken(ctx context.Context, ttl time.Duration, labels
 // RedeemJoinToken spends a join token for a host. It is single-use: the store
 // marks it spent in the same transaction that reads it, so two agents racing
 // with the same token cannot both enrol.
-func (s *Service) RedeemJoinToken(ctx context.Context, token, hostID string) (*store.JoinToken, error) {
+//
+// A token minted for one machine refuses any other name, and the refusal is
+// the agent operator's to act on rather than this controller's, so it becomes
+// an Invalid like the other three.
+func (s *Service) RedeemJoinToken(ctx context.Context, token string, claim store.JoinClaim) (*store.JoinToken, error) {
 	if strings.TrimSpace(token) == "" {
 		return nil, Invalid("no join token supplied; create one with `zoomies hosts join-token create`")
 	}
-	t, err := s.store.RedeemJoinToken(ctx, cryptox.HashToken(token), hostID, s.Now())
+	t, err := s.store.RedeemJoinToken(ctx, cryptox.HashToken(token), claim, s.Now())
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return nil, Invalid("this join token is not valid; create a new one with `zoomies hosts join-token create`")
@@ -1109,6 +1145,9 @@ func (s *Service) RedeemJoinToken(ctx context.Context, token, hostID string) (*s
 		return nil, Invalid("this join token has already been used; each one enrols exactly one host, so create another with `zoomies hosts join-token create`")
 	case errors.Is(err, store.ErrJoinTokenExpired):
 		return nil, Invalid("this join token has expired; create a new one with `zoomies hosts join-token create`")
+	case errors.Is(err, store.ErrJoinTokenScope):
+		return nil, Invalid("this join token was minted for a machine Zoomies created and cannot enrol %q; "+
+			"it is not a token to reuse by hand, and a machine that has lost it is replaced rather than re-enrolled", claim.Name)
 	}
 	return t, err
 }

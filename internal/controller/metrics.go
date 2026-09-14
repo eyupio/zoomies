@@ -40,6 +40,8 @@ type metrics struct {
 	schedulingLatency, cleanupDuration                                                           *prometheus.HistogramVec
 	pollsShed                                                                                    prometheus.Counter
 	buildInfo                                                                                    *prometheus.GaugeVec
+	providerOperations                                                                           *prometheus.CounterVec
+	providerOperationSeconds                                                                     *prometheus.HistogramVec
 }
 
 // UnmatchedPool is the `pool` label for work no pool here claims.
@@ -145,12 +147,28 @@ func newMetrics(c *Controller) *metrics {
 			Name: "zoomies_build_info",
 			Help: "Always 1; the version and commit are in the labels.",
 		}, []string{"version", "commit"}),
+		// An ambiguous outcome is its own label value rather than a failure,
+		// because it is the one that means something different: a create that
+		// failed costs nothing and a create whose answer was lost may already
+		// be a machine somebody is paying for.
+		providerOperations: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_provider_operations_total",
+			Help: "Provider operations by kind and outcome: ok, ambiguous, quota, unreachable or refused.",
+		}, []string{"kind", "outcome"}),
+		providerOperationSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name: "zoomies_provider_operation_seconds",
+			Help: "How long one provider request took. It measures the request, not the clone it starts.",
+			// From "a cached answer" to "this hypervisor has stopped
+			// answering": a tenth of a second to five minutes.
+			Buckets: []float64{.1, .5, 1, 2.5, 5, 10, 30, 60, 120, 300},
+		}, []string{"kind"}),
 	}
 	m.buildInfo.WithLabelValues(version.Version, version.Commit).Set(1)
 
 	m.reg.MustRegister(
 		m.jobsTotal, m.jobsRunnerLost, m.queueWait, m.jobDuration, m.scalingEvents,
 		m.webhookDeliveries, m.githubRequests, m.reconcileDuration, m.reconcileErrors, m.cleanups, m.pollsShed, m.buildInfo,
+		m.providerOperations, m.providerOperationSeconds,
 		m.queuedToCreate, m.createToContainer, m.containerToRegistered, m.registeredToReady, m.queuedToStarted,
 		m.schedulingLatency, m.cleanupDuration,
 		&fleetCollector{c: c},
@@ -230,6 +248,18 @@ var (
 		"1 while measured host pressure holds new starts, 0 otherwise. Does not describe operator cordons.", []string{"host"}, nil)
 	descHostUsageFresh = prometheus.NewDesc("zoomies_host_usage_fresh",
 		"1 when a host usage measurement is recent enough for placement, 0 otherwise.", []string{"host"}, nil)
+	// The machines a fleet is renting, by provider and state. Read at scrape
+	// time like every other fleet gauge, so it cannot drift from the rows the
+	// way a counter kept in memory would across a restart -- and a restart is
+	// exactly when somebody is looking at it.
+	descProviderMachines = prometheus.NewDesc("zoomies_provider_machines",
+		"Machines by provider and state.", []string{"provider", "state"}, nil)
+	// Quarantined machines are separated from the state series because they
+	// are the one state nothing will move on its own: the number is a queue of
+	// work for a person, and an alert on it is an alert on somebody being
+	// needed rather than on the fleet's shape.
+	descProviderQuarantined = prometheus.NewDesc("zoomies_provider_machines_quarantined",
+		"Machines whose ownership could not be proved, which nothing will act on until a person does.", nil, nil)
 	descHostLoadAverage = prometheus.NewDesc("zoomies_host_load_average_1m",
 		"Recent whole-host one-minute load average. Absent when stale or unmeasured.", []string{"host"}, nil)
 	descHostThrottleLevel = prometheus.NewDesc("zoomies_host_throttle_level",
@@ -255,6 +285,8 @@ func (f *fleetCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- descHostMemoryAvailable
 	ch <- descHostAdmissionHeld
 	ch <- descHostUsageFresh
+	ch <- descProviderMachines
+	ch <- descProviderQuarantined
 	ch <- descHostLoadAverage
 	ch <- descHostThrottleLevel
 	ch <- descHostEffectiveCapacity
@@ -405,10 +437,54 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 	gauge(descReservedCPUs, reservedCPUs)
 	gauge(descReservedMemory, float64(reservedMemory)*mb)
 
+	f.collectMachines(ctx, gauge)
+
 	gauge(descHosts, float64(healthy), "healthy")
 	gauge(descHosts, float64(unhealthy), "unhealthy")
 	gauge(descHosts, float64(cordoned), "cordoned")
 	gauge(descHostCapacity, float64(capacity))
 	gauge(descHostEffectiveCapacity, float64(effective))
 	gauge(descHostCapacityUsed, float64(used))
+}
+
+// collectMachines reports what each provider is renting.
+//
+// Every state of every configured provider is emitted, zeroes included, for the
+// reason the runner gauges are: a series that vanishes when a provider empties
+// makes an alerting rule unreliable, and "no machines" is exactly what somebody
+// paging on a stuck fleet needs to be able to see.
+func (f *fleetCollector) collectMachines(ctx context.Context, gauge func(*prometheus.Desc, float64, ...string)) {
+	providers, err := f.c.st.ListProviders(ctx)
+	if err != nil {
+		f.c.log.Warn("could not read providers for the metrics endpoint", "error", err)
+		return
+	}
+	if len(providers) == 0 {
+		return
+	}
+	quarantined := 0
+	for _, p := range providers {
+		machines, err := f.c.st.ListMachinesForProvider(ctx, p.ID)
+		if err != nil {
+			f.c.log.Warn("could not read a provider's machines for the metrics endpoint",
+				"provider", p.ID, "error", err)
+			continue
+		}
+		counts := map[store.MachineState]int{}
+		for _, m := range machines {
+			counts[m.State]++
+			if m.State == store.MachineQuarantined {
+				quarantined++
+			}
+		}
+		for _, state := range []store.MachineState{
+			store.MachinePlanned, store.MachineCreating, store.MachineStarting,
+			store.MachineBootstrapping, store.MachineEnrolling, store.MachineReady,
+			store.MachineDraining, store.MachineDeleting, store.MachineFailed,
+			store.MachineQuarantined,
+		} {
+			gauge(descProviderMachines, float64(counts[state]), p.Name, string(state))
+		}
+	}
+	gauge(descProviderQuarantined, float64(quarantined))
 }

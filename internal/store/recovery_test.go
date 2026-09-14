@@ -92,7 +92,7 @@ func TestARestoreTakesTheLiveCredentialsAndKeepsTheHistory(t *testing.T) {
 	if err := s.CreateJoinToken(ctx, redeemed); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.RedeemJoinToken(ctx, "redeemed", "hst_1", now); err != nil {
+	if _, err := s.RedeemJoinToken(ctx, "redeemed", JoinClaim{HostID: "hst_1"}, now); err != nil {
 		t.Fatal(err)
 	}
 

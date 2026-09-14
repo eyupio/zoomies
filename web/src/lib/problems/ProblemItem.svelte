@@ -30,9 +30,9 @@
   }
 
   /**
-   * Where the operator goes next. Only the pool and the runner have pages of
-   * their own; the rest land on the list that holds the thing, which is still
-   * one click closer than the navigation.
+   * Where the operator goes next. The pool, the runner, the provider and the
+   * machine have pages of their own; the rest land on the list that holds the
+   * thing, which is still one click closer than the navigation.
    */
   function target(p: Problem): Target | null {
     const id = p.target_id;
@@ -44,6 +44,13 @@
           return { href: `/runners/${id}`, label: 'Open the runner' };
         case 'host':
           return { href: '/hosts', label: 'Open hosts' };
+        case 'provider':
+          return { href: `/providers/${id}`, label: 'Open the provider' };
+        case 'machine':
+          // A machine has a page of its own because the answer to "why is this
+          // taking so long" is on it: the phase timeline, the last failure and
+          // the handle that finds the other half of the story at the provider.
+          return { href: `/machines/${id}`, label: 'Open the machine' };
         case 'installation':
           return { href: '/installations', label: 'Open installations' };
         case 'job':

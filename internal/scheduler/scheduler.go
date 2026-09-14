@@ -193,6 +193,13 @@ type PoolPlan struct {
 	// clears -- from one where no host can ever run it. Both are worth saying;
 	// only the second is a fault.
 	BlockedAtCapacity bool `json:"blocked_at_capacity,omitempty"`
+	// BlockedNoEligibleHost is the other half of that distinction: not one host
+	// in the fleet could run this pool, so no job finishing anywhere will ever
+	// clear it. It is the state a new machine fixes and a finished job does not,
+	// which is why it is reported separately rather than folded into
+	// BlockedAtCapacity -- that field means "the fleet is working and full", and
+	// the problems drawer and the usage record both read it as such.
+	BlockedNoEligibleHost bool `json:"blocked_no_eligible_host,omitempty"`
 	// BlockedAlternatives are the backends the hosts this pool otherwise fits
 	// already offer. "Point this pool at a backend they already offer" is half
 	// the fix for a pool blocked on its backend, and an operator cannot act on
@@ -629,6 +636,7 @@ func (t *tick) grant(p *store.Pool, plan *PoolPlan, runners []*store.Runner, que
 		plan.Reason = cannotScale(p.Name, plan.Current+creates(plan.Actions), plan.Desired, sentence(b.what, b.fix))
 		plan.Blocked, plan.BlockedFix = b.what, b.fix
 		plan.BlockedAtCapacity, plan.BlockedAlternatives = b.atCapacity, b.alternatives
+		plan.BlockedNoEligibleHost = b.noEligibleHost
 		return false
 	}
 	busy := 0
@@ -999,6 +1007,11 @@ type blockage struct {
 	// atCapacity is the one case that is not a misconfiguration: every host
 	// could run this pool and all of them are busy.
 	atCapacity bool
+	// noEligibleHost is its opposite: not one host could take this pool's
+	// runner whatever it finished. Waiting does not clear this one -- only a
+	// host that can run the pool does, whether an operator adds it or a
+	// provider rents it.
+	noEligibleHost bool
 	// alternatives are the backends offered by the hosts that match this pool
 	// in every other way, in the order a pool would sensibly move to them.
 	alternatives []string
@@ -1013,6 +1026,10 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 		return blockage{
 			what: "no agent hosts are registered, so there is nowhere to put a runner",
 			fix:  "run 'zoomies agent' on a machine that can host runners, using a join token from the Hosts page",
+			// An empty fleet is the purest form of "no host can ever run this":
+			// there is nothing to wait for, and it is exactly the shortfall a
+			// host provisioner exists to answer.
+			noEligibleHost: true,
 		}
 	}
 	var unhealthy, cordoned, incompatible, backend, platform, selector, tooSmall, full int
@@ -1116,6 +1133,21 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 		// answer that helps either way, so a fleet blocked only by throttles
 		// asks for capacity exactly as a full one does.
 		atCapacity: full+throttled == len(hs.hosts),
+		// Not one host was merely full, throttled, held or warming, so nothing
+		// finishing -- and no pressure easing -- frees a slot this pool could
+		// use. The counts above already say which way each host failed; this
+		// says only that none of them can be waited out.
+		//
+		// All four lift on their own, and each is a reason to wait rather than
+		// to buy: a machine takes minutes to clone, and a hold raised by a
+		// thirty-second CPU spike is gone before the clone finishes. They
+		// count in NEITHER flag on purpose. In this one a held host would say
+		// no host could ever run the pool, which is how a spike buys virtual
+		// machines and tells an external provisioner to scale from zero; in
+		// atCapacity it would ask for the same machines from the other
+		// direction. Counted in neither, the pool is simply skipped and the
+		// next pass decides again, a minute older and usually clear.
+		noEligibleHost: full+throttled+held+warming == 0,
 	}
 	if detail != "" {
 		// The agent's own words about the backend it could not use. They name

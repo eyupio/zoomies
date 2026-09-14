@@ -11,11 +11,21 @@ or deleting infrastructure itself. Configure `capacity_demand.destination_url`
 and a high-entropy `signing_secret`; `pools` optionally limits publication to
 pool IDs or names.
 
-The controller posts JSON for `capacity_demand` when queued work is blocked by
-full eligible hosts, and `scale_down_opportunity` only after excess idle host
-capacity remains continuously visible for the cooldown. Delivery state is
-stored in SQLite, so it survives a restart. A scale-down event is advisory: the
-receiver must apply its own safety policy before removing a VM.
+The controller posts JSON for `capacity_demand` when queued work has nowhere to
+run — either because every eligible host is full, or because no host in the
+fleet could run that pool at all — and `scale_down_opportunity` only after
+excess idle host capacity remains continuously visible for the cooldown.
+Delivery state is stored in SQLite, so it survives a restart. A scale-down event
+is advisory: the receiver must apply its own safety policy before removing a VM.
+
+The second case is the one worth knowing about, because it is the one a receiver
+is usually written for and the one Zoomies used to keep to itself. A pool with
+queued jobs and an empty fleet — or a fleet whose every host runs the wrong
+backend, the wrong platform, or does not match the pool's host selector — is
+asking to be scaled from zero, and no job finishing anywhere will clear it. The
+event says what is missing; whether your infrastructure can supply it is still
+yours to decide, and a pool blocked on something a new machine would not fix
+(an architecture you do not have) is a signal to refuse, not to buy.
 
 Three behaviours matter to whoever writes the receiver, and none of them is
 what you would guess:
