@@ -116,7 +116,8 @@ on its own runners, and cannot read pools, jobs, users or the audit log.
 | Session cookies | `sessions.token_hash` | SHA-256 of a 32-byte random token |
 | API tokens | `api_tokens.token_hash` | SHA-256; the plaintext is shown exactly once. Revoked with the account they belong to: disabling or deleting a user revokes their tokens, and one whose owner is disabled or gone is refused even if it was not |
 | Agent tokens | `hosts.token_hash` | SHA-256; issued once at join |
-| Join tokens | `join_tokens.token_hash` | SHA-256, single-use, short TTL |
+| Join tokens | `join_tokens.token_hash` | SHA-256, single-use, short TTL. One minted for a rented machine is scoped to that machine's name as well, so a token read out of a guest cannot enrol anything else |
+| Provider credentials | `providers.credentials_enc` | AES-256-GCM, key from env or key file. Unsealed only for the life of one API client, and never sent to a guest, an API response, an audit row or a log line |
 | JIT runner configs | Never stored | Passed to the agent in a task and to the container in its environment |
 
 ### The instance encryption key
@@ -139,6 +140,32 @@ setting that is not a credential are not encrypted.
 Rotation: change the key and restart; Zoomies will fail to decrypt the existing
 installation rows and tell you which ones to re-enter. There is no automatic
 re-encryption in v1.
+
+### What a rented machine is given, and what it is not
+
+A machine Zoomies rents from an infrastructure provider receives exactly one
+credential: a join token, single use, valid for minutes, and scoped to that one
+machine's name. All it can do is create one host row with labels an operator
+chose. It cannot read the provider's API, enumerate machines, or delete
+anything.
+
+The provider credential stays on the controller. It is sealed in
+`providers.credentials_enc`, unsealed only inside the call that builds one API
+client, and there is no code path that copies it into a guest — the type that
+describes what goes into a machine has no field it could travel in, and a test
+plants a recognisable token in the provider row and scans every byte of every
+bootstrap payload for it.
+
+That matters because the guest is the least trusted thing in this picture. It
+runs other people's workflow jobs. A credential that could destroy virtual
+machines must never be one job's `cat` away, which is also why the enrolment
+token is written into the guest through the hypervisor's own guest agent rather
+than into the VM's cloud-init metadata, where any Proxmox user with audit rights
+could read it back.
+
+The privileges the credential itself holds are yours to scope, and
+[Proxmox VE](proxmox.md#the-api-token) lists exactly which ones are needed and
+why each one is there.
 
 ---
 
@@ -425,6 +452,19 @@ The agent talks to a remote controller over plain HTTP. Its token and the JIT
 runner configuration in every create task — a live registration credential for
 your runner group — cross the network in the clear. Without this, a plaintext
 controller URL that is not on loopback is refused outright.
+
+### `provider.insecure_skip_verify: true`
+
+Zoomies talks to a hypervisor without verifying its certificate. The API token
+— which can create, configure, start, stop and destroy virtual machines, and
+run commands inside them — crosses the network to whoever answered. It is a
+per-provider setting, warned about on the provider and in the problems drawer
+for as long as it is on.
+
+There is almost never a reason to leave it on. A Proxmox cluster signs its own
+certificates with a CA at `/etc/pve/pve-root-ca.pem`; paste that into the
+provider's CA field and the connection is verified properly. See
+[Proxmox VE](proxmox.md#tls).
 
 ### `oidc.link_by_username: true`
 

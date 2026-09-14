@@ -41,6 +41,7 @@ type Config struct {
 	Images         Images         `yaml:"images"`
 	Updates        Updates        `yaml:"updates"`
 	CapacityDemand CapacityDemand `yaml:"capacity_demand"`
+	Provider       Provider       `yaml:"provider"`
 
 	// path records where this config was read from, for error messages.
 	path string `yaml:"-"`
@@ -94,6 +95,86 @@ type CapacityDemand struct {
 	Cooldown       time.Duration `yaml:"cooldown"`
 	Timeout        time.Duration `yaml:"timeout"`
 	Pools          []string      `yaml:"pools"`
+}
+
+// Provider bounds what the infrastructure providers may do. The providers
+// themselves -- their endpoints, credentials and the machine each one offers --
+// are rows in the database, edited from the UI and sealed at rest; a credential
+// in a configuration file is a credential in a backup, a diagnostics bundle and
+// a screenshot.
+//
+// What lives here is the part an operator wants to set once and have a restart
+// honour: whether machines may be rented at all, the ceilings nothing may
+// exceed, and how long each step of a machine's life is given before somebody
+// is asked about it.
+type Provider struct {
+	// Enabled decides whether the machine loop runs at all. Off by default:
+	// renting a machine spends money, and nothing in this system should start
+	// doing that because a release added the ability to.
+	Enabled bool `yaml:"enabled"`
+	// Paused is the kill switch in the file, for an operator who wants a
+	// restart to come back held. It blocks new machines only -- draining,
+	// deleting, recovering and verifying ownership all continue, because a
+	// switch that also stopped those would strand running VMs nobody is
+	// watching. The same switch exists per provider as a row, which is what the
+	// Hosts page presses.
+	Paused bool `yaml:"paused"`
+	// Interval is how often the machine loop runs. It is separate from the
+	// scheduler's because it is a slower thing: a clone takes minutes, and the
+	// pass that watches one has nothing to gain from a ten-second tick.
+	Interval time.Duration `yaml:"interval"`
+	// SweepInterval is how often each provider is asked for everything it
+	// believes it is running, which is how an orphaned VM and a resource that
+	// vanished underneath us are both found. It is paced rather than per pass
+	// because it is one API call per provider and the answer changes slowly.
+	SweepInterval time.Duration `yaml:"sweep_interval"`
+	// MaxMachines is the fleet-wide ceiling across every provider.
+	//
+	// Zero rents nothing, exactly as a pool's max_runners of zero runs nothing:
+	// a maximum of none is none. It is the default, so a fleet that turns
+	// providers on has to say in the same breath how many machines it is
+	// willing to pay for, and the validator says so when it has not. The
+	// alternative -- zero meaning "unbounded" -- puts the one number that
+	// decides the size of an invoice behind a value somebody can leave unset.
+	MaxMachines int `yaml:"max_machines"`
+	// MaxCreatesInFlight caps how many machines may be being built at once
+	// across the fleet, so a burst of queued jobs cannot ask a hypervisor for
+	// fifty clones in one pass.
+	MaxCreatesInFlight int `yaml:"max_creates_in_flight"`
+	// ScaleUpDelay is how long a pool's demand must stand before a machine is
+	// bought for it. It defaults to zero, unlike the scheduler's: that one damps
+	// runner churn, and a runner costs seconds, whereas a machine that takes
+	// four minutes to arrive has already spent the delay by being slow.
+	ScaleUpDelay time.Duration `yaml:"scale_up_delay"`
+	// CallTimeout bounds one API request to a provider.
+	CallTimeout time.Duration `yaml:"call_timeout"`
+	// CreateTimeout bounds the whole asynchronous creation of a machine, not
+	// the request that starts it.
+	CreateTimeout time.Duration `yaml:"create_timeout"`
+	// BootstrapTimeout bounds installing the agent inside a machine that is up.
+	BootstrapTimeout time.Duration `yaml:"bootstrap_timeout"`
+	// EnrolTimeout is how long a bootstrapped machine has to appear as a host.
+	// It has to outlast a heartbeat timeout, or a machine that joined and went
+	// briefly quiet would be given up on.
+	EnrolTimeout time.Duration `yaml:"enrol_timeout"`
+	// DeleteTimeout bounds an asynchronous deletion.
+	DeleteTimeout time.Duration `yaml:"delete_timeout"`
+	// AmbiguityTimeout is how long an operation whose outcome is unknown is
+	// reconciled by looking before a person is asked instead. It must outlast
+	// CreateTimeout: a create that is merely slow is not an unknown outcome.
+	AmbiguityTimeout time.Duration `yaml:"ambiguity_timeout"`
+	// IdleTimeout is how long a machine's host must have had no runner on it
+	// before the machine is drained.
+	IdleTimeout time.Duration `yaml:"idle_timeout"`
+	// ScaleDownCooldown is how long that idleness must hold continuously before
+	// anything is deleted, so a quiet minute between two bursts does not
+	// destroy the machines the second burst is about to want.
+	ScaleDownCooldown time.Duration `yaml:"scale_down_cooldown"`
+	// DeleteGrace is how long a machine whose host has gone silent is left
+	// alone before it is treated as lost. It has to outlast the controller's
+	// own "this host is lost" judgement, or a network blip would destroy a
+	// machine that is in the middle of a job.
+	DeleteGrace time.Duration `yaml:"delete_grace"`
 }
 
 // Server controls the HTTP listener.
@@ -356,6 +437,11 @@ type Retention struct {
 	Audit    time.Duration `yaml:"audit"`
 	Samples  time.Duration `yaml:"samples"`
 	Webhooks time.Duration `yaml:"webhooks"`
+	// Machines is how long a deleted machine's row is kept. The row outlives
+	// the VM on purpose: it is the only record of what was rented, when, and
+	// what it cost, and an operator reconciling a hypervisor bill against the
+	// fleet is reading exactly this.
+	Machines time.Duration `yaml:"machines"`
 }
 
 // Path returns the file this config was loaded from, or "" for defaults.
@@ -423,6 +509,7 @@ func Default() *Config {
 			ScalingEvents: 365 * 24 * time.Hour,
 			Samples:       7 * 24 * time.Hour,
 			Webhooks:      7 * 24 * time.Hour,
+			Machines:      7 * 24 * time.Hour,
 		},
 		// Hourly is soon enough that a host picks up a rebuilt image the same
 		// working day, and rare enough that the registry never notices.
@@ -431,6 +518,26 @@ func Default() *Config {
 		// day still tells you within a working day of one being published.
 		Updates:        Updates{CheckInterval: 24 * time.Hour},
 		CapacityDemand: CapacityDemand{Cooldown: 10 * time.Minute, Timeout: 10 * time.Second},
+		// Off, with no ceiling and every step generously bounded. The numbers
+		// are what a hypervisor actually takes: a full clone of a small Linux
+		// template is minutes rather than seconds, and a guest that has to
+		// finish cloud-init before its agent starts is minutes again. A
+		// deployment that turns this on sets max_machines in the same edit,
+		// which is what the validator's warning is for.
+		Provider: Provider{
+			Interval:           30 * time.Second,
+			SweepInterval:      10 * time.Minute,
+			MaxCreatesInFlight: 2,
+			CallTimeout:        30 * time.Second,
+			CreateTimeout:      20 * time.Minute,
+			BootstrapTimeout:   10 * time.Minute,
+			EnrolTimeout:       15 * time.Minute,
+			DeleteTimeout:      15 * time.Minute,
+			AmbiguityTimeout:   30 * time.Minute,
+			IdleTimeout:        15 * time.Minute,
+			ScaleDownCooldown:  15 * time.Minute,
+			DeleteGrace:        10 * time.Minute,
+		},
 	}
 }
 

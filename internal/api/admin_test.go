@@ -847,6 +847,155 @@ func TestJoinCommandPinsTheControllersOwnRelease(t *testing.T) {
 	}
 }
 
+// The kill switch and the two ceilings are settings an operator reaches for
+// while the fleet is misbehaving, which is the one moment nobody wants to
+// restart the controller. Each is writable at runtime, and each takes effect in
+// the running configuration rather than only in the response.
+func TestTheMachineLimitsAreChangeableWithoutARestart(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("root", store.RoleAdmin)
+	cookie := h.session(admin)
+
+	patched := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
+		body: map[string]any{"provider": map[string]any{
+			"paused":                true,
+			"max_machines":          6,
+			"max_creates_in_flight": 3,
+			"idle_timeout":          "20m",
+		}}})
+	patched.mustStatus(t, http.StatusOK, "patch the provider limits")
+
+	cfg := h.ctrl.Config()
+	if !cfg.Provider.Paused {
+		t.Error("the kill switch was not pressed in the running configuration")
+	}
+	if cfg.Provider.MaxMachines != 6 || cfg.Provider.MaxCreatesInFlight != 3 {
+		t.Errorf("ceilings = %d and %d, want 6 and 3", cfg.Provider.MaxMachines, cfg.Provider.MaxCreatesInFlight)
+	}
+	if cfg.Provider.IdleTimeout.String() != "20m0s" {
+		t.Errorf("provider.idle_timeout = %s, want 20m0s", cfg.Provider.IdleTimeout)
+	}
+
+	var after settingsResponse
+	patched.into(t, &after)
+	provider, _ := after.Config["provider"].(map[string]any)
+	if provider["paused"] != true || provider["max_machines"] != float64(6) {
+		t.Errorf("the response does not show the change: %v", provider)
+	}
+	// No provider credential is ever in this document. The endpoints and tokens
+	// are rows, sealed, and this is readable by an administrator and copied
+	// verbatim into a diagnostics bundle.
+	for key := range provider {
+		if strings.Contains(key, "credential") || strings.Contains(key, "token") || strings.Contains(key, "secret") {
+			t.Errorf("the settings document carries %q", key)
+		}
+	}
+}
+
+// A boolean setting accepts what both clients send: JSON's own true and false,
+// and the string a form field produces before anything has parsed it. Anything
+// else is refused by field, rather than being read as false and quietly leaving
+// the fleet provisioning.
+func TestTheKillSwitchAcceptsABooleanOrTheWordForIt(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("root", store.RoleAdmin)
+	cookie := h.session(admin)
+
+	for _, tc := range []struct {
+		name string
+		send any
+		want bool
+	}{
+		{"a JSON boolean", true, true},
+		{"the word", "false", false},
+		{"the word again", "true", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
+				body: map[string]any{"provider.paused": tc.send}})
+			res.mustStatus(t, http.StatusOK, "patch provider.paused")
+			if got := h.ctrl.Config().Provider.Paused; got != tc.want {
+				t.Errorf("provider.paused = %v, want %v", got, tc.want)
+			}
+		})
+	}
+
+	refused := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
+		body: map[string]any{"provider.paused": "maybe"}})
+	refused.mustStatus(t, http.StatusUnprocessableEntity, "patch provider.paused with nonsense")
+	var env errorEnvelope
+	refused.into(t, &env)
+	if len(env.Errors) == 0 || env.Errors[0].Field != "provider.paused" {
+		t.Fatalf("expected a field error on provider.paused: %+v", env)
+	}
+}
+
+// A ceiling of zero rents nothing, so it is a legal value and must not be
+// refused -- but a negative one is nonsense, and saying so names the value that
+// means "none" rather than leaving an operator to guess.
+func TestAMachineCeilingMayBeZeroButNotNegative(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("root", store.RoleAdmin)
+	cookie := h.session(admin)
+
+	ok := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
+		body: map[string]any{"provider.max_machines": 0}})
+	ok.mustStatus(t, http.StatusOK, "patch provider.max_machines to zero")
+	if h.ctrl.Config().Provider.MaxMachines != 0 {
+		t.Error("a ceiling of none was not applied")
+	}
+
+	bad := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
+		body: map[string]any{"provider.max_machines": -1}})
+	bad.mustStatus(t, http.StatusUnprocessableEntity, "patch provider.max_machines to a negative")
+	var env errorEnvelope
+	bad.into(t, &env)
+	if len(env.Errors) == 0 || !strings.Contains(env.Errors[0].Message, "negative") {
+		t.Fatalf("the refusal does not say what is wrong: %+v", env)
+	}
+}
+
+// The bounds a restart has to honour are still named as such, and the UI renders
+// them from that list rather than discovering one at a time by being refused.
+//
+// What changed with settings moving into the database is what happens when one
+// is sent anyway: it is stored and reported as waiting, not refused. A deadline
+// bounds an operation that may already be in flight, so a running controller
+// cannot adopt a new one without two passes disagreeing about when to give up on
+// a half-built machine -- but wanting it changed is not a mistake, and making an
+// operator edit a file and restart to express that was never the safety, only
+// the friction.
+func TestTheProviderDeadlinesNeedARestart(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("root", store.RoleAdmin)
+	cookie := h.session(admin)
+
+	res := h.do(request{method: http.MethodGet, path: "/api/v1/settings", cookie: cookie})
+	res.mustStatus(t, http.StatusOK, "settings")
+	var settings settingsResponse
+	res.into(t, &settings)
+	for _, key := range []string{"provider.enabled", "provider.create_timeout", "provider.ambiguity_timeout"} {
+		if !slices.Contains(settings.RestartRequiredKeys, key) {
+			t.Errorf("%s is neither writable at runtime nor listed as needing a restart", key)
+		}
+	}
+
+	stored := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
+		body: map[string]any{"provider.create_timeout": "5m"}})
+	stored.mustStatus(t, http.StatusOK, "patch a restart-only provider setting")
+
+	var after settingsResponse
+	stored.into(t, &after)
+	if !slices.Contains(after.PendingRestart, "provider.create_timeout") {
+		t.Errorf("it was stored but is not reported as waiting: %v", after.PendingRestart)
+	}
+	// The running controller is untouched, which is the half that matters: a
+	// machine already being built keeps the deadline it was given.
+	if got := h.ctrl.Config().Provider.CreateTimeout.String(); got == "5m0s" {
+		t.Error("a deadline was changed under an operation already in flight")
+	}
+}
+
 // findSetting picks one key out of a settings response, so a test can assert
 // about the metadata the UI draws its editors from.
 func findSetting(t *testing.T, res settingsResponse, key string) settingView {

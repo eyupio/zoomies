@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"time"
+
+	"github.com/eyupio/zoomies/internal/config"
 )
 
 // The shapes below are the parts of api/openapi.yaml the tables read. They are
@@ -302,6 +304,75 @@ type tokenItem struct {
 	LastUsedAt *time.Time `json:"last_used_at"`
 	// Token comes back exactly once, from the create call.
 	Token string `json:"token"`
+}
+
+// providerItem is one place machines are rented from. The credential is not
+// here because it is not in the response: the server reports whether one is
+// configured and never what it is.
+type providerItem struct {
+	ID                    string         `json:"id"`
+	Kind                  string         `json:"kind"`
+	Name                  string         `json:"name"`
+	Endpoint              string         `json:"endpoint"`
+	CredentialsConfigured bool           `json:"credentials_configured"`
+	MaxMachines           int            `json:"max_machines"`
+	Enabled               bool           `json:"enabled"`
+	Paused                bool           `json:"paused"`
+	PausedReason          string         `json:"paused_reason"`
+	Held                  string         `json:"held"`
+	LastCheckAt           *time.Time     `json:"last_check_at"`
+	LastCheckError        string         `json:"last_check_error"`
+	LastSweepAt           *time.Time     `json:"last_sweep_at"`
+	Machines              map[string]int `json:"machines"`
+	Owned                 int            `json:"owned"`
+}
+
+// providerCheckItem is a preflight result. Its findings are config.Finding so
+// that printFindings renders them exactly as it renders a configuration's.
+type providerCheckItem struct {
+	ProviderID string          `json:"provider_id"`
+	OK         bool            `json:"ok"`
+	Reachable  bool            `json:"reachable"`
+	Version    string          `json:"version"`
+	Findings   config.Findings `json:"findings"`
+}
+
+// machineItem is one rented machine.
+type machineItem struct {
+	ID              string    `json:"id"`
+	ProviderID      string    `json:"provider_id"`
+	ProviderName    string    `json:"provider_name"`
+	Name            string    `json:"name"`
+	State           string    `json:"state"`
+	Message         string    `json:"message"`
+	PoolName        string    `json:"pool_name"`
+	ResourceZone    string    `json:"resource_zone"`
+	ResourceID      string    `json:"resource_id"`
+	Address         string    `json:"address"`
+	HostName        string    `json:"host_name"`
+	OwnershipError  string    `json:"ownership_error"`
+	Operation       string    `json:"operation"`
+	OperationHandle string    `json:"operation_handle"`
+	ProviderError   string    `json:"provider_error"`
+	BootstrapError  string    `json:"bootstrap_error"`
+	SafeToDeleteWhy string    `json:"safe_to_delete_why"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+// orphanReport is the review page: the three ways a row and a resource can
+// fail to agree.
+type orphanReport struct {
+	ProviderID   string        `json:"provider_id"`
+	ProviderName string        `json:"provider_name"`
+	LastSweepAt  *time.Time    `json:"last_sweep_at"`
+	Untracked    []orphanItem  `json:"untracked"`
+	NoResource   []machineItem `json:"no_resource"`
+	Unverified   []machineItem `json:"unverified"`
+}
+
+type orphanItem struct {
+	Name string `json:"name"`
+	Note string `json:"note"`
 }
 
 type problemItem struct {

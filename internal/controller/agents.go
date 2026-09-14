@@ -437,12 +437,18 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 
 	var tokenLabels store.StringMap
 	tokenCapacity := 0
+	// machineID is the machine this token was minted for, when it was minted
+	// for one. The link is written after the host row exists, because a
+	// machine's deletion authority over a host is the link -- so a link
+	// written before the row would name a host that may never appear.
+	machineID, joinTokenID := "", ""
 	if !embedded {
-		tok, err := c.authsvc.RedeemJoinToken(ctx, req.JoinToken, hostID)
+		tok, err := c.authsvc.RedeemJoinToken(ctx, req.JoinToken, store.JoinClaim{HostID: hostID, Name: name})
 		if err != nil {
 			return nil, err
 		}
 		tokenLabels, tokenCapacity = tok.Labels, tok.Capacity
+		machineID, joinTokenID = tok.MachineID, tok.ID
 	}
 
 	capacity := req.Capacity
@@ -538,6 +544,25 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 	}
 	if err := c.st.CreateHost(ctx, h); err != nil {
 		return nil, fmt.Errorf("registering host %s: %w", name, err)
+	}
+
+	// The machine that minted this token now has a host. Linking it here
+	// rather than in the machine loop closes the window in which a machine has
+	// enrolled and nothing in the fleet knows which host it became -- and the
+	// machine loop still links on a later pass if this write is lost, because
+	// the token carries the machine and the token names the host.
+	if machineID != "" {
+		if err := c.st.LinkMachineHost(ctx, machineID, h.ID, joinTokenID, now); err != nil {
+			// Not fatal: the host is enrolled and working. The machine loop's
+			// enrolling step retries the link, and quarantines the machine if
+			// the host turns out to belong to something else.
+			c.log.Warn("a machine's host enrolled but could not be linked to it",
+				"machine", machineID, "host", h.ID, "error", err)
+		}
+		// The machine the fleet has been waiting minutes for has arrived, and
+		// the pass that marks it ready is worth having now rather than at the
+		// next tick.
+		c.NudgeMachines()
 	}
 
 	c.markHostSeen(h.ID, true)
@@ -1235,6 +1260,33 @@ func (c *Controller) hostName(ctx context.Context, hostID string) string {
 	return hostID
 }
 
+// observeRunnerReady records how long a runner took to become usable, once it
+// has. Both timings are only meaningful for a runner that reached idle or busy
+// with a registration behind it, which is why every caller that can produce one
+// goes through here rather than keeping its own copy of the rule.
+//
+// Every field is read off the row the store handed back, never off the copy the
+// caller was holding. The create result is what stamps container_started_at, and
+// it is also what races an in_progress delivery -- so a caller whose copy
+// predates it would drop the container-to-registered timing for exactly the
+// runners whose startup was interesting enough to race.
+func (c *Controller) observeRunnerReady(ctx context.Context, updated *store.Runner) {
+	if updated == nil || updated.RegisteredAt == nil {
+		return
+	}
+	if updated.State != store.RunnerIdle && updated.State != store.RunnerBusy {
+		return
+	}
+	p, err := c.st.GetPool(ctx, updated.PoolID)
+	if err != nil {
+		return
+	}
+	if updated.ContainerStartedAt != nil {
+		observeDuration(c.metrics.containerToRegistered, p.Name, string(p.Backend), *updated.ContainerStartedAt, *updated.RegisteredAt)
+	}
+	observeDuration(c.metrics.registeredToReady, p.Name, string(p.Backend), *updated.RegisteredAt, c.Now())
+}
+
 // applyRunnerState performs a reported transition when it is legal, and
 // publishes it. An illegal one is dropped rather than forced: the store's
 // state machine is what stops a confused agent corrupting the accounting.
@@ -1252,14 +1304,7 @@ func (c *Controller) applyRunnerState(ctx context.Context, r *store.Runner, stat
 		c.log.Warn("could not apply a runner state an agent reported", "runner", r.ID, "state", state, "error", err)
 		return
 	}
-	if (state == store.RunnerIdle || state == store.RunnerBusy) && updated.RegisteredAt != nil {
-		if p, e := c.st.GetPool(ctx, r.PoolID); e == nil {
-			if r.ContainerStartedAt != nil {
-				observeDuration(c.metrics.containerToRegistered, p.Name, string(p.Backend), *r.ContainerStartedAt, *updated.RegisteredAt)
-			}
-			observeDuration(c.metrics.registeredToReady, p.Name, string(p.Backend), *updated.RegisteredAt, c.Now())
-		}
-	}
+	c.observeRunnerReady(ctx, updated)
 	c.publishRunner(ctx, events.KindRunnerUpdated, updated)
 	if state == store.RunnerFailed {
 		// A clean exit under a job is the ordinary race between GitHub's

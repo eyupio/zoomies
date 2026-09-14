@@ -238,12 +238,31 @@ retention:
   scaling_events: 8760h         # ZOOMIES_RETENTION_SCALING_EVENTS (365 days of scaling history; was retention.audit, which is still read)
   samples: 168h                 # ZOOMIES_RETENTION_SAMPLES
   webhooks: 168h                # ZOOMIES_RETENTION_WEBHOOKS
+  machines: 168h                # ZOOMIES_RETENTION_MACHINES  (7 days of deleted-machine rows -- what was rented, when, and what it cost)
 
 images:
   refresh_interval: 1h          # ZOOMIES_IMAGE_REFRESH_INTERVAL  -- 0 switches it off
 
 updates:
   check_interval: 24h           # ZOOMIES_UPDATE_CHECK_INTERVAL   -- 0 never asks
+
+provider:
+  enabled: false                # ZOOMIES_PROVIDER_ENABLED                -- off: renting machines spends money
+  paused: false                 # ZOOMIES_PROVIDER_PAUSED                 -- the kill switch; holds creation only
+  interval: 30s                 # ZOOMIES_PROVIDER_INTERVAL
+  sweep_interval: 10m           # ZOOMIES_PROVIDER_SWEEP_INTERVAL         -- how often each provider is asked what it is running
+  max_machines: 0               # ZOOMIES_PROVIDER_MAX_MACHINES           -- fleet-wide ceiling; 0 rents nothing, and is warned about
+  max_creates_in_flight: 2      # ZOOMIES_PROVIDER_MAX_CREATES_IN_FLIGHT
+  scale_up_delay: 0s            # ZOOMIES_PROVIDER_SCALE_UP_DELAY         -- a machine takes minutes; it has already waited
+  call_timeout: 30s             # ZOOMIES_PROVIDER_CALL_TIMEOUT
+  create_timeout: 20m           # ZOOMIES_PROVIDER_CREATE_TIMEOUT
+  bootstrap_timeout: 10m        # ZOOMIES_PROVIDER_BOOTSTRAP_TIMEOUT
+  enrol_timeout: 15m            # ZOOMIES_PROVIDER_ENROL_TIMEOUT
+  delete_timeout: 15m           # ZOOMIES_PROVIDER_DELETE_TIMEOUT
+  ambiguity_timeout: 30m        # ZOOMIES_PROVIDER_AMBIGUITY_TIMEOUT      -- then a person is asked
+  idle_timeout: 15m             # ZOOMIES_PROVIDER_IDLE_TIMEOUT
+  scale_down_cooldown: 15m      # ZOOMIES_PROVIDER_SCALE_DOWN_COOLDOWN    -- at least one idle_timeout, or the fleet churns
+  delete_grace: 10m             # ZOOMIES_PROVIDER_DELETE_GRACE           -- after a machine's host goes silent
 ```
 
 ---
@@ -350,11 +369,33 @@ settings page reports rather than refusing the edit.
 | `oidc.scopes` | `ZOOMIES_OIDC_SCOPES` | next restart | Scopes — The scopes asked for at sign-in. |
 | `oidc.username_claim` | `ZOOMIES_OIDC_USERNAME_CLAIM` | next restart | Username claim — The token claim that becomes a Zoomies username. |
 
+### `provider`
+
+| Key | Environment | Takes effect | What it is |
+| --- | --- | --- | --- |
+| `provider.ambiguity_timeout` | `ZOOMIES_PROVIDER_AMBIGUITY_TIMEOUT` | next restart | Unknown-outcome timeout — How long an operation whose outcome is unknown is reconciled by looking before a person is asked instead. It must outlast the creation timeout: a create that is merely slow is not an unknown outcome. |
+| `provider.bootstrap_timeout` | `ZOOMIES_PROVIDER_BOOTSTRAP_TIMEOUT` | next restart | Agent install timeout — How long installing the agent inside a machine that is already up may take. |
+| `provider.call_timeout` | `ZOOMIES_PROVIDER_CALL_TIMEOUT` | next restart | Provider request timeout — How long one API request to a provider may take. |
+| `provider.create_timeout` | `ZOOMIES_PROVIDER_CREATE_TIMEOUT` | next restart | Machine creation timeout — How long the whole asynchronous creation of a machine may take, rather than the request that starts it. |
+| `provider.delete_grace` | `ZOOMIES_PROVIDER_DELETE_GRACE` | next restart | Grace before a silent machine is lost — How long a machine whose host has gone silent is left alone before it is treated as lost. It has to outlast the controller's own judgement that a host is gone, or a network blip would destroy a machine in the middle of a job. |
+| `provider.delete_timeout` | `ZOOMIES_PROVIDER_DELETE_TIMEOUT` | next restart | Deletion timeout — How long an asynchronous deletion may take. |
+| `provider.enabled` | `ZOOMIES_PROVIDER_ENABLED` | next restart | Rent machines — Whether the machine loop runs at all. Off by default: renting a machine spends money, and nothing here should start doing that because a release added the ability to. |
+| `provider.enrol_timeout` | `ZOOMIES_PROVIDER_ENROL_TIMEOUT` | next restart | Enrolment timeout — How long a bootstrapped machine has to appear as a host. It has to outlast a heartbeat timeout, or a machine that joined and went briefly quiet would be given up on. |
+| `provider.idle_timeout` | `ZOOMIES_PROVIDER_IDLE_TIMEOUT` | at once | Idle before draining — How long a machine's host must have had no runner on it before the machine is drained. |
+| `provider.interval` | `ZOOMIES_PROVIDER_INTERVAL` | next restart | Machine loop interval — How often the machine loop runs. It is slower than the scheduler's on purpose: a clone takes minutes, and the pass that watches one gains nothing from a ten-second tick. |
+| `provider.max_creates_in_flight` | `ZOOMIES_PROVIDER_MAX_CREATES_IN_FLIGHT` | at once | Machines built at once — How many machines may be being built at once across the fleet, so a burst of queued jobs cannot ask a hypervisor for fifty clones in one pass. |
+| `provider.max_machines` | `ZOOMIES_PROVIDER_MAX_MACHINES` | at once | Machines the fleet may rent — The ceiling across every provider. Zero rents nothing, exactly as a pool's max_runners of zero runs nothing: a maximum of none is none. |
+| `provider.paused` | `ZOOMIES_PROVIDER_PAUSED` | at once | Pause new machines — Stop creating machines while leaving draining, deleting, recovering and verifying ownership running. A switch that stopped those too would strand running machines nobody is watching. |
+| `provider.scale_down_cooldown` | `ZOOMIES_PROVIDER_SCALE_DOWN_COOLDOWN` | next restart | Cooldown before deleting — How long that idleness must hold continuously before anything is deleted, so a quiet minute between two bursts does not destroy the machines the second burst is about to want. |
+| `provider.scale_up_delay` | `ZOOMIES_PROVIDER_SCALE_UP_DELAY` | next restart | Delay before renting — How long a pool's demand must stand before a machine is bought for it. Zero, unlike the scheduler's: a machine that takes four minutes to arrive has already spent the delay by being slow. |
+| `provider.sweep_interval` | `ZOOMIES_PROVIDER_SWEEP_INTERVAL` | next restart | Ownership sweep interval — How often each provider is asked for everything it believes it is running, which is how an orphaned machine and one that vanished underneath us are both found. |
+
 ### `retention`
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
 | `retention.jobs` | `ZOOMIES_RETENTION_JOBS` | at once | Keep job history for — How long job history is kept. |
+| `retention.machines` | `ZOOMIES_RETENTION_MACHINES` | at once | Keep deleted machines for — How long a deleted machine's row is kept, so what the fleet rented and gave back is still answerable after the machine itself is gone. |
 | `retention.runners` | `ZOOMIES_RETENTION_RUNNERS` | at once | Keep finished runners for — How long finished runners are kept. |
 | `retention.samples` | `ZOOMIES_RETENTION_SAMPLES` | at once | Keep Overview samples for — How long the Overview's samples are kept. |
 | `retention.scaling_events` | `ZOOMIES_RETENTION_SCALING_EVENTS` | at once | Keep scaling history for — How long scaling decisions are kept. Audit rows are not covered by this, or by anything: they are never deleted. |
@@ -398,7 +439,7 @@ settings page reports rather than refusing the edit.
 | `server.tls.cert_file` | `ZOOMIES_TLS_CERT_FILE` | next restart | Certificate file — The certificate the listener serves, when the mode is files. |
 | `server.tls.hosts` | `ZOOMIES_TLS_HOSTS` | next restart | Certificate host names — The names baked into a generated self-signed certificate. |
 | `server.tls.key_file` | `ZOOMIES_TLS_KEY_FILE` | next restart | Private key file — The private key for that certificate. The file stays on disk; only its path is stored here. |
-| `server.tls.mode` | `ZOOMIES_TLS_MODE` | next restart | TLS — How the listener terminates TLS: off behind a reverse proxy, self-signed for a generated certificate, files for one of your own. |
+| `server.tls.mode` | `ZOOMIES_TLS_MODE` | next restart | TLS mode — How the listener terminates TLS: off behind a reverse proxy, self-signed for a generated certificate, files for one of your own. |
 | `server.trusted_proxies` | `ZOOMIES_TRUSTED_PROXIES` | next restart | Trusted proxies — CIDRs whose X-Forwarded-For header is believed, or the word cloudflare for Cloudflare's published ranges. Empty takes client addresses from the socket, which is the safe answer. |
 | `server.write_timeout` | `ZOOMIES_WRITE_TIMEOUT` | next restart | Write timeout — How long a response may take. It is 0, and should stay 0: the event stream and a followed log are responses that never end. |
 
@@ -1045,6 +1086,74 @@ fleet, or one that pins every pool to a digest, and Zoomies says so once at
 startup rather than leaving you to wonder.
 
 ---
+
+### `provider.max_machines` — the ceiling on what the fleet may rent
+
+```yaml
+provider:
+  enabled: true
+  max_machines: 6
+```
+
+`provider.enabled` decides whether Zoomies may rent hosts at all. It is off,
+and it stays off until somebody deliberately turns it on, because every machine
+behind it is a bill.
+
+`max_machines` is the ceiling across every provider put together, and it is the
+one number to set in the same edit as `enabled`. Each provider row carries its
+own limit as well, but those bound one hypervisor each; this is what bounds a
+mistake — a provider configured twice, a demand signal that never settles, a
+pool whose jobs nothing can run so the shortfall never closes.
+
+**Zero rents nothing**, exactly as a pool's `max_runners` of zero runs nothing,
+and the validator says so rather than letting a fleet look enabled and do
+nothing. That is deliberate: the alternative reading, where an unset number
+means "as many as it takes", puts the one setting that decides the size of an
+invoice behind a value somebody can forget.
+
+`max_creates_in_flight` is the other half: how many machines may be being built
+at once. A burst of two hundred queued jobs should not become two hundred
+simultaneous clone requests, whatever the ceiling allows in total.
+
+### `provider.paused` — the kill switch
+
+```yaml
+provider:
+  paused: true
+```
+
+Holds the creation of new machines while leaving everything else running:
+machines already up keep working, idle ones still drain, drained ones are still
+deleted, an operation whose outcome was unknown is still resolved, and
+ownership is still verified. That asymmetry is the point. A switch that stopped
+deletion too would leave VMs running with nothing tending them, which is the
+opposite of what somebody reaching for a kill switch wants.
+
+The same switch exists per provider, as a row, and that is the one the Hosts
+page presses — so one misbehaving hypervisor can be held without stopping the
+rest. This setting is the fleet-wide version, in the file, for the case where a
+restart should come back held.
+
+### `provider.delete_grace` — how long a quiet machine is left alone
+
+```yaml
+provider:
+  delete_grace: 10m
+```
+
+A machine's host is counted unhealthy after 90 seconds without a heartbeat and
+lost after five minutes. This is how much longer still a machine is left alone
+before the fleet treats it as gone, and it must comfortably outlast both — a
+machine destroyed for a network blip takes the job it was running with it, and
+that job's owner sees a failure with no cause. The validator warns when it is
+set at or below the 90 seconds, which is the setting most likely to be tuned
+down by somebody impatient with a slow scale-down.
+
+`idle_timeout` and `scale_down_cooldown` are the other end of the same
+question: how long a machine's host must have been empty before it is drained,
+and how long that emptiness must hold continuously before anything is deleted.
+Set the cooldown below one idle period and a fleet pays the creation cost again
+in every gap between two bursts.
 
 ## Pool settings
 

@@ -38,6 +38,14 @@ const COUNT = /^\d[\d,]*$/;
 /** What formatDuration produces: "820ms", "9.4s", "35m 00s", "2h 05m", or "--". */
 const DURATION = /^(--|[\d.]+(ms|s)|\d+[mhd] \d{2}[smh])$/;
 
+// A square that has jobs, however they went: "38 jobs finished, 2 failed" or
+// "6 jobs queued, none finished". Both halves matter -- for the twenty minutes
+// after midnight the newest day is all queue and no completions, because the
+// demo fleet's most recent finished job is twenty minutes old and lands on
+// yesterday, and a square that says "none finished" is still a square with
+// jobs on it.
+const WITH_JOBS = /\d[\d,]* jobs? (finished|queued)/;
+
 test('the four metric tiles carry the numbers the fleet is judged on', async ({ page }) => {
   for (const label of ['Queued jobs', 'Running jobs', 'Live runners']) {
     const tile = page.getByRole('link', { name: new RegExp(`^${label}`) });
@@ -513,12 +521,12 @@ test('the matrix is one tab stop, walked with the arrow keys, with a tooltip on 
   // Exactly one square is in the tab order, and it is the newest with jobs.
   const stop = grid.locator('[role="gridcell"][tabindex="0"]');
   await expect(stop).toHaveCount(1);
-  await expect(stop).toHaveAttribute('aria-label', /jobs finished/);
+  await expect(stop).toHaveAttribute('aria-label', WITH_JOBS);
 
   await stop.focus();
   const tip = page.locator('.tip:popover-open');
   await expect(tip, 'focus opens the tooltip').toBeVisible();
-  await expect(tip).toContainText(/jobs finished/);
+  await expect(tip).toContainText(WITH_JOBS);
   await expect(tip).toContainText('Queued');
   await expect(tip).toContainText('Executing');
 
@@ -545,14 +553,26 @@ test('selecting a day opens its hours and leads to its jobs', async ({ page }) =
   await yearOfDays(page);
   const matrix = page.getByRole('region', { name: 'Activity matrix', exact: true });
   const grid = matrix.getByRole('grid');
-  const today = grid.locator('[role="gridcell"][tabindex="0"]');
-  await expect(today).toHaveAttribute('aria-label', /jobs finished/);
+  // The newest day that finished something and failed some of it, which is
+  // what every assertion below needs: the outcome split, the hour-by-hour
+  // summary and the "Failed jobs" link are all rendered from completions. It
+  // is the tab stop itself for all but the twenty minutes after midnight --
+  // in those the newest day is all queue, the demo fleet's most recent
+  // finished job having landed on yesterday -- so a day picked by the clock
+  // rather than by its contents would make this test a nightly flake.
+  const failing = grid.locator('[role="gridcell"][data-kind="failing"]');
+  await expect(failing.first()).toBeAttached();
+  const newest = await failing.evaluateAll((cells) =>
+    Math.max(...cells.map((c) => Number(c.getAttribute('data-index')))),
+  );
+  const day = grid.locator(`[role="gridcell"][data-index="${newest}"]`);
+  await expect(day).toHaveAttribute('aria-label', WITH_JOBS);
 
-  await today.click();
-  await expect(today).toHaveAttribute('aria-selected', 'true');
+  await day.click();
+  await expect(day).toHaveAttribute('aria-selected', 'true');
   const detail = matrix.getByRole('region', { name: 'Selected day' });
   await expect(detail).toBeVisible();
-  await expect(detail).toContainText(/jobs finished/);
+  await expect(detail).toContainText(WITH_JOBS);
   await expect(detail).toContainText('Succeeded');
   await expect(detail).toContainText('Failed');
 
@@ -578,11 +598,11 @@ test('selecting a day opens its hours and leads to its jobs', async ({ page }) =
   );
 
   // Selecting the same square again lets go of it.
-  await today.click();
-  await expect(today).toHaveAttribute('aria-selected', 'false');
+  await day.click();
+  await expect(day).toHaveAttribute('aria-selected', 'false');
   await expect(matrix.getByRole('region', { name: 'Selected day' })).toHaveCount(0);
 
-  await today.click();
+  await day.click();
   await jobs.click();
   await expect(page.getByRole('heading', { name: 'Jobs' })).toBeVisible();
   await expect(page.locator('tbody tr[data-row]').first()).toBeVisible();

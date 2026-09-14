@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -151,5 +152,54 @@ func TestABulkPruneAnnouncesOnceRatherThanDroppingEverySubscriber(t *testing.T) 
 	case ev := <-sub.C:
 		t.Fatalf("a second frame (%q) followed the resync; one is the whole point", ev.Kind)
 	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// A machine's row outlives its resource on purpose: it is the only record of
+// what was rented, when, and what it cost, and an operator reconciling a
+// hypervisor bill against the fleet is reading exactly that. What retention
+// takes is the confirmed-gone rows, and never one that still names a resource.
+func TestPruningKeepsEveryMachineThatMayStillHaveAResource(t *testing.T) {
+	h := newHarness(t)
+	row := h.providerRow(t, "lab")
+	now := h.c.Now()
+
+	gone := &store.Machine{ProviderID: row.ID, State: store.MachinePlanned}
+	if err := h.st.CreateMachine(h.ctx, gone); err != nil {
+		t.Fatalf("CreateMachine: %v", err)
+	}
+	if err := h.st.SetMachineResource(h.ctx, gone.ID, "zone-a", "143", "fp", "ctl_test"); err != nil {
+		t.Fatalf("SetMachineResource: %v", err)
+	}
+	if _, err := h.st.ConfirmMachineDeleted(h.ctx, gone.ID, now.Add(-48*time.Hour)); err != nil {
+		t.Fatalf("ConfirmMachineDeleted: %v", err)
+	}
+	for _, to := range []store.MachineState{store.MachineFailed, store.MachineDeleted} {
+		if _, err := h.st.TransitionMachine(h.ctx, gone.ID, to, ""); err != nil {
+			t.Fatalf("TransitionMachine(%s): %v", to, err)
+		}
+	}
+
+	// Failed, old, and still naming a resource: the one row a prune must never
+	// take, because deleting it is how a fleet loses a machine it is paying for.
+	kept := &store.Machine{ProviderID: row.ID, State: store.MachinePlanned}
+	if err := h.st.CreateMachine(h.ctx, kept); err != nil {
+		t.Fatalf("CreateMachine: %v", err)
+	}
+	if err := h.st.SetMachineResource(h.ctx, kept.ID, "zone-a", "144", "fp", "ctl_test"); err != nil {
+		t.Fatalf("SetMachineResource: %v", err)
+	}
+	if _, err := h.st.TransitionMachine(h.ctx, kept.ID, store.MachineFailed, "the guest never joined"); err != nil {
+		t.Fatalf("TransitionMachine: %v", err)
+	}
+
+	h.c.UpdateConfig(func(c *config.Config) { c.Retention = config.Retention{Machines: 24 * time.Hour} })
+	h.c.prune(h.ctx)
+
+	if _, err := h.st.GetMachine(h.ctx, gone.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("a machine confirmed gone 48 hours ago survived a 24-hour window: %v", err)
+	}
+	if _, err := h.st.GetMachine(h.ctx, kept.ID); err != nil {
+		t.Errorf("a failed machine that still names a resource was pruned: %v", err)
 	}
 }

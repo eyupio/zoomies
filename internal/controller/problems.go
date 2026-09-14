@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/provider"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
@@ -149,6 +150,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	gather("runner cleanup", c.cleanupProblems)
 	gather("stuck runners", c.notProgressingProblems)
 	gather("capacity-demand deliveries", c.capacityDeliveryProblems)
+	gather("infrastructure providers", c.machineProblems)
 
 	// An incomplete list says so, at the top, in the same shape as everything
 	// else on it. A list that quietly drops a section is worse than an error,
@@ -176,6 +178,227 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 		return strings.Compare(a.Title, b.Title)
 	})
 	return out, nil
+}
+
+// machineProblems is everything wrong with the half of the fleet that spends
+// money: a hypervisor that cannot be reached, a machine that never arrived, a
+// resource nothing can account for, and the switches that are holding it all.
+//
+// Three of the codes change severity with the circumstances, on
+// pool.no_capacity's pattern, and the reason is the same each time: the fault
+// is the same, and whether anybody is waiting on it is what decides whether
+// somebody should be woken up.
+func (c *Controller) machineProblems(ctx context.Context, out *[]Problem) error {
+	if !c.cfg().Provider.Enabled {
+		return nil
+	}
+	providers, err := c.st.ListProviders(ctx)
+	if err != nil {
+		return fmt.Errorf("listing providers: %w", err)
+	}
+	if len(providers) == 0 {
+		return nil
+	}
+	pools, err := c.st.ListPools(ctx)
+	if err != nil {
+		return fmt.Errorf("listing pools: %w", err)
+	}
+	queued, err := c.st.ListQueuedJobs(ctx)
+	if err != nil {
+		return fmt.Errorf("listing queued jobs: %w", err)
+	}
+	now := c.Now()
+	troubles := c.providerTroubles()
+	orphans := c.ProviderOrphans()
+	unservable := unservableProviders(providers, pools, now)
+
+	for _, p := range providers {
+		machines, err := c.st.ListMachinesForProvider(ctx, p.ID)
+		if err != nil {
+			return fmt.Errorf("listing machines for provider %s: %w", p.Name, err)
+		}
+		c.providerTroubleProblems(out, p, troubles[p.ID], machines, len(queued))
+		c.machineStateProblems(out, p, machines, now)
+		if names := orphans[p.ID]; len(names) > 0 {
+			*out = append(*out, Problem{
+				Code:     "provider.orphan_found",
+				Severity: config.SeverityError,
+				Title:    fmt.Sprintf("%s has %s Zoomies cannot account for", p.Name, plural(len(names), "resource")),
+				Detail: fmt.Sprintf("%s wear this fleet's naming, and no machine row names them: %s. "+
+					"Nothing has been deleted and nothing will be.", plural(len(names), "resource"),
+					strings.Join(names, ", ")),
+				Fix: "review them on the provider's orphan tab. A resource left over from a lost database is yours " +
+					"to remove by hand; one still doing work belongs to something else.",
+				TargetKind: "provider", TargetID: p.ID,
+			})
+		}
+		if slices.Contains(unservable, p.ID) {
+			*out = append(*out, Problem{
+				Code:     "provider.unservable",
+				Severity: config.SeverityWarning,
+				Title:    fmt.Sprintf("no pool could ever run work on %s's machines", p.Name),
+				Detail: "the machines this provider offers match no enabled pool's backend, platform or host " +
+					"selector, so anything it buys would sit idle and be paid for.",
+				Fix: "give the provider's machines the labels a pool selects on, or change its backend and " +
+					"platform to something a pool asks for.",
+				TargetKind: "provider", TargetID: p.ID,
+			})
+		}
+		if p.LastCheckAt == nil || p.LastCheckAt.Before(p.UpdatedAt) {
+			*out = append(*out, Problem{
+				Code:     "provider.template_unverified",
+				Severity: config.SeverityWarning,
+				Title:    fmt.Sprintf("%s has not been checked since its settings changed", p.Name),
+				Detail: "nothing has confirmed that this provider's credential, template and placement still work. " +
+					"The first machine it builds is where that would otherwise be discovered.",
+				Fix:        "run the connection check on the provider's page, which changes nothing and says what it found.",
+				TargetKind: "provider", TargetID: p.ID,
+			})
+		}
+		if held := c.provisioningHeld(p, now); held != "" && !c.Fenced().Fenced {
+			*out = append(*out, Problem{
+				Code:     "provider.provisioning_paused",
+				Severity: config.SeverityInfo,
+				Title:    fmt.Sprintf("%s is not buying machines", p.Name),
+				Detail:   held,
+				Fix: "nothing is stranded: draining, deleting, recovery and the ownership sweep all continue. " +
+					"Resume the provider when whatever this was for is over.",
+				TargetKind: "provider", TargetID: p.ID,
+			})
+		}
+		if _, err := c.providers.Get(p.Kind); err != nil {
+			*out = append(*out, Problem{
+				Code:     "provider.contract_unsupported",
+				Severity: config.SeverityError,
+				Title:    fmt.Sprintf("this build cannot work with %s", p.Name),
+				Detail:   err.Error(),
+				Fix: "upgrade whichever side is older. The machines this provider already owns stay visible, " +
+					"drainable and deletable: a version mismatch never strands a running machine.",
+				TargetKind: "provider", TargetID: p.ID,
+			})
+		}
+	}
+	return nil
+}
+
+// providerTroubleProblems turns the last failure a provider gave us into the
+// entry an operator can act on.
+func (c *Controller) providerTroubleProblems(out *[]Problem, p *store.Provider, t providerTrouble, machines []*store.Machine, queued int) {
+	if t.Kind == "" {
+		return
+	}
+	midOperation := 0
+	for _, m := range machines {
+		if m.State.Pending() {
+			midOperation++
+		}
+	}
+	since := t.At
+	switch t.Kind {
+	case provider.FailureUnreachable:
+		// A hypervisor nobody is waiting on is a warning; one with a machine
+		// half-built behind it is an outage, because that machine is being
+		// paid for and cannot be finished or released.
+		severity := config.SeverityWarning
+		title := fmt.Sprintf("%s could not be reached", p.Name)
+		if midOperation > 0 {
+			severity = config.SeverityError
+			title = fmt.Sprintf("%s could not be reached and %s waiting on it",
+				p.Name, plural(midOperation, "machine")+" is")
+		}
+		*out = append(*out, Problem{
+			Code: "provider.unreachable", Severity: severity, Title: title, Detail: t.Detail,
+			Fix: firstNonEmpty(t.Remedy, "check the endpoint on the provider's page, and that this controller can "+
+				"reach it: nothing is created or deleted while it cannot be."),
+			TargetKind: "provider", TargetID: p.ID, Since: &since,
+		})
+	case provider.FailureAuth, provider.FailurePermission:
+		*out = append(*out, Problem{
+			Code:     "provider.credentials_refused",
+			Severity: config.SeverityError,
+			Title:    fmt.Sprintf("%s refused this controller's credential", p.Name),
+			Detail:   t.Detail,
+			Fix: firstNonEmpty(t.Remedy, "replace the credential on the provider's page. A credential that is valid "+
+				"but not allowed names the privilege it is missing in the detail above."),
+			TargetKind: "provider", TargetID: p.ID, Since: &since,
+		})
+	case provider.FailureQuota:
+		// The pool.no_capacity circumstance: a provider that is full with
+		// nothing queued is the system working, and the next machine released
+		// clears it.
+		severity := config.SeverityWarning
+		if queued > 0 {
+			severity = config.SeverityError
+		}
+		*out = append(*out, Problem{
+			Code:     "provider.quota_exhausted",
+			Severity: severity,
+			Title:    fmt.Sprintf("%s has no capacity for another machine", p.Name),
+			Detail:   t.Detail,
+			Fix: firstNonEmpty(t.Remedy, "free capacity at the provider, or lower what this fleet asks of it. "+
+				"Draining and deleting carry on, so a machine released here clears this on its own."),
+			TargetKind: "provider", TargetID: p.ID, Since: &since,
+		})
+	}
+}
+
+// machineStateProblems says what is wrong with individual machines: the ones
+// that never arrived, the ones nothing can prove we own, and the deletes that
+// have not confirmed.
+func (c *Controller) machineStateProblems(out *[]Problem, p *store.Provider, machines []*store.Machine, now time.Time) {
+	deleteTimeout := c.cfg().Provider.DeleteTimeout
+	for _, m := range machines {
+		switch {
+		case m.State == store.MachineQuarantined || m.OwnershipError != "":
+			detail := m.OwnershipError
+			if detail == "" {
+				detail = m.Message
+			}
+			*out = append(*out, Problem{
+				Code:     "provider.ownership_unverified",
+				Severity: config.SeverityError,
+				Title:    fmt.Sprintf("machine %s is quarantined", m.Name),
+				Detail:   detail,
+				Fix: "nothing will act on this machine until a person does. Check the provider's console, then " +
+					"either release the row -- which forgets the resource without touching it -- or delete the " +
+					"resource by hand.",
+				TargetKind: "machine", TargetID: m.ID,
+			})
+		case m.State == store.MachineFailed && m.BootstrapError != "":
+			*out = append(*out, Problem{
+				Code:     "provider.bootstrap_failed",
+				Severity: config.SeverityError,
+				Title:    fmt.Sprintf("machine %s came up and its agent never did", m.Name),
+				Detail:   m.BootstrapError,
+				Fix: "the machine is running and is still being paid for. Check that the template carries the " +
+					"zoomies agent, installed and disabled, with no agent.json in it -- two machines sharing one " +
+					"agent identity is the failure that looks like a host flapping.",
+				TargetKind: "machine", TargetID: m.ID,
+			})
+		case m.State == store.MachineFailed:
+			*out = append(*out, Problem{
+				Code:     "provider.machine_failed",
+				Severity: config.SeverityWarning,
+				Title:    fmt.Sprintf("machine %s never reached ready", m.Name),
+				Detail:   firstNonEmpty(m.ProviderError, m.Message, "the machine was given up on without saying why"),
+				Fix: "the row is kept because the resource behind it may still exist. Release it once you have " +
+					"checked the provider's console.",
+				TargetKind: "machine", TargetID: m.ID,
+			})
+		case m.State == store.MachineDeleting && deleteTimeout > 0 &&
+			m.DeleteStartedAt != nil && now.Sub(*m.DeleteStartedAt) > deleteTimeout:
+			since := *m.DeleteStartedAt
+			*out = append(*out, Problem{
+				Code:     "provider.delete_pending",
+				Severity: config.SeverityWarning,
+				Title:    fmt.Sprintf("machine %s has been deleting for %s", m.Name, roundDuration(now.Sub(since))),
+				Detail: fmt.Sprintf("%s has not yet confirmed that %s is gone, and a resource nobody has confirmed "+
+					"gone is a resource somebody may still be paying for.", p.Name, m.ResourceID),
+				Fix:        "Zoomies keeps asking. If the provider's console shows it gone, the next sweep records it.",
+				TargetKind: "machine", TargetID: m.ID, Since: &since,
+			})
+		}
+	}
 }
 
 func (c *Controller) capacityDeliveryProblems(ctx context.Context, out *[]Problem) error {

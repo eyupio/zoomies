@@ -571,6 +571,10 @@ var registry = buildRegistry([]Setting{
 		Key: "retention.webhooks", Label: "Keep webhook deliveries for", Env: "ZOOMIES_RETENTION_WEBHOOKS", Kind: KindDuration, Scope: ScopeInstance, Live: true,
 		Summary: "How long webhook deliveries are kept.",
 	},
+	{
+		Key: "retention.machines", Label: "Keep deleted machines for", Env: "ZOOMIES_RETENTION_MACHINES", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Summary: "How long a deleted machine's row is kept, so what the fleet rented and gave back is still answerable after the machine itself is gone.",
+	},
 
 	// ---------------------------------------------------------------------
 	// images and updates
@@ -606,6 +610,92 @@ var registry = buildRegistry([]Setting{
 	{
 		Key: "capacity_demand.pools", Label: "Pools to publish for", Env: "ZOOMIES_CAPACITY_DEMAND_POOLS", Kind: KindStrings, Scope: ScopeInstance, Live: true,
 		Summary: "Which pools to publish demand for. Empty publishes for all of them.",
+	},
+
+	// ---------------------------------------------------------------------
+	// provider -- renting machines from a hypervisor.
+	//
+	// Only the kill switch and the two ceilings are live. The deadlines bound
+	// operations that may already be in flight, so changing one under a clone
+	// that is half-built would mean two passes disagreeing about when to give
+	// up on it; they are stored and applied at the next start instead.
+	// ---------------------------------------------------------------------
+	{
+		Key: "provider.enabled", Label: "Rent machines", Env: "ZOOMIES_PROVIDER_ENABLED", Kind: KindBool, Scope: ScopeInstance,
+		Summary:       "Whether the machine loop runs at all. Off by default: renting a machine spends money, and nothing here should start doing that because a release added the ability to.",
+		RestartReason: "the machine loop is started at startup, so turning it on is a thing a running process cannot do to itself",
+	},
+	{
+		Key: "provider.paused", Label: "Pause new machines", Env: "ZOOMIES_PROVIDER_PAUSED", Kind: KindBool, Scope: ScopeInstance, Live: true,
+		Summary: "Stop creating machines while leaving draining, deleting, recovering and verifying ownership running. A switch that stopped those too would strand running machines nobody is watching.",
+	},
+	{
+		Key: "provider.interval", Label: "Machine loop interval", Env: "ZOOMIES_PROVIDER_INTERVAL", Kind: KindDuration, Scope: ScopeInstance,
+		Floor:         time.Second,
+		Summary:       "How often the machine loop runs. It is slower than the scheduler's on purpose: a clone takes minutes, and the pass that watches one gains nothing from a ten-second tick.",
+		RestartReason: "the loop's timer is set when it starts",
+	},
+	{
+		Key: "provider.sweep_interval", Label: "Ownership sweep interval", Env: "ZOOMIES_PROVIDER_SWEEP_INTERVAL", Kind: KindDuration, Scope: ScopeInstance,
+		Summary:       "How often each provider is asked for everything it believes it is running, which is how an orphaned machine and one that vanished underneath us are both found.",
+		RestartReason: "the sweep is paced from the loop's own clock, set when it starts",
+	},
+	{
+		Key: "provider.max_machines", Label: "Machines the fleet may rent", Env: "ZOOMIES_PROVIDER_MAX_MACHINES", Kind: KindInt, Scope: ScopeInstance, Live: true,
+		Summary: "The ceiling across every provider. Zero rents nothing, exactly as a pool's max_runners of zero runs nothing: a maximum of none is none.",
+	},
+	{
+		Key: "provider.max_creates_in_flight", Label: "Machines built at once", Env: "ZOOMIES_PROVIDER_MAX_CREATES_IN_FLIGHT", Kind: KindInt, Scope: ScopeInstance, Live: true,
+		Summary: "How many machines may be being built at once across the fleet, so a burst of queued jobs cannot ask a hypervisor for fifty clones in one pass.",
+	},
+	{
+		Key: "provider.scale_up_delay", Label: "Delay before renting", Env: "ZOOMIES_PROVIDER_SCALE_UP_DELAY", Kind: KindDuration, Scope: ScopeInstance,
+		Summary:       "How long a pool's demand must stand before a machine is bought for it. Zero, unlike the scheduler's: a machine that takes four minutes to arrive has already spent the delay by being slow.",
+		RestartReason: "the loop reads its pacing when it starts",
+	},
+	{
+		Key: "provider.call_timeout", Label: "Provider request timeout", Env: "ZOOMIES_PROVIDER_CALL_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance,
+		Summary:       "How long one API request to a provider may take.",
+		RestartReason: "requests already in flight were given the old deadline",
+	},
+	{
+		Key: "provider.create_timeout", Label: "Machine creation timeout", Env: "ZOOMIES_PROVIDER_CREATE_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance,
+		Summary:       "How long the whole asynchronous creation of a machine may take, rather than the request that starts it.",
+		RestartReason: "a machine already being built was given the old deadline, and two passes disagreeing about when to give up on it is how one gets abandoned half-made",
+	},
+	{
+		Key: "provider.bootstrap_timeout", Label: "Agent install timeout", Env: "ZOOMIES_PROVIDER_BOOTSTRAP_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance,
+		Summary:       "How long installing the agent inside a machine that is already up may take.",
+		RestartReason: "a bootstrap already running was given the old deadline",
+	},
+	{
+		Key: "provider.enrol_timeout", Label: "Enrolment timeout", Env: "ZOOMIES_PROVIDER_ENROL_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance,
+		Summary:       "How long a bootstrapped machine has to appear as a host. It has to outlast a heartbeat timeout, or a machine that joined and went briefly quiet would be given up on.",
+		RestartReason: "a machine already enrolling was given the old deadline",
+	},
+	{
+		Key: "provider.delete_timeout", Label: "Deletion timeout", Env: "ZOOMIES_PROVIDER_DELETE_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance,
+		Summary:       "How long an asynchronous deletion may take.",
+		RestartReason: "a deletion already running was given the old deadline",
+	},
+	{
+		Key: "provider.ambiguity_timeout", Label: "Unknown-outcome timeout", Env: "ZOOMIES_PROVIDER_AMBIGUITY_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance,
+		Summary:       "How long an operation whose outcome is unknown is reconciled by looking before a person is asked instead. It must outlast the creation timeout: a create that is merely slow is not an unknown outcome.",
+		RestartReason: "an operation already in doubt was given the old deadline",
+	},
+	{
+		Key: "provider.idle_timeout", Label: "Idle before draining", Env: "ZOOMIES_PROVIDER_IDLE_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Summary: "How long a machine's host must have had no runner on it before the machine is drained.",
+	},
+	{
+		Key: "provider.scale_down_cooldown", Label: "Cooldown before deleting", Env: "ZOOMIES_PROVIDER_SCALE_DOWN_COOLDOWN", Kind: KindDuration, Scope: ScopeInstance,
+		Summary:       "How long that idleness must hold continuously before anything is deleted, so a quiet minute between two bursts does not destroy the machines the second burst is about to want.",
+		RestartReason: "a cooldown already being counted was started against the old value",
+	},
+	{
+		Key: "provider.delete_grace", Label: "Grace before a silent machine is lost", Env: "ZOOMIES_PROVIDER_DELETE_GRACE", Kind: KindDuration, Scope: ScopeInstance,
+		Summary:       "How long a machine whose host has gone silent is left alone before it is treated as lost. It has to outlast the controller's own judgement that a host is gone, or a network blip would destroy a machine in the middle of a job.",
+		RestartReason: "a grace period already being counted was started against the old value",
 	},
 })
 
@@ -673,6 +763,7 @@ func StoredSettings() []Setting {
 var SectionOrder = []string{
 	"server", "database", "security", "github", "agent", "scheduler",
 	"log", "oidc", "metrics", "retention", "images", "updates", "capacity_demand",
+	"provider",
 }
 
 // CompareKeys orders two dotted keys by section first and then alphabetically,

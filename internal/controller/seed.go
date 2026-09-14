@@ -11,6 +11,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
@@ -27,6 +28,12 @@ const (
 	demoPoolArmID      = "pool_demoarm"
 	demoHostPrefix     = "host_demo"
 	demoTarget         = "acme"
+	demoProviderID     = "prv_demoproxmox"
+	// The two machines: one that finished and one still on its way, which is
+	// the whole of the Machines page's story in two rows.
+	demoMachineReadyID    = "mach_demo01"
+	demoMachineBuildingID = "mach_demo02"
+	demoJoinTokenID       = "join_demo01"
 )
 
 // IsDemoID reports whether an identifier belongs to the seeded demo fixtures.
@@ -114,9 +121,9 @@ func (c *Controller) refuseSeedOnRealState(ctx context.Context) error {
 
 // SeedDemo writes a deterministic fixture fleet: one installation, two pools, a
 // dozen runners spread across the state machine, fifty jobs with plausible
-// queue waits and outcomes, three hosts, some scaling history and an audit
-// trail. It is what ZOOMIES_SEED_DEMO turns on for the Playwright suite and
-// for a demo instance.
+// queue waits and outcomes, three hosts, one provider with the two machines it
+// has rented, some scaling history and an audit trail. It is what
+// ZOOMIES_SEED_DEMO turns on for the Playwright suite and for a demo instance.
 //
 // It is idempotent -- a second call does nothing -- and it refuses to run at
 // all if this instance has any pool that is not one of its own, because a
@@ -170,6 +177,14 @@ func (c *Controller) SeedDemo(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	prov, err := c.seedProvider(ctx, now)
+	if err != nil {
+		return err
+	}
+	machines, err := c.seedMachines(ctx, now, prov, pool1, hosts)
+	if err != nil {
+		return err
+	}
 	runners, err := c.seedRunners(ctx, now, []*store.Pool{pool1, pool2}, hosts)
 	if err != nil {
 		return err
@@ -188,7 +203,8 @@ func (c *Controller) SeedDemo(ctx context.Context) error {
 	}
 
 	c.log.Info("seeded the demo fleet",
-		"pools", len(demoPoolNames), "hosts", len(hosts), "runners", len(runners))
+		"pools", len(demoPoolNames), "hosts", len(hosts), "runners", len(runners),
+		"machines", len(machines))
 	return nil
 }
 
@@ -329,6 +345,7 @@ func (c *Controller) demoHeartbeatLoop(ctx context.Context) {
 		case <-ticker.C:
 			c.beatDemoHosts(ctx)
 			c.freshenDemoRunners(ctx)
+			c.freshenDemoMachines(ctx)
 		}
 	}
 }
@@ -383,6 +400,49 @@ func (c *Controller) freshenDemoRunners(ctx context.Context) {
 		// age on screen keeps climbing and then jumps back on a reload. The
 		// host beat publishes for the same reason.
 		c.publishRunner(ctx, events.KindRunnerUpdated, r)
+	}
+}
+
+// freshenDemoMachines keeps the seeded machines' proof of ownership, and the
+// sweep that would have written it, from going stale.
+//
+// A machine may only be deleted on an observation younger than
+// observationMaxAge, and a demo has no hypervisor behind it to make a second
+// one. A minute after seeding every machine on the page answers "the last time
+// anything confirmed this resource is ours is too old to act on" and the
+// provider reads as one nothing has ever swept -- correct at the instant it
+// was seeded and wrong while somebody is still reading it, which is the
+// heartbeat's failure mode on the half of the fleet that spends money.
+//
+// A machine whose ownership genuinely is in doubt is left alone: re-proving it
+// here would erase the one complaint an operator is meant to act on.
+func (c *Controller) freshenDemoMachines(ctx context.Context) {
+	now := c.Now()
+	providers, err := c.st.ListProviders(ctx)
+	if err != nil {
+		c.log.Warn("demo refresh could not list providers", "error", err)
+		return
+	}
+	for _, p := range providers {
+		if !IsDemoID(p.ID) {
+			continue
+		}
+		if err := c.st.SetProviderSwept(ctx, p.ID, now); err != nil {
+			c.log.Warn("demo refresh failed", "provider", p.ID, "error", err)
+		}
+	}
+	machines, _, err := c.st.ListMachines(ctx, store.MachineFilter{}, store.Page{Limit: 100})
+	if err != nil {
+		c.log.Warn("demo refresh could not list machines", "error", err)
+		return
+	}
+	for _, m := range machines {
+		if !IsDemoID(m.ID) || !m.Owns() || m.OwnershipError != "" || m.State == store.MachineQuarantined {
+			continue
+		}
+		if err := c.st.SetMachineOwnershipVerified(ctx, m.ID, now); err != nil {
+			c.log.Warn("demo refresh failed", "machine", m.ID, "error", err)
+		}
 	}
 }
 
@@ -464,6 +524,212 @@ func (c *Controller) seedPools(ctx context.Context) (*store.Pool, *store.Pool, e
 		return nil, nil, fmt.Errorf("seeding pool %s: %w", arm.Name, err)
 	}
 	return linux, arm, nil
+}
+
+// seedProvider writes the one place the demo fleet rents machines from: a
+// Proxmox cluster answered the way docs/proxmox.md describes, down to a VMID
+// range of its own.
+//
+// Every setting is filled in because the Providers page is where somebody
+// looks to find out what a configured provider is meant to look like, and a
+// row with half its answers blank teaches them the wrong shape. The machine it
+// offers is the linux pool's platform, so the pool that runs out of hosts in
+// this fixture is a pool this provider could actually serve -- a provider no
+// pool can use is a row that never explains why it exists.
+func (c *Controller) seedProvider(ctx context.Context, now time.Time) (*store.Provider, error) {
+	p := &store.Provider{
+		ID:       demoProviderID,
+		Kind:     store.ProviderProxmox,
+		Name:     "demo-pve",
+		Endpoint: "https://pve.acme.example:8006",
+		Settings: store.StringMap{
+			"nodes":       "pve-1,pve-2",
+			"template_id": "8000",
+			"storage":     "local-zfs",
+			"bridge":      "vmbr0",
+			// A block nothing else allocates from, which is the blast radius
+			// as well as the budget -- and the template sits outside it, since
+			// a template inside the range is an identifier the allocator would
+			// hand to a clone.
+			"vmid_min":      "9000",
+			"vmid_max":      "9099",
+			"template_node": "pve-1",
+			"pool":          "zoomies",
+		},
+		MachineLabels:   store.StringMap{"arch": "amd64", "zone": "demo"},
+		MachineCapacity: 4,
+		MachineBackend:  store.BackendDocker,
+		MachinePlatform: store.Platform{OS: "ubuntu", OSVersion: "24.04", Arch: "amd64"},
+		MachineCPUs:     8,
+		MachineMemoryMB: 16384,
+		MachineDiskMB:   524_288,
+		// A ceiling with room above what it owns: at the ceiling the card says
+		// the provider is full, which is not the state a demo should open on.
+		MaxMachines:        4,
+		MaxCreatesInFlight: 1,
+		IdleTimeout:        store.Duration(15 * time.Minute),
+		Enabled:            true,
+	}
+	if err := c.st.CreateProvider(ctx, p); err != nil {
+		return nil, fmt.Errorf("seeding provider %s: %w", p.Name, err)
+	}
+	// Sealed by its own writer, as the API does it: a credential is the one
+	// edit that never travels with the rest of the form. Nothing ever calls
+	// Proxmox with it -- the machines below are written straight to the
+	// database -- so it is a token-shaped string rather than a token.
+	cred, err := c.key.SealString("zoomies@pve!demo=DEMO FIXTURE, NOT A TOKEN")
+	if err != nil {
+		return nil, fmt.Errorf("sealing the demo provider credential: %w", err)
+	}
+	if err := c.st.SetProviderCredentials(ctx, p.ID, cred); err != nil {
+		return nil, fmt.Errorf("storing the demo provider credential: %w", err)
+	}
+	p.CredentialsEnc = cred
+	// A preflight that passed and a sweep that found nothing out of place.
+	// Without the first the card reads "Never checked. Run it before anything
+	// is built on this", which is the one sentence a demo provider should not
+	// be the example of.
+	if err := c.st.SetProviderChecked(ctx, p.ID, now, ""); err != nil {
+		return nil, fmt.Errorf("recording the demo provider's preflight: %w", err)
+	}
+	if err := c.st.SetProviderSwept(ctx, p.ID, now); err != nil {
+		return nil, fmt.Errorf("recording the demo provider's sweep: %w", err)
+	}
+	p.LastCheckAt, p.LastSweepAt = &now, &now
+	return p, nil
+}
+
+// seedMachines writes the two machines the demo provider has rented: one that
+// became a host, and one the fleet is still waiting for.
+//
+// Two, and deliberately unalike. The ready one is what the Hosts page's
+// provider badge and the machine-to-host link are rendered from; the other is
+// what the lifecycle band, the pending counts and the timeline's live last row
+// are rendered from, none of which a fleet of finished machines would show.
+//
+// The ready one is linked to a host the seed has already made rather than to a
+// fourth of its own: every host on that page is a fixture something counts, and
+// a rented host that nothing else in the fleet knows about would be a host with
+// no runners, no jobs and no history on it.
+func (c *Controller) seedMachines(ctx context.Context, now time.Time, prov *store.Provider, pool *store.Pool, hosts []*store.Host) ([]*store.Machine, error) {
+	var host *store.Host
+	for _, h := range hosts {
+		if h.ID == demoHostPrefix+"b" {
+			host = h
+		}
+	}
+	if host == nil {
+		return nil, fmt.Errorf("seeding machines: the demo fleet has no host %sb for one to have become", demoHostPrefix)
+	}
+
+	// The store stamps created_at itself, so a machine's phases are placed
+	// forward from the seeding instant rather than behind it. A clone that
+	// finished before the row that ordered it existed draws a timeline running
+	// backwards, and MachineTimeline clamps every duration in one of those to
+	// zero -- which is the one thing this fixture is here to give it. A minute
+	// and a half is a linked clone, a boot, an agent install and a join, and
+	// all of it is behind the clock by the time anybody has opened the page.
+	after := func(d time.Duration) *time.Time { at := now.Add(d); return &at }
+
+	ready := &store.Machine{
+		ID:                demoMachineReadyID,
+		ProviderID:        prov.ID,
+		Name:              store.NewMachineName(demoMachineReadyID),
+		State:             store.MachineReady,
+		Message:           "the agent joined and this machine is serving runners",
+		PoolID:            pool.ID,
+		OwnerControllerID: c.controllerID(),
+		// Not a credential: it is the mark a delete is checked against, and it
+		// is fixed here for the same reason every other fixture identifier is.
+		OwnerFingerprint: "demofixture2",
+		ResourceZone:     "pve-1",
+		ResourceID:       "9000",
+		// The host's own address, because they are the same computer.
+		Address:         host.Address,
+		Capacity:        prov.MachineCapacity,
+		Labels:          prov.MachineLabels,
+		CreateStartedAt: after(time.Second),
+		CreatedOKAt:     after(37 * time.Second),
+		StartedAt:       after(52 * time.Second),
+		BootstrappedAt:  after(82 * time.Second),
+		ReadyAt:         after(89 * time.Second),
+	}
+	building := &store.Machine{
+		ID:                demoMachineBuildingID,
+		ProviderID:        prov.ID,
+		Name:              store.NewMachineName(demoMachineBuildingID),
+		State:             store.MachineBootstrapping,
+		Message:           "the machine is running; installing the agent",
+		PoolID:            pool.ID,
+		OwnerControllerID: c.controllerID(),
+		OwnerFingerprint:  "demofixture3",
+		// The second node, because machines are spread across the nodes a
+		// provider is given and a demo that only ever used the first would not
+		// show it.
+		ResourceZone:    "pve-2",
+		ResourceID:      "9001",
+		Address:         "10.0.0.13",
+		Capacity:        prov.MachineCapacity,
+		Labels:          prov.MachineLabels,
+		CreateStartedAt: after(2 * time.Second),
+		CreatedOKAt:     after(44 * time.Second),
+		StartedAt:       after(58 * time.Second),
+	}
+
+	out := []*store.Machine{ready, building}
+	for _, m := range out {
+		if err := c.st.CreateMachine(ctx, m); err != nil {
+			return nil, fmt.Errorf("seeding machine %s: %w", m.Name, err)
+		}
+		// The observation a delete is authorised by, written through the same
+		// writer the ownership sweep uses.
+		if err := c.st.SetMachineOwnershipVerified(ctx, m.ID, now); err != nil {
+			return nil, fmt.Errorf("recording that machine %s is ours: %w", m.Name, err)
+		}
+		m.OwnershipVerifiedAt = &now
+	}
+
+	enrolled := now.Add(87 * time.Second)
+	if err := c.seedMachineEnrolment(ctx, ready, host, enrolled); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// seedMachineEnrolment gives the ready machine the credential its host joined
+// with, and links the two.
+//
+// The link is the only thing that grants this controller authority to delete a
+// host, and LinkMachineHost is the only writer of it, so the fixture earns it
+// the way a real machine does rather than by setting a column: a host_id with
+// no token behind it would claim an enrolment nothing else in the system could
+// account for. Only the hash of a join token is ever stored, so the fixture's
+// is the hash of a string that is not a token -- and the row is spent, which is
+// the state a token that did its job is left in.
+func (c *Controller) seedMachineEnrolment(ctx context.Context, m *store.Machine, host *store.Host, at time.Time) error {
+	tok := &store.JoinToken{
+		ID:        demoJoinTokenID,
+		TokenHash: cryptox.HashToken("zoomies demo fixture, not a join token"),
+		Prefix:    "zoojoin_demo01",
+		CreatedBy: "machine " + m.ID,
+		Labels:    m.Labels,
+		Capacity:  m.Capacity,
+		ExpiresAt: at.Add(c.cfg().Provider.EnrolTimeout + machineTokenGrace),
+		UsedAt:    &at,
+		UsedByID:  host.ID,
+		// Scoped to this machine and to the one name it may enrol under, which
+		// is what stops a copy of the template joining as somebody else.
+		MachineID:    m.ID,
+		ExpectedName: m.Name,
+	}
+	if err := c.st.CreateJoinToken(ctx, tok); err != nil {
+		return fmt.Errorf("seeding machine %s's join token: %w", m.Name, err)
+	}
+	if err := c.st.LinkMachineHost(ctx, m.ID, host.ID, tok.ID, at); err != nil {
+		return fmt.Errorf("enrolling machine %s as host %s: %w", m.Name, host.Name, err)
+	}
+	m.HostID, m.JoinTokenID, m.EnrolledAt = host.ID, tok.ID, &at
+	return nil
 }
 
 // demoRunnerName is the name a demo runner would have been given, in the

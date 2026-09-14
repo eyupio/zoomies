@@ -1151,6 +1151,303 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List infrastructure providers
+         * @description A provider is one place machines can be rented from. The credential is never in the response and has no field it could be in: `credentials_configured` says whether one is sealed in the row, which is all a form needs to know.
+         */
+        get: operations["listProviders"];
+        put?: never;
+        /**
+         * Configure a provider
+         * @description The credential is sealed with the instance key before the row is written. A provider is created renting nothing - `max_machines` defaults to zero - so that nothing starts spending money on the strength of a connection test.
+         */
+        post: operations["createProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/providers/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check a draft provider without saving it
+         * @description A dry run over a draft, for the wizard's review step. It writes nothing and dials nothing - a driver's own validator is offline by contract - so it can be run as somebody types. It always answers 200: whether the draft is valid is in the body. Pass `?id=` when the draft is an edit to an existing provider, so the name check does not refuse it about itself. `POST /providers/{id}/check` is the call that talks to the hypervisor.
+         */
+        post: operations["validateProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/providers/kinds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What this build can rent machines from
+         * @description Every driver this build ships, its capabilities, and the questions its configuration form has to ask. The wizard renders its form from this, so a setting a driver gained cannot be missing from the form that collects it.
+         */
+        get: operations["listProviderKinds"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/providers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /** Get a provider */
+        get: operations["getProvider"];
+        put?: never;
+        post?: never;
+        /**
+         * Remove a provider
+         * @description Refused while any of its machines still believes it holds a resource, naming how many. The rows are the only record of what was rented, so the machines go first.
+         */
+        delete: operations["deleteProvider"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a provider's settings, shape or ceilings
+         * @description Every field is optional and independent; what is not named is left alone. A credential of `""` leaves the stored one alone, so a form with a blank password box does not erase it. A provider's kind cannot be changed: the machines it already owns are that kind.
+         */
+        patch: operations["updateProvider"];
+        trace?: never;
+    };
+    "/providers/{id}/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run the live preflight
+         * @description Asks the provider what it would refuse, changing nothing there. The result is recorded on the row as well as returned, so a check run in a terminal quiets the warning the UI is showing. Audited, because it uses the credential.
+         */
+        post: operations["checkProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/providers/{id}/discovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * What this credential can actually see
+         * @description The nodes, storages, bridges and templates a provider offers, so the form presents a menu rather than asking somebody to go and look an identifier up. A driver that cannot list them answers 409 and the form asks for the identifiers instead.
+         */
+        get: operations["getProviderDiscovery"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/providers/{id}/orphans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Rows and resources that disagree
+         * @description The three ways a machine row and a real resource can fail to agree: a resource wearing this fleet's naming that no row accounts for, a row that holds nothing, and a machine whose ownership nothing has been able to confirm. Nothing here is ever acted on automatically.
+         */
+        get: operations["getProviderOrphans"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/providers/{id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop this provider buying new machines
+         * @description The kill switch. It blocks new machines only: draining, deleting, recovering and verifying ownership all continue, because a switch that stopped those would strand running machines nobody is watching. Pressing it twice is not an error.
+         */
+        post: operations["pauseProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/providers/{id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Let this provider buy machines again
+         * @description Pressing it twice is not an error.
+         */
+        post: operations["resumeProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/machines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List rented machines
+         * @description There is deliberately no POST. A machine exists because demand asked for one: one creation path means one accounting path, and a machine made by hand would be supply the reconciler would then decide to delete.
+         */
+        get: operations["listMachines"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/machines/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /** Get a machine, with the phases it has reached */
+        get: operations["getMachine"];
+        put?: never;
+        post?: never;
+        /**
+         * Destroy a machine and the resource behind it
+         * @description Records the intent and answers with the machine in `deleting`: a delete is finished when the resource can no longer be found, not when the provider returns. Refused while runners are still going unless forced. A quarantined machine is never deletable, forced or not - its resource may belong to somebody else - and the escape hatch there is release.
+         */
+        delete: operations["deleteMachine"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/machines/{id}/drain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cordon a machine and let its runners finish
+         * @description Reversible right up until the delete starts: demand coming back takes a draining machine to ready again rather than paying for a new one.
+         */
+        post: operations["drainMachine"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/machines/{id}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Forget a machine without touching its resource
+         * @description For the machine nobody can safely delete: a quarantined one whose resource turned out to be somebody else's, or a row for a resource that was removed by hand. The machine's name must be in the body to confirm. If the resource does still exist it goes on running, so the audit row keeps the provider's identifiers for it after the database has stopped holding them.
+         */
+        post: operations["releaseMachine"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/migrations/plan": {
         parameters: {
             query?: never;
@@ -1717,6 +2014,8 @@ export interface components {
             poller_enabled?: boolean;
             /** @description True when operators may ask GitHub to cancel workflow runs. */
             workflow_cancellation_enabled?: boolean;
+            /** @description True when this deployment can rent machines - the build ships at least one provider driver and provider.enabled is on - so the page that would otherwise offer to buy machines nothing would ever create knows not to. */
+            providers_available?: boolean;
             /**
              * Format: date-time
              * @description When the fallback poller last completed a sweep
@@ -2513,6 +2812,10 @@ export interface components {
             installations?: components["schemas"]["Installation"][];
             pools?: components["schemas"]["Pool"][];
             hosts?: components["schemas"]["Host"][];
+            /** @description The providers this fleet rents from, the same shape /providers serves. */
+            providers?: components["schemas"]["Provider"][];
+            /** @description The machines it is renting, newest first and excluding the ones whose resource is confirmed gone. */
+            machines?: components["schemas"]["Machine"][];
             runners?: components["schemas"]["Runner"][];
             /** @description The work in flight rather than the history. A bundle is taken because something is stuck, and finished jobs would be most of the bytes while answering none of it. */
             jobs?: components["schemas"]["Job"][];
@@ -2897,6 +3200,298 @@ export interface components {
             used_at?: string | null;
             used_by_id?: string;
             usable?: boolean;
+        };
+        /**
+         * @description Which infrastructure a provider rents from. It is CHECKed in the schema, so a kind this build cannot speak cannot be stored.
+         * @enum {string}
+         */
+        ProviderKindName: "proxmox" | "fake";
+        /**
+         * @description A machine's life, from a row that names nothing to a host that runs jobs. Deleted is the only terminal one: failed and quarantined still need attention, and a failed machine may still have a resource behind it.
+         * @enum {string}
+         */
+        MachineState: "planned" | "creating" | "starting" | "bootstrapping" | "enrolling" | "ready" | "draining" | "deleting" | "deleted" | "failed" | "quarantined";
+        Provider: {
+            /** @example prv_k3f9qz2mx7ab */
+            id: string;
+            kind: components["schemas"]["ProviderKindName"];
+            /** @example proxmox-lab */
+            name: string;
+            /**
+             * @description Where this controller reaches the provider. Not a secret - it is the address an operator typed - and showing it is how somebody tells two clusters apart on a page listing both.
+             * @example https://pve.example.com:8006
+             */
+            endpoint?: string;
+            /** @description Certificate verification is off for this provider */
+            insecure_skip_verify?: boolean;
+            /** @description The non-secret answers to this driver's own settings, keyed as GET /providers/kinds describes them. */
+            settings?: {
+                [key: string]: string;
+            };
+            /** @description Whether a credential is sealed in the row. The value itself never leaves the controller and has no field here: an audit row and a screenshot both outlive the person who took them. */
+            credentials_configured: boolean;
+            machine_labels?: {
+                [key: string]: string;
+            };
+            /** @description How many runners one of this provider's machines may run at once. */
+            machine_capacity?: number;
+            machine_backend?: components["schemas"]["BackendKind"];
+            machine_platform?: components["schemas"]["Platform"];
+            machine_cpus?: number;
+            /** Format: int64 */
+            machine_memory_mb?: number;
+            /** Format: int64 */
+            machine_disk_mb?: number;
+            /** @description Which pools this provider may buy for. Empty means every pool. */
+            pool_selector?: {
+                [key: string]: string;
+            };
+            /** @description The ceiling on machines this provider may own at once. Zero rents nothing, exactly as a pool's max_runners of zero runs nothing. */
+            max_machines?: number;
+            /** @description How many machines may be being built at once. */
+            max_creates_in_flight?: number;
+            /**
+             * Format: int64
+             * @description How long a machine may sit with nothing to do before it is drained.
+             */
+            idle_timeout_ms?: number;
+            cost_per_machine_hour?: number;
+            enabled: boolean;
+            /** @description The operator's kill switch. It blocks new machines only. */
+            paused: boolean;
+            paused_reason?: string;
+            /**
+             * Format: date-time
+             * @description The breaker's own pause
+             */
+            paused_until?: string;
+            /** @description Why no new machine may be bought right now, in one sentence, or absent when one may. Computed rather than stored because it answers for the fence, the configuration and the row at once. */
+            held?: string;
+            consecutive_failures?: number;
+            /** Format: date-time */
+            last_check_at?: string;
+            /** @description The worst thing the last preflight found */
+            last_check_error?: string;
+            /**
+             * Format: date-time
+             * @description When this provider was last asked for everything it believes it is running.
+             */
+            last_sweep_at?: string;
+            /** @description How many machines this provider has, by state. */
+            machines: {
+                [key: string]: number;
+            };
+            /** @description How many still believe they hold a resource, which is the number the ceiling and the bill are both counted in. */
+            owned: number;
+            /** Format: date-time */
+            created_at?: string;
+            /** Format: date-time */
+            updated_at?: string;
+        };
+        /** @description Creating and editing a provider take the same body. On a PATCH every field is optional and independent; what is not named is left alone. */
+        ProviderInput: {
+            kind?: components["schemas"]["ProviderKindName"];
+            name?: string;
+            endpoint?: string;
+            /** @description The certificate to trust for this endpoint */
+            ca_pem?: string;
+            insecure_skip_verify?: boolean;
+            settings?: {
+                [key: string]: string;
+            };
+            /** @description Sealed with the instance key and never returned. An empty string leaves the stored credential alone, so a form with a blank password box does not erase it. */
+            credential?: string;
+            machine_labels?: {
+                [key: string]: string;
+            };
+            /** @default 2 */
+            machine_capacity: number;
+            machine_backend?: components["schemas"]["BackendKind"];
+            machine_platform?: components["schemas"]["Platform"];
+            machine_cpus?: number;
+            /** Format: int64 */
+            machine_memory_mb?: number;
+            /** Format: int64 */
+            machine_disk_mb?: number;
+            pool_selector?: {
+                [key: string]: string;
+            };
+            /** @default 0 */
+            max_machines: number;
+            /** @default 1 */
+            max_creates_in_flight: number;
+            idle_timeout?: components["schemas"]["Duration"];
+            cost_per_machine_hour?: number;
+            /** @default true */
+            enabled: boolean;
+        };
+        ProviderSetting: {
+            /** @example node */
+            key: string;
+            /** @example Node */
+            label: string;
+            /** @enum {string} */
+            kind: "text" | "number" | "bool" | "choice" | "list" | "secret";
+            required: boolean;
+            /** @description Put behind a disclosure */
+            advanced: boolean;
+            /** @description One operator-facing sentence. */
+            help?: string;
+            /** @description What choosing it means */
+            consequence?: string;
+            /** @description Which discovery list fills the choices, e.g. nodes. */
+            discovers?: string;
+            default?: string;
+        };
+        ProviderKind: {
+            kind: components["schemas"]["ProviderKindName"];
+            /** @example Proxmox VE */
+            label: string;
+            /**
+             * @description How the enrolment payload reaches a guest. "metadata" means it is readable by anyone who can read the machine's metadata, which is worth knowing before anything is bought.
+             * @enum {string}
+             */
+            bootstrap: "guest_agent" | "metadata" | "none";
+            can_start_stop?: boolean;
+            can_discover?: boolean;
+            /** @description Whether the driver can write this controller's marks onto the resource itself. */
+            can_mark_ownership?: boolean;
+            async_operations?: boolean;
+            /** @example machine-hour */
+            cost_unit?: string;
+            settings: components["schemas"]["ProviderSetting"][];
+        };
+        ProviderValidation: {
+            valid: boolean;
+            errors: components["schemas"]["FieldError"][];
+            /** @description Answers that are legal and still cost something. */
+            warnings: components["schemas"]["Problem"][];
+        };
+        ProviderCheck: {
+            provider_id: string;
+            /** @description Nothing found stops this provider being used. Warnings do not - they weaken the posture and say so. */
+            ok: boolean;
+            /** @description Whether an answer came back at all. Separate from the findings because a provider that cannot be reached has one problem, not eleven. */
+            reachable: boolean;
+            /** @description The provider's own version */
+            version?: string;
+            findings: components["schemas"]["Problem"][];
+            /** Format: date-time */
+            checked_at: string;
+        };
+        ProviderChoice: {
+            value: string;
+            label?: string;
+            /** @description What picking it means */
+            consequence?: string;
+        };
+        /** @description What a credential can actually see. A provider with no such concept leaves a list empty rather than inventing one. */
+        ProviderDiscovery: {
+            nodes: components["schemas"]["ProviderChoice"][];
+            storages: components["schemas"]["ProviderChoice"][];
+            bridges: components["schemas"]["ProviderChoice"][];
+            templates: components["schemas"]["ProviderChoice"][];
+        };
+        Orphan: {
+            /** @example zoomies-mach-k3f9q */
+            name: string;
+            /** @description What to do about it */
+            note: string;
+        };
+        ProviderOrphans: {
+            provider_id: string;
+            provider_name: string;
+            /**
+             * Format: date-time
+             * @description When the untracked list was gathered
+             */
+            last_sweep_at?: string;
+            /** @description Resources wearing this fleet's naming that no row accounts for. Zoomies never deletes one. */
+            untracked: components["schemas"]["Orphan"][];
+            /** @description Rows that hold nothing, which can be released without anything being lost. */
+            no_resource: components["schemas"]["Machine"][];
+            /** @description Machines whose ownership nothing has confirmed, including every quarantined one. */
+            unverified: components["schemas"]["Machine"][];
+        };
+        MachineTimelineEntry: {
+            /** @example bootstrapped */
+            phase: string;
+            /** Format: date-time */
+            at: string;
+        };
+        Machine: {
+            /** @example mach_k3f9qz2mx7ab */
+            id: string;
+            provider_id: string;
+            provider_name?: string;
+            provider_kind?: components["schemas"]["ProviderKindName"];
+            /** @example zoomies-mach-k3f9q */
+            name: string;
+            state: components["schemas"]["MachineState"];
+            /** @description Why it is where it is */
+            message?: string;
+            /** @description Which pool's unmet demand asked for this machine. Not ownership - a machine serves every pool its labels match. */
+            pool_id?: string;
+            pool_name?: string;
+            /** @example pve-1 */
+            resource_zone?: string;
+            /** @example 143 */
+            resource_id?: string;
+            address?: string;
+            /**
+             * Format: date-time
+             * @description The last time a fresh observation agreed this resource is ours.
+             */
+            ownership_verified_at?: string;
+            /** @description What disagreed. A machine with one is never deleted by anything but a person. */
+            ownership_error?: string;
+            host_id?: string;
+            host_name?: string;
+            capacity?: number;
+            labels: {
+                [key: string]: string;
+            };
+            /**
+             * @description The operation in flight
+             * @enum {string}
+             */
+            operation?: "create" | "start" | "stop" | "bootstrap" | "delete";
+            /** @example mop_k3f9qz2mx7ab */
+            operation_id?: string;
+            /** @description The provider's own handle for the call */
+            operation_handle?: string;
+            /** @description The controller taking the step */
+            operation_holder?: string;
+            /** Format: date-time */
+            operation_since?: string;
+            /** @description A call that went out and was never answered */
+            outcome_unknown?: boolean;
+            attempts?: number;
+            /** Format: date-time */
+            next_attempt_at?: string;
+            /** @description What the hypervisor complained about */
+            provider_error?: string;
+            /** @description What went wrong inside the guest */
+            bootstrap_error?: string;
+            /** @description Whether the row alone says a delete would be safe. The delete itself asks the provider again. */
+            safe_to_delete: boolean;
+            /** @description Why not */
+            safe_to_delete_why?: string;
+            /** @description The phases this machine actually reached. A phase it skipped is absent rather than zero. */
+            timeline: components["schemas"]["MachineTimelineEntry"][];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            ready_at?: string;
+            /** Format: date-time */
+            idle_since?: string;
+            /**
+             * Format: date-time
+             * @description When the provider confirmed the resource was gone
+             */
+            deleted_at?: string;
         };
         AuditEvent: {
             id?: string;
@@ -5195,6 +5790,450 @@ export interface operations {
                 content?: never;
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    listProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items?: components["schemas"]["Provider"][];
+                    };
+                };
+            };
+        };
+    };
+    createProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Provider"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    validateProvider: {
+        parameters: {
+            query?: {
+                /** @description The provider this is a dry run of an edit to. */
+                id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderValidation"];
+                };
+            };
+        };
+    };
+    listProviderKinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items?: components["schemas"]["ProviderKind"][];
+                    };
+                };
+            };
+        };
+    };
+    getProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Provider"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Provider"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    checkProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderCheck"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getProviderDiscovery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderDiscovery"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getProviderOrphans: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderOrphans"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    pauseProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @description Why */
+                    reason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Provider"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    resumeProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Provider"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listMachines: {
+        parameters: {
+            query?: {
+                limit?: components["parameters"]["Limit"];
+                offset?: components["parameters"]["Offset"];
+                /** @description A column name. An unknown value falls back to the default rather than erroring, so a stale bookmark does not break the page. */
+                sort?: components["parameters"]["Sort"];
+                order?: components["parameters"]["Order"];
+                /** @description Repeatable */
+                provider?: string;
+                pool?: string;
+                host?: string;
+                state?: components["schemas"]["MachineState"];
+                q?: string;
+                /** @description Keep machines whose resource is confirmed gone. */
+                include_deleted?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"] & {
+                        items?: components["schemas"]["Machine"][];
+                    };
+                };
+            };
+        };
+    };
+    getMachine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Machine"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteMachine: {
+        parameters: {
+            query?: {
+                force?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Machine"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    drainMachine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Machine"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    releaseMachine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description The machine's name */
+                    name: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Forgotten */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     planMigration: {

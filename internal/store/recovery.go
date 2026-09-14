@@ -101,6 +101,26 @@ func (s *Store) DeleteUnusedJoinTokens(ctx context.Context) (int64, error) {
 	return res.RowsAffected()
 }
 
+// MarkMachinesUnverified takes away every machine's proof of ownership.
+//
+// A restored database is a copy, and the machines it names may have been
+// deleted, rebuilt or handed to somebody else since the backup was taken. The
+// stamp is what a delete needs, so clearing it means this copy has to look at
+// each resource and agree it is still ours before it may destroy anything --
+// which is the difference between a restore and a fleet that deletes a VM
+// somebody else is now using.
+//
+// Nothing else is touched: the rows, the resources and the hosts are all still
+// there, and re-proving ownership is a pass's ordinary work.
+func (s *Store) MarkMachinesUnverified(ctx context.Context) (int64, error) {
+	res, err := s.exec(ctx, `UPDATE machines SET ownership_verified_at=NULL
+		WHERE ownership_verified_at IS NOT NULL`)
+	if err != nil {
+		return 0, fmt.Errorf("store: marking every machine's ownership unverified: %w", err)
+	}
+	return res.RowsAffected()
+}
+
 // RevokeAllAPITokens disables every API token without deleting its row, so the
 // audit trail still says what each one was and when it stopped working.
 func (s *Store) RevokeAllAPITokens(ctx context.Context) (int64, error) {

@@ -110,6 +110,22 @@ and `--failed` are the two questions worth a switch of their own.
 | `hosts delete <host-id>` | Forget it. Refused while it has live runners, unless `--force`. |
 | `hosts join-token create` | Mint a single-use join token: `--ttl` (`15m`), `--capacity` (`2`), `--labels`, `--controller`. Shown once; only its hash is stored. |
 
+### `zoomies providers`
+
+| Command | What it does |
+| --- | --- |
+| `providers list` | Every provider machines can be rented from, how many it has, and whether it may buy more. A provider that is buying nothing says why in a sentence below the table. |
+| `providers check <name\|id>` | The live preflight: ask the hypervisor what it would refuse, changing nothing there. Exits non-zero if anything would stop a machine being created, and prints what to fix in the same words the setup wizard uses. |
+| `providers pause <name\|id>` | Stop buying new machines. `--reason` is kept for the card and the audit row. Machines that exist keep running, and drains, deletes and recovery carry on. Pressing it twice is not an error. |
+| `providers resume <name\|id>` | Let it buy machines again. If something else is still holding it — the fence a restore sets, the configuration, a ceiling — the answer says so rather than claiming the fleet is buying. |
+| `providers machines` | The machines that exist right now, filtered by `--provider` and `--state`, with `--include-deleted` for the ones whose resource is confirmed gone. A stuck machine prints the provider's own words and the task handle to paste into its console. |
+| `providers orphans <name\|id>` | The three ways a row and a real resource can disagree: resources with no row, rows holding no resource, and machines nobody can vouch for. It deletes nothing — every line is for a person to decide. |
+
+There is no `providers machines delete`. Destroying a machine destroys a VM
+somebody is paying for, and the row is the only record that it exists, so it is
+`DELETE /api/v1/machines/{id}` with a refusal to read first — see
+[the API surface](api-surface.md#providers-and-machines).
+
 ### `zoomies installations`
 
 `installations list` shows the GitHub App installations pools register with —

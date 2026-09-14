@@ -11,6 +11,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -41,6 +42,45 @@ const (
 // in problems.go. pool.dangerous and pool.cache_shared had no row in
 // docs/problem-codes.md until this list caught up to them.
 var controllerSources = []string{controllerSource, viewsSource}
+
+// providerSources is every non-test file in the provider packages, found by
+// walking rather than listed, because these are the codes most likely to be
+// added without anybody remembering this test exists.
+//
+// A provider's preflight speaks in findings rather than errors -- a refused
+// credential and a template that is not a template are answers, not failures --
+// so a provider raises operator-facing codes exactly as the validator does.
+// They reached the problems drawer and the provider's own page with no row on
+// the reference page and nothing checking, because this list named only the
+// files the controller raises problems from. Sixteen of them had that status
+// before the walk replaced the list.
+func providerSources(t *testing.T) []string {
+	t.Helper()
+	var out []string
+	err := filepath.WalkDir("../provider", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") {
+			out = append(out, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking the provider packages: %v", err)
+	}
+	if len(out) == 0 {
+		t.Fatal("no provider sources were found at all; the packages moved, not the docs")
+	}
+	return out
+}
+
+// problemSources is every file a code an operator can be shown may come from.
+func problemSources(t *testing.T) []string {
+	t.Helper()
+	sources := append([]string{validatorSource, databaseSource}, controllerSources...)
+	return append(sources, providerSources(t)...)
+}
 
 // codesIn returns every string assigned to a `Code:` field in a Go file.
 //
@@ -93,7 +133,7 @@ func TestEveryProblemCodeIsDocumented(t *testing.T) {
 
 	var missing []string
 	seen := map[string]bool{}
-	for _, source := range append([]string{validatorSource, databaseSource}, controllerSources...) {
+	for _, source := range problemSources(t) {
 		for _, code := range codesIn(t, source) {
 			if seen[code] {
 				continue
@@ -127,7 +167,7 @@ func TestTheReferenceDescribesNoCodeThatIsGone(t *testing.T) {
 	}
 
 	real := map[string]bool{}
-	for _, source := range append([]string{validatorSource, databaseSource}, controllerSources...) {
+	for _, source := range problemSources(t) {
 		for _, code := range codesIn(t, source) {
 			real[code] = true
 		}

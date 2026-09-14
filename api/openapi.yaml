@@ -77,6 +77,8 @@ tags:
     description: Job history, queue waits and outcomes.
   - name: hosts
     description: Agents, their capacity, and enrolment.
+  - name: providers
+    description: Where machines are rented from, and the machines themselves.
   - name: migrations
     description: Moving a repository's workflows from GitHub's runners onto this fleet.
   - name: audit
@@ -1787,6 +1789,372 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
 
   # ==========================================================================
+  # Providers and machines
+  # ==========================================================================
+  /providers:
+    get:
+      operationId: listProviders
+      tags: [providers]
+      summary: List infrastructure providers
+      description: >-
+        A provider is one place machines can be rented from. The credential is never in
+        the response and has no field it could be in: `credentials_configured` says
+        whether one is sealed in the row, which is all a form needs to know.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Provider" }
+    post:
+      operationId: createProvider
+      tags: [providers]
+      summary: Configure a provider
+      description: >-
+        The credential is sealed with the instance key before the row is written. A
+        provider is created renting nothing - `max_machines` defaults to zero - so that
+        nothing starts spending money on the strength of a connection test.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProviderInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Provider" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /providers/validate:
+    post:
+      operationId: validateProvider
+      tags: [providers]
+      summary: Check a draft provider without saving it
+      description: >-
+        A dry run over a draft, for the wizard's review step. It writes nothing and dials
+        nothing - a driver's own validator is offline by contract - so it can be run as
+        somebody types. It always answers 200: whether the draft is valid is in the body.
+        Pass `?id=` when the draft is an edit to an existing provider, so the name check
+        does not refuse it about itself. `POST /providers/{id}/check` is the call that
+        talks to the hypervisor.
+      x-zoomies-role: admin
+      parameters:
+        - { name: id, in: query, schema: { type: string }, description: The provider this is a dry run of an edit to. }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProviderInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProviderValidation" }
+
+  /providers/kinds:
+    get:
+      operationId: listProviderKinds
+      tags: [providers]
+      summary: What this build can rent machines from
+      description: >-
+        Every driver this build ships, its capabilities, and the questions its
+        configuration form has to ask. The wizard renders its form from this, so a setting
+        a driver gained cannot be missing from the form that collects it.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/ProviderKind" }
+
+  /providers/{id}:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: getProvider
+      tags: [providers]
+      summary: Get a provider
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Provider" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      operationId: updateProvider
+      tags: [providers]
+      summary: Change a provider's settings, shape or ceilings
+      description: >-
+        Every field is optional and independent; what is not named is left alone. A
+        credential of `""` leaves the stored one alone, so a form with a blank password
+        box does not erase it. A provider's kind cannot be changed: the machines it
+        already owns are that kind.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProviderInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Provider" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+    delete:
+      operationId: deleteProvider
+      tags: [providers]
+      summary: Remove a provider
+      description: >-
+        Refused while any of its machines still believes it holds a resource, naming how
+        many. The rows are the only record of what was rented, so the machines go first.
+      x-zoomies-role: admin
+      responses:
+        "204": { description: Removed }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /providers/{id}/check:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: checkProvider
+      tags: [providers]
+      summary: Run the live preflight
+      description: >-
+        Asks the provider what it would refuse, changing nothing there. The result is
+        recorded on the row as well as returned, so a check run in a terminal quiets the
+        warning the UI is showing. Audited, because it uses the credential.
+      x-zoomies-role: operator
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProviderCheck" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /providers/{id}/discovery:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: getProviderDiscovery
+      tags: [providers]
+      summary: What this credential can actually see
+      description: >-
+        The nodes, storages, bridges and templates a provider offers, so the form presents
+        a menu rather than asking somebody to go and look an identifier up. A driver that
+        cannot list them answers 409 and the form asks for the identifiers instead.
+      x-zoomies-role: operator
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProviderDiscovery" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /providers/{id}/orphans:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: getProviderOrphans
+      tags: [providers]
+      summary: Rows and resources that disagree
+      description: >-
+        The three ways a machine row and a real resource can fail to agree: a resource
+        wearing this fleet's naming that no row accounts for, a row that holds nothing,
+        and a machine whose ownership nothing has been able to confirm. Nothing here is
+        ever acted on automatically.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProviderOrphans" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /providers/{id}/pause:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: pauseProvider
+      tags: [providers]
+      summary: Stop this provider buying new machines
+      description: >-
+        The kill switch. It blocks new machines only: draining, deleting, recovering and
+        verifying ownership all continue, because a switch that stopped those would strand
+        running machines nobody is watching. Pressing it twice is not an error.
+      x-zoomies-role: operator
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, description: Why, for the card and the audit row. }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Provider" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /providers/{id}/resume:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: resumeProvider
+      tags: [providers]
+      summary: Let this provider buy machines again
+      description: Pressing it twice is not an error.
+      x-zoomies-role: operator
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Provider" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /machines:
+    get:
+      operationId: listMachines
+      tags: [providers]
+      summary: List rented machines
+      description: >-
+        There is deliberately no POST. A machine exists because demand asked for one: one
+        creation path means one accounting path, and a machine made by hand would be
+        supply the reconciler would then decide to delete.
+      x-zoomies-role: viewer
+      parameters:
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Offset" }
+        - { $ref: "#/components/parameters/Sort" }
+        - { $ref: "#/components/parameters/Order" }
+        - { name: provider, in: query, schema: { type: string }, description: Repeatable, or comma-separated. }
+        - { name: pool, in: query, schema: { type: string } }
+        - { name: host, in: query, schema: { type: string } }
+        - { name: state, in: query, schema: { $ref: "#/components/schemas/MachineState" } }
+        - { name: q, in: query, schema: { type: string } }
+        - { name: include_deleted, in: query, schema: { type: boolean, default: false }, description: Keep machines whose resource is confirmed gone. }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: "#/components/schemas/Machine" }
+
+  /machines/{id}:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: getMachine
+      tags: [providers]
+      summary: Get a machine, with the phases it has reached
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Machine" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      operationId: deleteMachine
+      tags: [providers]
+      summary: Destroy a machine and the resource behind it
+      description: >-
+        Records the intent and answers with the machine in `deleting`: a delete is
+        finished when the resource can no longer be found, not when the provider returns.
+        Refused while runners are still going unless forced. A quarantined machine is
+        never deletable, forced or not - its resource may belong to somebody else - and
+        the escape hatch there is release.
+      x-zoomies-role: admin
+      parameters:
+        - { name: force, in: query, schema: { type: boolean, default: false } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Machine" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /machines/{id}/drain:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: drainMachine
+      tags: [providers]
+      summary: Cordon a machine and let its runners finish
+      description: >-
+        Reversible right up until the delete starts: demand coming back takes a draining
+        machine to ready again rather than paying for a new one.
+      x-zoomies-role: operator
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Machine" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /machines/{id}/release:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: releaseMachine
+      tags: [providers]
+      summary: Forget a machine without touching its resource
+      description: >-
+        For the machine nobody can safely delete: a quarantined one whose resource turned
+        out to be somebody else's, or a row for a resource that was removed by hand. The
+        machine's name must be in the body to confirm. If the resource does still exist it
+        goes on running, so the audit row keeps the provider's identifiers for it after
+        the database has stopped holding them.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, description: The machine's name, typed to confirm. }
+      responses:
+        "204": { description: Forgotten }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  # ==========================================================================
   # Migrations
   # ==========================================================================
   /migrations/plan:
@@ -2628,6 +2996,12 @@ components:
         polling_only: { type: boolean, description: True when no webhook has ever been received and the poller is doing the work. }
         poller_enabled: { type: boolean, description: True when the fallback poller is running. It is off only by configuration, never by failure. }
         workflow_cancellation_enabled: { type: boolean, description: True when operators may ask GitHub to cancel workflow runs. }
+        providers_available:
+          type: boolean
+          description: >-
+            True when this deployment can rent machines - the build ships at least one
+            provider driver and provider.enabled is on - so the page that would otherwise
+            offer to buy machines nothing would ever create knows not to.
         poller_last_poll_at: { type: string, format: date-time, nullable: true, description: When the fallback poller last completed a sweep, or absent if it has not completed one since this controller started. }
 
     # --- overview ---------------------------------------------------------
@@ -3470,6 +3844,14 @@ components:
         hosts:
           type: array
           items: { $ref: "#/components/schemas/Host" }
+        providers:
+          type: array
+          description: The providers this fleet rents from, the same shape /providers serves.
+          items: { $ref: "#/components/schemas/Provider" }
+        machines:
+          type: array
+          description: The machines it is renting, newest first and excluding the ones whose resource is confirmed gone.
+          items: { $ref: "#/components/schemas/Machine" }
         runners:
           type: array
           items: { $ref: "#/components/schemas/Runner" }
@@ -3871,6 +4253,281 @@ components:
         used_at: { type: [string, "null"], format: date-time }
         used_by_id: { type: string }
         usable: { type: boolean }
+
+    # --- providers and machines -------------------------------------------
+    ProviderKindName:
+      type: string
+      description: Which infrastructure a provider rents from. It is CHECKed in the schema, so a kind this build cannot speak cannot be stored.
+      enum: [proxmox, fake]
+    MachineState:
+      type: string
+      description: >-
+        A machine's life, from a row that names nothing to a host that runs jobs. Deleted
+        is the only terminal one: failed and quarantined still need attention, and a
+        failed machine may still have a resource behind it.
+      enum: [planned, creating, starting, bootstrapping, enrolling, ready, draining, deleting, deleted, failed, quarantined]
+
+    Provider:
+      type: object
+      required: [id, kind, name, credentials_configured, enabled, paused, machines, owned]
+      properties:
+        id: { type: string, examples: [prv_k3f9qz2mx7ab] }
+        kind: { $ref: "#/components/schemas/ProviderKindName" }
+        name: { type: string, examples: [proxmox-lab] }
+        endpoint:
+          type: string
+          description: Where this controller reaches the provider. Not a secret - it is the address an operator typed - and showing it is how somebody tells two clusters apart on a page listing both.
+          examples: ["https://pve.example.com:8006"]
+        insecure_skip_verify: { type: boolean, description: Certificate verification is off for this provider, which the validator warns about rather than refusing. }
+        settings:
+          type: object
+          additionalProperties: { type: string }
+          description: The non-secret answers to this driver's own settings, keyed as GET /providers/kinds describes them.
+        credentials_configured:
+          type: boolean
+          description: >-
+            Whether a credential is sealed in the row. The value itself never leaves the
+            controller and has no field here: an audit row and a screenshot both outlive
+            the person who took them.
+        machine_labels: { type: object, additionalProperties: { type: string } }
+        machine_capacity: { type: integer, description: How many runners one of this provider's machines may run at once. }
+        machine_backend: { $ref: "#/components/schemas/BackendKind" }
+        machine_platform: { $ref: "#/components/schemas/Platform" }
+        machine_cpus: { type: number }
+        machine_memory_mb: { type: integer, format: int64 }
+        machine_disk_mb: { type: integer, format: int64 }
+        pool_selector:
+          type: object
+          additionalProperties: { type: string }
+          description: Which pools this provider may buy for. Empty means every pool.
+        max_machines:
+          type: integer
+          description: >-
+            The ceiling on machines this provider may own at once. Zero rents nothing,
+            exactly as a pool's max_runners of zero runs nothing.
+        max_creates_in_flight: { type: integer, description: How many machines may be being built at once. }
+        idle_timeout_ms: { type: integer, format: int64, description: How long a machine may sit with nothing to do before it is drained. }
+        cost_per_machine_hour: { type: number }
+        enabled: { type: boolean }
+        paused: { type: boolean, description: The operator's kill switch. It blocks new machines only. }
+        paused_reason: { type: string }
+        paused_until: { type: string, format: date-time, description: The breaker's own pause, which never un-presses the operator's. }
+        held:
+          type: string
+          description: >-
+            Why no new machine may be bought right now, in one sentence, or absent when one
+            may. Computed rather than stored because it answers for the fence, the
+            configuration and the row at once.
+        consecutive_failures: { type: integer }
+        last_check_at: { type: string, format: date-time }
+        last_check_error: { type: string, description: The worst thing the last preflight found, in one sentence. }
+        last_sweep_at: { type: string, format: date-time, description: When this provider was last asked for everything it believes it is running. }
+        machines:
+          type: object
+          additionalProperties: { type: integer }
+          description: How many machines this provider has, by state.
+        owned:
+          type: integer
+          description: How many still believe they hold a resource, which is the number the ceiling and the bill are both counted in.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ProviderInput:
+      type: object
+      description: >-
+        Creating and editing a provider take the same body. On a PATCH every field is
+        optional and independent; what is not named is left alone.
+      properties:
+        kind: { $ref: "#/components/schemas/ProviderKindName" }
+        name: { type: string }
+        endpoint: { type: string }
+        ca_pem: { type: string, description: The certificate to trust for this endpoint, instead of turning verification off. }
+        insecure_skip_verify: { type: boolean }
+        settings: { type: object, additionalProperties: { type: string } }
+        credential:
+          type: string
+          description: >-
+            Sealed with the instance key and never returned. An empty string leaves the
+            stored credential alone, so a form with a blank password box does not erase it.
+        machine_labels: { type: object, additionalProperties: { type: string } }
+        machine_capacity: { type: integer, minimum: 1, default: 2 }
+        machine_backend: { $ref: "#/components/schemas/BackendKind" }
+        machine_platform: { $ref: "#/components/schemas/Platform" }
+        machine_cpus: { type: number, minimum: 0 }
+        machine_memory_mb: { type: integer, format: int64, minimum: 0 }
+        machine_disk_mb: { type: integer, format: int64, minimum: 0 }
+        pool_selector: { type: object, additionalProperties: { type: string } }
+        max_machines: { type: integer, minimum: 0, default: 0 }
+        max_creates_in_flight: { type: integer, minimum: 0, default: 1 }
+        idle_timeout: { $ref: "#/components/schemas/Duration" }
+        cost_per_machine_hour: { type: number, minimum: 0 }
+        enabled: { type: boolean, default: true }
+
+    ProviderSetting:
+      type: object
+      required: [key, label, kind, required, advanced]
+      properties:
+        key: { type: string, examples: [node] }
+        label: { type: string, examples: [Node] }
+        kind: { type: string, enum: [text, number, bool, choice, list, secret] }
+        required: { type: boolean }
+        advanced: { type: boolean, description: Put behind a disclosure, because a form that asks eleven questions to do the common thing gets abandoned. }
+        help: { type: string, description: One operator-facing sentence. }
+        consequence: { type: string, description: What choosing it means, in the voice the pool form uses for a choice that costs something. }
+        discovers:
+          type: string
+          description: Which discovery list fills the choices, e.g. nodes.
+        default: { type: string }
+
+    ProviderKind:
+      type: object
+      required: [kind, label, bootstrap, settings]
+      properties:
+        kind: { $ref: "#/components/schemas/ProviderKindName" }
+        label: { type: string, examples: [Proxmox VE] }
+        bootstrap:
+          type: string
+          enum: [guest_agent, metadata, none]
+          description: >-
+            How the enrolment payload reaches a guest. "metadata" means it is readable by
+            anyone who can read the machine's metadata, which is worth knowing before
+            anything is bought.
+        can_start_stop: { type: boolean }
+        can_discover: { type: boolean }
+        can_mark_ownership: { type: boolean, description: Whether the driver can write this controller's marks onto the resource itself. }
+        async_operations: { type: boolean }
+        cost_unit: { type: string, examples: [machine-hour] }
+        settings:
+          type: array
+          items: { $ref: "#/components/schemas/ProviderSetting" }
+
+    ProviderValidation:
+      type: object
+      required: [valid, errors, warnings]
+      properties:
+        valid: { type: boolean }
+        errors:
+          type: array
+          items: { $ref: "#/components/schemas/FieldError" }
+        warnings:
+          type: array
+          description: Answers that are legal and still cost something.
+          items: { $ref: "#/components/schemas/Problem" }
+
+    ProviderCheck:
+      type: object
+      required: [provider_id, ok, reachable, findings, checked_at]
+      properties:
+        provider_id: { type: string }
+        ok:
+          type: boolean
+          description: Nothing found stops this provider being used. Warnings do not - they weaken the posture and say so.
+        reachable:
+          type: boolean
+          description: >-
+            Whether an answer came back at all. Separate from the findings because a
+            provider that cannot be reached has one problem, not eleven.
+        version: { type: string, description: The provider's own version, kept because "it worked" is worth little without "against what". }
+        findings:
+          type: array
+          items: { $ref: "#/components/schemas/Problem" }
+        checked_at: { type: string, format: date-time }
+
+    ProviderChoice:
+      type: object
+      required: [value]
+      properties:
+        value: { type: string }
+        label: { type: string }
+        consequence: { type: string, description: What picking it means, because a list of identifiers with no consequences is a list somebody guesses at. }
+
+    ProviderDiscovery:
+      type: object
+      required: [nodes, storages, bridges, templates]
+      description: What a credential can actually see. A provider with no such concept leaves a list empty rather than inventing one.
+      properties:
+        nodes: { type: array, items: { $ref: "#/components/schemas/ProviderChoice" } }
+        storages: { type: array, items: { $ref: "#/components/schemas/ProviderChoice" } }
+        bridges: { type: array, items: { $ref: "#/components/schemas/ProviderChoice" } }
+        templates: { type: array, items: { $ref: "#/components/schemas/ProviderChoice" } }
+
+    Orphan:
+      type: object
+      required: [name, note]
+      properties:
+        name: { type: string, examples: [zoomies-mach-k3f9q] }
+        note: { type: string, description: What to do about it, which for an untracked resource is always to look at it yourself. }
+
+    ProviderOrphans:
+      type: object
+      required: [provider_id, provider_name, untracked, no_resource, unverified]
+      properties:
+        provider_id: { type: string }
+        provider_name: { type: string }
+        last_sweep_at: { type: string, format: date-time, description: When the untracked list was gathered, so a stale answer says so. }
+        untracked:
+          type: array
+          description: Resources wearing this fleet's naming that no row accounts for. Zoomies never deletes one.
+          items: { $ref: "#/components/schemas/Orphan" }
+        no_resource:
+          type: array
+          description: Rows that hold nothing, which can be released without anything being lost.
+          items: { $ref: "#/components/schemas/Machine" }
+        unverified:
+          type: array
+          description: Machines whose ownership nothing has confirmed, including every quarantined one.
+          items: { $ref: "#/components/schemas/Machine" }
+
+    MachineTimelineEntry:
+      type: object
+      required: [phase, at]
+      properties:
+        phase: { type: string, examples: [bootstrapped] }
+        at: { type: string, format: date-time }
+
+    Machine:
+      type: object
+      required: [id, provider_id, name, state, labels, safe_to_delete, timeline, created_at, updated_at]
+      properties:
+        id: { type: string, examples: [mach_k3f9qz2mx7ab] }
+        provider_id: { type: string }
+        provider_name: { type: string }
+        provider_kind: { $ref: "#/components/schemas/ProviderKindName" }
+        name: { type: string, examples: [zoomies-mach-k3f9q] }
+        state: { $ref: "#/components/schemas/MachineState" }
+        message: { type: string, description: Why it is where it is, in one sentence. }
+        pool_id: { type: string, description: Which pool's unmet demand asked for this machine. Not ownership - a machine serves every pool its labels match. }
+        pool_name: { type: string }
+        resource_zone: { type: string, examples: [pve-1] }
+        resource_id: { type: string, examples: ["143"] }
+        address: { type: string }
+        ownership_verified_at: { type: string, format: date-time, description: The last time a fresh observation agreed this resource is ours. }
+        ownership_error: { type: string, description: What disagreed. A machine with one is never deleted by anything but a person. }
+        host_id: { type: string }
+        host_name: { type: string }
+        capacity: { type: integer }
+        labels: { type: object, additionalProperties: { type: string } }
+        operation: { type: string, enum: [create, start, stop, bootstrap, delete], description: The operation in flight, if any. }
+        operation_id: { type: string, examples: [mop_k3f9qz2mx7ab] }
+        operation_handle: { type: string, description: The provider's own handle for the call, which is what an operator pastes into its task log. }
+        operation_holder: { type: string, description: The controller taking the step, so a machine stuck mid-create names the controller to go and look at. }
+        operation_since: { type: string, format: date-time }
+        outcome_unknown: { type: boolean, description: A call that went out and was never answered, which is the one thing a retry must not treat as a failure. }
+        attempts: { type: integer }
+        next_attempt_at: { type: string, format: date-time }
+        provider_error: { type: string, description: What the hypervisor complained about, in its own words. }
+        bootstrap_error: { type: string, description: What went wrong inside the guest, in its own words. }
+        safe_to_delete: { type: boolean, description: Whether the row alone says a delete would be safe. The delete itself asks the provider again. }
+        safe_to_delete_why: { type: string, description: Why not, when it is not. }
+        timeline:
+          type: array
+          description: The phases this machine actually reached. A phase it skipped is absent rather than zero.
+          items: { $ref: "#/components/schemas/MachineTimelineEntry" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        ready_at: { type: string, format: date-time }
+        idle_since: { type: string, format: date-time }
+        deleted_at: { type: string, format: date-time, description: When the provider confirmed the resource was gone, by an inspect that could not find it. }
 
     # --- audit and administration ----------------------------------------
     AuditEvent:

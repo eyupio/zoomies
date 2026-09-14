@@ -345,14 +345,14 @@ func (s *Store) DeleteAPIToken(ctx context.Context, id string) error {
 // ---------------------------------------------------------------------------
 
 const joinCols = `id, token_hash, prefix, created_by, labels, capacity, created_at,
-	expires_at, used_at, used_by_id`
+	expires_at, used_at, used_by_id, machine_id, expected_name`
 
 func scanJoin(sc interface{ Scan(...any) error }) (*JoinToken, error) {
 	var t JoinToken
 	var created, expires int64
 	var used sql.NullInt64
 	err := sc.Scan(&t.ID, &t.TokenHash, &t.Prefix, &t.CreatedBy, &t.Labels, &t.Capacity,
-		&created, &expires, &used, &t.UsedByID)
+		&created, &expires, &used, &t.UsedByID, &t.MachineID, &t.ExpectedName)
 	if err != nil {
 		return nil, err
 	}
@@ -366,9 +366,9 @@ func (s *Store) CreateJoinToken(ctx context.Context, t *JoinToken) error {
 		t.ID = NewID(PrefixJoin)
 	}
 	t.CreatedAt = s.Now()
-	_, err := s.exec(ctx, `INSERT INTO join_tokens (`+joinCols+`) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+	_, err := s.exec(ctx, `INSERT INTO join_tokens (`+joinCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
 		t.ID, t.TokenHash, t.Prefix, t.CreatedBy, t.Labels, t.Capacity,
-		ms(t.CreatedAt), ms(t.ExpiresAt), msp(t.UsedAt), t.UsedByID)
+		ms(t.CreatedAt), ms(t.ExpiresAt), msp(t.UsedAt), t.UsedByID, t.MachineID, t.ExpectedName)
 	return wrapWrite(err)
 }
 
@@ -404,9 +404,30 @@ func (s *Store) GetJoinToken(ctx context.Context, id string) (*JoinToken, error)
 	return t, err
 }
 
+// JoinClaim is what the agent redeeming a token says it is: the host row the
+// join will land on, and the name it asked for.
+//
+// The name is carried because it is the only part of the claim a scoped token
+// can be checked against. The host id is minted by the controller for this
+// join, so it proves nothing about who is joining.
+type JoinClaim struct {
+	HostID string
+	Name   string
+}
+
 // RedeemJoinToken atomically marks a join token used and returns it. A second
 // attempt with the same token fails, which is what makes it single-use.
-func (s *Store) RedeemJoinToken(ctx context.Context, hash, hostID string, now time.Time) (*JoinToken, error) {
+//
+// It takes the claim rather than a bare host id so that a token minted for one
+// machine cannot enrol another, and the scope check runs inside the same
+// transaction that spends the token: a credential that lives inside a guest is
+// readable by more people than one an operator pastes, and checking the scope
+// after the redemption would leave a race in which a copied token spends
+// itself first and is refused second.
+//
+// A token with no scope -- the ones an operator hands out by hand -- is
+// unaffected, because the person who pasted it chose the name themselves.
+func (s *Store) RedeemJoinToken(ctx context.Context, hash string, claim JoinClaim, now time.Time) (*JoinToken, error) {
 	var out *JoinToken
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		row := tx.QueryRowContext(ctx, `SELECT `+joinCols+` FROM join_tokens WHERE token_hash = ?`, hash)
@@ -423,12 +444,16 @@ func (s *Store) RedeemJoinToken(ctx context.Context, hash, hostID string, now ti
 			}
 			return ErrJoinTokenExpired
 		}
+		if t.ExpectedName != "" && t.ExpectedName != claim.Name {
+			return fmt.Errorf("%w: this token was minted for %q and was offered by %q",
+				ErrJoinTokenScope, t.ExpectedName, claim.Name)
+		}
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE join_tokens SET used_at=?, used_by_id=? WHERE id=?`,
-			ms(now), hostID, t.ID); err != nil {
+			ms(now), claim.HostID, t.ID); err != nil {
 			return err
 		}
-		t.UsedAt, t.UsedByID = &now, hostID
+		t.UsedAt, t.UsedByID = &now, claim.HostID
 		out = t
 		return nil
 	})

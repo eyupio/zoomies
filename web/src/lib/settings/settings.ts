@@ -24,6 +24,7 @@ export const SECTION_BLURB: Record<string, string> = {
   images: 'Keeping the images your pools run up to date.',
   updates: 'Whether this controller asks github.com which release is current.',
   capacity_demand: 'Publishing a signed request for more hosts to an external provisioner.',
+  provider: 'Renting machines from a hypervisor, and when to give them back.',
 };
 
 /**

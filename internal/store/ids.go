@@ -23,6 +23,13 @@ const (
 	PrefixDelivery     = "whd"
 	PrefixJobEvent     = "jev"
 	PrefixController   = "ctl"
+	PrefixProvider     = "prv"
+	PrefixMachine      = "mach"
+	// PrefixMachineOp is minted per attempt rather than per machine: it is the
+	// operation ID an operator quotes when a create is stuck, and two attempts
+	// sharing one would make a log line ambiguous about which of them it came
+	// from.
+	PrefixMachineOp = "mop"
 )
 
 var idEncoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)

@@ -143,6 +143,22 @@ than about what any one setting says.
 | `log.format` | error | `log.format` | Not a format. They are `text` and `json`. |
 | `log.debug` | info | `log.level` | Debug logging is on, which is loud and includes request detail. |
 
+## Configuration: infrastructure providers
+
+Every code here is silent while `provider.enabled` is false, which is the
+default. A deployment that does not rent machines is not told how to bound
+something it is not doing.
+
+| Code | Severity | Setting | What to do |
+| --- | --- | --- | --- |
+| `provider.interval` | error | `provider.interval` | Must be positive. It is how often machines are reconciled. |
+| `provider.timeouts` | error | `provider.create_timeout` | A provider operation has no bound, or `provider.ambiguity_timeout` is not longer than `provider.create_timeout` — which would quarantine machines that are merely still being built. |
+| `provider.enrol_timeout` | error | `provider.enrol_timeout` | Shorter than the silence that loses a host, so machines that did arrive would be given up on. |
+| `provider.no_ceiling` | warning | `provider.max_machines` | Providers are on but the ceiling is none, so nothing will be rented however much work queues. A maximum of none is none, as it is for a pool's `max_runners`. |
+| `provider.paused` | info | `provider.paused` | New machines are held by configuration. Draining, deleting, recovery and ownership checks all continue. |
+| `provider.delete_grace_short` | warning | `provider.delete_grace` | A machine whose host goes briefly quiet would be destroyed mid-job. Set it well above the 90 seconds that make a host unhealthy. |
+| `provider.scale_down_fast` | warning | `provider.scale_down_cooldown` | Machines are removed sooner than one idle period, so the quiet between two bursts pays the creation cost again. |
+
 ## Runtime: hosts and installations
 
 | Code | Severity | What it means |
@@ -188,6 +204,79 @@ than about what any one setting says.
 | `poller.paused` | warning | GitHub is rate-limiting one installation, so every background sweep is standing down from it until the moment named. It clears itself. One installation is held at a time -- the quota is per installation -- so the others are still polled, and the entry names which one. |
 | `pool.dangerous` | warning | The pool was configured to weaken the isolation between a workflow job and the host it runs on — the same sentence the pool page shows for the setting itself, so an operator sees one fact in both places rather than learning it twice. Edit the pool if this was not deliberate. |
 | `pool.cache_shared` | warning | Under an organisation installation, GitHub can hand this pool's runners any repository's job whose `runs-on` matches its labels — Zoomies has no say in which repository that is. A repository-scoped cache is therefore only as private as the pool's labels: give the pool a branded label that only the intended repository's workflows use. A repository-targeted installation registers runners only that repository's jobs can reach, so this never fires there. |
+
+## Runtime: infrastructure providers
+
+Every code here is silent while `provider.enabled` is false, which is the
+default, and every one of them is about money: a machine Zoomies cannot account
+for is a machine somebody is still being billed for.
+
+| Code | Severity | What it means |
+| --- | --- | --- |
+| `provider.unreachable` | **error with a machine mid-operation, warning without** | The hypervisor or cloud API could not be reached. Nothing is created or deleted while it cannot be — a timeout is never evidence about a resource — so a machine half-built behind it is stuck and being paid for, which is what raises the severity. |
+| `provider.credentials_refused` | error | The credential was refused. A credential that is valid but not permitted names the privilege it is missing, because "this token is wrong" and "this token lacks a privilege on a path" are an afternoon apart. |
+| `provider.quota_exhausted` | **error with jobs waiting, warning without** | The provider refused for want of capacity or against a limit of its own. The same circumstance rule as `pool.no_capacity`: a full provider with nothing queued is the system working, and the next machine released clears it. Draining and deleting carry on regardless. |
+| `provider.machine_failed` | warning | A machine never reached ready, and the entry carries the provider's own words. The row is kept because the resource behind it may still exist; releasing it is an operator's decision, never Zoomies'. |
+| `provider.bootstrap_failed` | error | The machine came up and its agent never did, and the entry carries the guest's own output. The usual causes are a template without the agent installed, a guest agent that is not answering, and — the one that looks like a host flapping instead — an `agent.json` left in the template, so every clone enrols as the same host. |
+| `provider.ownership_unverified` | error | A machine and its resource disagree about who owns it, so the machine is quarantined. Nothing will act on it until a person does: not a drain, not a delete, not a retry. The entry says which of the four ownership facts failed. |
+| `provider.orphan_found` | error | A resource wearing this fleet's naming has no machine row. It is listed on the provider's orphan tab and it is **never** deleted automatically — one left over from a lost database is yours to remove, and one still doing work belongs to something else. |
+| `provider.delete_pending` | warning | A delete was issued and the provider has not confirmed the resource is gone. A 200 from a delete call is not a confirmation; an inspect that cannot find it is. Until then the resource may still be costing somebody money, so it is said out loud rather than assumed. |
+| `provider.unservable` | warning | No enabled pool could ever place a runner on this provider's machines — the backend, platform or host selector rules them all out. Anything it buys would sit idle and be paid for. |
+| `provider.template_unverified` | warning | Nothing has confirmed this provider's credential, template and placement since its settings changed. The connection check changes nothing and says what it found; the alternative is discovering it on the first machine. |
+| `provider.provisioning_paused` | info | The kill switch is on, by configuration or on the provider's row. Nothing is stranded: draining, deleting, recovery and the ownership sweep all continue, which is the whole point of the switch stopping creates alone. |
+| `provider.contract_unsupported` | error | The provider driver's declared contract range does not contain this build's, so it cannot be used. The machines it already owns stay visible, drainable and deletable: a version mismatch never strands a running machine. |
+
+## Runtime: infrastructure providers
+
+Raised only when a [provider](providers.md) is configured. The three that name a
+machine link to it, because the machine's own page carries the failure in the
+words of whatever refused it — Proxmox's task error for a clone, the guest's own
+standard error for a bootstrap.
+
+| Code | Severity | What it means | What to do |
+| --- | --- | --- | --- |
+| `provider.unreachable` | warning, or **error** with a machine mid-operation | The hypervisor could not be reached. This is never evidence about a resource: nothing is created, failed or deleted on the strength of it. | Check the endpoint, the network and the certificate. Machines already running are unaffected. |
+| `provider.credentials_refused` | error | The API token was refused, or is not allowed to do something. Where the provider named a privilege, so does this. | Run the provider's check, which lists every missing privilege and the path it is needed on. |
+| `provider.quota_exhausted` | warning, or **error** with jobs queued | The hypervisor refused for want of capacity. New machines stand down for a while; drains and deletes continue. | Free space or capacity, or lower the provider's limit so the fleet stops asking. |
+| `provider.machine_failed` | warning | A machine never reached ready, and carries the provider's own words for why. | Read the machine's page. Three failures in a row stand the provider down, so a bad template costs a few machines rather than fifty. |
+| `provider.bootstrap_failed` | error | The machine came up and its agent never did. The guest's own standard error is on the machine's page. | Usually the template: a missing guest agent, a missing Zoomies binary, or an `agent.json` left in the image. See [Proxmox VE](proxmox.md#preparing-the-template). |
+| `provider.ownership_unverified` | error | A machine is quarantined: its row and the resource disagree about who owns what. **Nothing will touch it again until a person does.** | Look at both sides. Then either release the row, which forgets the machine without touching the resource, or remove the resource by hand. |
+| `provider.orphan_found` | error | A resource wearing this controller's marks has no row behind it. It is never deleted automatically — it may belong to another live fleet. | Review it on the provider's Orphans tab. A restored database and a row pruned early are the two ways this happens. |
+| `provider.delete_pending` | warning | A delete was issued and the resource has not been confirmed gone. Something is still costing money. | Check the provider. A delete is only complete when an inspection cannot find the resource; a 200 from the delete call is not that. |
+| `provider.unservable` | warning | No pool could ever place a runner on this provider's machines, so anything it rents is money for nothing. | Match the provider's machine shape, labels and platform to a pool, or disable it. |
+| `provider.template_unverified` | warning | The provider's settings changed and its prerequisites have not been checked since. | Run the check. It creates nothing. |
+| `provider.provisioning_paused` | info | The kill switch is on. Draining, deleting, recovery and ownership checks all continue; only creation is held. | Nothing, unless you did not mean it. |
+| `provider.contract_unsupported` | error | A provider declares a contract version this build does not speak. Machines it already owns stay visible, drainable and deletable — a version mismatch must never strand a running machine. | Upgrade whichever side is behind; the message names both numbers. |
+
+## A provider's preflight
+
+Raised by a provider's own check, which creates nothing. They appear on the
+provider's page, in the configuration wizard and in the problems drawer, in the
+same shape as every other finding — because a refused credential and a template
+that is not a template are *answers*, not failures.
+
+`provider.*` codes come from any provider; `proxmox.*` from the Proxmox one.
+
+| Code | Severity | What it means | What to do |
+| --- | --- | --- | --- |
+| `provider.preflight_failed` | error | The provider refused its connection check. | Read the message; it carries the provider's own words. |
+| `provider.zone_missing` | error | The provider has no zone (node, region) configured, so there is nowhere to put a machine. | Set one. |
+| `proxmox.unreachable` | error | The cluster could not be reached at all. | Check the endpoint, the port (8006), the network and the certificate. |
+| `proxmox.credentials_refused` | error | The API token was refused outright. | Check the token's user, realm, token id and secret. The form wants them exactly as Proxmox printed them: `user@realm!tokenid=secret`. |
+| `proxmox.privilege_missing` | error | The token is valid and not allowed to do something. The finding names the privilege **and** the path it is needed on. | Grant that privilege. [Proxmox VE](proxmox.md#the-api-token) lists every one and why it is needed. |
+| `proxmox.insecure_tls` | warning | Certificate verification is off, so the token crosses to whoever answered. | Paste the cluster's CA — `/etc/pve/pve-root-ca.pem` — into the provider's CA field instead. See [Security](security.md). |
+| `proxmox.version_unqualified` | warning | The cluster is older than the release this integration was qualified against. It is not refused, but nothing about it has been tested. | Upgrade, or proceed knowing it is unqualified. |
+| `proxmox.node_missing` | error | No node is configured, or the configured one is not in the cluster. | Choose one the credential can see; the wizard lists them. |
+| `proxmox.node_offline` | warning | The node is configured and not currently online. | Machines cannot be created there until it returns. |
+| `proxmox.storage_missing` | error | No storage is configured, or the configured one does not exist on that node. | Choose one the wizard lists. |
+| `proxmox.storage_no_images` | error | The storage exists and does not accept disk images, so a clone has nowhere to land. | Choose a storage whose content types include `images`. |
+| `proxmox.storage_inactive` | error | The storage exists and is not active. | Bring it up, or choose another. |
+| `proxmox.bridge_missing` | error | No network bridge is configured, or the configured one is not on that node. A machine with no network cannot reach this controller to enrol. | Choose a bridge that can reach the controller. |
+| `proxmox.template_missing` | error | No template VMID is configured, or nothing exists at it. | Prepare a template as the [runbook](proxmox.md#preparing-the-template) describes and give its VMID. |
+| `proxmox.template_not_a_template` | error | A VM exists at that VMID and is not a template. Cloning a running VM is not what this does. | Convert it to a template, or point at the right VMID. |
+| `proxmox.template_no_agent` | warning | The template does not have the QEMU guest agent enabled. Enrolment reaches the guest through it, so a machine made from this template will boot, cost money and never join. | Install `qemu-guest-agent` in the image and set `agent: enabled=1`. |
+| `proxmox.vmid_range` | error | No VMID range is configured, or its bounds are the wrong way round. The range is both a budget and a blast radius: a VM outside it is by construction not ours. | Give a block nothing else allocates from. |
+| `proxmox.vmid_range_reserved` | warning | Guests already exist inside the configured range. They are not touched, but the range is meant to be Zoomies' alone. | Move the range, or move those guests. |
 
 ## Keeping this list honest
 
