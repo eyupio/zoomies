@@ -132,6 +132,109 @@ instance, generate a join token under **Hosts → Add a host** and run the line 
 gives you on a machine with Docker or Podman. Agents connect outbound only, so
 that machine can sit behind NAT with no inbound rule.
 
+## Your first workflow
+
+From a booted instance to a green job, with the clock running. The slow parts
+are GitHub's, not this instance's.
+
+| | Step | About |
+| --- | --- | --- |
+| 1 | Point DNS at the instance, if it is not already | 1 min |
+| 2 | Read the setup token and create the administrator | 1 min |
+| 3 | Connect GitHub: create the App, install it on the organisation or repository | 4 min |
+| 4 | Make a pool. On a `single` install the suggested one matches this machine, so accepting it is enough | 1 min |
+| 5 | Point a workflow at it and push | 2 min |
+
+Step 5 is one line in a workflow — the pool's name is what `runs-on` asks for:
+
+```yaml
+jobs:
+  build:
+    runs-on: zoomies-linux-x64
+    steps:
+      - uses: actions/checkout@v5
+      - run: echo "this ran on my own hardware"
+```
+
+The job appears on the Jobs page as it queues, a runner is created for it, and
+the container is destroyed when it finishes. If it stays queued, the Overview's
+problems panel says which half is missing — no pool matches the labels, or no
+host can run the pool — rather than leaving you to guess.
+[Migrating repositories](migration.md) rewrites `runs-on` across a repository
+when you are ready for more than one workflow.
+
+## Sizing
+
+The controller is a single Go binary with a SQLite file; it is not what needs
+the room. On a `single` install, the runners are.
+
+Each runner gets a share of what the host has left after its reserve — half a
+CPU or a twentieth of the machine, whichever is larger, plus 512 MB — divided by
+the host's capacity. That arithmetic gives these starting points:
+
+| Instance | Capacity | Each runner gets | Suits |
+| --- | --- | --- | --- |
+| 2 vCPU, 4 GB | 2 | 0.75 CPU, 1792 MB | A few small repositories; linting and unit tests |
+| 4 vCPU, 8 GB | 3 | 1.16 CPU, 2560 MB | A team's normal CI |
+| 8 vCPU, 16 GB | 4 | 1.87 CPU, 3968 MB | Container builds, several repositories |
+| 16 vCPU, 32 GB | 6 | 2.53 CPU, 5376 MB | Heavier matrices, or a controller busy enough to want headroom |
+
+Give it **40 GB of disk or more**. Runner images are a few gigabytes each and a
+build cache grows; the disk is what runs out first on a small instance.
+
+A `controller` install needs far less — 2 vCPU and 2 GB is comfortable — because
+the jobs are somewhere else. That is the shape to choose when the runners want
+to be near your own network, or want machines bigger than this one.
+
+These are starting points, not measurements. Reproducible timings on stated
+hardware are their own piece of work and are not claimed here.
+
+## The data, and getting it back
+
+Everything that matters is in `ZOOMIES_DATA_DIR`: the SQLite database, the
+runners' work area, and — unless you supplied one — the encryption key generated
+on first start. Put that directory on the provider's attached volume when there
+is one, which is the whole reason it is an input.
+
+A backup is a copy of that directory, plus the encryption key if you keep it
+elsewhere. Without the key, the stored GitHub App private key cannot be
+decrypted, and the failure is silent until the next time Zoomies needs to
+authenticate. [Backup and restore](backup-and-restore.md) is the procedure, and
+it is the same one here.
+
+## Upgrading
+
+Change the release in `release.env`, re-run `make marketplace-lock`, and boot
+new instances from the re-rendered artefact. An instance that is already running
+upgrades in place:
+
+```sh
+zoomies upgrade
+```
+
+Controller and agents may drift, but not in every direction: a newer agent
+against an older controller is unsupported, so upgrade the controller first.
+[Upgrading](upgrading.md) has the version-skew rules and what happens to work in
+flight.
+
+## Removing it
+
+```sh
+zoomies uninstall --yes                # the service, the container, the config
+zoomies uninstall --yes --volumes      # and the database with it
+```
+
+The second is irreversible and is asked about separately for that reason: the
+volume *is* the database. If the deployment runs the ACME proxy, it is its own
+compose project and goes separately:
+
+```sh
+docker compose -f /etc/zoomies/proxy/docker-compose.yml down
+```
+
+Runners registered with GitHub are ephemeral and remove themselves, so nothing
+is left behind on GitHub's side except the App, which you delete there.
+
 ## What is pinned, and why
 
 `release.env` names one release and `images.lock` records the digest every tag
@@ -145,6 +248,15 @@ A marketplace artefact is deployed long after it is written, by somebody who is
 not reading this repository. `latest` would hand them a build nobody tested
 against this bootstrap.
 
+## Getting help
+
+[SUPPORT.md](https://github.com/eyupio/zoomies/blob/main/SUPPORT.md) says where
+a question goes and what the boundary is: this is free, open-source software
+with no support contract, and a provider offering it is supporting their
+platform rather than this project. [Troubleshooting](troubleshooting.md) covers
+what goes wrong most often, and the problems panel in the UI names the setting
+to change rather than leaving you to search.
+
 ## What this has not been through yet
 
 The implementation is complete and its rendering is covered by tests, which
@@ -152,6 +264,12 @@ check that the answer file a real boot writes is one setup accepts, that every
 certificate arrangement produces a listener and a holder that agree, and that
 the rendered cloud-config carries every file the instance will look for.
 
-A run on a pristine VPS, the first-workflow journey and a provider pilot review
-are separate work and are not claimed here. Until that evidence exists, this
-page describes a tested artefact and an untested deployment.
+**No run on a pristine VPS has happened.** Neither has the first-workflow
+journey above, end to end, on a provider's own image, nor a pilot review. Those
+are the next piece of work and their evidence is recorded separately; until it
+exists, this page describes a tested artefact and an untested deployment, and
+the difference is the whole reason the sentence is here.
+
+One friendly provider pilot follows that evidence. Until a pilot has produced a
+supportable result, Zoomies is not submitted to an official marketplace, no
+broad provider support is advertised, and no second provider is begun.
