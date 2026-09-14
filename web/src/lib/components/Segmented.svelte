@@ -86,4 +86,18 @@
     outline: none;
     box-shadow: inset var(--z-focus-ring);
   }
+  /* Seven windows have to fit a phone beside the switch they share a row
+     with, so the options close up there; and a finger needs a taller target
+     than the mouse-height row, so they rise to the touch size wherever the
+     pointer is coarse. */
+  @media (max-width: 640px) {
+    button {
+      padding: 0 var(--z-space-2);
+    }
+  }
+  @media (pointer: coarse) {
+    button {
+      height: var(--z-control-touch);
+    }
+  }
 </style>

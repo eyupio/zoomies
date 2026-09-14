@@ -144,7 +144,12 @@ type Agent struct {
 	// startup serialises creates and image prewarming across every pool on
 	// this host. Capacity bounds running jobs, not concurrent image extraction
 	// and DinD startup, which can overwhelm an otherwise healthy daemon.
-	startup chan struct{}
+	startup startupQueue
+	warmed  map[warmKey]warmResult
+
+	// Runtime failures hold the next admission briefly without stopping jobs.
+	runtimeFailures int
+	runtimeRetryAt  time.Time
 
 	mu sync.Mutex
 	// hostID is empty until Join or a restored state file provides one.
@@ -327,7 +332,6 @@ func New(opts Options) (*Agent, error) {
 		heartbtI:  interval,
 		retention: opts.FinishedRetention,
 		sem:       make(chan struct{}, opts.Capacity),
-		startup:   make(chan struct{}, 1),
 		runners:   make(map[string]*tracked),
 		inflight:  make(map[string]bool),
 		running:   make(map[string]TaskKind),
@@ -602,6 +606,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	run("heartbeat", a.heartbeatLoop)
 	run("tasks", a.taskLoop)
 	run("reconcile", a.reconcileLoop)
+	run("stats", a.statsLoop)
 	run("watchdog", a.watchdogLoop)
 	if a.opts.DockerBuildCacheMB > 0 {
 		run("build-cache", a.buildCacheLoop)
@@ -1047,6 +1052,10 @@ func (a *Agent) dispatch(ctx context.Context, task Task) {
 // up -- or hands it to whatever is waiting behind it -- when the task is done.
 func (a *Agent) start(ctx context.Context, task Task) {
 	claimed := task.RunnerID != ""
+	var admission *startupTicket
+	if task.Kind == TaskCreateRunner || task.Kind == TaskPrewarmImage {
+		admission = a.startup.enqueue(task.Kind == TaskCreateRunner)
+	}
 	a.tasks.Add(1)
 	go func() {
 		defer a.tasks.Done()
@@ -1065,12 +1074,17 @@ func (a *Agent) start(ctx context.Context, task Task) {
 		if task.Kind == TaskCreateRunner || task.Kind == TaskPrewarmImage {
 			a.log.Debug("waiting for this host's startup slot",
 				"task", task.ID, "kind", task.Kind, "runner", task.RunnerID)
+			defer a.startup.done(admission)
 			select {
-			case a.startup <- struct{}{}:
-				defer func() { <-a.startup }()
+			case <-admission.ready:
 			case <-ctx.Done():
 				release()
 				a.reportFailure(ctx, task, "agent shut down before this task started; it is safe to redeliver")
+				return
+			}
+			if !a.waitForRuntime(ctx) {
+				release()
+				a.reportFailure(ctx, task, "agent shut down while waiting for the container runtime to recover")
 				return
 			}
 		}
@@ -1189,7 +1203,10 @@ func (a *Agent) handlePrewarm(ctx context.Context, task Task, release func()) {
 		a.reportFailure(ctx, task, fmt.Sprintf("the %s backend does not support image prewarming", task.Backend))
 		return
 	}
-	digest, err := p.PrewarmImage(ctx, task.Image, task.PullPolicy)
+	warmCtx, cancel := context.WithTimeout(ctx, CreateTimeout)
+	defer cancel()
+	digest, err := a.prewarm(warmCtx, b, p, task)
+	a.runtimeResult(err)
 	release()
 	res := TaskResult{TaskID: task.ID, Kind: task.Kind, OK: err == nil, Digest: digest, CompletedAt: a.now()}
 	if err != nil {
@@ -1216,7 +1233,19 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 	// redelivery used to destroy a runner that may have been mid-job and
 	// rebuild it with a JIT configuration GitHub had already consumed. A
 	// workload this host already has for the runner is the answer to the task.
-	if existing, handle, ok, err := a.resolve(ctx, task.RunnerID); err == nil && ok {
+	existing, handle, ok, err := a.resolve(ctx, task.RunnerID)
+	if err != nil {
+		// An uncertain inventory is not permission to replace by name. Keep
+		// the task unacknowledged for the controller's existing bounded
+		// redelivery path; reporting failure could trigger cleanup of a job
+		// whose live workload was merely unreachable.
+		a.runtimeResult(err)
+		a.log.Warn("could not establish whether this runner already exists; leaving its create task for redelivery without changing workloads",
+			"task", task.ID, "runner", task.RunnerID, "error", err)
+		release()
+		return
+	}
+	if ok {
 		state := store.RunnerRegistering
 		a.mu.Lock()
 		if r := a.runners[task.RunnerID]; r != nil && r.state != "" {
@@ -1264,6 +1293,7 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 	} else {
 		created.Handle, err = b.Create(cctx, spec)
 	}
+	a.runtimeResult(err)
 	if err != nil {
 		a.log.Error("creating runner failed", "runner", task.RunnerID, "name", spec.Name, "backend", kind, "error", err)
 		release()
@@ -1271,7 +1301,7 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 		return
 	}
 	now := a.now()
-	handle := created.Handle
+	handle = created.Handle
 	a.mu.Lock()
 	a.runners[task.RunnerID] = &tracked{
 		runnerID:   task.RunnerID,

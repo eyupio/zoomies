@@ -158,20 +158,43 @@ differ. Each frame is the resource's `GET` shape, rendered by the same code
 ### Runner starts on one host
 
 Each agent admits one runner create or image prewarm at a time, shared across
-all pools and backends on that host. The slot covers image preparation, the
-DinD sidecar, runner creation and failure cleanup. Once creation finishes, the
-next task can start; running jobs still use the host's configured capacity,
-and different hosts start independently.
+all pools and backends on that host. Runner starts are FIFO and take priority
+over waiting background refreshes. The slot covers image preparation, the
+DinD sidecar, runner creation and failure cleanup. Running jobs still use the
+host's configured capacity, and different hosts start independently.
 
 Waiting starts do not hold lifecycle slots, so stop and removal requests can
 still run. A queued create superseded by a stop or removal is skipped before
 touching the backend. Shutdown cancels waiting tasks, and a cordon is checked
 again when a create reaches the front.
 
+Runtime transport failures hold subsequent starts for five seconds, doubling
+to at most a minute. A successful startup clears the hold. This is an
+agent-local cooldown, not a Docker restart; existing jobs continue. An
+uncertain inventory lookup never authorises replacement: the create remains
+unacknowledged for the existing bounded task-redelivery path. The controller's
+provision timeout still applies and may expire before that redelivery.
+
 The backend's create timeout starts after admission. The controller's
 `scheduler.provision_timeout` still covers the whole provisioning period,
-including this wait; hosts with long cold pulls should prewarm their images
-and allow enough provisioning time for their expected burst.
+including queue time. Hosts with long cold pulls should prewarm images and
+allow enough provisioning time for their expected burst.
+
+Prewarming a DinD pool prepares both its runner image and the agent's
+configured sidecar image. Equivalent successful background preparations are
+reused for one minute across pools; runner creates still apply their own pull
+policy. A failed dependency preparation is never cached.
+
+The stock runner image requires a usable Docker client and daemon before
+registering when its pool provides Docker. `ZOOMIES_DOCKER_WAIT` accepts
+1–3600 seconds and defaults to 30. Each probe is bounded to at most five
+seconds. Failure exits the runner before its listener can accept a job.
+Existing images acquire this behaviour only when rebuilt and deployed.
+
+Resource sampling runs independently of lifecycle reconciliation, with at most
+four concurrent requests, two seconds per sample and ten seconds per pass.
+Failed samples retain the previous value; the current wire format does not
+yet expose sample age, so these values must not be read as proof of freshness.
 
 ### When webhooks cannot reach you
 

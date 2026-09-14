@@ -352,7 +352,7 @@ func (c *Controller) PrewarmPool(ctx context.Context, p *store.Pool) (int, error
 			continue
 		}
 		_ = c.st.SetPoolPrewarm(ctx, p.ID, h.ID, image, "pending", "", "")
-		if c.enqueue(h.ID, agent.Task{Kind: agent.TaskPrewarmImage, PoolID: p.ID, Backend: p.Backend, Image: image, PullPolicy: p.PullPolicy, IssuedAt: c.Now()}) {
+		if c.enqueue(h.ID, agent.Task{Kind: agent.TaskPrewarmImage, PoolID: p.ID, Backend: p.Backend, Image: image, PullPolicy: p.PullPolicy, Spec: &backend.Spec{DockerMode: p.DockerMode}, IssuedAt: c.Now()}) {
 			n++
 		}
 	}
