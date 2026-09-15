@@ -1,14 +1,36 @@
 <!--
-  What the fleet has been doing lately, one figure at a time: the queue, the
-  running jobs, the idle runners or the live ones, over the last hour, six
-  hours or day.
+  Fleet activity: what the fleet has been doing lately, every figure at once.
 
-  The controller writes one sample a minute and the stream keeps the series
-  moving between fetches; a longer window folds those minutes into intervals
-  that carry their peak, because a queue that hit twelve for two minutes is
-  what an operator looking at a day is looking for. History reloads on a
-  reconnect, for the same reason everything else does: the replay buffer is
-  finite.
+  It used to draw one of them at a time, chosen from a dropdown, which made
+  the one question the panel exists to answer -- was anything waiting, and
+  was there anything free to take it -- two separate looks at two separate
+  charts. Now the queue, the running jobs, the idle, busy and live runners
+  are chips, and each one on the chart is a line: the colour is the status
+  colour the console uses for that state everywhere else, and the stroke
+  says whether the figure counts jobs or runners. The two busy figures share
+  a colour on purpose, since a running job and the runner running it should
+  lie on top of one another.
+
+  Where jobs queued with nothing idle to take them, the chart is shaded. It
+  is this panel's version of the capacity map's pressure band: a count of
+  jobs has no 85% to draw a line at, but "something was waiting and nothing
+  was free" needs no threshold to be worth seeing.
+
+  The rows beneath are the legend, the switchboard and the reading at once:
+  each figure's meter shows what it was at the moment under the crosshair,
+  or now, so the exact numbers for a moment are never only in a card that
+  follows the pointer. The line above the chart names the peak in view and
+  how much of the window the fleet spent short of runners.
+
+  The controller writes one sample a minute and the stream keeps the newest
+  point moving between fetches; a longer window folds those minutes into
+  intervals that carry their peak, because a queue that hit twelve for two
+  minutes is what an operator looking at a day is looking for. Each figure
+  carries its own peak through a fold, so a folded point is five readings
+  from the same interval rather than one minute's snapshot. A minute nobody
+  sampled is a gap and never a zero: a controller that was down and an empty
+  queue are opposite news. History reloads on a reconnect, for the same
+  reason everything else does: the replay buffer is finite.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
@@ -19,9 +41,22 @@
   import { formatNumber } from '$lib/format';
   import ChartPanel from '$lib/components/ChartPanel.svelte';
   import Segmented from '$lib/components/Segmented.svelte';
-  import Select from '$lib/components/Select.svelte';
-  import SignalTrend from './SignalTrend.svelte';
-  import { foldMinutes, minuteSeries, mergeSamples } from './signals';
+  import { storage } from '$lib/state/prefs.svelte';
+  import TrendPlot from './TrendPlot.svelte';
+  import { countAxis } from './plot';
+  import {
+    DEFAULT_SIGNALS,
+    SIGNALS,
+    foldMinutes,
+    leadSignal,
+    mergeSamples,
+    signalLines,
+    signalPeak,
+    starvedRuns,
+    type Signal,
+    type SignalKey,
+  } from './signals';
+
   let { others = false }: { others?: boolean } = $props();
 
   /**
@@ -48,21 +83,41 @@
   ] as const;
   type WindowKey = (typeof WINDOWS)[number]['value'];
 
-  let samples = $state.raw<FleetSample[]>([]);
-  let current = $state(Date.now());
-  let metric = $state('queue');
+  /* -- what is remembered -------------------------------------------------- */
+
+  const KEY = 'zoomies.fleet.trend';
+  function remembered<T>(name: string, fallback: T, valid: (v: unknown) => v is T): T {
+    try {
+      const raw = storage.get(`${KEY}.${name}`);
+      if (raw === null) return fallback;
+      const parsed: unknown = JSON.parse(raw);
+      return valid(parsed) ? parsed : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+  const isWindow = (v: unknown): v is WindowKey =>
+    typeof v === 'string' && WINDOWS.some((w) => w.value === v);
+  const isSignals = (v: unknown): v is SignalKey[] =>
+    Array.isArray(v) && v.every((k) => SIGNALS.some((s) => s.key === k));
+
   // The day is the default window everywhere a range is chosen: an hour is
   // too narrow to show a fleet that goes quiet overnight and busy at nine.
-  let windowKey = $state<WindowKey>('24h');
-  let failed = $state(false);
-  let attempt = $state(0);
+  let windowKey = $state<WindowKey>(remembered('window', '24h', isWindow));
+  let enabled = $state<SignalKey[]>(remembered('signals', [...DEFAULT_SIGNALS], isSignals));
+  $effect(() => storage.set(`${KEY}.window`, JSON.stringify(windowKey)));
+  $effect(() => storage.set(`${KEY}.signals`, JSON.stringify(enabled)));
+
   const chosen = $derived(WINDOWS.find((w) => w.value === windowKey) ?? WINDOWS[2]);
-  const options = [
-    { value: 'queue', label: 'Queued jobs' },
-    { value: 'running', label: 'Running jobs' },
-    { value: 'idle', label: 'Idle runners' },
-    { value: 'live', label: 'Live runners' },
-  ];
+
+  /* -- the samples ----------------------------------------------------------- */
+
+  let samples = $state.raw<FleetSample[]>([]);
+  let current = $state(Date.now());
+  let failed = $state(false);
+  let loading = $state(false);
+  let attempt = $state(0);
+
   function liveRunners(r: Stats['runners']): number | undefined {
     return r
       ? (r.provisioning ?? 0) +
@@ -100,6 +155,7 @@
     const controller = new AbortController();
     let disposed = false;
     untrack(() => {
+      loading = true;
       if (fleet.stats) record(fleet.stats);
     });
     void listSamples({ window: window.value }, controller.signal)
@@ -108,8 +164,12 @@
         samples = mergeSamples(page.items ?? [], samples, Date.now(), window.minutes);
         failed = false;
       })
-      .catch(() => {
-        if (!disposed) failed = true;
+      .catch((cause: unknown) => {
+        if (disposed || (cause instanceof DOMException && cause.name === 'AbortError')) return;
+        failed = true;
+      })
+      .finally(() => {
+        if (!disposed) loading = false;
       });
     const unsubscribe = events.subscribe('stats', record);
     const timer = setInterval(() => {
@@ -130,70 +190,151 @@
     }
     wasLive = live;
   });
-  function value(s: FleetSample): number | null {
-    return (
-      (metric === 'queue'
-        ? others
-          ? s.queued_jobs
-          : s.fleet_queued_jobs
-        : metric === 'running'
-          ? others
-            ? s.running_jobs
-            : s.fleet_running_jobs
-          : metric === 'idle'
-            ? s.idle_runners
-            : s.total_runners) ?? null
-    );
-  }
-  const minutes = $derived(
-    minuteSeries(
-      samples.map((s) => ({ at: new Date(s.at ?? '').getTime(), value: value(s) })),
-      current,
-      chosen.minutes,
+
+  /* -- the lines ------------------------------------------------------------- */
+
+  const signals = $derived(SIGNALS.filter((s) => enabled.includes(s.key)));
+  const lead = $derived(leadSignal(enabled));
+  const lines = $derived(
+    signalLines(samples, enabled, others, current, chosen.minutes, chosen.step),
+  );
+  const count = $derived(
+    Math.max(1, lines[0]?.points.length ?? Math.ceil(chosen.minutes / chosen.step)),
+  );
+  const peak = $derived(signalPeak(lead ? lines.filter((l) => l.signal === lead) : []));
+  const axis = $derived(
+    countAxis(
+      lines.reduce(
+        (top, line) =>
+          line.points.reduce((n, p) => (p.value !== null && p.value > n ? p.value : n), top),
+        0,
+      ),
     ),
   );
-  const points = $derived(foldMinutes(minutes, chosen.step));
-  const byMinute = $derived(
-    new Map(samples.map((s) => [Math.floor(new Date(s.at ?? '').getTime() / 60_000), s])),
-  );
 
-  /**
-   * The other figures at a moment, for the card. A folded point carries its
-   * peak, so the minute shown is the one the peak came from; the rest of the
-   * fleet at that minute is what explains it.
-   */
-  function detail(at: number): Array<[string, string]> {
-    const start = Math.floor(at / 60_000);
-    let best: FleetSample | undefined;
-    for (let m = start; m < start + chosen.step; m++) {
-      const s = byMinute.get(m);
-      if (s && (!best || (value(s) ?? -1) > (value(best) ?? -1))) best = s;
-    }
-    if (!best) return [];
-    const num = (n: number | undefined) => (n === undefined ? '--' : formatNumber(n));
-    return [
-      ['Queued jobs', num(others ? best.queued_jobs : best.fleet_queued_jobs)],
-      ['Running jobs', num(others ? best.running_jobs : best.fleet_running_jobs)],
-      ['Idle runners', num(best.idle_runners)],
-      ['Busy runners', num(best.busy_runners)],
-      ['Live runners', num(best.total_runners)],
-    ];
+  // The shading is drawn from the queue and the idle runners whether or not
+  // they are chips on the chart: it says the fleet ran short, and that is
+  // true of the window regardless of which figures the operator is looking
+  // at. Reading it off the chosen lines would make it blink out the moment
+  // somebody switched a figure off.
+  // It is judged a minute at a time and folded afterwards, which is why these
+  // are drawn at the minute whatever the window is: a fifteen-minute point
+  // carries each figure's peak, and the most idle runners there were at any
+  // moment in a quarter of an hour says nothing about whether anything was
+  // free when the queue was deep.
+  const pressure = $derived(
+    signalLines(samples, ['queue', 'idle'], others, current, chosen.minutes, 1),
+  );
+  const starved = $derived(
+    starvedRuns(
+      pressure.find((l) => l.signal.key === 'queue') ?? null,
+      pressure.find((l) => l.signal.key === 'idle') ?? null,
+      chosen.step,
+    ),
+  );
+  const starvedCount = $derived(starved.reduce((n, run) => n + (run.to - run.from + 1), 0));
+
+  /* -- reading a moment ------------------------------------------------------ */
+
+  let hover = $state<number | null>(null);
+  let selected = $state<number | null>(null);
+  const reading = $derived(hover !== null || selected !== null);
+  const activeIndex = $derived(Math.min(count - 1, hover ?? selected ?? count - 1));
+  // The timeline is the drawn points, and with no figure chosen it is still
+  // the window's shape: an empty chart keeps its axis and its scrubber.
+  const points = $derived(lines[0]?.points ?? foldMinutes(pressure[0]?.points ?? [], chosen.step));
+  const activeAt = $derived(points[activeIndex]?.at ?? current);
+  const start = $derived(points[0]?.at ?? current);
+  const end = $derived(points[points.length - 1]?.at ?? current);
+
+  const time = (at: number) =>
+    new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  const stamp = (at: number) =>
+    chosen.minutes > 60 * 12
+      ? new Date(at).toLocaleString(undefined, {
+          weekday: 'short',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : time(at);
+  const unit = $derived(chosen.step === 1 ? 'minutes' : `${chosen.step}-minute intervals`);
+  const moment = $derived(reading ? `at ${stamp(activeAt)}` : 'now');
+
+  /** What each chosen figure read at the active moment, or now. */
+  const readings = $derived(
+    lines.map((line) => ({
+      line,
+      value: reading ? (line.points[activeIndex]?.value ?? null) : (line.last?.value ?? null),
+    })),
+  );
+  /** How much of the window was actually observed, along the lead line. */
+  const observed = $derived((lines[0]?.points ?? []).filter((p) => p.value !== null).length);
+
+  /* -- emphasis ------------------------------------------------------------------ */
+
+  // Two ways to single a figure out, and either will do: its chip or its row,
+  // and the line the pointer is nearest. A chip that is not on the chart
+  // singles out nothing -- dimming every line to show that a figure is absent
+  // reads as a fault, not an answer.
+  let chip = $state<SignalKey | null>(null);
+  let near = $state<SignalKey | null>(null);
+  const emphasis = $derived.by(() => {
+    const key = chip ?? near;
+    return key !== null && enabled.includes(key) ? key : null;
+  });
+
+  function toggle(key: SignalKey): void {
+    enabled = enabled.includes(key) ? enabled.filter((k) => k !== key) : [...enabled, key];
   }
+
+  const valuetext = $derived(
+    `${stamp(activeAt)}: ${
+      readings.length
+        ? readings
+            .map((r) => `${r.line.signal.label} ${r.value === null ? 'not sampled' : r.value}`)
+            .join(', ')
+        : 'no figures chosen'
+    }`,
+  );
+  const description = $derived(
+    `${others ? 'All GitHub-reported jobs' : 'Zoomies jobs'}; runner counts always belong to this fleet. ${chosen.name}. Independent of table filters.`,
+  );
 </script>
 
-<ChartPanel
-  title="Fleet activity"
-  description={`${others ? 'All GitHub-reported jobs' : 'Zoomies jobs'}; runner counts always belong to this fleet. ${chosen.name}. Independent of table filters.`}
->
+{#snippet strokeSample(signal: Signal)}
+  <svg class="stroke" viewBox="0 0 24 8" aria-hidden="true">
+    <line
+      x1="1"
+      y1="4"
+      x2="23"
+      y2="4"
+      stroke-dasharray={signal.dash}
+      stroke-linecap="round"
+      style:stroke={signal.tone}
+    />
+  </svg>
+{/snippet}
+
+{#snippet card()}
+  <div class="reading">
+    <p class="when">
+      <strong>{stamp(activeAt)}</strong>
+      {#if chosen.step > 1}<span>{chosen.step}-minute peaks</span>{/if}
+    </p>
+    <dl>
+      {#each readings as r (r.line.signal.key)}
+        <div class:lit={emphasis === r.line.signal.key}>
+          <dt>{@render strokeSample(r.line.signal)}{r.line.signal.label}</dt>
+          <dd>{r.value === null ? '–' : formatNumber(r.value)}</dd>
+        </div>
+      {/each}
+    </dl>
+  </div>
+{/snippet}
+
+<ChartPanel title="Fleet activity" {description}>
   {#snippet actions()}
     <div class="controls">
-      <Select
-        ariaLabel="Fleet trend metric"
-        value={metric}
-        {options}
-        size="sm"
-        onchange={(v) => (metric = v)}
-      />
       <Segmented
         label="Window"
         value={windowKey}
@@ -202,39 +343,419 @@
       />
     </div>
   {/snippet}
-  <SignalTrend
-    {points}
-    step={chosen.step}
-    {detail}
-    label={options.find((o) => o.value === metric)?.label ?? 'Activity'}
-    tone={metric === 'queue' ? 'pending' : metric === 'idle' ? 'idle' : 'busy'}
-  />
-  {#if failed}<p class="retry">
-      Earlier samples could not be loaded. Live observations are still shown. <button
-        onclick={() => (attempt += 1)}>Retry history</button
+
+  <div class="trend">
+    <div class="toolbar">
+      <div class="figures" role="group" aria-label="Figures shown">
+        {#each SIGNALS as signal, i (signal.key)}
+          {#if i > 0 && SIGNALS[i - 1]!.jobs && !signal.jobs}
+            <span class="divider" aria-hidden="true"></span>
+          {/if}
+          <button
+            type="button"
+            class="figure"
+            aria-pressed={enabled.includes(signal.key)}
+            title={`${signal.label}: ${signal.hint}`}
+            onclick={() => toggle(signal.key)}
+            onpointerenter={() => (chip = signal.key)}
+            onpointerleave={() => (chip = null)}
+            onfocus={() => (chip = signal.key)}
+            onblur={() => (chip = null)}
+          >
+            {@render strokeSample(signal)}
+            {signal.label}
+          </button>
+        {/each}
+      </div>
+      {#if observed > 0}
+        <p class="headline" aria-live="off">
+          {#if peak && lead}
+            <span
+              >Peak in view: <strong>{formatNumber(peak.value)}</strong>
+              {lead.label.toLowerCase()}, at {stamp(peak.line.points[peak.i]?.at ?? activeAt)}</span
+            >
+          {/if}
+          <span>
+            <strong class:warn={starvedCount > 0}>{starvedCount}</strong>
+            of {count}
+            {unit} with jobs queued and nothing idle
+          </span>
+        </p>
+      {/if}
+    </div>
+
+    <TrendPlot
+      {lines}
+      {count}
+      ceiling={axis.ceiling}
+      grid={axis.values}
+      {start}
+      {end}
+      {starved}
+      {activeIndex}
+      {reading}
+      {emphasis}
+      lead={lead?.key ?? null}
+      revealKey={`${windowKey}:${others}`}
+      {stamp}
+      {loading}
+      message={signals.length === 0
+        ? 'Choose a figure above to draw it.'
+        : observed === 0
+          ? 'No samples recorded in this window yet.'
+          : undefined}
+      label={`Fleet activity: ${signals.map((s) => s.label.toLowerCase()).join(', ') || 'no figures chosen'}; ${observed} observed ${unit}. Inspect the timeline below for exact values.`}
+      onhover={(i) => (hover = i)}
+      onpress={(i) => (selected = i)}
+      onnear={(key) => (near = key)}
+      card={readings.length ? card : undefined}
+    />
+
+    <div class="scrub">
+      <label>
+        <span>Inspect a moment</span>
+        <input
+          type="range"
+          min="0"
+          max={Math.max(0, count - 1)}
+          value={selected ?? count - 1}
+          oninput={(e) => (selected = Number(e.currentTarget.value))}
+          aria-valuetext={valuetext}
+        />
+      </label>
+      <output
+        >{stamp(activeAt)}{#if !reading}<span class="now"> · now</span>{/if}</output
       >
-    </p>{/if}
+      {#if selected !== null}
+        <!-- A chosen moment stays chosen until it is let go of, so there has
+             to be a way to let go: on a phone, where a tap chose it, there is
+             no pointer to move away. -->
+        <button type="button" class="text" onclick={() => (selected = null)}>Back to now</button>
+      {/if}
+    </div>
+
+    <div class="rows" role="group" aria-label="Figures read at this moment">
+      {#each readings as r (r.line.signal.key)}
+        {@const signal = r.line.signal}
+        <div
+          class="row"
+          class:lit={emphasis === signal.key}
+          role="presentation"
+          onpointerenter={() => (chip = signal.key)}
+          onpointerleave={() => (chip = null)}
+          onfocusin={() => (chip = signal.key)}
+          onfocusout={() => (chip = null)}
+        >
+          <button
+            type="button"
+            class="toggle"
+            aria-pressed="true"
+            title={`Hide ${signal.label.toLowerCase()}`}
+            onclick={() => toggle(signal.key)}
+          >
+            {@render strokeSample(signal)}
+            <span class="name">{signal.label}</span>
+          </button>
+          <span class="track" aria-hidden="true">
+            {#if r.value !== null}
+              <span
+                class="fill"
+                style:width="{Math.min(100, (100 * r.value) / Math.max(1, axis.ceiling))}%"
+                style:background={signal.tone}
+              ></span>
+            {/if}
+          </span>
+          <span class="figure-value" title={`${signal.label} ${moment}: ${signal.hint}`}>
+            {#if r.value === null}<span class="gap">–</span>{:else}<strong
+                >{formatNumber(r.value)}</strong
+              >{/if}
+          </span>
+        </div>
+      {/each}
+      {#if readings.length === 0}
+        <p class="empty">No figures chosen. Switch one on above to draw it.</p>
+      {/if}
+    </div>
+
+    <div class="coverage" aria-label={`${observed} of ${count} ${unit} observed`}>
+      {#each points as point, i (point.at)}<span
+          class:observed={point.value !== null}
+          class:starved={starved.some((run) => i >= run.from && i <= run.to)}
+          title={`${stamp(point.at)}: ${point.value === null ? 'not sampled' : formatNumber(point.value)}`}
+        ></span>{/each}
+    </div>
+    <p class="note">{observed} / {count} {unit} observed · gaps mean no sample</p>
+
+    {#if failed}
+      <p class="retry">
+        Earlier samples could not be loaded. Live observations are still shown.
+        <button type="button" class="text" onclick={() => (attempt += 1)}>Retry history</button>
+      </p>
+    {/if}
+  </div>
 </ChartPanel>
 
 <style>
-  /* Side by side: a select is as wide as its container, and on its own in a
-     wrapping header it would take the whole line and push the windows under
-     it. */
   .controls {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: var(--z-space-2);
   }
-  .retry {
+  .trend {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-3);
+    min-width: 0;
+  }
+
+  /* -- the chips and the headline -------------------------------------------- */
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--z-space-2) var(--z-space-4);
+  }
+  .figures {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--z-space-1);
+  }
+  .divider {
+    width: var(--z-border-width);
+    align-self: stretch;
+    margin: 0 var(--z-space-1);
+    background: var(--z-border);
+  }
+  .figure {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--z-space-1);
+    padding: var(--z-nudge-2) var(--z-space-2);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-sm);
+    background: var(--z-surface);
+    color: var(--z-text-muted);
+    font-size: var(--z-text-xs);
+    cursor: pointer;
+  }
+  .figure[aria-pressed='true'] {
+    border-color: var(--z-border-strong);
+    background: var(--z-surface-sunken);
+    color: var(--z-text);
+  }
+  /* A chip that is off says so with its stroke as well as its weight: the
+     colour alone is the thing a reader who cannot see it would lose. */
+  .figure[aria-pressed='false'] .stroke {
+    opacity: 0.4;
+  }
+  .stroke {
+    width: 24px;
+    height: 8px;
+    flex: none;
+  }
+  .stroke line {
+    stroke-width: 2;
+  }
+  .headline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--z-space-1) var(--z-space-4);
+    margin: 0;
     font-size: var(--z-text-xs);
     color: var(--z-text-muted);
   }
-  button {
-    color: var(--z-accent);
-    background: none;
+  .headline strong {
+    color: var(--z-text);
+    font-weight: var(--z-weight-semibold);
+    font-variant-numeric: tabular-nums;
+  }
+  .headline strong.warn {
+    color: var(--z-pending);
+  }
+
+  /* -- the timeline ------------------------------------------------------------ */
+  .scrub {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-3);
+    flex-wrap: wrap;
+  }
+  label {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-3);
+    flex: 1;
+    font-size: var(--z-text-xs);
+    min-width: 0;
+  }
+  label span {
+    white-space: nowrap;
+  }
+  input {
+    width: 100%;
+    min-width: 70px;
+    accent-color: var(--z-accent);
+    height: var(--z-space-6);
+  }
+  output {
+    font-size: var(--z-text-xs);
+    font-variant-numeric: tabular-nums;
+  }
+  output .now {
+    color: var(--z-text-muted);
+  }
+
+  /* -- the rows: legend, switchboard and reading ------------------------------- */
+  .rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-nudge-2);
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-3);
+    padding: var(--z-nudge-2) var(--z-space-1);
+    border-radius: var(--z-radius-sm);
+  }
+  .row.lit {
+    background: var(--z-surface-sunken);
+  }
+  .toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--z-space-2);
+    flex: none;
+    min-width: 11rem;
+    padding: 0;
     border: 0;
+    background: none;
+    color: var(--z-text);
+    font-size: var(--z-text-xs);
+    text-align: left;
+    cursor: pointer;
+  }
+  .track {
+    flex: 1;
+    min-width: var(--z-space-8);
+    height: var(--z-space-2);
+    border-radius: var(--z-radius-pill);
+    background: var(--z-surface-sunken);
+    overflow: hidden;
+  }
+  .fill {
+    display: block;
+    height: 100%;
+    border-radius: var(--z-radius-pill);
+  }
+  .figure-value {
+    flex: none;
+    min-width: var(--z-space-10);
+    font-size: var(--z-text-xs);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .figure-value strong {
+    font-weight: var(--z-weight-semibold);
+  }
+  .gap {
+    color: var(--z-text-subtle);
+  }
+
+  /* -- the coverage strip ------------------------------------------------------- */
+  .coverage {
+    display: flex;
+    gap: var(--z-border-width);
+    height: var(--z-space-2);
+  }
+  .coverage span {
+    flex: 1;
+    background: var(--z-surface-sunken);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-sm);
+  }
+  .coverage .observed {
+    background: var(--z-accent);
+    border-color: var(--z-accent);
+  }
+  .coverage .starved {
+    background: var(--z-pending);
+    border-color: var(--z-pending);
+  }
+  .note,
+  .empty,
+  .retry {
+    margin: 0;
+    color: var(--z-text-muted);
+    font-size: var(--z-text-xs);
+  }
+
+  /* -- the card beside the crosshair -------------------------------------------- */
+  .reading {
+    min-width: 12rem;
+    padding: var(--z-space-2) var(--z-space-3);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-sm);
+    background: var(--z-surface-raised);
+    box-shadow: var(--z-shadow-md);
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+  }
+  .when {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--z-space-3);
+    margin: 0 0 var(--z-space-1);
+    padding-bottom: var(--z-space-1);
+    border-bottom: var(--z-border-width) solid var(--z-border);
+    color: var(--z-text-subtle);
+  }
+  .when strong {
+    color: var(--z-text);
+    font-variant-numeric: tabular-nums;
+  }
+  .reading dl {
+    display: grid;
+    gap: var(--z-nudge-2);
+    margin: 0;
+  }
+  .reading dl div {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--z-space-4);
+  }
+  .reading dl div.lit {
+    font-weight: var(--z-weight-semibold);
+  }
+  .reading dt {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--z-space-1);
+    color: var(--z-text-muted);
+  }
+  .reading dd {
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+  }
+
+  button.text {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--z-accent);
+    font-size: var(--z-text-xs);
     text-decoration: underline;
     cursor: pointer;
+  }
+
+  /* Every target rises to a thumb's height where the pointer is coarse. */
+  @media (pointer: coarse) {
+    .figure,
+    .toggle {
+      min-height: var(--z-control-touch);
+    }
   }
 </style>

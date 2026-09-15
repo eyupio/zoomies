@@ -271,9 +271,9 @@ The drawn controls have their own sizes, for the same reason: `--z-control-box`
 `--z-control-icon` (14px, the icon inside a button). Field and button *heights*
 are on the spacing scale and stay there, with one exception: `--z-control-touch`
 (44px) is the height a control read by a finger takes under
-`@media (pointer: coarse)` — the segmented choices, the capacity map's chips
-and legend switches, a slider's thumb — because a 24px row a mouse is fine with
-is two rows under one fingertip. It applies only where the pointer is coarse,
+`@media (pointer: coarse)` — the segmented choices, the capacity map's and the
+fleet trend's chips and legend switches, a slider's thumb — because a 24px row
+a mouse is fine with is two rows under one fingertip. It applies only where the pointer is coarse,
 so the desktop keeps its density.
 
 Dialogs and drawers are cut to their content's comfortable measure rather than

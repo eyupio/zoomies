@@ -1,11 +1,24 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  DEFAULT_SIGNALS,
+  SIGNALS,
   foldMinutes,
   hostSignals,
+  leadSignal,
+  nearestSignal,
   poolSignals,
   minuteSeries,
   mergeSamples,
+  signalLines,
+  signalPeak,
+  signalRuns,
+  signalValue,
+  starvedRuns,
+  trendFrame,
+  trendIndexAtX,
+  trendX,
+  trendY,
 } from '../src/lib/insights/signals.ts';
 
 test('pool queue and ceiling use authoritative stats, not a partial runner list', () => {
@@ -116,4 +129,167 @@ test('a wider window keeps its minutes, and a folded interval carries its peak',
     { at: 180_000, value: null },
     { at: 360_000, value: 2 },
   ]);
+});
+
+/*
+ * The fleet trend draws several figures at once, and a fold takes the peak of
+ * each one separately: a folded point is five readings from the same interval,
+ * not one minute's snapshot of five figures. Reading them from one chosen
+ * minute -- the minute the lead figure peaked in -- would have said the queue
+ * was twelve while nine runners sat idle, which never happened.
+ */
+test('every figure carries its own peak through a fold, and a missed minute stays a gap', () => {
+  const now = Date.parse('2026-09-12T12:02:59Z');
+  const at = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
+  const lines = signalLines(
+    [
+      { at: at(2), fleet_queued_jobs: 12, idle_runners: 0 },
+      { at: at(1), fleet_queued_jobs: 1, idle_runners: 9 },
+    ],
+    ['queue', 'idle'],
+    false,
+    now,
+    3,
+    3,
+  );
+  assert.deepEqual(
+    lines.map((l) => l.signal.key),
+    ['queue', 'idle'],
+  );
+  assert.equal(lines[0]?.points[0]?.value, 12);
+  assert.equal(lines[1]?.points[0]?.value, 9);
+
+  // A minute nobody sampled is a gap in the line and never a zero: a
+  // controller that was down and an empty queue are opposite news.
+  const minutes = signalLines([{ at: at(2), fleet_queued_jobs: 4 }], ['queue'], false, now, 3, 1);
+  assert.deepEqual(
+    minutes[0]?.points.map((p) => p.value),
+    [4, null, null],
+  );
+  assert.deepEqual(minutes[0]?.last, { i: 0, value: 4 });
+  assert.deepEqual(signalRuns(minutes[0]!.points), [[{ i: 0, value: 4 }]]);
+});
+
+/* Whose jobs the two job figures count is the caller's choice; runner counts
+   are always this fleet's, because nobody else's runners are visible here. */
+test('the job figures follow the fleet or the whole organisation, and the runner figures do not', () => {
+  const sample = {
+    at: '2026-09-12T12:00:00Z',
+    queued_jobs: 20,
+    fleet_queued_jobs: 3,
+    running_jobs: 40,
+    fleet_running_jobs: 5,
+    idle_runners: 2,
+    busy_runners: 5,
+    total_runners: 9,
+  };
+  assert.equal(signalValue(sample, 'queue', false), 3);
+  assert.equal(signalValue(sample, 'queue', true), 20);
+  assert.equal(signalValue(sample, 'running', true), 40);
+  for (const key of ['idle', 'busy', 'live'] as const)
+    assert.equal(signalValue(sample, key, true), signalValue(sample, key, false));
+  // A figure the controller did not report is unknown, not zero.
+  assert.equal(signalValue({ at: sample.at }, 'live', false), null);
+  // The lead figure is the first chosen one in the chips' order, whatever
+  // order they were switched on in.
+  assert.equal(leadSignal(['live', 'queue'])?.key, 'queue');
+  assert.equal(leadSignal([]), null);
+  assert.ok(DEFAULT_SIGNALS.every((k) => SIGNALS.some((s) => s.key === k)));
+});
+
+/*
+ * The shaded band is this chart's pressure line: jobs waiting with nothing
+ * idle to take them. A spell of it is one band rather than a picket fence,
+ * and an interval nobody sampled ends the spell rather than joining across it
+ * -- the fleet may well have recovered inside the minute nobody watched.
+ */
+test('starvation is queued work with nothing free, and an unobserved interval breaks the spell', () => {
+  const line = (key: 'queue' | 'idle', values: Array<number | null>) => ({
+    signal: SIGNALS.find((s) => s.key === key)!,
+    points: values.map((value, i) => ({ at: i * 60_000, value })),
+    last: null,
+  });
+  assert.deepEqual(starvedRuns(line('queue', [1, 2, 0, 4, 5]), line('idle', [0, 0, 0, 0, 0])), [
+    { from: 0, to: 1 },
+    { from: 3, to: 4 },
+  ]);
+  assert.deepEqual(starvedRuns(line('queue', [1, null, 1]), line('idle', [0, 0, 0])), [
+    { from: 0, to: 0 },
+    { from: 2, to: 2 },
+  ]);
+  // Judged a minute at a time and folded afterwards, so zooming out keeps the
+  // band: a quarter of an hour in which any minute ran short is shaded, where
+  // folding the figures first would have compared the deepest queue with the
+  // most idle runners the interval ever had and found nothing wrong.
+  assert.deepEqual(
+    starvedRuns(line('queue', [0, 5, 0, 0, 0, 0, 0, 0]), line('idle', [2, 0, 3, 3, 3, 3, 3, 3]), 4),
+    [{ from: 0, to: 0 }],
+  );
+  // Two spells with a clear interval between them stay two bands rather than
+  // one long one; two that land in neighbouring intervals are one band, which
+  // is what shading a spell rather than its minutes means.
+  const twelve = (starved: number[]) =>
+    Array.from({ length: 12 }, (_, i) => (starved.includes(i) ? 0 : 3));
+  assert.deepEqual(starvedRuns(line('queue', Array(12).fill(1)), line('idle', twelve([0, 9])), 4), [
+    { from: 0, to: 0 },
+    { from: 2, to: 2 },
+  ]);
+  assert.deepEqual(starvedRuns(line('queue', Array(12).fill(1)), line('idle', twelve([0, 5])), 4), [
+    { from: 0, to: 1 },
+  ]);
+  // An idle runner, or an unknown count of them, is not starvation.
+  assert.deepEqual(starvedRuns(line('queue', [3]), line('idle', [1])), []);
+  assert.deepEqual(starvedRuns(line('queue', [3]), line('idle', [null])), []);
+  assert.deepEqual(starvedRuns(null, line('idle', [0])), []);
+
+  const peak = signalPeak([line('queue', [1, 7, 2])]);
+  assert.equal(peak?.value, 7);
+  assert.equal(peak?.i, 1);
+  assert.equal(signalPeak([]), null);
+});
+
+/*
+ * The frame is drawn at the width it has, one unit to a pixel, rather than a
+ * fixed picture stretched to fit: the old chart drew 760 units into whatever
+ * width the panel had, so its eleven-unit axis text arrived on a wide screen
+ * at nineteen pixels and read as a heading.
+ */
+test('the trend is drawn one unit to a pixel, and its gutter grows with the figures', () => {
+  const wide = trendFrame(1200, { digits: 3 });
+  assert.equal(wide.W, 1200);
+  assert.equal(wide.narrow, false);
+  // A four-figure axis needs a wider gutter than a one-figure one, or "1,500"
+  // prints over the gridlines.
+  assert.ok(trendFrame(1200, { digits: 5 }).LEFT > wide.LEFT);
+  // A phone gets a taller drawing and never a narrower one than it can hold.
+  assert.ok(trendFrame(360).narrow);
+  assert.ok(trendFrame(360).H > wide.H);
+  assert.equal(trendFrame(40).W, 280);
+
+  const x = trendX(wide, 60);
+  const y = trendY(wide, 20);
+  assert.equal(x(0), wide.LEFT);
+  assert.equal(x(59), wide.RIGHT);
+  assert.equal(y(0), wide.BOTTOM);
+  assert.equal(y(20), wide.TOP);
+  // A figure past the ceiling is drawn at it rather than off the top.
+  assert.equal(y(200), wide.TOP);
+  // The pointer lands on the point it is nearest, and never off the ends.
+  assert.equal(trendIndexAtX(wide, 60, x(12) + 2), 12);
+  assert.equal(trendIndexAtX(wide, 60, -500), 0);
+  assert.equal(trendIndexAtX(wide, 60, 5000), 59);
+
+  // Pointing at a line is how a reader asks what it is: the nearest within
+  // the tolerance answers, and nothing answers from too far away.
+  const lines = signalLines(
+    [{ at: new Date(0).toISOString(), fleet_queued_jobs: 2, idle_runners: 18 }],
+    ['queue', 'idle'],
+    false,
+    0,
+    1,
+    1,
+  );
+  assert.equal(nearestSignal(lines, 0, y(18), y, 10), 'idle');
+  assert.equal(nearestSignal(lines, 0, y(2), y, 10), 'queue');
+  assert.equal(nearestSignal(lines, 0, y(10), y, 10), null);
 });

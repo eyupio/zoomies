@@ -825,3 +825,45 @@ test('the host capacity map is read by touch', async ({ page }) => {
   }
   await expectNoSidewaysScroll(page, 'the Hosts page with the capacity map');
 });
+
+/*
+ * And the fleet trend is the same story: it read the chart by hover, and the
+ * only way to a figure on a phone was the slider. A tap chooses the moment
+ * here too, the reading sits under the chart rather than under the finger,
+ * and the chips that put a figure on the chart are finger-sized.
+ */
+test('fleet activity is read by touch', async ({ page }) => {
+  await goto(page, '/runners', 'Runners');
+  await page.getByText('Explore fleet activity over the last 24 hours', { exact: true }).tap();
+  const trend = page.getByRole('region', { name: 'Fleet activity', exact: true });
+  const chart = trend.getByRole('img').first();
+  await expect(chart).toBeVisible();
+
+  await chart.tap();
+  // The card has no role of its own -- it is the same reading the rows below
+  // carry, put beside the crosshair -- so the class is how it is reached.
+  const card = trend.locator('.card');
+  await expect(card).toBeVisible();
+  const chartBox = await chart.boundingBox();
+  const cardBox = await card.boundingBox();
+  expect(cardBox!.y, 'the reading sits under the chart, not on it').toBeGreaterThanOrEqual(
+    chartBox!.y + chartBox!.height - 1,
+  );
+  expect(cardBox!.x + cardBox!.width).toBeLessThanOrEqual(chartBox!.x + chartBox!.width + 1);
+  await trend.getByRole('button', { name: 'Back to now' }).tap();
+  await expect(card).toBeHidden();
+
+  const targets = [
+    trend.getByRole('group', { name: 'Window' }).getByRole('button', { name: '1h' }),
+    trend.getByRole('group', { name: 'Figures shown' }).getByRole('button').first(),
+    trend.getByRole('group', { name: 'Figures read at this moment' }).getByRole('button').first(),
+  ];
+  for (const target of targets) {
+    const box = await target.boundingBox();
+    expect(box, 'the target is on the page').not.toBeNull();
+    expect(box!.height, `${await target.innerText()} is too short to tap`).toBeGreaterThanOrEqual(
+      44,
+    );
+  }
+  await expectNoSidewaysScroll(page, 'the Runners page with fleet activity open');
+});
