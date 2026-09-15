@@ -276,6 +276,20 @@
             <p class="finding-title">{finding.title}</p>
             {#if finding.detail}<p class="finding-detail">{finding.detail}</p>{/if}
             {#if finding.fix}<p class="finding-fix"><strong>Fix:</strong> {finding.fix}</p>{/if}
+            <!--
+              A stored value the validator is unhappy with is the one that can
+              lock somebody out: this page is behind the controller, and a
+              value that stops it starting cannot be undone from here. The way
+              back is said now, while the page still loads, rather than found
+              at the moment it does not.
+            -->
+            {#if finding.undo && finding.source === 'database'}
+              <p class="finding-detail">
+                Stored here. If it ever stops the controller starting, this page will not load — run <code
+                  >{finding.undo}</code
+                > against the stopped controller.
+              </p>
+            {/if}
           </div>
         </li>
       {/each}

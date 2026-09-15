@@ -3085,6 +3085,19 @@ components:
           description: A sentence about the host with its name left out, so a caller can put the name where its own layout wants it.
           examples: ["it has 12 CPU to place on, and one runner of this pool is charged 16, twice what it asks for, because a docker-in-docker runner is charged for its sidecar too"]
 
+    SettingSource:
+      type: string
+      enum: [default, file, database, environment]
+      description: >-
+        Which layer set a value. They stack in that order -- the built-in defaults, then
+        zoomies.yaml, then this fleet's database, then `ZOOMIES_*` in the environment --
+        and each wins over the one before it.
+
+        It is the answer to the question that makes a configuration problem hard: "I
+        changed it and nothing happened". A value the environment is pinning cannot be
+        changed from the file or from this API, and one stored in the database is not
+        changed by editing the file.
+
     Problem:
       type: object
       required: [code, severity, title]
@@ -3092,9 +3105,28 @@ components:
         code: { type: string, examples: [bind.public_no_tls] }
         severity: { $ref: "#/components/schemas/Severity" }
         setting: { type: string, examples: [server.bind] }
+        source:
+          $ref: "#/components/schemas/SettingSource"
+        undo:
+          type: string
+          description: >-
+            The command that takes this value back out of the layer that set it, when there
+            is one. Empty for a value in the configuration file, which is edited where it
+            is, and for a default.
+
+            It exists for the case the settings page cannot help with: a value saved here
+            that stops the controller starting is unreachable from a page the controller
+            serves, so the way back has to be something an operator can type at a stopped
+            one.
+          examples: ["zoomies config unset server.bind"]
         title: { type: string, description: One line - what is true. }
         detail: { type: string, description: Why it matters, and the consequence. }
-        fix: { type: string, description: What to change, concretely. }
+        fix:
+          type: string
+          description: >-
+            What to change, concretely. Read it with `source`: an operator told to change a
+            setting will edit the configuration file, and a value stored in this fleet's
+            database or pinned by a ZOOMIES_* variable is one the file cannot change.
         target_kind: { type: string }
         target_id: { type: string }
         alternatives:
@@ -4904,11 +4936,7 @@ components:
         secret: { type: boolean, description: A credential. Its value is never sent; `configured` says whether one is set. }
         configured: { type: boolean, description: Whether the effective value is non-empty. }
         source:
-          type: string
-          enum: [default, file, database, environment]
-          description: >-
-            Which layer won. They stack in that order, so a value from the environment
-            is overriding one in the database, which is overriding one in the file.
+          $ref: "#/components/schemas/SettingSource"
         env: { type: string, description: The ZOOMIES_* variable that overrides this key., examples: ["ZOOMIES_SCHEDULER_INTERVAL"] }
         stored: { type: boolean, description: Whether this fleet's database holds a value for this key. }
         editable: { type: boolean, description: Whether an administrator may change it through this API. }

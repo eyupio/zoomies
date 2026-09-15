@@ -372,13 +372,20 @@ test("a job whose runner died under it is called the fleet's failure", async ({ 
   await goto(page, '/jobs?failed=true', 'Jobs');
   const lost = dataRows(jobs(page)).filter({ hasText: 'Runner lost' }).first();
   await expect(lost).toBeVisible();
-  await expect(await cellUnder(jobs(page), lost, 'Failed at')).toContainText('Runner lost');
+  // The category rather than "Runner lost" repeated down the column: a list
+  // where every row says the same two words says only that the fleet is
+  // unwell, and one that says "Out of memory" says what to do on Monday.
+  await expect(await cellUnder(jobs(page), lost, 'Failed at')).toContainText('Out of memory');
 
   await lost.click();
   const drawer = page.getByRole('dialog');
   const why = drawer.getByRole('note', { name: 'Why this job went wrong' });
-  await expect(why).toContainText('The runner stopped under this job');
+  await expect(why).toContainText('Out of memory');
   await expect(why).toContainText('the workflow did nothing wrong');
+  // And the remedy, which is the half somebody opened the page for. It comes
+  // from the server, so the UI, the CLI and the problems drawer cannot offer
+  // three different answers.
+  await expect(why).toContainText("raise the pool's memory limit");
   await expect(why.getByRole('link', { name: 'Open the runner' })).toBeVisible();
 
   const timeline = drawer.getByRole('list', { name: 'Timeline' });
@@ -392,6 +399,38 @@ test("a job whose runner died under it is called the fleet's failure", async ({ 
   const problems = page.getByRole('dialog', { name: 'Problems' });
   await expect(problems).toContainText('lost the runner it was running on');
   await expect(problems.getByRole('link', { name: 'Open failed jobs' })).toBeVisible();
+});
+
+test("the fleet's own failures are one click from everything that failed", async ({ page }) => {
+  // The question an operator arrives with is not "what failed" but "is this
+  // us". GitHub records both halves as "failure", so this view is the only
+  // place the difference can be asked for.
+  await goto(page, '/jobs?failed=true', 'Jobs');
+  // Counted after the first row arrives: a count taken while the grid is still
+  // loading is zero, and every comparison against it passes for the wrong
+  // reason.
+  await expect(dataRows(jobs(page)).first()).toBeVisible();
+  const everything = await dataRows(jobs(page)).count();
+
+  await page.getByRole('button', { name: 'Our failures' }).click();
+  await expect(page).toHaveURL(/faulted=true/);
+  // Polled rather than counted once: the rows already on the page are the
+  // previous view's until the refetch lands, and a count taken before it does
+  // passes by comparing the old list with itself.
+  const ours = dataRows(jobs(page));
+  await expect.poll(() => ours.count()).toBeLessThan(everything);
+  // Every row in this view is the fleet's, so every one of them carries the
+  // badge that says so.
+  for (const row of await ours.all()) {
+    await expect(row).toContainText('Runner lost');
+  }
+
+  // A copied link reproduces it, which is how this gets sent to somebody.
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Our failures' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
 });
 
 test('the failed filter is one switch and survives a copied link', async ({ page }) => {

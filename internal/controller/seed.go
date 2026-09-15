@@ -768,20 +768,25 @@ func (c *Controller) seedRunners(ctx context.Context, now time.Time, pools []*st
 		ageMin  int
 		message string
 		jobs    int
+		// fault is the category behind a failed runner. The demo carries one
+		// because the demo is where the split is seen before anybody has a
+		// failure of their own, and a failed runner with no category would
+		// show the feature turned off.
+		fault store.FaultKind
 	}
 	specs := []spec{
-		{store.RunnerBusy, 0, 0, 12, "", 3},
-		{store.RunnerBusy, 0, 0, 9, "", 1},
-		{store.RunnerBusy, 0, 1, 7, "", 2},
-		{store.RunnerIdle, 0, 0, 30, "", 5},
-		{store.RunnerIdle, 0, 1, 24, "", 4},
-		{store.RunnerIdle, 1, 2, 45, "", 9},
-		{store.RunnerRegistering, 0, 1, 1, "", 0},
-		{store.RunnerProvisioning, 0, 0, 0, "3 jobs queued > 30s", 0},
-		{store.RunnerDraining, 0, 1, 60, "idle for 6m, over the 5m idle timeout", 6},
-		{store.RunnerFailed, 0, 0, 20, "GitHub would not register zoomies-demo-linux-x64-f4k3: github: create jit config: 403 Forbidden", 0},
-		{store.RunnerRemoved, 0, 0, 90, "ephemeral runner exited cleanly after its job", 1},
-		{store.RunnerRemoved, 1, 2, 120, "runner exited cleanly", 2},
+		{store.RunnerBusy, 0, 0, 12, "", 3, ""},
+		{store.RunnerBusy, 0, 0, 9, "", 1, ""},
+		{store.RunnerBusy, 0, 1, 7, "", 2, ""},
+		{store.RunnerIdle, 0, 0, 30, "", 5, ""},
+		{store.RunnerIdle, 0, 1, 24, "", 4, ""},
+		{store.RunnerIdle, 1, 2, 45, "", 9, ""},
+		{store.RunnerRegistering, 0, 1, 1, "", 0, ""},
+		{store.RunnerProvisioning, 0, 0, 0, "3 jobs queued > 30s", 0, ""},
+		{store.RunnerDraining, 0, 1, 60, "idle for 6m, over the 5m idle timeout", 6, ""},
+		{store.RunnerFailed, 0, 0, 20, "GitHub would not register zoomies-demo-linux-x64-f4k3: github: create jit config: 403 Forbidden", 0, store.FaultRegistration},
+		{store.RunnerRemoved, 0, 0, 90, "ephemeral runner exited cleanly after its job", 1, ""},
+		{store.RunnerRemoved, 1, 2, 120, "runner exited cleanly", 2, ""},
 	}
 
 	out := make([]*store.Runner, 0, len(specs))
@@ -800,6 +805,7 @@ func (c *Controller) seedRunners(ctx context.Context, now time.Time, pools []*st
 			Image:          pool.Image,
 			ContainerID:    fmt.Sprintf("demo%032d", i),
 			Message:        s.message,
+			FaultKind:      s.fault,
 			JobsHandled:    s.jobs,
 			CPUPercent:     float64((i*17)%90) + 1,
 			MemoryBytes:    int64(256+i*64) << 20,
@@ -910,6 +916,7 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 			j.Steps = demoSteps(j.JobName, j.Conclusion, started, completed)
 			if lostRunner {
 				j.RunnerFault = fmt.Sprintf("runner %s stopped while this job was running: runner exited with code 137: the container was killed for exceeding its memory limit", r.Name)
+				j.FaultKind = store.FaultOutOfMemory
 			}
 		case i < 47 && len(busy) > 0:
 			// Running right now, on one of the busy runners.

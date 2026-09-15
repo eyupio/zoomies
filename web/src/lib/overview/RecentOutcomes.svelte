@@ -19,6 +19,7 @@
   import type { Job } from '$lib/api/types';
   import { fleet } from '$lib/state/fleet.svelte';
   import { prefs } from '$lib/state/prefs.svelte';
+  import { faultLabel, fleetFailed } from '$lib/faults';
   import { formatDuration, formatNumber, toMillis } from '$lib/format';
   import { ELSEWHERE, jobFailed, jobStatus, managedJob, ranHere, RUNNER_LOST } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
@@ -113,6 +114,28 @@
 
   const shown = $derived(jobs.slice(0, SHOWN));
   const failedThisHour = $derived(fleet.stats?.failed ?? 0);
+  /**
+   * How many of those this deployment caused. It is the number the panel's
+   * badge exists for: "eleven failed this hour" is a question an operator then
+   * has to go and answer, and "eleven failed, nine of them ours" is the answer
+   * -- and it sends a different person to a different page.
+   */
+  const oursThisHour = $derived(fleet.stats?.fleet_failed ?? 0);
+
+  /**
+   * The categories behind those, commonest first. Three at most: the badge is
+   * one line, and a fleet with four kinds of failure at once has a bigger
+   * problem than a legend can state.
+   */
+  const faultsThisHour = $derived.by(() => {
+    const faults = fleet.stats?.faults ?? {};
+    return Object.entries(faults)
+      .filter(([, n]) => (n ?? 0) > 0)
+      .sort(([, a], [, b]) => (b ?? 0) - (a ?? 0))
+      .slice(0, 3)
+      .map(([kind, n]) => `${formatNumber(n ?? 0)} ${faultLabel(kind).toLowerCase()}`)
+      .join(', ');
+  });
 
   /**
    * How the window's completed jobs ended, four ways. A rate from completed
@@ -135,9 +158,17 @@
       .join(', ');
   });
 
-  /** The one phrase there is room for: the step, or the fleet's fault. */
+  /**
+   * The one phrase there is room for: the fleet's own category, or the step
+   * the workflow failed at. The category rather than "the runner stopped under
+   * it" for all of them, because a column read downwards wants the word that
+   * differs between rows.
+   */
   function why(job: Job): string {
-    if (job.runner_fault) return 'the runner stopped under it';
+    if (fleetFailed(job)) {
+      const label = faultLabel(job.fault_kind);
+      return label ? label.toLowerCase() : 'the runner stopped under it';
+    }
     if (job.failed_step)
       return `at ${job.failed_step.name ?? `step ${job.failed_step.number ?? '?'}`}`;
     return '';
@@ -155,7 +186,26 @@
 >
   {#snippet actions()}
     {#if !loading && failedThisHour > 0}
-      <Badge tone="danger" label="{formatNumber(failedThisHour)} failed this hour" dot={false} />
+      <!--
+        The split, and a link straight to the half somebody here can fix.
+        GitHub records both as "failure", so this badge is the only place the
+        difference is visible without opening a job.
+      -->
+      <a
+        class="failed-badge"
+        href={oursThisHour > 0 ? '/jobs?faulted=true' : '/jobs?failed=true'}
+        title={faultsThisHour
+          ? `This fleet's own failures this hour: ${faultsThisHour}.`
+          : "Every failure this hour is the workflows' own; nothing here broke."}
+      >
+        <Badge
+          tone="danger"
+          label={oursThisHour > 0
+            ? `${formatNumber(failedThisHour)} failed, ${formatNumber(oursThisHour)} ours`
+            : `${formatNumber(failedThisHour)} failed, none ours`}
+          dot={false}
+        />
+      </a>
     {/if}
     <Switch label="Other runners" checked={others} onchange={(on) => (prefs.otherRunners = on)} />
   {/snippet}
@@ -207,8 +257,8 @@
                 <span class="sep" aria-hidden="true">/</span>
                 <span class="job-name">{job.job_name ?? 'unnamed job'}</span>
               </a>
-              {#if job.runner_fault}
-                <Badge status={RUNNER_LOST} size="sm" />
+              {#if fleetFailed(job)}
+                <Badge status={RUNNER_LOST} size="sm" title={job.fault_fix || RUNNER_LOST.hint} />
               {/if}
               {#if !ranHere(job)}
                 <Badge status={ELSEWHERE} size="sm" title={ELSEWHERE.hint} />
@@ -240,6 +290,12 @@
 </Panel>
 
 <style>
+  .failed-badge {
+    text-decoration: none;
+  }
+  .failed-badge:hover {
+    text-decoration: underline;
+  }
   .pad {
     padding: var(--z-space-4) var(--z-space-5);
   }

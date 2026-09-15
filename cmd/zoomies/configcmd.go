@@ -172,6 +172,20 @@ func printFindings(w io.Writer, findings config.Findings) {
 		if f.Fix != "" {
 			fmt.Fprintf(w, "        fix: %s\n", f.Fix)
 		}
+		// Which layer is speaking. Without it the fix above sends somebody to
+		// edit the configuration file, which is the one layer a stored or
+		// environment value cannot be changed from.
+		//
+		// Only where there is something to act on. An info finding is neither
+		// wrong nor risky -- it exists for the defaults that surprise people
+		// -- and nobody is trying to undo one, so naming its layer would add a
+		// line to a banner read on every start and answer a question nobody
+		// asked.
+		if f.Severity != config.SeverityInfo {
+			if where := f.SourceSentence(); where != "" {
+				fmt.Fprintf(w, "        %s\n", where)
+			}
+		}
 	}
 	fmt.Fprintln(w)
 }

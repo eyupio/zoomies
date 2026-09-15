@@ -2028,17 +2028,30 @@ export interface components {
              */
             reason: string;
         };
+        /**
+         * @description Which layer set a value. They stack in that order -- the built-in defaults, then zoomies.yaml, then this fleet's database, then `ZOOMIES_*` in the environment -- and each wins over the one before it.
+         *     It is the answer to the question that makes a configuration problem hard: "I changed it and nothing happened". A value the environment is pinning cannot be changed from the file or from this API, and one stored in the database is not changed by editing the file.
+         * @enum {string}
+         */
+        SettingSource: "default" | "file" | "database" | "environment";
         Problem: {
             /** @example bind.public_no_tls */
             code: string;
             severity: components["schemas"]["Severity"];
             /** @example server.bind */
             setting?: string;
+            source?: components["schemas"]["SettingSource"];
+            /**
+             * @description The command that takes this value back out of the layer that set it, when there is one. Empty for a value in the configuration file, which is edited where it is, and for a default.
+             *     It exists for the case the settings page cannot help with: a value saved here that stops the controller starting is unreachable from a page the controller serves, so the way back has to be something an operator can type at a stopped one.
+             * @example zoomies config unset server.bind
+             */
+            undo?: string;
             /** @description One line - what is true. */
             title: string;
             /** @description Why it matters */
             detail?: string;
-            /** @description What to change */
+            /** @description What to change, concretely. Read it with `source`: an operator told to change a setting will edit the configuration file, and a value stored in this fleet's database or pinned by a ZOOMIES_* variable is one the file cannot change. */
             fix?: string;
             target_kind?: string;
             target_id?: string;
@@ -3764,11 +3777,7 @@ export interface components {
             secret: boolean;
             /** @description Whether the effective value is non-empty. */
             configured: boolean;
-            /**
-             * @description Which layer won. They stack in that order, so a value from the environment is overriding one in the database, which is overriding one in the file.
-             * @enum {string}
-             */
-            source: "default" | "file" | "database" | "environment";
+            source: components["schemas"]["SettingSource"];
             /**
              * @description The ZOOMIES_* variable that overrides this key.
              * @example ZOOMIES_SCHEDULER_INTERVAL

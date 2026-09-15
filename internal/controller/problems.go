@@ -30,9 +30,19 @@ type Problem struct {
 	Severity config.Severity `json:"severity"`
 	// Setting names the configuration key involved, when there is one.
 	Setting string `json:"setting,omitempty"`
-	Title   string `json:"title"`
-	Detail  string `json:"detail,omitempty"`
-	Fix     string `json:"fix,omitempty"`
+	// Source is the layer that set it: the file, this fleet's database, or a
+	// ZOOMIES_* variable. It is carried because the fix below is otherwise
+	// half an instruction -- an operator told to change a setting will edit
+	// the configuration file, and a value stored in the database or pinned by
+	// the environment is one the file cannot change.
+	Source config.Source `json:"source,omitempty"`
+	// Undo is the command that takes the value back out of that layer, for the
+	// case the settings page cannot fix: a stored value that stops the
+	// controller starting is unreachable from a page the controller serves.
+	Undo   string `json:"undo,omitempty"`
+	Title  string `json:"title"`
+	Detail string `json:"detail,omitempty"`
+	Fix    string `json:"fix,omitempty"`
 	// TargetKind and TargetID let the UI link a problem to the pool, host,
 	// runner or installation it is about.
 	TargetKind string `json:"target_kind,omitempty"`
@@ -94,6 +104,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 		}
 		out = append(out, Problem{
 			Code: f.Code, Severity: f.Severity, Setting: f.Setting,
+			Source: f.Source, Undo: f.Undo,
 			Title: f.Title, Detail: f.Detail, Fix: f.Fix,
 		})
 	}

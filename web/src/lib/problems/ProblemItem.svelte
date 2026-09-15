@@ -3,7 +3,7 @@
   and a way to get to the thing it is about.
 -->
 <script lang="ts">
-  import { Undo2, Wrench, X } from '@lucide/svelte';
+  import { Layers, Undo2, Wrench, X } from '@lucide/svelte';
   import type { Problem } from '$lib/api/types';
   import { severityStatus } from '$lib/status';
   import IconButton from '$lib/components/IconButton.svelte';
@@ -23,6 +23,23 @@
   }
 
   let { problem, ondismiss, onrestore, dismissedAt, class: className = '' }: Props = $props();
+
+  /**
+   * One line saying which layer set the offending value, or '' when the fix
+   * already points at the right place. The file and the defaults say nothing:
+   * a value in the file is edited in the file, which is where somebody would
+   * have looked anyway.
+   */
+  const layer = $derived.by(() => {
+    switch (problem.source) {
+      case 'database':
+        return "This value is stored in this fleet's database, so editing the configuration file will not change it. Change it on the Configuration tab, or with the controller stopped:";
+      case 'environment':
+        return "This value comes from the environment, which is the last word: neither the configuration file nor this fleet's database can change it. With the controller stopped:";
+      default:
+        return '';
+    }
+  });
 
   interface Target {
     href: string;
@@ -85,6 +102,24 @@
       <p class="fix">
         <Wrench size={12} aria-hidden="true" />
         <span><RemedyText text={problem.fix} /></span>
+      </p>
+    {/if}
+    <!--
+      Which layer is setting the value, when that is not the one the fix above
+      sends somebody to. An operator told to change a setting will edit the
+      configuration file; a value stored here or pinned by the environment is
+      one the file cannot change, so they edit it, restart, and get the same
+      problem back with nothing learned.
+    -->
+    {#if layer}
+      <p class="layer">
+        <Layers size={12} aria-hidden="true" />
+        <span>
+          {layer}
+          {#if problem.undo}
+            <code class="undo">{problem.undo}</code>
+          {/if}
+        </span>
       </p>
     {/if}
     <p class="meta">
@@ -171,6 +206,22 @@
     line-height: var(--z-leading-sm);
     color: var(--z-text-muted);
     overflow-wrap: anywhere;
+  }
+  .layer {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--z-space-2);
+    margin: 0;
+    font-size: var(--z-text-sm);
+    line-height: var(--z-leading-sm);
+    color: var(--z-text-muted);
+  }
+  .layer :global(svg) {
+    flex: none;
+    margin-top: 0.15em;
+  }
+  .undo {
+    white-space: nowrap;
   }
   .fix {
     display: flex;

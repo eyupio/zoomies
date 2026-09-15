@@ -238,6 +238,26 @@
                   {#if finding.fix}
                     <p class="finding-detail"><strong>Fix:</strong> {finding.fix}</p>
                   {/if}
+                  <!--
+                    Which layer set it, when that is not where the fix points.
+                    Told only to "change server.bind", an operator edits the
+                    configuration file -- and a value stored here or pinned by
+                    a variable is one the file cannot change, so they restart
+                    into the same complaint having learned nothing.
+                  -->
+                  {#if finding.undo}
+                    <p class="finding-detail">
+                      <strong
+                        >{finding.source === 'environment'
+                          ? 'The environment is setting this'
+                          : 'This value is stored in this fleet'}</strong
+                      >
+                      {finding.source === 'environment'
+                        ? ', and it is the last word: neither the file nor this page can change it. With the controller stopped, run'
+                        : ', so editing the configuration file will not change it. If it is stopping the controller starting, run this against the stopped controller:'}
+                      <code>{finding.undo}</code>
+                    </p>
+                  {/if}
                 </div>
               </li>
             {/each}
@@ -296,6 +316,25 @@
           {#if view === 'changed'}among the settings that have been changed{/if}
           {#if view === 'attention'}among the settings needing attention{/if}.
         </p>
+      {/if}
+
+      <!--
+        The jump. Eighty-eight settings under sixteen headings is a page nobody
+        scrolls twice, and the search box only helps somebody who already knows
+        what the setting is called -- which is the case this panel is least
+        needed for. The rail is what the operator who is looking around uses,
+        and it narrows with the filters so a section the search emptied is not
+        offered as somewhere to go.
+      -->
+      {#if sections.length > 1}
+        <nav class="jump" aria-label="Jump to a section">
+          {#each sections as section (section.name)}
+            <a href="#section-{section.name}" class="mono">
+              {section.name}
+              <span class="jump-count">{section.rows.length}</span>
+            </a>
+          {/each}
+        </nav>
       {/if}
 
       {#each sections as section (section.name)}
@@ -435,7 +474,15 @@
     color: var(--z-text-muted);
   }
 
+  /*
+    The search and the view switch stay reachable while the list scrolls. On a
+    page this long, a filter that has to be scrolled back to is one that gets
+    used once.
+  */
   .controls {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-layer-sticky);
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -443,6 +490,35 @@
     gap: var(--z-space-3);
     padding: var(--z-space-3) var(--z-space-5);
     border-bottom: var(--z-border-width) solid var(--z-border);
+    background: var(--z-surface);
+  }
+  .jump {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--z-space-2);
+    padding: var(--z-space-3) var(--z-space-5);
+    border-bottom: var(--z-border-width) solid var(--z-border);
+    background: var(--z-surface-sunken);
+  }
+  .jump a {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--z-space-1);
+    padding: var(--z-space-1) var(--z-space-2);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-sm);
+    background: var(--z-surface);
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
+    text-decoration: none;
+  }
+  .jump a:hover {
+    border-color: var(--z-accent);
+    color: var(--z-text);
+  }
+  .jump-count {
+    color: var(--z-text-subtle);
+    font-variant-numeric: tabular-nums;
   }
   .search {
     flex: 1 1 20rem;
@@ -533,6 +609,9 @@
     padding: var(--z-space-4) var(--z-space-5) var(--z-space-2);
     border-bottom: var(--z-border-width) solid var(--z-border);
     background: var(--z-surface-sunken);
+    /* Cleared by the sticky controls above, so a jump lands on the heading
+       rather than just under it. */
+    scroll-margin-top: var(--z-space-10);
   }
   h3 {
     margin: 0;
