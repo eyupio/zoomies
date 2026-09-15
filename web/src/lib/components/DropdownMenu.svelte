@@ -1,6 +1,18 @@
 <!--
   A menu button. Roving tabindex, arrow keys, Home/End, type-ahead, and Escape
   through the shared layer stack.
+
+  The list opens in the browser's top layer, as the tooltip does and for the
+  same reason: a menu on a grid's last row was cut off at the frame's edge,
+  because the scrolling frame clips what overflows it and no amount of
+  z-index gets a positioned child out of an ancestor's clip. A popover keeps
+  the list in its owner's DOM and accessibility tree -- so a click inside it
+  is still a click inside this component, and the trigger still owns it --
+  while the browser draws it over everything. It is placed against the
+  trigger every time it opens, flipped above where there is no room below,
+  kept inside the window, and let go of when the trigger scrolls out of the
+  frame it lives in: a menu floating over rows it no longer belongs to is
+  worse than one that closed.
 -->
 <script lang="ts">
   import { Ellipsis } from '@lucide/svelte';
@@ -162,6 +174,73 @@
       document.removeEventListener('mousedown', onDocument);
     };
   });
+
+  /** The gap between the trigger and the list, and the margin kept off the window's edges. */
+  const GAP = 4;
+
+  $effect(() => {
+    if (!open || !wrap || !menu) return;
+    const anchor = wrap;
+    const list = menu;
+    list.showPopover();
+
+    function position(): void {
+      const rect = anchor.getBoundingClientRect();
+      const width = document.documentElement.clientWidth;
+      const height = document.documentElement.clientHeight;
+      // Out of the window, or out of a scrolling ancestor: the trigger the
+      // menu belongs to is no longer where the menu is pointing.
+      if (rect.bottom <= 0 || rect.top >= height || rect.right <= 0 || rect.left >= width) {
+        release();
+        return;
+      }
+      for (let parent = anchor.parentElement; parent; parent = parent.parentElement) {
+        const style = getComputedStyle(parent);
+        const clip = parent.getBoundingClientRect();
+        const clipsX = /auto|scroll|hidden|clip/.test(style.overflowX);
+        const clipsY = /auto|scroll|hidden|clip/.test(style.overflowY);
+        if (
+          (clipsX && (rect.right <= clip.left || rect.left >= clip.right)) ||
+          (clipsY && (rect.bottom <= clip.top || rect.top >= clip.bottom))
+        ) {
+          release();
+          return;
+        }
+      }
+      const bounds = list.getBoundingClientRect();
+      // Below by preference, above when the window has no room for it there
+      // and more room the other way -- which is what a menu on the last row
+      // of a full page needs.
+      const below = height - rect.bottom - GAP;
+      const above = rect.top - GAP;
+      const flip = bounds.height > below && above > below;
+      const y = flip ? rect.top - GAP - bounds.height : rect.bottom + GAP;
+      const x = align === 'end' ? rect.right - bounds.width : rect.left;
+      list.style.left = `${Math.max(GAP, Math.min(x, width - bounds.width - GAP))}px`;
+      list.style.top = `${Math.max(GAP, Math.min(y, height - bounds.height - GAP))}px`;
+    }
+
+    // A scroll that takes the trigger away closes the menu, and focus goes
+    // back to the trigger only when it was inside the list: a wheel under a
+    // menu nobody was typing into should not drag the page somewhere else.
+    function release(): void {
+      close(!!list.contains(document.activeElement));
+    }
+
+    position();
+    // Capture sees scrolls from the table's own frame, not just the window.
+    document.addEventListener('scroll', position, true);
+    window.addEventListener('resize', position);
+    const observer = new ResizeObserver(position);
+    observer.observe(anchor);
+    observer.observe(list);
+    return () => {
+      observer.disconnect();
+      document.removeEventListener('scroll', position, true);
+      window.removeEventListener('resize', position);
+      if (list.matches(':popover-open')) list.hidePopover();
+    };
+  });
 </script>
 
 <div class="menu-wrap {className}" bind:this={wrap}>
@@ -196,7 +275,8 @@
     <div
       bind:this={menu}
       id="{id}-list"
-      class="menu {align}"
+      class="menu"
+      popover="manual"
       role="menu"
       aria-label={label}
       tabindex="-1"
@@ -233,11 +313,17 @@
     position: relative;
     display: inline-flex;
   }
+  /* Placed by the effect above, in the top layer, so `inset: auto` and no
+     margin: the popover's own centring would otherwise fight the coordinates
+     it is given. */
   .menu {
-    position: absolute;
-    top: calc(100% + var(--z-space-1));
+    position: fixed;
+    inset: auto;
+    margin: 0;
     z-index: var(--z-layer-dropdown);
     min-width: 190px;
+    max-height: calc(100dvh - var(--z-space-4));
+    overflow-y: auto;
     padding: var(--z-space-1);
     border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
@@ -247,12 +333,6 @@
   }
   .menu:focus {
     outline: none;
-  }
-  .menu.end {
-    right: 0;
-  }
-  .menu.start {
-    left: 0;
   }
   .item {
     display: flex;
