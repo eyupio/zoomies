@@ -209,6 +209,27 @@ func TestReconcileReportsNonZeroExitAsFailed(t *testing.T) {
 	}
 }
 
+// The entrypoint's own exit codes mean "never registered", and the container
+// log is the only place that says why. The report has to point there, because
+// the job log an operator would otherwise open does not exist.
+func TestReconcileExplainsAnEntrypointExitCode(t *testing.T) {
+	a, _, be, _ := newAgent(t, 2)
+	a.polled.Store(true)
+	track(a, "runner-1", "wl-1", true)
+	be.setWorkloads(exited("wl-1", "runner-1", 69))
+
+	reports, err := a.ReconcileOnce(context.Background())
+	if err != nil {
+		t.Fatalf("ReconcileOnce: %v", err)
+	}
+	if len(reports) != 1 || reports[0].State != store.RunnerFailed {
+		t.Fatalf("reports = %+v, want one failed", reports)
+	}
+	if !strings.Contains(reports[0].Message, "runners.docker_wait") {
+		t.Fatalf("report does not say what exit 69 means: %q", reports[0].Message)
+	}
+}
+
 func TestReconcileTreatsAStoppedRunnerAsRemoved(t *testing.T) {
 	a, _, be, _ := newAgent(t, 2)
 	a.polled.Store(true)

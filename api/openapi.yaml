@@ -4899,6 +4899,7 @@ components:
         stream_id: { type: string, description: The log relay a stream_logs or cancel_logs task concerns. }
         log_options: { $ref: "#/components/schemas/LogOptions" }
         issued_at: { type: string, format: date-time }
+        attempt: { type: integer, description: "Deliveries of this task so far, from 1. A create that cannot tell whether its runner already exists fails a first delivery promptly and leaves a redelivery for the lease. Absent from older controllers." }
     RunnerSpec:
       type: object
       description: >-

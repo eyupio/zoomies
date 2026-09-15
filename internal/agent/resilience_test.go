@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -61,8 +63,12 @@ func TestCancellingAQueuedStartupDoesNotReleaseTheActiveOne(t *testing.T) {
 	q.done(next)
 }
 
+// A redelivered create -- or one from a controller too old to say which
+// delivery it is -- may be for a runner that is mid-job behind a daemon that
+// is not answering. Silence is the only safe answer.
 func TestUnknownRunnerInventoryNeverRecreatesOrFailsTheRunner(t *testing.T) {
 	a, tr, be, _ := newAgent(t, 2)
+	a.resolveRetry = nil
 	be.listErr = backend.ErrUnavailable
 	released := false
 	task := createTask("uncertain", "existing")
@@ -86,11 +92,66 @@ func TestUnknownRunnerInventoryNeverRecreatesOrFailsTheRunner(t *testing.T) {
 	}
 }
 
+// On a first delivery no workload of the runner's can exist, so an inventory
+// the host will not give is a create that failed, and the controller should
+// hear so now rather than when the provision timeout notices five minutes on.
+func TestFirstCreateDeliveryFailsPromptlyWhenTheHostCannotBeAsked(t *testing.T) {
+	a, tr, be, _ := newAgent(t, 2)
+	a.resolveRetry = []time.Duration{0, 0}
+	be.listErr = backend.ErrUnavailable
+	task := createTask("first", "new")
+	task.Attempt = 1
+	a.handleCreate(context.Background(), task, func() {})
+	result := <-tr.results
+	if result.OK || result.RunnerID != "new" {
+		t.Fatalf("first delivery was not failed: %+v", result)
+	}
+	if !strings.Contains(result.Error, "nothing was created") {
+		t.Fatalf("failure does not say the host was left alone: %q", result.Error)
+	}
+	if created, _, removed := be.counts(); created != 0 || removed != 0 {
+		t.Fatal("an unanswered inventory changed workloads")
+	}
+	if a.runtimeRetryAt.IsZero() {
+		t.Fatal("an unavailable daemon did not open the runtime hold")
+	}
+}
+
+// A daemon that missed one call answers the next; a create should ask again
+// before deciding anything, because every other outcome costs a runner.
+func TestCreateRetriesTheInventoryBeforeGivingUp(t *testing.T) {
+	a, tr, be, _ := newAgent(t, 2)
+	a.resolveRetry = []time.Duration{0, 0, 0}
+	be.listErr = backend.ErrUnavailable
+	be.listErrAfter = 2
+	task := createTask("retry", "new")
+	task.Attempt = 1
+	a.handleCreate(context.Background(), task, func() {})
+	result := <-tr.results
+	if !result.OK {
+		t.Fatalf("create did not recover once the daemon answered: %+v", result)
+	}
+	if created, _, _ := be.counts(); created != 1 {
+		t.Fatalf("created %d runners, want 1", created)
+	}
+	if !a.runtimeRetryAt.IsZero() {
+		t.Fatal("a create that succeeded left the runtime hold open")
+	}
+}
+
 func TestRuntimeCooldownIsBoundedAndClearsOnSuccess(t *testing.T) {
 	a, _, _, clock := newAgent(t, 2)
 	a.runtimeResult(errors.New("bad pool configuration"))
 	if !a.runtimeRetryAt.IsZero() {
 		t.Fatal("configuration failure held the whole host")
+	}
+	// A pull that outran the create budget is slow, not a broken runtime;
+	// holding every start behind it would turn one slow image into a stalled
+	// host.
+	a.runtimeResult(fmt.Errorf("backend: pulling image: %w", context.DeadlineExceeded))
+	a.runtimeResult(context.Canceled)
+	if !a.runtimeRetryAt.IsZero() {
+		t.Fatal("an expired caller budget held the whole host")
 	}
 	for range 10 {
 		a.runtimeResult(backend.ErrUnavailable)

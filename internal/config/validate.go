@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 )
@@ -43,6 +45,35 @@ const MaxQuietHeartbeatInterval = HostLostAfter / 2
 // euid is os.Geteuid, replaceable so a test can ask what a root process would
 // be told without being one.
 var euid = os.Geteuid
+
+// MaxDockerWait is the longest runners.docker_wait the runner image accepts.
+// The entrypoint refuses anything past 3600 seconds, and a value it refuses
+// starts no runner.
+const MaxDockerWait = time.Hour
+
+// ReservedRunnerEnv is the environment the controller writes for each runner
+// individually: its identity and its credentials. runners.env may not name
+// them, because one value for the whole fleet is wrong for every runner in
+// it. The names are the runner image's contract, spelled out in
+// deploy/runner-entrypoint.sh and internal/backend, which this package cannot
+// import; a test in internal/backend keeps the two lists the same.
+var ReservedRunnerEnv = []string{
+	"ZOOMIES_JITCONFIG", "ACTIONS_RUNNER_INPUT_JITCONFIG",
+	"ZOOMIES_RUNNER_URL", "ZOOMIES_RUNNER_TOKEN", "ZOOMIES_RUNNER_NAME",
+	"ZOOMIES_RUNNER_LABELS", "ZOOMIES_RUNNER_GROUP", "ZOOMIES_EPHEMERAL",
+}
+
+// reservedRunnerEnv returns the reserved names env sets, sorted.
+func reservedRunnerEnv(env map[string]string) []string {
+	var out []string
+	for k := range env {
+		if slices.Contains(ReservedRunnerEnv, strings.ToUpper(strings.TrimSpace(k))) {
+			out = append(out, k)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
 
 // runsAgent reports whether this process runs runners itself: as the embedded
 // agent inside a controller, or as a standalone agent joined to one. The
@@ -603,6 +634,27 @@ func (c *Config) Validate() Findings {
 			Fix:    fmt.Sprintf("keep agent.heartbeat_interval at %s or less.", MaxQuietHeartbeatInterval),
 		})
 	}
+	// --- Runners ----------------------------------------------------------
+	if c.Runners.DockerWait < 0 || c.Runners.DockerWait > MaxDockerWait {
+		// The runner image refuses anything outside 1..3600 seconds with a
+		// configuration exit, so a value it would refuse is a fleet whose
+		// every Docker pool fails to start a runner. Say so here instead.
+		add(Finding{
+			Code: "runners.docker_wait", Severity: SeverityError, Setting: "runners.docker_wait",
+			Title:  fmt.Sprintf("runners.docker_wait is %s, which the runner image refuses", c.Runners.DockerWait),
+			Detail: "the runner entrypoint accepts a wait of one second to one hour, and exits with a configuration error for anything else, so no runner on a Docker pool would take a job.",
+			Fix:    "set runners.docker_wait to between 1s and 1h, e.g. 2m, or 0s to leave the image's own default.",
+		})
+	}
+	if reserved := reservedRunnerEnv(c.Runners.Env); len(reserved) > 0 {
+		add(Finding{
+			Code: "runners.env_reserved", Severity: SeverityError, Setting: "runners.env",
+			Title:  fmt.Sprintf("runners.env sets %s, which the runner contract owns", strings.Join(reserved, ", ")),
+			Detail: "those variables carry each runner's own name, credentials and labels, written by the controller for that runner alone; one value for every runner would register them all as the same runner, or none at all.",
+			Fix:    "remove them from runners.env. The runner's name, labels, group and credentials come from its pool.",
+		})
+	}
+
 	if !c.runsAgent() {
 		add(Finding{
 			Code: "agent.none", Severity: SeverityInfo, Setting: "agent.embedded",

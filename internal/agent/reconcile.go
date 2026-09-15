@@ -220,9 +220,30 @@ func terminalOutcome(r tracked, s backend.Status) (store.RunnerState, string) {
 		msg := fmt.Sprintf("runner exited with code %d", s.ExitCode)
 		if s.Message != "" {
 			msg += ": " + s.Message
+		} else if hint := entrypointExitHint(s.ExitCode); hint != "" {
+			msg += ": " + hint
 		}
 		return store.RunnerFailed, msg
 	}
+}
+
+// entrypointExitHint says what a runner image's entrypoint meant by an exit
+// code of its own. The codes are sysexits.h values the entrypoint reserves --
+// actions/runner itself exits 0 to 5 -- and each one is a runner that never
+// took a job, so the container's log is short and says exactly what was
+// wrong. A bare "exited with code 69" sent operators to GitHub's job log
+// instead, where there is nothing, because the runner never registered.
+func entrypointExitHint(code int) string {
+	switch code {
+	case 64:
+		return "the image was started with no credentials, so the entrypoint could not register a runner; read the container's log"
+	case 69:
+		return "the pool's Docker daemon never became ready, so the entrypoint refused to take a job it could not run; " +
+			"read the container's log, and on a slow host raise runners.docker_wait on the Settings page to allow the daemon longer"
+	case 78:
+		return "the entrypoint refused its configuration; read the container's log for the setting it named"
+	}
+	return ""
 }
 
 // cleanUp deletes a finished runner's workload from the host once nothing needs
