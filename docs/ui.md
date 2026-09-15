@@ -1,7 +1,8 @@
 ---
 description: >-
   A tour of the Zoomies web UI page by page: the Overview, pools, runners,
-  jobs, hosts, the migration wizard and settings, light and dark.
+  jobs, hosts, providers and the machines they rent, the migration wizard and
+  settings, light and dark.
 ---
 
 # The UI
@@ -234,85 +235,61 @@ the machine, held back for the daemon whatever the operator sets.
 ## Providers
 
 Where machines come from. A provider is one place Zoomies may rent a machine —
-a hypervisor, today [Proxmox VE](proxmox.md) — and each card says what that one
-is renting now: how many machines it holds against the ceiling it may not pass,
-the shape it builds, and, in the controller's own sentence, why no new machine
-may be bought this moment. A new provider starts at a ceiling of zero and rents
+a hypervisor, today [Proxmox VE](proxmox.md) — and its card leads with what is
+being spent: the machines it holds against the ceiling it may not pass, the
+shape it builds, and, in the controller's own sentence, why no new machine may
+be bought this moment. A new provider starts at a ceiling of zero and rents
 nothing, so turning a provider on and saying how much of it you are willing to
-pay for are the same act. The badges are the facts worth seeing from a list:
-which hypervisor it is, whether a credential is stored, whether it is paused,
-and whether this controller has been told not to verify its certificate.
-*Check* runs the preflight against the real provider — read-only there, audited
-here — and a provider nobody has ever checked says so rather than looking
-healthy. Under the cards is every machine across every provider, narrowed by
-state from a filter that lives in the URL, so a link to one part of the
-lifecycle is a link somebody else can open.
+pay for are the same act. *Check* runs the preflight against the real provider
+— read-only there, audited here — and a provider nobody has ever checked says
+so rather than looking healthy. Under the cards is every machine across every
+provider, narrowed by a state filter that lives in the URL, so a link to one
+part of the lifecycle is a link somebody else can open.
 
-Adding one is five steps: where it is and how we sign in, where a machine is
-built, what shape it is, what it may spend, and what the controller makes of
-it. The first step opens with what the driver needs you to have done first —
-for Proxmox, the API token, the template and the block of VMIDs — each with
-the commands that make it and a copy button, because every one of those is
-done somewhere other than this form. Every box carries a help icon saying where
-in the provider's own console its answer is found. Once the address and the
-credential are in, the form asks the provider what that credential can see, and
-the placement step offers nodes, storages, bridges and templates as menus,
-choosing anything that has only one answer; when the provider cannot be asked
-yet, the boxes take typed identifiers and the check after saving confirms them.
-The placement step is drawn from the settings the API serves for the chosen
-driver rather than written into the page, so a driver that gains a setting
-gains a question here, with the driver's own help text and its own note of what
-choosing it costs; the settings it marks advanced sit behind a disclosure, so
-the questions every deployment has to answer are the ones on the page and the
-rest is one press away. The review step also shows the whole provider as the
-one `zoomies providers add` line it would be in a terminal, with a copy button,
-for a setup somebody would rather keep in a script. From that step on, the draft is sent to the controller
-for a verdict as it is typed: rejections and warnings appear next to the answer
-that caused them, named in the words the form uses, while there is still a
-reason to change it. Nothing is
-created by any of that. The credential is sealed as it is stored and never
-comes back, so editing a provider shows an empty credential box and leaving it
-empty keeps the stored one.
+![The Providers page: machines owned against the ceiling that may not be passed, the lifecycle band from planned to draining with the switch that pauses new machines beside it, and the card for the one provider this fleet rents from](screenshots/providers-dark.webp#only-dark){ .zoomies-shot }
+![The Providers page: machines owned against the ceiling that may not be passed, the lifecycle band from planned to draining with the switch that pauses new machines beside it, and the card for the one provider this fleet rents from](screenshots/providers-light.webp#only-light){ .zoomies-shot }
 
-A provider's own page asks three questions in order — what is it running, what
-did we tell it to do, and what does not add up — and the third is the orphan
-review. It has three sections: resources at the provider wearing this fleet's
-naming that no machine of ours accounts for, machines that hold no resource,
-and machines nothing has confirmed are ours. **Nothing here deletes anything.**
-The review is a review: it names what was found and where to look, and its one
-button forgets a row Zoomies holds without touching the resource behind it. A
-resource we cannot prove is ours may be somebody's hand-made VM that happens to
-be named like ours, and destroying that is the one mistake that cannot be
-undone. The sweep behind the list is the expensive part of answering, so it is
-run when the tab is opened and not before, and the whole tab needs the
-administrator role.
+Adding one is five steps — where it is and how we sign in, where a machine is
+built, what shape it is, what it may spend, and what the controller makes of it
+— and none of them creates anything: the draft is sent to the controller for a
+verdict as it is typed, so a rejection appears beside the answer that caused it
+while there is still a reason to change it. [Adding a Proxmox
+provider](proxmox.md#the-provider) walks through the form. The credential is
+sealed as it is stored and never comes back, so editing a provider shows an
+empty credential box and leaving it empty keeps the stored one.
+
+A provider's own page ends on the orphan review: resources at the provider
+wearing this fleet's naming that no machine of ours accounts for, machines that
+hold no resource, and machines nothing has confirmed are ours. **Nothing there
+deletes anything.** Its one button forgets a row Zoomies holds and leaves the
+resource behind it alone, because something we cannot prove is ours may be
+somebody's hand-made VM that happens to be named like ours, and destroying that
+is the one mistake that cannot be undone. The sweep behind the list is the
+expensive part of answering, so it runs when the tab is opened and not before,
+and the whole tab needs the administrator role.
 
 A machine's page is written for the ten minutes when something is taking longer
-than it should. It says where the machine is at the provider, which pool's
-unmet demand asked for it, whether anything has confirmed it is ours, and
-whether a delete would be safe as far as the row can tell. Its timeline is one
-row per phase the machine actually reached — planned, creating, created,
-powering on, agent installed, enrolled, ready — with how long each took and the
-last row still counting while the machine is on its way, because a clone that
-never finished and a guest that cloned and never enrolled are faults in
+than it should. Its timeline is one row per phase the machine actually reached,
+the last row still counting while the machine is on its way, because a clone
+that never finished and a guest that cloned and never enrolled are faults in
 different systems. While an operation is in flight the page carries the
 provider's own handle for it, to paste into the hypervisor's task log and read
 the other half of the story, and it keeps the provider's complaint and the
 guest's separately, so a success at one does not erase the other's.
 
-The Hosts page carries the same machines above the hosts they become, because
-an operator short of hosts is asking whether more are on their way. The band is
-the lifecycle in order — planned through draining — with how many machines are
-at each step and a link into each, and draining points back at ready, because
-work returning takes a draining machine back rather than paying for a new one.
-The switch beside it stops new machines being bought across every provider. It
-is the only control there on purpose: it survives a restart, and it holds
-nothing else back — a drain finishes, a delete completes, and a machine already
-being built is still followed to wherever it ends up — so pressing it during an
-incident stops the spending without stranding a VM. A host Zoomies rented says
-so on its card, naming the provider and the resource behind it, and its remove
-action sends you to delete the machine instead: removing the host here would
-leave the machine running, and on the bill.
+![A machine's page: where it is at the provider, which pool's unmet demand asked for it, whether a delete would be safe, and a timeline of the phases it has reached with the last one still counting](screenshots/machine-dark.webp#only-dark){ .zoomies-shot }
+![A machine's page: where it is at the provider, which pool's unmet demand asked for it, whether a delete would be safe, and a timeline of the phases it has reached with the last one still counting](screenshots/machine-light.webp#only-light){ .zoomies-shot }
+
+The same lifecycle band sits on the Hosts page, above the hosts these machines
+become, because an operator short of hosts is asking whether more are on their
+way. The switch beside it stops new machines being bought across every
+provider, and it is the only control there on purpose: it survives a restart,
+and it holds nothing else back — a drain finishes, a delete completes, and a
+machine already being built is still followed to wherever it ends up — so
+pressing it during an incident stops the spending without stranding a VM. A
+host Zoomies rented says so on its card, and its remove action sends you to
+delete the machine instead: removing the host here would leave the machine
+running, and on the bill.
 
 There is no way to make a machine by hand, here or anywhere else. A machine
 exists because a pool had queued work and nowhere to put it, and a second

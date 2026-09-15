@@ -173,14 +173,19 @@ are disposable, which is what makes that cheap.
 **Providers → Add provider → Proxmox VE**. The form opens with a *Before you
 start* panel — the token, the template, the VMID block, each with the commands
 that make it — and every box has a help icon saying where in the Proxmox
-console its answer is found. Once the address and the token are in, the form
-asks the cluster what that token can see: the nodes, storages, bridges and
-templates come from the cluster as a menu, not from a text box, anything with
-one answer is filled in, and the consequence of each choice is shown before
-you commit to it. If the cluster cannot be asked yet, the boxes take typed
-identifiers and the check after saving confirms them. The review step shows
-the same provider as the one `zoomies providers add` line it would be in a
-terminal, for a setup you would rather keep in a script.
+console its answer is found.
+
+![The first step of the provider wizard: the five steps down the side, and the Before you start panel naming the cluster, the API token and the template, with the pveum commands that create the token and a button to copy them](screenshots/provider-wizard-dark.webp#only-dark){ .zoomies-shot }
+![The first step of the provider wizard: the five steps down the side, and the Before you start panel naming the cluster, the API token and the template, with the pveum commands that create the token and a button to copy them](screenshots/provider-wizard-light.webp#only-light){ .zoomies-shot }
+
+Once the address and the token are in, the form asks the cluster what that
+token can see: the nodes, storages, bridges and templates come from the cluster
+as a menu, not from a text box, anything with one answer is filled in, and the
+consequence of each choice is shown before you commit to it. If the cluster
+cannot be asked yet, the boxes take typed identifiers and the check after
+saving confirms them. The review step shows the same provider as the one
+`zoomies providers add` line it would be in a terminal, for a setup you would
+rather keep in a script.
 
 | Setting | What it means |
 | --- | --- |

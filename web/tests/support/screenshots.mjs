@@ -50,6 +50,9 @@ const SETTLE_MS = 750;
 const FIXTURE = {
   linuxPool: 'pool_demolinux',
   busyRunner: 'run_demo00',
+  // The machine still on its way, rather than the one that finished: a
+  // timeline whose last row is still counting is what that page is for.
+  buildingMachine: 'mach_demo02',
   installationID: 7654321,
   org: 'acme',
   webhookSecret: 'demo-webhook-secret',
@@ -155,6 +158,8 @@ const SHOTS = [
   },
   { name: 'usage', path: '/usage', heading: 'Usage' },
   { name: 'hosts', path: '/hosts', heading: 'Hosts' },
+  { name: 'providers', path: '/providers', heading: 'Providers' },
+  { name: 'machine', path: `/machines/${FIXTURE.buildingMachine}` },
   { name: 'installations', path: '/installations', heading: 'Installations' },
   {
     name: 'migrate',
@@ -189,6 +194,16 @@ const SHOTS = [
     name: 'add-host',
     path: '/hosts/new',
     heading: 'Add a host',
+  },
+  {
+    // The first step, which opens on what the driver needs you to have done
+    // before the form is any use -- the token, the template, the block of
+    // VMIDs, each with the commands that make it. Nothing is typed: a
+    // screenshot of a half-filled form teaches the answers rather than the
+    // questions.
+    name: 'provider-wizard',
+    path: '/providers/new',
+    heading: 'Add a provider',
   },
   {
     name: 'private-host',
