@@ -20,6 +20,7 @@
 <script lang="ts">
   import { Lock, RotateCcw, Search, TriangleAlert } from '@lucide/svelte';
   import { getSettings, updateSettings, ApiError } from '$lib/api/client';
+  import { session } from '$lib/state/session.svelte';
   import type { Problem, Setting, Settings } from '$lib/api/types';
   import { severityStatus } from '$lib/status';
   import { toasts } from '$lib/state/toasts.svelte';
@@ -148,6 +149,8 @@
     try {
       const result = await updateSettings({ [key]: value } as Record<string, unknown>);
       settings = result;
+      // Some of what changed is also what every page reads from /meta.
+      void session.reloadMeta();
       const now = result.settings?.find((s) => s.key === key);
       if (value === null) {
         toasts.success(`${key} reset`, 'It is back to the configuration file or the default.');

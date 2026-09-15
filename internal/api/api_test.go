@@ -1282,3 +1282,60 @@ func TestMetaSaysWhetherTheFallbackPollerIsRunning(t *testing.T) {
 		t.Errorf("a controller that has not swept reported a last poll: %v", out.PollerLastPollAt)
 	}
 }
+
+// The capacity map's layouts are settings, and every browser reads them from
+// /meta rather than from the settings route only an administrator may see.
+// The two are live, so the answer moves in the same request that changed it,
+// and the two pages move separately: a fleet may want the Overview glanced
+// at as one chart and the Hosts page opened a chart per machine.
+func TestMetaCarriesTheCapacityMapLayoutsAndAChangeIsLive(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("root", store.RoleAdmin)
+	cookie := h.session(admin)
+
+	read := func() (overview, hosts string) {
+		t.Helper()
+		resp := h.do(request{method: http.MethodGet, path: "/api/v1/meta"})
+		resp.mustStatus(t, http.StatusOK, "meta")
+		var out struct {
+			CapacityMap struct {
+				Overview string `json:"overview_layout"`
+				Hosts    string `json:"hosts_layout"`
+			} `json:"capacity_map"`
+		}
+		resp.into(t, &out)
+		return out.CapacityMap.Overview, out.CapacityMap.Hosts
+	}
+	if o, hl := read(); o != "overlay" || hl != "overlay" {
+		t.Fatalf("the defaults are %q and %q, want overlay for both", o, hl)
+	}
+
+	patched := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
+		body: map[string]any{"ui.capacity_map.hosts_layout": "split"}})
+	patched.mustStatus(t, http.StatusOK, "patch the hosts layout")
+	if o, hl := read(); o != "overlay" || hl != "split" {
+		t.Errorf("after setting the hosts layout, meta says %q and %q; want overlay and split", o, hl)
+	}
+	// It is stored, so the next start reads it from the database rather than
+	// forgetting what the administrator chose.
+	if row, err := h.ctrl.Store().GetInstanceSetting(t.Context(), "ui.capacity_map.hosts_layout"); err != nil {
+		t.Errorf("the layout was not written: %v", err)
+	} else if row.Value != "split" {
+		t.Errorf("stored %q, want split", row.Value)
+	}
+
+	// A layout that is not one of the two is refused, and the refusal names
+	// the two, because "not a capacity map layout" alone sends somebody to
+	// the documentation for a menu of two items.
+	refused := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
+		body: map[string]any{"ui.capacity_map.overview_layout": "sideways"}})
+	refused.mustStatus(t, http.StatusUnprocessableEntity, "a layout that does not exist")
+	for _, want := range []string{"overlay", "split"} {
+		if !strings.Contains(string(refused.body), want) {
+			t.Errorf("the refusal does not offer %q: %s", want, refused.body)
+		}
+	}
+	if o, _ := read(); o != "overlay" {
+		t.Errorf("a refused change moved the overview layout to %q", o)
+	}
+}

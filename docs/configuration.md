@@ -267,6 +267,11 @@ provider:
   idle_timeout: 15m             # ZOOMIES_PROVIDER_IDLE_TIMEOUT
   scale_down_cooldown: 15m      # ZOOMIES_PROVIDER_SCALE_DOWN_COOLDOWN    -- at least one idle_timeout, or the fleet churns
   delete_grace: 10m             # ZOOMIES_PROVIDER_DELETE_GRACE           -- after a machine's host goes silent
+
+ui:
+  capacity_map:
+    overview_layout: overlay    # ZOOMIES_UI_CAPACITY_MAP_OVERVIEW_LAYOUT -- overlay | split; what the Overview's map opens with
+    hosts_layout: overlay       # ZOOMIES_UI_CAPACITY_MAP_HOSTS_LAYOUT    -- the same for the Hosts page, separately
 ```
 
 ---
@@ -453,6 +458,21 @@ settings page reports rather than refusing the edit.
 | `server.tls.mode` | `ZOOMIES_TLS_MODE` | next restart | TLS mode — How the listener terminates TLS: off behind a reverse proxy, self-signed for a generated certificate, files for one of your own. |
 | `server.trusted_proxies` | `ZOOMIES_TRUSTED_PROXIES` | next restart | Trusted proxies — CIDRs whose X-Forwarded-For header is believed, or the word cloudflare for Cloudflare's published ranges. Empty takes client addresses from the socket, which is the safe answer. |
 | `server.write_timeout` | `ZOOMIES_WRITE_TIMEOUT` | next restart | Write timeout — How long a response may take. It is 0, and should stay 0: the event stream and a followed log are responses that never end. |
+
+### `ui`
+
+What the web UI opens with. Each of these is a starting point: the page
+itself lets an operator pick the other answer, and remembers the pick in that
+browser, so what is set here is what somebody who has never chosen sees. The
+two pages that carry the capacity map are set separately, because they are
+opened for different reasons — the Overview to glance at a fleet, the Hosts
+page to look into a machine — and a fleet may want each to open on its own
+answer.
+
+| Key | Environment | Takes effect | What it is |
+| --- | --- | --- | --- |
+| `ui.capacity_map.hosts_layout` | `ZOOMIES_UI_CAPACITY_MAP_HOSTS_LAYOUT` | at once | Hosts capacity map layout — The same choice for the map on the Hosts page, which can open differently from the Overview's: split suits the page a machine is looked into on, overlay the page a fleet is glanced at. |
+| `ui.capacity_map.overview_layout` | `ZOOMIES_UI_CAPACITY_MAP_OVERVIEW_LAYOUT` | at once | Overview capacity map layout — How the host capacity map on the Overview opens: overlay draws every host on one chart, split draws a chart for each. An operator who picks the other one on the page keeps their pick in that browser. |
 
 ### `updates`
 

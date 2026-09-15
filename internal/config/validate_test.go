@@ -626,3 +626,56 @@ func TestThePauseSaysSoWithoutBeingAProblem(t *testing.T) {
 		}
 	}
 }
+
+// The capacity map's layouts are the one enum a file can get wrong that the
+// settings page never could: the page offers a menu, and the API and the
+// environment refuse anything off it. A file is read as it is, so a misspelt
+// layout is caught by the validator, named after the key it sits in, and
+// stops startup the way a misspelt log level does -- a controller running on
+// a value it silently replaced is the thing this design exists to prevent.
+func TestACapacityMapLayoutTheFileGetsWrongIsAFinding(t *testing.T) {
+	layoutFindings := func(c *Config) Findings {
+		var out Findings
+		for _, f := range c.Validate() {
+			if f.Code == "ui.capacity_map.layout" {
+				out = append(out, f)
+			}
+		}
+		return out
+	}
+	c := Default()
+	if got := layoutFindings(c); len(got) != 0 {
+		t.Fatalf("the defaults raise %d layout findings: %+v", len(got), got)
+	}
+	c.UI.CapacityMap.HostsLayout = "sideways"
+	found := layoutFindings(c)
+	if len(found) != 1 {
+		t.Fatalf("expected one finding for a bad layout, got %d: %+v", len(found), found)
+	}
+	if found[0].Severity != SeverityError || found[0].Setting != "ui.capacity_map.hosts_layout" {
+		t.Errorf("the finding is %s about %q; want an error about ui.capacity_map.hosts_layout", found[0].Severity, found[0].Setting)
+	}
+	for _, want := range []string{"sideways", "overlay", "split"} {
+		if !strings.Contains(found[0].Title+" "+found[0].Fix, want) {
+			t.Errorf("the finding does not mention %q: %+v", want, found[0])
+		}
+	}
+
+	// The same value through the settings path is refused before it lands,
+	// and the refusal says what the choices are.
+	if _, err := c.SetValueString("ui.capacity_map.overview_layout", "sideways"); err == nil {
+		t.Fatal("a nonsense layout was accepted by the settings path")
+	} else if !strings.Contains(err.Error(), "overlay") || !strings.Contains(err.Error(), "split") {
+		t.Errorf("the refusal does not name the choices: %v", err)
+	}
+	if _, err := c.SetValueString("ui.capacity_map.overview_layout", "Split"); err != nil {
+		t.Fatalf("a layout in the wrong case was refused: %v", err)
+	}
+	if c.UI.CapacityMap.OverviewLayout != CapacityLayoutSplit {
+		t.Errorf("the overview layout is %q after setting split", c.UI.CapacityMap.OverviewLayout)
+	}
+	// The two pages are set separately: one moving leaves the other alone.
+	if c.UI.CapacityMap.HostsLayout != "sideways" {
+		t.Errorf("setting the overview layout changed the hosts layout to %q", c.UI.CapacityMap.HostsLayout)
+	}
+}

@@ -144,6 +144,7 @@ than about what any one setting says.
 | `log.level` | error | `log.level` | Not a level. They are `debug`, `info`, `warn` and `error`. |
 | `log.format` | error | `log.format` | Not a format. They are `text` and `json`. |
 | `log.debug` | info | `log.level` | Debug logging is on, which is loud and includes request detail. |
+| `ui.capacity_map.layout` | error | `ui.capacity_map.overview_layout`, `ui.capacity_map.hosts_layout` | Not a layout the host capacity map can open in. They are `overlay`, every host on one chart, and `split`, a chart for each. |
 
 ## Configuration: infrastructure providers
 

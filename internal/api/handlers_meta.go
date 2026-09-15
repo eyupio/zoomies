@@ -47,6 +47,18 @@ type metaResponse struct {
 	// asks it so that a build with no drivers does not offer a page whose
 	// every button would refuse.
 	ProvidersAvailable bool `json:"providers_available"`
+	// CapacityMap is how the host capacity map opens on each page that
+	// carries it, as the fleet's settings say. It is here rather than on the
+	// settings route because every operator's browser needs it and only an
+	// administrator may read the settings; a chart layout tells an
+	// unauthenticated visitor nothing they could act on.
+	CapacityMap capacityMapDefaults `json:"capacity_map"`
+}
+
+// capacityMapDefaults carries ui.capacity_map.* to the browser.
+type capacityMapDefaults struct {
+	OverviewLayout string `json:"overview_layout"`
+	HostsLayout    string `json:"hosts_layout"`
 }
 
 // handleMeta answers GET /api/v1/meta.
@@ -70,6 +82,10 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		PollerEnabled:               s.ctrl.PollerEnabled(),
 		WorkflowCancellationEnabled: s.cfg().GitHub.AllowWorkflowCancellation,
 		ProvidersAvailable:          s.ctrl.ProvidersAvailable(),
+		CapacityMap: capacityMapDefaults{
+			OverviewLayout: s.cfg().UI.CapacityMap.OverviewLayout,
+			HostsLayout:    s.cfg().UI.CapacityMap.HostsLayout,
+		},
 	}
 	if last := s.ctrl.LastPollAt(); !last.IsZero() {
 		out.PollerLastPollAt = &last

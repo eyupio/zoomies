@@ -2061,7 +2061,17 @@ export interface components {
              * @description When the fallback poller last completed a sweep
              */
             poller_last_poll_at?: string | null;
+            /** @description How the host capacity map opens on each page that carries it, from ui.capacity_map.* in the fleet's settings. An operator who picks the other layout on the page keeps that pick in their browser; this is what somebody who has never chosen sees. */
+            capacity_map?: {
+                overview_layout?: components["schemas"]["CapacityMapLayout"];
+                hosts_layout?: components["schemas"]["CapacityMapLayout"];
+            };
         };
+        /**
+         * @description overlay draws every host on one chart; split draws a chart for each.
+         * @enum {string}
+         */
+        CapacityMapLayout: "overlay" | "split";
         Stats: {
             /**
              * @description The window these counts cover

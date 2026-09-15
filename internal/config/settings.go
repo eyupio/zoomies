@@ -712,6 +712,23 @@ var registry = buildRegistry([]Setting{
 		Summary:       "How long a machine whose host has gone silent is left alone before it is treated as lost. It has to outlast the controller's own judgement that a host is gone, or a network blip would destroy a machine in the middle of a job.",
 		RestartReason: "a grace period already being counted was started against the old value",
 	},
+
+	// ---------------------------------------------------------------------
+	// ui -- what the web UI opens with. Each is a starting point an operator
+	// moves away from on the page itself, which then remembers the move in
+	// that browser; what is set here is what somebody who has never chosen
+	// sees.
+	// ---------------------------------------------------------------------
+	{
+		Key: "ui.capacity_map.overview_layout", Label: "Overview capacity map layout", Env: "ZOOMIES_UI_CAPACITY_MAP_OVERVIEW_LAYOUT", Kind: KindEnum, Scope: ScopeInstance, Live: true,
+		Choices: CapacityLayouts,
+		Summary: "How the host capacity map on the Overview opens: overlay draws every host on one chart, split draws a chart for each. An operator who picks the other one on the page keeps their pick in that browser.",
+	},
+	{
+		Key: "ui.capacity_map.hosts_layout", Label: "Hosts capacity map layout", Env: "ZOOMIES_UI_CAPACITY_MAP_HOSTS_LAYOUT", Kind: KindEnum, Scope: ScopeInstance, Live: true,
+		Choices: CapacityLayouts,
+		Summary: "The same choice for the map on the Hosts page, which can open differently from the Overview's: split suits the page a machine is looked into on, overlay the page a fleet is glanced at.",
+	},
 })
 
 // unregistered names the Config fields that deliberately have no row above, so
@@ -778,7 +795,7 @@ func StoredSettings() []Setting {
 var SectionOrder = []string{
 	"server", "database", "security", "github", "agent", "runners", "scheduler",
 	"log", "oidc", "metrics", "retention", "images", "updates", "capacity_demand",
-	"provider",
+	"provider", "ui",
 }
 
 // CompareKeys orders two dotted keys by section first and then alphabetically,

@@ -43,6 +43,7 @@ type Config struct {
 	Updates        Updates        `yaml:"updates"`
 	CapacityDemand CapacityDemand `yaml:"capacity_demand"`
 	Provider       Provider       `yaml:"provider"`
+	UI             UI             `yaml:"ui"`
 
 	// path records where this config was read from, for error messages.
 	path string `yaml:"-"`
@@ -73,6 +74,39 @@ type Images struct {
 	// or one that pins every pool to a digest wants.
 	RefreshInterval time.Duration `yaml:"refresh_interval"`
 }
+
+// UI holds what the web UI opens with. Nothing here changes what the fleet
+// does; it changes what an operator sees first. Every one of these is a
+// starting point the page itself lets an operator move away from, and the
+// page remembers the move in that browser -- so what is set here is what
+// somebody who has never chosen sees, on every screen they open it on.
+type UI struct {
+	CapacityMap CapacityMap `yaml:"capacity_map"`
+}
+
+// CapacityMap is how the host capacity map first draws itself on each of the
+// two pages that carry it. The two are separate on purpose: the Overview is
+// glanced at, where every host on one chart answers "which machine is busy",
+// and the Hosts page is where one machine gets looked into, where a chart per
+// host answers "what has it been doing" -- and a fleet may want each page to
+// open on its own answer.
+type CapacityMap struct {
+	// OverviewLayout is the layout the Overview's map opens with: overlay,
+	// every host on one chart, or split, a chart for each.
+	OverviewLayout string `yaml:"overview_layout"`
+	// HostsLayout is the same choice for the Hosts page.
+	HostsLayout string `yaml:"hosts_layout"`
+}
+
+// The capacity map's layouts, as the settings and the UI name them.
+const (
+	CapacityLayoutOverlay = "overlay"
+	CapacityLayoutSplit   = "split"
+)
+
+// CapacityLayouts lists the layouts the map can open in, in the order the
+// settings page offers them.
+var CapacityLayouts = []string{CapacityLayoutOverlay, CapacityLayoutSplit}
 
 // Updates controls whether this controller asks github.com which release of
 // Zoomies is current, so that being out of date is something the UI says rather
@@ -563,6 +597,13 @@ func Default() *Config {
 			ScaleDownCooldown:  15 * time.Minute,
 			DeleteGrace:        10 * time.Minute,
 		},
+		// Every host on one chart, on both pages: it is the layout that reads
+		// a small fleet at a glance, and a fleet large enough to want the
+		// other one is a fleet whose administrator has been to the settings.
+		UI: UI{CapacityMap: CapacityMap{
+			OverviewLayout: CapacityLayoutOverlay,
+			HostsLayout:    CapacityLayoutOverlay,
+		}},
 	}
 }
 

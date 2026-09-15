@@ -135,6 +135,7 @@
          "Manage" goes there. -->
     {#if fleet.loaded}<HostCapacityMap
         hosts={fleet.hosts}
+        page="overview"
         onmanage={() => navigate('/hosts')}
       />{/if}
     <RecentOutcomes />
