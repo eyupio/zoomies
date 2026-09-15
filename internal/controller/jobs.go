@@ -352,12 +352,6 @@ func (c *Controller) noteRunnerLost(ctx context.Context, before *store.Runner, s
 // The problems panel carries the scale; the timeline carries the news.
 const startFailureFanout = 20
 
-// startFailureWindow is how far back a pool's failed starts are counted when
-// answering "why is my job still queued". It matches the problems panel's own
-// window, so the drawer and the panel cannot disagree about whether a pool is
-// having a bad hour.
-const startFailureWindow = time.Hour
-
 // noteRunnerStartFailure tells the jobs waiting on a pool that a runner meant
 // for work like theirs died before it could take any.
 //

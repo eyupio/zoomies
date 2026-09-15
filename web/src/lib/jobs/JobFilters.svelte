@@ -45,6 +45,7 @@
     until: '',
     unmatched: false,
     failed: false,
+    faulted: false,
     all: false,
   };
 </script>
