@@ -368,11 +368,11 @@ Read-only monitoring from a phone is a stated requirement, so it is tested. The
 navigation moves to the bottom edge, the tiles stack, and everything still
 updates in place.
 
-Every grid gives each row a card, with each value on a line of its own, so
-nothing is cut off in 400-odd pixels. If you would rather scan one line per
-runner, the **Cards / Rows** toggle above each grid switches that grid to the
-table, which scrolls sideways inside its own frame to the columns that do not
-fit; **Settings → Appearance** sets which of the two every grid starts in.
+Every grid stays the table it is on a desktop — one line per runner, scrolling
+sideways inside its own frame to the columns that do not fit, never taking the
+page with it. If you would rather read a row downwards, the **Cards / Rows**
+toggle above each grid gives every value a line of its own, with nothing cut
+off; **Settings → Appearance** sets which of the two every grid starts in.
 
 ![The Overview: four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words](screenshots/overview-phone-dark.webp#only-dark){ .zoomies-shot .zoomies-phone }
 ![The Overview: four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words](screenshots/overview-phone-light.webp#only-light){ .zoomies-shot .zoomies-phone }

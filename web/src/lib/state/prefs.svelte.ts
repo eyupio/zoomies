@@ -52,16 +52,21 @@ export interface GridPrefs {
 /**
  * How a grid lays a row out on a phone.
  *
- * `cards` gives each row a card and each value a line of its own, which is what
- * makes ten columns readable in 360 pixels. `rows` keeps the table: one line per
- * row, the columns at the widths they declare, and the frame scrolling sideways
- * to reach the ones that do not fit. Scanning a fleet for the one busy runner is
- * what that is good at, and it is the layout this grid had before the cards --
- * so it stays on offer rather than being decided for everybody.
+ * `rows` keeps the table: one line per row, the columns at the widths they
+ * declare, and the frame scrolling sideways to reach the ones that do not fit.
+ * It is the same shape every wider window shows, so a fleet looks the same on a
+ * phone as on the desk it was learned at, and scanning five runners for the one
+ * that is different is what it is good at. `cards` gives each row a card and
+ * each value a line of its own, which is how ten columns are read in 360 pixels
+ * with nothing truncated.
+ *
+ * Rows is the default at every width, which is what makes it one product rather
+ * than two; the operator who would rather read down says so, per grid or for
+ * all of them, and is remembered.
  */
 export const GRID_VIEWS = ['cards', 'rows'] as const;
 export type GridView = (typeof GRID_VIEWS)[number];
-export const DEFAULT_GRID_VIEW: GridView = 'cards';
+export const DEFAULT_GRID_VIEW: GridView = 'rows';
 
 interface StoredPrefs {
   navCollapsed?: boolean;

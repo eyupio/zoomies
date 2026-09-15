@@ -460,11 +460,13 @@
   const view = $derived<GridView>(prefs.gridViewFor(gridId));
   const cards = $derived(viewport.phone && view === 'cards');
   /*
-    The table on a phone. The columns cannot divide 360 pixels between them and
-    still say anything, so here alone a declared width is taken as the measure
-    it names and the frame scrolls sideways to reach the rest -- which is the
-    trade the operator made by asking for this layout. The page around it still
-    does not scroll: the frame clips.
+    The table on a phone, which is what a grid does unless it has been told
+    otherwise: the same shape as on a desktop, so the page an operator learned
+    at a desk is the page they get on a phone. The columns cannot divide 360
+    pixels between them and still say anything, so here alone a declared width
+    is taken as the measure it names and the frame scrolls sideways to reach
+    the rest -- the trade this layout makes, and the reason Cards is one press
+    away. The page around it still does not scroll: the frame clips.
   */
   const phoneRows = $derived(viewport.phone && view === 'rows');
 

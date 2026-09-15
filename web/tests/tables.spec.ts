@@ -10,6 +10,12 @@
  * This is the file that holds that to be true, at the widths the product claims
  * to support: the reference desktop, the two documented breakpoints and either
  * side of them, and the two phone widths the mobile project uses.
+ *
+ * One layout is exempt, and says so where it is measured: a phone whose grids
+ * are left in the row layout they start in scrolls its table inside the grid's
+ * own frame, because ten columns do not divide 360 pixels. That is the trade
+ * the layout exists to make and the reason Cards is one press away; what is
+ * never exempt is the page, which is measured here in both layouts.
  */
 import { expect, test, type Page } from '@playwright/test';
 import {
@@ -39,8 +45,26 @@ const GRIDS = [
  */
 const WIDTHS = [1440, 1180, 1179, 768, 412, 360] as const;
 
-/** The two of those the mobile project runs at, where a card layout is in force. */
+/** `--z-bp-md`, as a `max-width`: at this width and below, a row can be a card. */
+const PHONE_BREAKPOINT = 768;
+
+/** The two of those the mobile project runs at. */
 const PHONES = [412, 360] as const;
+
+/**
+ * Put a phone-width grid into the card layout, the way an operator does.
+ *
+ * The grids start as the table at every width, so the promise this file holds
+ * -- a table that fits its frame -- is the card layout's below the phone
+ * threshold. Pressed rather than written into storage, because a preference
+ * set behind the UI's back is a preference this suite would keep passing on
+ * after the control that sets it broke.
+ */
+async function chooseCards(page: Page): Promise<void> {
+  const cards = page.getByRole('button', { name: /^Cards\b/ });
+  await cards.click();
+  await expect(cards).toHaveAttribute('aria-pressed', 'true');
+}
 
 /**
  * How far the table overflows the frame around it, and how far the document
@@ -78,9 +102,23 @@ for (const width of WIDTHS) {
   test(`no grid scrolls sideways at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
 
+    // `--z-bp-md` is a `max-width`, so 768 is itself a phone: the card layout
+    // is offered at every width in this list up to and including it.
+    const phone = width <= PHONE_BREAKPOINT;
+
     for (const { path, heading, label } of GRIDS) {
       await goto(page, path, heading);
       await waitForRows(grid(page, label));
+
+      // The page is measured in whatever layout the grid starts in: a grid that
+      // scrolls inside its own frame must not take the document with it.
+      const started = await overflow(page, label);
+      expect(started.document, `the ${heading} page scrolls sideways`).toBeLessThanOrEqual(1);
+
+      // On a phone the table that fits is the card layout's, so it is chosen
+      // before the table is measured. Above the threshold there is nothing to
+      // choose -- every grid is already the table.
+      if (phone) await chooseCards(page);
 
       // A pixel of slack: the columns are shared out by arithmetic, and a
       // fractional width rounded up is not a table anybody can scroll.
@@ -139,6 +177,7 @@ test('every column is still there when the rows become cards', async ({ page }) 
   await goto(page, '/runners', 'Runners');
   const runners = grid(page, 'Runners');
   await waitForRows(runners);
+  await chooseCards(page);
 
   // The heading row is out of the way, so each cell says what it is instead.
   const labels = await dataRows(runners)

@@ -531,7 +531,7 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 
 | Component | Notes |
 | --- | --- |
-| `DataGrid` | TanStack Table core + our own markup. Server-side pagination, sorting and filtering; column show/hide persisted per grid; sticky header; row selection with a bulk action bar; full keyboard navigation (`↑ ↓` rows, `Enter` opens, `Space` selects, `Shift+↑/↓` range); never scrolls sideways, unless a phone is put into the row layout that offers it — see *Tables fit the window* |
+| `DataGrid` | TanStack Table core + our own markup. Server-side pagination, sorting and filtering; column show/hide persisted per grid; sticky header; row selection with a bulk action bar; full keyboard navigation (`↑ ↓` rows, `Enter` opens, `Space` selects, `Shift+↑/↓` range); never scrolls sideways, except inside its own frame in the phone row layout — see *Tables fit the window* |
 | `RowActions` | a row's actions as buttons rather than a menu, as an ARIA toolbar: one tab stop per row, `← →` along it, and every button's name carries what it acts on |
 | `FilterBar` | chips for active filters, each individually removable, plus a clear-all |
 | `PageHeader` | title, subtitle, breadcrumb, primary action, and the refresh button where the page passes `onrefresh` |
@@ -742,23 +742,25 @@ Three things make it fit, in this order:
   `--z-bp-md` and `--z-bp-lg`, columns marked `priority: 'wide'` wait for a
   window with the room to show them properly. Which ones those are is each
   page's judgement: the columns that answer the page's own question stay.
-* **A phone reads down.** Below `--z-bp-md` every row becomes a card and every
-  cell carries its own heading, taken from its `data-label` — the shape the
-  usage report and the Hosts page already had. Nothing is dropped and nothing is
-  truncated; a `wide` column is back, because a card has a line for it. Two
-  things a heading row does that a card cannot are kept as a strip above the
-  cards: the sort, and the tick that takes every row on the page. The rest of
-  the heading row stays in the document, out of the layout, so a screen reader
-  still has a column header to associate each cell with.
-* **A phone reads across when the operator says so.** Cards are the default and
-  the reason for the breakpoint, but a fleet is scanned as well as read, and one
-  line per runner is what scanning wants — so each grid carries a Cards/Rows
-  toggle above its rows, and Settings → Appearance holds the default every grid
-  that has not chosen follows. In the row layout the table stays a table: the
-  columns take the widths they declare and the grid's own frame scrolls sideways
-  to reach the ones past the edge. That is the one place in this product where a
-  table scrolls horizontally, it happens only because it was asked for, and the
-  page behind it still does not — the frame clips.
+* **A phone keeps the table, and the frame takes the scroll.** A grid is the
+  same shape at every width unless it is told otherwise: below `--z-bp-md` the
+  columns take the widths they declare rather than dividing a frame they cannot
+  meaningfully divide, and the grid's own frame scrolls sideways to reach the
+  ones past the edge. That is the one place in this product where a table
+  scrolls horizontally — it buys a page an operator already knows from the
+  desktop, and the page behind it still does not scroll, because the frame
+  clips.
+* **A phone reads down when the operator says so.** Ten columns in 412 pixels
+  each say very little, so each grid carries a Cards/Rows toggle above its rows
+  and Settings → Appearance holds the default every grid that has not chosen
+  follows. In the card layout every row becomes a card and every cell carries
+  its own heading, taken from its `data-label` — the shape the usage report and
+  the Hosts page already had. Nothing is dropped and nothing is truncated; a
+  `wide` column is back, because a card has a line for it. Two things a heading
+  row does that a card cannot are kept as a strip above the cards: the sort, and
+  the tick that takes every row on the page. The rest of the heading row stays
+  in the document, out of the layout, so a screen reader still has a column
+  header to associate each cell with.
 
 The same card layout is written out by hand in the tables that are not grids —
 the usage report, the accounts and API-token lists, the outstanding join tokens.
