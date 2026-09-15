@@ -943,6 +943,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/jobs/{id}/rerun": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask GitHub to run this run's failed jobs again
+         * @description The remedy for a job the fleet broke. A job whose runner died did not fail on its merits, and running it again is the ordinary fix; this saves finding the run on GitHub to press the button there.
+         *     GitHub has no job-level rerun, so this re-runs **every failed job in the run**, not only this one. The request is asynchronous and nothing local is changed: the rerun arrives as new deliveries with a higher `run_attempt`, through the same webhook path as everything else.
+         *     It refuses a job that has not finished and a job that did not fail, and it does not check whose fault the failure was -- an operator who has looked at one and decided to run it again is entitled to. The `fault_domain` on the job is what decides where the action is offered, not whether it is allowed. Needs the GitHub App's Actions write permission.
+         */
+        post: operations["rerunJobWorkflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/jobs/{id}/events": {
         parameters: {
             query?: never;
@@ -2086,6 +2111,16 @@ export interface components {
             succeeded?: number;
             /** @description A failing conclusion */
             failed?: number;
+            /** @description How many of `failed` this deployment caused rather than the workflows: a runner that never started, or one that stopped under the job. A subset rather than a fifth outcome, because GitHub's answer for such a job is still "failure" and a split that did not add up would be a worse lie than no split. */
+            fleet_failed?: number;
+            /** @description Those failures by category, keyed by FaultKind. Categories with no jobs are absent rather than zero. This is what turns "eleven failures this hour" into "eleven, nine of them out of memory", which is a different sentence and sends a different person to a different page. */
+            faults?: {
+                [key: string]: number;
+            };
+            /** @description Runners that failed before they could take a job, by category. These appear in no job count anywhere, because the jobs they were meant for are still queued -- which is exactly why a pool that cannot start a container reads, everywhere else, as a fleet that is merely busy. */
+            runner_start_faults?: {
+                [key: string]: number;
+            };
             /** @description Cancelled or skipped */
             cancelled?: number;
             /** @description None of the above */
@@ -2115,6 +2150,8 @@ export interface components {
                 completed?: number;
                 succeeded?: number;
                 failed?: number;
+                /** @description How many of failed this fleet caused. */
+                fleet_failed?: number;
                 cancelled?: number;
                 unknown?: number;
                 /** Format: int64 */
@@ -2740,6 +2777,9 @@ export interface components {
             current_job_id?: string;
             current_job?: components["schemas"]["Job"];
             message?: string;
+            fault_kind?: components["schemas"]["FaultKind"];
+            /** @description What to do about this runner's failure. Empty on a runner that did not fail. A runner that failed before ever taking a job is the case this exists for: nothing else in the system says why a pool's containers will not start, because the jobs it was meant for are still queued and none of them is marked failed. */
+            fault_fix?: string;
             jobs_handled?: number;
             /** Format: double */
             cpu_percent?: number;
@@ -2999,6 +3039,14 @@ export interface components {
             failed_step?: components["schemas"]["JobStep"] | null;
             /** @description Set when the runner of this fleet that was executing the job stopped before GitHub reported the job over -- the fleet's own explanation of a failure GitHub records like any other. Empty when the runner did nothing wrong. */
             runner_fault?: string;
+            fault_kind?: components["schemas"]["FaultKind"];
+            /**
+             * @description Whose the failure is. `fleet` means this deployment is the reason the job went wrong; `workflow` means the job failed on its own merits and the fleet did its part. Empty on a job that did not fail. GitHub records both as "failure", which is the whole reason this field exists: the two need completely different people.
+             * @enum {string}
+             */
+            fault_domain?: "fleet" | "workflow";
+            /** @description What to do about a fault of this kind, in the words of the person who has to do it. Empty when there is nothing to do, which is different from not knowing. */
+            fault_fix?: string;
             /** Format: date-time */
             queued_at?: string;
             /** Format: date-time */
@@ -3032,10 +3080,17 @@ export interface components {
             completed_at?: string | null;
         };
         /**
-         * @description What happened. `runner_lost` is the one entry GitHub cannot produce: the runner stopped under the job, and GitHub will report an ordinary failure. `waiting` and `approved` bracket a deployment review: the time between them is GitHub's, and the queue wait starts at `approved`. `runner_returned` withdraws a `runner_lost`: the host was silent long enough to be given up on, came back with the runner still executing this job, and the job is being left to finish.
+         * @description Why the fleet, rather than the workflow, is the reason something went wrong.
+         *     Every kind exists because something different is done about it, and the `fault_fix` beside it says what. `out_of_memory` is a limit to raise; `host_lost` is a machine or an agent to look at; `image` is a tag or a registry; `registration` is the GitHub App's permissions; `backend` is the container daemon on the host, which is the "cannot start the runner container" case; `config` is a setting the runner itself refused, and until it is edited every runner in the pool will do the same thing; `out_of_disk` is a full host; `removed` is an operator who meant it, and needs no fixing. `runner_exited` is the unclassified case on purpose -- a runner that stopped for a reason nobody observed, including one reported by an agent newer than this controller. Guessing a kind would send somebody to fix something that is not broken.
+         *     Empty means the fleet has nothing to confess.
          * @enum {string}
          */
-        JobEventKind: "queued" | "waiting" | "approved" | "claimed" | "unmatched" | "started" | "completed" | "runner_lost" | "runner_returned" | "cancel_requested";
+        FaultKind: "host_lost" | "out_of_memory" | "out_of_disk" | "removed" | "image" | "registration" | "backend" | "config" | "runner_exited";
+        /**
+         * @description What happened. `runner_lost` is the one entry GitHub cannot produce: the runner stopped under the job, and GitHub will report an ordinary failure. `waiting` and `approved` bracket a deployment review: the time between them is GitHub's, and the queue wait starts at `approved`. `runner_returned` withdraws a `runner_lost`: the host was silent long enough to be given up on, came back with the runner still executing this job, and the job is being left to finish. `runner_start_failed` is the failure that touches no job: a runner this pool started died before it could take one, so the job is still queued and the next runner may run it -- said here because a pool that cannot start a container otherwise looks exactly like a pool that is merely busy.
+         * @enum {string}
+         */
+        JobEventKind: "queued" | "waiting" | "approved" | "claimed" | "unmatched" | "started" | "completed" | "runner_lost" | "runner_returned" | "cancel_requested" | "runner_start_failed" | "rerun_requested";
         JobEvent: {
             id?: string;
             job_id?: string;
@@ -5450,6 +5505,12 @@ export interface operations {
                 managed?: boolean;
                 /** @description Only jobs that went wrong, on either side: a conclusion GitHub counts as a failure (failure, timed_out, startup_failure), or a runner of this fleet that stopped under the job -- including one GitHub still believes is running. */
                 failed?: boolean;
+                /** @description Only the failures this fleet caused: the `failed` list narrowed to the jobs whose runner never started or stopped under them. This is the list to open when somebody says CI is flaky, because it is the half nobody else can fix. */
+                faulted?: boolean;
+                /** @description The other half: jobs GitHub failed with nothing wrong on this side. Sending this and `faulted` together is a 400, because they ask for opposite halves of one list. */
+                workflow_failed?: boolean;
+                /** @description Narrow a fleet failure to particular categories; repeatable. A category this build does not know is a 400 rather than a filter that quietly matches everything, which would read as a fleet in better shape than it is. */
+                fault?: components["schemas"]["FaultKind"][];
                 limit?: components["parameters"]["Limit"];
                 offset?: components["parameters"]["Offset"];
                 /** @description A column name. An unknown value falls back to the default rather than erroring, so a stale bookmark does not break the page. */
@@ -5532,6 +5593,41 @@ export interface operations {
                         force: boolean;
                         /** Format: int64 */
                         run_id: number;
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    rerunJobWorkflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description GitHub accepted the re-run request */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        accepted: boolean;
+                        /** Format: int64 */
+                        run_id: number;
+                        /**
+                         * @description Whose the failure being re-run was, echoed back for a script's log.
+                         * @enum {string}
+                         */
+                        fault_domain?: "fleet" | "workflow";
                     };
                 };
             };

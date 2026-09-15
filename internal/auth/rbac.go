@@ -44,6 +44,7 @@ const (
 	ActionProvisioningWrite Action = "provisioning.write"
 	ActionJobsRead          Action = "jobs.read"
 	ActionJobsCancel        Action = "jobs.cancel"
+	ActionJobsRerun         Action = "jobs.rerun"
 )
 const ActionUsageRead Action = "usage.read"
 
@@ -153,7 +154,11 @@ var actionRoles = map[Action]store.Role{
 	ActionProvisioningWrite: store.RoleOperator,
 	ActionJobsRead:          store.RoleViewer,
 	ActionJobsCancel:        store.RoleOperator,
-	ActionUsageRead:         store.RoleViewer,
+	// Operator rather than viewer: a re-run spends the organisation's GitHub
+	// minutes and can have whatever side effects the workflow has, which is
+	// the same bar cancelling one clears.
+	ActionJobsRerun: store.RoleOperator,
+	ActionUsageRead: store.RoleViewer,
 
 	ActionHostsRead:   store.RoleViewer,
 	ActionHostsWrite:  store.RoleOperator,

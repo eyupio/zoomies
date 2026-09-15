@@ -13,6 +13,12 @@ import (
 var (
 	ErrWorkflowCancellationDisabled = errors.New("workflow cancellation is disabled")
 	ErrJobAlreadyCompleted          = errors.New("the job has already completed")
+	// ErrJobNotFinished and ErrJobDidNotFail are the two ways a re-run is
+	// refused for the job's own sake rather than for a missing permission, and
+	// they are separate because the advice differs: one is "wait", the other is
+	// "you are looking at the wrong job".
+	ErrJobNotFinished = errors.New("the job has not finished")
+	ErrJobDidNotFail  = errors.New("the job did not fail")
 )
 
 // CancelJobWorkflow asks GitHub to cancel the workflow run containing jobID.
@@ -50,6 +56,71 @@ func (c *Controller) CancelJobWorkflow(ctx context.Context, jobID string, force 
 	}); err != nil {
 		return nil, err
 	}
+	c.publishJob(ctx, j)
+	return j, nil
+}
+
+// RerunJobWorkflow asks GitHub to run the failed jobs of this job's run again.
+//
+// This is what Zoomies can actually do about a failure it caused. A job the
+// fleet broke did not fail on its merits -- nothing about the workflow has
+// changed, and the ordinary remedy is to run it again -- but until now an
+// operator had to notice the fault, work out that it was the fleet's, find the
+// run on GitHub and press the button there.
+//
+// Three things it deliberately does not do:
+//
+// It does not re-run by itself. GitHub minutes are the operator's to spend, a
+// fleet that re-runs its own failures can loop on a fault it is causing every
+// time, and a job that failed may have had side effects the person who wrote
+// it knows about and this does not.
+//
+// It does not restrict itself to fleet faults. The check is that the job
+// failed, not whose fault it was: an operator who has looked at a failure and
+// decided to run it again is entitled to, and a button that refused on a
+// judgement Zoomies made about blame would be a button people learn to route
+// around. What the fault category does is decide where the button is offered.
+//
+// And it does not touch the local row. The re-run arrives as new deliveries
+// with a higher run attempt, through the same webhook path as everything else;
+// writing an outcome here would be the fleet inventing one.
+func (c *Controller) RerunJobWorkflow(ctx context.Context, jobID string) (*store.Job, error) {
+	j, err := c.st.GetJob(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	if j.State != store.JobCompleted {
+		return nil, ErrJobNotFinished
+	}
+	if !j.Failed() {
+		return nil, ErrJobDidNotFail
+	}
+	if j.InstallationID == "" || j.Repo == "" || j.GitHubRunID <= 0 {
+		return nil, fmt.Errorf("job %s has no GitHub installation and workflow run to re-run", j.ID)
+	}
+	client, err := c.ClientFor(ctx, j.InstallationID)
+	if err != nil {
+		return nil, err
+	}
+	if err := client.RerunFailedWorkflowJobs(ctx, j.Repo, j.GitHubRunID); err != nil {
+		return nil, err
+	}
+	// The blast radius is said out loud, because GitHub has no job-level
+	// re-run and somebody who asked for one job will get every failed job in
+	// the run. Finding that out from the billing page is worse than reading it
+	// here.
+	message := fmt.Sprintf("an operator asked GitHub to run the failed jobs of workflow run %d again; GitHub reruns them together, and they arrive as a new run attempt", j.GitHubRunID)
+	if j.FleetFailed() {
+		message += ". This job's failure was the fleet's rather than the workflow's"
+	}
+	if err := c.st.AppendJobEvent(ctx, &store.JobEvent{
+		JobID: j.ID, Kind: store.JobEventRerunRequested, Source: sourceController,
+		Message: message, At: c.Now(),
+	}); err != nil {
+		return nil, err
+	}
+	c.log.Info("asked GitHub to re-run a run's failed jobs",
+		"job", j.ID, "repo", j.Repo, "run", j.GitHubRunID, "fault", j.FaultKind)
 	c.publishJob(ctx, j)
 	return j, nil
 }

@@ -316,7 +316,21 @@ type JobView struct {
 	// RunnerFault is set when the runner executing this job stopped before
 	// GitHub reported the job over: the fleet's own explanation of a failure
 	// GitHub records like any other.
-	RunnerFault string     `json:"runner_fault,omitempty"`
+	RunnerFault string `json:"runner_fault,omitempty"`
+	// FaultKind is the same failure as a category, and FaultDomain says whose
+	// the failure is at all: "fleet" when this deployment is the reason, and
+	// "workflow" when the job failed on its own merits and the fleet did its
+	// part. Both are empty on a job that did not fail.
+	//
+	// The domain is rendered here rather than worked out in the browser
+	// because the same judgement is made by the Overview's counts, the
+	// problems panel and the CLI, and four places deciding "is this ours"
+	// separately is four places to disagree about the number on the tile.
+	FaultKind store.FaultKind `json:"fault_kind,omitempty"`
+	// FaultFix is what to do about a fault of this kind, so a page showing the
+	// failure can show the remedy without keeping its own copy of the table.
+	FaultDomain string     `json:"fault_domain,omitempty"`
+	FaultFix    string     `json:"fault_fix,omitempty"`
 	QueuedAt    time.Time  `json:"queued_at"`
 	StartedAt   *time.Time `json:"started_at"`
 	CompletedAt *time.Time `json:"completed_at"`
@@ -363,6 +377,9 @@ func NewJobView(j *store.Job, poolName string) JobView {
 		Steps:          emptySlice([]store.JobStep(j.Steps)),
 		FailedStep:     j.FailedStep(),
 		RunnerFault:    j.RunnerFault,
+		FaultKind:      j.FaultKind,
+		FaultDomain:    j.FaultDomain(),
+		FaultFix:       j.FaultKind.Fix(),
 		QueuedAt:       j.QueuedAt,
 		StartedAt:      j.StartedAt,
 		CompletedAt:    j.CompletedAt,
@@ -428,9 +445,15 @@ type RunnerView struct {
 	CurrentJobID   string            `json:"current_job_id,omitempty"`
 	CurrentJob     *JobView          `json:"current_job,omitempty"`
 	Message        string            `json:"message,omitempty"`
-	JobsHandled    int               `json:"jobs_handled"`
-	CPUPercent     float64           `json:"cpu_percent,omitempty"`
-	MemoryBytes    int64             `json:"memory_bytes,omitempty"`
+	// FaultKind categorises why a failed runner failed, and FaultFix is what
+	// to do about it. Empty on a runner that did not fail. A runner that never
+	// took a job is the case these exist for: nothing else in the system says
+	// why a pool's containers will not start.
+	FaultKind   store.FaultKind `json:"fault_kind,omitempty"`
+	FaultFix    string          `json:"fault_fix,omitempty"`
+	JobsHandled int             `json:"jobs_handled"`
+	CPUPercent  float64         `json:"cpu_percent,omitempty"`
+	MemoryBytes int64           `json:"memory_bytes,omitempty"`
 	// AllocatedCPUs and AllocatedMemoryMB are the limits this runner's
 	// workload was created with, and AllocationSource says whether they are
 	// the pool's own ("pool") or one slot's share of the host it landed on
@@ -528,6 +551,8 @@ func (v *RunnerRenderer) View(r *store.Runner) RunnerView {
 		RunnerVersion:         r.RunnerVersion,
 		CurrentJobID:          r.CurrentJobID,
 		Message:               r.Message,
+		FaultKind:             r.FaultKind,
+		FaultFix:              r.FaultKind.Fix(),
 		JobsHandled:           r.JobsHandled,
 		CPUPercent:            r.CPUPercent,
 		MemoryBytes:           r.MemoryBytes,

@@ -1023,13 +1023,11 @@ func (c *Controller) PoolCapacityProblems() []Problem {
 				severity = config.SeverityError
 			}
 			out = append(out, Problem{
-				Code:     "pool.runners_failing",
-				Severity: severity,
-				Title:    fmt.Sprintf("pool %s's runners are failing to start", pp.PoolName),
-				Detail:   pp.Failing,
-				Fix: "the failed runners are on the Runners page with their reasons; the usual causes are an image " +
-					"that cannot be pulled, a host whose agent cannot reach GitHub, or a runner version that does " +
-					"not exist. The pool tries again on its own, less often with each failure.",
+				Code:       "pool.runners_failing",
+				Severity:   severity,
+				Title:      fmt.Sprintf("pool %s's runners are failing to start", pp.PoolName),
+				Detail:     pp.Failing,
+				Fix:        startFailureFix(pp.FailingFault),
 				TargetKind: "pool", TargetID: pp.PoolID,
 			})
 		}
@@ -1397,16 +1395,77 @@ func (c *Controller) lostRunnerProblems(ctx context.Context, out *[]Problem) err
 	if len(recent) == 1 {
 		title = "1 job lost the runner it was running on in the last hour"
 	}
+	// The dominant category, which is the sentence an operator can act on.
+	// "Fourteen jobs lost their runners" is a bad afternoon; "fourteen, twelve
+	// of them out of memory" is a memory limit to raise, and the second is the
+	// whole reason the category exists.
+	detail := fmt.Sprintf("GitHub records these as ordinary failures. The most recent is %s in %s: %s.",
+		example.JobName, example.Repo, example.RunnerFault)
+	fix := "open the job for its timeline and the runner for its last output; a runner that dies mid-job has usually run out of memory or disk, or was removed with force. Re-run the workflow once the cause is fixed."
+	if kind, n := dominantFault(recent); n > 0 {
+		if n == len(recent) {
+			detail = fmt.Sprintf("Every one of them is the same fault. %s", detail)
+		} else {
+			detail = fmt.Sprintf("%d of them are the same fault. %s", n, detail)
+		}
+		if f := kind.Fix(); f != "" {
+			fix = f + " Re-run the workflows once the cause is fixed."
+		}
+	}
 	*out = append(*out, Problem{
-		Code:     "jobs.runner_lost",
-		Severity: config.SeverityWarning,
-		Title:    title,
-		Detail: fmt.Sprintf("GitHub records these as ordinary failures. The most recent is %s in %s: %s.",
-			example.JobName, example.Repo, example.RunnerFault),
-		Fix:        "open the job for its timeline and the runner for its last output; a runner that dies mid-job has usually run out of memory or disk, or was removed with force. Re-run the workflow once the cause is fixed.",
+		Code:       "jobs.runner_lost",
+		Severity:   config.SeverityWarning,
+		Title:      title,
+		Detail:     detail,
+		Fix:        fix,
 		TargetKind: "job", TargetID: example.ID, Since: at,
 	})
 	return nil
+}
+
+// dominantFault names the category most of a set of failures share, and how
+// many share it, or an empty kind when no category has a majority.
+//
+// A majority rather than a mode: two out of nine is the commonest category and
+// says nothing, and a fix offered on that basis sends somebody to change a
+// setting that is not the problem. A category has to be most of what is
+// happening before the panel names a remedy for it.
+func dominantFault(jobs []*store.Job) (store.FaultKind, int) {
+	counts := map[store.FaultKind]int{}
+	for _, j := range jobs {
+		if j.FaultKind != "" {
+			counts[j.FaultKind]++
+		}
+	}
+	var best store.FaultKind
+	var n int
+	for kind, c := range counts {
+		if c > n {
+			best, n = kind, c
+		}
+	}
+	if n*2 <= len(jobs) {
+		return "", 0
+	}
+	return best, n
+}
+
+// startFailureFix is what to do about a pool whose runners will not start: the
+// category's own remedy where the scheduler classified one, and the general
+// advice where it did not.
+//
+// The general advice is a list of the usual causes, which is what this said for
+// every pool before there were categories. It is still the right thing to say
+// when nothing narrowed it, and the wrong thing to say when something did --
+// being handed three possibilities when the fleet already knows which one it is
+// is how an operator learns not to read the fix line.
+func startFailureFix(kind store.FaultKind) string {
+	if fix := kind.Fix(); fix != "" {
+		return fix
+	}
+	return "the failed runners are on the Runners page with their reasons; the usual causes are an image " +
+		"that cannot be pulled, a host whose agent cannot reach GitHub, or a runner version that does " +
+		"not exist. The pool tries again on its own, less often with each failure."
 }
 
 // unmatchedQueuedJobs prefers the last scheduler decision, which is computed
