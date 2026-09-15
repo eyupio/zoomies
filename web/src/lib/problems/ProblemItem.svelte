@@ -74,8 +74,11 @@
           // The list that holds the thing, already narrowed to it: the
           // unmatched job among the unmatched, the lost runner's job among
           // the failed.
+          // The fleet's own half, not everything that failed: this problem is
+          // about the jobs this deployment broke, and the list it opens should
+          // be the one it is talking about.
           if (p.code === 'jobs.runner_lost')
-            return { href: '/jobs?failed=true', label: 'Open failed jobs' };
+            return { href: '/jobs?faulted=true', label: 'Open failed jobs' };
           if (p.code === 'jobs.unmatched')
             return { href: '/jobs?unmatched=true', label: 'Open unmatched jobs' };
           return { href: '/jobs', label: 'Open jobs' };
@@ -83,7 +86,15 @@
           break;
       }
     }
-    if (p.setting) return { href: '/settings', label: 'Open settings' };
+    // The setting itself, not the page holding eighty-eight of them. A problem
+    // that names a key and then lands somebody on a list they have to search is
+    // a problem that has done nine tenths of the work and stopped.
+    if (p.setting) {
+      return {
+        href: `/settings?tab=configuration&setting=${encodeURIComponent(p.setting)}`,
+        label: 'Open the setting',
+      };
+    }
     return null;
   }
 

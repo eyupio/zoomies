@@ -20,6 +20,7 @@
 <script lang="ts">
   import { Lock, RotateCcw, Search, TriangleAlert } from '@lucide/svelte';
   import { getSettings, updateSettings, ApiError } from '$lib/api/client';
+  import { router } from '$lib/router';
   import { session } from '$lib/state/session.svelte';
   import type { Problem, Setting, Settings } from '$lib/api/types';
   import { severityStatus } from '$lib/status';
@@ -74,6 +75,52 @@
 
   let query = $state('');
   let view = $state<View>('all');
+  let searchField = $state<HTMLInputElement | null>(null);
+
+  /**
+   * The setting a link asked for, from the address bar.
+   *
+   * A problem that names a key used to land somebody on a list of eighty-eight
+   * and leave them to find it -- nine tenths of the work done and then stopped.
+   * The row is scrolled to and marked instead, and the filters are stood down
+   * for it, because a link that arrives while "Changed" is selected would
+   * otherwise open a page the setting is not on.
+   */
+  const wanted = $derived(router.param('setting'));
+  let sought = $state('');
+
+  $effect(() => {
+    const key = wanted;
+    if (!key || !settings) return;
+    // Untangled from the filters first, or the row may not be rendered to
+    // scroll to. Both are cleared rather than only the one that would hide it:
+    // which of them does depends on the key, and a page that sometimes honours
+    // a link is worse than one that always does.
+    query = '';
+    view = 'all';
+    sought = key;
+    // After the filter change has rendered. A frame is enough, and the read is
+    // guarded because a key nobody recognises simply scrolls nowhere.
+    requestAnimationFrame(() => {
+      document.getElementById(`setting-${key}`)?.scrollIntoView({ block: 'center' });
+    });
+  });
+
+  /**
+   * `/` puts the cursor in the search box, the way it does in every list an
+   * operator reads rather than fills in. Ignored while something else is taking
+   * typing, or the key would be swallowed halfway through a value somebody was
+   * editing.
+   */
+  function onKey(event: KeyboardEvent): void {
+    if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) return;
+    const active = document.activeElement;
+    const tag = active?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (active instanceof HTMLElement && active.isContentEditable) return;
+    event.preventDefault();
+    searchField?.focus();
+  }
 
   const all = $derived<readonly Setting[]>(settings?.settings ?? []);
 
@@ -179,6 +226,8 @@
   }
 </script>
 
+<svelte:window on:keydown={onKey} />
+
 <div class="panel {className}">
   <header>
     <div>
@@ -269,9 +318,10 @@
         <div class="search">
           <Input
             bind:value={query}
+            bind:element={searchField}
             size="sm"
             icon={Search}
-            placeholder="Search settings, summaries and ZOOMIES_* names"
+            placeholder="Search settings, summaries and ZOOMIES_* names  (press /)"
             ariaLabel="Search settings"
           />
         </div>
@@ -344,7 +394,12 @@
             {#if SECTION_BLURB[section.name]}<p>{SECTION_BLURB[section.name]}</p>{/if}
           </div>
           {#each section.rows as setting (setting.key)}
-            <SettingRow {setting} findings={findingsBySetting[setting.key] ?? []} onsave={save} />
+            <SettingRow
+              {setting}
+              findings={findingsBySetting[setting.key] ?? []}
+              sought={setting.key === sought}
+              onsave={save}
+            />
           {/each}
         </section>
       {/each}
