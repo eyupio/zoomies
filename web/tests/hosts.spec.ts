@@ -740,3 +740,118 @@ test('the host capacity map has windows down to the last minute, drawn ten secon
   await expect(map.getByRole('slider', { name: 'Inspect a moment' })).toHaveAttribute('max', '5');
   await expect(chart).toHaveAttribute('aria-label', /the last minute, in 10-second points/);
 });
+
+/*
+ * The map has two layouts. Every host on one plot is for asking which
+ * machine is the busy one; a plot per host is for asking what one machine
+ * has been doing, and the plots share one x axis and one crosshair so a
+ * moment is still read across the fleet. The choice is remembered.
+ */
+test('the host capacity map can draw a chart per host, sharing one crosshair', async ({ page }) => {
+  await goto(page, '/hosts', 'Hosts');
+  const map = page.getByRole('region', { name: 'Host capacity map', exact: true });
+  const n = await page.request
+    .get('/api/v1/hosts')
+    .then((r) => r.json() as Promise<{ items: { id: string }[] }>)
+    .then((h) => h.items.length);
+  const layout = map.getByRole('group', { name: 'Layout' });
+  await expect(layout.getByRole('button', { name: /^Overlay/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+
+  await layout.getByRole('button', { name: /^Per host/ }).click();
+  // One chart for each host, named for it, and the overlay's chart is gone.
+  const charts = map.getByRole('img', { name: /lines, the last 24 hours/ });
+  await expect(charts).toHaveCount(n);
+  await expect(map.getByRole('img', { name: /^demo-arm-1: 2 lines/ })).toBeVisible();
+  await expect(map.getByRole('img', { name: /lines across/ })).toHaveCount(0);
+
+  // Hovering one chart draws the crosshair on all of them, at the same moment.
+  const first = charts.first();
+  const box = await first.boundingBox();
+  await first.hover({ position: { x: box!.width * 0.4, y: box!.height * 0.5 } });
+  await expect(map.locator('.cursor')).toHaveCount(n);
+  const xs = await map
+    .locator('.cursor')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('x1')));
+  expect(new Set(xs).size).toBe(1);
+  await expect(map.locator('output')).toContainText(/\d{1,2}:\d{2}/);
+  await page.mouse.move(0, 0);
+
+  // The rows still head their charts, and switching a host off takes its chart.
+  const hosts = map.getByRole('group', { name: 'Hosts shown' });
+  await hosts.getByRole('button', { name: /^demo-arm-1/ }).click();
+  await expect(charts).toHaveCount(n - 1);
+  await hosts.getByRole('button', { name: /^demo-arm-1/ }).click();
+  await expect(charts).toHaveCount(n);
+
+  await page.reload();
+  await page.getByRole('heading', { level: 1, name: 'Hosts' }).waitFor();
+  await expect(layout.getByRole('button', { name: /^Per host/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(charts).toHaveCount(n);
+  await layout.getByRole('button', { name: /^Overlay/ }).click();
+  await expect(map.getByRole('img', { name: /lines across/ })).toHaveCount(1);
+});
+
+/*
+ * Twenty lines on one chart are only readable if one can be singled out.
+ * Pointing at a host's row brings its lines forward and steps the rest
+ * back; pointing at a measurement's chip does the same for that
+ * measurement across every host; and the newest value of the lead
+ * measurement is written at the end of every line, so the chart can be read
+ * from its right-hand edge alone.
+ */
+test('the host capacity map singles out a host or a measurement under the pointer, and labels every line end', async ({
+  page,
+}) => {
+  await goto(page, '/hosts', 'Hosts');
+  const map = page.getByRole('region', { name: 'Host capacity map', exact: true });
+  const n = await page.request
+    .get('/api/v1/hosts')
+    .then((r) => r.json() as Promise<{ items: { id: string }[] }>)
+    .then((h) => h.items.length);
+  const hosts = map.getByRole('group', { name: 'Hosts shown' });
+  const dim = map.locator('.series.dim');
+  const lit = map.locator('.series:not(.dim)');
+  await expect(lit).toHaveCount(2 * n);
+  await expect(dim).toHaveCount(0);
+
+  await hosts.getByRole('button', { name: /^demo-builder-1/ }).hover();
+  await expect(lit).toHaveCount(2);
+  await expect(dim).toHaveCount(2 * (n - 1));
+
+  const chips = map.getByRole('group', { name: 'Measurements shown' });
+  await chips.getByRole('button', { name: 'Runner slots' }).hover();
+  await expect(lit).toHaveCount(n);
+  // A chip that is not on the chart singles out nothing.
+  await chips.getByRole('button', { name: 'Disk used' }).hover();
+  await expect(dim).toHaveCount(0);
+  await page.mouse.move(0, 0);
+  await expect(dim).toHaveCount(0);
+
+  // The end labels say what each host's lead figure is right now, and they
+  // agree with the rows beneath, which read the same moment.
+  const ends = map.locator('svg text.end');
+  await expect(ends).toHaveCount(n);
+  // SVG text has no innerText, so the labels are read as content.
+  const labels = await ends.evaluateAll((els) => els.map((e) => e.textContent?.trim()));
+  const meters = await hosts
+    .locator('.meter strong')
+    .evaluateAll((els) => els.map((e) => e.textContent?.trim()));
+  for (let k = 0; k < n; k++) {
+    expect(labels[k]).toMatch(/^\d+%$/);
+    // Two meters a row -- CPU then slots -- so the CPU one is every other.
+    expect(labels[k]).toBe(meters[2 * k]);
+  }
+
+  // Reading a moment from the timeline moves the rows and the headline to it.
+  await expect(map.getByText(/hosts? past 85% now/)).toBeVisible();
+  await map.getByRole('slider', { name: 'Inspect a moment' }).fill('0');
+  await expect(map.getByText(/hosts? past 85% at \d{1,2}:\d{2}/)).toBeVisible();
+  await map.getByRole('button', { name: 'Back to now' }).click();
+  await expect(map.getByText(/hosts? past 85% now/)).toBeVisible();
+});

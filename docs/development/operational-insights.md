@@ -10,7 +10,7 @@ and links that explain the work visible on each page.
 | Pools | Matched queue depth, enabled/disabled totals, pools at their configured ceiling, ranked demand and headroom |
 | Pool and runner detail | Pool queue depth, live runner state, headroom, provisioning state and links to the corresponding queue and usage report |
 | Jobs | Current queue/running counts, completion outcomes as a bar whose segments are ways into the jobs they count, P95 queue wait and the same fleet trend |
-| Hosts | Eligible slot headroom, then the capacity map: every host's utilisation on one chart, live and over the last hour, six hours, day or week — measured CPU, memory and load beside committed CPU, memory, runner slots and disk, each as a share of the machine on one 0–100% axis, with load past the cores drawn in a lane of its own above it — with the hosts and measurements to draw toggled beneath it, a crosshair and card for any moment, and each host's row leading to its controls and usage history |
+| Hosts | Eligible slot headroom, then the capacity map: every host's utilisation over the last minute, hour, six hours, day or week, live — measured CPU, memory and load beside committed CPU, memory, runner slots and disk, each as a share of the machine on one 0–100% axis with the band from 85% marked as pressure, and load past the cores drawn in a lane of its own above it. Either every host on one chart, where pointing at a line or its row brings that host forward and steps the rest back, or a chart per host sharing one x axis and one crosshair; the lead measurement's newest value is written at the end of each line, a headline names the peak in view and the hosts past the pressure line, and each host's row carries meters that read the moment under the crosshair, with links to its controls and usage history |
 | Overview | The activity matrix across the top: a year of days as a contribution graph, coloured by outcome, queue depth, runner time or capacity pressure, with a tooltip per square and an hourly breakdown per selected day; then the same host capacity map the Hosts page draws, beside existing fleet, pool, scaling and outcome information |
 | Installations | Connection health, dependent pool totals, low API quota count and per-connection quota meters |
 
@@ -67,6 +67,12 @@ scope change. No scheduler behavior is changed by these views.
 - `SignalTrend` provides a time axis, the area under the line, a hover crosshair
   with a card of every figure at that moment, a coverage strip and a
   keyboard/touch range inspector. It breaks its line at missing samples.
+- `CapacityPlot` draws one plot of the capacity map at the width it has, one
+  unit to a pixel: a solid hairline grid, the pressure band, a lane for load
+  past the cores, emphasis for a host or measurement singled out, a value at
+  the end of every line, the wash under a lone host and a slot for the
+  reading. Its geometry and the spreading of the end labels are in
+  `hostSeries.ts`, which `npm run test:unit` covers.
 - `ActivityMatrix` draws usage buckets as a contribution graph with one tab
   stop, a tooltip per square and an inline detail per selection; its
   arithmetic is `activity.ts`, which `npm run test:unit` covers. See

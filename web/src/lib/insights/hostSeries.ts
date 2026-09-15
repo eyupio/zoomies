@@ -422,3 +422,219 @@ export function timeTicks(start: number, end: number, target = 5): number[] {
 export function hostTone(index: number): string {
   return `var(--z-chart-${(index % 6) + 1})`;
 }
+
+/* -- what the chart draws from -------------------------------------------- */
+
+/**
+ * The share of the machine above which the scheduler treats a host as under
+ * pressure: from 85% it places one runner at a time there, and a throttled
+ * host does not climb back down while it stays above it. Every figure on the
+ * map is a share of the machine, so the same band is drawn for all of them.
+ */
+export const PRESSURE = 85;
+
+/** One host's line for one metric, as the chart receives it. */
+export interface HostLine {
+  id: string;
+  host: Host;
+  /** The host's place in the fleet's list, which is what its colour is. */
+  index: number;
+  metric: Metric;
+  tone: string;
+  points: SignalPoint[];
+  /** The newest observed point, or null where the line has none in view. */
+  last: { i: number; value: number } | null;
+}
+
+/**
+ * Every line the chart shows: a line per chosen metric for every host that is
+ * not hidden, in the fleet's order so a host keeps its colour when its
+ * neighbours are switched off. Colour follows the host, never its rank.
+ */
+export function hostLines(
+  hosts: readonly Host[],
+  hidden: readonly string[],
+  byHost: ReadonlyMap<string, readonly HostSample[]>,
+  metrics: readonly Metric[],
+  now: number,
+  seconds: number,
+  bucket: number,
+): HostLine[] {
+  const out: HostLine[] = [];
+  hosts.forEach((host, index) => {
+    if (hidden.includes(host.id ?? '')) return;
+    const samples = byHost.get(host.id ?? '') ?? [];
+    for (const metric of metrics) {
+      const points = hostSeries(samples, metric.key, now, seconds, bucket);
+      let last: HostLine['last'] = null;
+      for (let i = points.length - 1; i >= 0; i--) {
+        const v = points[i]?.value;
+        if (v !== null && v !== undefined) {
+          last = { i, value: v };
+          break;
+        }
+      }
+      out.push({
+        id: `${host.id}:${metric.key}`,
+        host,
+        index,
+        metric,
+        tone: hostTone(index),
+        points,
+        last,
+      });
+    }
+  });
+  return out;
+}
+
+/**
+ * The measurement the chart leads with: the first chosen one, in the chips'
+ * order. It is the one whose value is written at the end of every line, the
+ * one the summary speaks about and the one a lone host's wash is drawn
+ * under, so that the chart has a headline even when four things are on it.
+ */
+export function leadMetric(enabled: readonly MetricKey[]): Metric | null {
+  return METRICS.find((m) => enabled.includes(m.key)) ?? null;
+}
+
+/** The highest value of one metric across every line, and where it was. */
+export function peakOf(
+  lines: readonly HostLine[],
+  metric: MetricKey,
+): { line: HostLine; i: number; value: number } | null {
+  let best: { line: HostLine; i: number; value: number } | null = null;
+  for (const line of lines) {
+    if (line.metric.key !== metric) continue;
+    line.points.forEach((p, i) => {
+      if (p.value !== null && (best === null || p.value > best.value))
+        best = { line, i, value: p.value };
+    });
+  }
+  return best;
+}
+
+/**
+ * Where the labels at the ends of the lines go. Each wants to sit level with
+ * its line, and two lines that end within a label's height of each other
+ * would print on top of one another; so, taken from the top, each is pushed
+ * down until it clears the one above, and if the last is then past the
+ * bottom the stack is walked back up. The answer is in the callers' order.
+ */
+export function spreadLabels(
+  wanted: readonly number[],
+  gap: number,
+  min: number,
+  max: number,
+): number[] {
+  const order = wanted.map((y, i) => ({ y, i })).sort((a, b) => a.y - b.y);
+  const placed = order.map((o) => Math.max(min, Math.min(max, o.y)));
+  for (let k = 1; k < placed.length; k++) placed[k] = Math.max(placed[k]!, placed[k - 1]! + gap);
+  for (let k = placed.length - 1; k >= 0; k--) {
+    const ceiling = k === placed.length - 1 ? max : placed[k + 1]! - gap;
+    placed[k] = Math.max(min, Math.min(placed[k]!, ceiling));
+  }
+  const out = new Array<number>(wanted.length);
+  order.forEach((o, k) => (out[o.i] = placed[k]!));
+  return out;
+}
+
+/** The drawing's edges, in pixels, for a plot `width` wide. */
+export interface Frame {
+  W: number;
+  H: number;
+  LEFT: number;
+  RIGHT: number;
+  TOP: number;
+  BOTTOM: number;
+  SPAN: number;
+  /** The lane above the axis for load past the cores, or 0 without one. */
+  LANE: number;
+  /** Where 100% sits: the top of the drawing, or under the lane. */
+  AXIS_TOP: number;
+  /** A phone's shape: taller, and with fewer labels along the bottom. */
+  narrow: boolean;
+}
+
+/**
+ * The frame is drawn at the width the panel has, one unit to one pixel,
+ * rather than a fixed picture scaled to fit: a label drawn at eleven units
+ * and stretched to a wide screen is a label at nineteen pixels, which is
+ * what made the old axis look like a heading. The left gutter holds the
+ * percentages and the right one the value at the end of each line; both are
+ * the same in every plot so the plots stacked in the per-host layout share
+ * one x axis.
+ */
+export function plotFrame(
+  width: number,
+  options: { compact?: boolean; lane?: boolean; axis?: boolean } = {},
+): Frame {
+  const W = Math.max(280, Math.round(width));
+  const narrow = W < 560;
+  const H = options.compact ? (narrow ? 132 : 116) : narrow ? 300 : 248;
+  const LANE = options.lane ? (options.compact ? 22 : 40) : 0;
+  const LEFT = 42;
+  const RIGHT = W - 46;
+  const TOP = 12;
+  const BOTTOM = H - (options.axis === false ? 10 : 26);
+  return {
+    W,
+    H,
+    LEFT,
+    RIGHT,
+    TOP,
+    BOTTOM,
+    SPAN: RIGHT - LEFT,
+    LANE,
+    AXIS_TOP: TOP + LANE,
+    narrow,
+  };
+}
+
+/** The x of point `i`, of `count` across the frame. */
+export function scaleX(frame: Frame, count: number): (i: number) => number {
+  return (i) => frame.LEFT + (i * frame.SPAN) / Math.max(1, count - 1);
+}
+
+/**
+ * The y of a value. The axis is 0-100% and stays so; a value past it is
+ * drawn in the lane, on the lane's own scale up to `overflow`, so a load of
+ * eight times the cores is still a spike and the axis keeps its room.
+ */
+export function scaleY(frame: Frame, overflow: number): (value: number) => number {
+  return (value) => {
+    if (value <= 100 || !overflow)
+      return frame.AXIS_TOP + (1 - Math.min(value, 100) / 100) * (frame.BOTTOM - frame.AXIS_TOP);
+    return frame.AXIS_TOP - ((Math.min(value, overflow) - 100) / (overflow - 100)) * frame.LANE;
+  };
+}
+
+/** Which point a pointer is over, from where it is across the frame. */
+export function indexAtX(frame: Frame, count: number, viewX: number): number {
+  const i = Math.round(((viewX - frame.LEFT) / frame.SPAN) * Math.max(1, count - 1));
+  return Math.max(0, Math.min(count - 1, i));
+}
+
+/**
+ * The host whose line passes nearest a pointer at point `i`, within
+ * `tolerance` pixels, or null where none does. Pointing at a line is how a
+ * reader asks which host it is, and on a chart of twenty lines the legend
+ * alone cannot answer that.
+ */
+export function nearestHost(
+  lines: readonly HostLine[],
+  i: number,
+  viewY: number,
+  y: (value: number) => number,
+  tolerance: number,
+): string | null {
+  let best: { id: string; distance: number } | null = null;
+  for (const line of lines) {
+    const v = line.points[i]?.value;
+    if (v === null || v === undefined) continue;
+    const distance = Math.abs(y(v) - viewY);
+    if (distance <= tolerance && (best === null || distance < best.distance))
+      best = { id: line.host.id ?? '', distance };
+  }
+  return best?.id ?? null;
+}
