@@ -677,13 +677,14 @@ test('the runner lifecycle keeps its steps in columns when it wraps', async ({ p
 /*
  * The two phone layouts, and who decides between them.
  *
- * Cards are the default and the reason the phone breakpoint exists at all --
- * ten columns in 412 pixels is not a table. But a fleet is also scanned rather
- * than read, and one line per runner is what that wants, which is the layout
- * these grids had before the cards. So both are on offer: a toggle above each
- * grid for the page, and a default in Settings for the rest. The trade in the
- * row layout is the sideways scroll, and it is the grid's own frame that takes
- * it -- the page around it never does.
+ * Rows are the default at every width: a fleet is scanned rather than read,
+ * one line per runner is what that wants, and a grid that keeps its shape on a
+ * phone is a page an operator already knows. Cards are the other half -- ten
+ * columns in 412 pixels say nothing each, and a card gives every value a line
+ * of its own -- so both are on offer: a toggle above each grid for the page,
+ * and a default in Settings for the rest. The trade in the row layout is the
+ * sideways scroll, and it is the grid's own frame that takes it: the page
+ * around it never does.
  */
 
 /** How far the table overflows its frame, and the document its window. */
@@ -712,23 +713,14 @@ function layout(page: Page, choice: 'Cards' | 'Rows'): Locator {
   return page.getByRole('button', { name: new RegExp(`^${choice}\\b`) });
 }
 
-test('a grid can be read as rows instead of cards, and remembers which', async ({ page }) => {
+test('a grid can be read as cards instead of rows, and remembers which', async ({ page }) => {
   await goto(page, '/runners', 'Runners');
   const rows = dataRows(grid(page, 'Runners'));
   await expect(rows.first()).toBeVisible();
 
-  // Cards to begin with. Every value has a line of its own, so a row is many
-  // lines tall and the table is exactly as wide as the screen.
-  const card = (await rows.first().boundingBox())!;
-  expect(card.height, 'a card is one line tall, so it is not a card').toBeGreaterThan(100);
-  expect((await gridOverflow(page, 'Runners')).table).toBeLessThanOrEqual(1);
-
-  await layout(page, 'Rows').click();
-
-  // One line per runner now, and the columns at the widths they declare --
-  // which is wider than the phone, so the frame has something to scroll.
+  // The table to begin with: one line per runner, and the columns at the widths
+  // they declare -- wider than the phone, so the frame has something to scroll.
   const line = (await rows.first().boundingBox())!;
-  expect(line.height, 'the row layout is still stacking values').toBeLessThan(card.height / 2);
   const overflow = await gridOverflow(page, 'Runners');
   expect(overflow.table, 'the table fits, so there is nothing to scroll to').toBeGreaterThan(0);
   expect(
@@ -737,29 +729,37 @@ test('a grid can be read as rows instead of cards, and remembers which', async (
   ).toBeLessThanOrEqual(0);
   await expectNoSidewaysScroll(page, 'the Runners grid in the row layout');
 
+  await layout(page, 'Cards').click();
+
+  // Every value has a line of its own now, so a row is many lines tall and the
+  // table is exactly as wide as the screen.
+  const card = (await rows.first().boundingBox())!;
+  expect(card.height, 'a card is one line tall, so it is not a card').toBeGreaterThan(100);
+  expect(line.height, 'the row layout was already stacking values').toBeLessThan(card.height / 2);
+  expect((await gridOverflow(page, 'Runners')).table).toBeLessThanOrEqual(1);
+
   // The choice is the operator's and outlives the visit.
   await page.reload();
   await expect(pageHeading(page, 'Runners')).toBeVisible();
-  await expect(layout(page, 'Rows')).toHaveAttribute('aria-pressed', 'true');
-  expect((await dataRows(grid(page, 'Runners')).first().boundingBox())!.height).toBeLessThan(
-    card.height / 2,
+  await expect(layout(page, 'Cards')).toHaveAttribute('aria-pressed', 'true');
+  expect((await dataRows(grid(page, 'Runners')).first().boundingBox())!.height).toBeGreaterThan(
+    100,
   );
 
   // It is this grid's choice, not every grid's: Jobs has made none, so it is
-  // still cards.
+  // still the table.
   await goto(page, '/jobs', 'Jobs');
-  await expect(layout(page, 'Cards')).toHaveAttribute('aria-pressed', 'true');
+  await expect(layout(page, 'Rows')).toHaveAttribute('aria-pressed', 'true');
 
   // And back again: a layout that can be chosen and not unchosen is a trap.
   await goto(page, '/runners', 'Runners');
-  await layout(page, 'Cards').click();
-  await expect(layout(page, 'Cards')).toHaveAttribute('aria-pressed', 'true');
+  await layout(page, 'Rows').click();
+  await expect(layout(page, 'Rows')).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('the Settings default decides for every grid that has not chosen', async ({ page }) => {
   await goto(page, '/settings?tab=appearance', 'Settings');
-  const rowsDefault = page.getByRole('radio', { name: /^Rows/ });
-  await rowsDefault.check();
+  await page.getByRole('radio', { name: /^Cards/ }).check();
 
   // Neither Jobs nor Pools has a choice of its own, so both follow the default
   // -- and each says so on its own toggle, which is where an operator would go
@@ -770,16 +770,16 @@ test('the Settings default decides for every grid that has not chosen', async ({
   ] as const) {
     await goto(page, path, heading);
     await expect(dataRows(grid(page, label)).first()).toBeVisible();
-    await expect(layout(page, 'Rows')).toHaveAttribute('aria-pressed', 'true');
-    expect((await gridOverflow(page, label)).table).toBeGreaterThan(0);
-    await expectNoSidewaysScroll(page, `the ${heading} grid following the row default`);
+    await expect(layout(page, 'Cards')).toHaveAttribute('aria-pressed', 'true');
+    expect((await gridOverflow(page, label)).table).toBeLessThanOrEqual(1);
+    await expectNoSidewaysScroll(page, `the ${heading} grid following the card default`);
   }
 
   // The default goes back too, and takes the grids following it with it.
   await goto(page, '/settings?tab=appearance', 'Settings');
-  await page.getByRole('radio', { name: /^Cards/ }).check();
+  await page.getByRole('radio', { name: /^Rows/ }).check();
   await goto(page, '/jobs', 'Jobs');
-  await expect(layout(page, 'Cards')).toHaveAttribute('aria-pressed', 'true');
+  await expect(layout(page, 'Rows')).toHaveAttribute('aria-pressed', 'true');
 });
 
 /*

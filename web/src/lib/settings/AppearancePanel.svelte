@@ -28,15 +28,15 @@
   */
   const GRID_VIEWS = [
     {
-      value: 'cards',
-      label: 'Cards',
-      description: 'Each row is a card and every value gets a line of its own. Nothing is cut off.',
-    },
-    {
       value: 'rows',
       label: 'Rows',
       description:
-        'Keeps the table: one line per row, and the table scrolls sideways to the columns that do not fit.',
+        'The table, as every wider window shows it: one line per row, scrolling sideways to the columns that do not fit.',
+    },
+    {
+      value: 'cards',
+      label: 'Cards',
+      description: 'Each row is a card and every value gets a line of its own. Nothing is cut off.',
     },
   ];
 
@@ -86,9 +86,10 @@
         onchange={(value) => (prefs.gridView = value as GridView)}
       />
       <p class="note">
-        Only below 768px, where a dozen columns do not fit across the screen; wider than that every
-        grid is the table. Each grid carries the same choice above its rows, and a grid told there
-        keeps it whatever this says.
+        Rows to begin with, the same layout a desktop shows, so a grid does not change shape between
+        the two. Cards are worth having below 768px, where a dozen columns across the screen leaves
+        each of them saying nothing. Each grid carries the same choice above its rows, and a grid
+        told there keeps it whatever this says.
       </p>
     </section>
 
