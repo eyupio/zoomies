@@ -117,7 +117,7 @@ func TestJobTimelineAndFailedFilterAreServed(t *testing.T) {
 	pool := h.pool(inst, "linux")
 	green := h.job(pool, store.JobCompleted)
 	red := h.job(pool, store.JobInProgress)
-	if _, _, err := h.st.SetJobRunnerFault(h.ctx, red.ID, "runner zoomies-x stopped while this job was running: exited with code 137"); err != nil {
+	if _, _, err := h.st.SetJobRunnerFault(h.ctx, red.ID, "runner zoomies-x stopped while this job was running: exited with code 137", store.FaultOutOfMemory); err != nil {
 		t.Fatalf("SetJobRunnerFault: %v", err)
 	}
 	if err := h.st.AppendJobEvent(h.ctx, &store.JobEvent{JobID: red.ID, Kind: store.JobEventQueued, Source: "webhook", Message: "GitHub queued it"}); err != nil {

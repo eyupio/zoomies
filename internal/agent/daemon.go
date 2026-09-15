@@ -1083,18 +1083,18 @@ func (a *Agent) start(ctx context.Context, task Task) {
 			case <-admission.ready:
 			case <-ctx.Done():
 				release()
-				a.reportFailure(ctx, task, "agent shut down before this task started; it is safe to redeliver")
+				a.reportFailure(ctx, task, "agent shut down before this task started; it is safe to redeliver", store.FaultRunnerExited)
 				return
 			}
 			if !a.waitForRuntime(ctx) {
 				release()
-				a.reportFailure(ctx, task, "agent shut down while waiting for the container runtime to recover")
+				a.reportFailure(ctx, task, "agent shut down while waiting for the container runtime to recover", store.FaultBackend)
 				return
 			}
 		}
 		if ctx.Err() != nil {
 			release()
-			a.reportFailure(ctx, task, "agent shut down before this task started; it is safe to redeliver")
+			a.reportFailure(ctx, task, "agent shut down before this task started; it is safe to redeliver", store.FaultRunnerExited)
 			return
 		}
 		select {
@@ -1114,7 +1114,7 @@ func (a *Agent) start(ctx context.Context, task Task) {
 		defer func() { <-a.sem }()
 		if ctx.Err() != nil {
 			release()
-			a.reportFailure(ctx, task, "agent shut down before this task started; it is safe to redeliver")
+			a.reportFailure(ctx, task, "agent shut down before this task started; it is safe to redeliver", store.FaultRunnerExited)
 			return
 		}
 		if task.Kind == TaskCreateRunner {
@@ -1133,7 +1133,7 @@ func (a *Agent) start(ctx context.Context, task Task) {
 			}
 			if why := a.refuseNewWork(); why != "" {
 				release()
-				a.reportFailure(ctx, task, why)
+				a.reportFailure(ctx, task, why, store.FaultBackend)
 				return
 			}
 		}
@@ -1198,13 +1198,13 @@ func (a *Agent) handlePrewarm(ctx context.Context, task Task, release func()) {
 	b, err := a.opts.Backends.Get(task.Backend)
 	if err != nil {
 		release()
-		a.reportFailure(ctx, task, err.Error())
+		a.reportFailure(ctx, task, err.Error(), backend.Fault(err))
 		return
 	}
 	p, ok := b.(backend.ImagePrewarmer)
 	if !ok {
 		release()
-		a.reportFailure(ctx, task, fmt.Sprintf("the %s backend does not support image prewarming", task.Backend))
+		a.reportFailure(ctx, task, fmt.Sprintf("the %s backend does not support image prewarming", task.Backend), store.FaultBackend)
 		return
 	}
 	warmCtx, cancel := context.WithTimeout(ctx, CreateTimeout)
@@ -1227,7 +1227,7 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 	b, err := a.opts.Backends.Get(kind)
 	if err != nil {
 		release()
-		a.reportFailure(ctx, task, fmt.Sprintf("this host has no %s backend (registered: %s); point the pool at a backend this host runs, or set agent.backend: %v", kind, kindList(a.opts.Backends.Kinds()), err))
+		a.reportFailure(ctx, task, fmt.Sprintf("this host has no %s backend (registered: %s); point the pool at a backend this host runs, or set agent.backend: %v", kind, kindList(a.opts.Backends.Kinds()), err), store.FaultConfig)
 		return
 	}
 
@@ -1259,7 +1259,7 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 		if task.Attempt == 1 {
 			a.log.Error("could not establish whether this runner already exists; nothing was created",
 				"task", task.ID, "runner", task.RunnerID, "backend", kind, "error", err)
-			a.reportFailure(ctx, task, fmt.Sprintf("this host could not ask its %s backend whether runner %s already exists, so nothing was created; check that the daemon is running and answering: %v", kind, spec.Name, err))
+			a.reportFailure(ctx, task, fmt.Sprintf("this host could not ask its %s backend whether runner %s already exists, so nothing was created; check that the daemon is running and answering: %v", kind, spec.Name, err), store.FaultBackend)
 			return
 		}
 		a.log.Warn("could not establish whether this runner already exists; leaving its create task for redelivery without changing workloads",
@@ -1314,7 +1314,7 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 	if err != nil {
 		a.log.Error("creating runner failed", "runner", task.RunnerID, "name", spec.Name, "backend", kind, "error", err)
 		release()
-		a.reportFailure(ctx, task, fmt.Sprintf("the %s backend could not create runner %s: %v", kind, spec.Name, err))
+		a.reportFailure(ctx, task, fmt.Sprintf("the %s backend could not create runner %s: %v", kind, spec.Name, err), backend.Fault(err))
 		return
 	}
 	now := a.now()
@@ -1528,11 +1528,16 @@ func (a *Agent) reportUnsearchable(ctx context.Context, task Task, err error) {
 		RunnerID:    task.RunnerID,
 		OK:          false,
 		Error:       fmt.Sprintf("could not tell whether runner %s is still on this host because its backend would not answer, so nothing was changed: %v", task.RunnerID, err),
+		Fault:       store.FaultBackend,
 		CompletedAt: a.now(),
 	})
 }
 
-func (a *Agent) reportFailure(ctx context.Context, task Task, msg string) {
+// reportFailure says a lifecycle task failed, and what category the failure
+// belongs to. The kind is a parameter rather than something derived from msg
+// because every caller knows it from the code path it took, and a classifier
+// reading the sentence back would be guessing at what the caller already had.
+func (a *Agent) reportFailure(ctx context.Context, task Task, msg string, fault store.FaultKind) {
 	a.report(ctx, TaskResult{
 		TaskID:      task.ID,
 		Kind:        task.Kind,
@@ -1540,6 +1545,7 @@ func (a *Agent) reportFailure(ctx context.Context, task Task, msg string) {
 		OK:          false,
 		Error:       msg,
 		State:       store.RunnerFailed,
+		Fault:       fault,
 		CompletedAt: a.now(),
 	})
 }

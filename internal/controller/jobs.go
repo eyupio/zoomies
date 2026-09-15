@@ -226,10 +226,16 @@ func completionMessage(j *store.Job) string {
 // agent, when the container died on its own; the controller, when an operator
 // removed a busy runner with force or the reconcile loop gave up on it.
 //
+// fault is the category, decided by whoever saw the runner stop: the agent
+// from an exit code or the daemon's own reply, the controller from its own
+// decision to give up on a host. It is a parameter rather than something read
+// back out of message, because the evidence is gone by the time the sentence
+// is written.
+//
 // It is idempotent. The same exit can reach here more than once -- a runner
 // report and then the task result that carries it -- and only the report that
 // records the fault writes the timeline entry and counts the metric.
-func (c *Controller) noteRunnerLost(ctx context.Context, before *store.Runner, source, message string) {
+func (c *Controller) noteRunnerLost(ctx context.Context, before *store.Runner, source, message string, fault store.FaultKind) {
 	if before == nil || before.CurrentJobID == "" {
 		return
 	}
@@ -245,8 +251,8 @@ func (c *Controller) noteRunnerLost(ctx context.Context, before *store.Runner, s
 	if message == "" {
 		message = "the runner stopped without saying why"
 	}
-	fault := fmt.Sprintf("runner %s stopped while this job was running: %s", before.Name, message)
-	updated, recorded, err := c.st.SetJobRunnerFault(ctx, j.ID, fault)
+	sentence := fmt.Sprintf("runner %s stopped while this job was running: %s", before.Name, message)
+	updated, recorded, err := c.st.SetJobRunnerFault(ctx, j.ID, sentence, fault)
 	if err != nil {
 		c.log.Warn("could not record a lost runner on its job", "job", j.ID, "runner", before.ID, "error", err)
 		return
@@ -256,14 +262,94 @@ func (c *Controller) noteRunnerLost(ctx context.Context, before *store.Runner, s
 	}
 	if err := c.st.AppendJobEvent(ctx, &store.JobEvent{
 		JobID: j.ID, Kind: store.JobEventRunnerLost, Source: source,
-		Message:  fault + "; GitHub will report the job failed once the runner's absence is noticed",
+		Message:  sentence + "; GitHub will report the job failed once the runner's absence is noticed",
 		RunnerID: before.ID, RunnerName: before.Name, At: c.Now(),
 	}); err != nil {
 		c.log.Warn("could not record a job timeline entry", "job", j.ID, "kind", store.JobEventRunnerLost, "error", err)
 	}
 	c.metrics.jobsRunnerLost.WithLabelValues(c.poolLabel(before.PoolID)).Inc()
-	c.log.Warn("a runner stopped while running a job", "job", j.ID, "runner", before.ID, "name", before.Name, "message", message)
+	c.metrics.jobFailures.WithLabelValues(c.poolLabel(before.PoolID), store.FaultDomainFleet, string(updated.FaultKind)).Inc()
+	c.log.Warn("a runner stopped while running a job",
+		"job", j.ID, "runner", before.ID, "name", before.Name, "fault", updated.FaultKind, "message", message)
 	c.publishJob(ctx, updated)
+}
+
+// startFailureFanout caps how many waiting jobs one failed start is written
+// onto. A pool that cannot start a container fails every attempt, and a fleet
+// with three hundred jobs queued against it would otherwise spend a reconcile
+// pass writing three hundred timeline rows that all say the same sentence.
+// The problems panel carries the scale; the timeline carries the news.
+const startFailureFanout = 20
+
+// startFailureWindow is how far back a pool's failed starts are counted when
+// answering "why is my job still queued". It matches the problems panel's own
+// window, so the drawer and the panel cannot disagree about whether a pool is
+// having a bad hour.
+const startFailureWindow = time.Hour
+
+// noteRunnerStartFailure tells the jobs waiting on a pool that a runner meant
+// for work like theirs died before it could take any.
+//
+// This is the failure that reached nothing before. A runner that fails while
+// executing a job has a job to be recorded on; a runner that fails on the way
+// up has none -- it was created for a pool, not for a job -- so from the Jobs
+// page a pool whose containers will not start was indistinguishable from a
+// pool that was merely busy, and the operator watching a queue that never
+// moved had nowhere to find out which.
+//
+// It deliberately does not fail the jobs. They are still queued, the next
+// runner may well run them, and Zoomies concluding a job GitHub still has open
+// would be the fleet inventing an outcome. What it writes is a note.
+func (c *Controller) noteRunnerStartFailure(ctx context.Context, before, failed *store.Runner) {
+	if failed == nil || failed.PoolID == "" {
+		return
+	}
+	// A runner that had a job is the other case entirely, and noteRunnerLost
+	// has already recorded it on the job it was running.
+	if before != nil && before.CurrentJobID != "" {
+		return
+	}
+	// Registering counts as never having started: the container may exist, but
+	// nothing has ever handed it a job and nothing now will.
+	if before != nil && before.State != store.RunnerProvisioning && before.State != store.RunnerRegistering {
+		return
+	}
+	queued, err := c.st.ListQueuedJobs(ctx)
+	if err != nil {
+		c.log.Warn("could not list queued jobs to note a failed runner start", "runner", failed.ID, "error", err)
+		return
+	}
+	written := 0
+	for _, j := range queued {
+		if written >= startFailureFanout {
+			break
+		}
+		if j.PoolID != failed.PoolID {
+			continue
+		}
+		// One entry per job per run of failures. A pool stuck in a start loop
+		// tries again every pass, and a timeline is opened to avoid reading a
+		// log file rather than to read one.
+		last, err := c.st.LastJobEventKind(ctx, j.ID)
+		if err != nil {
+			c.log.Warn("could not read a job's last timeline entry", "job", j.ID, "error", err)
+			continue
+		}
+		if last == store.JobEventRunnerStartFailed {
+			continue
+		}
+		if err := c.st.AppendJobEvent(ctx, &store.JobEvent{
+			JobID: j.ID, Kind: store.JobEventRunnerStartFailed, Source: sourceController,
+			Message: fmt.Sprintf("a runner this pool started for work like this one never took a job: %s. "+
+				"This job is still queued and the next runner may run it", failed.Message),
+			RunnerID: failed.ID, RunnerName: failed.Name, At: c.Now(),
+		}); err != nil {
+			c.log.Warn("could not record a job timeline entry", "job", j.ID, "kind", store.JobEventRunnerStartFailed, "error", err)
+			continue
+		}
+		written++
+	}
+	c.metrics.runnerStartFailures.WithLabelValues(c.poolLabel(failed.PoolID), string(failed.FaultKind)).Inc()
 }
 
 // JobEvents returns a job's timeline, oldest first.

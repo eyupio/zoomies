@@ -788,7 +788,7 @@ const runnerCols = `id, pool_id, host_id, name, state, github_runner_id, contain
 	image_pull_ms, container_started_at, registered_at, task_issued_at,
 	cleanup_error, cleanup_failed_at, cleanup_attempts, registration_deleted_at, cleaned_up_at,
 	draining_since, create_task_issued_at, host_removed_at, cleanup_estimated_at,
-	allocated_cpus, allocated_memory_mb, allocation_source`
+	allocated_cpus, allocated_memory_mb, allocation_source, fault_kind`
 
 func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 	var r Runner
@@ -803,7 +803,7 @@ func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 		&r.CPUPercent, &r.MemoryBytes, &pullMS, &containerStarted, &registered, &taskIssued,
 		&r.CleanupError, &cleanupFailed, &r.CleanupAttempts, &registrationDeleted, &cleanedUp,
 		&drainingSince, &createIssued, &hostRemoved, &cleanupEstimated,
-		&r.AllocatedCPUs, &r.AllocatedMemoryMB, &r.AllocationSource)
+		&r.AllocatedCPUs, &r.AllocatedMemoryMB, &r.AllocationSource, &r.FaultKind)
 	if err != nil {
 		return nil, err
 	}
@@ -833,7 +833,7 @@ func (s *Store) CreateRunner(ctx context.Context, r *Runner) error {
 	}
 	r.CreatedAt = s.Now()
 	_, err := s.exec(ctx, `INSERT INTO runners (`+runnerCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		r.ID, r.PoolID, r.HostID, r.Name, string(r.State), r.GitHubRunnerID, r.ContainerID,
 		boolInt(r.Ephemeral), r.Labels, r.Image, r.ImageDigest, r.RunnerVersion, r.CurrentJobID,
 		ms(r.CreatedAt), msp(r.StartedAt), msp(r.LastIdleAt), msp(r.FinishedAt),
@@ -842,7 +842,7 @@ func (s *Store) CreateRunner(ctx context.Context, r *Runner) error {
 		r.CleanupError, msp(r.CleanupFailedAt), r.CleanupAttempts,
 		msp(r.RegistrationDeletedAt), msp(r.CleanedUpAt), msp(r.DrainingSince),
 		msp(r.CreateTaskIssuedAt), msp(r.HostRemovedAt), msp(r.CleanupEstimatedAt),
-		r.AllocatedCPUs, r.AllocatedMemoryMB, r.AllocationSource)
+		r.AllocatedCPUs, r.AllocatedMemoryMB, r.AllocationSource, r.FaultKind)
 	return wrapWrite(err)
 }
 
@@ -1044,13 +1044,13 @@ func (s *Store) UpdateRunner(ctx context.Context, r *Runner) error {
 		runner_version=?, current_job_id=?, started_at=?, last_idle_at=?, finished_at=?,
 		message=?, jobs_handled=?, cpu_percent=?, memory_bytes=?, image_pull_ms=?,
 		container_started_at=?, registered_at=?, allocated_cpus=?, allocated_memory_mb=?,
-		allocation_source=? WHERE id=?`,
+		allocation_source=?, fault_kind=? WHERE id=?`,
 		r.PoolID, r.HostID, r.Name, string(r.State), r.GitHubRunnerID, r.ContainerID,
 		boolInt(r.Ephemeral), r.Labels, r.Image, r.ImageDigest, r.RunnerVersion, r.CurrentJobID,
 		msp(r.StartedAt), msp(r.LastIdleAt), msp(r.FinishedAt), r.Message,
 		r.JobsHandled, r.CPUPercent, r.MemoryBytes, durationMS(r.ImagePullDuration),
 		msp(r.ContainerStartedAt), msp(r.RegisteredAt), r.AllocatedCPUs, r.AllocatedMemoryMB,
-		r.AllocationSource, r.ID)
+		r.AllocationSource, r.FaultKind, r.ID)
 	if err != nil {
 		return wrapWrite(err)
 	}
@@ -1060,7 +1060,26 @@ func (s *Store) UpdateRunner(ctx context.Context, r *Runner) error {
 // TransitionRunner moves a runner to a new state, rejecting illegal moves and
 // stamping the timestamps that belong to each transition. It returns the runner
 // as it now stands, so callers can publish the change without a second read.
+//
+// A transition to failed made through here records no category, which reads as
+// the unclassified one. Callers that know why the runner failed -- which is
+// most of them -- go through FailRunner instead.
 func (s *Store) TransitionRunner(ctx context.Context, id string, to RunnerState, message string) (*Runner, error) {
+	return s.transitionRunner(ctx, id, to, message, "")
+}
+
+// FailRunner moves a runner to failed and records why in one write, so a row
+// can never carry a message without the category that says what to do about
+// it. The kind is normalised: one this build does not know is recorded as
+// FaultRunnerExited rather than stored as an identifier nothing can render.
+func (s *Store) FailRunner(ctx context.Context, id, message string, kind FaultKind) (*Runner, error) {
+	if kind = kind.Normalise(); kind == "" {
+		kind = FaultRunnerExited
+	}
+	return s.transitionRunner(ctx, id, RunnerFailed, message, kind)
+}
+
+func (s *Store) transitionRunner(ctx context.Context, id string, to RunnerState, message string, kind FaultKind) (*Runner, error) {
 	if !to.Valid() {
 		return nil, fmt.Errorf("%w: %q is not a runner state", ErrInvalidTransition, to)
 	}
@@ -1133,11 +1152,15 @@ func (s *Store) TransitionRunner(ctx context.Context, id string, to RunnerState,
 			}
 			r.CurrentJobID = ""
 		}
+		if kind != "" && to == RunnerFailed {
+			r.FaultKind = kind
+		}
 		_, err = tx.ExecContext(ctx, `UPDATE runners SET state=?, message=?, started_at=?,
 			last_idle_at=?, finished_at=?, jobs_handled=?, current_job_id=?, registered_at=?,
-			draining_since=? WHERE id=?`,
+			draining_since=?, fault_kind=? WHERE id=?`,
 			string(r.State), r.Message, msp(r.StartedAt), msp(r.LastIdleAt), msp(r.FinishedAt),
-			r.JobsHandled, r.CurrentJobID, msp(r.RegisteredAt), msp(r.DrainingSince), r.ID)
+			r.JobsHandled, r.CurrentJobID, msp(r.RegisteredAt), msp(r.DrainingSince),
+			r.FaultKind, r.ID)
 		if err != nil {
 			return err
 		}

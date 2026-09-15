@@ -15,7 +15,7 @@ import (
 
 const jobCols = `id, github_job_id, github_run_id, repo, workflow, job_name, labels, state,
 	conclusion, installation_id, pool_id, runner_id, runner_name, html_url, queued_at,
-	started_at, completed_at, matched, eligible_at, head_branch, head_sha, run_attempt, steps, runner_fault, provisioning, provision_now`
+	started_at, completed_at, matched, eligible_at, head_branch, head_sha, run_attempt, steps, runner_fault, fault_kind, provisioning, provision_now`
 
 func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
 	var j Job
@@ -25,7 +25,7 @@ func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
 	err := sc.Scan(&j.ID, &j.GitHubJobID, &j.GitHubRunID, &j.Repo, &j.Workflow, &j.JobName,
 		&j.Labels, &j.State, &j.Conclusion, &j.InstallationID, &j.PoolID, &j.RunnerID,
 		&j.RunnerName, &j.HTMLURL, &queued, &started, &completed, &matched, &eligible,
-		&j.HeadBranch, &j.HeadSHA, &j.RunAttempt, &j.Steps, &j.RunnerFault, &j.Provisioning, &j.ProvisionNow)
+		&j.HeadBranch, &j.HeadSHA, &j.RunAttempt, &j.Steps, &j.RunnerFault, &j.FaultKind, &j.Provisioning, &j.ProvisionNow)
 	if err != nil {
 		return nil, err
 	}
@@ -73,12 +73,12 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 				j.EligibleAt = &now
 			}
 			_, err := tx.ExecContext(ctx, `INSERT INTO jobs (`+jobCols+`)
-				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 				j.ID, j.GitHubJobID, j.GitHubRunID, j.Repo, j.Workflow, j.JobName, j.Labels,
 				string(j.State), j.Conclusion, j.InstallationID, j.PoolID, j.RunnerID,
 				j.RunnerName, j.HTMLURL, ms(j.QueuedAt), msp(j.StartedAt), msp(j.CompletedAt),
 				boolInt(j.Matched), msp(j.EligibleAt), j.HeadBranch, j.HeadSHA, j.RunAttempt,
-				j.Steps, j.RunnerFault, j.Provisioning, j.ProvisionNow)
+				j.Steps, j.RunnerFault, j.FaultKind, j.Provisioning, j.ProvisionNow)
 			if err != nil {
 				return err
 			}
@@ -120,6 +120,13 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 		text(&merged.HeadBranch, j.HeadBranch)
 		text(&merged.HeadSHA, j.HeadSHA)
 		text(&merged.RunnerFault, j.RunnerFault)
+		// Neither of these ever arrives from GitHub -- they are the fleet's own
+		// half of a failure, written by SetJobRunnerFault. Merging them the same
+		// way as the rest costs nothing and stops a future caller that does set
+		// them finding them silently dropped.
+		if j.FaultKind != "" && (current || merged.FaultKind == "") {
+			merged.FaultKind = j.FaultKind.Normalise()
+		}
 		text(&merged.Conclusion, j.Conclusion)
 		text(&merged.Repo, j.Repo)
 		text(&merged.Workflow, j.Workflow)
@@ -157,13 +164,13 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 			job_name=?, labels=?, state=?, conclusion=?, installation_id=?, pool_id=?,
 			runner_id=?, runner_name=?, html_url=?, started_at=?, completed_at=?, matched=?,
 			eligible_at=?, head_branch=?, head_sha=?, run_attempt=?, steps=?,
-			runner_fault=?, queued_at=? WHERE id=?`,
+			runner_fault=?, fault_kind=?, queued_at=? WHERE id=?`,
 			merged.GitHubRunID, merged.Repo, merged.Workflow, merged.JobName, merged.Labels,
 			string(merged.State), merged.Conclusion, merged.InstallationID, merged.PoolID,
 			merged.RunnerID, merged.RunnerName, merged.HTMLURL, msp(merged.StartedAt),
 			msp(merged.CompletedAt), boolInt(merged.Matched), msp(merged.EligibleAt),
 			merged.HeadBranch, merged.HeadSHA, merged.RunAttempt, merged.Steps,
-			merged.RunnerFault, ms(merged.QueuedAt), merged.ID)
+			merged.RunnerFault, merged.FaultKind, ms(merged.QueuedAt), merged.ID)
 		if err != nil {
 			return err
 		}
@@ -183,16 +190,26 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 // stopped before GitHub reported the job over, and returns the job as it now
 // is, along with whether this call is the one that recorded the fault.
 //
+// The message and its kind are written together, in one statement, because
+// they are one fact: a row carrying prose with no category would be counted as
+// unclassified for ever, and a category with no prose would name a fix for a
+// failure nobody can read.
+//
 // Only the first fault is kept. The agent may report the same exit more than
 // once -- a runner report and then a task result -- and the first message is
 // the one closest to the event. The flag is what lets the caller write the
 // timeline entry and count the metric exactly once, decided inside the write
 // rather than by a read that two reports could both make first.
-func (s *Store) SetJobRunnerFault(ctx context.Context, jobID, fault string) (*Job, bool, error) {
+func (s *Store) SetJobRunnerFault(ctx context.Context, jobID, fault string, kind FaultKind) (*Job, bool, error) {
 	var out *Job
 	var recorded bool
+	if kind = kind.Normalise(); kind == "" {
+		kind = FaultRunnerExited
+	}
 	err := s.tx(ctx, func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, `UPDATE jobs SET runner_fault=? WHERE id=? AND runner_fault=''`, fault, jobID)
+		res, err := tx.ExecContext(ctx,
+			`UPDATE jobs SET runner_fault=?, fault_kind=? WHERE id=? AND runner_fault='' AND fault_kind=''`,
+			fault, kind, jobID)
 		if err != nil {
 			return err
 		}
@@ -329,6 +346,15 @@ type JobFilter struct {
 	// FaultedOnly keeps only the jobs whose runner stopped under them. This is
 	// the fleet's own failure rate, as distinct from the workflows'.
 	FaultedOnly bool
+	// WorkflowFailedOnly is the other half: jobs GitHub failed with nothing
+	// wrong on this side. It is the list to send somebody who has been told
+	// "CI is broken" and needs to know whether that is true of their code.
+	WorkflowFailedOnly bool
+	// FaultKinds narrows a fleet failure to particular categories, which is
+	// how "show me every job we lost to memory this week" is asked. An unknown
+	// kind matches nothing rather than everything: a filter that silently
+	// widened would be read as a fleet in better shape than it is.
+	FaultKinds []FaultKind
 }
 
 var jobSortCols = map[string]string{
@@ -434,10 +460,21 @@ func jobWhere(f JobFilter) (string, []any) {
 	} else if f.ManagedOnly {
 		cond = append(cond, managedJobSQL("jobs"))
 	}
-	if f.FaultedOnly {
-		cond = append(cond, `runner_fault != ''`)
-	} else if f.FailedOnly {
+	switch {
+	case f.FaultedOnly:
+		cond = append(cond, fleetFailedJobSQL())
+	case f.WorkflowFailedOnly:
+		cond = append(cond, workflowFailedJobSQL())
+	case f.FailedOnly:
 		cond = append(cond, failedJobSQL())
+	}
+	if len(f.FaultKinds) > 0 {
+		placeholders := make([]string, 0, len(f.FaultKinds))
+		for _, k := range f.FaultKinds {
+			placeholders = append(placeholders, "?")
+			args = append(args, string(k))
+		}
+		cond = append(cond, `fault_kind IN (`+strings.Join(placeholders, ",")+`)`)
 	}
 	if q := strings.TrimSpace(f.Search); q != "" {
 		cond = append(cond, `(repo LIKE ? ESCAPE '\' OR workflow LIKE ? ESCAPE '\' OR job_name LIKE ? ESCAPE '\' OR runner_name LIKE ? ESCAPE '\')`)
@@ -547,8 +584,17 @@ type JobStats struct {
 	// a rule stopping it; Unknown is everything else, including a job GitHub
 	// stopped reporting and one with no conclusion at all, because a rate
 	// that counted those as successes would be a rate nobody should trust.
-	Succeeded    int           `json:"succeeded"`
-	Failed       int           `json:"failed"`
+	Succeeded int `json:"succeeded"`
+	Failed    int `json:"failed"`
+	// FleetFailed is the part of Failed this fleet caused: a runner that never
+	// started, or one that stopped under the job. It is a subset rather than a
+	// fifth outcome, because GitHub's answer for such a job is still "failure"
+	// and a split that did not add up would be a worse lie than no split.
+	//
+	// It is the number the whole taxonomy exists for. "Eleven failures this
+	// hour" is a question; "eleven failures, nine of them ours" is an answer,
+	// and it sends a different person to a different page.
+	FleetFailed  int           `json:"fleet_failed"`
 	Cancelled    int           `json:"cancelled"`
 	Unknown      int           `json:"unknown"`
 	MedianWait   time.Duration `json:"-"`
@@ -592,11 +638,29 @@ func managedJobSQL(jobs string) string {
 }
 
 func failedJobSQL() string {
+	return `(` + failedConclusionSQL() + ` OR ` + fleetFailedJobSQL() + `)`
+}
+
+func failedConclusionSQL() string {
 	quoted := make([]string, len(FailedConclusions))
 	for i, c := range FailedConclusions {
 		quoted[i] = "'" + c + "'"
 	}
-	return `(conclusion IN (` + strings.Join(quoted, ",") + `) OR runner_fault != '')`
+	return `conclusion IN (` + strings.Join(quoted, ",") + `)`
+}
+
+// fleetFailedJobSQL and workflowFailedJobSQL are the SQL spellings of
+// Job.FleetFailed and Job.WorkflowFailed. They exist here, beside the count
+// that uses them, for the same reason failedJobSQL does: the Overview's split
+// and the Jobs page's two filters have to mean the same thing by "ours", or
+// the tile and the list it links to disagree about whose bad afternoon it was.
+//
+// Both halves of the fleet predicate are tested, as in the Go method: a row
+// written before the category existed carries only the message.
+func fleetFailedJobSQL() string { return `(runner_fault != '' OR fault_kind != '')` }
+
+func workflowFailedJobSQL() string {
+	return `(NOT ` + fleetFailedJobSQL() + ` AND ` + failedConclusionSQL() + `)`
 }
 
 // StatsSince counts the jobs behind the Overview.
@@ -619,8 +683,10 @@ func (s *Store) StatsSince(ctx context.Context, since time.Time, managedOnly boo
 		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND completed_at >= ?`+scope+`),
 		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND `+failedJobSQL()+` AND completed_at >= ?`+scope+`),
 		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND conclusion = 'success' AND runner_fault = '' AND completed_at >= ?`+scope+`),
-		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND conclusion IN ('cancelled','skipped') AND runner_fault = '' AND completed_at >= ?`+scope+`)`,
-		ms(since), ms(since), ms(since), ms(since)).Scan(&st.Queued, &st.Running, &st.CompletedLast, &st.Failed, &st.Succeeded, &st.Cancelled)
+		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND conclusion IN ('cancelled','skipped') AND runner_fault = '' AND completed_at >= ?`+scope+`),
+		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND `+fleetFailedJobSQL()+` AND completed_at >= ?`+scope+`)`,
+		ms(since), ms(since), ms(since), ms(since), ms(since)).Scan(&st.Queued, &st.Running,
+		&st.CompletedLast, &st.Failed, &st.Succeeded, &st.Cancelled, &st.FleetFailed)
 	if err != nil {
 		return st, err
 	}

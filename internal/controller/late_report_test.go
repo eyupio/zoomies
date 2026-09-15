@@ -37,7 +37,7 @@ func lostRunnerOnAJob(t *testing.T, h *harness) (*store.Runner, *store.Job) {
 	if err := h.st.AssignRunnerJob(h.ctx, r.ID, job.ID); err != nil {
 		t.Fatalf("AssignRunnerJob: %v", err)
 	}
-	if err := h.c.failRunnerID(h.ctx, r.ID, "host went quiet"); err != nil {
+	if err := h.c.failRunnerID(h.ctx, r.ID, "host went quiet", store.FaultHostLost); err != nil {
 		t.Fatalf("failRunnerID: %v", err)
 	}
 	lost, err := h.st.GetRunner(h.ctx, r.ID)

@@ -223,7 +223,7 @@ func TestARunnerFailingUnderItsJobIsRecordedOnTheJob(t *testing.T) {
 	if before != 1 {
 		t.Fatalf("zoomies_jobs_runner_lost_total = %v after one lost runner, want 1", before)
 	}
-	h.c.noteRunnerLost(h.ctx, r, sourceAgent, "runner exited with code 137: reported again")
+	h.c.noteRunnerLost(h.ctx, r, sourceAgent, "runner exited with code 137: reported again", store.FaultOutOfMemory)
 	if got := h.timeline(job.ID); len(got) != len(events) {
 		t.Fatalf("a repeated report added a timeline entry: %v", kindsOfEvents(got))
 	}

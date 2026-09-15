@@ -224,6 +224,12 @@ func TestNoMetricDeclaresAnUnboundedLabel(t *testing.T) {
 		// neither grows with the fleet's work, which is what this test is
 		// about; a machine id would, and is deliberately absent.
 		"provider": true, "kind": true,
+		// "domain" is two values and "fault" is the closed set in
+		// store.FaultKinds. Both are constants in the source rather than
+		// anything the fleet's work produces, which is the distinction this
+		// test draws: a job id would multiply every series by the day's work,
+		// and nine categories do not.
+		"domain": true, "fault": true,
 	}
 
 	descs := make(chan *prometheus.Desc, 256)
