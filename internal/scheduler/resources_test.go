@@ -91,6 +91,89 @@ func TestADockerInDockerRunnerIsChargedForItsSidecar(t *testing.T) {
 	}
 }
 
+// The case from the field, and the reason the charge changed: a 12-CPU host
+// with four slots, a docker-in-docker pool that sets no limits of its own,
+// and a Hosts page reading "CPU committed 50%" while every core on the
+// machine was inside a runner's quota. The pair is given two shares by the
+// backend, so the pair is charged two -- and four slots of a defaulted dind
+// pool are two runners, not four.
+func TestADefaultedDockerInDockerPairIsChargedForBothOfItsContainers(t *testing.T) {
+	h := sized("host_a", 4, 12, 32*1024, 500*1024)
+	p := testPool("builders", "builders")
+	p.DockerMode = store.DockerDinD
+
+	hs := newHostSet([]*store.Host{h}, []*store.Pool{p}, nil, now)
+	if got := hs.place(p, 4); len(got) != 2 {
+		t.Fatalf("placed %d defaulted dind runners on a 12-CPU host with 4 slots, want 2", len(got))
+	}
+
+	// The same pool without the sidecar still fills its slots, which is what
+	// says the difference above is the sidecar and not the slot count.
+	plain := testPool("plain", "plain")
+	hs = newHostSet([]*store.Host{sized("host_b", 4, 12, 32*1024, 500*1024)}, []*store.Pool{plain}, nil, now)
+	if got := hs.place(plain, 4); len(got) != 4 {
+		t.Fatalf("placed %d defaulted plain runners on a 4-slot host, want 4", len(got))
+	}
+}
+
+// The invariant underneath that number, stated in the two functions that have
+// to agree: what a host is charged for a runner is never less than what its
+// backend is told to give one. A charge below the limit is a host promising
+// away room it has already handed to a cgroup, which is how a machine reading
+// as half committed runs out of cores.
+func TestAHostIsNeverChargedLessThanItsRunnersAreGiven(t *testing.T) {
+	for _, capacity := range []int{1, 2, 3, 4, 8} {
+		for _, mode := range []store.DockerMode{store.DockerNone, store.DockerDinD} {
+			h := sized("host_a", capacity, 12, 32*1024, 500*1024)
+			p := testPool("builders", "builders")
+			p.DockerMode = mode
+			// A dind pool's spec creates two containers with these limits;
+			// every other pool creates one.
+			containers := 1.0
+			if mode == store.DockerDinD {
+				containers = 2
+			}
+			given, _ := Allocation(p, h, true)
+			charge := Reserve(p, h)
+			// The single-slot host is the documented exception: two shares
+			// are more than the machine, so the pair is charged the machine
+			// and given twice it rather than the pool being refused outright.
+			if mode == store.DockerDinD && capacity == 1 {
+				if charge.CPUs != h.Allocatable().CPUs {
+					t.Errorf("capacity 1: charged %v CPU, want the whole allocatable machine %v", charge.CPUs, h.Allocatable().CPUs)
+				}
+				continue
+			}
+			if charge.CPUs+cpuEpsilon < containers*given.CPUs {
+				t.Errorf("capacity %d, %s: charged %v CPU and gave %v to each of %v containers",
+					capacity, mode, charge.CPUs, given.CPUs, containers)
+			}
+			if charge.MemoryMB < int64(containers)*given.MemoryMB {
+				t.Errorf("capacity %d, %s: charged %d MB and gave %d MB to each of %v containers",
+					capacity, mode, charge.MemoryMB, given.MemoryMB, containers)
+			}
+		}
+	}
+}
+
+// A host with one slot must still be able to run the pool it was joined for.
+// Two shares of a single-slot host are twice the machine, and charging that
+// would refuse every defaulted dind pool on every small host in the fleet --
+// an upgrade that empties a fleet rather than protecting it.
+func TestASingleSlotHostStillPlacesADefaultedDockerInDockerRunner(t *testing.T) {
+	h := sized("host_small", 1, 2, 4*1024, 500*1024)
+	p := testPool("builders", "builders")
+	p.DockerMode = store.DockerDinD
+
+	if !HostFits(h, p) {
+		t.Fatalf("a one-slot host was refused the pool it exists for: %s", HostShortfall(h, p))
+	}
+	hs := newHostSet([]*store.Host{h}, []*store.Pool{p}, nil, now)
+	if got := hs.place(p, 2); len(got) != 1 {
+		t.Fatalf("placed %d runners on a one-slot host, want 1", len(got))
+	}
+}
+
 // The upgrade property, and the one that decides whether this change is safe
 // to ship: a host carrying only pools that set no limits admits exactly what
 // its capacity admitted before any of this existed. The fallback share is what

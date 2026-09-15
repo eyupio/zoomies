@@ -622,6 +622,10 @@ func (c *Controller) hostResourceProblems(ctx context.Context, out *[]Problem) e
 	if err != nil {
 		return fmt.Errorf("listing hosts: %w", err)
 	}
+	pools, err := c.st.ListPools(ctx)
+	if err != nil {
+		return fmt.Errorf("listing pools: %w", err)
+	}
 	defaults := c.cfg().Scheduler.DefaultRunnerLimits
 	var unknown, unverified, throttled []string
 	var throttledID string
@@ -644,7 +648,7 @@ func (c *Controller) hostResourceProblems(ctx context.Context, out *[]Problem) e
 			throttled = append(throttled, h.Name+": "+scheduler.ThrottleReason(h))
 			throttledID = h.ID
 		}
-		if p, ok := overprovisionedProblem(h, defaults); ok {
+		if p, ok := overprovisionedProblem(h, pools, defaults); ok {
 			*out = append(*out, p)
 		}
 		for _, kind := range h.Backends {
@@ -716,10 +720,6 @@ func (c *Controller) hostResourceProblems(ctx context.Context, out *[]Problem) e
 		*out = append(*out, p)
 	}
 
-	pools, err := c.st.ListPools(ctx)
-	if err != nil {
-		return fmt.Errorf("listing pools: %w", err)
-	}
 	var unenforced []string
 	for _, p := range pools {
 		if p == nil || !p.Enabled || p.Backend != store.BackendProcess {
@@ -1123,17 +1123,29 @@ const overprovisionedSlotMemoryMB int64 = 2048
 // cordon for that. When even one slot does not fit -- under a core, or under
 // 2 GB, after the reserve -- the sentence says the machine is too small to
 // run a runner well, rather than pretending a capacity of one is the answer.
-func overprovisionedProblem(h *store.Host, defaults bool) (Problem, bool) {
+//
+// A slot is two containers where a docker-in-docker pool places, because the
+// backend gives the sidecar the same limits as the runner. That doubles the
+// machine a slot has to be, so a host sized comfortably for eight plain
+// runners is over-provisioned at eight dind ones -- and it is the count this
+// warning exists to give, since nothing else on the Hosts page says a slot
+// there is worth two.
+func overprovisionedProblem(h *store.Host, pools []*store.Pool, defaults bool) (Problem, bool) {
 	a := h.Allocatable()
 	if h.Capacity <= 0 || (!a.CPUsKnown && !a.MemoryKnown) {
 		return Problem{}, false
 	}
+	pair := dindPoolPlacesOn(h, pools)
+	containers := int64(1)
+	if pair != "" {
+		containers = 2
+	}
 	fits := math.MaxInt
 	if a.CPUsKnown {
-		fits = min(fits, max(1, int(math.Floor(a.CPUs))))
+		fits = min(fits, max(1, int(math.Floor(a.CPUs/float64(containers)))))
 	}
 	if a.MemoryKnown {
-		fits = min(fits, max(1, int(a.MemoryMB/overprovisionedSlotMemoryMB)))
+		fits = min(fits, max(1, int(a.MemoryMB/(overprovisionedSlotMemoryMB*containers))))
 	}
 	if h.Capacity <= fits {
 		return Problem{}, false
@@ -1174,6 +1186,11 @@ func overprovisionedProblem(h *store.Host, defaults bool) (Problem, bool) {
 	default:
 		detail += fmt.Sprintf(", and scheduler.default_runner_limits is off, so nothing limits its runners: each of the %d can take the whole machine at once, which is the shape that stops Docker answering.", h.Capacity)
 	}
+	// Which pool made a slot a pair, because "two containers" is not a thing
+	// an operator can check against anything on the host's own card.
+	if pair != "" {
+		detail += fmt.Sprintf(" %s runs docker in docker here, so each of its slots is two containers -- the runner and the sidecar the backend gives the same limits -- and the machine carries twice what the capacity reads.", pair)
+	}
 	// Capacity is decided once, at join, and a heartbeat never rewrites it:
 	// agent.capacity answers only for the embedded host, and a remote host
 	// is resized on its card or with a PATCH. A join token's --capacity is
@@ -1187,11 +1204,16 @@ func overprovisionedProblem(h *store.Host, defaults bool) (Problem, bool) {
 		where += " (on the host card, or PATCH /api/v1/hosts/" + h.ID + "; --capacity on a fresh join token applies only at the host's next join)"
 	}
 	where += ", or add a host"
-	tooSmall := (a.CPUsKnown && a.CPUs < 1) || (a.MemoryKnown && a.MemoryMB < overprovisionedSlotMemoryMB)
+	tooSmall := (a.CPUsKnown && a.CPUs < float64(containers)) ||
+		(a.MemoryKnown && a.MemoryMB < overprovisionedSlotMemoryMB*containers)
 	fix := where + "."
 	if tooSmall {
-		fix = fmt.Sprintf("the machine is too small to run a runner well: after its reserve it has %s to give, and one runner wants a core and %d MB. %s, and give it lighter jobs or replace it with a larger machine.",
-			strings.Join(allocatable, " and "), overprovisionedSlotMemoryMB, where)
+		wants := fmt.Sprintf("a core and %d MB", overprovisionedSlotMemoryMB)
+		if containers > 1 {
+			wants = fmt.Sprintf("two cores and %d MB between its runner and its sidecar", overprovisionedSlotMemoryMB*containers)
+		}
+		fix = fmt.Sprintf("the machine is too small to run a runner well: after its reserve it has %s to give, and one runner wants %s. %s, and give it lighter jobs or replace it with a larger machine.",
+			strings.Join(allocatable, " and "), wants, where)
 	}
 	p := Problem{
 		Code:       "host.overprovisioned",
@@ -1206,6 +1228,28 @@ func overprovisionedProblem(h *store.Host, defaults bool) (Problem, bool) {
 		p.Setting = "agent.capacity"
 	}
 	return p, true
+}
+
+// dindPoolPlacesOn names the first docker-in-docker pool that would place a
+// runner on this host, or "" when none would. It is what decides whether a
+// slot here is one container or two.
+//
+// The question is which pools reach the host, not which have runners on it
+// now: a capacity that the machine cannot carry is wrong before the first
+// pair is placed, and an operator told about it only once the host is full
+// has already had the jobs that found out for them. Availability is left out
+// for the same reason -- a cordoned host is skipped by the caller, and a host
+// that is merely unhealthy is still the size it is.
+func dindPoolPlacesOn(h *store.Host, pools []*store.Pool) string {
+	for _, p := range pools {
+		if p == nil || !p.Enabled || p.DockerMode != store.DockerDinD || p.Backend == store.BackendProcess {
+			continue
+		}
+		if scheduler.HostSelects(h, p) && scheduler.HostOffers(h, p) && scheduler.HostIsPlatform(h, p) {
+			return p.Name
+		}
+	}
+	return ""
 }
 
 // unenforceableProblem is host.limits_unenforceable for one backend of one

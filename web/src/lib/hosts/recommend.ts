@@ -21,24 +21,65 @@ export interface RunnerAsk {
   memoryMb: number;
   /** Where the ask came from, for the sentence under the slider. */
   source: 'pools' | 'default';
+  /**
+   * Whether the ask was doubled because a slot is a pair. It is the figure
+   * that needs explaining: an operator who typed 2 cores on the pool and
+   * reads 4 here has to be told which of the two is wrong, and neither is.
+   */
+  pair: boolean;
 }
 
 /** The default a pool created today gets: two cores and four gigabytes. */
-export const DEFAULT_ASK: RunnerAsk = { cpus: 2, memoryMb: 4096, source: 'default' };
+export const DEFAULT_ASK: RunnerAsk = { cpus: 2, memoryMb: 4096, source: 'default', pair: false };
 
 export function runnerAsk(pools: readonly Pool[]): RunnerAsk {
   let cpus = 0;
   let memoryMb = 0;
+  // Whether the figure that won is a pair's, which is the only thing the
+  // sentence has to explain. A dind pool that does not win says nothing here:
+  // this function has no host in hand, so it cannot know whether that pool
+  // places on the machine being adjusted, and inflating every host in the
+  // fleet for one pool would be a recommendation nobody could act on.
+  // `host.overprovisioned` is the half that does know, host by host.
+  let cpuPair = false;
+  let memoryPair = false;
+  let anyPair = false;
   for (const pool of pools) {
     if (pool.enabled !== true) continue;
-    cpus = Math.max(cpus, pool.resources?.cpus ?? 0);
-    memoryMb = Math.max(memoryMb, pool.resources?.memory_mb ?? 0);
+    // A docker-in-docker slot is two containers, not one: the backend gives
+    // the sidecar the same limits as the runner, so a slot of such a pool
+    // asks for twice what the pool says.
+    const containers = pool.docker_mode === 'dind' ? 2 : 1;
+    anyPair = anyPair || containers > 1;
+    const wantCpus = (pool.resources?.cpus ?? 0) * containers;
+    const wantMemoryMb = (pool.resources?.memory_mb ?? 0) * containers;
+    if (wantCpus > cpus) {
+      cpus = wantCpus;
+      cpuPair = containers > 1;
+    }
+    if (wantMemoryMb > memoryMb) {
+      memoryMb = wantMemoryMb;
+      memoryPair = containers > 1;
+    }
   }
-  if (cpus <= 0 && memoryMb <= 0) return DEFAULT_ASK;
+  if (cpus <= 0 && memoryMb <= 0) {
+    // Nothing was set anywhere, so the default answers -- twice over where a
+    // pool gives its jobs a daemon, since its pair is given the host's share
+    // on each container. This is the shape that sizes a host wrong most
+    // often, because there is no figure on the pool to double.
+    if (!anyPair) return DEFAULT_ASK;
+    return {
+      cpus: DEFAULT_ASK.cpus * 2,
+      memoryMb: DEFAULT_ASK.memoryMb * 2,
+      source: 'default',
+      pair: true,
+    };
+  }
   return {
     cpus: cpus > 0 ? cpus : DEFAULT_ASK.cpus,
     memoryMb: memoryMb > 0 ? memoryMb : DEFAULT_ASK.memoryMb,
     source: 'pools',
+    pair: cpuPair || memoryPair,
   };
 }
 

@@ -167,6 +167,20 @@ Read the host card's reason before changing a pool. **Committed** CPU and
 memory are reservations; **CPU usage** and **memory available** are recent
 measurements of the whole host, including work outside Zoomies.
 
+A host can be under pressure while the room **held back for the machine** looks
+generous, and the two do not contradict each other. The reserve is what the
+scheduler will not promise away rather than a fence around the machine — the
+room is kept free by placing less there, and nothing stops a job that runs away
+from taking it — and the memory reserve is itself the line pressure is judged
+against: a host counts as overwhelmed when available memory falls *to* it, so
+holding more back means being throttled sooner rather than later. When the
+reason names the **load average** instead, look for work no quota binds: the
+kernel counts a task waiting on disk towards the load average while it keeps a
+container that has spent its CPU quota off the run queue, so a host can sit at
+40% CPU with a load past twice its cores and a daemon too busy to answer a
+`create`. `docker_mode: dind` is the usual multiplier, since each of its slots
+is two containers the backend gives the same limits.
+
 At 85% CPU usage, Zoomies starts one runner at a time. Sustained usage of at
 least 95% holds new starts until it falls below 85%. A host at its memory
 reserve holds starts too, and a pool waits when its next runner would not fit.
