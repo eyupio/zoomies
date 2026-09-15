@@ -123,6 +123,54 @@ test('every button and link has an accessible name', async ({ page }) => {
   }
 });
 
+/*
+ * A segmented option is named for the label it shows, and described after it.
+ * Both halves have been got wrong in turn: a name that was the description
+ * alone left the button reading "1m" with nothing by that name to ask for, and
+ * a description that opened with the label again had a screen reader saying
+ * "Rows -- Rows: the table". Voice control asks for what it can see, so the
+ * label leads and is said once.
+ */
+test('a segmented option is asked for by the label it shows', async ({ page }) => {
+  let audited = 0;
+  for (const { path, heading } of PAGES) {
+    await goto(page, path, heading);
+    await settle(page, path);
+
+    // Nothing in the accessibility tree marks a choice as segmented, so the
+    // group is reached structurally; the names it is judged on are the
+    // rendered ones.
+    const seen = await page.locator('.segmented button').evaluateAll((buttons) =>
+      buttons.map((button) => ({
+        label: (button.textContent ?? '').trim(),
+        name: (button.getAttribute('aria-label') ?? button.textContent ?? '').trim(),
+      })),
+    );
+    audited += seen.length;
+
+    const offenders = seen.filter(({ label, name }) => {
+      if (label === '') return false;
+      if (!name.startsWith(label)) return true;
+      // What follows the label is the description, and it is a description of
+      // the option rather than the option's name a second time. The separator
+      // between the two is the component's to choose, so it is stepped over
+      // rather than spelled out here.
+      return name
+        .slice(label.length)
+        .replace(/^[\s\p{Pd}:,.-]+/u, '')
+        .startsWith(label);
+    });
+
+    expect(
+      offenders,
+      `${path}: a segmented option's accessible name says its label once, first`,
+    ).toEqual([]);
+  }
+
+  // An audit that found no buttons to audit passes for the wrong reason.
+  expect(audited, 'no segmented choice was found on any page').toBeGreaterThan(0);
+});
+
 test('every image has alternative text or is hidden from assistive technology', async ({
   page,
 }) => {

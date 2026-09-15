@@ -700,9 +700,14 @@ async function gridOverflow(
   });
 }
 
-/** The layout toggle above a grid, as the operator presses it. */
+/**
+ * The layout toggle above a grid, as the operator presses it. A segmented
+ * button is named for the label it shows and then described, so the label is
+ * what to ask for -- matching the description too would tie this to wording
+ * that is free to change.
+ */
 function layout(page: Page, choice: 'Cards' | 'Rows'): Locator {
-  return page.getByRole('button', { name: new RegExp(`^${choice}:`) });
+  return page.getByRole('button', { name: new RegExp(`^${choice}\\b`) });
 }
 
 test('a grid can be read as rows instead of cards, and remembers which', async ({ page }) => {
