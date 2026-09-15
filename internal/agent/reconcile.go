@@ -239,7 +239,7 @@ func entrypointExitHint(code int) string {
 		return "the image was started with no credentials, so the entrypoint could not register a runner; read the container's log"
 	case 69:
 		return "the pool's Docker daemon never became ready, so the entrypoint refused to take a job it could not run; " +
-			"read the container's log, and on a slow host set ZOOMIES_DOCKER_WAIT in the pool's env to allow the daemon longer"
+			"read the container's log, and on a slow host raise runners.docker_wait on the Settings page to allow the daemon longer"
 	case 78:
 		return "the entrypoint refused its configuration; read the container's log for the setting it named"
 	}

@@ -225,7 +225,7 @@ func TestReconcileExplainsAnEntrypointExitCode(t *testing.T) {
 	if len(reports) != 1 || reports[0].State != store.RunnerFailed {
 		t.Fatalf("reports = %+v, want one failed", reports)
 	}
-	if !strings.Contains(reports[0].Message, "ZOOMIES_DOCKER_WAIT") {
+	if !strings.Contains(reports[0].Message, "runners.docker_wait") {
 		t.Fatalf("report does not say what exit 69 means: %q", reports[0].Message)
 	}
 }

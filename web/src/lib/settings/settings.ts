@@ -16,6 +16,8 @@ export const SECTION_BLURB: Record<string, string> = {
   security: 'Sessions, encryption and whether authentication is on at all.',
   github: 'How Zoomies talks to GitHub, and what it falls back to when webhooks do not arrive.',
   agent: 'The agent built into this controller. A standalone agent is configured on its own host.',
+  runners:
+    "What every runner this fleet creates is started with. A pool's own env is layered over it.",
   scheduler: 'How eagerly runners are created, and when they are given up on.',
   log: 'How much the controller says, and in what format.',
   oidc: 'Single sign-on.',

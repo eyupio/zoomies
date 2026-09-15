@@ -111,7 +111,7 @@ wait_for_docker() {
     [ "$SECONDS" -lt "$deadline" ] && sleep 1
   done
   log "the required docker daemon did not become ready within ${limit}s; this runner will not accept a job."
-  log "on a slow host, set ZOOMIES_DOCKER_WAIT in the pool's env to allow it longer."
+  log "on a slow host, raise runners.docker_wait on the controller's Settings page to allow it longer."
   return 69
 }
 

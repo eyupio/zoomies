@@ -414,6 +414,21 @@ var registry = buildRegistry([]Setting{
 	},
 
 	// ---------------------------------------------------------------------
+	// runners -- what every runner is started with. The controller writes
+	// these into each create task, so a change is in the next runner's
+	// environment without anything restarting.
+	// ---------------------------------------------------------------------
+	{
+		Key: "runners.docker_wait", Label: "Docker daemon wait", Env: "ZOOMIES_DOCKER_WAIT", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Floor:   time.Second,
+		Summary: "How long a runner on a pool that provides Docker waits for that daemon before refusing to take a job. Whole seconds, up to an hour; 0 leaves the runner image's own default. A pool's env can set ZOOMIES_DOCKER_WAIT to override it for that pool.",
+	},
+	{
+		Key: "runners.env", Label: "Runner environment", Env: "ZOOMIES_RUNNER_ENV", Kind: KindLabels, Scope: ScopeInstance, Live: true,
+		Summary: "Key=value variables every runner starts with, such as a proxy or a package mirror. A pool's own env wins where the two name the same variable. Every job can read these, so a credential does not belong here: give it to the pool, or to the workflow as a GitHub secret.",
+	},
+
+	// ---------------------------------------------------------------------
 	// scheduler -- every one of these is read fresh on each pass.
 	// ---------------------------------------------------------------------
 	{
@@ -761,7 +776,7 @@ func StoredSettings() []Setting {
 // order an operator reads them, which is roughly the order a request travels
 // through the system, rather than alphabetical.
 var SectionOrder = []string{
-	"server", "database", "security", "github", "agent", "scheduler",
+	"server", "database", "security", "github", "agent", "runners", "scheduler",
 	"log", "oidc", "metrics", "retention", "images", "updates", "capacity_demand",
 	"provider",
 }

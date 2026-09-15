@@ -196,8 +196,11 @@ reused for one minute across pools; runner creates still apply their own pull
 policy. A failed dependency preparation is never cached.
 
 The stock runner image waits for the pool's Docker daemon before registering
-when the pool provides one. `ZOOMIES_DOCKER_WAIT`, settable in the pool's
-`env`, accepts 1–3600 seconds and defaults to 120 — dockerd in a fresh
+when the pool provides one. `ZOOMIES_DOCKER_WAIT` accepts 1–3600 seconds and
+defaults to 120; the fleet sets it with `runners.docker_wait` on the Settings
+page, which the controller renders into every Docker pool's runners, and a
+pool's `env` can name it to say otherwise. `runners.env` reaches every runner
+the same way, under the pool's own `env` — dockerd in a fresh
 sidecar sets up its storage driver and firewall rules before it listens, and
 on a host that is extracting images for the runners queued behind it that
 takes longer than the thirty seconds the first version allowed. Each probe is

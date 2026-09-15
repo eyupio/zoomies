@@ -347,7 +347,7 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, host *s
 		Image:       r.Image,
 		PullPolicy:  pool.PullPolicy,
 		Credentials: creds,
-		Env:         pool.Env,
+		Env:         runnerEnv(c.cfg().Runners, pool),
 		Ephemeral:   pool.Ephemeral,
 		// What the row records, not the pool's field: a pool that sets no
 		// limit gets one slot's share of the host, and the agent applies

@@ -192,6 +192,10 @@ agent:
   insecure_skip_verify: false   # ZOOMIES_AGENT_INSECURE_SKIP_VERIFY
   allow_insecure_http: false    # ZOOMIES_AGENT_ALLOW_INSECURE_HTTP -- plain http:// off-host
 
+runners:
+  docker_wait: 2m               # ZOOMIES_DOCKER_WAIT   -- how long a Docker pool's runner waits for its daemon; 0 leaves the image's default
+  env: {}                       # ZOOMIES_RUNNER_ENV    -- "HTTPS_PROXY=http://proxy:3128,NO_PROXY=localhost"; a pool's env wins
+
 scheduler:
   interval: 10s                 # ZOOMIES_SCHEDULER_INTERVAL
   scale_up_delay: 0s            # ZOOMIES_SCALE_UP_DELAY
@@ -400,6 +404,13 @@ settings page reports rather than refusing the edit.
 | `retention.samples` | `ZOOMIES_RETENTION_SAMPLES` | at once | Keep Overview samples for — How long the Overview's samples are kept. |
 | `retention.scaling_events` | `ZOOMIES_RETENTION_SCALING_EVENTS` | at once | Keep scaling history for — How long scaling decisions are kept. Audit rows are not covered by this, or by anything: they are never deleted. |
 | `retention.webhooks` | `ZOOMIES_RETENTION_WEBHOOKS` | at once | Keep webhook deliveries for — How long webhook deliveries are kept. |
+
+### `runners`
+
+| Key | Environment | Takes effect | What it is |
+| --- | --- | --- | --- |
+| `runners.docker_wait` | `ZOOMIES_DOCKER_WAIT` | at once | Docker daemon wait — How long a runner on a pool that provides Docker waits for that daemon before refusing to take a job. Whole seconds, up to an hour; 0 leaves the runner image's own default. A pool's env can set ZOOMIES_DOCKER_WAIT to override it for that pool. |
+| `runners.env` | `ZOOMIES_RUNNER_ENV` | at once | Runner environment — Key=value variables every runner starts with, such as a proxy or a package mirror. A pool's own env wins where the two name the same variable. Every job can read these, so a credential does not belong here: give it to the pool, or to the workflow as a GitHub secret. |
 
 ### `scheduler`
 
@@ -1047,6 +1058,42 @@ what ends a throttle, and which hosts can be throttled at all.
 the setting is switched off is lifted rather than left on a rung nothing will
 ever step down. Leave it on unless something outside Zoomies manages the
 hosts' load.
+
+### `runners.docker_wait` and `runners.env` — what every runner starts with
+
+```yaml
+runners:
+  docker_wait: 2m
+  env:
+    HTTPS_PROXY: http://proxy.internal:3128
+    NO_PROXY: localhost,.internal
+```
+
+Both are fleet-wide and both are live: the controller writes them into each
+runner's environment when it builds the create task, so a change on the
+Settings page is in the next runner without anything restarting. A pool's own
+`env` is layered over them, so the fleet says what is usual and a pool says
+what is different.
+
+`runners.docker_wait` is how long a runner on a pool with a `docker_mode`
+waits for that daemon before it refuses to take a job. It reaches the runner
+image as `ZOOMIES_DOCKER_WAIT`, in whole seconds. Two minutes is the image's
+own default and the right answer for most hosts: `dockerd` in a fresh
+docker-in-docker sidecar sets up its storage driver and firewall rules before
+it listens, and on a host that is also extracting images for the runners
+queued behind it that takes longer than the thirty seconds an earlier default
+allowed. A runner that gives up exits with code 69, and the Runners page says
+so and points here. The image refuses anything outside one second to an hour,
+so the validator refuses it first (`runners.docker_wait`); `0s` leaves the
+image's default.
+
+`runners.env` is for the variables every job on every pool needs — a proxy, a
+package mirror, a `GOFLAGS`. Every job can read them, so a credential does not
+belong there: a pool's `env` narrows the audience to that pool's jobs, and a
+GitHub secret narrows it to the workflow. The variables the controller writes
+for each runner individually — its name, labels, group and credentials — are
+refused (`runners.env_reserved`), because one value for the whole fleet is
+wrong for every runner in it.
 
 ### `images.refresh_interval` — keeping a moving tag current
 

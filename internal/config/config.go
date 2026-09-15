@@ -33,6 +33,7 @@ type Config struct {
 	Security       Security       `yaml:"security"`
 	GitHub         GitHub         `yaml:"github"`
 	Agent          Agent          `yaml:"agent"`
+	Runners        Runners        `yaml:"runners"`
 	Scheduler      Scheduler      `yaml:"scheduler"`
 	Log            Log            `yaml:"log"`
 	OIDC           OIDC           `yaml:"oidc"`
@@ -420,6 +421,26 @@ type Metrics struct {
 	Public bool `yaml:"public"`
 }
 
+// Runners is what every runner this fleet creates is started with, whichever
+// pool and host it lands on. A pool's own env is layered over it, so the fleet
+// says what is usual and a pool says what is different.
+//
+// It is a section of its own rather than part of Agent because it is not about
+// the agent at all: the controller writes these into the runner's environment
+// when it builds the create task, and a standalone agent on another host never
+// reads them.
+type Runners struct {
+	// DockerWait is how long a runner on a pool that provides Docker waits
+	// for that daemon before refusing to take a job. It reaches the runner
+	// image as ZOOMIES_DOCKER_WAIT, in whole seconds. Zero leaves the image's
+	// own default in place.
+	DockerWait time.Duration `yaml:"docker_wait"`
+	// Env is extra environment for every runner. It is visible to every job
+	// that runs, so it is the place for a proxy or a mirror and not for a
+	// credential: a pool's env, or a GitHub secret, is where those belong.
+	Env map[string]string `yaml:"env"`
+}
+
 // Retention bounds how much history the database keeps.
 //
 // Audit rows are deliberately absent: an audit trail a process can quietly
@@ -514,6 +535,10 @@ func Default() *Config {
 		// Hourly is soon enough that a host picks up a rebuilt image the same
 		// working day, and rare enough that the registry never notices.
 		Images: Images{RefreshInterval: time.Hour},
+		// Two minutes matches the runner image's own default: dockerd in a
+		// fresh sidecar on a host that is also extracting images takes longer
+		// than the thirty seconds the first version allowed.
+		Runners: Runners{DockerWait: 2 * time.Minute},
 		// Daily: releases are not frequent, and a controller that asks once a
 		// day still tells you within a working day of one being published.
 		Updates:        Updates{CheckInterval: 24 * time.Hour},
