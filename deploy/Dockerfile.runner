@@ -110,8 +110,13 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # exists. actions/runner's own .NET dependencies are installed further down by
 # the tarball's installdependencies.sh, which knows each distribution's names
 # for them -- naming them here is what made this file Ubuntu-24.04-only.
-COPY --chmod=0755 deploy/runner-packages.sh /tmp/runner-packages.sh
-RUN /tmp/runner-packages.sh "${OS_FAMILY}" && rm /tmp/runner-packages.sh
+#
+# deploy/runner-apt.sh rides along with every script that installs packages,
+# here and below: it is the one that survives an archive mirror the index has
+# moved past, and each step carries it rather than the image keeping a copy
+# around for the next one.
+COPY --chmod=0755 deploy/runner-apt.sh deploy/runner-packages.sh /tmp/
+RUN /tmp/runner-packages.sh "${OS_FAMILY}" && rm /tmp/runner-packages.sh /tmp/runner-apt.sh
 ENV LANG=en_US.UTF-8
 
 # The runner must not be root. It gets passwordless sudo because a great many
@@ -134,6 +139,13 @@ RUN set -eux; \
 # The dependency script is allowed to fail the build, too. It used to be
 # silenced, which shipped an image that was missing a library the runner dies
 # without on the first job rather than failing here, where the log says why.
+#
+# It is GitHub's script and installs the runner's .NET dependencies with the
+# distribution's package manager, so it is exposed to the same archive mirror
+# that is briefly out of step with its own index as everything
+# deploy/runner-apt.sh covers. It cannot use that helper -- it is not ours to
+# edit -- so the attempts are here instead, and the last one still fails the
+# build.
 WORKDIR /home/runner
 RUN set -eux; \
     case "${TARGETARCH}" in \
@@ -146,7 +158,12 @@ RUN set -eux; \
     echo "${RUNNER_SHA256}  runner.tar.gz" | sha256sum -c -; \
     tar xzf runner.tar.gz; \
     rm runner.tar.gz; \
-    ./bin/installdependencies.sh; \
+    for attempt in 1 2 3; do \
+      if ./bin/installdependencies.sh; then break; fi; \
+      [ "$attempt" -lt 3 ] || exit 1; \
+      echo "installdependencies.sh failed; trying again in $((attempt * 10))s" >&2; \
+      sleep $((attempt * 10)); \
+    done; \
     rm -rf /var/lib/apt/lists/*; \
     mkdir -p /home/runner/_work; \
     chown -R runner:runner /home/runner
@@ -155,13 +172,13 @@ RUN set -eux; \
 # part of the image most likely to be edited, and putting it last means editing
 # it does not re-fetch the ~200 MB archive above. What is in it, and what is
 # deliberately not, is in deploy/runner-toolchain.sh.
-COPY --chmod=0755 deploy/runner-toolchain.sh /tmp/runner-toolchain.sh
-RUN /tmp/runner-toolchain.sh "${OS_FAMILY}" && rm /tmp/runner-toolchain.sh
+COPY --chmod=0755 deploy/runner-apt.sh deploy/runner-toolchain.sh /tmp/
+RUN /tmp/runner-toolchain.sh "${OS_FAMILY}" && rm /tmp/runner-toolchain.sh /tmp/runner-apt.sh
 
 # The GitHub CLI, from GitHub's own repository because no distribution here
 # carries it.
-COPY --chmod=0755 deploy/runner-gh.sh /tmp/runner-gh.sh
-RUN /tmp/runner-gh.sh "${OS_FAMILY}" && rm /tmp/runner-gh.sh
+COPY --chmod=0755 deploy/runner-apt.sh deploy/runner-gh.sh /tmp/
+RUN /tmp/runner-gh.sh "${OS_FAMILY}" && rm /tmp/runner-gh.sh /tmp/runner-apt.sh
 
 # Prove the toolchain is actually reachable, for the same reason the Docker
 # variant checks its client: a package that installed but left nothing on PATH
@@ -183,11 +200,11 @@ RUN set -eux; \
 # install rather than the whole toolchain above -- and so that a build with
 # EXTRA_PACKAGES set is cheap enough for CI to run one on every variant, which
 # is what keeps this build argument from quietly ceasing to work.
-COPY --chmod=0755 deploy/runner-extra.sh /tmp/runner-extra.sh
+COPY --chmod=0755 deploy/runner-apt.sh deploy/runner-extra.sh /tmp/
 # Declare this only at its installation step so changing the package list
 # reuses the runner download and toolchain layers above.
 ARG EXTRA_PACKAGES=""
-RUN /tmp/runner-extra.sh "${OS_FAMILY}" ${EXTRA_PACKAGES} && rm /tmp/runner-extra.sh
+RUN /tmp/runner-extra.sh "${OS_FAMILY}" ${EXTRA_PACKAGES} && rm /tmp/runner-extra.sh /tmp/runner-apt.sh
 
 COPY --chmod=0755 deploy/runner-entrypoint.sh /usr/local/bin/entrypoint.sh
 
@@ -217,8 +234,8 @@ ARG OS_FAMILY
 ARG OS_ID
 USER root
 
-COPY --chmod=0755 deploy/runner-docker-cli.sh /tmp/runner-docker-cli.sh
-RUN /tmp/runner-docker-cli.sh "${OS_FAMILY}" "${OS_ID}" && rm /tmp/runner-docker-cli.sh
+COPY --chmod=0755 deploy/runner-apt.sh deploy/runner-docker-cli.sh /tmp/
+RUN /tmp/runner-docker-cli.sh "${OS_FAMILY}" "${OS_ID}" && rm /tmp/runner-docker-cli.sh /tmp/runner-apt.sh
 # Prove the client landed somewhere the runner will actually find it: a plugin
 # installed but unreachable is the same failure as no client at all, and it is
 # far cheaper to catch here than in somebody's workflow.

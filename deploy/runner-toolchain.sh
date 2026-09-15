@@ -34,9 +34,7 @@ family="${1:?usage: runner-toolchain.sh <apt|dnf>}"
 
 case "${family}" in
   apt)
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update
-    apt-get install -y --no-install-recommends \
+    "$(dirname "$0")/runner-apt.sh" \
       build-essential pkg-config cmake autoconf automake libtool \
       patch file dpkg-dev gettext \
       python3 python3-pip python3-venv python3-dev python3-setuptools \
@@ -46,7 +44,6 @@ case "${family}" in
       liblzma-dev libncurses-dev uuid-dev \
       git-lfs wget gnupg bzip2 zstd lsb-release software-properties-common \
       netcat-openbsd dnsutils iputils-ping net-tools
-    rm -rf /var/lib/apt/lists/*
     ;;
   dnf)
     # The RHEL rebuilds keep a good half of the -devel packages a build needs

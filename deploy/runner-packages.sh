@@ -19,12 +19,9 @@ family="${1:?usage: runner-packages.sh <apt|dnf>}"
 
 case "${family}" in
   apt)
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update
-    apt-get install -y --no-install-recommends \
+    "$(dirname "$0")/runner-apt.sh" \
       ca-certificates curl git jq unzip zip tar gzip xz-utils \
       sudo gosu tzdata locales openssh-client rsync
-    rm -rf /var/lib/apt/lists/*
     # A runner without a UTF-8 locale mangles any non-ASCII line a job prints,
     # which is a confusing thing to debug from a workflow log.
     localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8
