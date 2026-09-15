@@ -271,9 +271,9 @@ The drawn controls have their own sizes, for the same reason: `--z-control-box`
 `--z-control-icon` (14px, the icon inside a button). Field and button *heights*
 are on the spacing scale and stay there, with one exception: `--z-control-touch`
 (44px) is the height a control read by a finger takes under
-`@media (pointer: coarse)` — the segmented choices, the capacity map's chips
-and legend switches, a slider's thumb — because a 24px row a mouse is fine with
-is two rows under one fingertip. It applies only where the pointer is coarse,
+`@media (pointer: coarse)` — the segmented choices, the capacity map's and the
+fleet trend's chips and legend switches, a slider's thumb — because a 24px row
+a mouse is fine with is two rows under one fingertip. It applies only where the pointer is coarse,
 so the desktop keeps its density.
 
 Dialogs and drawers are cut to their content's comfortable measure rather than
@@ -520,7 +520,7 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 | `Dialog` | focus trap, restores focus on close, `Esc` closes, backdrop click closes only non-destructive dialogs |
 | `Drawer` | right-hand detail panel; same focus rules |
 | `NavMenu` | the phone's side menu: every section, named; slides from the left, same focus rules, closes when one is chosen |
-| `DropdownMenu` | roving tabindex, type-ahead |
+| `DropdownMenu` | roving tabindex, type-ahead; the list opens in the browser's top layer, placed against its trigger and flipped above where there is no room below, so a menu on a grid's last row is not cut off by the frame that scrolls. It closes when its trigger scrolls out of that frame |
 | `Tabs` | `aria-controls`/`aria-selected`, arrow-key navigation |
 | `Toast` | bottom-right, `aria-live="polite"` (`assertive` for errors), auto-dismiss except on error |
 | `Skeleton` | **the only loading affordance for content.** Spinners are for in-flight *actions* only |

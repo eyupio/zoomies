@@ -254,3 +254,56 @@ test('the tables that are not grids fit the window too', async ({ page, request 
     if (userId) await request.delete(`/api/v1/users/${userId}`);
   }
 });
+
+/*
+ * A row's menu is not cut off by the table it was opened from.
+ *
+ * The grid's frame scrolls, so it clips what overflows it, and the menu was
+ * positioned inside that frame: on the last row of a full page an operator saw
+ * the first item and a straight edge where the rest should have been. The menu
+ * opens in the browser's top layer now, which is the same answer the tooltips
+ * reached, so what is asserted here is the thing that was actually broken --
+ * that a pointer aimed at the last item lands on it.
+ */
+test('a row menu opens over the table rather than inside it', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'the row layout and its menus; the phone gets cards');
+  await goto(page, '/runners', 'Runners');
+  const rows = await waitForRows(grid(page, 'Runners'));
+  const last = rows.last();
+  await last.scrollIntoViewIfNeeded();
+  await last.getByRole('button', { name: /^Actions for/ }).click();
+
+  const menu = page.getByRole('menu', { name: /^Actions for/ });
+  await expect(menu).toBeVisible();
+  const items = menu.getByRole('menuitem');
+  const count = await items.count();
+  expect(count, 'a runner has actions to offer').toBeGreaterThan(1);
+
+  // A bounding box is reported whether or not an ancestor clips the paint, so
+  // the question is asked of the browser the way a pointer asks it.
+  for (let i = 0; i < count; i++) {
+    const item = items.nth(i);
+    const label = (await item.innerText()).trim();
+    const box = await item.boundingBox();
+    expect(box, `${label} is laid out`).not.toBeNull();
+    const hit = await page.evaluate(
+      ([x, y]) =>
+        document
+          .elementFromPoint(x as number, y as number)
+          ?.closest('[role="menuitem"]')
+          ?.textContent?.trim() ?? null,
+      [box!.x + box!.width / 2, box!.y + box!.height / 2],
+    );
+    expect(hit, `${label} can be clicked where it is drawn`).toBe(label);
+  }
+
+  // And it lets go once the trigger has scrolled out of the frame it belongs
+  // to: a menu left floating over rows it no longer points at is worse than
+  // one that closed. The grid's scrolling frame has no role of its own -- it
+  // is the div the table sits in -- so the class is how it is reached.
+  await page
+    .locator('.scroll')
+    .first()
+    .evaluate((el) => el.scrollTo({ top: 0 }));
+  await expect(menu).toBeHidden();
+});

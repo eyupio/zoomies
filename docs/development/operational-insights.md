@@ -43,13 +43,37 @@ not measured CPU or memory utilisation. Disk is reported free space. Missing
 resource telemetry stays unknown; commitments above 100% retain the exact
 percentage even though the visual meter stops at its boundary.
 
-The fleet trend is one-minute points: sixty of them for the last hour, and for
-the six-hour and one-day windows the minutes are folded into five- and
-fifteen-minute intervals that carry their peak, because a queue that hit twelve
-for two minutes is what somebody looking at a day is looking for. Stored
-samples and live stats are coalesced by minute, with the newer input winning.
-Missing minutes are gaps, not zeroes, and a folded interval with no observed
-minute is a gap too. Hovering the chart reads every figure at that moment; the
+The fleet trend draws every chosen figure at once — queued jobs, running jobs,
+idle, busy and live runners — rather than one picked from a dropdown, because
+the question the panel exists to answer is whether anything was waiting and
+whether anything was free to take it, and that is two lines rather than two
+charts. Colour is the status colour the console uses for that state everywhere
+else and the stroke says whether the figure counts jobs or runners, so the two
+busy figures share a colour on purpose: a running job and the runner running it
+should lie on top of one another. Which figures are on the chart, and which
+window, are remembered per browser.
+
+It is one-minute points: sixty of them for the last hour, and for the six-hour
+and one-day windows the minutes are folded into five- and fifteen-minute
+intervals that carry their peak, because a queue that hit twelve for two
+minutes is what somebody looking at a day is looking for. Each figure carries
+its own peak through a fold, so a folded point is several readings from the
+same interval rather than one minute's snapshot. Stored samples and live stats
+are coalesced by minute, with the newer input winning. Missing minutes are
+gaps, not zeroes, and a folded interval with no observed minute is a gap too.
+
+Intervals where jobs queued with no idle runner to take them are shaded, and
+counted in the line above the chart. It is the trend's version of the capacity
+map's pressure band: a count of jobs has no 85% to draw a line at, but "work
+was waiting and nothing was free" needs no threshold to be worth seeing. It is
+judged a minute at a time and folded afterwards, so it survives zooming out —
+folding the figures first would compare the deepest queue in a quarter of an
+hour with the most idle runners that quarter ever had.
+
+Pointing at a line singles it out, a chip or a legend row does the same, and the
+newest value is written at the end of every line so the chart can be read from
+its right-hand edge. A tap chooses a moment and dragging scrubs it, the rows
+beneath show every figure at that moment, and "Back to now" lets it go; the
 slider is the same inspection for a keyboard. History reloads on reconnect and
 aborts on unmount. Provisioning
 counts use a throttled event-driven refresh and ignore late results after a
@@ -64,15 +88,19 @@ scope change. No scheduler behavior is changed by these views.
   count, the share and what the state means.
 - `LifecycleFlow` draws the runner state machine in the store's own order, each
   step with its count and a link to the runners in it.
-- `SignalTrend` provides a time axis, the area under the line, a hover crosshair
-  with a card of every figure at that moment, a coverage strip and a
-  keyboard/touch range inspector. It breaks its line at missing samples.
+- `TrendPlot` draws the fleet trend at the width it has, one unit to a pixel: a
+  solid hairline grid on a round axis, the shaded intervals with nothing free,
+  emphasis for a figure singled out, the newest value at the end of every line,
+  a coverage strip beneath and a slot for the reading. It breaks its line at
+  missing samples. Its arithmetic is `signals.ts`, which `npm run test:unit`
+  covers.
 - `CapacityPlot` draws one plot of the capacity map at the width it has, one
   unit to a pixel: a solid hairline grid, the pressure band, a lane for load
   past the cores, emphasis for a host or measurement singled out, a value at
   the end of every line, the wash under a lone host and a slot for the
-  reading. Its geometry and the spreading of the end labels are in
-  `hostSeries.ts`, which `npm run test:unit` covers.
+  reading. Its geometry is in `hostSeries.ts`, and the round time labels and the
+  spreading of the end labels — which the fleet trend wants on the same terms —
+  are in `plot.ts`. `npm run test:unit` covers both.
 - `ActivityMatrix` draws usage buckets as a contribution graph with one tab
   stop, a tooltip per square and an inline detail per selection; its
   arithmetic is `activity.ts`, which `npm run test:unit` covers. See

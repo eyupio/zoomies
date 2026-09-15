@@ -128,6 +128,10 @@ const SHOTS = [
       await page
         .getByRole('region', { name: 'Fleet activity', exact: true })
         .scrollIntoViewIfNeeded();
+      // Scrolling brings a legend row under the pointer that opened the
+      // panel, and a row under the pointer singles its figure out and steps
+      // the others back. The shot is of the chart at rest.
+      await page.mouse.move(0, 0);
     },
   },
   { name: 'queue', path: '/queue', heading: 'Queue' },

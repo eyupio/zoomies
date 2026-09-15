@@ -1206,9 +1206,13 @@ func (c *Controller) seedSamples(ctx context.Context, now time.Time, rng *rand.R
 			running = jitter(rng, 1, 2)
 			total = 2 + running
 		case i < 25:
+			// Nothing idle through the burst, and that is the point: the queue
+			// is deep precisely because every runner is taken. A demo whose
+			// busiest ten minutes still showed four free runners would say the
+			// scheduler had simply not bothered.
 			queued = jitter(rng, 4, 9)
 			running = jitter(rng, 2, 4)
-			total = 4 + running
+			total = running
 		case i < 45:
 			// The scheduler has caught up: the queue drains as runners appear.
 			queued = jitter(rng, 1, 4)

@@ -1,78 +1,72 @@
 <!--
-  One plot of the capacity map: a set of hosts' lines over the window, drawn
-  at the width the panel has, one unit to a pixel. The map draws one of these
-  for every host on the chart, or one for each, and everything that is not a
-  line -- which host is on the chart, which moment is being read, what the
-  reading was -- lives in the map; the plot draws what it is given and reports
-  where the pointer is.
+  The fleet trend's drawing: a line per figure over the window, drawn at the
+  width the panel has, one unit to a pixel. Everything that is not a line --
+  which figures are on the chart, which moment is being read, what the
+  reading was -- lives in FleetHistory; the plot draws what it is given and
+  reports where the pointer is.
 
-  What makes the lines readable when there are twenty of them is emphasis: a
-  host or a measurement the operator has singled out is drawn on top, and the
-  rest step back. Pointing at a line singles out its host without going to
-  the legend, since on a busy chart the legend cannot say which line is
-  which. The lead measurement's newest value is written at the end of every
-  line, so the chart can be read from its right-hand edge alone, and where
-  two lines end together the labels are pushed apart with a leader back to
-  the line. The band from 85% is the share of the machine at which the
-  scheduler starts placing one runner at a time: pressure the operator can
-  see coming rather than a threshold they have to know.
+  Colour says which state a figure belongs to and the stroke says whether it
+  counts jobs or runners, so the queue is the amber the rest of the console
+  calls pending and the two busy figures share a colour on purpose: a
+  running job and the runner running it should sit on top of one another,
+  and where they do not, something is wrong. Pointing at a line singles it
+  out and steps the rest back, and a chip does the same, because with five
+  lines on one chart a legend cannot say which is which.
+
+  The newest value is written at the end of every line, pushed apart with a
+  leader where two lines end together, so the chart reads from its
+  right-hand edge alone. A figure nobody sampled is a gap and never a zero:
+  a controller that was down and a queue that was empty are opposite news.
 
   The lines are revealed left to right when the window changes, and that is
   the only motion the plot has beyond the newest point's pulse: a live chart
-  that redrew with a flourish every ten seconds would be unwatchable.
+  that redrew with a flourish every time a sample landed would be
+  unwatchable.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import {
-    PRESSURE,
-    bridgeFor,
-    indexAtX,
-    lineRuns,
-    nearestHost,
-    plotFrame,
-    scaleX,
-    scaleY,
-    type HostLine,
-    type MetricKey,
-  } from './hostSeries';
+  import { formatNumber } from '$lib/format';
   import { spreadLabels, timeTicks } from './plot';
+  import {
+    nearestSignal,
+    signalRuns,
+    trendFrame,
+    trendIndexAtX,
+    trendX,
+    trendY,
+    type SignalKey,
+    type SignalLine,
+  } from './signals';
 
   interface Props {
-    lines: HostLine[];
+    lines: SignalLine[];
     /** How many points every line has. */
     count: number;
-    /** The seconds a point folds, which is what decides the bridge across a missed one. */
-    bucket: number;
-    /** The lane's ceiling for load past the cores, or 0 without a lane; shared by every plot. */
-    overflow: number;
+    /** The top of the axis, and the figures the grid is labelled with. */
+    ceiling: number;
+    grid: number[];
     /** The window's edges, for the labels along the bottom. */
     start: number;
     end: number;
+    /** Where jobs queued with nothing free to take them: shaded behind the lines. */
+    starved: Array<{ from: number; to: number }>;
     activeIndex: number;
     /** A moment is being read, by hover, by touch or from the timeline. */
     reading: boolean;
-    emphasis: { host: string | null; metric: MetricKey | null };
-    /** The measurement labelled at the ends of the lines and washed under a lone host. */
-    lead: MetricKey | null;
-    live: boolean;
-    /** A shorter drawing with fewer labels, for the per-host stack. */
-    compact?: boolean;
-    /** Draw the times along the bottom. Only the last of a stack does. */
-    axis?: boolean;
-    /** Write the lead value at the end of every line. */
-    labels?: boolean;
-    /** Wash the area under the lead lines. Only where one host is drawn. */
-    wash?: boolean;
+    /** A figure singled out from a chip, a legend row or the line itself. */
+    emphasis: SignalKey | null;
+    /** The figure the wash is drawn under. Only where one is on the chart. */
+    lead: SignalKey | null;
     /** The lines are revealed afresh whenever this changes. */
     revealKey: string;
     stamp: (at: number) => string;
     label: string;
     loading?: boolean;
-    /** Something to say instead of lines: no hosts, no samples. */
+    /** Something to say instead of lines: no figures chosen, no samples. */
     message?: string;
     onhover: (i: number | null) => void;
     onpress: (i: number) => void;
-    onnear?: (host: string | null) => void;
+    onnear: (key: SignalKey | null) => void;
     /** The reading, rendered beside the crosshair. */
     card?: Snippet;
   }
@@ -80,19 +74,15 @@
   let {
     lines,
     count,
-    bucket,
-    overflow,
+    ceiling,
+    grid,
     start,
     end,
+    starved,
     activeIndex,
     reading,
     emphasis,
     lead,
-    live,
-    compact = false,
-    axis = true,
-    labels = true,
-    wash = false,
     revealKey,
     stamp,
     label,
@@ -109,10 +99,12 @@
   /* -- the frame ------------------------------------------------------------- */
 
   let width = $state(0);
-  const frame = $derived(plotFrame(width || 760, { compact, lane: overflow > 0, axis }));
-  const x = $derived(scaleX(frame, count));
-  const y = $derived(scaleY(frame, overflow));
-  const grid = $derived(compact ? [0, 50, 100] : [0, 25, 50, 75, 100]);
+  const digits = $derived(formatNumber(ceiling).length);
+  const frame = $derived(trendFrame(width || 760, { digits }));
+  const x = $derived(trendX(frame, count));
+  const y = $derived(trendY(frame, ceiling));
+  /** Half a point's width: what a shaded interval is widened by at each end. */
+  const halfPoint = $derived(frame.SPAN / Math.max(1, (count - 1) * 2));
   const ticks = $derived(
     timeTicks(start, end, frame.narrow ? 3 : 5).map((at) => ({
       at,
@@ -132,23 +124,21 @@
   }
 
   interface Drawn {
-    line: HostLine;
+    line: SignalLine;
     lit: boolean;
     paths: string[];
     areas: string[];
   }
-  const singled = $derived(emphasis.host !== null || emphasis.metric !== null);
   const drawn = $derived.by((): Drawn[] => {
-    const bridge = bridgeFor(bucket);
     const out = lines.map((line) => {
-      const runs = lineRuns(line.points, bridge);
-      const lit =
-        !singled ||
-        ((emphasis.host === null || line.host.id === emphasis.host) &&
-          (emphasis.metric === null || line.metric.key === emphasis.metric));
+      const runs = signalRuns(line.points);
+      const lit = emphasis === null || line.signal.key === emphasis;
       const paths = runs.map(pathOf);
+      // The wash belongs to the figure the chart leads with, and only while
+      // it is alone: under five overlapping lines it is a stain, not a
+      // reading.
       const areas =
-        wash && line.metric.key === lead
+        lines.length === 1 && line.signal.key === lead
           ? runs.map(
               (run, n) =>
                 `${paths[n]} L${x(run[run.length - 1]!.i).toFixed(1)},${frame.BOTTOM} L${x(run[0]!.i).toFixed(1)},${frame.BOTTOM} Z`,
@@ -156,24 +146,21 @@
           : [];
       return { line, lit, paths, areas };
     });
-    // The singled-out lines are drawn last, so they sit over the rest.
-    return singled ? [...out.filter((d) => !d.lit), ...out.filter((d) => d.lit)] : out;
+    // The singled-out line is drawn last, so it sits over the rest.
+    return emphasis === null ? out : [...out.filter((d) => !d.lit), ...out.filter((d) => d.lit)];
   });
 
-  /** The lead value at the end of every line that reaches the edge. */
+  /** The newest value at the end of every line that reaches the edge. */
   const ends = $derived.by(() => {
-    if (!labels || lead === null) return [];
-    const eligible = lines.filter(
-      (l) => l.metric.key === lead && l.last !== null && l.last.i >= count - 2,
-    );
+    const eligible = lines.filter((l) => l.last !== null && l.last.i >= count - 2);
     const wanted = eligible.map((l) => y(l.last!.value));
-    const placed = spreadLabels(wanted, 14, frame.TOP + 6, frame.BOTTOM - 2);
+    const placed = spreadLabels(wanted, 13, frame.TOP + 5, frame.BOTTOM - 2);
     return eligible.map((line, n) => ({
       line,
       x0: x(line.last!.i),
       y0: wanted[n]!,
       y: placed[n]!,
-      text: `${line.last!.value.toFixed(0)}%`,
+      text: formatNumber(line.last!.value),
     }));
   });
 
@@ -184,7 +171,7 @@
     const rect = (svg ?? (event.currentTarget as SVGSVGElement)).getBoundingClientRect();
     const scale = frame.W / Math.max(1, rect.width);
     return {
-      i: indexAtX(frame, count, (event.clientX - rect.left) * scale),
+      i: trendIndexAtX(frame, count, (event.clientX - rect.left) * scale),
       viewY: (event.clientY - rect.top) * scale,
     };
   }
@@ -193,7 +180,8 @@
   // glass the pointer has left too, so a reading that lived only under the
   // pointer was gone before it could be read. So a touch chooses the moment
   // and dragging scrubs it; a click does the same, because a chosen moment
-  // that stays put is how two hosts get compared at one instant.
+  // that stays put is how the queue and the idle runners get read at one
+  // instant while somebody talks about it.
   function onPress(event: PointerEvent): void {
     onpress(at(event).i);
     if (event.pointerType === 'mouse') return;
@@ -206,16 +194,16 @@
     const { i, viewY } = at(event);
     if (event.pointerType === 'mouse') {
       onhover(i);
-      onnear?.(nearestHost(lines, i, viewY, y, 10));
+      onnear(nearestSignal(lines, i, viewY, y, 10));
     } else if (event.buttons) onpress(i);
   }
   function onLeave(): void {
     onhover(null);
-    onnear?.(null);
+    onnear(null);
   }
 </script>
 
-<div class="plot" class:compact bind:clientWidth={width} aria-busy={loading}>
+<div class="plot" bind:clientWidth={width} aria-busy={loading}>
   <svg
     bind:this={svg}
     width={frame.W}
@@ -228,72 +216,56 @@
     onpointerleave={onLeave}
   >
     <defs>
-      {#each drawn as d (d.line.id)}
+      {#each drawn as d (d.line.signal.key)}
         {#if d.areas.length}
-          <linearGradient id="{uid}-{d.line.index}" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" style:stop-color={d.line.tone} stop-opacity="0.24" />
-            <stop offset="1" style:stop-color={d.line.tone} stop-opacity="0.02" />
+          <linearGradient id="{uid}-{d.line.signal.key}" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" style:stop-color={d.line.signal.tone} stop-opacity="0.22" />
+            <stop offset="1" style:stop-color={d.line.signal.tone} stop-opacity="0.02" />
           </linearGradient>
         {/if}
       {/each}
     </defs>
 
-    {#if overflow}
-      <!-- The lane for load past the cores, on its own scale up to the peak
-           in view. Its floor is the axis's 100%, which is why the line there
-           is drawn firmer than the grid. -->
-      <rect class="lane" x={frame.LEFT} y={frame.TOP} width={frame.SPAN} height={frame.LANE} />
-      <line class="grid" x1={frame.LEFT} x2={frame.RIGHT} y1={frame.TOP} y2={frame.TOP} />
-      <text class="axis" x={frame.LEFT - 8} y={frame.TOP + 4} text-anchor="end">{overflow}%</text>
-      {#if !compact}
-        <text class="lane-label" x={frame.RIGHT - 4} y={frame.TOP + 13} text-anchor="end">
-          load past the cores
-        </text>
-      {/if}
-    {/if}
-
-    <!-- The pressure band: from the share at which the scheduler slows
-         placement on a host. -->
-    <rect
-      class="pressure"
-      x={frame.LEFT}
-      y={y(100)}
-      width={frame.SPAN}
-      height={y(PRESSURE) - y(100)}
-    />
-    <line class="threshold" x1={frame.LEFT} x2={frame.RIGHT} y1={y(PRESSURE)} y2={y(PRESSURE)} />
-    {#if !compact}
-      <text class="band-label" x={frame.LEFT + 6} y={y(PRESSURE) - 4}>pressure</text>
-    {/if}
+    <!-- Where something was waiting and nothing was free. It is drawn behind
+         everything, in the colour the console uses for pending, because it is
+         a condition the lines are read against and not a line of its own. -->
+    {#each starved as run (run.from)}
+      <rect
+        class="starved"
+        x={x(run.from) - halfPoint}
+        y={frame.TOP}
+        width={x(run.to) - x(run.from) + halfPoint * 2}
+        height={frame.BOTTOM - frame.TOP}
+      />
+    {/each}
 
     {#each grid as value (value)}
       <line
         class="grid"
         class:base={value === 0}
-        class:edge={value === 100 && overflow > 0}
         x1={frame.LEFT}
         x2={frame.RIGHT}
         y1={y(value)}
         y2={y(value)}
       />
-      {#if !compact || value !== 50}
-        <text class="axis" x={frame.LEFT - 8} y={y(value) + 4} text-anchor="end">{value}%</text>
-      {/if}
+      <text class="axis" x={frame.LEFT - 8} y={y(value) + 4} text-anchor="end"
+        >{formatNumber(value)}</text
+      >
     {/each}
 
     {#key revealKey}
       <g class="lines">
-        {#each drawn as d (d.line.id)}
+        {#each drawn as d (d.line.signal.key)}
           <g class="series" class:dim={!d.lit}>
             {#each d.areas as area, n (n)}
-              <path d={area} class="area" fill="url(#{uid}-{d.line.index})" />
+              <path d={area} class="area" fill="url(#{uid}-{d.line.signal.key})" />
             {/each}
             {#each d.paths as path, n (n)}
               <path
                 d={path}
                 class="line"
-                style:stroke={d.line.tone}
-                stroke-dasharray={d.line.metric.dash}
+                style:stroke={d.line.signal.tone}
+                stroke-dasharray={d.line.signal.dash}
               />
             {/each}
           </g>
@@ -301,26 +273,26 @@
       </g>
     {/key}
 
-    {#each drawn as d (d.line.id)}
-      {#if d.lit && live && d.line.last && d.line.last.i === count - 1}
+    {#each drawn as d (d.line.signal.key)}
+      {#if d.lit && d.line.last && d.line.last.i === count - 1}
         <circle
           class="pulse"
           cx={x(d.line.last.i)}
           cy={y(d.line.last.value)}
           r="3.5"
-          style:stroke={d.line.tone}
+          style:stroke={d.line.signal.tone}
         />
         <circle
           class="now"
           cx={x(d.line.last.i)}
           cy={y(d.line.last.value)}
           r="3.5"
-          style:fill={d.line.tone}
+          style:fill={d.line.signal.tone}
         />
       {/if}
     {/each}
 
-    {#each ends as e (e.line.id)}
+    {#each ends as e (e.line.signal.key)}
       {#if Math.abs(e.y - e.y0) > 2}
         <line
           class="leader"
@@ -328,12 +300,12 @@
           y1={e.y0}
           x2={frame.RIGHT + 5}
           y2={e.y}
-          style:stroke={e.line.tone}
+          style:stroke={e.line.signal.tone}
         />
       {/if}
       <text
         class="end"
-        class:dim={singled && !drawn.find((d) => d.line === e.line)?.lit}
+        class:dim={emphasis !== null && e.line.signal.key !== emphasis}
         x={frame.RIGHT + 8}
         y={e.y + 4}>{e.text}</text
       >
@@ -347,20 +319,24 @@
         y1={frame.TOP}
         y2={frame.BOTTOM}
       />
-      {#each drawn as d (d.line.id)}
+      {#each drawn as d (d.line.signal.key)}
         {@const v = d.line.points[activeIndex]?.value}
         {#if d.lit && v !== null && v !== undefined}
-          <circle class="marker" cx={x(activeIndex)} cy={y(v)} r="4" style:fill={d.line.tone} />
+          <circle
+            class="marker"
+            cx={x(activeIndex)}
+            cy={y(v)}
+            r="4"
+            style:fill={d.line.signal.tone}
+          />
         {/if}
       {/each}
     {/if}
 
-    {#if axis}
-      {#each ticks as tick (tick.at)}
-        <line class="tick" x1={tick.x} x2={tick.x} y1={frame.BOTTOM} y2={frame.BOTTOM + 4} />
-        <text class="axis" x={tick.x} y={frame.H - 7} text-anchor="middle">{stamp(tick.at)}</text>
-      {/each}
-    {/if}
+    {#each ticks as tick (tick.at)}
+      <line class="tick" x1={tick.x} x2={tick.x} y1={frame.BOTTOM} y2={frame.BOTTOM + 4} />
+      <text class="axis" x={tick.x} y={frame.H - 7} text-anchor="middle">{stamp(tick.at)}</text>
+    {/each}
   </svg>
 
   {#if message}
@@ -393,11 +369,13 @@
   }
 
   /* -- the chrome: recessive, solid hairlines --------------------------------- */
+  .starved {
+    fill: var(--z-pending-subtle);
+  }
   .grid {
     stroke: var(--z-border);
   }
-  .grid.base,
-  .grid.edge {
+  .grid.base {
     stroke: var(--z-border-strong);
   }
   .tick {
@@ -408,28 +386,6 @@
     font-size: var(--z-text-2xs);
     font-variant-numeric: tabular-nums;
   }
-  .lane {
-    fill: var(--z-surface-sunken);
-  }
-  .pressure {
-    fill: var(--z-pending-subtle);
-  }
-  .threshold {
-    stroke: var(--z-pending-border);
-  }
-  .band-label,
-  .lane-label {
-    font-size: var(--z-text-2xs);
-    font-weight: var(--z-weight-medium);
-    letter-spacing: var(--z-tracking-wide);
-    text-transform: uppercase;
-  }
-  .band-label {
-    fill: var(--z-pending);
-  }
-  .lane-label {
-    fill: var(--z-text-subtle);
-  }
 
   /* -- the lines ---------------------------------------------------------------- */
   .line {
@@ -437,9 +393,7 @@
     stroke-width: 2;
     stroke-linejoin: round;
     stroke-linecap: round;
-    transition:
-      opacity var(--z-motion-fast) var(--z-ease),
-      stroke-width var(--z-motion-fast) var(--z-ease);
+    transition: opacity var(--z-motion-fast) var(--z-ease);
   }
   .area {
     transition: opacity var(--z-motion-fast) var(--z-ease);
@@ -486,8 +440,8 @@
     stroke: var(--z-surface);
     stroke-width: 1.5;
   }
-  /* The newest point of a live line breathes, so "live" is something seen
-     rather than a switch that says so. Under reduced motion it holds still. */
+  /* The newest point breathes, so "live" is something seen rather than a
+     switch that says so. Under reduced motion it holds still. */
   .pulse {
     fill: none;
     stroke-width: 1.5;

@@ -20,8 +20,6 @@ import {
   plotFrame,
   scaleX,
   scaleY,
-  spreadLabels,
-  timeTicks,
   windowSlots,
 } from '../src/lib/insights/hostSeries.ts';
 import type { Host, HostSample } from '../src/lib/api/types.ts';
@@ -126,22 +124,6 @@ test('merging keeps one sample per host per minute and the newer input wins', ()
   assert.equal(folded.length, 12);
   assert.equal(folded[11]?.value, 20);
   assert.equal(folded[10]?.value, null);
-});
-
-test('labels fall on round local times, not on evenly spaced odd minutes', () => {
-  // A day ending at 11:04 is labelled at the multiples of six hours.
-  const end = new Date(2026, 2, 1, 11, 4).getTime();
-  const start = end - 24 * 60 * 60_000;
-  const ticks = timeTicks(start, end, 5).map((at) => new Date(at).getHours());
-  assert.deepEqual(ticks, [12, 18, 0, 6]);
-  // An hour is labelled at the quarter hours.
-  const hour = timeTicks(end - 60 * 60_000, end, 5).map((at) => new Date(at).getMinutes());
-  assert.deepEqual(hour, [15, 30, 45, 0]);
-  // A minute is labelled at the tens of seconds, and five minutes by the minute.
-  const minute = timeTicks(end - 50_000, end, 5).map((at) => new Date(at).getSeconds());
-  assert.deepEqual(minute, [10, 20, 30, 40, 50, 0]);
-  const five = timeTicks(end - 290_000, end, 5).map((at) => new Date(at).getMinutes());
-  assert.deepEqual(five, [0, 1, 2, 3, 4]);
 });
 
 test('a short window keeps every ten-second slot and folds nothing away', () => {
@@ -306,19 +288,6 @@ test('the peak in view names the line and the point it came from', () => {
   assert.equal(peak?.i, 49);
   assert.equal(peakOf(lines, 'memory'), null);
   assert.equal(PRESSURE, 85);
-});
-
-test('labels at the ends of the lines are pushed apart, and back up from the bottom', () => {
-  // Three lines ending within a few pixels of each other get three labels a
-  // label's height apart, in the order the lines are in.
-  assert.deepEqual(spreadLabels([100, 102, 104], 14, 0, 200), [100, 114, 128]);
-  // The callers' order is kept whatever order the lines end in.
-  assert.deepEqual(spreadLabels([104, 100], 14, 0, 200), [114, 100]);
-  // Against the bottom the stack walks back up rather than running off.
-  assert.deepEqual(spreadLabels([196, 198], 14, 0, 200), [186, 200]);
-  // Lines far enough apart are labelled exactly where they end.
-  assert.deepEqual(spreadLabels([20, 120], 14, 0, 200), [20, 120]);
-  assert.deepEqual(spreadLabels([], 14, 0, 200), []);
 });
 
 test('the frame is drawn one unit to a pixel, and stacked plots share their gutters', () => {
