@@ -84,13 +84,19 @@ func (s *Store) RunnerFaultCountsSince(ctx context.Context, since time.Time) (ma
 // trying and failing to answer it: the pool has demand, the scheduler keeps
 // placing runners, and every one of them dies before it registers. Nothing the
 // job itself carries can say that.
+//
+// The id breaks a tie on the stamp. Two runners failing inside one millisecond
+// is ordinary on a pool that cannot start a container at all, and without it
+// the "most recent failure" whose message the problems drawer and the job's
+// explanation both quote would be whichever row SQLite happened to reach
+// first -- a sentence that changes between two identical reads.
 func (s *Store) FailedRunnersForPoolSince(ctx context.Context, poolID string, since time.Time, limit int) ([]*Runner, error) {
 	if limit <= 0 {
 		limit = 5
 	}
 	rows, err := s.read.QueryContext(ctx, `SELECT `+runnerCols+` FROM runners
 		WHERE pool_id = ? AND state = ? AND COALESCE(finished_at, created_at) >= ?
-		ORDER BY COALESCE(finished_at, created_at) DESC LIMIT ?`,
+		ORDER BY COALESCE(finished_at, created_at) DESC, id DESC LIMIT ?`,
 		poolID, string(RunnerFailed), ms(since), limit)
 	if err != nil {
 		return nil, err

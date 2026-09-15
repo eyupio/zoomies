@@ -200,3 +200,133 @@ func TestTheMigrationClaimsFaultsWrittenBeforeTheCategoryExisted(t *testing.T) {
 		t.Fatalf("a test failure was claimed by the fleet: %q/%q", theirs.FaultKind, theirs.FaultDomain())
 	}
 }
+
+// The counts behind the Overview's split and the runner half that reaches no
+// job at all. Both windows fall back to a creation stamp on purpose: a failure
+// with no completion is the one an operator most wants to see, and a window
+// that dropped it would hide exactly the fleet that is in trouble.
+func TestTheFaultCountsSeeFailuresThatNeverFinished(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	since := now.Add(-time.Hour)
+
+	// A job whose runner died before GitHub closed it: no completion stamp.
+	open, err := s.UpsertJob(ctx, &Job{
+		GitHubJobID: 41, Repo: "acme/widgets", State: JobInProgress, QueuedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+	if _, _, err := s.SetJobRunnerFault(ctx, open.ID, "runner zoomies-a stopped", FaultHostLost); err != nil {
+		t.Fatalf("SetJobRunnerFault: %v", err)
+	}
+	counts, err := s.JobFaultCountsSince(ctx, since, false)
+	if err != nil {
+		t.Fatalf("JobFaultCountsSince: %v", err)
+	}
+	if counts[FaultHostLost] != 1 {
+		t.Fatalf("fault counts = %v, want the unfinished job counted under host_lost", counts)
+	}
+
+	// And a window that ends before it was queued does not.
+	if counts, err := s.JobFaultCountsSince(ctx, now.Add(time.Hour), false); err != nil {
+		t.Fatalf("JobFaultCountsSince: %v", err)
+	} else if len(counts) != 0 {
+		t.Fatalf("counts from a window after the failure = %v, want none", counts)
+	}
+}
+
+// The runner side is the half no job ever sees: a runner that fails before it
+// registers leaves its job queued, so nothing is marked failed and every other
+// count reads as a fleet that is merely busy.
+func TestFailedRunnerCountsAndTheListBehindThem(t *testing.T) {
+	ctx := context.Background()
+	// The clock is the test's, so "newest first" is tested rather than a tie
+	// SQLite happened to break the right way.
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	clock := now
+	s := newTestStoreAt(t, func() time.Time { return clock })
+	since := now.Add(-time.Hour)
+
+	_, pool, host := seedPool(t, s)
+	mk := func(id string, state RunnerState, fault FaultKind, message string) {
+		t.Helper()
+		r := &Runner{ID: id, PoolID: pool.ID, HostID: host.ID, Name: id, State: RunnerProvisioning}
+		if err := s.CreateRunner(ctx, r); err != nil {
+			t.Fatalf("CreateRunner: %v", err)
+		}
+		if state == RunnerFailed {
+			clock = clock.Add(time.Second)
+			if _, err := s.FailRunner(ctx, id, message, fault); err != nil {
+				t.Fatalf("FailRunner: %v", err)
+			}
+		}
+	}
+	mk("run_image", RunnerFailed, FaultImage, "pulling ghcr.io/acme/runner:v9: manifest unknown")
+	mk("run_backend", RunnerFailed, FaultBackend, "dial unix /var/run/docker.sock: no such file")
+	mk("run_fine", RunnerProvisioning, "", "")
+
+	counts, err := s.RunnerFaultCountsSince(ctx, since)
+	if err != nil {
+		t.Fatalf("RunnerFaultCountsSince: %v", err)
+	}
+	if counts[FaultImage] != 1 || counts[FaultBackend] != 1 || len(counts) != 2 {
+		t.Fatalf("runner fault counts = %v, want one image and one backend", counts)
+	}
+
+	// Newest first, because the most recent failure is the one whose message
+	// the problems drawer and the job's explanation both quote.
+	failed, err := s.FailedRunnersForPoolSince(ctx, pool.ID, since, 10)
+	if err != nil {
+		t.Fatalf("FailedRunnersForPoolSince: %v", err)
+	}
+	if len(failed) != 2 {
+		t.Fatalf("failed runners = %d, want the two that failed and not the one still starting", len(failed))
+	}
+	if failed[0].ID != "run_backend" || failed[0].FaultKind != FaultBackend {
+		t.Fatalf("newest failed runner = %+v, want run_backend carrying its category", failed[0])
+	}
+	// The limit is a cap on the read, not a filter on the meaning.
+	if one, err := s.FailedRunnersForPoolSince(ctx, pool.ID, since, 1); err != nil {
+		t.Fatalf("FailedRunnersForPoolSince: %v", err)
+	} else if len(one) != 1 || one[0].ID != "run_backend" {
+		t.Fatalf("limited to one = %+v, want the newest", one)
+	}
+	if none, err := s.FailedRunnersForPoolSince(ctx, "pool_other", since, 10); err != nil {
+		t.Fatalf("FailedRunnersForPoolSince: %v", err)
+	} else if len(none) != 0 {
+		t.Fatalf("another pool's failures leaked in: %+v", none)
+	}
+}
+
+// The guard on a repeating timeline entry. A pool stuck in a start loop tries
+// again every pass, and one entry per attempt on every waiting job turns a
+// timeline into the log file it exists to save somebody reading.
+func TestTheLastTimelineEntryIsWhatTheDedupeReads(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	j, err := s.UpsertJob(ctx, &Job{GitHubJobID: 51, State: JobQueued, QueuedAt: time.Now()})
+	if err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+	// A job with no history answers empty rather than failing: it is the
+	// ordinary state of a job nothing has happened to yet.
+	if kind, err := s.LastJobEventKind(ctx, j.ID); err != nil || kind != "" {
+		t.Fatalf("LastJobEventKind on a fresh job = %q (%v), want empty", kind, err)
+	}
+	now := time.Now().UTC()
+	for i, kind := range []JobEventKind{JobEventQueued, JobEventClaimed, JobEventRunnerStartFailed} {
+		if err := s.AppendJobEvent(ctx, &JobEvent{
+			JobID: j.ID, Kind: kind, Source: "controller", At: now.Add(time.Duration(i) * time.Second),
+		}); err != nil {
+			t.Fatalf("AppendJobEvent: %v", err)
+		}
+	}
+	if kind, err := s.LastJobEventKind(ctx, j.ID); err != nil || kind != JobEventRunnerStartFailed {
+		t.Fatalf("LastJobEventKind = %q (%v), want the newest entry", kind, err)
+	}
+	if kind, err := s.LastJobEventKind(ctx, "job_missing"); err != nil || kind != "" {
+		t.Fatalf("LastJobEventKind for a job that does not exist = %q (%v), want empty and no error", kind, err)
+	}
+}
