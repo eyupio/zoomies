@@ -126,6 +126,28 @@ problems drawer for as long as it stands, because both are the thing that keeps
 a host's Docker daemon answering. The CPU floor has no switch; a fleet that
 wants every core placed has a smaller reserve than the daemon needs.
 
+## Docker-in-docker pools take half as many slots per host
+
+A `dind` pool's runner and its sidecar are given the same limits by the
+backend, and a pool that sets none has both given one slot's share of the
+host. Until this release only one of the two was charged against the machine,
+so a host could promise away twice what it had while its card read half
+committed — which is the shape behind a Docker daemon that stops answering
+`create` on a host the fleet believes is idle. The charge now covers the pair,
+whether the figure came from the pool's own `resources` or from the host's
+share.
+
+For a fleet running such a pool that means **half as many runners on each
+host**, which is the number the machine could always carry: four slots of a
+defaulted `dind` pool are two runners on the same machine as before. Nothing
+changes for a pool that is not `dind`, nothing changes about what any runner
+is given, and no job is failed by it — work queues where it used to be placed
+onto a host that could not really hold it. `host.overprovisioned` counts a
+slot on such a host as two containers and names the pool that made it one, so
+the capacity worth setting is in the problems drawer rather than worked out by
+hand. A host with a single slot is left as it was: two shares there are more
+than the whole machine, so the pair is charged the machine and still places.
+
 ## What happens to work in flight
 
 A restart does not touch a running job. The runner is a container on its host,

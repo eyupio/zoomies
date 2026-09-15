@@ -161,3 +161,59 @@ func TestAFullyInQuotaHostRaisesNoResourceProblem(t *testing.T) {
 		}
 	}
 }
+
+// A docker-in-docker slot is two containers, and the machine has to be sized
+// for both. This is the host from the report that started the work: twelve
+// slots' worth of cores on paper, every one of them a pair in practice, a
+// Hosts page reading half committed, and a daemon that stopped answering
+// creates. The warning has to count the sidecar, name the pool that brought
+// it, and ask for the capacity the pairs actually fit in.
+func TestADockerInDockerPoolMakesEachSlotAPairInTheOverprovisioningCount(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	// Eight cores less the floor is 7.5, so six plain runners fit and this
+	// host raises nothing at all.
+	h.measuredHost("builders", 8, 32768, 6, enforcesEverything)
+	if codes := h.problemCodes(); contains(codes, "host.overprovisioned") {
+		t.Fatalf("problems = %v; six plain slots fit this machine", codes)
+	}
+
+	p := h.pool(inst, "dind-builders")
+	p.DockerMode = store.DockerDinD
+	if err := h.st.UpdatePool(h.ctx, p); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+
+	got := h.problem(t, "host.overprovisioned")
+	for _, want := range []string{"dind-builders", "docker in docker", "two containers"} {
+		if !strings.Contains(got.Detail, want) {
+			t.Errorf("detail %q does not mention %q", got.Detail, want)
+		}
+	}
+	// 7.5 cores in pairs is three, and 31.5 GB in pairs of 2 GB slots is
+	// seven: the cores run out first, as they did on the real host.
+	if !strings.Contains(got.Fix, "capacity to 3") {
+		t.Errorf("fix %q does not name the capacity the pairs fit in", got.Fix)
+	}
+}
+
+// The count follows the pools, not the host alone: a dind pool that cannot
+// place here says nothing about how big a slot on this host is. A pool for
+// another platform is the case an operator hits first -- one arm64 dind pool
+// should not re-size every amd64 host in the fleet.
+func TestAPoolThatCannotPlaceHereDoesNotMakeItsSlotsPairs(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	h.measuredHost("builders", 8, 32768, 6, enforcesEverything)
+
+	p := h.pool(inst, "dind-arm")
+	p.DockerMode = store.DockerDinD
+	p.HostSelector = store.StringMap{"arch": "arm64"}
+	if err := h.st.UpdatePool(h.ctx, p); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+
+	if codes := h.problemCodes(); contains(codes, "host.overprovisioned") {
+		t.Fatalf("problems = %v; the dind pool cannot place on an amd64 host", codes)
+	}
+}

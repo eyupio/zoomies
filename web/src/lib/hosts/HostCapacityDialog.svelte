@@ -161,6 +161,17 @@
     if (top > 0 && top !== recDiskMb) marks.push({ value: top, label: memoryLabel(top) });
     return marks;
   });
+  /* The reserve is the memory pressure line as well as a placement charge:
+     the controller holds new starts and steps a host down its throttle ladder
+     once available memory falls to it, with a 512 MB floor under whatever the
+     operator set. An operator raising it to protect the machine is moving the
+     line they will then be throttled at, and nothing else on the page says
+     so. */
+  const memoryFloorMb = $derived(Math.max(reserveMb, 512));
+  const pressureAtPercent = $derived(
+    shape.memoryMb > 0 ? Math.round(((shape.memoryMb - memoryFloorMb) / shape.memoryMb) * 100) : 0,
+  );
+
   const aboveCores = $derived(recCores > 0 && reserveCores > recCores);
   const aboveMb = $derived(recMb > 0 && reserveMb > recMb);
   const aboveDisk = $derived(recDiskMb > 0 && reserveDiskMb > recDiskMb);
@@ -234,9 +245,9 @@
           A runner here asks for <strong>{ask.cpus} {ask.cpus === 1 ? 'core' : 'cores'}</strong>
           and <strong>{gb(ask.memoryMb)}</strong>{ask.source === 'pools'
             ? ', the largest ask across your enabled pools'
-            : ', the default a new pool gets'}. On {shape.cpus > 0
-            ? `${shape.cpus} cores`
-            : 'an unknown number of cores'}
+            : ', the default a new pool gets'}{ask.pair
+            ? ', counting both containers of a docker-in-docker slot — its runner and the sidecar the backend gives the same limits'
+            : ''}. On {shape.cpus > 0 ? `${shape.cpus} cores` : 'an unknown number of cores'}
           and {shape.memoryMb > 0 ? gb(shape.memoryMb) : 'unknown memory'}, that is room for
           <strong>{pluralise(recCapacity, 'runner')}</strong> once the reserve is kept.
         {:else}
@@ -315,9 +326,11 @@
       <fieldset class="reserve">
         <legend>Held back for the machine</legend>
         <p class="note">
-          What the scheduler leaves alone: the room this host needs to be a working machine rather
-          than a pool of capacity. A floor applies even at none: half a core or a twentieth of the
-          machine, whichever is larger, 512 MB of memory and 2 GB of disk.
+          What the scheduler will not promise away: the room this host needs to be a working machine
+          rather than a pool of capacity. It is arithmetic rather than a fence — the room is kept by
+          placing less here, and nothing stops a job that runs away from taking it. A floor applies
+          even at none: half a core or a twentieth of the machine, whichever is larger, 512 MB of
+          memory and 2 GB of disk.
         </p>
         {#if shape.cpus > 1}
           <Field
@@ -388,6 +401,13 @@
               </div>
             </div>
           {/if}
+          <p class="note">
+            This figure is also the line pressure is judged against: when the host's available
+            memory falls to its reserve it takes no new runners, and it starts stepping down its
+            slots. Holding back more raises that line: with {memoryLabel(memoryFloorMb)} held back of
+            {gb(shape.memoryMb)}, this host counts as under pressure once it is {pressureAtPercent}%
+            full.
+          </p>
         {/if}
         {#if diskNotchList.length > 1}
           <Field

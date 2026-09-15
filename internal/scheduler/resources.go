@@ -48,6 +48,18 @@ const cpuEpsilon = 1e-6
 // refusal to place work that had always placed. What guards it instead is the
 // reserve floor: a pool that asks for disk is charged it, and a host at or
 // below its reserve takes nothing.
+//
+// A docker-in-docker runner is charged for both of its containers, whichever
+// figure the charge came from. The fallback used to be the exception -- a
+// share of a machine was held not to become two shares because of what ran
+// inside it -- and the exception was wrong in the one way that matters: the
+// backend gives the sidecar the same limits as the runner, fallback share
+// included, so a defaulted pair was given two shares of the machine and
+// charged one. A host then read as half committed while its runners' quotas
+// added up to every core it had, the daemon lost the reserve that arithmetic
+// said was being kept for it, and creates started timing out on a host the
+// fleet believed was half idle. The pair is what the machine carries, so the
+// pair is what it is charged.
 func Reserve(p *store.Pool, h *store.Host) Reservation {
 	alloc := h.Allocatable()
 	res := Reservation{
@@ -55,21 +67,34 @@ func Reserve(p *store.Pool, h *store.Host) Reservation {
 		MemoryMB: p.Resources.MemoryMB,
 		DiskMB:   p.Resources.DiskGB * 1024,
 	}
-	// A docker-in-docker pool runs the build inside a sidecar that the backend
-	// gives the same limits as the runner, so the pool's footprint on the host
-	// is twice what it asked for. Only what it asked for doubles: the fallback
-	// is a share of the host derived from the slot count, and a share of a
-	// machine does not become two shares because of what runs inside it.
+	cpuFromHost, memoryFromHost := res.CPUs <= 0, res.MemoryMB <= 0
+	if cpuFromHost {
+		res.CPUs = share(alloc.CPUs, h.Capacity)
+	}
+	if memoryFromHost {
+		res.MemoryMB = int64(share(float64(alloc.MemoryMB), h.Capacity))
+	}
 	if p.DockerMode == store.DockerDinD {
 		res.CPUs *= 2
 		res.MemoryMB *= 2
 		res.DiskMB *= 2
-	}
-	if res.CPUs <= 0 {
-		res.CPUs = share(alloc.CPUs, h.Capacity)
-	}
-	if res.MemoryMB <= 0 {
-		res.MemoryMB = int64(share(float64(alloc.MemoryMB), h.Capacity))
+		// A doubled share is capped at the machine, and only a doubled share:
+		// a pool's own figures are charged in full however large they are,
+		// because a host too small for what an operator typed has to be able
+		// to say so. Two shares are more than the machine on a host with one
+		// slot alone, where capping is the difference between placing the one
+		// pair it has room for and refusing the pool outright -- and a fleet
+		// of single-slot hosts must not empty itself on upgrade. There the
+		// pair is still given two shares between them, because halving a lone
+		// slot's memory is how a job that used to pass gets OOM-killed; what
+		// answers for it is the same pressure hold and throttle that answer
+		// for every other machine running more than it was sized for.
+		if cpuFromHost && alloc.CPUsKnown {
+			res.CPUs = min(res.CPUs, alloc.CPUs)
+		}
+		if memoryFromHost && alloc.MemoryKnown {
+			res.MemoryMB = min(res.MemoryMB, alloc.MemoryMB)
+		}
 	}
 	return res
 }
@@ -191,9 +216,10 @@ func HostShortfall(h *store.Host, p *store.Pool) string {
 }
 
 // charged explains the one case where the number an operator sees on the pool
-// is not the number the host is charged. The fallback needs no such sentence:
-// a field left unset is charged a share of the machine it is being compared
-// against, so it cannot be what a host is too small for.
+// is not the number the host is charged. A defaulted field needs no such
+// sentence even though it doubles too: its doubled share is capped at the
+// machine it is being compared against, so it can never be what a host is too
+// small for.
 func charged(set, dind bool) string {
 	if set && dind {
 		return ", twice what it asks for, because a docker-in-docker runner is charged for its sidecar too"

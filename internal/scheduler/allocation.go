@@ -24,11 +24,18 @@ import (
 // thing the machine's size says anything about.
 //
 // A docker-in-docker runner's sidecar receives the same limits the runner
-// does, from the same spec, so a defaulted pair may burst to two shares
-// between them. That is the one place the allocation is looser than the
-// charge, and it is looser on purpose: the alternative is half a share each,
-// which hobbles the build for the sake of a symmetry the charge does not
-// keep either (a defaulted pair is charged one share, not two).
+// does, from the same spec, so a defaulted pair is given two shares between
+// them -- and Reserve charges the pair for both, so the books and the cgroups
+// agree here as they do everywhere else. Each container keeps a whole share
+// rather than half of one: half a share each would hobble a build for a
+// symmetry the charge can keep by itself, and the host that carries a pair
+// simply has room for fewer of them.
+//
+// A host with a single slot is the exception the cap in Reserve leaves
+// behind. Two shares are more than the whole machine there, so the pair is
+// charged the machine and given twice it; halving a lone slot's memory is how
+// a build that used to pass gets OOM-killed, and one pair on one host is the
+// shape the pressure holds and the throttle already answer for.
 //
 // A default is only given where it would bind. The process backend applies no
 // limit at all, so a defaulted figure on one of its runners would be a number

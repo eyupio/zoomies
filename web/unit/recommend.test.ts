@@ -20,7 +20,44 @@ test('the runner ask is the largest enabled pool asks for, or the default', () =
     { enabled: true, resources: { cpus: 4, memory_mb: 2048 } },
     { enabled: false, resources: { cpus: 16, memory_mb: 65536 } },
   ]);
-  assert.deepEqual(ask, { cpus: 4, memoryMb: 4096, source: 'pools' });
+  assert.deepEqual(ask, { cpus: 4, memoryMb: 4096, source: 'pools', pair: false });
+});
+
+// A docker-in-docker slot is two containers with the same limits, so the ask
+// is twice the pool's own figures -- and twice the default where the pool
+// sets none, which is the case that sizes a host wrong most often, since
+// there is no figure on the pool to double.
+test('a docker-in-docker pool asks for both of its containers', () => {
+  assert.deepEqual(runnerAsk([{ enabled: true, docker_mode: 'dind', resources: {} }]), {
+    cpus: 4,
+    memoryMb: 8192,
+    source: 'default',
+    pair: true,
+  });
+  assert.deepEqual(
+    runnerAsk([{ enabled: true, docker_mode: 'dind', resources: { cpus: 2, memory_mb: 4096 } }]),
+    { cpus: 4, memoryMb: 8192, source: 'pools', pair: true },
+  );
+  // A dind pool that is not the largest ask leaves the figure alone, and
+  // says nothing about a pair: this function has no host in hand, so it
+  // cannot know whether that pool places on the machine being adjusted.
+  assert.deepEqual(
+    runnerAsk([
+      { enabled: true, resources: { cpus: 2, memory_mb: 4096 } },
+      { enabled: true, docker_mode: 'dind', resources: {} },
+    ]),
+    { cpus: 2, memoryMb: 4096, source: 'pools', pair: false },
+  );
+  // Twelve cores less a core held back is room for two pairs, not five.
+  assert.equal(
+    recommendedCapacity(
+      { cpus: 12, memoryMb: 32768 },
+      1,
+      3072,
+      runnerAsk([{ enabled: true, docker_mode: 'dind', resources: {} }]),
+    ),
+    2,
+  );
 });
 
 test('the reserve keeps a core and a tenth of memory, and never the whole machine', () => {

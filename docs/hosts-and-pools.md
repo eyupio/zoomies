@@ -429,13 +429,23 @@ asks for 4 GB each do not fit on a 16 GB machine. So each runner is also
 charged against what its host reported, and a host that cannot cover the charge
 takes no more work however many slots it has left.
 
-What one runner is charged is the pool's own `resources`. A pool with
-`docker_mode: dind` is charged twice: the build runs inside the sidecar, which
-the backend gives the same limits, so the pool's footprint on the host really is
-two of everything it asked for. A field the pool leaves unset is charged one
-slot's worth of the host instead — a host with 30 GB allocatable and a capacity
-of 6 charges 5 GB — which is what keeps a fleet of pools with no limits admitting
-exactly what its slot counts admitted before. The reservation is worked out from
+What one runner is charged is the pool's own `resources`. A field the pool
+leaves unset is charged one slot's worth of the host instead — a host with
+30 GB allocatable and a capacity of 6 charges 5 GB — which is what keeps a
+fleet of pools with no limits admitting exactly what its slot counts admitted
+before.
+
+A pool with `docker_mode: dind` is charged twice over, whichever of those two
+the figure came from: the build runs inside the sidecar, which the backend
+gives the same limits, so the pool's footprint on the host really is two of
+everything — two of what it asked for, or two slots' worth of the machine. A
+defaulted pair was once charged only one, and that is the arithmetic behind a
+host reading "CPU committed 50%" while every core on it sat inside a runner's
+quota and `docker` had stopped answering creates. Four slots of such a pool are
+two runners, not four. Only a doubled *share* is capped at the machine, so a
+host with a single slot still places the one pair it has room for; a pool's own
+figures are never capped, because a host too small for what an operator typed
+has to be able to say so. The reservation is worked out from
 the runner rows on every pass; nothing stores it, so a restart recovers it and a
 runner that fails stops being charged for as soon as its row says so.
 
@@ -460,6 +470,18 @@ a busy host as a broken one. Half a core, or a twentieth of a sixty-four core
 box with sixty-four containers to mind, is what those three need to keep
 answering while every runner is flat out. An operator's own `reserve_cpus` is
 whole cores and replaces the floor where it is larger.
+
+The memory reserve is the one that is more than a charge: it is also the line
+pressure is judged against. A host whose available memory falls **to its
+reserve** takes no new runners and starts climbing the throttle ladder, and it
+recovers only once memory is above the reserve again — so raising the reserve
+raises the point at which the host counts as overwhelmed. Held at 8 GB of
+32 GB, a host is under pressure from three quarters full. That is worth knowing
+before raising one to protect a machine: the reserve is arithmetic rather than
+a fence — the room is kept free by placing less there, and nothing stops a job
+that runs away from taking it — so a large reserve buys an earlier throttle
+rather than a guarantee. The host's Adjust dialog says what the figure set
+there means for this machine.
 
 A pool's `resources` are enforced as cgroup limits on the `docker` and `podman`
 backends, including the docker-in-docker sidecar. The `process` backend applies
@@ -503,12 +525,15 @@ it applies no limit at all, and a defaulted figure on one of its runners would
 be a number on the Runners page saying the opposite of the truth.
 
 A `dind` pool's sidecar receives the same limits the runner does, from the same
-spec, so a defaulted pair may burst to two shares between them. That is the
-one place the allocation is looser than the charge, and it is looser on
-purpose: the alternative is half a share each, which hobbles the build for the
-sake of a symmetry the charge does not keep either — a defaulted pair is
-charged one share, not two — and two shares is still strictly less than the
-whole machine, which is what the pair had before.
+spec, so a defaulted pair is given two shares between them — and the charge
+covers both, so the books and the cgroups agree here as they do everywhere
+else. Each container keeps a whole share rather than half of one: half a share
+each would hobble the build for a symmetry the charge keeps by itself, and a
+host carrying pairs simply has room for fewer of them. The exception is a host
+with a single slot, where two shares are more than the whole machine. There the
+pair is charged the machine and given twice it, because halving a lone slot's
+memory is how a build that used to pass gets OOM-killed, and one pair on one
+host is the shape the pressure holds and the throttle already answer for.
 
 What a runner was given, and why, is on its page and in
 `GET /api/v1/runners/{id}`: `allocated_cpus`, `allocated_memory_mb` and
@@ -551,8 +576,10 @@ nothing. Upgrade the agent and the machine starts answering for its own size.
 
 The number to check a limit against is not the one on the pool. A runner is
 charged what its pool asks for, a field left unset is charged one slot's worth
-of the host instead, and a **docker-in-docker pool is charged twice over**,
-because the backend gives the build's sidecar the same limits as the runner —
+of the host instead, and a **docker-in-docker pool is charged twice over** —
+whichever of those two the figure came from, so a slot on a host such a pool
+uses is worth two — because the backend gives the build's sidecar the same
+limits as the runner:
 so a pool asking for 8 CPU needs a 16-CPU host, and a 12-CPU machine that
 matches its selector in every other way will never take one. The pool wizard
 says so as the limits are typed: it names each host its selector reaches that
