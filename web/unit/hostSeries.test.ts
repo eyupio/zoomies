@@ -1,15 +1,26 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  METRICS,
+  PRESSURE,
   WINDOWS,
   bridgeFor,
+  hostLines,
   hostSeries,
+  indexAtX,
+  leadMetric,
   lineRuns,
   liveSample,
   mergeHostSamples,
   metricText,
   metricValue,
+  nearestHost,
   overflowCeiling,
+  peakOf,
+  plotFrame,
+  scaleX,
+  scaleY,
+  spreadLabels,
   timeTicks,
   windowSlots,
 } from '../src/lib/insights/hostSeries.ts';
@@ -241,4 +252,127 @@ test('only load past the cores opens a lane, and its ceiling is a round number',
   assert.equal(overflowCeiling(101), 150);
   assert.equal(overflowCeiling(840), 850);
   assert.equal(overflowCeiling(Number.NaN), 0);
+});
+
+/* -- what the drawing is built from --------------------------------------- */
+
+test("the lead metric is the first chosen one in the chips' order, whatever order it was chosen in", () => {
+  // The headline, the end labels and the wash all follow one measurement,
+  // and it has to be the same one however the operator reached the choice.
+  assert.equal(leadMetric(['slots', 'cpu'])?.key, 'cpu');
+  assert.equal(leadMetric(['disk', 'memory_committed'])?.key, 'memory_committed');
+  assert.equal(leadMetric([]), null);
+});
+
+test('a line per chosen metric for every host that is not hidden, and colour follows the host', () => {
+  const now = Date.parse('2026-03-01T09:00:00Z');
+  const hosts = [{ id: 'host_a' }, { id: 'host_b' }, { id: 'host_c' }] as Host[];
+  const byHost = new Map([
+    ['host_a', [sample({ host_id: 'host_a', at: new Date(now).toISOString(), cpu_percent: 10 })]],
+    ['host_c', [sample({ host_id: 'host_c', at: new Date(now).toISOString(), cpu_percent: 90 })]],
+  ]);
+  const metrics = METRICS.filter((m) => m.key === 'cpu' || m.key === 'slots');
+  const lines = hostLines(hosts, ['host_b'], byHost, metrics, now, 3600, 60);
+  assert.deepEqual(
+    lines.map((l) => l.id),
+    ['host_a:cpu', 'host_a:slots', 'host_c:cpu', 'host_c:slots'],
+  );
+  // Hiding the second host does not repaint the third: a reader who learnt
+  // that host_c is the third colour is not misled by a filter.
+  assert.equal(lines[2]?.tone, 'var(--z-chart-3)');
+  assert.deepEqual(lines[2]?.last, { i: 59, value: 90 });
+  assert.equal(lines[0]?.last?.value, 10);
+});
+
+test('the peak in view names the line and the point it came from', () => {
+  const now = Date.parse('2026-03-01T09:00:00Z');
+  const at = (minutesAgo: number) => new Date(now - minutesAgo * 60_000).toISOString();
+  const byHost = new Map([
+    [
+      'host_a',
+      [
+        sample({ at: at(30), cpu_percent: 40 }),
+        sample({ at: at(10), cpu_percent: 95 }),
+        sample({ at: at(0), cpu_percent: 50 }),
+      ],
+    ],
+    ['host_b', [sample({ host_id: 'host_b', at: at(5), cpu_percent: 80 })]],
+  ]);
+  const hosts = [{ id: 'host_a' }, { id: 'host_b' }] as Host[];
+  const lines = hostLines(hosts, [], byHost, [METRICS[0]!], now, 3600, 60);
+  const peak = peakOf(lines, 'cpu');
+  assert.equal(peak?.line.host.id, 'host_a');
+  assert.equal(peak?.value, 95);
+  assert.equal(peak?.i, 49);
+  assert.equal(peakOf(lines, 'memory'), null);
+  assert.equal(PRESSURE, 85);
+});
+
+test('labels at the ends of the lines are pushed apart, and back up from the bottom', () => {
+  // Three lines ending within a few pixels of each other get three labels a
+  // label's height apart, in the order the lines are in.
+  assert.deepEqual(spreadLabels([100, 102, 104], 14, 0, 200), [100, 114, 128]);
+  // The callers' order is kept whatever order the lines end in.
+  assert.deepEqual(spreadLabels([104, 100], 14, 0, 200), [114, 100]);
+  // Against the bottom the stack walks back up rather than running off.
+  assert.deepEqual(spreadLabels([196, 198], 14, 0, 200), [186, 200]);
+  // Lines far enough apart are labelled exactly where they end.
+  assert.deepEqual(spreadLabels([20, 120], 14, 0, 200), [20, 120]);
+  assert.deepEqual(spreadLabels([], 14, 0, 200), []);
+});
+
+test('the frame is drawn one unit to a pixel, and stacked plots share their gutters', () => {
+  const wide = plotFrame(1200);
+  const phone = plotFrame(400);
+  assert.equal(wide.W, 1200);
+  assert.equal(wide.narrow, false);
+  assert.equal(phone.narrow, true);
+  assert.ok(phone.H > wide.H, 'a phone gets a taller drawing');
+  // The gutters are the same width in every plot, so one x axis serves a
+  // stack of per-host plots.
+  const compact = plotFrame(1200, { compact: true, axis: false });
+  assert.equal(compact.LEFT, wide.LEFT);
+  assert.equal(compact.RIGHT, wide.RIGHT);
+  assert.ok(compact.H < wide.H);
+  assert.ok(compact.BOTTOM > wide.BOTTOM - wide.H + compact.H, 'no axis band without an axis');
+  // A lane for load past the cores sits above the axis and pushes 100% down.
+  const laned = plotFrame(1200, { lane: true });
+  assert.equal(laned.AXIS_TOP, laned.TOP + laned.LANE);
+  assert.equal(wide.AXIS_TOP, wide.TOP);
+});
+
+test('values map to the axis, and only past 100 into the lane', () => {
+  const frame = plotFrame(800, { lane: true });
+  const y = scaleY(frame, 200);
+  assert.equal(y(0), frame.BOTTOM);
+  assert.equal(y(100), frame.AXIS_TOP);
+  assert.equal(y(200), frame.TOP);
+  assert.equal(y(150), frame.TOP + frame.LANE / 2);
+  // Without a lane a value past 100 is clipped to the top of the axis.
+  assert.equal(scaleY(plotFrame(800), 0)(150), plotFrame(800).AXIS_TOP);
+  const x = scaleX(frame, 5);
+  assert.equal(x(0), frame.LEFT);
+  assert.equal(x(4), frame.RIGHT);
+  assert.equal(indexAtX(frame, 5, frame.LEFT), 0);
+  assert.equal(indexAtX(frame, 5, frame.RIGHT), 4);
+  assert.equal(indexAtX(frame, 5, frame.RIGHT + 500), 4);
+  assert.equal(indexAtX(frame, 5, frame.LEFT + frame.SPAN / 2), 2);
+});
+
+test('pointing at a line names its host, and pointing at nothing names none', () => {
+  const now = Date.parse('2026-03-01T09:00:00Z');
+  const at = new Date(now).toISOString();
+  const byHost = new Map([
+    ['host_a', [sample({ host_id: 'host_a', at, cpu_percent: 20 })]],
+    ['host_b', [sample({ host_id: 'host_b', at, cpu_percent: 80 })]],
+  ]);
+  const hosts = [{ id: 'host_a' }, { id: 'host_b' }] as Host[];
+  const lines = hostLines(hosts, [], byHost, [METRICS[0]!], now, 3600, 60);
+  const frame = plotFrame(800);
+  const y = scaleY(frame, 0);
+  assert.equal(nearestHost(lines, 59, y(78), y, 12), 'host_b');
+  assert.equal(nearestHost(lines, 59, y(24), y, 12), 'host_a');
+  assert.equal(nearestHost(lines, 59, y(50), y, 12), null);
+  // A minute nobody observed has no line to point at.
+  assert.equal(nearestHost(lines, 10, y(80), y, 12), null);
 });

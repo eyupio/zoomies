@@ -15,6 +15,22 @@
   keeps its room rather than being squashed into the bottom tenth of the chart
   behind thirty labels.
 
+  Two layouts, because two questions get asked of it. Every host on one plot
+  answers "which machine is the busy one" -- the lines are read against each
+  other, and pointing at one, or at its row below, brings it forward and
+  steps the rest back. A plot per host answers "what has this machine been
+  doing": each has its own drawing, with the wash under its lead line, and
+  the plots share one x axis and one crosshair so a moment is still read
+  across the fleet. The choice is remembered, as is every other one here.
+
+  The rows beneath are the legend and the switchboard, and they are also the
+  reading: each host's meters show its figures at the moment under the
+  crosshair, or now when nothing is being read, so the exact numbers for a
+  moment are never only in a card that follows the pointer. The line above
+  the chart says what an operator would otherwise have to hunt for -- the
+  highest figure in view and where it was, and how many hosts are past the
+  pressure line right now.
+
   The controller writes one sample per host per minute; the stream keeps the
   newest point moving between them, from the same host view the cards below
   are drawn from, so the chart's right-hand edge and the card never disagree.
@@ -28,13 +44,6 @@
   because an operator watching a job land wants each heartbeat and not the
   last of every two. Behind them the minute samples are still the history,
   so those windows fill in as the stream arrives.
-
-  Hosts and measurements switch on and off with a click and the choice is
-  remembered, because an operator watching two machines out of forty wants
-  them there tomorrow as well. A moment is chosen by a click or a tap, and
-  scrubbed by dragging, so the chart reads the same under a finger as under
-  a mouse; the reading sits beside the crosshair on a desktop and under the
-  chart on a phone.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
@@ -47,28 +56,29 @@
   import { fleet } from '$lib/state/fleet.svelte';
   import { storage } from '$lib/state/prefs.svelte';
   import { hostStatus } from '$lib/status';
+  import CapacityPlot from './CapacityPlot.svelte';
   import {
     DEFAULT_METRICS,
     LONGEST_FINE_WINDOW,
     LONGEST_WINDOW,
     METRICS,
+    PRESSURE,
     WINDOWS,
-    bridgeFor,
     grainOf,
-    hostSeries,
+    hostLines,
     hostTone,
-    lineRuns,
+    leadMetric,
     liveSample,
     mergeHostSamples,
     metricText,
     metricValue,
     overflowCeiling,
-    timeTicks,
+    peakOf,
     windowSlots,
+    type Metric,
     type MetricKey,
     type WindowKey,
   } from './hostSeries';
-  import type { SignalPoint } from './signals';
 
   let { hosts, onmanage }: { hosts: Host[]; onmanage?: (host: Host) => void } = $props();
 
@@ -85,8 +95,15 @@
       return fallback;
     }
   }
+  const LAYOUTS = [
+    { value: 'overlay', label: 'Overlay', name: 'Every host on one chart' },
+    { value: 'split', label: 'Per host', name: 'A chart for each host' },
+  ] as const;
+  type Layout = (typeof LAYOUTS)[number]['value'];
   const isWindow = (v: unknown): v is WindowKey =>
     typeof v === 'string' && WINDOWS.some((w) => w.value === v);
+  const isLayout = (v: unknown): v is Layout =>
+    typeof v === 'string' && LAYOUTS.some((l) => l.value === v);
   const isMetrics = (v: unknown): v is MetricKey[] =>
     Array.isArray(v) && v.every((k) => METRICS.some((m) => m.key === k));
   const isIds = (v: unknown): v is string[] =>
@@ -95,10 +112,12 @@
   // The day is the default, as it is on every other trend: an hour is too
   // narrow to show a fleet that goes quiet overnight and busy at nine.
   let windowKey = $state<WindowKey>(remembered('window', '24h', isWindow));
+  let layout = $state<Layout>(remembered('layout', 'overlay', isLayout));
   let live = $state(remembered('live', true, (v): v is boolean => typeof v === 'boolean'));
   let enabled = $state<MetricKey[]>(remembered('metrics', [...DEFAULT_METRICS], isMetrics));
   let hidden = $state<string[]>(remembered('hidden', [], isIds));
   $effect(() => storage.set(`${KEY}.window`, JSON.stringify(windowKey)));
+  $effect(() => storage.set(`${KEY}.layout`, JSON.stringify(layout)));
   $effect(() => storage.set(`${KEY}.live`, JSON.stringify(live)));
   $effect(() => storage.set(`${KEY}.metrics`, JSON.stringify(enabled)));
   $effect(() => storage.set(`${KEY}.hidden`, JSON.stringify(hidden)));
@@ -114,6 +133,7 @@
   let recent = $state.raw<HostSample[]>([]);
   let current = $state(Date.now());
   let failed = $state(false);
+  let loading = $state(false);
   let attempt = $state(0);
 
   /** The window's slots: its edges, how many points it has, how fine a slot is. */
@@ -125,6 +145,7 @@
     const window = chosen;
     const controller = new AbortController();
     let disposed = false;
+    untrack(() => (loading = true));
     void listHostSamples({ window: window.value }, controller.signal)
       .then((page) => {
         if (disposed) return;
@@ -134,6 +155,9 @@
       .catch((cause: unknown) => {
         if (disposed || (cause instanceof DOMException && cause.name === 'AbortError')) return;
         failed = true;
+      })
+      .finally(() => {
+        if (!disposed) loading = false;
       });
     // The right-hand edge moves on every point: once a minute is enough for
     // a window drawn by the minute, and a window drawn finer keeps step.
@@ -188,24 +212,6 @@
 
   /* -- the lines ------------------------------------------------------------- */
 
-  // A phone gets a taller, narrower drawing: the same 760-wide picture
-  // scaled to 340px is a strip whose labels are unreadable.
-  let narrow = $state(false);
-  $effect(() => {
-    const query = window.matchMedia('(max-width: 640px)');
-    const update = () => (narrow = query.matches);
-    update();
-    query.addEventListener('change', update);
-    return () => query.removeEventListener('change', update);
-  });
-  const W = $derived(narrow ? 420 : 760);
-  const H = $derived(narrow ? 300 : 228);
-  const LEFT = 46;
-  const RIGHT = $derived(W - 12);
-  const TOP = 14;
-  const BOTTOM = $derived(H - 24);
-  const SPAN = $derived(RIGHT - LEFT);
-
   const byHost = $derived(
     mergeHostSamples(
       history,
@@ -218,23 +224,11 @@
   const count = $derived(slots.count);
   const visibleHosts = $derived(hosts.filter((h) => !hidden.includes(h.id ?? '')));
   const metrics = $derived(METRICS.filter((m) => enabled.includes(m.key)));
+  const lead = $derived(leadMetric(enabled));
 
-  interface Series {
-    id: string;
-    host: Host;
-    index: number;
-    metric: (typeof METRICS)[number];
-    tone: string;
-    points: SignalPoint[];
-    runs: string[];
-    last: { i: number; value: number } | null;
-  }
-
-  // The axis is 0-100% and stays so. Load is the one figure that can pass it,
-  // and when it does in this window it gets a lane above the axis on its own
-  // scale, rather than stretching the axis to wherever it reached and
-  // squashing every other line into a strip at the bottom.
-  const LANE = 40;
+  // Load is the one figure that can pass 100%, and when it does in this
+  // window every plot gets the same lane above its axis, so the stacked
+  // plots keep one scale between them.
   const overflow = $derived.by(() => {
     if (!enabled.includes('load')) return 0;
     let peak: number | null = null;
@@ -243,95 +237,20 @@
         peak = Math.max(peak ?? 0, metricValue(s, 'load') ?? 0);
     return overflowCeiling(peak);
   });
-  /** Where 100% sits: the top of the drawing, or under the lane when there is one. */
-  const AXIS_TOP = $derived(overflow ? TOP + LANE : TOP);
-  const x = (i: number) => LEFT + (i * SPAN) / Math.max(1, count - 1);
-  const y = (value: number) => {
-    if (value <= 100 || !overflow)
-      return AXIS_TOP + (1 - Math.min(value, 100) / 100) * (BOTTOM - AXIS_TOP);
-    return AXIS_TOP - ((Math.min(value, overflow) - 100) / (overflow - 100)) * LANE;
-  };
 
-  /** Every run of observed intervals a stroke joins, as one path each. */
-  function runsOf(points: SignalPoint[]): string[] {
-    return lineRuns(points, bridgeFor(chosen.bucket)).map((run) => {
-      const d = run
-        .map((p, n) => `${n ? 'L' : 'M'}${x(p.i).toFixed(1)},${y(p.value).toFixed(1)}`)
-        .join(' ');
-      // A single observed interval has no length to stroke: give it a dot's
-      // worth so the line cap draws it.
-      return run.length > 1 ? d : `${d} l0.01,0`;
-    });
-  }
-
-  const series = $derived.by((): Series[] => {
-    const out: Series[] = [];
-    hosts.forEach((host, index) => {
-      if (hidden.includes(host.id ?? '')) return;
-      const samples = byHost.get(host.id ?? '') ?? [];
-      for (const metric of metrics) {
-        const points = hostSeries(samples, metric.key, current, chosen.seconds, chosen.bucket);
-        let last: Series['last'] = null;
-        for (let i = points.length - 1; i >= 0; i--) {
-          const v = points[i]?.value;
-          if (v !== null && v !== undefined) {
-            last = { i, value: v };
-            break;
-          }
-        }
-        out.push({
-          id: `${host.id}:${metric.key}`,
-          host,
-          index,
-          metric,
-          tone: hostTone(index),
-          points,
-          runs: runsOf(points),
-          last,
-        });
-      }
-    });
-    return out;
-  });
-
-  const anyObserved = $derived(series.some((s) => s.last !== null));
+  const lines = $derived(
+    hostLines(hosts, hidden, byHost, metrics, current, chosen.seconds, chosen.bucket),
+  );
+  const anyObserved = $derived(lines.some((s) => s.last !== null));
 
   /* -- reading a moment ------------------------------------------------------ */
 
   let hover = $state<number | null>(null);
   let selected = $state<number | null>(null);
+  const reading = $derived(hover !== null || selected !== null);
   const activeIndex = $derived(Math.min(count - 1, hover ?? selected ?? count - 1));
   /** The last slot of the active point, which is the moment its label names. */
   const activeAt = $derived(slots.end - (count - 1 - activeIndex) * bucketMs);
-
-  /** Which point is under a pointer, from where it is across the chart. */
-  function indexAt(event: PointerEvent): number {
-    const rect = (event.currentTarget as SVGSVGElement).getBoundingClientRect();
-    const viewX = ((event.clientX - rect.left) / rect.width) * W;
-    const i = Math.round(((viewX - LEFT) / SPAN) * Math.max(1, count - 1));
-    return Math.max(0, Math.min(count - 1, i));
-  }
-
-  // A mouse reads the chart by passing over it, and the reading goes when it
-  // leaves. A finger cannot hover: it arrives, and the moment it leaves the
-  // glass the pointer has left too, so a reading that lived only under the
-  // pointer was gone before it could be read. So a touch chooses the moment,
-  // the way the timeline control does, and dragging across the chart scrubs
-  // it. A click does the same, because a chosen moment that stays put is
-  // useful with a mouse as well: it is how two hosts get compared at one
-  // instant without holding still.
-  function onPress(event: PointerEvent): void {
-    selected = indexAt(event);
-    if (event.pointerType === 'mouse') return;
-    // Capture so a drag that wanders off the chart keeps scrubbing. A drag
-    // the browser takes for a vertical scroll cancels the pointer instead,
-    // which is `touch-action: pan-y` doing its job.
-    (event.currentTarget as SVGSVGElement).setPointerCapture(event.pointerId);
-  }
-  function onPointer(event: PointerEvent): void {
-    if (event.pointerType === 'mouse') hover = indexAt(event);
-    else if (event.buttons) selected = indexAt(event);
-  }
 
   const fine = $derived(chosen.bucket < 60);
   const time = (at: number) =>
@@ -349,49 +268,91 @@
         })
       : time(at);
 
-  /** The window's edges, and the round times between them for the labels. */
+  /** The window's edges, for the labels along the bottom. */
   const end = $derived(slots.end);
   const start = $derived(end - (count - 1) * bucketMs);
-  const ticks = $derived(
-    timeTicks(start, end, narrow ? 3 : 5).map((at) => ({
-      at,
-      x: LEFT + ((at - start) / Math.max(1, end - start)) * SPAN,
-    })),
-  );
-  const grid = [0, 25, 50, 75, 100];
 
-  /** What every visible host read at the active moment, for the card. */
-  const reading = $derived(
-    visibleHosts.map((host, n) => {
-      const index = hosts.indexOf(host);
-      // The sample in the active slot, for the exact figure: only where one
-      // point is one slot, since a folded point is a peak of several.
-      const grainMs = slots.grain * 1000;
-      const sample =
-        chosen.bucket === slots.grain
-          ? byHost
-              .get(host.id ?? '')
-              ?.find(
-                (s) => Math.floor(new Date(s.at ?? '').getTime() / grainMs) * grainMs === activeAt,
-              )
-          : undefined;
-      return {
-        host,
-        tone: hostTone(index),
-        n,
-        figures: metrics.map((metric) => {
-          const point = series.find((s) => s.host === host && s.metric === metric)?.points[
-            activeIndex
-          ];
-          return {
-            metric,
-            percent: point?.value ?? null,
-            exact: sample ? metricText(sample, metric.key) : null,
-          };
-        }),
-      };
-    }),
+  interface Figure {
+    metric: Metric;
+    percent: number | null;
+    /** The figure in the operator's words, where one point is one sample. */
+    exact: string | null;
+  }
+  interface Reading {
+    host: Host;
+    tone: string;
+    figures: Figure[];
+  }
+  /** What every visible host read at the active moment. */
+  const readings = $derived.by((): Map<string, Reading> => {
+    // The sample in the active slot, for the exact figure: only where one
+    // point is one slot, since a folded point is a peak of several.
+    const grainMs = slots.grain * 1000;
+    return new Map(
+      visibleHosts.map((host): [string, Reading] => {
+        const id = host.id ?? '';
+        const sample =
+          chosen.bucket === slots.grain
+            ? byHost
+                .get(id)
+                ?.find(
+                  (s) =>
+                    Math.floor(new Date(s.at ?? '').getTime() / grainMs) * grainMs === activeAt,
+                )
+            : undefined;
+        return [
+          id,
+          {
+            host,
+            tone: hostTone(hosts.indexOf(host)),
+            figures: metrics.map((metric) => {
+              const point = lines.find((s) => s.host === host && s.metric === metric)?.points[
+                activeIndex
+              ];
+              return {
+                metric,
+                percent: point?.value ?? null,
+                exact: sample ? metricText(sample, metric.key) : null,
+              };
+            }),
+          },
+        ];
+      }),
+    );
+  });
+  /** The readings with the busiest host first, for the card. */
+  const ranked = $derived.by(() => {
+    const value = (r: Reading) =>
+      r.figures.find((f) => f.metric === lead)?.percent ?? Number.NEGATIVE_INFINITY;
+    return [...readings.values()].sort((a, b) => value(b) - value(a));
+  });
+  /** How many rows the card shows before it says "and N more". */
+  const CARD_ROWS = 8;
+
+  /* -- the headline ------------------------------------------------------------ */
+
+  const peak = $derived(lead ? peakOf(lines, lead.key) : null);
+  const pressed = $derived(
+    lead
+      ? [...readings.values()].filter(
+          (r) => (r.figures.find((f) => f.metric === lead)?.percent ?? 0) >= PRESSURE,
+        ).length
+      : 0,
   );
+
+  /* -- emphasis ------------------------------------------------------------------ */
+
+  // Three ways to single something out, and they combine: a host from its
+  // row or from the line the pointer is nearest, a measurement from its chip.
+  let rowHost = $state<string | null>(null);
+  let nearHost = $state<string | null>(null);
+  let chipMetric = $state<MetricKey | null>(null);
+  // A chip that is not on the chart singles out nothing: dimming every line
+  // to show that a measurement is absent reads as a fault, not an answer.
+  const emphasis = $derived({
+    host: layout === 'overlay' ? (rowHost ?? nearHost) : null,
+    metric: chipMetric !== null && enabled.includes(chipMetric) ? chipMetric : null,
+  });
 
   /* -- toggles ----------------------------------------------------------------- */
 
@@ -408,18 +369,172 @@
       hidden.length === others.length && others.every((h) => hidden.includes(h)) ? [] : others;
   }
 
-  /** The host as it is right now, for the legend's figures. */
+  /** The host as it is right now, for a row that is off the chart. */
   const now = $derived(new Map(hosts.map((h) => [h.id ?? '', liveSample(h, current)])));
 
+  const message = $derived(
+    anyObserved
+      ? undefined
+      : hosts.length === 0
+        ? 'No hosts connected yet.'
+        : metrics.length === 0
+          ? 'Choose a measurement above to draw it.'
+          : visibleHosts.length === 0
+            ? 'Every host is switched off. Choose one below.'
+            : 'No samples in this window yet. The controller writes one a minute.',
+  );
+
   const description = $derived(
-    `${hosts.length === 0 ? 'No hosts yet. ' : ''}${chosen.name}. Solid lines are measured by the agent; dashed ones are what the scheduler has promised or what the host holds. Each figure is a share of the machine, so they read against each other.`,
+    `${hosts.length === 0 ? 'No hosts yet. ' : ''}${chosen.name}. Solid lines are measured by the agent; dashed ones are what the scheduler has promised or what the host holds. Each figure is a share of the machine, so they read against each other, and from ${PRESSURE}% the scheduler places one runner at a time.`,
+  );
+  const moment = $derived(reading ? `at ${stamp(activeAt)}` : 'now');
+  const valuetext = $derived(
+    `${stamp(activeAt)}: ${[...readings.values()]
+      .map(
+        (r) =>
+          `${r.host.name ?? r.host.id} ${r.figures
+            .map(
+              (f) =>
+                `${f.metric.label} ${f.percent === null ? 'not measured' : `${f.percent.toFixed(0)}%`}`,
+            )
+            .join(', ')}`,
+      )
+      .join('; ')}`,
   );
 </script>
+
+{#snippet strokeSample(metric: Metric, tone?: string)}
+  <svg class="stroke" viewBox="0 0 24 8" aria-hidden="true">
+    <line
+      x1="1"
+      y1="4"
+      x2="23"
+      y2="4"
+      stroke-dasharray={metric.dash}
+      stroke-linecap="round"
+      style:stroke={tone}
+    />
+  </svg>
+{/snippet}
+
+{#snippet hostRow(host: Host, index: number)}
+  {@const id = host.id ?? ''}
+  {@const shown = !hidden.includes(id)}
+  {@const tone = hostTone(index)}
+  {@const read = shown ? readings.get(id) : undefined}
+  {@const sample = now.get(id)}
+  <div
+    class="host"
+    class:off={!shown}
+    class:lit={emphasis.host === id}
+    role="presentation"
+    onpointerenter={() => (rowHost = id)}
+    onpointerleave={() => (rowHost = null)}
+    onfocusin={() => (rowHost = id)}
+    onfocusout={() => (rowHost = null)}
+  >
+    <button
+      type="button"
+      class="toggle"
+      aria-pressed={shown}
+      onclick={() => toggleHost(id)}
+      title={shown ? `Hide ${host.name ?? id}` : `Show ${host.name ?? id}`}
+    >
+      <span class="swatch" style:background={tone}></span>
+      <span class="name">{host.name ?? id}</span>
+      <StatusDot status={hostStatus(host)} size="sm" />
+    </button>
+    <span class="meters">
+      {#each metrics as metric (metric.key)}
+        {@const figure = read?.figures.find((f) => f.metric === metric)}
+        {@const v = read
+          ? (figure?.percent ?? null)
+          : sample
+            ? metricValue(sample, metric.key)
+            : null}
+        {@const words =
+          v === null
+            ? 'not measured'
+            : (figure?.exact ?? (sample && !read ? metricText(sample, metric.key) : null))}
+        <span
+          class="meter"
+          title={`${metric.label} ${shown ? moment : 'now'}: ${words ?? `${v?.toFixed(0)}%`}`}
+        >
+          {@render strokeSample(metric, tone)}
+          <span class="key" aria-label={metric.label}>{metric.short}</span>
+          <span class="track">
+            {#if v !== null}
+              <span
+                class="fill"
+                class:promised={!metric.measured}
+                style:width="{Math.min(100, v)}%"
+                style:background={tone}
+              ></span>
+            {/if}
+          </span>
+          {#if v === null}<span class="gap">–</span>{:else}<strong>{v.toFixed(0)}%</strong>{/if}
+        </span>
+      {/each}
+    </span>
+    <span class="host-actions">
+      <button type="button" class="text" onclick={() => only(id)}>Only</button>
+      {#if onmanage}<button type="button" class="text" onclick={() => onmanage?.(host)}
+          >Manage</button
+        >{/if}
+      <a href={`/usage?group_by=host&entity=${encodeURIComponent(id)}`}>History ↗</a>
+    </span>
+  </div>
+{/snippet}
+
+{#snippet card()}
+  <div class="reading">
+    <p class="when">
+      <strong>{stamp(activeAt)}</strong>
+      {#if chosen.bucket > 60}<span>{chosen.bucket / 60}-minute peak</span>{/if}
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th scope="col"><span class="sr-only">Host</span></th>
+          {#each metrics as metric (metric.key)}
+            <th scope="col" title={metric.label}>{metric.short}</th>
+          {/each}
+        </tr>
+      </thead>
+      <tbody>
+        {#each ranked.slice(0, CARD_ROWS) as r (r.host.id)}
+          <tr class:lit={emphasis.host === r.host.id}>
+            <th scope="row">
+              <span class="swatch" style:background={r.tone}></span>
+              <span class="name">{r.host.name ?? r.host.id}</span>
+            </th>
+            {#each r.figures as f (f.metric.key)}
+              <td class:pressed={f.percent !== null && f.percent >= PRESSURE}>
+                {#if f.percent === null}<span class="gap">–</span>{:else}{f.percent.toFixed(
+                    0,
+                  )}%{/if}
+              </td>
+            {/each}
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+    {#if ranked.length > CARD_ROWS}
+      <p class="more">and {ranked.length - CARD_ROWS} more below</p>
+    {/if}
+  </div>
+{/snippet}
 
 <ChartPanel title="Host capacity map" {description}>
   {#snippet actions()}
     <div class="controls">
       <Switch bind:checked={live} label="Live" />
+      <Segmented
+        label="Layout"
+        value={layout}
+        options={LAYOUTS}
+        onchange={(v) => (layout = v as Layout)}
+      />
       <Segmented
         label="Window"
         value={windowKey}
@@ -430,147 +545,118 @@
   {/snippet}
 
   <div class="map">
-    <div class="metrics" role="group" aria-label="Measurements shown">
-      {#each METRICS as metric (metric.key)}
-        <button
-          type="button"
-          class="metric"
-          aria-pressed={enabled.includes(metric.key)}
-          title={metric.hint}
-          onclick={() => toggleMetric(metric.key)}
-        >
-          <svg class="stroke" viewBox="0 0 28 8" aria-hidden="true">
-            <line
-              x1="1"
-              y1="4"
-              x2="27"
-              y2="4"
-              stroke-dasharray={metric.dash}
-              stroke-linecap="round"
-            />
-          </svg>
-          {metric.label}
-        </button>
-      {/each}
-    </div>
-
-    <div class="plot">
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        role="img"
-        aria-label={`${series.length} lines across ${visibleHosts.length} of ${hosts.length} hosts, ${chosen.name.toLowerCase()}. Inspect the timeline below for exact values.`}
-        onpointerdown={onPress}
-        onpointermove={onPointer}
-        onpointerleave={() => (hover = null)}
-      >
-        {#if overflow}
-          <!-- The lane for load past the cores, on its own scale up to the
-               peak in view. Its floor is the axis's 100%, which is why the
-               line there is drawn firmer than the grid. -->
-          <rect class="lane" x={LEFT} y={TOP} width={SPAN} height={LANE} />
-          <line class="grid" x1={LEFT} x2={RIGHT} y1={TOP} y2={TOP} />
-          <text class="axis" x={LEFT - 8} y={TOP + 4} text-anchor="end">{overflow}%</text>
-          <text class="lane-label" x={RIGHT - 6} y={TOP + 12} text-anchor="end">
-            load past the cores
-          </text>
-        {/if}
-        <!-- The pressure band: what a throttle steps a host down for. -->
-        <rect class="pressure" x={LEFT} y={y(100)} width={SPAN} height={y(90) - y(100)} />
-        <text class="band-label" x={LEFT + 6} y={y(95) + 4}>pressure</text>
-        {#each grid as value (value)}
-          <line
-            class="grid"
-            class:edge={value === 100 && overflow > 0}
-            x1={LEFT}
-            x2={RIGHT}
-            y1={y(value)}
-            y2={y(value)}
-          />
-          <text class="axis" x={LEFT - 8} y={y(value) + 4} text-anchor="end">{value}%</text>
-        {/each}
-        {#each series as s (s.id)}
-          {#each s.runs as d, n (n)}
-            <path
-              {d}
-              class="line"
-              style:stroke={s.tone}
-              stroke-dasharray={s.metric.dash}
-              vector-effect="non-scaling-stroke"
-            />
-          {/each}
-          {#if s.last && live && s.last.i === count - 1}
-            <circle class="pulse" cx={x(s.last.i)} cy={y(s.last.value)} r="4" style:fill={s.tone} />
+    <div class="toolbar">
+      <div class="metrics" role="group" aria-label="Measurements shown">
+        {#each METRICS as metric, i (metric.key)}
+          {#if i > 0 && METRICS[i - 1]!.measured && !metric.measured}
+            <span class="divider" aria-hidden="true"></span>
           {/if}
+          <button
+            type="button"
+            class="metric"
+            aria-pressed={enabled.includes(metric.key)}
+            title={metric.hint}
+            onclick={() => toggleMetric(metric.key)}
+            onpointerenter={() => (chipMetric = metric.key)}
+            onpointerleave={() => (chipMetric = null)}
+            onfocus={() => (chipMetric = metric.key)}
+            onblur={() => (chipMetric = null)}
+          >
+            {@render strokeSample(metric)}
+            {metric.label}
+          </button>
         {/each}
-        <line class="cursor" x1={x(activeIndex)} x2={x(activeIndex)} y1={TOP} y2={BOTTOM} />
-        {#each series as s (s.id)}
-          {@const v = s.points[activeIndex]?.value}
-          {#if v !== null && v !== undefined}
-            <circle class="marker" cx={x(activeIndex)} cy={y(v)} r="4" style:fill={s.tone} />
+      </div>
+      {#if lead && anyObserved}
+        <p class="headline" aria-live="off">
+          {#if peak}
+            <span
+              >Peak in view: <strong>{peak.value.toFixed(0)}%</strong>
+              {lead.label}, on <em>{peak.line.host.name ?? peak.line.host.id}</em> at {stamp(
+                slots.end - (count - 1 - peak.i) * bucketMs,
+              )}</span
+            >
           {/if}
-        {/each}
-        {#each ticks as tick (tick.at)}
-          <line class="tick" x1={tick.x} x2={tick.x} y1={BOTTOM} y2={BOTTOM + 4} />
-          <text class="axis" x={tick.x} y={H - 6} text-anchor="middle">{stamp(tick.at)}</text>
-        {/each}
-      </svg>
-
-      {#if !anyObserved}
-        <p class="empty">
-          {#if hosts.length === 0}
-            No hosts connected yet.
-          {:else if metrics.length === 0}
-            Choose a measurement above to draw it.
-          {:else if visibleHosts.length === 0}
-            Every host is switched off. Choose one below.
-          {:else}
-            No samples in this window yet. The controller writes one a minute.
-          {/if}
+          <span
+            ><strong class:warn={pressed > 0}>{pressed} of {visibleHosts.length}</strong>
+            {visibleHosts.length === 1 ? 'host' : 'hosts'} past {PRESSURE}% {moment}</span
+          >
         </p>
       {/if}
-
-      {#if (hover !== null || selected !== null) && reading.length > 0 && metrics.length > 0}
-        <div
-          class="card"
-          class:right={activeIndex > count / 2}
-          style:left="{(100 * x(activeIndex)) / W}%"
-          aria-hidden="true"
-        >
-          <p class="when">
-            {stamp(activeAt)}{#if chosen.bucket > 60}
-              · {chosen.bucket / 60}-minute peak{/if}
-          </p>
-          {#each reading as r (r.host.id)}
-            <div class="row">
-              <span class="swatch" style:background={r.tone}></span>
-              <span class="name">{r.host.name ?? r.host.id}</span>
-              {#each r.figures as f (f.metric.key)}
-                <span class="figure" title={f.metric.label}>
-                  <svg class="stroke" viewBox="0 0 20 8" aria-hidden="true">
-                    <line
-                      x1="1"
-                      y1="4"
-                      x2="19"
-                      y2="4"
-                      stroke-dasharray={f.metric.dash}
-                      stroke-linecap="round"
-                      style:stroke={r.tone}
-                    />
-                  </svg>
-                  <span class="short">{f.metric.short}</span>
-                  {#if f.percent === null}
-                    <span class="gap">–</span>
-                  {:else}
-                    <strong>{f.percent.toFixed(0)}%</strong>
-                    {#if f.exact && f.metric.key !== 'cpu'}<small>{f.exact}</small>{/if}
-                  {/if}
-                </span>
-              {/each}
-            </div>
-          {/each}
-        </div>
-      {/if}
     </div>
+
+    {#if layout === 'overlay'}
+      <CapacityPlot
+        {lines}
+        {count}
+        bucket={chosen.bucket}
+        {overflow}
+        {start}
+        {end}
+        {activeIndex}
+        {reading}
+        {emphasis}
+        lead={lead?.key ?? null}
+        {live}
+        labels={visibleHosts.length <= 8}
+        wash={visibleHosts.length === 1}
+        revealKey={`${windowKey}:${layout}`}
+        {stamp}
+        {loading}
+        {message}
+        label={`${lines.length} lines across ${visibleHosts.length} of ${hosts.length} hosts, ${chosen.name.toLowerCase()}. Inspect the timeline below for exact values.`}
+        onhover={(i) => (hover = i)}
+        onpress={(i) => (selected = i)}
+        onnear={(id) => (nearHost = id)}
+        card={metrics.length > 0 && readings.size > 0 ? card : undefined}
+      />
+    {:else}
+      <!-- The rows head their plots here, so the group the switches are
+           found by is the stack itself. -->
+      <div class="panes" role="group" aria-label="Hosts shown">
+        {#each hosts as host, index (host.id)}
+          {@const id = host.id ?? ''}
+          {@const shown = !hidden.includes(id)}
+          {@const own = lines.filter((l) => l.host === host)}
+          {@const last = visibleHosts[visibleHosts.length - 1] === host}
+          <div class="pane" class:off={!shown}>
+            {@render hostRow(host, index)}
+            {#if shown}
+              <CapacityPlot
+                lines={own}
+                {count}
+                bucket={chosen.bucket}
+                {overflow}
+                {start}
+                {end}
+                {activeIndex}
+                {reading}
+                {emphasis}
+                lead={lead?.key ?? null}
+                {live}
+                compact
+                axis={last}
+                wash
+                revealKey={`${windowKey}:${layout}`}
+                {stamp}
+                {loading}
+                message={own.some((l) => l.last !== null)
+                  ? undefined
+                  : metrics.length === 0
+                    ? 'Choose a measurement above to draw it.'
+                    : 'No samples in this window yet.'}
+                label={`${host.name ?? id}: ${own.length} lines, ${chosen.name.toLowerCase()}. Inspect the timeline below for exact values.`}
+                onhover={(i) => (hover = i)}
+                onpress={(i) => (selected = i)}
+              />
+            {/if}
+          </div>
+        {/each}
+        {#if hosts.length === 0}
+          <p class="empty">No hosts connected yet.</p>
+        {/if}
+      </div>
+    {/if}
 
     <div class="scrub">
       <label>
@@ -581,20 +667,12 @@
           max={Math.max(0, count - 1)}
           value={selected ?? count - 1}
           oninput={(e) => (selected = Number(e.currentTarget.value))}
-          aria-valuetext={`${stamp(activeAt)}: ${reading
-            .map(
-              (r) =>
-                `${r.host.name ?? r.host.id} ${r.figures
-                  .map(
-                    (f) =>
-                      `${f.metric.label} ${f.percent === null ? 'not measured' : `${f.percent.toFixed(0)}%`}`,
-                  )
-                  .join(', ')}`,
-            )
-            .join('; ')}`}
+          aria-valuetext={valuetext}
         />
       </label>
-      <output>{stamp(activeAt)}</output>
+      <output
+        >{stamp(activeAt)}{#if !reading}<span class="now"> · now</span>{/if}</output
+      >
       {#if selected !== null}
         <!-- A chosen moment stays chosen until it is let go of, so there has
              to be a way to let go: on a phone, where a tap chose it, there is
@@ -603,57 +681,13 @@
       {/if}
     </div>
 
-    <div class="hosts" role="group" aria-label="Hosts shown">
-      {#each hosts as host, index (host.id)}
-        {@const id = host.id ?? ''}
-        {@const shown = !hidden.includes(id)}
-        {@const sample = now.get(id)}
-        <div class="host" class:off={!shown}>
-          <button
-            type="button"
-            class="toggle"
-            aria-pressed={shown}
-            onclick={() => toggleHost(id)}
-            title={shown ? `Hide ${host.name ?? id}` : `Show ${host.name ?? id}`}
-          >
-            <span class="swatch" style:background={hostTone(index)}></span>
-            <span class="name">{host.name ?? id}</span>
-            <StatusDot status={hostStatus(host)} size="sm" />
-          </button>
-          <span class="figures">
-            {#each metrics as metric (metric.key)}
-              {@const v = sample ? metricValue(sample, metric.key) : null}
-              <span
-                class="figure"
-                title={`${metric.label}: ${sample ? metricText(sample, metric.key) : 'not measured'}`}
-              >
-                <svg class="stroke" viewBox="0 0 20 8" aria-hidden="true">
-                  <line
-                    x1="1"
-                    y1="4"
-                    x2="19"
-                    y2="4"
-                    stroke-dasharray={metric.dash}
-                    stroke-linecap="round"
-                    style:stroke={hostTone(index)}
-                  />
-                </svg>
-                <span class="short" aria-label={metric.label}>{metric.short}</span>
-                {#if v === null}<span class="gap">–</span>{:else}<strong>{v.toFixed(0)}%</strong
-                  >{/if}
-              </span>
-            {/each}
-          </span>
-          <span class="host-actions">
-            <button type="button" class="text" onclick={() => only(id)}>Only</button>
-            {#if onmanage}<button type="button" class="text" onclick={() => onmanage?.(host)}
-                >Manage</button
-              >{/if}
-            <a href={`/usage?group_by=host&entity=${encodeURIComponent(id)}`}>History ↗</a>
-          </span>
-        </div>
-      {/each}
-    </div>
+    {#if layout === 'overlay'}
+      <div class="hosts" role="group" aria-label="Hosts shown">
+        {#each hosts as host, index (host.id)}
+          {@render hostRow(host, index)}
+        {/each}
+      </div>
+    {/if}
 
     {#if failed}
       <p class="retry">
@@ -677,12 +711,24 @@
     gap: var(--z-space-4);
     min-width: 0;
   }
+  .toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-3);
+  }
 
   /* -- measurements: a row of chips, each carrying its stroke ---------------- */
   .metrics {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: var(--z-space-2);
+  }
+  .divider {
+    width: var(--z-border-width);
+    height: var(--z-space-4);
+    background: var(--z-border-strong);
+    margin: 0 var(--z-space-1);
   }
   .metric {
     display: inline-flex;
@@ -709,12 +755,10 @@
     background: var(--z-accent-subtle);
     border-color: var(--z-accent-border);
     color: var(--z-text);
-  }
-  .metric[aria-pressed='true'] .stroke line {
-    stroke: var(--z-accent);
+    font-weight: var(--z-weight-medium);
   }
   .stroke {
-    width: 28px;
+    width: 24px;
     height: 8px;
     flex: none;
   }
@@ -723,160 +767,140 @@
     stroke-width: 2;
   }
 
-  /* -- the chart --------------------------------------------------------------- */
-  .plot {
-    position: relative;
-  }
-  svg {
-    display: block;
-    width: 100%;
-    height: auto;
-    touch-action: pan-y;
-  }
-  .pressure {
-    fill: var(--z-pending-subtle);
-  }
-  .band-label,
-  .lane-label {
-    font-size: 10px;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-  }
-  .band-label {
-    fill: var(--z-pending);
-  }
-  .grid {
-    stroke: var(--z-border);
-    stroke-dasharray: 2 4;
-  }
-  .grid.edge {
-    stroke: var(--z-border-strong);
-    stroke-dasharray: none;
-  }
-  .lane {
-    fill: var(--z-surface-sunken);
-  }
-  .lane-label {
-    fill: var(--z-text-subtle);
-  }
-  .axis {
-    fill: var(--z-text-muted);
-    font-size: 11px;
-    font-variant-numeric: tabular-nums;
-  }
-  .line {
-    fill: none;
-    stroke-width: 2;
-    stroke-linejoin: round;
-    stroke-linecap: round;
-  }
-  .cursor {
-    stroke: var(--z-text-subtle);
-    stroke-dasharray: 3 3;
-  }
-  .marker {
-    stroke: var(--z-surface);
-    stroke-width: 2;
-  }
-  /* The newest point of a live line breathes, so "live" is something seen
-     rather than a switch that says so. Under reduced motion it holds still. */
-  .pulse {
-    transform-box: fill-box;
-    transform-origin: center;
-    animation: breathe 2.4s var(--z-ease) infinite;
-  }
-  @keyframes breathe {
-    0% {
-      opacity: 0.9;
-      transform: scale(1);
-    }
-    50% {
-      opacity: 0.25;
-      transform: scale(2.2);
-    }
-    100% {
-      opacity: 0.9;
-      transform: scale(1);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .pulse {
-      animation: none;
-    }
-  }
-  .empty {
-    position: absolute;
-    inset: 0;
-    display: grid;
-    place-items: center;
+  /* -- the headline: what the chart says, in a sentence ----------------------- */
+  .headline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--z-space-1) var(--z-space-5);
     margin: 0;
     font-size: var(--z-text-xs);
     color: var(--z-text-muted);
-    pointer-events: none;
+  }
+  .headline strong {
+    color: var(--z-text);
+    font-weight: var(--z-weight-semibold);
+    font-variant-numeric: tabular-nums;
+  }
+  .headline strong.warn {
+    color: var(--z-pending);
+  }
+  .headline em {
+    font-style: normal;
+    color: var(--z-text);
   }
 
-  /* -- the card beside the crosshair --------------------------------------- */
-  .card {
-    position: absolute;
-    top: 0;
-    transform: translateX(var(--z-space-2));
+  /* -- the per-host stack ------------------------------------------------------ */
+  .panes {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-2);
+  }
+  .pane {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-1);
+  }
+  .pane + .pane {
+    border-top: var(--z-border-width) solid var(--z-border);
+    padding-top: var(--z-space-2);
+  }
+  .empty {
+    margin: 0;
+    padding: var(--z-space-8) 0;
+    text-align: center;
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
+  }
+
+  /* -- the reading beside the crosshair --------------------------------------- */
+  .reading {
     min-width: 12rem;
-    max-width: 22rem;
+    max-width: 24rem;
     padding: var(--z-space-2) var(--z-space-3);
     border: var(--z-border-width) solid var(--z-border);
-    border-radius: var(--z-radius-sm);
+    border-radius: var(--z-radius-md);
     background: var(--z-surface-raised);
     box-shadow: var(--z-shadow-md);
     font-size: var(--z-text-xs);
     line-height: var(--z-leading-xs);
-    pointer-events: none;
-    z-index: var(--z-layer-sticky);
   }
-  .card.right {
-    transform: translateX(calc(-100% - var(--z-space-2)));
-  }
-  .card p {
+  .reading p {
     margin: 0;
   }
   .when {
-    color: var(--z-text-subtle);
-    padding-bottom: var(--z-space-1);
-    border-bottom: var(--z-border-width) solid var(--z-border);
-    margin-bottom: var(--z-space-1);
-  }
-  .row {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--z-space-1) var(--z-space-2);
-    padding: var(--z-nudge-2) 0;
+    justify-content: space-between;
+    gap: var(--z-space-3);
+    padding-bottom: var(--z-space-1);
+    margin-bottom: var(--z-space-1);
+    border-bottom: var(--z-border-width) solid var(--z-border);
+    color: var(--z-text-subtle);
+    font-variant-numeric: tabular-nums;
   }
-  .row .name {
+  .when strong {
+    color: var(--z-text);
+    font-weight: var(--z-weight-semibold);
+  }
+  .reading table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+  .reading th,
+  .reading td {
+    padding: var(--z-nudge-2) 0 var(--z-nudge-2) var(--z-space-3);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .reading thead th {
+    color: var(--z-text-subtle);
+    font-size: var(--z-text-2xs);
     font-weight: var(--z-weight-medium);
-    margin-right: var(--z-space-1);
+    letter-spacing: var(--z-tracking-wide);
+    text-transform: uppercase;
   }
+  .reading th[scope='row'] {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-2);
+    padding-left: 0;
+    font-weight: var(--z-weight-medium);
+    text-align: left;
+  }
+  .reading th[scope='row'] .name {
+    max-width: 14rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .reading td {
+    font-weight: var(--z-weight-semibold);
+  }
+  .reading td.pressed {
+    color: var(--z-pending);
+  }
+  .reading tr.lit th,
+  .reading tr.lit td {
+    background: var(--z-surface-sunken);
+  }
+  .more {
+    margin-top: var(--z-space-1);
+    color: var(--z-text-subtle);
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
   .swatch {
     display: inline-block;
     width: 10px;
     height: 10px;
     border-radius: var(--z-radius-sm);
     flex: none;
-  }
-  .figure {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--z-space-1);
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-  }
-  .figure .stroke {
-    width: 20px;
-  }
-  .figure strong {
-    font-weight: var(--z-weight-semibold);
-  }
-  .figure small {
-    color: var(--z-text-muted);
   }
   .gap {
     color: var(--z-text-subtle);
@@ -901,18 +925,70 @@
     white-space: nowrap;
     color: var(--z-text-muted);
   }
+  /* The track is painted by the input itself, as the fleet's sliders paint
+     theirs: the share behind the thumb in the accent, the rest sunken. */
   .scrub input {
+    -webkit-appearance: none;
+    appearance: none;
     width: 100%;
     min-width: 70px;
-    accent-color: var(--z-accent);
     height: var(--z-space-6);
+    margin: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+  .scrub input::-webkit-slider-runnable-track {
+    height: var(--z-nudge-2);
+    border-radius: var(--z-radius-full);
+    background: var(--z-border-strong);
+  }
+  .scrub input::-moz-range-track {
+    height: var(--z-nudge-2);
+    border-radius: var(--z-radius-full);
+    background: var(--z-border-strong);
+  }
+  .scrub input::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: var(--z-space-4);
+    height: var(--z-space-4);
+    margin-top: calc((var(--z-nudge-2) - var(--z-space-4)) / 2);
+    border: var(--z-border-width-thick) solid var(--z-surface);
+    border-radius: var(--z-radius-full);
+    background: var(--z-accent);
+    box-shadow: var(--z-shadow-md);
+  }
+  .scrub input::-moz-range-thumb {
+    width: var(--z-space-4);
+    height: var(--z-space-4);
+    border: var(--z-border-width-thick) solid var(--z-surface);
+    border-radius: var(--z-radius-full);
+    background: var(--z-accent);
+    box-shadow: var(--z-shadow-md);
+  }
+  .scrub input:focus-visible {
+    outline: none;
+  }
+  .scrub input:focus-visible::-webkit-slider-thumb {
+    box-shadow: var(--z-focus-ring);
+  }
+  .scrub input:focus-visible::-moz-range-thumb {
+    box-shadow: var(--z-focus-ring);
   }
   output {
+    min-width: 7ch;
     font-size: var(--z-text-xs);
+    font-weight: var(--z-weight-medium);
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  output .now {
+    margin-left: var(--z-space-1);
+    color: var(--z-text-subtle);
+    font-weight: var(--z-weight-normal);
   }
 
-  /* -- the hosts: one row each, the legend and the switchboard --------------- */
+  /* -- the hosts: one row each, the legend, the switchboard and the reading -- */
   .hosts {
     display: grid;
     gap: var(--z-space-1);
@@ -927,12 +1003,13 @@
     padding: var(--z-space-1) var(--z-space-2);
     border-radius: var(--z-radius-sm);
     font-size: var(--z-text-xs);
-    transition: opacity var(--z-motion-fast) var(--z-ease);
+    transition: background var(--z-motion-fast) var(--z-ease);
   }
-  .host:hover {
+  .host:hover,
+  .host.lit {
     background: var(--z-surface-sunken);
   }
-  .host.off .figures,
+  .host.off .meters,
   .host.off .name {
     opacity: 0.5;
   }
@@ -962,11 +1039,56 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .figures {
+  .meters {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--z-space-1) var(--z-space-3);
+    gap: var(--z-space-1) var(--z-space-4);
     justify-content: flex-end;
+  }
+  .meter {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--z-space-2);
+    white-space: nowrap;
+  }
+  .meter .key {
+    color: var(--z-text-muted);
+    min-width: 3.5em;
+  }
+  .meter strong {
+    min-width: 3.5ch;
+    text-align: right;
+    font-weight: var(--z-weight-semibold);
+    font-variant-numeric: tabular-nums;
+  }
+  /* The meter: a track the width of a short word, with the pressure line
+     marked on it where it is marked on the chart. */
+  .track {
+    position: relative;
+    width: 64px;
+    height: calc(var(--z-space-2) - var(--z-nudge-2));
+    border-radius: var(--z-radius-full);
+    background: var(--z-surface-sunken);
+    box-shadow: inset 0 0 0 var(--z-border-width) var(--z-border);
+    overflow: hidden;
+  }
+  .track::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 85%;
+    width: var(--z-border-width);
+    background: var(--z-pending-border);
+  }
+  .fill {
+    display: block;
+    height: 100%;
+    border-radius: var(--z-radius-full);
+    transition: width var(--z-motion-base) var(--z-ease);
+  }
+  .fill.promised {
+    opacity: 0.55;
   }
   .host-actions {
     display: flex;
@@ -988,33 +1110,20 @@
   .text:hover {
     text-decoration: underline;
   }
-  .short {
-    color: var(--z-text-muted);
-  }
-  .tick {
-    stroke: var(--z-border-strong);
-  }
   .retry {
     margin: 0;
     font-size: var(--z-text-xs);
     color: var(--z-text-muted);
   }
-  @media (max-width: 640px) {
+  @media (max-width: 768px) {
     .host {
       grid-template-columns: 1fr;
     }
-    .figures {
+    .meters {
       justify-content: flex-start;
     }
-    /* On a phone the reading sits under the chart rather than beside the
-       crosshair: a card at the finger is a card under the finger, and one
-       twenty-two rems wide beside a point near the edge is off the screen. */
-    .card,
-    .card.right {
-      position: static;
-      transform: none;
+    .reading {
       max-width: none;
-      margin-top: var(--z-space-2);
     }
   }
   /* A finger is wider than a pointer. Every target on the map -- the chips,
@@ -1039,6 +1148,11 @@
     }
     .host {
       padding-block: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .fill {
+      transition: none;
     }
   }
 </style>
