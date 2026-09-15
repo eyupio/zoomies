@@ -197,6 +197,7 @@ func (q *taskQueue) take(n int, now time.Time) []agent.Task {
 	for _, lt := range q.pending[:n] {
 		lt.attempts++
 		lt.task.IssuedAt = now
+		lt.task.Attempt = lt.attempts
 		if lease := requeueAfter(lt.task.Kind); lease > 0 {
 			lt.expires = now.Add(lease)
 		} else {

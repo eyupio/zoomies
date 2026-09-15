@@ -150,6 +150,9 @@ type Agent struct {
 	// Runtime failures hold the next admission briefly without stopping jobs.
 	runtimeFailures int
 	runtimeRetryAt  time.Time
+	// resolveRetry is how long a create waits between attempts to ask the
+	// host whether its runner already exists; tests shorten it.
+	resolveRetry []time.Duration
 
 	mu sync.Mutex
 	// hostID is empty until Join or a restored state file provides one.
@@ -325,20 +328,21 @@ func New(opts Options) (*Agent, error) {
 	}
 
 	a := &Agent{
-		opts:      opts,
-		log:       log,
-		tr:        opts.Transport,
-		clock:     clock,
-		heartbtI:  interval,
-		retention: opts.FinishedRetention,
-		sem:       make(chan struct{}, opts.Capacity),
-		runners:   make(map[string]*tracked),
-		inflight:  make(map[string]bool),
-		running:   make(map[string]TaskKind),
-		waiting:   make(map[string]Task),
-		taskCtx:   context.Background(),
-		orphans:   make(map[backend.Handle]time.Time),
-		cpuFactor: 1,
+		opts:         opts,
+		log:          log,
+		tr:           opts.Transport,
+		clock:        clock,
+		heartbtI:     interval,
+		retention:    opts.FinishedRetention,
+		sem:          make(chan struct{}, opts.Capacity),
+		resolveRetry: resolveRetryDelays,
+		runners:      make(map[string]*tracked),
+		inflight:     make(map[string]bool),
+		running:      make(map[string]TaskKind),
+		waiting:      make(map[string]Task),
+		taskCtx:      context.Background(),
+		orphans:      make(map[backend.Handle]time.Time),
+		cpuFactor:    1,
 	}
 	a.logs = newLogRelay(opts.Transport, log)
 	return a, nil
@@ -1227,22 +1231,39 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 		return
 	}
 
+	spec := *task.Spec
+	if spec.RunnerID == "" {
+		spec.RunnerID = task.RunnerID
+	}
+
 	// Delivery is at-least-once. A create whose result never reached the
 	// controller comes round again once its lease expires, and the backend's
 	// Create begins by removing any workload of the runner's name -- so a
 	// redelivery used to destroy a runner that may have been mid-job and
 	// rebuild it with a JIT configuration GitHub had already consumed. A
 	// workload this host already has for the runner is the answer to the task.
-	existing, handle, ok, err := a.resolve(ctx, task.RunnerID)
+	existing, handle, ok, err := a.resolveForCreate(ctx, task.RunnerID)
 	if err != nil {
-		// An uncertain inventory is not permission to replace by name. Keep
-		// the task unacknowledged for the controller's existing bounded
-		// redelivery path; reporting failure could trigger cleanup of a job
-		// whose live workload was merely unreachable.
+		// An uncertain inventory is not permission to replace by name: the
+		// backend's Create begins by removing any workload of the runner's
+		// name, and a redelivered create over a live job would destroy it.
+		//
+		// On the first delivery no workload of this runner's can exist yet,
+		// so there is nothing to protect and everything to gain from saying
+		// so: the controller fails the runner now and makes another, rather
+		// than in five minutes when the provision timeout notices. A
+		// redelivery, or a controller too old to say which this is, gets the
+		// silence the lease was designed for.
 		a.runtimeResult(err)
-		a.log.Warn("could not establish whether this runner already exists; leaving its create task for redelivery without changing workloads",
-			"task", task.ID, "runner", task.RunnerID, "error", err)
 		release()
+		if task.Attempt == 1 {
+			a.log.Error("could not establish whether this runner already exists; nothing was created",
+				"task", task.ID, "runner", task.RunnerID, "backend", kind, "error", err)
+			a.reportFailure(ctx, task, fmt.Sprintf("this host could not ask its %s backend whether runner %s already exists, so nothing was created; check that the daemon is running and answering: %v", kind, spec.Name, err))
+			return
+		}
+		a.log.Warn("could not establish whether this runner already exists; leaving its create task for redelivery without changing workloads",
+			"task", task.ID, "runner", task.RunnerID, "attempt", task.Attempt, "error", err)
 		return
 	}
 	if ok {
@@ -1263,10 +1284,6 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 		return
 	}
 
-	spec := *task.Spec
-	if spec.RunnerID == "" {
-		spec.RunnerID = task.RunnerID
-	}
 	// The agent's own work directory is deliberately not handed to the
 	// backend as the runner's. For a container backend a spec WorkDir is bind
 	// mounted over the runner's _work, and the agent's directory is the wrong
@@ -1581,6 +1598,32 @@ func (a *Agent) resolve(ctx context.Context, runnerID string) (backend.Backend, 
 		}
 	}
 	return nil, "", false, errors.Join(errs...)
+}
+
+// resolveRetryDelays is how long a create waits between attempts to learn
+// whether its runner already exists. A daemon that is restarting, or one that
+// missed a call while busy, answers again within a few seconds; the schedule
+// covers that and no more, because every second of it is spent holding the
+// host's startup slot.
+var resolveRetryDelays = []time.Duration{2 * time.Second, 5 * time.Second, 10 * time.Second}
+
+// resolveForCreate is resolve with a short retry. A create that could not ask
+// the host once used to be left for the lease to redeliver twenty minutes
+// later, by which time the controller's provision timeout had failed the
+// runner -- so one missed answer from the daemon cost five minutes of a
+// runner that was never going to start.
+func (a *Agent) resolveForCreate(ctx context.Context, runnerID string) (backend.Backend, backend.Handle, bool, error) {
+	for i := 0; ; i++ {
+		b, h, ok, err := a.resolve(ctx, runnerID)
+		if err == nil || i >= len(a.resolveRetry) {
+			return b, h, ok, err
+		}
+		a.log.Warn("could not list this host's workloads; asking again before deciding about the create",
+			"runner", runnerID, "attempt", i+1, "retry_in", a.resolveRetry[i], "error", err)
+		if !sleepCtx(ctx, a.resolveRetry[i]) {
+			return b, h, ok, err
+		}
+	}
 }
 
 // releaseUnknown stops tracking the runners the controller says it has no row

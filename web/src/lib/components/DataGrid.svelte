@@ -718,8 +718,8 @@
         label="How a {noun.replace(/s$/, '')} is laid out"
         value={view}
         options={[
-          { value: 'cards', label: 'Cards', name: 'every value on its own line' },
-          { value: 'rows', label: 'Rows', name: 'the table, scrolling sideways' },
+          { value: 'cards', label: 'Cards', name: 'Every value on its own line' },
+          { value: 'rows', label: 'Rows', name: 'The table, scrolling sideways' },
         ]}
         onchange={(next) => prefs.setGridView(gridId, next as GridView)}
       />

@@ -79,8 +79,15 @@ func (a *Agent) runtimeResult(err error) {
 		a.runtimeRetryAt = time.Time{}
 		return
 	}
+	// context.DeadlineExceeded satisfies net.Error with Timeout() true, so a
+	// pull that outran the create budget, or a cancelled task, would otherwise
+	// open the hold and stall every start behind it. The transport already
+	// wraps a daemon that stopped answering as ErrUnavailable; only that and a
+	// genuine network timeout say the runtime is the problem.
 	var ne net.Error
-	if !errors.Is(err, backend.ErrUnavailable) && !(errors.As(err, &ne) && ne.Timeout()) {
+	transportTimeout := errors.As(err, &ne) && ne.Timeout() &&
+		!errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled)
+	if !errors.Is(err, backend.ErrUnavailable) && !transportTimeout {
 		return
 	}
 	a.warmed = nil

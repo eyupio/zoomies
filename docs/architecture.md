@@ -170,9 +170,19 @@ again when a create reaches the front.
 
 Runtime transport failures hold subsequent starts for five seconds, doubling
 to at most a minute. A successful startup clears the hold. This is an
-agent-local cooldown, not a Docker restart; existing jobs continue. An
-uncertain inventory lookup never authorises replacement: the create remains
-unacknowledged for the existing bounded task-redelivery path. The controller's
+agent-local cooldown, not a Docker restart; existing jobs continue. A create
+or pull that merely outran its own budget does not open the hold: only a
+daemon that stopped answering does.
+
+An uncertain inventory lookup never authorises replacement. A create asks the
+host three more times over about seventeen seconds, and if it still cannot
+tell whether the runner exists, what happens next depends on which delivery
+this is. The controller stamps an `attempt` on every task: on the first
+delivery no workload of that runner's can exist, so the create fails out loud
+and the scheduler replaces it within seconds. On a redelivery, or from a
+controller too old to stamp one, the task stays unacknowledged for the
+bounded redelivery path, because the workload it would replace by name may be
+mid-job behind a daemon that is only temporarily silent. The controller's
 provision timeout still applies and may expire before that redelivery.
 
 The backend's create timeout starts after admission. The controller's
@@ -185,16 +195,30 @@ configured sidecar image. Equivalent successful background preparations are
 reused for one minute across pools; runner creates still apply their own pull
 policy. A failed dependency preparation is never cached.
 
-The stock runner image requires a usable Docker client and daemon before
-registering when its pool provides Docker. `ZOOMIES_DOCKER_WAIT` accepts
-1–3600 seconds and defaults to 30. Each probe is bounded to at most five
-seconds. Failure exits the runner before its listener can accept a job.
+The stock runner image waits for the pool's Docker daemon before registering
+when the pool provides one. `ZOOMIES_DOCKER_WAIT` accepts 1–3600 seconds and
+defaults to 120; the fleet sets it with `runners.docker_wait` on the Settings
+page, which the controller renders into every Docker pool's runners, and a
+pool's `env` can name it to say otherwise. `runners.env` reaches every runner
+the same way, under the pool's own `env` — dockerd in a fresh
+sidecar sets up its storage driver and firewall rules before it listens, and
+on a host that is extracting images for the runners queued behind it that
+takes longer than the thirty seconds the first version allowed. Each probe is
+bounded to at most five seconds. A daemon that never answers exits the runner
+with code 69 before its listener can accept a job, and an unusable setting
+exits it with 78; the agent turns both into a sentence on the Runners page
+that points at the container's log. An image with no Docker client is a
+warning in that log, not an exit: the controller only swaps the stock image
+for its Docker variant under a moving tag, and refusing a pinned one would
+stop every job on the pool, including the ones that never touch Docker.
 Existing images acquire this behaviour only when rebuilt and deployed.
 
 Resource sampling runs independently of lifecycle reconciliation, with at most
-four concurrent requests, two seconds per sample and ten seconds per pass.
-Failed samples retain the previous value; the current wire format does not
-yet expose sample age, so these values must not be read as proof of freshness.
+four concurrent requests, five seconds per sample and twenty seconds per pass;
+a non-streaming Docker stats call takes over a second by design, so a tighter
+budget made every sample on a loaded host fail together. Failed samples
+retain the previous value; the current wire format does not yet expose sample
+age, so these values must not be read as proof of freshness.
 
 ### When webhooks cannot reach you
 

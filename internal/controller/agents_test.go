@@ -134,8 +134,14 @@ func TestUnansweredTasksAreRequeuedThenDropped(t *testing.T) {
 
 	now := time.Now()
 	for attempt := 1; attempt < maxTaskAttempts; attempt++ {
-		if got := q.take(10, now); len(got) != 1 {
+		got := q.take(10, now)
+		if len(got) != 1 {
 			t.Fatalf("attempt %d: took %d tasks, want 1", attempt, len(got))
+		}
+		// The agent reads the attempt to tell a first create, which may fail
+		// out loud, from a redelivery, which may not.
+		if got[0].Attempt != attempt {
+			t.Fatalf("attempt %d was delivered as attempt %d", attempt, got[0].Attempt)
 		}
 		requeued, dropped := q.sweep(now.Add(createLease + time.Minute))
 		if requeued != 1 || len(dropped) != 0 {
