@@ -664,3 +664,66 @@ test('the matrix has quick ranges, and remembers the one chosen', async ({ page 
   );
   await expect(again.getByRole('grid').getByRole('gridcell')).toHaveCount(7 * 24);
 });
+
+/**
+ * The band spends its width.
+ *
+ * What this protects is the thing an operator sees before they read anything:
+ * a band with a stub of squares at the left, a field of white, and the key
+ * pushed against the right edge. The grid takes the width it can use and the
+ * figures take the rest, so there is no gap between them to explain -- and on
+ * a phone, where there is no beside, the whole thing stacks instead.
+ */
+test('the matrix spends the width on squares and figures, with the key beneath', async ({
+  page,
+}) => {
+  const matrix = page.getByRole('region', { name: 'Activity matrix', exact: true });
+  const band = matrix.locator('.band');
+  // The grid itself, not the frame around it: the frame filled the band before
+  // any of this, and the squares inside it were the stub.
+  const grid = matrix.getByRole('grid');
+  const aside = matrix.locator('.aside');
+  const key = matrix.locator('.legend');
+
+  // The figures are what the squares on screen come to, so an operator reads
+  // the window without hovering every square in it.
+  await expect(aside).toContainText('Failure rate');
+  await expect(aside).toContainText('Busiest hour');
+  await expect(aside).toContainText(/\d[\d,]* jobs finished/);
+
+  const viewport = page.viewportSize();
+  if ((viewport?.width ?? 0) < 900) {
+    // A phone puts the aside under the grid, and the page still never widens.
+    const stacked = await Promise.all([grid.boundingBox(), aside.boundingBox()]);
+    expect(stacked[1]!.y, 'the figures are under the grid').toBeGreaterThanOrEqual(stacked[0]!.y);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    return;
+  }
+
+  // A day of hours has more columns than rows, so its squares grow into the
+  // room; a month is five week columns whatever the square, so they do not and
+  // the aside takes the width instead. Either way nothing is left over: the
+  // two of them, and the one gap between, are the band.
+  for (const range of ['Today, by the hour', 'The last 30 days']) {
+    await matrix.getByRole('group', { name: 'Range' }).getByRole('button', { name: range }).click();
+    await expect(grid).toBeVisible();
+    const [bandBox, gridBox, asideBox, keyBox] = await Promise.all([
+      band.boundingBox(),
+      grid.boundingBox(),
+      aside.boundingBox(),
+      key.boundingBox(),
+    ]);
+    const spent = gridBox!.width + asideBox!.width;
+    expect(spent, `${range}: the squares and the figures fill the band`).toBeGreaterThan(
+      bandBox!.width - 48,
+    );
+    // The key explains the squares, so it runs under them rather than sitting
+    // in a column of its own with the white space in front of it.
+    expect(keyBox!.y, `${range}: the key is beneath`).toBeGreaterThanOrEqual(
+      gridBox!.y + gridBox!.height - 1,
+    );
+    expect(keyBox!.x, `${range}: the key starts under the grid`).toBeLessThan(gridBox!.x + 8);
+  }
+});
