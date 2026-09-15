@@ -23,9 +23,7 @@ case "${family}" in
     arch="$(dpkg --print-architecture)"
     printf 'deb [arch=%s signed-by=/etc/apt/keyrings/githubcli.gpg] https://cli.github.com/packages stable main\n' \
       "$arch" > /etc/apt/sources.list.d/github-cli.list
-    apt-get update
-    apt-get install -y --no-install-recommends gh
-    rm -rf /var/lib/apt/lists/*
+    "$(dirname "$0")/runner-apt.sh" gh
     ;;
   dnf)
     dnf install -y 'dnf-command(config-manager)'

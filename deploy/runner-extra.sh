@@ -31,10 +31,7 @@ shift || true
 
 case "${family}" in
   apt)
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update
-    apt-get install -y --no-install-recommends "$@"
-    rm -rf /var/lib/apt/lists/*
+    "$(dirname "$0")/runner-apt.sh" "$@"
     ;;
   dnf)
     dnf install -y --allowerasing --setopt=install_weak_deps=False "$@"

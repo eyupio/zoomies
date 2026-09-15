@@ -172,6 +172,15 @@ dependencies are left to the tarball's `installdependencies.sh`, which already
 knows every distribution's package names for them; naming them by hand is what
 made this image Ubuntu 24.04 and nothing else.
 
+The `apt` variants share one script more: every package installation goes
+through `deploy/runner-apt.sh`, which fetches the index again and retries when a
+download fails. The Ubuntu and Debian archives are each several machines behind
+one name, and a package the index has just started listing can 404 on whichever
+of them the build happens to reach — a mirror mid-sync, not a missing package,
+and not a reason to lose a whole image build. The `dnf` variants need no
+equivalent: dnf reads a metalink, knows about several mirrors at once and fails
+over between them itself.
+
 Adding an operating system, or swapping one for its next release, is a row in
 [`internal/naming/images.go`](https://github.com/eyupio/zoomies/blob/main/internal/naming/images.go)
 and then `make generate`, which rewrites the table above, the Makefile's build

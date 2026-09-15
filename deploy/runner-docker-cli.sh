@@ -39,10 +39,8 @@ case "${family}" in
     codename="$(. /etc/os-release && echo "${VERSION_CODENAME}")"
     printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/%s %s stable\n' \
       "$arch" "$repo_os" "$codename" > /etc/apt/sources.list.d/docker.list
-    apt-get update
-    apt-get install -y --no-install-recommends \
+    "$(dirname "$0")/runner-apt.sh" \
       docker-ce-cli docker-buildx-plugin docker-compose-plugin
-    rm -rf /var/lib/apt/lists/*
     ;;
   dnf)
     dnf install -y 'dnf-command(config-manager)'
