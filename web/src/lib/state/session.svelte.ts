@@ -105,6 +105,23 @@ class Session {
     await this.refresh();
   }
 
+  /**
+   * Re-read what the controller says about itself. Used after a settings
+   * change: some of what `/meta` carries -- the external URL, whether runs may
+   * be cancelled, how the capacity map opens -- is a setting an administrator
+   * can move at runtime, and the pages that read it should not have to wait
+   * for a reload to hear. A failure keeps the answer already held: the old
+   * facts are at worst a little stale, and a page that lost them would be
+   * worse than one running on them.
+   */
+  async reloadMeta(): Promise<void> {
+    try {
+      this.#meta = await getMeta();
+    } catch {
+      /* the answer already held stands */
+    }
+  }
+
   /** Re-read the identity. Used after login, bootstrap and a password change. */
   async refresh(): Promise<void> {
     try {

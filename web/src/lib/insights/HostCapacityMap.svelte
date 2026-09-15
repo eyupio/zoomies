@@ -21,7 +21,13 @@
   steps the rest back. A plot per host answers "what has this machine been
   doing": each has its own drawing, with the wash under its lead line, and
   the plots share one x axis and one crosshair so a moment is still read
-  across the fleet. The choice is remembered, as is every other one here.
+  across the fleet. Which one the map opens in is the fleet's to say, and it
+  says it per page -- ui.capacity_map.overview_layout and .hosts_layout --
+  because the Overview is glanced at and the Hosts page is looked into, and
+  a fleet may want each to open on its own answer. An operator who picks the
+  other one keeps their pick in this browser, for this page; until they do,
+  the fleet's answer follows them, including when an administrator changes
+  it. Every other choice here is remembered the moment it is made.
 
   The rows beneath are the legend and the switchboard, and they are also the
   reading: each host's meters show its figures at the moment under the
@@ -55,6 +61,7 @@
   import Switch from '$lib/components/Switch.svelte';
   import { fleet } from '$lib/state/fleet.svelte';
   import { storage } from '$lib/state/prefs.svelte';
+  import { session } from '$lib/state/session.svelte';
   import { hostStatus } from '$lib/status';
   import CapacityPlot from './CapacityPlot.svelte';
   import {
@@ -80,7 +87,16 @@
     type WindowKey,
   } from './hostSeries';
 
-  let { hosts, onmanage }: { hosts: Host[]; onmanage?: (host: Host) => void } = $props();
+  let {
+    hosts,
+    page,
+    onmanage,
+  }: {
+    hosts: Host[];
+    /** Which page this map is on: each has its own default layout in the fleet's settings. */
+    page: 'overview' | 'hosts';
+    onmanage?: (host: Host) => void;
+  } = $props();
 
   /* -- what is remembered -------------------------------------------------- */
 
@@ -109,15 +125,30 @@
   const isIds = (v: unknown): v is string[] =>
     Array.isArray(v) && v.every((k) => typeof k === 'string');
 
+  /** The layout the fleet's settings open this page's map in. */
+  function fleetLayout(): Layout {
+    const defaults = session.meta?.capacity_map;
+    const chosen = page === 'overview' ? defaults?.overview_layout : defaults?.hosts_layout;
+    return isLayout(chosen) ? chosen : 'overlay';
+  }
+
   // The day is the default, as it is on every other trend: an hour is too
   // narrow to show a fleet that goes quiet overnight and busy at nine.
   let windowKey = $state<WindowKey>(remembered('window', '24h', isWindow));
-  let layout = $state<Layout>(remembered('layout', 'overlay', isLayout));
+  // The layout is written only when an operator picks one, never on sight:
+  // a browser that had merely opened the page would otherwise have "chosen"
+  // whatever the fleet's default was that day, and stop following it.
+  // A map belongs to one page for its whole life, so the page it opened on
+  // is the page it is on: reading it once is the intent, not an oversight.
+  let layout = $state<Layout>(untrack(() => remembered(`layout.${page}`, fleetLayout(), isLayout)));
+  function chooseLayout(next: Layout): void {
+    layout = next;
+    storage.set(`${KEY}.layout.${page}`, JSON.stringify(next));
+  }
   let live = $state(remembered('live', true, (v): v is boolean => typeof v === 'boolean'));
   let enabled = $state<MetricKey[]>(remembered('metrics', [...DEFAULT_METRICS], isMetrics));
   let hidden = $state<string[]>(remembered('hidden', [], isIds));
   $effect(() => storage.set(`${KEY}.window`, JSON.stringify(windowKey)));
-  $effect(() => storage.set(`${KEY}.layout`, JSON.stringify(layout)));
   $effect(() => storage.set(`${KEY}.live`, JSON.stringify(live)));
   $effect(() => storage.set(`${KEY}.metrics`, JSON.stringify(enabled)));
   $effect(() => storage.set(`${KEY}.hidden`, JSON.stringify(hidden)));
@@ -533,7 +564,7 @@
         label="Layout"
         value={layout}
         options={LAYOUTS}
-        onchange={(v) => (layout = v as Layout)}
+        onchange={(v) => chooseLayout(v as Layout)}
       />
       <Segmented
         label="Window"

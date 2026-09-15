@@ -13,7 +13,7 @@
  * altered is a change every later spec runs against.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { browserOverride, goto } from './support/fixtures';
+import { browserOverride, goto, openSection, reload } from './support/fixtures';
 
 test.use(browserOverride);
 
@@ -130,4 +130,62 @@ test('the page can be searched and filtered down to what has been changed', asyn
 
   // Whatever the fixture has changed, nothing still at its default is listed.
   await expect(row(page, 'Provision timeout')).toHaveCount(0);
+});
+
+/*
+ * Which layout the host capacity map opens in is a fleet setting, and one
+ * per page: the Overview is glanced at and the Hosts page is looked into, so
+ * a fleet may want every host on one chart on the first and a chart per
+ * host on the second. The setting is live -- the page an operator moves to
+ * next opens the new way without a reload -- and it is a default rather than
+ * a rule: an operator who picks the other layout keeps their pick in that
+ * browser, for that page only.
+ */
+test('the capacity map opens in the layout the fleet chose for each page, until an operator picks', async ({
+  page,
+}) => {
+  const label = 'Hosts capacity map layout';
+  const layout = page
+    .getByRole('region', { name: 'Host capacity map', exact: true })
+    .getByRole('group', { name: 'Layout' });
+
+  await openConfiguration(page);
+  const target = row(page, label);
+  await target.getByRole('button', { name: 'Change' }).click();
+  await target.getByRole('combobox').selectOption('split');
+  await target.getByRole('button', { name: /^Save / }).click();
+  await expect(target.getByRole('button', { name: 'Change' })).toBeVisible();
+  await expect(target.getByText('Saved here')).toBeVisible();
+
+  try {
+    // Moving to the Hosts page within the app, no reload, finds the map
+    // already opening a chart per host: the change is live.
+    await openSection(page, '/hosts');
+    await expect(page.getByRole('heading', { level: 1, name: 'Hosts' })).toBeVisible();
+    await expect(layout.getByRole('button', { name: /^Per host/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    // The Overview has its own setting, which was not touched.
+    await goto(page, '/', 'Overview');
+    await expect(layout.getByRole('button', { name: /^Overlay/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+
+    // An operator's own pick outlives the fleet's default in this browser,
+    // and belongs to the page it was made on.
+    await goto(page, '/hosts', 'Hosts');
+    await layout.getByRole('button', { name: /^Overlay/ }).click();
+    await reload(page, 'Hosts');
+    await expect(layout.getByRole('button', { name: /^Overlay/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  } finally {
+    // Put it back, so the next spec sees the fixture it expects.
+    await openConfiguration(page);
+    await row(page, label).getByRole('button', { name: 'Reset' }).click();
+    await expect(row(page, label).getByText('Saved here')).toBeHidden();
+  }
 });

@@ -811,6 +811,21 @@ func (c *Config) Validate() Findings {
 			Fix:   "use json or text.",
 		})
 	}
+	// The settings page and the environment refuse a layout that is not one
+	// of the two before it is set; a file is the one way a wrong one arrives,
+	// and it is caught here for the same reason a wrong log level is.
+	for key, value := range map[string]string{
+		"ui.capacity_map.overview_layout": c.UI.CapacityMap.OverviewLayout,
+		"ui.capacity_map.hosts_layout":    c.UI.CapacityMap.HostsLayout,
+	} {
+		if !slices.Contains(CapacityLayouts, value) {
+			add(Finding{
+				Code: "ui.capacity_map.layout", Severity: SeverityError, Setting: key,
+				Title: fmt.Sprintf("%q is not a capacity map layout", value),
+				Fix:   "use overlay for every host on one chart, or split for a chart per host.",
+			})
+		}
+	}
 	if c.Log.Level == "debug" {
 		add(Finding{
 			Code: "log.debug", Severity: SeverityInfo, Setting: "log.level",

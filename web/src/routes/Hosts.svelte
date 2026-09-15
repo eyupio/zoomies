@@ -358,6 +358,7 @@
     <div class="capacity-map">
       <HostCapacityMap
         {hosts}
+        page="hosts"
         onmanage={(host) => {
           const heading = document.getElementById(`host-${host.id}-name`);
           heading?.scrollIntoView({ block: 'center' });

@@ -3068,6 +3068,20 @@ components:
             provider driver and provider.enabled is on - so the page that would otherwise
             offer to buy machines nothing would ever create knows not to.
         poller_last_poll_at: { type: string, format: date-time, nullable: true, description: When the fallback poller last completed a sweep, or absent if it has not completed one since this controller started. }
+        capacity_map:
+          type: object
+          description: >-
+            How the host capacity map opens on each page that carries it, from
+            ui.capacity_map.* in the fleet's settings. An operator who picks the
+            other layout on the page keeps that pick in their browser; this is
+            what somebody who has never chosen sees.
+          properties:
+            overview_layout: { $ref: "#/components/schemas/CapacityMapLayout" }
+            hosts_layout: { $ref: "#/components/schemas/CapacityMapLayout" }
+    CapacityMapLayout:
+      type: string
+      description: overlay draws every host on one chart; split draws a chart for each.
+      enum: [overlay, split]
 
     # --- overview ---------------------------------------------------------
     Stats:
