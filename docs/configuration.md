@@ -1107,6 +1107,13 @@ so and points here. The image refuses anything outside one second to an hour,
 so the validator refuses it first (`runners.docker_wait`); `0s` leaves the
 image's default.
 
+Setting `ZOOMIES_DOCKER_WAIT` on the controller itself overrides
+`runners.docker_wait` the way any `ZOOMIES_*` variable overrides its setting,
+and a bare number there — `120`, not `120s` — is read as whole seconds rather
+than refused: that spelling named the runner image's own wait for years
+before this setting existed, on a pool's `env` and often on the controller's
+too, and an upgrade should not stop over a value that already meant something.
+
 `runners.env` is for the variables every job on every pool needs — a proxy, a
 package mirror, a `GOFLAGS`. Every job can read them, so a credential does not
 belong there: a pool's `env` narrows the audience to that pool's jobs, and a
