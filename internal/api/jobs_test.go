@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -117,7 +118,7 @@ func TestJobTimelineAndFailedFilterAreServed(t *testing.T) {
 	pool := h.pool(inst, "linux")
 	green := h.job(pool, store.JobCompleted)
 	red := h.job(pool, store.JobInProgress)
-	if _, _, err := h.st.SetJobRunnerFault(h.ctx, red.ID, "runner zoomies-x stopped while this job was running: exited with code 137"); err != nil {
+	if _, _, err := h.st.SetJobRunnerFault(h.ctx, red.ID, "runner zoomies-x stopped while this job was running: exited with code 137", store.FaultOutOfMemory); err != nil {
 		t.Fatalf("SetJobRunnerFault: %v", err)
 	}
 	if err := h.st.AppendJobEvent(h.ctx, &store.JobEvent{JobID: red.ID, Kind: store.JobEventQueued, Source: "webhook", Message: "GitHub queued it"}); err != nil {
@@ -249,4 +250,146 @@ func TestTheJobExplanationIsItsOwnRoute(t *testing.T) {
 	// A job that does not exist is a 404 rather than an explanation of nothing.
 	missing := h.do(request{method: http.MethodGet, path: "/api/v1/jobs/job_nope/explanation", cookie: h.session(u)})
 	missing.mustStatus(t, http.StatusNotFound, "explanation for a missing job")
+}
+
+// The re-run is the one thing Zoomies can do about a failure it caused, and
+// the API is where the button, the CLI and a script all reach it. Its refusals
+// matter as much as its success: each one is a different sentence, because
+// "wait" and "you are looking at the wrong job" send somebody to different
+// places.
+func TestRerunIsServedForAFailedJobAndRefusedWithAReasonOtherwise(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux")
+	_, operator := h.user("operator", store.RoleOperator)
+
+	// A job still running has nothing to run again.
+	running := h.job(pool, store.JobInProgress)
+	resp := h.do(request{method: "POST", path: "/api/v1/jobs/" + running.ID + "/rerun", cookie: operator})
+	resp.mustStatus(t, 409, "re-running a job that has not finished")
+	if !strings.Contains(string(resp.body), "has not finished") {
+		t.Fatalf("the refusal does not say what to wait for: %s", resp.body)
+	}
+
+	// One that succeeded is the other refusal: GitHub reruns the failed jobs
+	// of a run, so there is nothing for it to do.
+	green := h.job(pool, store.JobCompleted)
+	if _, err := h.st.UpsertJob(h.ctx, &store.Job{
+		GitHubJobID: green.GitHubJobID, State: store.JobCompleted, Conclusion: "success",
+	}); err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+	resp = h.do(request{method: "POST", path: "/api/v1/jobs/" + green.ID + "/rerun", cookie: operator})
+	resp.mustStatus(t, 409, "re-running a job that did not fail")
+	if !strings.Contains(string(resp.body), "did not fail") {
+		t.Fatalf("the refusal does not say why: %s", resp.body)
+	}
+
+	// A job the fleet broke: accepted, with the run named and the domain
+	// echoed back so a script can log what it just spent minutes on.
+	red := h.job(pool, store.JobCompleted)
+	if _, err := h.st.UpsertJob(h.ctx, &store.Job{
+		GitHubJobID: red.GitHubJobID, State: store.JobCompleted, Conclusion: "failure",
+	}); err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+	if _, _, err := h.st.SetJobRunnerFault(h.ctx, red.ID, "runner zoomies-x stopped: out of memory", store.FaultOutOfMemory); err != nil {
+		t.Fatalf("SetJobRunnerFault: %v", err)
+	}
+	resp = h.do(request{method: "POST", path: "/api/v1/jobs/" + red.ID + "/rerun", cookie: operator})
+	resp.mustStatus(t, 202, "re-running a job the fleet broke")
+	var out struct {
+		Accepted    bool   `json:"accepted"`
+		RunID       int64  `json:"run_id"`
+		FaultDomain string `json:"fault_domain"`
+	}
+	resp.into(t, &out)
+	if !out.Accepted || out.RunID != red.GitHubRunID || out.FaultDomain != "fleet" {
+		t.Fatalf("rerun response = %+v, want the run named and the domain echoed", out)
+	}
+
+	// And it spends somebody's CI minutes, so a viewer may not.
+	_, viewer := h.user("watcher", store.RoleViewer)
+	h.do(request{method: "POST", path: "/api/v1/jobs/" + red.ID + "/rerun", cookie: viewer}).
+		mustStatus(t, 403, "a viewer asking for a re-run")
+
+	h.do(request{method: "POST", path: "/api/v1/jobs/job_missing/rerun", cookie: operator}).
+		mustStatus(t, 404, "re-running a job that does not exist")
+}
+
+// Whose a failure was is the question an operator arrives with, and GitHub
+// records both halves as "failure" -- so the two filters are the only place it
+// can be asked. They have to be genuinely opposite halves of the failed list,
+// and a category nobody knows has to be refused rather than quietly matching
+// everything, which would read as a fleet in better shape than it is.
+func TestTheFaultFiltersAreOppositeHalvesAndRefuseAnUnknownCategory(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux")
+	_, cookie := h.user("viewer", store.RoleViewer)
+
+	ours := h.job(pool, store.JobCompleted)
+	if _, err := h.st.UpsertJob(h.ctx, &store.Job{
+		GitHubJobID: ours.GitHubJobID, State: store.JobCompleted, Conclusion: "failure",
+	}); err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+	if _, _, err := h.st.SetJobRunnerFault(h.ctx, ours.ID, "runner zoomies-x stopped: out of memory", store.FaultOutOfMemory); err != nil {
+		t.Fatalf("SetJobRunnerFault: %v", err)
+	}
+	theirs := h.job(pool, store.JobCompleted)
+	if _, err := h.st.UpsertJob(h.ctx, &store.Job{
+		GitHubJobID: theirs.GitHubJobID, State: store.JobCompleted, Conclusion: "failure",
+	}); err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+
+	type jobView struct {
+		ID          string `json:"id"`
+		FaultKind   string `json:"fault_kind"`
+		FaultDomain string `json:"fault_domain"`
+		FaultFix    string `json:"fault_fix"`
+	}
+	// A fresh page per call, because decoding into a reused one merges rather
+	// than replaces: `fault_kind` is omitempty, so a job that carries none
+	// would keep the previous job's category and the assertion below would
+	// pass on a value nothing sent.
+	only := func(query, want, why string) jobView {
+		t.Helper()
+		var page struct {
+			Items []jobView `json:"items"`
+			Total int       `json:"total"`
+		}
+		resp := h.do(request{method: "GET", path: "/api/v1/jobs?" + query, cookie: cookie})
+		resp.mustStatus(t, 200, why)
+		resp.into(t, &page)
+		if page.Total != 1 || len(page.Items) != 1 || page.Items[0].ID != want {
+			t.Fatalf("%s returned %+v (total %d), want only %s", query, page.Items, page.Total, want)
+		}
+		return page.Items[0]
+	}
+
+	// The remedy travels with the job, so the UI, the CLI and the problems
+	// drawer cannot offer three different answers to the same failure.
+	got := only("faulted=true", ours.ID, "the fleet's own failures")
+	if got.FaultKind != "out_of_memory" || got.FaultDomain != "fleet" ||
+		!strings.Contains(got.FaultFix, "memory limit") {
+		t.Fatalf("the fleet's failure does not carry its category and fix: %+v", got)
+	}
+	got = only("workflow_failed=true", theirs.ID, "the workflows' own failures")
+	if got.FaultKind != "" || got.FaultDomain != "workflow" {
+		t.Fatalf("a test failure was given a fleet category: %+v", got)
+	}
+	only("fault=out_of_memory", ours.ID, "narrowing to one category")
+
+	// Both halves at once is neither of them, and says so rather than
+	// returning an empty page with no explanation.
+	h.do(request{method: "GET", path: "/api/v1/jobs?faulted=true&workflow_failed=true", cookie: cookie}).
+		mustStatus(t, 400, "asking for both halves of one list")
+
+	resp := h.do(request{method: "GET", path: "/api/v1/jobs?fault=quantum_decoherence", cookie: cookie})
+	resp.mustStatus(t, 400, "a category this build does not know")
+	if !strings.Contains(string(resp.body), "out_of_memory") {
+		t.Fatalf("the refusal does not name the categories to use instead: %s", resp.body)
+	}
 }

@@ -234,6 +234,59 @@ cleanup removes evidence. The
 [host metrics](metrics.md) report measurement freshness and admission holds;
 an unavailable reading is not evidence that the host is idle.
 
+## "CI is flaky" — is it, or is it us?
+
+GitHub records a job whose runner died exactly as it records a job whose tests
+failed: `failure`. From GitHub's side the two are indistinguishable, which is
+how a fleet that is quietly killing jobs gets blamed on the workflows, or the
+other way round — and the two need completely different people.
+
+Zoomies knows which it was, and says so in three places.
+
+**On the Jobs page**, the **Our failures** view is the half this deployment
+caused: a runner that stopped under a job, or one that never started for it.
+Everything left in **Failed** is the workflows' own. The "Failed at" column
+carries the category rather than a repeated "Runner lost", so a column read
+downwards says what is actually happening — six rows of `Out of memory` is a
+memory limit to raise.
+
+**On a job**, the outcome panel leads with the category, carries the runner's
+own last words, and names the fix. Where the failure was the fleet's, it also
+offers **Run it again**: nothing about the workflow has changed, so re-running
+is the ordinary remedy. GitHub has no job-level re-run, so that re-runs every
+failed job in the run, and the panel says so before you press it.
+
+**On the Overview**, the failure badge reads "11 failed, 9 ours" rather than
+"11 failed", and links straight to whichever half is worth opening.
+
+The categories, and what each one means you should change:
+
+| Category | What happened | What to do |
+| --- | --- | --- |
+| `out_of_memory` | The runner was killed for exceeding its memory limit. | Raise the pool's memory limit, or move the pool to a host with more memory. The runner's page names the limit it was given. |
+| `out_of_disk` | The host ran out of room. | Free space or give the host a larger disk. Runner images and workflow caches are the usual weight. |
+| `host_lost` | The host stopped answering while the job ran; the runner went with the machine. | Check the host is up and its agent can still reach the controller. |
+| `removed` | Somebody removed the runner with force while it was working. | Nothing, unless that was a mistake. |
+| `image` | The runner image could not be pulled or would not start. | Check the pool's image tag, and that the host can reach the registry. |
+| `registration` | GitHub would not register the runner, so it had nothing to attach to. | Check the App is still installed on the repository and still holds its runner permissions. |
+| `backend` | The container backend refused the work or did not answer. This is "cannot start the runner container". | Check the daemon on the host, and the socket the agent names on the host's page. |
+| `config` | The runner refused a setting it was given. | Read the runner's log for the setting it named. Every runner in that pool will do the same until it is changed. |
+| `runner_exited` | The runner stopped and nothing could narrow it further. | Read the runner's last output on its page. |
+
+### The failure with no failed job behind it
+
+A runner that dies before it registers never reaches a job at all. The job
+stays queued, waits for the next runner, and waits again — so nothing is marked
+failed, every count reads as a fleet that is merely busy, and a queue that has
+not moved in an hour looks exactly like a queue that is keeping up.
+
+That is why a queued job's own page says when its pool keeps failing to start
+runners, the problems drawer raises `pool.runners_failing` with the category's
+remedy rather than a list of possibilities, and
+`zoomies_runner_start_failures_total` is a metric of its own. Alert on it
+separately from the job-failure rate: it is the only signal a fleet in this
+state produces.
+
 ## Reporting a bug
 
 `zoomies diagnostics` writes a support bundle: this instance's build and

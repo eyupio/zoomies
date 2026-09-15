@@ -899,6 +899,32 @@ func (c *appClient) GetWorkflowJob(ctx context.Context, repo string, id int64) (
 	return ParseWorkflowJob(body)
 }
 
+// RerunFailedWorkflowJobs asks GitHub to run the failed jobs of a run again.
+//
+// It is the counterpart of CancelWorkflowRun and shares its shape, including
+// its blast radius: GitHub has no job-level rerun either, so this re-runs every
+// failed job in the run. The jobs come back as new deliveries with a higher run
+// attempt, and nothing here pretends otherwise -- the re-run is a request, and
+// what GitHub does with it arrives through the ordinary webhook path.
+func (c *appClient) RerunFailedWorkflowJobs(ctx context.Context, repo string, runID int64) error {
+	owner, name, kind := SplitTarget(repo)
+	if kind != store.TargetRepo || runID <= 0 {
+		return fmt.Errorf("github: invalid workflow run %q/%d", repo, runID)
+	}
+	resp, err := c.asInstallation.Actions.RerunFailedJobsByID(ctx, owner, name, runID)
+	// 201 Created is the documented success, and go-github turns a 202 into an
+	// AcceptedError for the same reason it does on a cancel: the work is
+	// asynchronous. Both mean GitHub took the request.
+	if err == nil || (resp != nil && (resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusCreated)) {
+		return nil
+	}
+	e := classify(resp, err)
+	if errors.Is(e, ErrForbidden) {
+		return fmt.Errorf("github: rerun failed jobs: %w; check the App installation on %s: it needs \"Actions\" (actions) read and write, and changed permissions must be accepted on the installation", e, c.target)
+	}
+	return errorf("rerun failed jobs", e)
+}
+
 // CancelWorkflowRun calls GitHub's run-level cancellation API. GitHub does not
 // expose job-level cancellation, so callers must make that blast radius clear.
 func (c *appClient) CancelWorkflowRun(ctx context.Context, repo string, runID int64, force bool) error {

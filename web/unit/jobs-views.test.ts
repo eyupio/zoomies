@@ -55,10 +55,11 @@ function filters(
     state: JobState[];
     conclusion: string[];
     failed: boolean;
+    faulted: boolean;
     unmatched: boolean;
   }> = {},
 ) {
-  return { state: [], conclusion: [], failed: false, unmatched: false, ...over };
+  return { state: [], conclusion: [], failed: false, faulted: false, unmatched: false, ...over };
 }
 
 test('every view reads back as itself', () => {
@@ -75,7 +76,11 @@ test('no view leaves a status key set that another view owns', () => {
   // says rather than half of the view before it.
   for (const view of JOB_VIEWS) {
     const keys = Object.keys(view.filters).sort();
-    assert.deepEqual(keys, ['conclusion', 'failed', 'state', 'unmatched'], `${view.id} is partial`);
+    assert.deepEqual(
+      keys,
+      ['conclusion', 'failed', 'faulted', 'state', 'unmatched'],
+      `${view.id} is partial`,
+    );
   }
 });
 
@@ -102,6 +107,19 @@ test('a status no button says leaves every button unpressed', () => {
   assert.equal(currentJobView(filters({ conclusion: ['success'] })), '');
   assert.equal(currentJobView(filters({ unmatched: true })), '');
   assert.equal(currentJobView(filters({ state: ['in_progress'], failed: true })), '');
+  // The two failure views are different questions, and a filter asking both at
+  // once is neither of them.
+  assert.equal(currentJobView(filters({ failed: true, faulted: true })), '');
+});
+
+test("the fleet's own failures are a view of their own, not a narrowing of Failed", () => {
+  // "Failed" and "Our failures" answer different questions -- is CI broken,
+  // and is *our* CI broken -- and the second is the only one anybody here can
+  // fix. Reading one as the other would press the wrong button on arrival from
+  // a link that meant the other.
+  assert.equal(currentJobView(filters({ faulted: true })), 'faulted');
+  assert.notEqual(currentJobView(filters({ failed: true })), 'faulted');
+  assert.notEqual(currentJobView(filters({ faulted: true })), 'failed');
 });
 
 test('failed is not a state, and does not stack on one', () => {

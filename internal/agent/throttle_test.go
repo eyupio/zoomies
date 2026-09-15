@@ -300,3 +300,66 @@ func (b *lockedBuffer) String() string {
 	defer b.mu.Unlock()
 	return b.buf.String()
 }
+
+// Two callers can want the same runner at the same factor: a create throttling
+// the runner it has just made, and the heartbeat that lands while it is doing
+// so. applyThrottle chooses its candidates under the lock and then releases it
+// to talk to the daemon, so the second caller used to see a runner whose
+// applied factor had not been written yet and ask for the same quota again.
+//
+// The duplicate changes nothing, because the update is idempotent -- which is
+// why it went unnoticed, surfacing only as a test that counted the calls and
+// failed on a loaded machine. It is still a second daemon call per create on
+// exactly the host that is already overwhelmed, which is the one place Zoomies
+// should be asking for less.
+func TestTwoCallersThrottlingOneRunnerAskTheDaemonOnce(t *testing.T) {
+	a, tr, be, _ := newAgent(t, 2)
+	createdRunner(a, "run_a", "wl-a", store.Resources{CPUs: 2, MemoryMB: 2048})
+
+	gate := make(chan struct{})
+	entered := make(chan struct{}, 1)
+	be.mu.Lock()
+	be.updateGate, be.updateEntered = gate, entered
+	be.mu.Unlock()
+
+	// The first caller, held inside the daemon call.
+	a.mu.Lock()
+	a.cpuFactor = 0.5
+	a.mu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		a.applyThrottle(context.Background(), false)
+	}()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the first caller never reached the daemon")
+	}
+
+	// The gate is stood down before the second caller runs, so that a build
+	// without the marker asks the daemon and fails the count below rather than
+	// blocking behind the first caller and hanging the test. The first caller
+	// captured its own gate on the way in and is still held.
+	be.mu.Lock()
+	be.updateGate, be.updateEntered = nil, nil
+	be.mu.Unlock()
+
+	// The second, arriving in exactly the window the marker exists to close.
+	// It must find the runner spoken for and leave it alone.
+	beat(t, a, tr, be, &ThrottleDirective{Level: 2, CPUFactor: 0.5})
+
+	close(gate)
+	<-done
+
+	if got := be.resourceUpdates(); len(got) != 1 {
+		t.Fatalf("updates = %+v, want one: the second caller asked for a quota already being set", got)
+	}
+
+	// And the marker is released, or a refusal would be held off for ever by
+	// something nothing clears. The factor is applied by now, so a new one is
+	// what proves the runner is still reachable.
+	if got := beat(t, a, tr, be, &ThrottleDirective{Level: 0, CPUFactor: 1}); len(got) != 1 {
+		t.Fatalf("updates = %+v, want the restore to land: the runner is still claimed by a call that finished", got)
+	}
+}

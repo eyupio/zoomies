@@ -13,6 +13,7 @@ func runJobs(ctx context.Context, e *env, args []string) error {
 	return runGroup(ctx, e, "jobs", "Job history, queue waits and outcomes.", []*subcommand{
 		{"list", "", "Recent jobs, with filters", jobsList},
 		{"get", "<job-id>", "One job in full", jobsGet},
+		{"rerun", "<job-id>", "Ask GitHub to run this run's failed jobs again", jobsRerun},
 	}, args)
 }
 
@@ -31,10 +32,16 @@ func jobsList(ctx context.Context, e *env, args []string) error {
 	until := fs.String("until", "", "only jobs queued before then")
 	unmatched := fs.Bool("unmatched", false, "only jobs no enabled pool claims; these will never run")
 	failed := fs.Bool("failed", false, "only jobs that went wrong: a failing conclusion, or a runner that stopped under the job")
+	faulted := fs.Bool("ours", false, "only the failures this fleet caused, not the workflows' own")
+	theirs := fs.Bool("theirs", false, "only the failures the workflows caused, with nothing wrong on this side")
+	faults := &listValue{}
+	fs.Var(faults, "fault", "only this fault category: out_of_memory, host_lost, image, registration, backend, config, out_of_disk, removed, runner_exited (repeatable)")
 	fs.example(
 		"zoomies jobs list --repo acme/widgets --since 24h",
 		"zoomies jobs list --unmatched",
 		"zoomies jobs list --failed --since 1h",
+		"zoomies jobs list --ours --since 24h",
+		"zoomies jobs list --fault out_of_memory",
 	)
 	if err := fs.parse(args); err != nil {
 		return err
@@ -58,6 +65,16 @@ func jobsList(ctx context.Context, e *env, args []string) error {
 	if *failed {
 		q.Set("failed", "true")
 	}
+	if *faulted && *theirs {
+		return usagef("jobs list", "--ours and --theirs ask for opposite halves of the same list; pass one")
+	}
+	if *faulted {
+		q.Set("faulted", "true")
+	}
+	if *theirs {
+		q.Set("workflow_failed", "true")
+	}
+	addList(q, "fault", *faults)
 	for flagName, raw := range map[string]string{"since": *since, "until": *until} {
 		if raw == "" {
 			continue
@@ -175,6 +192,18 @@ func jobsGet(ctx context.Context, e *env, args []string) error {
 	if j.FailedStep != nil {
 		rows = append(rows, [2]string{"failed at", fmt.Sprintf("step %d, %s", j.FailedStep.Number, j.FailedStep.Name)})
 	}
+	if j.FaultDomain != "" {
+		// Whose it was, first: it is the one thing somebody reading a failure
+		// wants settled before anything else on the page.
+		blame := "the workflow's own"
+		if j.FaultDomain == "fleet" {
+			blame = p.paint(colourRed, "this fleet's")
+		}
+		rows = append(rows, [2]string{"failure is", blame})
+	}
+	if j.FaultKind != "" {
+		rows = append(rows, [2]string{"fault", p.paint(colourRed, strings.ReplaceAll(j.FaultKind, "_", " "))})
+	}
 	if j.RunnerFault != "" {
 		rows = append(rows, [2]string{"runner lost", p.paint(colourRed, j.RunnerFault)})
 	}
@@ -230,8 +259,17 @@ func jobsGet(ctx context.Context, e *env, args []string) error {
 
 // failureWhy is the one phrase the list has room for on a job that went wrong:
 // the step it failed at, or the fact that its runner stopped under it.
+// failureWhy is the "why" column: the fleet's category where the fleet is at
+// fault, and the step where the workflow is.
+//
+// The category rather than "runner lost" for every one of them, because the
+// column is read down: a list where nine rows say the same two words says only
+// that the fleet is unwell, and one where six say "out of memory" says what to
+// do on Monday.
 func failureWhy(j jobItem) string {
 	switch {
+	case j.FaultKind != "":
+		return strings.ReplaceAll(j.FaultKind, "_", " ")
 	case j.RunnerFault != "":
 		return "runner lost"
 	case j.FailedStep != nil:
@@ -263,4 +301,43 @@ func parseWhen(raw string) (time.Time, error) {
 		}
 	}
 	return time.Time{}, fmt.Errorf("not a duration like 24h nor a timestamp like 2026-01-30 or 2026-01-30T12:00:00Z")
+}
+
+// jobsRerun is the remedy for a job the fleet broke, at the terminal.
+func jobsRerun(ctx context.Context, e *env, args []string) error {
+	fs := newFlagSet(e, "zoomies jobs rerun <job-id>",
+		"Ask GitHub to run the failed jobs of this job's workflow run again.\n\n"+
+			"GitHub has no job-level rerun, so this re-runs every failed job in the run,\n"+
+			"not only this one. Nothing local changes: the rerun arrives as a new run\n"+
+			"attempt through the ordinary webhook path.")
+	cf := registerClientFlags(fs, true)
+	fs.example("zoomies jobs rerun job_2fq8xk3m")
+	if err := fs.parse(args); err != nil {
+		return err
+	}
+	id, err := fs.oneArg("a job ID")
+	if err != nil {
+		return err
+	}
+	client, err := cf.client()
+	if err != nil {
+		return err
+	}
+	p, err := cf.printer(e)
+	if err != nil {
+		return err
+	}
+	var out rerunResponse
+	raw, err := client.post(ctx, "/jobs/"+url.PathEscape(id)+"/rerun", nil, nil, &out)
+	if err != nil {
+		return err
+	}
+	if p.structured() {
+		return p.emit(raw)
+	}
+	p.note(fmt.Sprintf("GitHub accepted the request; run %d will re-run its failed jobs.", out.RunID))
+	if out.FaultDomain == "fleet" {
+		p.note("This job's failure was the fleet's rather than the workflow's.")
+	}
+	return nil
 }

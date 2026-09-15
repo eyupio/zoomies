@@ -28,20 +28,39 @@ type Stats struct {
 	// cover. Completed is Succeeded + Failed + Cancelled + Unknown; a rate
 	// computed from Completed and Failed alone would count a job GitHub
 	// stopped reporting as a success, which is why the split is here.
-	Window            string `json:"window"`
-	QueuedJobs        int    `json:"queued_jobs"`
-	RunningJobs       int    `json:"running_jobs"`
-	Completed         int    `json:"completed"`
-	Succeeded         int    `json:"succeeded"`
-	Failed            int    `json:"failed"`
-	Cancelled         int    `json:"cancelled"`
-	Unknown           int    `json:"unknown"`
-	MedianWaitMS      int64  `json:"median_wait_ms"`
-	P95WaitMS         int64  `json:"p95_wait_ms"`
-	P50StartupMS      int64  `json:"p50_startup_ms"`
-	P95StartupMS      int64  `json:"p95_startup_ms"`
-	P50RegistrationMS int64  `json:"p50_registration_ms"`
-	P95RegistrationMS int64  `json:"p95_registration_ms"`
+	Window      string `json:"window"`
+	QueuedJobs  int    `json:"queued_jobs"`
+	RunningJobs int    `json:"running_jobs"`
+	Completed   int    `json:"completed"`
+	Succeeded   int    `json:"succeeded"`
+	Failed      int    `json:"failed"`
+	// FleetFailed is how many of Failed this deployment caused rather than the
+	// workflows: a runner that never started, or one that stopped under the
+	// job. It is a subset rather than a fifth outcome -- GitHub's answer for
+	// such a job is still "failure", and a split that did not add up would be
+	// a worse lie than no split.
+	//
+	// It is the number the taxonomy exists for. "Eleven failures this hour" is
+	// a question; "eleven, nine of them ours" is an answer, and it sends a
+	// different person to a different page.
+	FleetFailed int `json:"fleet_failed"`
+	// Faults counts those failures by category, so the Overview can say which
+	// of the fleet's problems this is rather than only that it has one. Absent
+	// categories are absent rather than zero.
+	Faults map[store.FaultKind]int `json:"faults,omitempty"`
+	// RunnerStartFaults counts the runners that failed before taking a job,
+	// also by category. These are in no job count anywhere, because the jobs
+	// they were meant for are still queued -- which is exactly why a fleet
+	// that cannot start a container reads as a fleet that is merely busy.
+	RunnerStartFaults map[store.FaultKind]int `json:"runner_start_faults,omitempty"`
+	Cancelled         int                     `json:"cancelled"`
+	Unknown           int                     `json:"unknown"`
+	MedianWaitMS      int64                   `json:"median_wait_ms"`
+	P95WaitMS         int64                   `json:"p95_wait_ms"`
+	P50StartupMS      int64                   `json:"p50_startup_ms"`
+	P95StartupMS      int64                   `json:"p95_startup_ms"`
+	P50RegistrationMS int64                   `json:"p50_registration_ms"`
+	P95RegistrationMS int64                   `json:"p95_registration_ms"`
 
 	// Fleet is every job figure above, narrowed to the jobs this fleet has a
 	// hand in. Both are carried in one payload rather than chosen by a query
@@ -62,11 +81,13 @@ type Stats struct {
 // that counts those answers "why is my fleet slow?" with a number nobody here
 // can act on, and a median wait computed from them is somebody else's queue.
 type ScopedJobStats struct {
-	QueuedJobs   int   `json:"queued_jobs"`
-	RunningJobs  int   `json:"running_jobs"`
-	Completed    int   `json:"completed"`
-	Succeeded    int   `json:"succeeded"`
-	Failed       int   `json:"failed"`
+	QueuedJobs  int `json:"queued_jobs"`
+	RunningJobs int `json:"running_jobs"`
+	Completed   int `json:"completed"`
+	Succeeded   int `json:"succeeded"`
+	Failed      int `json:"failed"`
+	// FleetFailed is the part of Failed this fleet caused. See Stats.
+	FleetFailed  int   `json:"fleet_failed"`
 	Cancelled    int   `json:"cancelled"`
 	Unknown      int   `json:"unknown"`
 	MedianWaitMS int64 `json:"median_wait_ms"`
@@ -129,6 +150,7 @@ func (c *Controller) Stats(ctx context.Context, window time.Duration) (*Stats, e
 			Completed:    fleet.CompletedLast,
 			Succeeded:    fleet.Succeeded,
 			Failed:       fleet.Failed,
+			FleetFailed:  fleet.FleetFailed,
 			Cancelled:    fleet.Cancelled,
 			Unknown:      fleet.Unknown,
 			MedianWaitMS: fleet.MedianWaitMS,
@@ -140,10 +162,29 @@ func (c *Controller) Stats(ctx context.Context, window time.Duration) (*Stats, e
 		Completed:    js.CompletedLast,
 		Succeeded:    js.Succeeded,
 		Failed:       js.Failed,
+		FleetFailed:  js.FleetFailed,
 		Cancelled:    js.Cancelled,
 		Unknown:      js.Unknown,
 		MedianWaitMS: js.MedianWaitMS,
 		P95WaitMS:    js.P95WaitMS,
+	}
+
+	// The two category breakdowns behind the split. A window with no fleet
+	// failures in it produces no map at all, which is the shape the Overview
+	// wants: nothing to draw rather than nine zeroes to draw nothing with.
+	if out.FleetFailed > 0 {
+		faults, err := c.st.JobFaultCountsSince(ctx, since, false)
+		if err != nil {
+			return nil, fmt.Errorf("counting job failures by category: %w", err)
+		}
+		out.Faults = faults
+	}
+	startFaults, err := c.st.RunnerFaultCountsSince(ctx, since)
+	if err != nil {
+		return nil, fmt.Errorf("counting runner failures by category: %w", err)
+	}
+	if len(startFaults) > 0 {
+		out.RunnerStartFaults = startFaults
 	}
 
 	counts, err := c.st.CountRunnersByPool(ctx)

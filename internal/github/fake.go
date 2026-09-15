@@ -47,6 +47,11 @@ type FakeGitHub struct {
 	nextRunnerID int64
 	runners      []*Runner
 
+	// reruns counts re-run requests, which nothing else records: the fake
+	// answers and forgets, and a test asserting that Zoomies asked GitHub
+	// exactly once needs somewhere to look.
+	reruns int
+
 	nextJobID int64
 	nextRunID int64
 	jobs      []*fakeJob
@@ -396,6 +401,7 @@ func (f *FakeGitHub) handler() http.Handler {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs/{run}/jobs", f.listWorkflowJobs)
 	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/runs/{run}/cancel", f.cancelWorkflowRun)
 	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/runs/{run}/force-cancel", f.cancelWorkflowRun)
+	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/runs/{run}/rerun-failed-jobs", f.rerunFailedJobs)
 
 	f.registerMigrationRoutes(mux)
 
@@ -411,6 +417,30 @@ func (f *FakeGitHub) cancelWorkflowRun(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// rerunFailedJobs answers a re-run request. It needs the same Actions write
+// permission a cancel does, and it answers 201 as GitHub does, so a test can
+// tell the two status paths apart.
+func (f *FakeGitHub) rerunFailedJobs(w http.ResponseWriter, _ *http.Request) {
+	f.mu.Lock()
+	level := f.permissions["actions"]
+	f.reruns++
+	f.mu.Unlock()
+	if level != "write" {
+		writeError(w, http.StatusForbidden, "Resource not accessible by integration")
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+// Reruns is how many re-run requests the fake has been sent, so a test can
+// assert that asking twice asked GitHub twice -- or, where the controller
+// refuses, that it asked nothing at all.
+func (f *FakeGitHub) Reruns() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.reruns
 }
 
 // middleware records the request, strips the GitHub Enterprise Server /api/v3

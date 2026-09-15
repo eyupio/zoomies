@@ -7,22 +7,36 @@
   and the workflow's owner will otherwise go looking for a bug that is not
   there. Otherwise the step that failed is named, so the operator knows which
   log to open before they leave for GitHub.
+
+  Naming the author is only half of it. The category says which of the fleet's
+  problems this is, and the fix -- which the server sends, so the UI, the CLI
+  and the problems drawer cannot offer three different remedies -- says what to
+  change. A panel that said "the runner stopped" and left somebody to work out
+  whether that meant a memory limit or an expired registry credential was a
+  panel that told them they had a problem and nothing more.
 -->
 <script lang="ts">
-  import { ExternalLink, TriangleAlert } from '@lucide/svelte';
+  import { ExternalLink, RotateCcw, TriangleAlert } from '@lucide/svelte';
   import type { Job } from '$lib/api/types';
+  import { faultDetail, faultLabel, fleetFailed } from '$lib/faults';
   import { formatDuration, toMillis } from '$lib/format';
   import { jobStatus } from '$lib/status';
 
   interface Props {
     job: Job;
+    /** Set when the viewer may ask GitHub to run the run's failed jobs again. */
+    onRerun?: (() => void) | null;
+    rerunning?: boolean;
     class?: string;
   }
 
-  let { job, class: className = '' }: Props = $props();
+  let { job, onRerun = null, rerunning = false, class: className = '' }: Props = $props();
 
   const status = $derived(jobStatus(job.state, job.conclusion));
   const step = $derived(job.failed_step ?? null);
+  const ours = $derived(fleetFailed(job));
+  const kindLabel = $derived(faultLabel(job.fault_kind));
+  const kindDetail = $derived(faultDetail(job.fault_kind));
 
   /** How long the failing step ran, when both of its stamps are known. */
   const stepTook = $derived.by(() => {
@@ -33,6 +47,10 @@
   });
 
   const heading = $derived.by(() => {
+    // The category leads when there is one: "Out of memory" is a heading
+    // somebody can act on, and "The runner stopped under this job" is the same
+    // news with the useful half removed.
+    if (ours && kindLabel) return kindLabel;
     if (job.runner_fault) return 'The runner stopped under this job';
     if (step) return `${status.label} at step ${step.number ?? '?'}, ${step.name ?? 'unnamed'}`;
     if (job.state === 'completed')
@@ -45,15 +63,34 @@
   <TriangleAlert size={16} aria-hidden="true" class="icon" />
   <div class="body">
     <p class="heading">{heading}</p>
-    {#if job.runner_fault}
-      <p class="detail">{job.runner_fault}.</p>
+    {#if ours}
+      {#if kindDetail}
+        <p class="detail">{kindDetail}</p>
+      {/if}
+      {#if job.runner_fault}
+        <p class="detail muted">{job.runner_fault}.</p>
+      {/if}
       <p class="detail">
-        GitHub records this as an ordinary failure; the workflow did nothing wrong. The runner's
-        last message says why it stopped -- usually memory, disk, or an operator removing it with
-        force.
+        GitHub records this as an ordinary failure; the workflow did nothing wrong.
       </p>
-      {#if job.runner_id}
-        <a class="action" href="/runners/{job.runner_id}">Open the runner</a>
+      {#if job.fault_fix}
+        <p class="detail fix"><span class="fix-label">Fix</span> {job.fault_fix}</p>
+      {/if}
+      <div class="actions">
+        {#if onRerun}
+          <button class="action rerun" type="button" onclick={onRerun} disabled={rerunning}>
+            <RotateCcw size={13} aria-hidden="true" />
+            {rerunning ? 'Asking GitHub…' : 'Run it again'}
+          </button>
+        {/if}
+        {#if job.runner_id}
+          <a class="action" href="/runners/{job.runner_id}">Open the runner</a>
+        {/if}
+      </div>
+      {#if onRerun}
+        <p class="detail muted">
+          GitHub has no job-level re-run, so this runs every failed job in the run again.
+        </p>
       {/if}
     {:else if step}
       <p class="detail">
@@ -118,6 +155,39 @@
     color: var(--z-text);
     max-width: 70ch;
     overflow-wrap: anywhere;
+  }
+  .muted {
+    color: var(--z-text-muted);
+  }
+  .fix-label {
+    font-weight: var(--z-weight-semibold);
+    color: var(--z-text);
+  }
+  .fix {
+    color: var(--z-text);
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--z-space-3);
+  }
+  .rerun {
+    border: var(--z-border-width) solid var(--z-danger-border);
+    border-radius: var(--z-radius-sm);
+    padding: var(--z-space-1) var(--z-space-2);
+    background: transparent;
+    cursor: pointer;
+    font: inherit;
+    font-size: var(--z-text-sm);
+    font-weight: var(--z-weight-medium);
+  }
+  .rerun:hover:not(:disabled) {
+    background: var(--z-surface);
+  }
+  .rerun:disabled {
+    cursor: progress;
+    color: var(--z-text-muted);
   }
   .action {
     display: inline-flex;

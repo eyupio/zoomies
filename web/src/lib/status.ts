@@ -342,6 +342,26 @@ const JOB_EVENTS: Record<JobEventKind, StatusMeta> = {
     CircleSlash,
     'Zoomies asked GitHub to cancel the workflow run and is waiting for GitHub to confirm the terminal state.',
   ),
+  // Pending rather than danger, and the wording is the reason: this job has
+  // not failed. A runner meant for work like it died on the way up, the job is
+  // still queued, and the next runner may well run it -- drawn red it would
+  // read as an outcome, which is the one thing it is not.
+  runner_start_failed: meta(
+    'runner_start_failed',
+    'A runner failed to start',
+    'pending',
+    'dashed',
+    TriangleAlert,
+    'A runner this pool started for work like this job died before it could take one. This job is still queued; a pool that cannot start a container otherwise looks exactly like a pool that is merely busy.',
+  ),
+  rerun_requested: meta(
+    'rerun_requested',
+    'Re-run requested',
+    'pending',
+    'dashed',
+    Play,
+    "Zoomies asked GitHub to run this run's failed jobs again. They arrive as a new run attempt, so GitHub remains authoritative about what happens next.",
+  ),
 };
 
 /**

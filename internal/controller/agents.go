@@ -1018,7 +1018,7 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 			return nil
 		}
 	}
-	c.applyRunnerState(ctx, r, state, message)
+	c.applyRunnerState(ctx, r, state, message, res.Fault)
 	if res.OK && cleansUp(kind) {
 		return c.noteCleanupSucceeded(ctx, r, kind == agent.TaskRemoveRunner)
 	}
@@ -1151,7 +1151,7 @@ func (c *Controller) applyReports(ctx context.Context, hostID string, reports []
 				state = store.RunnerIdle
 			}
 		}
-		c.applyRunnerState(ctx, r, state, rep.Message)
+		c.applyRunnerState(ctx, r, state, rep.Message, rep.Fault)
 		if rep.HostRemoved && !rep.Phase.Live() && (r.State.Terminal() || state.Terminal()) {
 			if err := c.noteCleanupSucceeded(ctx, r, true); err != nil {
 				errs = append(errs, err)
@@ -1291,7 +1291,10 @@ func (c *Controller) observeRunnerReady(ctx context.Context, updated *store.Runn
 // applyRunnerState performs a reported transition when it is legal, and
 // publishes it. An illegal one is dropped rather than forced: the store's
 // state machine is what stops a confused agent corrupting the accounting.
-func (c *Controller) applyRunnerState(ctx context.Context, r *store.Runner, state store.RunnerState, message string) {
+// fault is the agent's own classification, sent alongside the state. An agent
+// older than that field sends none, which is recorded as the unclassified kind
+// -- exactly what this controller knew before there was a taxonomy at all.
+func (c *Controller) applyRunnerState(ctx context.Context, r *store.Runner, state store.RunnerState, message string, fault store.FaultKind) {
 	if state == "" || state == r.State {
 		return
 	}
@@ -1300,7 +1303,13 @@ func (c *Controller) applyRunnerState(ctx context.Context, r *store.Runner, stat
 			"runner", r.ID, "from", r.State, "to", state)
 		return
 	}
-	updated, err := c.st.TransitionRunner(ctx, r.ID, state, message)
+	var updated *store.Runner
+	var err error
+	if state == store.RunnerFailed {
+		updated, err = c.st.FailRunner(ctx, r.ID, message, fault)
+	} else {
+		updated, err = c.st.TransitionRunner(ctx, r.ID, state, message)
+	}
 	if err != nil {
 		c.log.Warn("could not apply a runner state an agent reported", "runner", r.ID, "state", state, "error", err)
 		return
@@ -1311,7 +1320,11 @@ func (c *Controller) applyRunnerState(ctx context.Context, r *store.Runner, stat
 		// A clean exit under a job is the ordinary race between GitHub's
 		// completed delivery and the agent noticing the container has gone;
 		// a failure is not, and the job it was running needs to say so.
-		c.noteRunnerLost(ctx, r, sourceAgent, message)
+		c.noteRunnerLost(ctx, r, sourceAgent, message, updated.FaultKind)
+		// And a failure with no job under it is the other half: a runner that
+		// died on the way up, which reaches the queue it was started for and
+		// nothing else.
+		c.noteRunnerStartFailure(ctx, r, updated)
 	}
 	if state.Terminal() {
 		// A runner that has gone frees host capacity, so the next placement
@@ -1386,7 +1399,7 @@ func (c *Controller) reclaimLostRunners(ctx context.Context, h *store.Host, now 
 		h.Name, silent)
 	failed := 0
 	for _, r := range runners {
-		if err := c.failRunnerID(ctx, r.ID, reason); err != nil {
+		if err := c.failRunnerID(ctx, r.ID, reason, store.FaultHostLost); err != nil {
 			if !errors.Is(err, store.ErrNotFound) && !errors.Is(err, store.ErrInvalidTransition) {
 				c.log.Warn("could not fail a runner on a silent host", "runner", r.ID, "host", h.ID, "error", err)
 			}

@@ -39,6 +39,7 @@
   import { getJobFacets, listJobs } from '$lib/api/client';
   import { JOB_STATES, type Job, type JobState } from '$lib/api/types';
   import { events } from '$lib/api/sse';
+  import { faultLabel, fleetFailed } from '$lib/faults';
   import { formatDuration } from '$lib/format';
   import { router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
@@ -79,11 +80,12 @@
     'until',
     'unmatched',
     'failed',
+    'faulted',
     'all',
   ] as const;
 
   /** The status keys a view owns. A patch touching one of them is choosing a view. */
-  const STATUS_KEYS = ['state', 'conclusion', 'failed', 'unmatched'] as const;
+  const STATUS_KEYS = ['state', 'conclusion', 'failed', 'faulted', 'unmatched'] as const;
 
   /**
    * Nobody has asked this page anything yet, so it answers the question it is
@@ -123,6 +125,7 @@
     until: router.param('until'),
     unmatched: router.param('unmatched') === 'true',
     failed: router.param('failed') === 'true',
+    faulted: router.param('faulted') === 'true',
     all: router.param('all') === 'true',
   });
 
@@ -165,6 +168,7 @@
       out.conclusion = [];
     }
     if (next.failed === true) out.state = [];
+    if (next.faulted === true) out.state = [];
 
     for (const [key, value] of Object.entries(next)) {
       if (typeof value === 'boolean') out[key] = value ? 'true' : null;
@@ -259,33 +263,37 @@
   const emptyTitle = $derived(
     filters.unmatched
       ? 'No unmatched jobs'
-      : filters.failed
-        ? 'No failed jobs'
-        : view === 'running'
-          ? 'Nothing is running right now'
-          : view === 'queued'
-            ? 'Nothing is queued'
-            : view === 'finished'
-              ? 'Nothing has finished yet'
-              : filters.all
-                ? 'No jobs recorded yet'
-                : 'No jobs have run on this fleet',
+      : filters.faulted
+        ? 'This fleet has broken nothing'
+        : filters.failed
+          ? 'No failed jobs'
+          : view === 'running'
+            ? 'Nothing is running right now'
+            : view === 'queued'
+              ? 'Nothing is queued'
+              : view === 'finished'
+                ? 'Nothing has finished yet'
+                : filters.all
+                  ? 'No jobs recorded yet'
+                  : 'No jobs have run on this fleet',
   );
 
   const emptyDescription = $derived(
     filters.unmatched
       ? 'Nothing is queued with labels no pool claims, which is how it should be. Jobs that already ran are not counted here however their labels read.'
-      : filters.failed
-        ? 'Nothing GitHub reported as failed or timed out, and no runner here has stopped under a job. Widen the dates to look further back.'
-        : view === 'running'
-          ? 'No runner here is working on a job at this moment, which on a quiet fleet is the ordinary state. Queued shows what is waiting for one, and All shows everything this fleet has been asked to do.'
-          : view === 'queued'
-            ? 'Nothing is waiting for a runner, so the fleet is keeping up with what GitHub is asking of it. Running shows what is being worked on now.'
-            : view === 'finished'
-              ? 'Nothing has ended within these filters. Running and Queued show the work still in hand, and All shows every status at once.'
-              : filters.all
-                ? 'Zoomies records a job the first time GitHub tells it about one, over a webhook delivery. If workflows are running and nothing appears here, the delivery is not arriving.'
-                : 'This view shows jobs a pool claims or a runner here ran. Include other runners to see everything GitHub has reported, hosted runners included.',
+      : filters.faulted
+        ? "No runner here stopped under a job or failed to start one within these filters. Any failures in this period are the workflows' own. Widen the dates to look further back."
+        : filters.failed
+          ? 'Nothing GitHub reported as failed or timed out, and no runner here has stopped under a job. Widen the dates to look further back.'
+          : view === 'running'
+            ? 'No runner here is working on a job at this moment, which on a quiet fleet is the ordinary state. Queued shows what is waiting for one, and All shows everything this fleet has been asked to do.'
+            : view === 'queued'
+              ? 'Nothing is waiting for a runner, so the fleet is keeping up with what GitHub is asking of it. Running shows what is being worked on now.'
+              : view === 'finished'
+                ? 'Nothing has ended within these filters. Running and Queued show the work still in hand, and All shows every status at once.'
+                : filters.all
+                  ? 'Zoomies records a job the first time GitHub tells it about one, over a webhook delivery. If workflows are running and nothing appears here, the delivery is not arriving.'
+                  : 'This view shows jobs a pool claims or a runner here ran. Include other runners to see everything GitHub has reported, hosted runners included.',
   );
 
   /* -- the grid ---------------------------------------------------------------- */
@@ -304,6 +312,7 @@
         until: endOfDay(filters.until),
         unmatched: filters.unmatched ? true : undefined,
         failed: filters.failed ? true : undefined,
+        faulted: filters.faulted ? true : undefined,
         managed: filters.all ? undefined : true,
         limit: query.limit,
         offset: query.offset,
@@ -335,11 +344,16 @@
   }
 
   /**
-   * The one phrase a row has room for on a job that went wrong: the step it
-   * failed at, or that its runner stopped under it. The drawer says the rest.
+   * The one phrase a row has room for on a job that went wrong: the fleet's own
+   * category, or the step the workflow failed at.
+   *
+   * The category rather than "Runner lost" for every one of them, because the
+   * column is read down rather than across: nine rows saying the same two words
+   * say only that the fleet is unwell, and six saying "Out of memory" say what
+   * to do about it.
    */
   function failedAt(job: Job): string {
-    if (job.runner_fault) return 'Runner lost';
+    if (fleetFailed(job)) return faultLabel(job.fault_kind) || 'Runner lost';
     if (job.failed_step) return job.failed_step.name ?? `step ${job.failed_step.number ?? '?'}`;
     return '';
   }
@@ -414,8 +428,8 @@
 {#snippet stateCell(job: Job)}
   <span class="state">
     <StateCell status={jobStatus(job.state, job.conclusion)} />
-    {#if job.runner_fault}
-      <Badge status={RUNNER_LOST} size="sm" title={RUNNER_LOST.hint} />
+    {#if fleetFailed(job)}
+      <Badge status={RUNNER_LOST} size="sm" title={job.fault_fix || RUNNER_LOST.hint} />
     {/if}
     {#if stuckUnmatched(job)}
       <Badge status={UNMATCHED} size="sm" title={UNMATCHED.hint} />
@@ -426,8 +440,8 @@
 {/snippet}
 
 {#snippet failedAtCell(job: Job)}
-  {#if job.runner_fault}
-    <span class="failed-at danger" title={job.runner_fault}>Runner lost</span>
+  {#if fleetFailed(job)}
+    <span class="failed-at danger" title={job.runner_fault || job.fault_fix}>{failedAt(job)}</span>
   {:else if job.failed_step}
     <span class="failed-at" title="Step {job.failed_step.number}: {job.failed_step.name}">
       {job.failed_step.name}

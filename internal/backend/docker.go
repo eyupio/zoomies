@@ -767,10 +767,10 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 	cfg := buildRunnerConfig(spec, b.fl, opts)
 	id, err := b.api.ContainerCreate(ctx, name, cfg)
 	if err != nil {
-		return CreateResult{}, fmt.Errorf("backend: creating container %s: %w", name, err)
+		return CreateResult{}, daemonErr(fmt.Errorf("backend: creating container %s: %w", name, err))
 	}
 	if err := b.api.ContainerStart(ctx, id); err != nil {
-		return CreateResult{}, fmt.Errorf("backend: starting container %s: %w", name, err)
+		return CreateResult{}, daemonErr(fmt.Errorf("backend: starting container %s: %w", name, err))
 	}
 
 	b.log.Info("runner container started",
@@ -789,7 +789,7 @@ func (b *DockerBackend) prepareImage(ctx context.Context, image string, policy s
 	case store.PullIfNotPresent, store.PullPinnedOnly:
 		present, err := b.api.ImageInspect(ctx, image)
 		if err != nil {
-			return "", "", false, nil, fmt.Errorf("backend: looking for image %s: %w", image, err)
+			return "", "", false, nil, imageErr(fmt.Errorf("backend: looking for image %s: %w", image, err))
 		}
 		pull = !present
 	case "":
@@ -798,10 +798,10 @@ func (b *DockerBackend) prepareImage(ctx context.Context, image string, policy s
 		} else {
 			present, err := b.api.ImageInspect(ctx, image)
 			if err != nil {
-				return "", "", false, nil, fmt.Errorf("backend: looking for image %s: %w", image, err)
+				return "", "", false, nil, imageErr(fmt.Errorf("backend: looking for image %s: %w", image, err))
 			}
 			if !present && b.pull == PullNever {
-				return "", "", false, nil, fmt.Errorf("backend: image %s is not on this host and the pull policy is %q; pull it here first (docker pull %s) or set the pull policy to if-missing", image, b.pull, image)
+				return "", "", false, nil, imageErr(fmt.Errorf("backend: image %s is not on this host and the pull policy is %q; pull it here first (docker pull %s) or set the pull policy to if-missing", image, b.pull, image))
 			}
 			pull = !present
 		}
@@ -812,17 +812,17 @@ func (b *DockerBackend) prepareImage(ctx context.Context, image string, policy s
 	if pull {
 		started := time.Now()
 		if err := b.api.ImagePull(ctx, image, b.auth); err != nil {
-			return "", "", false, nil, fmt.Errorf("backend: pulling %s: %w", image, err)
+			return "", "", false, nil, imageErr(fmt.Errorf("backend: pulling %s: %w", image, err))
 		}
 		d := time.Since(started)
 		duration = &d
 	}
 	createRef, digest, err = b.api.ImageIdentity(ctx, image)
 	if err != nil {
-		return "", "", pull, duration, fmt.Errorf("backend: resolving image %s digest: %w", image, err)
+		return "", "", pull, duration, imageErr(fmt.Errorf("backend: resolving image %s digest: %w", image, err))
 	}
 	if digest == "" {
-		return "", "", pull, duration, fmt.Errorf("backend: image %s has no immutable digest", image)
+		return "", "", pull, duration, imageErr(fmt.Errorf("backend: image %s has no immutable digest", image))
 	}
 	return createRef, digest, pull, duration, nil
 }
@@ -879,23 +879,23 @@ func (b *DockerBackend) cleanupFailedCreate(ctx context.Context, name, workDir s
 func (b *DockerBackend) ensureImage(ctx context.Context, image string) (bool, error) {
 	if b.pull == PullAlways {
 		if err := b.api.ImagePull(ctx, image, b.auth); err != nil {
-			return false, fmt.Errorf("backend: pulling %s: %w", image, err)
+			return false, imageErr(fmt.Errorf("backend: pulling %s: %w", image, err))
 		}
 		return true, nil
 	}
 
 	present, err := b.api.ImageInspect(ctx, image)
 	if err != nil {
-		return false, fmt.Errorf("backend: looking for image %s: %w", image, err)
+		return false, imageErr(fmt.Errorf("backend: looking for image %s: %w", image, err))
 	}
 	if present {
 		return false, nil
 	}
 	if b.pull == PullNever {
-		return false, fmt.Errorf("backend: image %s is not on this host and the pull policy is %q; pull it here first (docker pull %s) or set the pull policy to if-missing", image, b.pull, image)
+		return false, imageErr(fmt.Errorf("backend: image %s is not on this host and the pull policy is %q; pull it here first (docker pull %s) or set the pull policy to if-missing", image, b.pull, image))
 	}
 	if err := b.api.ImagePull(ctx, image, b.auth); err != nil {
-		return false, fmt.Errorf("backend: pulling %s: %w", image, err)
+		return false, imageErr(fmt.Errorf("backend: pulling %s: %w", image, err))
 	}
 	return true, nil
 }

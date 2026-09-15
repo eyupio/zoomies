@@ -101,6 +101,25 @@ The runners that exist right now.
 and `--failed` are the two questions worth a switch of their own.
 `jobs get <job-id>` shows one.
 
+`--ours` and `--theirs` split `--failed` by whose failure it was. GitHub records
+both halves as `failure`, so this is the only place the question can be asked,
+and only one half is anybody here's to fix. `--fault` narrows the fleet's half
+to a category — `out_of_memory`, `image`, `registration`, `backend` and the rest
+— and a category this build does not know is refused rather than quietly
+matching everything.
+
+```sh
+zoomies jobs list --ours --since 24h       # what this deployment broke today
+zoomies jobs list --fault out_of_memory    # and how much of it was memory
+```
+
+`jobs rerun <job-id>` asks GitHub to run that run's failed jobs again, which is
+the remedy for a job the fleet broke: nothing about the workflow has changed.
+GitHub has no job-level re-run, so it re-runs **every** failed job in the run.
+It refuses a job that has not finished and one that did not fail, and it does
+not ask whose fault the failure was — if you have looked at one and decided to
+run it again, that is your call to make.
+
 ### `zoomies hosts`
 
 | Command | What it does |

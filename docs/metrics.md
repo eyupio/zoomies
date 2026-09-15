@@ -104,6 +104,8 @@ will not fire when the numbers stop arriving altogether.
 | --- | --- | --- | --- |
 | `zoomies_jobs_total` | counter | `pool`, `conclusion` | Jobs seen to completion. The denominator for every other job rate. `conclusion` is GitHub's, or `unknown` when it sent none. |
 | `zoomies_jobs_runner_lost_total` | counter | `pool` | Jobs whose runner died before GitHub reported the job over. These are the fleet's failures rather than the workflow's, and any sustained rate is worth waking up for. |
+| `zoomies_job_failures_total` | counter | `pool`, `domain`, `fault` | Job failures split by whose they are. `domain` is `fleet` or `workflow`; `fault` is the category — `out_of_memory`, `host_lost`, `image`, `registration`, `backend`, `config`, `out_of_disk`, `removed`, `runner_exited` — and is empty for a workflow's own failure. The fleet domain is the same set of jobs as `zoomies_jobs_runner_lost_total`, which is kept so an alert written against it does not disappear on upgrade. |
+| `zoomies_runner_start_failures_total` | counter | `pool`, `fault` | Runners that failed before they could ever take a job, by category. These reach no job at all — the job they were meant for stays queued and waits for the next one — so a pool climbing here while its queue never moves is a fleet failing with nothing in the failed-jobs count to show for it. |
 | `zoomies_scaling_events_total` | counter | `pool`, `direction` | Scheduler decisions that changed a pool's size, `up` or `down`. Flapping shows up here first. |
 | `zoomies_webhook_deliveries_total` | counter | `status` | Inbound deliveries by `accepted`, `rejected` or `error`. A rising `rejected` count is a signing-secret mismatch or somebody probing. |
 | `zoomies_runner_cleanups_total` | counter | `outcome` | Attempts to take a runner off its host: `succeeded`, or `failed` and recorded on the runner's row. This is the half of a runner's life that goes wrong on the host rather than in the fleet, so it appears in no other series here. |
@@ -187,7 +189,15 @@ being down:
 * `zoomies_jobs_queued` above zero for longer than a job normally waits, which
   is the fleet failing at its one job.
 * Any sustained `rate(zoomies_jobs_runner_lost_total[15m])`, because that is
-  work being lost rather than failing.
+  work being lost rather than failing. The same question with the reason
+  attached is
+  `sum by (fault) (rate(zoomies_job_failures_total{domain="fleet"}[15m]))`,
+  which is the one to put on a dashboard: it says which of your problems this
+  is, and the fix differs for every category.
+* Any sustained `rate(zoomies_runner_start_failures_total[15m])`, which is the
+  failure that shows up nowhere else. A pool that cannot start a container
+  fails silently: the jobs stay queued, nothing is marked failed, and the fleet
+  reads as busy. Alert on it separately from the line above.
 * `zoomies_job_queue_age_seconds` above the longest wait you would accept,
   which is the same question as the first rule asked in the units somebody
   actually complains in.

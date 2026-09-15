@@ -28,6 +28,8 @@ type metrics struct {
 
 	jobsTotal                                                                                    *prometheus.CounterVec
 	jobsRunnerLost                                                                               *prometheus.CounterVec
+	jobFailures                                                                                  *prometheus.CounterVec
+	runnerStartFailures                                                                          *prometheus.CounterVec
 	queueWait                                                                                    prometheus.Histogram
 	jobDuration                                                                                  prometheus.Histogram
 	queuedToCreate, createToContainer, containerToRegistered, registeredToReady, queuedToStarted *prometheus.HistogramVec
@@ -82,6 +84,22 @@ func newMetrics(c *Controller) *metrics {
 			Name: "zoomies_jobs_runner_lost_total",
 			Help: "Jobs whose runner stopped before GitHub reported the job over, by pool. These are the fleet's failures rather than the workflows'.",
 		}, []string{"pool"}),
+		// The same failures as jobs_runner_lost, split by category, and kept
+		// beside it rather than replacing it: an operator whose alert fires on
+		// the old series should not have it disappear under them on an
+		// upgrade. Sum this one by pool and the two agree.
+		jobFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_job_failures_total",
+			Help: "Job failures by whose they are and why. domain is fleet or workflow; fault is the category, and is empty for a workflow's own failure. Alert on the fleet domain -- a rise there is this deployment, not somebody's tests.",
+		}, []string{"pool", "domain", "fault"}),
+		// Runner starts that failed, which reach no job at all: the job they
+		// were meant for stays queued. A pool climbing here with a queue that
+		// never moves is the fleet failing without a single failed job to show
+		// for it, which is the blind spot this exists to cover.
+		runnerStartFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_runner_start_failures_total",
+			Help: "Runners that failed before they could take a job, by pool and category.",
+		}, []string{"pool", "fault"}),
 		queueWait: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name: "zoomies_job_queue_wait_seconds",
 			Help: "How long jobs waited between being queued and a runner picking them up.",
@@ -166,7 +184,7 @@ func newMetrics(c *Controller) *metrics {
 	m.buildInfo.WithLabelValues(version.Version, version.Commit).Set(1)
 
 	m.reg.MustRegister(
-		m.jobsTotal, m.jobsRunnerLost, m.queueWait, m.jobDuration, m.scalingEvents,
+		m.jobsTotal, m.jobsRunnerLost, m.jobFailures, m.runnerStartFailures, m.queueWait, m.jobDuration, m.scalingEvents,
 		m.webhookDeliveries, m.githubRequests, m.reconcileDuration, m.reconcileErrors, m.cleanups, m.pollsShed, m.buildInfo,
 		m.providerOperations, m.providerOperationSeconds,
 		m.queuedToCreate, m.createToContainer, m.containerToRegistered, m.registeredToReady, m.queuedToStarted,

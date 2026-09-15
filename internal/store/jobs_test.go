@@ -119,14 +119,14 @@ func TestSetJobRunnerFaultKeepsTheFirstMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertJob: %v", err)
 	}
-	got, recorded, err := s.SetJobRunnerFault(ctx, j.ID, "runner exited with code 137: out of memory")
+	got, recorded, err := s.SetJobRunnerFault(ctx, j.ID, "runner exited with code 137: out of memory", FaultRunnerExited)
 	if err != nil {
 		t.Fatalf("SetJobRunnerFault: %v", err)
 	}
 	if got.RunnerFault != "runner exited with code 137: out of memory" || !recorded {
 		t.Fatalf("fault = %q, recorded = %v; want the first report kept and flagged", got.RunnerFault, recorded)
 	}
-	got, recorded, err = s.SetJobRunnerFault(ctx, j.ID, "the agent could not complete task t1")
+	got, recorded, err = s.SetJobRunnerFault(ctx, j.ID, "the agent could not complete task t1", FaultRunnerExited)
 	if err != nil {
 		t.Fatalf("second SetJobRunnerFault: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestSetJobRunnerFaultKeepsTheFirstMessage(t *testing.T) {
 	if recorded {
 		t.Fatal("a second report was flagged as the one that recorded the fault")
 	}
-	if _, _, err := s.SetJobRunnerFault(ctx, "job_missing", "x"); err == nil {
+	if _, _, err := s.SetJobRunnerFault(ctx, "job_missing", "x", FaultRunnerExited); err == nil {
 		t.Fatal("a fault on a job that does not exist was accepted")
 	}
 }
@@ -168,7 +168,7 @@ func TestFailedOnlyFindsBothKindsOfFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetJobByGitHubID: %v", err)
 	}
-	if _, _, err := s.SetJobRunnerFault(ctx, orphan.ID, "runner exited with code 137"); err != nil {
+	if _, _, err := s.SetJobRunnerFault(ctx, orphan.ID, "runner exited with code 137", FaultRunnerExited); err != nil {
 		t.Fatalf("SetJobRunnerFault: %v", err)
 	}
 
@@ -353,7 +353,7 @@ func TestEveryPlaceThatCountsFailedJobsAgrees(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetJobByGitHubID: %v", err)
 	}
-	if _, _, err := s.SetJobRunnerFault(ctx, faulted.ID, "runner exited with code 137"); err != nil {
+	if _, _, err := s.SetJobRunnerFault(ctx, faulted.ID, "runner exited with code 137", FaultRunnerExited); err != nil {
 		t.Fatalf("SetJobRunnerFault: %v", err)
 	}
 
@@ -532,7 +532,7 @@ func TestStatsSplitCompletedJobsFourWays(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetJobByGitHubID: %v", err)
 		}
-		if _, _, err := s.SetJobRunnerFault(ctx, j.ID, "runner exited with code 137"); err != nil {
+		if _, _, err := s.SetJobRunnerFault(ctx, j.ID, "runner exited with code 137", FaultRunnerExited); err != nil {
 			t.Fatalf("SetJobRunnerFault: %v", err)
 		}
 	}

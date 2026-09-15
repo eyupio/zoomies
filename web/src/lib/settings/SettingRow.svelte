@@ -35,12 +35,18 @@
   interface Props {
     setting: Setting;
     findings?: readonly Problem[];
+    /**
+     * This is the row a link asked for. It is marked rather than merely
+     * scrolled to, because a page that jumps and then looks exactly as it did
+     * leaves somebody hunting for what moved.
+     */
+    sought?: boolean;
     /** Returns an error message, or an empty string when the change was accepted. */
     onsave: (key: string, value: unknown) => Promise<string>;
     class?: string;
   }
 
-  let { setting, findings = [], onsave, class: className = '' }: Props = $props();
+  let { setting, findings = [], sought = false, onsave, class: className = '' }: Props = $props();
 
   /* The section is already the heading above, so the row shows what is left. */
   const leaf = $derived(setting.key.split('.').slice(1).join('.') || setting.key);
@@ -158,6 +164,8 @@
 <div
   class="row {className}"
   class:has-findings={findings.length > 0}
+  class:sought
+  id="setting-{setting.key}"
   class:pending={setting.pending}
   class:pinned
 >
@@ -276,6 +284,20 @@
             <p class="finding-title">{finding.title}</p>
             {#if finding.detail}<p class="finding-detail">{finding.detail}</p>{/if}
             {#if finding.fix}<p class="finding-fix"><strong>Fix:</strong> {finding.fix}</p>{/if}
+            <!--
+              A stored value the validator is unhappy with is the one that can
+              lock somebody out: this page is behind the controller, and a
+              value that stops it starting cannot be undone from here. The way
+              back is said now, while the page still loads, rather than found
+              at the moment it does not.
+            -->
+            {#if finding.undo && finding.source === 'database'}
+              <p class="finding-detail">
+                Stored here. If it ever stops the controller starting, this page will not load — run <code
+                  >{finding.undo}</code
+                > against the stopped controller.
+              </p>
+            {/if}
           </div>
         </li>
       {/each}
@@ -306,6 +328,17 @@
     that is about the future rather than the present, so it is marked down the
     edge rather than with another badge among the badges.
   */
+  /*
+    The row a link arrived for. An outline rather than a background, so it does
+    not compete with the severity backgrounds a row may already be wearing --
+    a setting somebody was sent to is usually one the validator is unhappy
+    about, and the two would otherwise fight.
+  */
+  .row.sought {
+    outline: var(--z-border-width-thick) solid var(--z-accent);
+    outline-offset: calc(-1 * var(--z-border-width-thick));
+    scroll-margin-top: var(--z-space-10);
+  }
   .row.pending {
     box-shadow: inset var(--z-nudge-1) 0 0 0 var(--z-draining);
   }

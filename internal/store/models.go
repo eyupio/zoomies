@@ -945,6 +945,11 @@ type Runner struct {
 	AllocatedCPUs     float64 `json:"allocated_cpus,omitempty"`
 	AllocatedMemoryMB int64   `json:"allocated_memory_mb,omitempty"`
 	AllocationSource  string  `json:"allocation_source,omitempty"`
+	// FaultKind categorises why a failed runner failed. Message says it in the
+	// backend's or GitHub's own words; this is what makes "every runner in this
+	// pool fails to start, and always for the same reason" visible from
+	// anywhere but one runner's page.
+	FaultKind FaultKind `json:"fault_kind,omitempty"`
 }
 
 // Age returns how long the runner has existed.
@@ -1017,6 +1022,10 @@ type Job struct {
 	// job over. GitHub records such a job as "failure" like any test failure;
 	// this is what tells "the tests failed" from "the runner died".
 	RunnerFault string `json:"runner_fault,omitempty"`
+	// FaultKind is the same fact as a category, so a thousand of these can be
+	// counted rather than only read one at a time. It is set with RunnerFault
+	// and never without it; empty means the fleet has nothing to confess.
+	FaultKind FaultKind `json:"fault_kind,omitempty"`
 }
 
 // JobStep is one step of a workflow job as GitHub reported it.
@@ -1092,6 +1101,18 @@ const (
 	// JobEventCancelRequested records an operator request sent to GitHub. The
 	// eventual completed event remains authoritative for the outcome.
 	JobEventCancelRequested JobEventKind = "cancel_requested"
+	// JobEventRunnerStartFailed: a runner this pool started for work like this
+	// one died before it could take a job. The job itself is untouched -- it is
+	// still queued, and the next runner may well run it -- which is exactly why
+	// it needs saying. A pool that cannot start a container looks, from the
+	// job's side, identical to a pool that is merely busy, and an operator
+	// watching a queue that never moves had nowhere to find out which.
+	JobEventRunnerStartFailed JobEventKind = "runner_start_failed"
+	// JobEventRerunRequested records a re-run this fleet asked GitHub for. As
+	// with a cancel, GitHub remains authoritative: the re-run arrives as new
+	// jobs with a higher run attempt, and this entry is only the record that
+	// somebody here asked.
+	JobEventRerunRequested JobEventKind = "rerun_requested"
 )
 
 // JobEvent is one entry in a job's timeline: what happened, who observed it,
