@@ -77,7 +77,9 @@ func (a *Agent) applyThrottle(ctx context.Context, announce bool) {
 		// for them is right rather than merely cheap: a second call cannot
 		// improve on the first, and if it fails the first one's result is the
 		// one that gets recorded anyway.
-
+		if r.pendingCPUFactor != nil && *r.pendingCPUFactor == factor {
+			continue
+		}
 		b, err := a.opts.Backends.Get(r.kind)
 		if err != nil {
 			continue
