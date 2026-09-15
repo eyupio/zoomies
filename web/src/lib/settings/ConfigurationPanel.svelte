@@ -369,12 +369,16 @@
       {/if}
 
       <!--
-        The jump. Eighty-eight settings under sixteen headings is a page nobody
+        The jump. A hundred settings under fourteen headings is a page nobody
         scrolls twice, and the search box only helps somebody who already knows
         what the setting is called -- which is the case this panel is least
         needed for. The rail is what the operator who is looking around uses,
         and it narrows with the filters so a section the search emptied is not
         offered as somewhere to go.
+
+        It sits under the file and database paths rather than above them
+        because the chips are a row of their own: moved up, they land beside
+        that block's columns and stretch to its height.
       -->
       {#if sections.length > 1}
         <nav class="jump" aria-label="Jump to a section">
