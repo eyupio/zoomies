@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 2.39 · 14 September 2026 · derived from the owner's
+Version 2.40 · 15 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
 after reconciling it against `main` at `6d12a72`, then updated for the
 closed N02 incident, the deferred host-stewardship slice, the four
@@ -282,6 +282,19 @@ ratified.
     image boot as an application container, register with a JIT config, run
     one job as the runner account and stop — and assess the package only if
     it passes and ZF-214c has run. Not before either.*
+
+29. **Whether any fleet fact may be read without an account.** ZF-222
+    proposes one: a name-free, banded status projection for the developers
+    whose jobs queue, who have no account here and no way to tell a fleet at
+    capacity from a pool that matches nothing. Today the answer is no for
+    everything except `/api/v1/meta`, and `metrics.public` is the only setting
+    that changes it. The decision is not the page, which is small; it is
+    whether "one instance is one administrative trust domain" — delivery rule
+    3 — is also one readership. *Recommend: adopt, off by default, in the
+    banded, name-free shape ZF-222 describes, and not before ZF-207 has split
+    the problems list — a public projection built on today's undivided list
+    leaks the platform's findings the first time a validator warning quotes a
+    bind address.*
 
 ## 4. Delivery rules
 
@@ -2130,6 +2143,97 @@ affected host is claimed.
 and ZF-220 admission. Fix critical correctness defects before optional cache
 or platform expansion. Keep the above status current in this root roadmap.
 
+### ZF-222: a status view for the audience that cannot sign in
+
+**Classification: extension; medium. Owner decision pending (decision 29).**
+Every fleet fact needs `viewer`. The developer whose job has been queued for
+twenty minutes has no account here and no page to read, and GitHub tells them
+only that it is queued: it cannot distinguish "no host has a free slot" from
+"no pool's labels match this job", from "the App lost a permission", from "the
+webhook secret stopped verifying, so nothing was ingested". This controller
+knows which — `Problems()` computes it after every reconcile pass and
+`/api/v1/stats` carries the queue wait — and none of it reaches the person
+waiting.
+
+Most of the material is already public or already derived. `/api/v1/meta`
+answers unauthenticated and already carries `version`, `commit` and
+`version_channel`. `controller.Problem` already carries `Severity` and `Since`,
+which is a computed component status with a start time rather than one a person
+sets by hand and forgets to clear. What is missing is a projection, and a tier
+below `viewer` allowed to read it.
+
+Two things this is not. It is not a report of whether Zoomies is up: a page
+served by the process it describes disappears with it, which is why a hosted
+status page is hosted somewhere else, and `/healthz` watched from outside this
+machine is the answer to that question. And it is not an incident tracker with
+components an operator sets by hand — a hand-set state drifts from the
+scheduler's within a day, and the whole reason this is cheap is that the fleet
+already knows.
+
+The cost is disclosure. `metrics.public` is a warning today because job and
+repository names are visible in the label set; a page on the same listener
+carrying pool names, host names and an exact queue depth is the same leak with
+better typography. So the projection is name-free and banded rather than
+trimmed: proving a body contains no names is a test, and keeping a view's prose
+from naming things is a promise renewed every time somebody edits it.
+
+**Do:**
+
+1. `GET /api/v1/status`, a projection rather than a view — the one place in the
+   API that is deliberately not a resource's `GET` shape. `state` (`healthy`,
+   `degraded` or `blocked`, from the highest severity among the fleet's
+   problems), `since`, `version`, and counts as bands (`none`, `few`, `many`,
+   `backed_up`) rather than integers, with the median and p95 queue wait
+   rounded to the minute. Its `reasons` carry `code`, `severity` and `since`
+   and nothing else: no `title`, `detail`, `fix`, `setting`, `target_kind` or
+   `target_id`, each of which names a host, a pool, a repository or a bind
+   address. A public sentence per code lives beside the operator's in
+   `docs/problem-codes.md`, tested in both directions by `internal/docs` the
+   way that page already is.
+2. `status.mode: off | authenticated | public`, off by default, with
+   `ZOOMIES_STATUS_MODE`. `public` raises a `status.public` warning naming what
+   becomes readable without an account, and an error when the bind is not
+   loopback and TLS is off — the severity-from-circumstances shape
+   `security.disable_auth` already has. `off` means all three routes answer
+   404.
+3. `/status` as its own Vite entry (`web/status.html`), not a route in the app.
+   An anonymous visitor should not be handed the router, the event client, the
+   command palette and the auth state, and the 200 KB shell budget is for the
+   application; the page gets its own, much smaller budget in
+   `web/vite.config.ts`. It polls `/api/v1/status` every thirty seconds and
+   never opens `/api/v1/events`, because every frame on that bus is a resource
+   view by design and carries names.
+4. The three states map onto the existing `danger`, `pending` and `idle` tokens
+   rather than introducing a fourth status vocabulary for operators to learn;
+   `docs/ui-guidelines.md` records the mapping, because the rule being bent is
+   that page's.
+5. `GET /status.svg`, the fleet's state as a self-contained badge on the
+   `docs/badge.svg` pattern, for a team's wiki or a repository README. It is
+   served by the controller, so a badge that fails to load is also information;
+   `docs/ui.md` says so rather than leaving somebody to read absence as health.
+6. The paperwork an endpoint change carries here: `api/openapi.yaml` and
+   `go run internal/api/gen_openapi.go`, `make openapi`, rows in
+   `docs/api-surface.md` and `docs/configuration.md`, a dangerous-toggle
+   section in `docs/security.md`, and the page in `docs/ui.md`.
+
+**Accept when:** a fixture fleet whose every pool, host, repository and runner
+is named something distinctive produces a `/api/v1/status` body and a rendered
+`/status` page containing none of those names, asserted by a test that searches
+each response for every fixture name — that test is the boundary, and the rest
+of this package is a page. Each of the four reasons a job waits produces a
+distinguishable public state from a fixture. Every problem code has a public
+sentence, and no code has only one of the two. `status.mode: public` on a
+public bind without TLS refuses to start and names which of the two settings to
+change. The default leaves all three routes 404 while the OpenAPI document
+still describes them. The app shell's gzipped size is unchanged and the status
+entry is inside its own budget. Playwright covers the page signed out, on a
+phone, and through the accessibility pass.
+
+Depends on ZF-207, whose platform/fleet problem split this extends with a third
+tier below `viewer`, and on ZF-202 for the problems it projects. Size M.
+Session: Claude Opus 5 at `high` — the disclosure boundary is the work and the
+page is the easy half. Decisions: 29.
+
 ## 10. Ordered delivery plan
 
 This sequence supersedes earlier Assignment A/B scheduling, which described
@@ -2145,6 +2249,7 @@ description of a missing feature is not evidence it remains missing.
 | 2 | ZF-219 post-implementation verification and friendly-provider pilot readiness — **now the next unblocked work** | Pristine-VPS and first-workflow evidence, recorded in [marketplace-deployment.md](roadmap/validation/marketplace-deployment.md); one pilot can be invited, not yet broadly listed |
 | 3 | ZF-211 documentation reconciliation and evidence inventory | One current support story; historical gaps clearly dated |
 | 4 | ZF-208 resource limits; ZF-207 administration boundaries | Host/pool pressure and API/UI access boundaries verified |
+| 4a | ZF-222 status view for the queued, if decision 29 is adopted | A name-free projection proven by the fixture-name test; a default install still serves nothing new |
 | 5 | ZF-210a unattended bootstrap and readiness; then ZF-214a contract and fake-provider slice | Fresh instance and agent without prompts or log scraping; provider recovery contract proven in fixtures |
 | 6 | ZF-209 durable usage; then ZF-210b export and purge | Usage survives retention; export/purge respects installation boundaries |
 | 7 | ZF-212 cache recipes; existing-host/Tailcat reliability and ZF-401/403 UX | Faster representative builds and recoverable private-host onboarding |
@@ -2203,6 +2308,13 @@ runs, elapsed observation, benchmark results or user feedback. Keep implemented,
 validated and blocked distinct, and report the exact remaining dependency.
 
 ## 13. Change record
+
+* **15 September 2026 — Version 2.40:** add ZF-222, a name-free fleet status
+  projection for the audience that has no account and no way to tell a fleet at
+  capacity from a pool that matches nothing, and decision 29, which is whether
+  one administrative trust domain is also one readership. Sequenced behind
+  ZF-207's problem split. Nothing is enabled by default and this entry
+  implements no runtime behaviour.
 
 * **13 September 2026 — Version 2.38:** add the owner's bounded pre-release
   allocation request as ZF-220. Prioritise measured host headroom, existing
