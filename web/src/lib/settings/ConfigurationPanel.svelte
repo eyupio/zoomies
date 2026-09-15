@@ -20,6 +20,7 @@
 <script lang="ts">
   import { Lock, RotateCcw, Search, TriangleAlert } from '@lucide/svelte';
   import { getSettings, updateSettings, ApiError } from '$lib/api/client';
+  import { registerSearch } from '$lib/keys';
   import { router } from '$lib/router';
   import { session } from '$lib/state/session.svelte';
   import type { Problem, Setting, Settings } from '$lib/api/types';
@@ -107,20 +108,12 @@
   });
 
   /**
-   * `/` puts the cursor in the search box, the way it does in every list an
-   * operator reads rather than fills in. Ignored while something else is taking
-   * typing, or the key would be swallowed halfway through a value somebody was
-   * editing.
+   * `/` puts the cursor in the search box. The shortcut, the guard against
+   * swallowing a keystroke meant for a field, and the line in the shortcuts
+   * sheet all already exist in keys.ts -- a page only has to say which of its
+   * inputs is the search one, as Jobs, Runners and the log viewer do.
    */
-  function onKey(event: KeyboardEvent): void {
-    if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) return;
-    const active = document.activeElement;
-    const tag = active?.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-    if (active instanceof HTMLElement && active.isContentEditable) return;
-    event.preventDefault();
-    searchField?.focus();
-  }
+  $effect(() => registerSearch(searchField));
 
   const all = $derived<readonly Setting[]>(settings?.settings ?? []);
 
@@ -225,8 +218,6 @@
     }
   }
 </script>
-
-<svelte:window on:keydown={onKey} />
 
 <div class="panel {className}">
   <header>
