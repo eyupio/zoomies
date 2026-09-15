@@ -8,10 +8,15 @@ import (
 
 // Sampling has its own bounded budget. A busy host must not spend a second per
 // container in the same loop that notices exited jobs and releases disk space.
+//
+// A non-streaming Docker stats call takes a second at least: the daemon reads
+// the cgroup twice, a second apart, to have a CPU rate to report. Two seconds
+// left a loaded daemon no headroom and every sample on the host went stale
+// together, which read as a fleet of idle runners.
 const (
 	statsInterval = 30 * time.Second
-	statsBudget   = 10 * time.Second
-	statsTimeout  = 2 * time.Second
+	statsBudget   = 20 * time.Second
+	statsTimeout  = 5 * time.Second
 	statsWorkers  = 4
 )
 

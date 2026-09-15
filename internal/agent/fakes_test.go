@@ -28,10 +28,14 @@ type fakeBackend struct {
 	createDelay time.Duration
 	removeErr   error
 	listErr     error
-	stats       backend.Stats
-	logs        func() io.ReadCloser
-	inflight    int
-	maxInflight int
+	// listErrAfter is how many listings fail before the daemon answers
+	// again; zero means listErr holds for good.
+	listErrAfter int
+	listings     int
+	stats        backend.Stats
+	logs         func() io.ReadCloser
+	inflight     int
+	maxInflight  int
 	// unavailable makes Probe answer as a daemon that is not there, which is
 	// what a host looks like before its Docker is up. probes counts how often
 	// the agent has asked.
@@ -217,7 +221,8 @@ func (f *fakeBackend) resourceUpdates() []resourceUpdate {
 func (f *fakeBackend) List(context.Context) ([]backend.Workload, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.listErr != nil {
+	f.listings++
+	if f.listErr != nil && (f.listErrAfter == 0 || f.listings <= f.listErrAfter) {
 		return nil, f.listErr
 	}
 	out := make([]backend.Workload, len(f.workloads))

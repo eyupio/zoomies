@@ -225,6 +225,13 @@ type Task struct {
 	// LogOptions configures a log relay.
 	LogOptions *backend.LogOptions `json:"log_options,omitempty"`
 	IssuedAt   time.Time           `json:"issued_at"`
+	// Attempt counts deliveries of this task, from 1. A create that cannot
+	// establish whether its runner already exists reads it to tell the first
+	// delivery -- when no workload of that runner's can exist yet, so failing
+	// promptly costs nothing -- from a redelivery, where a workload may be
+	// mid-job and only silence is safe. Zero is a controller from before the
+	// field, which is treated like a redelivery.
+	Attempt int `json:"attempt,omitempty"`
 }
 
 // TaskResult reports the outcome of a task back to the controller.

@@ -3844,6 +3844,8 @@ export interface components {
             log_options?: components["schemas"]["LogOptions"];
             /** Format: date-time */
             issued_at: string;
+            /** @description Deliveries of this task so far, from 1. A create that cannot tell whether its runner already exists fails a first delivery promptly and leaves a redelivery for the lease. Absent from older controllers. */
+            attempt?: number;
         };
         /** @description Everything a backend needs to create one runner. The one place a JIT config crosses the wire, which is why the agent transport requires TLS off loopback. */
         RunnerSpec: {

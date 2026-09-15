@@ -22,7 +22,7 @@
 # A pool with a docker_mode also gets DOCKER_HOST, pointing at a
 # docker-in-docker sidecar or at the host's mounted socket:
 #
-#   ZOOMIES_DOCKER_WAIT    seconds to wait for that daemon (default 30)
+#   ZOOMIES_DOCKER_WAIT    seconds to wait for that daemon (default 120)
 #
 set -euo pipefail
 
@@ -54,12 +54,17 @@ trap 'forward TERM' TERM
 # dies with "Unable to locate executable file: docker" -- an error that names the
 # missing binary and not the reason, halfway through somebody's workflow. Say the
 # reason here instead, in the log the operator already downloads.
+#
+# It is a warning, not an exit. The controller swaps the stock image for its
+# Docker variant only under a moving tag, so a pool pinned to a release of the
+# stock image and given a docker_mode arrives here on every start; refusing it
+# would stop every job on that pool, including the ones that never touch
+# Docker, which is the outcome that swap was designed not to cause.
 if [ -n "${DOCKER_HOST:-}" ] || [ -S /var/run/docker.sock ]; then
   if ! command -v docker >/dev/null 2>&1; then
-    log "this pool provides a docker daemon, but this image has no docker client,"
+    log "warning: this pool provides a docker daemon, but this image has no docker client,"
     log "so jobs that run docker, buildx or compose will fail on it."
     log "set the pool image to a Docker-capable runner image, or install docker-ce-cli in your custom image."
-    exit 78
   fi
 fi
 
@@ -72,9 +77,17 @@ fi
 #
 # A pool that provides Docker must not accept a job until it can use it.
 # Bound both the overall wait and each probe: a hung client used to make the
-# nominal thirty-second wait unbounded.
+# nominal wait unbounded.
+#
+# The default is generous on purpose. dockerd in a fresh sidecar has to set up
+# its storage driver and iptables before it listens, and on a host that is
+# extracting images for the runners queued behind this one that can take well
+# over thirty seconds -- which was the old limit, and turned a slow host into a
+# host whose every runner failed before registering. The exit codes are
+# sysexits.h values the agent translates for the Runners page: 78 for a
+# configuration this script refuses, 69 for a daemon that never answered.
 wait_for_docker() {
-  local limit=${ZOOMIES_DOCKER_WAIT:-30}
+  local limit=${ZOOMIES_DOCKER_WAIT:-120}
   if ! [[ "$limit" =~ ^[0-9]{1,4}$ ]] || [ "$limit" -eq 0 ] || [ "$limit" -gt 3600 ]; then
     log "ZOOMIES_DOCKER_WAIT must be a whole number of seconds from 1 to 3600."
     return 78
@@ -98,7 +111,8 @@ wait_for_docker() {
     [ "$SECONDS" -lt "$deadline" ] && sleep 1
   done
   log "the required docker daemon did not become ready within ${limit}s; this runner will not accept a job."
-  return 1
+  log "on a slow host, set ZOOMIES_DOCKER_WAIT in the pool's env to allow it longer."
+  return 69
 }
 
 if [ -n "${DOCKER_HOST:-}" ] || [ -S /var/run/docker.sock ]; then

@@ -22,18 +22,22 @@ func TestRunnerRequiresDockerReadinessBeforeStartingItsListener(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The exit codes are part of the contract: the agent turns 69 and 78 into
+	// a sentence on the Runners page, so a change here must change
+	// entrypointExitHint with it.
 	for _, tc := range []struct {
 		name    string
 		docker  string
 		wait    string
 		started bool
+		exit    int
 	}{
-		{"ready", "exit 0", "30", true},
-		{"unavailable", "exit 1", "1", false},
-		{"hung probe", "exec sleep 30", "1", false},
-		{"invalid wait", "exit 0", "invalid", false},
-		{"zero wait", "exit 0", "0", false},
-		{"leading zero", "exit 0", "08", true},
+		{"ready", "exit 0", "30", true, 0},
+		{"unavailable", "exit 1", "1", false, 69},
+		{"hung probe", "exec sleep 30", "1", false, 69},
+		{"invalid wait", "exit 0", "invalid", false, 78},
+		{"zero wait", "exit 0", "0", false, 78},
+		{"leading zero", "exit 0", "08", true, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -61,6 +65,9 @@ func TestRunnerRequiresDockerReadinessBeforeStartingItsListener(t *testing.T) {
 			_, statErr := os.Stat(filepath.Join(dir, "listener-started"))
 			if (statErr == nil) != tc.started || (err == nil) != tc.started {
 				t.Fatalf("listener started=%v, exit=%v, want started=%v: %s", statErr == nil, err, tc.started, out)
+			}
+			if code := cmd.ProcessState.ExitCode(); code != tc.exit {
+				t.Fatalf("exit code = %d, want %d: %s", code, tc.exit, out)
 			}
 		})
 	}
