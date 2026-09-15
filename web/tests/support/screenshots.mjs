@@ -58,7 +58,10 @@ const FIXTURE = {
 /**
  * What is captured. `heading` is the <h1> that proves the route rendered;
  * `prepare` puts the page into the state worth showing after it has settled;
- * `clip` names a region to photograph instead of the whole page.
+ * `clip` names a region to photograph instead of the whole page; `device`
+ * gives the shot a browser context of its own -- a phone, or a desktop whose
+ * `prepare` changes a per-operator preference that must not follow the shots
+ * captured after it.
  */
 const SHOTS = [
   { name: 'overview', path: '/', heading: 'Overview' },
@@ -66,10 +69,23 @@ const SHOTS = [
     name: 'activity',
     path: '/',
     heading: 'Overview',
+    // Its own context: this shot widens the matrix, and the range is a
+    // per-operator preference, so on the shared one the two Overview shots
+    // taken after it would be photographed showing a year.
+    device: { viewport: DESKTOP, deviceScaleFactor: SCALE },
     async prepare(page) {
+      const matrix = page.getByRole('region', { name: 'Activity matrix', exact: true });
+      // The matrix opens on today, hour by hour, and this shot is of a day
+      // and the hours inside it -- so it takes the range that draws days.
+      await matrix.getByRole('button', { name: /^1y/ }).click();
+      // A square named for a weekday is the year's grid having arrived; the
+      // hourly one it replaces names a time of day.
+      await matrix
+        .getByRole('gridcell', { name: /^\w+day \d/ })
+        .first()
+        .waitFor();
       // The newest square with jobs in it is the one tab stop; selecting it
       // opens the day under the grid, hour by hour.
-      const matrix = page.getByRole('region', { name: 'Activity matrix', exact: true });
       await matrix.locator('[role="gridcell"][tabindex="0"]').click();
       await matrix.getByRole('img', { name: /^Hour by hour:/ }).waitFor();
       // The pointer is still on the square, and its tooltip would cover the
