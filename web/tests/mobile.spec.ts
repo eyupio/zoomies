@@ -700,9 +700,16 @@ async function gridOverflow(
   });
 }
 
-/** The layout toggle above a grid, as the operator presses it. */
+/**
+ * The layout toggle above a grid, as the operator presses it.
+ *
+ * Matched on the label the button shows, with whatever `Segmented` appends
+ * after it: the accessible name is "Cards — every value on its own line", and
+ * a locator written around the description rather than the label is one that
+ * breaks the next time the description is reworded.
+ */
 function layout(page: Page, choice: 'Cards' | 'Rows'): Locator {
-  return page.getByRole('button', { name: new RegExp(`^${choice}:`) });
+  return page.getByRole('button', { name: new RegExp(`^${choice}\\b`) });
 }
 
 test('a grid can be read as rows instead of cards, and remembers which', async ({ page }) => {
