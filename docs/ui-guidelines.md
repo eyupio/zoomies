@@ -439,8 +439,14 @@ The one page that has to earn the second monitor.
   preference. It is cut to the
   width of the screen rather than scrolled, so the newest week is always on
   it, and it is compact on purpose: every line it spends is a line the
-  numbers under it lose. The component lives in `lib/insights/` because the
-  Usage page draws its range with the same one.
+  numbers under it lose. The band spends its width as well as its height: a
+  grid with at least as many columns as rows grows its square until it fills
+  the room beside the figures, one too narrow for that keeps its size and
+  hands the width over, and the figures — what the squares on screen come to,
+  so the window reads without hovering every square — take whatever is left.
+  The key runs under both, where it explains the squares rather than floating
+  at the right with the white space in front of it. The component lives in
+  `lib/insights/` because the Usage page draws its range with the same one.
 * **Four metric tiles**: queued jobs, running jobs, live runners, median queue
   wait. Each carries a sparkline of the last hour.
 * **Per-pool utilisation bars** — busy / live, with the pool's min and max marked

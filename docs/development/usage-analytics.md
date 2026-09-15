@@ -42,6 +42,20 @@ buckets become a row per day and a column per hour. Which one a range gets is
 the API's own rule, hourly at 48 hours or less, so the page applies the same
 rule to know what a square is.
 
+The band beside the grid is the window in words: the totals the caller gives
+it, then the figures the component works out from the squares on screen --
+failure rate, execution time, the busiest interval, the deepest queue, and the
+capacity share once a ceiling has actually been reached. Which of the two
+takes the width is settled by shape rather than by a breakpoint. A grid with
+at least as many columns as rows grows its square, up to twice the size the
+caller asked for, until it fills the room left once the aside is owed two
+columns of figures; a grid with more rows than columns -- a month, which is
+five week columns whatever the square -- would reach the foot of the panel
+long before the right of it, so it keeps its size and the aside takes the
+width. The year is the exception both ways: it spends the width by cutting
+weeks to fit, which is measured against a single column of figures, because a
+year that does not fit is a year with months missing.
+
 The arithmetic is in `lib/insights/activity.ts` and is tested in Node: how a
 square is painted under each mode, how the darkness steps are cut (quarters of
 the busiest square on screen for counts; fixed bands for a failure share and

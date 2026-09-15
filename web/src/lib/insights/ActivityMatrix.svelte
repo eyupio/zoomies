@@ -19,6 +19,16 @@
   hour-by-hour breakdown when a loader is given, and links into the pages that
   list the jobs themselves. The same component draws the Usage page's matrix,
   where a window of two days or less is laid out an hour per square instead.
+
+  The band is the grid, the aside beside it, and the key under both. A grid
+  with at least as many columns as rows grows its square until it fills the
+  room it is given, so a day of hours is a band across the panel rather than a
+  stub at the left; one too narrow for that -- a month, which is five week
+  columns however large the square -- keeps its size and hands the rest over.
+  The aside is the window in words, what the squares on screen come to, and it
+  takes whatever the grid did not: its figures are fluid, so the same markup
+  reads as a column beside a wide grid and as a row beside a narrow one. The
+  key goes underneath, where it explains the squares and fits on one line.
 -->
 <script lang="ts" module>
   export interface ActivityLink {
@@ -53,6 +63,7 @@
     monthLabels,
     paint,
     scaleOf,
+    summarise,
     type ActivityBucket,
     type ActivityMode,
     type CalendarCell,
@@ -131,6 +142,12 @@
 
   const WEEKDAY = new Intl.DateTimeFormat(undefined, { weekday: 'short' });
   const DAY_SHORT = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
+  // Short enough to sit in a figure's value beside its label, which is the
+  // whole constraint: a bucket is a whole hour, so the minutes say nothing,
+  // and an hourly window is a week at most, so the weekday places it without
+  // the date. The long form belongs to the tooltip, which has a line of its
+  // own to spend on it.
+  const DAY_HOUR = new Intl.DateTimeFormat(undefined, { weekday: 'short', hour: 'numeric' });
   // The first of January 2024 was a Monday, which is all this needs it for.
   const weekdays = Array.from({ length: 7 }, (_, i) => WEEKDAY.format(new Date(2024, 0, 1 + i)));
   const hourLabels = Array.from({ length: 24 }, (_, h) =>
@@ -141,7 +158,11 @@
 
   /** How many week columns the frame has room for, once measured. */
   let fit = $state<number | null>(null);
-  let frameWidth = $state(0);
+  /** The width one column may take if the grid is to fill the band, in pixels. */
+  let room = $state<number | null>(null);
+  let bandWidth = $state(0);
+  let band = $state<HTMLDivElement | null>(null);
+  let aside = $state<HTMLDivElement | null>(null);
   let grid = $state<HTMLDivElement | null>(null);
 
   const columns = $derived.by(() => {
@@ -197,25 +218,67 @@
     the gap, both tokens, and the row heading is whatever the weekday names
     come to in the operator's language; reading them off the rendered grid is
     what keeps this file from repeating the token file's numbers.
+
+    The heading and the gap are what they are whatever size the square is, so
+    a square this measurement grows does not move them and there is no second
+    pass to settle: the one thing that does depend on the square, the pitch,
+    is read only for the layout that never grows one.
   */
   $effect(() => {
-    if (weeks !== 'fit' || interval !== 'day' || !grid || frameWidth === 0) return;
+    if (!grid || !band || !aside || bandWidth === 0) return;
     const squares = grid.querySelectorAll<HTMLElement>('[data-index]');
     const a = squares[0];
     const b = Array.from(squares).find(
       (el) => el !== a && el.getBoundingClientRect().top === a?.getBoundingClientRect().top,
     );
     if (!a || !b) return;
-    const pitch = Math.abs(b.getBoundingClientRect().left - a.getBoundingClientRect().left);
-    const heading = a.getBoundingClientRect().left - grid.getBoundingClientRect().left;
+    const box = a.getBoundingClientRect();
+    const pitch = Math.abs(b.getBoundingClientRect().left - box.left);
+    const heading = box.left - grid.getBoundingClientRect().left;
     if (pitch <= 0) return;
-    const gap = pitch - a.getBoundingClientRect().width;
-    const room = Math.floor((frameWidth - heading + gap) / pitch);
+    const gap = pitch - box.width;
+    /*
+      The band's width, not the frame's: the frame is a max-content track, so
+      measuring it would be measuring the grid that is about to be sized
+      against it. What the aside is owed comes off first, and the two ways of
+      spending the width owe it different amounts.
+
+      Cutting weeks owes the aside its least width -- one column of figures --
+      because a year that does not fit is a year with months missing, and no
+      figure is worth a missing month. Growing a square owes it twice that,
+      the width of two columns: the square is already legible and the gain is
+      a nicety, so it stops while the aside can still be short and wide rather
+      than narrow and tall. On a phone the aside sits under the grid, the band
+      is one track, and neither owes it anything.
+    */
+    const least = hasAside ? parseFloat(getComputedStyle(aside).minWidth) || 0 : 0;
+    const between = parseFloat(getComputedStyle(band).columnGap) || 0;
+    const owed = least > 0 ? least + between : 0;
+    const count = Math.max(1, layout.labels.length);
+    // One gap of slack for the frame's own padding: a square clipped by a
+    // pixel is a square the frame grows a scrollbar for.
+    const spare = bandWidth - heading - gap;
+    room = Math.max(0, (spare - 2 * owed) / count - gap);
+    if (weeks !== 'fit' || interval !== 'day') return;
     // Never fewer than a month, however narrow the screen: below that the
     // frame scrolls, which is honest, rather than showing a week and calling
     // it history.
-    fit = Math.max(4, room);
+    fit = Math.max(4, Math.floor((spare - owed + gap) / pitch));
   });
+
+  /*
+    The square grows only where the number of columns is settled, and only
+    where there are at least as many columns as rows. The year spends the same
+    width the other way, by cutting weeks until they fit, and a layout that
+    did both would chase itself: a wider square fits fewer weeks, and fewer
+    weeks leave room for a wider square. A taller grid than it is wide -- a
+    month, which is five week columns whatever the square -- would reach the
+    foot of the panel long before the right of it, so it keeps its size and
+    the aside takes the width instead.
+  */
+  const fills = $derived(
+    weeks !== 'fit' && room !== null && layout.rows.length <= layout.labels.length,
+  );
 
   const weeksShown = $derived(interval === 'day' ? columns.length : 0);
   const gridLabel = $derived(
@@ -541,6 +604,52 @@
     return rows;
   }
 
+  /*
+    What the squares on screen come to, for the aside beside them. The grid
+    says when the fleet was busy; these say how much, how often it went wrong
+    and where the worst of it landed -- the things an operator would otherwise
+    get only by hovering every square in turn. A row that has nothing to say
+    is left out rather than printed as a dash, so a quiet window is a short
+    list and not a wall of nothing, and capacity waits until it has been
+    reached at least once: a fleet that never hit its ceiling has a whole line
+    of the band saying so, and the band is above the fleet's own numbers.
+  */
+  const summary = $derived.by((): Array<[string, string]> => {
+    const totals = summarise(cells.map((c) => c.bucket));
+    let busiest: CalendarCell | null = null;
+    let most = 0;
+    let peak = 0;
+    let samples = 0;
+    let reached = 0;
+    for (const cell of cells) {
+      const done = completedIn(cell.bucket);
+      if (done > most) {
+        most = done;
+        busiest = cell;
+      }
+      peak = Math.max(peak, cell.bucket.queued);
+      samples += cell.bucket.capacity_samples;
+      reached += cell.bucket.capacity_reached;
+    }
+    const rows: Array<[string, string]> = [];
+    if (totals.completed > 0) {
+      rows.push(['Failure rate', formatPercent(totals.failed / totals.completed, 1)]);
+    }
+    if (totals.execution_seconds > 0) rows.push(['Executing', hours(totals.execution_seconds)]);
+    if (busiest) {
+      rows.push([
+        interval === 'day' ? 'Busiest day' : 'Busiest hour',
+        `${(interval === 'day' ? DAY_SHORT : DAY_HOUR).format(busiest.date)} · ${formatNumber(most)}`,
+      ]);
+    }
+    if (peak > 0) rows.push(['Peak queued', formatNumber(peak)]);
+    if (reached > 0) rows.push(['At capacity', formatPercent(reached / samples, 1)]);
+    return rows;
+  });
+
+  /** Whether there is a column beside the grid at all, or only the key under it. */
+  const hasAside = $derived(caption !== undefined || summary.length > 0);
+
   const legend = $derived.by(() => {
     switch (mode) {
       case 'queue':
@@ -561,9 +670,11 @@
   data-mode={mode}
   data-interval={interval}
   data-size={size}
+  data-aside={hasAside}
+  style:--room={fills && room !== null ? `${room}px` : null}
 >
-  <div class="band">
-    <div class="frame" bind:clientWidth={frameWidth}>
+  <div class="band" bind:this={band} bind:clientWidth={bandWidth}>
+    <div class="frame">
       {#if cells.length === 0}
         <p class="empty">No history in this window yet.</p>
       {:else}
@@ -622,8 +733,21 @@
       {/if}
     </div>
 
-    <div class="legend">
+    <div class="aside" bind:this={aside}>
       {#if caption}<div class="caption">{@render caption()}</div>{/if}
+      {#if summary.length}
+        <dl class="figures window">
+          {#each summary as [label, value] (label)}
+            <div>
+              <dt>{label}</dt>
+              <dd>{value}</dd>
+            </div>
+          {/each}
+        </dl>
+      {/if}
+    </div>
+
+    <div class="legend">
       <span class="ramp">
         <span>{legend.less}</span>
         <i class="sq" data-kind="quiet" aria-hidden="true"></i>
@@ -804,26 +928,54 @@
        read off the rendered grid, so this pair is the whole geometry. Ten
        pixels is the square a contribution graph taught everyone to read, and
        a one-off measure of this component's own layout rather than a token. */
-    --cell: 10px;
+    --cell-base: 10px;
+    /* Twice the size asked for, and no further: past that a square stops
+       reading as one square among many and starts reading as a tile. */
+    --cell-max: var(--z-space-5);
+    --cell: var(--cell-base);
     --gap: var(--z-nudge-3);
     min-width: 0;
   }
   .matrix[data-size='md'] {
-    --cell: var(--z-space-3);
+    --cell-base: var(--z-space-3);
+    --cell-max: var(--z-space-6);
   }
   .matrix[data-size='lg'] {
-    --cell: var(--z-space-4);
+    --cell-base: var(--z-space-4);
+    --cell-max: var(--z-space-8);
     --gap: var(--z-space-1);
   }
-  /* The grid, and the legend beside it where there is room for both. */
+  /* The square grows into the room measured for one column, within the pair
+     above. Redefined on the grid rather than on the matrix so the key's own
+     squares stay the size the key is read at. */
+  .labels,
+  .grid {
+    --cell: clamp(var(--cell-base), var(--room, 0px), var(--cell-max));
+  }
+  /*
+    The grid, and the aside beside it. Two tracks rather than two flex items,
+    so the split needs no arbiter: the grid takes the width it has actually
+    grown to and the aside takes the rest, down to a column of its own. A
+    range whose square hits its ceiling -- a quarter is thirteen week columns
+    however large the square -- therefore hands the difference to the figures
+    rather than leaving it white.
+  */
   .band {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    gap: var(--z-space-3) var(--z-space-6);
+    display: grid;
+    grid-template-columns: minmax(0, max-content) minmax(var(--aside), 1fr);
+    align-items: stretch;
+    gap: var(--z-space-2) var(--z-space-6);
+    /* One column of figures: the aside's least width, and the measure both
+       budgets above are taken from. Named once here, used by the track and by
+       the aside, and read back in pixels off the rendered aside. */
+    --aside: 11rem;
   }
   .frame {
-    flex: 1 1 0;
+    /* A day of hours is one row of squares against an aside several lines
+       tall. Centred, that is a band with a strip through the middle of it;
+       aligned to the top it is a strip with a hole under it. Every taller
+       grid sets the height itself, so this does nothing to those. */
+    align-self: center;
     min-width: 0;
     overflow-x: auto;
     overflow-y: hidden;
@@ -958,45 +1110,63 @@
     border-radius: var(--z-nudge-2);
   }
 
-  .legend {
-    flex: none;
+  .aside {
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
-    gap: var(--z-space-1);
+    align-items: stretch;
+    gap: var(--z-space-2);
+    min-width: var(--aside);
+  }
+  /* Nothing to say beside the grid -- the Usage page's matrix before its first
+     job -- and the grid has the band to itself. */
+  .matrix[data-aside='false'] .band {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .matrix[data-aside='false'] .aside {
+    display: none;
+  }
+  /*
+    The key runs under both, the whole width of the band. It explains the
+    squares, so it belongs beneath them rather than in a column of its own,
+    and the full width is what keeps it to one line -- three ramps stacked
+    beside the grid were three lines the band could not afford.
+  */
+  .legend {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--z-space-1) var(--z-space-4);
     font-size: var(--z-text-2xs);
     line-height: var(--z-leading-2xs);
     color: var(--z-text-muted);
   }
-  /* A phone has no room beside the grid, so the legend goes under it and
-     reads across, as it did before there was a beside. */
+  /* The window's figures, laid out as a square's are, one column where the
+     aside is a column and a row of them where it is a row. */
+  .figures.window {
+    margin: 0;
+    row-gap: var(--z-space-1);
+    grid-template-columns: repeat(auto-fit, minmax(var(--aside), 1fr));
+  }
+  /* A phone has no room beside the grid, so the aside goes under it. */
   @media (max-width: 768px) {
     /* A phone gets the small square whatever the range: a day of hours is
        twenty-four columns, and they have to fit between the gutters. */
     .matrix,
     .matrix[data-size='md'],
     .matrix[data-size='lg'] {
-      --cell: 10px;
+      --cell-base: 10px;
+      --cell-max: 10px;
       --gap: var(--z-nudge-2);
     }
+    /* One track, so the aside goes under the grid rather than beside it. The
+       least width goes with it -- it is what a column beside the grid is owed,
+       and there is no column -- while --aside stays what it is, because the
+       figures still lay themselves out a column of that width at a time. */
     .band {
-      flex-direction: column;
-      /* Never wrap once the direction is column: a wrapping column flexbox
-         sizes each line to its content, and the line would be the grid's
-         full width, pushing the page out past the edge of the phone. */
-      flex-wrap: nowrap;
-      align-items: stretch;
+      grid-template-columns: minmax(0, 1fr);
     }
-    /* The zero basis that shares a row's width would, in a column, share a
-       height the column does not have, and the frame would be no height at
-       all: as tall as its grid, then. */
-    .frame {
-      flex: none;
-    }
-    .legend {
-      flex-direction: row;
-      flex-wrap: wrap;
-      gap: var(--z-space-1) var(--z-space-4);
+    .aside {
+      min-width: 0;
     }
   }
   .ramp {
@@ -1008,7 +1178,6 @@
     padding: 0 var(--z-nudge-2);
   }
   .caption {
-    margin-bottom: var(--z-space-1);
     font-size: var(--z-text-xs);
     color: var(--z-text-muted);
   }
