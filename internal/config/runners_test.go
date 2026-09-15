@@ -27,6 +27,32 @@ func TestDockerWaitIsBoundedByWhatTheImageAccepts(t *testing.T) {
 	}
 }
 
+// ZOOMIES_DOCKER_WAIT named the runner image's own whole-seconds wait long
+// before runners.docker_wait existed, and an operator's or an embedded
+// controller's environment carrying that exact spelling is not a typo to
+// refuse: it is read as seconds, on this setting and no other.
+func TestDockerWaitEnvAcceptsWholeSecondsForBackwardsCompatibility(t *testing.T) {
+	c := Default()
+	if _, err := c.SetValueString("runners.docker_wait", "120"); err != nil {
+		t.Fatalf("SetValueString(\"120\"): %v", err)
+	}
+	if c.Runners.DockerWait != 120*time.Second {
+		t.Fatalf("runners.docker_wait = %s, want 2m from a bare \"120\"", c.Runners.DockerWait)
+	}
+	// A duration string still wins in its own right.
+	if _, err := c.SetValueString("runners.docker_wait", "3m"); err != nil {
+		t.Fatalf("SetValueString(\"3m\"): %v", err)
+	}
+	if c.Runners.DockerWait != 3*time.Minute {
+		t.Fatalf("runners.docker_wait = %s, want 3m", c.Runners.DockerWait)
+	}
+	// No other duration setting gains this leniency: a bare number elsewhere
+	// is still refused, the way an operator setting it is told to expect.
+	if _, err := c.SetValueString("scheduler.provision_timeout", "120"); err == nil {
+		t.Fatal("scheduler.provision_timeout accepted a bare number")
+	}
+}
+
 // One value for the whole fleet is wrong for every runner in it when the
 // variable is the runner's own name or credentials. Case does not matter:
 // the image reads the upper-case name, and a lower-case spelling would not

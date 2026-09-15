@@ -189,7 +189,20 @@ func decode(s Setting, f reflect.Value, value any) error {
 		if !ok {
 			return fail("%v is not a duration; write it as text, like 30s, 5m or 2h", value)
 		}
-		d, err := time.ParseDuration(strings.TrimSpace(text))
+		text = strings.TrimSpace(text)
+		d, err := time.ParseDuration(text)
+		if err != nil && s.Key == "runners.docker_wait" {
+			// ZOOMIES_DOCKER_WAIT named the runner image's own whole-seconds
+			// wait for a Docker daemon long before this became a fleet
+			// setting, and a pool's own env still writes it that way. An
+			// operator -- or a runner's own environment, inherited by an
+			// embedded controller -- who already has "120" set there is
+			// carrying that contract forward, not making a mistake, so it is
+			// read as seconds rather than refused.
+			if n, serr := strconv.ParseInt(text, 10, 64); serr == nil {
+				d, err = time.Duration(n)*time.Second, nil
+			}
+		}
 		if err != nil {
 			return fail("%q is not a duration (try 30s, 5m, 2h)", text)
 		}
