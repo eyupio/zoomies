@@ -253,6 +253,20 @@ type tracked struct {
 	// so the refusal is logged once and not on every beat the throttle
 	// stands. The update is still retried: the daemon may have recovered.
 	failedCPUFactor *float64
+	// pendingCPUFactor is a factor an update is in flight for.
+	//
+	// applyThrottle chooses its candidates under the lock and then releases it
+	// to talk to the daemon, so without this a second pass starting in that
+	// window sees a runner whose applied factor has not been written yet and
+	// asks the daemon for the same quota again. Two callers are all it takes:
+	// a create throttling the runner it has just made, and the heartbeat that
+	// lands while it is doing so.
+	//
+	// The duplicate changes nothing -- the update is idempotent, which is why
+	// this went unnoticed -- but it is a second daemon call per create on
+	// exactly the host that is already overwhelmed, which is the one place
+	// Zoomies should be asking for less.
+	pendingCPUFactor *float64
 }
 
 func (t *tracked) report() RunnerReport {

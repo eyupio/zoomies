@@ -53,6 +53,11 @@ type fakeBackend struct {
 	// makes each one fail the way a daemon without the endpoint would.
 	updates   []resourceUpdate
 	updateErr error
+	// updateGate holds UpdateResources open, and updateEntered says when a
+	// caller has arrived in it. Both nil unless a test is deliberately racing
+	// two callers over one runner.
+	updateGate    chan struct{}
+	updateEntered chan struct{}
 }
 
 // resourceUpdate is one UpdateResources call the fake backend received.
@@ -202,6 +207,19 @@ func (f *fakeBackend) Remove(_ context.Context, h backend.Handle) error {
 // UpdateResources makes this backend a backend.ResourceUpdater, which is what
 // a throttle needs of one. It records the call and touches nothing.
 func (f *fakeBackend) UpdateResources(_ context.Context, h backend.Handle, res store.Resources) error {
+	f.mu.Lock()
+	gate, entered := f.updateGate, f.updateEntered
+	f.mu.Unlock()
+	// Held open so a test can run a second caller while this one is inside the
+	// daemon call, which is the window the throttle's in-flight marker exists
+	// to close. Nil in every other test, where this is an ordinary call.
+	if gate != nil {
+		if entered != nil {
+			entered <- struct{}{}
+		}
+		<-gate
+	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.updateErr != nil {

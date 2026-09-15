@@ -73,6 +73,11 @@ func (a *Agent) applyThrottle(ctx context.Context, announce bool) {
 		if r.appliedCPUFactor != nil && *r.appliedCPUFactor == factor {
 			continue
 		}
+		// Somebody else is already asking the daemon for this factor. Waiting
+		// for them is right rather than merely cheap: a second call cannot
+		// improve on the first, and if it fails the first one's result is the
+		// one that gets recorded anyway.
+
 		b, err := a.opts.Backends.Get(r.kind)
 		if err != nil {
 			continue
@@ -90,6 +95,8 @@ func (a *Agent) applyThrottle(ctx context.Context, announce bool) {
 		if factor < 1 {
 			res.CPUs = math.Round(res.CPUs*factor*100) / 100
 		}
+		f := factor
+		r.pendingCPUFactor = &f
 		todo = append(todo, candidate{
 			runnerID: r.runnerID, handle: r.handle, updater: u, res: res,
 			warned: r.failedCPUFactor != nil && *r.failedCPUFactor == factor,
@@ -114,6 +121,12 @@ func (a *Agent) applyThrottle(ctx context.Context, announce bool) {
 		a.mu.Lock()
 		r, ok := a.runners[c.runnerID]
 		if ok {
+			// Claimed above and released here whatever happened, so a refusal
+			// is retried on the next beat rather than held off for ever by a
+			// marker nothing clears.
+			if r.pendingCPUFactor != nil && *r.pendingCPUFactor == factor {
+				r.pendingCPUFactor = nil
+			}
 			switch {
 			case err == nil:
 				f := factor
