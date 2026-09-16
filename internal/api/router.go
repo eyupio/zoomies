@@ -296,6 +296,10 @@ func (s *Server) apiRoutes() chi.Router {
 			// write because the offsite copy exists precisely because the
 			// local ones might not.
 			r.With(s.require(auth.ActionBackupsWrite)).Post("/offsite", s.handleShipBackups)
+			// Retention on demand, for the operator who has just lowered
+			// backup.keep and would otherwise wait for the next backup to
+			// find out what that meant. A write: it deletes copies.
+			r.With(s.require(auth.ActionBackupsWrite)).Post("/prune", s.handlePruneBackups)
 			// Adding a destination is a write for the same reason deleting a
 			// copy is: it decides where this fleet's whole database goes.
 			// "check" comes before "{name}" so a destination may not be called

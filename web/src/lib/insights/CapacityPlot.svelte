@@ -59,7 +59,10 @@
     compact?: boolean;
     /** Draw the times along the bottom. Only the last of a stack does. */
     axis?: boolean;
-    /** Write the lead value at the end of every line. */
+    /**
+     * Write the lead value at the end of every line. A narrow plot declines
+     * whatever this says: there the gutter is worth more as drawing.
+     */
     labels?: boolean;
     /** Wash the area under the lead lines. Only where one host is drawn. */
     wash?: boolean;
@@ -109,7 +112,7 @@
   /* -- the frame ------------------------------------------------------------- */
 
   let width = $state(0);
-  const frame = $derived(plotFrame(width || 760, { compact, lane: overflow > 0, axis }));
+  const frame = $derived(plotFrame(width || 760, { compact, lane: overflow > 0, axis, labels }));
   const x = $derived(scaleX(frame, count));
   const y = $derived(scaleY(frame, overflow));
   const grid = $derived(compact ? [0, 50, 100] : [0, 25, 50, 75, 100]);
@@ -162,7 +165,7 @@
 
   /** The lead value at the end of every line that reaches the edge. */
   const ends = $derived.by(() => {
-    if (!labels || lead === null) return [];
+    if (!frame.labels || lead === null) return [];
     const eligible = lines.filter(
       (l) => l.metric.key === lead && l.last !== null && l.last.i >= count - 2,
     );

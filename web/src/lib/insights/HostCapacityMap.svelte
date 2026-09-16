@@ -528,8 +528,10 @@
         {#each ranked.slice(0, CARD_ROWS) as r (r.host.id)}
           <tr class:lit={emphasis.host === r.host.id}>
             <th scope="row">
-              <span class="swatch" style:background={r.tone}></span>
-              <span class="name">{r.host.name ?? r.host.id}</span>
+              <span class="who">
+                <span class="swatch" style:background={r.tone}></span>
+                <span class="name">{r.host.name ?? r.host.id}</span>
+              </span>
             </th>
             {#each r.figures as f (f.metric.key)}
               <td class:pressed={f.percent !== null && f.percent >= PRESSURE}>
@@ -882,16 +884,31 @@
     letter-spacing: var(--z-tracking-wide);
     text-transform: uppercase;
   }
+  /*
+    The name column takes whatever the figures do not want, and clips.
+
+    It used to be a flex container with a 14rem name in it, which took the
+    cell out of the table's layout: on a phone a host called
+    zoomies-8vcpu-31gb-ubuntu-2404-ollama1 held the column open at its full
+    width and pushed the measurements off the right of the card, so the
+    figures the reading exists for were the part that went. `width: 100%` with
+    `max-width: 0` is the table's way of saying "absorb the rest of the row",
+    and it is what lets the ellipsis inside happen at all.
+  */
   .reading th[scope='row'] {
-    display: flex;
-    align-items: center;
-    gap: var(--z-space-2);
+    width: 100%;
+    max-width: 0;
     padding-left: 0;
     font-weight: var(--z-weight-medium);
     text-align: left;
   }
+  .reading th[scope='row'] .who {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-2);
+    min-width: 0;
+  }
   .reading th[scope='row'] .name {
-    max-width: 14rem;
     overflow: hidden;
     text-overflow: ellipsis;
   }

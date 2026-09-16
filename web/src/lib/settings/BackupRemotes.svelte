@@ -11,6 +11,13 @@
   Fetching a copy brings it back into the backup directory as an ordinary
   backup. It deliberately does not restore: that is the table above, staged and
   confirmed by name, after somebody has seen the copy land.
+
+  A destination's own address is the longest thing on this page and the one
+  nobody chose the length of -- an R2 endpoint is a thirty-two character
+  account id and a hostname, with nowhere to break. Everything here that
+  carries one says so: the row wraps, the text breaks anywhere, and the
+  listing pages, because a bucket keeping ninety days of a fleet is ninety
+  rows an operator would otherwise scroll past to reach the buttons.
 -->
 <script lang="ts">
   import { Cloud, CloudOff, CloudUpload, Download, Pencil, Plus, Trash2 } from '@lucide/svelte';
@@ -28,6 +35,7 @@
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+  import Pagination from '$lib/components/Pagination.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import BackupRemoteForm from './BackupRemoteForm.svelte';
@@ -48,6 +56,16 @@
   let listing = $state(false);
   let listError = $state<string | null>(null);
   let fetching = $state<string | null>(null);
+
+  /* The listing pages. A destination that keeps ninety days of a fleet is
+     ninety rows, and the page they are opened from is a settings page rather
+     than a grid: what an operator came for is the newest few and the buttons
+     under them. Ten to a page, newest first, which is the order the bucket
+     gives them in. */
+  const COPIES_PER_PAGE = [10, 25, 50] as const;
+  let copiesLimit = $state<number>(COPIES_PER_PAGE[0]);
+  let copiesOffset = $state(0);
+  const shownCopies = $derived(copies.slice(copiesOffset, copiesOffset + copiesLimit));
 
   let removing = $state<RemoteBackupCopy | null>(null);
   let removeOpen = $state(false);
@@ -147,6 +165,7 @@
     try {
       const result = await listRemoteBackups(name);
       copies = result.items;
+      copiesOffset = 0;
     } catch (cause) {
       copies = [];
       listError = cause instanceof Error ? cause.message : String(cause);
@@ -216,8 +235,13 @@
           <code>zoomies.yaml</code>, which is the copy a host that has lost its database can still
           read.
         {:else}
-          Every backup is copied to {pluralise(remotes.length, 'destination', 'destinations')} after it
-          is taken, and again on the hour if one was unreachable.
+          Every backup — the schedule's, one taken here, one taken by
+          <code>zoomies backup</code> — is copied to {pluralise(
+            remotes.length,
+            'destination',
+            'destinations',
+          )} as part of taking it, and every destination is reconciled again on the hour so a bucket that
+          was unreachable catches up by itself. The button is for running that now.
         {/if}
       </p>
     </div>
@@ -276,12 +300,10 @@
                 {/if}
               </span>
               <span class="second mono">{remote.where}</span>
-              <span class="second">
-                {remote.endpoint}
-                {#if remote.keep > 0}
-                  · keeps {pluralise(remote.keep, 'copy', 'copies')}
-                {/if}
-              </span>
+              <span class="second">{remote.endpoint}</span>
+              {#if remote.keep > 0}
+                <span class="second">keeps {pluralise(remote.keep, 'copy', 'copies')}</span>
+              {/if}
             </div>
             <div class="state">
               {#if remote.uploading}
@@ -356,13 +378,15 @@
                 <p class="second">This remote holds no backups of this fleet.</p>
               {:else}
                 <ul>
-                  {#each copies as copy (copy.key)}
+                  {#each shownCopies as copy (copy.key)}
                     <li>
-                      <span class="mono">{copy.id}</span>
-                      <span class="second">
-                        taken <RelativeTime value={copy.taken_at} plain /> · {formatBytes(
-                          copy.bytes,
-                        )}{copy.encrypted ? ' · encrypted' : ''}
+                      <span class="copy-who">
+                        <span class="mono">{copy.id}</span>
+                        <span class="second">
+                          taken <RelativeTime value={copy.taken_at} plain /> · {formatBytes(
+                            copy.bytes,
+                          )}{copy.encrypted ? ' · encrypted' : ''}
+                        </span>
                       </span>
                       <span class="copy-actions">
                         <Button
@@ -388,6 +412,20 @@
                     </li>
                   {/each}
                 </ul>
+                {#if copies.length > COPIES_PER_PAGE[0]}
+                  <Pagination
+                    total={copies.length}
+                    limit={copiesLimit}
+                    offset={copiesOffset}
+                    noun="copies"
+                    sizes={COPIES_PER_PAGE}
+                    onpage={(next) => (copiesOffset = next)}
+                    onlimit={(next) => {
+                      copiesLimit = next;
+                      copiesOffset = 0;
+                    }}
+                  />
+                {/if}
               {/if}
             </div>
           {/if}
@@ -476,7 +514,15 @@
     display: grid;
     gap: var(--z-space-2);
   }
+  /*
+    `min-width: 0` on a grid item, because the default is `auto` -- the item's
+    own min-content -- and a destination's endpoint has no min-content worth
+    speaking of: a Cloudflare R2 address is a thirty-two character account id
+    and a hostname with nowhere to break, so the card was held open at four
+    hundred pixels and took the whole settings page sideways with it.
+  */
   .list > li {
+    min-width: 0;
     padding: var(--z-space-3);
     border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
@@ -494,18 +540,24 @@
   }
   .who {
     min-width: 0;
+    /* Wide enough to be worth a column beside the state and the buttons, and
+       willing to be the whole row under them when it is not. */
+    flex: 1 1 16rem;
     display: grid;
     gap: var(--z-space-1);
   }
   .name {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: var(--z-space-2);
     font-size: var(--z-text-sm);
     font-weight: var(--z-weight-medium);
     color: var(--z-text);
+    overflow-wrap: anywhere;
   }
   .state {
+    min-width: 0;
     display: grid;
     gap: var(--z-space-1);
     text-align: right;
@@ -514,11 +566,17 @@
   .copy-actions {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: var(--z-space-2);
   }
+  /* `anywhere` rather than `break-word`, because a destination's endpoint and
+     its bucket path are the strings nobody chose the length of: only
+     `anywhere` takes the break into the element's min-content size, which is
+     what stops the card being held open before any wrapping is attempted. */
   .second {
     font-size: var(--z-text-xs);
     color: var(--z-text-muted);
+    overflow-wrap: anywhere;
   }
   .unset {
     font-style: italic;
@@ -554,14 +612,29 @@
     justify-content: space-between;
     gap: var(--z-space-3);
     flex-wrap: wrap;
+    min-width: 0;
+  }
+  .copy-who {
+    min-width: 0;
+    flex: 1 1 14rem;
+    display: grid;
+    gap: var(--z-nudge-2);
   }
   .copies p {
     margin: 0;
   }
 
   @media (max-width: 40rem) {
+    /* Right-aligned figures under a left-aligned name read as a second
+       column that is not there. */
     .state {
       text-align: left;
+    }
+    /* A row of four ghost buttons is wider than a phone. They become a block
+       of targets, which is also the shape a finger wants. */
+    .actions,
+    .copy-actions {
+      width: 100%;
     }
   }
 </style>

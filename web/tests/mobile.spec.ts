@@ -635,6 +635,94 @@ test('a name nobody chose wraps rather than taking the page or Close off the scr
 });
 
 /*
+ * And the addresses nobody chose either.
+ *
+ * A backup destination is an S3 endpoint, a bucket and a prefix, and a
+ * Cloudflare R2 endpoint is a thirty-two character account id in front of a
+ * hostname: fifty-six characters with nowhere to break. The destination sat in
+ * a grid whose items keep their min-content width by default, so the card was
+ * held open at four hundred pixels and took the settings page sideways with
+ * it -- the page an operator reaches for on a phone precisely when the fleet
+ * is in trouble.
+ */
+test('a backup destination with a long address stays inside the screen', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 780 });
+  const endpoint = 'https://0c3c36183dc3e0714e8de12c040ba3d5.r2.cloudflarestorage.com';
+
+  await page.route('**/api/v1/backups', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.remotes = [
+      {
+        name: 'zoomies',
+        where: 'zoomies-backups-eu-west-production/controllers/zoomies-primary',
+        endpoint,
+        encrypted: false,
+        keep: 30,
+        disabled: false,
+        source: 'database',
+        shadowed: false,
+        has_secret_key: true,
+        uploading: false,
+        copies: 30,
+        bytes: 11_534_336,
+        path_style: null,
+        listed_at: new Date().toISOString(),
+        last_upload_at: new Date().toISOString(),
+        last_upload_id: 'zoomies-20260916-201754',
+      },
+    ];
+    await route.fulfill({ response, json: body });
+  });
+
+  await goto(page, '/settings/backups', 'Backups');
+  await expect(page.getByText(endpoint)).toBeVisible();
+  await expectNoSidewaysScroll(page, 'the Backups page with a long destination address');
+});
+
+/*
+ * The reading under the capacity map is a table: the host in the first column
+ * and a figure per measurement after it. The name column was a flex container
+ * with a 14rem name in it, which takes the cell out of the table's own layout
+ * -- so a host called zoomies-8vcpu-31gb-ubuntu-2404-ollama1 held the column
+ * open at its full width and pushed CPU and MEMORY off the right of the card.
+ * The figures are what the reading is for, so the part that went was the
+ * whole point of it.
+ */
+test('the capacity reading keeps its figures on the card whatever the hosts are called', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 360, height: 780 });
+  const names = ['zoomies-12vcpu-31gb-debian-12-zoomies', 'zoomies-8vcpu-31gb-ubuntu-2404-ollama1'];
+
+  await page.route('**/api/v1/hosts**', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    if (Array.isArray(body.items)) {
+      body.items.forEach((host: { name: string }, i: number) => (host.name = names[i % 2]!));
+    }
+    await route.fulfill({ response, json: body });
+  });
+
+  await goto(page, '/hosts', 'Hosts');
+  const map = page.getByRole('region', { name: 'Host capacity map', exact: true });
+  const chart = map.getByRole('img').first();
+  await chart.scrollIntoViewIfNeeded();
+  await chart.tap();
+
+  const card = map.locator('.card');
+  await expect(card).toBeVisible();
+  const table = card.locator('table');
+  const tableBox = await table.boundingBox();
+  const cardBox = await card.boundingBox();
+  expect(
+    tableBox!.x + tableBox!.width,
+    'the measurements are off the right of the reading, which is what the reading is for',
+  ).toBeLessThanOrEqual(cardBox!.x + cardBox!.width + 0.5);
+  await expectNoSidewaysScroll(page, 'the Hosts page reading long host names');
+});
+
+/*
  * The runner lifecycle wrapped as a row of flex items, so each card was as
  * wide as its own label: on a phone "Provisioning" and "Registering" sat side
  * by side at different sizes, the row under them lined up with neither, and

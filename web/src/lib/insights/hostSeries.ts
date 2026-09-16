@@ -506,6 +506,11 @@ export interface Frame {
   AXIS_TOP: number;
   /** A phone's shape: taller, and with fewer labels along the bottom. */
   narrow: boolean;
+  /**
+   * Whether the lead value is written at the end of each line. False on a
+   * narrow plot, where the right-hand gutter is worth more as drawing.
+   */
+  labels: boolean;
 }
 
 /**
@@ -516,17 +521,26 @@ export interface Frame {
  * percentages and the right one the value at the end of each line; both are
  * the same in every plot so the plots stacked in the per-host layout share
  * one x axis.
+ *
+ * On a phone both gutters are charged at the same pixels as on a laptop,
+ * against a fifth of the width -- a quarter of the drawing went on chrome,
+ * and the chart visibly stopped short of the panel it sat in. So a narrow
+ * plot trims the left gutter to what the axis actually needs and drops the
+ * end-of-line values altogether: the reading under the chart gives the same
+ * figures with a host's name against them, which the bare numbers at the
+ * edge never could.
  */
 export function plotFrame(
   width: number,
-  options: { compact?: boolean; lane?: boolean; axis?: boolean } = {},
+  options: { compact?: boolean; lane?: boolean; axis?: boolean; labels?: boolean } = {},
 ): Frame {
   const W = Math.max(280, Math.round(width));
   const narrow = W < 560;
   const H = options.compact ? (narrow ? 132 : 116) : narrow ? 300 : 248;
   const LANE = options.lane ? (options.compact ? 22 : 40) : 0;
-  const LEFT = 42;
-  const RIGHT = W - 46;
+  const labels = options.labels !== false && !narrow;
+  const LEFT = narrow ? 36 : 42;
+  const RIGHT = W - (labels ? 46 : 10);
   const TOP = 12;
   const BOTTOM = H - (options.axis === false ? 10 : 26);
   return {
@@ -540,6 +554,7 @@ export function plotFrame(
     LANE,
     AXIS_TOP: TOP + LANE,
     narrow,
+    labels,
   };
 }
 

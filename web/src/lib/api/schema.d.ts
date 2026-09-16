@@ -1925,6 +1925,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/backups/prune": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply retention now
+         * @description Deletes the copies beyond `backup.keep` from the backup directory, and the ones beyond each destination's own `keep` from its bucket. Retention otherwise runs as part of taking a backup, which leaves a fleet that has just lowered `backup.keep` holding the old number until the next one — and on a fleet with `backup.interval` off, holding it forever. A copy that was uploaded here or fetched back out of a bucket is never counted and never removed. The answer lists what went, per destination, and a bucket that refused is reported against its own name while the others are still pruned. Refused with 409 while a backup or an offsite pass is running.
+         */
+        post: operations["pruneBackups"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/backups/remotes": {
         parameters: {
             query?: never;
@@ -3592,6 +3612,24 @@ export interface components {
         BackupShipment: {
             sent: components["schemas"]["RemoteBackupCopy"][];
             /** @description What stopped one destination */
+            error?: string;
+        };
+        /** @description What applying retention removed. It is reported per destination rather than as one total because the numbers disagree on purpose: this host keeps `backup.keep` copies and each bucket keeps its own. */
+        BackupPruning: {
+            /** @description `backup.keep` as the pass read it; 0 keeps every copy and removes nothing from this host. */
+            keep: number;
+            /** @description The backups deleted from the backup directory. */
+            removed: string[];
+            /** @description Why the directory could not be pruned. */
+            error?: string;
+            remotes: components["schemas"]["RemotePruning"][];
+        };
+        RemotePruning: {
+            name: string;
+            /** @description This destination's own retention; 0 keeps every copy. */
+            keep: number;
+            removed: string[];
+            /** @description The service's own refusal */
             error?: string;
         };
         BackupSchedule: {
@@ -7958,6 +7996,27 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BackupShipment"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+        };
+    };
+    pruneBackups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Retention was applied */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupPruning"];
                 };
             };
             409: components["responses"]["Conflict"];
