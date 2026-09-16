@@ -135,6 +135,15 @@ export type SettingKind = NonNullable<Setting['kind']>;
 export type SettingSource = NonNullable<Setting['source']>;
 export type SettingScope = NonNullable<Setting['scope']>;
 export type RunnerGroup = NonNullable<Result<'listRunnerGroups'>['items']>[number];
+export type Backup = Schemas['Backup'];
+export type Backups = Schemas['Backups'];
+export type BackupSchedule = Schemas['BackupSchedule'];
+export type BackupVerification = Schemas['BackupVerification'];
+export type StagedRestore = Schemas['StagedRestore'];
+export type RestoreOutcome = Schemas['RestoreOutcome'];
+export type SettingsImport = Schemas['SettingsImport'];
+export type SettingsImportChange = Schemas['SettingsImportChange'];
+export type SettingsImportAction = SettingsImportChange['action'];
 
 /** A resource that no longer exists. Carried by the `*.deleted` SSE kinds. */
 export interface Deleted {

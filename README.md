@@ -102,6 +102,12 @@ flowchart LR
 * **Actually observable.** SQLite for state, Prometheus metrics, structured
   logs, live log streaming, job history with queue waits, and an audit row for
   every mutating action.
+* **Backed up by itself.** A consistent copy of the database nightly, kept to
+  a ceiling, and a Backups tab to take one now, verify it, download it plain or
+  sealed with a passphrase, upload one from elsewhere, and stage a restore the
+  next restart applies. The configuration alone exports as a `zoomies.yaml`
+  and imports with a preview.
+  [Backup and restore](https://zoomies.sh/backup-and-restore/).
 * **Safe defaults.** Loopback bind, auth on, no Docker socket in your jobs, no
   root, and every deviation named at startup and in the UI. A self-hosted runner
   still runs your repositories' code —
@@ -482,6 +488,8 @@ internal/controller the reconcile loop and the agent task queue
 internal/agent      the runner-executing half
 internal/installer  zoomies init / uninstall / agent join, and the unit,
                     compose and env templates they write
+internal/backup     one copy of the database: taking, listing, verifying, archiving,
+                    encrypting and restoring it, shared by the CLI, the scheduler and the API
 internal/cryptox    AES-256-GCM at rest, argon2id, token hashing
 internal/events     in-process pub/sub that the SSE endpoint fans out
 internal/migrate    rewriting workflows' runs-on lines

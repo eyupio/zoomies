@@ -1,7 +1,8 @@
 ---
 description: >-
-  The two files a Zoomies controller is made of, how to copy them safely, and
-  how to bring the fleet back on another machine.
+  The two files a Zoomies controller is made of, how to copy them safely — by
+  schedule, from the settings page, or by hand — and how to bring the fleet
+  back, here or on another machine.
 ---
 
 # Backup and restore
@@ -29,15 +30,32 @@ A container deployment keeps all of it in the `zoomies-data` volume.
 
 ## Taking a backup
 
+There are three ways, and they write the same thing: a timestamped directory —
+`zoomies-20260908-181718/` — holding the database and a manifest. A copy taken
+by any of them is restorable by any of the others.
+
+* **The controller takes one itself**, on a schedule. `backup.interval` is
+  nightly by default and `backup.keep` keeps the newest seven, into
+  `backup.directory` — a `backups` directory beside the database unless you
+  say otherwise, which on a container deployment is the mounted volume. Set
+  the interval to `0` to switch the schedule off. A scheduled copy that fails
+  is `backup.failed` in the problems drawer, with the error, and is retried
+  every fifteen minutes.
+* **Settings → Backups** takes one on demand, lists every copy in the
+  directory with what its manifest says, verifies, downloads, uploads and
+  deletes them, and stages a restore. It needs the administrator role, because
+  a backup is the whole database. The rest of this page says what each button
+  does.
+* **`zoomies backup`** on the command line:
+
 ```sh
 zoomies backup
 ```
 
-It writes a timestamped directory — `zoomies-20260908-181718/` — containing the
-database and a manifest. Run it on the machine that holds the data, as a user
-who can read the database; it opens the file directly rather than talking to a
-controller, so it works while the controller is running and it works when the
-controller will not start.
+Run it on the machine that holds the data, as a user who can read the
+database; it opens the file directly rather than talking to a controller, so it
+works while the controller is running and it works when the controller will not
+start.
 
 The copy is taken with SQLite's `VACUUM INTO`, which is what makes it whole.
 The database runs in WAL mode, so there are two more files beside it —
@@ -84,7 +102,73 @@ own for anything sealed. So keep the key too — once, wherever you keep secrets
 A key passed in `ZOOMIES_ENCRYPTION_KEY` rather than a file has nothing to
 copy; `--include-key` says so rather than pretending.
 
+## Getting a backup off the machine, and back on
+
+A backup beside the database is a backup against a mistake, not against the
+disk. Copy the directory somewhere else — `rsync`, a snapshot of the volume, a
+job that ships it to object storage — and keep the key with your secrets, once.
+
+**Download** on the Backups tab is the same thing for a browser: the backup's
+directory as one `zoomies-<timestamp>.tar.gz`, holding the manifest, the
+database and, only when the backup was taken with it, the key. **Download
+encrypted** seals the same archive with a passphrase first, for a file that is
+going to sit on a laptop or in a shared drive: the passphrase goes through
+argon2id and the archive through AES-256-GCM in chunks, so a file cut short or
+altered does not open as a shorter backup. Nothing on the controller remembers
+the passphrase; the file opens with it and with nothing else.
+
+**Upload** brings either kind back — on this controller or another one. The
+archive is unpacked into a staging directory, verified exactly as a restore
+would verify it, and then listed under the name its manifest gives it, marked
+as uploaded. An upload is never counted or removed by retention: an operator who
+brought a file here brought it for a reason.
+
+**Verify** re-reads a backup that is already here — the database's digest
+against the manifest, `PRAGMA integrity_check`, and whether this build can open
+it — because a copy nobody has opened is a copy nobody knows about, and the
+day to find the bad one is not the day it is needed.
+
 ## Restoring
+
+There are two ways. The command line restores a stopped controller's database
+in place; the Backups tab stages a restore for the running controller to apply
+when it restarts. Both make the same checks and do the same things to the
+restored database, so the sections below apply to both.
+
+### From the settings page
+
+A controller cannot restore under itself: the database is open, every loop
+holds it, and a file swapped under a process that has it open is a process
+reading a file nobody else can see. So **Restore** on the Backups tab stages
+the restore rather than performing it:
+
+1. Every check in *What it refuses* below is made now — the copy is sound, this
+   build can read it, and this host's key is the one that sealed it — because
+   now is when you are looking. A refusal is a sentence in the dialog, not a
+   line in a log after the restart.
+2. The restore is written down beside the database, and the tab shows a banner
+   saying which backup is waiting, who asked, and what will be invalidated.
+   Nothing has changed yet: the fleet runs on the database it has, the
+   problems drawer says `backup.restore_staged`, and **Cancel** forgets it.
+3. **Restart and restore** stops the controller. It exits with code `3`, which a
+   systemd unit set to restart on failure and a container with a restart
+   policy both act on; the next controller to start finds the staged restore,
+   applies it before it opens the database, and comes up fenced. The tab
+   watches the health probe through both halves — gone, then back — and says
+   which half it is in, so "still restarting" and "never coming back" are told
+   apart. If nothing starts the process, start it by hand: the restore is
+   applied whoever starts it.
+
+What became of it is recorded either way. A restore that did not happen is
+`backup.restore_failed` in the drawer with the reason, and the controller
+starts on the database it already had; a restore that did is a banner on the
+tab saying what was moved aside and what was invalidated, until you dismiss
+it.
+
+The two options the dialog offers — revoking every API token, and making every
+agent join again — are the command's two flags, and the same cost applies.
+
+### From the command line
 
 ```sh
 zoomies restore /var/backups/zoomies/zoomies-20260908-181718
@@ -253,8 +337,31 @@ anything a host holds can be rebuilt by pulling an image. There is nothing in
 ## How often
 
 The database is the only thing that changes, and what it holds is
-configuration and history rather than anything a workflow depends on
-minute to minute. A nightly `zoomies backup --keep 14` is enough for most
-fleets; take an extra one before an upgrade, because that is the only rollback
-there is. There is no scheduler built in — a systemd timer or a cron line is
-one file and does not need to be reimplemented here.
+configuration and history rather than anything a workflow depends on minute to
+minute. The default schedule — nightly, keeping seven — is enough for most
+fleets; the controller takes an extra copy before an upgrade by itself, because
+that is the only rollback there is. What the schedule does not do is take the
+copy anywhere: shipping the directory off the machine is yours, and a cron line
+that copies it is one line.
+
+## Moving a configuration
+
+A backup is the whole fleet. The configuration alone — the settings an
+administrator has set, and nothing else — travels separately, from
+**Settings → Configuration**:
+
+* **Export** writes every setting somebody has set: stored in the database, set
+  in the file, or pinned by the environment. Defaults are left out, because
+  they are computed on the host that reads them, and no secret's value is ever
+  in it — the export names the secrets that were configured, so the import can
+  say which to set by hand. As YAML it is the shape `zoomies.yaml` takes, so
+  the file can be started from; as JSON it carries when it was taken and where
+  from.
+* **Import** reads an export, or a `zoomies.yaml`, back. Every key is planned
+  through the same checks a change on the page goes through and shown first:
+  which would change, which are already so, and which this controller refuses
+  and why. Applying is one change or none — a refused key has to be fixed in
+  the document or left out — and the keys that wait for a restart are marked
+  on the page afterwards, exactly as a change made by hand would be.
+
+Both are audited, as `settings.export` and `settings.import`.

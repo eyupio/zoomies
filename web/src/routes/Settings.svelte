@@ -1,5 +1,6 @@
 <!--
-  Settings: accounts, tokens, appearance, configuration and what this instance is.
+  Settings: accounts, tokens, appearance, configuration, backups and what this
+  instance is.
 
   Most of it needs the administrator role, and rather than hiding the tabs from
   everybody else they are disabled with the reason said once, above them: a
@@ -9,7 +10,14 @@
   The tab lives in the URL, so a link to a particular tab works.
 -->
 <script lang="ts">
-  import { Info, KeyRound, Palette, SlidersHorizontal, Users } from '@lucide/svelte';
+  import {
+    DatabaseBackup,
+    Info,
+    KeyRound,
+    Palette,
+    SlidersHorizontal,
+    Users,
+  } from '@lucide/svelte';
   import { router } from '$lib/router';
   import { session } from '$lib/state/session.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
@@ -18,6 +26,7 @@
   import AboutPanel from '$lib/settings/AboutPanel.svelte';
   import AccountPanel from '$lib/settings/AccountPanel.svelte';
   import AppearancePanel from '$lib/settings/AppearancePanel.svelte';
+  import BackupsPanel from '$lib/settings/BackupsPanel.svelte';
   import ConfigurationPanel from '$lib/settings/ConfigurationPanel.svelte';
   import TokensPanel from '$lib/settings/TokensPanel.svelte';
   import UsersPanel from '$lib/settings/UsersPanel.svelte';
@@ -29,6 +38,7 @@
     { id: 'tokens', label: 'API tokens', icon: KeyRound, disabled: !canAdmin },
     { id: 'appearance', label: 'Appearance', icon: Palette },
     { id: 'configuration', label: 'Configuration', icon: SlidersHorizontal, disabled: !canAdmin },
+    { id: 'backups', label: 'Backups', icon: DatabaseBackup, disabled: !canAdmin },
     { id: 'about', label: 'About', icon: Info },
   ]);
 
@@ -71,7 +81,8 @@
 
   {#if !canAdmin}
     <p class="notice">
-      Accounts, API tokens and the configuration need the administrator role. You are signed in as
+      Accounts, API tokens, the configuration and backups need the administrator role. You are
+      signed in as
       {session.role ?? 'a viewer'}, so those tabs are shown but not open to you.
     </p>
   {/if}
@@ -86,6 +97,8 @@
         <AppearancePanel />
       {:else if current === 'configuration'}
         <ConfigurationPanel {reloadKey} />
+      {:else if current === 'backups'}
+        <BackupsPanel {reloadKey} />
       {:else}
         <AboutPanel {reloadKey} />
       {/if}
