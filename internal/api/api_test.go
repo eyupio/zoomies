@@ -754,6 +754,7 @@ func routeTable(ids fixtureIDs) []route {
 			body: map[string]any{"passphrase": "long enough"}},
 		{method: "POST", path: "/api/v1/backups/zoomies-19990101-000000/restore", role: store.RoleAdmin, action: auth.ActionBackupsRestore},
 		{method: "POST", path: "/api/v1/backups/offsite", role: store.RoleAdmin, action: auth.ActionBackupsWrite},
+		{method: "POST", path: "/api/v1/backups/prune", role: store.RoleAdmin, action: auth.ActionBackupsWrite},
 		{method: "POST", path: "/api/v1/backups/remotes", role: store.RoleAdmin, action: auth.ActionBackupsWrite,
 			body: map[string]any{"name": "wherever", "endpoint": "https://s3.example.com", "bucket": "b", "secret_access_key": "s"}},
 		{method: "POST", path: "/api/v1/backups/remotes/check", role: store.RoleAdmin, action: auth.ActionBackupsRead,
