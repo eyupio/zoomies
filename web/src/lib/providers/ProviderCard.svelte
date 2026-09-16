@@ -22,6 +22,8 @@
     canOperate?: boolean;
     /** Busy while its own preflight is in flight, so the button cannot be double-pressed. */
     checking?: boolean;
+    /** Busy while its own pause/resume is in flight, so the button cannot be double-pressed. */
+    pausing?: boolean;
     oncheck: (provider: Provider) => void;
     onpause: (provider: Provider, paused: boolean) => void;
     class?: string;
@@ -31,6 +33,7 @@
     provider,
     canOperate = false,
     checking = false,
+    pausing = false,
     oncheck,
     onpause,
     class: className = '',
@@ -154,10 +157,14 @@
     <Button
       size="sm"
       icon={provider.paused ? Play : Pause}
-      disabled={!canOperate}
+      disabled={!canOperate || pausing}
       onclick={() => onpause(provider, !provider.paused)}
     >
-      {provider.paused ? 'Resume' : 'Pause'}
+      {#if pausing}
+        {provider.paused ? 'Resuming…' : 'Pausing…'}
+      {:else}
+        {provider.paused ? 'Resume' : 'Pause'}
+      {/if}
     </Button>
     <Button size="sm" variant="secondary" href="/providers/{provider.id}">Open</Button>
   </div>

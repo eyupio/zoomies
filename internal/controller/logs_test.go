@@ -154,6 +154,30 @@ func TestLogStreamForARemovedRunnerIsRefused(t *testing.T) {
 	}
 }
 
+// Opening a stream for a runner on a host that has not heartbeated recently
+// would queue a task nobody will ever poll for: no agent is coming back to
+// read it. Refusing here, rather than opening a stream that waits forever, is
+// what stops a repeatedly reopened tab from piling up queued tasks for a host
+// that is never coming back.
+func TestLogStreamForAnUnhealthyHostIsRefused(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerBusy)
+	host.LastHeartbeat = time.Now().Add(-store.HeartbeatTimeout - time.Minute)
+	if err := h.st.UpdateHost(h.ctx, host); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+
+	if _, _, err := h.c.OpenLogStream(h.ctx, r.ID, backend.LogOptions{}); err == nil {
+		t.Fatal("OpenLogStream succeeded for a host with no recent heartbeat")
+	} else if !strings.Contains(err.Error(), "not been heard from") {
+		t.Fatalf("error = %v, want one explaining the host is unreachable", err)
+	}
+	if h.hasTaskOfKind(host.ID, agent.TaskStreamLogs) {
+		t.Fatal("a stream task was queued for a host nothing will ever poll")
+	}
+}
+
 // Whatever arrives on a log relay is shown to operators as that runner's
 // output. Every other agent endpoint checks the reporting host owns what it is
 // reporting on; this one has to check the same thing against the stream, or one

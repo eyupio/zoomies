@@ -163,6 +163,21 @@
       REPORTED_KEYS.includes(row.key.trim() as (typeof REPORTED_KEYS)[number]),
     ),
   );
+
+  const uid = $props.id();
+  const duplicateErrorId = $derived(duplicate ? `${uid}-duplicate-error` : undefined);
+  const reservedErrorId = $derived(reserved ? `${uid}-reserved-error` : undefined);
+
+  /** Which of the two error messages, if any, a given key's input is invalid against. */
+  function keyDescribedBy(key: string): string | undefined {
+    const ids = [
+      Boolean(duplicate) && key.trim() === duplicate ? duplicateErrorId : undefined,
+      REPORTED_KEYS.includes(key.trim() as (typeof REPORTED_KEYS)[number])
+        ? reservedErrorId
+        : undefined,
+    ].filter(Boolean);
+    return ids.length > 0 ? ids.join(' ') : undefined;
+  }
 </script>
 
 <div class="placement {className}">
@@ -243,6 +258,7 @@
                 oninput={syncCustom}
                 invalid={(Boolean(duplicate) && row.key.trim() === duplicate) ||
                   REPORTED_KEYS.includes(row.key.trim() as (typeof REPORTED_KEYS)[number])}
+                describedBy={keyDescribedBy(row.key)}
               />
               <Input
                 bind:value={row.value}
@@ -262,13 +278,16 @@
         {/if}
 
         {#if duplicate}
-          <p class="rule-error">
+          <!-- role="alert" so the failure is spoken when it appears; the
+               describedby link on the offending inputs alone is only read if
+               the field is revisited. -->
+          <p class="rule-error" id={duplicateErrorId} role="alert">
             Two rules are both called <span class="mono">{duplicate}</span>. The last one would win,
             so rename or remove one.
           </p>
         {/if}
         {#if reserved}
-          <p class="rule-error">
+          <p class="rule-error" id={reservedErrorId} role="alert">
             <span class="mono">os</span> and <span class="mono">arch</span> are set by the dropdowns above.
             A rule here with the same name is ignored.
           </p>

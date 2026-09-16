@@ -23,6 +23,13 @@ import (
 // untidy rather than urgent.
 const reapInterval = 10 * time.Minute
 
+// lifecycleCallTimeout bounds a detached create or remove's GitHub work: a
+// credential mint is one call, a registration delete is up to two (a lookup
+// by name, then the delete), each already bounded by the client's own
+// per-request timeout. This is the outer net for the pair of them together,
+// matching the same defence-in-depth the machine loop gives a provider call.
+const lifecycleCallTimeout = 2 * time.Minute
+
 // reconcileLoop runs a pass on the configured interval and immediately on
 // every nudge, with only one pass in flight at a time.
 func (c *Controller) reconcileLoop(ctx context.Context) {
@@ -321,6 +328,29 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, host *s
 	}
 	c.publishRunner(ctx, events.KindRunnerCreated, r)
 
+	// Minting a credential is a GitHub round trip. It is detached here, the
+	// same way the machine loop detaches a provider call from its own pass
+	// lock: reconcileMu must not span it, or a pool's scale-up holds every
+	// other pool and installation's scheduling for as long as GitHub takes to
+	// answer. The row already exists and carries RunnerProvisioning, so the
+	// next snapshot counts it towards the pool's current size either way.
+	c.lifecycleCalls.Add(1)
+	go func() {
+		defer c.lifecycleCalls.Done()
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), lifecycleCallTimeout)
+		defer cancel()
+		c.finishCreateRunner(cctx, inst, pool, r, a, name, resources, source)
+	}()
+	c.log.Info("creating a runner",
+		"pool", pool.Name, "runner", r.ID, "name", name, "host", a.HostID, "reason", a.Reason)
+	return nil
+}
+
+// finishCreateRunner mints the GitHub credential a newly-created runner row
+// needs and either enqueues its create task or marks it failed, whichever
+// GitHub answers. It runs apart from the pass that wrote the row -- see
+// createRunner -- so its own errors end here rather than back in apply().
+func (c *Controller) finishCreateRunner(ctx context.Context, inst *store.Installation, pool *store.Pool, r *store.Runner, a scheduler.Action, name string, resources store.Resources, source string) {
 	creds, ghID, err := c.mintCredentials(ctx, inst, pool, name)
 	if err != nil {
 		msg := fmt.Sprintf("GitHub would not register %s: %v", name, err)
@@ -331,7 +361,9 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, host *s
 			c.log.Error("could not mark a runner failed after its registration failed",
 				"runner", r.ID, "error", ferr)
 		}
-		return err
+		c.log.Error("could not create a runner",
+			"pool", pool.Name, "host", a.HostID, "reason", a.Reason, "error", err)
+		return
 	}
 	if ghID != 0 {
 		if err := c.st.SetRunnerGitHubID(ctx, r.ID, ghID); err != nil {
@@ -371,9 +403,6 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, host *s
 		Spec:     &spec,
 		Backend:  pool.Backend,
 	})
-	c.log.Info("creating a runner",
-		"pool", pool.Name, "runner", r.ID, "name", name, "host", a.HostID, "reason", a.Reason)
-	return nil
 }
 
 // mintCredentials asks GitHub for whatever this pool's runners register with.
@@ -532,25 +561,80 @@ func (c *Controller) drainRunner(ctx context.Context, r *store.Runner, reason st
 	return updated, nil
 }
 
+// removeRunnerID is the scheduler's own path to a removal, reached only from
+// apply() under reconcileMu. Deleting the GitHub registration is detached the
+// same way minting a credential is in createRunner: the task goes out and this
+// returns at once, so a bulk drain does not hold every other pool and
+// installation's scheduling for as long as GitHub takes to answer each one in
+// turn.
+//
+// claimRemoval is what makes that safe. The row does not read as
+// RunnerRemoved until the detached call finishes -- see finishRemoveRunner --
+// so without it the next pass would see the same not-yet-removed runner and
+// redecide the identical ActionRemove before the first attempt had finished,
+// dispatching a second registration delete alongside the first.
 func (c *Controller) removeRunnerID(ctx context.Context, id, reason string, pool *store.Pool) error {
 	r, err := c.st.GetRunner(ctx, id)
 	if err != nil {
 		return err
 	}
-	_, err = c.removeRunner(ctx, r, reason, pool)
-	return err
+	if !c.claimRemoval(r.ID) {
+		return nil
+	}
+	c.enqueueLifecycle(ctx, r.HostID, agent.Task{
+		Kind:     agent.TaskRemoveRunner,
+		RunnerID: r.ID,
+		Backend:  c.backendKind(ctx, r, pool),
+	})
+	c.lifecycleCalls.Add(1)
+	go func() {
+		defer c.lifecycleCalls.Done()
+		defer c.releaseRemoval(r.ID)
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), lifecycleCallTimeout)
+		defer cancel()
+		if _, err := c.finishRemoveRunner(cctx, r, reason, pool); err != nil {
+			c.logRunnerAction("remove", scheduler.Action{RunnerID: id, Reason: reason}, err)
+		}
+	}()
+	return nil
+}
+
+// claimRemoval reports whether this runner's removal may proceed, claiming it
+// for the caller if so. A runner already claimed keeps whatever pass claimed
+// it first.
+func (c *Controller) claimRemoval(runnerID string) bool {
+	c.removingMu.Lock()
+	defer c.removingMu.Unlock()
+	if _, ok := c.removing[runnerID]; ok {
+		return false
+	}
+	c.removing[runnerID] = struct{}{}
+	return true
+}
+
+func (c *Controller) releaseRemoval(runnerID string) {
+	c.removingMu.Lock()
+	delete(c.removing, runnerID)
+	c.removingMu.Unlock()
 }
 
 // removeRunner tears the workload down, deletes the GitHub registration and
-// marks the row removed, in that order: the task goes first because the agent
-// is the slow part, and the registration goes before the row so that a crash
-// in between leaves a row we can still find the registration from.
+// marks the row removed, in that order, synchronously -- used by the two
+// paths that answer a caller with the result: the operator-facing
+// RemoveRunner, and a host reporting a runner it was told to give up as lost.
 func (c *Controller) removeRunner(ctx context.Context, r *store.Runner, reason string, pool *store.Pool) (*store.Runner, error) {
 	c.enqueueLifecycle(ctx, r.HostID, agent.Task{
 		Kind:     agent.TaskRemoveRunner,
 		RunnerID: r.ID,
 		Backend:  c.backendKind(ctx, r, pool),
 	})
+	return c.finishRemoveRunner(ctx, r, reason, pool)
+}
+
+// finishRemoveRunner deletes a runner's GitHub registration and marks its row
+// removed, in that order: the registration goes first so that a crash in
+// between leaves a row we can still find the registration from.
+func (c *Controller) finishRemoveRunner(ctx context.Context, r *store.Runner, reason string, pool *store.Pool) (*store.Runner, error) {
 	c.deleteRegistration(ctx, r, pool)
 
 	updated, err := c.st.TransitionRunner(ctx, r.ID, store.RunnerRemoved, reason)

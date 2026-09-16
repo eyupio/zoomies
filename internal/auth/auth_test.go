@@ -608,8 +608,8 @@ func TestChangePassword(t *testing.T) {
 		t.Fatalf("login: %v", err)
 	}
 
-	if err := s.ChangePassword(ctx, u.ID, "wrong", "a much longer password"); err == nil {
-		t.Error("the wrong current password was accepted")
+	if err := s.ChangePassword(ctx, u.ID, "wrong", "a much longer password"); !errors.Is(err, ErrWrongPassword) {
+		t.Errorf("wrong current password = %v; want ErrWrongPassword", err)
 	}
 	if err := s.ChangePassword(ctx, u.ID, testPassword, "short"); !errors.Is(err, ErrPasswordTooShort) {
 		t.Errorf("short new password = %v; want ErrPasswordTooShort", err)

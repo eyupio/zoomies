@@ -24,6 +24,7 @@ func TestIssuingARunnersTaskIsRecordedOnItsRow(t *testing.T) {
 	if err := h.c.Reconcile(h.ctx); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
+	h.c.lifecycleCalls.Wait()
 
 	r := h.onlyRunner()
 	if r.TaskIssuedAt == nil {

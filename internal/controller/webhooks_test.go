@@ -39,6 +39,7 @@ func TestQueuedJobWebhookProducesARunnerAndACreateTask(t *testing.T) {
 	if err := h.c.Reconcile(h.ctx); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
+	h.c.lifecycleCalls.Wait()
 
 	r := h.onlyRunner()
 	if r.State != store.RunnerProvisioning {

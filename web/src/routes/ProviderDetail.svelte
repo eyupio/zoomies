@@ -56,6 +56,7 @@
   let tab = $state(router.param('tab', 'machines'));
   let verdict = $state<ProviderCheck | null>(null);
   let checking = $state(false);
+  let pausing = $state(false);
   let deleteOpen = $state(false);
   let editing = $state(false);
 
@@ -163,7 +164,8 @@
   }
 
   async function pause(paused: boolean): Promise<void> {
-    if (!provider?.id) return;
+    if (!provider?.id || pausing) return;
+    pausing = true;
     try {
       provider = paused
         ? await pauseProvider(provider.id, { reason: 'Paused from the provider page' })
@@ -178,6 +180,8 @@
       }
     } catch (cause) {
       toasts.fromError(cause, paused ? 'It was not paused' : 'It was not resumed');
+    } finally {
+      pausing = false;
     }
   }
 
@@ -248,10 +252,14 @@
     </Button>
     <Button
       icon={p.paused ? Play : Pause}
-      disabled={!canOperate}
+      disabled={!canOperate || pausing}
       onclick={() => void pause(!p.paused)}
     >
-      {p.paused ? 'Resume' : 'Pause new machines'}
+      {#if pausing}
+        {p.paused ? 'Resuming…' : 'Pausing…'}
+      {:else}
+        {p.paused ? 'Resume' : 'Pause new machines'}
+      {/if}
     </Button>
     {#if canAdmin}
       <Button variant="danger" icon={Trash2} onclick={() => (deleteOpen = true)}>Remove</Button>
@@ -311,7 +319,7 @@
               <EmptyState
                 compact
                 title="No machines"
-                description="Nothing has been rented from this p. A machine is built when a pool has queued work and no host that can run it."
+                description="Nothing has been rented from this provider. A machine is built when a pool has queued work and no host that can run it."
               />
             {:else}
               <ul class="machines">

@@ -52,6 +52,7 @@ func groupPool(h *harness, group string) *store.Pool {
 	if err := h.c.Reconcile(h.ctx); err != nil {
 		h.t.Fatalf("Reconcile: %v", err)
 	}
+	h.c.lifecycleCalls.Wait()
 	return pool
 }
 

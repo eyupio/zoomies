@@ -25,12 +25,14 @@ func TestReconcileIsIdempotent(t *testing.T) {
 	if err := h.c.Reconcile(h.ctx); err != nil {
 		t.Fatalf("first Reconcile: %v", err)
 	}
+	h.c.lifecycleCalls.Wait()
 	first := h.runners()
 	tasks := len(h.tasksFor(host.ID))
 
 	if err := h.c.Reconcile(h.ctx); err != nil {
 		t.Fatalf("second Reconcile: %v", err)
 	}
+	h.c.lifecycleCalls.Wait()
 	if got := h.runners(); len(got) != len(first) {
 		t.Fatalf("second pass created runners: %d -> %d", len(first), len(got))
 	}
@@ -39,6 +41,112 @@ func TestReconcileIsIdempotent(t *testing.T) {
 	}
 	if got := len(h.gh.Runners()); got != 1 {
 		t.Fatalf("registered %d runners with GitHub, want 1", got)
+	}
+}
+
+// Minting a credential is a GitHub round trip. It must never be able to hold
+// up the scheduling pass: a pool resized during a GitHub slowdown would
+// otherwise stall every other pool and installation's scheduling for as long
+// as GitHub took to answer -- the same argument that moved a slow provider
+// call, and capacity-demand delivery, out of their own locks.
+func TestASlowCredentialMintDoesNotHoldTheReconcilePass(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+	h.gh.SetDelay("", "generate-jitconfig", 2*time.Second)
+	h.deliverJob(jobEvent{Action: "queued", JobID: 1, Labels: []string{"self-hosted", "linux", "x64", "demo"}})
+
+	started := time.Now()
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if took := time.Since(started); took > time.Second {
+		t.Fatalf("a scheduling pass took %s while a credential mint was in flight; reconcileMu is held across it", took)
+	}
+
+	// The row exists and already counts toward the pool's size, which is what
+	// stops the next pass from deciding to create a second one for the same
+	// demand while this one is still minting.
+	r := h.onlyRunner()
+	if r.State != store.RunnerProvisioning {
+		t.Fatalf("runner state = %q before the mint answers, want %q", r.State, store.RunnerProvisioning)
+	}
+
+	h.c.lifecycleCalls.Wait()
+	after := h.onlyRunner()
+	if after.GitHubRunnerID == 0 {
+		t.Fatal("the detached mint never finished: the runner has no GitHub runner ID")
+	}
+	if !h.hasTaskOfKind(after.HostID, agent.TaskCreateRunner) {
+		t.Fatal("the detached mint never enqueued the create task")
+	}
+}
+
+// Deleting a GitHub registration is the other slow call in a reconcile pass,
+// and the more consequential one: draining a pool of many runners issues one
+// per runner in the same pass, so this is the call whose sequential cost a
+// bulk drain actually pays.
+func TestASlowRegistrationDeleteDoesNotHoldTheCaller(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerIdle)
+	if err := h.st.SetRunnerGitHubID(h.ctx, r.ID, 999); err != nil {
+		t.Fatalf("SetRunnerGitHubID: %v", err)
+	}
+	h.gh.SetDelay(http.MethodDelete, "/actions/runners/", 2*time.Second)
+
+	started := time.Now()
+	if err := h.c.removeRunnerID(h.ctx, r.ID, "test removal", pool); err != nil {
+		t.Fatalf("removeRunnerID: %v", err)
+	}
+	if took := time.Since(started); took > time.Second {
+		t.Fatalf("removeRunnerID took %s while the registration delete was in flight; it is not detached", took)
+	}
+
+	h.c.lifecycleCalls.Wait()
+	after, err := h.st.GetRunner(h.ctx, r.ID)
+	if err != nil {
+		t.Fatalf("GetRunner: %v", err)
+	}
+	if after.State != store.RunnerRemoved {
+		t.Fatalf("runner state = %q once the detached removal finished, want %q", after.State, store.RunnerRemoved)
+	}
+}
+
+// The pass that finds a removal already under way must not start a second
+// one: the row does not read as RunnerRemoved until the first detached call
+// finishes, so without a claim the next pass would redecide the identical
+// ActionRemove and delete the same registration twice.
+func TestASlowRemovalDoesNotStartASecondOne(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerIdle)
+	if err := h.st.SetRunnerGitHubID(h.ctx, r.ID, 999); err != nil {
+		t.Fatalf("SetRunnerGitHubID: %v", err)
+	}
+	h.gh.SetDelay(http.MethodDelete, "/actions/runners/", 500*time.Millisecond)
+
+	for range 3 {
+		if err := h.c.removeRunnerID(h.ctx, r.ID, "test removal", pool); err != nil {
+			t.Fatalf("removeRunnerID: %v", err)
+		}
+	}
+	h.c.lifecycleCalls.Wait()
+
+	deletes := 0
+	for _, req := range h.gh.Requests() {
+		if strings.HasPrefix(req, http.MethodDelete+" ") && strings.Contains(req, "/actions/runners/") {
+			deletes++
+		}
+	}
+	if deletes != 1 {
+		t.Fatalf("GitHub saw %d registration deletes for one runner claimed three times, want 1", deletes)
+	}
+	after, err := h.st.GetRunner(h.ctx, r.ID)
+	if err != nil {
+		t.Fatalf("GetRunner: %v", err)
+	}
+	if after.State != store.RunnerRemoved {
+		t.Fatalf("runner state = %q, want %q", after.State, store.RunnerRemoved)
 	}
 }
 
@@ -179,6 +287,7 @@ func TestFailedJITMintMarksTheRunnerFailed(t *testing.T) {
 	if err := h.c.Reconcile(h.ctx); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
+	h.c.lifecycleCalls.Wait()
 
 	r := h.onlyRunner()
 	if r.State != store.RunnerFailed {
@@ -205,6 +314,7 @@ func TestRemovedRunnerHasItsRegistrationReaped(t *testing.T) {
 	if err := h.c.Reconcile(h.ctx); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
+	h.c.lifecycleCalls.Wait()
 	r := h.onlyRunner()
 	if len(h.gh.Runners()) != 1 {
 		t.Fatalf("GitHub holds %d registrations, want 1", len(h.gh.Runners()))
@@ -462,6 +572,7 @@ func TestAPoolThatGivesJobsADaemonRunsTheDockerImage(t *testing.T) {
 	if err := h.c.Reconcile(h.ctx); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
+	h.c.lifecycleCalls.Wait()
 
 	const want = "ghcr.io/eyupio/zoomies-runner-docker:main"
 	r := h.onlyRunner()
@@ -503,6 +614,7 @@ func TestAPoolOnTheDefaultImageGetsTheDockerVariantWhenItAsksForADaemon(t *testi
 	if err := h.c.Reconcile(h.ctx); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
+	h.c.lifecycleCalls.Wait()
 
 	want := config.RunnerImageFor(config.DefaultRunnerImage, true)
 	if want == config.DefaultRunnerImage {

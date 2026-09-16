@@ -114,6 +114,10 @@ var (
 	ErrLastAdmin = errors.New("this is the last enabled administrator; give another account the admin role before changing this one")
 	// ErrPasswordTooShort is returned by every path that sets a password.
 	ErrPasswordTooShort error = &refusal{kind: ErrInvalidInput, msg: fmt.Sprintf("password must be at least %d characters", MinPasswordLength)}
+	// ErrWrongPassword means ChangePassword's caller gave the wrong current
+	// password -- the one failure of theirs that is not an internal error, so
+	// it needs its own sentinel rather than falling into a generic default.
+	ErrWrongPassword error = &refusal{kind: ErrInvalidInput, msg: "the current password is not correct"}
 
 	// ErrInvalidInput marks a refusal the caller can act on: a username with a
 	// character it may not carry, a role that does not exist, a token without
@@ -756,7 +760,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID, oldPassword, newPa
 	}
 	if !u.MustChangePassword {
 		if !cryptox.VerifyPassword(oldPassword, u.PasswordHash) {
-			return errors.New("the current password is not correct")
+			return ErrWrongPassword
 		}
 	}
 	if err := CheckPassword(newPassword); err != nil {
