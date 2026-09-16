@@ -92,6 +92,22 @@ func hasCode(fs Findings, code string) bool {
 	return false
 }
 
+// agent.allow_insecure_http sat right next to agent.insecure_skip_verify with
+// no Finding of its own: the same class of risk (a long-lived agent token and
+// every runner's just-in-time credentials on the wire) went unwarned.
+func TestAgentWarnsWhenAllowedToUsePlainHTTP(t *testing.T) {
+	c := Default()
+	c.Agent.ControllerURL = "http://zoomies.example.com"
+	if hasCode(c.Validate(), "agent.insecure_http") {
+		t.Fatal("agent.insecure_http fired without the setting turned on")
+	}
+
+	c.Agent.AllowInsecureHTTP = true
+	if !hasCode(c.Validate(), "agent.insecure_http") {
+		t.Fatal("agent.insecure_http did not fire for an agent allowed to use plain HTTP")
+	}
+}
+
 // A finished runner's container is disk the host never gets back until the
 // agent deletes it, so the window has to be a real duration, and a window long
 // enough to fill a busy host has to be said out loud rather than found out.

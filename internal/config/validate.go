@@ -651,6 +651,14 @@ func (c *Config) Validate() Findings {
 				Fix:    "pin the controller CA with agent.ca_file instead.",
 			})
 		}
+		if c.Agent.AllowInsecureHTTP {
+			add(Finding{
+				Code: "agent.insecure_http", Severity: SeverityWarning, Setting: "agent.allow_insecure_http",
+				Title:  "the agent talks to the controller over plain HTTP",
+				Detail: "this agent's long-lived token and every runner's just-in-time registration credentials cross the network in the clear.",
+				Fix:    "put TLS in front of the controller and turn this off, or restrict it to a loopback/private link you trust.",
+			})
+		}
 		if c.Agent.AllowUnverifiedRunnerDownload {
 			add(Finding{
 				Code: "agent.unverified_runner_download", Severity: SeverityWarning, Setting: "agent.allow_unverified_runner_download",

@@ -112,6 +112,7 @@ than about what any one setting says.
 | `agent.process_root` | warning | `agent.backend` | The process backend is running as root, so every job is root on the host. |
 | `agent.root` | warning | `agent` | The agent process is running as root. Raised only where an agent actually runs. |
 | `agent.insecure_tls` | warning | `agent.insecure_skip_verify` | The agent does not verify the controller's certificate, so anything on the path can impersonate it. |
+| `agent.insecure_http` | warning | `agent.allow_insecure_http` | The agent talks to the controller over plain HTTP, so its token and every runner's credentials cross the network in the clear. |
 | `agent.unverified_runner_download` | warning | `agent.allow_unverified_runner_download` | The process backend may install a runner archive whose checksum it could not confirm. |
 | `agent.docker_build_cache_mb` | error | `agent.docker_build_cache_mb` | Must be between 0 and 1048576 MiB; 0 disables automatic Docker builder-cache cleanup. |
 | `agent.finished_retention` | error | `agent.finished_retention` | Cannot be negative. |
