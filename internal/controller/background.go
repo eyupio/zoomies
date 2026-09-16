@@ -163,7 +163,7 @@ func (c *Controller) sweepTasks(ctx context.Context, now time.Time) {
 				continue
 			}
 			reason := fmt.Sprintf("the host never confirmed stopping this runner after %d deliveries; it is presumed gone", maxTaskAttempts)
-			if err := c.failRunnerID(ctx, task.RunnerID, reason); err != nil &&
+			if err := c.failRunnerID(ctx, task.RunnerID, reason, store.FaultRunnerExited); err != nil &&
 				!errors.Is(err, store.ErrNotFound) && !errors.Is(err, store.ErrInvalidTransition) {
 				c.log.Warn("could not fail a runner whose stop was never confirmed", "runner", task.RunnerID, "error", err)
 			}

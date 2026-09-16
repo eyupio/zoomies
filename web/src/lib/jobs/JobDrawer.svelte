@@ -11,7 +11,7 @@
 -->
 <script lang="ts">
   import { CircleX } from '@lucide/svelte';
-  import { cancelJobWorkflow } from '$lib/api/client';
+  import { cancelJobWorkflow, rerunJobWorkflow } from '$lib/api/client';
   import { formatDuration, shortId } from '$lib/format';
   import {
     HOSTED,
@@ -75,8 +75,40 @@
       (job?.github_run_id ?? 0) > 0 &&
       job?.state !== 'completed',
   );
+  /**
+   * The re-run is offered on a finished job that failed, to an operator. It is
+   * deliberately not restricted to failures the fleet caused: the server allows
+   * either, and somebody who has read a failure and decided to run it again is
+   * entitled to. What the fault domain does is decide how loudly it is offered
+   * -- the panel puts it beside the fleet's own admission, which is where it
+   * answers the question the reader has just been asked.
+   */
+  const canRerun = $derived(
+    session.can('operator') &&
+      Boolean(job?.id) &&
+      (job?.github_run_id ?? 0) > 0 &&
+      job?.state === 'completed' &&
+      failed,
+  );
+  let rerunning = $state(false);
   let cancelOpen = $state(false);
   let forceCancel = $state(false);
+
+  async function rerun(): Promise<void> {
+    if (!job?.id || rerunning) return;
+    rerunning = true;
+    try {
+      await rerunJobWorkflow(job.id);
+      toasts.success(
+        'Re-run requested',
+        "GitHub is running this run's failed jobs again. They arrive as a new run attempt.",
+      );
+    } catch (cause) {
+      toasts.fromError(cause, 'GitHub did not accept the re-run');
+    } finally {
+      rerunning = false;
+    }
+  }
 
   async function confirmCancel(): Promise<boolean> {
     if (!job?.id) return false;
@@ -111,7 +143,7 @@
       </div>
 
       {#if failed}
-        <JobOutcome {job} />
+        <JobOutcome {job} onRerun={canRerun ? rerun : null} {rerunning} />
       {:else if unmatched}
         <UnmatchedNote
           labels={job.labels}

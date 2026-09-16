@@ -14,15 +14,17 @@
  * switching view keeps the operator where they were looking.
  */
 import { JOB_STATES, type JobState } from '../api/types';
-import { jobStatus, type StatusMeta } from '../status';
+import { jobStatus, RUNNER_LOST, type StatusMeta } from '../status';
 
-export type JobView = 'running' | 'queued' | 'failed' | 'finished' | 'all';
+export type JobView = 'running' | 'queued' | 'failed' | 'faulted' | 'finished' | 'all';
 
 /** The keys a view owns outright. Everything else on the page is orthogonal to it. */
 export interface JobStatusFilters {
   state: JobState[];
   conclusion: string[];
   failed: boolean;
+  /** The half of `failed` this fleet caused, rather than the workflows. */
+  faulted: boolean;
   unmatched: boolean;
 }
 
@@ -36,7 +38,13 @@ export interface JobViewDef {
   filters: JobStatusFilters;
 }
 
-const NOTHING: JobStatusFilters = { state: [], conclusion: [], failed: false, unmatched: false };
+const NOTHING: JobStatusFilters = {
+  state: [],
+  conclusion: [],
+  failed: false,
+  faulted: false,
+  unmatched: false,
+};
 
 /**
  * The order is the lifecycle an operator reads left to right -- running, then
@@ -64,6 +72,19 @@ export const JOB_VIEWS: readonly JobViewDef[] = [
     status: jobStatus('completed', 'failure'),
     hint: 'Failing conclusions, and runners that stopped under a job.',
     filters: { ...NOTHING, failed: true },
+  },
+  {
+    /*
+     * The half of "Failed" that is this deployment's doing. It sits beside it
+     * rather than inside a facet menu because it is the question somebody
+     * arrives with -- "is CI broken, or is our CI broken" -- and because it is
+     * the only one of the two that anybody here can fix.
+     */
+    id: 'faulted',
+    label: 'Our failures',
+    status: RUNNER_LOST,
+    hint: 'Failures this fleet caused: a runner that never started, or one that stopped under the job. GitHub records these as ordinary failures, so nothing on GitHub tells them apart.',
+    filters: { ...NOTHING, faulted: true },
   },
   {
     id: 'finished',
@@ -122,6 +143,7 @@ export function currentJobView(value: JobStatusFilters): JobView | '' {
       narrowing(value.state) === narrowing(view.filters.state) &&
       sameSet(value.conclusion, view.filters.conclusion) &&
       value.failed === view.filters.failed &&
+      value.faulted === view.filters.faulted &&
       value.unmatched === view.filters.unmatched
     ) {
       return view.id;

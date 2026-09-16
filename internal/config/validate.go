@@ -106,6 +106,73 @@ type Finding struct {
 	Detail string `json:"detail"`
 	// Fix says what to change, concretely.
 	Fix string `json:"fix,omitempty"`
+	// Source is the layer the offending value came from, and Undo is the
+	// command that takes it back out of that layer. Both are filled in by
+	// Config.Validate for findings that name a setting.
+	//
+	// It is the half of a configuration problem that is hardest to work out
+	// and easiest for the program to know. An operator told "server.bind is
+	// wrong, set it to a loopback address" will go and edit the file -- and if
+	// the value came from the database or from a ZOOMIES_* variable, the file
+	// they edit is the one layer that cannot win, so the controller refuses
+	// again with the same message and they have learned nothing. Saying which
+	// layer is speaking turns a loop into one command.
+	Source Source `json:"source,omitempty"`
+	// Undo is what to type to take the value back out. Empty when there is
+	// nothing to undo -- a wrong value in the file is edited in the file, and
+	// a default that fails validation is a bug here rather than a
+	// configuration to change.
+	//
+	// It matters most in the case the settings page cannot help with: a value
+	// saved from the UI that stops the controller starting. The page is behind
+	// the controller, so the way back has to be something an operator can type
+	// at a stopped one, and being told what to type at the moment it refuses
+	// is the difference between a minute and an afternoon.
+	//
+	// It is a field rather than a method because it is sent to the browser,
+	// and a browser that assembled the command itself would be a second place
+	// for it to be assembled differently.
+	Undo string `json:"undo,omitempty"`
+}
+
+// undoFor works out that command for a layer and a key.
+func undoFor(source Source, setting string) string {
+	f := Finding{Source: source, Setting: setting}
+	return f.undoCommand()
+}
+
+func (f Finding) undoCommand() string {
+	switch f.Source {
+	case SourceDatabase:
+		return "zoomies config unset " + f.Setting
+	case SourceEnvironment:
+		if s, ok := LookupSetting(f.Setting); ok && s.Env != "" {
+			return "unset " + s.Env
+		}
+	}
+	return ""
+}
+
+// SourceSentence says which layer set the value and what to type to take it
+// back out, as one line for a terminal or a log.
+//
+// Empty for the file and the defaults: a value in the file is edited in the
+// file, which is where the operator would have looked anyway, and a default
+// that fails validation is a bug in this package rather than a configuration
+// anybody can change.
+func (f Finding) SourceSentence() string {
+	switch f.Source {
+	case SourceDatabase:
+		return "this value is stored in this fleet's database, so editing the configuration file will not change it; " +
+			"with the controller stopped, `" + f.Undo + "` puts the file or the default back in charge"
+	case SourceEnvironment:
+		if undo := f.Undo; undo != "" {
+			return "this value comes from the environment, which is the last word, so neither the file nor the database can change it; " +
+				"`" + undo + "` in the controller's environment hands it back"
+		}
+		return "this value comes from a ZOOMIES_* variable in the environment, which overrides both the file and the database"
+	}
+	return ""
 }
 
 func (f Finding) String() string {
@@ -182,6 +249,11 @@ func (fs Findings) Err() error {
 		}
 		if f.Fix != "" {
 			fmt.Fprintf(&b, "      fix: %s\n", f.Fix)
+		}
+		// Which layer is saying it, and how to take it back. Without this an
+		// operator edits the file, restarts, and gets the same refusal.
+		if where := f.SourceSentence(); where != "" {
+			fmt.Fprintf(&b, "      %s\n", where)
 		}
 	}
 	return fmt.Errorf("%s", strings.TrimRight(b.String(), "\n"))
@@ -926,6 +998,16 @@ func (c *Config) Validate() Findings {
 		}
 	}
 
+	// Stamp the layer on every finding that names a setting, rather than
+	// asking eighty-odd constructions above to remember. Which layer set a
+	// value is a property of the assembled configuration, not of the rule that
+	// judged it, and nothing above here has any business knowing it.
+	for i := range fs {
+		if fs[i].Setting != "" {
+			fs[i].Source = c.Source(fs[i].Setting)
+			fs[i].Undo = undoFor(fs[i].Source, fs[i].Setting)
+		}
+	}
 	return fs
 }
 

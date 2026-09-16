@@ -50,6 +50,35 @@ func (s *Server) handleCancelJobWorkflow(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusAccepted, cancelJobResponse{Accepted: true, Force: req.Force, RunID: j.GitHubRunID})
 }
 
+type rerunJobResponse struct {
+	Accepted bool  `json:"accepted"`
+	RunID    int64 `json:"run_id"`
+	// FaultDomain is whose the failure being re-run was, echoed back so a CLI
+	// or a script can log what it just spent minutes on.
+	FaultDomain string `json:"fault_domain,omitempty"`
+}
+
+func (s *Server) handleRerunJobWorkflow(w http.ResponseWriter, r *http.Request) {
+	j, err := s.ctrl.RerunJobWorkflow(r.Context(), chiURLParam(r, "id"))
+	if err != nil {
+		switch {
+		case errors.Is(err, controller.ErrJobNotFinished):
+			conflict(w, err.Error()+", so there is nothing to run again; wait for it to finish")
+		case errors.Is(err, controller.ErrJobDidNotFail):
+			conflict(w, err.Error()+"; GitHub only reruns the failed jobs of a run")
+		case errors.Is(err, github.ErrForbidden):
+			forbidden(w, err.Error())
+		default:
+			s.fail(w, r, "asking GitHub to re-run the workflow run", err)
+		}
+		return
+	}
+	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "job.rerun_requested", "job", j.ID, map[string]any{
+		"repo": j.Repo, "run_id": j.GitHubRunID, "fault_domain": j.FaultDomain(), "fault_kind": string(j.FaultKind),
+	})
+	writeJSON(w, http.StatusAccepted, rerunJobResponse{Accepted: true, RunID: j.GitHubRunID, FaultDomain: j.FaultDomain()})
+}
+
 // jobResponse is one workflow job as Zoomies observed it.
 //
 // queue_wait_ms and duration_ms are computed here rather than stored: they are
@@ -220,6 +249,27 @@ func parseJobFilter(w http.ResponseWriter, r *http.Request) (store.JobFilter, bo
 	if failed := queryBoolPtr(r, "failed"); failed != nil {
 		filter.FailedOnly = *failed
 	}
+	if faulted := queryBoolPtr(r, "faulted"); faulted != nil {
+		filter.FaultedOnly = *faulted
+	}
+	if workflowFailed := queryBoolPtr(r, "workflow_failed"); workflowFailed != nil {
+		filter.WorkflowFailedOnly = *workflowFailed
+	}
+	if filter.FaultedOnly && filter.WorkflowFailedOnly {
+		badRequestField(w, "faulted", "faulted and workflow_failed ask for opposite halves of the same list; send one")
+		return filter, false
+	}
+	for _, raw := range r.URL.Query()["fault"] {
+		// Refused rather than ignored. A category this build does not know
+		// matches nothing, and a filter that silently returned everything
+		// would read as a fleet in better shape than it is.
+		kind := store.FaultKind(raw)
+		if !kind.Valid() {
+			badRequestField(w, "fault", fmt.Sprintf("%q is not a fault category; use one of %s", raw, faultKindList()))
+			return filter, false
+		}
+		filter.FaultKinds = append(filter.FaultKinds, kind)
+	}
 
 	for _, v := range filter.Provisioning {
 		switch v {
@@ -238,4 +288,15 @@ func parseJobFilter(w http.ResponseWriter, r *http.Request) (store.JobFilter, bo
 		filter.ManagedOnly = true
 	}
 	return filter, true
+}
+
+// faultKindList names the categories for an error message, so a 400 tells the
+// caller what to send instead of only that what they sent was wrong.
+func faultKindList() string {
+	kinds := store.FaultKinds()
+	names := make([]string, len(kinds))
+	for i, k := range kinds {
+		names[i] = string(k)
+	}
+	return strings.Join(names, ", ")
 }

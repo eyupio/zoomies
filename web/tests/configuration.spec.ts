@@ -132,6 +132,39 @@ test('the page can be searched and filtered down to what has been changed', asyn
   await expect(row(page, 'Provision timeout')).toHaveCount(0);
 });
 
+test('a link to one setting lands on it, whatever the page was filtered to', async ({ page }) => {
+  // A problem that names a key used to land somebody on a list of eighty-eight
+  // and leave them to find it. The filters are stood down for the link, because
+  // one arriving while "Changed" is selected would otherwise open a page the
+  // setting is not on.
+  await openConfiguration(page);
+  await page.getByText(/^Changed/).click();
+  await expect(row(page, 'Provision timeout')).toHaveCount(0);
+
+  await page.goto('/settings?tab=configuration&setting=scheduler.provision_timeout');
+  const sought = row(page, 'Provision timeout');
+  await expect(sought).toBeVisible();
+  // Marked, not merely scrolled to: a page that jumps and then looks exactly as
+  // it did leaves somebody hunting for what moved.
+  await expect(sought).toHaveClass(/sought/);
+});
+
+test('the search box takes the slash key, the way a list an operator reads does', async ({
+  page,
+}) => {
+  await openConfiguration(page);
+  const search = page.getByRole('textbox', { name: 'Search settings' });
+  await expect(search).not.toBeFocused();
+  await page.keyboard.press('/');
+  await expect(search).toBeFocused();
+
+  // And it is not swallowed while somebody is typing a value into a field,
+  // which would put a stray slash in the middle of what they were editing.
+  await search.fill('provision');
+  await page.keyboard.press('/');
+  await expect(search).toHaveValue('provision/');
+});
+
 /*
  * Which layout the host capacity map opens in is a fleet setting, and one
  * per page: the Overview is glanced at and the Hosts page is looked into, so

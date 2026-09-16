@@ -127,6 +127,12 @@ type timelineEntry struct {
 	Message    string    `json:"message"`
 }
 
+type rerunResponse struct {
+	Accepted    bool   `json:"accepted"`
+	RunID       int64  `json:"run_id"`
+	FaultDomain string `json:"fault_domain"`
+}
+
 type jobItem struct {
 	ID          string   `json:"id"`
 	GitHubRunID int64    `json:"github_run_id"`
@@ -151,6 +157,9 @@ type jobItem struct {
 	Steps          []jobStep  `json:"steps"`
 	FailedStep     *jobStep   `json:"failed_step"`
 	RunnerFault    string     `json:"runner_fault"`
+	FaultKind      string     `json:"fault_kind"`
+	FaultDomain    string     `json:"fault_domain"`
+	FaultFix       string     `json:"fault_fix"`
 	QueuedAt       time.Time  `json:"queued_at"`
 	StartedAt      *time.Time `json:"started_at"`
 	CompletedAt    *time.Time `json:"completed_at"`

@@ -18,6 +18,18 @@ import (
 //
 // Swapping one identifier for the other is a one-token change that reads as a
 // tidy-up, so it needs a test rather than the comment above it.
+//
+// Which field, not which byte. diskSpace makes its own Statfs call, so this
+// compares two readings of a live filesystem taken moments apart -- and
+// anything writing to it in between moves f_bavail by a block. Demanding they
+// match exactly made this fail on a busy machine for a reason that has nothing
+// to do with what it is testing: CI reported a difference of 4096 bytes, which
+// is one block, on a runner that was writing test databases throughout.
+//
+// The reserve the two fields differ by is a percentage of the filesystem --
+// gigabytes where the drift is kilobytes -- so "nearer f_bavail than f_bfree"
+// separates them with room to spare, and says exactly what the comment above
+// promises.
 func TestTheAgentReportsSpaceARunnerCanActuallyWriteTo(t *testing.T) {
 	dir := t.TempDir()
 	var st syscall.Statfs_t
@@ -39,7 +51,12 @@ func TestTheAgentReportsSpaceARunnerCanActuallyWriteTo(t *testing.T) {
 		t.Fatalf("available = %d bytes, which is f_bfree: %d of that is reserved and a runner cannot write to it",
 			avail, wantFree-wantAvail)
 	}
-	if avail != wantAvail {
-		t.Fatalf("available = %d bytes, want f_bavail's %d", avail, wantAvail)
+	// Half the reserve as the tolerance: wide enough that a filesystem moving
+	// under the two calls cannot fail this, and narrower than the distance to
+	// the number it must not be.
+	reserve := wantFree - wantAvail
+	if drift := avail - wantAvail; drift < -reserve/2 || drift > reserve/2 {
+		t.Fatalf("available = %d bytes, want f_bavail's %d (out by %d, and the reserve is only %d)",
+			avail, wantAvail, drift, reserve)
 	}
 }

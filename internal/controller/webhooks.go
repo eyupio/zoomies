@@ -449,6 +449,12 @@ func (c *Controller) observeJobCompletion(j *store.Job) {
 		conclusion = "unknown"
 	}
 	c.metrics.jobsTotal.WithLabelValues(pool, conclusion).Inc()
+	// The fleet's own half is counted when the fault is recorded, which
+	// happens before GitHub closes the job and sometimes long before. Counting
+	// it again here would double every runner that died mid-job.
+	if j.WorkflowFailed() {
+		c.metrics.jobFailures.WithLabelValues(pool, store.FaultDomainWorkflow, "").Inc()
+	}
 	if w := j.QueueWait(); w > 0 {
 		c.metrics.queueWait.Observe(w.Seconds())
 	}

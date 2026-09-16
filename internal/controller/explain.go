@@ -90,10 +90,16 @@ func (c *Controller) ExplainJob(ctx context.Context, jobID string) (*JobExplanat
 
 func (c *Controller) explainCompleted(job *store.Job, out *JobExplanation) {
 	switch {
-	case job.RunnerFault != "":
+	case job.FleetFailed():
 		out.Summary = "The runner this job was on stopped before the job finished."
 		out.Detail = job.RunnerFault
-		out.Fix = "this is the fleet's failure rather than the workflow's: the runner's page has what it said as it went."
+		// The category's own remedy where there is one. It is the difference
+		// between being told the fleet broke the job and being told what to go
+		// and change, and the second is why anybody opened this page.
+		out.Fix = job.FaultKind.Fix()
+		if out.Fix == "" {
+			out.Fix = "this is the fleet's failure rather than the workflow's: the runner's page has what it said as it went."
+		}
 	case store.IsFailedConclusion(job.Conclusion):
 		out.Summary = "This job ran and " + job.Conclusion + "."
 		out.Detail = "The fleet did its part: a conclusion is the workflow's own outcome."
@@ -103,6 +109,20 @@ func (c *Controller) explainCompleted(job *store.Job, out *JobExplanation) {
 }
 
 func (c *Controller) explainRunning(ctx context.Context, job *store.Job, out *JobExplanation) {
+	// A runner that died under a job is recorded the moment the fleet sees it,
+	// which is often minutes before GitHub closes the job. Until it does, this
+	// is the function that answers -- and it used to answer "this job is
+	// running on zoomies-x", about a runner the fleet had already written off.
+	if job.FleetFailed() {
+		out.Blocked = true
+		out.Summary = "The runner this job was on has stopped, and GitHub has not noticed yet."
+		out.Detail = job.RunnerFault + ". GitHub will report the job failed once the runner's absence is noticed, and it will look like any other failure."
+		out.Fix = job.FaultKind.Fix()
+		if out.Fix == "" {
+			out.Fix = "this is the fleet's failure rather than the workflow's: the runner's page has what it said as it went."
+		}
+		return
+	}
 	out.Summary = "This job is running."
 	if job.RunnerName != "" {
 		out.Summary = "This job is running on " + job.RunnerName + "."
@@ -175,17 +195,34 @@ func (c *Controller) explainQueued(ctx context.Context, job *store.Job, out *Job
 	// at all is a question about hosts, not about counts.
 	if plan != nil {
 		for _, pp := range plan.Pools {
-			if pp.PoolID != pool.ID || pp.Blocked == "" {
+			if pp.PoolID != pool.ID {
 				continue
 			}
-			out.Blocked = true
-			out.Summary = "The scheduler wants a runner for this job and cannot place one."
-			out.Detail = pp.Blocked
-			out.Fix = pp.BlockedFix
-			if out.Fix == "" {
-				out.Fix = "add a host, raise a host's capacity, uncordon one, or relax the pool's host selector."
+			if pp.Blocked != "" {
+				out.Blocked = true
+				out.Summary = "The scheduler wants a runner for this job and cannot place one."
+				out.Detail = pp.Blocked
+				out.Fix = pp.BlockedFix
+				if out.Fix == "" {
+					out.Fix = "add a host, raise a host's capacity, uncordon one, or relax the pool's host selector."
+				}
+				return
 			}
-			return
+			// A pool whose runners keep dying before they register is the case
+			// that read as a pool that was merely slow. It has to be said
+			// before the counts below, because those describe a fleet working:
+			// "a runner is starting for this job" is true of a pool on its
+			// twentieth failed attempt, and saying it to somebody watching a
+			// queue that has not moved in an hour is worse than saying
+			// nothing.
+			if pp.Failing != "" {
+				out.Blocked = true
+				out.Summary = pool.Name + " keeps failing to start a runner for this job."
+				out.Detail = pp.Failing
+				out.Fix = startFailureFix(pp.FailingFault)
+				return
+			}
+			break
 		}
 	}
 

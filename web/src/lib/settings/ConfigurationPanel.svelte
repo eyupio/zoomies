@@ -20,6 +20,8 @@
 <script lang="ts">
   import { Lock, RotateCcw, Search, TriangleAlert } from '@lucide/svelte';
   import { getSettings, updateSettings, ApiError } from '$lib/api/client';
+  import { registerSearch } from '$lib/keys';
+  import { router } from '$lib/router';
   import { session } from '$lib/state/session.svelte';
   import type { Problem, Setting, Settings } from '$lib/api/types';
   import { severityStatus } from '$lib/status';
@@ -74,6 +76,44 @@
 
   let query = $state('');
   let view = $state<View>('all');
+  let searchField = $state<HTMLInputElement | null>(null);
+
+  /**
+   * The setting a link asked for, from the address bar.
+   *
+   * A problem that names a key used to land somebody on a list of eighty-eight
+   * and leave them to find it -- nine tenths of the work done and then stopped.
+   * The row is scrolled to and marked instead, and the filters are stood down
+   * for it, because a link that arrives while "Changed" is selected would
+   * otherwise open a page the setting is not on.
+   */
+  const wanted = $derived(router.param('setting'));
+  let sought = $state('');
+
+  $effect(() => {
+    const key = wanted;
+    if (!key || !settings) return;
+    // Untangled from the filters first, or the row may not be rendered to
+    // scroll to. Both are cleared rather than only the one that would hide it:
+    // which of them does depends on the key, and a page that sometimes honours
+    // a link is worse than one that always does.
+    query = '';
+    view = 'all';
+    sought = key;
+    // After the filter change has rendered. A frame is enough, and the read is
+    // guarded because a key nobody recognises simply scrolls nowhere.
+    requestAnimationFrame(() => {
+      document.getElementById(`setting-${key}`)?.scrollIntoView({ block: 'center' });
+    });
+  });
+
+  /**
+   * `/` puts the cursor in the search box. The shortcut, the guard against
+   * swallowing a keystroke meant for a field, and the line in the shortcuts
+   * sheet all already exist in keys.ts -- a page only has to say which of its
+   * inputs is the search one, as Jobs, Runners and the log viewer do.
+   */
+  $effect(() => registerSearch(searchField));
 
   const all = $derived<readonly Setting[]>(settings?.settings ?? []);
 
@@ -238,6 +278,26 @@
                   {#if finding.fix}
                     <p class="finding-detail"><strong>Fix:</strong> {finding.fix}</p>
                   {/if}
+                  <!--
+                    Which layer set it, when that is not where the fix points.
+                    Told only to "change server.bind", an operator edits the
+                    configuration file -- and a value stored here or pinned by
+                    a variable is one the file cannot change, so they restart
+                    into the same complaint having learned nothing.
+                  -->
+                  {#if finding.undo}
+                    <p class="finding-detail">
+                      <strong
+                        >{finding.source === 'environment'
+                          ? 'The environment is setting this'
+                          : 'This value is stored in this fleet'}</strong
+                      >
+                      {finding.source === 'environment'
+                        ? ', and it is the last word: neither the file nor this page can change it. With the controller stopped, run'
+                        : ', so editing the configuration file will not change it. If it is stopping the controller starting, run this against the stopped controller:'}
+                      <code>{finding.undo}</code>
+                    </p>
+                  {/if}
                 </div>
               </li>
             {/each}
@@ -249,9 +309,10 @@
         <div class="search">
           <Input
             bind:value={query}
+            bind:element={searchField}
             size="sm"
             icon={Search}
-            placeholder="Search settings, summaries and ZOOMIES_* names"
+            placeholder="Search settings, summaries and ZOOMIES_* names  (press /)"
             ariaLabel="Search settings"
           />
         </div>
@@ -298,6 +359,29 @@
         </p>
       {/if}
 
+      <!--
+        The jump. A hundred settings under fourteen headings is a page nobody
+        scrolls twice, and the search box only helps somebody who already knows
+        what the setting is called -- which is the case this panel is least
+        needed for. The rail is what the operator who is looking around uses,
+        and it narrows with the filters so a section the search emptied is not
+        offered as somewhere to go.
+
+        It sits under the file and database paths rather than above them
+        because the chips are a row of their own: moved up, they land beside
+        that block's columns and stretch to its height.
+      -->
+      {#if sections.length > 1}
+        <nav class="jump" aria-label="Jump to a section">
+          {#each sections as section (section.name)}
+            <a href="#section-{section.name}" class="mono">
+              {section.name}
+              <span class="jump-count">{section.rows.length}</span>
+            </a>
+          {/each}
+        </nav>
+      {/if}
+
       {#each sections as section (section.name)}
         <section aria-labelledby="section-{section.name}">
           <div class="section-head">
@@ -305,7 +389,12 @@
             {#if SECTION_BLURB[section.name]}<p>{SECTION_BLURB[section.name]}</p>{/if}
           </div>
           {#each section.rows as setting (setting.key)}
-            <SettingRow {setting} findings={findingsBySetting[setting.key] ?? []} onsave={save} />
+            <SettingRow
+              {setting}
+              findings={findingsBySetting[setting.key] ?? []}
+              sought={setting.key === sought}
+              onsave={save}
+            />
           {/each}
         </section>
       {/each}
@@ -435,7 +524,15 @@
     color: var(--z-text-muted);
   }
 
+  /*
+    The search and the view switch stay reachable while the list scrolls. On a
+    page this long, a filter that has to be scrolled back to is one that gets
+    used once.
+  */
   .controls {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-layer-sticky);
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -443,6 +540,35 @@
     gap: var(--z-space-3);
     padding: var(--z-space-3) var(--z-space-5);
     border-bottom: var(--z-border-width) solid var(--z-border);
+    background: var(--z-surface);
+  }
+  .jump {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--z-space-2);
+    padding: var(--z-space-3) var(--z-space-5);
+    border-bottom: var(--z-border-width) solid var(--z-border);
+    background: var(--z-surface-sunken);
+  }
+  .jump a {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--z-space-1);
+    padding: var(--z-space-1) var(--z-space-2);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-sm);
+    background: var(--z-surface);
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
+    text-decoration: none;
+  }
+  .jump a:hover {
+    border-color: var(--z-accent);
+    color: var(--z-text);
+  }
+  .jump-count {
+    color: var(--z-text-subtle);
+    font-variant-numeric: tabular-nums;
   }
   .search {
     flex: 1 1 20rem;
@@ -533,6 +659,9 @@
     padding: var(--z-space-4) var(--z-space-5) var(--z-space-2);
     border-bottom: var(--z-border-width) solid var(--z-border);
     background: var(--z-surface-sunken);
+    /* Cleared by the sticky controls above, so a jump lands on the heading
+       rather than just under it. */
+    scroll-margin-top: var(--z-space-10);
   }
   h3 {
     margin: 0;

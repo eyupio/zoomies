@@ -90,6 +90,7 @@ export type Job = Schemas['Job'];
 export type JobStep = Schemas['JobStep'];
 export type JobEvent = Schemas['JobEvent'];
 export type JobEventKind = Schemas['JobEventKind'];
+export type FaultKind = Schemas['FaultKind'];
 export type BackendInfo = Schemas['BackendInfo'];
 export type Host = Schemas['Host'];
 export type HostSample = Schemas['HostSample'];

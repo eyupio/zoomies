@@ -679,3 +679,68 @@ func TestACapacityMapLayoutTheFileGetsWrongIsAFinding(t *testing.T) {
 		t.Errorf("setting the overview layout changed the hosts layout to %q", c.UI.CapacityMap.HostsLayout)
 	}
 }
+
+// A configuration problem is hard for one reason: "I changed it and nothing
+// happened". Four layers stack, the file is the one people edit, and it is the
+// one a stored or pinned value beats -- so a finding that names a setting and
+// not the layer holding it sends an operator to edit the wrong thing, restart,
+// and read the same complaint having learned nothing.
+//
+// It matters most where the settings page cannot help at all: a value saved
+// from that page which stops the controller starting is unreachable from a page
+// the controller serves, so the way back has to be something typed at a stopped
+// one -- and the moment to be told it is the moment it refuses.
+func TestAFindingSaysWhichLayerSetTheValueAndHowToUndoIt(t *testing.T) {
+	cfg := Default()
+	cfg.Server.Bind = "not-a-host-port"
+	cfg.note("server.bind", SourceDatabase)
+
+	findings := cfg.Validate()
+	var bind *Finding
+	for i := range findings {
+		if findings[i].Setting == "server.bind" {
+			bind = &findings[i]
+			break
+		}
+	}
+	if bind == nil {
+		t.Fatalf("a malformed bind produced no finding about server.bind: %v", findings)
+	}
+	if bind.Source != SourceDatabase {
+		t.Fatalf("source = %q, want database", bind.Source)
+	}
+	if bind.Undo != "zoomies config unset server.bind" {
+		t.Fatalf("undo = %q, want the command that takes it back out of the database", bind.Undo)
+	}
+	// And the refusal itself carries it, because that is the text an operator
+	// reads at the moment the controller will not start.
+	err := findings.Err()
+	if err == nil {
+		t.Fatal("a malformed bind did not stop startup")
+	}
+	if !strings.Contains(err.Error(), "zoomies config unset server.bind") {
+		t.Fatalf("the refusal does not say how to undo it:\n%s", err)
+	}
+
+	// The environment is the other layer the file cannot beat, and it needs a
+	// different instruction: there is nothing to unset in the database.
+	cfg.note("server.bind", SourceEnvironment)
+	for _, f := range cfg.Validate() {
+		if f.Setting != "server.bind" {
+			continue
+		}
+		if f.Undo != "unset ZOOMIES_BIND" {
+			t.Fatalf("undo = %q, want the variable unset", f.Undo)
+		}
+	}
+
+	// A value in the file says nothing: it is edited where it is, which is
+	// where somebody would have looked anyway, and a line telling them so
+	// would be a line they learn to skip on every other finding.
+	cfg.note("server.bind", SourceFile)
+	for _, f := range cfg.Validate() {
+		if f.Setting == "server.bind" && (f.Undo != "" || f.SourceSentence() != "") {
+			t.Fatalf("a value in the file offered an undo: %q / %q", f.Undo, f.SourceSentence())
+		}
+	}
+}

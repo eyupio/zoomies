@@ -212,6 +212,17 @@ type PoolPlan struct {
 	// is, because a pool in this state has jobs waiting on runners that keep
 	// failing, and the problems drawer has to be able to say why.
 	Failing string `json:"failing,omitempty"`
+	// FailingFault is the category behind that, taken from the most recent
+	// failed runner. The sentence above says how many and when; this says what
+	// to do, and they are different questions -- "the last four runners failed
+	// to start" is a pool to look at, and "because the image could not be
+	// pulled" is a tag to fix.
+	//
+	// It travels in the plan rather than being looked up again by each reader
+	// for the reason the rest of this struct does: the problems drawer, the
+	// pool page and a job's explanation all ask, and three lookups against a
+	// fleet that has moved on is three answers.
+	FailingFault store.FaultKind `json:"failing_fault,omitempty"`
 	// Held is set when the pool's installation is inside a GitHub rate-limit
 	// backoff. It says until when, because the pool is otherwise healthy and
 	// its jobs are waiting on nothing the operator can see.
@@ -383,7 +394,7 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 	// it must not stand in for the runner a queued job is waiting on.
 	plan.Desired = clamp(max(p.MinRunners, busy+draining+eligible), p.MinRunners, p.MaxRunners)
 	plan.eligible = eligible
-	plan.Failing = t.holdAfterStartFailures(p, runners)
+	plan.Failing, plan.FailingFault = t.holdAfterStartFailures(p, runners)
 	plan.Held = t.holdWhileRateLimited(p)
 
 	switch {
@@ -404,10 +415,10 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 // each failure still on the page, so a broken pool settles at one attempt
 // every few minutes rather than one a second; it recovers on its own, because
 // a pass that creates nothing adds no failure and the wait simply runs out.
-func (t *tick) holdAfterStartFailures(p *store.Pool, runners []*store.Runner) string {
+func (t *tick) holdAfterStartFailures(p *store.Pool, runners []*store.Runner) (string, store.FaultKind) {
 	failed := startFailures(runners, t.now)
 	if len(failed) == 0 {
-		return ""
+		return "", ""
 	}
 	wait := maxStartBackoff
 	if shift := len(failed) - 1; shift < 8 && startBackoff<<shift < maxStartBackoff {
@@ -416,7 +427,7 @@ func (t *tick) holdAfterStartFailures(p *store.Pool, runners []*store.Runner) st
 	wait = jittered(wait, t.jitter[p.ID])
 	since := t.now.Sub(failedAt(failed[0]))
 	if since >= wait {
-		return ""
+		return "", ""
 	}
 	which := "the last runner"
 	if len(failed) > 1 {
@@ -424,7 +435,7 @@ func (t *tick) holdAfterStartFailures(p *store.Pool, runners []*store.Runner) st
 	}
 	return fmt.Sprintf("%s failed to start, most recently %s ago (%s); trying again in %s",
 		which, formatDuration(since.Truncate(time.Second)), summarise(failed[0].Message),
-		formatDuration((wait - since).Round(time.Second)))
+		formatDuration((wait - since).Round(time.Second))), failed[0].FaultKind
 }
 
 // holdWhileRateLimited returns the sentence that says a pool's installation

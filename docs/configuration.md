@@ -79,6 +79,36 @@ It refuses to run while a controller is up, because writing settings under a
 process that has already read them leaves the two disagreeing with no way for
 either to find out.
 
+### When a setting stops the controller starting
+
+This is the failure the layers make possible: a value saved on the settings page
+that the validator refuses at the next start. The page that would fix it is
+behind the controller that will not start, and editing `zoomies.yaml` does
+nothing — the database sits above the file, so the file cannot win.
+
+Zoomies says so at the moment it refuses. Every finding that names a setting
+carries the layer holding it, and a refusal prints the command that takes it
+back out:
+
+```text
+configuration is not valid:
+  - server.bind: "0.0.0.0" is not a host:port address
+      fix: use the form "127.0.0.1:8080" or ":8080".
+      this value is stored in this fleet's database, so editing the configuration
+      file will not change it; with the controller stopped, `zoomies config unset
+      server.bind` puts the file or the default back in charge
+```
+
+The same sentence appears on the problems drawer and the Configuration tab, for
+the settings that are merely unwise rather than fatal — so "I changed it and
+nothing happened" is answered before it is asked.
+
+A value the environment is pinning gets the other instruction, because there is
+nothing stored to unset: `ZOOMIES_*` is the last word, and the variable has to
+go from the environment the controller starts with. That is also what makes it
+the way back in when the database is the problem and you would rather not stop
+the controller to fix it.
+
 ### The file
 
 The parser is strict. A misspelled key is an error naming the line, not a

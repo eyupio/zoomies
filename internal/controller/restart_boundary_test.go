@@ -155,7 +155,7 @@ func TestALateSuccessDoesNotResurrectARunnerTheFleetGaveUpOn(t *testing.T) {
 	if _, err := h.c.PollTasks(h.ctx, host.ID, time.Second); err != nil {
 		t.Fatalf("PollTasks: %v", err)
 	}
-	if err := h.c.failRunnerID(h.ctx, r.ID, "host went quiet for longer than hostLostAfter"); err != nil {
+	if err := h.c.failRunnerID(h.ctx, r.ID, "host went quiet for longer than hostLostAfter", store.FaultHostLost); err != nil {
 		t.Fatalf("failRunnerID: %v", err)
 	}
 

@@ -214,7 +214,7 @@ func (c *Controller) apply(ctx context.Context, snap scheduler.Snapshot, plan sc
 					c.logRunnerAction("remove", a, err)
 				}
 			case scheduler.ActionFail:
-				if err := c.failRunnerID(ctx, a.RunnerID, a.Reason); err != nil {
+				if err := c.failRunnerID(ctx, a.RunnerID, a.Reason, store.FaultRunnerExited); err != nil {
 					c.logRunnerAction("fail", a, err)
 				}
 			}
@@ -324,8 +324,9 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, host *s
 	creds, ghID, err := c.mintCredentials(ctx, inst, pool, name)
 	if err != nil {
 		msg := fmt.Sprintf("GitHub would not register %s: %v", name, err)
-		if failed, ferr := c.st.TransitionRunner(ctx, r.ID, store.RunnerFailed, msg); ferr == nil {
+		if failed, ferr := c.st.FailRunner(ctx, r.ID, msg, store.FaultRegistration); ferr == nil {
 			c.publishRunner(ctx, events.KindRunnerUpdated, failed)
+			c.noteRunnerStartFailure(ctx, r, failed)
 		} else {
 			c.log.Error("could not mark a runner failed after its registration failed",
 				"runner", r.ID, "error", ferr)
@@ -562,23 +563,33 @@ func (c *Controller) removeRunner(ctx context.Context, r *store.Runner, reason s
 		// Only a forced removal reaches here with a job still running, and
 		// that job is about to fail on GitHub for a reason only this fleet
 		// knows.
-		c.noteRunnerLost(ctx, r, sourceController, reason)
+		// An operator chose this. It is the fleet's failure in the sense that
+		// the workflow did nothing wrong, and the one kind that needs no
+		// fixing -- so it is worth telling apart from the runner that died on
+		// its own, which is a fleet with a problem.
+		c.noteRunnerLost(ctx, r, sourceController, reason, store.FaultRemoved)
 	}
 	return updated, nil
 }
 
-func (c *Controller) failRunnerID(ctx context.Context, id, reason string) error {
+// failRunnerID marks a runner failed and says what category the failure
+// belongs to, so the row, the job under it and the fleet's counts all agree
+// about whose fault it was. Callers that genuinely cannot narrow it pass
+// store.FaultRunnerExited, which reads as "go and look" rather than as a
+// diagnosis nobody made.
+func (c *Controller) failRunnerID(ctx context.Context, id, reason string, fault store.FaultKind) error {
 	before, err := c.st.GetRunner(ctx, id)
 	if err != nil {
 		return err
 	}
-	updated, err := c.st.TransitionRunner(ctx, id, store.RunnerFailed, reason)
+	updated, err := c.st.FailRunner(ctx, id, reason, fault)
 	if err != nil {
 		return err
 	}
 	c.publishRunner(ctx, events.KindRunnerUpdated, updated)
-	c.log.Warn("a runner failed", "runner", updated.ID, "name", updated.Name, "reason", reason)
-	c.noteRunnerLost(ctx, before, sourceController, reason)
+	c.log.Warn("a runner failed", "runner", updated.ID, "name", updated.Name, "reason", reason, "fault", updated.FaultKind)
+	c.noteRunnerLost(ctx, before, sourceController, reason, updated.FaultKind)
+	c.noteRunnerStartFailure(ctx, before, updated)
 	return nil
 }
 

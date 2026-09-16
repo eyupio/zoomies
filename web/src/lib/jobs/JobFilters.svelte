@@ -20,6 +20,12 @@
      */
     failed: boolean;
     /**
+     * The half of `failed` this fleet caused: a runner that never started, or
+     * one that stopped under the job. GitHub records these as ordinary
+     * failures, so nothing on GitHub tells the two apart.
+     */
+    faulted: boolean;
+    /**
      * Show every job GitHub reported, not only the ones this fleet has a hand in.
      * Inverted on purpose: the default view is Zoomies' own jobs, so an absent
      * URL key means the default rather than "show everything".
@@ -39,6 +45,7 @@
     until: '',
     unmatched: false,
     failed: false,
+    faulted: false,
     all: false,
   };
 </script>

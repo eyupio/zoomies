@@ -163,7 +163,7 @@ func (a *Agent) observe(ctx context.Context, b backend.Backend, r tracked, w bac
 			// itself, and it is this agent's job to get rid of it.
 			return a.cleanUp(ctx, b, r, w, now)
 		}
-		state, msg := terminalOutcome(r, w.Status)
+		state, msg, fault := terminalOutcome(r, w.Status)
 		a.markTerminal(r.runnerID, state, w.Status.Phase, w.Status.ExitCode, msg, now)
 		a.log.Info("runner reached the end of its life",
 			"runner", r.runnerID, "handle", w.Handle, "state", state, "exit_code", w.Status.ExitCode, "detail", msg)
@@ -173,6 +173,7 @@ func (a *Agent) observe(ctx context.Context, b backend.Backend, r tracked, w bac
 			Handle:     w.Handle,
 			Phase:      w.Status.Phase,
 			ExitCode:   w.Status.ExitCode,
+			Fault:      fault,
 			Message:    msg,
 			ObservedAt: now,
 		}, true
@@ -201,21 +202,21 @@ func (a *Agent) observe(ctx context.Context, b backend.Backend, r tracked, w bac
 // life and by far the commonest event in the system, so it must never be
 // reported as a failure -- an operator who sees "failed" for every completed
 // job stops reading the fleet's health at all.
-func terminalOutcome(r tracked, s backend.Status) (store.RunnerState, string) {
+func terminalOutcome(r tracked, s backend.Status) (store.RunnerState, string, store.FaultKind) {
 	switch {
 	case s.Phase == backend.PhaseExitUnknown:
 		// Removed describes the runner's lifecycle, not its job's outcome.
 		// GitHub remains authoritative about whether the job succeeded.
-		return store.RunnerRemoved, "runner process exited; its exit status is unknown after an agent restart; check the job's GitHub outcome"
+		return store.RunnerRemoved, "runner process exited; its exit status is unknown after an agent restart; check the job's GitHub outcome", ""
 	case s.ExitCode == 0:
 		if r.ephemeral {
-			return store.RunnerRemoved, "ephemeral runner exited cleanly after its job"
+			return store.RunnerRemoved, "ephemeral runner exited cleanly after its job", ""
 		}
-		return store.RunnerRemoved, "runner exited cleanly"
+		return store.RunnerRemoved, "runner exited cleanly", ""
 	case r.stopping:
 		// Zoomies asked this workload to stop, so the non-zero code is the
 		// backend's kill, not the job's.
-		return store.RunnerRemoved, fmt.Sprintf("runner was stopped by the controller and exited with code %d", s.ExitCode)
+		return store.RunnerRemoved, fmt.Sprintf("runner was stopped by the controller and exited with code %d", s.ExitCode), ""
 	default:
 		msg := fmt.Sprintf("runner exited with code %d", s.ExitCode)
 		if s.Message != "" {
@@ -223,8 +224,40 @@ func terminalOutcome(r tracked, s backend.Status) (store.RunnerState, string) {
 		} else if hint := entrypointExitHint(s.ExitCode); hint != "" {
 			msg += ": " + hint
 		}
-		return store.RunnerFailed, msg
+		return store.RunnerFailed, msg, exitFault(s.ExitCode)
 	}
+}
+
+// exitFault categorises a runner's exit code.
+//
+// The codes carry real information and this is the only place holding it: 137
+// is the kernel's OOM killer via the daemon, and the entrypoint's reserved
+// sysexits codes each name a reason the runner never took a job at all. The
+// controller sees only the sentence these produce, by which point the code is
+// gone.
+//
+// Anything else is FaultRunnerExited on purpose. A code we have no meaning for
+// is a runner that stopped for a reason nobody here observed, and inventing a
+// category would send an operator to fix something that is not broken.
+func exitFault(code int) store.FaultKind {
+	switch code {
+	case 137:
+		// 128+SIGKILL. The commonest cause by a distance is the memory limit;
+		// the message carries the daemon's own words where it had any, so an
+		// operator reading "out of memory" against a kill that was not one
+		// still has the sentence that says so.
+		return store.FaultOutOfMemory
+	case 64:
+		// EX_USAGE: started with no credentials, so it could not register.
+		return store.FaultRegistration
+	case 69:
+		// EX_UNAVAILABLE: the pool's Docker daemon never became ready.
+		return store.FaultBackend
+	case 78:
+		// EX_CONFIG: the entrypoint refused its configuration.
+		return store.FaultConfig
+	}
+	return store.FaultRunnerExited
 }
 
 // entrypointExitHint says what a runner image's entrypoint meant by an exit

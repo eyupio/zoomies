@@ -17,6 +17,7 @@
   import { getRunner, getRunnerTimeline } from '$lib/api/client';
   import { events } from '$lib/api/sse';
   import type { RunnerDetail, TimelineEntry } from '$lib/api/types';
+  import { faultLabel } from '$lib/faults';
   import { router } from '$lib/router';
   import { runnerStatus } from '$lib/status';
   import { fleet } from '$lib/state/fleet.svelte';
@@ -222,10 +223,25 @@
 {/if}
 
 {#if failureMessage}
-  <p class="callout danger">
+  <!--
+    A failed runner says what went wrong and, since the categories, what to do
+    about it. A runner that never took a job is the case this matters most for:
+    nothing else in the system says why a pool's containers will not start,
+    because the jobs it was meant for are still queued and none of them is
+    marked failed.
+  -->
+  <div class="callout danger stacked">
     <TriangleAlert size={15} aria-hidden="true" />
-    <span>{failureMessage}</span>
-  </p>
+    <div class="callout-body">
+      {#if runner?.fault_kind}
+        <p class="callout-heading">{faultLabel(runner.fault_kind)}</p>
+      {/if}
+      <p>{failureMessage}</p>
+      {#if runner?.fault_fix}
+        <p class="callout-fix"><span class="callout-fix-label">Fix</span> {runner.fault_fix}</p>
+      {/if}
+    </div>
+  </div>
 {/if}
 
 <!--
@@ -342,6 +358,24 @@
 <RunnerConfirm bind:open={confirmOpen} action={confirmAction} {targets} />
 
 <style>
+  .stacked {
+    align-items: flex-start;
+  }
+  .callout-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-1);
+    min-width: 0;
+  }
+  .callout-body p {
+    margin: 0;
+  }
+  .callout-heading {
+    font-weight: var(--z-weight-semibold);
+  }
+  .callout-fix-label {
+    font-weight: var(--z-weight-semibold);
+  }
   .crumb {
     font-size: var(--z-text-xs);
     color: var(--z-text-muted);

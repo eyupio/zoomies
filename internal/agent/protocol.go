@@ -177,7 +177,15 @@ type RunnerReport struct {
 	Phase        backend.Phase     `json:"phase,omitempty"`
 	ExitCode     int               `json:"exit_code,omitempty"`
 	Message      string            `json:"message,omitempty"`
-	Stats        backend.Stats     `json:"stats,omitempty"`
+	// Fault categorises a failure, decided here rather than by the controller
+	// because this is the side holding the evidence: the exit code, the
+	// daemon's own reply, the entrypoint's reserved codes. By the time a
+	// message has reached the controller it has been reworded twice and the
+	// only thing left to classify from is prose. An agent older than this
+	// field sends none, which the controller reads as unclassified -- honest,
+	// and exactly what it knew before.
+	Fault store.FaultKind `json:"fault,omitempty"`
+	Stats backend.Stats   `json:"stats,omitempty"`
 	// GitHubRunnerID is filled in once the runner has registered.
 	GitHubRunnerID int64     `json:"github_runner_id,omitempty"`
 	ObservedAt     time.Time `json:"observed_at"`
@@ -254,8 +262,11 @@ type TaskResult struct {
 	ContainerStartedAt *time.Time     `json:"container_started_at,omitempty"`
 	Digest             string         `json:"digest,omitempty"`
 	// State is the runner state the agent believes the runner reached.
-	State       store.RunnerState `json:"state,omitempty"`
-	CompletedAt time.Time         `json:"completed_at"`
+	State store.RunnerState `json:"state,omitempty"`
+	// Fault categorises a lifecycle task that failed, for the same reason
+	// RunnerReport carries one: the backend's answer is here and nowhere else.
+	Fault       store.FaultKind `json:"fault,omitempty"`
+	CompletedAt time.Time       `json:"completed_at"`
 }
 
 // TaskBatch is the response to a task poll.
