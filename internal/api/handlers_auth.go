@@ -299,10 +299,13 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 			notFound(w, "this account no longer exists")
 		case errors.Is(err, auth.ErrSSOOnly):
 			unprocessable(w, err.Error(), []fieldError{{"new_password", err.Error()}})
-		default:
-			// A wrong current password is the common case and is the caller's
-			// to fix, not an internal failure.
+		case errors.Is(err, auth.ErrWrongPassword):
+			// The common case, and the caller's to fix, not an internal failure.
 			unprocessable(w, err.Error(), []fieldError{{"old_password", err.Error()}})
+		case errors.Is(err, auth.ErrInvalidInput):
+			unprocessable(w, err.Error(), []fieldError{{"new_password", err.Error()}})
+		default:
+			s.fail(w, r, "changing the password", err)
 		}
 		return
 	}
