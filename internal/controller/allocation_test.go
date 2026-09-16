@@ -59,6 +59,7 @@ func TestAPoolWithNoLimitsGetsOneSlotsShareOfItsHost(t *testing.T) {
 	if err := h.c.Reconcile(h.ctx); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
+	h.c.lifecycleCalls.Wait()
 	r := h.onlyRunner()
 	if r.AllocatedCPUs != 1.87 || r.AllocatedMemoryMB != 3968 || r.AllocationSource != store.AllocationFromHost {
 		t.Fatalf("row allocation = %v CPUs, %d MB from %q; want 1.87, 3968 from %q",
@@ -96,6 +97,7 @@ func TestDefaultLimitsOffLeavesARunnerUnlimited(t *testing.T) {
 	if err := h.c.Reconcile(h.ctx); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
+	h.c.lifecycleCalls.Wait()
 	r := h.onlyRunner()
 	if r.AllocatedCPUs != 0 || r.AllocatedMemoryMB != 0 || r.AllocationSource != "" {
 		t.Fatalf("row allocation = %v CPUs, %d MB from %q; want none with defaults off",

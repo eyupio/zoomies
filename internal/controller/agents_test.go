@@ -357,6 +357,7 @@ func TestACreateTaskCarriesNoControllerSecret(t *testing.T) {
 	if err := h.c.Reconcile(h.ctx); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
+	h.c.lifecycleCalls.Wait()
 
 	task := h.taskOfKind(host.ID, agent.TaskCreateRunner)
 	wire, err := json.Marshal(task)

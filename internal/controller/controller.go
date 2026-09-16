@@ -139,6 +139,21 @@ type Controller struct {
 	// reconcileMu makes a pass mutually exclusive with itself, so a timer tick
 	// landing on top of a nudge cannot double-create runners.
 	reconcileMu sync.Mutex
+	// lifecycleCalls tracks the GitHub calls a reconcile pass detaches --
+	// minting a credential for a create, deleting a registration for a
+	// remove -- which run apart from the pass that decided them for the same
+	// reason deliveries and machines.calls do: reconcileMu must not span a
+	// slow external call, the way it must not span a machine step. Stop waits
+	// for them beside the other two.
+	lifecycleCalls sync.WaitGroup
+	// removingMu and removing claim a runner for the detached removal
+	// finishing it: the row does not read as RunnerRemoved until that call
+	// completes -- by design, so a crash in between still finds the
+	// registration to retry -- so nothing else marks the removal as already
+	// underway, and the next pass would otherwise redecide the same
+	// ActionRemove before the first has finished.
+	removingMu sync.Mutex
+	removing   map[string]struct{}
 	// passes counts completed reconciles; tests assert on coalescing with it.
 	passes atomic.Uint64
 	// polls counts completed poller sweeps, for the same reason.
@@ -328,6 +343,7 @@ func New(opts Options) (*Controller, error) {
 		nudges:          make(chan struct{}, 1),
 		settingsChanged: make(chan struct{}, 1),
 		hostHealthy:     map[string]bool{},
+		removing:        map[string]struct{}{},
 		// Generous next to what GitHub sends and mean next to what a probe
 		// wants: a real delivery never reaches this limiter, and a prober gets
 		// sixty rows a minute rather than as many as it can open connections.
@@ -587,6 +603,11 @@ func (c *Controller) Stop(ctx context.Context) error {
 		// recorded, which is the one state this design spends everything to
 		// avoid.
 		c.machines.calls.Wait()
+		// A create or remove decided in the last reconcile pass is the same
+		// shape again: exiting under a mint leaves a runner row nothing will
+		// ever finish, and exiting under a registration delete leaves a row
+		// that never reaches RunnerRemoved.
+		c.lifecycleCalls.Wait()
 		close(done)
 	}()
 	select {

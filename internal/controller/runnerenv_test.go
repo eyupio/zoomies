@@ -76,6 +76,7 @@ func TestACreateTaskCarriesTheFleetsRunnerEnvironment(t *testing.T) {
 	if err := h.c.Reconcile(h.ctx); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
+	h.c.lifecycleCalls.Wait()
 	task := h.taskOfKind(host.ID, agent.TaskCreateRunner)
 	if task.Spec == nil {
 		t.Fatal("no create task")

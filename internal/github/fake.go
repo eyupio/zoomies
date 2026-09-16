@@ -66,6 +66,7 @@ type FakeGitHub struct {
 	rateLimit RateLimit
 
 	failures []fakeFailure
+	delays   []fakeDelay
 	requests []string
 }
 
@@ -84,6 +85,16 @@ type fakeFailure struct {
 	pattern string
 	status  int
 	message string
+}
+
+// fakeDelay holds a matching request open before it is served, so a test can
+// exercise a GitHub call that takes real wall-clock time -- a controller
+// detaching that call from a lock it must not hold is not proven by one that
+// answers before anybody could tell the difference.
+type fakeDelay struct {
+	method  string
+	pattern string
+	d       time.Duration
 }
 
 // NewFake starts a fake GitHub and returns it. The caller must Close it.
@@ -347,6 +358,15 @@ func (f *FakeGitHub) SetMethodError(method, pattern string, status int, message 
 	})
 }
 
+// SetDelay holds every request matching method (empty for any) and pattern
+// open for d before it is served, so a test can drive a GitHub call that
+// takes real wall-clock time.
+func (f *FakeGitHub) SetDelay(method, pattern string, d time.Duration) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.delays = append(f.delays, fakeDelay{method: method, pattern: pattern, d: d})
+}
+
 // ClearErrors removes every failure injected with SetError.
 func (f *FakeGitHub) ClearErrors() {
 	f.mu.Lock()
@@ -471,7 +491,25 @@ func (f *FakeGitHub) middleware(next http.Handler) http.Handler {
 				break
 			}
 		}
+		var wait time.Duration
+		for i := range f.delays {
+			if f.delays[i].method != "" && f.delays[i].method != r.Method {
+				continue
+			}
+			if f.delays[i].pattern == "" || strings.Contains(path, f.delays[i].pattern) {
+				wait = f.delays[i].d
+				break
+			}
+		}
 		f.mu.Unlock()
+
+		if wait > 0 {
+			select {
+			case <-time.After(wait):
+			case <-r.Context().Done():
+				return
+			}
+		}
 
 		h := w.Header()
 		h.Set("Content-Type", "application/json; charset=utf-8")
