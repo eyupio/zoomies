@@ -20,6 +20,15 @@
   list the jobs themselves. The same component draws the Usage page's matrix,
   where a window of two days or less is laid out an hour per square instead.
 
+  The hour-by-hour breakdown is itself a shortcut, not only a picture: hovering
+  a bar shows the same floating figures a square does, and clicking one asks
+  `links` the question a square's own list already answers, so a bar goes
+  wherever "Jobs that day" or "Failed jobs" would -- the red segment of a bar
+  to the failures, the rest of it to the day. Nothing here reaches for a
+  tooltip library: the one popover card above already carries a square's whole
+  story, an hour is the same card asked about a narrower moment, and a second
+  widget would say nothing it does not.
+
   The band is the grid, the aside beside it, and the key under both. A grid
   with at least as many columns as rows grows its square until it fills the
   room it is given, so a day of hours is a band across the panel rather than a
@@ -48,6 +57,7 @@
   import { X } from '@lucide/svelte';
   import { formatNumber, formatPercent } from '$lib/format';
   import { layers } from '$lib/keys';
+  import { router } from '$lib/router';
   import IconButton from '$lib/components/IconButton.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import {
@@ -104,7 +114,12 @@
      * before the reload.
      */
     fetchedAt?: number;
-    /** Where a selected interval's jobs can be seen in full. */
+    /**
+     * Where a selected interval's jobs can be seen in full. Asked once for the
+     * selected square and, in the hourly breakdown, once per bar a click
+     * lands on -- an hour's own link, from a caller that only ever answers in
+     * days, so a bar's click goes to the day it belongs to.
+     */
     links?: (range: ActivityRange) => ActivityLink[];
     /** Whose jobs these are, for the grid's accessible name. */
     subject?: string;
@@ -404,6 +419,41 @@
     const to =
       interval === 'day' ? addDays(from, 1) : new Date(from.getTime() + intervalWidth('hour'));
     return { from, to, bucket: cell.bucket };
+  }
+
+  /*
+    A bar in the hourly timeline is a shortcut into the jobs it stands for, not
+    a second place that files its own request: `links` already knows how to
+    turn an interval into the Jobs page's filters, so an hour asks it the same
+    question a day does. The Jobs page filters by calendar day, not by hour, so
+    every bar in a day's timeline resolves to the same day -- the bar picks
+    which of that day's links fits what was actually clicked, not a finer
+    window than the page can answer.
+
+    The failed segment is the one link an operator reaches for from here: a
+    red hole in the calendar is "what broke", and clicking the hole should not
+    hand back the whole day undifferentiated. Anywhere else on the bar -- the
+    other outcomes, the hollow queued marker, the bar's own padding -- is "what
+    ran then", so it takes the first link `links` offers, same as the day
+    detail's own list does.
+  */
+  function hourHref(bucket: ActivityBucket, at: Date, wantFailed: boolean): string | null {
+    if (!links) return null;
+    const range: ActivityRange = {
+      from: at,
+      to: new Date(at.getTime() + intervalWidth('hour')),
+      bucket,
+    };
+    const out = links(range);
+    if (out.length === 0) return null;
+    if (wantFailed) return out.find((l) => l.href.includes('failed=true'))?.href ?? out[0]!.href;
+    return out[0]!.href;
+  }
+
+  function clickHour(event: MouseEvent, bucket: ActivityBucket, at: Date): void {
+    const wantFailed = (event.target as HTMLElement).closest('[data-tone="danger"]') !== null;
+    const href = hourHref(bucket, at, wantFailed);
+    if (href) router.navigate(href);
   }
 
   /* -- the hourly breakdown ------------------------------------------------- */
@@ -832,12 +882,15 @@
               {#each hoursShown.buckets as h (h.from)}
                 {@const done = completedIn(h)}
                 {@const at = new Date(h.from)}
+                {@const goesSomewhere = Boolean(links) && (done > 0 || h.queued > 0)}
                 <span
                   class="hour"
+                  class:clickable={goesSomewhere}
                   role="presentation"
                   title={describe(h, at, 'hour')}
                   onmouseenter={(e) => enter(e.currentTarget, h, at, 'hour')}
                   onmouseleave={(e) => leave(e.currentTarget)}
+                  onclick={goesSomewhere ? (e) => clickHour(e, h, at) : undefined}
                 >
                   {#if done > 0}
                     <span class="stack" style:height="{(100 * done) / hourPeak}%">
@@ -916,6 +969,12 @@
             : hourly && interval === 'day'
               ? 'Select for the hours and the jobs'
               : 'Select for the jobs'}
+        </p>
+      {:else if tip.interval === 'hour' && links}
+        <p class="tip-hint">
+          {b.failed > 0
+            ? 'Click the red for its failed jobs, elsewhere for the day'
+            : 'Click for the day'}
         </p>
       {/if}
     </div>
@@ -1309,6 +1368,9 @@
   }
   .hour:hover {
     background: var(--z-surface-hover);
+  }
+  .hour.clickable {
+    cursor: pointer;
   }
   .stack {
     display: flex;
