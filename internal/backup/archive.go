@@ -33,10 +33,31 @@ import (
 // anything inside it can be read, and a plain archive has to keep working with
 // nothing but tar.
 
-// The members an archive may carry. Anything else is refused on the way in:
-// an archive is written by this package and read by this package, and a member
-// it did not write is a member somebody else put there.
-var archiveMembers = map[string]bool{ManifestName: true, DBName: true, KeyName: true}
+// The members an archive may carry, in the order they are written. Anything
+// else is refused on the way in: an archive is written by this package and
+// read by this package, and a member it did not write is a member somebody
+// else put there.
+var archiveMembers = []string{ManifestName, DBName, KeyName}
+
+// memberName says which of archiveMembers the header names, or "" when it
+// names none of them. The string returned is the package's own constant, never
+// the header's: the only name that ever reaches the filesystem is one this
+// package wrote, so a hand-made archive cannot choose a path however it spells
+// its members. A directory prefix is allowed, because WriteArchive puts the
+// members under one; a path that climbs, or an absolute one, is not.
+func memberName(hdr *tar.Header) string {
+	clean := path.Clean(strings.ReplaceAll(hdr.Name, "\\", "/"))
+	if strings.HasPrefix(clean, "..") || path.IsAbs(clean) {
+		return ""
+	}
+	base := path.Base(clean)
+	for _, member := range archiveMembers {
+		if member == base {
+			return member
+		}
+	}
+	return ""
+}
 
 // ArchiveName is the file name a backup downloads as.
 func ArchiveName(id string, encrypted bool) string {
@@ -55,7 +76,7 @@ func WriteArchive(w io.Writer, entry *Entry) error {
 	tw := tar.NewWriter(gz)
 	// The manifest first, so a reader that wants only the description does
 	// not have to read the database to reach it.
-	for _, name := range []string{ManifestName, DBName, KeyName} {
+	for _, name := range archiveMembers {
 		p := filepath.Join(entry.Dir, name)
 		info, err := os.Stat(p)
 		if errors.Is(err, os.ErrNotExist) {
@@ -151,12 +172,10 @@ func Unpack(ctx context.Context, root string, r io.Reader, opts UnpackOptions) (
 		if hdr.Typeflag == tar.TypeDir {
 			continue
 		}
-		// The member's own name, whatever directory the archive put it in;
-		// and never a path that could reach outside the staging directory,
-		// which is what a hand-made archive could try.
-		clean := path.Clean(strings.ReplaceAll(hdr.Name, "\\", "/"))
-		name := path.Base(clean)
-		if strings.HasPrefix(clean, "..") || path.IsAbs(clean) || !archiveMembers[name] {
+		// The member's own name, whatever directory the archive put it in,
+		// resolved to the constant this package knows it by.
+		name := memberName(hdr)
+		if name == "" {
 			return nil, fmt.Errorf("backup: the archive holds %q, which is not part of a Zoomies backup", hdr.Name)
 		}
 		if seen[name] {

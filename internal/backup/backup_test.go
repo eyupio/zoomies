@@ -263,6 +263,15 @@ func TestUnpackRefusesWhatItDidNotWrite(t *testing.T) {
 		"a member with the wrong name": func(t *testing.T) []byte {
 			return tarOf(t, map[string][]byte{"zoomies-1/notes.txt": []byte("hi")})
 		},
+		// The right name at the end of the wrong path is still the wrong
+		// path: the name is resolved to the package's constant, and the
+		// directory the archive puts it in never reaches the filesystem.
+		"a real member behind a climbing path": func(t *testing.T) []byte {
+			return tarOf(t, map[string][]byte{"../../" + DBName: []byte("root")})
+		},
+		"a real member behind an absolute path": func(t *testing.T) []byte {
+			return tarOf(t, map[string][]byte{"/tmp/" + DBName: []byte("root")})
+		},
 		"no database": func(t *testing.T) []byte {
 			return tarOf(t, map[string][]byte{"zoomies-1/" + ManifestName: []byte("{}")})
 		},
