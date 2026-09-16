@@ -41,7 +41,7 @@ const (
 // pool's warnings to, and a code that only lives there is just as real as one
 // in problems.go. pool.dangerous and pool.cache_shared had no row in
 // docs/problem-codes.md until this list caught up to them.
-var controllerSources = []string{controllerSource, viewsSource}
+var controllerSources = []string{controllerSource, viewsSource, "../controller/backups.go"}
 
 // providerSources is every non-test file in the provider packages, found by
 // walking rather than listed, because these are the codes most likely to be

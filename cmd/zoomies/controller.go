@@ -16,6 +16,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/api"
 	"github.com/eyupio/zoomies/internal/backend"
+	"github.com/eyupio/zoomies/internal/backup"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/cryptox"
@@ -80,6 +81,16 @@ func runController(ctx context.Context, e *env, args []string) error {
 		return err
 	}
 	defer func() { _ = unlock() }()
+
+	// A restore staged from the settings page is applied here, in the gap
+	// between the last controller closing the database and this one opening
+	// it. The lock above is what makes the gap real: nothing else has the
+	// file. Whatever the outcome, this controller then starts -- on the
+	// restored database, or on the one it had, with the reason recorded for
+	// the page to show.
+	if err := applyStagedRestore(ctx, cfg, log); err != nil {
+		return err
+	}
 
 	st, err := store.Open(ctx, store.Options{Path: cfg.Database.Path})
 	if err != nil {
@@ -202,7 +213,72 @@ func runController(ctx context.Context, e *env, args []string) error {
 
 	printBanner(e.out, cfg, backends)
 	printSetupToken(ctx, e.out, ctrl, log)
-	return srv.ListenAndServe(ctx)
+
+	// The settings page can ask this process to stop so that its service
+	// manager starts the next one, which is how a staged restore is applied.
+	// The request cancels the listener's context exactly as a signal would,
+	// and the exit code says which it was.
+	serveCtx, stopServing := context.WithCancel(ctx)
+	defer stopServing()
+	go func() {
+		select {
+		case <-ctrl.RestartRequested():
+			stopServing()
+		case <-serveCtx.Done():
+		}
+	}()
+	err = srv.ListenAndServe(serveCtx)
+	if restarting, reason := ctrl.Restarting(); restarting {
+		if err != nil {
+			log.Warn("the listener did not stop cleanly on the way to a restart", "error", err)
+		}
+		return &restartRequested{reason: reason}
+	}
+	return err
+}
+
+// applyStagedRestore performs the restore the settings page staged, if there
+// is one, and says what happened in the log -- loudly, because a database
+// changing hands is the one startup event an operator reading the log later
+// must not be able to miss.
+func applyStagedRestore(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
+	staged, err := backup.LoadStaged(cfg.Database.Path)
+	if err != nil {
+		return err
+	}
+	if staged == nil {
+		return nil
+	}
+	log.Warn("applying a restore staged from the settings page", "restore", describeStaged(staged))
+	outcome, err := backup.ApplyStaged(ctx, cfg, nil)
+	if err != nil {
+		return err
+	}
+	if outcome == nil {
+		return nil
+	}
+	if !outcome.OK {
+		log.Error("the staged restore was not applied; starting on the database that was already here",
+			"backup", outcome.BackupID, "error", outcome.Error,
+			"fix", "put right what the error names and stage the restore again from the Backups tab")
+		return nil
+	}
+	log.Warn("restored the database from a backup; this fleet is fenced until an administrator lifts it",
+		"backup", outcome.BackupID, "moved_aside", outcome.Report.MovedAside)
+	for _, line := range outcome.Report.Invalidated {
+		log.Info(line)
+	}
+	return nil
+}
+
+// restartRequested is the error a controller returns when it stopped because
+// the settings page asked it to: not a failure, but not a clean exit either,
+// because a service manager set to restart on failure has to see a non-zero
+// code to bring it back.
+type restartRequested struct{ reason string }
+
+func (e *restartRequested) Error() string {
+	return "stopped for a restart: " + e.reason
 }
 
 // takeControllerLease claims this database for this controller, or refuses to

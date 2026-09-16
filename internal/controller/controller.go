@@ -154,6 +154,16 @@ type Controller struct {
 	// somebody wonders why it is slow.
 	pollingOnly atomic.Bool
 
+	// backups is the scheduled-backup loop's own state; see backups.go.
+	backups backupState
+	// restart is closed by RequestRestart, once, and restartReason says why.
+	// The command that runs the controller waits on it: a staged restore is
+	// applied by the next process to start, and this is how the page asks for
+	// there to be one.
+	restart       chan struct{}
+	restartOnce   sync.Once
+	restartReason string
+
 	// webhookProbes bounds what a stream of unverifiable deliveries from one
 	// address can write to the database, the log and the event stream. Only
 	// the rejected path consults it: a delivery that verifies came from
@@ -327,6 +337,7 @@ func New(opts Options) (*Controller, error) {
 		providerHTTP:    opts.ProviderHTTPClient,
 		nudges:          make(chan struct{}, 1),
 		settingsChanged: make(chan struct{}, 1),
+		restart:         make(chan struct{}),
 		hostHealthy:     map[string]bool{},
 		// Generous next to what GitHub sends and mean next to what a probe
 		// wants: a real delivery never reaches this limiter, and a prober gets
@@ -409,6 +420,9 @@ func (c *Controller) Start(ctx context.Context) error {
 	c.spawn("poller", loopCtx, c.pollLoop)
 	c.spawn("installations", loopCtx, c.probeLoop)
 	c.spawn("background", loopCtx, c.backgroundLoop)
+	// Its own loop, because a copy of a large database takes as long as it
+	// takes and the housekeeping pass should not wait for it.
+	c.spawn("backups", loopCtx, c.backupLoop)
 	// Its own loop, not a step of the reconcile pass. A clone takes minutes
 	// and reconcileMu is held for a whole scheduling pass, so a machine step
 	// inside it would stop the fleet placing runners for as long as a

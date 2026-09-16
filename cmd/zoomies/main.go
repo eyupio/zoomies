@@ -6,8 +6,10 @@
 // own flag set rather than sharing a global one, because a flag that only three
 // of fifteen commands understand is a flag that misleads the other twelve.
 //
-// Three exit codes, and they mean different things to a script: 0 for success,
-// 1 for "it ran and did not work", 2 for "that is not how you invoke this".
+// Four exit codes, and they mean different things to a script: 0 for success,
+// 1 for "it ran and did not work", 2 for "that is not how you invoke this", and
+// 3 for a controller that stopped because it was asked to restart -- non-zero,
+// so a service manager set to restart on failure brings it back.
 package main
 
 import (
@@ -28,6 +30,12 @@ const (
 	exitOK    = 0
 	exitError = 1
 	exitUsage = 2
+	// exitRestart is a controller stopping because the settings page asked
+	// it to, so that its service manager starts the next one -- which is how
+	// a staged restore is applied. Non-zero on purpose: systemd's
+	// Restart=on-failure and a container runtime's restart policy both act on
+	// a failure, and a clean 0 would be the one exit they leave alone.
+	exitRestart = 3
 )
 
 // Command groups, in the order the help prints them.
@@ -190,6 +198,12 @@ func report(e *env, name string, err error) int {
 	case errors.Is(err, installer.ErrAborted):
 		fmt.Fprintln(e.err, "Nothing was changed.")
 		return exitError
+	}
+
+	var restart *restartRequested
+	if errors.As(err, &restart) {
+		fmt.Fprintf(e.err, "zoomies %s: %s. Start it again to carry on; a service manager does so by itself.\n", name, restart.Error())
+		return exitRestart
 	}
 
 	var ue *usageError

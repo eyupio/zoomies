@@ -23,6 +23,8 @@ export const SECTION_BLURB: Record<string, string> = {
   oidc: 'Single sign-on.',
   metrics: 'The Prometheus endpoint.',
   retention: 'How long history is kept before it is pruned. Audit rows are never pruned.',
+  backup:
+    'Copies of this database the controller takes of its own accord. The Backups tab is where they are listed, restored and downloaded.',
   images: 'Keeping the images your pools run up to date.',
   updates: 'Whether this controller asks github.com which release is current.',
   capacity_demand: 'Publishing a signed request for more hosts to an external provisioner.',

@@ -44,6 +44,7 @@ type Config struct {
 	CapacityDemand CapacityDemand `yaml:"capacity_demand"`
 	Provider       Provider       `yaml:"provider"`
 	UI             UI             `yaml:"ui"`
+	Backup         Backup         `yaml:"backup"`
 
 	// path records where this config was read from, for error messages.
 	path string `yaml:"-"`
@@ -120,6 +121,31 @@ type Updates struct {
 	// Nothing is ever downloaded or installed by this: the controller does not
 	// update itself, it only says that a newer release exists.
 	CheckInterval time.Duration `yaml:"check_interval"`
+}
+
+// Backup is the controller's own copies of its database: where they go, how
+// often one is taken, and how many are kept.
+//
+// The copies are the same layout `zoomies backup` writes and `zoomies restore`
+// reads, so a scheduled copy is restorable by exactly the command that restores
+// one taken by hand. Nothing here reaches off the host: shipping the directory
+// somewhere else is the operator's, and the documentation says so rather than
+// pretending a copy on the same disk is an offsite backup.
+type Backup struct {
+	// Directory is where backups are kept. Empty is a `backups` directory
+	// beside the database, which on a container deployment is the mounted
+	// volume -- the one place a copy survives the container being recreated.
+	// A relative path is relative to the database's directory, not to
+	// wherever the process was started from.
+	Directory string `yaml:"directory"`
+	// Interval is how often the controller takes a copy of its own accord.
+	// Zero switches scheduled copies off; the settings page and the command
+	// line still take one on demand.
+	Interval time.Duration `yaml:"interval"`
+	// Keep is how many of the controller's own copies are kept; the oldest
+	// beyond it are deleted after each new one. Zero keeps every one. Copies
+	// an operator uploaded are never counted and never deleted by this.
+	Keep int `yaml:"keep"`
 }
 
 // CapacityDemand publishes signed requests for host capacity to an external
@@ -575,7 +601,13 @@ func Default() *Config {
 		Runners: Runners{DockerWait: 2 * time.Minute},
 		// Daily: releases are not frequent, and a controller that asks once a
 		// day still tells you within a working day of one being published.
-		Updates:        Updates{CheckInterval: 24 * time.Hour},
+		Updates: Updates{CheckInterval: 24 * time.Hour},
+		// Nightly, keeping a week. The database holds configuration and
+		// history rather than anything a workflow depends on minute to
+		// minute, so a day is the right grain; seven copies bounds the disk
+		// on a fleet whose database is large, and covers the week it takes
+		// to notice a mistake made on Monday.
+		Backup:         Backup{Interval: 24 * time.Hour, Keep: 7},
 		CapacityDemand: CapacityDemand{Cooldown: 10 * time.Minute, Timeout: 10 * time.Second},
 		// Off, with no ceiling and every step generously bounded. The numbers
 		// are what a hypervisor actually takes: a full clone of a small Linux

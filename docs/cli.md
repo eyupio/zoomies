@@ -16,8 +16,12 @@ is nothing to learn about the others first. `zoomies help` lists the commands,
 `zoomies <group> help` lists a group's, and `--help` on any command prints its
 flags and an example.
 
-Exit codes are the usual three: `0` it worked, `1` it ran and failed, `2` it was
-invoked wrongly.
+Exit codes are the usual three — `0` it worked, `1` it ran and failed, `2` it was
+invoked wrongly — plus one of the controller's own: `3` when it stopped because
+the settings page asked it to restart, which is how a [staged
+restore](backup-and-restore.md#restoring-from-the-settings-page) is applied.
+Non-zero on purpose, so a service manager set to restart on failure starts it
+again.
 
 ## Talking to a controller
 
