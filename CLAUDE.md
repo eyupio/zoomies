@@ -252,7 +252,8 @@ internal/gateway    zoomies gateway: a private provider's end of the tunnel
 internal/installer  zoomies init / uninstall / agent join, and the unit,
                     compose and env templates they write
 internal/backup     one copy of the database: taking, listing, verifying, archiving,
-                    encrypting and restoring it, shared by the CLI, the scheduler and the API
+                    encrypting, shipping it to an S3-compatible remote and restoring it,
+                    shared by the CLI, the scheduler and the API
 internal/cryptox    AES-256-GCM at rest, argon2id, token hashing
 internal/events     in-process pub/sub that the SSE endpoint fans out
 internal/migrate    rewriting workflows' runs-on lines

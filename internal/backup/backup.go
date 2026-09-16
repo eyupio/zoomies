@@ -73,6 +73,12 @@ const (
 	SourceScheduled    = "scheduled"
 	SourceUploaded     = "uploaded"
 	SourcePreMigration = "pre-migration"
+	// SourceFetched is a copy pulled back out of a remote. It is its own
+	// source rather than "uploaded" because the two are answers to different
+	// questions on the day they matter: an uploaded backup is one a person
+	// carried here, and a fetched one is the offsite copy of a fleet that has
+	// lost the local ones.
+	SourceFetched = "fetched"
 )
 
 // ErrNotFound is a backup id that names nothing in the directory.
@@ -616,9 +622,10 @@ func Delete(root, id string) error {
 // It only ever removes a directory this package made: the name has to match
 // and a manifest has to be inside it. Retention that guessed would eventually
 // delete the wrong thing, and the directory an operator points at is often
-// shared with somebody else's copies. Uploaded backups are kept too: retention
-// is for the copies the fleet takes of itself, and an operator who brought a
-// file here brought it for a reason.
+// shared with somebody else's copies. Uploaded and fetched backups are kept
+// too: retention is for the copies the fleet takes of itself, and a file
+// somebody carried here -- or pulled back out of a bucket -- is here for a
+// reason that retention does not know about.
 func Prune(root string, keep int) ([]string, error) {
 	if keep <= 0 {
 		return nil, nil
@@ -629,7 +636,7 @@ func Prune(root string, keep int) ([]string, error) {
 	}
 	var ours []Entry
 	for _, e := range all {
-		if e.Manifest == nil || e.Source == SourceUploaded {
+		if e.Manifest == nil || e.Source == SourceUploaded || e.Source == SourceFetched {
 			continue
 		}
 		ours = append(ours, e)

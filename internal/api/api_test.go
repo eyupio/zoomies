@@ -752,6 +752,11 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "POST", path: "/api/v1/backups/zoomies-19990101-000000/download", role: store.RoleAdmin, action: auth.ActionBackupsRead,
 			body: map[string]any{"passphrase": "long enough"}},
 		{method: "POST", path: "/api/v1/backups/zoomies-19990101-000000/restore", role: store.RoleAdmin, action: auth.ActionBackupsRestore},
+		{method: "POST", path: "/api/v1/backups/offsite", role: store.RoleAdmin, action: auth.ActionBackupsWrite},
+		{method: "GET", path: "/api/v1/backups/remotes/offsite/copies", role: store.RoleAdmin, action: auth.ActionBackupsRead},
+		{method: "POST", path: "/api/v1/backups/remotes/offsite/check", role: store.RoleAdmin, action: auth.ActionBackupsRead},
+		{method: "POST", path: "/api/v1/backups/remotes/offsite/copies/zoomies-19990101-000000/fetch", role: store.RoleAdmin, action: auth.ActionBackupsWrite},
+		{method: "DELETE", path: "/api/v1/backups/remotes/offsite/copies/zoomies-19990101-000000", role: store.RoleAdmin, action: auth.ActionBackupsWrite},
 
 		{method: "GET", path: "/api/v1/recovery", role: store.RoleViewer, action: auth.ActionStatsRead},
 		{method: "POST", path: "/api/v1/recovery/unfence", role: store.RoleAdmin, action: auth.ActionRecoveryWrite},
@@ -1121,6 +1126,14 @@ func normalisePath(p string) string {
 	parts := strings.Split(p, "/")
 	for i, part := range parts {
 		if i == 0 || part == "" {
+			continue
+		}
+		// A backup remote is named by its own name rather than by a
+		// prefixed id, so the segment after "remotes" is the parameter
+		// whatever it is called -- and /backups/offsite, which is a verb
+		// rather than a name, stays itself.
+		if i > 0 && parts[i-1] == "remotes" {
+			parts[i] = "{name}"
 			continue
 		}
 		if strings.HasPrefix(part, "ins_") || strings.HasPrefix(part, "pool_") ||

@@ -278,6 +278,22 @@ backup:
   directory: ""                 # ZOOMIES_BACKUP_DIRECTORY  -- empty: a `backups` directory beside the database
   interval: 24h                 # ZOOMIES_BACKUP_INTERVAL   -- 0 switches scheduled backups off
   keep: 7                       # ZOOMIES_BACKUP_KEEP       -- the controller's own copies; 0 keeps every one
+  remotes: []                   # where each copy is sent afterwards; empty is nothing leaving the host
+  # remotes:
+  #   - name: offsite            # ZOOMIES_BACKUP_REMOTE_NAME
+  #     endpoint: https://s3.eu-west-2.amazonaws.com   # ZOOMIES_BACKUP_REMOTE_ENDPOINT
+  #     region: eu-west-2        # ZOOMIES_BACKUP_REMOTE_REGION
+  #     bucket: acme-zoomies     # ZOOMIES_BACKUP_REMOTE_BUCKET
+  #     prefix: prod             # ZOOMIES_BACKUP_REMOTE_PREFIX
+  #     access_key_id: AKIA...   # ZOOMIES_BACKUP_REMOTE_ACCESS_KEY_ID
+  #     secret_access_key: ""    # ZOOMIES_BACKUP_REMOTE_SECRET_ACCESS_KEY -- keep this in the environment
+  #     passphrase: ""           # ZOOMIES_BACKUP_REMOTE_PASSPHRASE -- seals the archive before it leaves
+  #     path_style: null         # ZOOMIES_BACKUP_REMOTE_PATH_STYLE -- unset chooses by endpoint
+  #     keep: 30                 # ZOOMIES_BACKUP_REMOTE_KEEP -- this bucket's own retention; 0 keeps every one
+  #     disabled: false          # ZOOMIES_BACKUP_REMOTE_DISABLED
+  #   - name: minio              # the second remote's environment is ZOOMIES_BACKUP_REMOTE_2_*
+  #     endpoint: http://minio:9000
+  #     bucket: backups
 
 images:
   refresh_interval: 1h          # ZOOMIES_IMAGE_REFRESH_INTERVAL  -- 0 switches it off
@@ -352,7 +368,49 @@ settings page reports rather than refusing the edit.
 | --- | --- | --- | --- |
 | `backup.directory` | `ZOOMIES_BACKUP_DIRECTORY` | at once | Backup directory — Where backups are kept. Empty is a `backups` directory beside the database, which on a container deployment is the mounted volume. A relative path is relative to the database's directory. |
 | `backup.interval` | `ZOOMIES_BACKUP_INTERVAL` | at once | Scheduled backup interval — How often the controller takes a copy of its own database. 0 switches scheduled backups off; one can still be taken on demand from the Backups tab or with `zoomies backup`. |
-| `backup.keep` | `ZOOMIES_BACKUP_KEEP` | at once | Backups to keep — How many of the controller's own backups are kept; the oldest beyond it go after each new one. 0 keeps every one. Backups somebody uploaded are never counted and never deleted by this. |
+| `backup.keep` | `ZOOMIES_BACKUP_KEEP` | at once | Backups to keep — How many of the controller's own backups are kept; the oldest beyond it go after each new one. 0 keeps every one. Backups somebody uploaded or fetched back from a remote are never counted and never deleted by this. |
+
+#### `backup.remotes`
+
+Where each copy goes after it is taken: a list of S3-compatible buckets, empty
+by default, so nothing leaves the host until somebody says where it goes. Any
+implementation of the S3 API does — AWS, MinIO, Ceph, Backblaze B2, Cloudflare
+R2, Garage — and what lands there is exactly the archive the Backups tab
+downloads, so a copy pulled out of a bucket in three years opens with `zoomies
+restore` and nothing else. [Backup and restore](backup-and-restore.md) is the
+whole story; this is the reference.
+
+Unlike everything else on this page, these are read from `zoomies.yaml` and the
+environment only — they are not settings in the database and are not editable
+from the settings page. That is deliberate: a fleet whose database is gone has
+no stored settings to read, and finding the offsite copy is exactly what that
+fleet needs to do. Keep the file mode 0600, and prefer the environment for the
+secret key.
+
+| Key | Environment | What it is |
+| --- | --- | --- |
+| `name` | `ZOOMIES_BACKUP_REMOTE_NAME` | What this destination is called on the Backups tab, in the log and in the API. Lower-case letters, digits and dashes. Empty is `offsite`, then `offsite-2`. |
+| `endpoint` | `ZOOMIES_BACKUP_REMOTE_ENDPOINT` | The service's URL. The scheme decides whether the connection is encrypted; there is no separate switch to disagree with it. |
+| `region` | `ZOOMIES_BACKUP_REMOTE_REGION` | What requests are signed for. Empty is `us-east-1`, which implementations with no regions of their own accept. |
+| `bucket` | `ZOOMIES_BACKUP_REMOTE_BUCKET` | The bucket. Zoomies never creates it: a destination that appeared by itself is one nobody has set the retention, versioning or access policy of. |
+| `prefix` | `ZOOMIES_BACKUP_REMOTE_PREFIX` | The key prefix inside it, so one bucket can hold several fleets. |
+| `access_key_id` | `ZOOMIES_BACKUP_REMOTE_ACCESS_KEY_ID` | The credential's id. |
+| `secret_access_key` | `ZOOMIES_BACKUP_REMOTE_SECRET_ACCESS_KEY` | Its secret. It belongs in the environment, or in a file only the controller reads. |
+| `passphrase` | `ZOOMIES_BACKUP_REMOTE_PASSPHRASE` | Seals the archive with argon2id and AES-256-GCM before it is uploaded. Empty uploads the plain archive and the validator says what that costs. Nothing here can recover a lost passphrase. |
+| `path_style` | `ZOOMIES_BACKUP_REMOTE_PATH_STYLE` | Puts the bucket in the path rather than the hostname. Unset chooses: virtual-hosted for AWS's own endpoints, path style for everything else, which is what MinIO, Ceph and a bare address need. |
+| `keep` | `ZOOMIES_BACKUP_REMOTE_KEEP` | How many copies this remote holds; the oldest beyond it go after each upload. 0 keeps every one, and is the default. |
+| `disabled` | `ZOOMIES_BACKUP_REMOTE_DISABLED` | Stops uploads without removing what the bucket holds or making the configuration something you have to reconstruct. |
+
+The unnumbered environment variables above are the first remote; the second is
+`ZOOMIES_BACKUP_REMOTE_2_*` and so on to nine. A variable whose `…_NAME`
+matches a remote the file already describes fills that one in wherever it sits
+in the list, which is how a compose file hands over only the secret key of a
+bucket `zoomies.yaml` describes.
+
+The permissions a remote needs on its bucket and prefix are `s3:PutObject`,
+`s3:GetObject`, `s3:DeleteObject` and `s3:ListBucket` — the last two only for
+retention and for the Backups tab's listing, so a write-only credential works
+if you set `keep: 0` and never expect the page to say what is there.
 
 ### `capacity_demand`
 

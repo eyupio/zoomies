@@ -751,13 +751,22 @@ var registry = buildRegistry([]Setting{
 // unregistered names the Config fields that deliberately have no row above, so
 // that TestEverySettingIsRegistered can tell a decision from an omission.
 //
-// retention.audit is the only one. It is the old name for
-// retention.scaling_events, kept because a file that still says it is honoured
-// -- but it is not a setting in its own right, it is a spelling of another one,
-// and offering it in the UI beside the key it sets would be offering the same
-// value twice.
+// retention.audit is the old name for retention.scaling_events, kept because a
+// file that still says it is honoured -- but it is not a setting in its own
+// right, it is a spelling of another one, and offering it in the UI beside the
+// key it sets would be offering the same value twice.
+//
+// backup.remotes is a list of destinations, each carrying a bucket, a
+// credential and a passphrase. There is no Kind for that, and there should not
+// be: the registry describes the settings an administrator edits in a text box
+// and the fleet stores in its own database, and a backup destination is
+// precisely the thing that has to be readable when that database is gone.
+// It is read from zoomies.yaml and ZOOMIES_BACKUP_REMOTE_*, validated like
+// everything else, and -- because Redacted walks this registry -- never
+// reaches a manifest, an export or a support bundle.
 var unregistered = map[string]bool{
 	"retention.audit": true,
+	"backup.remotes":  true,
 }
 
 func buildRegistry(list []Setting) map[string]Setting {

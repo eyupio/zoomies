@@ -88,6 +88,11 @@ type backupsResponse struct {
 	// backup was sealed with it.
 	KeyFingerprint string         `json:"key_fingerprint,omitempty"`
 	Schedule       backupSchedule `json:"schedule"`
+	// Remotes is every destination the copies are sent to, and what became
+	// of each. Empty is the default and says so on the page: a fleet whose
+	// backups never leave the host should be told that, not left to assume
+	// otherwise from a tab full of tidy rows.
+	Remotes []controller.RemoteBackupStatus `json:"remotes"`
 	// Running says a backup is being taken right now.
 	Running bool `json:"running"`
 	// StagedRestore is the restore waiting for a restart, if any;
@@ -130,7 +135,12 @@ type restartResponse struct {
 // minPassphrase is the shortest passphrase the encrypted download accepts.
 // Eight characters of argon2id is not a strong secret, but a limit that
 // refuses "1234" stops the one case that is no protection at all.
-const minPassphrase = 8
+//
+// It is the validator's number rather than a second one, because the same
+// archive is sealed with the same cipher whether a browser asked for it or a
+// backup remote is being written to, and two limits that disagree would make
+// the page and the startup warning say different things about one passphrase.
+const minPassphrase = config.MinBackupPassphrase
 
 // ---------------------------------------------------------------------------
 // Rendering
@@ -267,6 +277,7 @@ func (s *Server) handleListBackups(w http.ResponseWriter, r *http.Request) {
 	}
 	status := s.ctrl.BackupStatus()
 	out.Running = status.Running
+	out.Remotes = s.ctrl.BackupRemotes()
 	out.Schedule = backupSchedule{
 		Enabled:         status.Interval > 0,
 		Interval:        config.Text(config.Setting{Kind: config.KindDuration}, status.Interval),

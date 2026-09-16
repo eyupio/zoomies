@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -124,13 +125,15 @@ type Updates struct {
 }
 
 // Backup is the controller's own copies of its database: where they go, how
-// often one is taken, and how many are kept.
+// often one is taken, how many are kept, and which object stores each one is
+// copied to afterwards.
 //
 // The copies are the same layout `zoomies backup` writes and `zoomies restore`
 // reads, so a scheduled copy is restorable by exactly the command that restores
-// one taken by hand. Nothing here reaches off the host: shipping the directory
-// somewhere else is the operator's, and the documentation says so rather than
-// pretending a copy on the same disk is an offsite backup.
+// one taken by hand. A copy beside the database is a backup against a mistake
+// and not against the disk, which is what Remotes is for: the same archive the
+// Backups tab downloads, put in somebody else's bucket by the fleet rather than
+// by a cron line nobody has checked since they wrote it.
 type Backup struct {
 	// Directory is where backups are kept. Empty is a `backups` directory
 	// beside the database, which on a container deployment is the mounted
@@ -146,6 +149,103 @@ type Backup struct {
 	// beyond it are deleted after each new one. Zero keeps every one. Copies
 	// an operator uploaded are never counted and never deleted by this.
 	Keep int `yaml:"keep"`
+	// Remotes are the S3-compatible buckets every new backup is copied to.
+	// Empty is the old behaviour and still the default: nothing leaves the
+	// host unless somebody says where it goes.
+	//
+	// They live in the file rather than in the database, unlike a provider's
+	// credentials, because of the day they are for. A fleet whose database is
+	// gone has no stored settings to read, and `zoomies restore --from` has to
+	// be able to find the copy and open the bucket with nothing but
+	// zoomies.yaml in front of it. Keep the file mode 0600 and prefer
+	// ZOOMIES_BACKUP_REMOTE_SECRET_ACCESS_KEY for the secret.
+	Remotes []BackupRemote `yaml:"remotes"`
+}
+
+// BackupRemote is one S3-compatible destination: a bucket somebody else's disk
+// is responsible for, and what it takes to write to it.
+//
+// Any implementation of the S3 API does -- AWS, MinIO, Ceph, Backblaze B2,
+// Cloudflare R2, Garage -- because the client is the same few signed requests
+// against all of them. There is no SDK behind it, for the reason there is no
+// Docker SDK behind internal/backend: four verbs of one protocol is less code
+// than the dependency that implements two hundred.
+type BackupRemote struct {
+	// Name is what the Backups tab, the log and the problems drawer call this
+	// destination. Empty is "offsite" for the first and "offsite-2" for the
+	// next, and two remotes may not share one.
+	Name string `yaml:"name"`
+	// Endpoint is the service's URL: https://s3.eu-west-2.amazonaws.com,
+	// https://<account>.r2.cloudflarestorage.com, http://minio:9000. The
+	// scheme decides whether the connection is encrypted -- there is no
+	// separate "use TLS" switch to disagree with it.
+	Endpoint string `yaml:"endpoint"`
+	// Region is what the request is signed for. Empty is us-east-1, which is
+	// what every S3 implementation that has no regions of its own accepts.
+	Region string `yaml:"region"`
+	// Bucket is the bucket. Zoomies never creates it: a backup destination
+	// that appears because the controller made it is a destination nobody has
+	// checked the retention, versioning or access policy of.
+	Bucket string `yaml:"bucket"`
+	// Prefix is the key prefix inside it, so one bucket can hold several
+	// fleets. "zoomies/prod" puts a backup at zoomies/prod/zoomies-....tar.gz.
+	Prefix string `yaml:"prefix"`
+	// AccessKeyID and SecretAccessKey are the credentials the requests are
+	// signed with. The secret is a secret: it belongs in the environment, or
+	// in a file only the controller reads.
+	AccessKeyID     string `yaml:"access_key_id"`
+	SecretAccessKey string `yaml:"secret_access_key"`
+	// Passphrase encrypts the archive before it is uploaded, with the same
+	// argon2id and AES-256-GCM the Backups tab's encrypted download uses.
+	//
+	// Empty uploads the plain archive, and the validator says what that costs:
+	// a backup is the whole fleet, and in a bucket it is the whole fleet on
+	// somebody else's disk. Nothing on the controller can recover a lost
+	// passphrase -- the archive opens with it and with nothing else.
+	Passphrase string `yaml:"passphrase"`
+	// PathStyle puts the bucket in the path (http://minio:9000/bucket/key)
+	// rather than in the hostname. Unset chooses: virtual-hosted style for
+	// AWS's own endpoints, path style for everything else, which is what
+	// MinIO, Ceph and a bare IP address need.
+	PathStyle *bool `yaml:"path_style"`
+	// Keep is how many copies this remote holds; the oldest beyond it are
+	// deleted after each upload. Zero keeps every one, exactly as backup.keep
+	// does, and is the default: object storage is cheap and the operator who
+	// wants an offsite copy usually wants the long tail of them.
+	Keep int `yaml:"keep"`
+	// Disabled stops uploads to this remote without removing what it holds or
+	// making its configuration something an operator has to reconstruct.
+	Disabled bool `yaml:"disabled"`
+}
+
+// Enabled reports whether this remote is configured enough to be used.
+func (r BackupRemote) Enabled() bool {
+	return !r.Disabled && strings.TrimSpace(r.Endpoint) != "" && strings.TrimSpace(r.Bucket) != ""
+}
+
+// Encrypted reports whether the archive is sealed before it leaves the host.
+func (r BackupRemote) Encrypted() bool { return strings.TrimSpace(r.Passphrase) != "" }
+
+// Where reports the bucket and prefix as one phrase, for a log line or a row
+// on the Backups tab.
+func (r BackupRemote) Where() string {
+	where := r.Bucket
+	if p := strings.Trim(strings.TrimSpace(r.Prefix), "/"); p != "" {
+		where += "/" + p
+	}
+	return where
+}
+
+// EnabledBackupRemotes is the remotes a copy is actually sent to, named and in
+// the order the file lists them.
+func (c *Config) EnabledBackupRemotes() []BackupRemote {
+	var out []BackupRemote
+	for _, r := range c.Backup.Remotes {
+		if r.Enabled() {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // CapacityDemand publishes signed requests for host capacity to an external
@@ -931,6 +1031,7 @@ func (c *Config) normalize() {
 	if c.Retention.Audit > 0 && c.Source("retention.scaling_events") != SourceDatabase {
 		c.Retention.ScalingEvents = c.Retention.Audit
 	}
+	c.normalizeBackupRemotes()
 	c.Log.Level = strings.ToLower(strings.TrimSpace(c.Log.Level))
 	if c.Log.Level == "warning" {
 		// slog's name for the level is warn; the file may say either.
@@ -1117,6 +1218,15 @@ func (c *Config) applyEnv() error {
 		}
 	}
 
+	// The backup remotes have no registry rows -- they are a list of
+	// destinations carrying credentials rather than a setting the page edits --
+	// so their environment is read here. A container deployment keeps the
+	// bucket in the file and the secret key in the environment, which is the
+	// whole reason this exists.
+	if err := c.applyRemoteEnv(); err != nil {
+		errs = append(errs, err.Error())
+	}
+
 	// Docker's own variable is honoured only when Zoomies' is not set. The
 	// compose file hands the whole .env to the container, and an operator
 	// whose daemon is rootless or remote keeps DOCKER_HOST in that file for
@@ -1133,6 +1243,145 @@ func (c *Config) applyEnv() error {
 		return fmt.Errorf("invalid environment configuration:\n  - %s", strings.Join(errs, "\n  - "))
 	}
 	return nil
+}
+
+// backupRemoteEnvPrefixes are the spellings one remote's environment may take:
+// ZOOMIES_BACKUP_REMOTE_BUCKET for the first, ZOOMIES_BACKUP_REMOTE_2_BUCKET
+// for the second. The unnumbered form is the first remote, because a fleet
+// with one offsite bucket should not have to count.
+const backupRemoteEnvMax = 9
+
+// applyRemoteEnv overlays ZOOMIES_BACKUP_REMOTE_* onto backup.remotes.
+//
+// A variable that names a remote the file already has fills that one in; one
+// that names a remote past the end of the list appends it. So a compose file
+// can hand over only the secret key of a bucket zoomies.yaml describes, or
+// describe the whole destination with no file at all.
+func (c *Config) applyRemoteEnv() error {
+	var errs []string
+	touched := false
+	for i := 1; i <= backupRemoteEnvMax; i++ {
+		prefixes := []string{fmt.Sprintf("ZOOMIES_BACKUP_REMOTE_%d_", i)}
+		if i == 1 {
+			prefixes = append(prefixes, "ZOOMIES_BACKUP_REMOTE_")
+		}
+		// Each field remembers which variable it came from, so an error names
+		// the one the operator actually wrote rather than the other spelling
+		// of it.
+		type envField struct{ variable, value string }
+		fields := map[string]envField{}
+		for _, prefix := range prefixes {
+			for _, name := range []string{
+				"NAME", "ENDPOINT", "REGION", "BUCKET", "PREFIX",
+				"ACCESS_KEY_ID", "SECRET_ACCESS_KEY", "PASSPHRASE",
+				"PATH_STYLE", "KEEP", "DISABLED",
+			} {
+				if v, ok := os.LookupEnv(prefix + name); ok {
+					// The numbered spelling is read first and wins, so a file
+					// that sets both is not ambiguous about which it meant.
+					if _, already := fields[name]; !already {
+						fields[name] = envField{variable: prefix + name, value: v}
+					}
+				}
+			}
+		}
+		if len(fields) == 0 {
+			continue
+		}
+
+		// A name that matches a remote the file already describes overlays
+		// that one wherever it sits in the list, which is what an operator
+		// who wrote the variables by name expects.
+		idx := i - 1
+		if name := strings.TrimSpace(fields["NAME"].value); name != "" {
+			for n, existing := range c.Backup.Remotes {
+				if strings.EqualFold(strings.TrimSpace(existing.Name), name) {
+					idx = n
+					break
+				}
+			}
+		}
+		for len(c.Backup.Remotes) <= idx {
+			c.Backup.Remotes = append(c.Backup.Remotes, BackupRemote{})
+		}
+		r := &c.Backup.Remotes[idx]
+		for name, field := range fields {
+			raw := field.value
+			switch name {
+			case "NAME":
+				r.Name = raw
+			case "ENDPOINT":
+				r.Endpoint = raw
+			case "REGION":
+				r.Region = raw
+			case "BUCKET":
+				r.Bucket = raw
+			case "PREFIX":
+				r.Prefix = raw
+			case "ACCESS_KEY_ID":
+				r.AccessKeyID = raw
+			case "SECRET_ACCESS_KEY":
+				r.SecretAccessKey = raw
+			case "PASSPHRASE":
+				r.Passphrase = raw
+			case "PATH_STYLE":
+				b, err := strconv.ParseBool(strings.TrimSpace(raw))
+				if err != nil {
+					errs = append(errs, fmt.Sprintf("%s=%q is not true or false", field.variable, raw))
+					continue
+				}
+				r.PathStyle = &b
+			case "KEEP":
+				n, err := strconv.Atoi(strings.TrimSpace(raw))
+				if err != nil || n < 0 {
+					errs = append(errs, fmt.Sprintf("%s=%q is not a number of copies to keep", field.variable, raw))
+					continue
+				}
+				r.Keep = n
+			case "DISABLED":
+				b, err := strconv.ParseBool(strings.TrimSpace(raw))
+				if err != nil {
+					errs = append(errs, fmt.Sprintf("%s=%q is not true or false", field.variable, raw))
+					continue
+				}
+				r.Disabled = b
+			}
+		}
+		touched = true
+	}
+	if touched {
+		c.note("backup.remotes", SourceEnvironment)
+	}
+	if len(errs) > 0 {
+		return errors.New(strings.Join(errs, "\n  - "))
+	}
+	return nil
+}
+
+// normalizeBackupRemotes tidies what the file and the environment left, and
+// names the ones nobody named: the name is what the log, the problems drawer
+// and the API route all address a destination by, so every remote has to have
+// one whether or not an operator thought of it.
+func (c *Config) normalizeBackupRemotes() {
+	for i := range c.Backup.Remotes {
+		r := &c.Backup.Remotes[i]
+		r.Name = strings.ToLower(strings.TrimSpace(r.Name))
+		if r.Name == "" {
+			r.Name = "offsite"
+			if i > 0 {
+				r.Name = fmt.Sprintf("offsite-%d", i+1)
+			}
+		}
+		r.Endpoint = strings.TrimRight(strings.TrimSpace(r.Endpoint), "/")
+		r.Region = strings.TrimSpace(r.Region)
+		r.Bucket = strings.TrimSpace(r.Bucket)
+		r.Prefix = strings.Trim(strings.TrimSpace(r.Prefix), "/")
+		r.AccessKeyID = strings.TrimSpace(r.AccessKeyID)
+		r.SecretAccessKey = strings.TrimSpace(r.SecretAccessKey)
+		if r.Keep < 0 {
+			r.Keep = 0
+		}
+	}
 }
 
 func splitList(v string) []string {

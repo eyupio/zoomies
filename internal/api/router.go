@@ -286,6 +286,17 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionBackupsRestore)).Delete("/restore", s.handleCancelRestore)
 			r.With(s.require(auth.ActionBackupsRestore)).Post("/restore/apply", s.handleApplyRestore)
 			r.With(s.require(auth.ActionBackupsRestore)).Delete("/restore/outcome", s.handleDismissRestoreOutcome)
+			// The copies that leave the machine, for the same reason and
+			// before /{id}: reading a remote is reading what this fleet's
+			// whole database sits in somebody else's bucket as, so it is
+			// gated exactly as the local copies are, and removing one is a
+			// write because the offsite copy exists precisely because the
+			// local ones might not.
+			r.With(s.require(auth.ActionBackupsWrite)).Post("/offsite", s.handleShipBackups)
+			r.With(s.require(auth.ActionBackupsRead)).Get("/remotes/{name}/copies", s.handleListRemoteCopies)
+			r.With(s.require(auth.ActionBackupsRead)).Post("/remotes/{name}/check", s.handleCheckRemote)
+			r.With(s.require(auth.ActionBackupsWrite)).Post("/remotes/{name}/copies/{id}/fetch", s.handleFetchRemoteCopy)
+			r.With(s.require(auth.ActionBackupsWrite)).Delete("/remotes/{name}/copies/{id}", s.handleDeleteRemoteCopy)
 			r.With(s.require(auth.ActionBackupsRead)).Get("/{id}", s.handleGetBackup)
 			r.With(s.require(auth.ActionBackupsWrite)).Delete("/{id}", s.handleDeleteBackup)
 			r.With(s.require(auth.ActionBackupsRead)).Post("/{id}/verify", s.handleVerifyBackup)

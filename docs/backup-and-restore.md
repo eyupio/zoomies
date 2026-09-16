@@ -105,8 +105,10 @@ copy; `--include-key` says so rather than pretending.
 ## Getting a backup off the machine, and back on
 
 A backup beside the database is a backup against a mistake, not against the
-disk. Copy the directory somewhere else — `rsync`, a snapshot of the volume, a
-job that ships it to object storage — and keep the key with your secrets, once.
+disk. Either the fleet takes the copy somewhere else itself — [backup
+remotes](#copies-that-leave-the-machine), below — or you do, with `rsync`, a
+snapshot of the volume, or a job of your own. Keep the key with your secrets,
+once, either way.
 
 **Download** on the Backups tab is the same thing for a browser: the backup's
 directory as one `zoomies-<timestamp>.tar.gz`, holding the manifest, the
@@ -127,6 +129,113 @@ brought a file here brought it for a reason.
 against the manifest, `PRAGMA integrity_check`, and whether this build can open
 it — because a copy nobody has opened is a copy nobody knows about, and the
 day to find the bad one is not the day it is needed.
+
+## Copies that leave the machine
+
+A `backup.remotes` entry is an S3-compatible bucket the fleet puts every copy
+in after it takes one. Any implementation of the S3 API does — AWS, MinIO,
+Ceph, Backblaze B2, Cloudflare R2, Garage — and several can be configured at
+once, because "offsite" and "somebody else's provider" are different words and
+some fleets want both.
+
+```yaml
+backup:
+  interval: 24h
+  keep: 7
+  remotes:
+    - name: offsite
+      endpoint: https://s3.eu-west-2.amazonaws.com
+      region: eu-west-2
+      bucket: acme-zoomies
+      prefix: prod
+      access_key_id: AKIA...
+      # Better in ZOOMIES_BACKUP_REMOTE_SECRET_ACCESS_KEY than here.
+      secret_access_key: ""
+      passphrase: "a long random phrase kept with the encryption key"
+      keep: 30
+    - name: minio
+      # Plain HTTP warns (backup.remote_insecure), and rightly: accept it only
+      # on a network you own end to end.
+      endpoint: http://minio.internal:9000
+      bucket: backups
+      access_key_id: zoomies
+      secret_access_key: ""      # ZOOMIES_BACKUP_REMOTE_2_SECRET_ACCESS_KEY
+      passphrase: ""             # ZOOMIES_BACKUP_REMOTE_2_PASSPHRASE
+```
+
+What lands in the bucket is exactly what the **Download** button produces:
+`zoomies-20260908-181718.tar.gz`, or `.tar.gz.enc` when the remote has a
+passphrase. There is no separate format, so a copy pulled out of a bucket in
+three years is opened by `zoomies restore` and by nothing else in particular.
+
+Three things are worth knowing before you rely on it:
+
+* **Set a passphrase.** A backup is the whole fleet — every repository and job
+  it has seen, every account, and the sealed GitHub App credentials — and in a
+  bucket it is a file anyone who can read the bucket can open. With a
+  passphrase the archive is sealed with argon2id and AES-256-GCM before it
+  leaves this host, so the bucket holds something its owner cannot read.
+  Nothing on the controller can recover a lost passphrase: keep it where you
+  keep the encryption key. Without one, the startup validator says so every
+  time (`backup.remote_plaintext`).
+* **The credentials live in `zoomies.yaml` and the environment**, not in the
+  database like a provider's. That is not an oversight: a fleet whose database
+  is gone has no stored settings to read, and finding the offsite copy is
+  exactly what that fleet needs to do. Keep the file mode 0600 and prefer
+  `ZOOMIES_BACKUP_REMOTE_SECRET_ACCESS_KEY` for the secret. None of it ever
+  reaches a manifest, a settings export or a diagnostics bundle.
+* **Zoomies never creates the bucket.** A backup destination that appeared by
+  itself is one nobody has set the retention, versioning or access policy of.
+  Make it, give the credential `s3:PutObject`, `s3:GetObject`,
+  `s3:DeleteObject` and `s3:ListBucket` on it, and consider object versioning
+  and a lifecycle rule — they are the protection against somebody deleting the
+  copies, which retention here cannot be.
+
+The pass itself is written as *make the bucket hold what the directory holds*
+rather than *upload the backup that was just taken*. A remote that was
+unreachable for two nights is two backups behind, so the next pass sends both,
+oldest first; and a remote with `keep: 30` is never sent the thirty-first
+oldest backup only to delete it a second later. It runs after every backup, and
+hourly for a destination that has been failing — `backup.remote_failed` in the
+problems drawer carries the service's own refusal, which is usually a wrong
+secret, a bucket that is not there, or a clock too far out to sign with.
+
+**Backups → Copies off this machine** is the same thing in the UI: each
+destination with what it holds and when it last took a copy, **Test** for a
+listing that proves the credential, **Show copies** for a live listing of the
+bucket, and **Bring back** for one of them. `zoomies backup` sends the copy too
+(`--remote` for one destination, `--no-offsite` for none), and says what it
+did.
+
+### Coming back from one
+
+Fetching is separate from restoring on purpose. A restore swaps the database
+the fleet runs on, and the copy it swaps in should be one somebody has seen
+land and verified first, so **Bring back** unpacks the archive into the backup
+directory as an ordinary backup — verified on the way in, marked *From
+offsite*, and never counted or removed by retention — and the restore is the
+same staged restore as for any other backup.
+
+On a host that has lost everything but `zoomies.yaml` and the key, the command
+line does both halves:
+
+```console
+$ zoomies restore --from-remote offsite
+acme-zoomies/prod holds 7 backups:
+
+  zoomies-20260908-181718  41.2 MB  taken 2026-09-08T18:17:18Z, encrypted
+  zoomies-20260907-181702  41.1 MB  taken 2026-09-07T18:17:02Z, encrypted
+  ...
+
+Restore one with:
+  zoomies restore --from-remote offsite zoomies-20260908-181718 --replace
+
+$ zoomies restore --from-remote offsite latest --replace
+```
+
+`latest` is the newest copy the remote holds. The restore that follows is the
+ordinary one, with every check and every refusal it makes — and the fleet comes
+back fenced, exactly as it would from a local copy.
 
 ## Restoring
 
@@ -340,9 +449,11 @@ The database is the only thing that changes, and what it holds is
 configuration and history rather than anything a workflow depends on minute to
 minute. The default schedule — nightly, keeping seven — is enough for most
 fleets; the controller takes an extra copy before an upgrade by itself, because
-that is the only rollback there is. What the schedule does not do is take the
-copy anywhere: shipping the directory off the machine is yours, and a cron line
-that copies it is one line.
+that is the only rollback there is. Where those copies go is the other half of
+the question, and the honest answer is that a directory on the same disk is not
+an answer: configure a [backup remote](#copies-that-leave-the-machine), or ship
+the directory yourself. Until one of the two is true the startup output says so
+(`backup.no_remote`), which is the whole point of the entry.
 
 ## Moving a configuration
 

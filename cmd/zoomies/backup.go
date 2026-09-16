@@ -35,16 +35,19 @@ type backupManifest = backup.Manifest
 // route that takes one from the settings page is the other way in, and both
 // write the same directory.
 func runBackup(ctx context.Context, e *env, args []string) error {
-	fs := newFlagSet(e, "zoomies backup [--dir /var/backups/zoomies] [--keep 7] [--include-key]",
+	fs := newFlagSet(e, "zoomies backup [--dir /var/backups/zoomies] [--keep 7] [--include-key] [--no-offsite]",
 		"Take a consistent copy of the database, with a manifest saying what it is and what it needs.")
 	cfgPath := fs.String("config", "", "path to zoomies.yaml (default: "+config.DefaultConfigFile()+")")
 	dir := fs.String("dir", "", "where to put the backup (default: backup.directory, or a `backups` directory beside the database)")
 	keep := fs.Int("keep", 0, "delete all but the newest N backups in --dir; 0 keeps every one")
 	includeKey := fs.Bool("include-key", false,
 		"copy the encryption key into the backup as well. Convenient and dangerous: the copy then decrypts itself")
+	remote := fs.String("remote", "", "send the copy to this backup remote only, instead of every one backup.remotes enables")
+	noOffsite := fs.Bool("no-offsite", false, "keep the copy on this host, whatever backup.remotes says")
 	fs.example("zoomies backup",
 		"zoomies backup --dir /var/backups/zoomies --keep 7",
-		"zoomies backup --include-key")
+		"zoomies backup --include-key",
+		"zoomies backup --remote offsite")
 	if err := fs.parse(args); err != nil {
 		return err
 	}
@@ -86,7 +89,96 @@ func runBackup(ctx context.Context, e *env, args []string) error {
 			fmt.Fprintf(e.out, "\nRemoved %s, keeping the newest %d.\n", countOf(len(removed), "older backup"), *keep)
 		}
 	}
+
+	// And then off the machine, because a copy beside the database is a backup
+	// against a mistake rather than against the disk. It is the copy the
+	// configuration already asked for: --no-offsite is how an operator taking a
+	// one-off copy says this one stays here.
+	if *noOffsite {
+		return nil
+	}
+	return shipFromCLI(ctx, e, cfg, entry, *remote)
+}
+
+// shipFromCLI copies one backup to the remotes and says what happened, in the
+// shape the command's other output takes.
+//
+// A failure here is reported and is not the command's exit status: the backup
+// was taken, it is on the disk, and telling an operator their backup failed
+// because a bucket refused a signature would be a lie about the thing they
+// asked for.
+func shipFromCLI(ctx context.Context, e *env, cfg *config.Config, entry *backup.Entry, only string) error {
+	remotes := cfg.EnabledBackupRemotes()
+	if only != "" {
+		remotes = nil
+		for _, r := range cfg.Backup.Remotes {
+			if r.Name != only {
+				continue
+			}
+			// A destination that is switched off stays switched off when it is
+			// named: disabled is an answer about the destination, not about
+			// which copies go to it.
+			if !r.Enabled() {
+				return fmt.Errorf("the backup remote %q is disabled or incomplete, so nothing was sent to it", only)
+			}
+			remotes = append(remotes, r)
+		}
+		if len(remotes) == 0 {
+			return fmt.Errorf("no backup remote is called %q; backup.remotes names %s", only, remoteNames(cfg))
+		}
+	}
+	if len(remotes) == 0 {
+		return nil
+	}
+	fmt.Fprintln(e.out)
+	failed := false
+	for _, cfgRemote := range remotes {
+		remote, err := backup.NewRemote(cfgRemote, nil)
+		if err != nil {
+			failed = true
+			fmt.Fprintf(e.out, "%s  NOT sent: %v\n", cfgRemote.Name, err)
+			continue
+		}
+		copied, err := remote.Upload(ctx, entry)
+		if err != nil {
+			failed = true
+			fmt.Fprintf(e.out, "%s  NOT sent: %v\n", remote.Name(), err)
+			continue
+		}
+		sealed := "unencrypted"
+		if copied.Encrypted {
+			sealed = "encrypted"
+		}
+		fmt.Fprintf(e.out, "%s  sent to %s as %s (%s, %s)\n",
+			remote.Name(), remote.Where(), copied.Key, humanBytes(int(copied.Bytes)), sealed)
+		if remote.Keep() > 0 {
+			removed, err := remote.Prune(ctx, remote.Keep())
+			if err != nil {
+				fmt.Fprintf(e.out, "%s  old copies were not removed: %v\n", remote.Name(), err)
+			} else if len(removed) > 0 {
+				fmt.Fprintf(e.out, "%s  removed %s, keeping the newest %d\n",
+					remote.Name(), countOf(len(removed), "older copy"), remote.Keep())
+			}
+		}
+	}
+	if failed {
+		fmt.Fprintf(e.out, "\nThe backup itself is on this host and is sound. What failed is getting a copy\n"+
+			"off it, which is the half that survives the disk -- read the reason above.\n")
+	}
 	return nil
+}
+
+// remoteNames lists what is configured, for the error that says a name is not
+// one of them.
+func remoteNames(cfg *config.Config) string {
+	var names []string
+	for _, r := range cfg.Backup.Remotes {
+		names = append(names, r.Name)
+	}
+	if len(names) == 0 {
+		return "none"
+	}
+	return strings.Join(names, ", ")
 }
 
 // printBackupSummary says what is in the backup and, when the key is not, what

@@ -50,6 +50,17 @@ type backupState struct {
 	lastAttemptAt time.Time
 	lastError     string
 	lastID        string
+
+	// shipping is held while an offsite pass is running, whoever asked for
+	// it, and remotes is what became of each destination, keyed by its name.
+	// They share this mutex because they are read together: the Backups tab
+	// asks one question and gets the schedule and every bucket in one answer.
+	shipping bool
+	remotes  map[string]*remoteState
+	// ship is the nudge a finished backup gives the loop, so a copy reaches
+	// the bucket in the minute it was taken rather than at the next sweep.
+	// Capacity 1: it is a flag, not a queue.
+	ship chan struct{}
 }
 
 // BackupStatus is the state of scheduled backups, for the settings page and
@@ -105,6 +116,11 @@ func (c *Controller) TakeBackup(ctx context.Context, source, by string) (*backup
 		c.log.Info("removed old backups", "removed", len(removed), "keep", cfg.Backup.Keep)
 	}
 	c.log.Info("took a backup", "id", entry.ID, "source", source, "bytes", entry.Bytes, "dir", entry.Dir)
+	// The copy exists; getting it off the machine is the backup loop's next
+	// pass rather than this caller's wait. An operator pressing the button
+	// should not hold a browser open for the length of an upload, and the
+	// schedule should not skip a night because a bucket was slow.
+	c.nudgeRemotes()
 	return entry, nil
 }
 
@@ -151,16 +167,17 @@ func (c *Controller) BackupStatus() BackupStatus {
 }
 
 // nextBackupDue is when the schedule next wants a backup: the newest copy the
-// fleet took of itself, plus the interval. An uploaded backup does not count
-// -- it is somebody else's copy, not evidence this fleet has been backed up.
-// The zero time means there is no such copy, so one is due now.
+// fleet took of itself, plus the interval. A backup somebody uploaded or
+// pulled back out of a bucket does not count -- it is a copy that arrived
+// here, not evidence this fleet has been backing itself up. The zero time
+// means there is no such copy, so one is due now.
 func (c *Controller) nextBackupDue(cfg *config.Config) time.Time {
 	entries, err := backup.List(backup.Dir(cfg))
 	if err != nil {
 		return time.Time{}
 	}
 	for _, e := range entries {
-		if e.Source == backup.SourceUploaded || e.Problem != "" {
+		if e.Source == backup.SourceUploaded || e.Source == backup.SourceFetched || e.Problem != "" {
 			continue
 		}
 		return e.TakenAt.Add(cfg.Backup.Interval)
@@ -177,12 +194,35 @@ func (c *Controller) backupLoop(ctx context.Context) {
 	ticker := time.NewTicker(backupTick)
 	defer ticker.Stop()
 	for {
+		nudged := false
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		case <-c.backups.ship:
+			nudged = true
 		}
-		c.scheduledBackup(ctx)
+		if !nudged {
+			c.scheduledBackup(ctx)
+		}
+		// And then the copies that leave the machine. A nudge means a backup
+		// has just been taken and there is something to send; a tick means
+		// checking whether a remote that was unreachable has come back.
+		if nudged || c.remotesDue(c.Now()) {
+			c.shipScheduled(ctx)
+		}
+	}
+}
+
+// shipScheduled is the loop's offsite pass. Its failures are already recorded
+// against each remote, where the page and the problems drawer read them, so
+// nothing is logged twice here.
+func (c *Controller) shipScheduled(ctx context.Context) {
+	if len(c.cfg().EnabledBackupRemotes()) == 0 {
+		return
+	}
+	if _, err := c.ShipBackups(ctx); err != nil && !errors.Is(err, ErrShippingRunning) {
+		c.log.Debug("the offsite copies did not all go", "error", err)
 	}
 }
 
@@ -264,6 +304,7 @@ func (c *Controller) backupProblems() []Problem {
 			Since: &at,
 		})
 	}
+	out = append(out, c.remoteProblems()...)
 	if outcome, err := backup.LastOutcome(dbPath); err == nil && outcome != nil && !outcome.OK {
 		at := outcome.AttemptedAt
 		out = append(out, Problem{

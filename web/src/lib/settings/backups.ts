@@ -10,6 +10,7 @@ import {
   Archive,
   ArchiveRestore,
   Clock,
+  CloudDownload,
   KeyRound,
   Terminal,
   Upload,
@@ -47,6 +48,12 @@ export const SOURCES: Record<
     icon: Upload,
     tone: 'busy',
     hint: 'Brought here from a file. Retention never counts or removes it.',
+  },
+  fetched: {
+    label: 'From offsite',
+    icon: CloudDownload,
+    tone: 'busy',
+    hint: 'Pulled back out of a backup remote. Retention never counts or removes it.',
   },
   'pre-migration': {
     label: 'Before an upgrade',

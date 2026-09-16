@@ -115,6 +115,19 @@ transport, and no third-party client exposes it. A client that reports both as
 one error would have Zoomies retry a create that already worked, and rent a
 second machine nobody is tracking.
 
+**An S3 SDK.** The backup remotes need four verbs — put an object, get it,
+list a prefix, delete a key — and signature version 4, which is forty lines of
+HMAC with a published definition. `internal/backup/s3.go` is that, against the
+same hand-rolled `net/http` approach as the two clients above, and it speaks to
+every implementation for the same reason a hand-rolled client speaks to Podman:
+ListObjectsV2 and SigV4 are what they all agree on. `aws-sdk-go-v2` would bring
+its own configuration, credential-provider and middleware stacks — and its own
+release cadence and vulnerability surface — so that a controller can write one
+file a night; `minio-go` is smaller and still an order of magnitude more client
+than four requests deserve. The one part with an external definition, the
+canonical request's encoding, is unit-tested against that definition rather
+than against itself.
+
 **A charting library.** The Overview needs sparklines and utilisation bars.
 Those are inline SVG paths of a few dozen lines each. The smallest credible
 charting library is larger than the entire rest of the app shell.

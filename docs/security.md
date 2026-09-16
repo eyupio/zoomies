@@ -454,6 +454,32 @@ runner configuration in every create task — a live registration credential for
 your runner group — cross the network in the clear. Without this, a plaintext
 controller URL that is not on loopback is refused outright.
 
+### A backup remote with no `passphrase`
+
+The archive the fleet uploads is the whole of it: every repository and job it
+has seen, every account and password hash, every API token's hash, and the
+GitHub App's private key and webhook secrets — sealed with the instance
+encryption key, which is the one thing in the file that is not readable, and
+only until somebody who has the bucket also has that key. In a bucket, with no
+passphrase, it is a file that opens for whoever can read the bucket: the
+provider, anyone holding a key to it, and anyone who finds it left public.
+
+Setting a passphrase on the remote seals the archive with argon2id and
+AES-256-GCM before it leaves the host, so the bucket holds something its owner
+cannot open. Keep the passphrase where you keep the encryption key — nothing on
+the controller can recover a lost one, which is the same trade the encrypted
+download makes. The startup validator raises `backup.remote_plaintext` for as
+long as a remote has none.
+
+### A backup remote reached over `http://`
+
+The access key, the request signature and the archive itself cross the network
+in the clear. Whoever is on the path reads the fleet and, holding the key,
+writes to the bucket afterwards — which includes replacing a backup with one of
+their own choosing, for somebody to restore later. Loopback and a network you
+own end to end are the only endpoints this is reasonable for, which is why the
+warning (`backup.remote_insecure`) excludes loopback and nothing else.
+
 ### `provider.insecure_skip_verify: true`
 
 Zoomies talks to a hypervisor without verifying its certificate. The API token
