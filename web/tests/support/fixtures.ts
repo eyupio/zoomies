@@ -79,9 +79,14 @@ export function sectionHeading(section: (typeof SECTIONS)[number]): string | Reg
   return 'heading' in section ? section.heading : section.label;
 }
 
+/** A path as a literal inside a pattern: every metacharacter escaped, not only the slashes. */
+function escapeForPattern(path: string): string {
+  return path.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+}
+
 /** The address a section's entry ends up at, as a pattern the URL must match. */
 export function sectionLanding(section: (typeof SECTIONS)[number]): RegExp {
-  return 'lands' in section ? section.lands : new RegExp(`${section.path.replace(/\//g, '\\/')}$`);
+  return 'lands' in section ? section.lands : new RegExp(`${escapeForPattern(section.path)}$`);
 }
 
 /** Names from internal/controller/seed.go, so the fixture and the tests agree. */
