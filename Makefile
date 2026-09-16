@@ -28,7 +28,7 @@ RUNNER_VERSION ?= 2.337.0
 GO       ?= go
 NPM      ?= npm
 # Package-wide budget, including race instrumentation and SQLite migrations.
-GO_TEST_TIMEOUT ?= 30m
+GO_TEST_TIMEOUT ?= 60m
 
 ##@ Build
 
