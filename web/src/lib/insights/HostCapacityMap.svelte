@@ -60,7 +60,7 @@
   import StatusDot from '$lib/components/StatusDot.svelte';
   import Switch from '$lib/components/Switch.svelte';
   import { fleet } from '$lib/state/fleet.svelte';
-  import { storage } from '$lib/state/prefs.svelte';
+  import { remember, remembered } from '$lib/state/prefs.svelte';
   import { session } from '$lib/state/session.svelte';
   import { hostStatus } from '$lib/status';
   import CapacityPlot from './CapacityPlot.svelte';
@@ -101,16 +101,6 @@
   /* -- what is remembered -------------------------------------------------- */
 
   const KEY = 'zoomies.hosts.map';
-  function remembered<T>(name: string, fallback: T, valid: (v: unknown) => v is T): T {
-    try {
-      const raw = storage.get(`${KEY}.${name}`);
-      if (raw === null) return fallback;
-      const parsed: unknown = JSON.parse(raw);
-      return valid(parsed) ? parsed : fallback;
-    } catch {
-      return fallback;
-    }
-  }
   const LAYOUTS = [
     { value: 'overlay', label: 'Overlay', name: 'Every host on one chart' },
     { value: 'split', label: 'Per host', name: 'A chart for each host' },
@@ -134,24 +124,26 @@
 
   // The day is the default, as it is on every other trend: an hour is too
   // narrow to show a fleet that goes quiet overnight and busy at nine.
-  let windowKey = $state<WindowKey>(remembered('window', '24h', isWindow));
+  let windowKey = $state<WindowKey>(remembered(`${KEY}.window`, '24h', isWindow));
   // The layout is written only when an operator picks one, never on sight:
   // a browser that had merely opened the page would otherwise have "chosen"
   // whatever the fleet's default was that day, and stop following it.
   // A map belongs to one page for its whole life, so the page it opened on
   // is the page it is on: reading it once is the intent, not an oversight.
-  let layout = $state<Layout>(untrack(() => remembered(`layout.${page}`, fleetLayout(), isLayout)));
+  let layout = $state<Layout>(
+    untrack(() => remembered(`${KEY}.layout.${page}`, fleetLayout(), isLayout)),
+  );
   function chooseLayout(next: Layout): void {
     layout = next;
-    storage.set(`${KEY}.layout.${page}`, JSON.stringify(next));
+    remember(`${KEY}.layout.${page}`, next);
   }
-  let live = $state(remembered('live', true, (v): v is boolean => typeof v === 'boolean'));
-  let enabled = $state<MetricKey[]>(remembered('metrics', [...DEFAULT_METRICS], isMetrics));
-  let hidden = $state<string[]>(remembered('hidden', [], isIds));
-  $effect(() => storage.set(`${KEY}.window`, JSON.stringify(windowKey)));
-  $effect(() => storage.set(`${KEY}.live`, JSON.stringify(live)));
-  $effect(() => storage.set(`${KEY}.metrics`, JSON.stringify(enabled)));
-  $effect(() => storage.set(`${KEY}.hidden`, JSON.stringify(hidden)));
+  let live = $state(remembered(`${KEY}.live`, true, (v): v is boolean => typeof v === 'boolean'));
+  let enabled = $state<MetricKey[]>(remembered(`${KEY}.metrics`, [...DEFAULT_METRICS], isMetrics));
+  let hidden = $state<string[]>(remembered(`${KEY}.hidden`, [], isIds));
+  $effect(() => remember(`${KEY}.window`, windowKey));
+  $effect(() => remember(`${KEY}.live`, live));
+  $effect(() => remember(`${KEY}.metrics`, enabled));
+  $effect(() => remember(`${KEY}.hidden`, hidden));
 
   const chosen = $derived(
     WINDOWS.find((w) => w.value === windowKey) ?? WINDOWS.find((w) => w.value === '24h')!,

@@ -1,22 +1,27 @@
 <!--
-  The fleet trend's drawing: a line per figure over the window, drawn at the
-  width the panel has, one unit to a pixel. Everything that is not a line --
-  which figures are on the chart, which moment is being read, what the
-  reading was -- lives in FleetHistory; the plot draws what it is given and
-  reports where the pointer is.
+  A trend's drawing: a line per figure over a window, drawn at the width the
+  panel has, one unit to a pixel. Everything that is not a line -- which
+  figures are on the chart, which moment is being read, what the reading was
+  -- lives in the panel above it; the plot draws what it is given and reports
+  where the pointer is. The fleet activity panel and the usage chart are both
+  this, which is why nothing in here knows what a figure counts.
 
-  Colour says which state a figure belongs to and the stroke says whether it
-  counts jobs or runners, so the queue is the amber the rest of the console
-  calls pending and the two busy figures share a colour on purpose: a
-  running job and the runner running it should sit on top of one another,
-  and where they do not, something is wrong. Pointing at a line singles it
-  out and steps the rest back, and a chip does the same, because with five
-  lines on one chart a legend cannot say which is which.
+  Colour and stroke are the panel's to assign, and between them they say
+  which figure a line is: the fleet trend gives a colour to each state and a
+  stroke to jobs against runners, the usage chart a colour to each outcome
+  and a dash to the nearer of two hues. Pointing at a line singles it out and
+  steps the rest back, and a chip does the same, because with five lines on
+  one chart a legend cannot say which is which.
 
   The newest value is written at the end of every line, pushed apart with a
   leader where two lines end together, so the chart reads from its
   right-hand edge alone. A figure nobody sampled is a gap and never a zero:
   a controller that was down and a queue that was empty are opposite news.
+
+  Behind the lines are the bands: the stretches of the window where the thing
+  the panel is watching for was true -- work waiting with nothing free, a
+  pool that had nowhere to put a runner. A condition the lines are read
+  against rather than a line of its own.
 
   The lines are revealed left to right when the window changes, and that is
   the only motion the plot has beyond the newest point's pulse: a live chart
@@ -26,20 +31,20 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { formatNumber } from '$lib/format';
-  import { spreadLabels, timeTicks } from './plot';
   import {
-    nearestSignal,
-    signalRuns,
+    nearestSeries,
+    seriesRuns,
+    spreadLabels,
+    timeTicks,
     trendFrame,
     trendIndexAtX,
     trendX,
     trendY,
-    type SignalKey,
-    type SignalLine,
-  } from './signals';
+    type SeriesLine,
+  } from './plot';
 
   interface Props {
-    lines: SignalLine[];
+    lines: SeriesLine[];
     /** How many points every line has. */
     count: number;
     /** The top of the axis, and the figures the grid is labelled with. */
@@ -48,25 +53,34 @@
     /** The window's edges, for the labels along the bottom. */
     start: number;
     end: number;
-    /** Where jobs queued with nothing free to take them: shaded behind the lines. */
-    starved: Array<{ from: number; to: number }>;
+    /** The stretches the panel wants shaded behind the lines. */
+    bands: Array<{ from: number; to: number }>;
     activeIndex: number;
     /** A moment is being read, by hover, by touch or from the timeline. */
     reading: boolean;
     /** A figure singled out from a chip, a legend row or the line itself. */
-    emphasis: SignalKey | null;
+    emphasis: string | null;
     /** The figure the wash is drawn under. Only where one is on the chart. */
-    lead: SignalKey | null;
+    lead: string | null;
+    /**
+     * Which point is the present, so that the reading there can breathe. A
+     * line that ends anywhere else has stopped reporting, and a window that
+     * ended in the past has no present in it at all: a dot pulsing at the end
+     * of a closed report, or of a sampler that died an hour ago, claims one.
+     */
+    present?: number | null;
     /** The lines are revealed afresh whenever this changes. */
     revealKey: string;
     stamp: (at: number) => string;
+    /** How a figure is written: counts are whole, hours are not. */
+    format?: (value: number) => string;
     label: string;
     loading?: boolean;
     /** Something to say instead of lines: no figures chosen, no samples. */
     message?: string;
     onhover: (i: number | null) => void;
     onpress: (i: number) => void;
-    onnear: (key: SignalKey | null) => void;
+    onnear: (key: string | null) => void;
     /** The reading, rendered beside the crosshair. */
     card?: Snippet;
   }
@@ -78,13 +92,15 @@
     grid,
     start,
     end,
-    starved,
+    bands,
     activeIndex,
     reading,
     emphasis,
     lead,
+    present = null,
     revealKey,
     stamp,
+    format = formatNumber,
     label,
     loading = false,
     message,
@@ -99,17 +115,23 @@
   /* -- the frame ------------------------------------------------------------- */
 
   let width = $state(0);
-  const digits = $derived(formatNumber(ceiling).length);
+  const digits = $derived(format(ceiling).length);
   const frame = $derived(trendFrame(width || 760, { digits }));
   const x = $derived(trendX(frame, count));
   const y = $derived(trendY(frame, ceiling));
   /** Half a point's width: what a shaded interval is widened by at each end. */
   const halfPoint = $derived(frame.SPAN / Math.max(1, (count - 1) * 2));
+  // A label that wants to sit centred on the first tick hangs off the left of
+  // the drawing and is cut in half by it -- the window's first point is at the
+  // gutter, not inset from it. The two at the edges are anchored to the edge
+  // instead, which is where the eye looks for them anyway.
   const ticks = $derived(
-    timeTicks(start, end, frame.narrow ? 3 : 5).map((at) => ({
-      at,
-      x: frame.LEFT + ((at - start) / Math.max(1, end - start)) * frame.SPAN,
-    })),
+    timeTicks(start, end, frame.narrow ? 3 : 5).map((at) => {
+      const x = frame.LEFT + ((at - start) / Math.max(1, end - start)) * frame.SPAN;
+      const half = 3.2 * stamp(at).length;
+      const anchor = x - half < 2 ? 'start' : x + half > frame.W - 2 ? 'end' : 'middle';
+      return { at, x, anchor, labelX: anchor === 'start' ? 2 : anchor === 'end' ? frame.W - 2 : x };
+    }),
   );
 
   /* -- the lines ------------------------------------------------------------- */
@@ -124,21 +146,21 @@
   }
 
   interface Drawn {
-    line: SignalLine;
+    line: SeriesLine;
     lit: boolean;
     paths: string[];
     areas: string[];
   }
   const drawn = $derived.by((): Drawn[] => {
     const out = lines.map((line) => {
-      const runs = signalRuns(line.points);
-      const lit = emphasis === null || line.signal.key === emphasis;
+      const runs = seriesRuns(line.points);
+      const lit = emphasis === null || line.series.key === emphasis;
       const paths = runs.map(pathOf);
       // The wash belongs to the figure the chart leads with, and only while
       // it is alone: under five overlapping lines it is a stain, not a
       // reading.
       const areas =
-        lines.length === 1 && line.signal.key === lead
+        lines.length === 1 && line.series.key === lead
           ? runs.map(
               (run, n) =>
                 `${paths[n]} L${x(run[run.length - 1]!.i).toFixed(1)},${frame.BOTTOM} L${x(run[0]!.i).toFixed(1)},${frame.BOTTOM} Z`,
@@ -160,7 +182,7 @@
       x0: x(line.last!.i),
       y0: wanted[n]!,
       y: placed[n]!,
-      text: formatNumber(line.last!.value),
+      text: format(line.last!.value),
     }));
   });
 
@@ -194,7 +216,7 @@
     const { i, viewY } = at(event);
     if (event.pointerType === 'mouse') {
       onhover(i);
-      onnear(nearestSignal(lines, i, viewY, y, 10));
+      onnear(nearestSeries(lines, i, viewY, y, 10));
     } else if (event.buttons) onpress(i);
   }
   function onLeave(): void {
@@ -216,22 +238,23 @@
     onpointerleave={onLeave}
   >
     <defs>
-      {#each drawn as d (d.line.signal.key)}
+      {#each drawn as d (d.line.series.key)}
         {#if d.areas.length}
-          <linearGradient id="{uid}-{d.line.signal.key}" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" style:stop-color={d.line.signal.tone} stop-opacity="0.22" />
-            <stop offset="1" style:stop-color={d.line.signal.tone} stop-opacity="0.02" />
+          <linearGradient id="{uid}-{d.line.series.key}" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" style:stop-color={d.line.series.tone} stop-opacity="0.22" />
+            <stop offset="1" style:stop-color={d.line.series.tone} stop-opacity="0.02" />
           </linearGradient>
         {/if}
       {/each}
     </defs>
 
-    <!-- Where something was waiting and nothing was free. It is drawn behind
-         everything, in the colour the console uses for pending, because it is
-         a condition the lines are read against and not a line of its own. -->
-    {#each starved as run (run.from)}
+    <!-- The band: a stretch where the fleet was short of something. It is
+         drawn behind everything, in the colour the console uses for pending,
+         because it is a condition the lines are read against and not a line
+         of its own. -->
+    {#each bands as run (run.from)}
       <rect
-        class="starved"
+        class="band"
         x={x(run.from) - halfPoint}
         y={frame.TOP}
         width={x(run.to) - x(run.from) + halfPoint * 2}
@@ -248,24 +271,23 @@
         y1={y(value)}
         y2={y(value)}
       />
-      <text class="axis" x={frame.LEFT - 8} y={y(value) + 4} text-anchor="end"
-        >{formatNumber(value)}</text
+      <text class="axis" x={frame.LEFT - 8} y={y(value) + 4} text-anchor="end">{format(value)}</text
       >
     {/each}
 
     {#key revealKey}
       <g class="lines">
-        {#each drawn as d (d.line.signal.key)}
+        {#each drawn as d (d.line.series.key)}
           <g class="series" class:dim={!d.lit}>
             {#each d.areas as area, n (n)}
-              <path d={area} class="area" fill="url(#{uid}-{d.line.signal.key})" />
+              <path d={area} class="area" fill="url(#{uid}-{d.line.series.key})" />
             {/each}
             {#each d.paths as path, n (n)}
               <path
                 d={path}
                 class="line"
-                style:stroke={d.line.signal.tone}
-                stroke-dasharray={d.line.signal.dash}
+                style:stroke={d.line.series.tone}
+                stroke-dasharray={d.line.series.dash}
               />
             {/each}
           </g>
@@ -273,26 +295,26 @@
       </g>
     {/key}
 
-    {#each drawn as d (d.line.signal.key)}
-      {#if d.lit && d.line.last && d.line.last.i === count - 1}
+    {#each drawn as d (d.line.series.key)}
+      {#if d.lit && d.line.last && d.line.last.i === present}
         <circle
           class="pulse"
           cx={x(d.line.last.i)}
           cy={y(d.line.last.value)}
           r="3.5"
-          style:stroke={d.line.signal.tone}
+          style:stroke={d.line.series.tone}
         />
         <circle
           class="now"
           cx={x(d.line.last.i)}
           cy={y(d.line.last.value)}
           r="3.5"
-          style:fill={d.line.signal.tone}
+          style:fill={d.line.series.tone}
         />
       {/if}
     {/each}
 
-    {#each ends as e (e.line.signal.key)}
+    {#each ends as e (e.line.series.key)}
       {#if Math.abs(e.y - e.y0) > 2}
         <line
           class="leader"
@@ -300,12 +322,12 @@
           y1={e.y0}
           x2={frame.RIGHT + 5}
           y2={e.y}
-          style:stroke={e.line.signal.tone}
+          style:stroke={e.line.series.tone}
         />
       {/if}
       <text
         class="end"
-        class:dim={emphasis !== null && e.line.signal.key !== emphasis}
+        class:dim={emphasis !== null && e.line.series.key !== emphasis}
         x={frame.RIGHT + 8}
         y={e.y + 4}>{e.text}</text
       >
@@ -319,7 +341,7 @@
         y1={frame.TOP}
         y2={frame.BOTTOM}
       />
-      {#each drawn as d (d.line.signal.key)}
+      {#each drawn as d (d.line.series.key)}
         {@const v = d.line.points[activeIndex]?.value}
         {#if d.lit && v !== null && v !== undefined}
           <circle
@@ -327,7 +349,7 @@
             cx={x(activeIndex)}
             cy={y(v)}
             r="4"
-            style:fill={d.line.signal.tone}
+            style:fill={d.line.series.tone}
           />
         {/if}
       {/each}
@@ -335,7 +357,9 @@
 
     {#each ticks as tick (tick.at)}
       <line class="tick" x1={tick.x} x2={tick.x} y1={frame.BOTTOM} y2={frame.BOTTOM + 4} />
-      <text class="axis" x={tick.x} y={frame.H - 7} text-anchor="middle">{stamp(tick.at)}</text>
+      <text class="axis" x={tick.labelX} y={frame.H - 7} text-anchor={tick.anchor}
+        >{stamp(tick.at)}</text
+      >
     {/each}
   </svg>
 
@@ -369,7 +393,7 @@
   }
 
   /* -- the chrome: recessive, solid hairlines --------------------------------- */
-  .starved {
+  .band {
     fill: var(--z-pending-subtle);
   }
   .grid {
