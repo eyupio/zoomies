@@ -129,9 +129,25 @@ test('analytics supports keyboard inspection, group focus and matching CSV expor
   page,
 }) => {
   await goto(page, '/usage', 'Usage');
-  await expect(page.getByRole('region', { name: 'Usage over time', exact: true })).toBeVisible();
-  await page.getByLabel('Chart metric').selectOption('execution');
-  await expect(page.getByRole('img', { name: /Runner hours trend/ })).toBeVisible();
+  const chart = page.getByRole('region', { name: 'Usage over time', exact: true });
+  await expect(chart).toBeVisible();
+
+  // Every figure is a chip and every chip is a line, so the two measures are
+  // not two fixed pictures: the chart draws whichever figures are pressed,
+  // and says which those are in its accessible name.
+  const measures = chart.getByRole('group', { name: 'Measure' });
+  await measures.getByRole('button', { name: 'Runner time' }).click();
+  await expect(chart.getByRole('img', { name: /executing, allocated/ })).toBeVisible();
+  const figures = chart.getByRole('group', { name: 'Figures shown' });
+  await figures.getByRole('button', { name: 'Executing' }).click();
+  await expect(chart.getByRole('img', { name: /Usage over time: allocated/ })).toBeVisible();
+  // The rows below are the same switchboard, and the reading: a figure taken
+  // off the chart leaves them too.
+  const rows = chart.getByRole('group', { name: 'Figures read at this interval' });
+  await expect(rows.getByRole('button', { name: /Executing/ })).toHaveCount(0);
+  await expect(rows.getByRole('button', { name: /Allocated/ })).toHaveCount(1);
+  await measures.getByRole('button', { name: 'Jobs' }).click();
+
   const matrix = page.getByRole('region', { name: 'Activity matrix', exact: true });
   // The grid is one tab stop: the square with tabindex 0 is the newest one
   // with anything in it. Focusing it opens the tooltip; Enter selects it and
@@ -143,6 +159,13 @@ test('analytics supports keyboard inspection, group focus and matching CSV expor
   await square.press('Enter');
   // The report opens on a day, so a square is an hour and the detail is one.
   await expect(matrix.getByRole('region', { name: 'Selected hour' })).toContainText('Queued');
+  // Choosing a square there brings its interval under the chart's crosshair,
+  // which is the whole point of the two panels sharing a moment. Letting it
+  // go lets go of both.
+  const clear = chart.getByRole('button', { name: 'Back to the latest' });
+  await expect(clear).toBeVisible();
+  await clear.click();
+  await expect(matrix.getByRole('region', { name: 'Selected hour' })).toHaveCount(0);
   const ranking = page.getByRole('region', { name: 'Execution by group', exact: true });
   await ranking.getByRole('button').first().click();
   await expect(page).toHaveURL(/entity=/);

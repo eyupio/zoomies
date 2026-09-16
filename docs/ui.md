@@ -180,14 +180,26 @@ wrong.
 Runner-hours, jobs and queue waits over a date range — today, until you widen
 it — grouped by pool, repository, workflow or installation, with an estimated cost wherever an
 administrator has given a pool a rate. Zoomies embeds no cloud prices. The
-table exports as CSV. The same activity matrix as the Overview's draws the
+table exports as CSV.
+
+The range is drawn as a chart with the same hand as the Overview's fleet
+activity: a line per figure, chosen by chip — the jobs queued and how they
+ended, or executing runner time against the time allocated to hold the runner
+— and the moment under the pointer read off every line at once, in the rows
+beneath as well as beside the crosshair, so a figure never lives only in a
+card that a finger's lift takes away. Where a pool had work and nowhere to put
+a runner, the intervals are shaded behind the lines. An interval that has not
+happened yet is a gap rather than a zero: a report to the end of today is a
+window with hours still in it.
+
+The same activity matrix as the Overview's draws the
 chosen range — a square per day laid out as a calendar, or a square per hour
 for a range of two days or less — cut to the grouping and the group in
 focus, so a repository's bad week is a red row of squares rather than a
 column of numbers.
 
-![The Usage dashboard: runner-hours, job outcomes, queue wait, utilisation trends and activity history grouped by pool](screenshots/usage-dark.webp#only-dark){ .zoomies-shot }
-![The Usage dashboard: runner-hours, job outcomes, queue wait, utilisation trends and activity history grouped by pool](screenshots/usage-light.webp#only-light){ .zoomies-shot }
+![The Usage dashboard: runner-hours, job outcomes and queue wait as tiles, the range drawn as a line per figure with the interval's readings beneath it, the largest consumers of runner time, and the activity matrix, grouped by pool](screenshots/usage-dark.webp#only-dark){ .zoomies-shot }
+![The Usage dashboard: runner-hours, job outcomes and queue wait as tiles, the range drawn as a line per figure with the interval's readings beneath it, the largest consumers of runner time, and the activity matrix, grouped by pool](screenshots/usage-light.webp#only-light){ .zoomies-shot }
 
 ## Hosts
 

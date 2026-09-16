@@ -1,4 +1,5 @@
 import type { FleetSample, Host, Pool, Stats } from '../api/types';
+import { seriesLine, type Series, type SeriesLine, type SeriesPoint } from './plot';
 
 export function finite(value: number | undefined): number | null {
   return value !== undefined && Number.isFinite(value) ? Math.max(0, value) : null;
@@ -73,16 +74,12 @@ export function hostSignals(host: Host) {
   };
 }
 
-export interface SignalPoint {
-  at: number;
-  value: number | null;
-}
 /** Fill missing minutes with null; never draw an outage as zero demand. */
 export function minuteSeries(
-  points: readonly SignalPoint[],
+  points: readonly SeriesPoint[],
   now: number,
   minutes = 60,
-): SignalPoint[] {
+): SeriesPoint[] {
   const end = Math.floor(now / 60_000) * 60_000;
   const byMinute: Record<number, number | null> = {};
   for (const p of points)
@@ -119,9 +116,9 @@ export function mergeSamples(
  * fifteen minutes would round it away. An interval with no observed minute
  * stays a gap.
  */
-export function foldMinutes(points: readonly SignalPoint[], step: number): SignalPoint[] {
+export function foldMinutes(points: readonly SeriesPoint[], step: number): SeriesPoint[] {
   if (step <= 1) return [...points];
-  const out: SignalPoint[] = [];
+  const out: SeriesPoint[] = [];
   for (let i = 0; i < points.length; i += step) {
     const slice = points.slice(i, i + step);
     const known = slice.map((p) => p.value).filter((v): v is number => v !== null);
@@ -137,27 +134,16 @@ export function foldMinutes(points: readonly SignalPoint[], step: number): Signa
 
 export type SignalKey = 'queue' | 'running' | 'idle' | 'busy' | 'live';
 
-export interface Signal {
+/**
+ * A fleet figure. Its colour is the status colour the fleet already uses for
+ * that state everywhere else, so an operator who has learnt that amber is
+ * pending and teal is busy reads this chart without a legend, and its stroke
+ * says whether the figure counts jobs or runners: the two busy figures --
+ * the jobs running and the runners running them -- are one colour and can be
+ * read against each other.
+ */
+export interface Signal extends Series {
   key: SignalKey;
-  /** The chip and the legend. */
-  label: string;
-  /** Beside a figure, where the chip's words would not fit: "Queued 12". */
-  short: string;
-  /** What the figure counts, for the tooltip and assistive text. */
-  hint: string;
-  /**
-   * The status colour the fleet already uses for that state everywhere else:
-   * an operator who has learnt that amber is pending and teal is busy reads
-   * this chart without a legend.
-   */
-  tone: string;
-  /**
-   * How the line is drawn. Colour says which state, the stroke says whether
-   * the figure counts jobs or runners, so the two busy figures -- the jobs
-   * running and the runners running them -- are one colour and can be read
-   * against each other. `''` is solid.
-   */
-  dash: string;
   /** Jobs come from GitHub; runners are ours. It is what the stroke says. */
   jobs: boolean;
 }
@@ -167,7 +153,6 @@ export const SIGNALS: readonly Signal[] = [
   {
     key: 'queue',
     label: 'Queued jobs',
-    short: 'Queued',
     hint: 'jobs waiting for a runner',
     tone: 'var(--z-pending)',
     dash: '',
@@ -176,7 +161,6 @@ export const SIGNALS: readonly Signal[] = [
   {
     key: 'running',
     label: 'Running jobs',
-    short: 'Running',
     hint: 'jobs a runner has picked up',
     tone: 'var(--z-busy)',
     dash: '8 4',
@@ -185,7 +169,6 @@ export const SIGNALS: readonly Signal[] = [
   {
     key: 'idle',
     label: 'Idle runners',
-    short: 'Idle',
     hint: 'runners registered and waiting for work',
     tone: 'var(--z-idle)',
     dash: '',
@@ -194,7 +177,6 @@ export const SIGNALS: readonly Signal[] = [
   {
     key: 'busy',
     label: 'Busy runners',
-    short: 'Busy',
     hint: 'runners executing a job',
     tone: 'var(--z-busy)',
     dash: '',
@@ -203,7 +185,6 @@ export const SIGNALS: readonly Signal[] = [
   {
     key: 'live',
     label: 'Live runners',
-    short: 'Live',
     hint: 'every runner short of removed: provisioning, registering, idle, busy, draining',
     tone: 'var(--z-neutral)',
     dash: '2 4',
@@ -244,12 +225,7 @@ export function leadSignal(enabled: readonly SignalKey[]): Signal | null {
 }
 
 /** One signal's line over the window, as the chart receives it. */
-export interface SignalLine {
-  signal: Signal;
-  points: SignalPoint[];
-  /** The newest observed point, for the label at the end and the pulse. */
-  last: { i: number; value: number } | null;
-}
+export type SignalLine = SeriesLine<Signal>;
 
 /** A line for every chosen signal, in the chips' order. */
 export function signalLines(
@@ -260,132 +236,22 @@ export function signalLines(
   minutes: number,
   step: number,
 ): SignalLine[] {
-  return SIGNALS.filter((signal) => enabled.includes(signal.key)).map((signal) => {
-    const points = foldMinutes(
-      minuteSeries(
-        samples.map((s) => ({
-          at: new Date(s.at ?? '').getTime(),
-          value: signalValue(s, signal.key, others),
-        })),
-        now,
-        minutes,
+  return SIGNALS.filter((signal) => enabled.includes(signal.key)).map((signal) =>
+    seriesLine(
+      signal,
+      foldMinutes(
+        minuteSeries(
+          samples.map((s) => ({
+            at: new Date(s.at ?? '').getTime(),
+            value: signalValue(s, signal.key, others),
+          })),
+          now,
+          minutes,
+        ),
+        step,
       ),
-      step,
-    );
-    let last: { i: number; value: number } | null = null;
-    points.forEach((p, i) => {
-      if (p.value !== null) last = { i, value: p.value };
-    });
-    return { signal, points, last };
-  });
-}
-
-/**
- * The observed points of a line, grouped into the runs one stroke joins. An
- * interval nobody sampled is left out, so the line passes from the reading
- * before to the reading after and no marker claims a figure for it: a gap is
- * a gap, and never a zero, because an outage and an empty queue are opposite
- * news.
- */
-export function signalRuns(points: readonly SignalPoint[]): Array<{ i: number; value: number }[]> {
-  const out: Array<{ i: number; value: number }[]> = [];
-  let run: { i: number; value: number }[] = [];
-  points.forEach((p, i) => {
-    if (p.value === null) {
-      if (run.length) out.push(run);
-      run = [];
-    } else run.push({ i, value: p.value });
-  });
-  if (run.length) out.push(run);
-  return out;
-}
-
-/** The highest figure across every line, and which line and point it was at. */
-export function signalPeak(
-  lines: readonly SignalLine[],
-): { line: SignalLine; i: number; value: number } | null {
-  let best: { line: SignalLine; i: number; value: number } | null = null;
-  for (const line of lines)
-    line.points.forEach((p, i) => {
-      if (p.value !== null && (best === null || p.value > best.value))
-        best = { line, i, value: p.value };
-    });
-  return best;
-}
-
-/** The drawing's edges, in pixels, for a trend `width` wide. */
-export interface TrendFrame {
-  W: number;
-  H: number;
-  LEFT: number;
-  RIGHT: number;
-  TOP: number;
-  BOTTOM: number;
-  SPAN: number;
-  /** A phone's shape: taller, and with fewer labels along the bottom. */
-  narrow: boolean;
-}
-
-/**
- * The frame is drawn at the width the panel has, one unit to one pixel,
- * rather than a fixed picture stretched to fit: the old chart drew 760 units
- * and let the browser scale them, so its eleven-unit axis text arrived on a
- * wide screen at nineteen pixels and read as a heading. The left gutter is
- * sized for the widest figure the axis will print, and the right one holds
- * the newest value at the end of each line.
- */
-export function trendFrame(
-  width: number,
-  options: { digits?: number; labels?: boolean } = {},
-): TrendFrame {
-  const W = Math.max(280, Math.round(width));
-  const narrow = W < 560;
-  const H = narrow ? 236 : 196;
-  const LEFT = 16 + 7 * Math.max(1, options.digits ?? 3);
-  const RIGHT = W - (options.labels === false ? 10 : 46);
-  const TOP = 14;
-  return { W, H, LEFT, RIGHT, TOP, BOTTOM: H - 26, SPAN: RIGHT - LEFT, narrow };
-}
-
-/** The x of point `i`, of `count` across the frame. */
-export function trendX(frame: TrendFrame, count: number): (i: number) => number {
-  return (i) => frame.LEFT + (i * frame.SPAN) / Math.max(1, count - 1);
-}
-
-/** The y of a figure on an axis running from zero to `ceiling`. */
-export function trendY(frame: TrendFrame, ceiling: number): (value: number) => number {
-  return (value) =>
-    frame.BOTTOM - (Math.min(value, ceiling) / Math.max(1, ceiling)) * (frame.BOTTOM - frame.TOP);
-}
-
-/** Which point a pointer is over, from where it is across the frame. */
-export function trendIndexAtX(frame: TrendFrame, count: number, viewX: number): number {
-  const i = Math.round(((viewX - frame.LEFT) / frame.SPAN) * Math.max(1, count - 1));
-  return Math.max(0, Math.min(count - 1, i));
-}
-
-/**
- * The signal whose line passes nearest a pointer at point `i`, within
- * `tolerance` pixels, or null where none does. Pointing at a line is how a
- * reader asks what it is, and with five of them on one chart the legend
- * alone cannot answer that.
- */
-export function nearestSignal(
-  lines: readonly SignalLine[],
-  i: number,
-  viewY: number,
-  y: (value: number) => number,
-  tolerance: number,
-): SignalKey | null {
-  let best: { key: SignalKey; distance: number } | null = null;
-  for (const line of lines) {
-    const v = line.points[i]?.value;
-    if (v === null || v === undefined) continue;
-    const distance = Math.abs(y(v) - viewY);
-    if (distance <= tolerance && (best === null || distance < best.distance))
-      best = { key: line.signal.key, distance };
-  }
-  return best?.key ?? null;
+    ),
+  );
 }
 
 /**

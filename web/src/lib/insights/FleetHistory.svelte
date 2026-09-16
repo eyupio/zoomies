@@ -41,9 +41,12 @@
   import { formatNumber } from '$lib/format';
   import ChartPanel from '$lib/components/ChartPanel.svelte';
   import Segmented from '$lib/components/Segmented.svelte';
-  import { storage } from '$lib/state/prefs.svelte';
+  import { remember, remembered } from '$lib/state/prefs.svelte';
   import TrendPlot from './TrendPlot.svelte';
-  import { countAxis } from './plot';
+  import FigureChips from './FigureChips.svelte';
+  import FigureRows from './FigureRows.svelte';
+  import ReadingCard from './ReadingCard.svelte';
+  import { countAxis, seriesPeak } from './plot';
   import {
     DEFAULT_SIGNALS,
     SIGNALS,
@@ -51,9 +54,7 @@
     leadSignal,
     mergeSamples,
     signalLines,
-    signalPeak,
     starvedRuns,
-    type Signal,
     type SignalKey,
   } from './signals';
 
@@ -86,16 +87,6 @@
   /* -- what is remembered -------------------------------------------------- */
 
   const KEY = 'zoomies.fleet.trend';
-  function remembered<T>(name: string, fallback: T, valid: (v: unknown) => v is T): T {
-    try {
-      const raw = storage.get(`${KEY}.${name}`);
-      if (raw === null) return fallback;
-      const parsed: unknown = JSON.parse(raw);
-      return valid(parsed) ? parsed : fallback;
-    } catch {
-      return fallback;
-    }
-  }
   const isWindow = (v: unknown): v is WindowKey =>
     typeof v === 'string' && WINDOWS.some((w) => w.value === v);
   const isSignals = (v: unknown): v is SignalKey[] =>
@@ -103,10 +94,10 @@
 
   // The day is the default window everywhere a range is chosen: an hour is
   // too narrow to show a fleet that goes quiet overnight and busy at nine.
-  let windowKey = $state<WindowKey>(remembered('window', '24h', isWindow));
-  let enabled = $state<SignalKey[]>(remembered('signals', [...DEFAULT_SIGNALS], isSignals));
-  $effect(() => storage.set(`${KEY}.window`, JSON.stringify(windowKey)));
-  $effect(() => storage.set(`${KEY}.signals`, JSON.stringify(enabled)));
+  let windowKey = $state<WindowKey>(remembered(`${KEY}.window`, '24h', isWindow));
+  let enabled = $state<SignalKey[]>(remembered(`${KEY}.signals`, [...DEFAULT_SIGNALS], isSignals));
+  $effect(() => remember(`${KEY}.window`, windowKey));
+  $effect(() => remember(`${KEY}.signals`, enabled));
 
   const chosen = $derived(WINDOWS.find((w) => w.value === windowKey) ?? WINDOWS[2]);
 
@@ -201,7 +192,7 @@
   const count = $derived(
     Math.max(1, lines[0]?.points.length ?? Math.ceil(chosen.minutes / chosen.step)),
   );
-  const peak = $derived(signalPeak(lead ? lines.filter((l) => l.signal === lead) : []));
+  const peak = $derived(seriesPeak(lead ? lines.filter((l) => l.series === lead) : []));
   const axis = $derived(
     countAxis(
       lines.reduce(
@@ -227,8 +218,8 @@
   );
   const starved = $derived(
     starvedRuns(
-      pressure.find((l) => l.signal.key === 'queue') ?? null,
-      pressure.find((l) => l.signal.key === 'idle') ?? null,
+      pressure.find((l) => l.series.key === 'queue') ?? null,
+      pressure.find((l) => l.series.key === 'idle') ?? null,
       chosen.step,
     ),
   );
@@ -263,7 +254,7 @@
   /** What each chosen figure read at the active moment, or now. */
   const readings = $derived(
     lines.map((line) => ({
-      line,
+      series: line.series,
       value: reading ? (line.points[activeIndex]?.value ?? null) : (line.last?.value ?? null),
     })),
   );
@@ -277,10 +268,10 @@
   // singles out nothing -- dimming every line to show that a figure is absent
   // reads as a fault, not an answer.
   let chip = $state<SignalKey | null>(null);
-  let near = $state<SignalKey | null>(null);
+  let near = $state<string | null>(null);
   const emphasis = $derived.by(() => {
     const key = chip ?? near;
-    return key !== null && enabled.includes(key) ? key : null;
+    return SIGNALS.find((s) => s.key === key && enabled.includes(s.key))?.key ?? null;
   });
 
   function toggle(key: SignalKey): void {
@@ -291,7 +282,7 @@
     `${stamp(activeAt)}: ${
       readings.length
         ? readings
-            .map((r) => `${r.line.signal.label} ${r.value === null ? 'not sampled' : r.value}`)
+            .map((r) => `${r.series.label} ${r.value === null ? 'not sampled' : r.value}`)
             .join(', ')
         : 'no figures chosen'
     }`,
@@ -301,35 +292,13 @@
   );
 </script>
 
-{#snippet strokeSample(signal: Signal)}
-  <svg class="stroke" viewBox="0 0 24 8" aria-hidden="true">
-    <line
-      x1="1"
-      y1="4"
-      x2="23"
-      y2="4"
-      stroke-dasharray={signal.dash}
-      stroke-linecap="round"
-      style:stroke={signal.tone}
-    />
-  </svg>
-{/snippet}
-
 {#snippet card()}
-  <div class="reading">
-    <p class="when">
-      <strong>{stamp(activeAt)}</strong>
-      {#if chosen.step > 1}<span>{chosen.step}-minute peaks</span>{/if}
-    </p>
-    <dl>
-      {#each readings as r (r.line.signal.key)}
-        <div class:lit={emphasis === r.line.signal.key}>
-          <dt>{@render strokeSample(r.line.signal)}{r.line.signal.label}</dt>
-          <dd>{r.value === null ? '–' : formatNumber(r.value)}</dd>
-        </div>
-      {/each}
-    </dl>
-  </div>
+  <ReadingCard
+    when={stamp(activeAt)}
+    note={chosen.step > 1 ? `${chosen.step}-minute peaks` : undefined}
+    {readings}
+    {emphasis}
+  />
 {/snippet}
 
 <ChartPanel title="Fleet activity" {description}>
@@ -346,27 +315,14 @@
 
   <div class="trend">
     <div class="toolbar">
-      <div class="figures" role="group" aria-label="Figures shown">
-        {#each SIGNALS as signal, i (signal.key)}
-          {#if i > 0 && SIGNALS[i - 1]!.jobs && !signal.jobs}
-            <span class="divider" aria-hidden="true"></span>
-          {/if}
-          <button
-            type="button"
-            class="figure"
-            aria-pressed={enabled.includes(signal.key)}
-            title={`${signal.label}: ${signal.hint}`}
-            onclick={() => toggle(signal.key)}
-            onpointerenter={() => (chip = signal.key)}
-            onpointerleave={() => (chip = null)}
-            onfocus={() => (chip = signal.key)}
-            onblur={() => (chip = null)}
-          >
-            {@render strokeSample(signal)}
-            {signal.label}
-          </button>
-        {/each}
-      </div>
+      <FigureChips
+        label="Figures shown"
+        figures={SIGNALS}
+        {enabled}
+        group={(figure) => (figure.jobs ? 'jobs' : 'runners')}
+        ontoggle={toggle}
+        onchip={(key) => (chip = key)}
+      />
       {#if observed > 0}
         <p class="headline" aria-live="off">
           {#if peak && lead}
@@ -391,11 +347,12 @@
       grid={axis.values}
       {start}
       {end}
-      {starved}
+      bands={starved}
       {activeIndex}
       {reading}
       {emphasis}
       lead={lead?.key ?? null}
+      present={count - 1}
       revealKey={`${windowKey}:${others}`}
       {stamp}
       {loading}
@@ -434,48 +391,16 @@
       {/if}
     </div>
 
-    <div class="rows" role="group" aria-label="Figures read at this moment">
-      {#each readings as r (r.line.signal.key)}
-        {@const signal = r.line.signal}
-        <div
-          class="row"
-          class:lit={emphasis === signal.key}
-          role="presentation"
-          onpointerenter={() => (chip = signal.key)}
-          onpointerleave={() => (chip = null)}
-          onfocusin={() => (chip = signal.key)}
-          onfocusout={() => (chip = null)}
-        >
-          <button
-            type="button"
-            class="toggle"
-            aria-pressed="true"
-            title={`Hide ${signal.label.toLowerCase()}`}
-            onclick={() => toggle(signal.key)}
-          >
-            {@render strokeSample(signal)}
-            <span class="name">{signal.label}</span>
-          </button>
-          <span class="track" aria-hidden="true">
-            {#if r.value !== null}
-              <span
-                class="fill"
-                style:width="{Math.min(100, (100 * r.value) / Math.max(1, axis.ceiling))}%"
-                style:background={signal.tone}
-              ></span>
-            {/if}
-          </span>
-          <span class="figure-value" title={`${signal.label} ${moment}: ${signal.hint}`}>
-            {#if r.value === null}<span class="gap">–</span>{:else}<strong
-                >{formatNumber(r.value)}</strong
-              >{/if}
-          </span>
-        </div>
-      {/each}
-      {#if readings.length === 0}
-        <p class="empty">No figures chosen. Switch one on above to draw it.</p>
-      {/if}
-    </div>
+    <FigureRows
+      label="Figures read at this moment"
+      {readings}
+      ceiling={axis.ceiling}
+      {emphasis}
+      {moment}
+      empty="No figures chosen. Switch one on above to draw it."
+      ontoggle={toggle}
+      onchip={(key) => (chip = key)}
+    />
 
     <div class="coverage" aria-label={`${observed} of ${count} ${unit} observed`}>
       {#each points as point, i (point.at)}<span
@@ -516,48 +441,6 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--z-space-2) var(--z-space-4);
-  }
-  .figures {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--z-space-1);
-  }
-  .divider {
-    width: var(--z-border-width);
-    align-self: stretch;
-    margin: 0 var(--z-space-1);
-    background: var(--z-border);
-  }
-  .figure {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--z-space-1);
-    padding: var(--z-nudge-2) var(--z-space-2);
-    border: var(--z-border-width) solid var(--z-border);
-    border-radius: var(--z-radius-sm);
-    background: var(--z-surface);
-    color: var(--z-text-muted);
-    font-size: var(--z-text-xs);
-    cursor: pointer;
-  }
-  .figure[aria-pressed='true'] {
-    border-color: var(--z-border-strong);
-    background: var(--z-surface-sunken);
-    color: var(--z-text);
-  }
-  /* A chip that is off says so with its stroke as well as its weight: the
-     colour alone is the thing a reader who cannot see it would lose. */
-  .figure[aria-pressed='false'] .stroke {
-    opacity: 0.4;
-  }
-  .stroke {
-    width: 24px;
-    height: 8px;
-    flex: none;
-  }
-  .stroke line {
-    stroke-width: 2;
   }
   .headline {
     display: flex;
@@ -608,63 +491,6 @@
     color: var(--z-text-muted);
   }
 
-  /* -- the rows: legend, switchboard and reading ------------------------------- */
-  .rows {
-    display: flex;
-    flex-direction: column;
-    gap: var(--z-nudge-2);
-  }
-  .row {
-    display: flex;
-    align-items: center;
-    gap: var(--z-space-3);
-    padding: var(--z-nudge-2) var(--z-space-1);
-    border-radius: var(--z-radius-sm);
-  }
-  .row.lit {
-    background: var(--z-surface-sunken);
-  }
-  .toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--z-space-2);
-    flex: none;
-    min-width: 11rem;
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--z-text);
-    font-size: var(--z-text-xs);
-    text-align: left;
-    cursor: pointer;
-  }
-  .track {
-    flex: 1;
-    min-width: var(--z-space-8);
-    height: var(--z-space-2);
-    border-radius: var(--z-radius-pill);
-    background: var(--z-surface-sunken);
-    overflow: hidden;
-  }
-  .fill {
-    display: block;
-    height: 100%;
-    border-radius: var(--z-radius-pill);
-  }
-  .figure-value {
-    flex: none;
-    min-width: var(--z-space-10);
-    font-size: var(--z-text-xs);
-    font-variant-numeric: tabular-nums;
-    text-align: right;
-  }
-  .figure-value strong {
-    font-weight: var(--z-weight-semibold);
-  }
-  .gap {
-    color: var(--z-text-subtle);
-  }
-
   /* -- the coverage strip ------------------------------------------------------- */
   .coverage {
     display: flex;
@@ -686,59 +512,10 @@
     border-color: var(--z-pending);
   }
   .note,
-  .empty,
   .retry {
     margin: 0;
     color: var(--z-text-muted);
     font-size: var(--z-text-xs);
-  }
-
-  /* -- the card beside the crosshair -------------------------------------------- */
-  .reading {
-    min-width: 12rem;
-    padding: var(--z-space-2) var(--z-space-3);
-    border: var(--z-border-width) solid var(--z-border);
-    border-radius: var(--z-radius-sm);
-    background: var(--z-surface-raised);
-    box-shadow: var(--z-shadow-md);
-    font-size: var(--z-text-xs);
-    line-height: var(--z-leading-xs);
-  }
-  .when {
-    display: flex;
-    justify-content: space-between;
-    gap: var(--z-space-3);
-    margin: 0 0 var(--z-space-1);
-    padding-bottom: var(--z-space-1);
-    border-bottom: var(--z-border-width) solid var(--z-border);
-    color: var(--z-text-subtle);
-  }
-  .when strong {
-    color: var(--z-text);
-    font-variant-numeric: tabular-nums;
-  }
-  .reading dl {
-    display: grid;
-    gap: var(--z-nudge-2);
-    margin: 0;
-  }
-  .reading dl div {
-    display: flex;
-    justify-content: space-between;
-    gap: var(--z-space-4);
-  }
-  .reading dl div.lit {
-    font-weight: var(--z-weight-semibold);
-  }
-  .reading dt {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--z-space-1);
-    color: var(--z-text-muted);
-  }
-  .reading dd {
-    margin: 0;
-    font-variant-numeric: tabular-nums;
   }
 
   button.text {
@@ -749,13 +526,5 @@
     font-size: var(--z-text-xs);
     text-decoration: underline;
     cursor: pointer;
-  }
-
-  /* Every target rises to a thumb's height where the pointer is coarse. */
-  @media (pointer: coarse) {
-    .figure,
-    .toggle {
-      min-height: var(--z-control-touch);
-    }
   }
 </style>

@@ -37,6 +37,28 @@ export const storage = {
   },
 };
 
+/**
+ * A choice this browser has made, read back: the stored JSON while it is
+ * still one of the things that choice can be, and the fallback otherwise. A
+ * value left behind by an older build -- a window that no longer exists, a
+ * figure since renamed -- is not a reason to open a panel with nothing in it.
+ */
+export function remembered<T>(key: string, fallback: T, valid: (v: unknown) => v is T): T {
+  try {
+    const raw = storage.get(key);
+    if (raw === null) return fallback;
+    const parsed: unknown = JSON.parse(raw);
+    return valid(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/** Remember a choice the moment it is made. */
+export function remember(key: string, value: unknown): void {
+  storage.set(key, JSON.stringify(value));
+}
+
 export interface GridPrefs {
   /** Column ids the operator has hidden. Stored as the exception, so new columns appear. */
   hidden?: string[];
