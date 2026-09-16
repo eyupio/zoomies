@@ -311,7 +311,7 @@
               <EmptyState
                 compact
                 title="No machines"
-                description="Nothing has been rented from this p. A machine is built when a pool has queued work and no host that can run it."
+                description="Nothing has been rented from this provider. A machine is built when a pool has queued work and no host that can run it."
               />
             {:else}
               <ul class="machines">
