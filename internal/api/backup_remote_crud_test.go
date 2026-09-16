@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -220,5 +221,55 @@ func TestRemovingADestinationLeavesTheCopiesInTheBucket(t *testing.T) {
 	resp.into(t, &listed)
 	if len(listed.Remotes) != 0 {
 		t.Errorf("the page still shows %+v", listed.Remotes)
+	}
+}
+
+// "Backups are taken but never leave this host" is raised by the validator,
+// which reads the configuration file and cannot see a destination stored in
+// the database. Telling somebody to do a thing they have already done is how a
+// page teaches them to stop reading it, so the settings API drops that finding
+// once the fleet has a destination -- wherever it came from.
+func TestTheNoRemoteFindingGoesAwayWhenADestinationIsAdded(t *testing.T) {
+	fake := backup.NewFakeS3("backups")
+	t.Cleanup(fake.Close)
+	h := newHarness(t)
+	cookie := h.admin()
+
+	codes := func() []string {
+		resp := h.do(request{method: http.MethodGet, path: "/api/v1/settings", cookie: cookie})
+		resp.mustStatus(t, http.StatusOK, "read the settings")
+		var out struct {
+			Findings []struct {
+				Code string `json:"code"`
+			} `json:"findings"`
+		}
+		resp.into(t, &out)
+		var found []string
+		for _, f := range out.Findings {
+			found = append(found, f.Code)
+		}
+		return found
+	}
+
+	if !slices.Contains(codes(), config.NoRemoteFinding) {
+		t.Fatalf("a fleet whose backups never leave the host is not told: %v", codes())
+	}
+
+	h.do(request{method: http.MethodPost, path: "/api/v1/backups/remotes", cookie: cookie,
+		body: map[string]any{
+			"name": "offsite", "endpoint": fake.Endpoint(), "bucket": fake.Bucket(),
+			"access_key_id": "AKIAEXAMPLE", "secret_access_key": "secret",
+		}}).mustStatus(t, http.StatusCreated, "add a destination")
+
+	if slices.Contains(codes(), config.NoRemoteFinding) {
+		t.Errorf("the fleet added a destination and is still told its backups never leave the host: %v", codes())
+	}
+
+	// Switched off is not answered: a destination nothing is sent to is not a
+	// destination.
+	h.do(request{method: http.MethodPatch, path: "/api/v1/backups/remotes/offsite", cookie: cookie,
+		body: map[string]any{"enabled": false}}).mustStatus(t, http.StatusOK, "switch it off")
+	if !slices.Contains(codes(), config.NoRemoteFinding) {
+		t.Errorf("a fleet whose only destination is switched off is told nothing: %v", codes())
 	}
 }

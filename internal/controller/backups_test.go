@@ -64,13 +64,8 @@ func TestTheScheduleTakesABackupWhenOneIsDueAndKeepsToTheCeiling(t *testing.T) {
 	if len(entries) != 2 {
 		t.Fatalf("keep 2 left %d backups", len(entries))
 	}
-	// A working schedule raises nothing about itself. The one info finding it
-	// does raise is that these copies never leave the host, which is true of
-	// this fleet and is the whole point of that entry.
-	for _, p := range h.c.backupProblems(h.ctx) {
-		if p.Code != "backup.no_remote" {
-			t.Errorf("a working schedule raised %+v", p)
-		}
+	if problems := h.c.backupProblems(h.ctx); len(problems) != 0 {
+		t.Errorf("a working schedule raised %+v", problems)
 	}
 }
 

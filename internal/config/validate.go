@@ -1132,12 +1132,33 @@ func (c *Config) validateBackupRemotes(add func(Finding)) {
 		}
 	}
 
-	// "backups never leave this host" is deliberately not raised here. The
-	// validator reads the configuration file, and a destination an
-	// administrator added on the Backups page is a database row it cannot
-	// see -- so the controller raises backup.no_remote instead, where both
-	// sources are visible and the answer is not a guess.
+	if c.Backup.Interval > 0 && len(c.EnabledBackupRemotes()) == 0 {
+		// Raised from what the file says, because that is all this package
+		// knows. A destination an administrator added on the Backups page is
+		// a database row, so the settings API drops this finding when the
+		// fleet has one -- see NoRemoteFinding, which names the code once for
+		// both halves.
+		add(Finding{
+			Code: "backup.no_remote", Severity: SeverityInfo, Setting: "backup.remotes",
+			Title:  "backups are taken but never leave this host",
+			Detail: "the schedule keeps copies beside the database, which is a backup against a mistake and not against the disk, the machine or the datacentre.",
+			Fix:    "add an S3-compatible destination on the Backups page, or under backup.remotes here — or keep shipping the directory yourself. The point is that one of the three is somebody's job.",
+		})
+	}
 }
+
+// NoRemoteFinding is the code for "backups never leave this host".
+//
+// It is named because two packages have to agree about it: this one raises it
+// from the configuration file, and the settings API drops it when the fleet
+// has a destination stored in its database -- which this package cannot see,
+// and which would otherwise make the finding tell an operator to do a thing
+// they have already done.
+//
+// The Finding above spells the code out rather than using this constant, so
+// that the docs test which parses `Code:` literals can still see it; a test
+// holds the two together.
+const NoRemoteFinding = "backup.no_remote"
 
 // MinBackupPassphrase is the shortest passphrase worth calling one. The API
 // refuses an encrypted download below it, and the validator says so about a

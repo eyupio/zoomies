@@ -205,18 +205,6 @@ func (c *Controller) BackupRemotes(ctx context.Context) []RemoteBackupStatus {
 	return out
 }
 
-// anyRemoteInUse reports whether a copy taken now would actually go anywhere.
-// A destination that is switched off, shadowed by the file, or unreadable is
-// not a place backups are going, however tidy its row looks.
-func anyRemoteInUse(statuses []RemoteBackupStatus) bool {
-	for _, s := range statuses {
-		if !s.Disabled && !s.Shadowed && s.Problem == "" {
-			return true
-		}
-	}
-	return false
-}
-
 // RemoteBackup resolves one destination by name, for the handlers that list,
 // fetch from or delete a copy in it.
 func (c *Controller) RemoteBackup(ctx context.Context, name string) (*backup.Remote, error) {
@@ -447,21 +435,12 @@ func (c *Controller) remotesDue(now time.Time) bool {
 func (c *Controller) remoteProblems(ctx context.Context) []Problem {
 	var out []Problem
 	statuses := c.BackupRemotes(ctx)
-	// A fleet taking backups that never leave the host is told so, once, and
-	// here rather than in the startup validator: the validator reads the
-	// configuration file, and a destination added on the page is not in it.
-	if c.cfg().Backup.Interval > 0 && !anyRemoteInUse(statuses) {
-		out = append(out, Problem{
-			Code:     "backup.no_remote",
-			Severity: config.SeverityInfo,
-			Setting:  "backup.remotes",
-			Title:    "backups are taken but never leave this host",
-			Detail: "the schedule keeps copies beside the database, which is a backup against a mistake and not against " +
-				"the disk, the machine or the datacentre.",
-			Fix: "add an S3-compatible destination on the Backups tab, or under backup.remotes in zoomies.yaml — or keep " +
-				"shipping the directory yourself. The point is that one of the three is somebody's job.",
-		})
-	}
+	// "backups never leave this host" is not raised here. It is an info
+	// finding, and Problems deliberately drops those from the drawer so that
+	// a list which is never clear does not stop being read -- so the
+	// validator keeps it, where the startup output and the Configuration page
+	// show it, and the Backups page says the same thing in its own words
+	// beside the button that fixes it.
 	for _, status := range statuses {
 		// A stored destination the file shadows, or one whose secrets will
 		// not open, is a problem about this fleet's configuration rather than

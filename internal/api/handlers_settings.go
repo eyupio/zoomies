@@ -126,6 +126,34 @@ type settingsResponse struct {
 // Rendering
 // ---------------------------------------------------------------------------
 
+// dropAnsweredElsewhere removes the findings the configuration file cannot
+// answer on its own.
+//
+// There is one: "backups never leave this host", which config.Validate raises
+// from backup.remotes and cannot know about a destination an administrator
+// added on the Backups page, because that is a database row. Telling somebody
+// to do a thing they have already done is how a page teaches them to stop
+// reading it.
+func (s *Server) dropAnsweredElsewhere(r *http.Request, findings []config.Finding) []config.Finding {
+	answered := false
+	for _, remote := range s.ctrl.BackupRemotes(r.Context()) {
+		if !remote.Disabled && !remote.Shadowed && remote.Problem == "" {
+			answered = true
+			break
+		}
+	}
+	if !answered {
+		return findings
+	}
+	out := findings[:0]
+	for _, f := range findings {
+		if f.Code != config.NoRemoteFinding {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 // settingsConfig renders the effective configuration as a nested object.
 //
 // The registry-driven rendering lives in config.Redacted, shared with the
@@ -296,6 +324,7 @@ func (s *Server) settingsPage(r *http.Request) (settingsResponse, error) {
 	stale := *c
 	stale.SetSources(c.Sources())
 	findings := append(config.ApplyStored(&stale, sealed, s.key).ForUI(), c.Validate().ForUI()...)
+	findings = s.dropAnsweredElsewhere(r, findings)
 
 	return settingsResponse{
 		Config:              s.settingsConfig(),

@@ -157,11 +157,11 @@ func TestAFleetWithNoRemoteShipsNothingAndSaysSo(t *testing.T) {
 	if remotes := h.c.BackupRemotes(h.ctx); len(remotes) != 0 {
 		t.Errorf("the page would show %d remotes on a fleet with none", len(remotes))
 	}
-	// It does say so, once, at info: a fleet whose backups never leave the
-	// host should be told that rather than left to assume otherwise from a
-	// tab full of tidy rows.
-	problems := h.c.remoteProblems(h.ctx)
-	if len(problems) != 1 || problems[0].Code != "backup.no_remote" {
+	// Nothing in the drawer, either: "these copies never leave the host" is
+	// the validator's info finding, which the drawer drops on purpose, and
+	// the Backups page says it in its own words beside the button that fixes
+	// it.
+	if problems := h.c.remoteProblems(h.ctx); len(problems) != 0 {
 		t.Errorf("a fleet with no remotes raised %+v", problems)
 	}
 }
@@ -326,9 +326,6 @@ func TestAStoredDestinationIsWarnedAboutLikeAFileOne(t *testing.T) {
 	}
 	if !codes["backup.remote_insecure"] {
 		t.Error("a stored destination reached over plain HTTP was not warned about")
-	}
-	if codes["backup.no_remote"] {
-		t.Error("a fleet with a stored destination was told its backups never leave the host")
 	}
 
 	// Loopback is a developer's MinIO: the credentials never cross a network,

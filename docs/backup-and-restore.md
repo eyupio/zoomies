@@ -481,9 +481,10 @@ minute. The default schedule — nightly, keeping seven — is enough for most
 fleets; the controller takes an extra copy before an upgrade by itself, because
 that is the only rollback there is. Where those copies go is the other half of
 the question, and the honest answer is that a directory on the same disk is not
-an answer: configure a [backup remote](#copies-that-leave-the-machine), or ship
-the directory yourself. Until one of the two is true the startup output says so
-(`backup.no_remote`), which is the whole point of the entry.
+an answer: add a [backup destination](#copies-that-leave-the-machine), or ship
+the directory yourself. Until one of the two is true the Backups page and the
+startup output say so (`backup.no_remote`), which is the whole point of the
+entry.
 
 ## Moving a configuration
 
