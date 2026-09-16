@@ -1,5 +1,5 @@
 /**
- * Settings: the accounts and the API tokens.
+ * Settings: the accounts and the API tokens, and the section they live in.
  *
  * These are the two places in the product where a mistake is expensive and
  * irreversible, so the protections are the point: deleting an account demands
@@ -11,11 +11,10 @@
  * what it needs and takes it away again.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { browserOverride, goto } from './support/fixtures';
+import { browserOverride, goto, openAccountMenu, pageHeading } from './support/fixtures';
 
 test.use(browserOverride);
 
-const tab = (page: Page, name: string) => page.getByRole('tab', { name });
 const dialog = (page: Page, name: string | RegExp) => page.getByRole('dialog', { name });
 
 /** A name nothing else in the suite will collide with. */
@@ -24,19 +23,25 @@ function unique(prefix: string): string {
 }
 
 /**
- * The panel's own create button.
+ * The page's own create button.
  *
- * An empty panel carries two of them -- one in its header, one inside the
+ * An empty page carries two of them -- one in its header, one inside the
  * empty state, which is the guidelines' rule that an empty state names the
  * next step with the action inline. The first in document order is the
- * header's, and it is there whether the panel is empty or not.
+ * header's, and it is there whether the page is empty or not.
  */
 const create = (page: Page, label: string) => page.getByRole('button', { name: label }).first();
 
+/**
+ * The section's own navigation: a rail beside the page on a desktop, a strip
+ * above it on a tablet, and on a phone the list `/settings` itself shows.
+ * Either way, every page is a link in a landmark named for the section.
+ */
+const settingsNav = (page: Page) => page.getByRole('navigation', { name: 'Settings' });
+
 test('an account can be created, given a different role, and deleted by name', async ({ page }) => {
   const username = unique('spec-user');
-  await goto(page, '/settings?tab=users', 'Settings');
-  await expect(tab(page, 'Users')).toHaveAttribute('aria-selected', 'true');
+  await goto(page, '/settings/users', 'Users');
 
   await create(page, 'Add an account').click();
   const form = dialog(page, 'Add an account');
@@ -78,7 +83,7 @@ test('an account can be created, given a different role, and deleted by name', a
 
 test('a token is shown once, in plain text, and says so', async ({ page }) => {
   const name = unique('spec-token');
-  await goto(page, '/settings?tab=tokens', 'Settings');
+  await goto(page, '/settings/tokens', 'API tokens');
 
   await create(page, 'Create a token').click();
   const form = dialog(page, 'Create an API token');
@@ -109,7 +114,7 @@ test('a token is shown once, in plain text, and says so', async ({ page }) => {
 
 test('cancelling a destructive confirmation changes nothing', async ({ page }) => {
   const name = unique('spec-keep');
-  await goto(page, '/settings?tab=tokens', 'Settings');
+  await goto(page, '/settings/tokens', 'API tokens');
 
   await create(page, 'Create a token').click();
   const form = dialog(page, 'Create an API token');
@@ -124,26 +129,99 @@ test('cancelling a destructive confirmation changes nothing', async ({ page }) =
   await expect(dialog(page, 'Revoke token')).toBeHidden();
   await expect(row.getByRole('button', { name: 'Revoke' }), 'still revocable').toBeVisible();
 
-  // Tidy up so the next spec sees the panel it expects.
+  // Tidy up so the next spec sees the page it expects.
   await row.getByRole('button', { name: 'Revoke' }).click();
   await dialog(page, 'Revoke token').getByRole('button', { name: 'Revoke' }).click();
   await expect(dialog(page, 'Revoke token')).toBeHidden();
 });
 
-test('the chosen tab is in the address bar, so a settings page is a link', async ({ page }) => {
-  await goto(page, '/settings', 'Settings');
+/*
+ * Settings is a section of pages rather than one page of tabs: each has an
+ * address, the section's own navigation lists them all, and the one being
+ * read is marked. On a desktop `/settings` alone goes straight to the first
+ * page; on a phone it is the list of them.
+ */
+test('every settings page has an address of its own, and the section lists them', async ({
+  page,
+}) => {
+  await goto(page, '/settings', /^(Account|Settings)$/);
+  const phone = !!test.info().project.use.isMobile;
+  if (phone) {
+    await expect(page).toHaveURL(/\/settings$/);
+  } else {
+    await expect(page).toHaveURL(/\/settings\/account$/);
+  }
 
-  await tab(page, 'Appearance').click();
-  await expect(page).toHaveURL(/tab=appearance/);
-  await expect(page.getByRole('tabpanel')).toContainText('Relative times');
+  const pages = [
+    ['account', 'Account'],
+    ['appearance', 'Appearance'],
+    ['users', 'Users'],
+    ['tokens', 'API tokens'],
+    ['configuration', 'Configuration'],
+    ['backups', 'Backups'],
+    ['about', 'About'],
+  ] as const;
 
+  for (const [id, label] of pages) {
+    // On a phone the section's list is the page `/settings` shows, and each
+    // page carries a way back to it; on a desktop the rail is beside the page.
+    // A row in the list is named by its label and its description, a rail
+    // entry by its label alone.
+    if (phone) await goto(page, '/settings', 'Settings');
+    await page
+      .getByRole('link', phone ? { name: new RegExp(`^${label} `) } : { name: label, exact: true })
+      .first()
+      .click();
+    await expect(page).toHaveURL(new RegExp(`/settings/${id}$`));
+    await expect(pageHeading(page, label)).toBeVisible();
+    if (!phone) {
+      const current = settingsNav(page).locator('[aria-current="page"]');
+      await expect(current).toHaveCount(1);
+      await expect(current).toHaveText(label);
+    }
+  }
+
+  // A page survives a reload, which is what an address is for.
+  await goto(page, '/settings/appearance', 'Appearance');
   await page.reload();
-  await expect(tab(page, 'Appearance')).toHaveAttribute('aria-selected', 'true');
+  await expect(pageHeading(page, 'Appearance')).toBeVisible();
+  await expect(page).toHaveURL(/\/settings\/appearance$/);
+});
+
+test('the old tab addresses still land on their page', async ({ page }) => {
+  // Bookmarks and the links in problem entries were written as `?tab=`, and a
+  // setting a link named is still the row it lands on.
+  await page.goto('/settings?tab=configuration&setting=scheduler.provision_timeout');
+  await expect(pageHeading(page, 'Configuration')).toBeVisible();
+  await expect(page).toHaveURL(/\/settings\/configuration\?setting=scheduler\.provision_timeout$/);
+  await expect(page.locator('.row.sought')).toBeVisible();
+
+  await page.goto('/settings?tab=about');
+  await expect(pageHeading(page, 'About')).toBeVisible();
+  await expect(page).toHaveURL(/\/settings\/about$/);
+});
+
+test('the account menu leads to the pages that are about the person', async ({ page }) => {
+  await goto(page, '/', 'Overview');
+
+  const menu = await openAccountMenu(page);
+  // The identity first, then the theme as a choice with the one in force
+  // marked, then the pages, then the way out.
+  await expect(menu.getByRole('menuitemradio', { name: 'System' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await expect(menu.getByRole('menuitem', { name: 'Sign out' })).toBeVisible();
+
+  await menu.getByRole('menuitem', { name: 'Your account' }).click();
+  await expect(pageHeading(page, 'Account')).toBeVisible();
+  await expect(page).toHaveURL(/\/settings\/account$/);
+  await expect(page.getByText(/^Signed in as /)).toBeVisible();
 });
 
 /**
- * The About tab is the product's own identity card, and the two things it says
- * about the product itself are easy to get wrong in opposite directions.
+ * The About page is the product's own identity card, and the two things it
+ * says about the product itself are easy to get wrong in opposite directions.
  *
  * The mark: the brand guide ranks the original circular dog above the
  * head/swish, and the head/swish is a restored reconstruction rather than
@@ -152,10 +230,10 @@ test('the chosen tab is in the address bar, so a settings page is a link', async
  * that carries it.
  *
  * The description: most people meet a controller somebody else installed, and
- * the panel header says what the panel is rather than what Zoomies is.
+ * the page header says what the page is rather than what Zoomies is.
  */
-test('the About tab carries the primary mark and says what Zoomies is', async ({ page }) => {
-  await goto(page, '/settings?tab=about', 'Settings');
+test('the About page carries the primary mark and says what Zoomies is', async ({ page }) => {
+  await goto(page, '/settings/about', 'About');
 
   // The mark is decorative, so nothing in the accessibility tree names it and
   // the served file is the only observable that distinguishes one from another.

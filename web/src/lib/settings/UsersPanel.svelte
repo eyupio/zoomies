@@ -27,6 +27,7 @@
   import Button from '$lib/components/Button.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import Dialog from '$lib/components/Dialog.svelte';
+  import PageHeader from '$lib/components/PageHeader.svelte';
   import DropdownMenu from '$lib/components/DropdownMenu.svelte';
   import type { MenuItem } from '$lib/components/DropdownMenu.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
@@ -37,17 +38,6 @@
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
 
-  interface Props {
-    /**
-     * Bumped by the page's refresh button. Read inside the fetch effect, which
-     * is what makes one press at the top of Settings re-read whichever panel is
-     * open rather than only the tab the operator happens to be looking past.
-     */
-    reloadKey?: number;
-  }
-
-  let { reloadKey = 0 }: Props = $props();
-
   let users = $state<User[]>([]);
   let loading = $state(true);
   let error = $state<unknown>(null);
@@ -56,9 +46,20 @@
   /** The last-administrator refusal, in our words rather than as an error. */
   let guard = $state('');
 
+  /*
+    Nothing here arrives over the stream: accounts change when an administrator
+    changes them, possibly in another browser. Refreshing re-reads the list --
+    through a counter rather than by remounting, so a half-typed form is not
+    thrown away -- and asks who we are again, which is how a role granted a
+    minute ago starts to apply.
+  */
+  async function refreshPage(): Promise<void> {
+    reload += 1;
+    await session.refresh();
+  }
+
   $effect(() => {
     void reload;
-    void reloadKey;
     const controller = new AbortController();
     loading = true;
     void listUsers(controller.signal)
@@ -300,19 +301,15 @@
   }
 </script>
 
-<div class="panel">
-  <header>
-    <div>
-      <h2>Accounts</h2>
-      <p>
-        {admins === 1
-          ? 'One enabled administrator. Zoomies will refuse any change that would leave none.'
-          : `${admins} enabled administrators.`}
-      </p>
-    </div>
-    <Button variant="primary" icon={Plus} onclick={openCreate}>Add an account</Button>
-  </header>
+<PageHeader
+  title="Users"
+  subtitle="Everyone who can sign in, and what each of them may do."
+  onrefresh={refreshPage}
+>
+  <Button variant="primary" icon={Plus} onclick={openCreate}>Add an account</Button>
+</PageHeader>
 
+<div class="panel">
   {#if guard}
     <div class="guard" role="alert">
       <ShieldCheck size={16} aria-hidden="true" />
@@ -410,6 +407,29 @@
       </table>
     </div>
   </LoadingBoundary>
+</div>
+
+<!--
+  Under the list rather than above it: the count is the rule that shapes the
+  page, and the roles are what somebody choosing one for a new account needs
+  to see, in the words the form uses.
+-->
+<div class="foot">
+  {#if !loading && !error}
+    <p class="admins">
+      {admins === 1
+        ? 'One enabled administrator. Zoomies refuses any change that would leave none.'
+        : `${admins} enabled administrators. Zoomies refuses any change that would leave none.`}
+    </p>
+  {/if}
+  <dl class="roles">
+    {#each ROLE_OPTIONS as role (role.value)}
+      <div>
+        <dt>{role.label}</dt>
+        <dd>{role.description}</dd>
+      </div>
+    {/each}
+  </dl>
 </div>
 
 <!-- Create -->
@@ -557,24 +577,33 @@
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }
-  header {
+  .foot {
     display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--z-space-4);
-    padding: var(--z-space-4) var(--z-space-5);
-    border-bottom: var(--z-border-width) solid var(--z-border);
+    flex-direction: column;
+    gap: var(--z-space-3);
+    margin: var(--z-space-4) var(--z-space-1) 0;
   }
-  h2 {
+  .admins {
     margin: 0;
-    font-size: var(--z-text-lg);
-    line-height: var(--z-leading-lg);
-    font-weight: var(--z-weight-semibold);
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text-muted);
+  }
+  .roles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+    gap: var(--z-space-2) var(--z-space-4);
+    margin: 0;
+  }
+  .roles dt {
+    font-size: var(--z-text-xs);
+    font-weight: var(--z-weight-medium);
     color: var(--z-text);
   }
-  header p {
-    margin: var(--z-space-1) 0 0;
+  .roles dd {
+    margin: 0;
     font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
     color: var(--z-text-muted);
   }
   .guard {

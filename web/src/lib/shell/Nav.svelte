@@ -3,14 +3,19 @@
   bottom edge on a phone.
 
   The order is fixed and matches docs/ui-guidelines.md, because muscle memory is
-  the whole point of a persistent nav. On a desktop it collapses to icons and
-  remembers that it did; the `g` shortcut letter is shown beside each entry so
-  the keyboard route is discoverable rather than folklore.
+  the whole point of a persistent nav. On a desktop the twelve entries are
+  listed under four headings -- what the fleet is doing, where it runs, how it
+  is joined to GitHub, who looks after it -- so an entry is found by its
+  neighbourhood rather than read for from the top; the last group is pinned to
+  the foot, beside the collapse control, so Settings is always in the same
+  place however tall the window. Collapsed, the headings become hairlines and
+  the neighbourhoods stay where they were. The `g` shortcut letter is shown
+  beside each entry so the keyboard route is discoverable rather than folklore.
 
   A phone gets a different component rather than the same one squeezed. Ten
   icon-only targets across a 412px screen were 40px apart and told apart only by
   a glyph, so the bar carries the four sections a fleet is watched with, each
-  under its own word, and a "More" button opens the side menu holding all ten.
+  under its own word, and a "More" button opens a sheet holding all twelve.
   That is also why the collapsed state is a desktop idea only: a bar along the
   bottom has nothing to collapse, and the pref leaking into it was what made the
   bar 56px wide with every entry piled into the corner.
@@ -22,10 +27,11 @@
   import { viewport } from '../state/viewport.svelte';
   import IconButton from '../components/IconButton.svelte';
   import Logo from '../components/Logo.svelte';
-  import { SECTIONS, isCurrentSection } from './sections';
+  import { NAV_GROUPS, SECTIONS, isCurrentSection } from './sections';
+  import type { NavItem } from './sections';
 
   interface Props {
-    /** Whether the phone's side menu is open, for the More button's state. */
+    /** Whether the phone's menu is open, for the More button's state. */
     menuOpen?: boolean;
     onmore?: () => void;
   }
@@ -34,55 +40,46 @@
 
   const phone = $derived(viewport.phone);
   const collapsed = $derived(prefs.navCollapsed && !phone);
-  const items = $derived(phone ? SECTIONS.filter((item) => item.primary) : SECTIONS);
+  const primary = SECTIONS.filter((item) => item.primary);
 
   function isCurrent(path: string): boolean {
     return isCurrentSection(path, router.pathname);
   }
 
   /**
-   * Whether the page being looked at is one of the six the bar does not carry.
-   * The bar would otherwise show nothing marked at all on those pages, and a
-   * navigation that cannot say where you are is not doing its job.
+   * Whether the page being looked at is one of the eight the bar does not
+   * carry. The bar would otherwise show nothing marked at all on those pages,
+   * and a navigation that cannot say where you are is not doing its job.
    */
-  const inMenu = $derived(phone && !items.some((item) => isCurrent(item.path)));
+  const inMenu = $derived(phone && !primary.some((item) => isCurrent(item.path)));
 </script>
 
-<nav class="nav" class:collapsed class:phone aria-label="Sections">
-  {#if !phone}
-    <div class="brand">
-      <a href="/" class="mark" aria-label="Zoomies, go to the overview">
-        <Logo variant="mark" size={32} label="" />
-        {#if !collapsed}<span class="brand-name">Zoomies</span>{/if}
-      </a>
-      {#if !collapsed}
-        <p class="descriptor">Self-hosted Git runners</p>
+{#snippet entry(item: NavItem)}
+  {@const current = isCurrent(item.path)}
+  <li>
+    <a
+      href={item.path}
+      aria-current={current ? 'page' : undefined}
+      class:current
+      title={collapsed ? item.label : undefined}
+    >
+      <item.icon size={phone ? 18 : 16} aria-hidden="true" />
+      {#if collapsed}
+        <span class="sr-only">{item.label}</span>
+      {:else}
+        <span class="label">{item.label}</span>
+        {#if !phone}<kbd aria-hidden="true">g {item.key}</kbd>{/if}
       {/if}
-    </div>
-  {/if}
+    </a>
+  </li>
+{/snippet}
 
-  <ul>
-    {#each items as item (item.path)}
-      {@const current = isCurrent(item.path)}
-      <li>
-        <a
-          href={item.path}
-          aria-current={current ? 'page' : undefined}
-          class:current
-          title={collapsed ? item.label : undefined}
-        >
-          <item.icon size={phone ? 18 : 16} aria-hidden="true" />
-          {#if collapsed}
-            <span class="sr-only">{item.label}</span>
-          {:else}
-            <span class="label">{item.label}</span>
-            {#if !phone}<kbd aria-hidden="true">g {item.key}</kbd>{/if}
-          {/if}
-        </a>
-      </li>
-    {/each}
-
-    {#if phone}
+<nav class="nav" class:collapsed class:phone aria-label="Sections">
+  {#if phone}
+    <ul>
+      {#each primary as item (item.path)}
+        {@render entry(item)}
+      {/each}
       <li>
         <!--
           A button, not a link: it opens the menu over this page rather than
@@ -100,10 +97,39 @@
           <span class="label">More</span>
         </button>
       </li>
-    {/if}
-  </ul>
+    </ul>
+  {:else}
+    <div class="brand">
+      <a href="/" class="mark" aria-label="Zoomies, go to the overview">
+        <Logo variant="mark" size={32} label="" />
+        {#if !collapsed}<span class="brand-name">Zoomies</span>{/if}
+      </a>
+      {#if !collapsed}
+        <p class="descriptor">Self-hosted Git runners</p>
+      {/if}
+    </div>
 
-  {#if !phone}
+    <div class="groups">
+      {#each NAV_GROUPS as group, i (group.label ?? 'top')}
+        <div class="group" class:pinned={group.label === 'Administration'}>
+          {#if group.label}
+            <!--
+              The heading stays in the tree when the sidebar is collapsed, as
+              the entries' own labels do, so a screen reader still hears which
+              neighbourhood a link is in; sighted readers get the hairline.
+            -->
+            <p class="group-label" class:sr-only={collapsed} id="nav-group-{i}">{group.label}</p>
+            {#if collapsed}<span class="rule" aria-hidden="true"></span>{/if}
+          {/if}
+          <ul aria-labelledby={group.label ? `nav-group-${i}` : undefined}>
+            {#each group.items as item (item.path)}
+              {@render entry(item)}
+            {/each}
+          </ul>
+        </div>
+      {/each}
+    </div>
+
     <div class="foot">
       <IconButton
         icon={collapsed ? PanelLeftOpen : PanelLeftClose}
@@ -140,7 +166,7 @@
   */
   .brand {
     padding: var(--z-space-2) var(--z-space-2) var(--z-space-3);
-    margin-bottom: var(--z-space-3);
+    margin-bottom: var(--z-space-2);
     border-bottom: var(--z-border-width) solid var(--z-border);
   }
   .collapsed .brand {
@@ -179,8 +205,39 @@
     text-transform: uppercase;
     color: var(--z-text-subtle);
   }
-  ul {
+  /*
+    The groups take the height between the masthead and the foot, and the
+    last of them is pushed to the bottom. A window too short for all twelve
+    scrolls this column rather than pushing the collapse control off screen.
+  */
+  .groups {
     flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-2);
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .group.pinned {
+    margin-top: auto;
+  }
+  .group-label {
+    margin: 0;
+    padding: var(--z-space-3) var(--z-space-2) var(--z-space-1);
+    font-size: var(--z-text-2xs);
+    line-height: var(--z-leading-2xs);
+    font-weight: var(--z-weight-medium);
+    letter-spacing: var(--z-tracking-wide);
+    text-transform: uppercase;
+    color: var(--z-text-subtle);
+  }
+  .rule {
+    display: block;
+    height: var(--z-border-width);
+    margin: var(--z-space-2) var(--z-space-1);
+    background: var(--z-border);
+  }
+  ul {
     display: flex;
     flex-direction: column;
     gap: var(--z-nudge-2);

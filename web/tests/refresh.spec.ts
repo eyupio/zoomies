@@ -21,15 +21,22 @@ function refreshButton(page: Page) {
 
 /**
  * Sections whose pages fetch something, and therefore have the button. Migrate
- * is the exception: it holds a flow rather than a view of the fleet.
+ * is the exception: it holds a flow rather than a view of the fleet. Settings
+ * is a section of pages, and on a phone its own address is the list of them,
+ * which fetches nothing -- so it is checked on a page that does.
  */
-const REFRESHABLE = SECTIONS.filter((section) => section.path !== '/migrate');
+const REFRESHABLE = [
+  ...SECTIONS.filter((section) => section.path !== '/migrate' && section.path !== '/settings').map(
+    (section) => ({ path: section.path, label: section.label, heading: sectionHeading(section) }),
+  ),
+  { path: '/settings/users', label: 'Settings', heading: 'Users' },
+];
 
 for (const section of REFRESHABLE) {
   test(`${section.label} offers refresh, and pressing it leaves the page standing`, async ({
     page,
   }) => {
-    await goto(page, section.path, sectionHeading(section));
+    await goto(page, section.path, section.heading);
 
     const refresh = refreshButton(page);
     await expect(refresh).toHaveCount(1);
@@ -39,7 +46,7 @@ for (const section of REFRESHABLE) {
     // The heading is the proof the page did not go anywhere: a refresh that
     // remounts the route would take the operator's scroll position, their
     // selection and their place in a form with it.
-    await expect(pageHeading(page, sectionHeading(section))).toBeVisible();
+    await expect(pageHeading(page, section.heading)).toBeVisible();
     await expect(refresh).not.toHaveAttribute('aria-busy', 'true');
     await expect(refresh).toBeEnabled();
   });

@@ -23,6 +23,7 @@ import {
   reload,
   SECTIONS,
   sectionHeading,
+  sectionLanding,
 } from './support/fixtures';
 
 test.use(browserOverride);
@@ -36,11 +37,11 @@ test('every navigation entry routes to its page and is marked as current', async
   await goto(page, '/', 'Overview');
 
   for (const section of SECTIONS) {
-    // Whichever way this width offers the section: the sidebar lists all ten,
-    // the phone's bar lists four and the side menu holds the rest.
+    // Whichever way this width offers the section: the sidebar lists all
+    // twelve, the phone's bar lists four and the sheet holds the rest.
     await openSection(page, section.path);
 
-    await expect(page).toHaveURL(new RegExp(`${section.path.replace(/\//g, '\\/')}$`));
+    await expect(page).toHaveURL(sectionLanding(section));
     await expect(pageHeading(page, sectionHeading(section))).toBeVisible();
     await expectCurrentSection(page, section.path);
   }

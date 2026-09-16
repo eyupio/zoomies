@@ -1,10 +1,13 @@
 <!--
   Your own account.
 
-  Small, and above the tabs, because of one specific moment: an administrator
-  resets somebody's password, the shell tells them to change it in Settings, and
-  this is what they have to find when they get here. When that is the case the
-  bar says so and the button is the primary one on the page.
+  Small, and first in the section, because of one specific moment: an
+  administrator resets somebody's password, the shell tells them to change it
+  in Settings, and this is what they have to find when they get here. When that
+  is the case the card says so and the button is the primary one on the page.
+
+  Refreshing asks who we are again, which is how a role granted a minute ago
+  starts to apply without signing out and in.
 -->
 <script lang="ts">
   import { KeyRound } from '@lucide/svelte';
@@ -17,6 +20,7 @@
   import Dialog from '$lib/components/Dialog.svelte';
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
+  import PageHeader from '$lib/components/PageHeader.svelte';
 
   let open = $state(false);
   let current = $state('');
@@ -32,6 +36,9 @@
   );
   const matchError = $derived(repeat.length > 0 && repeat !== next ? 'These do not match.' : '');
   const ready = $derived(next.length >= MIN_PASSWORD_LENGTH && repeat === next);
+
+  /** The first letter of the name, for the avatar. */
+  const initial = $derived(session.displayName.trim().charAt(0).toUpperCase() || '?');
 
   function start(): void {
     current = '';
@@ -61,7 +68,14 @@
   }
 </script>
 
-<div class="bar" class:urgent={session.mustChangePassword}>
+<PageHeader
+  title="Account"
+  subtitle="Who you are signed in as, and your password."
+  onrefresh={() => session.refresh()}
+/>
+
+<div class="card" class:urgent={session.mustChangePassword}>
+  <span class="avatar" aria-hidden="true">{initial}</span>
   <div class="who">
     <p class="name">Signed in as {session.displayName}</p>
     <p class="detail">
@@ -71,7 +85,7 @@
       {:else if session.mustChangePassword}
         Your password was set by somebody else. Choose your own now.
       {:else}
-        Role: {roleLabel(session.role)}.
+        {roleLabel(session.role)}. Changing your password ends every other session signed in as you.
       {/if}
     </p>
   </div>
@@ -150,30 +164,48 @@
 </Dialog>
 
 <style>
-  .bar {
+  .card {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     flex-wrap: wrap;
-    gap: var(--z-space-3);
-    padding: var(--z-space-3) var(--z-space-5);
+    gap: var(--z-space-4);
+    padding: var(--z-space-4) var(--z-space-5);
     border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }
-  .bar.urgent {
+  .card.urgent {
     border-color: var(--z-pending-border);
     background: var(--z-pending-subtle);
   }
+  .avatar {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: var(--z-space-10);
+    height: var(--z-space-10);
+    border-radius: var(--z-radius-full);
+    background: var(--z-accent-subtle);
+    color: var(--z-accent);
+    font-size: var(--z-text-base);
+    font-weight: var(--z-weight-semibold);
+  }
+  .who {
+    flex: 1 1 16rem;
+    min-width: 0;
+  }
   .name {
     margin: 0;
-    font-size: var(--z-text-sm);
-    font-weight: var(--z-weight-medium);
+    font-size: var(--z-text-base);
+    line-height: var(--z-leading-base);
+    font-weight: var(--z-weight-semibold);
     color: var(--z-text);
+    overflow-wrap: anywhere;
   }
   .detail {
-    margin: var(--z-space-1) 0 0;
+    margin: var(--z-nudge-2) 0 0;
     font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
     color: var(--z-text-muted);
   }
   .form {

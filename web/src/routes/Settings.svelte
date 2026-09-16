@@ -1,126 +1,161 @@
 <!--
-  Settings: accounts, tokens, appearance, configuration, backups and what this
-  instance is.
+  Settings: a section rather than a page. Your account and this browser's
+  preferences, who else can sign in, and what this controller runs with.
 
-  Most of it needs the administrator role, and rather than hiding the tabs from
-  everybody else they are disabled with the reason said once, above them: a
-  viewer who cannot find the users page should learn why, not conclude the
-  product does not have one.
+  Every page has an address of its own -- /settings/users -- so a page is a
+  link and a bookmark, and the browser's back button means something. Where
+  there is room, the section's own rail lists the pages beside the one being
+  read; on a phone `/settings` is the list and each page stands alone with a
+  way back.
 
-  The tab lives in the URL, so a link to a particular tab works.
+  Most of the pages need the administrator role, and rather than being hidden
+  from everybody else they are listed with a lock and open to a sentence saying
+  why: a viewer who cannot find the users page should learn why, not conclude
+  the product does not have one.
+
+  The old `?tab=` addresses are kept as redirects. Bookmarks and the links in
+  problem entries were written against them.
 -->
 <script lang="ts">
-  import {
-    DatabaseBackup,
-    Info,
-    KeyRound,
-    Palette,
-    SlidersHorizontal,
-    Users,
-  } from '@lucide/svelte';
-  import { router } from '$lib/router';
+  import { ChevronLeft, Lock } from '@lucide/svelte';
+  import { href, router } from '$lib/router';
+  import { roleLabel } from '$lib/roles';
   import { session } from '$lib/state/session.svelte';
+  import { viewport } from '$lib/state/viewport.svelte';
+  import Button from '$lib/components/Button.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
-  import Tabs from '$lib/components/Tabs.svelte';
-  import type { TabItem } from '$lib/components/Tabs.svelte';
   import AboutPanel from '$lib/settings/AboutPanel.svelte';
   import AccountPanel from '$lib/settings/AccountPanel.svelte';
   import AppearancePanel from '$lib/settings/AppearancePanel.svelte';
   import BackupsPanel from '$lib/settings/BackupsPanel.svelte';
   import ConfigurationPanel from '$lib/settings/ConfigurationPanel.svelte';
+  import SettingsIndex from '$lib/settings/SettingsIndex.svelte';
+  import SettingsRail from '$lib/settings/SettingsRail.svelte';
   import TokensPanel from '$lib/settings/TokensPanel.svelte';
   import UsersPanel from '$lib/settings/UsersPanel.svelte';
+  import { DEFAULT_SETTINGS_PAGE, settingsPage, settingsPath } from '$lib/settings/pages';
 
   const canAdmin = $derived(session.can('admin'));
+  const phone = $derived(viewport.phone);
 
-  const tabs = $derived<TabItem[]>([
-    { id: 'users', label: 'Users', icon: Users, disabled: !canAdmin },
-    { id: 'tokens', label: 'API tokens', icon: KeyRound, disabled: !canAdmin },
-    { id: 'appearance', label: 'Appearance', icon: Palette },
-    { id: 'configuration', label: 'Configuration', icon: SlidersHorizontal, disabled: !canAdmin },
-    { id: 'backups', label: 'Backups', icon: DatabaseBackup, disabled: !canAdmin },
-    { id: 'about', label: 'About', icon: Info },
-  ]);
+  /** The page the address names; empty at `/settings` itself. */
+  const wanted = $derived(router.params.page ?? '');
+  const page = $derived(wanted ? settingsPage(wanted) : undefined);
+  const locked = $derived(page?.admin === true && !canAdmin);
+  const legacyTab = $derived(router.param('tab'));
 
-  /** The tab in the URL, falling back to one this operator is actually allowed to open. */
-  const active = $derived.by(() => {
-    const wanted = router.param('tab');
-    const found = tabs.find((tab) => tab.id === wanted);
-    if (found && !found.disabled) return found.id;
-    return canAdmin ? 'users' : 'appearance';
+  // `/settings?tab=configuration&setting=x` was the address before every page
+  // had its own. The tab ids became the page ids, so the redirect is a move.
+  $effect(() => {
+    if (!legacyTab) return;
+    router.navigate(href(settingsPath(legacyTab), { setting: router.param('setting') || null }), {
+      replace: true,
+    });
   });
 
-  function select(id: string): void {
-    router.setQuery({ tab: id === (canAdmin ? 'users' : 'appearance') ? null : id });
-  }
+  // `/settings` alone is the list on a phone, and the first page everywhere
+  // else: with the rail beside it, a landing page that only repeats the rail
+  // would be a click between the operator and what they came for.
+  $effect(() => {
+    if (wanted || phone || legacyTab) return;
+    router.navigate(settingsPath(DEFAULT_SETTINGS_PAGE), { replace: true });
+  });
 
-  /*
-    Nothing on this page arrives over the stream: users, tokens and the
-    configuration change when an administrator changes them, possibly in another
-    browser. Refreshing re-reads whichever panel is open -- through a counter
-    rather than by remounting it, so a half-typed form is not thrown away by
-    somebody wanting to be sure the list is current -- and asks who we are
-    again, which is how a role granted a minute ago starts to apply.
-  */
-  let reloadKey = $state(0);
-
-  async function refreshPage(): Promise<void> {
-    reloadKey += 1;
-    await session.refresh();
-  }
+  // The top bar and the browser tab name the page, with the section as the
+  // crumb before it.
+  $effect(() => {
+    router.setTitle(page ? page.label : 'Settings');
+  });
 </script>
 
-<PageHeader
-  title="Settings"
-  subtitle="Accounts, credentials, appearance and what this controller is running with."
-  onrefresh={refreshPage}
-/>
-
-<div class="content">
-  <AccountPanel />
-
-  {#if !canAdmin}
-    <p class="notice">
-      Accounts, API tokens, the configuration and backups need the administrator role. You are
-      signed in as
-      {session.role ?? 'a viewer'}, so those tabs are shown but not open to you.
-    </p>
+{#if !wanted}
+  {#if phone}
+    <SettingsIndex />
   {/if}
+{:else}
+  <div class="section">
+    {#if !phone}
+      <SettingsRail current={wanted} />
+    {/if}
 
-  <Tabs value={active} {tabs} label="Settings sections" onchange={select}>
-    {#snippet children(current)}
-      {#if current === 'users'}
-        <UsersPanel {reloadKey} />
-      {:else if current === 'tokens'}
-        <TokensPanel {reloadKey} />
-      {:else if current === 'appearance'}
-        <AppearancePanel />
-      {:else if current === 'configuration'}
-        <ConfigurationPanel {reloadKey} />
-      {:else if current === 'backups'}
-        <BackupsPanel {reloadKey} />
-      {:else}
-        <AboutPanel {reloadKey} />
+    <div class="page">
+      {#if phone}
+        <a class="back" href="/settings">
+          <ChevronLeft size={14} aria-hidden="true" />
+          Settings
+        </a>
       {/if}
-    {/snippet}
-  </Tabs>
-</div>
+
+      {#if !page}
+        <PageHeader title="Settings" />
+        <EmptyState
+          title="There is no settings page called “{wanted}”"
+          description="The pages are your account, appearance, users, API tokens, configuration, backups and about."
+        >
+          <Button href={settingsPath(DEFAULT_SETTINGS_PAGE)}>Go to your account</Button>
+        </EmptyState>
+      {:else if locked}
+        <PageHeader title={page.label} subtitle={page.description} />
+        <EmptyState
+          icon={Lock}
+          title="{page.label} needs the administrator role"
+          description="You are signed in as {session.displayName} with the {roleLabel(
+            session.role,
+          )} role. An administrator can change that on the Users page."
+        />
+      {:else if page.id === 'account'}
+        <AccountPanel />
+      {:else if page.id === 'appearance'}
+        <AppearancePanel />
+      {:else if page.id === 'users'}
+        <UsersPanel />
+      {:else if page.id === 'tokens'}
+        <TokensPanel />
+      {:else if page.id === 'configuration'}
+        <ConfigurationPanel />
+      {:else if page.id === 'backups'}
+        <BackupsPanel />
+      {:else}
+        <AboutPanel />
+      {/if}
+    </div>
+  </div>
+{/if}
 
 <style>
-  .content {
+  .section {
     display: flex;
-    flex-direction: column;
-    gap: var(--z-space-4);
+    align-items: flex-start;
+    gap: var(--z-space-8);
   }
-  .notice {
-    margin: 0;
-    max-width: 80ch;
-    padding: var(--z-space-3) var(--z-space-4);
-    border: var(--z-border-width) solid var(--z-border);
-    border-radius: var(--z-radius-sm);
-    background: var(--z-surface-sunken);
-    font-size: var(--z-text-base);
-    line-height: var(--z-leading-base);
+  .page {
+    flex: 1;
+    min-width: 0;
+    max-width: var(--z-settings-page-max);
+  }
+  .back {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--z-space-1);
+    margin-bottom: var(--z-space-3);
+    font-size: var(--z-text-xs);
+    font-weight: var(--z-weight-medium);
     color: var(--z-text-muted);
+    text-decoration: none;
+  }
+  .back:hover {
+    color: var(--z-accent);
+  }
+  /* The rail becomes a strip above the page: see SettingsRail.svelte. */
+  @media (max-width: 1180px) {
+    .section {
+      flex-direction: column;
+      align-items: stretch;
+      gap: var(--z-space-4);
+    }
+    .page {
+      max-width: none;
+    }
   }
 </style>

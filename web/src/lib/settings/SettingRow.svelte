@@ -188,25 +188,6 @@
         {/if}
       </p>
     {/if}
-    <div class="marks">
-      {#if pinned}
-        <Badge tone="pending" label="Set by {setting.env}" size="sm" dot={false} />
-      {/if}
-      {#if setting.pending}
-        <Badge
-          tone="draining"
-          label="Waiting for a restart"
-          size="sm"
-          dot={false}
-          title="It is saved. This controller cannot apply it to itself, so it takes effect the next time it starts."
-        />
-      {/if}
-      {#if source && !pinned}
-        <Tooltip text={source.detail}>
-          <Badge tone={source.tone} label={source.label} size="sm" dot={false} />
-        </Tooltip>
-      {/if}
-    </div>
   </div>
 
   {#if editing}
@@ -248,8 +229,30 @@
       <IconButton icon={X} label="Cancel editing {setting.key}" size="sm" onclick={cancel} />
     </div>
   {:else}
+    <!--
+      Where the value came from sits beside the value, not under the
+      description: it is a fact about the value, and the question it answers
+      -- "why is this not what I set?" -- is asked while looking at it.
+    -->
     <div class="value">
       <span class="shown mono" class:unset>{shown}</span>
+      {#if pinned}
+        <Badge tone="pending" label="Set by {setting.env}" size="sm" dot={false} />
+      {/if}
+      {#if setting.pending}
+        <Badge
+          tone="draining"
+          label="Waiting for a restart"
+          size="sm"
+          dot={false}
+          title="It is saved. This controller cannot apply it to itself, so it takes effect the next time it starts."
+        />
+      {/if}
+      {#if source && !pinned}
+        <Tooltip text={source.detail}>
+          <Badge tone={source.tone} label={source.label} size="sm" dot={false} />
+        </Tooltip>
+      {/if}
     </div>
     <div class="actions">
       {#if setting.editable}
@@ -377,11 +380,6 @@
     font-size: var(--z-text-2xs);
     line-height: var(--z-leading-2xs);
     color: var(--z-text-muted);
-  }
-  .marks {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--z-space-1);
   }
   .value,
   .editor {

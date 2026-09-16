@@ -395,7 +395,18 @@ fixed, because muscle memory is the point:
    — its heading, the palette, the shortcut sheet, the browser title — uses the
    full name.
 9. **Audit** — who did what
-10. **Settings** — users, tokens, appearance, configuration, backups, about
+10. **Settings** — a section of pages rather than one page: your account and
+    appearance; users and API tokens; the configuration, backups and about.
+    Each has an address of its own (`/settings/users`), the section's own rail
+    lists them beside the page, and `/settings` alone goes to the first of
+    them — except on a phone, where it is the list.
+
+The sidebar reads the same order under four headings — *Fleet*, *Infrastructure*,
+*GitHub* and *Administration*, with the Overview standing alone at the top and
+Administration pinned to the foot — so an entry is found by its neighbourhood
+rather than read for from the top. Collapsed, the headings become hairlines
+and nothing moves. The headings change nothing about the order or the `g`
+chords, which is what lets them be added without anyone relearning anything.
 
 Every page is shown, in both themes, in [The UI](ui.md).
 
@@ -405,8 +416,13 @@ a link to the docs and the credit *Developed by EyUp.io* — so a signed-in
 screenshot says which product and which build it came from, and who makes it,
 without anyone having to open Settings. On a phone the navigation moves to the
 bottom edge and loses its masthead, so the mark appears in the top bar instead —
-and again at the head of the side menu, which is the one place on a phone with
-room to say the name.
+and again at the head of the sheet the More button opens, which is the one
+place on a phone with room to say the name.
+
+The account menu in the top bar is about the person rather than the fleet: who
+is signed in and as what, the theme as a choice with the one in force marked,
+their own settings pages, the keyboard shortcuts, the documentation and the way
+out. On a phone the same things live at the top of the More sheet.
 
 **A link that leaves the product opens in a new tab; a link within it does
 not.** An operator watching a fleet should not lose the page they were on to go
@@ -519,8 +535,8 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 | `Segmented` | one choice among a few as one control, `aria-pressed` on the one in force: the activity matrix's ranges, the fleet trend's windows |
 | `Dialog` | focus trap, restores focus on close, `Esc` closes, backdrop click closes only non-destructive dialogs |
 | `Drawer` | right-hand detail panel; same focus rules |
-| `NavMenu` | the phone's side menu: every section, named; slides from the left, same focus rules, closes when one is chosen |
-| `DropdownMenu` | roving tabindex, type-ahead; the list opens in the browser's top layer, placed against its trigger and flipped above where there is no room below, so a menu on a grid's last row is not cut off by the frame that scrolls. It closes when its trigger scrolls out of that frame |
+| `NavMenu` | the phone's menu: a sheet that rises from the bottom edge, where the thumb that pressed More is, carrying every section named and in order, plus the account, the theme and sign out; same focus rules, closes when a section is chosen |
+| `DropdownMenu` | roving tabindex, type-ahead; the list opens in the browser's top layer, placed against its trigger and flipped above where there is no room below, so a menu on a grid's last row is not cut off by the frame that scrolls. It closes when its trigger scrolls out of that frame. A `header` snippet names who the menu is about, and items sharing a `choice` are one segmented row of radio items with the one in force checked |
 | `Tabs` | `aria-controls`/`aria-selected`, arrow-key navigation |
 | `Toast` | bottom-right, `aria-live="polite"` (`assertive` for errors), auto-dismiss except on error |
 | `Skeleton` | **the only loading affordance for content.** Spinners are for in-flight *actions* only |
@@ -679,11 +695,15 @@ ranges:
 
 * `< 768px` — **phone.** The navigation becomes a bar along the bottom edge
   carrying the four sections a fleet is watched with — Overview, Pools, Runners,
-  Jobs — each under its own word, plus a **More** button opening a side menu
-  that lists all ten. Ten icon-only targets across a 412px screen were 40px
+  Jobs — each under its own word, plus a **More** button opening a sheet from
+  the bottom edge that lists all twelve, with the account, the theme and sign
+  out above them. Twelve icon-only targets across a 412px screen were 40px
   apart and told apart only by a glyph, which is not a navigation an operator
-  can use one-handed at 3am. The menu is a modal overlay like any other: Escape
-  closes it, the page behind it is inert, and choosing a section closes it.
+  can use one-handed at 3am. The sheet is a modal overlay like any other:
+  Escape closes it, the page behind it is inert, and choosing a section closes
+  it. Settings has no room for its rail here, so `/settings` is the list of its
+  pages and each page carries a way back to it; between 768 and 1180px the rail
+  is a strip of the same pages above the one being read.
   Collapsing is a *desktop* idea and the phone must never inherit it — a bar
   along the bottom has nothing to collapse, and `.nav.collapsed` outranking the
   phone's own rules is what once made that bar 56px wide with every entry piled

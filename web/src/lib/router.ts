@@ -120,12 +120,6 @@ export const ROUTES: readonly RouteDef[] = [
   },
   { name: 'audit', path: '/audit', title: 'Audit', load: () => import('../routes/Audit.svelte') },
   {
-    name: 'settings',
-    path: '/settings',
-    title: 'Settings',
-    load: () => import('../routes/Settings.svelte'),
-  },
-  {
     // GitHub's return address, named in every App manifest this controller
     // builds. It hands what GitHub sent to the Installations page; it is not
     // somewhere anybody navigates to on purpose.
@@ -133,6 +127,16 @@ export const ROUTES: readonly RouteDef[] = [
     path: '/settings/github/setup',
     title: 'Connecting GitHub',
     load: () => import('../routes/GithubSetup.svelte'),
+  },
+  {
+    // One route for the section and every page in it, so moving between
+    // settings pages swaps the panel and keeps the rail: two routes sharing a
+    // component would still be two entries in `loaded`, and the second would
+    // paint the skeleton once on the way in.
+    name: 'settings',
+    path: '/settings/:page?',
+    title: 'Settings',
+    load: () => import('../routes/Settings.svelte'),
   },
   {
     name: 'login',
@@ -165,16 +169,29 @@ function decodeSegment(v: string): string {
   }
 }
 
+/**
+ * A `:param?` segment may be absent, so `/settings/:page?` matches `/settings`
+ * as well as `/settings/users`. Only a trailing segment can be optional; an
+ * absent one is simply missing from the params.
+ */
 function match(pathname: string): { route: RouteDef; params: Record<string, string> } {
   const parts = pathname.replace(/\/+$/, '').split('/').filter(Boolean);
   for (const route of ROUTES) {
     const pattern = route.path.split('/').filter(Boolean);
-    if (pattern.length !== parts.length) continue;
+    const required = pattern.filter((p) => !p.endsWith('?')).length;
+    if (parts.length < required || parts.length > pattern.length) continue;
     const params: Record<string, string> = {};
     let ok = true;
     for (let i = 0; i < pattern.length; i++) {
-      const p = pattern[i] ?? '';
-      const v = parts[i] ?? '';
+      const raw = pattern[i] ?? '';
+      const optional = raw.endsWith('?');
+      const p = optional ? raw.slice(0, -1) : raw;
+      const v = parts[i];
+      if (v === undefined) {
+        if (optional) break;
+        ok = false;
+        break;
+      }
       if (p.startsWith(':')) params[p.slice(1)] = decodeSegment(v);
       else if (p !== v) {
         ok = false;

@@ -189,9 +189,11 @@
       case 'installation':
         return '/installations';
       case 'user':
+        return '/settings/users';
       case 'token':
+        return '/settings/tokens';
       case 'settings':
-        return '/settings';
+        return '/settings/configuration';
       case 'join_token':
         return '/hosts';
       default:

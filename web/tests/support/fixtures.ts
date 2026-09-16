@@ -50,7 +50,10 @@ export const browserOverride = process.env.PLAYWRIGHT_CHROMIUM
  *
  * `heading` is the page's own <h1> where it says more than the nav entry does:
  * a nav label has to stay short enough to sit beside an icon, and a heading
- * does not.
+ * does not. `lands` is where the address ends up when it is not the entry's
+ * own path: Settings is a section of pages, so on a desktop `/settings` goes
+ * straight to the first of them, while a phone shows the list of pages under
+ * the section's own name.
  */
 export const SECTIONS = [
   { path: '/', label: 'Overview' },
@@ -63,12 +66,22 @@ export const SECTIONS = [
   { path: '/installations', label: 'Installations' },
   { path: '/migrate', label: 'Migrate', heading: 'Migrate repositories' },
   { path: '/audit', label: 'Audit' },
-  { path: '/settings', label: 'Settings' },
+  {
+    path: '/settings',
+    label: 'Settings',
+    heading: /^(Account|Settings)$/,
+    lands: /\/settings(\/account)?$/,
+  },
 ] as const;
 
 /** The <h1> a section's page shows. */
-export function sectionHeading(section: (typeof SECTIONS)[number]): string {
+export function sectionHeading(section: (typeof SECTIONS)[number]): string | RegExp {
   return 'heading' in section ? section.heading : section.label;
+}
+
+/** The address a section's entry ends up at, as a pattern the URL must match. */
+export function sectionLanding(section: (typeof SECTIONS)[number]): RegExp {
+  return 'lands' in section ? section.lands : new RegExp(`${section.path.replace(/\//g, '\\/')}$`);
 }
 
 /** Names from internal/controller/seed.go, so the fixture and the tests agree. */
@@ -151,11 +164,11 @@ export async function expectNoReload(page: Page): Promise<void> {
   expect(stayed, 'the page updated in place rather than reloading').toBe(true);
 }
 
-/** The page's `<h1>`, optionally by name. */
-export function pageHeading(page: Page, name?: string): Locator {
-  return name === undefined
-    ? page.getByRole('heading', { level: 1 })
-    : page.getByRole('heading', { level: 1, name, exact: true });
+/** The page's `<h1>`, optionally by name -- exactly, or by a pattern. */
+export function pageHeading(page: Page, name?: string | RegExp): Locator {
+  if (name === undefined) return page.getByRole('heading', { level: 1 });
+  if (name instanceof RegExp) return page.getByRole('heading', { level: 1, name });
+  return page.getByRole('heading', { level: 1, name, exact: true });
 }
 
 /**
@@ -163,13 +176,13 @@ export function pageHeading(page: Page, name?: string): Locator {
  *
  * @param heading the `<h1>` that proves the route rendered.
  */
-export async function goto(page: Page, path: string, heading?: string): Promise<void> {
+export async function goto(page: Page, path: string, heading?: string | RegExp): Promise<void> {
   await page.goto(path, { waitUntil: 'domcontentloaded' });
   await expect(pageHeading(page, heading)).toBeVisible();
 }
 
 /** Reload and wait for the same proof `goto` waits for. */
-export async function reload(page: Page, heading?: string): Promise<void> {
+export async function reload(page: Page, heading?: string | RegExp): Promise<void> {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(pageHeading(page, heading)).toBeVisible();
 }
@@ -188,7 +201,7 @@ export function nav(page: Page): Locator {
  * mark, which also points at "/", is not one of the entries.
  *
  * On a phone the bar carries only the four primary sections; the rest are in
- * the side menu, so reach those with `menuEntry`.
+ * the sheet More opens, so reach those with `menuEntry`.
  */
 export function navEntry(page: Page, path: string): Locator {
   return nav(page).getByRole('listitem').locator(`a[href="${path}"]`);
@@ -197,12 +210,12 @@ export function navEntry(page: Page, path: string): Locator {
 /** The paths the phone's bottom bar carries itself, from `lib/shell/sections.ts`. */
 export const PRIMARY_SECTIONS: readonly string[] = ['/', '/pools', '/runners', '/jobs'];
 
-/** The phone's side menu, once it is open. */
+/** The phone's menu -- the sheet More opens -- once it is open. */
 export function navMenu(page: Page): Locator {
   return page.getByRole('dialog', { name: 'All sections' });
 }
 
-/** Press "More" in the bottom bar and wait for the side menu it opens. */
+/** Press "More" in the bottom bar and wait for the sheet it opens. */
 export async function openNavMenu(page: Page): Promise<Locator> {
   await nav(page).getByRole('button', { name: 'More' }).click();
   const menu = navMenu(page);
@@ -210,7 +223,7 @@ export async function openNavMenu(page: Page): Promise<Locator> {
   return menu;
 }
 
-/** One entry of the side menu, by the path it points at. */
+/** One entry of the phone's menu, by the path it points at. */
 export function menuEntry(page: Page, path: string): Locator {
   return navMenu(page).getByRole('listitem').locator(`a[href="${path}"]`);
 }
@@ -218,8 +231,8 @@ export function menuEntry(page: Page, path: string): Locator {
 /**
  * Go to a section the way an operator would at this width.
  *
- * The sidebar lists all ten; the phone's bar lists four and keeps the rest in
- * the side menu. Which of those a test is looking at is not the thing under
+ * The sidebar lists all twelve; the phone's bar lists four and keeps the rest
+ * in the sheet. Which of those a test is looking at is not the thing under
  * test in most specs, so they ask for the section and get there.
  */
 export async function openSection(page: Page, path: string): Promise<void> {
@@ -359,22 +372,21 @@ export function paletteOpener(page: Page): Locator {
   return page.getByRole('button', { name: 'Search or jump to' });
 }
 
-/** The top bar's theme control. Its label says where a press will take you. */
-export function themeToggle(page: Page): Locator {
-  return page.getByRole('button', { name: /^Theme:/ });
+/** The top bar's account menu, opened. */
+export async function openAccountMenu(page: Page): Promise<Locator> {
+  await page.getByRole('button', { name: 'Account menu' }).click();
+  const menu = page.getByRole('menu', { name: 'Account menu' });
+  await expect(menu).toBeVisible();
+  return menu;
 }
 
 /**
- * Press the theme toggle until the chosen theme is on screen.
- *
- * The control cycles light → dark → system, so "switch to dark" is one press
- * or two depending on where it started.
+ * Choose a theme the way an operator does: from the account menu, where the
+ * three options are visible and the one in force is marked.
  */
 export async function chooseTheme(page: Page, choice: 'light' | 'dark'): Promise<void> {
-  for (let press = 0; press < 3; press++) {
-    if ((await readTheme(page)).attribute === choice) return;
-    await themeToggle(page).click();
-  }
+  const menu = await openAccountMenu(page);
+  await menu.getByRole('menuitemradio', { name: choice === 'dark' ? 'Dark' : 'Light' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', choice);
 }
 

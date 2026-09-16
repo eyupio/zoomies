@@ -332,12 +332,16 @@ so nothing here can leak one.
 
 ## Settings
 
-Accounts and their roles, API tokens, appearance, the configuration this
-controller is actually running with, and its version. Zoomies refuses any
-change that would leave no enabled administrator.
+A section of pages rather than a page of tabs, with its own rail beside them:
+your account and appearance; the accounts that can sign in and their roles,
+and the API tokens; the configuration this controller is actually running
+with, its backups, and what it is. Each page has an address of its own, so a
+settings page is a link. Zoomies refuses any change that would leave no
+enabled administrator, and the pages that need that role are listed for
+everybody, marked rather than hidden.
 
-![Settings: the signed-in account, and the Users tab listing one administrator](screenshots/settings-dark.webp#only-dark){ .zoomies-shot }
-![Settings: the signed-in account, and the Users tab listing one administrator](screenshots/settings-light.webp#only-light){ .zoomies-shot }
+![Settings: the section's rail beside the Users page, listing one administrator](screenshots/settings-dark.webp#only-dark){ .zoomies-shot }
+![Settings: the section's rail beside the Users page, listing one administrator](screenshots/settings-light.webp#only-light){ .zoomies-shot }
 
 ## On a phone
 

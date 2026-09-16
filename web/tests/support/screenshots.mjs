@@ -175,7 +175,8 @@ const SHOTS = [
     },
   },
   { name: 'audit', path: '/audit', heading: 'Audit' },
-  { name: 'settings', path: '/settings', heading: 'Settings' },
+  // The section's rail beside the page that has a table on it.
+  { name: 'settings', path: '/settings/users', heading: 'Users' },
   // The two wizards. The docs discuss both at length and photographed
   // neither, so the only way to know what "the labels step previews the
   // runs-on line" looks like was to install Zoomies and find out.

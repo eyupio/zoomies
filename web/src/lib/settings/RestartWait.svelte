@@ -64,7 +64,7 @@
         phase = 'back';
         stop();
         // A moment for the reader to see it, then the page starts over.
-        setTimeout(() => window.location.replace('/settings?tab=backups'), 900);
+        setTimeout(() => window.location.replace('/settings/backups'), 900);
       } else if (elapsed >= START_LIMIT_S) {
         phase = 'stuck-down';
         stop();
@@ -145,7 +145,7 @@
           size="sm"
           variant="secondary"
           icon={RefreshCw}
-          onclick={() => window.location.replace('/settings?tab=backups')}
+          onclick={() => window.location.replace('/settings/backups')}
         >
           Reload the page
         </Button>

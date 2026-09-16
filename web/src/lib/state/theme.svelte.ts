@@ -19,6 +19,16 @@ import { storage } from './prefs.svelte';
 export type ThemeChoice = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
 
+/**
+ * The three choices as a segmented control offers them: the Appearance page
+ * and the phone's menu both draw one, and the words are the same in each.
+ */
+export const THEME_OPTIONS: readonly { value: ThemeChoice; label: string; name: string }[] = [
+  { value: 'system', label: 'System', name: 'Follow the operating system' },
+  { value: 'light', label: 'Light', name: 'Always light, whatever the system says' },
+  { value: 'dark', label: 'Dark', name: 'Always dark' },
+];
+
 const KEY = 'zoomies.theme';
 
 /**

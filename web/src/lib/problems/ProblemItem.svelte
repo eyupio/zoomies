@@ -91,7 +91,7 @@
     // a problem that has done nine tenths of the work and stopped.
     if (p.setting) {
       return {
-        href: `/settings?tab=configuration&setting=${encodeURIComponent(p.setting)}`,
+        href: `/settings/configuration?setting=${encodeURIComponent(p.setting)}`,
         label: 'Open the setting',
       };
     }

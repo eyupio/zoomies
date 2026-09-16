@@ -164,9 +164,7 @@ test('the navigation is a bar at the bottom, aligned and reaching every page', a
   }
 });
 
-test('the side menu closes on Escape and on the scrim, and lists every section', async ({
-  page,
-}) => {
+test('the sheet closes on Escape and on the scrim, and lists every section', async ({ page }) => {
   await goto(page, '/', 'Overview');
 
   const menu = await openNavMenu(page);
@@ -174,17 +172,20 @@ test('the side menu closes on Escape and on the scrim, and lists every section',
     await expect(menuEntry(page, section.path)).toBeVisible();
   }
   // The masthead a phone otherwise never sees, since the bottom bar has no room
-  // for one.
+  // for one -- and the account and the theme, which the desktop keeps in the
+  // top bar's menu and a phone has no other room for.
   await expect(menu.getByText('Zoomies', { exact: true })).toBeVisible();
+  await expect(menu.getByRole('group', { name: 'Theme' })).toBeVisible();
+  await expect(menu.getByRole('button', { name: 'Sign out' })).toBeVisible();
 
   await page.keyboard.press('Escape');
   await expect(navMenu(page)).toHaveCount(0);
 
   await openNavMenu(page);
-  // The scrim is the part of the overlay outside the panel; pressing the far
-  // right edge is pressing it.
+  // The scrim is the part of the overlay outside the sheet, which rises from
+  // the bottom edge; pressing near the top of the screen is pressing it.
   const size = page.viewportSize();
-  await page.mouse.click((size?.width ?? 400) - 8, (size?.height ?? 800) / 2);
+  await page.mouse.click((size?.width ?? 400) / 2, 24);
   await expect(navMenu(page)).toHaveCount(0);
 });
 
@@ -388,12 +389,12 @@ test('the Settings tables stay inside the screen once they have rows', async ({ 
     expect(token.ok(), 'the token was created').toBeTruthy();
     tokenId = ((await token.json()) as { id: string }).id;
 
-    await goto(page, '/settings', 'Settings');
+    await goto(page, '/settings/users', 'Users');
     const accounts = page.getByRole('table', { name: 'Accounts' });
     await expect(accounts.getByRole('row').filter({ hasText: `e2e-user-${stamp}` })).toBeVisible();
     await expectNoSidewaysScroll(page, 'the Settings page listing an account');
 
-    await page.getByRole('tab', { name: 'API tokens' }).click();
+    await goto(page, '/settings/tokens', 'API tokens');
     const tokens = page.getByRole('table', { name: 'API tokens' });
     await expect(tokens.getByRole('row').filter({ hasText: `e2e-token-${stamp}` })).toBeVisible();
     await expectNoSidewaysScroll(page, 'the Settings page listing an API token');
@@ -557,13 +558,19 @@ test('every section fits a 360px phone, not just the one these tests emulate', a
     await expectNoSidewaysScroll(page, `${section.label} at 360px`);
   }
 
-  // Settings hides four of its five panels behind tabs, and the one that holds
-  // the rows is not the one it opens on.
-  await goto(page, '/settings', 'Settings');
-  for (const name of ['Users', 'API tokens', 'Appearance', 'Configuration', 'About']) {
-    await page.getByRole('tab', { name }).click();
-    await expect(page.getByRole('tab', { name })).toHaveAttribute('aria-selected', 'true');
-    await expectNoSidewaysScroll(page, `the Settings ${name} panel at 360px`);
+  // Settings is a section of pages, and the one that holds the rows is not
+  // the one the list opens on.
+  for (const [path, heading] of [
+    ['/settings/account', 'Account'],
+    ['/settings/appearance', 'Appearance'],
+    ['/settings/users', 'Users'],
+    ['/settings/tokens', 'API tokens'],
+    ['/settings/configuration', 'Configuration'],
+    ['/settings/backups', 'Backups'],
+    ['/settings/about', 'About'],
+  ] as const) {
+    await goto(page, path, heading);
+    await expectNoSidewaysScroll(page, `the Settings ${heading} page at 360px`);
   }
 });
 
@@ -755,9 +762,14 @@ test('a grid can be read as cards instead of rows, and remembers which', async (
   await expect(layout(page, 'Rows')).toHaveAttribute('aria-pressed', 'true');
 });
 
+/** The Appearance page's choice of how a grid lays a row out on a phone. */
+const tablesDefault = (page: Page, name: 'Rows' | 'Cards') =>
+  page.getByRole('group', { name: 'Tables on a phone' }).getByRole('button', { name });
+
 test('the Settings default decides for every grid that has not chosen', async ({ page }) => {
-  await goto(page, '/settings?tab=appearance', 'Settings');
-  await page.getByRole('radio', { name: /^Cards/ }).check();
+  await goto(page, '/settings/appearance', 'Appearance');
+  await tablesDefault(page, 'Cards').click();
+  await expect(tablesDefault(page, 'Cards')).toHaveAttribute('aria-pressed', 'true');
 
   // Neither Jobs nor Pools has a choice of its own, so both follow the default
   // -- and each says so on its own toggle, which is where an operator would go
@@ -774,8 +786,9 @@ test('the Settings default decides for every grid that has not chosen', async ({
   }
 
   // The default goes back too, and takes the grids following it with it.
-  await goto(page, '/settings?tab=appearance', 'Settings');
-  await page.getByRole('radio', { name: /^Rows/ }).check();
+  await goto(page, '/settings/appearance', 'Appearance');
+  await tablesDefault(page, 'Rows').click();
+  await expect(tablesDefault(page, 'Rows')).toHaveAttribute('aria-pressed', 'true');
   await goto(page, '/jobs', 'Jobs');
   await expect(layout(page, 'Rows')).toHaveAttribute('aria-pressed', 'true');
 });
