@@ -456,6 +456,19 @@ func (f *fleet) deliverJob(action string, job github.QueuedJob, runnerName, conc
 // because both ends of the signature are this test.
 const drillWebhookSecret = "drill-webhook-secret"
 
+// drillRunnerSize is what one drill runner is charged on the host it lands on.
+//
+// Every drill says it, rather than taking the fleet's default, because the
+// default is two cores and four gigabytes -- the whole of the 2 vCPU, 4 GB
+// machine CI runs these on. A host with no room for one runner of a pool
+// places nothing, so an unsized drill pool fails every drill in the same
+// unhelpful way: a timeout waiting for a runner that the fleet was right to
+// refuse. These are the smallest figures a pool is allowed to ask for, which
+// is the right size for a runner that sleeps: what the drills are about is the
+// lifecycle, not the arithmetic, and both of the agent's slots have to fit on
+// the smallest machine any of this runs on.
+var drillRunnerSize = map[string]any{"cpus": 0.25, "memory_mb": 512}
+
 // createPoolOn makes a pool on a named backend, kept to the hosts a selector
 // picks out. The runner version is pinned to the staged stub either way: a pool
 // that went looking for a download would hang rather than say what is wrong
@@ -475,6 +488,7 @@ func (f *fleet) createPoolOn(name, backend string, selector map[string]string, l
 		"labels":          labels,
 		"backend":         backend,
 		"host_selector":   selector,
+		"resources":       drillRunnerSize,
 		"min_runners":     0,
 		"max_runners":     1,
 		"idle_timeout":    "1m",
@@ -498,6 +512,7 @@ func (f *fleet) createPool(name string, labels ...string) string {
 		"name":            name,
 		"labels":          labels,
 		"backend":         "process",
+		"resources":       drillRunnerSize,
 		"min_runners":     0,
 		"max_runners":     1,
 		"idle_timeout":    "1m",
