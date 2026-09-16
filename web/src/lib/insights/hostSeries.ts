@@ -7,7 +7,7 @@
  * clock: the caller passes `now`.
  */
 import type { Host, HostSample } from '../api/types';
-import type { SignalPoint } from './signals';
+import type { SeriesPoint } from './plot';
 
 export type MetricKey =
   'cpu' | 'memory' | 'load' | 'slots' | 'cpu_committed' | 'memory_committed' | 'disk';
@@ -259,7 +259,7 @@ export function hostSeries(
   now: number,
   seconds: number,
   bucket: number,
-): SignalPoint[] {
+): SeriesPoint[] {
   const { start, end, count, grain } = windowSlots(now, seconds, bucket);
   const peaks: (number | null)[] = Array.from({ length: count }, () => null);
   for (const s of samples) {
@@ -301,7 +301,7 @@ export function bridgeFor(bucket: number): number {
  * claims a figure for that minute.
  */
 export function lineRuns(
-  points: readonly SignalPoint[],
+  points: readonly SeriesPoint[],
   bridge = BRIDGE,
 ): { i: number; value: number }[][] {
   const out: { i: number; value: number }[][] = [];
@@ -418,7 +418,7 @@ export interface HostLine {
   index: number;
   metric: Metric;
   tone: string;
-  points: SignalPoint[];
+  points: SeriesPoint[];
   /** The newest observed point, or null where the line has none in view. */
   last: { i: number; value: number } | null;
 }

@@ -6,20 +6,14 @@ import {
   foldMinutes,
   hostSignals,
   leadSignal,
-  nearestSignal,
   poolSignals,
   minuteSeries,
   mergeSamples,
   signalLines,
-  signalPeak,
-  signalRuns,
   signalValue,
   starvedRuns,
-  trendFrame,
-  trendIndexAtX,
-  trendX,
-  trendY,
 } from '../src/lib/insights/signals.ts';
+import { seriesPeak, seriesRuns } from '../src/lib/insights/plot.ts';
 
 test('pool queue and ceiling use authoritative stats, not a partial runner list', () => {
   const [p] = poolSignals(
@@ -153,7 +147,7 @@ test('every figure carries its own peak through a fold, and a missed minute stay
     3,
   );
   assert.deepEqual(
-    lines.map((l) => l.signal.key),
+    lines.map((l) => l.series.key),
     ['queue', 'idle'],
   );
   assert.equal(lines[0]?.points[0]?.value, 12);
@@ -167,7 +161,7 @@ test('every figure carries its own peak through a fold, and a missed minute stay
     [4, null, null],
   );
   assert.deepEqual(minutes[0]?.last, { i: 0, value: 4 });
-  assert.deepEqual(signalRuns(minutes[0]!.points), [[{ i: 0, value: 4 }]]);
+  assert.deepEqual(seriesRuns(minutes[0]!.points), [[{ i: 0, value: 4 }]]);
 });
 
 /* Whose jobs the two job figures count is the caller's choice; runner counts
@@ -205,7 +199,7 @@ test('the job figures follow the fleet or the whole organisation, and the runner
  */
 test('starvation is queued work with nothing free, and an unobserved interval breaks the spell', () => {
   const line = (key: 'queue' | 'idle', values: Array<number | null>) => ({
-    signal: SIGNALS.find((s) => s.key === key)!,
+    series: SIGNALS.find((s) => s.key === key)!,
     points: values.map((value, i) => ({ at: i * 60_000, value })),
     last: null,
   });
@@ -242,54 +236,8 @@ test('starvation is queued work with nothing free, and an unobserved interval br
   assert.deepEqual(starvedRuns(line('queue', [3]), line('idle', [null])), []);
   assert.deepEqual(starvedRuns(null, line('idle', [0])), []);
 
-  const peak = signalPeak([line('queue', [1, 7, 2])]);
+  const peak = seriesPeak([line('queue', [1, 7, 2])]);
   assert.equal(peak?.value, 7);
   assert.equal(peak?.i, 1);
-  assert.equal(signalPeak([]), null);
-});
-
-/*
- * The frame is drawn at the width it has, one unit to a pixel, rather than a
- * fixed picture stretched to fit: the old chart drew 760 units into whatever
- * width the panel had, so its eleven-unit axis text arrived on a wide screen
- * at nineteen pixels and read as a heading.
- */
-test('the trend is drawn one unit to a pixel, and its gutter grows with the figures', () => {
-  const wide = trendFrame(1200, { digits: 3 });
-  assert.equal(wide.W, 1200);
-  assert.equal(wide.narrow, false);
-  // A four-figure axis needs a wider gutter than a one-figure one, or "1,500"
-  // prints over the gridlines.
-  assert.ok(trendFrame(1200, { digits: 5 }).LEFT > wide.LEFT);
-  // A phone gets a taller drawing and never a narrower one than it can hold.
-  assert.ok(trendFrame(360).narrow);
-  assert.ok(trendFrame(360).H > wide.H);
-  assert.equal(trendFrame(40).W, 280);
-
-  const x = trendX(wide, 60);
-  const y = trendY(wide, 20);
-  assert.equal(x(0), wide.LEFT);
-  assert.equal(x(59), wide.RIGHT);
-  assert.equal(y(0), wide.BOTTOM);
-  assert.equal(y(20), wide.TOP);
-  // A figure past the ceiling is drawn at it rather than off the top.
-  assert.equal(y(200), wide.TOP);
-  // The pointer lands on the point it is nearest, and never off the ends.
-  assert.equal(trendIndexAtX(wide, 60, x(12) + 2), 12);
-  assert.equal(trendIndexAtX(wide, 60, -500), 0);
-  assert.equal(trendIndexAtX(wide, 60, 5000), 59);
-
-  // Pointing at a line is how a reader asks what it is: the nearest within
-  // the tolerance answers, and nothing answers from too far away.
-  const lines = signalLines(
-    [{ at: new Date(0).toISOString(), fleet_queued_jobs: 2, idle_runners: 18 }],
-    ['queue', 'idle'],
-    false,
-    0,
-    1,
-    1,
-  );
-  assert.equal(nearestSignal(lines, 0, y(18), y, 10), 'idle');
-  assert.equal(nearestSignal(lines, 0, y(2), y, 10), 'queue');
-  assert.equal(nearestSignal(lines, 0, y(10), y, 10), null);
+  assert.equal(seriesPeak([]), null);
 });

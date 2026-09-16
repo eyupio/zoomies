@@ -1,10 +1,54 @@
+<!--
+  The Usage page's charts: the report as a trend, the groups that used the
+  most, and the calendar of squares.
+
+  The trend used to draw one fixed set of lines, chosen from a dropdown, into
+  a fixed picture stretched to whatever width the panel had, with a label at
+  each end and nothing in between. It is the Overview's fleet activity chart
+  now -- literally the same drawing, and the same chips and rows around it --
+  and so it reads the way the capacity map does: a figure per chip, drawn one
+  unit to a pixel, on an axis of round numbers, with the times along the
+  bottom on round hours and midnights. Pointing at a line singles it out; the
+  rows beneath are the legend, the switchboard and the reading at once.
+
+  Where a pool had nowhere to put a runner, the chart is shaded. It is this
+  panel's version of the fleet trend's starvation band: the report already
+  counts those minutes -- the matrix can colour its squares by them -- and
+  "the work arrived and the fleet had no room for it" is what an operator
+  scanning a fortnight is looking for.
+
+  Two measures rather than one chart, because jobs and hours do not share an
+  axis. And the crosshair reads a moment rather than choosing one: choosing
+  is the matrix's job, since selecting a day there fetches that day's hours,
+  and a finger dragged across a month would otherwise ask for thirty of them.
+  A square chosen in the matrix does move the crosshair here, which is the
+  direction that costs nothing.
+-->
 <script lang="ts">
   import { getUsage } from '$lib/api/client';
   import type { UsageRow, UsageGrouping } from '$lib/api/types';
   import MetricGrid from '$lib/components/MetricGrid.svelte';
   import ChartPanel from '$lib/components/ChartPanel.svelte';
+  import Segmented from '$lib/components/Segmented.svelte';
   import Select from '$lib/components/Select.svelte';
   import ActivityMatrix, { type ActivityRange } from '$lib/insights/ActivityMatrix.svelte';
+  import FigureChips from '$lib/insights/FigureChips.svelte';
+  import FigureRows from '$lib/insights/FigureRows.svelte';
+  import ReadingCard from '$lib/insights/ReadingCard.svelte';
+  import TrendPlot from '$lib/insights/TrendPlot.svelte';
+  import { countAxis, seriesPeak } from '$lib/insights/plot';
+  import {
+    DEFAULT_FIGURES,
+    USAGE_FIGURES,
+    USAGE_MEASURES,
+    capacityRuns,
+    inProgress,
+    usageFigures,
+    usageFormat,
+    usageLines,
+    type UsageKey,
+    type UsageMeasure,
+  } from '$lib/insights/usageSeries';
   import {
     addDays,
     fillWindow,
@@ -18,6 +62,7 @@
     type ActivityMode,
     type Interval,
   } from '$lib/insights/activity';
+  import { remember, remembered } from '$lib/state/prefs.svelte';
   import { formatNumber, toMillis } from '$lib/format';
   let {
     rows,
@@ -40,9 +85,21 @@
     onselect: (key: string) => void;
   } = $props();
   type Bucket = ActivityBucket;
-  let metric = $state('outcomes');
+
+  const KEY = 'zoomies.usage.chart';
+  const isMeasure = (v: unknown): v is UsageMeasure => USAGE_MEASURES.some((m) => m.value === v);
+  const isFigures = (v: unknown): v is UsageKey[] =>
+    Array.isArray(v) && v.every((k) => USAGE_FIGURES.some((f) => f.key === k));
+
+  let measure = $state<UsageMeasure>(remembered(`${KEY}.measure`, 'jobs', isMeasure));
+  let enabled = $state<UsageKey[]>(remembered(`${KEY}.figures`, [...DEFAULT_FIGURES], isFigures));
+  $effect(() => remember(`${KEY}.measure`, measure));
+  $effect(() => remember(`${KEY}.figures`, enabled));
+
+  /** The square the matrix has chosen, which is also the crosshair's moment. */
   let selected = $state<number | null>(null);
   let mode = $state<ActivityMode>('outcomes');
+
   const total = $derived(
     rows.reduce(
       (a, r) => ({
@@ -71,6 +128,7 @@
       },
     ),
   );
+
   /**
    * The API cuts hourly buckets for a window of two days or less and daily
    * ones beyond, anchored at the start the request named; the same rule here
@@ -168,177 +226,281 @@
     },
   ]);
   /**
-   * The lines, and which of them is drawn dashed.
-   *
-   * Two lines a few points of CIEDE2000 apart are two lines an operator has
-   * to squint at, and on a chart they also cross. So the one nearest its
-   * neighbour in colour gets a second carrier: allocated runner time is the
-   * envelope the executing line sits inside, and cancelled work is the
-   * outcome the fleet had no hand in. Both read as reference quantities,
-   * which is what a dashed line already means.
+   * Runner-hours belong to pools and installations: a runner idles on behalf
+   * of a pool and never on behalf of a repository or a workflow, so at those
+   * groupings the allocated line is dropped rather than drawn as somebody
+   * else's hours. The table drops its column for the same reason.
    */
-  const series = $derived(
-    metric === 'execution'
-      ? [
-          {
-            key: 'execution_seconds' as const,
-            name: 'Executing (hours)',
-            tone: 'var(--z-busy)',
-            dash: false,
-            divisor: 3600,
-          },
-          {
-            key: 'allocated_seconds' as const,
-            name: 'Allocated (hours)',
-            tone: 'var(--z-accent)',
-            dash: true,
-            divisor: 3600,
-          },
-        ]
-      : [
-          {
-            key: 'queued' as const,
-            name: 'Queued',
-            tone: 'var(--z-accent)',
-            dash: false,
-            divisor: 1,
-          },
-          {
-            key: 'succeeded' as const,
-            name: 'Succeeded',
-            tone: 'var(--z-idle)',
-            dash: false,
-            divisor: 1,
-          },
-          {
-            key: 'failed' as const,
-            name: 'Failed',
-            tone: 'var(--z-danger)',
-            dash: false,
-            divisor: 1,
-          },
-          {
-            key: 'cancelled' as const,
-            name: 'Cancelled / skipped',
-            tone: 'var(--z-neutral)',
-            dash: true,
-            divisor: 1,
-          },
-          {
-            key: 'unknown' as const,
-            name: 'Unknown',
-            tone: 'var(--z-pending)',
-            dash: false,
-            divisor: 1,
-          },
-        ],
-  );
-  const visibleSeries = $derived(
-    series.filter(
-      (s) =>
-        s.key !== 'allocated_seconds' || (grouping !== 'repository' && grouping !== 'workflow'),
+  const attributable = $derived(grouping !== 'repository' && grouping !== 'workflow');
+  const figures = $derived(usageFigures(measure, attributable));
+  const drawn = $derived(figures.filter((f) => enabled.includes(f.key)));
+  /**
+   * When the report was counted, which is where "not yet" begins. A report
+   * that has not landed yet is read against the clock, so an empty chart is
+   * still drawn against the right window.
+   */
+  const now = $derived(fetchedAt || Date.now());
+  const lines = $derived(usageLines(buckets, drawn, now));
+  const count = $derived(Math.max(1, buckets.length));
+  const format = $derived(usageFormat(measure));
+  const axis = $derived(
+    countAxis(
+      lines.reduce(
+        (top, line) =>
+          line.points.reduce((n, p) => (p.value !== null && p.value > n ? p.value : n), top),
+        0,
+      ),
+      4,
+      measure === 'runtime',
     ),
   );
-  const ceiling = $derived(
-    Math.ceil(
-      Math.max(2, ...buckets.flatMap((b) => visibleSeries.map((s) => b[s.key] / s.divisor))) / 2,
-    ) * 2,
-  );
+  // The chart leads with the first figure on it, in the chips' order: the
+  // peak in the headline is that figure's, and a chart down to one line
+  // washes the area under it.
+  const lead = $derived(drawn[0] ?? null);
+  const peak = $derived(seriesPeak(lead ? lines.filter((l) => l.series === lead) : []));
+
+  // The band is drawn from the report's capacity observations whether or not
+  // a figure of the chosen measure is on the chart: it says the fleet had
+  // nowhere to put a runner, which is true of the window however it is being
+  // read. Only pools observe placement, so only a report that carries such
+  // observations claims anything about them.
+  const bands = $derived(capacityRuns(buckets));
+  const bandCount = $derived(bands.reduce((n, run) => n + (run.to - run.from + 1), 0));
+  const observed = $derived(hasCapacity(buckets));
+
+  /* -- reading an interval --------------------------------------------------- */
+
+  const at = (bucket: Bucket | undefined) => toMillis(bucket?.from ?? '') ?? now;
+
+  // The pointer reads; the matrix chooses. A square chosen there moves the
+  // crosshair, and the crosshair moved here chooses nothing, because choosing
+  // a day fetches that day's hours and a drag across a month would fetch a
+  // month of them.
+  let hover = $state<number | null>(null);
+  let cursor = $derived(selected);
   $effect(() => {
     void buckets;
     selected = null;
+    cursor = null;
   });
-  const active = $derived(buckets[selected ?? buckets.length - 1]);
+
+  const reading = $derived(hover !== null || cursor !== null);
+  /**
+   * The newest interval the report has actually counted, which is where the
+   * reading sits when nobody is inspecting one. Not the last interval of the
+   * window: a report to the end of today has hours in it that have not
+   * happened, and the meters would then read as a fleet that had gone quiet.
+   */
+  const newest = $derived.by(() => {
+    for (let i = buckets.length - 1; i >= 0; i--) if (at(buckets[i]) <= now) return i;
+    return Math.max(0, buckets.length - 1);
+  });
+  const latest = $derived(buckets[newest]);
+  const activeIndex = $derived(Math.min(count - 1, hover ?? cursor ?? newest));
+  const active = $derived(buckets[activeIndex]);
+  const unit = $derived(interval === 'day' ? 'days' : 'hours');
+  /**
+   * Two ways to write a moment: the axis wants the shortest thing that is
+   * still unambiguous, since its labels sit side by side and the first of
+   * them is against the edge, and a reading wants the day named. A report of
+   * one day drops the weekday from its axis, where every label would carry
+   * the same one.
+   */
+  const oneDay = $derived(
+    buckets.length > 0 &&
+      // The whole window, not the part of it that has happened: the axis is
+      // drawn across all of it, and two midnights on one axis both labelled
+      // "00:00" are a chart nobody can read left to right.
+      localDate(new Date(at(buckets[0]))) === localDate(new Date(at(buckets[buckets.length - 1]))),
+  );
+  const stamp = (moment: number) =>
+    new Date(moment).toLocaleString(
+      undefined,
+      interval === 'day'
+        ? { day: 'numeric', month: 'short' }
+        : oneDay
+          ? { hour: '2-digit', minute: '2-digit' }
+          : { weekday: 'short', hour: '2-digit', minute: '2-digit' },
+    );
+  const when = (moment: number) =>
+    new Date(moment).toLocaleString(
+      undefined,
+      interval === 'day'
+        ? { weekday: 'short', day: 'numeric', month: 'short' }
+        : { weekday: 'short', hour: '2-digit', minute: '2-digit' },
+    );
+  const activeAt = $derived(at(active));
+  const moment = $derived(reading ? `at ${when(activeAt)}` : 'in the latest interval');
+
+  /** What each drawn figure read at the crosshair's interval. */
+  const readings = $derived(
+    lines.map((line) => ({
+      series: line.series,
+      value: line.points[activeIndex]?.value ?? null,
+    })),
+  );
+
+  // Two ways to single a figure out, and either will do: its chip or its row,
+  // and the line the pointer is nearest. A figure that is not on the chart
+  // singles out nothing -- dimming every line to show that one is absent
+  // reads as a fault, not an answer.
+  let chip = $state<UsageKey | null>(null);
+  let near = $state<string | null>(null);
+  const emphasis = $derived.by(() => {
+    const key = chip ?? near;
+    return figures.find((f) => f.key === key && enabled.includes(f.key))?.key ?? null;
+  });
+  function toggle(key: UsageKey): void {
+    enabled = enabled.includes(key) ? enabled.filter((k) => k !== key) : [...enabled, key];
+  }
+
+  const valuetext = $derived(
+    `${when(activeAt)}: ${
+      readings.length
+        ? readings
+            .map((r) => `${r.series.label} ${r.value === null ? 'not yet' : format(r.value)}`)
+            .join(', ')
+        : 'no figures chosen'
+    }`,
+  );
+  const description = $derived(
+    `${
+      measure === 'runtime'
+        ? 'Executing and allocated runner time, in hours'
+        : 'Job demand and what became of it, counted'
+    } per ${interval}, across the selected window. Select a square in the matrix below to bring its interval under the crosshair.`,
+  );
+
   const ranked = $derived(
     [...rows].sort((a, b) => b.job_execution_seconds - a.job_execution_seconds).slice(0, 10),
   );
   const maxHours = $derived(Math.max(1, ...ranked.map((r) => r.job_execution_seconds)));
-  function date(value: string): string {
-    return new Date(value).toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  }
-  function points(key: keyof Bucket, divisor: number): string {
-    return buckets
-      .map(
-        (b, i) =>
-          `${48 + (i * 720) / Math.max(1, buckets.length - 1)},${192 - (Number(b[key]) / divisor / ceiling) * 164}`,
-      )
-      .join(' ');
-  }
 </script>
+
+{#snippet card()}
+  <ReadingCard
+    when={when(activeAt)}
+    note={active && inProgress(active, interval, now) ? 'still being filled' : undefined}
+    {readings}
+    {emphasis}
+    {format}
+  />
+{/snippet}
 
 <MetricGrid items={metrics} />
 <div class="insights">
-  <ChartPanel
-    title="Usage over time"
-    description="Follow demand, job outcomes and runner time across the selected window. Select a square in the matrix below to inspect its interval here."
-  >
-    {#snippet actions()}<Select
-        ariaLabel="Chart metric"
-        value={metric}
-        size="sm"
-        options={[
-          { value: 'outcomes', label: 'Job activity' },
-          { value: 'execution', label: 'Runner time' },
-        ]}
-        onchange={(v) => (metric = v)}
-      />{/snippet}
-    {#if buckets.length}
-      <div class="legend">
-        {#each visibleSeries as s (s.key)}<span
-            ><i class:dashed={s.dash} style:--tone={s.tone}></i>{s.name}</span
-          >{/each}
+  <ChartPanel title="Usage over time" {description}>
+    {#snippet actions()}
+      <Segmented
+        label="Measure"
+        value={measure}
+        options={USAGE_MEASURES}
+        onchange={(v) => (measure = v as UsageMeasure)}
+      />
+    {/snippet}
+
+    <div class="trend">
+      <div class="toolbar">
+        <FigureChips
+          label="Figures shown"
+          {figures}
+          {enabled}
+          group={(figure) => (figure.demand ? 'demand' : 'outcome')}
+          ontoggle={toggle}
+          onchip={(key) => (chip = key)}
+        />
+        {#if buckets.length}
+          <p class="headline" aria-live="off">
+            {#if peak && lead}
+              <span
+                >Peak in view: <strong>{format(peak.value)}</strong>
+                {lead.label.toLowerCase()}, {interval === 'day' ? 'on' : 'at'}
+                {when(peak.line.points[peak.i]?.at ?? activeAt)}</span
+              >
+            {/if}
+            {#if observed}
+              <span>
+                <strong class:warn={bandCount > 0}>{bandCount}</strong>
+                of {count}
+                {unit} with nowhere to place a runner
+              </span>
+            {/if}
+          </p>
+        {/if}
       </div>
-      <svg
-        viewBox="0 0 800 225"
-        role="img"
-        aria-label={`${metric === 'execution' ? 'Runner hours' : 'Job activity'} trend across ${buckets.length} intervals`}
-      >
-        {#each [0, 0.5, 1] as tick (tick)}<line
-            x1="48"
-            x2="768"
-            y1={192 - tick * 164}
-            y2={192 - tick * 164}
-            class="gridline"
-          /><text x="40" y={196 - tick * 164} text-anchor="end"
-            >{(ceiling * tick).toFixed(metric === 'execution' ? 1 : 0)}</text
-          >{/each}
-        {#each visibleSeries as s (s.key)}<polyline
-            points={points(s.key, s.divisor)}
-            fill="none"
-            stroke={s.tone}
-            stroke-width="2.5"
-            stroke-dasharray={s.dash ? '6 4' : undefined}
-            vector-effect="non-scaling-stroke"
-          />{/each}
-        {#if selected !== null}<line
-            x1={48 + (selected * 720) / Math.max(1, buckets.length - 1)}
-            x2={48 + (selected * 720) / Math.max(1, buckets.length - 1)}
-            y1="20"
-            y2="192"
-            class="cursor"
-          />{/if}
-        <text x="48" y="218">{date(buckets[0]?.from ?? '')}</text><text
-          x="768"
-          y="218"
-          text-anchor="end">{date(buckets[buckets.length - 1]?.from ?? '')}</text
+
+      <TrendPlot
+        {lines}
+        {count}
+        ceiling={axis.ceiling}
+        grid={axis.values}
+        start={at(buckets[0])}
+        end={at(buckets[buckets.length - 1])}
+        {bands}
+        {activeIndex}
+        {reading}
+        {emphasis}
+        lead={lead?.key ?? null}
+        present={latest && inProgress(latest, interval, now) ? newest : null}
+        revealKey={`${measure}:${grouping}:${entity}:${range.from}:${range.to}`}
+        {stamp}
+        {format}
+        message={buckets.length === 0
+          ? 'No retained history in this window.'
+          : drawn.length === 0
+            ? 'Choose a figure above to draw it.'
+            : undefined}
+        label={`Usage over time: ${drawn.map((f) => f.label.toLowerCase()).join(', ') || 'no figures chosen'}; ${count} ${unit}. Inspect the timeline below for exact values.`}
+        onhover={(i) => (hover = i)}
+        onpress={(i) => (cursor = i)}
+        onnear={(key) => (near = key)}
+        card={readings.length ? card : undefined}
+      />
+
+      <div class="scrub">
+        <label>
+          <span>Inspect an interval</span>
+          <input
+            type="range"
+            min="0"
+            max={Math.max(0, count - 1)}
+            value={cursor ?? newest}
+            oninput={(e) => (cursor = Number(e.currentTarget.value))}
+            aria-valuetext={valuetext}
+          />
+        </label>
+        <output
+          >{when(activeAt)}{#if !reading}<span class="latest">· latest</span>{/if}</output
         >
-      </svg>
-      <div class="inspect" aria-live="polite">
-        {#if active}<strong>{date(active.from)}</strong><span
-            >{visibleSeries
-              .map(
-                (s) =>
-                  `${s.name}: ${(active[s.key] / s.divisor).toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
-              )
-              .join(' · ')}</span
-          >{/if}
+        {#if cursor !== null}
+          <!-- A chosen interval stays chosen until it is let go of, so there
+               has to be a way to let go: on a phone, where a tap chose it,
+               there is no pointer to move away. It lets the matrix's square
+               go as well, since that is where the crosshair came from. -->
+          <button
+            type="button"
+            class="text"
+            onclick={() => {
+              selected = null;
+              cursor = null;
+            }}>Back to the latest</button
+          >
+        {/if}
       </div>
-    {:else}<p class="muted">No retained history in this window.</p>{/if}
+
+      <FigureRows
+        label="Figures read at this interval"
+        {readings}
+        ceiling={axis.ceiling}
+        {emphasis}
+        {moment}
+        {format}
+        empty="No figures chosen. Switch one on above to draw it."
+        ontoggle={toggle}
+        onchip={(key) => (chip = key)}
+      />
+    </div>
   </ChartPanel>
   <ChartPanel
     title="Execution by group"
@@ -403,66 +565,77 @@
     gap: var(--z-space-4);
     margin-bottom: var(--z-space-4);
   }
-  .legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--z-space-3);
-    color: var(--z-text-muted);
-    font-size: var(--z-text-xs);
-  }
-  .legend span {
-    display: flex;
-    align-items: center;
-    gap: var(--z-space-2);
-  }
-  /* A line rather than a dot, so the swatch can carry the stroke the chart
-     draws: the dashed series is dashed here too. */
-  i {
-    width: var(--z-space-4);
-    height: var(--z-nudge-2);
-    border-radius: var(--z-radius-full);
-    background: var(--tone);
-  }
-  i.dashed {
-    background: repeating-linear-gradient(
-      to right,
-      var(--tone) 0 var(--z-nudge-3),
-      transparent var(--z-nudge-3) var(--z-space-1)
-    );
-  }
-  svg {
-    width: 100%;
-    height: auto;
-    display: block;
-    margin-top: var(--z-space-4);
-    overflow: visible;
-  }
-  text {
-    fill: var(--z-text-muted);
-    font-size: 12px;
-  }
-  .gridline {
-    stroke: var(--z-border);
-    stroke-dasharray: 3 4;
-  }
-  .cursor {
-    stroke: var(--z-text-muted);
-    stroke-dasharray: 3 3;
-  }
-  .inspect {
-    min-height: var(--z-space-12);
+  /* -- the trend: the chips, the headline, the plot and its timeline -------- */
+  .trend {
     display: flex;
     flex-direction: column;
-    gap: var(--z-space-1);
-    padding: var(--z-space-3);
-    background: var(--z-surface-sunken);
-    border-radius: var(--z-radius-sm);
+    gap: var(--z-space-3);
+    min-width: 0;
+  }
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--z-space-2) var(--z-space-4);
+  }
+  .headline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--z-space-1) var(--z-space-4);
+    margin: 0;
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
+  }
+  .headline strong {
+    color: var(--z-text);
+    font-weight: var(--z-weight-semibold);
+    font-variant-numeric: tabular-nums;
+  }
+  .headline strong.warn {
+    color: var(--z-pending);
+  }
+  .scrub {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-3);
+    flex-wrap: wrap;
+  }
+  label {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-3);
+    flex: 1;
+    font-size: var(--z-text-xs);
+    min-width: 0;
+  }
+  label span {
+    white-space: nowrap;
+  }
+  input {
+    width: 100%;
+    min-width: 70px;
+    accent-color: var(--z-accent);
+    height: var(--z-space-6);
+  }
+  output {
     font-size: var(--z-text-xs);
     font-variant-numeric: tabular-nums;
   }
-  .inspect span {
+  output .latest {
+    margin-left: var(--z-space-1);
     color: var(--z-text-muted);
   }
+  button.text {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--z-accent);
+    font-size: var(--z-text-xs);
+    text-decoration: underline;
+    cursor: pointer;
+  }
+
   .ranking {
     display: grid;
     gap: var(--z-space-3);

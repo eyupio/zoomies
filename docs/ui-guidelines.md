@@ -271,8 +271,8 @@ The drawn controls have their own sizes, for the same reason: `--z-control-box`
 `--z-control-icon` (14px, the icon inside a button). Field and button *heights*
 are on the spacing scale and stay there, with one exception: `--z-control-touch`
 (44px) is the height a control read by a finger takes under
-`@media (pointer: coarse)` — the segmented choices, the capacity map's and the
-fleet trend's chips and legend switches, a slider's thumb — because a 24px row
+`@media (pointer: coarse)` — the segmented choices, the chips and legend
+switches every trend carries, a slider's thumb — because a 24px row
 a mouse is fine with is two rows under one fingertip. It applies only where the pointer is coarse,
 so the desktop keeps its density.
 
@@ -516,7 +516,7 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 | `Badge` | status pill: colour **and** shape from the state map |
 | `StatusDot` | the shape half of the state encoding, reusable inline |
 | `Tooltip` | on hover *and* focus; never the only place information lives. `text` is the whole tooltip as one sentence and what assistive technology gets; an optional `content` snippet draws a richer card for sighted readers |
-| `Segmented` | one choice among a few as one control, `aria-pressed` on the one in force: the activity matrix's ranges, the fleet trend's windows |
+| `Segmented` | one choice among a few as one control, `aria-pressed` on the one in force: the activity matrix's ranges, the fleet trend's windows, the usage chart's two measures |
 | `Dialog` | focus trap, restores focus on close, `Esc` closes, backdrop click closes only non-destructive dialogs |
 | `Drawer` | right-hand detail panel; same focus rules |
 | `NavMenu` | the phone's side menu: every section, named; slides from the left, same focus rules, closes when one is chosen |
