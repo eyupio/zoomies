@@ -20,6 +20,35 @@ import {
 test.use(browserOverride);
 
 /**
+ * What one runner in this fleet asks for, by the rule the Adjust dialog uses:
+ * the largest ask across the enabled pools, and twice over for a pool that
+ * gives its jobs a daemon of their own, because the backend gives the sidecar
+ * the same limits as the runner.
+ *
+ * Read from the fleet rather than written down here, so a change to the demo
+ * data -- or another spec editing a pool on this shared server -- moves the
+ * expectation with it instead of breaking it.
+ */
+async function runnerAsk(page: Page): Promise<{ cpus: number; memoryMb: number }> {
+  const pools = (await page.request.get('/api/v1/pools').then((r) => r.json())) as {
+    items?: {
+      enabled?: boolean;
+      docker_mode?: string;
+      resources?: { cpus?: number; memory_mb?: number };
+    }[];
+  };
+  let cpus = 0;
+  let memoryMb = 0;
+  for (const pool of pools.items ?? []) {
+    if (pool.enabled !== true) continue;
+    const containers = pool.docker_mode === 'dind' ? 2 : 1;
+    cpus = Math.max(cpus, (pool.resources?.cpus ?? 0) * containers);
+    memoryMb = Math.max(memoryMb, (pool.resources?.memory_mb ?? 0) * containers);
+  }
+  return { cpus: cpus > 0 ? cpus : 2, memoryMb: memoryMb > 0 ? memoryMb : 4096 };
+}
+
+/**
  * The install command. A <pre> carries no role of its own, so it is reached
  * inside the named hand-off panel by the installer it invokes. The credential
  * is shell-quoted, and should stay that way even when this test reads it back.
@@ -335,20 +364,31 @@ test('the adjust dialog recommends, warns past the recommendation and can set it
   page,
 }) => {
   await goto(page, '/hosts', 'Hosts');
-  // demo-builder-1: 16 cores, 32 GB. The demo pools ask for two cores and
-  // 4 GB, so what fits today follows from whatever reserve the host has --
-  // another spec on this shared server may have set one -- and seven fit
-  // once the recommended core and 3 GB are held back.
+  // demo-builder-1: 16 cores, 32 GB. What fits follows from two things the
+  // fixture owns rather than this test: whatever reserve the host has --
+  // another spec on this shared server may have set one -- and what a runner
+  // in this fleet asks for, which is the dialog's own rule and is read here
+  // the same way rather than copied as a number that goes stale.
   const builder = await page.request
     .get('/api/v1/hosts')
     .then((r) => r.json() as Promise<{ items: Record<string, number | string>[] }>)
     .then((page) => page.items.find((h) => h.name === 'demo-builder-1'));
   if (!builder) throw new Error('demo-builder-1 is not in the fixture');
+  const ask = await runnerAsk(page);
   const reservedCores = Number(builder.reserve_cpus ?? 0);
   const reservedMb = Number(builder.reserve_memory_mb ?? 0);
   const fits = Math.max(
     1,
-    Math.min(Math.floor((16 - reservedCores) / 2), Math.floor((32768 - reservedMb) / 4096)),
+    Math.min(
+      Math.floor((16 - reservedCores) / ask.cpus),
+      Math.floor((32768 - reservedMb) / ask.memoryMb),
+    ),
+  );
+  // With the recommended core and 3 GB held back, which is where the button
+  // below puts them.
+  const recommended = Math.max(
+    1,
+    Math.min(Math.floor((16 - 1) / ask.cpus), Math.floor((32768 - 3072) / ask.memoryMb)),
   );
   const card = page.getByRole('article', { name: 'demo-builder-1', exact: true });
   await card.getByRole('button', { name: 'Adjust', exact: true }).click();
@@ -363,7 +403,7 @@ test('the adjust dialog recommends, warns past the recommendation and can set it
   // Past the recommendation on slots: the callout says by how much.
   await dialog.getByRole('spinbutton', { name: 'Maximum runners on this host' }).fill('12');
   const warning = dialog.getByRole('status').filter({ hasText: 'Above the recommendation' });
-  await expect(warning).toContainText('12 runners would ask for 24 cores');
+  await expect(warning).toContainText(`12 runners would ask for ${12 * ask.cpus} cores`);
 
   // Too much held back: a different sentence, on the reserve. End is the
   // last notch, all but one core.
@@ -375,10 +415,13 @@ test('the adjust dialog recommends, warns past the recommendation and can set it
   ).toBeVisible();
 
   // One press: everything back on the mark, and the warnings gone. The
-  // reserve takes a core, so the capacity that fits is one fewer.
+  // reserve takes a core, so the capacity that fits can be one fewer.
   await dialog.getByRole('button', { name: 'Set to recommendations' }).click();
-  await expect(dialog).toContainText('room for 7 runners');
-  await expect(slots).toHaveAttribute('aria-valuetext', '7 runners');
+  await expect(dialog).toContainText(`room for ${recommended} runner`);
+  await expect(slots).toHaveAttribute(
+    'aria-valuetext',
+    recommended === 1 ? '1 runner' : `${recommended} runners`,
+  );
   await expect(cores).toHaveAttribute('aria-valuetext', '1 core');
   await expect(memory).toHaveAttribute('aria-valuetext', '3 GB');
   await expect(dialog.getByRole('status')).toHaveCount(0);

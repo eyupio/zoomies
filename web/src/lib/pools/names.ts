@@ -93,6 +93,18 @@ function offersBackend(host: Host, backend: BackendKind): boolean {
 }
 
 /**
+ * The size every pool in this fleet gets unless it says otherwise.
+ *
+ * It is passed in rather than assumed because it is a fleet setting, and
+ * because of what the name does with it: a figure every pool shares says
+ * nothing about any of them. See `shape`.
+ */
+export interface FleetSize {
+  cpus?: number;
+  memory_mb?: number;
+}
+
+/**
  * The parts of a draft a name is made of.
  *
  * Structural rather than the wizard's own PoolDraft, so this module owes the
@@ -137,13 +149,25 @@ function compactVersion(v: string): string {
  * overwhelming default and saying it on every pool stops the word carrying
  * information, so only the others are spelled out.
  */
-export function shape(draft: NameShape, hosts: readonly Host[]): string[] {
+export function shape(
+  draft: NameShape,
+  hosts: readonly Host[],
+  fleetDefault?: FleetSize | null,
+): string[] {
   const parts: string[] = [];
 
+  // Size is stated when it is not what every pool here gets. Every pool has a
+  // CPU and a memory figure now, so naming them unconditionally would put the
+  // same two words on every pool in the fleet -- which is the argument that
+  // keeps amd64 out of these names, applied to the figure it applies to twice
+  // as hard. A pool that asks for more than the fleet's usual is exactly the
+  // pool a workflow author is choosing, and it says so.
   const cpus = Math.ceil(Number(draft.cpus));
-  if (Number.isFinite(cpus) && cpus > 0) parts.push(`${cpus}vcpu`);
+  if (Number.isFinite(cpus) && cpus > 0 && cpus !== defaultCPUs(fleetDefault)) {
+    parts.push(`${cpus}vcpu`);
+  }
   const gb = Math.floor(Number(draft.memory_mb) / 1024);
-  if (Number.isFinite(gb) && gb > 0) parts.push(`${gb}gb`);
+  if (Number.isFinite(gb) && gb > 0 && gb !== defaultGB(fleetDefault)) parts.push(`${gb}gb`);
 
   const offering = hosts.filter((host) => offersBackend(host, draft.backend));
   const from = offering.length > 0 ? offering : hosts;
@@ -162,6 +186,22 @@ export function shape(draft: NameShape, hosts: readonly Host[]): string[] {
   if (arch !== '' && arch !== 'amd64') parts.push(arch);
 
   return parts;
+}
+
+/**
+ * The fleet's default in the units a name is written in: whole cores rounded
+ * the way a pool's own figure is, and whole gigabytes. A fleet that has not
+ * said, or a call that did not pass it, has no default to compare against and
+ * every figure is worth stating.
+ */
+function defaultCPUs(fleetDefault?: FleetSize | null): number {
+  const cpus = fleetDefault?.cpus;
+  return cpus !== undefined && cpus > 0 ? Math.ceil(cpus) : -1;
+}
+
+function defaultGB(fleetDefault?: FleetSize | null): number {
+  const mb = fleetDefault?.memory_mb;
+  return mb !== undefined && mb > 0 ? Math.floor(mb / 1024) : -1;
 }
 
 /** The raw value every entry agrees on, before sanitising, or "". */
@@ -198,12 +238,13 @@ export function poolName(
   draft: NameShape,
   hosts: readonly Host[],
   taken: readonly string[] = [],
+  fleetDefault?: FleetSize | null,
 ): string {
-  const parts = named(draft, hosts);
+  const parts = named(draft, hosts, fleetDefault);
   const spelled = new Set(taken.map((name) => sanitizeLabel(name)));
   const bare = fit(parts);
   if (parts.length > 0 && !spelled.has(sanitizeLabel(bare))) return bare;
-  return nicknamedPoolName(word, draft, hosts);
+  return nicknamedPoolName(word, draft, hosts, fleetDefault);
 }
 
 /**
@@ -214,8 +255,13 @@ export function poolName(
  * anything would read as broken -- and an operator who wants a handle for a
  * pool is entitled to one without having to invent it themselves.
  */
-export function nicknamedPoolName(word: string, draft: NameShape, hosts: readonly Host[]): string {
-  return fit(named(draft, hosts), sanitizeLabel(word) || 'pool');
+export function nicknamedPoolName(
+  word: string,
+  draft: NameShape,
+  hosts: readonly Host[],
+  fleetDefault?: FleetSize | null,
+): string {
+  return fit(named(draft, hosts, fleetDefault), sanitizeLabel(word) || 'pool');
 }
 
 /**
@@ -226,8 +272,12 @@ export function nicknamedPoolName(word: string, draft: NameShape, hosts: readonl
  * between two pools needs the name to say which. `zoomies init` marks it the
  * same way.
  */
-function named(draft: NameShape, hosts: readonly Host[]): string[] {
-  const parts = shape(draft, hosts);
+function named(
+  draft: NameShape,
+  hosts: readonly Host[],
+  fleetDefault?: FleetSize | null,
+): string[] {
+  const parts = shape(draft, hosts, fleetDefault);
   if (draft.backend === 'process') parts.push('host');
   return parts;
 }

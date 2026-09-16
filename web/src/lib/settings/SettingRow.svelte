@@ -123,7 +123,8 @@
         }
         return out;
       }
-      case 'int': {
+      case 'int':
+      case 'float': {
         const n = Number(text.trim());
         return Number.isFinite(n) ? n : text.trim();
       }
@@ -211,7 +212,8 @@
           bind:value={text}
           size="sm"
           mono
-          type={setting.kind === 'int' ? 'number' : 'text'}
+          type={setting.kind === 'int' || setting.kind === 'float' ? 'number' : 'text'}
+          step={setting.kind === 'float' ? 0.5 : undefined}
           ariaLabel="New value for {setting.key}"
           placeholder={setting.kind === 'duration' ? 'e.g. 30s, 5m, 168h' : undefined}
         />

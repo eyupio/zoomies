@@ -22,6 +22,12 @@ export interface RunnerAsk {
   /** Where the ask came from, for the sentence under the slider. */
   source: 'pools' | 'default';
   /**
+   * The pool whose figures won, when one did. It is the other half of the
+   * sentence: an operator told a runner here asks for eight cores can go and
+   * look at the pool that says so.
+   */
+  pool?: string;
+  /**
    * Whether the ask was doubled because a slot is a pair. It is the figure
    * that needs explaining: an operator who typed 2 cores on the pool and
    * reads 4 here has to be told which of the two is wrong, and neither is.
@@ -29,12 +35,30 @@ export interface RunnerAsk {
   pair: boolean;
 }
 
-/** The default a pool created today gets: two cores and four gigabytes. */
+/**
+ * The default a pool created today gets, where the fleet has not said.
+ *
+ * It is the same pair of figures `runners.default_cpus` and
+ * `runners.default_memory_mb` start at, and it stands in only until those have
+ * been read -- on the first paint, or where the call for them failed. Passing
+ * the fleet's own is what keeps this page's recommendation and the pool
+ * wizard's sliders describing the same fleet.
+ */
 export const DEFAULT_ASK: RunnerAsk = { cpus: 2, memoryMb: 4096, source: 'default', pair: false };
 
-export function runnerAsk(pools: readonly Pool[]): RunnerAsk {
+export function runnerAsk(
+  pools: readonly Pool[],
+  fleetDefault?: { cpus?: number; memory_mb?: number } | null,
+): RunnerAsk {
+  const fallbackCPUs =
+    fleetDefault?.cpus && fleetDefault.cpus > 0 ? fleetDefault.cpus : DEFAULT_ASK.cpus;
+  const fallbackMemoryMb =
+    fleetDefault?.memory_mb && fleetDefault.memory_mb > 0
+      ? fleetDefault.memory_mb
+      : DEFAULT_ASK.memoryMb;
   let cpus = 0;
   let memoryMb = 0;
+  let winner = '';
   // Whether the figure that won is a pair's, which is the only thing the
   // sentence has to explain. A dind pool that does not win says nothing here:
   // this function has no host in hand, so it cannot know whether that pool
@@ -56,31 +80,36 @@ export function runnerAsk(pools: readonly Pool[]): RunnerAsk {
     if (wantCpus > cpus) {
       cpus = wantCpus;
       cpuPair = containers > 1;
+      winner = pool.name ?? winner;
     }
     if (wantMemoryMb > memoryMb) {
       memoryMb = wantMemoryMb;
       memoryPair = containers > 1;
+      if (winner === '') winner = pool.name ?? '';
     }
   }
   if (cpus <= 0 && memoryMb <= 0) {
-    // Nothing was set anywhere, so the default answers -- twice over where a
-    // pool gives its jobs a daemon, since its pair is given the host's share
-    // on each container. This is the shape that sizes a host wrong most
+    // Nothing was set anywhere, so the fleet's default answers -- twice over
+    // where a pool gives its jobs a daemon, since its pair is given the host's
+    // share on each container. This is the shape that sizes a host wrong most
     // often, because there is no figure on the pool to double.
-    if (!anyPair) return DEFAULT_ASK;
+    if (!anyPair)
+      return { cpus: fallbackCPUs, memoryMb: fallbackMemoryMb, source: 'default', pair: false };
     return {
-      cpus: DEFAULT_ASK.cpus * 2,
-      memoryMb: DEFAULT_ASK.memoryMb * 2,
+      cpus: fallbackCPUs * 2,
+      memoryMb: fallbackMemoryMb * 2,
       source: 'default',
       pair: true,
     };
   }
-  return {
-    cpus: cpus > 0 ? cpus : DEFAULT_ASK.cpus,
-    memoryMb: memoryMb > 0 ? memoryMb : DEFAULT_ASK.memoryMb,
+  const ask: RunnerAsk = {
+    cpus: cpus > 0 ? cpus : fallbackCPUs,
+    memoryMb: memoryMb > 0 ? memoryMb : fallbackMemoryMb,
     source: 'pools',
     pair: cpuPair || memoryPair,
   };
+  if (winner !== '') ask.pool = winner;
+  return ask;
 }
 
 /**

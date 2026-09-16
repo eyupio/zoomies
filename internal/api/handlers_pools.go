@@ -154,6 +154,36 @@ func (s *Server) defaultPool() *store.Pool {
 		DockerMode:  store.DockerNone,
 		Cache:       store.CacheConfig{Scope: store.CacheScopePool},
 		Enabled:     true,
+		Resources:   s.defaultResources(),
+	}
+}
+
+// defaultResources is the size one runner gets where the request names none.
+//
+// Every pool has a size. A runner with no cgroup limit can take every core and
+// all of the memory on the machine it lands on, and the fleet charges it one
+// slot's share while it does -- so the host reads as half committed, its
+// daemon stops answering, and the creates queued behind it time out on a
+// machine the Hosts page calls busy. The figures are the fleet's own
+// (runners.default_cpus, runners.default_memory_mb) so that a fleet of small
+// boxes says so once rather than on every pool it creates.
+func (s *Server) defaultResources() store.Resources {
+	cpus, memoryMB := s.cfg().Runners.DefaultRunnerSize()
+	return store.Resources{CPUs: cpus, MemoryMB: memoryMB}
+}
+
+// sizeRunners fills in a size the request left out, so that "no limit" is not
+// reachable through this API. It is applied to an edit as well as to a
+// creation: a pool made before sizing was mandatory is sized the first time
+// anything about it is saved, which is the moment an operator is looking at
+// it, rather than silently keeping the unlimited runners it was created with.
+func (s *Server) sizeRunners(p *store.Pool) {
+	fallback := s.defaultResources()
+	if p.Resources.CPUs <= 0 {
+		p.Resources.CPUs = fallback.CPUs
+	}
+	if p.Resources.MemoryMB <= 0 {
+		p.Resources.MemoryMB = fallback.MemoryMB
 	}
 }
 
@@ -285,6 +315,34 @@ type platformOption struct {
 	Image     string   `json:"image"`
 	Arches    []string `json:"arches"`
 	Default   bool     `json:"default"`
+}
+
+// poolDefaultsResponse is what a pool that says nothing is, so that a form can
+// open on the same figures the server would have applied.
+//
+// It exists because the size is no longer optional: a wizard that opened its
+// sliders on a hard-coded two cores while the fleet's own default said eight
+// would be showing an operator a pool they are not creating. The same figures
+// answer "how big is a runner in this fleet" for the Hosts page, which sizes a
+// machine against them before any pool has been created at all.
+type poolDefaultsResponse struct {
+	Resources store.Resources `json:"resources"`
+	// MinRunners, MaxRunners and IdleTimeout are the rest of what a new pool
+	// starts as, so the wizard has one source for its starting point.
+	MinRunners  int    `json:"min_runners"`
+	MaxRunners  int    `json:"max_runners"`
+	IdleTimeout string `json:"idle_timeout"`
+}
+
+// handlePoolDefaults answers GET /api/v1/pools/defaults.
+func (s *Server) handlePoolDefaults(w http.ResponseWriter, _ *http.Request) {
+	p := s.defaultPool()
+	writeJSON(w, http.StatusOK, poolDefaultsResponse{
+		Resources:   p.Resources,
+		MinRunners:  p.MinRunners,
+		MaxRunners:  p.MaxRunners,
+		IdleTimeout: p.IdleTimeout.String(),
+	})
 }
 
 // handlePoolPlatforms answers GET /api/v1/pools/platforms.
@@ -433,11 +491,22 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 		add("idle_timeout", "warm ephemeral runners with no idle timeout are replaced after every job and never reaped; give an idle timeout, or set min_runners to 0")
 	}
 
-	if p.Resources.CPUs < 0 {
-		add("resources.cpus", "a CPU limit cannot be negative; use 0 for no limit")
+	// Zero is not "no limit" here: an unsized pool is sized from the fleet's
+	// default before it reaches this point, so a figure that survived is one
+	// somebody typed. The floors are what a runner needs to be a runner at
+	// all -- below them the agent process and the runner binary do not both
+	// fit, and the job fails in a way that looks like a broken image.
+	switch {
+	case p.Resources.CPUs < 0:
+		add("resources.cpus", "a CPU limit cannot be negative")
+	case p.Resources.CPUs > 0 && p.Resources.CPUs < 0.25:
+		add("resources.cpus", "a runner needs at least a quarter of a core; below that the runner binary cannot keep up with its own job")
 	}
-	if p.Resources.MemoryMB < 0 {
-		add("resources.memory_mb", "a memory limit cannot be negative; use 0 for no limit")
+	switch {
+	case p.Resources.MemoryMB < 0:
+		add("resources.memory_mb", "a memory limit cannot be negative")
+	case p.Resources.MemoryMB > 0 && p.Resources.MemoryMB < 512:
+		add("resources.memory_mb", "a runner needs at least 512 MB; below that the runner binary is killed before it takes a job")
 	}
 	if p.Resources.DiskGB < 0 {
 		add("resources.disk_gb", "a disk limit cannot be negative; use 0 for no limit")
@@ -550,6 +619,7 @@ func (s *Server) handleCreatePool(w http.ResponseWriter, r *http.Request) {
 			p.RunnerGroup = controller.ManagedRunnerGroupName
 		}
 	}
+	s.sizeRunners(p)
 	errs = append(errs, s.validatePool(r.Context(), p, "")...)
 	if len(errs) > 0 {
 		unprocessable(w, "this pool cannot be created as described", errs)
@@ -597,6 +667,15 @@ type validatePoolResponse struct {
 	// stock image's Docker variant, and the review step should show that
 	// rather than promise a pool the server will not make.
 	Image string `json:"image"`
+	// Room is how many runners of this size the hosts it can land on have
+	// between them, host by host. It is what turns "4 CPU per runner" and "a
+	// maximum of 20" from two settings nobody can weigh against each other
+	// into one sentence: the fleet has room for eleven.
+	Room controller.PoolRoom `json:"room"`
+	// Resources is the size the pool would actually run at, which for a
+	// request that named none is the fleet's default rather than no limit at
+	// all. The wizard's sliders open on it.
+	Resources store.Resources `json:"resources"`
 }
 
 // handleValidatePool answers POST /api/v1/pools/validate. It creates nothing.
@@ -613,6 +692,7 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 	}
 	p := s.defaultPool()
 	errs := in.apply(p)
+	s.sizeRunners(p)
 	errs = append(errs, s.validatePool(r.Context(), p, r.URL.Query().Get("id"))...)
 
 	fit, err := s.ctrl.HostFit(r.Context(), p)
@@ -630,7 +710,13 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 	if i, err := s.ctrl.Store().GetInstallation(r.Context(), p.InstallationID); err == nil {
 		inst = i
 	}
+	room, err := s.ctrl.PoolRoom(r.Context(), p)
+	if err != nil {
+		s.internal(w, r, "counting the room this pool's hosts have for it", err)
+		return
+	}
 	warnings := controller.PoolWarnings(p, inst)
+	warnings = append(warnings, controller.PoolRoomWarnings(p, room)...)
 	if fit.Count == 0 {
 		why, fix := noHostWarning(p, fit)
 		warnings = append(warnings, controller.Problem{
@@ -656,6 +742,8 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 		SelectedHosts: fit.Selected,
 		ExcludedHosts: excluded,
 		Image:         p.Image,
+		Room:          room,
+		Resources:     p.Resources,
 	})
 }
 
@@ -780,6 +868,7 @@ func (s *Server) handleUpdatePool(w http.ResponseWriter, r *http.Request) {
 	before := *existing
 	updated := *existing
 	errs := in.apply(&updated)
+	s.sizeRunners(&updated)
 	errs = append(errs, s.validatePool(r.Context(), &updated, id)...)
 	if len(errs) > 0 {
 		unprocessable(w, "this pool cannot be changed as described", errs)

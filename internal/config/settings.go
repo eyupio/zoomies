@@ -49,6 +49,11 @@ const (
 	KindOptionalBool Kind = "optional_bool"
 	// KindInt is a whole number.
 	KindInt Kind = "int"
+	// KindFloat is a number that may have a fraction. There is one thing in
+	// this configuration that is genuinely fractional -- how much of a core a
+	// runner gets -- and rounding it to whole cores would take half a core
+	// away from every operator running small jobs on a small machine.
+	KindFloat Kind = "float"
 	// KindDuration is a Go duration, written as an operator writes it: 30s,
 	// 5m, 168h. It is carried as that string rather than as a number of
 	// nanoseconds, so what an operator typed is what a reader sees.
@@ -422,6 +427,14 @@ var registry = buildRegistry([]Setting{
 		Key: "runners.docker_wait", Label: "Docker daemon wait", Env: "ZOOMIES_DOCKER_WAIT", Kind: KindDuration, Scope: ScopeInstance, Live: true,
 		Floor:   time.Second,
 		Summary: "How long a runner on a pool that provides Docker waits for that daemon before refusing to take a job. Whole seconds, up to an hour; 0 leaves the runner image's own default. A pool's env can set ZOOMIES_DOCKER_WAIT to override it for that pool.",
+	},
+	{
+		Key: "runners.default_cpus", Label: "Default CPUs per runner", Env: "ZOOMIES_RUNNER_DEFAULT_CPUS", Kind: KindFloat, Scope: ScopeInstance, Live: true,
+		Summary: "How much CPU one runner gets on a pool that has not said otherwise, in cores; fractions are allowed. Every pool has a size, so this is the figure a new pool opens on rather than a fallback for pools with no limits. 0 means nothing has been said and the built-in 2 cores answers.",
+	},
+	{
+		Key: "runners.default_memory_mb", Label: "Default memory per runner", Env: "ZOOMIES_RUNNER_DEFAULT_MEMORY_MB", Kind: KindInt, Scope: ScopeInstance, Live: true,
+		Summary: "How much memory one runner gets on a pool that has not said otherwise, in megabytes. It is the figure a new pool opens on, and the one a host's recommended capacity is worked out from. 0 means nothing has been said and the built-in 4096 answers.",
 	},
 	{
 		Key: "runners.env", Label: "Runner environment", Env: "ZOOMIES_RUNNER_ENV", Kind: KindLabels, Scope: ScopeInstance, Live: true,

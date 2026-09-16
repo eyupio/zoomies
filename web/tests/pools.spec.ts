@@ -6,7 +6,7 @@
  * that being an accident: the list says which pools carry that risk and names
  * it, and the wizard spells out the dangerous choice and refuses to take it
  * without a deliberate confirmation. It also protects the wizard as a wizard --
- * six steps, a preview of the runs-on line the labels produce, the server's
+ * seven steps, a preview of the runs-on line the labels produce, the server's
  * own verdict before anything is created, and a Back button that does not
  * throw away what was typed.
  */
@@ -30,6 +30,35 @@ const nameField = (page: Page) => page.getByRole('textbox', { name: 'Pool name' 
 const radio = (page: Page, group: 'backend' | 'docker-mode' | 'placement', value: string) =>
   page.locator(`input[name="pool-${group}"][value="${value}"]`);
 const labelField = (page: Page) => page.getByRole('textbox', { name: 'Labels' });
+
+/**
+ * Move a slider to the value it announces, the way a keyboard does.
+ *
+ * The control moves by notch rather than by number -- its `value` is an index
+ * into the notches, so filling it with "4" would land on the fifth notch
+ * rather than on four cores. Arrowing towards the words the slider speaks is
+ * both what an operator does and the only spelling that stays true when a
+ * notch is added.
+ */
+async function setSlider(page: Page, name: string, valuetext: string): Promise<void> {
+  const slider = page.getByRole('slider', { name });
+  await slider.focus();
+  for (let step = 0; step < 40; step++) {
+    const current = await slider.getAttribute('aria-valuetext');
+    if (current === valuetext) return;
+    const before = await slider.inputValue();
+    await page.keyboard.press('ArrowRight');
+    if ((await slider.inputValue()) === before) break;
+  }
+  // Past it, or the wrong way: come back down until it matches.
+  for (let step = 0; step < 40; step++) {
+    if ((await slider.getAttribute('aria-valuetext')) === valuetext) return;
+    const before = await slider.inputValue();
+    await page.keyboard.press('ArrowLeft');
+    if ((await slider.inputValue()) === before) break;
+  }
+  await expect(slider).toHaveAttribute('aria-valuetext', valuetext);
+}
 
 /** Add a label the way an operator does: type it, press Enter, see the chip. */
 async function addLabel(page: Page, label: string): Promise<void> {
@@ -118,25 +147,27 @@ test('runner limits are adjustable from a pool row without opening the wizard', 
   await expect(pageHeading(page, 'Pools')).toBeVisible();
 });
 
-test('the wizard walks target, labels, hosts, backend, scaling and review', async ({ page }) => {
+test('the wizard walks target, labels, hosts, backend, size, scaling and review', async ({
+  page,
+}) => {
   await goto(page, '/pools/new', 'Create a pool');
 
   // The step list by class: nothing in the accessibility tree tells it apart
   // from the breadcrumb list above it, which is also an ordered list in main.
   const steps = page.locator('ol.steps');
-  for (const step of ['Target', 'Labels', 'Hosts', 'Backend', 'Scaling', 'Review']) {
+  for (const step of ['Target', 'Labels', 'Hosts', 'Backend', 'Size', 'Scaling', 'Review']) {
     await expect(steps).toContainText(step);
   }
 
   await expect(page.getByRole('heading', { level: 2, name: 'Target' })).toBeVisible();
-  await expect(page.getByText('Step 1 of 6')).toBeVisible();
+  await expect(page.getByText('Step 1 of 7')).toBeVisible();
   await nameField(page).fill('e2e-pool');
   // One installation exists, so the wizard has chosen it already.
   await expect(page.getByLabel('GitHub installation')).toHaveValue(/ins_/);
 
   await next(page).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Labels' })).toBeVisible();
-  await expect(page.getByText('Step 2 of 6')).toBeVisible();
+  await expect(page.getByText('Step 2 of 7')).toBeVisible();
   // The name has already produced a label; a second one is added on top.
   await expect(
     page.getByRole('button', { name: 'Remove the label zoomies-e2e-pool' }),
@@ -152,13 +183,26 @@ test('the wizard walks target, labels, hosts, backend, scaling and review', asyn
   await expect(page.getByRole('heading', { level: 2, name: 'Backend' })).toBeVisible();
   await expect(radio(page, 'backend', 'docker')).toBeChecked();
 
+  // Size before count: how much machine one runner gets is asked before how
+  // many there may be, because the second means nothing without the first.
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Size' })).toBeVisible();
+  const cpu = page.getByRole('slider', { name: 'CPU per runner' });
+  await expect(cpu).toBeVisible();
+  // Sized already, from the fleet's own default rather than left empty.
+  await expect(cpu).toHaveAttribute('aria-valuetext', '2 cores');
+  await expect(page.getByRole('slider', { name: 'Memory per runner' })).toHaveAttribute(
+    'aria-valuetext',
+    '4 GB',
+  );
+
   await next(page).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Scaling' })).toBeVisible();
   await expect(page.getByRole('spinbutton', { name: 'Maximum runners' })).toBeVisible();
 
   await next(page).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Review' })).toBeVisible();
-  await expect(page.getByText('Step 6 of 6')).toBeVisible();
+  await expect(page.getByText('Step 7 of 7')).toBeVisible();
   // The last step offers to create rather than to continue.
   await expect(page.getByRole('button', { name: 'Create pool' })).toBeVisible();
 });
@@ -226,6 +270,7 @@ test('the hosts step keeps a pool to an architecture and says which machines tha
   await expect(page.getByText(/cordoned or not heartbeating/)).toHaveCount(0);
 
   // And the choice reaches the pool that gets created.
+  await next(page).click();
   await next(page).click();
   await next(page).click();
   await next(page).click();
@@ -318,6 +363,7 @@ test('the review step shows the server verdict and how many hosts could run it',
   await nameField(page).fill('e2e-pool');
   await next(page).click();
   await addLabel(page, 'gpu');
+  await next(page).click();
   await next(page).click();
   await next(page).click();
   await next(page).click();
@@ -431,6 +477,7 @@ test('editing the maximum runners still lets the wizard reach review', async ({ 
   await next(page).click();
   await next(page).click();
   await next(page).click();
+  await next(page).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Scaling' })).toBeVisible();
 
   const max = page.getByRole('spinbutton', { name: 'Maximum runners' });
@@ -490,6 +537,8 @@ test('the generated name follows the shape until somebody types their own', asyn
   await back(page).click();
   await back(page).click();
   await back(page).click();
+  // The size says nothing yet: it is the fleet's default, which every pool
+  // here gets, so the name is the platform alone.
   await expect(name).toHaveValue('zoomies-debian-12');
 
   // The size is part of the shape too, and it is the part a workflow author is
@@ -498,7 +547,7 @@ test('the generated name follows the shape until somebody types their own', asyn
   await next(page).click();
   await next(page).click();
   await next(page).click();
-  await page.getByRole('spinbutton', { name: 'CPUs' }).fill('4');
+  await setSlider(page, 'CPU per runner', '4 cores');
   await back(page).click();
   await back(page).click();
   await back(page).click();
@@ -580,7 +629,7 @@ test('editing a pool is not refused because its own name is taken', async ({ pag
   // used to compare the pool against every pool including itself, so this said
   // "a pool called zoomies-demo-linux-x64 already exists" -- about itself -- and
   // the only way to save any edit was to rename the pool as well.
-  for (let step = 0; step < 5; step += 1) await next(page).click();
+  for (let step = 0; step < 6; step += 1) await next(page).click();
   await expect(page.getByText('already exists')).toBeHidden();
   await expect(page.getByRole('button', { name: /Save|Update/ })).toBeEnabled();
 });
@@ -605,7 +654,7 @@ test('a ticked pool can be edited from the same bar that enables and disables it
   await expect(nameField(page)).toHaveValue(FIXTURE.linuxPool);
 });
 
-test('the scaling step says which hosts a CPU limit has just cost the pool', async ({ page }) => {
+test('the size step says which hosts a CPU limit has just cost the pool', async ({ page }) => {
   // The bug this covers: the hosts step counted every machine the selector
   // reached, the review step counted fewer, and nothing between them said that
   // a resource limit was what had happened. The demo fleet is a 16-CPU builder,
@@ -618,9 +667,9 @@ test('the scaling step says which hosts a CPU limit has just cost the pool', asy
   await next(page).click();
   await next(page).click();
   await next(page).click();
-  await expect(page.getByRole('heading', { level: 2, name: 'Scaling' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2, name: 'Size' })).toBeVisible();
 
-  await page.getByLabel('CPUs').fill('12');
+  await setSlider(page, 'CPU per runner', '12 cores');
 
   // Named host, and the two numbers an operator cannot compare for themselves:
   // what the machine has, and what one runner of this pool is charged. The
@@ -633,7 +682,7 @@ test('the scaling step says which hosts a CPU limit has just cost the pool', asy
   // A limit the fleet can cover puts the host back, leaving only the cordoned
   // box -- which is the fleet's state rather than this pool's doing, so the
   // block stops blaming the limits an operator has already corrected.
-  await page.getByLabel('CPUs').fill('4');
+  await setSlider(page, 'CPU per runner', '4 cores');
   await expect(fit).not.toContainText('demo-builder-2');
   await expect(fit).not.toContainText(/Matching the host selector is not the whole of it/);
 });

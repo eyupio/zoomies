@@ -570,6 +570,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/pools/defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What a pool that says nothing is
+         * @description The figures a new pool starts at, chiefly the CPU and memory one runner
+         *     gets. Every pool has a size -- a request that names none is saved with
+         *     this one -- so a form that opened its sliders on a constant of its own
+         *     would be showing an operator a pool they are not creating. The same
+         *     figures are what a host's recommended capacity is worked out from
+         *     before any pool exists.
+         */
+        get: operations["getPoolDefaults"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pools/validate": {
         parameters: {
             query?: never;
@@ -2834,21 +2859,80 @@ export interface components {
             skipped?: number;
             failed?: number;
         };
+        /** @description What one runner of a pool may consume on its host. `cpus` and `memory_mb` are not optional in effect: a pool saved without them is saved with the fleet's default (`runners.default_cpus`, `runners.default_memory_mb`) rather than with no limit, because a runner with no cgroup limit can take every core on the machine it lands on while the fleet charges it one slot's share. `disk_gb` and `pids_limit` are still optional, and zero there means no limit. */
         Resources: {
             /**
              * Format: double
+             * @description Cores, fractions allowed. Omitted or zero means the fleet's default; below a quarter of a core is refused, because the runner binary cannot keep up with its own job.
              * @example 2
              */
             cpus?: number;
             /**
              * Format: int64
+             * @description Megabytes. Omitted or zero means the fleet's default; below 512 is refused, because the runner binary is killed before it takes a job.
              * @example 4096
              */
             memory_mb?: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Advisory
+             */
             disk_gb?: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The container's pids cgroup limit. Zero is no limit.
+             */
             pids_limit?: number;
+        };
+        /** @description One host's room for a pool: what it promises, what the machine can back at that pool's size, and what one runner of it is charged there. */
+        PoolHostRoom: {
+            host_id?: string;
+            host?: string;
+            /** @description The host's runner capacity */
+            slots?: number;
+            /** @description How many runners of this pool the machine has room for */
+            fits?: number;
+            /** @description The smaller of the two */
+            room?: number;
+            /**
+             * @description What ran out first. Absent on a host that has measured nothing, where only its slots bind.
+             * @enum {string}
+             */
+            limited_by?: "slots" | "cpu" | "memory" | "disk";
+            /**
+             * Format: double
+             * @description What one runner of this pool costs here
+             */
+            charge_cpus?: number;
+            /** Format: int64 */
+            charge_memory_mb?: number;
+            /**
+             * Format: double
+             * @description The machine less its reserve
+             */
+            cpus?: number;
+            /** Format: int64 */
+            memory_mb?: number;
+            /** Format: int64 */
+            disk_mb?: number;
+            cpus_known?: boolean;
+            memory_known?: boolean;
+            disk_known?: boolean;
+        };
+        /** @description How many runners of a pool the hosts that can run it have room for, counted on an empty fleet. What is running right now changes with every job; the question a size and a maximum are chosen against is how big the machines are, in runners of this pool. */
+        PoolRoom: {
+            /** @description The room across every matching host. It is the number a maximum is worth comparing against. */
+            runners?: number;
+            /** @description What those hosts' capacities add up to */
+            slots?: number;
+            hosts?: components["schemas"]["PoolHostRoom"][];
+            /**
+             * Format: int64
+             * @description The least free disk on any matching host
+             */
+            smallest_disk_mb?: number;
+            smallest_disk_host?: string;
+            disk_known?: boolean;
         };
         /** @description One row of the runner image catalogue. */
         PoolPlatform: {
@@ -4326,10 +4410,10 @@ export interface components {
              */
             section: string;
             /**
-             * @description How to parse and render the value. `duration` is carried as the text an operator writes (30s, 5m, 168h) rather than as a number. `optional_bool` has three states, because unset means the value is derived from another setting.
+             * @description How to parse and render the value. `duration` is carried as the text an operator writes (30s, 5m, 168h) rather than as a number. `optional_bool` has three states, because unset means the value is derived from another setting. `float` is the one figure that is genuinely fractional, a share of a CPU.
              * @enum {string}
              */
-            kind: "string" | "enum" | "bool" | "optional_bool" | "int" | "duration" | "strings" | "labels";
+            kind: "string" | "enum" | "bool" | "optional_bool" | "int" | "float" | "duration" | "strings" | "labels";
             /** @description The permitted values, when the kind is `enum`. */
             choices?: string[];
             /** @description One line saying what the setting does. */
@@ -5532,6 +5616,32 @@ export interface operations {
             };
         };
     };
+    getPoolDefaults: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The defaults */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        resources: components["schemas"]["Resources"];
+                        min_runners?: number;
+                        max_runners?: number;
+                        /** @example 5m0s */
+                        idle_timeout?: string;
+                    };
+                };
+            };
+        };
+    };
     validatePool: {
         parameters: {
             query?: {
@@ -5570,6 +5680,10 @@ export interface operations {
                         excluded_hosts?: components["schemas"]["HostExclusion"][];
                         /** @description The image the pool would actually run, which for a pool that gives its jobs a daemon is the stock image's Docker variant rather than the image the request named. */
                         image?: string;
+                        /** @description The size the pool would actually run at. A request that names no CPU or memory is sized from the fleet's default rather than left unlimited, and this is that size. */
+                        resources?: components["schemas"]["Resources"];
+                        /** @description How many runners of this size the hosts it can land on have room for, host by host. It is what a maximum is worth comparing against. */
+                        room?: components["schemas"]["PoolRoom"];
                     };
                 };
             };

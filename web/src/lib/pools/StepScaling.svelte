@@ -1,16 +1,29 @@
 <!--
-  Step four: how many runners, for how long, and how big.
+  Step six: how many runners, and for how long.
 
-  The maximum is the one number worth explaining: it is not a target, it is the
-  backstop that stops a runaway workflow turning into a hosting bill.
+  It comes after the size on purpose. A maximum is a number about machines --
+  it means something only once it is known what one runner costs and what the
+  hosts can hold -- and asked first it was a number typed into an empty box
+  with nothing on screen able to say what it would buy. By the time this step
+  is reached the fleet has an answer, so the maximum starts at what the hosts
+  can actually place and says where the figure came from.
+
+  It stays a figure rather than becoming "as many as fit". The maximum is a
+  backstop: it is what stops one misconfigured workflow, or one repository
+  under a fork-pull-request storm, filling every machine and every rented one
+  behind it. A cap that silently grew with the fleet would be a cap nobody
+  chose, so the fleet's room is offered and an operator accepts it.
 -->
 <script lang="ts">
-  import { formatGoDuration, parseGoDuration } from '$lib/format';
-  import type { Result } from '$lib/api/types';
+  import { Sparkles } from '@lucide/svelte';
+  import { formatGoDuration, parseGoDuration, pluralise } from '$lib/format';
+  import type { PoolRoom as PoolRoomShape, Result } from '$lib/api/types';
+  import Button from '$lib/components/Button.svelte';
   import Checkbox from '$lib/components/Checkbox.svelte';
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
-  import PoolFit from './PoolFit.svelte';
+  import PoolRoom from './PoolRoom.svelte';
+  import { sizeLabel } from './sizing';
   import type { PoolDraft } from './PoolWizardForm.svelte';
 
   interface Props {
@@ -20,12 +33,37 @@
     /** What the fleet makes of these limits, asked as they are typed. */
     verdict: Result<'validatePool'> | null;
     validating: boolean;
+    /**
+     * Whether the maximum is still the one the wizard worked out from the
+     * fleet. It stops following the moment an operator types their own.
+     */
+    following?: boolean;
   }
 
-  let { draft, errors, touch, verdict, validating }: Props = $props();
+  let { draft, errors, touch, verdict, validating, following = false }: Props = $props();
 
   const timeout = $derived(parseGoDuration(draft.idle_timeout));
   const timeoutText = $derived(timeout === null ? '' : formatGoDuration(draft.idle_timeout));
+
+  const cpus = $derived(Number(draft.cpus) || 0);
+  const memoryMb = $derived(Number(draft.memory_mb) || 0);
+  const room = $derived<PoolRoomShape | null>(verdict?.room ?? null);
+  const roomTotal = $derived(room?.runners ?? 0);
+  const maximum = $derived(Number(draft.max_runners) || 0);
+  const minimum = $derived(Number(draft.min_runners) || 0);
+
+  /* The fleet grew, or the runners got smaller, and this pool is not allowed
+     to use it. Nothing else says so: the pool is enabled, matches its hosts,
+     and simply stops at a number chosen when the fleet was smaller. */
+  const roomToSpare = $derived(roomTotal > 0 && maximum < roomTotal);
+  /* A minimum above what the fleet can hold is warm runners that never appear,
+     which reads on every page as a pool that is permanently short. */
+  const minAboveRoom = $derived(roomTotal > 0 && minimum > roomTotal);
+
+  function setMax(value: number): void {
+    draft.max_runners = String(value);
+    touch('max_runners');
+  }
 </script>
 
 <div class="pair">
@@ -53,6 +91,9 @@
     required
     error={errors['max_runners']}
     hint="The backstop. However many jobs GitHub queues, this pool will never create more runners than this — which is what stops one misconfigured workflow filling every host you have."
+    notice={following && roomTotal > 0
+      ? `Following the fleet: ${pluralise(roomTotal, 'runner')} of ${sizeLabel(cpus, memoryMb)} fit on the hosts this pool reaches. Type your own and it stops following.`
+      : undefined}
   >
     {#snippet children({ id, describedBy, invalid })}
       <Input
@@ -68,6 +109,40 @@
     {/snippet}
   </Field>
 </div>
+
+<!--
+  The same count the size step showed, read the other way round: there it says
+  what a size costs, here it says what a cap leaves on the table. Both offer
+  the change that resolves it.
+-->
+<PoolRoom
+  {room}
+  {cpus}
+  {memoryMb}
+  {validating}
+  maxRunners={maximum}
+  onusemax={(value) => setMax(value)}
+/>
+
+{#if roomToSpare && !following}
+  <div class="spare">
+    <p>
+      The hosts this pool reaches have room for {pluralise(roomTotal, 'runner')} of this size, and its
+      maximum is {maximum}. A burst of jobs will queue behind that cap on machines that are standing
+      by.
+    </p>
+    <Button variant="secondary" size="sm" icon={Sparkles} onclick={() => setMax(roomTotal)}>
+      Raise the maximum to {roomTotal}
+    </Button>
+  </div>
+{/if}
+
+{#if minAboveRoom}
+  <p class="echo">
+    The minimum is above what the fleet can hold, so {pluralise(minimum - roomTotal, 'warm runner')}
+    would never appear and this pool would read as permanently short.
+  </p>
+{/if}
 
 <Field
   label="Priority"
@@ -117,136 +192,6 @@
   onchange={() => touch('ephemeral')}
 />
 
-<fieldset class="resources">
-  <legend>Resources per runner</legend>
-  <p class="hint">Leave a box empty for no limit. The host's own capacity still applies.</p>
-  <div class="triple">
-    <Field label="CPUs" error={errors['resources.cpus']}>
-      {#snippet children({ id, describedBy, invalid })}
-        <Input
-          bind:value={draft.cpus}
-          {id}
-          {describedBy}
-          {invalid}
-          type="number"
-          min={0}
-          step={0.5}
-          placeholder="2"
-          onblur={() => touch('resources.cpus')}
-        />
-      {/snippet}
-    </Field>
-
-    <Field label="Memory (MB)" error={errors['resources.memory_mb']}>
-      {#snippet children({ id, describedBy, invalid })}
-        <Input
-          bind:value={draft.memory_mb}
-          {id}
-          {describedBy}
-          {invalid}
-          type="number"
-          min={0}
-          step={256}
-          placeholder="4096"
-          onblur={() => touch('resources.memory_mb')}
-        />
-      {/snippet}
-    </Field>
-
-    <Field label="Disk (GB)" error={errors['resources.disk_gb']}>
-      {#snippet children({ id, describedBy, invalid })}
-        <Input
-          bind:value={draft.disk_gb}
-          {id}
-          {describedBy}
-          {invalid}
-          type="number"
-          min={0}
-          step={1}
-          placeholder="20"
-          onblur={() => touch('resources.disk_gb')}
-        />
-      {/snippet}
-    </Field>
-  </div>
-  <!--
-    A limit is a promise about a machine, and it is the one setting in the
-    wizard that can quietly cost a host: a request the fleet cannot cover
-    excludes hosts that match everything else, and the pool still looks
-    healthy. The count belongs here, under the boxes, while it can still be
-    typed differently.
-  -->
-  <PoolFit {verdict} {validating} />
-</fieldset>
-
-<fieldset class="resources">
-  <legend>Performance cache</legend>
-  <p class="hint">
-    Mounted at <code>/opt/zoomies-cache</code>. This is disposable build acceleration, not
-    persistent workflow storage.
-  </p>
-  <Checkbox
-    bind:checked={draft.cache_enabled}
-    label="Enable cache"
-    description="Reuse downloaded dependencies and build outputs within the selected isolation boundary."
-    onchange={() => touch('cache.enabled')}
-  />
-  {#if draft.cache_enabled}
-    <div class="triple">
-      <Field label="Isolation scope" error={errors['cache.scope']}>
-        {#snippet children({ id, describedBy })}<select
-            bind:value={draft.cache_scope}
-            {id}
-            aria-describedby={describedBy}
-            ><option value="pool">Pool</option><option value="repository">Repository</option
-            ></select
-          >{/snippet}
-      </Field>
-      <Field label="Size limit (bytes)" error={errors['cache.size_limit']}>
-        {#snippet children({ id, describedBy, invalid })}<Input
-            bind:value={draft.cache_size_limit}
-            {id}
-            {describedBy}
-            {invalid}
-            type="number"
-            min={0}
-            placeholder="10737418240"
-          />{/snippet}
-      </Field>
-      <Field label="Host path or volume prefix" error={errors['cache.source']}>
-        {#snippet children({ id, describedBy, invalid })}<Input
-            bind:value={draft.cache_source}
-            {id}
-            {describedBy}
-            {invalid}
-            placeholder="zoomies-cache"
-          />{/snippet}
-      </Field>
-    </div>
-    <p class="hint">
-      A size limit is kept by evicting whole cache entries, least recently used first, between one
-      runner and the next. It needs an absolute host path above: there is nothing to measure inside
-      a named volume.
-    </p>
-    {#if draft.cache_scope === 'repository'}
-      <Field label="Cache repository (owner/name)" error={errors['cache.repository']}>
-        {#snippet children({ id, describedBy, invalid })}<Input
-            bind:value={draft.cache_repository}
-            {id}
-            {describedBy}
-            {invalid}
-            placeholder="acme/widgets"
-          />{/snippet}
-      </Field>
-      <p class="hint">
-        Leave this empty when the pool's installation is scoped to a single repository — it already
-        says which one. An organisation-wide installation does not, so name the repository this
-        pool's cache is for.
-      </p>
-    {/if}
-  {/if}
-</fieldset>
-
 <style>
   .pair {
     display: grid;
@@ -256,33 +201,31 @@
   }
   .echo {
     margin: 0;
+    max-width: 70ch;
     font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
     color: var(--z-text-subtle);
   }
-  .resources {
-    margin: 0;
-    padding: 0;
-    border: 0;
+  .spare {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--z-space-3);
+    padding: var(--z-space-3) var(--z-space-4);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface-sunken);
   }
-  legend {
-    padding: 0 0 var(--z-space-1);
+  .spare p {
+    margin: 0;
+    max-width: 66ch;
     font-size: var(--z-text-xs);
-    font-weight: var(--z-weight-medium);
+    line-height: var(--z-leading-xs);
     color: var(--z-text-muted);
   }
-  .hint {
-    margin: 0 0 var(--z-space-3);
-    font-size: var(--z-text-xs);
-    color: var(--z-text-subtle);
-  }
-  .triple {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: var(--z-space-4);
-  }
   @media (max-width: 768px) {
-    .pair,
-    .triple {
+    .pair {
       grid-template-columns: minmax(0, 1fr);
     }
   }

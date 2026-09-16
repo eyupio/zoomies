@@ -1,0 +1,245 @@
+package controller
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/scheduler"
+	"github.com/eyupio/zoomies/internal/store"
+)
+
+// How much machine a pool asks for, against the machines it may land on.
+//
+// HostFit next door answers "could this pool run anywhere at all", which is a
+// yes or a no. This answers the question underneath the two settings an
+// operator actually gets wrong: how big one runner is, and how many of them
+// there may be. A pool of eight-core runners on three four-core boxes is
+// valid, matches its hosts and starts nothing; a pool whose maximum is forty
+// on a fleet with room for eleven is valid, healthy, and queues twenty-nine
+// jobs behind runners that will never be created. Neither is visible anywhere
+// a pool is edited unless something counts it.
+//
+// It is counted on an empty fleet on purpose: what is running right now
+// changes with every job, and a size and a cap chosen against this minute's
+// occupancy would be re-chosen the next. The question is what the machines can
+// hold, which is a property of the machines.
+
+// PoolHostRoom is one host's answer, in the terms the machine was set up in.
+type PoolHostRoom struct {
+	HostID string `json:"host_id"`
+	Host   string `json:"host"`
+	// Slots is the host's runner capacity, less any throttle in force.
+	Slots int `json:"slots"`
+	// Fits is how many runners of this pool the machine has room for,
+	// ignoring the slot count -- so a host whose slots outrun its machine can
+	// be told from one sized to match.
+	Fits int `json:"fits"`
+	// Room is what the pool can actually expect here: the smaller of the two.
+	Room int `json:"room"`
+	// LimitedBy is what ran out first: slots, cpu, memory or disk. It is empty
+	// on a host that has measured nothing, where only its slots bind.
+	LimitedBy string `json:"limited_by,omitempty"`
+	// ChargeCPUs and ChargeMemoryMB are what one runner of this pool costs
+	// here, which is not always what the pool says: a docker-in-docker runner
+	// is charged for its sidecar too.
+	ChargeCPUs     float64 `json:"charge_cpus"`
+	ChargeMemoryMB int64   `json:"charge_memory_mb"`
+	// The machine less its reserve, which is what the charge is taken from.
+	// Zero with the matching known flag false means the agent has not said.
+	CPUs        float64 `json:"cpus"`
+	MemoryMB    int64   `json:"memory_mb"`
+	DiskMB      int64   `json:"disk_mb"`
+	CPUsKnown   bool    `json:"cpus_known"`
+	MemoryKnown bool    `json:"memory_known"`
+	DiskKnown   bool    `json:"disk_known"`
+}
+
+// Overcommitted reports whether this host promises more slots than the machine
+// can back at this pool's size -- the state where the fleet's own capacity
+// figures say there is room and every create for that room is refused.
+func (r PoolHostRoom) Overcommitted() bool { return r.Slots > r.Fits }
+
+// PoolRoom is the fleet's answer, and the per-host detail behind it.
+type PoolRoom struct {
+	// Runners is how many runners of this pool the matching hosts could hold
+	// between them. It is the number a maximum is worth comparing against.
+	Runners int `json:"runners"`
+	// Slots is what those hosts' capacities add up to, whatever the size.
+	Slots int            `json:"slots"`
+	Hosts []PoolHostRoom `json:"hosts"`
+	// SmallestDiskMB is the least free disk on any matching host, which is
+	// what a cache size limit has to live inside. Known is false when no
+	// matching host has measured its disk.
+	SmallestDiskMB   int64  `json:"smallest_disk_mb"`
+	SmallestDiskHost string `json:"smallest_disk_host,omitempty"`
+	DiskKnown        bool   `json:"disk_known"`
+}
+
+// Overcommitted is every host promising more slots than it can back.
+func (r PoolRoom) Overcommitted() []PoolHostRoom {
+	var out []PoolHostRoom
+	for _, h := range r.Hosts {
+		if h.Overcommitted() {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// PoolRoom counts the room a pool has across the hosts that can run it.
+//
+// Only the hosts that could run it at all are counted: a host turned down for
+// its backend or its platform has no room for this pool whatever its size, and
+// HostFit already says so in its own words. Counting it here would put machine
+// the pool can never reach into the number an operator sets a maximum from.
+func (c *Controller) PoolRoom(ctx context.Context, p *store.Pool) (PoolRoom, error) {
+	hosts, err := c.st.ListHosts(ctx)
+	if err != nil {
+		return PoolRoom{}, err
+	}
+	now := c.Now()
+	out := PoolRoom{Hosts: []PoolHostRoom{}}
+	for _, h := range hosts {
+		if !scheduler.HostSelects(h, p) || !scheduler.HostAvailable(h, now) {
+			continue
+		}
+		if code, _ := HostRefusal(h, p); code != "" && code != ExcludedSize {
+			continue
+		}
+		room := scheduler.HostRoomFor(h, p)
+		alloc := h.Allocatable()
+		charge := scheduler.Reserve(p, h)
+		entry := PoolHostRoom{
+			HostID:         h.ID,
+			Host:           h.Name,
+			Slots:          room.Slots,
+			Fits:           room.Fits,
+			Room:           room.Room,
+			LimitedBy:      room.LimitedBy,
+			ChargeCPUs:     charge.CPUs,
+			ChargeMemoryMB: charge.MemoryMB,
+			CPUs:           alloc.CPUs,
+			MemoryMB:       alloc.MemoryMB,
+			DiskMB:         alloc.DiskMB,
+			CPUsKnown:      alloc.CPUsKnown,
+			MemoryKnown:    alloc.MemoryKnown,
+			DiskKnown:      alloc.DiskKnown,
+		}
+		out.Hosts = append(out.Hosts, entry)
+		out.Runners += entry.Room
+		out.Slots += entry.Slots
+		if alloc.DiskKnown && (!out.DiskKnown || alloc.DiskMB < out.SmallestDiskMB) {
+			out.SmallestDiskMB, out.SmallestDiskHost, out.DiskKnown = alloc.DiskMB, h.Name, true
+		}
+	}
+	return out, nil
+}
+
+// PoolRoomWarnings is what the room says about the pool's own figures.
+//
+// All three are the same class of failure: a pool that is valid, matches its
+// hosts, shows green on every page, and cannot do what its settings promise.
+// Nothing else catches them, because each is a disagreement between two
+// settings that are correct on their own -- a maximum and a fleet, a host's
+// slots and a runner's size, a cache limit and a disk.
+func PoolRoomWarnings(p *store.Pool, room PoolRoom) []Problem {
+	var out []Problem
+	if len(room.Hosts) == 0 {
+		// A pool no host can run is already said in the fleet's own words,
+		// and saying it again as arithmetic helps nobody.
+		return out
+	}
+
+	if p.MaxRunners > room.Runners {
+		out = append(out, Problem{
+			Code:     "pool.max_above_room",
+			Severity: config.SeverityWarning,
+			Title: fmt.Sprintf("pool %s: its maximum is %d runners and its hosts have room for %d",
+				p.Name, p.MaxRunners, room.Runners),
+			Detail: fmt.Sprintf("one runner of this pool is charged %s CPU and %s, and the %s it can land on %s room for %s at that size. "+
+				"The maximum is a backstop rather than a target, so this is not wrong -- but %s above the room are runners the scheduler will never create, "+
+				"and the jobs that ask for them wait with nothing on any page saying why.",
+				scheduler.FormatCPUs(chargeCPUs(room)), formatRoomMB(chargeMemoryMB(room)),
+				plural(len(room.Hosts), "host"), verb(len(room.Hosts)), plural(room.Runners, "runner"),
+				plural(p.MaxRunners-room.Runners, "runner")),
+			Fix:        fmt.Sprintf("lower the maximum to %d, ask for less per runner, or give the pool more hosts.", room.Runners),
+			TargetKind: "pool",
+			TargetID:   p.ID,
+		})
+	}
+
+	if over := room.Overcommitted(); len(over) > 0 {
+		names := make([]string, 0, len(over))
+		for _, h := range over {
+			names = append(names, fmt.Sprintf("%s (%d slots, room for %d)", h.Host, h.Slots, h.Fits))
+		}
+		out = append(out, Problem{
+			Code:     "pool.host_overcommitted",
+			Severity: config.SeverityWarning,
+			Title: fmt.Sprintf("pool %s: %s promises more slots than it can back at this size",
+				p.Name, plural(len(over), "host")),
+			Detail: "the slots above what the machine has room for read as free capacity on every page that counts them, " +
+				"and every create for one of them is refused for want of CPU or memory: " + strings.Join(names, ", ") + ".",
+			Fix:        "adjust those hosts to the slots their machines can back, or give this pool's runners less.",
+			TargetKind: "pool",
+			TargetID:   p.ID,
+		})
+	}
+
+	if p.Cache.Enabled && p.Cache.SizeLimit > 0 && room.DiskKnown {
+		limitMB := p.Cache.SizeLimit / (1024 * 1024)
+		if limitMB > room.SmallestDiskMB {
+			out = append(out, Problem{
+				Code:     "pool.cache_above_disk",
+				Severity: config.SeverityWarning,
+				Title: fmt.Sprintf("pool %s: its cache may grow to %s and %s has %s free",
+					p.Name, formatRoomMB(limitMB), room.SmallestDiskHost, formatRoomMB(room.SmallestDiskMB)),
+				Detail: "the cache is evicted down to its limit between one runner and the next, so a limit above the free space is not a limit at all: " +
+					"the disk fills first, and a host at or below its disk reserve takes no runner of any pool.",
+				Fix:        fmt.Sprintf("keep the limit inside what the smallest host can spare -- %s or less -- or free space there.", formatRoomMB(room.SmallestDiskMB)),
+				TargetKind: "pool",
+				TargetID:   p.ID,
+			})
+		}
+	}
+	return out
+}
+
+// verb keeps "the host it can land on has" from reading as "hosts ... has".
+func verb(n int) string {
+	if n == 1 {
+		return "has"
+	}
+	return "have"
+}
+
+// The charge is the same on every host that reports its machine, and differs
+// only where a host's own share is standing in for a figure the pool did not
+// give -- which, now that every pool has a size, is a pool made before it was
+// mandatory. The first host that can run it is the one quoted.
+func chargeCPUs(room PoolRoom) float64 {
+	if len(room.Hosts) == 0 {
+		return 0
+	}
+	return room.Hosts[0].ChargeCPUs
+}
+
+func chargeMemoryMB(room PoolRoom) int64 {
+	if len(room.Hosts) == 0 {
+		return 0
+	}
+	return room.Hosts[0].ChargeMemoryMB
+}
+
+// formatRoomMB writes a size the way the scheduler's own explanations do.
+func formatRoomMB(mb int64) string {
+	if mb >= 1024 && mb%1024 == 0 {
+		return fmt.Sprintf("%d GB", mb/1024)
+	}
+	if mb >= 1024 {
+		return fmt.Sprintf("%.1f GB", float64(mb)/1024)
+	}
+	return fmt.Sprintf("%d MB", mb)
+}

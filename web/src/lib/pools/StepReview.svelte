@@ -1,5 +1,5 @@
 <!--
-  Step five: what the controller makes of it.
+  The last step: what the controller makes of it.
 
   The point of this step is that the server's opinion arrives *before* anything
   is created. A pool that no host can run is a pool that will never make a
@@ -15,6 +15,7 @@
   import Skeleton from '$lib/components/Skeleton.svelte';
   import PoolConfig from './PoolConfig.svelte';
   import PoolFit from './PoolFit.svelte';
+  import PoolRoom from './PoolRoom.svelte';
   import PoolWarnings from './PoolWarnings.svelte';
   import { FIELD_LABELS, WIZARD_STEPS, stepForField } from './PoolVocabulary.svelte';
   import type { PoolDraft } from './PoolWizardForm.svelte';
@@ -49,7 +50,14 @@
   // PoolFit renders this one, with the fleet's own account of which host is
   // there and what it could not do. Showing it again in the warnings list
   // below would be the same paragraph twice.
-  const otherWarnings = $derived(warnings.filter((w) => w.code !== 'pool.no_matching_hosts'));
+  // PoolRoom renders the three room warnings itself, with the fix one click
+  // away, so listing them again underneath would be the same facts twice.
+  const ROOM_CODES = ['pool.max_above_room', 'pool.host_overcommitted', 'pool.cache_above_disk'];
+  const otherWarnings = $derived(
+    warnings.filter(
+      (w) => w.code !== 'pool.no_matching_hosts' && !ROOM_CODES.includes(w.code ?? ''),
+    ),
+  );
   const happy = $derived(
     verdict !== null &&
       verdict.valid &&
@@ -90,6 +98,16 @@
     </div>
   {:else if verdict}
     <PoolFit {verdict} {validating} />
+
+    <!-- The same count the Size and Scaling steps showed, so the last screen
+         before the pool exists says what its hosts can actually hold of it. -->
+    <PoolRoom
+      room={verdict.room ?? null}
+      cpus={body.resources?.cpus ?? 0}
+      memoryMb={body.resources?.memory_mb ?? 0}
+      maxRunners={body.max_runners ?? 0}
+      {validating}
+    />
 
     {#if fieldErrors.length > 0}
       <div class="errors" role="group" aria-label="What the controller rejected">

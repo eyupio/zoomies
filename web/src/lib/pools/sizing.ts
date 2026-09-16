@@ -1,0 +1,177 @@
+/**
+ * The notches a runner's size moves between, and the words for them.
+ *
+ * Pure, and imported by a unit test. The sliders exist because the three
+ * figures they carry -- how much of a machine one runner gets, and how much
+ * disk its cache may keep -- are the settings an operator is least equipped to
+ * type into an empty box: a number field accepts 3000 MB as readily as 4096,
+ * and neither the field nor the pool says which of them the hosts can actually
+ * back. A notch is a value somebody has a reason to choose.
+ *
+ * The arithmetic that says how many runners a fleet has room for is the
+ * controller's, not this file's: what a runner is charged is not always what
+ * the pool says -- a docker-in-docker slot is charged for its sidecar too --
+ * and a browser that worked it out again would disagree with where the fleet
+ * actually places runners. This file's counting is only what a slider needs
+ * before the server's answer lands.
+ */
+
+/**
+ * The CPU notches: shares of a core below one, then whole cores, then the
+ * steps a build machine is actually bought in. A quarter core is the floor the
+ * API enforces -- below it the runner binary cannot keep up with its own job.
+ */
+export const CPU_NOTCHES: readonly number[] = [
+  0.25, 0.5, 1, 1.5, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64,
+];
+
+/** The memory notches, in megabytes. 512 MB is the API's floor. */
+export const MEMORY_NOTCHES: readonly number[] = [
+  512, 1024, 2048, 3072, 4096, 6144, 8192, 12288, 16384, 24576, 32768, 49152, 65536, 98304, 131072,
+];
+
+/**
+ * The disk notches, in gigabytes, with zero for "no limit".
+ *
+ * Disk is the one runner limit that is genuinely optional: it is advisory on
+ * every backend, and what stops a host filling up is its own disk reserve
+ * rather than a figure on a pool. A pool that asks for it is charged it, which
+ * is why it belongs on the same panel as the other two.
+ */
+export const DISK_NOTCHES: readonly number[] = [
+  0, 10, 20, 40, 60, 80, 120, 160, 240, 320, 480, 640,
+];
+
+/**
+ * The cache notches, in gigabytes, with zero for "no limit". The limit is kept
+ * by evicting whole entries between one runner and the next, so it is a
+ * high-water mark on a host's disk rather than an allocation.
+ */
+export const CACHE_NOTCHES: readonly number[] = [
+  0, 1, 2, 5, 10, 20, 30, 50, 75, 100, 150, 200, 300, 500,
+];
+
+const BYTES_PER_GB = 1024 * 1024 * 1024;
+
+/** Bytes as the API carries a cache limit, from the gigabytes a slider moves in. */
+export function cacheBytes(gb: number): number {
+  return Math.round(gb * BYTES_PER_GB);
+}
+
+/** The gigabytes a stored cache limit is nearest to, so a slider can open on it. */
+export function cacheGb(bytes: number | undefined): number {
+  if (!bytes || bytes <= 0) return 0;
+  return nearest(CACHE_NOTCHES, bytes / BYTES_PER_GB);
+}
+
+/** The notch nearest a value, so a figure typed elsewhere lands on the slider. */
+export function nearest(notches: readonly number[], value: number): number {
+  let best = notches[0] ?? 0;
+  for (const n of notches) {
+    if (Math.abs(n - value) < Math.abs(best - value)) best = n;
+  }
+  return best;
+}
+
+/**
+ * A notch list that includes a value the notches do not have.
+ *
+ * A pool created through the API, or before these sliders existed, can hold
+ * 3000 MB; snapping it to 3072 the moment its page opens would change a pool
+ * an operator came to read. The value joins the list instead, and the slider
+ * moves off it onto the notches.
+ */
+export function withValue(notches: readonly number[], value: number): number[] {
+  if (!Number.isFinite(value) || value <= 0 || notches.includes(value)) return [...notches];
+  return [...notches, value].sort((a, b) => a - b);
+}
+
+/** "2 cores", "half a core", "1 core". */
+export function cpuLabel(cpus: number): string {
+  if (cpus === 0.5) return 'half a core';
+  if (cpus === 0.25) return 'a quarter core';
+  if (cpus === 1) return '1 core';
+  return `${trimNumber(cpus)} cores`;
+}
+
+/** "4 GB", "512 MB". */
+export function memoryLabel(mb: number): string {
+  if (mb <= 0) return 'none';
+  if (mb < 1024) return `${mb} MB`;
+  return `${trimNumber(mb / 1024)} GB`;
+}
+
+/** "no limit" is a real answer for disk and for the cache, and reads as one. */
+export function gbLabel(gb: number): string {
+  return gb <= 0 ? 'no limit' : `${trimNumber(gb)} GB`;
+}
+
+function trimNumber(value: number): string {
+  return value.toLocaleString(undefined, { maximumFractionDigits: 1 });
+}
+
+/** One runner's size as a phrase: "2 cores and 4 GB". */
+export function sizeLabel(cpus: number, memoryMb: number): string {
+  return `${cpuLabel(cpus)} and ${memoryLabel(memoryMb)}`;
+}
+
+/**
+ * What a runner of this pool is charged, which is twice its size where the
+ * pool gives its jobs a daemon of their own: the backend gives the sidecar the
+ * same limits as the runner, so the machine carries the pair.
+ *
+ * It is the figure the fleet's room is counted from, and the one an operator
+ * reading "2 cores" against a ten-core host cannot otherwise arrive at.
+ */
+export function chargedSize(
+  cpus: number,
+  memoryMb: number,
+  dockerMode: string | undefined,
+): { cpus: number; memoryMb: number; pair: boolean } {
+  const pair = dockerMode === 'dind';
+  const factor = pair ? 2 : 1;
+  return { cpus: cpus * factor, memoryMb: memoryMb * factor, pair };
+}
+
+/**
+ * How many runners of a size a machine has room for, on an empty host.
+ *
+ * This is the browser's copy of the controller's arithmetic, and it is used
+ * for one thing: the sentence under a slider while the server's own answer is
+ * still in flight. Where the two disagree the server wins, because it knows
+ * what the fleet is actually charged.
+ */
+export function roomOn(
+  machine: { cpus: number; memoryMb: number },
+  charge: { cpus: number; memoryMb: number },
+): number {
+  let room = Infinity;
+  if (machine.cpus > 0 && charge.cpus > 0)
+    room = Math.min(room, Math.floor(machine.cpus / charge.cpus));
+  if (machine.memoryMb > 0 && charge.memoryMb > 0)
+    room = Math.min(room, Math.floor(machine.memoryMb / charge.memoryMb));
+  return Number.isFinite(room) ? Math.max(0, room) : 0;
+}
+
+/**
+ * What ran out on a host, as the clause that follows what the machine is.
+ *
+ * The distinction it carries is the one an operator acts on: a host held to
+ * fewer runners than its machine could take is an operator's own ceiling and
+ * is working as asked, while one whose machine runs out first is a host that
+ * will refuse creates for slots every page counts as free.
+ */
+export function limitPhrase(limitedBy: string | undefined): string {
+  switch (limitedBy) {
+    case 'cpu':
+      return 'its cores run out first';
+    case 'memory':
+      return 'its memory runs out first';
+    case 'disk':
+      return 'its disk runs out first';
+    case 'slots':
+      return 'held there by its slot count';
+    default:
+      return '';
+  }
+}

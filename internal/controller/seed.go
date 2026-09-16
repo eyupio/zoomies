@@ -522,8 +522,14 @@ func (c *Controller) seedPools(ctx context.Context) (*store.Pool, *store.Pool, e
 		IdleTimeout: store.Duration(10 * time.Minute),
 		// Persistent runners, so the problems drawer has a dangerous setting to
 		// show and the UI's warning styling is exercised.
-		Ephemeral:    false,
-		DockerMode:   store.DockerDinD,
+		Ephemeral:  false,
+		DockerMode: store.DockerDinD,
+		// The same size as the pool above, which on this pool is twice the
+		// charge: a docker-in-docker slot is two containers and the backend
+		// gives the sidecar the same limits. It is the shape a host is sized
+		// wrong for most often, so the demo fleet has one -- and it is sized
+		// rather than left blank because every pool made today is.
+		Resources:    store.Resources{CPUs: 2, MemoryMB: 4096},
 		HostSelector: store.StringMap{"arch": "arm64"},
 		Enabled:      true,
 	}
