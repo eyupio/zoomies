@@ -248,6 +248,7 @@ func Join(ctx context.Context, opts JoinOptions) error {
 	cfg.Agent.ClientCertFile = opts.ClientCertFile
 	cfg.Agent.ClientKeyFile = opts.ClientKeyFile
 	cfg.Agent.InsecureSkipVerify = opts.InsecureSkipVerify
+	cfg.Agent.AllowInsecureHTTP = opts.AllowInsecureHTTP
 	cfg.Agent.Labels = opts.Labels
 	cfg.Database.Path = filepath.Join(opts.stateDir(), "agent.db")
 	// The agent token lives in the credentials file the join just wrote, with
