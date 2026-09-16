@@ -22,16 +22,27 @@ async function openBackups(page: Page): Promise<void> {
   await goto(page, '/settings/backups', 'Backups');
 }
 
-/** Press the button, and return the row the new backup appears in. */
+/**
+ * Press the button, and return the row the new backup appears in.
+ *
+ * It waits for the newest id to change rather than for the list to grow: a
+ * fleet already holding `backup.keep` copies loses its oldest to retention as
+ * it gains the new one, so the count is the one thing about a new backup that
+ * does not move. This suite shares one controller across its projects and
+ * reaches that ceiling part-way through.
+ */
 async function takeOne(page: Page) {
-  const before = await page.getByRole('row').count();
+  const rows = page.locator('tbody').getByRole('row');
+  const newest = async () => {
+    if ((await rows.count()) === 0) return null;
+    return (await rows.first().locator('.mono').first().textContent())?.trim() ?? null;
+  };
+  const before = await newest();
   await page.getByRole('button', { name: 'Back up now' }).first().click();
   await expect(page.getByText('Backup taken')).toBeVisible();
-  await expect
-    .poll(async () => page.getByRole('row').count(), { message: 'a row for the new backup' })
-    .toBeGreaterThan(before);
+  await expect.poll(newest, { message: 'the new backup at the top of the list' }).not.toBe(before);
   // Newest first: the first body row is the one just taken.
-  return page.locator('tbody').getByRole('row').first();
+  return rows.first();
 }
 
 /** The id printed in a row, which the confirmations ask to have typed back. */
