@@ -1185,6 +1185,14 @@ func (c *Config) BindsPublicly() bool {
 // address, the external URL, the allowed origins and the OIDC issuer all ask,
 // so that "localhost" cannot count as local in one of them and public in
 // another, as it once did between external_url and bind.
+// LoopbackHost reports whether a hostname names only this machine.
+//
+// It is exported because the same question is asked about a backup
+// destination's endpoint, which the controller warns about and this package
+// cannot see: a bucket on loopback is a developer's MinIO, and one anywhere
+// else over plain HTTP is credentials on somebody's network.
+func LoopbackHost(host string) bool { return loopbackHost(host) }
+
 func loopbackHost(host string) bool {
 	host = strings.ToLower(strings.Trim(host, "[]"))
 	if host == "localhost" || strings.HasSuffix(host, ".localhost") {

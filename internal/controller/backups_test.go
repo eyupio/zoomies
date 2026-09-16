@@ -64,7 +64,7 @@ func TestTheScheduleTakesABackupWhenOneIsDueAndKeepsToTheCeiling(t *testing.T) {
 	if len(entries) != 2 {
 		t.Fatalf("keep 2 left %d backups", len(entries))
 	}
-	if problems := h.c.backupProblems(); len(problems) != 0 {
+	if problems := h.c.backupProblems(h.ctx); len(problems) != 0 {
 		t.Errorf("a working schedule raised %+v", problems)
 	}
 }
@@ -87,13 +87,13 @@ func TestAFailingScheduleIsAProblemAndBacksOff(t *testing.T) {
 		t.Fatal("the failure was not recorded")
 	}
 	var found bool
-	for _, p := range h.c.backupProblems() {
+	for _, p := range h.c.backupProblems(h.ctx) {
 		if p.Code == "backup.failed" && p.Fix != "" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("no backup.failed problem: %+v", h.c.backupProblems())
+		t.Errorf("no backup.failed problem: %+v", h.c.backupProblems(h.ctx))
 	}
 
 	// Cleared out of the way, but inside the retry window: no attempt.
@@ -160,7 +160,7 @@ func TestAStagedAndAFailedRestoreAreProblems(t *testing.T) {
 		t.Fatalf("Stage: %v", err)
 	}
 	codes := map[string]bool{}
-	for _, p := range h.c.backupProblems() {
+	for _, p := range h.c.backupProblems(h.ctx) {
 		codes[p.Code] = true
 	}
 	if !codes["backup.restore_staged"] {
@@ -177,7 +177,7 @@ func TestAStagedAndAFailedRestoreAreProblems(t *testing.T) {
 		t.Fatalf("ApplyStaged = %+v, %v; want a recorded failure", outcome, err)
 	}
 	codes = map[string]bool{}
-	for _, p := range h.c.backupProblems() {
+	for _, p := range h.c.backupProblems(h.ctx) {
 		codes[p.Code] = true
 	}
 	if codes["backup.restore_staged"] || !codes["backup.restore_failed"] {
@@ -186,7 +186,7 @@ func TestAStagedAndAFailedRestoreAreProblems(t *testing.T) {
 	if err := backup.ClearOutcome(h.cfg.Database.Path); err != nil {
 		t.Fatal(err)
 	}
-	if problems := h.c.backupProblems(); len(problems) != 0 {
+	if problems := h.c.backupProblems(h.ctx); len(problems) != 0 {
 		t.Errorf("dismissed and still listed: %+v", problems)
 	}
 }

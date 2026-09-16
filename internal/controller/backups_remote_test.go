@@ -2,11 +2,14 @@ package controller
 
 import (
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/backup"
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/cryptox"
+	"github.com/eyupio/zoomies/internal/store"
 )
 
 // offsite points the harness's fleet at a fake object store and returns it.
@@ -50,7 +53,7 @@ func TestAScheduledBackupIsCopiedToTheRemote(t *testing.T) {
 	if len(keys) != 1 || keys[0] != "fleet/"+entries[0].ID+".tar.gz" {
 		t.Fatalf("the bucket holds %v, wanted the backup that was just taken", keys)
 	}
-	status := h.c.BackupRemotes()
+	status := h.c.BackupRemotes(h.ctx)
 	if len(status) != 1 {
 		t.Fatalf("the page would show %d remotes", len(status))
 	}
@@ -95,11 +98,11 @@ func TestARemoteThatWasDownIsCaughtUpWithEveryBackupItMissed(t *testing.T) {
 		t.Fatalf("the schedule took %d backups while the bucket was down, %v", len(entries), err)
 	}
 	// The failure is on the page and in the drawer, not only in a log line.
-	if status := h.c.BackupRemotes(); status[0].LastError == "" {
+	if status := h.c.BackupRemotes(h.ctx); status[0].LastError == "" {
 		t.Error("a remote that is refusing every request reports no error")
 	}
 	codes := []string{}
-	for _, p := range h.c.remoteProblems() {
+	for _, p := range h.c.remoteProblems(h.ctx) {
 		codes = append(codes, p.Code)
 	}
 	if len(codes) != 1 || codes[0] != "backup.remote_failed" {
@@ -113,7 +116,7 @@ func TestARemoteThatWasDownIsCaughtUpWithEveryBackupItMissed(t *testing.T) {
 	if got := fake.Count(); got != 2 {
 		t.Errorf("the bucket holds %d copies; the catch-up was meant to send both backups it missed", got)
 	}
-	if status := h.c.BackupRemotes(); status[0].LastError != "" {
+	if status := h.c.BackupRemotes(h.ctx); status[0].LastError != "" {
 		t.Errorf("the remote still reports %q after a pass that worked", status[0].LastError)
 	}
 }
@@ -151,11 +154,15 @@ func TestAFleetWithNoRemoteShipsNothingAndSaysSo(t *testing.T) {
 	if err != nil || len(sent) != 0 {
 		t.Errorf("a fleet with no remotes shipped %d copies, %v", len(sent), err)
 	}
-	if remotes := h.c.BackupRemotes(); len(remotes) != 0 {
+	if remotes := h.c.BackupRemotes(h.ctx); len(remotes) != 0 {
 		t.Errorf("the page would show %d remotes on a fleet with none", len(remotes))
 	}
-	if problems := h.c.remoteProblems(); len(problems) != 0 {
-		t.Errorf("a fleet with no remotes raised %d problems about them", len(problems))
+	// Nothing in the drawer, either: "these copies never leave the host" is
+	// the validator's info finding, which the drawer drops on purpose, and
+	// the Backups page says it in its own words beside the button that fixes
+	// it.
+	if problems := h.c.remoteProblems(h.ctx); len(problems) != 0 {
+		t.Errorf("a fleet with no remotes raised %+v", problems)
 	}
 }
 
@@ -182,7 +189,7 @@ func TestACopyFetchedBackIsNeverRemovedByRetention(t *testing.T) {
 		t.Fatalf("Delete: %v", err)
 	}
 
-	remote, err := h.c.RemoteBackup("offsite")
+	remote, err := h.c.RemoteBackup(h.ctx, "offsite")
 	if err != nil {
 		t.Fatalf("RemoteBackup: %v", err)
 	}
@@ -211,5 +218,125 @@ func TestACopyFetchedBackIsNeverRemovedByRetention(t *testing.T) {
 	}
 	if !found {
 		t.Error("retention removed the copy that was brought back from offsite")
+	}
+}
+
+// A stored destination whose secrets this controller's key does not open is
+// the shape a database restored onto the wrong host takes. It must not be
+// tried every hour and refused by the service -- which reads as the bucket's
+// fault -- and it must not be silent either.
+func TestAStoredDestinationThisKeyCannotOpenIsReportedRatherThanTried(t *testing.T) {
+	h := newHarness(t)
+	fake := backup.NewFakeS3("backups")
+	t.Cleanup(fake.Close)
+
+	row := &store.BackupRemote{
+		Name: "offsite", Endpoint: fake.Endpoint(), Bucket: fake.Bucket(),
+		AccessKeyID: "AKIAEXAMPLE", Enabled: true,
+	}
+	if err := h.st.CreateBackupRemote(h.ctx, row); err != nil {
+		t.Fatalf("CreateBackupRemote: %v", err)
+	}
+	// Sealed with somebody else's key, which is exactly what a restored
+	// database carries when the key file was left behind.
+	other, err := cryptox.GenerateKey()
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	sealed, err := other.SealString("secret")
+	if err != nil {
+		t.Fatalf("SealString: %v", err)
+	}
+	if err := h.st.SetBackupRemoteSecrets(h.ctx, row.ID, sealed, nil); err != nil {
+		t.Fatalf("SetBackupRemoteSecrets: %v", err)
+	}
+
+	statuses := h.c.BackupRemotes(h.ctx)
+	if len(statuses) != 1 || statuses[0].Problem == "" {
+		t.Fatalf("the page shows %+v; it should carry the reason", statuses)
+	}
+	codes := []string{}
+	for _, p := range h.c.remoteProblems(h.ctx) {
+		codes = append(codes, p.Code)
+	}
+	if !slices.Contains(codes, "backup.remote_unreadable") {
+		t.Errorf("the problems drawer says %v about a destination whose secrets will not open", codes)
+	}
+
+	h.c.scheduledBackup(h.ctx)
+	if _, err := h.c.ShipBackups(h.ctx); err != nil {
+		t.Fatalf("ShipBackups: %v", err)
+	}
+	if fake.Puts() != 0 {
+		t.Error("a destination whose secret will not open was used anyway")
+	}
+}
+
+// A stored destination the file names too is ignored, and says so. The file
+// wins because it is the copy a host that has lost its database can read.
+func TestTheFileWinsOverAStoredDestinationOfTheSameName(t *testing.T) {
+	h := newHarness(t)
+	fake := offsite(h, nil)
+
+	row := &store.BackupRemote{
+		Name: "offsite", Endpoint: "https://elsewhere.example.com", Bucket: "other",
+		AccessKeyID: "AKIAEXAMPLE", Enabled: true,
+	}
+	if err := h.st.CreateBackupRemote(h.ctx, row); err != nil {
+		t.Fatalf("CreateBackupRemote: %v", err)
+	}
+
+	statuses := h.c.BackupRemotes(h.ctx)
+	if len(statuses) != 2 {
+		t.Fatalf("the page shows %d destinations; the shadowed one is listed rather than hidden", len(statuses))
+	}
+	if statuses[0].Source != RemoteSourceFile || !statuses[1].Shadowed {
+		t.Fatalf("the page shows %+v", statuses)
+	}
+
+	// And the copies go to the file's bucket, not the row's.
+	h.c.scheduledBackup(h.ctx)
+	if _, err := h.c.ShipBackups(h.ctx); err != nil {
+		t.Fatalf("ShipBackups: %v", err)
+	}
+	if fake.Count() != 1 {
+		t.Errorf("the file's bucket holds %d copies", fake.Count())
+	}
+}
+
+// A destination added on the page gets the same two warnings as one in the
+// file. Where a fleet chose to describe its offsite copies must not decide
+// whether it is told they are readable by whoever owns the bucket.
+func TestAStoredDestinationIsWarnedAboutLikeAFileOne(t *testing.T) {
+	h := newHarness(t)
+	row := &store.BackupRemote{
+		Name: "offsite", Endpoint: "http://s3.example.com", Bucket: "acme",
+		AccessKeyID: "AKIAEXAMPLE", Enabled: true,
+	}
+	if err := h.st.CreateBackupRemote(h.ctx, row); err != nil {
+		t.Fatalf("CreateBackupRemote: %v", err)
+	}
+
+	codes := map[string]bool{}
+	for _, p := range h.c.remoteProblems(h.ctx) {
+		codes[p.Code] = true
+	}
+	if !codes["backup.remote_plaintext"] {
+		t.Error("a stored destination with no passphrase was not warned about")
+	}
+	if !codes["backup.remote_insecure"] {
+		t.Error("a stored destination reached over plain HTTP was not warned about")
+	}
+
+	// Loopback is a developer's MinIO: the credentials never cross a network,
+	// so that one is not a warning.
+	row.Endpoint = "http://127.0.0.1:9000"
+	if err := h.st.UpdateBackupRemote(h.ctx, row); err != nil {
+		t.Fatalf("UpdateBackupRemote: %v", err)
+	}
+	for _, p := range h.c.remoteProblems(h.ctx) {
+		if p.Code == "backup.remote_insecure" {
+			t.Error("a destination on loopback was warned about as if it crossed a network")
+		}
 	}
 }

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/backup"
@@ -44,6 +46,38 @@ const (
 	remoteUploadTimeout = 6 * time.Hour
 )
 
+// The two places a destination is described, named here as the API serves
+// them. They are internal/backup's, aliased so a handler reading this file
+// does not have to go looking for where the merge lives.
+const (
+	RemoteSourceFile     = backup.OriginFile
+	RemoteSourceDatabase = backup.OriginDatabase
+)
+
+// backupRemotes is every destination this fleet has: the file's and the
+// stored ones, merged by internal/backup so the CLI and the controller agree
+// about which wins.
+func (c *Controller) backupRemotes(ctx context.Context) []backup.ResolvedRemote {
+	resolved, err := backup.ResolveRemotes(ctx, c.cfg(), c.st, c.key)
+	if err != nil {
+		// The file's destinations are still returned, which is the half that
+		// works when the database will not answer.
+		c.log.Warn("could not read the stored backup remotes", "error", err)
+	}
+	return resolved
+}
+
+// usableBackupRemotes is the destinations a pass actually sends to.
+func (c *Controller) usableBackupRemotes(ctx context.Context) []backup.ResolvedRemote {
+	var out []backup.ResolvedRemote
+	for _, r := range c.backupRemotes(ctx) {
+		if r.Usable() {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // remoteState is what the controller knows about one destination. The bucket
 // is the durable record; this is only what the page and the problems drawer
 // need to say whether the last attempt worked.
@@ -78,6 +112,33 @@ type RemoteBackupStatus struct {
 	// shown rather than hidden: a destination nobody can see is one nobody
 	// notices has stopped.
 	Disabled bool `json:"disabled"`
+	// Source says where this destination is described -- "file" for
+	// zoomies.yaml and the environment, "database" for one added on the page.
+	// The page needs it to know what it may edit, and an operator needs it to
+	// know where to go and change something.
+	Source string `json:"source"`
+	// ID is the stored destination's row id, empty for one the file
+	// describes. Region, Bucket, Prefix and AccessKeyID are the rest of the
+	// form, so the page can open an editor without a second request.
+	ID          string `json:"id,omitempty"`
+	Region      string `json:"region,omitempty"`
+	Bucket      string `json:"bucket,omitempty"`
+	Prefix      string `json:"prefix,omitempty"`
+	AccessKeyID string `json:"access_key_id,omitempty"`
+	// PathStyle is the tri-state: null asks for the style to be chosen from
+	// the endpoint.
+	PathStyle *bool `json:"path_style"`
+	// Shadowed is a stored destination the file overrides by name. Nothing is
+	// sent to it, and the page says why rather than leaving a row that
+	// quietly does nothing.
+	Shadowed bool `json:"shadowed"`
+	// Problem is why this destination cannot be used at all -- almost always
+	// that this controller's key does not open its stored secrets.
+	Problem string `json:"problem,omitempty"`
+	// HasSecretKey says a secret key is held for this destination. The secret
+	// itself is never served: whether there is one is the only part of it a
+	// page can act on.
+	HasSecretKey bool `json:"has_secret_key"`
 	// Uploading says something is being sent right now.
 	Uploading bool `json:"uploading"`
 	// Copies and Bytes are what the last listing found, and ListedAt when.
@@ -107,19 +168,24 @@ func (c *Controller) remoteState(name string) *remoteState {
 	return st
 }
 
-// BackupRemotes reports every configured destination and what became of it,
-// in the order the configuration names them.
-func (c *Controller) BackupRemotes() []RemoteBackupStatus {
-	cfg := c.cfg()
+// BackupRemotes reports every destination this fleet has and what became of
+// it: the file's first, then the stored ones.
+func (c *Controller) BackupRemotes(ctx context.Context) []RemoteBackupStatus {
+	resolved := c.backupRemotes(ctx)
 	out := []RemoteBackupStatus{}
 	c.backups.mu.Lock()
 	defer c.backups.mu.Unlock()
-	for _, r := range cfg.Backup.Remotes {
+	for _, entry := range resolved {
+		r := entry.Remote
 		status := RemoteBackupStatus{
 			Name: r.Name, Where: r.Where(), Endpoint: r.Endpoint,
 			Encrypted: r.Encrypted(), Keep: r.Keep, Disabled: !r.Enabled(),
+			Source: entry.Origin, ID: entry.ID, Shadowed: entry.Shadowed, Problem: entry.Problem,
+			Region: r.Region, Bucket: r.Bucket, Prefix: r.Prefix,
+			AccessKeyID: r.AccessKeyID, PathStyle: r.PathStyle,
+			HasSecretKey: strings.TrimSpace(r.SecretAccessKey) != "",
 		}
-		if st, ok := c.backups.remotes[r.Name]; ok {
+		if st, ok := c.backups.remotes[r.Name]; ok && !entry.Shadowed {
 			status.Uploading = st.uploading
 			status.Copies = st.held
 			status.Bytes = st.heldBytes
@@ -141,8 +207,23 @@ func (c *Controller) BackupRemotes() []RemoteBackupStatus {
 
 // RemoteBackup resolves one destination by name, for the handlers that list,
 // fetch from or delete a copy in it.
-func (c *Controller) RemoteBackup(name string) (*backup.Remote, error) {
-	return backup.FindRemote(c.cfg(), name, c.backupHTTP)
+func (c *Controller) RemoteBackup(ctx context.Context, name string) (*backup.Remote, error) {
+	resolved, err := backup.FindResolvedRemote(ctx, c.cfg(), c.st, c.key, name)
+	if err != nil {
+		return nil, err
+	}
+	return backup.NewRemote(resolved.Remote, c.backupHTTP)
+}
+
+// CheckBackupRemote tests a destination that has not been saved yet, which is
+// what makes the page's "test" button worth pressing before the credential is
+// stored rather than after.
+func (c *Controller) CheckBackupRemote(ctx context.Context, cfg config.BackupRemote) error {
+	remote, err := backup.NewRemote(cfg, c.backupHTTP)
+	if err != nil {
+		return err
+	}
+	return remote.Check(ctx)
 }
 
 // NoteRemoteListing records what a listing found, so that a page which has
@@ -166,6 +247,12 @@ func (c *Controller) nudgeRemotes() {
 	}
 }
 
+// NudgeBackupRemotes asks the backup loop to reconcile the destinations now.
+// It is what a destination added or corrected on the page presses: waiting an
+// hour to find out whether it works is the opposite of what an operator who
+// has just typed a credential wants.
+func (c *Controller) NudgeBackupRemotes() { c.nudgeRemotes() }
+
 // ShipBackups makes every enabled remote hold what the backup directory holds,
 // and returns what it sent.
 //
@@ -174,7 +261,7 @@ func (c *Controller) nudgeRemotes() {
 // now" cannot upload the same archive twice.
 func (c *Controller) ShipBackups(ctx context.Context) ([]backup.Copy, error) {
 	cfg := c.cfg()
-	configured := cfg.EnabledBackupRemotes()
+	configured := c.usableBackupRemotes(ctx)
 	if len(configured) == 0 {
 		return nil, nil
 	}
@@ -193,7 +280,8 @@ func (c *Controller) ShipBackups(ctx context.Context) ([]backup.Copy, error) {
 		errs  []error
 		clock = c.Now
 	)
-	for _, cfgRemote := range configured {
+	for _, entry := range configured {
+		cfgRemote := entry.Remote
 		// Each destination is built on its own so that one with a typo in its
 		// endpoint is recorded against its own name, where the page and the
 		// problems drawer show it, and the copies still leave for the others.
@@ -344,9 +432,73 @@ func (c *Controller) remotesDue(now time.Time) bool {
 // reason a failing local backup is: the fleet is still running jobs. It is
 // never silent, though, because the whole value of an offsite copy is that
 // somebody would notice its absence before the day it is needed.
-func (c *Controller) remoteProblems() []Problem {
+func (c *Controller) remoteProblems(ctx context.Context) []Problem {
 	var out []Problem
-	for _, status := range c.BackupRemotes() {
+	statuses := c.BackupRemotes(ctx)
+	// "backups never leave this host" is not raised here. It is an info
+	// finding, and Problems deliberately drops those from the drawer so that
+	// a list which is never clear does not stop being read -- so the
+	// validator keeps it, where the startup output and the Configuration page
+	// show it, and the Backups page says the same thing in its own words
+	// beside the button that fixes it.
+	for _, status := range statuses {
+		// A stored destination the file shadows, or one whose secrets will
+		// not open, is a problem about this fleet's configuration rather than
+		// about a bucket, and each says so in its own words.
+		if status.Shadowed {
+			out = append(out, Problem{
+				Code:     "backup.remote_shadowed",
+				Severity: config.SeverityWarning,
+				Setting:  "backup.remotes",
+				Title:    "the stored backup remote " + status.Name + " is being ignored",
+				Detail: "zoomies.yaml or the environment describes a destination with the same name, and the file has the " +
+					"last word. Nothing is sent to the stored one, and its settings are not the ones in use.",
+				Fix: "rename one of them, or delete the stored destination and keep describing it in the file.",
+			})
+			continue
+		}
+		if status.Problem != "" {
+			out = append(out, Problem{
+				Code:     "backup.remote_unreadable",
+				Severity: config.SeverityError,
+				Setting:  "backup.remotes",
+				Title:    "the backup remote " + status.Name + " cannot be used",
+				Detail:   status.Problem,
+				Fix: "this is what a database restored onto a host with a different encryption key looks like. Put the key " +
+					"this fleet was sealed with back, or open the destination on the Backups tab and enter its secret key again.",
+			})
+			continue
+		}
+		// The same two things the startup validator says about a destination
+		// in the file, said here about one in the database -- which the
+		// validator cannot see. A fleet should not learn that its offsite
+		// copies are readable by whoever owns the bucket from where it chose
+		// to describe the destination.
+		if status.Source == RemoteSourceDatabase && !status.Disabled {
+			if !status.Encrypted {
+				out = append(out, Problem{
+					Code:     "backup.remote_plaintext",
+					Severity: config.SeverityWarning,
+					Setting:  "backup.remotes",
+					Title:    "the backup remote " + status.Name + " is sent the backup unencrypted",
+					Detail: "a backup is the whole fleet: every repository and job it has seen, every account, and the sealed " +
+						"GitHub App credentials. In " + status.Where + " it is a file anyone who can read the bucket can open.",
+					Fix: "set a passphrase on the destination from the Backups tab — the archive is then sealed with argon2id and " +
+						"AES-256-GCM before it leaves this host — and keep it wherever you keep the encryption key. Nothing here can recover it.",
+				})
+			}
+			if u, err := url.Parse(status.Endpoint); err == nil && u.Scheme == "http" && !config.LoopbackHost(u.Hostname()) {
+				out = append(out, Problem{
+					Code:     "backup.remote_insecure",
+					Severity: config.SeverityWarning,
+					Setting:  "backup.remotes",
+					Title:    "the backup remote " + status.Name + " is reached over plain HTTP",
+					Detail: "the access key, the signature and the backup itself cross the network in the clear, so anyone on the " +
+						"path can both read the fleet and write to the bucket afterwards.",
+					Fix: "use https:// unless the endpoint is on this host or a network you own end to end.",
+				})
+			}
+		}
 		if status.LastError == "" {
 			continue
 		}

@@ -1053,12 +1053,12 @@ func (c *Config) validateBackupRemotes(add func(Finding)) {
 			})
 		}
 		seen[r.Name] = i
-		if !validRemoteName(r.Name) {
+		if !ValidRemoteName(r.Name) {
 			add(Finding{
 				Code: "backup.remote_name", Severity: SeverityError, Setting: "backup.remotes",
 				Title:  fmt.Sprintf("%q is not a usable name for a backup remote", r.Name),
 				Detail: "the name is a path component in the API and a word in a log line.",
-				Fix:    "use lower-case letters, digits and dashes, such as offsite or s3-frankfurt.",
+				Fix:    "use lower-case letters, digits and dashes, such as offsite or s3-frankfurt, and not a word the API already uses there (" + strings.Join(ReservedRemoteNames, ", ") + ").",
 			})
 		}
 		if r.Disabled {
@@ -1133,25 +1133,52 @@ func (c *Config) validateBackupRemotes(add func(Finding)) {
 	}
 
 	if c.Backup.Interval > 0 && len(c.EnabledBackupRemotes()) == 0 {
+		// Raised from what the file says, because that is all this package
+		// knows. A destination an administrator added on the Backups page is
+		// a database row, so the settings API drops this finding when the
+		// fleet has one -- see NoRemoteFinding, which names the code once for
+		// both halves.
 		add(Finding{
 			Code: "backup.no_remote", Severity: SeverityInfo, Setting: "backup.remotes",
 			Title:  "backups are taken but never leave this host",
 			Detail: "the schedule keeps copies beside the database, which is a backup against a mistake and not against the disk, the machine or the datacentre.",
-			Fix:    "add an S3-compatible destination under backup.remotes, or keep shipping the directory yourself — the point is that one of the two is somebody's job.",
+			Fix:    "add an S3-compatible destination on the Backups page, or under backup.remotes here — or keep shipping the directory yourself. The point is that one of the three is somebody's job.",
 		})
 	}
 }
+
+// NoRemoteFinding is the code for "backups never leave this host".
+//
+// It is named because two packages have to agree about it: this one raises it
+// from the configuration file, and the settings API drops it when the fleet
+// has a destination stored in its database -- which this package cannot see,
+// and which would otherwise make the finding tell an operator to do a thing
+// they have already done.
+//
+// The Finding above spells the code out rather than using this constant, so
+// that the docs test which parses `Code:` literals can still see it; a test
+// holds the two together.
+const NoRemoteFinding = "backup.no_remote"
 
 // MinBackupPassphrase is the shortest passphrase worth calling one. The API
 // refuses an encrypted download below it, and the validator says so about a
 // remote's.
 const MinBackupPassphrase = 8
 
-// validRemoteName is the shape a remote's name may take: it is a path
+// ReservedRemoteNames are the words the API already uses where a remote's name
+// goes, so a destination called one of them would be a destination no route
+// could address.
+var ReservedRemoteNames = []string{"check"}
+
+// ValidRemoteName is the shape a remote's name may take: it is a path
 // component in the API and a word in a log line, so it is kept to the
-// characters that are both.
-func validRemoteName(name string) bool {
-	if name == "" {
+// characters that are both, and to names no route has already taken.
+//
+// It is exported because the destinations stored in the database are held to
+// the same rule. A name that worked in one place and not the other would be a
+// trap, and the two lists end up merged.
+func ValidRemoteName(name string) bool {
+	if name == "" || slices.Contains(ReservedRemoteNames, name) {
 		return false
 	}
 	for _, r := range name {

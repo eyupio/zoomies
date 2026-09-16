@@ -24,7 +24,7 @@ export const SECTION_BLURB: Record<string, string> = {
   metrics: 'The Prometheus endpoint.',
   retention: 'How long history is kept before it is pruned. Audit rows are never pruned.',
   backup:
-    'Copies of this database the controller takes of its own accord. The Backups tab is where they are listed, restored and downloaded.',
+    'Copies of this database the controller takes of its own accord. The Backups page is where they are configured, listed, restored and downloaded.',
   images: 'Keeping the images your pools run up to date.',
   updates: 'Whether this controller asks github.com which release is current.',
   capacity_demand: 'Publishing a signed request for more hosts to an external provisioner.',
@@ -107,3 +107,16 @@ export function matches(setting: Setting, query: string): boolean {
     (setting.env ?? '').toLowerCase().includes(q)
   );
 }
+
+/**
+ * The sections this page hands to another one.
+ *
+ * A setting is easiest to change where its effects are visible, and the
+ * backup schedule's effects are a list of backups. So the three `backup.*`
+ * keys are edited on the Backups page, beside the copies they produce, and
+ * this page links there rather than offering a second set of editors that
+ * would disagree with the first the moment one of them was left open.
+ */
+export const SECTIONS_ELSEWHERE: Record<string, { href: string; page: string }> = {
+  backup: { href: '/settings/backups', page: 'Backups' },
+};

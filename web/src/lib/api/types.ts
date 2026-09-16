@@ -144,6 +144,7 @@ export type BackupVerification = Schemas['BackupVerification'];
 export type BackupRemote = Schemas['BackupRemote'];
 export type RemoteBackupCopy = Schemas['RemoteBackupCopy'];
 export type RemoteBackupCheck = Schemas['RemoteBackupCheck'];
+export type BackupRemoteInput = Schemas['BackupRemoteInput'];
 export type StagedRestore = Schemas['StagedRestore'];
 export type RestoreOutcome = Schemas['RestoreOutcome'];
 export type SettingsImport = Schemas['SettingsImport'];

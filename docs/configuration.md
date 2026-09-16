@@ -364,6 +364,10 @@ settings page reports rather than refusing the edit.
 
 ### `backup`
 
+These three are edited on **Settings → Backups**, beside the copies they
+produce, rather than in the Configuration list. They are ordinary settings
+otherwise: the same keys, the same environment overrides, the same export.
+
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
 | `backup.directory` | `ZOOMIES_BACKUP_DIRECTORY` | at once | Backup directory — Where backups are kept. Empty is a `backups` directory beside the database, which on a container deployment is the mounted volume. A relative path is relative to the database's directory. |
@@ -381,11 +385,16 @@ restore` and nothing else. [Backup and restore](backup-and-restore.md) is the
 whole story; this is the reference.
 
 Unlike everything else on this page, these are read from `zoomies.yaml` and the
-environment only — they are not settings in the database and are not editable
-from the settings page. That is deliberate: a fleet whose database is gone has
-no stored settings to read, and finding the offsite copy is exactly what that
-fleet needs to do. Keep the file mode 0600, and prefer the environment for the
-secret key.
+environment only. They are not settings in the database, and the settings page
+does not edit them: a fleet whose database is gone has no stored settings to
+read, and finding the offsite copy is exactly what that fleet needs to do. Keep
+the file mode 0600, and prefer the environment for the secret key.
+
+Destinations can also be **added on the Backups page**, where they are stored
+as rows with their secrets sealed under the instance encryption key. A fleet
+normally uses one or the other. A name described in both places is the file's,
+and the stored row is shown as ignored rather than left to disagree in
+silence — see [Backup and restore](backup-and-restore.md#copies-that-leave-the-machine).
 
 | Key | Environment | What it is |
 | --- | --- | --- |

@@ -79,7 +79,7 @@ func (s *Server) failRemote(w http.ResponseWriter, r *http.Request, doing string
 // cached yes is exactly the answer that is worth nothing.
 func (s *Server) handleListRemoteCopies(w http.ResponseWriter, r *http.Request) {
 	name := chiURLParam(r, "name")
-	remote, err := s.ctrl.RemoteBackup(name)
+	remote, err := s.ctrl.RemoteBackup(r.Context(), name)
 	if err != nil {
 		s.failRemote(w, r, "reading the backup remote", err)
 		return
@@ -96,7 +96,7 @@ func (s *Server) handleListRemoteCopies(w http.ResponseWriter, r *http.Request) 
 		out.Bytes += c.Bytes
 	}
 	s.ctrl.NoteRemoteListing(name, len(copies), out.Bytes)
-	for _, status := range s.ctrl.BackupRemotes() {
+	for _, status := range s.ctrl.BackupRemotes(r.Context()) {
 		if status.Name == name {
 			out.Remote = status
 			break
@@ -114,7 +114,7 @@ func (s *Server) handleListRemoteCopies(w http.ResponseWriter, r *http.Request) 
 // ran, and what it found is the result.
 func (s *Server) handleCheckRemote(w http.ResponseWriter, r *http.Request) {
 	name := chiURLParam(r, "name")
-	remote, err := s.ctrl.RemoteBackup(name)
+	remote, err := s.ctrl.RemoteBackup(r.Context(), name)
 	if err != nil {
 		s.failRemote(w, r, "reading the backup remote", err)
 		return
@@ -162,7 +162,7 @@ func (s *Server) handleShipBackups(w http.ResponseWriter, r *http.Request) {
 // ordinary backup in the directory.
 func (s *Server) handleFetchRemoteCopy(w http.ResponseWriter, r *http.Request) {
 	name, id := chiURLParam(r, "name"), chiURLParam(r, "id")
-	remote, err := s.ctrl.RemoteBackup(name)
+	remote, err := s.ctrl.RemoteBackup(r.Context(), name)
 	if err != nil {
 		s.failRemote(w, r, "reading the backup remote", err)
 		return
@@ -205,7 +205,7 @@ func (s *Server) handleFetchRemoteCopy(w http.ResponseWriter, r *http.Request) {
 // not.
 func (s *Server) handleDeleteRemoteCopy(w http.ResponseWriter, r *http.Request) {
 	name, id := chiURLParam(r, "name"), chiURLParam(r, "id")
-	remote, err := s.ctrl.RemoteBackup(name)
+	remote, err := s.ctrl.RemoteBackup(r.Context(), name)
 	if err != nil {
 		s.failRemote(w, r, "reading the backup remote", err)
 		return

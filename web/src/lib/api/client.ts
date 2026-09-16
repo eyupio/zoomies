@@ -620,6 +620,19 @@ export const dismissRestoreOutcome = () =>
 
 export const shipBackups = () => api.post<Result<'shipBackups'>>('/backups/offsite', {});
 
+export const createBackupRemote = (body: Body<'createBackupRemote'>) =>
+  api.post<Result<'createBackupRemote'>>('/backups/remotes', { body });
+
+export const updateBackupRemote = (name: string, body: Body<'updateBackupRemote'>) =>
+  api.patch<Result<'updateBackupRemote'>>(`/backups/remotes/${enc(name)}`, { body });
+
+export const deleteBackupRemote = (name: string) =>
+  api.del<Result<'deleteBackupRemote'>>(`/backups/remotes/${enc(name)}`);
+
+/** Test a destination that has not been saved, which is the point of it. */
+export const checkDraftBackupRemote = (body: Body<'checkDraftBackupRemote'>) =>
+  api.post<Result<'checkDraftBackupRemote'>>('/backups/remotes/check', { body });
+
 export const listRemoteBackups = (name: string, signal?: AbortSignal) =>
   api.get<Result<'listRemoteBackups'>>(`/backups/remotes/${enc(name)}/copies`, { signal });
 

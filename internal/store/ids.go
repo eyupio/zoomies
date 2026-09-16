@@ -24,6 +24,9 @@ const (
 	PrefixJobEvent     = "jev"
 	PrefixController   = "ctl"
 	PrefixProvider     = "prv"
+	// PrefixBackupRemote names an offsite backup destination kept in the
+	// database, so a row id in a log line says what it is without a lookup.
+	PrefixBackupRemote = "bkr"
 	PrefixMachine      = "mach"
 	// PrefixMachineOp is minted per attempt rather than per machine: it is the
 	// operation ID an operator quotes when a create is stuck, and two attempts

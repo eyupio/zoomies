@@ -277,7 +277,7 @@ func (s *Server) handleListBackups(w http.ResponseWriter, r *http.Request) {
 	}
 	status := s.ctrl.BackupStatus()
 	out.Running = status.Running
-	out.Remotes = s.ctrl.BackupRemotes()
+	out.Remotes = s.ctrl.BackupRemotes(r.Context())
 	out.Schedule = backupSchedule{
 		Enabled:         status.Interval > 0,
 		Interval:        config.Text(config.Setting{Kind: config.KindDuration}, status.Interval),

@@ -3,6 +3,7 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // A compose deployment describes the bucket in the file and keeps the secret
@@ -98,7 +99,7 @@ func TestABadRemoteEnvironmentValueIsRefusedByName(t *testing.T) {
 func TestAnOffsiteBackupSaysWhatItIsGivingAway(t *testing.T) {
 	base := func() *Config {
 		c := Default()
-		c.Backup.Interval = 24 * 3600 * 1e9
+		c.Backup.Interval = 24 * time.Hour
 		c.Backup.Remotes = []BackupRemote{{
 			Name: "offsite", Endpoint: "https://s3.eu-west-2.amazonaws.com", Bucket: "acme",
 			AccessKeyID: "AKIA", SecretAccessKey: "secret",
@@ -111,8 +112,18 @@ func TestAnOffsiteBackupSaysWhatItIsGivingAway(t *testing.T) {
 	if !hasCode(c.Validate(), "backup.remote_plaintext") {
 		t.Error("a remote with no passphrase is sent the whole fleet in the clear and nothing says so")
 	}
-	if hasCode(c.Validate(), "backup.no_remote") {
+	if hasCode(c.Validate(), NoRemoteFinding) {
 		t.Error("a fleet with a remote is told it has none")
+	}
+
+	// And the fleet that has none is told, under the code the settings API
+	// drops once a destination stored in the database has answered it. The
+	// constant and the finding are spelled separately, so this is what holds
+	// them together.
+	bare := Default()
+	bare.Backup.Interval = 24 * time.Hour
+	if !hasCode(bare.Validate(), NoRemoteFinding) {
+		t.Error("a fleet taking backups that never leave the host is not told")
 	}
 
 	c = base()
