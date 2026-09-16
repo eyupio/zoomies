@@ -149,6 +149,9 @@ func (s *Server) apiRoutes() chi.Router {
 			// and serving it means the wizard's dropdown cannot offer an
 			// operating system no image is published for.
 			r.With(s.require(auth.ActionPoolsRead)).Get("/platforms", s.handlePoolPlatforms)
+			// What a pool that says nothing is. The size a runner gets is a
+			// fleet setting now, so a form has to ask rather than assume.
+			r.With(s.require(auth.ActionPoolsRead)).Get("/defaults", s.handlePoolDefaults)
 			r.With(s.require(auth.ActionPoolsRead)).Get("/{id}", s.handleGetPool)
 			r.With(s.require(auth.ActionPoolsWrite)).Patch("/{id}", s.handleUpdatePool)
 			r.With(s.require(auth.ActionPoolsDelete)).Delete("/{id}", s.handleDeletePool)

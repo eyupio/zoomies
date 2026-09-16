@@ -37,7 +37,7 @@ zoomies-<vcpu>vcpu[-<memory>gb]-<os>-<version>[-<arch>][-<suffix>]
 | --- | --- | --- |
 | `zoomies` | | Always. It is how you tell Zoomies' runners and containers from everything else on a host. |
 | `<vcpu>vcpu` | `4vcpu` | A pool's per-runner share, or a host's total. A fraction rounds up. |
-| `<memory>gb` | `32gb` | Only when there is a memory limit to state. Host names carry it; pool names carry it only when the pool caps memory. |
+| `<memory>gb` | `32gb` | Only when there is a memory limit to state. A host name carries what the machine has; a pool name carries what one of its runners gets, and only when that is not the fleet's default — a figure every pool shares says nothing about any of them, which is the same reason `amd64` is left out. |
 | `<os>-<version>` | `ubuntu-2404` | The distribution and its release, with the dots removed. `ubuntu-2404`, `debian-12`, `fedora-42`, `rocky-9`. |
 | `<arch>` | `arm64` | Omitted for `amd64`, which is the default. Spelled out for everything else. |
 | `<suffix>` | `tuck`, `biscuit-a3f9qz2m` | What tells two things of the same shape apart: a host's machine name, or a runner's kennel word and token. Pools have none: a pool *is* its shape. |
@@ -248,6 +248,11 @@ they are given: choose Debian 12 and it says `zoomies-debian-12`, ask for four
 CPUs and it says `zoomies-4vcpu-debian-12`. It used to lead with a kennel word
 instead, which left an operator who met both the wizard and `zoomies init` with
 two conventions for one thing.
+
+A new pool opens at the fleet's default size (`runners.default_cpus`,
+`runners.default_memory_mb`), and that size is left out of the name: every pool
+here gets it, so saying it would tell a workflow author nothing. Ask for more
+than the usual and the name says so.
 
 The spaniel is still there, for the two cases the shape cannot cover on its own:
 a pool created before anything about it is known — the first one, before a host

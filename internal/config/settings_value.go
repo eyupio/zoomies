@@ -159,6 +159,8 @@ func encode(s Setting, f reflect.Value) any {
 		return f.Bool()
 	case KindInt:
 		return int(f.Int())
+	case KindFloat:
+		return f.Float()
 	case KindStrings:
 		out := make([]string, f.Len())
 		for i := range out {
@@ -246,6 +248,18 @@ func decode(s Setting, f reflect.Value, value any) error {
 			return fail("%d cannot be negative", n)
 		}
 		f.SetInt(int64(n))
+
+	case KindFloat:
+		n, err := asFloat(value)
+		if err != nil {
+			return fail("%v is not a number", value)
+		}
+		// The one fractional setting measures a share of a machine, so a
+		// negative one is not a smaller share but a different question.
+		if n < 0 {
+			return fail("%v cannot be negative", n)
+		}
+		f.SetFloat(n)
 
 	case KindEnum:
 		text, ok := value.(string)
@@ -340,6 +354,12 @@ func parseString(s Setting, raw string) (any, error) {
 			return fail("%q is not an integer", raw)
 		}
 		return n, nil
+	case KindFloat:
+		n, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+		if err != nil {
+			return fail("%q is not a number", raw)
+		}
+		return n, nil
 	case KindStrings:
 		return splitList(raw), nil
 	case KindLabels:
@@ -404,6 +424,14 @@ func Text(s Setting, value any) string {
 	case KindInt:
 		if n, err := asInt(value); err == nil {
 			return strconv.Itoa(n)
+		}
+		return ""
+	case KindFloat:
+		if n, err := asFloat(value); err == nil {
+			// The shortest text that reads back as the same number, so 2
+			// stores as "2" rather than as "2.0" and a half core keeps its
+			// half.
+			return strconv.FormatFloat(n, 'f', -1, 64)
 		}
 		return ""
 	}
@@ -471,6 +499,22 @@ func asInt(value any) (int, error) {
 		return int(v), nil
 	case string:
 		return strconv.Atoi(strings.TrimSpace(v))
+	}
+	return 0, fmt.Errorf("not a number")
+}
+
+func asFloat(value any) (float64, error) {
+	switch v := value.(type) {
+	case float64:
+		return v, nil
+	case float32:
+		return float64(v), nil
+	case int:
+		return float64(v), nil
+	case int64:
+		return float64(v), nil
+	case string:
+		return strconv.ParseFloat(strings.TrimSpace(v), 64)
 	}
 	return 0, fmt.Errorf("not a number")
 }

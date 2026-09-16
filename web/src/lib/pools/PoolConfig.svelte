@@ -8,7 +8,7 @@
 -->
 <script lang="ts">
   import type { Pool } from '$lib/api/types';
-  import { formatGoDuration, formatMegabytes, formatNumber } from '$lib/format';
+  import { formatBytes, formatGoDuration, formatMegabytes, formatNumber } from '$lib/format';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import PoolLabels from './PoolLabels.svelte';
   import { backendLabel, dockerModeLabel, platformLabelOrAny } from './PoolVocabulary.svelte';
@@ -121,7 +121,7 @@
   {/if}
 
   <div class="pair">
-    <dt>Resources per runner</dt>
+    <dt>Size per runner</dt>
     <dd class="tabular">
       {#if hasResources}
         {#if resources.cpus !== undefined}<span>{formatNumber(resources.cpus)} CPU</span>{/if}
@@ -133,7 +133,7 @@
             >{formatNumber(resources.pids_limit)} processes</span
           >{/if}
       {:else}
-        <span class="assumed">None set</span>
+        <span class="assumed">Not sized</span>
       {/if}
     </dd>
   </div>
@@ -149,11 +149,28 @@
         A docker-in-docker pool is charged twice over: the build runs in a sidecar the backend gives
         the same limits.{/if}
     {:else}
-      This pool sets no limits, so each runner is still charged one slot's worth of whatever host it
-      lands on — a host with 30 GB allocatable and a capacity of 6 charges 5 GB. That is what keeps
-      a fleet of unlimited pools admitting exactly what its slot counts always admitted.
+      This pool predates sizing being part of making a pool, so its runners have no CPU or memory
+      limit at all: each takes what it likes on the machine it lands on, while the fleet charges it
+      one slot's worth — a host with 30 GB allocatable and a capacity of 6 charges 5 GB. Editing the
+      pool gives it the fleet's default size, and the sliders say what that costs.
     {/if}
   </p>
+
+  {#if pool.cache?.enabled}
+    <div class="pair">
+      <dt>Cache</dt>
+      <dd>
+        {pool.cache.scope === 'repository' ? 'Per repository' : 'Shared across the pool'}{pool.cache
+          .repository
+          ? ` (${pool.cache.repository})`
+          : ''},
+        {pool.cache.size_limit ? `up to ${formatBytes(pool.cache.size_limit)}` : 'no size limit'}
+        {#if pool.cache.source}
+          <code>{pool.cache.source}</code>
+        {/if}
+      </dd>
+    </div>
+  {/if}
 
   {#if selector.length > 0}
     <div class="pair">

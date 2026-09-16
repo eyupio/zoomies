@@ -95,7 +95,11 @@
       which runs out first and says nothing when it does. */
   const diskTotalMb = $derived(host?.disk_total_mb ?? 0);
   const sized = $derived(shape.cpus > 0 || shape.memoryMb > 0 || diskTotalMb > 0);
-  const ask = $derived(runnerAsk(fleet.pools));
+  // Sized against what this fleet's pools actually ask for, and where none
+  // has said, against the fleet's own default rather than a figure of this
+  // page's own -- so the capacity recommended here and the sliders the pool
+  // wizard opens on are describing the same fleet.
+  const ask = $derived(runnerAsk(fleet.pools, fleet.runnerDefaults));
   const recCores = $derived(recommendedReserveCores(shape.cpus));
   const recMb = $derived(recommendedReserveMemoryMb(shape.memoryMb));
   const recDiskMb = $derived(recommendedReserveDiskMb(diskTotalMb));
@@ -272,7 +276,9 @@
         {#if sized && recCapacity > 0}
           A runner here asks for <strong>{ask.cpus} {ask.cpus === 1 ? 'core' : 'cores'}</strong>
           and <strong>{gb(ask.memoryMb)}</strong>{ask.source === 'pools'
-            ? ', the largest ask across your enabled pools'
+            ? ask.pool
+              ? `, the largest ask across your enabled pools — ${ask.pool}'s`
+              : ', the largest ask across your enabled pools'
             : ', the default a new pool gets'}{ask.pair
             ? ', counting both containers of a docker-in-docker slot — its runner and the sidecar the backend gives the same limits'
             : ''}. On {shape.cpus > 0 ? `${shape.cpus} cores` : 'an unknown number of cores'}

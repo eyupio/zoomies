@@ -206,6 +206,9 @@
       title: 'Backend',
       description: 'What a runner is made of, and how it is run on a host.',
     },
+    // Size before count, because a maximum means nothing until it is known
+    // what one runner costs on the machines it will land on.
+    { id: 'size', title: 'Size', description: 'How much machine one runner gets, and its cache.' },
     { id: 'scaling', title: 'Scaling', description: 'How many runners, and for how long.' },
     { id: 'review', title: 'Review', description: 'What the controller makes of it.' },
   ];
@@ -226,14 +229,17 @@
       'run_as_root',
     ],
     [
-      'min_runners',
-      'max_runners',
-      'idle_timeout',
-      'ephemeral',
       'resources.cpus',
       'resources.memory_mb',
       'resources.disk_gb',
+      'resources.pids_limit',
+      'cache.enabled',
+      'cache.scope',
+      'cache.size_limit',
+      'cache.source',
+      'cache.repository',
     ],
+    ['min_runners', 'max_runners', 'priority', 'idle_timeout', 'ephemeral'],
     [],
   ];
 
@@ -255,9 +261,16 @@
     ephemeral: 'Runner lifetime',
     docker_mode: 'Docker in jobs',
     run_as_root: 'Run as root',
-    'resources.cpus': 'CPUs',
-    'resources.memory_mb': 'Memory',
-    'resources.disk_gb': 'Disk',
+    priority: 'Priority',
+    'resources.cpus': 'CPU per runner',
+    'resources.memory_mb': 'Memory per runner',
+    'resources.disk_gb': 'Disk per runner',
+    'resources.pids_limit': 'Process limit',
+    'cache.enabled': 'Cache',
+    'cache.scope': 'Cache isolation scope',
+    'cache.size_limit': 'Cache size limit',
+    'cache.source': 'Cache host path',
+    'cache.repository': 'Cache repository',
     host_selector: 'Hosts',
     env: 'Environment',
   };
