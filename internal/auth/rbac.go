@@ -133,6 +133,15 @@ const (
 	// the world again, and it wants to be visible in an audit log under a name
 	// that says so.
 	ActionRecoveryWrite Action = "recovery.write"
+	// The backups. Reading one is reading the whole database -- every
+	// account's password hash and every sealed credential -- so backups.read
+	// is admin like settings.read is, and a token scoped to it can download
+	// the fleet. backups.restore is its own action rather than backups.write
+	// because it is the one that replaces the fleet: a token that may take
+	// copies should not be one that may put one back.
+	ActionBackupsRead    Action = "backups.read"
+	ActionBackupsWrite   Action = "backups.write"
+	ActionBackupsRestore Action = "backups.restore"
 )
 
 // actionRoles is the authorisation policy in one table.
@@ -202,6 +211,9 @@ var actionRoles = map[Action]store.Role{
 
 	ActionDiagnosticsRead: store.RoleAdmin,
 	ActionRecoveryWrite:   store.RoleAdmin,
+	ActionBackupsRead:     store.RoleAdmin,
+	ActionBackupsWrite:    store.RoleAdmin,
+	ActionBackupsRestore:  store.RoleAdmin,
 }
 
 // AllActions returns every action, sorted. The UI's token editor lists the

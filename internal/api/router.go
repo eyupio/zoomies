@@ -66,6 +66,16 @@ func (s *Server) routes() http.Handler {
 	r.Handle(s.cfg().GitHub.WebhookPath, http.HandlerFunc(s.ctrl.HandleWebhook))
 
 	r.Mount("/api/v1/agent", s.agentRoutes())
+	// The backup upload is mounted outside the user API's body limit: an
+	// archive is the whole database, and the handler bounds it itself. It
+	// carries the same middleware the rest of the user API does, in the same
+	// order, so it is the one route with a bigger body and nothing else.
+	r.Group(func(r chi.Router) {
+		r.Use(noStore)
+		r.Use(s.csrf)
+		r.Use(s.authenticate)
+		r.With(s.require(auth.ActionBackupsWrite)).Post("/api/v1/backups/upload", s.handleUploadBackup)
+	})
 	r.Mount("/api/v1", s.apiRoutes())
 
 	if s.cfg().Metrics.Enabled {
@@ -264,12 +274,36 @@ func (s *Server) apiRoutes() chi.Router {
 		r.With(s.require(auth.ActionStatsRead)).Get("/recovery", s.handleGetRecovery)
 		r.With(s.require(auth.ActionRecoveryWrite)).Post("/recovery/unfence", s.handleUnfence)
 
+		// Backups. Reading one is reading the whole database, and restoring
+		// one replaces the fleet, so every route here is admin and the two
+		// halves are separate actions. The upload is mounted on the root
+		// router, above, because it needs a body limit of its own.
+		r.Route("/backups", func(r chi.Router) {
+			r.With(s.require(auth.ActionBackupsRead)).Get("/", s.handleListBackups)
+			r.With(s.require(auth.ActionBackupsWrite)).Post("/", s.handleTakeBackup)
+			// The staged restore's own routes come before /{id}, or chi would
+			// look for a backup called "restore".
+			r.With(s.require(auth.ActionBackupsRestore)).Delete("/restore", s.handleCancelRestore)
+			r.With(s.require(auth.ActionBackupsRestore)).Post("/restore/apply", s.handleApplyRestore)
+			r.With(s.require(auth.ActionBackupsRestore)).Delete("/restore/outcome", s.handleDismissRestoreOutcome)
+			r.With(s.require(auth.ActionBackupsRead)).Get("/{id}", s.handleGetBackup)
+			r.With(s.require(auth.ActionBackupsWrite)).Delete("/{id}", s.handleDeleteBackup)
+			r.With(s.require(auth.ActionBackupsRead)).Post("/{id}/verify", s.handleVerifyBackup)
+			r.With(s.require(auth.ActionBackupsRead)).Get("/{id}/download", s.handleDownloadBackup)
+			r.With(s.require(auth.ActionBackupsRead)).Post("/{id}/download", s.handleDownloadBackup)
+			r.With(s.require(auth.ActionBackupsRestore)).Post("/{id}/restore", s.handleStageRestore)
+		})
+
 		// Diagnostics: the whole instance in one document, for a bug report.
 		// It is admin because it contains the settings section, which is.
 		r.With(s.require(auth.ActionDiagnosticsRead)).Get("/diagnostics/bundle", s.handleDiagnosticsBundle)
 
 		r.With(s.require(auth.ActionSettingsRead)).Get("/settings", s.handleGetSettings)
 		r.With(s.require(auth.ActionSettingsWrite)).Patch("/settings", s.handleUpdateSettings)
+		// An export is what the page shows, in a file; an import goes through
+		// the same plan a PATCH does, so the two share their gates.
+		r.With(s.require(auth.ActionSettingsRead)).Get("/settings/export", s.handleExportSettings)
+		r.With(s.require(auth.ActionSettingsWrite)).Post("/settings/import", s.handleImportSettings)
 	})
 
 	return r

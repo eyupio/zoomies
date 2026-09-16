@@ -89,6 +89,8 @@ tags:
     description: One document describing this instance, for a bug report.
   - name: recovery
     description: The fence a restore sets, and the one act that lifts it.
+  - name: backups
+    description: Copies of the database, and the restore that puts one back.
   - name: agent
     description: Routes used by agents. Not for general clients.
 
@@ -2691,6 +2693,253 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Recovery" }
 
+  # ==========================================================================
+  # Backups
+  # ==========================================================================
+  # Every route here is admin, and a backup is the whole database: every
+  # account's password hash and every sealed credential. The upload is bounded
+  # by its own handler rather than the API's ordinary body limit.
+  /backups:
+    get:
+      operationId: listBackups
+      tags: [backups]
+      summary: Every backup, and the state of the schedule
+      description: >-
+        The backups in `backup.directory` and the copies the store took before
+        migrating, newest first, each with what its manifest says and whether a
+        restore of it would be refused; the schedule and its last outcome; the
+        restore waiting for a restart, if any; and what became of the last one.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Backups" }
+    post:
+      operationId: takeBackup
+      tags: [backups]
+      summary: Take a backup now
+      description: >-
+        A consistent copy of the live database, taken with `VACUUM INTO`, checked
+        with `PRAGMA integrity_check`, and written with its manifest into
+        `backup.directory`. Retention (`backup.keep`) runs afterwards. Refused with
+        409 while another backup is being taken.
+      x-zoomies-role: admin
+      responses:
+        "201":
+          description: Taken
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Backup" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /backups/upload:
+    post:
+      operationId: uploadBackup
+      tags: [backups]
+      summary: Bring a backup here
+      description: >-
+        A `multipart/form-data` form with the archive in `file` -- a `.tar.gz` a
+        download produced, or the `.tar.gz.enc` an encrypted download produced with
+        its `passphrase` in a second part. The archive is unpacked into a staging
+        directory, verified as a restore would verify it, and then listed under the
+        name its manifest gives it, with its source recorded as uploaded. An upload
+        is never counted or removed by retention.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+                passphrase: { type: string, format: password }
+      responses:
+        "201":
+          description: Unpacked and verified
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Backup" }
+        "413": { description: The upload is over the limit. }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /backups/restore:
+    delete:
+      operationId: cancelRestore
+      tags: [backups]
+      summary: Cancel the staged restore
+      description: Forgets the restore waiting for a restart. Cancelling when none is staged succeeds.
+      x-zoomies-role: admin
+      responses:
+        "204": { description: Cancelled }
+
+  /backups/restore/apply:
+    post:
+      operationId: applyRestore
+      tags: [backups]
+      summary: Restart the controller to apply the staged restore
+      description: >-
+        Stops this controller so that its service manager starts the next one,
+        which applies the staged restore before it opens the database. The response
+        is written before the process stops. Refused with 409 when nothing is
+        staged, because a restart with nothing to apply is an outage. Whether the
+        process comes back is up to whatever started it; a systemd unit and a
+        container with a restart policy both bring it back, and a controller run
+        by hand needs starting by hand.
+      x-zoomies-role: admin
+      responses:
+        "202":
+          description: Stopping
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Restarting" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /backups/restore/outcome:
+    delete:
+      operationId: dismissRestoreOutcome
+      tags: [backups]
+      summary: Dismiss what became of the last restore
+      x-zoomies-role: admin
+      responses:
+        "204": { description: Dismissed }
+
+  /backups/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+        description: The backup's directory name, e.g. `zoomies-20260916-120000`.
+    get:
+      operationId: getBackup
+      tags: [backups]
+      summary: One backup
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Backup" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      operationId: deleteBackup
+      tags: [backups]
+      summary: Delete a backup
+      description: Refused with 409 while the backup is staged to be restored.
+      x-zoomies-role: admin
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /backups/{id}/verify:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: verifyBackup
+      tags: [backups]
+      summary: Re-read a backup and check it
+      description: >-
+        Compares the database's digest with the one the manifest recorded, opens it,
+        runs `PRAGMA integrity_check`, and says whether this build could restore it.
+        A POST because it reads the whole file.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BackupVerification" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /backups/{id}/download:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: downloadBackup
+      tags: [backups]
+      summary: Download a backup as a gzipped tar
+      description: >-
+        The backup's directory -- manifest, database and, only when it was taken
+        with it, the encryption key -- as `<id>.tar.gz`. Audited: it is the whole
+        database leaving the machine.
+      x-zoomies-role: admin
+      responses:
+        "200": { description: The archive, content: { application/octet-stream: { schema: { type: string, format: binary } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      operationId: downloadBackupEncrypted
+      tags: [backups]
+      summary: Download a backup encrypted with a passphrase
+      description: >-
+        The same archive, encrypted as `<id>.tar.gz.enc`: the passphrase is run
+        through argon2id and the archive through AES-256-GCM in chunks, so a file
+        cut short or altered does not open as a shorter backup. The upload route
+        takes the same passphrase to bring it back.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [passphrase]
+              properties:
+                passphrase: { type: string, format: password, minLength: 8 }
+      responses:
+        "200": { description: The encrypted archive, content: { application/octet-stream: { schema: { type: string, format: binary } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /backups/{id}/restore:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: stageRestore
+      tags: [backups]
+      summary: Stage a restore of this backup for the next restart
+      description: >-
+        Nothing is restored by this call. The controller cannot swap the database it
+        is running on, so every check a restore makes is made now -- the copy is
+        sound, this build can read it, and this host's encryption key is the one that
+        sealed it -- and the restore is written down beside the database for the next
+        controller to apply before it opens anything. `POST /backups/restore/apply`
+        is the restart that does it. The restored fleet comes back fenced, with
+        every session ended and every unredeemed join token removed; the two options
+        go further, as `zoomies restore`'s flags do.
+      x-zoomies-role: admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                revoke_api_tokens: { type: boolean, description: Revoke every API token as well. }
+                reset_agent_tokens: { type: boolean, description: Forget every host's agent credential, so each agent joins again. }
+      responses:
+        "202":
+          description: Staged
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StagedRestore" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
   /diagnostics/bundle:
     get:
       operationId: getSupportBundle
@@ -2776,6 +3025,55 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Settings" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /settings/export:
+    get:
+      operationId: exportSettings
+      tags: [admin]
+      summary: Every setting somebody has set, as a file
+      description: >-
+        Stored here, set in the configuration file, or pinned by the environment;
+        never a default, because those are computed on the host that reads them,
+        and never a secret's value. `format=json` wraps the tree with when it was
+        taken, where from, and which secrets were configured but not exported;
+        `format=yaml` is the tree alone, in the shape zoomies.yaml takes, so the
+        download can be started from. Audited.
+      x-zoomies-role: admin
+      parameters:
+        - { name: format, in: query, schema: { type: string, enum: [json, yaml], default: json } }
+      responses:
+        "200":
+          description: The export
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SettingsExport" }
+            application/yaml:
+              schema: { type: string }
+
+  /settings/import:
+    post:
+      operationId: importSettings
+      tags: [admin]
+      summary: Read an export or a zoomies.yaml back, previewing first
+      description: >-
+        Every key in the document is planned through the checks a PATCH makes and
+        reported as `change`, `unchanged`, `unset` or `refused` with the reason. A
+        dry run reports and writes nothing. A real run refuses the whole document
+        with 422 while any key is refused, so an import is one change or none;
+        `skip` names the keys to leave out. Applying returns the settings page too.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SettingsImportRequest" }
+      responses:
+        "200":
+          description: The preview, or the result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SettingsImport" }
         "422": { $ref: "#/components/responses/Unprocessable" }
 
   # ==========================================================================
@@ -4013,6 +4311,129 @@ components:
           type: string
           description: Why the fence is on -- normally the backup this database was restored from.
 
+    Backup:
+      type: object
+      description: One backup, as the Backups tab lists it. The manifest's facts are lifted out flat.
+      required: [id, taken_at, source, location, bytes, total_bytes, schema_migrations, secrets, key_matches, key_included, restorable]
+      properties:
+        id: { type: string, description: The backup's directory name., examples: [zoomies-20260916-120000] }
+        taken_at: { type: string, format: date-time }
+        source:
+          type: string
+          enum: [cli, manual, scheduled, uploaded, pre-migration]
+          description: Who took it. `pre-migration` is a copy the store took before applying migrations.
+        taken_by: { type: string }
+        location:
+          type: string
+          enum: [backups, pre-migration]
+          description: Which directory it is in.
+        bytes: { type: integer, format: int64, description: The database's size. }
+        total_bytes: { type: integer, format: int64, description: The whole directory, which is larger when the key is in it. }
+        version: { type: string, description: The build that wrote it. }
+        schema_latest: { type: string, description: The newest migration the copy had taken. }
+        schema_migrations: { type: integer }
+        integrity: { type: string }
+        secrets: { type: integer, description: How many sealed credentials the key is needed for. }
+        key_fingerprint: { type: string }
+        key_matches:
+          type: [boolean, "null"]
+          description: Whether this host holds the key that sealed it. Null when the backup does not say.
+        key_included: { type: boolean, description: The encryption key is in the backup, which makes it a credential. }
+        restorable: { type: boolean, description: Every check a restore would make passes, from what the manifest says. }
+        restore_problem: { type: string, description: Why not, or a caveat when it is. }
+        problem: { type: string, description: Something wrong with the backup itself. }
+
+    Backups:
+      type: object
+      required: [items, directory, database_bytes, disk_free_bytes, schedule, running, staged_restore, last_restore, restarting]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/Backup" } }
+        directory: { type: string, description: Where backups are kept, resolved. }
+        database_bytes: { type: integer, format: int64, description: The live database's size, which is roughly what a backup costs. }
+        disk_free_bytes:
+          type: [integer, "null"]
+          format: int64
+          description: Room beside the backup directory, when the platform can say.
+        key_fingerprint: { type: string, description: This host's encryption key. }
+        schedule: { $ref: "#/components/schemas/BackupSchedule" }
+        running: { type: boolean, description: A backup is being taken right now. }
+        staged_restore:
+          oneOf:
+            - $ref: "#/components/schemas/StagedRestore"
+            - type: "null"
+        last_restore:
+          oneOf:
+            - $ref: "#/components/schemas/RestoreOutcome"
+            - type: "null"
+        restarting: { type: boolean, description: This process has been asked to stop, so wait for the next one. }
+
+    BackupSchedule:
+      type: object
+      required: [enabled, interval, keep, next_due_at, last_scheduled_at]
+      properties:
+        enabled: { type: boolean }
+        interval: { $ref: "#/components/schemas/Duration" }
+        keep: { type: integer }
+        next_due_at: { type: [string, "null"], format: date-time }
+        last_scheduled_at: { type: [string, "null"], format: date-time }
+        last_scheduled_id: { type: string }
+        last_error: { type: string, description: Why the last scheduled backup failed, when it did. }
+
+    BackupVerification:
+      type: object
+      required: [checked_at, ok, integrity, digest_known, digest_matches, schema_readable, migrations, problems]
+      properties:
+        checked_at: { type: string, format: date-time }
+        ok: { type: boolean }
+        integrity: { type: string, description: SQLite's own answer -- `ok`, or what it found. }
+        digest_known: { type: boolean, description: The manifest recorded a digest to compare against. }
+        digest_matches: { type: boolean }
+        schema_readable: { type: boolean, description: This build can open it. }
+        migrations: { type: integer }
+        latest: { type: string }
+        problems: { type: array, items: { type: string } }
+
+    StagedRestore:
+      type: object
+      required: [backup_id, dir, requested_at, revoke_api_tokens, reset_agent_tokens]
+      properties:
+        backup_id: { type: string }
+        dir: { type: string }
+        taken_at: { type: string, format: date-time }
+        requested_at: { type: string, format: date-time }
+        requested_by: { type: string }
+        revoke_api_tokens: { type: boolean }
+        reset_agent_tokens: { type: boolean }
+
+    RestoreOutcome:
+      type: object
+      required: [backup_id, attempted_at, ok]
+      properties:
+        backup_id: { type: string }
+        attempted_at: { type: string, format: date-time }
+        ok: { type: boolean }
+        error: { type: string, description: Why the restore did not happen. The controller started on the database it had. }
+        report: { $ref: "#/components/schemas/RestoreReport" }
+
+    RestoreReport:
+      type: object
+      required: [source, key_checked, invalidated, fenced]
+      properties:
+        source: { type: string }
+        moved_aside: { type: string, description: Where the database that was there went. }
+        moved_logs: { type: array, items: { type: string } }
+        key_checked: { type: boolean }
+        manifest_problem: { type: string }
+        invalidated: { type: array, items: { type: string }, description: What the restore took away, one line each. }
+        fenced: { type: string, description: The reason recorded on the fence. }
+
+    Restarting:
+      type: object
+      required: [restarting, message]
+      properties:
+        restarting: { type: boolean }
+        message: { type: string }
+
     SupportBundle:
       type: object
       required: [bundle_version, generated_at, instance, errors]
@@ -4989,6 +5410,63 @@ components:
         version: { type: string }
         database_path: { type: string }
         event_subscribers: { type: integer }
+
+    SettingsExport:
+      type: object
+      required: [export_version, exported_at, version, settings, secrets_configured]
+      properties:
+        export_version: { type: integer }
+        exported_at: { type: string, format: date-time }
+        exported_from: { type: string, description: The address the source instance answers on. }
+        version: { type: string, description: The Zoomies build that wrote it. }
+        settings:
+          type: object
+          additionalProperties: true
+          description: The nested tree, shaped like zoomies.yaml.
+        secrets_configured:
+          type: array
+          items: { type: string }
+          description: Credentials that were set on the source and are not in this document.
+
+    SettingsImportRequest:
+      type: object
+      required: [document]
+      properties:
+        document: { type: string, description: An export, or a zoomies.yaml, as text. YAML or JSON. }
+        dry_run: { type: boolean, description: Plan and report; write nothing. }
+        skip: { type: array, items: { type: string }, description: Keys in the document to leave out. }
+
+    SettingsImportChange:
+      type: object
+      required: [key, current, incoming, action, live, secret]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        section: { type: string }
+        current: { nullable: true, description: The running value, as the settings page renders it. Never a secret's. }
+        incoming: { nullable: true, description: The document's value, parsed. Never a secret's. }
+        action: { type: string, enum: [change, unchanged, unset, refused] }
+        live: { type: boolean, description: A change is in force at once; false waits for a restart. }
+        secret: { type: boolean }
+        reason: { type: string, description: Why it is refused. }
+
+    SettingsImport:
+      type: object
+      required: [applied, changes, summary, secrets_configured]
+      properties:
+        applied: { type: boolean }
+        changes: { type: array, items: { $ref: "#/components/schemas/SettingsImportChange" } }
+        summary:
+          type: object
+          required: [change, unchanged, unset, refused, skipped]
+          properties:
+            change: { type: integer }
+            unchanged: { type: integer }
+            unset: { type: integer }
+            refused: { type: integer }
+            skipped: { type: integer }
+        secrets_configured: { type: array, items: { type: string } }
+        settings: { $ref: "#/components/schemas/Settings" }
 
     # --- agent protocol (internal) ------------------------------------------
     # The wire types of the agent routes. internal/agent/protocol.go owns them;
