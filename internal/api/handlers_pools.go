@@ -786,6 +786,22 @@ func (s *Server) handleUpdatePool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The other half of the host edit's guard. A pool that fits somewhere
+	// today and would fit nowhere afterwards is a pool whose jobs queue for
+	// ever, and the wizard's warning is shown only to the wizard: this is the
+	// same fact refused at the route every client goes through.
+	if !queryBool(r, "confirm", false) {
+		stranded, serr := s.ctrl.PoolStranding(r.Context(), existing, &updated)
+		if serr != nil {
+			s.internal(w, r, "checking whether any host could still run this pool", serr)
+			return
+		}
+		if len(stranded) > 0 {
+			conflict(w, poolStrandingRefusal(stranded[0]))
+			return
+		}
+	}
+
 	if err := s.ctrl.Store().UpdatePool(r.Context(), &updated); err != nil {
 		s.fail(w, r, "saving the pool", err)
 		return

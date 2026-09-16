@@ -894,7 +894,17 @@ paths:
       operationId: updatePool
       tags: [pools]
       summary: Update a pool
+      description: >-
+        Refused with 409 when the change would leave this pool with no host in the
+        fleet that could ever run it, while a host can run it as it stands. The
+        message names the machine it no longer fits and by how much; confirm=true
+        saves it anyway, which is right for a pool whose hosts have not joined yet.
       x-zoomies-role: operator
+      parameters:
+        - name: confirm
+          in: query
+          description: Accept leaving this pool with nowhere to run.
+          schema: { type: boolean, default: false }
       requestBody:
         required: true
         content:
@@ -907,6 +917,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Pool" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/Unprocessable" }
     delete:
       operationId: deletePool
@@ -1690,7 +1701,17 @@ paths:
       operationId: updateHost
       tags: [hosts]
       summary: Update a host's capacity, labels or reserve
+      description: >-
+        Refused with 409 when the reserve or the labels described would leave a pool
+        that runs here today with no host in the fleet that could ever run it. The
+        message names the pool and the shortfall; confirm=true saves it anyway, which
+        is right when the pool is on its way out.
       x-zoomies-role: operator
+      parameters:
+        - name: confirm
+          in: query
+          description: Accept leaving a pool with nowhere to run.
+          schema: { type: boolean, default: false }
       requestBody:
         required: true
         content:
@@ -1715,6 +1736,8 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Host" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
     delete:
       operationId: deleteHost
       tags: [hosts]
@@ -4679,7 +4702,10 @@ components:
         `fault_fix` beside it says what. `out_of_memory` is a limit to raise;
         `host_lost` is a machine or an agent to look at; `image` is a tag or a registry;
         `registration` is the GitHub App's permissions; `backend` is the container daemon
-        on the host, which is the "cannot start the runner container" case; `config` is a
+        on the host, which is the "cannot start the runner container" case; `backend_busy`
+        is that daemon answering too slowly rather than not at all, which is a host carrying
+        more work than it can keep up with and is fixed on the pool's limits or the host's
+        capacity; `config` is a
         setting the runner itself refused, and until it is edited every runner in the pool
         will do the same thing; `out_of_disk` is a full host; `removed` is an operator who
         meant it, and needs no fixing. `runner_exited` is the unclassified case on purpose
@@ -4688,7 +4714,7 @@ components:
         something that is not broken.
 
         Empty means the fleet has nothing to confess.
-      enum: [host_lost, out_of_memory, out_of_disk, removed, image, registration, backend, config, runner_exited]
+      enum: [host_lost, out_of_memory, out_of_disk, removed, image, registration, backend, backend_busy, config, runner_exited]
 
     JobEventKind:
       type: string

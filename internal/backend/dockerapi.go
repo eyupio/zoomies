@@ -178,7 +178,11 @@ func (c *APIClient) unavailable(err error) error {
 	case errors.Is(err, context.Canceled):
 		return fmt.Errorf("docker api: request cancelled: %w", err)
 	case errors.As(err, &timeout) && timeout.Timeout():
-		return fmt.Errorf("%w: Docker at %s did not answer in time; the daemon may be busy or stalled: %w", ErrUnavailable, where, err)
+		// Tagged rather than reworded: the daemon is there -- it accepted the
+		// connection -- and did not answer, which is a host with more work on
+		// it than the daemon can keep up with. The category is attached here
+		// because this is the only place that still has the evidence for it.
+		return busyErr(fmt.Errorf("%w: Docker at %s did not answer in time; the daemon may be busy or stalled: %w", ErrUnavailable, where, err))
 	case errors.Is(err, syscall.ENOENT):
 		return fmt.Errorf("%w: no socket at %s; the daemon is not running or is listening elsewhere -- start it (systemctl --user start docker, or systemctl start docker) or set agent.docker_host: %w", ErrUnavailable, where, err)
 	case errors.Is(err, syscall.EACCES), errors.Is(err, syscall.EPERM):

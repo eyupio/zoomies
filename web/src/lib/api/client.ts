@@ -287,8 +287,8 @@ export const validatePool = (body: Body<'validatePool'>, id?: string, signal?: A
 export const listPoolPlatforms = (signal?: AbortSignal) =>
   api.get<Result<'listPoolPlatforms'>>('/pools/platforms', { signal });
 
-export const updatePool = (id: string, body: Body<'updatePool'>) =>
-  api.patch<Result<'updatePool'>>(`/pools/${enc(id)}`, { body });
+export const updatePool = (id: string, body: Body<'updatePool'>, query?: Query<'updatePool'>) =>
+  api.patch<Result<'updatePool'>>(`/pools/${enc(id)}`, { body, query });
 
 export const deletePool = (id: string, query?: Query<'deletePool'>) =>
   api.del<Result<'deletePool'>>(`/pools/${enc(id)}`, { query });
@@ -363,8 +363,8 @@ export const listHostSamples = (query?: Query<'listHostSamples'>, signal?: Abort
 export const getHost = (id: string, signal?: AbortSignal) =>
   api.get<Result<'getHost'>>(`/hosts/${enc(id)}`, { signal });
 
-export const updateHost = (id: string, body: Body<'updateHost'>) =>
-  api.patch<Result<'updateHost'>>(`/hosts/${enc(id)}`, { body });
+export const updateHost = (id: string, body: Body<'updateHost'>, query?: Query<'updateHost'>) =>
+  api.patch<Result<'updateHost'>>(`/hosts/${enc(id)}`, { body, query });
 
 export const cordonHost = (id: string, body: Body<'cordonHost'>) =>
   api.post<Result<'cordonHost'>>(`/hosts/${enc(id)}/cordon`, { body });

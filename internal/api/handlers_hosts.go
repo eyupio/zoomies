@@ -158,6 +158,40 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A host's settings and a pool's requirements are edited on different
+	// pages, so neither form can show the other half. An edit that takes away
+	// the last machine a pool could ever run on is refused here rather than
+	// discovered an hour later as a job that never started; confirm=true is
+	// the operator saying they meant it, which is right when the pool is on
+	// its way out.
+	if !queryBool(r, "confirm", false) {
+		proposed := *h
+		if req.Capacity != nil {
+			proposed.Capacity = *req.Capacity
+		}
+		if req.ReserveCPUs != nil {
+			proposed.ReserveCPUs = *req.ReserveCPUs
+		}
+		if req.ReserveMemoryMB != nil {
+			proposed.ReserveMemoryMB = *req.ReserveMemoryMB
+		}
+		if req.ReserveDiskMB != nil {
+			proposed.ReserveDiskMB = *req.ReserveDiskMB
+		}
+		if req.Labels != nil {
+			proposed.Labels = store.StringMap(*req.Labels)
+		}
+		stranded, serr := s.ctrl.HostStrandings(r.Context(), &proposed)
+		if serr != nil {
+			s.internal(w, r, "checking which pools this change would leave with nowhere to run", serr)
+			return
+		}
+		if len(stranded) > 0 {
+			conflict(w, hostStrandingRefusal(stranded[0].Host, stranded))
+			return
+		}
+	}
+
 	before := *h
 	changes := store.HostChanges{
 		Capacity: req.Capacity, ReserveCPUs: req.ReserveCPUs,

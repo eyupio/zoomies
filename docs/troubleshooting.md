@@ -270,6 +270,7 @@ The categories, and what each one means you should change:
 | `image` | The runner image could not be pulled or would not start. | Check the pool's image tag, and that the host can reach the registry. |
 | `registration` | GitHub would not register the runner, so it had nothing to attach to. | Check the App is still installed on the repository and still holds its runner permissions. |
 | `backend` | The container backend refused the work or did not answer. This is "cannot start the runner container". | Check the daemon on the host, and the socket the agent names on the host's page. |
+| `backend_busy` | The daemon is there and did not answer in time — the host is carrying more work than it can keep up with, not a backend that is broken. | Lower the host's capacity or the pool's maximum runners, or give the pool CPU and memory limits so the daemon keeps a share of the machine. The host's throttle steps it down on its own while the pressure lasts. |
 | `config` | The runner refused a setting it was given. | Read the runner's log for the setting it named. Every runner in that pool will do the same until it is changed. |
 | `runner_exited` | The runner stopped and nothing could narrow it further. | Read the runner's last output on its page. |
 

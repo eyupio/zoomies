@@ -55,8 +55,13 @@ type HostExclusion struct {
 	Reason string `json:"reason"`
 }
 
-// The reasons a host the selector reached cannot run the pool.
+// The reasons a host cannot run the pool. HostFit never returns the first of
+// them -- a host the selector does not reach is not counted as excluded there,
+// because the pool never asked for it -- but an edit that takes a label off a
+// host is exactly that rule being failed, and it needs a name for the same
+// reasons the others have one.
 const (
+	ExcludedSelector    = "selector"
 	ExcludedUnavailable = "unavailable"
 	ExcludedBackend     = "backend"
 	ExcludedPlatform    = "platform"
@@ -94,36 +99,25 @@ func (c *Controller) HostFit(ctx context.Context, p *store.Pool) (HostFit, error
 				offered[kind]++
 			}
 		}
-		if !scheduler.HostOffers(h, p) {
-			reason := "its agent does not offer the " + string(p.Backend) + " backend"
-			if info, ok := h.BackendInfo.Find(p.Backend); ok && !info.Available && info.Detail != "" {
-				// The agent's own probe usually names the fix -- a socket that
-				// is not readable, a daemon that is not running -- and the
-				// backend's name alone sends an operator looking in the wrong
-				// place.
-				reason += " -- it reports: " + info.Detail
-				if fit.Detail == "" {
-					fit.Detail = h.Name + " reports: " + info.Detail
-				}
+		// The remaining rules are the ones an edit can break too, so their
+		// sentences are HostRefusal's and are written once. A host that could
+		// never hold one runner of this pool cannot run it, and saying so
+		// before the pool exists is the whole point of the wizard's count.
+		code, reason := HostRefusal(h, p)
+		switch code {
+		case ExcludedBackend:
+			if info, ok := h.BackendInfo.Find(p.Backend); ok && !info.Available && info.Detail != "" && fit.Detail == "" {
+				fit.Detail = h.Name + " reports: " + info.Detail
 			}
-			exclude(ExcludedBackend, reason)
-			continue
-		}
-		if !scheduler.HostIsPlatform(h, p) {
+		case ExcludedPlatform:
 			fit.PlatformMismatch++
-			exclude(ExcludedPlatform, platformReason(h, p))
-			continue
-		}
-		// A host that could never hold one runner of this pool cannot run it,
-		// and saying so before the pool exists is the whole point of the
-		// wizard's count. It goes in the same sentence the backend probe uses,
-		// because it has the same shape: a machine that is there and cannot
-		// take the work, with the reason attached.
-		if short := scheduler.HostShortfall(h, p); short != "" {
-			exclude(ExcludedSize, short)
+		case ExcludedSize:
 			if fit.Detail == "" {
-				fit.Detail = h.Name + " cannot run it: " + short + "."
+				fit.Detail = h.Name + " cannot run it: " + reason + "."
 			}
+		}
+		if code != "" {
+			exclude(code, reason)
 			continue
 		}
 		fit.Count++

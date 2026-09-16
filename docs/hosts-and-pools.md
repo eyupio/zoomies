@@ -483,6 +483,31 @@ that runs away from taking it — so a large reserve buys an earlier throttle
 rather than a guarantee. The host's Adjust dialog says what the figure set
 there means for this machine.
 
+#### Neither half is edited alone
+
+A host's settings and a pool's requirements are two halves of one sentence,
+written on two pages by people who cannot see the other half. Hold back most of
+a machine's memory and the pool that used to run there fits nowhere; ask a pool
+for two more cores than the fleet has and the same thing happens from the other
+side. Neither shows up as a fault: the hosts stay healthy, the scheduler keeps
+deciding correctly, and the only symptom is a job that queues for an hour.
+
+So both edits are checked against the other half before they are saved. A
+change that would leave a pool with **no host in the fleet that could ever run
+it** is refused with a `409` naming the pool, the machine it no longer fits and
+by how much — `PATCH /hosts/{id}` for the host's side, `PATCH /pools/{id}` for
+the pool's, and the same sentence in the Adjust dialog and the pool wizard. The
+check is deliberately narrow. It asks only whether a pool that has somewhere to
+run would stop having one: a pool with another host to go to is not stranded, a
+pool that already fitted nowhere is not made worse, and a disabled pool has
+nothing waiting on it.
+
+Shrinking a host before deleting the pool that used it, and sizing a pool for
+machines that have not joined yet, are both real things to want, so the refusal
+is a question rather than a wall — `?confirm=true`, or **Save anyway** in the
+dialog, goes through. What it stops is the silent version, where the figure is
+accepted and the consequence arrives an hour later as a job that never started.
+
 A pool's `resources` are enforced as cgroup limits on the `docker` and `podman`
 backends, including the docker-in-docker sidecar. The `process` backend applies
 none of them, and a pool that sets limits on it raises

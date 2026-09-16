@@ -614,7 +614,10 @@ export interface paths {
         delete: operations["deletePool"];
         options?: never;
         head?: never;
-        /** Update a pool */
+        /**
+         * Update a pool
+         * @description Refused with 409 when the change would leave this pool with no host in the fleet that could ever run it, while a host can run it as it stands. The message names the machine it no longer fits and by how much; confirm=true saves it anyway, which is right for a pool whose hosts have not joined yet.
+         */
         patch: operations["updatePool"];
         trace?: never;
     };
@@ -1089,7 +1092,10 @@ export interface paths {
         delete: operations["deleteHost"];
         options?: never;
         head?: never;
-        /** Update a host's capacity, labels or reserve */
+        /**
+         * Update a host's capacity, labels or reserve
+         * @description Refused with 409 when the reserve or the labels described would leave a pool that runs here today with no host in the fleet that could ever run it. The message names the pool and the shortfall; confirm=true saves it anyway, which is right when the pool is on its way out.
+         */
         patch: operations["updateHost"];
         trace?: never;
     };
@@ -3466,11 +3472,11 @@ export interface components {
         };
         /**
          * @description Why the fleet, rather than the workflow, is the reason something went wrong.
-         *     Every kind exists because something different is done about it, and the `fault_fix` beside it says what. `out_of_memory` is a limit to raise; `host_lost` is a machine or an agent to look at; `image` is a tag or a registry; `registration` is the GitHub App's permissions; `backend` is the container daemon on the host, which is the "cannot start the runner container" case; `config` is a setting the runner itself refused, and until it is edited every runner in the pool will do the same thing; `out_of_disk` is a full host; `removed` is an operator who meant it, and needs no fixing. `runner_exited` is the unclassified case on purpose -- a runner that stopped for a reason nobody observed, including one reported by an agent newer than this controller. Guessing a kind would send somebody to fix something that is not broken.
+         *     Every kind exists because something different is done about it, and the `fault_fix` beside it says what. `out_of_memory` is a limit to raise; `host_lost` is a machine or an agent to look at; `image` is a tag or a registry; `registration` is the GitHub App's permissions; `backend` is the container daemon on the host, which is the "cannot start the runner container" case; `backend_busy` is that daemon answering too slowly rather than not at all, which is a host carrying more work than it can keep up with and is fixed on the pool's limits or the host's capacity; `config` is a setting the runner itself refused, and until it is edited every runner in the pool will do the same thing; `out_of_disk` is a full host; `removed` is an operator who meant it, and needs no fixing. `runner_exited` is the unclassified case on purpose -- a runner that stopped for a reason nobody observed, including one reported by an agent newer than this controller. Guessing a kind would send somebody to fix something that is not broken.
          *     Empty means the fleet has nothing to confess.
          * @enum {string}
          */
-        FaultKind: "host_lost" | "out_of_memory" | "out_of_disk" | "removed" | "image" | "registration" | "backend" | "config" | "runner_exited";
+        FaultKind: "host_lost" | "out_of_memory" | "out_of_disk" | "removed" | "image" | "registration" | "backend" | "backend_busy" | "config" | "runner_exited";
         /**
          * @description What happened. `runner_lost` is the one entry GitHub cannot produce: the runner stopped under the job, and GitHub will report an ordinary failure. `waiting` and `approved` bracket a deployment review: the time between them is GitHub's, and the queue wait starts at `approved`. `runner_returned` withdraws a `runner_lost`: the host was silent long enough to be given up on, came back with the runner still executing this job, and the job is being left to finish. `runner_start_failed` is the failure that touches no job: a runner this pool started died before it could take one, so the job is still queued and the next runner may run it -- said here because a pool that cannot start a container otherwise looks exactly like a pool that is merely busy.
          * @enum {string}
@@ -5440,7 +5446,10 @@ export interface operations {
     };
     updatePool: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Accept leaving this pool with nowhere to run. */
+                confirm?: boolean;
+            };
             header?: never;
             path: {
                 /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
@@ -5464,6 +5473,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -6243,7 +6253,10 @@ export interface operations {
     };
     updateHost: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Accept leaving a pool with nowhere to run. */
+                confirm?: boolean;
+            };
             header?: never;
             path: {
                 /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
@@ -6276,6 +6289,8 @@ export interface operations {
                     "application/json": components["schemas"]["Host"];
                 };
             };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     cordonHost: {

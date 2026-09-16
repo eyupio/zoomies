@@ -61,6 +61,11 @@ const FAULTS: Record<FaultKind, FaultMeta> = {
     label: 'Container backend',
     detail: 'The container backend on the host refused the work or did not answer.',
   },
+  backend_busy: {
+    label: 'Backend overloaded',
+    detail:
+      'The container backend on the host is there and did not answer in time. The daemon is running; the machine is carrying more work than it can keep up with.',
+  },
   config: {
     label: 'Configuration',
     detail:
