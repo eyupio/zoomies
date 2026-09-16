@@ -60,17 +60,7 @@
   import Tooltip from '$lib/components/Tooltip.svelte';
   import RestartWait from './RestartWait.svelte';
   import { describeInterval, keyStatus, saveBlob, schemaShort, sourceOf } from './backups';
-
-  interface Props {
-    /**
-     * Bumped by the page's refresh button. Read inside the fetch effect, which
-     * is what makes one press at the top of Settings re-read whichever panel is
-     * open rather than only the tab the operator happens to be looking past.
-     */
-    reloadKey?: number;
-  }
-
-  let { reloadKey = 0 }: Props = $props();
+  import PageHeader from '$lib/components/PageHeader.svelte';
 
   let page = $state<Backups | null>(null);
   let loading = $state(true);
@@ -79,7 +69,6 @@
 
   $effect(() => {
     void reload;
-    void reloadKey;
     const controller = new AbortController();
     loading = true;
     void listBackups(controller.signal)
@@ -381,32 +370,28 @@
   }
 </script>
 
-<div class="panel">
-  <header>
-    <div>
-      <h2>Backups</h2>
-      <p>
-        One consistent copy of this fleet's database, with a manifest saying what it needs. The
-        encryption key is never in a backup unless it was taken with one, so keep the key too, and
-        copy the directory somewhere that is not this disk.
-      </p>
-    </div>
-    <div class="header-actions">
-      <Button variant="secondary" icon={Upload} onclick={openUpload} disabled={restarting !== null}>
-        Upload a backup
-      </Button>
-      <Button
-        variant="primary"
-        icon={DatabaseBackup}
-        onclick={take}
-        loading={taking}
-        disabled={restarting !== null}
-      >
-        Back up now
-      </Button>
-    </div>
-  </header>
+<PageHeader
+  title="Backups"
+  subtitle="One consistent copy of this fleet's database, with a manifest saying what it needs. The encryption key is never in a backup unless it was taken with one, so keep the key too, and copy the directory somewhere that is not this disk."
+  onrefresh={() => {
+    reload += 1;
+  }}
+>
+  <Button variant="secondary" icon={Upload} onclick={openUpload} disabled={restarting !== null}>
+    Upload a backup
+  </Button>
+  <Button
+    variant="primary"
+    icon={DatabaseBackup}
+    onclick={take}
+    loading={taking}
+    disabled={restarting !== null}
+  >
+    Back up now
+  </Button>
+</PageHeader>
 
+<div class="panel">
   {#if restarting}
     <RestartWait reason={restarting} />
   {/if}
@@ -538,8 +523,7 @@
             {:else}
               <span class="unset">Off</span>
               <span class="second">
-                <a href="/settings?tab=configuration&setting=backup.interval">Set backup.interval</a
-                >
+                <a href="/settings/configuration?setting=backup.interval">Set backup.interval</a>
                 to have the controller take one itself.
               </span>
             {/if}
@@ -965,34 +949,6 @@
     border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
-  }
-  header {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--z-space-3) var(--z-space-4);
-    padding: var(--z-space-4) var(--z-space-5);
-    border-bottom: var(--z-border-width) solid var(--z-border);
-  }
-  h2 {
-    margin: 0;
-    font-size: var(--z-text-lg);
-    line-height: var(--z-leading-lg);
-    font-weight: var(--z-weight-semibold);
-    color: var(--z-text);
-  }
-  header p {
-    margin: var(--z-space-1) 0 0;
-    max-width: 74ch;
-    font-size: var(--z-text-xs);
-    line-height: var(--z-leading-xs);
-    color: var(--z-text-muted);
-  }
-  .header-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--z-space-2);
   }
   .pad {
     padding: var(--z-space-5);

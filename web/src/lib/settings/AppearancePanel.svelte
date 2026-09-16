@@ -2,23 +2,24 @@
   Appearance.
 
   These are this browser's preferences, not the instance's: they are kept in
-  local storage and never leave the machine, which the panel says out loud so
+  local storage and never leave the machine, which the page says out loud so
   nobody wonders why a colleague's Zoomies looks different.
+
+  Three choices, each a row: what it is and what it does on the left, the
+  control on the right. The things that used to be explained at length here
+  and could not be changed -- how often times refresh, that motion follows the
+  operating system -- are one line at the foot, because a settings page that
+  is mostly prose about settings it does not have is a page nobody reads.
 -->
 <script lang="ts">
   import { CLOCK_INTERVAL_MS } from '$lib/format';
   import { prefs } from '$lib/state/prefs.svelte';
   import type { GridView } from '$lib/state/prefs.svelte';
-  import { theme } from '$lib/state/theme.svelte';
+  import { theme, THEME_OPTIONS } from '$lib/state/theme.svelte';
   import type { ThemeChoice } from '$lib/state/theme.svelte';
-  import RadioGroup from '$lib/components/RadioGroup.svelte';
+  import PageHeader from '$lib/components/PageHeader.svelte';
+  import Segmented from '$lib/components/Segmented.svelte';
   import Switch from '$lib/components/Switch.svelte';
-
-  const THEMES = [
-    { value: 'system', label: 'Match the system', description: 'Follows the operating system.' },
-    { value: 'light', label: 'Light', description: 'Always light, whatever the system says.' },
-    { value: 'dark', label: 'Dark', description: 'Always dark.' },
-  ];
 
   /*
     What a grid does with a row on a phone. Both layouts exist because they
@@ -27,139 +28,125 @@
     the default -- each grid's own toggle, above its rows, overrides it there.
   */
   const GRID_VIEWS = [
-    {
-      value: 'rows',
-      label: 'Rows',
-      description:
-        'The table, as every wider window shows it: one line per row, scrolling sideways to the columns that do not fit.',
-    },
-    {
-      value: 'cards',
-      label: 'Cards',
-      description: 'Each row is a card and every value gets a line of its own. Nothing is cut off.',
-    },
+    { value: 'rows', label: 'Rows', name: 'One line per row, scrolling sideways' },
+    { value: 'cards', label: 'Cards', name: 'Each row is a card with a line per value' },
   ];
 
   const seconds = Math.round(CLOCK_INTERVAL_MS / 1000);
 </script>
 
-<div class="panel">
-  <header>
-    <h2>Appearance</h2>
-    <p>
-      Kept in this browser only. Nothing here is sent to the controller or shared with anyone else
-      signing in.
-    </p>
-  </header>
+<PageHeader
+  title="Appearance"
+  subtitle="Kept in this browser only. Nothing here is sent to the controller or shared with anyone else signing in."
+/>
 
-  <div class="body">
-    <section aria-labelledby="theme-heading">
-      <h3 id="theme-heading">Theme</h3>
-      <RadioGroup
-        value={theme.choice}
-        name="theme"
-        options={THEMES}
-        onchange={(value) => theme.set(value as ThemeChoice)}
-      />
-      <p class="note">
-        Currently showing the {theme.resolved} palette. Both are measured for WCAG AA, so nothing becomes
-        harder to read either way.
+<div class="settings">
+  <div class="setting">
+    <div class="text">
+      <p class="label" id="theme-label">Theme</p>
+      <p class="description">
+        Follow the operating system, or hold one palette whatever it says. Showing the {theme.resolved}
+        palette now; both are measured for WCAG AA, so nothing becomes harder to read either way.
       </p>
-    </section>
+    </div>
+    <Segmented
+      options={THEME_OPTIONS}
+      value={theme.choice}
+      label="Theme"
+      onchange={(value) => theme.set(value as ThemeChoice)}
+    />
+  </div>
 
-    <section aria-labelledby="layout-heading">
-      <h3 id="layout-heading">Layout</h3>
-      <Switch
-        label="Collapse the navigation"
-        description="Shows icons only, which gives a wide grid more room. The same thing the toggle in the sidebar does."
-        checked={prefs.navCollapsed}
-        onchange={(on) => (prefs.navCollapsed = on)}
-      />
-    </section>
+  <div class="setting">
+    <div class="text">
+      <p class="label">Collapse the navigation</p>
+      <p class="description">
+        Icons only, which gives a wide grid more room. The same thing the toggle at the foot of the
+        sidebar does.
+      </p>
+    </div>
+    <Switch
+      label="Collapse the navigation"
+      hideLabel
+      checked={prefs.navCollapsed}
+      onchange={(on) => (prefs.navCollapsed = on)}
+    />
+  </div>
 
-    <section aria-labelledby="grid-view-heading">
-      <h3 id="grid-view-heading">Tables on a phone</h3>
-      <RadioGroup
-        value={prefs.gridView}
-        name="grid-view"
-        options={GRID_VIEWS}
-        onchange={(value) => (prefs.gridView = value as GridView)}
-      />
-      <p class="note">
-        Rows to begin with, the same layout a desktop shows, so a grid does not change shape between
-        the two. Cards are worth having below 768px, where a dozen columns across the screen leaves
-        each of them saying nothing. Each grid carries the same choice above its rows, and a grid
-        told there keeps it whatever this says.
+  <div class="setting">
+    <div class="text">
+      <p class="label">Tables on a phone</p>
+      <p class="description">
+        Rows keeps the table a desktop shows, scrolling sideways to the columns that do not fit.
+        Cards give every value a line of its own. Each grid carries the same choice above its rows,
+        and a grid told there keeps it whatever this says.
       </p>
-    </section>
-
-    <section aria-labelledby="time-heading">
-      <h3 id="time-heading">Times and motion</h3>
-      <p class="note">
-        Relative times — "4m ago" — refresh every {seconds} seconds from one shared clock, and every one
-        of them carries the exact timestamp in its tooltip, so nothing is ever only approximate. Durations
-        use tabular figures so columns line up.
-      </p>
-      <p class="note">
-        Animation follows the operating system's reduced-motion setting: when that is on, Zoomies
-        does not animate. There is nothing to switch here.
-      </p>
-    </section>
-
-    <section aria-labelledby="density-heading">
-      <h3 id="density-heading">Density</h3>
-      <p class="note">
-        Zoomies has one density, tuned for a dense operational grid at 13px. Row height and page
-        size are the two things that actually change how much fits on screen: page size is set per
-        grid, at the bottom of each one, and is remembered separately for every table.
-      </p>
-    </section>
+    </div>
+    <Segmented
+      options={GRID_VIEWS}
+      value={prefs.gridView}
+      label="Tables on a phone"
+      onchange={(value) => (prefs.gridView = value as GridView)}
+    />
   </div>
 </div>
 
+<p class="note">
+  Relative times refresh every {seconds} seconds and carry the exact timestamp in their tooltip. Animation
+  follows the operating system's reduced-motion setting. There is one density, tuned for a dense grid
+  at 13px; how many rows a page shows is set at the foot of each grid and remembered per table.
+</p>
+
 <style>
-  .panel {
+  .settings {
     border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }
-  header {
+  .setting {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--z-space-6);
     padding: var(--z-space-4) var(--z-space-5);
     border-bottom: var(--z-border-width) solid var(--z-border);
   }
-  h2 {
+  .setting:last-child {
+    border-bottom: 0;
+  }
+  .text {
+    flex: 1 1 20rem;
+    min-width: 0;
+  }
+  .label {
     margin: 0;
-    font-size: var(--z-text-lg);
-    line-height: var(--z-leading-lg);
-    font-weight: var(--z-weight-semibold);
+    font-size: var(--z-text-base);
+    line-height: var(--z-leading-base);
     color: var(--z-text);
   }
-  header p {
-    margin: var(--z-space-1) 0 0;
-    max-width: 74ch;
+  .description {
+    margin: var(--z-nudge-2) 0 0;
+    max-width: 64ch;
     font-size: var(--z-text-xs);
     line-height: var(--z-leading-xs);
     color: var(--z-text-muted);
   }
-  .body {
-    display: flex;
-    flex-direction: column;
-    gap: var(--z-space-6);
-    padding: var(--z-space-5);
-  }
-  h3 {
-    margin: 0 0 var(--z-space-3);
-    font-size: var(--z-text-2xs);
-    text-transform: uppercase;
-    letter-spacing: var(--z-tracking-wide);
-    font-weight: var(--z-weight-medium);
-    color: var(--z-text-muted);
+  /* The control sits on the label's line, not the description's. */
+  .setting > :global(:last-child) {
+    flex: none;
+    margin-top: var(--z-nudge-1);
   }
   .note {
-    margin: var(--z-space-3) 0 0;
+    margin: var(--z-space-4) var(--z-space-1) 0;
     max-width: 80ch;
-    font-size: var(--z-text-base);
-    line-height: var(--z-leading-base);
-    color: var(--z-text-muted);
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text-subtle);
+  }
+  @media (max-width: 768px) {
+    .setting {
+      flex-direction: column;
+      gap: var(--z-space-3);
+    }
   }
 </style>

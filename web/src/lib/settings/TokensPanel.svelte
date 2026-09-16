@@ -17,6 +17,7 @@
   import Button from '$lib/components/Button.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import Dialog from '$lib/components/Dialog.svelte';
+  import PageHeader from '$lib/components/PageHeader.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
@@ -36,17 +37,6 @@
     { value: '', label: 'Never (not recommended)' },
   ];
 
-  interface Props {
-    /**
-     * Bumped by the page's refresh button. Read inside the fetch effect, which
-     * is what makes one press at the top of Settings re-read whichever panel is
-     * open rather than only the tab the operator happens to be looking past.
-     */
-    reloadKey?: number;
-  }
-
-  let { reloadKey = 0 }: Props = $props();
-
   let tokens = $state<APIToken[]>([]);
   let loading = $state(true);
   let error = $state<unknown>(null);
@@ -54,7 +44,6 @@
 
   $effect(() => {
     void reload;
-    void reloadKey;
     const controller = new AbortController();
     loading = true;
     void listTokens(controller.signal)
@@ -138,18 +127,17 @@
   }
 </script>
 
-<div class="panel">
-  <header>
-    <div>
-      <h2>API tokens</h2>
-      <p>
-        Bearer credentials for the CLI and for automation. Zoomies keeps only the hash, so a token
-        that is lost has to be revoked and replaced.
-      </p>
-    </div>
-    <Button variant="primary" icon={Plus} onclick={open}>Create a token</Button>
-  </header>
+<PageHeader
+  title="API tokens"
+  subtitle="Bearer credentials for the CLI and for automation. Zoomies keeps only the hash, so a token that is lost has to be revoked and replaced."
+  onrefresh={() => {
+    reload += 1;
+  }}
+>
+  <Button variant="primary" icon={Plus} onclick={open}>Create a token</Button>
+</PageHeader>
 
+<div class="panel">
   <LoadingBoundary
     {loading}
     {error}
@@ -327,28 +315,6 @@
     border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
-  }
-  header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--z-space-4);
-    padding: var(--z-space-4) var(--z-space-5);
-    border-bottom: var(--z-border-width) solid var(--z-border);
-  }
-  h2 {
-    margin: 0;
-    font-size: var(--z-text-lg);
-    line-height: var(--z-leading-lg);
-    font-weight: var(--z-weight-semibold);
-    color: var(--z-text);
-  }
-  header p {
-    margin: var(--z-space-1) 0 0;
-    max-width: 74ch;
-    font-size: var(--z-text-xs);
-    line-height: var(--z-leading-xs);
-    color: var(--z-text-muted);
   }
   .pad {
     padding: var(--z-space-5);

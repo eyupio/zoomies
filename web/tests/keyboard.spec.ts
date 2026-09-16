@@ -35,7 +35,16 @@ const JUMPS = [
   { key: 'i', path: '/installations', heading: 'Installations' },
   { key: 'm', path: '/migrate', heading: 'Migrate repositories' },
   { key: 'a', path: '/audit', heading: 'Audit' },
-  { key: 's', path: '/settings', heading: 'Settings' },
+  // Settings is a section: on a desktop its address goes straight to the
+  // first page, on a phone it is the list of them.
+  {
+    key: 's',
+    path: '/settings',
+    heading: /^(Account|Settings)$/,
+    lands: /\/settings(\/account)?$/,
+    /** What the shortcut sheet calls it, where the heading is a pattern. */
+    label: 'Settings',
+  },
 ] as const;
 
 test('g then a letter reaches every page in the navigation', async ({ page }) => {
@@ -47,7 +56,7 @@ test('g then a letter reaches every page in the navigation', async ({ page }) =>
       pageHeading(page, jump.heading),
       `g ${jump.key} reaches ${jump.path}`,
     ).toBeVisible();
-    await expect(page).toHaveURL(new RegExp(`${jump.path}$`));
+    await expect(page).toHaveURL('lands' in jump ? jump.lands : new RegExp(`${jump.path}$`));
 
     // Back to the Overview by its own chord, which checks `g o` nine times
     // over without a test of its own.
@@ -128,7 +137,9 @@ test('question mark opens the shortcut list, and it agrees with the keys themsel
   // navigation shows beside each entry.
   await expect(sheet.getByText('Focus the search on this page')).toBeVisible();
   for (const jump of JUMPS) {
-    const row = sheet.locator('.row', { hasText: jump.heading }).first();
+    const row = sheet
+      .locator('.row', { hasText: 'label' in jump ? jump.label : jump.heading })
+      .first();
     await expect(row.locator('kbd').first(), `${jump.heading} is reached with g`).toHaveText('g');
     await expect(row.locator('kbd').nth(1)).toHaveText(jump.key);
   }
@@ -138,15 +149,20 @@ test('question mark opens the shortcut list, and it agrees with the keys themsel
 });
 
 test('Home and End move tab focus together with the selected panel', async ({ page }) => {
-  await goto(page, '/settings?tab=appearance', 'Settings');
-  const tabs = page.getByRole('tablist', { name: 'Settings sections' });
-  await tabs.getByRole('tab', { name: 'Appearance' }).focus();
+  // A provider's page is the one in the navigation's reach that still keeps
+  // its sections behind tabs.
+  await goto(page, `/providers/${FIXTURE.providerId}`, FIXTURE.provider);
+  const tabs = page.getByRole('tablist', { name: 'Provider sections' });
+  await tabs.getByRole('tab', { name: 'Machines' }).focus();
   await page.keyboard.press('End');
-  await expect(tabs.getByRole('tab', { name: 'About' })).toBeFocused();
-  await expect(tabs.getByRole('tab', { name: 'About' })).toHaveAttribute('aria-selected', 'true');
+  await expect(tabs.getByRole('tab', { name: 'Orphan review' })).toBeFocused();
+  await expect(tabs.getByRole('tab', { name: 'Orphan review' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
   await page.keyboard.press('Home');
-  await expect(tabs.getByRole('tab', { name: 'Users', exact: true })).toBeFocused();
-  await expect(tabs.getByRole('tab', { name: 'Users', exact: true })).toHaveAttribute(
+  await expect(tabs.getByRole('tab', { name: 'Machines', exact: true })).toBeFocused();
+  await expect(tabs.getByRole('tab', { name: 'Machines', exact: true })).toHaveAttribute(
     'aria-selected',
     'true',
   );

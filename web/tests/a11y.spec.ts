@@ -53,7 +53,10 @@ const PAGES = [
   { path: '/installations', heading: 'Installations' },
   { path: '/migrate', heading: 'Migrate repositories' },
   { path: '/audit', heading: 'Audit' },
-  { path: '/settings', heading: 'Settings' },
+  // Two of the settings pages: the one with a table and a row menu, and the
+  // one with the most controls on it.
+  { path: '/settings/users', heading: 'Users' },
+  { path: '/settings/configuration', heading: 'Configuration' },
 ] as const;
 
 /** The pages whose main content is a grid of rows to wait for. */

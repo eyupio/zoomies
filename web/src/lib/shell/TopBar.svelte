@@ -9,20 +9,39 @@
   The problems bell is here for the same reason: whatever page an operator is
   on, the count of things that need them is on screen, and the list is one click
   away rather than only on the Overview.
+
+  The account menu is about the person: who they are signed in as, the theme,
+  their own settings pages, the shortcuts and the way out. The theme used to be
+  an icon of its own beside the menu that cycled through three states on each
+  press and said which one only in its tooltip; it is a choice inside the menu
+  now, where the three options are visible and the one in force is marked.
 -->
 <script lang="ts">
-  import { Keyboard, LogOut, Monitor, Moon, Search, Sun, User } from '@lucide/svelte';
+  import {
+    BookOpen,
+    CircleUser,
+    Keyboard,
+    LogOut,
+    Monitor,
+    Moon,
+    Palette,
+    Search,
+    Sun,
+    User,
+  } from '@lucide/svelte';
   import { modKey } from '../keys';
+  import { DOCS_URL } from '../links';
+  import { roleLabel } from '../roles';
   import { router } from '../router';
   import { fleet } from '../state/fleet.svelte';
   import { session } from '../state/session.svelte';
   import { theme } from '../state/theme.svelte';
-  import { toasts } from '../state/toasts.svelte';
   import ProblemsBell from '../problems/ProblemsBell.svelte';
   import DropdownMenu from '../components/DropdownMenu.svelte';
-  import IconButton from '../components/IconButton.svelte';
   import Logo from '../components/Logo.svelte';
   import type { MenuItem } from '../components/DropdownMenu.svelte';
+  import { SECTIONS, isCurrentSection } from './sections';
+  import { signOut } from './signout';
 
   interface Props {
     onpalette: () => void;
@@ -51,27 +70,79 @@
         : 'Trying to reach the controller. What you see may be a few seconds old.',
   );
 
-  const themeIcon = $derived(
-    theme.choice === 'light' ? Sun : theme.choice === 'dark' ? Moon : Monitor,
+  /**
+   * The section the page is inside, when the page has a name of its own: a
+   * settings page or a runner's detail. It is shown as the crumb before the
+   * page name, so the bar reads "Settings › Users" rather than "Users" alone.
+   */
+  const section = $derived(SECTIONS.find((item) => isCurrentSection(item.path, router.pathname)));
+  const crumb = $derived(
+    section &&
+      section.path !== '/' &&
+      router.pathname !== section.path &&
+      router.title !== section.label
+      ? section.label
+      : null,
   );
-  const themeLabel = $derived(
-    `Theme: ${theme.choice}. Switch to ${
-      theme.choice === 'light' ? 'dark' : theme.choice === 'dark' ? 'system' : 'light'
-    }`,
+
+  const initial = $derived(session.displayName.trim().charAt(0).toUpperCase() || '?');
+  const roleLine = $derived(
+    session.authDisabled
+      ? 'Authentication is off, so every request is an administrator'
+      : roleLabel(session.role),
   );
 
   const menuItems = $derived<MenuItem[]>([
     {
-      id: 'shortcuts',
-      label: 'Keyboard shortcuts',
-      icon: Keyboard,
-      onSelect: onshortcuts,
+      id: 'theme-system',
+      label: 'System',
+      choice: 'Theme',
+      checked: theme.choice === 'system',
+      icon: Monitor,
+      onSelect: () => theme.set('system'),
+    },
+    {
+      id: 'theme-light',
+      label: 'Light',
+      choice: 'Theme',
+      checked: theme.choice === 'light',
+      icon: Sun,
+      onSelect: () => theme.set('light'),
+    },
+    {
+      id: 'theme-dark',
+      label: 'Dark',
+      choice: 'Theme',
+      checked: theme.choice === 'dark',
+      icon: Moon,
+      onSelect: () => theme.set('dark'),
     },
     {
       id: 'account',
-      label: 'Account and settings',
-      icon: User,
-      onSelect: () => router.navigate('/settings'),
+      label: 'Your account',
+      icon: CircleUser,
+      separated: true,
+      onSelect: () => router.navigate('/settings/account'),
+    },
+    {
+      id: 'appearance',
+      label: 'Appearance',
+      icon: Palette,
+      onSelect: () => router.navigate('/settings/appearance'),
+    },
+    {
+      id: 'shortcuts',
+      label: 'Keyboard shortcuts',
+      icon: Keyboard,
+      hint: '?',
+      onSelect: onshortcuts,
+    },
+    {
+      id: 'docs',
+      label: 'Documentation',
+      icon: BookOpen,
+      href: DOCS_URL,
+      newTab: true,
     },
     {
       id: 'signout',
@@ -82,16 +153,6 @@
       onSelect: () => void signOut(),
     },
   ]);
-
-  async function signOut(): Promise<void> {
-    try {
-      fleet.stop();
-      await session.logout();
-      router.navigate('/login');
-    } catch (cause) {
-      toasts.fromError(cause, 'Could not sign out');
-    }
-  }
 </script>
 
 <header class="topbar">
@@ -105,7 +166,13 @@
   </a>
 
   <div class="title">
-    <p class="page">{router.title}</p>
+    <p class="page">
+      {#if crumb}
+        <span class="crumb">{crumb}</span>
+        <span class="crumb-sep" aria-hidden="true">›</span>
+      {/if}
+      <span>{router.title}</span>
+    </p>
   </div>
 
   <div class="right">
@@ -129,8 +196,6 @@
       <kbd>{modKey} K</kbd>
     </button>
 
-    <IconButton icon={themeIcon} label={themeLabel} size="sm" onclick={() => theme.cycle()} />
-
     <DropdownMenu
       items={menuItems}
       label="Account menu"
@@ -138,7 +203,17 @@
       triggerIcon={User}
       size="sm"
       align="end"
-    />
+    >
+      {#snippet header()}
+        <div class="who">
+          <span class="avatar" aria-hidden="true">{initial}</span>
+          <div class="who-text">
+            <p class="who-name">{session.displayName}</p>
+            <p class="who-role">{roleLine}</p>
+          </div>
+        </div>
+      {/snippet}
+    </DropdownMenu>
   </div>
 </header>
 
@@ -178,13 +253,25 @@
     min-width: 0;
   }
   .page {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-2);
     margin: 0;
     font-size: var(--z-text-base);
     font-weight: var(--z-weight-semibold);
     color: var(--z-text);
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .page > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .crumb,
+  .crumb-sep {
+    flex: none;
+    font-weight: var(--z-weight-medium);
+    color: var(--z-text-subtle);
   }
   .right {
     display: flex;
@@ -262,6 +349,43 @@
     background: var(--z-surface-sunken);
     font-family: var(--z-font-mono);
     font-size: var(--z-text-2xs);
+  }
+  .who {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-3);
+    min-width: 16rem;
+  }
+  .avatar {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: var(--z-space-8);
+    height: var(--z-space-8);
+    border-radius: var(--z-radius-full);
+    background: var(--z-accent-subtle);
+    color: var(--z-accent);
+    font-size: var(--z-text-sm);
+    font-weight: var(--z-weight-semibold);
+  }
+  .who-text {
+    min-width: 0;
+  }
+  .who-name {
+    margin: 0;
+    font-size: var(--z-text-sm);
+    line-height: var(--z-leading-sm);
+    font-weight: var(--z-weight-semibold);
+    color: var(--z-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .who-role {
+    margin: 0;
+    font-size: var(--z-text-2xs);
+    line-height: var(--z-leading-2xs);
+    color: var(--z-text-subtle);
   }
   @media (max-width: 1180px) {
     .palette-hint span {

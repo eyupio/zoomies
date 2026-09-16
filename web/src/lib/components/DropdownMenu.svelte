@@ -15,7 +15,8 @@
   worse than one that closed.
 -->
 <script lang="ts">
-  import { Ellipsis } from '@lucide/svelte';
+  import type { Snippet } from 'svelte';
+  import { Ellipsis, ExternalLink } from '@lucide/svelte';
   import type { LucideIcon } from '@lucide/svelte';
   import { layers } from '../keys';
   import Button from './Button.svelte';
@@ -30,7 +31,20 @@
     danger?: boolean;
     /** Draw a rule above this item. */
     separated?: boolean;
-    onSelect: () => void;
+    /**
+     * One of several answers to a question -- the theme, say. Consecutive
+     * items sharing a `choice` are drawn as one segmented row under that
+     * word, each a radio item with `checked` on the one in force, so a
+     * screen reader hears "Theme, Dark, checked" rather than three commands.
+     */
+    choice?: string;
+    checked?: boolean;
+    /** A key cap at the right: the shortcut that does the same thing. */
+    hint?: string;
+    /** A link rather than an action. With `newTab`, one that leaves the product. */
+    href?: string;
+    newTab?: boolean;
+    onSelect?: () => void;
   }
 
   interface Props {
@@ -44,6 +58,8 @@
     size?: 'sm' | 'md';
     disabled?: boolean;
     class?: string;
+    /** Rendered above the items: who the menu is about. Not interactive. */
+    header?: Snippet;
   }
 
   let {
@@ -55,7 +71,28 @@
     size = 'md',
     disabled = false,
     class: className = '',
+    header,
   }: Props = $props();
+
+  /** The items as rows: a choice's items share one row, everything else is its own. */
+  type Row =
+    | { kind: 'item'; item: MenuItem; index: number }
+    | { kind: 'choice'; label: string; entries: { item: MenuItem; index: number }[] };
+
+  const rows = $derived.by<Row[]>(() => {
+    const out: Row[] = [];
+    items.forEach((item, index) => {
+      const last = out[out.length - 1];
+      if (item.choice && last?.kind === 'choice' && last.label === item.choice) {
+        last.entries.push({ item, index });
+      } else if (item.choice) {
+        out.push({ kind: 'choice', label: item.choice, entries: [{ item, index }] });
+      } else {
+        out.push({ kind: 'item', item, index });
+      }
+    });
+    return out;
+  });
 
   const uid = $props.id();
   const id = `menu-${uid}`;
@@ -90,7 +127,7 @@
   function choose(item: MenuItem): void {
     if (item.disabled) return;
     close();
-    item.onSelect();
+    item.onSelect?.();
   }
 
   function step(delta: number): void {
@@ -120,6 +157,18 @@
         step(1);
         break;
       case 'ArrowUp':
+        event.preventDefault();
+        event.stopPropagation();
+        step(-1);
+        break;
+      // Across a choice row the options sit side by side, so the keys that
+      // point that way move too. Elsewhere they walk the same list.
+      case 'ArrowRight':
+        event.preventDefault();
+        event.stopPropagation();
+        step(1);
+        break;
+      case 'ArrowLeft':
         event.preventDefault();
         event.stopPropagation();
         step(-1);
@@ -282,24 +331,81 @@
       tabindex="-1"
       onkeydown={onMenuKeydown}
     >
-      {#each items as item, index (item.id)}
-        {#if item.separated}<span class="rule" role="separator"></span>{/if}
-        <button
-          type="button"
-          role="menuitem"
-          class="item"
-          class:danger={item.danger}
-          data-index={index}
-          tabindex={index === active ? 0 : -1}
-          disabled={item.disabled}
-          onclick={() => choose(item)}
-        >
-          {#if item.icon}
-            {@const ItemIcon = item.icon}
-            <ItemIcon size={14} aria-hidden="true" />
+      {#if header}
+        <div class="head">{@render header()}</div>
+        <span class="rule" role="separator"></span>
+      {/if}
+      {#each rows as row (row.kind === 'item' ? row.item.id : `choice-${row.label}`)}
+        {#if row.kind === 'choice'}
+          {#if row.entries[0]?.item.separated}<span class="rule" role="separator"></span>{/if}
+          <div class="choice" role="group" aria-label={row.label}>
+            <span class="choice-label" aria-hidden="true">{row.label}</span>
+            <span class="choice-options">
+              {#each row.entries as entry (entry.item.id)}
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={entry.item.checked === true}
+                  class="option"
+                  class:on={entry.item.checked}
+                  data-index={entry.index}
+                  tabindex={entry.index === active ? 0 : -1}
+                  disabled={entry.item.disabled}
+                  onclick={() => choose(entry.item)}
+                >
+                  {#if entry.item.icon}
+                    {@const OptionIcon = entry.item.icon}
+                    <OptionIcon size={13} aria-hidden="true" />
+                  {/if}
+                  <span>{entry.item.label}</span>
+                </button>
+              {/each}
+            </span>
+          </div>
+        {:else}
+          {@const item = row.item}
+          {#if item.separated}<span class="rule" role="separator"></span>{/if}
+          {#if item.href}
+            <a
+              role="menuitem"
+              class="item"
+              href={item.href}
+              target={item.newTab ? '_blank' : undefined}
+              rel={item.newTab ? 'noopener noreferrer' : undefined}
+              data-index={row.index}
+              tabindex={row.index === active ? 0 : -1}
+              onclick={() => choose(item)}
+            >
+              {#if item.icon}
+                {@const ItemIcon = item.icon}
+                <ItemIcon size={14} aria-hidden="true" />
+              {/if}
+              <span>{item.label}</span>
+              {#if item.newTab}
+                <ExternalLink size={12} aria-hidden="true" class="trail" />
+                <span class="sr-only">Opens in a new tab</span>
+              {/if}
+            </a>
+          {:else}
+            <button
+              type="button"
+              role="menuitem"
+              class="item"
+              class:danger={item.danger}
+              data-index={row.index}
+              tabindex={row.index === active ? 0 : -1}
+              disabled={item.disabled}
+              onclick={() => choose(item)}
+            >
+              {#if item.icon}
+                {@const ItemIcon = item.icon}
+                <ItemIcon size={14} aria-hidden="true" />
+              {/if}
+              <span>{item.label}</span>
+              {#if item.hint}<kbd class="hint" aria-hidden="true">{item.hint}</kbd>{/if}
+            </button>
           {/if}
-          <span>{item.label}</span>
-        </button>
+        {/if}
       {/each}
       {#if enabled.length === 0}
         <p class="none">Nothing available here</p>
@@ -362,6 +468,82 @@
   }
   .item.danger:hover:not(:disabled) {
     background: var(--z-danger-subtle);
+  }
+  a.item {
+    text-decoration: none;
+  }
+  .item .hint {
+    margin-left: auto;
+    padding: var(--z-nudge-1) var(--z-space-1);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-sm);
+    background: var(--z-surface-sunken);
+    font-family: var(--z-font-mono);
+    font-size: var(--z-text-2xs);
+    line-height: 1;
+    color: var(--z-text-subtle);
+  }
+  .item :global(.trail) {
+    margin-left: auto;
+    color: var(--z-text-subtle);
+  }
+  .head {
+    padding: var(--z-space-2) var(--z-space-2) var(--z-space-1);
+  }
+  /*
+    A choice is one row: the question at the left, the answers as a segmented
+    control at the right, the same shape the Appearance page draws for it.
+  */
+  .choice {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--z-space-3);
+    padding: var(--z-space-1) var(--z-space-2);
+  }
+  .choice-label {
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
+  }
+  .choice-options {
+    display: inline-flex;
+    flex: none;
+    border: var(--z-border-width) solid var(--z-border-strong);
+    border-radius: var(--z-radius-md);
+    overflow: hidden;
+  }
+  .option {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--z-space-1);
+    height: var(--z-space-6);
+    padding: 0 var(--z-space-2);
+    border: 0;
+    border-left: var(--z-border-width) solid var(--z-border-strong);
+    background: var(--z-surface);
+    color: var(--z-text-muted);
+    font-family: inherit;
+    font-size: var(--z-text-xs);
+    font-weight: var(--z-weight-medium);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .option:first-child {
+    border-left: 0;
+  }
+  .option:hover:not(:disabled) {
+    background: var(--z-surface-hover);
+    color: var(--z-text);
+  }
+  .option.on {
+    background: var(--z-accent);
+    color: var(--z-accent-contrast);
+  }
+  .option:focus-visible {
+    /* Inside a clipped, rounded group the outline would be cut off, so the
+       ring is drawn inward, as the tokens provide for. */
+    outline: none;
+    box-shadow: inset var(--z-focus-ring);
   }
   .rule {
     display: block;

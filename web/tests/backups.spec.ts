@@ -19,8 +19,7 @@ test.use(browserOverride);
 const dialog = (page: Page, name: string | RegExp) => page.getByRole('dialog', { name });
 
 async function openBackups(page: Page): Promise<void> {
-  await goto(page, '/settings?tab=backups', 'Settings');
-  await expect(page.getByRole('heading', { name: 'Backups', exact: true })).toBeVisible();
+  await goto(page, '/settings/backups', 'Backups');
 }
 
 /** Press the button, and return the row the new backup appears in. */
@@ -147,7 +146,7 @@ test('deleting a backup demands its name and then it is gone', async ({ page }) 
 test('the configuration can be exported and an import is previewed before it is applied', async ({
   page,
 }) => {
-  await goto(page, '/settings?tab=configuration', 'Settings');
+  await goto(page, '/settings/configuration', 'Configuration');
   await expect(page.getByRole('heading', { name: 'Configuration', exact: true })).toBeVisible();
 
   // The export is a download in the shape the file takes.

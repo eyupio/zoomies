@@ -16,6 +16,7 @@
   import CopyButton from '$lib/components/CopyButton.svelte';
   import LoadingBoundary from '$lib/components/LoadingBoundary.svelte';
   import Logo from '$lib/components/Logo.svelte';
+  import PageHeader from '$lib/components/PageHeader.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
 
   /*
@@ -56,25 +57,25 @@
     },
   ];
 
-  interface Props {
-    /**
-     * Bumped by the page's refresh button. Read inside the fetch effect, which
-     * is what makes one press at the top of Settings re-read whichever panel is
-     * open rather than only the tab the operator happens to be looking past.
-     */
-    reloadKey?: number;
-  }
-
-  let { reloadKey = 0 }: Props = $props();
-
   let settings = $state<Settings | null>(null);
   let loading = $state(true);
   let error = $state<unknown>(null);
   let reload = $state(0);
 
+  /*
+    The facts come from the settings endpoint, which needs the administrator
+    role. Everybody else still gets the version, which every page already
+    knows from /meta, rather than an error about a request they never asked
+    for.
+  */
+  const canAdmin = $derived(session.can('admin'));
+
   $effect(() => {
     void reload;
-    void reloadKey;
+    if (!canAdmin) {
+      loading = false;
+      return;
+    }
     const controller = new AbortController();
     loading = true;
     void getSettings(controller.signal)
@@ -93,12 +94,17 @@
   const version = $derived(settings?.version || session.meta?.version || 'unknown');
 </script>
 
-<div class="panel">
-  <header>
-    <h2>About</h2>
-    <p>This controller, and where to read more.</p>
-  </header>
+<PageHeader
+  title="About"
+  subtitle="This controller, and where to read more."
+  onrefresh={canAdmin
+    ? () => {
+        reload += 1;
+      }
+    : undefined}
+/>
 
+<div class="panel">
   <!--
     The one place in the product that is allowed to be about the product rather
     than about the fleet, so the mark gets the room the brand guide asks for
@@ -133,23 +139,25 @@
         <dt>Version</dt>
         <dd class="mono">{version}</dd>
 
-        <dt>Database</dt>
-        <dd>
-          {#if settings?.database_path}
-            <CopyButton value={settings.database_path} label="Copy the database path" showValue />
-          {:else}
-            <span class="muted">Not reported</span>
-          {/if}
-        </dd>
+        {#if settings}
+          <dt>Database</dt>
+          <dd>
+            {#if settings.database_path}
+              <CopyButton value={settings.database_path} label="Copy the database path" showValue />
+            {:else}
+              <span class="muted">Not reported</span>
+            {/if}
+          </dd>
 
-        <dt>Event subscribers</dt>
-        <dd class="tabular">
-          {formatNumber(settings?.event_subscribers ?? 0)}
-          <span class="muted">
-            · {pluralise(settings?.event_subscribers ?? 0, 'client')} attached to the live event stream
-            right now, this browser included.
-          </span>
-        </dd>
+          <dt>Event subscribers</dt>
+          <dd class="tabular">
+            {formatNumber(settings.event_subscribers ?? 0)}
+            <span class="muted">
+              · {pluralise(settings.event_subscribers ?? 0, 'client')} attached to the live event stream
+              right now, this browser included.
+            </span>
+          </dd>
+        {/if}
 
         {#if session.meta?.external_url}
           <dt>External URL</dt>
@@ -191,22 +199,7 @@
     border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
-  }
-  header {
-    padding: var(--z-space-4) var(--z-space-5);
-    border-bottom: var(--z-border-width) solid var(--z-border);
-  }
-  h2 {
-    margin: 0;
-    font-size: var(--z-text-lg);
-    line-height: var(--z-leading-lg);
-    font-weight: var(--z-weight-semibold);
-    color: var(--z-text);
-  }
-  header p {
-    margin: var(--z-space-1) 0 0;
-    font-size: var(--z-text-xs);
-    color: var(--z-text-muted);
+    overflow: hidden;
   }
   /*
     Wraps rather than shrinks: the circular dog has a minimum size in the brand

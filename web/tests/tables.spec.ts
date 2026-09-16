@@ -239,11 +239,11 @@ test('the tables that are not grids fit the window too', async ({ page, request 
       await expect(page.getByRole('table')).toBeVisible();
       await expectTablesFit(page, `the usage report at ${width}px`);
 
-      await goto(page, '/settings', 'Settings');
+      await goto(page, '/settings/users', 'Users');
       await expect(page.getByRole('table', { name: 'Accounts' })).toBeVisible();
       await expectTablesFit(page, `the accounts list at ${width}px`);
 
-      await page.getByRole('tab', { name: 'API tokens' }).click();
+      await goto(page, '/settings/tokens', 'API tokens');
       await expect(page.getByRole('table', { name: 'API tokens' })).toBeVisible();
       await expectTablesFit(page, `the API tokens list at ${width}px`);
     }

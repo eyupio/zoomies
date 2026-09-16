@@ -22,8 +22,7 @@ const row = (page: Page, label: string) =>
   page.locator('.row').filter({ has: page.getByText(label, { exact: true }) });
 
 async function openConfiguration(page: Page): Promise<void> {
-  await goto(page, '/settings?tab=configuration', 'Settings');
-  await expect(page.getByRole('heading', { name: 'Configuration', exact: true })).toBeVisible();
+  await goto(page, '/settings/configuration', 'Configuration');
 }
 
 /** Change one setting through its own row, and wait for the row to settle. */
@@ -141,7 +140,7 @@ test('a link to one setting lands on it, whatever the page was filtered to', asy
   await page.getByText(/^Changed/).click();
   await expect(row(page, 'Provision timeout')).toHaveCount(0);
 
-  await page.goto('/settings?tab=configuration&setting=scheduler.provision_timeout');
+  await page.goto('/settings/configuration?setting=scheduler.provision_timeout');
   const sought = row(page, 'Provision timeout');
   await expect(sought).toBeVisible();
   // Marked, not merely scrolled to: a page that jumps and then looks exactly as

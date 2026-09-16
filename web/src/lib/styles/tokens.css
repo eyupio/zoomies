@@ -287,6 +287,11 @@
   --z-nav-width-collapsed: 56px;
   --z-topbar-height: 52px;
   --z-content-max: 1600px;
+  /* The Settings section's own rail, and the measure its pages are cut to: a
+     list of accounts or a column of setting rows reads better at a comfortable
+     width than stretched across a wide monitor. */
+  --z-settings-rail-width: 200px;
+  --z-settings-page-max: 960px;
 
   /* The window, which on a phone is not the same thing as 100%. A mobile
      browser answers a page that overflows sideways by laying the whole thing

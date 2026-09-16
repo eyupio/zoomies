@@ -92,7 +92,7 @@
         message:
           'It was reset by an administrator. Change it in Settings before doing anything else.',
         timeout: 0,
-        action: { label: 'Open settings', run: () => router.navigate('/settings') },
+        action: { label: 'Open your account', run: () => router.navigate('/settings/account') },
       });
     }
   });

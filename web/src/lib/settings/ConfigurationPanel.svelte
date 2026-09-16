@@ -8,12 +8,13 @@
   open.
 
   Eighty-eight settings is too many to scroll, so the page is built to be
-  searched and filtered rather than read: a box that matches keys, summaries and
-  environment variable names, a filter for the ones somebody has actually
-  changed, and a jump to each section. What an operator usually wants is one of
-  three things -- the setting they came for, everything that is not a default,
-  or whatever the controller is complaining about -- and all three are one
-  action away.
+  searched and filtered rather than read: one toolbar with a box that matches
+  keys, summaries and environment variable names and a switch between every
+  setting, the ones somebody has actually changed, and the ones the controller
+  is complaining about; and beside the rows an index of the sections that says
+  where you are and takes you to any other. What an operator usually wants is
+  one of those three things, and all of them are one action away without the
+  rows moving down the page to make room.
 
   Secrets are absent rather than starred out: the API does not send them at all.
 -->
@@ -33,22 +34,11 @@
   import CopyButton from '$lib/components/CopyButton.svelte';
   import Input from '$lib/components/Input.svelte';
   import LoadingBoundary from '$lib/components/LoadingBoundary.svelte';
+  import PageHeader from '$lib/components/PageHeader.svelte';
   import Segmented from '$lib/components/Segmented.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import SettingRow from './SettingRow.svelte';
   import { SECTION_BLURB, displayValue, matches } from './settings';
-
-  interface Props {
-    class?: string;
-    /**
-     * Bumped by the page's refresh button. Read inside the fetch effect, which
-     * is what makes one press at the top of Settings re-read whichever panel is
-     * open rather than only the tab the operator happens to be looking past.
-     */
-    reloadKey?: number;
-  }
-
-  let { class: className = '', reloadKey = 0 }: Props = $props();
 
   let settings = $state<Settings | null>(null);
   let loading = $state(true);
@@ -57,7 +47,6 @@
 
   $effect(() => {
     void reload;
-    void reloadKey;
     const controller = new AbortController();
     loading = true;
     void getSettings(controller.signal)
@@ -205,6 +194,49 @@
 
   const pending = $derived(settings?.pending_restart ?? []);
 
+  /* -- the index ------------------------------------------------------------ */
+
+  let rows = $state<HTMLDivElement | null>(null);
+  let controls = $state<HTMLDivElement | null>(null);
+  let activeSection = $state('');
+
+  /*
+    Which section the reader is in, so the index can say so. The last heading
+    that has passed under the toolbar wins. A scroll listener rather than an
+    intersection observer, because the answer depends on where each heading is
+    relative to one line and not on how much of a section is on screen -- and
+    a section of one row is on screen entirely while the reader is still three
+    sections above it.
+  */
+  $effect(() => {
+    const root = rows;
+    const bar = controls;
+    if (!root || !bar || sections.length < 2) return;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const line = bar.getBoundingClientRect().bottom;
+      let current = '';
+      for (const head of root.querySelectorAll<HTMLElement>('[data-section]')) {
+        if (current === '' || head.getBoundingClientRect().top <= line) {
+          current = head.dataset.section ?? '';
+        } else {
+          break;
+        }
+      }
+      activeSection = current;
+    };
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(measure);
+    };
+    measure();
+    addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      removeEventListener('scroll', onScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  });
+
   /* -- changing one --------------------------------------------------------- */
 
   /**
@@ -246,110 +278,110 @@
   }
 </script>
 
-<div class="panel {className}">
-  <header>
-    <div>
-      <h2>Configuration</h2>
-      <p>
-        What this controller is running, and where each value came from. Settings are kept in this
-        fleet's database, so a change made here survives a restart. Four layers stack — the built-in
-        defaults, then the configuration file, then the database, then <code>ZOOMIES_*</code> in the environment
-        — and each one wins over the one before it.
-      </p>
-    </div>
-    <div class="header-actions">
-      <DropdownMenu
-        items={exportItems}
-        label="Export the settings"
-        triggerLabel="Export"
-        triggerIcon={FileDown}
-      />
-      <Button variant="secondary" icon={FileUp} onclick={() => (importOpen = true)}>Import</Button>
-    </div>
-  </header>
-
-  <ImportSettingsDialog
-    bind:open={importOpen}
-    onapplied={(result) => {
-      settings = result;
-      void session.reloadMeta();
-    }}
+<PageHeader
+  title="Configuration"
+  subtitle="What this controller runs with, and where each value came from. A change made here is kept in the database and survives a restart; the environment always has the last word."
+  onrefresh={() => {
+    reload += 1;
+  }}
+>
+  <DropdownMenu
+    items={exportItems}
+    label="Export the settings"
+    triggerLabel="Export"
+    triggerIcon={FileDown}
   />
+  <Button variant="secondary" icon={FileUp} onclick={() => (importOpen = true)}>Import</Button>
+</PageHeader>
 
-  <LoadingBoundary {loading} {error} onretry={() => (reload += 1)}>
-    {#snippet skeleton()}
-      <div class="pad"><Skeleton lines={8} /></div>
-    {/snippet}
+<ImportSettingsDialog
+  bind:open={importOpen}
+  onapplied={(result) => {
+    settings = result;
+    void session.reloadMeta();
+  }}
+/>
 
-    {#if settings}
-      {#if pending.length > 0}
-        <section class="notice waiting" aria-labelledby="pending-restart">
-          <Badge tone="draining" label="Saved" size="sm" dot={false} />
-          <div>
-            <h3 id="pending-restart">
-              {pending.length === 1
-                ? 'One setting is waiting for a restart'
-                : `${pending.length} settings are waiting for a restart`}
-            </h3>
-            <p>
-              They are stored and will be in force the next time this controller starts. It cannot
-              apply them to itself — rebinding a listener or rebuilding the container backends under
-              running jobs is how a reload becomes an outage.
-            </p>
-            <ul class="keys">
-              {#each pending as key (key)}
-                <li class="mono">{key}</li>
-              {/each}
-            </ul>
-          </div>
-        </section>
-      {/if}
+<LoadingBoundary {loading} {error} onretry={() => (reload += 1)}>
+  {#snippet skeleton()}
+    <div class="panel pad"><Skeleton lines={8} /></div>
+  {/snippet}
 
-      {#if generalFindings.length > 0}
-        <section class="general" aria-labelledby="general-findings">
-          <h3 id="general-findings">
-            <TriangleAlert size={14} aria-hidden="true" />
-            What the validator says
+  {#if settings}
+    {#if pending.length > 0}
+      <section class="notice waiting" aria-labelledby="pending-restart">
+        <Badge tone="draining" label="Saved" size="sm" dot={false} />
+        <div>
+          <h3 id="pending-restart">
+            {pending.length === 1
+              ? 'One setting is waiting for a restart'
+              : `${pending.length} settings are waiting for a restart`}
           </h3>
-          <ul>
-            {#each generalFindings as finding (finding.code)}
-              {@const meta = severityStatus(finding.severity)}
-              <li>
-                <Badge status={meta} size="sm" />
-                <div>
-                  <p class="finding-title">{finding.title}</p>
-                  {#if finding.detail}<p class="finding-detail">{finding.detail}</p>{/if}
-                  {#if finding.fix}
-                    <p class="finding-detail"><strong>Fix:</strong> {finding.fix}</p>
-                  {/if}
-                  <!--
-                    Which layer set it, when that is not where the fix points.
-                    Told only to "change server.bind", an operator edits the
-                    configuration file -- and a value stored here or pinned by
-                    a variable is one the file cannot change, so they restart
-                    into the same complaint having learned nothing.
-                  -->
-                  {#if finding.undo}
-                    <p class="finding-detail">
-                      <strong
-                        >{finding.source === 'environment'
-                          ? 'The environment is setting this'
-                          : 'This value is stored in this fleet'}</strong
-                      >
-                      {finding.source === 'environment'
-                        ? ', and it is the last word: neither the file nor this page can change it. With the controller stopped, run'
-                        : ', so editing the configuration file will not change it. If it is stopping the controller starting, run this against the stopped controller:'}
-                      <code>{finding.undo}</code>
-                    </p>
-                  {/if}
-                </div>
-              </li>
+          <p>
+            Stored, and in force the next time this controller starts. It cannot apply them to
+            itself — rebinding a listener or rebuilding the container backends under running jobs is
+            how a reload becomes an outage.
+          </p>
+          <ul class="keys">
+            {#each pending as key (key)}
+              <li class="mono">{key}</li>
             {/each}
           </ul>
-        </section>
-      {/if}
+        </div>
+      </section>
+    {/if}
 
-      <div class="controls">
+    {#if generalFindings.length > 0}
+      <section class="general" aria-labelledby="general-findings">
+        <h3 id="general-findings">
+          <TriangleAlert size={14} aria-hidden="true" />
+          What the validator says
+        </h3>
+        <ul>
+          {#each generalFindings as finding (finding.code)}
+            {@const meta = severityStatus(finding.severity)}
+            <li>
+              <Badge status={meta} size="sm" />
+              <div>
+                <p class="finding-title">{finding.title}</p>
+                {#if finding.detail}<p class="finding-detail">{finding.detail}</p>{/if}
+                {#if finding.fix}
+                  <p class="finding-detail"><strong>Fix:</strong> {finding.fix}</p>
+                {/if}
+                <!--
+                  Which layer set it, when that is not where the fix points.
+                  Told only to "change server.bind", an operator edits the
+                  configuration file -- and a value stored here or pinned by
+                  a variable is one the file cannot change, so they restart
+                  into the same complaint having learned nothing.
+                -->
+                {#if finding.undo}
+                  <p class="finding-detail">
+                    <strong
+                      >{finding.source === 'environment'
+                        ? 'The environment is setting this'
+                        : 'This value is stored in this fleet'}</strong
+                    >
+                    {finding.source === 'environment'
+                      ? ', and it is the last word: neither the file nor this page can change it. With the controller stopped, run'
+                      : ', so editing the configuration file will not change it. If it is stopping the controller starting, run this against the stopped controller:'}
+                    <code>{finding.undo}</code>
+                  </p>
+                {/if}
+              </div>
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
+
+    <div class="panel">
+      <!--
+        The search and the view switch stay reachable while the list scrolls.
+        On a page this long, a filter that has to be scrolled back to is one
+        that gets used once.
+      -->
+      <div class="controls" bind:this={controls}>
         <div class="search">
           <Input
             bind:value={query}
@@ -368,31 +400,6 @@
         />
       </div>
 
-      <div class="meta">
-        <div>
-          <span class="meta-label">Configuration file</span>
-          {#if settings.config_path}
-            <CopyButton
-              value={settings.config_path}
-              label="Copy the configuration file path"
-              showValue
-            />
-          {:else}
-            <span class="meta-value"
-              >None. Everything comes from the database and the defaults.</span
-            >
-          {/if}
-        </div>
-        <div>
-          <span class="meta-label">Database</span>
-          <CopyButton
-            value={settings.database_path ?? ''}
-            label="Copy the database path"
-            showValue
-          />
-        </div>
-      </div>
-
       {#if sections.length === 0 && held.length === 0}
         <p class="empty">
           <RotateCcw size={14} aria-hidden="true" />
@@ -403,119 +410,124 @@
         </p>
       {/if}
 
-      <!--
-        The jump. A hundred settings under fourteen headings is a page nobody
-        scrolls twice, and the search box only helps somebody who already knows
-        what the setting is called -- which is the case this panel is least
-        needed for. The rail is what the operator who is looking around uses,
-        and it narrows with the filters so a section the search emptied is not
-        offered as somewhere to go.
-
-        It sits under the file and database paths rather than above them
-        because the chips are a row of their own: moved up, they land beside
-        that block's columns and stretch to its height.
-      -->
-      {#if sections.length > 1}
-        <nav class="jump" aria-label="Jump to a section">
+      <div class="body">
+        <div class="rows" bind:this={rows}>
           {#each sections as section (section.name)}
-            <a href="#section-{section.name}" class="mono">
-              {section.name}
-              <span class="jump-count">{section.rows.length}</span>
-            </a>
+            <section aria-labelledby="section-{section.name}">
+              <div class="section-head" data-section={section.name}>
+                <h3 id="section-{section.name}" class="mono">{section.name}</h3>
+                {#if SECTION_BLURB[section.name]}<p>{SECTION_BLURB[section.name]}</p>{/if}
+              </div>
+              {#each section.rows as setting (setting.key)}
+                <SettingRow
+                  {setting}
+                  findings={findingsBySetting[setting.key] ?? []}
+                  sought={setting.key === sought}
+                  onsave={save}
+                />
+              {/each}
+            </section>
           {/each}
-        </nav>
-      {/if}
 
-      {#each sections as section (section.name)}
-        <section aria-labelledby="section-{section.name}">
-          <div class="section-head">
-            <h3 id="section-{section.name}" class="mono">{section.name}</h3>
-            {#if SECTION_BLURB[section.name]}<p>{SECTION_BLURB[section.name]}</p>{/if}
-          </div>
-          {#each section.rows as setting (setting.key)}
-            <SettingRow
-              {setting}
-              findings={findingsBySetting[setting.key] ?? []}
-              sought={setting.key === sought}
-              onsave={save}
-            />
-          {/each}
-        </section>
-      {/each}
+          {#if held.length > 0}
+            <fieldset class="held">
+              <legend>
+                <Lock size={13} aria-hidden="true" />
+                Held by the environment
+              </legend>
+              <p class="held-note">
+                {held.length === 1 ? 'This setting is' : 'These settings are'} set by a
+                <code>ZOOMIES_*</code> variable, and the environment is the last word — it overrides
+                both the database and the configuration file. To change
+                {held.length === 1 ? 'it' : 'them'}, amend the environment file this controller
+                starts with and restart it. Removing a variable hands that setting back to this
+                page.
+              </p>
+              <ul class="held-rows">
+                {#each held as setting (setting.key)}
+                  <!--
+                    The order here is the order the grid places them in: the
+                    variable and its value on one line, the setting's name and
+                    its key underneath. A `display: contents` row flows in
+                    document order, so the columns are assigned by where each
+                    span sits rather than by the grid-column it asks for.
+                  -->
+                  <li>
+                    <span class="held-env mono">{setting.env}</span>
+                    <span class="held-value mono">{displayValue(setting)}</span>
+                    <span class="held-label">{setting.label}</span>
+                    <span class="held-key mono">{setting.key}</span>
+                  </li>
+                {/each}
+              </ul>
+            </fieldset>
+          {/if}
+        </div>
 
-      {#if held.length > 0}
-        <fieldset class="held">
-          <legend>
-            <Lock size={13} aria-hidden="true" />
-            Held by the environment
-          </legend>
-          <p class="held-note">
-            {held.length === 1 ? 'This setting is' : 'These settings are'} set by a
-            <code>ZOOMIES_*</code> variable, and the environment is the last word — it overrides
-            both the database and the configuration file. To change
-            {held.length === 1 ? 'it' : 'them'}, amend the environment file this controller starts
-            with and restart it. Removing a variable hands that setting back to this page.
-          </p>
-          <ul class="held-rows">
-            {#each held as setting (setting.key)}
-              <!--
-                The order here is the order the grid places them in: the
-                variable and its value on one line, the setting's name and its
-                key underneath. A `display: contents` row flows in document
-                order, so the columns are assigned by where each span sits
-                rather than by the grid-column it asks for.
-              -->
-              <li>
-                <span class="held-env mono">{setting.env}</span>
-                <span class="held-value mono">{displayValue(setting)}</span>
-                <span class="held-label">{setting.label}</span>
-                <span class="held-key mono">{setting.key}</span>
-              </li>
-            {/each}
-          </ul>
-        </fieldset>
-      {/if}
-    {/if}
-  </LoadingBoundary>
-</div>
+        <!--
+          The index. A hundred settings under fourteen headings is a page
+          nobody scrolls twice, and the search box only helps somebody who
+          already knows what the setting is called -- which is the case this
+          page is least needed for. The index is what the operator who is
+          looking around uses: it says which section they are in, takes them
+          to any other, and narrows with the filters so a section the search
+          emptied is not offered as somewhere to go.
+        -->
+        {#if sections.length > 1}
+          <nav class="index" aria-label="Jump to a section">
+            <p class="index-label" aria-hidden="true">On this page</p>
+            <ul>
+              {#each sections as section (section.name)}
+                {@const here = section.name === activeSection}
+                <li>
+                  <a
+                    href="#section-{section.name}"
+                    class="mono"
+                    class:current={here}
+                    aria-current={here ? 'true' : undefined}
+                  >
+                    <span class="index-name">{section.name}</span>
+                    <span class="index-count">{section.rows.length}</span>
+                  </a>
+                </li>
+              {/each}
+            </ul>
+          </nav>
+        {/if}
+      </div>
+    </div>
+
+    <!--
+      Where the layers under this page live. A footnote rather than a block
+      between the toolbar and the rows: an operator reads it once, when they
+      are wondering which file to edit, and the rows are what the page is for.
+    -->
+    <div class="paths">
+      <span>
+        <span class="paths-label">Configuration file</span>
+        {#if settings.config_path}
+          <CopyButton
+            value={settings.config_path}
+            label="Copy the configuration file path"
+            showValue
+          />
+        {:else}
+          <span class="paths-none">None. Everything comes from the database and the defaults.</span>
+        {/if}
+      </span>
+      <span>
+        <span class="paths-label">Database</span>
+        <CopyButton value={settings.database_path ?? ''} label="Copy the database path" showValue />
+      </span>
+    </div>
+  {/if}
+</LoadingBoundary>
 
 <style>
   .panel {
     border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
-  }
-  header {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--z-space-3) var(--z-space-4);
-    padding: var(--z-space-4) var(--z-space-5);
-    border-bottom: var(--z-border-width) solid var(--z-border);
-  }
-  .header-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--z-space-2);
-  }
-  h2 {
-    margin: 0;
-    font-size: var(--z-text-lg);
-    line-height: var(--z-leading-lg);
-    font-weight: var(--z-weight-semibold);
-    color: var(--z-text);
-  }
-  header p {
-    margin: var(--z-space-1) 0 0;
-    max-width: 84ch;
-    font-size: var(--z-text-xs);
-    line-height: var(--z-leading-xs);
-    color: var(--z-text-muted);
-  }
-  header code {
-    font-size: var(--z-text-2xs);
-    color: var(--z-text-subtle);
   }
   .pad {
     padding: var(--z-space-5);
@@ -525,12 +537,14 @@
     display: flex;
     align-items: flex-start;
     gap: var(--z-space-3);
-    padding: var(--z-space-4) var(--z-space-5);
-    border-bottom: var(--z-border-width) solid var(--z-border);
+    margin-bottom: var(--z-space-4);
+    padding: var(--z-space-3) var(--z-space-4);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
   }
   .notice.waiting {
+    border-color: var(--z-draining-border);
     background: var(--z-draining-subtle);
-    box-shadow: inset var(--z-nudge-1) 0 0 0 var(--z-draining);
   }
   .notice h3 {
     margin: 0;
@@ -557,111 +571,12 @@
     font-size: var(--z-text-2xs);
     color: var(--z-text-subtle);
   }
-  .pins {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: var(--z-space-1) var(--z-space-3);
-    margin: var(--z-space-3) 0 0;
-    padding: 0;
-    list-style: none;
-  }
-  .pins li {
-    display: contents;
-  }
-  .pin-env {
-    font-size: var(--z-text-2xs);
-    font-weight: var(--z-weight-medium);
-    color: var(--z-text);
-  }
-  .pin-key {
-    font-size: var(--z-text-2xs);
-    color: var(--z-text-muted);
-  }
-
-  /*
-    The search and the view switch stay reachable while the list scrolls. On a
-    page this long, a filter that has to be scrolled back to is one that gets
-    used once.
-  */
-  .controls {
-    position: sticky;
-    top: 0;
-    z-index: var(--z-layer-sticky);
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--z-space-3);
-    padding: var(--z-space-3) var(--z-space-5);
-    border-bottom: var(--z-border-width) solid var(--z-border);
-    background: var(--z-surface);
-  }
-  .jump {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--z-space-2);
-    padding: var(--z-space-3) var(--z-space-5);
-    border-bottom: var(--z-border-width) solid var(--z-border);
-    background: var(--z-surface-sunken);
-  }
-  .jump a {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--z-space-1);
-    padding: var(--z-space-1) var(--z-space-2);
-    border: var(--z-border-width) solid var(--z-border);
-    border-radius: var(--z-radius-sm);
-    background: var(--z-surface);
-    font-size: var(--z-text-xs);
-    color: var(--z-text-muted);
-    text-decoration: none;
-  }
-  .jump a:hover {
-    border-color: var(--z-accent);
-    color: var(--z-text);
-  }
-  .jump-count {
-    color: var(--z-text-subtle);
-    font-variant-numeric: tabular-nums;
-  }
-  .search {
-    flex: 1 1 20rem;
-    min-width: 0;
-  }
-
-  .meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--z-space-6);
-    padding: var(--z-space-4) var(--z-space-5);
-    border-bottom: var(--z-border-width) solid var(--z-border);
-  }
-  /*
-    min-width: 0, so a long path truncates instead of widening the page. A flex
-    item's floor is its content, so CopyButton's own ellipsis never fires until
-    something above it says the item may be narrower than what is inside it --
-    and a database under a deep state directory took a phone sideways.
-  */
-  .meta > div {
-    flex: 1 1 16rem;
-    min-width: 0;
-  }
-  .meta-label {
-    display: block;
-    font-size: var(--z-text-2xs);
-    text-transform: uppercase;
-    letter-spacing: var(--z-tracking-wide);
-    color: var(--z-text-muted);
-    margin-bottom: var(--z-space-1);
-  }
-  .meta-value {
-    font-size: var(--z-text-sm);
-    color: var(--z-text-subtle);
-  }
 
   .general {
+    margin-bottom: var(--z-space-4);
     padding: var(--z-space-4) var(--z-space-5);
-    border-bottom: var(--z-border-width) solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
     background: var(--z-surface-sunken);
   }
   .general h3 {
@@ -699,6 +614,30 @@
     color: var(--z-text-muted);
   }
 
+  /*
+    Under the top bar, which is sticky too: at `top: 0` the toolbar slid up
+    behind it and the search box was there but could not be reached.
+  */
+  .controls {
+    position: sticky;
+    top: var(--z-topbar-height);
+    z-index: var(--z-layer-sticky);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--z-space-3);
+    padding: var(--z-space-3) var(--z-space-5);
+    border-bottom: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md) var(--z-radius-md) 0 0;
+    background: var(--z-surface);
+  }
+  .search {
+    flex: 1 1 20rem;
+    min-width: 0;
+    max-width: 32rem;
+  }
+
   .empty {
     display: flex;
     align-items: center;
@@ -709,13 +648,21 @@
     color: var(--z-text-muted);
   }
 
+  .body {
+    display: flex;
+    align-items: flex-start;
+  }
+  .rows {
+    flex: 1;
+    min-width: 0;
+  }
   .section-head {
-    padding: var(--z-space-4) var(--z-space-5) var(--z-space-2);
+    padding: var(--z-space-3) var(--z-space-5) var(--z-space-2);
     border-bottom: var(--z-border-width) solid var(--z-border);
     background: var(--z-surface-sunken);
-    /* Cleared by the sticky controls above, so a jump lands on the heading
-       rather than just under it. */
-    scroll-margin-top: var(--z-space-10);
+    /* Cleared by the sticky top bar and toolbar, so a jump lands on the
+       heading rather than under them. */
+    scroll-margin-top: calc(var(--z-topbar-height) + var(--z-space-16));
   }
   h3 {
     margin: 0;
@@ -732,6 +679,66 @@
   }
   section:last-child :global(.row:last-child) {
     border-bottom: 0;
+  }
+
+  .index {
+    position: sticky;
+    top: calc(var(--z-topbar-height) + var(--z-space-12));
+    flex: none;
+    width: 11rem;
+    padding: var(--z-space-3) var(--z-space-2) var(--z-space-3) var(--z-space-4);
+    border-left: var(--z-border-width) solid var(--z-border);
+  }
+  .index-label {
+    margin: 0 0 var(--z-space-1);
+    padding: 0 var(--z-space-2);
+    font-size: var(--z-text-2xs);
+    line-height: var(--z-leading-2xs);
+    font-weight: var(--z-weight-medium);
+    letter-spacing: var(--z-tracking-wide);
+    text-transform: uppercase;
+    color: var(--z-text-subtle);
+  }
+  .index ul {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-nudge-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .index a {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--z-space-2);
+    height: var(--z-space-6);
+    padding: 0 var(--z-space-2);
+    border-radius: var(--z-radius-sm);
+    font-size: var(--z-text-2xs);
+    color: var(--z-text-muted);
+    text-decoration: none;
+  }
+  .index a:hover {
+    background: var(--z-surface-hover);
+    color: var(--z-text);
+  }
+  .index a.current {
+    background: var(--z-accent-subtle);
+    color: var(--z-accent);
+  }
+  .index-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .index-count {
+    font-family: var(--z-font-sans);
+    color: var(--z-text-subtle);
+    font-variant-numeric: tabular-nums;
+  }
+  .index a.current .index-count {
+    color: inherit;
   }
 
   /*
@@ -810,6 +817,72 @@
     font-size: var(--z-text-2xs);
     color: var(--z-text-subtle);
     overflow-wrap: anywhere;
+  }
+
+  .paths {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--z-space-1) var(--z-space-5);
+    margin: var(--z-space-3) var(--z-space-1) 0;
+    font-size: var(--z-text-2xs);
+    line-height: var(--z-leading-2xs);
+    color: var(--z-text-subtle);
+  }
+  /*
+    min-width: 0, so a long path truncates instead of widening the page. A
+    flex item's floor is its content, so CopyButton's own ellipsis never fires
+    until something above it says the item may be narrower than what is inside
+    it -- and a database under a deep state directory took a phone sideways.
+  */
+  .paths > span {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--z-space-2);
+    min-width: 0;
+    max-width: 100%;
+  }
+  .paths-label {
+    flex: none;
+    color: var(--z-text-muted);
+  }
+  .paths-none {
+    color: var(--z-text-subtle);
+  }
+
+  /*
+    A tablet has no column to spare for the index, so it becomes a row of
+    chips above the rows -- the same list, read across -- and the rows take
+    the whole width.
+  */
+  @media (max-width: 1180px) {
+    .body {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .index {
+      order: -1;
+      position: static;
+      width: auto;
+      padding: var(--z-space-3) var(--z-space-5);
+      border-left: 0;
+      border-bottom: var(--z-border-width) solid var(--z-border);
+      background: var(--z-surface-sunken);
+    }
+    .index-label {
+      display: none;
+    }
+    .index ul {
+      flex-direction: row;
+      flex-wrap: wrap;
+      gap: var(--z-space-2);
+    }
+    .index a {
+      border: var(--z-border-width) solid var(--z-border);
+      background: var(--z-surface);
+    }
+    .index a.current {
+      border-color: var(--z-accent-border);
+    }
   }
   @media (max-width: 768px) {
     .held-rows li {
