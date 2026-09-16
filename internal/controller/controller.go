@@ -869,6 +869,7 @@ func (c *Controller) DeleteHost(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	c.queues.forget(id)
 	c.publishRunnersDeleted(runners)
 	c.PublishHostDeleted(id)
 	return nil

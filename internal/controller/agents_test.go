@@ -125,6 +125,24 @@ func TestEnqueueDeduplicates(t *testing.T) {
 	}
 }
 
+// A deleted host's queue entry must not linger for the rest of the process's
+// life: nothing else ever prunes taskQueues.qs, so this is the one place that
+// does, and re-getting the queue afterwards has to build a fresh one rather
+// than resurrect whatever the deleted host left behind.
+func TestForgetDropsAHostsQueue(t *testing.T) {
+	h := newHarness(t)
+	h.c.enqueue("host_x", agent.Task{Kind: agent.TaskRemoveRunner, RunnerID: "run_1"})
+
+	h.c.queues.forget("host_x")
+
+	if _, ok := h.c.queues.qs["host_x"]; ok {
+		t.Fatal("the queue entry survived forget")
+	}
+	if pending, _ := h.c.queues.get("host_x").depth(); pending != 0 {
+		t.Fatalf("queue depth = %d after forget, want a fresh empty queue", pending)
+	}
+}
+
 // Delivery is at-least-once: a task whose agent never reported back is offered
 // again rather than lost, and given up on eventually so it cannot loop forever.
 func TestUnansweredTasksAreRequeuedThenDropped(t *testing.T) {

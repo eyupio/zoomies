@@ -74,6 +74,19 @@ func (c *Controller) OpenLogStream(ctx context.Context, runnerID string, opts ba
 		// stream that looks like a runner producing nothing.
 		return nil, nil, fmt.Errorf("runner %s has been removed; an ephemeral runner's output only exists while its container does", runnerID)
 	}
+	// host_id references hosts(id) ON DELETE CASCADE, so a runner row cannot
+	// outlive its host: this is a real query failure, not a deletion race.
+	h, err := c.st.GetHost(ctx, r.HostID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !h.Healthy(c.Now()) {
+		// Nothing would ever answer this stream: no agent is going to poll for
+		// the task it enqueues. Refusing here, rather than opening one that
+		// waits forever, is what keeps a repeatedly reopened stream from
+		// piling up queued tasks for a host that is never coming back.
+		return nil, nil, fmt.Errorf("runner %s's host has not been heard from recently, so it cannot stream logs right now", runnerID)
+	}
 	return c.relay.subscribe(r, opts)
 }
 

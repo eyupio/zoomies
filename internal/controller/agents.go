@@ -110,6 +110,16 @@ func (t *taskQueues) all() map[string]*taskQueue {
 	return maps.Clone(t.qs)
 }
 
+// forget drops a host's queue entirely. Called when the host itself is
+// deleted, so its entry does not linger in this map for the rest of the
+// process's life -- every other exit a host takes (going unhealthy,
+// cordoning) leaves the queue in place because the host might come back.
+func (t *taskQueues) forget(hostID string) {
+	t.mu.Lock()
+	delete(t.qs, hostID)
+	t.mu.Unlock()
+}
+
 // taskQueue is one host's pending and in-flight work.
 type taskQueue struct {
 	mu       sync.Mutex
