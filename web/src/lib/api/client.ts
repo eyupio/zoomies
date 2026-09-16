@@ -281,6 +281,14 @@ export const validatePool = (body: Body<'validatePool'>, id?: string, signal?: A
   });
 
 /**
+ * What a pool that says nothing is. The size a runner gets is the fleet's
+ * setting, so the wizard's sliders open on what the server would apply rather
+ * than on a figure of the browser's own.
+ */
+export const getPoolDefaults = (signal?: AbortSignal) =>
+  api.get<Result<'getPoolDefaults'>>('/pools/defaults', { signal });
+
+/**
  * The operating systems a pool may ask for. Served rather than hard-coded so
  * the wizard cannot offer one no runner image is published for.
  */

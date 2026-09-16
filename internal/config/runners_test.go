@@ -91,3 +91,49 @@ func TestRunnerSettingsAreStoredAndLive(t *testing.T) {
 		t.Fatalf("runners.env = %v", c.Runners.Env)
 	}
 }
+
+// The size a pool that says nothing gets, and the fleet's right to change it.
+//
+// It is a setting rather than a constant because the right answer is the shape
+// of the machines and the jobs: a fleet of small boxes, or one of compilers,
+// says so once here rather than on every pool it creates.
+func TestTheDefaultRunnerSizeIsTwoCoresAndFourGigabytes(t *testing.T) {
+	c := Default()
+	cpus, memoryMB := c.Runners.DefaultRunnerSize()
+	if cpus != DefaultRunnerCPUs || memoryMB != DefaultRunnerMemoryMB {
+		t.Fatalf("default runner size = %v CPU, %d MB, want %v and %d",
+			cpus, memoryMB, DefaultRunnerCPUs, DefaultRunnerMemoryMB)
+	}
+}
+
+// Zero is not "no limit" here, because no limit is the state this setting
+// exists to make unreachable: a runner without one takes the whole machine
+// while the fleet charges it one slot's share. Nothing having been said falls
+// back to the built-in figures.
+func TestAnUnsetDefaultRunnerSizeFallsBackRatherThanMeaningUnlimited(t *testing.T) {
+	c := Default()
+	c.Runners.DefaultCPUs, c.Runners.DefaultMemoryMB = 0, 0
+	cpus, memoryMB := c.Runners.DefaultRunnerSize()
+	if cpus != DefaultRunnerCPUs || memoryMB != DefaultRunnerMemoryMB {
+		t.Fatalf("an unset default gave %v CPU and %d MB, want the built-in %v and %d",
+			cpus, memoryMB, DefaultRunnerCPUs, DefaultRunnerMemoryMB)
+	}
+}
+
+// A share of a CPU is the one figure in this configuration that is genuinely
+// fractional, so the environment has to carry it as one -- rounding it to
+// whole cores would take half a core from every operator running small jobs on
+// a small machine.
+func TestTheDefaultRunnerSizeIsSettableFromTheEnvironment(t *testing.T) {
+	t.Setenv("ZOOMIES_RUNNER_DEFAULT_CPUS", "1.5")
+	t.Setenv("ZOOMIES_RUNNER_DEFAULT_MEMORY_MB", "3072")
+
+	c := Default()
+	if err := c.applyEnv(); err != nil {
+		t.Fatalf("applyEnv: %v", err)
+	}
+	cpus, memoryMB := c.Runners.DefaultRunnerSize()
+	if cpus != 1.5 || memoryMB != 3072 {
+		t.Fatalf("size from the environment = %v CPU, %d MB, want 1.5 and 3072", cpus, memoryMB)
+	}
+}

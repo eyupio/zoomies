@@ -254,3 +254,75 @@ func formatMB(mb int64) string {
 	}
 	return strconv.FormatInt(mb, 10) + " MB"
 }
+
+// HostRoom is how many runners of p an empty h could hold, and which of the
+// machine's figures ran out first.
+//
+// It is the arithmetic behind "this host has room for four of these", and it
+// is the scheduler's rather than the browser's for the same reason HostFits
+// is: the charge a runner carries is not the figure on the pool -- a
+// docker-in-docker slot is charged for its sidecar too, and an unmeasured
+// field constrains nothing -- and a count worked out from the pool's own
+// numbers would disagree with where the fleet actually places runners.
+//
+// The slot count is part of the answer, not a separate one: a host set to six
+// slots holds six runners however much machine is left over, and a host whose
+// slots outrun its machine is the overload this function exists to show. Both
+// are returned, so a caller can say which is binding.
+type HostRoom struct {
+	// Slots is what the operator set, less any active throttle: the ceiling
+	// the scheduler would honour whatever the machine could take.
+	Slots int
+	// Fits is how many runners of this size the machine itself has room for,
+	// ignoring the slot count. It is zero on a host too small for one.
+	Fits int
+	// Room is the smaller of the two, which is what the pool can actually
+	// expect from this host.
+	Room int
+	// LimitedBy names what ran out: "slots", "cpu", "memory", "disk", or ""
+	// where the host has measured nothing and only its slots bind.
+	LimitedBy string
+}
+
+// HostRoomFor counts the room on an empty host. Live runners are deliberately
+// not subtracted: this answers "how big is this machine, in runners of this
+// pool", which is the question a pool's size and a host's capacity are chosen
+// against, and it does not change every time a job starts.
+func HostRoomFor(h *store.Host, p *store.Pool) HostRoom {
+	out := HostRoom{Slots: h.EffectiveCapacity()}
+	alloc := h.Allocatable()
+	want := Reserve(p, h)
+
+	fits := -1
+	limit := ""
+	consider := func(n int, by string) {
+		if fits == -1 || n < fits {
+			fits, limit = n, by
+		}
+	}
+	if alloc.CPUsKnown && want.CPUs > 0 {
+		consider(int((alloc.CPUs+cpuEpsilon)/want.CPUs), "cpu")
+	}
+	if alloc.MemoryKnown && want.MemoryMB > 0 {
+		consider(int(alloc.MemoryMB/want.MemoryMB), "memory")
+	}
+	// Disk only where the pool asks for it. Free disk is a measurement rather
+	// than a budget -- see Reserve -- so dividing what is left into runners
+	// would put a machine's cache on the pool's account.
+	if alloc.DiskKnown && want.DiskMB > 0 {
+		consider(int(alloc.DiskMB/want.DiskMB), "disk")
+	}
+	if fits == -1 {
+		// Nothing measured: the host places by slots alone, exactly as it did
+		// before any of this existed.
+		out.Fits, out.Room, out.LimitedBy = out.Slots, out.Slots, ""
+		return out
+	}
+	out.Fits = max(fits, 0)
+	out.Room = min(out.Fits, out.Slots)
+	out.LimitedBy = limit
+	if out.Slots < out.Fits {
+		out.LimitedBy = "slots"
+	}
+	return out
+}

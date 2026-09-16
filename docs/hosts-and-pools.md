@@ -236,6 +236,54 @@ reports what each one did.
 to zero and creates nothing, while its settings and history survive. Deleting
 drains its runners first unless you pass `--force`.
 
+### How big a runner is, and how many there are
+
+Every pool has a per-runner CPU and memory figure. There is no “unlimited”: a
+pool created without one is saved with the fleet's default —
+`runners.default_cpus` and `runners.default_memory_mb`, two cores and four
+gigabytes out of the box — and a pool edited without one is sized the same way
+on its way through. A runner with no cgroup limit can take every core on the
+machine it lands on while the fleet charges it one slot's share, so the host
+reads as half committed, its daemon stops answering, and the creates queued
+behind it time out on a machine every page calls busy. Sizing every runner is
+what turns a host's slot count into a promise the machine can keep.
+
+The wizard asks for the size on a step of its own, between the hosts and the
+count, because that is the order the decision is made in: these are the
+machines, this is what one runner costs on them, and therefore this is how many
+there can be. Each figure is a slider, and beneath them the controller counts
+what the hosts this pool reaches can actually hold at that size, host by host:
+
+* A host that promises more slots than its machine can back at this size is
+  named, and its capacity can be set to what fits in one click
+  (`pool.host_overcommitted`). The slots above what fits are counted as free
+  capacity everywhere they appear, and every create for one of them is refused
+  for want of cores or memory.
+* A maximum above what the fleet can place is named too
+  (`pool.max_above_room`), with the room offered as the maximum. It is not
+  wrong — the maximum is a backstop rather than a target — but the runners
+  above the room are runners the scheduler will never create, and the jobs that
+  ask for them wait with nothing else saying why.
+* While a new pool's maximum has not been typed over, it follows that room, so
+  choosing bigger runners or fewer hosts lowers the cap in front of you. The
+  cap is still stored as a figure: one that silently grew with the fleet would
+  be a cap nobody chose, and its whole job is to stop one misconfigured
+  workflow filling every machine you have — and every machine the provider loop
+  would rent behind them.
+
+The cache size limit is a slider on the same step and is checked the same way,
+against the free disk on the smallest host the pool reaches
+(`pool.cache_above_disk`). The limit is kept by evicting whole entries between
+one runner and the next, so a limit above the free space is not a limit at all:
+the disk fills first, and a host at or below its disk reserve takes no runner
+of any pool.
+
+The same figures size a machine from the other side. The recommended capacity
+on a host's **Adjust** dialog is the machine, less its reserve, divided by what
+a runner in this fleet asks for — the largest ask across the enabled pools, or
+the fleet's default where no pool has said — so the two screens describe one
+fleet rather than two.
+
 ### A pool belongs to one installation
 
 `--installation` is not bookkeeping. A pool's runners are registered into that
@@ -433,7 +481,9 @@ What one runner is charged is the pool's own `resources`. A field the pool
 leaves unset is charged one slot's worth of the host instead — a host with
 30 GB allocatable and a capacity of 6 charges 5 GB — which is what keeps a
 fleet of pools with no limits admitting exactly what its slot counts admitted
-before.
+before. Only a pool that predates sizing being part of making one, or a row
+written straight into the database, can be in that state now: every pool that
+goes through the API gets a CPU and a memory figure, its own or the fleet's.
 
 A pool with `docker_mode: dind` is charged twice over, whichever of those two
 the figure came from: the build runs inside the sidecar, which the backend

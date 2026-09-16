@@ -13,6 +13,7 @@
   import Skeleton from '$lib/components/Skeleton.svelte';
   import HostSelectorEditor from './HostSelectorEditor.svelte';
   import PoolFit from './PoolFit.svelte';
+  import PoolRoom from './PoolRoom.svelte';
   import type { PoolDraft } from './PoolWizardForm.svelte';
 
   interface Props {
@@ -33,6 +34,17 @@
   // saying so in different words is noise on the step where the selector is
   // being typed.
   const shortfall = $derived((verdict?.excluded_hosts ?? []).length > 0);
+
+  /*
+    What the machines this pool now reaches can hold, at the size it is asking
+    for. Choosing hosts and choosing how big a runner is are one decision taken
+    in two places, so the count is here as well as on the Size step: narrowing
+    a selector to the two small boxes is the moment to find out that it leaves
+    room for three runners, not after the pool exists.
+  */
+  const room = $derived(verdict?.room ?? null);
+  const cpus = $derived(Number(draft.cpus) || 0);
+  const memoryMb = $derived(Number(draft.memory_mb) || 0);
 
   function change(next: Record<string, string>): void {
     draft.host_selector = next;
@@ -75,6 +87,9 @@
   />
   {#if shortfall}
     <PoolFit {verdict} {validating} />
+  {/if}
+  {#if cpus > 0 && memoryMb > 0}
+    <PoolRoom {room} {cpus} {memoryMb} {validating} />
   {/if}
 {/if}
 

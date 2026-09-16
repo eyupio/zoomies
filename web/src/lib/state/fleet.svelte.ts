@@ -31,6 +31,7 @@
  */
 import {
   ApiError,
+  getPoolDefaults,
   listHosts,
   listPools,
   listProblems,
@@ -39,7 +40,7 @@ import {
   getStats,
 } from '../api/client';
 import { events, type SseStatus } from '../api/sse';
-import type { Host, Pool, Problem, Runner, ScalingEvent, Stats } from '../api/types';
+import type { Host, Pool, Problem, Resources, Runner, ScalingEvent, Stats } from '../api/types';
 import { toasts } from './toasts.svelte';
 
 interface FleetData {
@@ -84,6 +85,7 @@ class Fleet {
   #scaling = $state<ScalingEvent[]>([]);
   #connection = $state<SseStatus>('offline');
   #loaded = $state(false);
+  #runnerDefaults = $state<Resources | null>(null);
   #loading = $state(false);
   #error = $state<ApiError | null>(null);
 
@@ -129,6 +131,17 @@ class Fleet {
   }
   get scalingEvents(): readonly ScalingEvent[] {
     return this.#scaling;
+  }
+  /**
+   * The size a pool that says nothing gets, as this fleet's settings say.
+   *
+   * It is fleet state rather than a constant because a host is sized against
+   * it: "how many runners fit here" is asked on the Hosts page before any pool
+   * exists, and answering it with a figure of the browser's own would
+   * recommend a capacity the fleet would never place.
+   */
+  get runnerDefaults(): Resources | null {
+    return this.#runnerDefaults;
   }
   /** Bumped once per applied change. Useful as a `{#key}` or effect dependency. */
   get version(): number {
@@ -304,13 +317,17 @@ class Fleet {
 
   async #fetchAll(): Promise<void> {
     try {
-      const [pools, hosts, runners, stats, problems, scaling] = await Promise.all([
+      const [pools, hosts, runners, stats, problems, scaling, defaults] = await Promise.all([
         listPools(),
         listHosts(),
         listRunners({ limit: RUNNER_PAGE }),
         getStats(),
         listProblems(),
         listScalingEvents({ limit: SCALING_LIMIT }),
+        // The one call whose failure must not take the fleet with it: what it
+        // answers is a starting figure for two recommendations, and the pages
+        // that use it have a built-in fallback.
+        getPoolDefaults().catch(() => null),
       ]);
       const next = emptyData();
       next.version = this.#data.version + 1;
@@ -323,6 +340,7 @@ class Fleet {
       this.#problems = problems.items;
       this.#problemsOk = problems.ok;
       this.#scaling = scaling.items ?? [];
+      if (defaults?.resources) this.#runnerDefaults = defaults.resources;
       this.#loaded = true;
       this.#error = null;
       // The frames that arrived meanwhile, on top of the fresh snapshot, so

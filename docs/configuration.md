@@ -524,6 +524,8 @@ if you set `keep: 0` and never expect the page to say what is there.
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
+| `runners.default_cpus` | `ZOOMIES_RUNNER_DEFAULT_CPUS` | at once | Default CPUs per runner — How much CPU one runner gets on a pool that has not said otherwise, in cores; fractions are allowed. Every pool has a size, so this is the figure a new pool opens on rather than a fallback for pools with no limits. 0 means nothing has been said and the built-in 2 cores answers. |
+| `runners.default_memory_mb` | `ZOOMIES_RUNNER_DEFAULT_MEMORY_MB` | at once | Default memory per runner — How much memory one runner gets on a pool that has not said otherwise, in megabytes. It is the figure a new pool opens on, and the one a host's recommended capacity is worked out from. 0 means nothing has been said and the built-in 4096 answers. |
 | `runners.docker_wait` | `ZOOMIES_DOCKER_WAIT` | at once | Docker daemon wait — How long a runner on a pool that provides Docker waits for that daemon before refusing to take a job. Whole seconds, up to an hour; 0 leaves the runner image's own default. A pool's env can set ZOOMIES_DOCKER_WAIT to override it for that pool. |
 | `runners.env` | `ZOOMIES_RUNNER_ENV` | at once | Runner environment — Key=value variables every runner starts with, such as a proxy or a package mirror. A pool's own env wins where the two name the same variable. Every job can read these, so a credential does not belong here: give it to the pool, or to the workflow as a GitHub secret. |
 
@@ -1189,6 +1191,33 @@ the setting is switched off is lifted rather than left on a rung nothing will
 ever step down. Leave it on unless something outside Zoomies manages the
 hosts' load.
 
+### `runners.default_cpus` and `runners.default_memory_mb` — how big a runner is
+
+```yaml
+runners:
+  default_cpus: 2
+  default_memory_mb: 4096
+```
+
+Every pool has a per-runner CPU and memory figure, and these two are what a
+pool that has not said otherwise gets. They are not a fallback for pools with
+no limits: a pool saved without a size is saved with this one, and the pool
+wizard's sliders open on it.
+
+That is deliberate. A runner with no cgroup limit can take every core and all
+of the memory on the machine it lands on, which is the shape that stops the
+Docker daemon answering, times out every other create on that host and reads
+on the Hosts page as a machine that is merely busy. Sizing every runner is
+what turns a host's slot count into a promise the machine can keep.
+
+Two cores and four gigabytes suits most fleets, and a fleet of small boxes or
+of compilers is entitled to say otherwise once here rather than on every pool
+it creates. Changing them does not touch the pools that already exist — their
+figures are their own — and the recommended capacity on the Hosts page follows
+whichever is larger: what the enabled pools ask for, or this.
+[How big a runner is](hosts-and-pools.md#how-big-a-runner-is-and-how-many-there-are)
+has what the wizard does with them, and what it checks the answer against.
+
 ### `runners.docker_wait` and `runners.env` — what every runner starts with
 
 ```yaml
@@ -1362,7 +1391,7 @@ the CLI or the API. These are their fields:
 | `idle_timeout` | How long an idle runner waits before being drained. |
 | `ephemeral` | One job per runner. Leave it on. |
 | `docker_mode` | `none`, `dind`, or `host-socket`. Anything but `none` switches a pool on the stock runner image, under a moving tag, to its Docker variant — see [below](#jobs-that-build-container-images) and [security.md](security.md). |
-| `resources` | `cpus`, `memory_mb`, `disk_gb`, `pids_limit` per runner. `disk_gb` is advisory, and enforced only where the backend can. |
+| `resources` | `cpus`, `memory_mb`, `disk_gb`, `pids_limit` per runner. `cpus` and `memory_mb` are not optional: a pool saved without them is saved with `runners.default_cpus` and `runners.default_memory_mb` rather than with no limit at all. `disk_gb` is advisory, and enforced only where the backend can. |
 | `cache` | A disposable accelerator directory mounted at `/opt/zoomies-cache`, scoped `pool` or `repository`, with an enforced `size_limit`. It is not workflow storage and may be evicted — see [below](#the-pool-cache). |
 | `cost_per_runner_hour` | An optional rate you supply, used only to estimate what the fleet costs. Zoomies never embeds prices of its own. |
 | `host_selector` | Restricts the pool to matching hosts. |

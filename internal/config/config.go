@@ -599,6 +599,43 @@ type Runners struct {
 	// that runs, so it is the place for a proxy or a mirror and not for a
 	// credential: a pool's env, or a GitHub secret, is where those belong.
 	Env map[string]string `yaml:"env"`
+	// DefaultCPUs and DefaultMemoryMB are what one runner gets on a pool that
+	// has not said otherwise. Every pool has a size, because a fleet whose
+	// runners have no limits is a fleet where one job that runs away takes the
+	// machine and every other pool's runners on it with it; these are the
+	// figures a pool starts at, and the ones the wizard's sliders open on.
+	//
+	// They are a fleet's answer rather than a constant because the right
+	// answer is the shape of the machines and the jobs: two cores and four
+	// gigabytes suits most, and a fleet of small boxes or of compilers is
+	// entitled to say otherwise once rather than on every pool it creates.
+	// Zero or less is not "no limit" -- it is nothing having been said, and
+	// DefaultRunnerSize answers with the built-in figures.
+	DefaultCPUs     float64 `yaml:"default_cpus"`
+	DefaultMemoryMB int64   `yaml:"default_memory_mb"`
+}
+
+// The size a runner gets where nothing else says: two cores and four
+// gigabytes. It is what a pool created today opens on, and it is deliberately
+// modest -- a figure an operator raises for the pool that needs it is better
+// than one that fits three runners on a machine that has room for eight.
+const (
+	DefaultRunnerCPUs     = 2
+	DefaultRunnerMemoryMB = 4096
+)
+
+// DefaultRunnerSize is the per-runner CPU and memory a pool gets when it names
+// none, with the built-in figures standing in for a setting nobody has given a
+// usable value.
+func (r Runners) DefaultRunnerSize() (cpus float64, memoryMB int64) {
+	cpus, memoryMB = r.DefaultCPUs, r.DefaultMemoryMB
+	if cpus <= 0 {
+		cpus = DefaultRunnerCPUs
+	}
+	if memoryMB <= 0 {
+		memoryMB = DefaultRunnerMemoryMB
+	}
+	return cpus, memoryMB
 }
 
 // Retention bounds how much history the database keeps.
@@ -698,7 +735,11 @@ func Default() *Config {
 		// Two minutes matches the runner image's own default: dockerd in a
 		// fresh sidecar on a host that is also extracting images takes longer
 		// than the thirty seconds the first version allowed.
-		Runners: Runners{DockerWait: 2 * time.Minute},
+		Runners: Runners{
+			DockerWait:      2 * time.Minute,
+			DefaultCPUs:     DefaultRunnerCPUs,
+			DefaultMemoryMB: DefaultRunnerMemoryMB,
+		},
 		// Daily: releases are not frequent, and a controller that asks once a
 		// day still tells you within a working day of one being published.
 		Updates: Updates{CheckInterval: 24 * time.Hour},

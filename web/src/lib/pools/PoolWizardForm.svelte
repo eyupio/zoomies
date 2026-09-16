@@ -92,6 +92,10 @@
       docker_mode: 'none',
       run_as_root: false,
       enabled: true,
+      // Filled from the fleet's own default as soon as it is known -- see
+      // the effect that fetches it. A pool never has "no limit": the server
+      // would size it anyway, and a form that opened empty would be showing
+      // an operator a pool they are not creating.
       cpus: '',
       memory_mb: '',
       disk_gb: '',
@@ -264,24 +268,32 @@
     if (parseGoDuration(draft.idle_timeout) === null)
       errors['idle_timeout'] = 'Use a Go duration such as 5m, 90s or 1h30m.';
 
-    if (draft.cpus.trim() !== '') {
-      const cpus = toNumber(draft.cpus);
-      if (cpus === undefined || cpus <= 0)
-        errors['resources.cpus'] =
-          'Use a number greater than zero, or leave it empty for no limit.';
-    }
-    if (draft.memory_mb.trim() !== '') {
-      const memory = toInteger(draft.memory_mb);
-      if (memory === undefined || memory <= 0)
-        errors['resources.memory_mb'] =
-          'Use a whole number of megabytes, or leave it empty for no limit.';
-    }
+    // The size is not optional, and the floors are the server's own: below
+    // them the runner binary cannot keep up with its own job, or is killed
+    // before it takes one.
+    const cpus = toNumber(draft.cpus);
+    if (cpus === undefined || cpus <= 0)
+      errors['resources.cpus'] = 'Every runner has a CPU limit. Move the slider to choose one.';
+    else if (cpus < 0.25) errors['resources.cpus'] = 'A runner needs at least a quarter of a core.';
+    const memory = toInteger(draft.memory_mb);
+    if (memory === undefined || memory <= 0)
+      errors['resources.memory_mb'] =
+        'Every runner has a memory limit. Move the slider to choose one.';
+    else if (memory < 512) errors['resources.memory_mb'] = 'A runner needs at least 512 MB.';
     if (draft.disk_gb.trim() !== '') {
       const disk = toInteger(draft.disk_gb);
       if (disk === undefined || disk <= 0)
         errors['resources.disk_gb'] =
           'Use a whole number of gigabytes, or leave it empty for no limit.';
     }
+
+    if (
+      draft.cache_enabled &&
+      (toInteger(draft.cache_size_limit) ?? 0) > 0 &&
+      !draft.cache_source.trim().startsWith('/')
+    )
+      errors['cache.size_limit'] =
+        'A size limit is kept by evicting from a directory on the host, so the cache source has to be an absolute host path. There is nothing to measure inside a named volume.';
 
     if (draft.docker_mode === 'host-socket' && !socketConfirmed)
       errors['docker_mode'] =
@@ -300,7 +312,7 @@
 </script>
 
 <!--
-  Pool creation and pool editing, in the same six steps.
+  Pool creation and pool editing, in the same seven steps.
 
   The draft is one object held here, so going back never loses what was typed;
   the steps are presentation only. Client-side rules run continuously and gate
@@ -313,6 +325,7 @@
   import {
     ApiError,
     createPool,
+    getPoolDefaults,
     listInstallations,
     listPoolPlatforms,
     listRunnerGroups,
@@ -331,6 +344,7 @@
   import StepHosts from './StepHosts.svelte';
   import { hostMatchesSelector } from './hostSelector';
   import StepBackend from './StepBackend.svelte';
+  import StepSize from './StepSize.svelte';
   import StepScaling from './StepScaling.svelte';
   import StepReview from './StepReview.svelte';
 
@@ -384,6 +398,21 @@
   let groups = $state<RunnerGroup[]>([]);
   let groupsLoading = $state(false);
   let groupsError = $state<unknown>(null);
+
+  /**
+   * The fleet's own default size, and the maximum the wizard worked out from
+   * the room the hosts have for it.
+   *
+   * `autoMax` is the same idea as `autoName` above: while the field still
+   * holds what the wizard put there, the wizard keeps it current, so choosing
+   * bigger runners or fewer hosts lowers the cap in front of the operator. The
+   * moment they type their own it stops following, because a number that
+   * rewrites itself under somebody's cursor is worse than no help at all.
+   * Editing an existing pool never follows: that cap is in force right now,
+   * and the Scaling step offers the fleet's figure rather than taking it.
+   */
+  let defaults = $state<Resources | null>(null);
+  let autoMax = $state<string | null>('4');
 
   // The operating systems a runner image is published for. Served rather than
   // hard-coded so the picker cannot offer one that does not exist.
@@ -451,6 +480,57 @@
   }
 
   /* -- what the fleet and GitHub can offer --------------------------------- */
+
+  /*
+    The size a new pool opens on. It is a fleet setting, so the sliders cannot
+    have a figure of their own: a wizard showing two cores while the fleet says
+    eight would be describing a pool it is not about to create. A pool being
+    edited already has its own size and is left alone.
+  */
+  $effect(() => {
+    const controller = new AbortController();
+    getPoolDefaults(controller.signal)
+      .then((response) => {
+        const resources = response.resources ?? {};
+        defaults = resources;
+        untrack(() => {
+          if (editing) return;
+          if (draft.cpus === '' && resources.cpus !== undefined)
+            draft.cpus = String(resources.cpus);
+          if (draft.memory_mb === '' && resources.memory_mb !== undefined) {
+            draft.memory_mb = String(resources.memory_mb);
+          }
+        });
+      })
+      // A failure here is not worth an error state: the server applies the
+      // same figures on save, and the sliders fall back to the built-in ones.
+      .catch(() => {});
+    return () => controller.abort();
+  });
+
+  /*
+    The maximum follows what the fleet can actually place, until it is typed
+    over. This is the half of "how many runners" that nothing else can answer:
+    the cap is a number about machines, and the fleet is the only thing that
+    knows how many runners of this size its hosts can hold.
+  */
+  const followingMax = $derived(!editing && autoMax !== null && draft.max_runners === autoMax);
+  $effect(() => {
+    const room = verdict?.room?.runners;
+    if (editing || room === undefined || room <= 0) return;
+    untrack(() => {
+      if (autoMax === null) return;
+      if (draft.max_runners !== autoMax) {
+        // Typed over: the wizard is done with this field.
+        autoMax = null;
+        return;
+      }
+      const next = String(Math.max(room, toInteger(draft.min_runners) ?? 0, 1));
+      if (next === draft.max_runners) return;
+      draft.max_runners = next;
+      autoMax = next;
+    });
+  });
 
   $effect(() => {
     void installationsAttempt;
@@ -539,8 +619,8 @@
   $effect(() => {
     if (editing) return;
     const suggested = nicknamed
-      ? nicknamedPoolName(kennelWord, draft, fleet.hosts)
-      : poolName(kennelWord, draft, fleet.hosts, poolNames);
+      ? nicknamedPoolName(kennelWord, draft, fleet.hosts, defaults)
+      : poolName(kennelWord, draft, fleet.hosts, poolNames, defaults);
     untrack(() => {
       if (draft.name !== '' && draft.name !== autoName) return;
       draft.name = suggested;
@@ -580,7 +660,7 @@
     if (editing) return;
     nicknamed = true;
     kennelWord = spinWord(kennelWord);
-    const next = nicknamedPoolName(kennelWord, draft, fleet.hosts);
+    const next = nicknamedPoolName(kennelWord, draft, fleet.hosts, defaults);
     draft.name = next;
     autoName = next;
     touch('name');
@@ -743,8 +823,10 @@
           restricted={restrictedToHosts}
           bind:socketConfirmed
         />
+      {:else if step.id === 'size'}
+        <StepSize {draft} {errors} {touch} {defaults} {verdict} {validating} />
       {:else if step.id === 'scaling'}
-        <StepScaling {draft} {errors} {touch} {verdict} {validating} />
+        <StepScaling {draft} {errors} {touch} {verdict} {validating} following={followingMax} />
       {:else}
         <StepReview
           {draft}

@@ -147,16 +147,17 @@ it yourself on the **Pools** page:
 | **Labels** | `zoomies-linux-x64` — what your workflows put in `runs-on` — and `zoomies`, which every pool answers to |
 | **Platform** | What the host is: Ubuntu 24.04, amd64. It picks the runner image, and it keeps this pool off hosts running something else |
 | **Backend** | Docker (rootless if available) |
-| **Min / max** | `0` / `4` — nothing idle when nothing is queued; the max is the host's capacity |
+| **Size per runner** | `2` cores and `4 GB` — the fleet's default, on sliders, with the room your hosts have for that size counted underneath |
+| **Min / max** | `0` / `4` — nothing idle when nothing is queued; the maximum starts at the room those hosts have and stops following once you type your own |
 | **Idle timeout** | `5m` |
 | **Ephemeral** | yes |
 | **Docker in jobs** | none |
 
 The wizard does not make you invent the first two rows. It opens with a name
-already in the field -- the brand, a name from the kennel and the
-infrastructure the runners will land on, so `zoomies-biscuit-docker-linux` --
-and a label derived from that name, so the pool is reachable by a workflow
-before you have typed anything. The dice beside the field roll another name;
+already in the field — the brand and the shape of the pool, so
+`zoomies-ubuntu-2404`, or a name from the kennel before a host has connected —
+and a label derived from that name, so the
+pool is reachable by a workflow before you have typed anything. The dice beside the field roll another name;
 type over it and the wizard leaves the name and the label alone from then on.
 Every name it offers starts with `zoomies-`, which is what tells you a runner
 in GitHub's own settings is one of yours.
@@ -164,6 +165,14 @@ in GitHub's own settings is one of yours.
 Decline it, or set `pool.skip` in an answer file, and the Pools page starts
 empty; nothing runs until a pool exists. Either way, always set a maximum. It
 is your only backstop against a runaway workflow.
+
+**Size per runner** is the row that decides how many jobs run at once. Every
+pool has one — there is no “unlimited”, because a runner with no limit takes
+whatever the machine has while the fleet still counts it as one slot — and the
+wizard asks for it after the hosts and before the count, so it can tell you
+what the machines you picked have room for at that size. Change the figure the
+whole fleet starts from under **Settings → Configuration**
+(`runners.default_cpus`, `runners.default_memory_mb`).
 
 **Operating system** is the other row worth a look. It picks which
 `zoomies-runner` variant the pool boots — Ubuntu 24.04 and 22.04, Debian 12,

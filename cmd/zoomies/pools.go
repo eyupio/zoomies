@@ -384,6 +384,23 @@ func poolsCreate(ctx context.Context, e *env, args []string) error {
 				Host   string `json:"host"`
 				Reason string `json:"reason"`
 			} `json:"excluded_hosts"`
+			// What the hosts that can run it have room for, at the size this
+			// pool asks for. A maximum is only as real as this number, and a
+			// dry run that printed the verdict without it left the one figure
+			// an operator cannot work out for themselves off the screen.
+			Room struct {
+				Runners int `json:"runners"`
+				Hosts   []struct {
+					Host  string `json:"host"`
+					Slots int    `json:"slots"`
+					Fits  int    `json:"fits"`
+					Room  int    `json:"room"`
+				} `json:"hosts"`
+			} `json:"room"`
+			Resources struct {
+				CPUs     float64 `json:"cpus"`
+				MemoryMB int64   `json:"memory_mb"`
+			} `json:"resources"`
 		}
 		raw, err := client.post(ctx, "/pools/validate", nil, body, &verdict)
 		if err != nil {
@@ -404,6 +421,19 @@ func poolsCreate(ctx context.Context, e *env, args []string) error {
 		// fleet looking for the machine that was turned down.
 		for _, ex := range verdict.ExcludedHosts {
 			p.note("  %s: %s", ex.Host, ex.Reason)
+		}
+		if verdict.Resources.CPUs > 0 || verdict.Resources.MemoryMB > 0 {
+			p.note("Each runner gets %s CPU and %d MB, and its hosts have room for %d of them.",
+				strconv.FormatFloat(verdict.Resources.CPUs, 'f', -1, 64),
+				verdict.Resources.MemoryMB, verdict.Room.Runners)
+			// A host promising more slots than it can back at this size is the
+			// failure that looks like health, so it is named rather than left
+			// inside the total.
+			for _, h := range verdict.Room.Hosts {
+				if h.Slots > h.Fits {
+					p.note("  %s: %d slots, room for %d at this size", h.Host, h.Slots, h.Fits)
+				}
+			}
 		}
 		printProblems(p, verdict.Warnings, "It would have these dangerous settings:")
 		return nil
