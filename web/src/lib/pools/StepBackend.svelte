@@ -65,6 +65,11 @@
     socketConfirmed = $bindable(false),
   }: Props = $props();
 
+  const uid = $props.id();
+  const dockerModeErrorId = $derived(
+    errors['docker_mode'] ? `${uid}-docker-mode-error` : undefined,
+  );
+
   function offer(kind: BackendKind): BackendOffer | undefined {
     return offers.find((entry) => entry.kind === kind);
   }
@@ -351,10 +356,14 @@
       <Checkbox
         bind:checked={socketConfirmed}
         label="I understand that this gives every job on this pool root on the host"
+        describedBy={dockerModeErrorId}
         onchange={() => touch('docker_mode')}
       />
       {#if errors['docker_mode']}
-        <p class="danger-error">{errors['docker_mode']}</p>
+        <!-- role="alert" so the failure is spoken when it appears; the
+             describedby link on the checkbox alone is only read if the field
+             is revisited. -->
+        <p class="danger-error" id={dockerModeErrorId} role="alert">{errors['docker_mode']}</p>
       {/if}
     </div>
   {/if}

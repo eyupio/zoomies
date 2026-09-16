@@ -40,6 +40,7 @@
     }
     return '';
   });
+  const errorId = $derived(duplicate ? `${uid}-duplicate-error` : undefined);
 
   function add(): void {
     rows = [...rows, { key: '', value: '' }];
@@ -71,6 +72,7 @@
           ariaLabel="Label {index + 1} key"
           id="{uid}-key-{index}"
           invalid={Boolean(duplicate) && row.key.trim() === duplicate}
+          describedBy={Boolean(duplicate) && row.key.trim() === duplicate ? errorId : undefined}
         />
         <Input
           bind:value={row.value}
@@ -90,7 +92,10 @@
   {/if}
 
   {#if duplicate}
-    <p class="error">
+    <!-- role="alert" so the failure is spoken when it appears; the
+         describedby link on the offending inputs alone is only read if the
+         field is revisited. -->
+    <p class="error" id={errorId} role="alert">
       Two labels are both called <span class="mono">{duplicate}</span>. The last one would win, so
       rename or remove one.
     </p>
