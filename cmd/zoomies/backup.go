@@ -97,7 +97,7 @@ func runBackup(ctx context.Context, e *env, args []string) error {
 	if *noOffsite {
 		return nil
 	}
-	return shipFromCLI(ctx, e, cfg, entry, *remote)
+	return shipFromCLI(ctx, e, cfg, st, entry, *remote)
 }
 
 // shipFromCLI copies one backup to the remotes and says what happened, in the
@@ -107,25 +107,42 @@ func runBackup(ctx context.Context, e *env, args []string) error {
 // was taken, it is on the disk, and telling an operator their backup failed
 // because a bucket refused a signature would be a lie about the thing they
 // asked for.
-func shipFromCLI(ctx context.Context, e *env, cfg *config.Config, entry *backup.Entry, only string) error {
-	remotes := cfg.EnabledBackupRemotes()
-	if only != "" {
-		remotes = nil
-		for _, r := range cfg.Backup.Remotes {
-			if r.Name != only {
-				continue
+func shipFromCLI(ctx context.Context, e *env, cfg *config.Config, st *store.Store, entry *backup.Entry, only string) error {
+	resolved, err := remotesFor(ctx, cfg, st)
+	if err != nil {
+		return err
+	}
+	var remotes []config.BackupRemote
+	for _, r := range resolved {
+		switch {
+		case only != "" && r.Remote.Name != only:
+			continue
+		case r.Shadowed:
+			// Named explicitly, this is worth saying: the row exists and the
+			// file is what is being used instead.
+			if only != "" {
+				return fmt.Errorf("the backup remote %q is described in zoomies.yaml as well, and the file wins; nothing was sent to the stored one", only)
 			}
+			continue
+		case r.Problem != "":
+			if only != "" {
+				return fmt.Errorf("the backup remote %q cannot be used: %s", only, r.Problem)
+			}
+			fmt.Fprintf(e.out, "\n%s  NOT sent: %s\n", r.Remote.Name, r.Problem)
+			continue
+		case !r.Remote.Enabled():
 			// A destination that is switched off stays switched off when it is
 			// named: disabled is an answer about the destination, not about
 			// which copies go to it.
-			if !r.Enabled() {
+			if only != "" {
 				return fmt.Errorf("the backup remote %q is disabled or incomplete, so nothing was sent to it", only)
 			}
-			remotes = append(remotes, r)
+			continue
 		}
-		if len(remotes) == 0 {
-			return fmt.Errorf("no backup remote is called %q; backup.remotes names %s", only, remoteNames(cfg))
-		}
+		remotes = append(remotes, r.Remote)
+	}
+	if only != "" && len(remotes) == 0 {
+		return fmt.Errorf("no backup remote is called %q; this fleet has %s", only, remoteNames(resolved))
 	}
 	if len(remotes) == 0 {
 		return nil
@@ -168,15 +185,33 @@ func shipFromCLI(ctx context.Context, e *env, cfg *config.Config, entry *backup.
 	return nil
 }
 
-// remoteNames lists what is configured, for the error that says a name is not
+// remotesFor is every destination this host can see: the file's, and the ones
+// stored in the database when it can be opened. The command is run on a host
+// whose controller may not be running, so a database that will not open is not
+// fatal -- the file's destinations are the ones that work in that case anyway.
+func remotesFor(ctx context.Context, cfg *config.Config, st *store.Store) ([]backup.ResolvedRemote, error) {
+	key, err := backup.ConfiguredKey(cfg)
+	if err != nil {
+		// Without the key the stored secrets cannot be opened, and
+		// ResolveRemotes says so per destination rather than here.
+		key = nil
+	}
+	var rows backup.RemoteLister
+	if st != nil {
+		rows = st
+	}
+	return backup.ResolveRemotes(ctx, cfg, rows, key)
+}
+
+// remoteNames lists what this fleet has, for the error that says a name is not
 // one of them.
-func remoteNames(cfg *config.Config) string {
+func remoteNames(resolved []backup.ResolvedRemote) string {
 	var names []string
-	for _, r := range cfg.Backup.Remotes {
-		names = append(names, r.Name)
+	for _, r := range resolved {
+		names = append(names, r.Remote.Name)
 	}
 	if len(names) == 0 {
-		return "none"
+		return "no backup remotes"
 	}
 	return strings.Join(names, ", ")
 }

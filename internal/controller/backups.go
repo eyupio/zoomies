@@ -272,7 +272,7 @@ func (c *Controller) NoteManualBackup() {
 // backupProblems is what the drawer says about backups: a schedule that is
 // failing, a restore that is waiting for a restart, and a restore that did not
 // happen.
-func (c *Controller) backupProblems() []Problem {
+func (c *Controller) backupProblems(ctx context.Context) []Problem {
 	var out []Problem
 	status := c.BackupStatus()
 	if status.LastError != "" {
@@ -304,7 +304,7 @@ func (c *Controller) backupProblems() []Problem {
 			Since: &at,
 		})
 	}
-	out = append(out, c.remoteProblems()...)
+	out = append(out, c.remoteProblems(ctx)...)
 	if outcome, err := backup.LastOutcome(dbPath); err == nil && outcome != nil && !outcome.OK {
 		at := outcome.AttemptedAt
 		out = append(out, Problem{

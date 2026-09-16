@@ -38,7 +38,7 @@
   import Segmented from '$lib/components/Segmented.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import SettingRow from './SettingRow.svelte';
-  import { SECTION_BLURB, displayValue, matches } from './settings';
+  import { SECTION_BLURB, SECTIONS_ELSEWHERE, displayValue, matches } from './settings';
 
   let settings = $state<Settings | null>(null);
   let loading = $state(true);
@@ -131,7 +131,29 @@
    */
   $effect(() => registerSearch(searchField));
 
-  const all = $derived<readonly Setting[]>(settings?.settings ?? []);
+  /*
+    Every setting this page owns. A section another page edits is left to it --
+    the backup schedule belongs beside the backups it produces -- and the rail
+    links there, so the keys are still findable from here without this page
+    offering a second editor for them.
+  */
+  const all = $derived<readonly Setting[]>(
+    (settings?.settings ?? []).filter((s) => !SECTIONS_ELSEWHERE[s.section]),
+  );
+  /*
+    The pointer is shown while a search is running too, and that is the point
+    of it: somebody who types "backup interval" into this page's search box
+    finds no rows, and the one thing that would help is being told where the
+    rows went. It is hidden only when the query plainly means something else.
+  */
+  const elsewhere = $derived(
+    Object.entries(SECTIONS_ELSEWHERE).filter(
+      ([name]) =>
+        (settings?.settings ?? []).some((s) => s.section === name) &&
+        (query.trim() === '' ||
+          (settings?.settings ?? []).some((s) => s.section === name && matches(s, query))),
+    ),
+  );
 
   const findingsBySetting = $derived.by(() => {
     const map: Record<string, Problem[]> = {};
@@ -412,6 +434,17 @@
 
       <div class="body">
         <div class="rows" bind:this={rows}>
+          {#each elsewhere as [name, where] (name)}
+            <section class="elsewhere" aria-labelledby="section-{name}">
+              <div class="section-head" data-section={name}>
+                <h3 id="section-{name}" class="mono">{name}</h3>
+                {#if SECTION_BLURB[name]}<p>{SECTION_BLURB[name]}</p>{/if}
+              </div>
+              <p class="pointer">
+                These are set on <a href={where.href}>{where.page}</a>, beside what they affect.
+              </p>
+            </section>
+          {/each}
           {#each sections as section (section.name)}
             <section aria-labelledby="section-{section.name}">
               <div class="section-head" data-section={section.name}>
@@ -524,6 +557,13 @@
 </LoadingBoundary>
 
 <style>
+  .elsewhere .pointer {
+    margin: 0;
+    padding: var(--z-space-3) var(--z-space-5) var(--z-space-4);
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
+  }
+
   .panel {
     border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);

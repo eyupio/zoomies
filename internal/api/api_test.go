@@ -753,6 +753,13 @@ func routeTable(ids fixtureIDs) []route {
 			body: map[string]any{"passphrase": "long enough"}},
 		{method: "POST", path: "/api/v1/backups/zoomies-19990101-000000/restore", role: store.RoleAdmin, action: auth.ActionBackupsRestore},
 		{method: "POST", path: "/api/v1/backups/offsite", role: store.RoleAdmin, action: auth.ActionBackupsWrite},
+		{method: "POST", path: "/api/v1/backups/remotes", role: store.RoleAdmin, action: auth.ActionBackupsWrite,
+			body: map[string]any{"name": "wherever", "endpoint": "https://s3.example.com", "bucket": "b", "secret_access_key": "s"}},
+		{method: "POST", path: "/api/v1/backups/remotes/check", role: store.RoleAdmin, action: auth.ActionBackupsRead,
+			body: map[string]any{"name": "wherever", "endpoint": "https://s3.example.com", "bucket": "b", "secret_access_key": "s"}},
+		{method: "PATCH", path: "/api/v1/backups/remotes/offsite", role: store.RoleAdmin, action: auth.ActionBackupsWrite,
+			body: map[string]any{"keep": 3}},
+		{method: "DELETE", path: "/api/v1/backups/remotes/offsite", role: store.RoleAdmin, action: auth.ActionBackupsWrite},
 		{method: "GET", path: "/api/v1/backups/remotes/offsite/copies", role: store.RoleAdmin, action: auth.ActionBackupsRead},
 		{method: "POST", path: "/api/v1/backups/remotes/offsite/check", role: store.RoleAdmin, action: auth.ActionBackupsRead},
 		{method: "POST", path: "/api/v1/backups/remotes/offsite/copies/zoomies-19990101-000000/fetch", role: store.RoleAdmin, action: auth.ActionBackupsWrite},
@@ -1130,9 +1137,10 @@ func normalisePath(p string) string {
 		}
 		// A backup remote is named by its own name rather than by a
 		// prefixed id, so the segment after "remotes" is the parameter
-		// whatever it is called -- and /backups/offsite, which is a verb
-		// rather than a name, stays itself.
-		if i > 0 && parts[i-1] == "remotes" {
+		// whatever it is called. The two verbs among them -- /backups/offsite
+		// and /backups/remotes/check -- stay themselves, which is also why a
+		// remote may not be called "check".
+		if i > 0 && parts[i-1] == "remotes" && part != "check" {
 			parts[i] = "{name}"
 			continue
 		}

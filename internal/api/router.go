@@ -293,6 +293,14 @@ func (s *Server) apiRoutes() chi.Router {
 			// write because the offsite copy exists precisely because the
 			// local ones might not.
 			r.With(s.require(auth.ActionBackupsWrite)).Post("/offsite", s.handleShipBackups)
+			// Adding a destination is a write for the same reason deleting a
+			// copy is: it decides where this fleet's whole database goes.
+			// "check" comes before "{name}" so a destination may not be called
+			// check and make the route ambiguous.
+			r.With(s.require(auth.ActionBackupsWrite)).Post("/remotes", s.handleCreateBackupRemote)
+			r.With(s.require(auth.ActionBackupsRead)).Post("/remotes/check", s.handleCheckDraftRemote)
+			r.With(s.require(auth.ActionBackupsWrite)).Patch("/remotes/{name}", s.handleUpdateBackupRemote)
+			r.With(s.require(auth.ActionBackupsWrite)).Delete("/remotes/{name}", s.handleDeleteBackupRemote)
 			r.With(s.require(auth.ActionBackupsRead)).Get("/remotes/{name}/copies", s.handleListRemoteCopies)
 			r.With(s.require(auth.ActionBackupsRead)).Post("/remotes/{name}/check", s.handleCheckRemote)
 			r.With(s.require(auth.ActionBackupsWrite)).Post("/remotes/{name}/copies/{id}/fetch", s.handleFetchRemoteCopy)

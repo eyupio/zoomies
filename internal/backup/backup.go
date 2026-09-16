@@ -358,6 +358,21 @@ func buildManifest(ctx context.Context, cfg *config.Config, dbPath, dest string,
 		})
 	}
 
+	// The offsite destinations an administrator stored are sealed with the
+	// same key, so they belong on the same list: restoring this database onto
+	// a host holding a different key gives a fleet that cannot reach its own
+	// backups, and the manifest is where that is said in advance.
+	remotes, err := copied.ListBackupRemotes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range remotes {
+		if len(r.SecretKeyEnc) == 0 && len(r.PassphraseEnc) == 0 {
+			continue
+		}
+		m.Secrets = append(m.Secrets, Secret{Kind: "backup_remote", ID: r.ID, Target: r.Name})
+	}
+
 	if err := describeKey(cfg, dest, opts.IncludeKey, m); err != nil {
 		return nil, err
 	}

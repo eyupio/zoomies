@@ -1053,12 +1053,12 @@ func (c *Config) validateBackupRemotes(add func(Finding)) {
 			})
 		}
 		seen[r.Name] = i
-		if !validRemoteName(r.Name) {
+		if !ValidRemoteName(r.Name) {
 			add(Finding{
 				Code: "backup.remote_name", Severity: SeverityError, Setting: "backup.remotes",
 				Title:  fmt.Sprintf("%q is not a usable name for a backup remote", r.Name),
 				Detail: "the name is a path component in the API and a word in a log line.",
-				Fix:    "use lower-case letters, digits and dashes, such as offsite or s3-frankfurt.",
+				Fix:    "use lower-case letters, digits and dashes, such as offsite or s3-frankfurt, and not a word the API already uses there (" + strings.Join(ReservedRemoteNames, ", ") + ").",
 			})
 		}
 		if r.Disabled {
@@ -1132,14 +1132,11 @@ func (c *Config) validateBackupRemotes(add func(Finding)) {
 		}
 	}
 
-	if c.Backup.Interval > 0 && len(c.EnabledBackupRemotes()) == 0 {
-		add(Finding{
-			Code: "backup.no_remote", Severity: SeverityInfo, Setting: "backup.remotes",
-			Title:  "backups are taken but never leave this host",
-			Detail: "the schedule keeps copies beside the database, which is a backup against a mistake and not against the disk, the machine or the datacentre.",
-			Fix:    "add an S3-compatible destination under backup.remotes, or keep shipping the directory yourself — the point is that one of the two is somebody's job.",
-		})
-	}
+	// "backups never leave this host" is deliberately not raised here. The
+	// validator reads the configuration file, and a destination an
+	// administrator added on the Backups page is a database row it cannot
+	// see -- so the controller raises backup.no_remote instead, where both
+	// sources are visible and the answer is not a guess.
 }
 
 // MinBackupPassphrase is the shortest passphrase worth calling one. The API
@@ -1147,11 +1144,20 @@ func (c *Config) validateBackupRemotes(add func(Finding)) {
 // remote's.
 const MinBackupPassphrase = 8
 
-// validRemoteName is the shape a remote's name may take: it is a path
+// ReservedRemoteNames are the words the API already uses where a remote's name
+// goes, so a destination called one of them would be a destination no route
+// could address.
+var ReservedRemoteNames = []string{"check"}
+
+// ValidRemoteName is the shape a remote's name may take: it is a path
 // component in the API and a word in a log line, so it is kept to the
-// characters that are both.
-func validRemoteName(name string) bool {
-	if name == "" {
+// characters that are both, and to names no route has already taken.
+//
+// It is exported because the destinations stored in the database are held to
+// the same rule. A name that worked in one place and not the other would be a
+// trap, and the two lists end up merged.
+func ValidRemoteName(name string) bool {
+	if name == "" || slices.Contains(ReservedRemoteNames, name) {
 		return false
 	}
 	for _, r := range name {

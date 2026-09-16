@@ -2852,6 +2852,106 @@ paths:
               schema: { $ref: "#/components/schemas/BackupShipment" }
         "409": { $ref: "#/components/responses/Conflict" }
 
+  /backups/remotes:
+    post:
+      operationId: createBackupRemote
+      tags: [backups]
+      summary: Add a backup remote
+      description: >-
+        Stores an S3-compatible destination this fleet copies every backup to.
+        The secret key and the passphrase are sealed with the instance encryption
+        key before anything else happens to them, and no response ever carries
+        them back — the page is told whether each is set, which is the only thing
+        it can act on. A destination `backup.remotes` in `zoomies.yaml` already
+        names is refused: the file has the last word, and two rows that disagree
+        would be worse than one that cannot be added.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BackupRemoteInput" }
+      responses:
+        "201":
+          description: Added
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BackupRemote" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /backups/remotes/check:
+    post:
+      operationId: checkDraftBackupRemote
+      tags: [backups]
+      summary: Test a backup remote before it is saved
+      description: >-
+        Lists one key under the destination described in the body, so that a
+        secret key is proved before it is stored rather than after. A body with
+        no `secret_access_key` falls back to the one stored under that name,
+        which is how a saved destination is re-tested after its bucket or prefix
+        is changed. A destination that refuses is a `200` with `ok: false` and
+        the service's own words.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BackupRemoteInput" }
+      responses:
+        "200":
+          description: The check ran
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RemoteBackupCheck" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /backups/remotes/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema: { type: string }
+        description: The remote's name, e.g. `offsite`.
+    patch:
+      operationId: updateBackupRemote
+      tags: [backups]
+      summary: Change a stored backup remote
+      description: >-
+        Only the fields the body carries are changed. The two secrets follow the
+        credential convention: absent leaves what is stored, a value replaces it,
+        and an explicit empty string clears it — which is how a passphrase is
+        removed from a destination that should send the plain archive. A
+        destination described in `zoomies.yaml` answers `409`: it is changed in
+        the file.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BackupRemoteInput" }
+      responses:
+        "200":
+          description: Changed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BackupRemote" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+    delete:
+      operationId: deleteBackupRemote
+      tags: [backups]
+      summary: Remove a stored backup remote
+      description: >-
+        Forgets the destination. What its bucket holds is left alone: forgetting
+        where the copies are is not the same as deciding they should not exist,
+        and each one can be deleted from the listing first.
+      x-zoomies-role: admin
+      responses:
+        "204": { description: Removed }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
   /backups/remotes/{name}/copies:
     parameters:
       - name: name
@@ -4542,9 +4642,36 @@ components:
 
     BackupRemote:
       type: object
-      required: [name, where, endpoint, encrypted, keep, disabled, uploading, copies, bytes, listed_at, last_upload_at]
+      required: [name, where, endpoint, encrypted, keep, disabled, source, path_style, shadowed, uploading, copies, bytes, listed_at, last_upload_at]
       properties:
         name: { type: string, description: What this destination is called, and what the API addresses it by. }
+        source:
+          type: string
+          enum: [file, database]
+          description: >-
+            Where this destination is described: `file` for zoomies.yaml and the
+            environment, `database` for one added on the Backups page. Only the
+            stored ones can be edited over the API.
+        id: { type: string, description: The stored destination's row id; absent for one the file describes. }
+        region: { type: string }
+        bucket: { type: string }
+        prefix: { type: string }
+        access_key_id: { type: string, description: The credential's id. The secret beside it is sealed and never served. }
+        path_style:
+          type: [boolean, "null"]
+          description: Null asks for the style to be chosen from the endpoint.
+        shadowed:
+          type: boolean
+          description: >-
+            A stored destination the file overrides by name. Nothing is sent to
+            it; it is listed so that a row which quietly does nothing is visible
+            rather than mysterious.
+        problem:
+          type: string
+          description: >-
+            Why this destination cannot be used at all — almost always that this
+            controller's encryption key does not open its stored secrets.
+        has_secret_key: { type: boolean, description: A secret key is stored for this destination. }
         where: { type: string, description: The bucket and prefix. }
         endpoint: { type: string, description: The S3-compatible service it talks to. }
         encrypted: { type: boolean, description: The archive is sealed with a passphrase before it leaves this host. }
@@ -4557,6 +4684,32 @@ components:
         last_upload_at: { type: [string, "null"], format: date-time }
         last_upload_id: { type: string }
         last_error: { type: string, description: Why the last attempt did not work, in the service's own words. }
+
+    BackupRemoteInput:
+      type: object
+      description: >-
+        A destination to store or change. Every field is optional on a PATCH, so
+        a body carries only what somebody actually changed.
+      properties:
+        name: { type: string, description: Lower-case letters, digits and dashes. }
+        endpoint: { type: string, description: The service's URL; its scheme decides whether the connection is encrypted. }
+        region: { type: string, description: What requests are signed for. Empty is us-east-1. }
+        bucket: { type: string }
+        prefix: { type: string, description: The key prefix, so one bucket can hold several fleets. }
+        access_key_id: { type: string }
+        secret_access_key:
+          type: string
+          format: password
+          description: Sealed with the instance key and never served back. An empty string clears it.
+        passphrase:
+          type: string
+          format: password
+          description: >-
+            Seals the archive before it is uploaded. Sealed at rest and never served
+            back; an empty string clears it, which sends the plain archive.
+        path_style: { type: [boolean, "null"] }
+        keep: { type: integer, description: How many copies this destination holds; 0 keeps every one. }
+        enabled: { type: boolean }
 
     RemoteBackupCopy:
       type: object

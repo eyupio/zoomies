@@ -13,9 +13,10 @@
   confirmed by name, after somebody has seen the copy land.
 -->
 <script lang="ts">
-  import { Cloud, CloudOff, CloudUpload, Download, Trash2 } from '@lucide/svelte';
+  import { Cloud, CloudOff, CloudUpload, Download, Pencil, Plus, Trash2 } from '@lucide/svelte';
   import {
     checkBackupRemote,
+    deleteBackupRemote,
     deleteRemoteBackup,
     fetchRemoteBackup,
     listRemoteBackups,
@@ -29,6 +30,7 @@
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Tooltip from '$lib/components/Tooltip.svelte';
+  import BackupRemoteForm from './BackupRemoteForm.svelte';
 
   interface Props {
     remotes: readonly BackupRemote[];
@@ -50,6 +52,50 @@
   let removing = $state<RemoteBackupCopy | null>(null);
   let removeOpen = $state(false);
   let removeBusy = $state(false);
+
+  /* Adding and editing a destination. A file-defined one is never edited here:
+     the file is what that fleet reads, so the page says where to change it
+     rather than offering a form whose Save would be refused. */
+  let formOpen = $state(false);
+  let editing = $state<BackupRemote | null>(null);
+
+  let forgetting = $state<BackupRemote | null>(null);
+  let forgetOpen = $state(false);
+  let forgetBusy = $state(false);
+
+  function add(): void {
+    editing = null;
+    formOpen = true;
+  }
+
+  function edit(remote: BackupRemote): void {
+    editing = remote;
+    formOpen = true;
+  }
+
+  function askForget(remote: BackupRemote): void {
+    forgetting = remote;
+    forgetOpen = true;
+  }
+
+  async function forget(): Promise<boolean> {
+    if (!forgetting) return true;
+    forgetBusy = true;
+    try {
+      await deleteBackupRemote(forgetting.name);
+      toasts.success(
+        'Removed',
+        `${forgetting.name} is no longer a destination. What its bucket holds is untouched.`,
+      );
+      onchanged();
+      return true;
+    } catch (cause) {
+      toasts.fromError(cause, 'That destination was not removed');
+      return false;
+    } finally {
+      forgetBusy = false;
+    }
+  }
 
   async function ship(): Promise<void> {
     shipping = true;
@@ -165,23 +211,30 @@
       <p>
         {#if remotes.length === 0}
           Nothing leaves this host. A backup beside the database survives a mistake, not the disk —
-          add a destination under <code>backup.remotes</code> in <code>zoomies.yaml</code>, or keep
-          shipping the directory yourself.
+          add an S3-compatible destination here, or describe one under <code>backup.remotes</code>
+          in
+          <code>zoomies.yaml</code>, which is the copy a host that has lost its database can still
+          read.
         {:else}
           Every backup is copied to {pluralise(remotes.length, 'destination', 'destinations')} after it
           is taken, and again on the hour if one was unreachable.
         {/if}
       </p>
     </div>
-    {#if remotes.length > 0}
-      <Button variant="secondary" icon={CloudUpload} onclick={ship} loading={shipping} {disabled}>
-        Copy offsite now
-      </Button>
-    {/if}
+    <div class="header-actions">
+      {#if remotes.length > 0}
+        <Button variant="secondary" icon={CloudUpload} onclick={ship} loading={shipping} {disabled}>
+          Copy offsite now
+        </Button>
+      {/if}
+      <Button variant="primary" icon={Plus} onclick={add} {disabled}>Add a destination</Button>
+    </div>
   </header>
 
   {#if remotes.length === 0}
-    <p class="none"><CloudOff size={16} aria-hidden="true" /> No backup remotes are configured.</p>
+    <p class="none">
+      <CloudOff size={16} aria-hidden="true" /> No backup destinations are configured.
+    </p>
   {:else}
     <ul class="list">
       {#each remotes as remote (remote.name)}
@@ -193,6 +246,20 @@
                 {remote.name}
                 {#if remote.disabled}
                   <Badge tone="neutral" label="Disabled" size="sm" dot={false} />
+                {/if}
+                {#if remote.source === 'file'}
+                  <Tooltip
+                    text="Described in zoomies.yaml or the environment, which is the copy a host that has lost its database can still read. Change it there."
+                  >
+                    <Badge tone="neutral" label="From the file" size="sm" dot={false} />
+                  </Tooltip>
+                {/if}
+                {#if remote.shadowed}
+                  <Tooltip
+                    text="zoomies.yaml describes a destination with the same name and the file has the last word, so nothing is sent to this one."
+                  >
+                    <Badge tone="pending" label="Ignored" size="sm" dot={false} />
+                  </Tooltip>
                 {/if}
                 {#if remote.encrypted}
                   <Tooltip
@@ -242,6 +309,26 @@
               >
                 Test
               </Button>
+              {#if remote.source === 'database'}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={Pencil}
+                  onclick={() => edit(remote)}
+                  {disabled}
+                >
+                  Edit
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={Trash2}
+                  onclick={() => askForget(remote)}
+                  {disabled}
+                >
+                  Remove
+                </Button>
+              {/if}
               <Button
                 variant="ghost"
                 size="sm"
@@ -253,7 +340,9 @@
             </div>
           </div>
 
-          {#if remote.last_error}
+          {#if remote.problem}
+            <p class="why">{remote.problem}</p>
+          {:else if remote.last_error}
             <p class="why">{remote.last_error}</p>
           {/if}
 
@@ -308,6 +397,27 @@
   {/if}
 </section>
 
+<BackupRemoteForm
+  bind:open={formOpen}
+  {editing}
+  onsaved={onchanged}
+  onclose={() => {
+    editing = null;
+  }}
+/>
+
+<ConfirmDialog
+  bind:open={forgetOpen}
+  title="Remove the destination"
+  name={forgetting?.name ?? ''}
+  description={`Backups will stop being copied to ${forgetting?.where ?? 'it'}. What the bucket already holds is left alone — remove those copies from the listing first if they should go too.`}
+  confirmLabel="Remove it"
+  tone="danger"
+  requireName
+  busy={forgetBusy}
+  onconfirm={forget}
+/>
+
 <ConfirmDialog
   bind:open={removeOpen}
   title="Remove the offsite copy"
@@ -344,6 +454,12 @@
     font-size: var(--z-text-xs);
     line-height: var(--z-leading-xs);
     color: var(--z-text-muted);
+  }
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-2);
+    flex-wrap: wrap;
   }
   .none {
     display: flex;

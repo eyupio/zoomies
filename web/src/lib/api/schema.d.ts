@@ -1900,6 +1900,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/backups/remotes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a backup remote
+         * @description Stores an S3-compatible destination this fleet copies every backup to. The secret key and the passphrase are sealed with the instance encryption key before anything else happens to them, and no response ever carries them back — the page is told whether each is set, which is the only thing it can act on. A destination `backup.remotes` in `zoomies.yaml` already names is refused: the file has the last word, and two rows that disagree would be worse than one that cannot be added.
+         */
+        post: operations["createBackupRemote"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backups/remotes/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test a backup remote before it is saved
+         * @description Lists one key under the destination described in the body, so that a secret key is proved before it is stored rather than after. A body with no `secret_access_key` falls back to the one stored under that name, which is how a saved destination is re-tested after its bucket or prefix is changed. A destination that refuses is a `200` with `ok: false` and the service's own words.
+         */
+        post: operations["checkDraftBackupRemote"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backups/remotes/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The remote's name, e.g. `offsite`. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a stored backup remote
+         * @description Forgets the destination. What its bucket holds is left alone: forgetting where the copies are is not the same as deciding they should not exist, and each one can be deleted from the listing first.
+         */
+        delete: operations["deleteBackupRemote"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a stored backup remote
+         * @description Only the fields the body carries are changed. The two secrets follow the credential convention: absent leaves what is stored, a value replaces it, and an explicit empty string clears it — which is how a passphrase is removed from a destination that should send the plain archive. A destination described in `zoomies.yaml` answers `409`: it is changed in the file.
+         */
+        patch: operations["updateBackupRemote"];
+        trace?: never;
+    };
     "/backups/remotes/{name}/copies": {
         parameters: {
             query?: never;
@@ -3326,6 +3393,26 @@ export interface components {
         BackupRemote: {
             /** @description What this destination is called */
             name: string;
+            /**
+             * @description Where this destination is described: `file` for zoomies.yaml and the environment, `database` for one added on the Backups page. Only the stored ones can be edited over the API.
+             * @enum {string}
+             */
+            source: "file" | "database";
+            /** @description The stored destination's row id; absent for one the file describes. */
+            id?: string;
+            region?: string;
+            bucket?: string;
+            prefix?: string;
+            /** @description The credential's id. The secret beside it is sealed and never served. */
+            access_key_id?: string;
+            /** @description Null asks for the style to be chosen from the endpoint. */
+            path_style: boolean | null;
+            /** @description A stored destination the file overrides by name. Nothing is sent to it; it is listed so that a row which quietly does nothing is visible rather than mysterious. */
+            shadowed: boolean;
+            /** @description Why this destination cannot be used at all — almost always that this controller's encryption key does not open its stored secrets. */
+            problem?: string;
+            /** @description A secret key is stored for this destination. */
+            has_secret_key?: boolean;
             /** @description The bucket and prefix. */
             where: string;
             /** @description The S3-compatible service it talks to. */
@@ -3349,6 +3436,33 @@ export interface components {
             last_upload_id?: string;
             /** @description Why the last attempt did not work */
             last_error?: string;
+        };
+        /** @description A destination to store or change. Every field is optional on a PATCH, so a body carries only what somebody actually changed. */
+        BackupRemoteInput: {
+            /** @description Lower-case letters */
+            name?: string;
+            /** @description The service's URL; its scheme decides whether the connection is encrypted. */
+            endpoint?: string;
+            /** @description What requests are signed for. Empty is us-east-1. */
+            region?: string;
+            bucket?: string;
+            /** @description The key prefix */
+            prefix?: string;
+            access_key_id?: string;
+            /**
+             * Format: password
+             * @description Sealed with the instance key and never served back. An empty string clears it.
+             */
+            secret_access_key?: string;
+            /**
+             * Format: password
+             * @description Seals the archive before it is uploaded. Sealed at rest and never served back; an empty string clears it, which sends the plain archive.
+             */
+            passphrase?: string;
+            path_style?: boolean | null;
+            /** @description How many copies this destination holds; 0 keeps every one. */
+            keep?: number;
+            enabled?: boolean;
         };
         RemoteBackupCopy: {
             remote: string;
@@ -7733,6 +7847,109 @@ export interface operations {
                 };
             };
             409: components["responses"]["Conflict"];
+        };
+    };
+    createBackupRemote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BackupRemoteInput"];
+            };
+        };
+        responses: {
+            /** @description Added */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupRemote"];
+                };
+            };
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    checkDraftBackupRemote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BackupRemoteInput"];
+            };
+        };
+        responses: {
+            /** @description The check ran */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteBackupCheck"];
+                };
+            };
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    deleteBackupRemote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The remote's name, e.g. `offsite`. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateBackupRemote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The remote's name, e.g. `offsite`. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BackupRemoteInput"];
+            };
+        };
+        responses: {
+            /** @description Changed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupRemote"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     listRemoteBackups: {

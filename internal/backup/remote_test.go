@@ -2,12 +2,15 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/cryptox"
+	"github.com/eyupio/zoomies/internal/store"
 )
 
 // fakeStore is an object store that lasts as long as the test.
@@ -325,4 +328,92 @@ func TestTheCanonicalRequestIsEncodedTheWayTheSignatureDefinesIt(t *testing.T) {
 	if emptyPayloadSHA256 != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" {
 		t.Error("the empty payload digest is not the digest of no bytes, so every unsigned-body request would be refused")
 	}
+}
+
+// The merge rule has to hold for every caller -- the controller's pass, the
+// API and `zoomies restore --from-remote` on a host with no controller -- so
+// it is tested where it lives rather than three times over.
+func TestTheFileWinsAndAStoredSecretThatWillNotOpenIsReported(t *testing.T) {
+	f := fakeStore(t)
+	cfg := config.Default()
+	cfg.Backup.Remotes = []config.BackupRemote{{
+		Name: "offsite", Endpoint: f.Endpoint(), Bucket: f.Bucket(),
+		AccessKeyID: "AKIAEXAMPLE", SecretAccessKey: "from-the-file",
+	}}
+	key, err := cryptox.GenerateKey()
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	sealed, err := key.SealString("from-the-database")
+	if err != nil {
+		t.Fatalf("SealString: %v", err)
+	}
+	stranger, err := cryptox.GenerateKey()
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	strange, err := stranger.SealString("somebody else's")
+	if err != nil {
+		t.Fatalf("SealString: %v", err)
+	}
+
+	rows := fakeRemotes{
+		{ID: "bkr_1", Name: "offsite", Endpoint: "https://elsewhere.example.com", Bucket: "other",
+			AccessKeyID: "a", SecretKeyEnc: sealed, Enabled: true},
+		{ID: "bkr_2", Name: "second", Endpoint: "https://s3.example.com", Bucket: "second",
+			AccessKeyID: "b", SecretKeyEnc: sealed, Enabled: true},
+		{ID: "bkr_3", Name: "strange", Endpoint: "https://s3.example.com", Bucket: "third",
+			AccessKeyID: "c", SecretKeyEnc: strange, Enabled: true},
+	}
+
+	resolved, err := ResolveRemotes(context.Background(), cfg, rows, key)
+	if err != nil {
+		t.Fatalf("ResolveRemotes: %v", err)
+	}
+	if len(resolved) != 4 {
+		t.Fatalf("resolved %d destinations, wanted the file's and all three rows", len(resolved))
+	}
+	if resolved[0].Origin != OriginFile || resolved[0].Remote.SecretAccessKey != "from-the-file" {
+		t.Errorf("the file's destination reads %+v", resolved[0])
+	}
+	if !resolved[1].Shadowed || resolved[1].Usable() {
+		t.Errorf("the stored destination of the same name is %+v; the file has the last word", resolved[1])
+	}
+	if resolved[2].Remote.SecretAccessKey != "from-the-database" || !resolved[2].Usable() {
+		t.Errorf("a stored destination with its own name reads %+v", resolved[2])
+	}
+	if resolved[3].Problem == "" || resolved[3].Usable() {
+		t.Errorf("a stored destination sealed with another key reads %+v; it must not be tried", resolved[3])
+	}
+
+	// And the lookup every route uses agrees with the list.
+	found, err := FindResolvedRemote(context.Background(), cfg, rows, key, "offsite")
+	if err != nil || found.Origin != OriginFile {
+		t.Errorf("looking up offsite gave %+v, %v", found, err)
+	}
+	if _, err := FindResolvedRemote(context.Background(), cfg, rows, key, "strange"); err == nil {
+		t.Error("a destination whose secret will not open was handed out")
+	}
+	if _, err := FindResolvedRemote(context.Background(), cfg, rows, key, "nowhere"); !errors.Is(err, ErrNoRemote) {
+		t.Errorf("an unknown name gave %v", err)
+	}
+
+	// A fleet with no database at all still has the file's destinations,
+	// which is the case `zoomies restore --from-remote` exists for.
+	resolved, err = ResolveRemotes(context.Background(), cfg, nil, key)
+	if err != nil || len(resolved) != 1 || resolved[0].Origin != OriginFile {
+		t.Errorf("with no database the fleet resolved %+v, %v", resolved, err)
+	}
+}
+
+// fakeRemotes is a stored-destination list without a database behind it.
+type fakeRemotes []store.BackupRemote
+
+func (f fakeRemotes) ListBackupRemotes(context.Context) ([]*store.BackupRemote, error) {
+	out := make([]*store.BackupRemote, len(f))
+	for i := range f {
+		row := f[i]
+		out[i] = &row
+	}
+	return out, nil
 }

@@ -14,11 +14,39 @@ import (
 	"github.com/eyupio/zoomies/internal/store"
 )
 
+// remoteNamed resolves one destination from everything this host can see.
+//
+// The database is opened read-only and its failure is not fatal: this command
+// is most useful on a host whose database is gone, and the destinations that
+// still work there are the ones zoomies.yaml describes. A destination stored
+// in the database is found when there is a database to find it in, which is
+// the ordinary case of restoring one fleet's backup onto another host.
+func remoteNamed(ctx context.Context, cfg *config.Config, name string) (*backup.Remote, error) {
+	var rows *store.Store
+	if st, err := store.Open(ctx, store.Options{Path: cfg.Database.Path, ReadOnly: true}); err == nil {
+		defer func() { _ = st.Close() }()
+		rows = st
+	}
+	key, err := backup.ConfiguredKey(cfg)
+	if err != nil {
+		key = nil
+	}
+	var lister backup.RemoteLister
+	if rows != nil {
+		lister = rows
+	}
+	resolved, err := backup.FindResolvedRemote(ctx, cfg, lister, key, name)
+	if err != nil {
+		return nil, err
+	}
+	return backup.NewRemote(resolved.Remote, nil)
+}
+
 // listRemoteCopies prints what one remote holds. It is what `zoomies restore
 // --from-remote offsite` with no id does, because the alternative on a machine
 // that has lost everything is an operator guessing at timestamps.
 func listRemoteCopies(ctx context.Context, e *env, cfg *config.Config, name string) error {
-	remote, err := backup.FindRemote(cfg, name, nil)
+	remote, err := remoteNamed(ctx, cfg, name)
 	if err != nil {
 		return err
 	}
@@ -48,7 +76,7 @@ func listRemoteCopies(ctx context.Context, e *env, cfg *config.Config, name stri
 // an ordinary backup that the rest of this command restores exactly as it
 // restores one that was already there.
 func fetchFromRemote(ctx context.Context, e *env, cfg *config.Config, name, id, passphrase string) (*backup.Entry, error) {
-	remote, err := backup.FindRemote(cfg, name, nil)
+	remote, err := remoteNamed(ctx, cfg, name)
 	if err != nil {
 		return nil, err
 	}

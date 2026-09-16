@@ -132,11 +132,27 @@ day to find the bad one is not the day it is needed.
 
 ## Copies that leave the machine
 
-A `backup.remotes` entry is an S3-compatible bucket the fleet puts every copy
-in after it takes one. Any implementation of the S3 API does — AWS, MinIO,
-Ceph, Backblaze B2, Cloudflare R2, Garage — and several can be configured at
-once, because "offsite" and "somebody else's provider" are different words and
-some fleets want both.
+A backup destination is an S3-compatible bucket the fleet puts every copy in
+after it takes one. Any implementation of the S3 API does — AWS, MinIO, Ceph,
+Backblaze B2, Cloudflare R2, Garage — and several can be configured at once,
+because "offsite" and "somebody else's provider" are different words and some
+fleets want both.
+
+There are two places to describe one, and a fleet normally uses whichever suits
+it:
+
+* **Settings → Backups → Copies off this machine** is the ordinary way.
+  **Add a destination** asks for the endpoint, the bucket and the credential,
+  **Test** proves them against the real service before anything is saved, and
+  the destination is stored in this fleet's database with its secret key and
+  passphrase sealed under the instance encryption key — the same way a
+  provider's credential is. Nothing has to be edited on disk and nothing has to
+  be restarted.
+* **`backup.remotes` in `zoomies.yaml`** describes one in the file instead.
+  It is the copy a host that has lost its database can still read, which is the
+  day an offsite backup is for, so a name described in both places is the
+  file's: the stored row is shown as ignored rather than quietly disagreeing.
+  A destination described this way is read-only on the page, and says so.
 
 ```yaml
 backup:
@@ -178,12 +194,18 @@ Three things are worth knowing before you rely on it:
   Nothing on the controller can recover a lost passphrase: keep it where you
   keep the encryption key. Without one, the startup validator says so every
   time (`backup.remote_plaintext`).
-* **The credentials live in `zoomies.yaml` and the environment**, not in the
-  database like a provider's. That is not an oversight: a fleet whose database
-  is gone has no stored settings to read, and finding the offsite copy is
-  exactly what that fleet needs to do. Keep the file mode 0600 and prefer
-  `ZOOMIES_BACKUP_REMOTE_SECRET_ACCESS_KEY` for the secret. None of it ever
-  reaches a manifest, a settings export or a diagnostics bundle.
+* **Know which place holds your credentials, and what each costs.** A stored
+  destination's secret key and passphrase are sealed with the instance
+  encryption key, so they are only as recoverable as that key: a database
+  restored onto a host holding a different one raises
+  `backup.remote_unreadable` and sends nothing until the key is put back or the
+  secret is entered again. A destination in the file is readable by anything
+  that can read the file, which is why the secret belongs in
+  `ZOOMIES_BACKUP_REMOTE_SECRET_ACCESS_KEY` and the file belongs at mode 0600 —
+  and why it is the one that still works on a host with no database at all.
+  Neither ever reaches a manifest, a settings export or a diagnostics bundle;
+  what the manifest does carry is the *list* of destinations whose secrets the
+  key opens, so a restore knows in advance what it will lose without it.
 * **Zoomies never creates the bucket.** A backup destination that appeared by
   itself is one nobody has set the retention, versioning or access policy of.
   Make it, give the credential `s3:PutObject`, `s3:GetObject`,
@@ -200,12 +222,20 @@ hourly for a destination that has been failing — `backup.remote_failed` in the
 problems drawer carries the service's own refusal, which is usually a wrong
 secret, a bucket that is not there, or a clock too far out to sign with.
 
-**Backups → Copies off this machine** is the same thing in the UI: each
-destination with what it holds and when it last took a copy, **Test** for a
+**Backups → Copies off this machine** lists every destination whichever place
+describes it: what it holds and when it last took a copy, **Test** for a
 listing that proves the credential, **Show copies** for a live listing of the
-bucket, and **Bring back** for one of them. `zoomies backup` sends the copy too
-(`--remote` for one destination, `--no-offsite` for none), and says what it
-did.
+bucket, and **Bring back** for one of them. A stored destination also has
+**Edit** — which is where a rotated key goes — and **Remove**, which forgets the
+destination and leaves what its bucket holds alone. `zoomies backup` sends the
+copy too (`--remote` for one destination, `--no-offsite` for none), and says
+what it did.
+
+The schedule itself — where backups go, how often, and how many are kept — is
+on the same page, above the list. Those three settings are also in the
+configuration export and can still be set in `zoomies.yaml` or the
+environment; a value the environment is holding reads as pinned here exactly as
+it does on the Configuration page.
 
 ### Coming back from one
 

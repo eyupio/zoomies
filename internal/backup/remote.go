@@ -53,19 +53,6 @@ func NewRemote(cfg config.BackupRemote, httpClient *http.Client) (*Remote, error
 	return &Remote{cfg: cfg, s3: client}, nil
 }
 
-// FindRemote is the one remote with this name, or ErrNoRemote.
-func FindRemote(cfg *config.Config, name string, httpClient *http.Client) (*Remote, error) {
-	for _, r := range cfg.Backup.Remotes {
-		if r.Name == name {
-			if !r.Enabled() {
-				return nil, fmt.Errorf("the backup remote %s is disabled or incomplete", name)
-			}
-			return NewRemote(r, httpClient)
-		}
-	}
-	return nil, fmt.Errorf("%w: %q", ErrNoRemote, name)
-}
-
 // Name is what this destination is called.
 func (r *Remote) Name() string { return r.cfg.Name }
 
