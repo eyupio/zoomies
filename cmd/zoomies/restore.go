@@ -7,11 +7,71 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/backup"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
 )
+
+// listRemoteCopies prints what one remote holds. It is what `zoomies restore
+// --from-remote offsite` with no id does, because the alternative on a machine
+// that has lost everything is an operator guessing at timestamps.
+func listRemoteCopies(ctx context.Context, e *env, cfg *config.Config, name string) error {
+	remote, err := backup.FindRemote(cfg, name, nil)
+	if err != nil {
+		return err
+	}
+	copies, err := remote.List(ctx)
+	if err != nil {
+		return err
+	}
+	if len(copies) == 0 {
+		fmt.Fprintf(e.out, "%s holds no backups of this fleet.\n", remote.Where())
+		return nil
+	}
+	fmt.Fprintf(e.out, "%s holds %s:\n\n", remote.Where(), countOf(len(copies), "backup"))
+	for _, c := range copies {
+		sealed := ""
+		if c.Encrypted {
+			sealed = ", encrypted"
+		}
+		fmt.Fprintf(e.out, "  %s  %s  taken %s%s\n",
+			c.ID, humanBytes(int(c.Bytes)), c.TakenAt.Format(time.RFC3339), sealed)
+	}
+	fmt.Fprintf(e.out, "\nRestore one with:\n  zoomies restore --from-remote %s %s --replace\n",
+		name, copies[0].ID)
+	return nil
+}
+
+// fetchFromRemote brings one copy back into the backup directory, where it is
+// an ordinary backup that the rest of this command restores exactly as it
+// restores one that was already there.
+func fetchFromRemote(ctx context.Context, e *env, cfg *config.Config, name, id, passphrase string) (*backup.Entry, error) {
+	remote, err := backup.FindRemote(cfg, name, nil)
+	if err != nil {
+		return nil, err
+	}
+	if id == "latest" {
+		copies, err := remote.List(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if len(copies) == 0 {
+			return nil, fmt.Errorf("%s holds no backups of this fleet", remote.Where())
+		}
+		id = copies[0].ID
+	}
+	fmt.Fprintf(e.out, "Fetching %s from %s...\n", id, remote.Where())
+	entry, err := remote.Fetch(ctx, backup.Dir(cfg), id, backup.FetchOptions{
+		Passphrase: passphrase, TakenBy: "zoomies restore --from-remote " + name,
+	})
+	if err != nil {
+		return nil, err
+	}
+	fmt.Fprintf(e.out, "Fetched to %s (%s), verified.\n\n", entry.Dir, humanBytes(int(entry.Bytes)))
+	return entry, nil
+}
 
 // runRestore is `zoomies restore <backup-directory>`.
 //
@@ -28,20 +88,44 @@ func runRestore(ctx context.Context, e *env, args []string) error {
 	replace := fs.Bool("replace", false, "overwrite the database already at database.path, keeping a copy of it first")
 	revokeTokens := fs.Bool("revoke-api-tokens", false, "revoke every API token as well; they are valid credentials the backup froze")
 	resetAgents := fs.Bool("reset-agent-tokens", false, "forget every host's agent credential, so each agent joins again")
+	from := fs.String("from-remote", "", "bring the copy back from this backup remote first; the argument is then a backup id, or `latest`, and naming no backup lists what the remote holds")
+	passphrase := fs.String("passphrase", "", "the passphrase that copy was sealed with, when it is not the one in backup.remotes")
 	fs.example("zoomies restore /var/backups/zoomies/zoomies-20260908-181718",
 		"zoomies restore /var/backups/zoomies/zoomies-20260908-181718 --replace",
+		"zoomies restore --from-remote offsite",
+		"zoomies restore --from-remote offsite latest --replace",
 		"zoomies restore ... --revoke-api-tokens --reset-agent-tokens")
 	if err := fs.parse(args); err != nil {
-		return err
-	}
-	src, err := fs.oneArg("the backup directory to restore")
-	if err != nil {
 		return err
 	}
 
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
 		return err
+	}
+
+	var src string
+	if *from != "" {
+		// The disaster path: a host with the configuration file, the key, and
+		// nothing else. Naming no backup lists what is there rather than
+		// failing, because an operator standing in front of an empty machine
+		// has no way to know the ids.
+		if fs.NArg() == 0 {
+			return listRemoteCopies(ctx, e, cfg, *from)
+		}
+		id, err := fs.oneArg("the backup id to bring back, or `latest`")
+		if err != nil {
+			return err
+		}
+		entry, err := fetchFromRemote(ctx, e, cfg, *from, id, *passphrase)
+		if err != nil {
+			return err
+		}
+		src = entry.Dir
+	} else {
+		if src, err = fs.oneArg("the backup directory to restore"); err != nil {
+			return err
+		}
 	}
 	if _, err := os.Stat(filepath.Join(src, backup.DBName)); err != nil {
 		return fmt.Errorf("%s does not look like a Zoomies backup: %w", src, err)

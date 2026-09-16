@@ -344,6 +344,11 @@ fenced controller is not restarted by its own runtime.
 | DELETE | `/api/v1/backups/restore` | admin | Cancel the staged restore. |
 | POST | `/api/v1/backups/restore/apply` | admin | Stop this controller so its service manager starts the next, which applies the staged restore. `202`, then the process exits with code 3. `409` when nothing is staged. |
 | DELETE | `/api/v1/backups/restore/outcome` | admin | Dismiss what became of the last restore. |
+| POST | `/api/v1/backups/offsite` | admin | Make every remote under `backup.remotes` hold what the backup directory holds: list it, send what it is missing oldest first, apply its retention. The pass the controller runs after each backup and hourly, on demand. A destination that refuses is reported in `error` while the others still go; `409` while a pass is running. |
+| GET | `/api/v1/backups/remotes/{name}/copies` | admin | What one remote holds, read live from the bucket rather than from anything remembered — the question is whether the offsite copy is actually there, and a remembered yes is worth nothing. |
+| POST | `/api/v1/backups/remotes/{name}/check` | admin | Test it: one listing, which is the whole of what has to work for a backup to reach it. A remote that refuses is `200` with `ok: false` and the service's own words. |
+| POST | `/api/v1/backups/remotes/{name}/copies/{id}/fetch` | admin | Bring one copy back into `backup.directory`, decrypted with the remote's passphrase or the body's, and verified as an upload is. It is then an ordinary backup; restoring it is the staged restore above. |
+| DELETE | `/api/v1/backups/remotes/{name}/copies/{id}` | admin | Remove one copy from the bucket. Audited, like deleting a local backup. |
 
 A backup is the whole database, so `backups:read` on a token is the fleet: every
 account's password hash and every sealed credential. `backups:restore` is its

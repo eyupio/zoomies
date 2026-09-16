@@ -36,12 +36,16 @@ const (
 )
 
 // controllerSources is every file whose Problem literals count as "raised by
-// the controller" -- problems.go is not the only one: PoolWarnings and
-// cacheSharingWarning live in views.go, next to the view type they attach a
-// pool's warnings to, and a code that only lives there is just as real as one
-// in problems.go. pool.dangerous and pool.cache_shared had no row in
-// docs/problem-codes.md until this list caught up to them.
-var controllerSources = []string{controllerSource, viewsSource, "../controller/backups.go"}
+// the controller", found by walking rather than listed, for the reason
+// providerSources is: problems.go is not the only one -- PoolWarnings lives in
+// views.go and the backup problems in backups.go -- and a hand-written list
+// catches up to a new file only after somebody notices. pool.dangerous,
+// pool.cache_shared and the backup codes each had no row in
+// docs/problem-codes.md while the list was still three names long.
+func controllerSources(t *testing.T) []string {
+	t.Helper()
+	return goFilesIn(t, "../controller")
+}
 
 // providerSources is every non-test file in the provider packages, found by
 // walking rather than listed, because these are the codes most likely to be
@@ -56,8 +60,14 @@ var controllerSources = []string{controllerSource, viewsSource, "../controller/b
 // before the walk replaced the list.
 func providerSources(t *testing.T) []string {
 	t.Helper()
+	return goFilesIn(t, "../provider")
+}
+
+// goFilesIn is every non-test Go file under root.
+func goFilesIn(t *testing.T, root string) []string {
+	t.Helper()
 	var out []string
-	err := filepath.WalkDir("../provider", func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -67,10 +77,10 @@ func providerSources(t *testing.T) []string {
 		return nil
 	})
 	if err != nil {
-		t.Fatalf("walking the provider packages: %v", err)
+		t.Fatalf("walking %s: %v", root, err)
 	}
 	if len(out) == 0 {
-		t.Fatal("no provider sources were found at all; the packages moved, not the docs")
+		t.Fatalf("no sources were found under %s at all; the packages moved, not the docs", root)
 	}
 	return out
 }
@@ -78,7 +88,7 @@ func providerSources(t *testing.T) []string {
 // problemSources is every file a code an operator can be shown may come from.
 func problemSources(t *testing.T) []string {
 	t.Helper()
-	sources := append([]string{validatorSource, databaseSource}, controllerSources...)
+	sources := append([]string{validatorSource, databaseSource}, controllerSources(t)...)
 	return append(sources, providerSources(t)...)
 }
 

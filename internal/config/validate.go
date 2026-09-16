@@ -864,6 +864,9 @@ func (c *Config) Validate() Findings {
 		}
 	}
 
+	// --- Backups ----------------------------------------------------------
+	c.validateBackupRemotes(add)
+
 	// --- Metrics and logging ---------------------------------------------
 	if c.Metrics.Enabled && c.Metrics.Public {
 		add(Finding{
@@ -1024,4 +1027,139 @@ func (c *Config) Validate() Findings {
 func (c *Config) ValidateStrict() (Findings, error) {
 	fs := c.Validate()
 	return fs, fs.Err()
+}
+
+// validateBackupRemotes checks the offsite destinations.
+//
+// The two findings that are not errors are the point of it. A remote with no
+// passphrase puts the whole fleet -- every repository name, every job, every
+// sealed credential -- in somebody else's bucket as a file anyone holding the
+// bucket can open; a remote reached over plain HTTP hands the credentials that
+// open it to the network on the way. Neither stops a fleet that means it, and
+// neither is allowed to be silent.
+func (c *Config) validateBackupRemotes(add func(Finding)) {
+	seen := map[string]int{}
+	for i, r := range c.Backup.Remotes {
+		named := r.Name
+		if named == "" {
+			named = fmt.Sprintf("the remote at position %d", i+1)
+		}
+		if n, dup := seen[r.Name]; dup {
+			add(Finding{
+				Code: "backup.remote_duplicate", Severity: SeverityError, Setting: "backup.remotes",
+				Title:  fmt.Sprintf("two backup remotes are both called %q", r.Name),
+				Detail: fmt.Sprintf("the one at position %d and the one at position %d. The name is how the Backups tab, the log and the problems drawer tell them apart, so one of them would be unaddressable.", n+1, i+1),
+				Fix:    "give each remote its own name.",
+			})
+		}
+		seen[r.Name] = i
+		if !validRemoteName(r.Name) {
+			add(Finding{
+				Code: "backup.remote_name", Severity: SeverityError, Setting: "backup.remotes",
+				Title:  fmt.Sprintf("%q is not a usable name for a backup remote", r.Name),
+				Detail: "the name is a path component in the API and a word in a log line.",
+				Fix:    "use lower-case letters, digits and dashes, such as offsite or s3-frankfurt.",
+			})
+		}
+		if r.Disabled {
+			continue
+		}
+
+		endpoint := strings.TrimSpace(r.Endpoint)
+		bucket := strings.TrimSpace(r.Bucket)
+		if endpoint == "" || bucket == "" {
+			// A half-written remote is the dangerous case: it looks configured
+			// and it copies nothing, so the fleet believes it has an offsite
+			// backup it has never had.
+			missing := "an endpoint"
+			switch {
+			case endpoint != "":
+				missing = "a bucket"
+			case bucket != "":
+				missing = "an endpoint"
+			default:
+				missing = "an endpoint and a bucket"
+			}
+			add(Finding{
+				Code: "backup.remote_incomplete", Severity: SeverityError, Setting: "backup.remotes",
+				Title:  fmt.Sprintf("the backup remote %s has no %s", named, missing),
+				Detail: "nothing would be copied to it, and nothing would say so.",
+				Fix:    "give it an endpoint and a bucket, or set disabled: true until it is ready.",
+			})
+			continue
+		}
+
+		u, err := url.Parse(endpoint)
+		switch {
+		case err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https"):
+			add(Finding{
+				Code: "backup.remote_endpoint", Severity: SeverityError, Setting: "backup.remotes",
+				Title: fmt.Sprintf("the backup remote %s has an endpoint that is not an HTTP URL: %q", named, endpoint),
+				Fix:   "write the service's URL, such as https://s3.eu-west-2.amazonaws.com or http://minio:9000.",
+			})
+		case u.Scheme == "http" && !loopbackHost(u.Hostname()):
+			add(Finding{
+				Code: "backup.remote_insecure", Severity: SeverityWarning, Setting: "backup.remotes",
+				Title:  fmt.Sprintf("the backup remote %s is reached over plain HTTP", named),
+				Detail: "the access key, the signature and the backup itself cross the network in the clear, so anyone on the path can both read the fleet and write to the bucket afterwards.",
+				Fix:    "use https:// unless the endpoint is on this host or a network you own end to end.",
+			})
+		}
+
+		if strings.TrimSpace(r.AccessKeyID) == "" || strings.TrimSpace(r.SecretAccessKey) == "" {
+			add(Finding{
+				Code: "backup.remote_credentials", Severity: SeverityError, Setting: "backup.remotes",
+				Title:  fmt.Sprintf("the backup remote %s has no credentials", named),
+				Detail: "every request to it would be refused, and the copies would pile up unsent.",
+				Fix:    fmt.Sprintf("set its access_key_id and secret_access_key, or ZOOMIES_BACKUP_REMOTE_%d_ACCESS_KEY_ID and ZOOMIES_BACKUP_REMOTE_%d_SECRET_ACCESS_KEY.", i+1, i+1),
+			})
+		}
+		if !r.Encrypted() {
+			add(Finding{
+				Code: "backup.remote_plaintext", Severity: SeverityWarning, Setting: "backup.remotes",
+				Title:  fmt.Sprintf("the backup remote %s is sent the backup unencrypted", named),
+				Detail: "a backup is the whole fleet: every repository and job it has seen, every account, and the sealed GitHub App credentials. In " + r.Where() + " it is a file anyone who can read the bucket can open.",
+				Fix:    "set a passphrase on the remote — the archive is then sealed with argon2id and AES-256-GCM before it leaves this host — and keep it wherever you keep the encryption key. Nothing here can recover it.",
+			})
+		}
+		if r.Passphrase != "" && len(r.Passphrase) < MinBackupPassphrase {
+			add(Finding{
+				Code: "backup.remote_passphrase_short", Severity: SeverityWarning, Setting: "backup.remotes",
+				Title:  fmt.Sprintf("the backup remote %s has a passphrase of %d characters", named, len(r.Passphrase)),
+				Detail: fmt.Sprintf("the archive is only as private as this, and the Backups tab refuses anything shorter than %d for the same download.", MinBackupPassphrase),
+				Fix:    "use a long random passphrase; it is typed once, into a file.",
+			})
+		}
+	}
+
+	if c.Backup.Interval > 0 && len(c.EnabledBackupRemotes()) == 0 {
+		add(Finding{
+			Code: "backup.no_remote", Severity: SeverityInfo, Setting: "backup.remotes",
+			Title:  "backups are taken but never leave this host",
+			Detail: "the schedule keeps copies beside the database, which is a backup against a mistake and not against the disk, the machine or the datacentre.",
+			Fix:    "add an S3-compatible destination under backup.remotes, or keep shipping the directory yourself — the point is that one of the two is somebody's job.",
+		})
+	}
+}
+
+// MinBackupPassphrase is the shortest passphrase worth calling one. The API
+// refuses an encrypted download below it, and the validator says so about a
+// remote's.
+const MinBackupPassphrase = 8
+
+// validRemoteName is the shape a remote's name may take: it is a path
+// component in the API and a word in a log line, so it is kept to the
+// characters that are both.
+func validRemoteName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }

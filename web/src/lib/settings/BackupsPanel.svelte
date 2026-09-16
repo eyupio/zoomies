@@ -58,6 +58,7 @@
   import Skeleton from '$lib/components/Skeleton.svelte';
   import Switch from '$lib/components/Switch.svelte';
   import Tooltip from '$lib/components/Tooltip.svelte';
+  import BackupRemotes from './BackupRemotes.svelte';
   import RestartWait from './RestartWait.svelte';
   import { describeInterval, keyStatus, saveBlob, schemaShort, sourceOf } from './backups';
   import PageHeader from '$lib/components/PageHeader.svelte';
@@ -553,6 +554,14 @@
           </dd>
         </div>
       </dl>
+
+      <BackupRemotes
+        remotes={page.remotes}
+        disabled={restarting !== null}
+        onchanged={() => {
+          reload += 1;
+        }}
+      />
 
       {#if items.length === 0}
         <EmptyState

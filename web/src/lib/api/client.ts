@@ -608,6 +608,28 @@ export const applyRestore = () => api.post<Result<'applyRestore'>>('/backups/res
 export const dismissRestoreOutcome = () =>
   api.del<Result<'dismissRestoreOutcome'>>('/backups/restore/outcome');
 
+/* -- the copies that leave the machine ------------------------------------- */
+
+export const shipBackups = () => api.post<Result<'shipBackups'>>('/backups/offsite', {});
+
+export const listRemoteBackups = (name: string, signal?: AbortSignal) =>
+  api.get<Result<'listRemoteBackups'>>(`/backups/remotes/${enc(name)}/copies`, { signal });
+
+export const checkBackupRemote = (name: string) =>
+  api.post<Result<'checkBackupRemote'>>(`/backups/remotes/${enc(name)}/check`, {});
+
+export const fetchRemoteBackup = (
+  name: string,
+  id: string,
+  body: OptionalBody<'fetchRemoteBackup'>,
+) =>
+  api.post<Result<'fetchRemoteBackup'>>(`/backups/remotes/${enc(name)}/copies/${enc(id)}/fetch`, {
+    body,
+  });
+
+export const deleteRemoteBackup = (name: string, id: string) =>
+  api.del<Result<'deleteRemoteBackup'>>(`/backups/remotes/${enc(name)}/copies/${enc(id)}`);
+
 /**
  * The encrypted archive. A fetch rather than a navigation because the
  * passphrase travels in a JSON body, where a proxy log does not see it, and a

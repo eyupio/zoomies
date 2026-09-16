@@ -1880,6 +1880,118 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/backups/offsite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Copy the backups to every remote now
+         * @description Makes each enabled destination under `backup.remotes` hold what the backup directory holds: the remote is listed, whatever it is missing is sent oldest first, and its own retention is applied afterwards. It is the pass the controller runs by itself after every backup and once an hour; this is the way to run it now, which is what an operator who has just fixed a credential wants. A destination that refuses is reported in `error` while the others still go. Refused with 409 while a pass is already running.
+         */
+        post: operations["shipBackups"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backups/remotes/{name}/copies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The remote's name, as `backup.remotes` gives it, e.g. `offsite`. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * What one backup remote holds
+         * @description The archives in the remote's bucket and prefix, newest first, read live rather than from anything the controller remembers -- the question this answers is whether the offsite copy is actually there, and a remembered yes is worth nothing. Anything under the prefix that this fleet did not write is ignored: a bucket may be shared.
+         */
+        get: operations["listRemoteBackups"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backups/remotes/{name}/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test that a backup remote can be reached
+         * @description Lists one key under the remote's prefix, which is the whole of what has to work for a backup to reach it: the endpoint resolves, TLS agrees, the signature is accepted, the bucket exists and the policy allows reading it. A remote that refuses is a 200 with `ok: false` and the service's own refusal in `error` -- the check ran, and what it found is the result.
+         */
+        post: operations["checkBackupRemote"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backups/remotes/{name}/copies/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+                /** @description The backup's id, e.g. `zoomies-20260916-120000`. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove one copy from a backup remote
+         * @description Deletes the archive from the bucket. Audited like deleting a local backup, and for a stronger reason: the offsite copy is the one that exists because the local ones might not.
+         */
+        delete: operations["deleteRemoteBackup"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backups/remotes/{name}/copies/{id}/fetch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bring one copy back from a backup remote
+         * @description Downloads the archive, decrypts it with the remote's passphrase -- or the one in the body, for an archive sealed with a passphrase this configuration no longer carries -- and unpacks it into the backup directory, verified exactly as an upload is. It is then an ordinary backup, restorable through the same staging as any other. There is deliberately no "restore from the bucket": a restore swaps the database this fleet runs on, and the copy it swaps in should be one somebody has seen land and verified first.
+         */
+        post: operations["fetchRemoteBackup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/backups/{id}": {
         parameters: {
             query?: never;
@@ -3145,10 +3257,10 @@ export interface components {
             /** Format: date-time */
             taken_at: string;
             /**
-             * @description Who took it. `pre-migration` is a copy the store took before applying migrations.
+             * @description Who took it. `pre-migration` is a copy the store took before applying migrations, and `fetched` one pulled back out of a backup remote. Neither an uploaded nor a fetched backup is counted or removed by retention.
              * @enum {string}
              */
-            source: "cli" | "manual" | "scheduled" | "uploaded" | "pre-migration";
+            source: "cli" | "manual" | "scheduled" | "uploaded" | "fetched" | "pre-migration";
             taken_by?: string;
             /**
              * @description Which directory it is in.
@@ -3202,12 +3314,87 @@ export interface components {
             /** @description This host's encryption key. */
             key_fingerprint?: string;
             schedule: components["schemas"]["BackupSchedule"];
+            /** @description Every destination `backup.remotes` configures and what became of it. Empty is the default: nothing leaves the host until somebody says where it goes. */
+            remotes: components["schemas"]["BackupRemote"][];
             /** @description A backup is being taken right now. */
             running: boolean;
             staged_restore: components["schemas"]["StagedRestore"] | null;
             last_restore: components["schemas"]["RestoreOutcome"] | null;
             /** @description This process has been asked to stop */
             restarting: boolean;
+        };
+        BackupRemote: {
+            /** @description What this destination is called */
+            name: string;
+            /** @description The bucket and prefix. */
+            where: string;
+            /** @description The S3-compatible service it talks to. */
+            endpoint: string;
+            /** @description The archive is sealed with a passphrase before it leaves this host. */
+            encrypted: boolean;
+            /** @description How many copies this remote holds; 0 keeps every one. */
+            keep: number;
+            /** @description Configured and switched off */
+            disabled: boolean;
+            /** @description Something is being sent right now. */
+            uploading: boolean;
+            /** @description What the last listing found. */
+            copies: number;
+            /** Format: int64 */
+            bytes: number;
+            /** Format: date-time */
+            listed_at: string | null;
+            /** Format: date-time */
+            last_upload_at: string | null;
+            last_upload_id?: string;
+            /** @description Why the last attempt did not work */
+            last_error?: string;
+        };
+        RemoteBackupCopy: {
+            remote: string;
+            /** @description The backup's own id */
+            id: string;
+            /** @description The object's full key */
+            key: string;
+            /**
+             * Format: int64
+             * @description The archive's size
+             */
+            bytes: number;
+            /**
+             * Format: date-time
+             * @description When the object was written
+             */
+            stored_at: string;
+            /**
+             * Format: date-time
+             * @description When the backup was taken
+             */
+            taken_at: string;
+            encrypted: boolean;
+        };
+        RemoteBackupCopies: {
+            remote: components["schemas"]["BackupRemote"];
+            items: components["schemas"]["RemoteBackupCopy"][];
+            /**
+             * Format: int64
+             * @description What the copies add up to.
+             */
+            bytes: number;
+        };
+        RemoteBackupCheck: {
+            name: string;
+            where: string;
+            ok: boolean;
+            /** Format: date-time */
+            checked_at: string;
+            /** @description The service's own refusal */
+            error?: string;
+        };
+        BackupShipment: {
+            sent: components["schemas"]["RemoteBackupCopy"][];
+            /** @description What stopped one destination */
+            error?: string;
         };
         BackupSchedule: {
             enabled: boolean;
@@ -7525,6 +7712,131 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    shipBackups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The pass ran */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupShipment"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+        };
+    };
+    listRemoteBackups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The remote's name, as `backup.remotes` gives it, e.g. `offsite`. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteBackupCopies"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    checkBackupRemote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The check ran */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteBackupCheck"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteRemoteBackup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+                /** @description The backup's id, e.g. `zoomies-20260916-120000`. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    fetchRemoteBackup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** Format: password */
+                    passphrase?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Fetched and verified */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Backup"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     getBackup: {

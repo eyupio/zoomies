@@ -83,6 +83,12 @@ type Options struct {
 	// itself. Tests use it to reach a fake hypervisor; production leaves it
 	// nil so that a row's certificate settings and private connection apply.
 	ProviderHTTPClient *http.Client
+	// BackupRemoteHTTPClient replaces the client the backup remotes would
+	// build for themselves. Tests use it to reach a fake object store;
+	// production leaves it nil, because the transfer of a whole database
+	// wants the transport internal/backup builds for that and not the one a
+	// webhook delivery uses.
+	BackupRemoteHTTPClient *http.Client
 	// LogLevel is the gate the process logger is filtered at, when the caller
 	// built one that can move. UpdateConfig sets it from log.level, so that a
 	// level changed through PATCH /settings or SIGHUP is the level the process
@@ -115,6 +121,8 @@ type Controller struct {
 	httpClient *http.Client
 	// providerHTTP is Options.ProviderHTTPClient, nil in production.
 	providerHTTP *http.Client
+	// backupHTTP is Options.BackupRemoteHTTPClient, nil in production.
+	backupHTTP *http.Client
 
 	metrics *metrics
 	clients *clientCache
@@ -350,9 +358,11 @@ func New(opts Options) (*Controller, error) {
 		clock:           clock,
 		httpClient:      opts.HTTPClient,
 		providerHTTP:    opts.ProviderHTTPClient,
+		backupHTTP:      opts.BackupRemoteHTTPClient,
 		nudges:          make(chan struct{}, 1),
 		settingsChanged: make(chan struct{}, 1),
 		restart:         make(chan struct{}),
+		backups:         backupState{ship: make(chan struct{}, 1)},
 		hostHealthy:     map[string]bool{},
 		removing:        map[string]struct{}{},
 		// Generous next to what GitHub sends and mean next to what a probe

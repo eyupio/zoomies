@@ -2830,6 +2830,145 @@ paths:
       responses:
         "204": { description: Dismissed }
 
+  /backups/offsite:
+    post:
+      operationId: shipBackups
+      tags: [backups]
+      summary: Copy the backups to every remote now
+      description: >-
+        Makes each enabled destination under `backup.remotes` hold what the backup
+        directory holds: the remote is listed, whatever it is missing is sent oldest
+        first, and its own retention is applied afterwards. It is the pass the
+        controller runs by itself after every backup and once an hour; this is the
+        way to run it now, which is what an operator who has just fixed a credential
+        wants. A destination that refuses is reported in `error` while the others
+        still go. Refused with 409 while a pass is already running.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: The pass ran
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BackupShipment" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /backups/remotes/{name}/copies:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema: { type: string }
+        description: The remote's name, as `backup.remotes` gives it, e.g. `offsite`.
+    get:
+      operationId: listRemoteBackups
+      tags: [backups]
+      summary: What one backup remote holds
+      description: >-
+        The archives in the remote's bucket and prefix, newest first, read live
+        rather than from anything the controller remembers -- the question this
+        answers is whether the offsite copy is actually there, and a remembered
+        yes is worth nothing. Anything under the prefix that this fleet did not
+        write is ignored: a bucket may be shared.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RemoteBackupCopies" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /backups/remotes/{name}/check:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: checkBackupRemote
+      tags: [backups]
+      summary: Test that a backup remote can be reached
+      description: >-
+        Lists one key under the remote's prefix, which is the whole of what has to
+        work for a backup to reach it: the endpoint resolves, TLS agrees, the
+        signature is accepted, the bucket exists and the policy allows reading it.
+        A remote that refuses is a 200 with `ok: false` and the service's own
+        refusal in `error` -- the check ran, and what it found is the result.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: The check ran
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RemoteBackupCheck" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /backups/remotes/{name}/copies/{id}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema: { type: string }
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+        description: The backup's id, e.g. `zoomies-20260916-120000`.
+    delete:
+      operationId: deleteRemoteBackup
+      tags: [backups]
+      summary: Remove one copy from a backup remote
+      description: >-
+        Deletes the archive from the bucket. Audited like deleting a local backup,
+        and for a stronger reason: the offsite copy is the one that exists because
+        the local ones might not.
+      x-zoomies-role: admin
+      responses:
+        "204": { description: Removed }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /backups/remotes/{name}/copies/{id}/fetch:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema: { type: string }
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: fetchRemoteBackup
+      tags: [backups]
+      summary: Bring one copy back from a backup remote
+      description: >-
+        Downloads the archive, decrypts it with the remote's passphrase -- or the
+        one in the body, for an archive sealed with a passphrase this configuration
+        no longer carries -- and unpacks it into the backup directory, verified
+        exactly as an upload is. It is then an ordinary backup, restorable through
+        the same staging as any other. There is deliberately no "restore from the
+        bucket": a restore swaps the database this fleet runs on, and the copy it
+        swaps in should be one somebody has seen land and verified first.
+      x-zoomies-role: admin
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                passphrase: { type: string, format: password }
+      responses:
+        "201":
+          description: Fetched and verified
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Backup" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
   /backups/{id}:
     parameters:
       - name: id
@@ -4343,8 +4482,12 @@ components:
         taken_at: { type: string, format: date-time }
         source:
           type: string
-          enum: [cli, manual, scheduled, uploaded, pre-migration]
-          description: Who took it. `pre-migration` is a copy the store took before applying migrations.
+          enum: [cli, manual, scheduled, uploaded, fetched, pre-migration]
+          description: >-
+            Who took it. `pre-migration` is a copy the store took before applying
+            migrations, and `fetched` one pulled back out of a backup remote.
+            Neither an uploaded nor a fetched backup is counted or removed by
+            retention.
         taken_by: { type: string }
         location:
           type: string
@@ -4368,7 +4511,7 @@ components:
 
     Backups:
       type: object
-      required: [items, directory, database_bytes, disk_free_bytes, schedule, running, staged_restore, last_restore, restarting]
+      required: [items, directory, database_bytes, disk_free_bytes, schedule, remotes, running, staged_restore, last_restore, restarting]
       properties:
         items: { type: array, items: { $ref: "#/components/schemas/Backup" } }
         directory: { type: string, description: Where backups are kept, resolved. }
@@ -4379,6 +4522,13 @@ components:
           description: Room beside the backup directory, when the platform can say.
         key_fingerprint: { type: string, description: This host's encryption key. }
         schedule: { $ref: "#/components/schemas/BackupSchedule" }
+        remotes:
+          type: array
+          items: { $ref: "#/components/schemas/BackupRemote" }
+          description: >-
+            Every destination `backup.remotes` configures and what became of it.
+            Empty is the default: nothing leaves the host until somebody says where
+            it goes.
         running: { type: boolean, description: A backup is being taken right now. }
         staged_restore:
           oneOf:
@@ -4389,6 +4539,61 @@ components:
             - $ref: "#/components/schemas/RestoreOutcome"
             - type: "null"
         restarting: { type: boolean, description: This process has been asked to stop, so wait for the next one. }
+
+    BackupRemote:
+      type: object
+      required: [name, where, endpoint, encrypted, keep, disabled, uploading, copies, bytes, listed_at, last_upload_at]
+      properties:
+        name: { type: string, description: What this destination is called, and what the API addresses it by. }
+        where: { type: string, description: The bucket and prefix. }
+        endpoint: { type: string, description: The S3-compatible service it talks to. }
+        encrypted: { type: boolean, description: The archive is sealed with a passphrase before it leaves this host. }
+        keep: { type: integer, description: How many copies this remote holds; 0 keeps every one. }
+        disabled: { type: boolean, description: Configured and switched off, shown rather than hidden. }
+        uploading: { type: boolean, description: Something is being sent right now. }
+        copies: { type: integer, description: What the last listing found. }
+        bytes: { type: integer, format: int64 }
+        listed_at: { type: [string, "null"], format: date-time }
+        last_upload_at: { type: [string, "null"], format: date-time }
+        last_upload_id: { type: string }
+        last_error: { type: string, description: Why the last attempt did not work, in the service's own words. }
+
+    RemoteBackupCopy:
+      type: object
+      required: [remote, id, key, bytes, stored_at, taken_at, encrypted]
+      properties:
+        remote: { type: string }
+        id: { type: string, description: The backup's own id, read back out of the object key. }
+        key: { type: string, description: The object's full key, which is what finds it with any other tool. }
+        bytes: { type: integer, format: int64, description: The archive's size, which is the compressed database rather than the database. }
+        stored_at: { type: string, format: date-time, description: When the object was written, from the service. }
+        taken_at: { type: string, format: date-time, description: When the backup was taken, from its id. }
+        encrypted: { type: boolean }
+
+    RemoteBackupCopies:
+      type: object
+      required: [remote, items, bytes]
+      properties:
+        remote: { $ref: "#/components/schemas/BackupRemote" }
+        items: { type: array, items: { $ref: "#/components/schemas/RemoteBackupCopy" } }
+        bytes: { type: integer, format: int64, description: What the copies add up to. }
+
+    RemoteBackupCheck:
+      type: object
+      required: [name, where, ok, checked_at]
+      properties:
+        name: { type: string }
+        where: { type: string }
+        ok: { type: boolean }
+        checked_at: { type: string, format: date-time }
+        error: { type: string, description: The service's own refusal, worded so that a wrong secret, a missing bucket and a drifted clock read differently. }
+
+    BackupShipment:
+      type: object
+      required: [sent]
+      properties:
+        sent: { type: array, items: { $ref: "#/components/schemas/RemoteBackupCopy" } }
+        error: { type: string, description: What stopped one destination, when the others still went. }
 
     BackupSchedule:
       type: object
