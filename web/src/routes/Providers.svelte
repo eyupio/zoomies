@@ -48,6 +48,7 @@
   let error = $state<unknown>(null);
   let reload = $state(0);
   let checking = $state<string>('');
+  let pausing = $state<string>('');
 
   /** The state filter lives in the URL, so the band's links land on a view. */
   const stateFilter = $derived(router.param('state'));
@@ -133,6 +134,7 @@
 
   async function pause(provider: Provider, paused: boolean): Promise<void> {
     if (!provider.id) return;
+    pausing = provider.id;
     try {
       const saved = paused
         ? await pauseProvider(provider.id, { reason: 'Paused from the Providers page' })
@@ -151,6 +153,8 @@
         cause,
         paused ? 'That provider was not paused' : 'That provider was not resumed',
       );
+    } finally {
+      pausing = '';
     }
   }
 
@@ -247,6 +251,7 @@
           {provider}
           {canOperate}
           checking={checking === provider.id}
+          pausing={pausing === provider.id}
           oncheck={(target) => void check(target)}
           onpause={(target, next) => void pause(target, next)}
         />
