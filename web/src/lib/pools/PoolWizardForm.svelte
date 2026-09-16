@@ -324,6 +324,7 @@
   import { nicknamedPoolName, poolName, spinWord } from './names';
   import { fleet } from '$lib/state/fleet.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import Wizard from '$lib/components/Wizard.svelte';
   import StepTarget from './StepTarget.svelte';
   import StepLabels from './StepLabels.svelte';
@@ -638,7 +639,15 @@
     if (first !== undefined) goTo(stepForField(first));
   }
 
-  async function finish(): Promise<void> {
+  /**
+   * The controller's refusal when an edit would leave this pool with no host
+   * in the fleet that could run it. It is not a field error -- every figure on
+   * the form is valid, and it is the machines that cannot keep up -- so it is
+   * answered with the consequence stated rather than a red label on a slider.
+   */
+  let stranding = $state('');
+
+  async function finish(confirm = false): Promise<void> {
     if (submitting) return;
     touchStep(current);
     const outstanding = Object.keys(clientErrors);
@@ -655,7 +664,11 @@
       const payload = toPoolBody(draft, { complete: editing });
       const saved =
         pool && pool.id
-          ? await updatePool(pool.id, payload as Body<'updatePool'>)
+          ? await updatePool(
+              pool.id,
+              payload as Body<'updatePool'>,
+              confirm ? { confirm: true } : undefined,
+            )
           : await createPool(payload);
       toasts.success(
         editing ? `Saved ${payload.name}` : `Created ${payload.name}`,
@@ -666,6 +679,10 @@
       void fleet.reconcile();
       ondone(saved);
     } catch (cause) {
+      if (cause instanceof ApiError && cause.isConflict) {
+        stranding = cause.message;
+        return;
+      }
       if (cause instanceof ApiError) applyFieldErrors(cause);
       toasts.fromError(cause, editing ? 'The pool was not saved' : 'The pool was not created');
     } finally {
@@ -684,7 +701,7 @@
   cancelLabel="Cancel"
   onnext={() => touchStep(current)}
   onback={() => touchStep(current)}
-  onfinish={finish}
+  onfinish={() => void finish()}
   {oncancel}
 >
   {#snippet children(step)}
@@ -756,6 +773,29 @@
     </div>
   {/snippet}
 </Wizard>
+
+<ConfirmDialog
+  bind:open={
+    () => stranding !== '',
+    (open) => {
+      if (!open) stranding = '';
+    }
+  }
+  title="Save a pool with nowhere to run?"
+  name={draft.name}
+  description={stranding}
+  consequences={[
+    'Nothing has been saved yet.',
+    'Saved as it is, jobs with these labels queue until a host that fits joins the fleet.',
+    'Adjusting a host to match, or asking for less here, is the other way out.',
+  ]}
+  confirmLabel="Save anyway"
+  busy={submitting}
+  onconfirm={async () => {
+    await finish(true);
+    return true;
+  }}
+/>
 
 <style>
   .step {

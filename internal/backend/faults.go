@@ -23,6 +23,15 @@ var (
 	// This is the "cannot start the runner container" case, and on a fleet
 	// where it is happening it is happening to every runner in the pool.
 	ErrDaemon = errors.New("backend: the container backend would not do that")
+	// ErrDaemonBusy is a daemon that is there and did not answer in time. It
+	// is kept apart from ErrDaemon because the two send an operator to
+	// different places: a socket that is not there is fixed on the host, and
+	// a daemon that took too long to answer a create is a host carrying more
+	// work than it can keep up with -- dockerd, containerd and the agent
+	// answer in the gaps the runners' quotas leave, and on an oversubscribed
+	// machine there are none. Told to check whether the daemon is running,
+	// an operator finds it running and concludes the fleet is lying to them.
+	ErrDaemonBusy = errors.New("backend: the container backend did not answer in time")
 )
 
 // noSpace is the daemon's own words for a full disk, and the only evidence
@@ -40,6 +49,7 @@ const noSpace = "no space left on device"
 // every one of these two prefixes and say nothing new in the second.
 func imageErr(err error) error  { return tagged{err: err, kind: ErrImageUnavailable} }
 func daemonErr(err error) error { return tagged{err: err, kind: ErrDaemon} }
+func busyErr(err error) error   { return tagged{err: err, kind: ErrDaemonBusy} }
 
 type tagged struct{ err, kind error }
 
@@ -61,6 +71,8 @@ func Fault(err error) store.FaultKind {
 		return store.FaultOutOfDisk
 	case errors.Is(err, ErrImageUnavailable):
 		return store.FaultImage
+	case errors.Is(err, ErrDaemonBusy):
+		return store.FaultBackendBusy
 	}
 	return store.FaultBackend
 }

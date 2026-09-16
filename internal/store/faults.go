@@ -41,6 +41,14 @@ const (
 	// answering: a Docker socket that is not there, a daemon that never became
 	// ready. This is the "cannot start the runner container" case.
 	FaultBackend FaultKind = "backend"
+	// FaultBackendBusy is the daemon that is there and did not answer in time.
+	// It is kept apart from FaultBackend because it is the one backend failure
+	// where nothing is wrong with the backend: the host is carrying more work
+	// than dockerd can keep up with, and the fix is on the pool's limits or
+	// the host's capacity rather than on the socket. Sent to check whether the
+	// daemon is running, an operator finds it running and stops believing the
+	// fault line.
+	FaultBackendBusy FaultKind = "backend_busy"
 	// FaultConfig is a setting the runner itself refused. Nothing but an edit
 	// fixes it, and until it is edited every runner in the pool will do the
 	// same thing.
@@ -68,7 +76,7 @@ const (
 // ever taking one.
 var allFaultKinds = []FaultKind{
 	FaultHostLost, FaultOutOfMemory, FaultOutOfDisk, FaultRemoved,
-	FaultImage, FaultRegistration, FaultBackend, FaultConfig, FaultRunnerExited,
+	FaultImage, FaultRegistration, FaultBackend, FaultBackendBusy, FaultConfig, FaultRunnerExited,
 }
 
 // FaultKinds returns the closed set. The docs test and the UI's label table
@@ -120,6 +128,8 @@ func (k FaultKind) Fix() string {
 		return "check that the GitHub App is still installed on the repository and still holds its runner permissions."
 	case FaultBackend:
 		return "check the container backend on the host: the socket the agent names on the host's page, and whether the daemon is running."
+	case FaultBackendBusy:
+		return "the daemon is there and did not answer in time, so it is the host that is overloaded rather than the backend that is broken: lower the host's capacity or the pool's maximum runners, or give the pool CPU and memory limits so the daemon keeps a share of the machine. The host's throttle steps it down on its own while the pressure lasts."
 	case FaultConfig:
 		return "read the runner's log for the setting it named, and correct it on the pool; every runner in this pool will do the same until it is."
 	case FaultRunnerExited:

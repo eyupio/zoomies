@@ -960,7 +960,19 @@ func (hs *hostSet) hasRoom(h *store.Host, p *store.Pool) bool {
 // a copy of its own that a new rule here would have left behind. Room left on
 // the host is the scheduler's own accounting and is checked separately.
 func HostCanRun(h *store.Host, p *store.Pool, now time.Time) bool {
-	return HostAvailable(h, now) && HostOffers(h, p) && HostIsPlatform(h, p) && HostSelects(h, p) && HostFits(h, p)
+	return HostAvailable(h, now) && HostCouldRun(h, p)
+}
+
+// HostCouldRun is that same rule with the weather left out: whether this host
+// and this pool are configured to go together at all, whatever the host is
+// doing at the moment.
+//
+// The split is what lets an edit be judged. Cordoning a host, or waiting for
+// its agent, changes where a runner goes today; changing its labels or its
+// reserve can change whether a pool has anywhere to go at all, and only the
+// second is a conflict between two things an operator typed.
+func HostCouldRun(h *store.Host, p *store.Pool) bool {
+	return HostOffers(h, p) && HostIsPlatform(h, p) && HostSelects(h, p) && HostFits(h, p)
 }
 
 // HostIsPlatform reports whether a host is the machine the pool asked for.

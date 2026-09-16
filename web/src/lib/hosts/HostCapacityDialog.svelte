@@ -13,6 +13,12 @@
   a figure nobody has measured is a number the scheduler ignores, and a host
   that has not said how big it is gets no recommendation rather than a made
   up one.
+
+  A reserve that would leave a pool with nowhere to run at all is the one the
+  controller refuses, and the refusal is shown here rather than thrown away as
+  a toast: it names the pool and the shortfall, and the operator either goes
+  back to the slider or says they meant it. Saving it anyway is right when the
+  pool is on its way out, so the button is offered rather than the door shut.
 -->
 <script lang="ts">
   import { ApiError, updateHost } from '$lib/api/client';
@@ -53,6 +59,8 @@
   let saving = $state(false);
   let errors = $state<Record<string, string>>({});
   let loadedFor = $state<string | null>(null);
+  /** The controller's refusal, when this reserve would strand a pool. */
+  let stranding = $state('');
 
   // Reload the form when a different host is opened, and only then: an SSE
   // update to the host must not overwrite what is being moved.
@@ -68,6 +76,15 @@
     reserveMb = host.reserve_memory_mb ?? 0;
     reserveDiskMb = host.reserve_disk_mb ?? 0;
     errors = {};
+    stranding = '';
+  });
+
+  // A refusal is about the figures that were sent, so moving any of them
+  // withdraws the question rather than leaving an answer to a stale one on
+  // screen beside a "Save anyway" that would now save something else.
+  $effect(() => {
+    void [capacity, reserveCores, reserveMb, reserveDiskMb];
+    stranding = '';
   });
 
   /* -- the machine, and what a runner asks of it ----------------------------- */
@@ -197,19 +214,23 @@
     onclose?.();
   }
 
-  async function save(): Promise<void> {
+  async function save(confirm = false): Promise<void> {
     if (!host?.id || capacityError) return;
     saving = true;
     errors = {};
     try {
-      await updateHost(host.id, {
-        capacity: parsed,
-        // Only what this host can honour: a field it has never reported is
-        // left alone rather than sent as a zero it would have to refuse.
-        ...(shape.cpus > 0 ? { reserve_cpus: reserveCores } : {}),
-        ...(shape.memoryMb > 0 ? { reserve_memory_mb: reserveMb } : {}),
-        ...(diskTotalMb > 0 ? { reserve_disk_mb: reserveDiskMb } : {}),
-      });
+      await updateHost(
+        host.id,
+        {
+          capacity: parsed,
+          // Only what this host can honour: a field it has never reported is
+          // left alone rather than sent as a zero it would have to refuse.
+          ...(shape.cpus > 0 ? { reserve_cpus: reserveCores } : {}),
+          ...(shape.memoryMb > 0 ? { reserve_memory_mb: reserveMb } : {}),
+          ...(diskTotalMb > 0 ? { reserve_disk_mb: reserveDiskMb } : {}),
+        },
+        confirm ? { confirm: true } : undefined,
+      );
       await fleet.reconcile();
       toasts.success(
         `${host.name || host.id} adjusted`,
@@ -217,6 +238,13 @@
       );
       close();
     } catch (cause) {
+      // The stranding refusal is a question, not a failure: it is answered in
+      // the dialog, so it does not become a toast that closes over the form
+      // the answer is in.
+      if (cause instanceof ApiError && cause.isConflict) {
+        stranding = cause.message;
+        return;
+      }
       if (cause instanceof ApiError) errors = cause.fieldErrors();
       toasts.fromError(cause, 'That host was not adjusted');
     } finally {
@@ -444,19 +472,33 @@
         {/if}
       </fieldset>
     {/if}
+
+    {#if stranding}
+      <div class="refusal" role="alert">
+        <TriangleAlert size={16} aria-hidden="true" />
+        <div>
+          <p class="title">Not saved: a pool would have nowhere to run</p>
+          <p>{stranding}</p>
+        </div>
+      </div>
+    {/if}
   </form>
 
   {#snippet footer()}
     <Button variant="ghost" onclick={close}>Cancel</Button>
-    <Button
-      variant="primary"
-      type="submit"
-      form="host-capacity-form"
-      loading={saving}
-      disabled={Boolean(capacityError)}
-    >
-      Save changes
-    </Button>
+    {#if stranding}
+      <Button variant="danger" loading={saving} onclick={() => void save(true)}>Save anyway</Button>
+    {:else}
+      <Button
+        variant="primary"
+        type="submit"
+        form="host-capacity-form"
+        loading={saving}
+        disabled={Boolean(capacityError)}
+      >
+        Save changes
+      </Button>
+    {/if}
   {/snippet}
 </Dialog>
 
@@ -519,6 +561,32 @@
   .callout :global(svg) {
     flex: none;
     margin-top: var(--z-nudge-2);
+  }
+  /* The controller's refusal, which is not the same thing as a setting past
+     its recommendation: nothing was saved, so it is coloured danger. */
+  .refusal {
+    display: flex;
+    gap: var(--z-space-3);
+    padding: var(--z-space-3) var(--z-space-4);
+    border: var(--z-border-width) solid var(--z-danger-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-danger-subtle);
+  }
+  .refusal p {
+    margin: 0;
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text-muted);
+  }
+  .refusal .title {
+    color: var(--z-danger);
+    font-weight: var(--z-weight-semibold);
+    margin-bottom: var(--z-nudge-2);
+  }
+  .refusal :global(svg) {
+    flex: none;
+    margin-top: var(--z-nudge-2);
+    color: var(--z-danger);
   }
   .reserve {
     display: flex;
