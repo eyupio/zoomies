@@ -520,3 +520,43 @@ func asLabels(value any) (map[string]string, error) {
 	}
 	return nil, fmt.Errorf("not a set of key=value labels")
 }
+
+// Redacted renders the configuration as a nested object shaped like the file,
+// with every secret absent.
+//
+// It is generated from the registry, and a secret cannot appear in it: the
+// registry says which keys are credentials, and this writes `<key>_configured`
+// -- a boolean -- for each of them instead of the value. A hand-written
+// version got the same safety from being hand-written, which held right up
+// until somebody added a key and forgot. It is what the settings page, the
+// support bundle and a backup's manifest all carry, so the three cannot
+// disagree about what is safe to show.
+func Redacted(c *Config) map[string]any {
+	out := map[string]any{}
+	for _, st := range Settings() {
+		v, err := c.Value(st.Key)
+		if err != nil {
+			continue
+		}
+		if st.Secret {
+			SetNested(out, st.Key+"_configured", Text(st, v) != "")
+			continue
+		}
+		SetNested(out, st.Key, v)
+	}
+	return out
+}
+
+// SetNested writes a dotted key into a tree of maps.
+func SetNested(into map[string]any, key string, value any) {
+	parts := strings.Split(key, ".")
+	for _, part := range parts[:len(parts)-1] {
+		child, ok := into[part].(map[string]any)
+		if !ok {
+			child = map[string]any{}
+			into[part] = child
+		}
+		into = child
+	}
+	into[parts[len(parts)-1]] = value
+}

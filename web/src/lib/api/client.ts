@@ -570,6 +570,120 @@ export const getSettings = (signal?: AbortSignal) =>
 export const updateSettings = (body: Body<'updateSettings'>) =>
   api.patch<Result<'updateSettings'>>('/settings', { body });
 
+/**
+ * Where the browser goes for a settings export. A navigation rather than a
+ * fetch, because the point is the browser's own download.
+ */
+export const settingsExportUrl = (format: 'json' | 'yaml') =>
+  `${BASE}/settings/export${toQuery({ format })}`;
+
+export const importSettings = (body: Body<'importSettings'>) =>
+  api.post<Result<'importSettings'>>('/settings/import', { body });
+
+/* -- backups -------------------------------------------------------------- */
+
+export const listBackups = (signal?: AbortSignal) =>
+  api.get<Result<'listBackups'>>('/backups', { signal });
+
+export const takeBackup = () => api.post<Result<'takeBackup'>>('/backups', {});
+
+export const getBackup = (id: string, signal?: AbortSignal) =>
+  api.get<Result<'getBackup'>>(`/backups/${enc(id)}`, { signal });
+
+export const deleteBackup = (id: string) => api.del<Result<'deleteBackup'>>(`/backups/${enc(id)}`);
+
+export const verifyBackup = (id: string) =>
+  api.post<Result<'verifyBackup'>>(`/backups/${enc(id)}/verify`, {});
+
+/** The plain archive, for the download button: a navigation, not a fetch. */
+export const backupDownloadUrl = (id: string) => `${BASE}/backups/${enc(id)}/download`;
+
+export const stageRestore = (id: string, body: OptionalBody<'stageRestore'>) =>
+  api.post<Result<'stageRestore'>>(`/backups/${enc(id)}/restore`, { body });
+
+export const cancelRestore = () => api.del<Result<'cancelRestore'>>('/backups/restore');
+
+export const applyRestore = () => api.post<Result<'applyRestore'>>('/backups/restore/apply', {});
+
+export const dismissRestoreOutcome = () =>
+  api.del<Result<'dismissRestoreOutcome'>>('/backups/restore/outcome');
+
+/**
+ * The encrypted archive. A fetch rather than a navigation because the
+ * passphrase travels in a JSON body, where a proxy log does not see it, and a
+ * navigation cannot carry one. The whole file lands in memory before the
+ * browser is handed it, which is the price of that.
+ */
+export async function downloadBackupEncrypted(id: string, passphrase: string): Promise<Blob> {
+  let response: Response;
+  try {
+    response = await fetch(`${BASE}/backups/${enc(id)}/download`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/octet-stream' },
+      body: JSON.stringify({ passphrase }),
+    });
+  } catch (cause) {
+    throw new ApiError({
+      status: 0,
+      code: 'internal',
+      message: 'Could not reach the Zoomies API. Check that the controller is still running.',
+      detail: cause instanceof Error ? cause.message : undefined,
+    });
+  }
+  if (!response.ok) {
+    if (response.status === 401) unauthorized?.();
+    const payload: unknown = await response.json().catch(() => undefined);
+    throw new ApiError(errorFrom(response.status, payload));
+  }
+  return response.blob();
+}
+
+/**
+ * Upload an archive. XMLHttpRequest rather than fetch, because a backup is
+ * the size of the database and the one thing an operator wants from a
+ * multi-minute upload is to see it moving: fetch reports nothing until the
+ * response, and XHR reports every chunk sent.
+ */
+export function uploadBackup(
+  file: File,
+  passphrase: string,
+  onProgress?: (fraction: number) => void,
+): Promise<Result<'uploadBackup'>> {
+  const form = new FormData();
+  // The passphrase first, so the server can read it before spooling the
+  // file; it handles either order, but this is the cheaper one.
+  if (passphrase) form.append('passphrase', passphrase);
+  form.append('file', file, file.name);
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${BASE}/backups/upload`);
+    xhr.withCredentials = true;
+    xhr.setRequestHeader('Accept', 'application/json');
+    xhr.responseType = 'json';
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) onProgress(event.loaded / event.total);
+    };
+    xhr.onerror = () =>
+      reject(
+        new ApiError({
+          status: 0,
+          code: 'internal',
+          message: 'Could not reach the Zoomies API. Check that the controller is still running.',
+        }),
+      );
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(xhr.response as Result<'uploadBackup'>);
+        return;
+      }
+      if (xhr.status === 401) unauthorized?.();
+      reject(new ApiError(errorFrom(xhr.status, xhr.response)));
+    };
+    xhr.send(form);
+  });
+}
+
 /** The base path, for the two endpoints the browser navigates to directly. */
 export const apiBase = BASE;
 

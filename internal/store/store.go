@@ -594,3 +594,19 @@ func boolInt(b bool) int {
 	}
 	return 0
 }
+
+// KnownMigrations names every migration this build carries, in the order they
+// apply. It is what lets a backup's manifest be compared with this binary
+// without opening the backup: a ledger naming a migration not in this list was
+// written by a newer release, and Open would refuse it.
+func KnownMigrations() []string {
+	migs, err := loadMigrations()
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(migs))
+	for _, m := range migs {
+		out = append(out, m.name)
+	}
+	return out
+}

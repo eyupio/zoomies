@@ -18,8 +18,8 @@
   Secrets are absent rather than starred out: the API does not send them at all.
 -->
 <script lang="ts">
-  import { Lock, RotateCcw, Search, TriangleAlert } from '@lucide/svelte';
-  import { getSettings, updateSettings, ApiError } from '$lib/api/client';
+  import { FileDown, FileUp, Lock, RotateCcw, Search, TriangleAlert } from '@lucide/svelte';
+  import { getSettings, settingsExportUrl, updateSettings, ApiError } from '$lib/api/client';
   import { registerSearch } from '$lib/keys';
   import { router } from '$lib/router';
   import { session } from '$lib/state/session.svelte';
@@ -27,6 +27,9 @@
   import { severityStatus } from '$lib/status';
   import { toasts } from '$lib/state/toasts.svelte';
   import Badge from '$lib/components/Badge.svelte';
+  import Button from '$lib/components/Button.svelte';
+  import DropdownMenu from '$lib/components/DropdownMenu.svelte';
+  import ImportSettingsDialog from './ImportSettingsDialog.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import Input from '$lib/components/Input.svelte';
   import LoadingBoundary from '$lib/components/LoadingBoundary.svelte';
@@ -69,6 +72,30 @@
       .finally(() => (loading = false));
     return () => controller.abort();
   });
+
+  /* -- moving a configuration ----------------------------------------------- */
+
+  /*
+    An export is a navigation rather than a fetch: the point is the browser's
+    own download, and the cookie goes with it. YAML is the shape zoomies.yaml
+    takes, so the file can be started from; JSON wraps the same tree with when
+    it was taken and where from.
+  */
+  const exportItems = [
+    {
+      id: 'yaml',
+      label: 'As zoomies.yaml',
+      icon: FileDown,
+      onSelect: () => window.location.assign(settingsExportUrl('yaml')),
+    },
+    {
+      id: 'json',
+      label: 'As JSON, with provenance',
+      icon: FileDown,
+      onSelect: () => window.location.assign(settingsExportUrl('json')),
+    },
+  ];
+  let importOpen = $state(false);
 
   /* -- filtering ------------------------------------------------------------ */
 
@@ -230,7 +257,24 @@
         — and each one wins over the one before it.
       </p>
     </div>
+    <div class="header-actions">
+      <DropdownMenu
+        items={exportItems}
+        label="Export the settings"
+        triggerLabel="Export"
+        triggerIcon={FileDown}
+      />
+      <Button variant="secondary" icon={FileUp} onclick={() => (importOpen = true)}>Import</Button>
+    </div>
   </header>
+
+  <ImportSettingsDialog
+    bind:open={importOpen}
+    onapplied={(result) => {
+      settings = result;
+      void session.reloadMeta();
+    }}
+  />
 
   <LoadingBoundary {loading} {error} onretry={() => (reload += 1)}>
     {#snippet skeleton()}
@@ -442,8 +486,18 @@
     background: var(--z-surface);
   }
   header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--z-space-3) var(--z-space-4);
     padding: var(--z-space-4) var(--z-space-5);
     border-bottom: var(--z-border-width) solid var(--z-border);
+  }
+  .header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--z-space-2);
   }
   h2 {
     margin: 0;

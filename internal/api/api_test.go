@@ -739,6 +739,20 @@ func routeTable(ids fixtureIDs) []route {
 
 		{method: "GET", path: "/api/v1/diagnostics/bundle", role: store.RoleAdmin, action: auth.ActionDiagnosticsRead},
 
+		{method: "GET", path: "/api/v1/backups", role: store.RoleAdmin, action: auth.ActionBackupsRead},
+		{method: "POST", path: "/api/v1/backups", role: store.RoleAdmin, action: auth.ActionBackupsWrite},
+		{method: "POST", path: "/api/v1/backups/upload", role: store.RoleAdmin, action: auth.ActionBackupsWrite},
+		{method: "DELETE", path: "/api/v1/backups/restore", role: store.RoleAdmin, action: auth.ActionBackupsRestore},
+		{method: "POST", path: "/api/v1/backups/restore/apply", role: store.RoleAdmin, action: auth.ActionBackupsRestore},
+		{method: "DELETE", path: "/api/v1/backups/restore/outcome", role: store.RoleAdmin, action: auth.ActionBackupsRestore},
+		{method: "GET", path: "/api/v1/backups/zoomies-19990101-000000", role: store.RoleAdmin, action: auth.ActionBackupsRead},
+		{method: "DELETE", path: "/api/v1/backups/zoomies-19990101-000000", role: store.RoleAdmin, action: auth.ActionBackupsWrite},
+		{method: "POST", path: "/api/v1/backups/zoomies-19990101-000000/verify", role: store.RoleAdmin, action: auth.ActionBackupsRead},
+		{method: "GET", path: "/api/v1/backups/zoomies-19990101-000000/download", role: store.RoleAdmin, action: auth.ActionBackupsRead},
+		{method: "POST", path: "/api/v1/backups/zoomies-19990101-000000/download", role: store.RoleAdmin, action: auth.ActionBackupsRead,
+			body: map[string]any{"passphrase": "long enough"}},
+		{method: "POST", path: "/api/v1/backups/zoomies-19990101-000000/restore", role: store.RoleAdmin, action: auth.ActionBackupsRestore},
+
 		{method: "GET", path: "/api/v1/recovery", role: store.RoleViewer, action: auth.ActionStatsRead},
 		{method: "POST", path: "/api/v1/recovery/unfence", role: store.RoleAdmin, action: auth.ActionRecoveryWrite},
 
@@ -802,6 +816,9 @@ func routeTable(ids fixtureIDs) []route {
 
 		{method: "GET", path: "/api/v1/settings", role: store.RoleAdmin, action: auth.ActionSettingsRead},
 		{method: "PATCH", path: "/api/v1/settings", role: store.RoleAdmin, body: map[string]any{}, action: auth.ActionSettingsWrite},
+		{method: "GET", path: "/api/v1/settings/export", role: store.RoleAdmin, action: auth.ActionSettingsRead},
+		{method: "POST", path: "/api/v1/settings/import", role: store.RoleAdmin, action: auth.ActionSettingsWrite,
+			body: map[string]any{"document": "log:\n  level: info\n", "dry_run": true}},
 
 		{method: "GET", path: "/metrics", role: store.RoleViewer, action: auth.ActionMetricsRead},
 	}
@@ -1109,7 +1126,7 @@ func normalisePath(p string) string {
 		if strings.HasPrefix(part, "ins_") || strings.HasPrefix(part, "pool_") ||
 			strings.HasPrefix(part, "run_") || strings.HasPrefix(part, "host_") ||
 			strings.HasPrefix(part, "job_") || strings.HasPrefix(part, "prv_") ||
-			strings.HasPrefix(part, "mach_") || part == "missing" {
+			strings.HasPrefix(part, "mach_") || strings.HasPrefix(part, "zoomies-") || part == "missing" {
 			parts[i] = "{id}"
 		}
 	}

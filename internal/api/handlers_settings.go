@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
@@ -127,34 +128,19 @@ type settingsResponse struct {
 
 // settingsConfig renders the effective configuration as a nested object.
 //
-// It is generated from the registry, and a secret cannot appear in it: the
-// registry says which keys are credentials, and this writes `<key>_configured`
-// -- a boolean -- for each of them instead of the value. The old hand-written
-// version got the same safety from being hand-written, which held right up
-// until somebody added a key and forgot.
+// The registry-driven rendering lives in config.Redacted, shared with the
+// support bundle and a backup's manifest; what is added here is the handful of
+// values that are derived rather than configured, and are what an operator
+// actually wants to see next to the settings they came from.
 func (s *Server) settingsConfig() map[string]any {
 	c := s.cfg()
-	out := map[string]any{}
-	for _, st := range config.Settings() {
-		v, err := c.Value(st.Key)
-		if err != nil {
-			continue
-		}
-		if st.Secret {
-			setNested(out, st.Key+"_configured", config.Text(st, v) != "")
-			continue
-		}
-		setNested(out, st.Key, v)
-	}
+	out := config.Redacted(c)
 
 	// The encryption key's presence is the one thing here that is not read off
 	// the configuration: it may have come from a file this process read at
 	// startup rather than from a key any layer holds.
 	setNested(out, "security.encryption_key_configured", s.key != nil)
 
-	// Three values that are derived rather than configured, and are here
-	// because they are what an operator actually wants to see next to the
-	// settings they came from.
 	setNested(out, "github.webhook_url", c.WebhookURL())
 	setNested(out, "github.polling_only", s.ctrl.PollingOnly())
 	setNested(out, "oidc.redirect_url", s.oidcRedirectURL())
@@ -162,18 +148,7 @@ func (s *Server) settingsConfig() map[string]any {
 }
 
 // setNested writes a dotted key into a tree of maps.
-func setNested(into map[string]any, key string, value any) {
-	parts := strings.Split(key, ".")
-	for _, part := range parts[:len(parts)-1] {
-		child, ok := into[part].(map[string]any)
-		if !ok {
-			child = map[string]any{}
-			into[part] = child
-		}
-		into = child
-	}
-	into[parts[len(parts)-1]] = value
-}
+func setNested(into map[string]any, key string, value any) { config.SetNested(into, key, value) }
 
 func (s *Server) oidcRedirectURL() string {
 	if s.oidc.Enabled() {
@@ -283,18 +258,27 @@ func restartRequiredKeys() []string {
 
 // handleGetSettings answers GET /api/v1/settings.
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
-	c := s.cfg()
-	rows, err := s.ctrl.Store().ListInstanceSettings(r.Context())
+	page, err := s.settingsPage(r)
 	if err != nil {
 		s.internal(w, r, "reading the stored settings", err)
 		return
+	}
+	writeJSON(w, http.StatusOK, page)
+}
+
+// settingsPage renders the whole page. The import route returns it too, so
+// that a client which just changed forty keys can repaint without asking.
+func (s *Server) settingsPage(r *http.Request) (settingsResponse, error) {
+	c := s.cfg()
+	rows, err := s.ctrl.Store().ListInstanceSettings(r.Context())
+	if err != nil {
+		return settingsResponse{}, err
 	}
 	// PendingRestart needs the sealed values to compare a stored credential
 	// against the running one, so it reads the unblanked rows.
 	sealed, err := s.ctrl.Store().InstanceSettings(r.Context())
 	if err != nil {
-		s.internal(w, r, "reading the stored settings", err)
-		return
+		return settingsResponse{}, err
 	}
 	pending := config.PendingRestart(c, sealed, s.key)
 
@@ -313,7 +297,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	stale.SetSources(c.Sources())
 	findings := append(config.ApplyStored(&stale, sealed, s.key).ForUI(), c.Validate().ForUI()...)
 
-	writeJSON(w, http.StatusOK, settingsResponse{
+	return settingsResponse{
 		Config:              s.settingsConfig(),
 		Settings:            s.settingViews(rows, pending),
 		Findings:            findings,
@@ -324,7 +308,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		Version:             version.Short(),
 		DatabasePath:        s.ctrl.Store().Path(),
 		EventSubscribers:    s.ctrl.Events().Subscribers(),
-	})
+	}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -367,6 +351,31 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	flatten("", raw, flat)
 
 	current := s.cfg()
+	candidate, staged, fields := s.planSettings(current, flat)
+	if len(fields) > 0 {
+		unprocessable(w, "these settings could not be changed", fields)
+		return
+	}
+	if len(staged) == 0 {
+		s.handleGetSettings(w, r)
+		return
+	}
+	if fields := validatePlan(current, candidate, staged); len(fields) > 0 {
+		unprocessable(w, "that would leave a controller that will not start", fields)
+		return
+	}
+	if err := s.applyPlan(r.Context(), Identity(r.Context()), staged); err != nil {
+		s.internal(w, r, "storing the settings", err)
+		return
+	}
+	s.handleGetSettings(w, r)
+}
+
+// planSettings checks every key in flat against the running configuration and
+// returns the candidate that results, the changes that would be made, and the
+// refusals. It writes nothing. The import route plans the same way, which is
+// how a preview of an import can be trusted to be what applying it would do.
+func (s *Server) planSettings(current *config.Config, flat map[string]any) (*config.Config, []change, []fieldError) {
 	// A scratch copy to try the whole request on. Validating the result is
 	// what makes it safe to let a settings page write a listener address.
 	candidate := *current
@@ -419,47 +428,47 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		ch.before, ch.value = before, parsed
 		staged = append(staged, ch)
 	}
+	return &candidate, staged, fields
+}
 
-	if len(fields) > 0 {
-		unprocessable(w, "these settings could not be changed", fields)
-		return
-	}
-	if len(staged) == 0 {
-		s.handleGetSettings(w, r)
-		return
-	}
-
-	// Would this change leave a controller that will not start?
-	//
-	// Only the errors this request introduces count. An instance can already be
-	// running with one -- a deployment that disabled authentication and later
-	// gained an external URL is the common way -- and refusing every edit on
-	// that instance would lock the operator out of the settings page that is
-	// the one place they could fix it. So the validator is run twice and the
-	// difference is what is refused.
+// validatePlan asks whether the candidate would leave a controller that will
+// not start, and returns the refusals as fields.
+//
+// Only the errors the request introduces count. An instance can already be
+// running with one -- a deployment that disabled authentication and later
+// gained an external URL is the common way -- and refusing every edit on that
+// instance would lock the operator out of the settings page that is the one
+// place they could fix it. So the validator is run twice and the difference is
+// what is refused.
+func validatePlan(current, candidate *config.Config, staged []change) []fieldError {
 	candidate.Normalize()
-	if introduced := newErrors(current, &candidate); len(introduced) > 0 {
-		changed := map[string]bool{}
-		for _, ch := range staged {
-			changed[ch.setting.Key] = true
-		}
-		for _, f := range introduced {
-			field := f.Setting
-			if !changed[field] {
-				// The error is about a setting this request did not touch, so
-				// it belongs to the request rather than to a field: it is the
-				// combination that is wrong.
-				field = ""
-			}
-			fields = append(fields, fieldError{field, findingSentence(f)})
-		}
-		unprocessable(w, "that would leave a controller that will not start", fields)
-		return
+	introduced := newErrors(current, candidate)
+	if len(introduced) == 0 {
+		return nil
 	}
+	changed := map[string]bool{}
+	for _, ch := range staged {
+		changed[ch.setting.Key] = true
+	}
+	var fields []fieldError
+	for _, f := range introduced {
+		field := f.Setting
+		if !changed[field] {
+			// The error is about a setting this request did not touch, so it
+			// belongs to the request rather than to a field: it is the
+			// combination that is wrong.
+			field = ""
+		}
+		fields = append(fields, fieldError{field, findingSentence(f)})
+	}
+	return fields
+}
 
-	if err := s.writeSettings(r.Context(), Identity(r.Context()).Name, staged); err != nil {
-		s.internal(w, r, "storing the settings", err)
-		return
+// applyPlan stores the staged changes, pushes the live half into the running
+// snapshot, and writes the audit row.
+func (s *Server) applyPlan(ctx context.Context, id *auth.Identity, staged []change) error {
+	if err := s.writeSettings(ctx, id.Name, staged); err != nil {
+		return err
 	}
 
 	// Only the live half reaches the running snapshot. The rest is stored and
@@ -495,8 +504,8 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	s.auth.Auditor().Updated(r.Context(), Identity(r.Context()), "settings", "settings", before, applied)
-	s.handleGetSettings(w, r)
+	s.auth.Auditor().Updated(ctx, id, "settings", "settings", before, applied)
+	return nil
 }
 
 // writeSettings puts the whole batch in the database in one transaction, so a

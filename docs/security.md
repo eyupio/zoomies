@@ -209,7 +209,7 @@ why each one is there.
 | --- | --- |
 | **viewer** | Read pools, runners, jobs, hosts, the audit log and metrics. Never sees a secret value — including a pool's `env`, where a registry or proxy credential ends up: a viewer is sent the variable names with empty values, on the API and on the event stream alike. |
 | **operator** | Everything a viewer may, plus act on the fleet: create and edit pools, drain/delete/restart runners, cordon hosts. |
-| **admin** | Everything an operator may, plus manage users, API tokens, installations, join tokens and settings, and take a support bundle. |
+| **admin** | Everything an operator may, plus manage users, API tokens, installations, join tokens and settings, take a support bundle, and take, download and restore backups. A backup is the whole database, so `backups:read` on a token is the fleet. |
 
 The mapping from every individual API action to its minimum role is a table in
 `internal/auth/rbac.go`, and a test walks the full action list — so a new

@@ -604,6 +604,23 @@ var registry = buildRegistry([]Setting{
 	},
 
 	// ---------------------------------------------------------------------
+	// backup -- the controller's own copies of its database.
+	// ---------------------------------------------------------------------
+	{
+		Key: "backup.directory", Label: "Backup directory", Env: "ZOOMIES_BACKUP_DIRECTORY", Kind: KindString, Scope: ScopeInstance, Live: true,
+		Summary: "Where backups are kept. Empty is a backups directory beside the database, which on a container deployment is the mounted volume. A relative path is relative to the database's directory.",
+	},
+	{
+		Key: "backup.interval", Label: "Scheduled backup interval", Env: "ZOOMIES_BACKUP_INTERVAL", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Summary: "How often the controller takes a copy of its own database. 0 switches scheduled backups off; one can still be taken on demand from the Backups tab or with zoomies backup.",
+		Floor:   time.Minute,
+	},
+	{
+		Key: "backup.keep", Label: "Backups to keep", Env: "ZOOMIES_BACKUP_KEEP", Kind: KindInt, Scope: ScopeInstance, Live: true,
+		Summary: "How many of the controller's own backups are kept; the oldest beyond it go after each new one. 0 keeps every one. Backups somebody uploaded are never counted and never deleted by this.",
+	},
+
+	// ---------------------------------------------------------------------
 	// capacity_demand -- publishing a request for more hosts to a provisioner.
 	// ---------------------------------------------------------------------
 	{
@@ -794,7 +811,7 @@ func StoredSettings() []Setting {
 // through the system, rather than alphabetical.
 var SectionOrder = []string{
 	"server", "database", "security", "github", "agent", "runners", "scheduler",
-	"log", "oidc", "metrics", "retention", "images", "updates", "capacity_demand",
+	"log", "oidc", "metrics", "retention", "backup", "images", "updates", "capacity_demand",
 	"provider", "ui",
 }
 

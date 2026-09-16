@@ -306,6 +306,8 @@ for: Contents (write), Pull requests (write) and Workflows (write).
 | DELETE | `/api/v1/tokens/{id}` | admin | Revokes. |
 | GET | `/api/v1/settings` | admin | Every setting with its value, its kind, the layer it came from and whether it can be changed here, plus the same configuration as a nested object and the validator's findings. No secret's value is ever sent. |
 | PATCH | `/api/v1/settings` | admin | Change the fleet's settings. Keys may be nested or dotted; `null` clears one, so it goes back to the file or the default. An accepted change is always stored: one the running process can apply does so at once, and one it cannot is named in `pending_restart`. Refused: a key read before the database opens, one belonging to a standalone agent's own host, one an environment variable is pinning, and any change that would leave a controller which will not start. |
+| GET | `/api/v1/settings/export` | admin | Every setting somebody has set — stored here, set in the file, or pinned by the environment — as a file: `?format=json` (the default) wraps the tree with when, where from and which secrets were configured but not exported; `?format=yaml` is the tree alone, in the shape `zoomies.yaml` takes, so the download can be started from. Defaults are left out because they are computed on the host that reads them, and no secret's value is ever in it. Audited. |
+| POST | `/api/v1/settings/import` | admin | `{document, dry_run, skip}`. The document is an export or a `zoomies.yaml`, as text. Every key is planned through the same checks a PATCH makes and reported as `change`, `unchanged`, `unset` or `refused` with the reason; a dry run reports and writes nothing, and a real run refuses the whole document while any key is refused, so it is one change or none. `skip` names the keys to leave out — the refused ones, or the ones the operator unticked. Applying returns the settings page as well, so a client can repaint without a second request. Audited. |
 
 ## Recovery
 
@@ -325,6 +327,28 @@ difference between "nothing to do" and "not allowed to".
 instance out of rotation and a deployment does not go green. Liveness is
 deliberately unaffected: the container image's health check is `/healthz`, so a
 fenced controller is not restarted by its own runtime.
+
+## Backups
+
+| Method | Path | Role | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/backups` | admin | Every backup in `backup.directory` and every copy the store took before migrating, newest first, each with what its manifest says and whether a restore of it would be refused (`restorable`, `restore_problem`); the schedule and its last outcome; the restore waiting for a restart, if any; and what became of the last one. |
+| POST | `/api/v1/backups` | admin | Take one now: `VACUUM INTO`, integrity checked, with its manifest. Retention runs afterwards. `409` while another is being taken. |
+| POST | `/api/v1/backups/upload` | admin | `multipart/form-data`: the archive in `file`, and for an encrypted one its `passphrase`. Unpacked into a staging directory, verified, then listed under the name its manifest gives it. Bounded by its own limit rather than the API's, since an archive is the whole database. |
+| GET | `/api/v1/backups/{id}` | admin | |
+| DELETE | `/api/v1/backups/{id}` | admin | `409` while the backup is staged to be restored. |
+| POST | `/api/v1/backups/{id}/verify` | admin | Re-read it: the digest against the manifest, `PRAGMA integrity_check`, and whether this build can open it. A POST because it reads the whole file. |
+| GET | `/api/v1/backups/{id}/download` | admin | `<id>.tar.gz`: manifest, database and, only when it was taken with it, the key. Audited. |
+| POST | `/api/v1/backups/{id}/download` | admin | `{passphrase}` → `<id>.tar.gz.enc`: argon2id and chunked AES-256-GCM, so a file cut short or altered does not open as a shorter backup. |
+| POST | `/api/v1/backups/{id}/restore` | admin | **Stages** a restore: every check `zoomies restore` makes is made now, and the restore is written down for the next controller to apply before it opens the database. Body `{revoke_api_tokens, reset_agent_tokens}`, the command's flags. `202` with the staged restore; `422` names the check that failed. Nothing changes until the restart. |
+| DELETE | `/api/v1/backups/restore` | admin | Cancel the staged restore. |
+| POST | `/api/v1/backups/restore/apply` | admin | Stop this controller so its service manager starts the next, which applies the staged restore. `202`, then the process exits with code 3. `409` when nothing is staged. |
+| DELETE | `/api/v1/backups/restore/outcome` | admin | Dismiss what became of the last restore. |
+
+A backup is the whole database, so `backups:read` on a token is the fleet: every
+account's password hash and every sealed credential. `backups:restore` is its
+own action rather than `backups:write` because it is the one that replaces the
+fleet. [Backup and restore](backup-and-restore.md) is the operator's page.
 
 ## Diagnostics
 

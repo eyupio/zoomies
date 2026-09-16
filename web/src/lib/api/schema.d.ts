@@ -1773,6 +1773,201 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/backups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every backup, and the state of the schedule
+         * @description The backups in `backup.directory` and the copies the store took before migrating, newest first, each with what its manifest says and whether a restore of it would be refused; the schedule and its last outcome; the restore waiting for a restart, if any; and what became of the last one.
+         */
+        get: operations["listBackups"];
+        put?: never;
+        /**
+         * Take a backup now
+         * @description A consistent copy of the live database, taken with `VACUUM INTO`, checked with `PRAGMA integrity_check`, and written with its manifest into `backup.directory`. Retention (`backup.keep`) runs afterwards. Refused with 409 while another backup is being taken.
+         */
+        post: operations["takeBackup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backups/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bring a backup here
+         * @description A `multipart/form-data` form with the archive in `file` -- a `.tar.gz` a download produced, or the `.tar.gz.enc` an encrypted download produced with its `passphrase` in a second part. The archive is unpacked into a staging directory, verified as a restore would verify it, and then listed under the name its manifest gives it, with its source recorded as uploaded. An upload is never counted or removed by retention.
+         */
+        post: operations["uploadBackup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backups/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Cancel the staged restore
+         * @description Forgets the restore waiting for a restart. Cancelling when none is staged succeeds.
+         */
+        delete: operations["cancelRestore"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backups/restore/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restart the controller to apply the staged restore
+         * @description Stops this controller so that its service manager starts the next one, which applies the staged restore before it opens the database. The response is written before the process stops. Refused with 409 when nothing is staged, because a restart with nothing to apply is an outage. Whether the process comes back is up to whatever started it; a systemd unit and a container with a restart policy both bring it back, and a controller run by hand needs starting by hand.
+         */
+        post: operations["applyRestore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backups/restore/outcome": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Dismiss what became of the last restore */
+        delete: operations["dismissRestoreOutcome"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backups/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The backup's directory name, e.g. `zoomies-20260916-120000`. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** One backup */
+        get: operations["getBackup"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a backup
+         * @description Refused with 409 while the backup is staged to be restored.
+         */
+        delete: operations["deleteBackup"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backups/{id}/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-read a backup and check it
+         * @description Compares the database's digest with the one the manifest recorded, opens it, runs `PRAGMA integrity_check`, and says whether this build could restore it. A POST because it reads the whole file.
+         */
+        post: operations["verifyBackup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backups/{id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Download a backup as a gzipped tar
+         * @description The backup's directory -- manifest, database and, only when it was taken with it, the encryption key -- as `<id>.tar.gz`. Audited: it is the whole database leaving the machine.
+         */
+        get: operations["downloadBackup"];
+        put?: never;
+        /**
+         * Download a backup encrypted with a passphrase
+         * @description The same archive, encrypted as `<id>.tar.gz.enc`: the passphrase is run through argon2id and the archive through AES-256-GCM in chunks, so a file cut short or altered does not open as a shorter backup. The upload route takes the same passphrase to bring it back.
+         */
+        post: operations["downloadBackupEncrypted"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backups/{id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stage a restore of this backup for the next restart
+         * @description Nothing is restored by this call. The controller cannot swap the database it is running on, so every check a restore makes is made now -- the copy is sound, this build can read it, and this host's encryption key is the one that sealed it -- and the restore is written down beside the database for the next controller to apply before it opens anything. `POST /backups/restore/apply` is the restart that does it. The restored fleet comes back fenced, with every session ended and every unredeemed join token removed; the two options go further, as `zoomies restore`'s flags do.
+         */
+        post: operations["stageRestore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/diagnostics/bundle": {
         parameters: {
             query?: never;
@@ -1835,6 +2030,46 @@ export interface paths {
          *     pinning. Each refusal says which it is and what to do instead.
          */
         patch: operations["updateSettings"];
+        trace?: never;
+    };
+    "/settings/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every setting somebody has set, as a file
+         * @description Stored here, set in the configuration file, or pinned by the environment; never a default, because those are computed on the host that reads them, and never a secret's value. `format=json` wraps the tree with when it was taken, where from, and which secrets were configured but not exported; `format=yaml` is the tree alone, in the shape zoomies.yaml takes, so the download can be started from. Audited.
+         */
+        get: operations["exportSettings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/settings/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read an export or a zoomies.yaml back, previewing first
+         * @description Every key in the document is planned through the checks a PATCH makes and reported as `change`, `unchanged`, `unset` or `refused` with the reason. A dry run reports and writes nothing. A real run refuses the whole document with 422 while any key is refused, so an import is one change or none; `skip` names the keys to leave out. Applying returns the settings page too.
+         */
+        post: operations["importSettings"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/agent/join": {
@@ -2894,6 +3129,143 @@ export interface components {
             /** @description Why the fence is on -- normally the backup this database was restored from. */
             reason?: string;
         };
+        /** @description One backup, as the Backups tab lists it. The manifest's facts are lifted out flat. */
+        Backup: {
+            /**
+             * @description The backup's directory name.
+             * @example zoomies-20260916-120000
+             */
+            id: string;
+            /** Format: date-time */
+            taken_at: string;
+            /**
+             * @description Who took it. `pre-migration` is a copy the store took before applying migrations.
+             * @enum {string}
+             */
+            source: "cli" | "manual" | "scheduled" | "uploaded" | "pre-migration";
+            taken_by?: string;
+            /**
+             * @description Which directory it is in.
+             * @enum {string}
+             */
+            location: "backups" | "pre-migration";
+            /**
+             * Format: int64
+             * @description The database's size.
+             */
+            bytes: number;
+            /**
+             * Format: int64
+             * @description The whole directory
+             */
+            total_bytes: number;
+            /** @description The build that wrote it. */
+            version?: string;
+            /** @description The newest migration the copy had taken. */
+            schema_latest?: string;
+            schema_migrations: number;
+            integrity?: string;
+            /** @description How many sealed credentials the key is needed for. */
+            secrets: number;
+            key_fingerprint?: string;
+            /** @description Whether this host holds the key that sealed it. Null when the backup does not say. */
+            key_matches: boolean | null;
+            /** @description The encryption key is in the backup */
+            key_included: boolean;
+            /** @description Every check a restore would make passes */
+            restorable: boolean;
+            /** @description Why not */
+            restore_problem?: string;
+            /** @description Something wrong with the backup itself. */
+            problem?: string;
+        };
+        Backups: {
+            items: components["schemas"]["Backup"][];
+            /** @description Where backups are kept */
+            directory: string;
+            /**
+             * Format: int64
+             * @description The live database's size
+             */
+            database_bytes: number;
+            /**
+             * Format: int64
+             * @description Room beside the backup directory, when the platform can say.
+             */
+            disk_free_bytes: number | null;
+            /** @description This host's encryption key. */
+            key_fingerprint?: string;
+            schedule: components["schemas"]["BackupSchedule"];
+            /** @description A backup is being taken right now. */
+            running: boolean;
+            staged_restore: components["schemas"]["StagedRestore"] | null;
+            last_restore: components["schemas"]["RestoreOutcome"] | null;
+            /** @description This process has been asked to stop */
+            restarting: boolean;
+        };
+        BackupSchedule: {
+            enabled: boolean;
+            interval: components["schemas"]["Duration"];
+            keep: number;
+            /** Format: date-time */
+            next_due_at: string | null;
+            /** Format: date-time */
+            last_scheduled_at: string | null;
+            last_scheduled_id?: string;
+            /** @description Why the last scheduled backup failed */
+            last_error?: string;
+        };
+        BackupVerification: {
+            /** Format: date-time */
+            checked_at: string;
+            ok: boolean;
+            /** @description SQLite's own answer -- `ok` */
+            integrity: string;
+            /** @description The manifest recorded a digest to compare against. */
+            digest_known: boolean;
+            digest_matches: boolean;
+            /** @description This build can open it. */
+            schema_readable: boolean;
+            migrations: number;
+            latest?: string;
+            problems: string[];
+        };
+        StagedRestore: {
+            backup_id: string;
+            dir: string;
+            /** Format: date-time */
+            taken_at?: string;
+            /** Format: date-time */
+            requested_at: string;
+            requested_by?: string;
+            revoke_api_tokens: boolean;
+            reset_agent_tokens: boolean;
+        };
+        RestoreOutcome: {
+            backup_id: string;
+            /** Format: date-time */
+            attempted_at: string;
+            ok: boolean;
+            /** @description Why the restore did not happen. The controller started on the database it had. */
+            error?: string;
+            report?: components["schemas"]["RestoreReport"];
+        };
+        RestoreReport: {
+            source: string;
+            /** @description Where the database that was there went. */
+            moved_aside?: string;
+            moved_logs?: string[];
+            key_checked: boolean;
+            manifest_problem?: string;
+            /** @description What the restore took away */
+            invalidated: string[];
+            /** @description The reason recorded on the fence. */
+            fenced: string;
+        };
+        Restarting: {
+            restarting: boolean;
+            message: string;
+        };
         SupportBundle: {
             /** @description The shape's own number, so a reader given a bundle out of context knows what it is looking at. It moves when a section is removed or renamed, not when one is added. */
             bundle_version: number;
@@ -3822,6 +4194,58 @@ export interface components {
             version?: string;
             database_path?: string;
             event_subscribers?: number;
+        };
+        SettingsExport: {
+            export_version: number;
+            /** Format: date-time */
+            exported_at: string;
+            /** @description The address the source instance answers on. */
+            exported_from?: string;
+            /** @description The Zoomies build that wrote it. */
+            version: string;
+            /** @description The nested tree, shaped like zoomies.yaml. */
+            settings: {
+                [key: string]: unknown;
+            };
+            /** @description Credentials that were set on the source and are not in this document. */
+            secrets_configured: string[];
+        };
+        SettingsImportRequest: {
+            /** @description An export */
+            document: string;
+            /** @description Plan and report; write nothing. */
+            dry_run?: boolean;
+            /** @description Keys in the document to leave out. */
+            skip?: string[];
+        };
+        SettingsImportChange: {
+            key: string;
+            label?: string;
+            section?: string;
+            /** @description The running value */
+            current: unknown;
+            /** @description The document's value */
+            incoming: unknown;
+            /** @enum {string} */
+            action: "change" | "unchanged" | "unset" | "refused";
+            /** @description A change is in force at once; false waits for a restart. */
+            live: boolean;
+            secret: boolean;
+            /** @description Why it is refused. */
+            reason?: string;
+        };
+        SettingsImport: {
+            applied: boolean;
+            changes: components["schemas"]["SettingsImportChange"][];
+            summary: {
+                change: number;
+                unchanged: number;
+                unset: number;
+                refused: number;
+                skipped: number;
+            };
+            secrets_configured: string[];
+            settings?: components["schemas"]["Settings"];
         };
         AgentJoinRequest: {
             protocol_version: number;
@@ -6953,6 +7377,299 @@ export interface operations {
             };
         };
     };
+    listBackups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Backups"];
+                };
+            };
+        };
+    };
+    takeBackup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Taken */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Backup"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+        };
+    };
+    uploadBackup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                    /** Format: password */
+                    passphrase?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Unpacked and verified */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Backup"];
+                };
+            };
+            /** @description The upload is over the limit. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    cancelRestore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cancelled */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    applyRestore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stopping */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Restarting"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+        };
+    };
+    dismissRestoreOutcome: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dismissed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getBackup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The backup's directory name, e.g. `zoomies-20260916-120000`. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Backup"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteBackup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The backup's directory name, e.g. `zoomies-20260916-120000`. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    verifyBackup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupVerification"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    downloadBackup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The archive */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    downloadBackupEncrypted: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: password */
+                    passphrase: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The encrypted archive */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    stageRestore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @description Revoke every API token as well. */
+                    revoke_api_tokens?: boolean;
+                    /** @description Forget every host's agent credential */
+                    reset_agent_tokens?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Staged */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StagedRestore"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
     getSupportBundle: {
         parameters: {
             query?: never;
@@ -7015,6 +7732,54 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Settings"];
+                };
+            };
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    exportSettings: {
+        parameters: {
+            query?: {
+                format?: "json" | "yaml";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The export */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsExport"];
+                    "application/yaml": string;
+                };
+            };
+        };
+    };
+    importSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsImportRequest"];
+            };
+        };
+        responses: {
+            /** @description The preview, or the result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsImport"];
                 };
             };
             422: components["responses"]["Unprocessable"];

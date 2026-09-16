@@ -274,6 +274,11 @@ retention:
   webhooks: 168h                # ZOOMIES_RETENTION_WEBHOOKS
   machines: 168h                # ZOOMIES_RETENTION_MACHINES  (7 days of deleted-machine rows -- what was rented, when, and what it cost)
 
+backup:
+  directory: ""                 # ZOOMIES_BACKUP_DIRECTORY  -- empty: a `backups` directory beside the database
+  interval: 24h                 # ZOOMIES_BACKUP_INTERVAL   -- 0 switches scheduled backups off
+  keep: 7                       # ZOOMIES_BACKUP_KEEP       -- the controller's own copies; 0 keeps every one
+
 images:
   refresh_interval: 1h          # ZOOMIES_IMAGE_REFRESH_INTERVAL  -- 0 switches it off
 
@@ -340,6 +345,14 @@ settings page reports rather than refusing the edit.
 | `agent.runner_download_url` | `ZOOMIES_AGENT_RUNNER_DOWNLOAD_URL` | next restart | Runner download mirror — Where the process backend fetches runner archives from, for hosts that mirror releases internally. The path below it is the same. |
 | `agent.runner_sha256` | `ZOOMIES_AGENT_RUNNER_SHA256` | next restart | Runner archive digest — The expected digest of the actions/runner archive the process backend downloads. Zoomies ships the digest for the release it pins; supply one when you pin another. |
 | `agent.work_dir` | `ZOOMIES_WORK_DIR` | next restart | Working directory — Where runner working directories and the agent's own credentials live. |
+
+### `backup`
+
+| Key | Environment | Takes effect | What it is |
+| --- | --- | --- | --- |
+| `backup.directory` | `ZOOMIES_BACKUP_DIRECTORY` | at once | Backup directory — Where backups are kept. Empty is a `backups` directory beside the database, which on a container deployment is the mounted volume. A relative path is relative to the database's directory. |
+| `backup.interval` | `ZOOMIES_BACKUP_INTERVAL` | at once | Scheduled backup interval — How often the controller takes a copy of its own database. 0 switches scheduled backups off; one can still be taken on demand from the Backups tab or with `zoomies backup`. |
+| `backup.keep` | `ZOOMIES_BACKUP_KEEP` | at once | Backups to keep — How many of the controller's own backups are kept; the oldest beyond it go after each new one. 0 keeps every one. Backups somebody uploaded are never counted and never deleted by this. |
 
 ### `capacity_demand`
 

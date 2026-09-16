@@ -156,6 +156,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	out = append(out, c.leaseProblems()...)
 	out = append(out, c.loopProblems()...)
 	out = append(out, c.updateProblems()...)
+	out = append(out, c.backupProblems()...)
 	gather("polling", c.pollerProblems)
 	gather("runners", c.runnerProblems)
 	gather("runner cleanup", c.cleanupProblems)

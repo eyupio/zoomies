@@ -287,6 +287,7 @@ by trying again.
 | `internal/store` | The only place SQL is written. Domain types, embedded migrations, every query. Enforces the runner state machine. |
 | `internal/config` | The settings registry, and the four layers that fill it: defaults, `zoomies.yaml`, the fleet's database, `ZOOMIES_*`. Splits findings into errors that stop startup and warnings that name every dangerous setting. |
 | `internal/cryptox` | AES-256-GCM for secrets at rest; argon2id for passwords; SHA-256 for bearer tokens. |
+| `internal/backup` | One copy of the database: taking it with `VACUUM INTO`, the manifest that says what it is, listing, verifying, archiving and passphrase-encrypting it, and the restore that puts it back. Shared by `zoomies backup`, the controller's scheduled copies and the settings page, so all three write and read one layout. |
 | `internal/scheduler` | Pure scaling decisions, label matching and platform fit. No I/O. |
 | `internal/naming` | The `zoomies-*` naming grammar for pools and hosts, and the runner image catalogue. No I/O; see [Naming and platforms](naming.md). |
 | `internal/machine` | What host this process is running on: distribution, release, and how much machine the cgroup actually allows. |

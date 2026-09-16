@@ -395,7 +395,7 @@ fixed, because muscle memory is the point:
    — its heading, the palette, the shortcut sheet, the browser title — uses the
    full name.
 9. **Audit** — who did what
-10. **Settings** — users, tokens, appearance, danger zone
+10. **Settings** — users, tokens, appearance, configuration, backups, about
 
 Every page is shown, in both themes, in [The UI](ui.md).
 
