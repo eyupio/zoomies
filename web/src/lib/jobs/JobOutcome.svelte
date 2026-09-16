@@ -78,7 +78,23 @@
       {/if}
       <div class="actions">
         {#if onRerun}
-          <button class="action rerun" type="button" onclick={onRerun} disabled={rerunning}>
+          <!--
+            aria-disabled, not disabled: this sits inside the job drawer's
+            focus trap. A natively disabled button is blurred by the browser,
+            so focus would fall to <body> and the trap's next Tab would never
+            intercept it -- walking the operator straight out of an open
+            drawer. aria-disabled keeps it focused and announced, and the
+            click handler refuses while busy.
+          -->
+          <button
+            class="action rerun"
+            type="button"
+            aria-disabled={rerunning ? 'true' : undefined}
+            aria-busy={rerunning ? 'true' : undefined}
+            onclick={() => {
+              if (!rerunning) onRerun?.();
+            }}
+          >
             <RotateCcw size={13} aria-hidden="true" />
             {rerunning ? 'Asking GitHub…' : 'Run it again'}
           </button>
@@ -182,10 +198,13 @@
     font-size: var(--z-text-sm);
     font-weight: var(--z-weight-medium);
   }
-  .rerun:hover:not(:disabled) {
+  .rerun:hover:not([aria-disabled='true']) {
     background: var(--z-surface);
   }
-  .rerun:disabled {
+  /* A button that is busy still holds focus, so it must not also be
+     clickable -- otherwise a second press fires the same request again. */
+  .rerun[aria-disabled='true'] {
+    pointer-events: none;
     cursor: progress;
     color: var(--z-text-muted);
   }
