@@ -1,8 +1,11 @@
 package controller
 
 import (
+	"errors"
+	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -494,5 +497,210 @@ func TestRetentionOnDemandReachesTheBuckets(t *testing.T) {
 	// and a fleet with three here and one offsite is a correct fleet.
 	if entries, _ := backup.List(filepath.Join(h.onDisk(), backup.DefaultDirName)); len(entries) != 3 {
 		t.Errorf("pruning the bucket removed local backups too: %d left", len(entries))
+	}
+}
+
+// Retention deletes copies, and two other things in this controller also move
+// them: a backup being written, and an offsite pass sending one. Pruning
+// beside either could count a directory that is not finished or delete the
+// archive being uploaded, so it refuses and says which one to wait for.
+func TestRetentionOnDemandWaitsForABackupAndForAnOffsitePass(t *testing.T) {
+	h := newHarness(t)
+	offsite(h, nil)
+
+	if !h.c.beginBackup() {
+		t.Fatal("setting up: a backup was already being taken")
+	}
+	_, err := h.c.PruneBackups(h.ctx)
+	h.c.endBackup()
+	if !errors.Is(err, ErrBackupRunning) {
+		t.Errorf("pruning beside a backup returned %v", err)
+	}
+
+	if !h.c.beginShipping() {
+		t.Fatal("setting up: a pass was already running")
+	}
+	report, err := h.c.PruneBackups(h.ctx)
+	h.c.endShipping()
+	if !errors.Is(err, ErrShippingRunning) {
+		t.Errorf("pruning beside an offsite pass returned %v", err)
+	}
+	// The local half still ran: it is done before the buckets are touched,
+	// and it is the half that has nothing to do with them.
+	if report.Keep != h.c.cfg().Backup.Keep {
+		t.Errorf("the report says keep %d", report.Keep)
+	}
+}
+
+// A bucket that refuses is recorded against its own name, and the copies on
+// this host are pruned anyway. A fleet whose retention stopped at the first
+// wrong credential would keep every copy it has and never say why.
+func TestRetentionOnDemandRecordsABucketThatRefuses(t *testing.T) {
+	h := newHarness(t)
+	fake := offsite(h, func(r *config.BackupRemote) { r.Keep = 1 })
+	h.c.UpdateConfig(func(c *config.Config) { c.Backup.Keep = 0 })
+
+	for range 2 {
+		h.c.scheduledBackup(h.ctx)
+		h.offset.Add(int64(2 * time.Hour))
+		time.Sleep(1100 * time.Millisecond)
+	}
+	fake.BreakWith(403, "AccessDenied", "the policy says no")
+
+	h.c.UpdateConfig(func(c *config.Config) { c.Backup.Keep = 1 })
+	report, err := h.c.PruneBackups(h.ctx)
+	if err != nil {
+		t.Fatalf("PruneBackups: %v", err)
+	}
+	if len(report.Removed) != 1 {
+		t.Errorf("the local half removed %v while the bucket was refusing", report.Removed)
+	}
+	if len(report.Remotes) != 1 || report.Remotes[0].Error == "" {
+		t.Fatalf("the report says %+v about a bucket that refused", report.Remotes)
+	}
+	// internal/backup words the refusal rather than passing the service's
+	// code through, so a policy that is too narrow reads as the permissions
+	// it is missing rather than as "AccessDenied".
+	if !strings.Contains(report.Remotes[0].Error, "s3:ListBucket") {
+		t.Errorf("the refusal reads %q, which does not say what the credential needs", report.Remotes[0].Error)
+	}
+	// And the page carries it, so the drawer has something to raise.
+	if status := h.c.BackupRemotes(h.ctx); len(status) != 1 || status[0].LastError == "" {
+		t.Errorf("the page would say %+v about the destination that refused", status)
+	}
+}
+
+// The default fleet has no destinations at all, and pruning it is the local
+// half alone rather than an error somebody has to read.
+func TestRetentionOnDemandOnAFleetWithNoDestinations(t *testing.T) {
+	h := newHarness(t)
+	h.c.UpdateConfig(func(c *config.Config) { c.Backup.Interval = time.Hour })
+
+	for range 2 {
+		h.c.scheduledBackup(h.ctx)
+		h.offset.Add(int64(2 * time.Hour))
+		time.Sleep(1100 * time.Millisecond)
+	}
+	h.c.UpdateConfig(func(c *config.Config) { c.Backup.Keep = 1 })
+
+	report, err := h.c.PruneBackups(h.ctx)
+	if err != nil {
+		t.Fatalf("PruneBackups: %v", err)
+	}
+	if len(report.Removed) != 1 || report.Error != "" {
+		t.Errorf("the report reads %+v", report)
+	}
+	if len(report.Remotes) != 0 {
+		t.Errorf("a fleet with no destinations reported %+v", report.Remotes)
+	}
+}
+
+// A backup directory that cannot be read is the report's own error rather
+// than a pass that claims to have removed nothing.
+func TestRetentionOnDemandSaysWhyTheDirectoryRefused(t *testing.T) {
+	h := newHarness(t)
+	root := filepath.Join(h.onDisk(), backup.DefaultDirName)
+	h.c.UpdateConfig(func(c *config.Config) { c.Backup.Interval = time.Hour })
+	h.c.scheduledBackup(h.ctx)
+	h.c.UpdateConfig(func(c *config.Config) { c.Backup.Keep = 1 })
+
+	// A file where the directory should be: List cannot read it, and the
+	// operator is told that rather than "nothing to remove".
+	if err := os.RemoveAll(root); err != nil {
+		t.Fatalf("clearing the directory: %v", err)
+	}
+	if err := os.WriteFile(root, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("writing the file in its place: %v", err)
+	}
+
+	report, err := h.c.PruneBackups(h.ctx)
+	if err != nil {
+		t.Fatalf("PruneBackups: %v", err)
+	}
+	if report.Error == "" {
+		t.Error("a directory that could not be read reported no error")
+	}
+	if len(report.Removed) != 0 {
+		t.Errorf("it also claims to have removed %v", report.Removed)
+	}
+}
+
+// A destination this controller cannot even build a client for -- an endpoint
+// that is not a URL, which the startup validator would have caught but a
+// stored row edited by hand would not -- is recorded against its own name.
+// The others are still pruned: one malformed row must not stop retention.
+func TestRetentionOnDemandRecordsADestinationItCannotBuild(t *testing.T) {
+	h := newHarness(t)
+	fake := offsite(h, nil)
+	h.c.UpdateConfig(func(c *config.Config) {
+		c.Backup.Keep = 0
+		c.Backup.Remotes = append(c.Backup.Remotes, config.BackupRemote{
+			Name: "broken", Endpoint: "://not-a-url", Bucket: fake.Bucket(),
+			AccessKeyID: "AKIAEXAMPLE", SecretAccessKey: "secret",
+		})
+	})
+
+	for range 2 {
+		h.c.scheduledBackup(h.ctx)
+		h.offset.Add(int64(2 * time.Hour))
+		time.Sleep(1100 * time.Millisecond)
+	}
+	h.c.UpdateConfig(func(c *config.Config) { c.Backup.Keep = 1 })
+
+	report, err := h.c.PruneBackups(h.ctx)
+	if err != nil {
+		t.Fatalf("PruneBackups: %v", err)
+	}
+	if len(report.Removed) != 1 {
+		t.Errorf("the local half removed %v", report.Removed)
+	}
+	var broken *RemotePruning
+	for i, r := range report.Remotes {
+		if r.Name == "broken" {
+			broken = &report.Remotes[i]
+		}
+	}
+	if broken == nil || broken.Error == "" {
+		t.Fatalf("the report says %+v about a destination that cannot be built", report.Remotes)
+	}
+	if len(report.Remotes) != 2 {
+		t.Errorf("the working destination was dropped from the pass: %+v", report.Remotes)
+	}
+}
+
+// The loop's quiet pass: nothing is due, nothing has been asked for, and
+// there is nowhere for a copy to go. It has to be a pass that does nothing
+// rather than one that takes a backup or reaches for a bucket.
+func TestAQuietPassTakesNothingAndSendsNothing(t *testing.T) {
+	h := newHarness(t)
+	root := filepath.Join(h.onDisk(), backup.DefaultDirName)
+	// The schedule off, which is what backup.interval 0 means, and no
+	// destinations -- the default fleet.
+	h.c.UpdateConfig(func(c *config.Config) { c.Backup.Interval = 0 })
+
+	h.c.backupPass(h.ctx, false)
+
+	if entries, err := backup.List(root); err == nil && len(entries) != 0 {
+		t.Errorf("a pass with the schedule off took %d backups", len(entries))
+	}
+	if remotes := h.c.BackupRemotes(h.ctx); len(remotes) != 0 {
+		t.Errorf("a fleet with no destinations reported %+v", remotes)
+	}
+}
+
+// And the noisy one: a pass whose bucket refuses leaves the failure on the
+// destination rather than raising it out of the loop, which has nobody to
+// tell. The page and the drawer are where it is read.
+func TestAScheduledPassRecordsABucketThatRefuses(t *testing.T) {
+	h := newHarness(t)
+	fake := offsite(h, nil)
+	fake.BreakWith(500, "InternalError", "the service is having a moment")
+
+	h.c.scheduledBackup(h.ctx)
+	h.c.shipScheduled(h.ctx)
+
+	status := h.c.BackupRemotes(h.ctx)
+	if len(status) != 1 || status[0].LastError == "" {
+		t.Errorf("the page would say %+v about a destination that refused every request", status)
 	}
 }
