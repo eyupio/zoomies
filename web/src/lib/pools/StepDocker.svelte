@@ -14,8 +14,8 @@
   advanced path, where it is chosen deliberately and confirmed.
 
   The cost is on the card that carries it: a daemon is a privileged sidecar
-  container beside each runner, which the host pays for twice -- once for the
-  runner and once for the daemon -- and the pool's page says so afterwards.
+  container beside each runner, and the two share the slot they land in, so a
+  job here gets half of one rather than a host holding half as many runners.
 -->
 <script lang="ts">
   import { Check, Container, Package } from '@lucide/svelte';
@@ -102,8 +102,8 @@
         into it is on the host's kernel, which is why this is off unless asked for.
       </li>
       <li>
-        A runner is then <strong>two containers</strong>, and this fleet charges its host for both —
-        so a host holds fewer runners of this pool than of a plain one.
+        The runner and its daemon <strong>share one slot</strong> of whichever host they land on, so a
+        host holds as many runners of this pool as of any other — each with a little less machine to itself.
       </li>
     </ul>
     <p class="after">

@@ -182,7 +182,9 @@ func PoolRoomWarnings(p *store.Pool, room PoolRoom) []Problem {
 				p.Name, plural(len(over), "host")),
 			Detail: "the slots above what the machine has room for read as free capacity on every page that counts them, " +
 				"and every create for one of them is refused for want of CPU or memory: " + strings.Join(names, ", ") + ".",
-			Fix:        "adjust those hosts to the slots their machines can back, or give this pool's runners less.",
+			Fix: "adjust those hosts to the slots their machines can back, give this pool's runners less, " +
+				"or clear its CPU and memory so each runner is given one slot's share of whatever host it lands on -- " +
+				"which is the one size that cannot outrun a slot.",
 			TargetKind: "pool",
 			TargetID:   p.ID,
 		})

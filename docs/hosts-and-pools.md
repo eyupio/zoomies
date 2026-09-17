@@ -593,17 +593,27 @@ old rows: it is what [one share of each host](#how-big-a-runner-is-and-how-many-
 means, it is the shape a new pool has, and the same share is handed to the
 runner as a real cgroup limit, so the books and the cgroups agree.
 
-A pool with `docker_mode: dind` is charged twice over, whichever of those two
-the figure came from: the build runs inside the sidecar, which the backend
-gives the same limits, so the pool's footprint on the host really is two of
-everything — two of what it asked for, or two slots' worth of the machine. A
-defaulted pair was once charged only one, and that is the arithmetic behind a
-host reading "CPU committed 50%" while every core on it sat inside a runner's
-quota and `docker` had stopped answering creates. Four slots of such a pool are
-two runners, not four. Only a doubled *share* is capped at the machine, so a
-host with a single slot still places the one pair it has room for; a pool's own
-figures are never capped, because a host too small for what an operator typed
-has to be able to say so. The reservation is worked out from
+A pool with `docker_mode: dind` runs two containers per runner, and what it is
+charged follows what the two are given. A size **you typed** says what the job
+may have, and the build runs in the daemon, so the daemon is given the same and
+the host is charged twice: two of what the pool asked for. A size that came
+from **the host's slot** is one slot, and the pair splits it between them — so
+the host is charged one, and eight slots are eight runners whether or not their
+jobs build images.
+
+Both halves of that have to stay true together, and each has been wrong once.
+Charging a defaulted pair one share while giving each container a whole one is
+the arithmetic behind a host reading "CPU committed 50%" with every core on it
+inside a runner's quota and `docker` refusing creates. Charging two while
+giving the pair one is the mirror of it, and reads as a fleet that will not use
+the machines it has: eight slots holding four runners, a page promising room
+the scheduler refuses, and an overcommit warning whose fix — fewer slots — cost
+room every time it was taken, down to one slot holding nothing at all.
+
+A slot too small to give both halves what a runner needs is refused rather than
+divided, and the host says so with its slot count and the figure it divides
+into: dividing anyway would hand the daemon whatever was left over, and a
+leftover of nothing is no limit at all. The reservation is worked out from
 the runner rows on every pass; nothing stores it, so a restart recovers it and a
 runner that fails stops being charged for as soon as its row says so.
 

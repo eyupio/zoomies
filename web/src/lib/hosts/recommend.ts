@@ -70,10 +70,13 @@ export function runnerAsk(
   let anyPair = false;
   for (const pool of pools) {
     if (pool.enabled !== true) continue;
-    // A docker-in-docker slot is two containers, not one: the backend gives
-    // the sidecar the same limits as the runner, so a slot of such a pool
-    // asks for twice what the pool says.
-    const containers = pool.docker_mode === 'dind' ? 2 : 1;
+    // A docker-in-docker slot is two containers where the pool typed its own
+    // limits: the daemon runs the build, so it is given what the job was
+    // promised and the machine carries both. A pool that leaves its size to
+    // the host puts the pair in one slot between them and asks for no more
+    // than anybody else.
+    const typed = (pool.resources?.cpus ?? 0) > 0 || (pool.resources?.memory_mb ?? 0) > 0;
+    const containers = pool.docker_mode === 'dind' && typed ? 2 : 1;
     anyPair = anyPair || containers > 1;
     const wantCpus = (pool.resources?.cpus ?? 0) * containers;
     const wantMemoryMb = (pool.resources?.memory_mb ?? 0) * containers;
@@ -90,9 +93,9 @@ export function runnerAsk(
   }
   if (cpus <= 0 && memoryMb <= 0) {
     // Nothing was set anywhere, so the fleet's default answers -- twice over
-    // where a pool gives its jobs a daemon, since its pair is given the host's
-    // share on each container. This is the shape that sizes a host wrong most
-    // often, because there is no figure on the pool to double.
+    // only where a pool typed a daemon's worth beside it, which nothing here
+    // did. A pool that leaves its size to the host puts its runner and its
+    // daemon in one slot, so its ask is one runner's like everybody else's.
     if (!anyPair)
       return { cpus: fallbackCPUs, memoryMb: fallbackMemoryMb, source: 'default', pair: false };
     return {

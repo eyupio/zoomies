@@ -246,7 +246,7 @@ test('the automatic path can give a pool its own Docker daemon', async ({ page }
   await page.getByRole('radio', { name: 'Yes' }).check();
   // What it costs is on the screen that asks, not on a page found later.
   await expect(page.getByText('privileged container')).toBeVisible();
-  await expect(page.getByText('two containers')).toBeVisible();
+  await expect(page.getByText('share one slot')).toBeVisible();
 
   await next(page).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Review' })).toBeVisible();

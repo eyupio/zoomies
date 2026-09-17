@@ -477,6 +477,48 @@ type Resources struct {
 	PidsLimit int64   `json:"pids_limit,omitempty"` // container pids cgroup limit
 }
 
+// SplitWithDaemon divides limits a runner was given by its host's slot between
+// the runner and the docker-in-docker daemon that runs beside it.
+//
+// It exists because the two containers are one runner. A slot is the unit a
+// machine is cut into, and an operator who sets a host to eight slots is
+// saying it may carry eight runners -- not four, because half of them brought
+// a daemon. So the pair is given one slot's share and splits it, and the
+// scheduler charges the host one share for the pair: the arithmetic the page
+// shows, the quota the daemon applies, and the room the scheduler counts are
+// then the same number, which is what stops a host reading as half idle while
+// its containers' quotas add up to every core it has.
+//
+// The halves are even, because the work is on both sides of the pair: a build
+// runs in the daemon, and everything else in the job -- the checkout, the
+// toolchain, the test run -- is in the runner. A slot too small to give both
+// halves what a runner needs is refused rather than divided, so nothing here
+// has to decide which half to starve.
+//
+// Limits an operator typed are not split: those say what the job may have, the
+// daemon is given the same, and scheduler.Reserve charges the host for both.
+func (r Resources) SplitWithDaemon() (runner, daemon Resources) {
+	runner, daemon = r, r
+	// An even split, and nothing clever for a share too small to take one: a
+	// slot that cannot carry both halves is refused before a runner is placed
+	// on it -- scheduler.ShareFloor -- because the alternative here is giving
+	// the daemon whatever is left over, and a leftover of nothing is no limit
+	// at all, which is how one build takes the machine.
+	if r.CPUs > 0 {
+		runner.CPUs = r.CPUs / 2
+		daemon.CPUs = r.CPUs - runner.CPUs
+	}
+	if r.MemoryMB > 0 {
+		runner.MemoryMB = r.MemoryMB / 2
+		daemon.MemoryMB = r.MemoryMB - runner.MemoryMB
+	}
+	// Pids and disk are not divided. A pids limit is a guard against a fork
+	// bomb rather than a budget, and halving it would refuse a legitimate
+	// build on a pool that never asked for less; disk is the cache and the
+	// image store, which the daemon holds for the pair.
+	return runner, daemon
+}
+
 // RunnerSettings is a pool's answer where it disagrees with the fleet's.
 //
 // Every field is a pointer, and that is the type's whole meaning: nil is "the

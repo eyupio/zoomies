@@ -49,17 +49,23 @@ const cpuEpsilon = 1e-6
 // reserve floor: a pool that asks for disk is charged it, and a host at or
 // below its reserve takes nothing.
 //
-// A docker-in-docker runner is charged for both of its containers, whichever
-// figure the charge came from. The fallback used to be the exception -- a
-// share of a machine was held not to become two shares because of what ran
-// inside it -- and the exception was wrong in the one way that matters: the
-// backend gives the sidecar the same limits as the runner, fallback share
-// included, so a defaulted pair was given two shares of the machine and
-// charged one. A host then read as half committed while its runners' quotas
-// added up to every core it had, the daemon lost the reserve that arithmetic
-// said was being kept for it, and creates started timing out on a host the
-// fleet believed was half idle. The pair is what the machine carries, so the
-// pair is what it is charged.
+// A docker-in-docker runner is two containers, and what it is charged follows
+// what the two are given. A limit an operator typed says what the job may
+// have; the daemon is given the same, so the pair is charged twice, and a host
+// too small for what was typed says so. A fallback share is the machine cut
+// into slots, and there the pair splits one slot between them -- see
+// store.Resources.SplitWithDaemon -- so it is charged one.
+//
+// Both halves of that have to stay true together. Charging one share while
+// giving each container a whole one is the bug this once had: a host read as
+// half committed while its containers' quotas added up to every core it had,
+// the daemon lost the reserve the arithmetic said was being kept for it, and
+// creates timed out on a machine the fleet believed was idle. Giving the pair
+// one share while charging two is the mirror of it, and is what an operator
+// meets as a fleet that will not use the machines it has: eight slots that
+// hold four runners, a page promising room the pass refuses, and an
+// overcommit warning whose advice -- fewer slots -- makes it worse every time
+// it is taken, down to one slot holding nothing at all.
 func Reserve(p *store.Pool, h *store.Host) Reservation {
 	alloc := h.Allocatable()
 	res := Reservation{
@@ -75,26 +81,16 @@ func Reserve(p *store.Pool, h *store.Host) Reservation {
 		res.MemoryMB = int64(share(float64(alloc.MemoryMB), h.Capacity))
 	}
 	if p.DockerMode == store.DockerDinD {
-		res.CPUs *= 2
-		res.MemoryMB *= 2
+		// Only what the operator typed doubles. A share is one slot, and the
+		// pair is given one slot between them.
+		if !cpuFromHost {
+			res.CPUs *= 2
+		}
+		if !memoryFromHost {
+			res.MemoryMB *= 2
+		}
+		// Disk has no fallback, so a figure here is always one somebody typed.
 		res.DiskMB *= 2
-		// A doubled share is capped at the machine, and only a doubled share:
-		// a pool's own figures are charged in full however large they are,
-		// because a host too small for what an operator typed has to be able
-		// to say so. Two shares are more than the machine on a host with one
-		// slot alone, where capping is the difference between placing the one
-		// pair it has room for and refusing the pool outright -- and a fleet
-		// of single-slot hosts must not empty itself on upgrade. There the
-		// pair is still given two shares between them, because halving a lone
-		// slot's memory is how a job that used to pass gets OOM-killed; what
-		// answers for it is the same pressure hold and throttle that answer
-		// for every other machine running more than it was sized for.
-		if cpuFromHost && alloc.CPUsKnown {
-			res.CPUs = min(res.CPUs, alloc.CPUs)
-		}
-		if memoryFromHost && alloc.MemoryKnown {
-			res.MemoryMB = min(res.MemoryMB, alloc.MemoryMB)
-		}
 	}
 	return res
 }
@@ -187,13 +183,33 @@ func ShareTooSmall(h *store.Host, p *store.Pool) string {
 	}
 	alloc := h.Allocatable()
 	share := HostShare(h)
-	if alloc.CPUsKnown && share.CPUs < store.MinRunnerCPUs {
+	// A docker-in-docker runner is two containers sharing one slot, so the
+	// slot has to carry two runners' worth of floor rather than one. Refusing
+	// the host here is what keeps the split honest: a slot that cannot be
+	// divided without starving the runner is not a slot this pool can use, and
+	// saying so names the capacity to change -- where dividing it anyway would
+	// hand the daemon whatever was left, which on a small enough slot is
+	// nothing at all, and no limit is how a build takes the machine.
+	need := ShareFloor(p)
+	if alloc.CPUsKnown && share.CPUs < need.CPUs {
 		return "cpu"
 	}
-	if alloc.MemoryKnown && share.MemoryMB < store.MinRunnerMemoryMB {
+	if alloc.MemoryKnown && share.MemoryMB < need.MemoryMB {
 		return "memory"
 	}
 	return ""
+}
+
+// ShareFloor is the least one slot may be worth on a host this pool can use:
+// what a runner needs to be one, doubled where the runner brings a daemon into
+// the same slot.
+func ShareFloor(p *store.Pool) Reservation {
+	floor := Reservation{CPUs: store.MinRunnerCPUs, MemoryMB: store.MinRunnerMemoryMB}
+	if p != nil && p.DockerMode == store.DockerDinD && p.Automatic() {
+		floor.CPUs *= 2
+		floor.MemoryMB *= 2
+	}
+	return floor
 }
 
 // fits is the one comparison, so that the empty-host question and the
@@ -235,15 +251,20 @@ func HostShortfall(h *store.Host, p *store.Pool) string {
 	// limit it does not set would send them to the wrong screen.
 	if field := ShareTooSmall(h, p); field != "" {
 		share := HostShare(h)
+		need := ShareFloor(p)
+		pair := ""
+		if need.CPUs > store.MinRunnerCPUs {
+			pair = ", because this pool's runners share their slot with a Docker daemon"
+		}
 		switch field {
 		case "cpu":
-			return fmt.Sprintf("it is set to %s, which divides its %s allocatable CPU into shares of %s each, and a runner needs at least %s to keep up with its own job",
+			return fmt.Sprintf("it is set to %s, which divides its %s allocatable CPU into shares of %s each, and a runner needs at least %s to keep up with its own job%s",
 				plural(h.Capacity, "slot"), formatCPUs(h.Allocatable().CPUs),
-				formatCPUs(share.CPUs), formatCPUs(store.MinRunnerCPUs))
+				formatCPUs(share.CPUs), formatCPUs(need.CPUs), pair)
 		default:
-			return fmt.Sprintf("it is set to %s, which divides its %s of allocatable memory into shares of %s each, and a runner is killed before it takes a job below %s",
+			return fmt.Sprintf("it is set to %s, which divides its %s of allocatable memory into shares of %s each, and a runner is killed before it takes a job below %s%s",
 				plural(h.Capacity, "slot"), formatMB(h.Allocatable().MemoryMB),
-				formatMB(share.MemoryMB), formatMB(store.MinRunnerMemoryMB))
+				formatMB(share.MemoryMB), formatMB(need.MemoryMB), pair)
 		}
 	}
 	alloc := h.Allocatable()

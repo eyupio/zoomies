@@ -109,28 +109,34 @@ func TestADockerInDockerRunnerIsChargedForItsSidecar(t *testing.T) {
 	}
 }
 
-// The case from the field, and the reason the charge changed: a 12-CPU host
-// with four slots, a docker-in-docker pool that sets no limits of its own,
-// and a Hosts page reading "CPU committed 50%" while every core on the
-// machine was inside a runner's quota. The pair is given two shares by the
-// backend, so the pair is charged two -- and four slots of a defaulted dind
-// pool are two runners, not four.
-func TestADefaultedDockerInDockerPairIsChargedForBothOfItsContainers(t *testing.T) {
+// A slot is one runner, whatever the runner brought with it.
+//
+// A defaulted docker-in-docker pair splits one slot between its two containers
+// -- store.Resources.SplitWithDaemon -- so four slots are four runners, the
+// same as any other pool. The arithmetic that used to charge two shares for
+// such a pair is why an operator was told a twelve-core host with four slots
+// had room for two, and then told to halve its capacity to match; the advice
+// converged on one slot, which held nothing.
+func TestADefaultedDockerInDockerPairSharesOneSlot(t *testing.T) {
 	h := sized("host_a", 4, 12, 32*1024, 500*1024)
 	p := testPool("builders", "builders")
 	p.DockerMode = store.DockerDinD
 
 	hs := newHostSet([]*store.Host{h}, []*store.Pool{p}, nil, now)
-	if got := hs.place(p, 4); len(got) != 2 {
-		t.Fatalf("placed %d defaulted dind runners on a 12-CPU host with 4 slots, want 2", len(got))
+	if got := hs.place(p, 4); len(got) != 4 {
+		t.Fatalf("placed %d defaulted dind runners on a 12-CPU host with 4 slots, want 4", len(got))
 	}
 
-	// The same pool without the sidecar still fills its slots, which is what
-	// says the difference above is the sidecar and not the slot count.
-	plain := testPool("plain", "plain")
-	hs = newHostSet([]*store.Host{sized("host_b", 4, 12, 32*1024, 500*1024)}, []*store.Pool{plain}, nil, now)
-	if got := hs.place(plain, 4); len(got) != 4 {
-		t.Fatalf("placed %d defaulted plain runners on a 4-slot host, want 4", len(got))
+	// A pool that typed its own figures is charged for both containers, which
+	// is what says the slot -- not the sidecar -- is what changed above: the
+	// daemon is given what the job was promised, so the host pays for it.
+	// 2 CPU typed is charged 4 with the daemon, so an 11-CPU machine takes two
+	// rather than the five it would take at the figure on the pool.
+	typed := limited("typed", 2, 4*1024)
+	typed.DockerMode = store.DockerDinD
+	hs = newHostSet([]*store.Host{sized("host_b", 4, 12, 32*1024, 500*1024)}, []*store.Pool{typed}, nil, now)
+	if got := hs.place(typed, 4); len(got) != 2 {
+		t.Fatalf("placed %d dind runners of 2 typed CPU on a 12-CPU host, want 2 at twice the charge", len(got))
 	}
 }
 
@@ -151,24 +157,30 @@ func TestAHostIsNeverChargedLessThanItsRunnersAreGiven(t *testing.T) {
 			if mode == store.DockerDinD {
 				containers = 2
 			}
-			given, _ := Allocation(p, h, true)
+			given, source := Allocation(p, h, true)
 			charge := Reserve(p, h)
-			// The single-slot host is the documented exception: two shares
-			// are more than the machine, so the pair is charged the machine
-			// and given twice it rather than the pool being refused outright.
-			if mode == store.DockerDinD && capacity == 1 {
-				if charge.CPUs != h.Allocatable().CPUs {
-					t.Errorf("capacity 1: charged %v CPU, want the whole allocatable machine %v", charge.CPUs, h.Allocatable().CPUs)
+			// What the backend hands out: one container of the given limits,
+			// or -- where those came from the host's slot and the pool brings
+			// a daemon -- the two halves that slot is split into.
+			handed := given
+			if mode == store.DockerDinD {
+				if source == store.AllocationFromHost {
+					runner, daemon := given.SplitWithDaemon()
+					handed = store.Resources{
+						CPUs:     runner.CPUs + daemon.CPUs,
+						MemoryMB: runner.MemoryMB + daemon.MemoryMB,
+					}
+				} else {
+					handed = store.Resources{CPUs: containers * given.CPUs, MemoryMB: int64(containers) * given.MemoryMB}
 				}
-				continue
 			}
-			if charge.CPUs+cpuEpsilon < containers*given.CPUs {
-				t.Errorf("capacity %d, %s: charged %v CPU and gave %v to each of %v containers",
-					capacity, mode, charge.CPUs, given.CPUs, containers)
+			if charge.CPUs+cpuEpsilon < handed.CPUs {
+				t.Errorf("capacity %d, %s: charged %v CPU and handed out %v across its containers",
+					capacity, mode, charge.CPUs, handed.CPUs)
 			}
-			if charge.MemoryMB < int64(containers)*given.MemoryMB {
-				t.Errorf("capacity %d, %s: charged %d MB and gave %d MB to each of %v containers",
-					capacity, mode, charge.MemoryMB, given.MemoryMB, containers)
+			if charge.MemoryMB < handed.MemoryMB {
+				t.Errorf("capacity %d, %s: charged %d MB and handed out %d MB across its containers",
+					capacity, mode, charge.MemoryMB, handed.MemoryMB)
 			}
 		}
 	}

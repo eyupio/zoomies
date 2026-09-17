@@ -355,6 +355,28 @@ type containerOptions struct {
 }
 
 // buildRunnerConfig assembles the container config for one runner.
+// pairLimits is what each half of a docker-in-docker runner is given.
+//
+// A limit an operator typed says what the job may have, and the daemon is
+// given the same: the build runs in the daemon, so a pool that asked for eight
+// gigabytes and got them only in the container that is not building would have
+// asked for nothing. scheduler.Reserve charges the host for both.
+//
+// A limit that came from the host's slot is one slot, and the pair splits it,
+// because a slot is one runner: an operator who set a host to eight slots said
+// it may carry eight runners, not four because half of them brought a daemon.
+// The scheduler charges one share for the pair to match.
+//
+// Anything else -- a spec from a controller that says nothing about where its
+// limits came from -- is treated as typed, which is what such a spec has always
+// meant and leaves an older fleet exactly as it was.
+func pairLimits(spec Spec) (runner, daemon store.Resources) {
+	if spec.ResourcesSource != store.AllocationFromHost {
+		return spec.Resources, spec.Resources
+	}
+	return spec.Resources.SplitWithDaemon()
+}
+
 func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRequest {
 	labels := spec.Labels(o.Now)
 	labels[LabelRole] = roleRunner
@@ -365,7 +387,11 @@ func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreate
 	if o.WorkDirOwned && o.WorkDirMount != "" {
 		labels[LabelWorkDir] = o.WorkDirMount
 	}
-	stampResourceLabels(labels, spec)
+	runnerRes := spec.Resources
+	if spec.DockerMode == store.DockerDinD {
+		runnerRes, _ = pairLimits(spec)
+	}
+	stampResourceLabels(labels, spec, runnerRes)
 
 	cfg := ContainerCreateRequest{
 		Image: spec.Image,
@@ -403,17 +429,18 @@ func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreate
 	}
 
 	hc := cfg.HostConfig
-	if spec.Resources.CPUs > 0 {
-		hc.NanoCPUs = nanoCPUs(spec.Resources.CPUs)
+	res := runnerRes
+	if res.CPUs > 0 {
+		hc.NanoCPUs = nanoCPUs(res.CPUs)
 	}
-	if spec.Resources.MemoryMB > 0 {
-		hc.Memory = spec.Resources.MemoryMB * 1024 * 1024
+	if res.MemoryMB > 0 {
+		hc.Memory = res.MemoryMB * 1024 * 1024
 		// Without an equal swap limit the container can swap past its memory
 		// cap, which turns an OOM into an unexplained slowdown.
 		hc.MemorySwap = hc.Memory
 	}
-	if spec.Resources.PidsLimit > 0 {
-		limit := spec.Resources.PidsLimit
+	if res.PidsLimit > 0 {
+		limit := res.PidsLimit
 		hc.PidsLimit = &limit
 	}
 
@@ -493,7 +520,8 @@ func buildDinDConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRe
 	labels[LabelRole] = roleDinD
 	labels[LabelDinDFor] = spec.Name
 	labels[LabelName] = dindName(spec.Name)
-	stampResourceLabels(labels, spec)
+	_, daemonRes := pairLimits(spec)
+	stampResourceLabels(labels, spec, daemonRes)
 
 	cfg := ContainerCreateRequest{
 		Image:    o.DinDImage,
@@ -518,15 +546,16 @@ func buildDinDConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRe
 	// not the runner, so a pool's memory, CPU and pids limits are worth nothing
 	// unless they bind the sidecar too.
 	hc := cfg.HostConfig
-	if spec.Resources.CPUs > 0 {
-		hc.NanoCPUs = nanoCPUs(spec.Resources.CPUs)
+	res := daemonRes
+	if res.CPUs > 0 {
+		hc.NanoCPUs = nanoCPUs(res.CPUs)
 	}
-	if spec.Resources.MemoryMB > 0 {
-		hc.Memory = spec.Resources.MemoryMB * 1024 * 1024
+	if res.MemoryMB > 0 {
+		hc.Memory = res.MemoryMB * 1024 * 1024
 		hc.MemorySwap = hc.Memory
 	}
-	if spec.Resources.PidsLimit > 0 {
-		limit := spec.Resources.PidsLimit
+	if res.PidsLimit > 0 {
+		limit := res.PidsLimit
 		hc.PidsLimit = &limit
 	}
 	if o.Network != "" {
@@ -545,12 +574,15 @@ func buildDinDConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRe
 // label, and an agent that adopted the pair after a restart has no other
 // record of what either was given.
 //
+// Each is stamped with its own half, because under a slot's share the two
+// halves differ -- a label that said what the pair was given between them
+// would have the throttle scale one container by the other's quota.
+//
 // A missing label reads back as zero, so only a limit that was set is
 // written, and the source only when there is a limit for it to describe. A
 // spec from a controller that predates the source says nothing about it, and
 // a limit it did set can only have been the pool's own.
-func stampResourceLabels(labels map[string]string, spec Spec) {
-	res := spec.Resources
+func stampResourceLabels(labels map[string]string, spec Spec, res store.Resources) {
 	if res.CPUs > 0 {
 		labels[LabelCPUs] = strconv.FormatFloat(res.CPUs, 'f', -1, 64)
 	}

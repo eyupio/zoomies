@@ -116,9 +116,13 @@ export function sizeLabel(cpus: number, memoryMb: number): string {
 }
 
 /**
- * What a runner of this pool is charged, which is twice its size where the
- * pool gives its jobs a daemon of their own: the backend gives the sidecar the
- * same limits as the runner, so the machine carries the pair.
+ * What a runner of this pool is charged, which is twice the size it was given
+ * where the pool gives its jobs a daemon of their own: the build runs in that
+ * daemon, so it is given the same limits and the machine carries the pair.
+ *
+ * It is asked only about a size somebody typed. A pool sized by its host puts
+ * the runner and the daemon in one slot between them, so it is charged one --
+ * a slot is one runner, whatever the runner brought with it.
  *
  * It is the figure the fleet's room is counted from, and the one an operator
  * reading "2 cores" against a ten-core host cannot otherwise arrive at.

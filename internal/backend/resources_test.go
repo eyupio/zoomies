@@ -19,21 +19,35 @@ import (
 // have to say it, because each is throttled on its own.
 func TestBothContainersOfARunnerCarryTheirLimitsAndWhereTheyCameFrom(t *testing.T) {
 	now := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	// Each container carries what it was actually given, which under a slot's
+	// share is its half of the pair: a label saying what the two have between
+	// them would have the throttle scale one container by the other's quota.
 	cases := []struct {
 		name      string
 		resources store.Resources
 		source    string
-		wantCPUs  string
-		wantMem   string
-		wantFrom  string
+		runner    [3]string // cpus, memory, where they came from
+		daemon    [3]string
 	}{
-		{"the pool's own limits", store.Resources{CPUs: 2.5, MemoryMB: 4096}, store.AllocationFromPool, "2.5", "4096", "pool"},
-		{"the host's default share", store.Resources{CPUs: 0.75, MemoryMB: 1900}, store.AllocationFromHost, "0.75", "1900", "host"},
+		// Typed limits say what the job may have, and the daemon runs the
+		// build, so both are given them in full and the host is charged twice.
+		{"the pool's own limits", store.Resources{CPUs: 2.5, MemoryMB: 4096}, store.AllocationFromPool,
+			[3]string{"2.5", "4096", "pool"}, [3]string{"2.5", "4096", "pool"}},
+		// One slot, split between the two halves of one runner.
+		{"the host's default share", store.Resources{CPUs: 0.75, MemoryMB: 1900}, store.AllocationFromHost,
+			[3]string{"0.375", "950", "host"}, [3]string{"0.375", "950", "host"}},
+		// An odd figure leaves the remainder with the daemon, which is the
+		// half that runs the build.
+		{"a share that does not halve evenly", store.Resources{CPUs: 1, MemoryMB: 1901}, store.AllocationFromHost,
+			[3]string{"0.5", "950", "host"}, [3]string{"0.5", "951", "host"}},
 		// A controller that predates the source field still sets limits, and
 		// the only limits it knows are the pool's.
-		{"a limit with no source named", store.Resources{CPUs: 1}, "", "1", "", "pool"},
-		{"a memory limit alone", store.Resources{MemoryMB: 512}, store.AllocationFromHost, "", "512", "host"},
-		{"no limits at all", store.Resources{}, store.AllocationFromHost, "", "", ""},
+		{"a limit with no source named", store.Resources{CPUs: 1}, "",
+			[3]string{"1", "", "pool"}, [3]string{"1", "", "pool"}},
+		{"a memory limit alone", store.Resources{MemoryMB: 1024}, store.AllocationFromHost,
+			[3]string{"", "512", "host"}, [3]string{"", "512", "host"}},
+		{"no limits at all", store.Resources{}, store.AllocationFromHost,
+			[3]string{"", "", ""}, [3]string{"", "", ""}},
 	}
 	for _, c := range cases {
 		spec := jitSpec()
@@ -43,14 +57,14 @@ func TestBothContainersOfARunnerCarryTheirLimitsAndWhereTheyCameFrom(t *testing.
 		for _, cfg := range []struct {
 			what   string
 			labels map[string]string
+			want   [3]string
 		}{
-			{"runner", buildRunnerConfig(spec, dockerFlavor(), containerOptions{Now: now}).Labels},
-			{"sidecar", buildDinDConfig(spec, dockerFlavor(), containerOptions{Now: now, DinDImage: DefaultDinDImage}).Labels},
+			{"runner", buildRunnerConfig(spec, dockerFlavor(), containerOptions{Now: now}).Labels, c.runner},
+			{"sidecar", buildDinDConfig(spec, dockerFlavor(), containerOptions{Now: now, DinDImage: DefaultDinDImage}).Labels, c.daemon},
 		} {
 			got := [3]string{cfg.labels[LabelCPUs], cfg.labels[LabelMemoryMB], cfg.labels[LabelLimitsFrom]}
-			want := [3]string{c.wantCPUs, c.wantMem, c.wantFrom}
-			if got != want {
-				t.Errorf("%s, %s: labels cpus/memory/from = %q, want %q", c.name, cfg.what, got, want)
+			if got != cfg.want {
+				t.Errorf("%s, %s: labels cpus/memory/from = %q, want %q", c.name, cfg.what, got, cfg.want)
 			}
 		}
 	}
