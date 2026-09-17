@@ -190,3 +190,37 @@ func TestAFixedSizeSaysWhatItLeavesUnused(t *testing.T) {
 		t.Errorf("a host that has measured nothing was counted as stranded: %s", w.Detail)
 	}
 }
+
+// A pool that overrides neither half says nothing, even when the fleet's own
+// figures are in a bad order.
+//
+// That case is the fleet's finding -- scheduler.provision_timeout_short, which
+// names the setting to change -- and repeating it once per pool would bury the
+// one sentence that matters under a row for every pool in the fleet, all of
+// them pointing at the same fix.
+func TestAPoolFollowingTheFleetLeavesTheLadderToTheFleet(t *testing.T) {
+	cfg := config.Default()
+	// A fleet whose own timeout is inside what a start costs. The validator
+	// already says so about the setting.
+	cfg.Scheduler.ProvisionTimeout = 5 * time.Minute
+
+	following := &store.Pool{
+		ID: "pool_follow", Name: "zoomies-follows", Enabled: true,
+		Backend: store.BackendDocker, DockerMode: store.DockerDinD,
+	}
+	if w := warned(PoolWarnings(following, nil, cfg), "pool.provision_timeout_short"); w != nil {
+		t.Errorf("a pool that overrides nothing repeated the fleet's own finding: %s", w.Title)
+	}
+
+	// A pool that overrode the Docker wait alone is its own case: the fleet's
+	// timeout may have been fine against the fleet's wait and is not against
+	// this pool's.
+	longWait := &store.Pool{
+		ID: "pool_wait", Name: "zoomies-patient", Enabled: true,
+		Backend: store.BackendDocker, DockerMode: store.DockerDinD,
+		RunnerSettings: store.RunnerSettings{DockerWait: poolDur(30 * time.Minute)},
+	}
+	if w := warned(PoolWarnings(longWait, nil, cfg), "pool.provision_timeout_short"); w == nil {
+		t.Error("a pool that waits 30m for Docker under a 5m timeout said nothing")
+	}
+}

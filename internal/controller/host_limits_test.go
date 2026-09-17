@@ -23,7 +23,7 @@ func TestAnOverprovisionedHostIsNamedWithTheCapacityThatFits(t *testing.T) {
 	if p.Severity != config.SeverityWarning || p.TargetKind != "host" || p.TargetID != host.ID {
 		t.Fatalf("problem = %+v; want a warning pointing at the host", p)
 	}
-	for _, want := range []string{"crowded", "capacity 8", "3.5 allocatable CPUs", "4 CPUs", "default share is 0.43 CPUs", "1984 MB"} {
+	for _, want := range []string{"crowded", "capacity 8", "3.5 allocatable CPUs", "4 CPUs", "default share is 0.43 CPUs", "1945 MB"} {
 		if !strings.Contains(p.Detail, want) {
 			t.Errorf("detail %q does not say %q", p.Detail, want)
 		}

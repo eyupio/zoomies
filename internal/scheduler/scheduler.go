@@ -936,7 +936,7 @@ func newHostSet(hosts []*store.Host, pools []*store.Pool, runners map[string][]*
 				// The host sample already includes running work. Subtract only
 				// starts whose demand the sample cannot yet contain, then take
 				// the tighter of measured headroom and reservation headroom.
-				available := *v - max(h.ReserveMemoryMB, store.MinHostReserveMemoryMB) - pending.MemoryMB
+				available := *v - h.MemoryReserve() - pending.MemoryMB
 				l.MemoryMB = min(l.MemoryMB, max(available, 0))
 			}
 			if v := h.Usage.CPUPercent; v != nil {

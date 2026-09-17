@@ -30,13 +30,31 @@ func limited(name string, cpus float64, memoryMB int64) *store.Pool {
 	return p
 }
 
+// hostFor is the machine that leaves want MB allocatable once its own reserve
+// is held back. The reserve scales with the machine, so it cannot be added as
+// a constant: a test that wrote 32*1024+512 would be describing a floor that
+// only applies to small hosts.
+func hostFor(want int64) int64 {
+	total := want
+	for range 8 {
+		got := total - (&store.Host{MemoryMB: total}).MemoryReserve()
+		if got == want {
+			return total
+		}
+		total += want - got
+	}
+	return total
+}
+
 // The headline case for the whole reservation model, and the one an operator
 // would recognise: a host advertises 32 GB, a pool asks for 4 GB a runner, and
 // the ninth runner is the one that would have been killed rather than run.
 func TestAHostAdmitsWhatItsMemoryCoversAndRefusesTheNext(t *testing.T) {
 	// Capacity is deliberately far above what memory allows, so that only the
-	// memory rule can be what stops the ninth.
-	h := sized("host_a", 32, 32, 32*1024+store.MinHostReserveMemoryMB, 500*1024)
+	// memory rule can be what stops the ninth. The machine is sized so that
+	// exactly 32 GB is left after the reserve, which scales with it: a
+	// twentieth of the whole, capped, and never under the flat floor.
+	h := sized("host_a", 32, 32, hostFor(32*1024), 500*1024)
 	p := limited("big", 0, 4096)
 
 	hs := newHostSet([]*store.Host{h}, []*store.Pool{p}, nil, now)

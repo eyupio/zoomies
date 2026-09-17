@@ -899,7 +899,15 @@ func PoolEffectiveDockerWait(p *store.Pool, cfg *config.Config) time.Duration {
 //
 // Only a pool with a daemon counts the wait, because only that pool does it.
 func poolStartLadderWarning(p *store.Pool, cfg *config.Config) (Problem, bool) {
-	if p == nil || !p.Enabled {
+	if p == nil || cfg == nil || !p.Enabled {
+		return Problem{}, false
+	}
+	// Only a pool that answered one of the two halves for itself. A pool
+	// following the fleet into a bad order is the fleet's own finding --
+	// scheduler.provision_timeout_short, which names the setting to change --
+	// and repeating it once per pool would bury that one sentence under a row
+	// for every pool in the fleet, all of them pointing at the same fix.
+	if p.RunnerSettings.ProvisionTimeout == nil && p.RunnerSettings.DockerWait == nil {
 		return Problem{}, false
 	}
 	timeout := cfg.Scheduler.ProvisionTimeout

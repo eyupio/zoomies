@@ -60,6 +60,19 @@ async function setSlider(page: Page, name: string, valuetext: string): Promise<v
   await expect(slider).toHaveAttribute('aria-valuetext', valuetext);
 }
 
+/**
+ * Start the wizard on the advanced path.
+ *
+ * The first step is the fork -- automatic or advanced -- and most of these
+ * specs are about a control that only the advanced path shows. Choosing it
+ * here keeps each of them about its own subject rather than about the fork.
+ */
+async function toAdvanced(page: Page): Promise<void> {
+  await page.getByRole('radio', { name: 'Advanced' }).check();
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Target' })).toBeVisible();
+}
+
 /** Add a label the way an operator does: type it, press Enter, see the chip. */
 async function addLabel(page: Page, label: string): Promise<void> {
   await labelField(page).fill(label);
@@ -147,27 +160,72 @@ test('runner limits are adjustable from a pool row without opening the wizard', 
   await expect(pageHeading(page, 'Pools')).toBeVisible();
 });
 
-test('the wizard walks target, labels, hosts, backend, size, scaling and review', async ({
-  page,
-}) => {
+test('the wizard forks into an automatic path and an advanced one', async ({ page }) => {
   await goto(page, '/pools/new', 'Create a pool');
+
+  // The first question is how much of the pool to decide, because the two
+  // answers lead to genuinely different amounts of work.
+  await expect(page.getByRole('heading', { level: 2, name: 'Setup' })).toBeVisible();
+  await expect(page.getByText('Step 1 of 4')).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'Automatic' })).toBeChecked();
 
   // The step list by class: nothing in the accessibility tree tells it apart
   // from the breadcrumb list above it, which is also an ordered list in main.
   const steps = page.locator('ol.steps');
-  for (const step of ['Target', 'Labels', 'Hosts', 'Backend', 'Size', 'Scaling', 'Review']) {
+  for (const step of ['Setup', 'Target', 'Labels', 'Review']) {
     await expect(steps).toContainText(step);
   }
+  // Nothing the automatic path does not ask.
+  await expect(steps).not.toContainText('Size');
+  await expect(steps).not.toContainText('Runners');
 
+  // Three questions and a review is the whole of it.
+  await next(page).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Target' })).toBeVisible();
-  await expect(page.getByText('Step 1 of 7')).toBeVisible();
   await nameField(page).fill('e2e-pool');
-  // One installation exists, so the wizard has chosen it already.
   await expect(page.getByLabel('GitHub installation')).toHaveValue(/ins_/);
 
   await next(page).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Labels' })).toBeVisible();
-  await expect(page.getByText('Step 2 of 7')).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Remove the label zoomies-e2e-pool' }),
+  ).toBeVisible();
+
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Review' })).toBeVisible();
+  await expect(page.getByText('Step 4 of 4')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Create pool' })).toBeVisible();
+});
+
+test('the advanced path walks target, labels, hosts, backend, size, scaling, runners and review', async ({
+  page,
+}) => {
+  await goto(page, '/pools/new', 'Create a pool');
+  await page.getByRole('radio', { name: 'Advanced' }).check();
+
+  const steps = page.locator('ol.steps');
+  for (const step of [
+    'Setup',
+    'Target',
+    'Labels',
+    'Hosts',
+    'Backend',
+    'Size',
+    'Scaling',
+    'Runners',
+    'Review',
+  ]) {
+    await expect(steps).toContainText(step);
+  }
+
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Target' })).toBeVisible();
+  await expect(page.getByText('Step 2 of 9')).toBeVisible();
+  await nameField(page).fill('e2e-pool');
+  await expect(page.getByLabel('GitHub installation')).toHaveValue(/ins_/);
+
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Labels' })).toBeVisible();
   // The name has already produced a label; a second one is added on top.
   await expect(
     page.getByRole('button', { name: 'Remove the label zoomies-e2e-pool' }),
@@ -187,9 +245,14 @@ test('the wizard walks target, labels, hosts, backend, size, scaling and review'
   // many there may be, because the second means nothing without the first.
   await next(page).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Size' })).toBeVisible();
+  // The size opens on the host's own share rather than on a figure somebody
+  // has to accept, and the sliders appear once a fixed size is chosen.
+  await expect(page.getByRole('radio', { name: 'One share of each host' })).toBeChecked();
+  await expect(page.getByRole('slider', { name: 'CPU per runner' })).toHaveCount(0);
+  await page.getByRole('radio', { name: 'A fixed size on every host' }).check();
   const cpu = page.getByRole('slider', { name: 'CPU per runner' });
   await expect(cpu).toBeVisible();
-  // Sized already, from the fleet's own default rather than left empty.
+  // Opened on the fleet's own figures rather than left empty.
   await expect(cpu).toHaveAttribute('aria-valuetext', '2 cores');
   await expect(page.getByRole('slider', { name: 'Memory per runner' })).toHaveAttribute(
     'aria-valuetext',
@@ -201,14 +264,50 @@ test('the wizard walks target, labels, hosts, backend, size, scaling and review'
   await expect(page.getByRole('spinbutton', { name: 'Maximum runners' })).toBeVisible();
 
   await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Runners' })).toBeVisible();
+  // Every override is empty, because empty is the answer that means "follow
+  // the fleet" -- and the fleet's own figure is the placeholder beside it.
+  const provision = page.getByRole('textbox', { name: 'Provision timeout' });
+  await expect(provision).toHaveValue('');
+  await expect(provision).toHaveAttribute('placeholder', /the fleet/);
+  await expect(page.getByText('This pool follows the fleet on every runner timing.')).toBeVisible();
+
+  await next(page).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Review' })).toBeVisible();
-  await expect(page.getByText('Step 7 of 7')).toBeVisible();
+  await expect(page.getByText('Step 9 of 9')).toBeVisible();
   // The last step offers to create rather than to continue.
   await expect(page.getByRole('button', { name: 'Create pool' })).toBeVisible();
 });
 
+test('a pool timing override is kept, and clearing it hands the setting back to the fleet', async ({
+  page,
+}) => {
+  await goto(page, '/pools/new', 'Create a pool');
+  await toAdvanced(page);
+  await nameField(page).fill('e2e-slow');
+  for (let step = 0; step < 6; step++) await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Runners' })).toBeVisible();
+
+  const provision = page.getByRole('textbox', { name: 'Provision timeout' });
+  await provision.fill('45m');
+  await expect(
+    page.getByText('This pool overrides 1 of 5 runner timings; the rest follow the fleet.'),
+  ).toBeVisible();
+
+  // A timeout inside the time a runner of this pool takes to start is said
+  // while the number is being chosen, not afterwards.
+  await provision.fill('5m');
+  await expect(page.getByText('Shorter than a runner of this pool takes to start')).toBeVisible();
+
+  // Cleared, the pool follows the fleet again and the caution goes with it.
+  await provision.fill('');
+  await expect(page.getByText('This pool follows the fleet on every runner timing.')).toBeVisible();
+  await expect(page.getByText('Shorter than a runner of this pool takes to start')).toHaveCount(0);
+});
+
 test('the backend step names the image the chosen operating system will boot', async ({ page }) => {
   await goto(page, '/pools/new', 'Create a pool');
+  await toAdvanced(page);
   await nameField(page).fill('e2e-pool');
   await next(page).click();
   await addLabel(page, 'gpu');
@@ -245,6 +344,7 @@ test('the hosts step keeps a pool to an architecture and says which machines tha
   // match a host that is not taking work, and the step has to say so rather
   // than promise a runner the review step then refuses.
   await goto(page, '/pools/new', 'Create a pool');
+  await toAdvanced(page);
   await nameField(page).fill('e2e-arm');
   await next(page).click();
   await addLabel(page, 'gpu');
@@ -282,6 +382,7 @@ test('the hosts step keeps a pool to an architecture and says which machines tha
 
 test('the labels step previews the runs-on line those labels produce', async ({ page }) => {
   await goto(page, '/pools/new', 'Create a pool');
+  await toAdvanced(page);
   await nameField(page).fill('e2e-pool');
   await next(page).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Labels' })).toBeVisible();
@@ -310,6 +411,7 @@ test('the labels step previews the runs-on line those labels produce', async ({ 
 
 test('choosing the host socket warns about root and demands a confirmation', async ({ page }) => {
   await goto(page, '/pools/new', 'Create a pool');
+  await toAdvanced(page);
   await nameField(page).fill('e2e-pool');
   await next(page).click();
   await addLabel(page, 'gpu');
@@ -360,6 +462,7 @@ test('the review step shows the server verdict and how many hosts could run it',
   page,
 }) => {
   await goto(page, '/pools/new', 'Create a pool');
+  await toAdvanced(page);
   await nameField(page).fill('e2e-pool');
   await next(page).click();
   await addLabel(page, 'gpu');
@@ -395,6 +498,7 @@ test('a backend no host offers stops the wizard and offers one that does', async
   // would never make a runner -- so the wizard refuses to create it while the
   // fleet has something else to offer.
   await goto(page, '/pools/new', 'Create a pool');
+  await toAdvanced(page);
   await nameField(page).fill('e2e-podman');
   await next(page).click();
   await addLabel(page, 'gpu');
@@ -428,6 +532,7 @@ test('a backend no host offers stops the wizard and offers one that does', async
 
 test('going back a step does not lose what was typed', async ({ page }) => {
   await goto(page, '/pools/new', 'Create a pool');
+  await toAdvanced(page);
   await nameField(page).fill('e2e-remembered');
   await next(page).click();
   await addLabel(page, 'gpu');
@@ -471,6 +576,7 @@ test('editing the maximum runners still lets the wizard reach review', async ({ 
   // them were fine, which is why it took a test that types into one.
 
   await goto(page, '/pools/new', 'Create a pool');
+  await toAdvanced(page);
   await nameField(page).fill('e2e-pool');
   await next(page).click();
   await addLabel(page, 'gpu');
@@ -502,6 +608,7 @@ test('a new pool with nothing to say for itself is named after a spaniel', async
   // answers would be a name that lies about the rest of the fleet -- so the
   // spaniel carries it until the operator says more.
   await goto(page, '/pools/new', 'Create a pool');
+  await toAdvanced(page);
   const name = nameField(page);
   await expect(name).toHaveValue(/^zoomies-[a-z]+$/);
   const first = await name.inputValue();
@@ -528,6 +635,7 @@ test('the generated name follows the shape until somebody types their own', asyn
   // they are given: this is the same grammar `zoomies init` prints, and an
   // operator who meets both should meet one convention.
   await goto(page, '/pools/new', 'Create a pool');
+  await toAdvanced(page);
   const name = nameField(page);
 
   await next(page).click();
@@ -575,6 +683,7 @@ test('a name typed without the brand gains it', async ({ page }) => {
   // their way out of. The field shows what will be saved rather than letting
   // the name change on its way to the server.
   await goto(page, '/pools/new', 'Create a pool');
+  await toAdvanced(page);
   const name = nameField(page);
 
   await name.fill('gpu');
@@ -592,6 +701,7 @@ test('a label the operator has changed is never filled in again', async ({ page 
   // keystroke would make the field impossible to empty, and would quietly put
   // back a label somebody deliberately took off.
   await goto(page, '/pools/new', 'Create a pool');
+  await toAdvanced(page);
   await next(page).click();
   const suggested = page.getByRole('button', { name: /^Remove the label zoomies-/ });
   await expect(suggested).toBeVisible();
@@ -661,6 +771,7 @@ test('the size step says which hosts a CPU limit has just cost the pool', async 
   // an 8-CPU builder and a cordoned arm64 box, so a 12-CPU runner is a request
   // only one of them can take.
   await goto(page, '/pools/new', 'Create a pool');
+  await toAdvanced(page);
   await nameField(page).fill('e2e-big');
   await next(page).click();
   await addLabel(page, 'gpu');

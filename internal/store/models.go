@@ -1523,13 +1523,38 @@ func NormalizeLabels(in []string) []string {
 // those three need to keep answering while every runner is flat out.
 const (
 	MinHostReserveMemoryMB int64 = 512
-	MinHostReserveDiskMB   int64 = 2048
+	// MinHostReserveMemoryFraction raises the memory reserve in step with the
+	// machine, exactly as the CPU fraction below does and for the same reason.
+	// A flat 512 MB is the right floor on a small box and far too little on a
+	// large one: a 64 GB host booked down to its last half gigabyte has no
+	// page cache left, and the daemon minding sixty-four containers is the
+	// first thing to suffer for it. It is capped, because a tenth of a very
+	// large machine is more than the daemon will ever want -- MaxHostReserveMemoryMB
+	// is where holding more back stops buying anything.
+	MinHostReserveMemoryFraction float64 = 0.05
+	MaxHostReserveMemoryMB       int64   = 8192
+	MinHostReserveDiskMB         int64   = 2048
 	// MinHostReserveCPUs is the least CPU held back from placement, and
 	// MinHostReserveCPUFraction raises it in step with the machine: a
 	// sixty-four core host runs a daemon with sixty-four containers to mind.
 	MinHostReserveCPUs        float64 = 0.5
 	MinHostReserveCPUFraction float64 = 0.05
 )
+
+// MemoryReserve is what is held back from placement on this host's memory: the
+// operator's reserve, or the floor when that is larger. Zero on a host that
+// has not reported its memory, where there is nothing to hold back from.
+//
+// It is a function rather than a constant for the reason CPUReserve is: the
+// floor depends on the machine, and a caller that applied a flat figure to a
+// 64 GB box and a 2 GB one would be wrong about one of them.
+func (h *Host) MemoryReserve() int64 {
+	if h.MemoryMB <= 0 {
+		return 0
+	}
+	floor := min(max(MinHostReserveMemoryMB, int64(MinHostReserveMemoryFraction*float64(h.MemoryMB))), MaxHostReserveMemoryMB)
+	return max(h.ReserveMemoryMB, floor)
+}
 
 // The least machine a runner can be given and still be one.
 //
@@ -1592,7 +1617,7 @@ func (h *Host) Allocatable() HostAllocation {
 		a.CPUs = max(float64(h.CPUs)-h.CPUReserve(), 0)
 	}
 	if a.MemoryKnown {
-		a.MemoryMB = max(h.MemoryMB-max(h.ReserveMemoryMB, MinHostReserveMemoryMB), 0)
+		a.MemoryMB = max(h.MemoryMB-h.MemoryReserve(), 0)
 	}
 	if a.DiskKnown {
 		a.DiskMB = max(h.DiskFreeMB-max(h.ReserveDiskMB, MinHostReserveDiskMB), 0)

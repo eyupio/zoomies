@@ -606,10 +606,16 @@ an agent reports what it measured and never writes these. Set them with
 never reported, or one that would leave nothing to place on, is refused rather
 than clamped, because an operator who typed megabytes for gigabytes should be
 told and not quietly obeyed. All three have a floor, which is what holds when
-the operator has set nothing or set less: **512 MB** of memory, **2 GB** of
-disk, and **half a CPU, or a twentieth of the machine on a large one**. The
-first two exist because a machine with nothing left over does not run jobs
-slowly, it has one of them killed or fails a checkout before its first step.
+the operator has set nothing or set less: **512 MB of memory, or a twentieth
+of the machine on a large one, up to 8 GB**; **2 GB** of disk; and **half a
+CPU, or a twentieth of the machine on a large one**. The first two exist
+because a machine with nothing left over does not run jobs slowly, it has one
+of them killed or fails a checkout before its first step. Memory scales with
+the machine for the reason CPU does, and the cap is where holding more back
+stops buying anything: a 64 GB host booked down to its last half gigabyte has
+no page cache left, and the daemon minding its containers is the first thing
+to suffer for it — while a twentieth of 256 GB is more than that daemon will
+ever want.
 The CPU floor is there for the daemon rather than for the jobs. A CPU quota is
 a share of the one resource that is never exhausted, only contended, and a
 contended machine does still finish the job — but the runners' quotas are not

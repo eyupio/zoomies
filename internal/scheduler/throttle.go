@@ -146,7 +146,7 @@ func hostOverwhelmed(h *store.Host) (bool, string) {
 	if u.LoadAverage1 != nil && h.CPUs > 0 && *u.LoadAverage1 >= LoadPerCPUOverwhelmed*float64(h.CPUs) {
 		return true, fmt.Sprintf("the 1-minute load average is %.1f, at least twice the host's %d CPUs", *u.LoadAverage1, h.CPUs)
 	}
-	if v := u.MemoryAvailableMB; v != nil && *v <= max(h.ReserveMemoryMB, store.MinHostReserveMemoryMB) {
+	if v := u.MemoryAvailableMB; v != nil && *v <= h.MemoryReserve() {
 		return true, "available memory is at or below the host's reserve"
 	}
 	return false, ""
@@ -171,7 +171,7 @@ func hostCalm(h *store.Host) bool {
 	if u.LoadAverage1 != nil && h.CPUs > 0 && *u.LoadAverage1 >= LoadPerCPUCalm*float64(h.CPUs) {
 		return false
 	}
-	if v := u.MemoryAvailableMB; v != nil && *v <= max(h.ReserveMemoryMB, store.MinHostReserveMemoryMB) {
+	if v := u.MemoryAvailableMB; v != nil && *v <= h.MemoryReserve() {
 		return false
 	}
 	return true

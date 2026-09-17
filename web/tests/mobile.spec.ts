@@ -609,10 +609,11 @@ test('a name nobody chose wraps rather than taking the page or Close off the scr
     await route.fulfill({ response, json: body });
   });
 
-  // The pool wizard names every host that would match, in a badge each.
+  // The pool wizard names every host that would match, in a badge each. The
+  // hosts step is the advanced path's, so the fork is answered on the way.
   await goto(page, '/pools/new', 'Create a pool');
-  await page.getByRole('button', { name: 'Next' }).click();
-  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('radio', { name: 'Advanced' }).check();
+  for (let step = 0; step < 3; step++) await page.getByRole('button', { name: 'Next' }).click();
   await expect(page.getByText(hostile).first()).toBeVisible();
   await expectNoSidewaysScroll(page, 'the pool wizard naming a long host');
 
