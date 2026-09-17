@@ -138,3 +138,62 @@ func TestRunnerImagesFollowBuildChannelAndKeepOverrides(t *testing.T) {
 		})
 	}
 }
+
+// SplitImage is tested on its own because its callers cannot reach half of
+// it: a stock reference never carries a registry port, so the guard that keeps
+// a port from being read as a tag is invisible through them -- a reference with
+// one is refused for having the wrong repository long before the split matters.
+// Asserting it here is what makes it a tested rule rather than a comment.
+func TestSplitImageKeepsARegistryPortOutOfTheTag(t *testing.T) {
+	const digest = "@sha256:8c2f1a9e5b3d4c6a7e8f0b1d2c3a4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f"
+	for _, tc := range []struct{ ref, repo, tag, digest string }{
+		{"ghcr.io/eyupio/zoomies:v1.2.3", "ghcr.io/eyupio/zoomies", ":v1.2.3", ""},
+		{"ghcr.io/eyupio/zoomies", "ghcr.io/eyupio/zoomies", "", ""},
+		// The colon belongs to the registry, and reading it as a tag would
+		// leave the repository as a bare hostname that pulls nothing.
+		{"registry.example.com:5000/zoomies", "registry.example.com:5000/zoomies", "", ""},
+		{"registry.example.com:5000/zoomies:v1.2.3", "registry.example.com:5000/zoomies", ":v1.2.3", ""},
+		// A digest has a colon of its own, inside it.
+		{"ghcr.io/eyupio/zoomies" + digest, "ghcr.io/eyupio/zoomies", "", digest},
+		{"ghcr.io/eyupio/zoomies:v1.2.3" + digest, "ghcr.io/eyupio/zoomies", ":v1.2.3", digest},
+		{"registry.example.com:5000/zoomies" + digest, "registry.example.com:5000/zoomies", "", digest},
+	} {
+		t.Run(tc.ref, func(t *testing.T) {
+			repo, tag, dg := SplitImage(tc.ref)
+			if repo != tc.repo || tag != tc.tag || dg != tc.digest {
+				t.Errorf("SplitImage(%q) = (%q, %q, %q), want (%q, %q, %q)",
+					tc.ref, repo, tag, dg, tc.repo, tc.tag, tc.digest)
+			}
+		})
+	}
+}
+
+// The rule the Docker swap rests on: a tag this build hands out is published
+// for the stock runner image and its Docker variant by one step of one
+// workflow, so it exists for both or for neither. A tag somebody pinned from
+// another build promises nothing -- the registry carries eight commit tags for
+// one image and not the other, from runs whose second build never finished --
+// and moving a pool onto a tag that is not there would stop it running every
+// job, including the ones that never touch Docker.
+func TestPublishedRunnerTagAcceptsWhatThisBuildHandsOut(t *testing.T) {
+	previous := RunnerImageTag
+	t.Cleanup(func() { RunnerImageTag = previous })
+	RunnerImageTag = "v1.4.0"
+	variant := DefaultImage().Tag()
+	for _, tag := range []string{
+		"", ":latest", "latest", "main", "dev", "v1.4.0",
+		variant, variant + "-main", variant + "-dev", variant + "-v1.4.0",
+	} {
+		if !PublishedRunnerTag(tag) {
+			t.Errorf("PublishedRunnerTag(%q) = false; this build hands that tag out", tag)
+		}
+	}
+	for _, tag := range []string{
+		"sha-b966fb6", variant + "-sha-b966fb6", "v0.1-alpha", variant + "-v0.1-alpha",
+		"alpine-3", "alpine-3-dev", "anything-else",
+	} {
+		if PublishedRunnerTag(tag) {
+			t.Errorf("PublishedRunnerTag(%q) = true; nothing here publishes that tag", tag)
+		}
+	}
+}

@@ -853,6 +853,14 @@ func PoolWarnings(p *store.Pool, inst *store.Installation, cfg *config.Config) [
 		out = append(out, w)
 	}
 	for _, d := range p.Dangerous() {
+		// A fleet that builds container images for a living has decided about
+		// the privileged sidecar once, and a row per pool per pass about a
+		// decision already taken is what makes an operator stop reading the
+		// list. Only that sentence is silenced, and only by asking: the host
+		// socket hands a job root on the host, and says so either way.
+		if cfg != nil && cfg.Security.DockerInDockerExpected && d == store.DinDDanger {
+			continue
+		}
 		out = append(out, Problem{
 			Code:       "pool.dangerous",
 			Severity:   config.SeverityWarning,
@@ -866,7 +874,58 @@ func PoolWarnings(p *store.Pool, inst *store.Installation, cfg *config.Config) [
 	if w, ok := cacheSharingWarning(p, inst); ok {
 		out = append(out, w)
 	}
+	if w, ok := dockerClientWarning(p, cfg); ok {
+		out = append(out, w)
+	}
 	return out
+}
+
+// dockerClientWarning is the pool that was promised a Docker daemon it has no
+// way to reach.
+//
+// A docker_mode gives a job a daemon; the client comes from the image, and the
+// stock runner image carries none. config.RunnerImageFor moves such a pool onto
+// the Docker variant wherever it knows the variant exists, which is every tag
+// this build publishes -- but not a digest, which names one exact image, and
+// not a pin from some other build, which may name a run whose second image was
+// never pushed. What is left is a pool whose daemon comes up unused and whose
+// every job dies at its first Docker step with an error naming a missing binary
+// and not the reason. The runner says so in its own log before any job runs;
+// this says it where an operator is already looking.
+func dockerClientWarning(p *store.Pool, cfg *config.Config) (Problem, bool) {
+	if p == nil || cfg == nil || !p.DockerMode.GivesDaemon() {
+		return Problem{}, false
+	}
+	image := config.ResolvePoolRunnerImage(p.Image, p.Platform.OS, p.Platform.OSVersion,
+		cfg.GitHub.RunnerImage, true)
+	pin, missing := config.MissingDockerClient(image)
+	if !missing {
+		return Problem{}, false
+	}
+	// Where the reference came from decides what there is to change: a pool
+	// that named the image owns it, and a pool that named none is running the
+	// fleet's default, which no edit to the pool can correct.
+	fix := fmt.Sprintf("set the %s pool's image to %s, or clear it so the pool follows the fleet's default.", p.Name, pin)
+	if strings.TrimSpace(p.Image) == "" {
+		fix = fmt.Sprintf("set github.runner_image to %s, which fixes every pool following the fleet's default, or give the %s pool that image of its own.", pin, p.Name)
+	}
+	return Problem{
+		Code:     "pool.docker_client_missing",
+		Severity: config.SeverityError,
+		Title: fmt.Sprintf("pool %s: its jobs are given a Docker daemon and no client to reach it with",
+			p.Name),
+		Detail: fmt.Sprintf("this pool's runners boot %s, the stock runner image, which carries no Docker client "+
+			"on purpose -- most pools never build an image. A pool that asks for a daemon is moved onto %s, the "+
+			"same image plus a client, wherever that image is known to exist; this one is a reference the swap "+
+			"cannot follow -- a digest names one exact image, and a tag from another build may name a run whose "+
+			"variant was never published. So the daemon comes up unused, and every job on this pool fails at its "+
+			"first Docker step with \"Unable to locate executable file: docker\", which names the missing binary "+
+			"and not the reason.",
+			image, config.DefaultRunnerDockerImage),
+		Fix:        fix,
+		TargetKind: "pool",
+		TargetID:   p.ID,
+	}, true
 }
 
 // PoolEffectiveDockerWait is how long this pool's runners actually wait for

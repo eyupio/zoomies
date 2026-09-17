@@ -136,6 +136,74 @@ func DefaultRunnerImage() string { return RunnerImageRepo + ":" + RunnerImageTag
 // or the release tag, including its leading v, as published by the workflows.
 var RunnerImageTag = "latest"
 
+// SplitImage separates an image reference into its repository, its tag with the
+// colon still on it, and its digest with the @ still on it.
+//
+// Splitting on the last colon is wrong twice over, and both ways produce a
+// reference that looks plausible and pulls nothing: a registry may carry a port,
+// so registry.example.com:5000/zoomies would lose its host, and a digest carries
+// a colon of its own inside sha256:....
+func SplitImage(ref string) (repo, tag, digest string) {
+	if i := strings.Index(ref, "@"); i >= 0 {
+		ref, digest = ref[:i], ref[i:]
+	}
+	// A colon after the last slash is a tag; one before it belongs to the
+	// registry's port.
+	if i := strings.LastIndex(ref, ":"); i >= 0 && !strings.Contains(ref[i+1:], "/") {
+		ref, tag = ref[:i], ref[i:]
+	}
+	return ref, tag, digest
+}
+
+// PublishedRunnerTag reports whether a runner image tag is one this build's own
+// catalogue accounts for: the moving channels, the channel this binary was
+// stamped with, and every variant in the catalogue under any of them.
+//
+// It answers the only question a caller translating between the stock runner
+// image and its Docker variant can answer without asking a registry. One step
+// of one workflow publishes both images, so a tag this build hands out exists
+// for both or for neither -- while a tag somebody pinned from another build
+// promises nothing: a run whose second build did not finish leaves that commit
+// tag on one image and not the other, and a release old enough predates the
+// variant altogether. A pool moved onto a tag the registry lacks stops running
+// every job, including the ones that never touch Docker.
+func PublishedRunnerTag(tag string) bool {
+	tag = strings.TrimPrefix(strings.TrimSpace(tag), ":")
+	// No tag is the registry's "latest", which both images carry.
+	if tag == "" {
+		return true
+	}
+	for _, i := range runnerImages {
+		// The released channel publishes the bare alias rather than
+		// <variant>-latest, which is why the alias stands on its own.
+		if tag == i.Tag() {
+			return true
+		}
+	}
+	for _, channel := range channels() {
+		if tag == channel {
+			return true
+		}
+		for _, i := range runnerImages {
+			if tag == i.Tag()+"-"+channel {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// channels lists the tags a runner image is published under that are not one
+// variant's alias: the two that follow a branch, the one that follows the
+// newest release, and whichever this binary was built to ask for.
+func channels() []string {
+	out := []string{"latest", "main", "dev"}
+	if tag := strings.TrimSpace(RunnerImageTag); tag != "" && !slices.Contains(out, tag) {
+		out = append(out, tag)
+	}
+	return out
+}
+
 // FindImage returns the catalogue entry for an operating system and version.
 //
 // An empty version means "whichever one we publish", which is how a pool that

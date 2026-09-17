@@ -2440,10 +2440,11 @@ export interface components {
          *     `dind` gives a private, privileged sidecar daemon.
          *     `host-socket` hands the job the host's daemon, and with it root on the host.
          *     Either of those switches a pool on the stock `ghcr.io/eyupio/zoomies-runner`
-         *     image under a moving tag (none, `latest` or `main`) to
-         *     `ghcr.io/eyupio/zoomies-runner-docker` under the same tag as it is saved,
-         *     because the stock image has no client for the daemon. A pinned tag, a
-         *     digest, or an image of your own is left as given.
+         *     image to `ghcr.io/eyupio/zoomies-runner-docker` under the same tag as it is
+         *     saved, because the stock image has no client for the daemon. That covers
+         *     every tag this build publishes: the channels, and the operating-system
+         *     aliases. A digest, a tag from some other build, or an image of your own is
+         *     left as given, and a pool left on one raises `pool.docker_client_missing`.
          * @enum {string}
          */
         DockerMode: "none" | "dind" | "host-socket";
@@ -5890,8 +5891,10 @@ export interface operations {
                         selected_hosts?: number;
                         /** @description Every host the selector reaches that the fleet could not run this pool on, with the reason. It is what turns "2 hosts match" followed by "1 host can run this pool" from a contradiction into an explanation. */
                         excluded_hosts?: components["schemas"]["HostExclusion"][];
-                        /** @description The image the pool would actually run, which for a pool that gives its jobs a daemon is the stock image's Docker variant rather than the image the request named. */
+                        /** @description The image the pool would actually run, which for a pool that gives its jobs a daemon is the stock image's Docker variant rather than the image the request named. Empty for a pool that names no image, where nothing is stored — `effective_image` is the answer there. */
                         image?: string;
+                        /** @description The image a pool that names none would boot — the variant its platform picks, or the fleet's default, with the Docker swap applied. It is what the wizard's automatic path shows on its review step, where the pool being described has no image of its own. */
+                        effective_image?: string;
                         /** @description The size the pool would run at on every host. Empty for a pool that leaves the size to its host, where the per-host share is in `room.hosts[].charge_cpus` and `charge_memory_mb` instead. */
                         resources?: components["schemas"]["Resources"];
                         /**

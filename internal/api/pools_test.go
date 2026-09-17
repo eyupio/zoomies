@@ -666,8 +666,8 @@ func TestAPoolThatGivesJobsADaemonIsSavedOnTheDockerImage(t *testing.T) {
 		t.Fatalf("image = %q after typing the stock image onto a daemon pool, want the Docker variant", pool.Image)
 	}
 
-	// A pinned tag is a deliberate choice of one build, and the variant may
-	// not exist for it, so it is kept exactly as typed.
+	// A commit pin names one run, and a run whose second build did not finish
+	// published the stock image and not the variant, so it is kept as typed.
 	patched = h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + pool.ID, cookie: cookie,
 		body: map[string]any{"image": "ghcr.io/eyupio/zoomies-runner:sha-b966fb6"}})
 	patched.mustStatus(t, http.StatusOK, "patch a pinned stock tag")

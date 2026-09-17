@@ -251,12 +251,21 @@
       title: 'Runners',
       description: 'The timings this pool disagrees with the fleet about.',
     },
+    // Only the simple path walks this one. The advanced path asks the same
+    // question on its backend step, beside the image and the host socket the
+    // simple path does not offer.
+    docker: {
+      id: 'docker',
+      title: 'Docker',
+      description: 'Whether jobs here build container images.',
+    },
     review: { id: 'review', title: 'Review', description: 'What the controller makes of it.' },
   };
 
   /** Which fields live on which step, so a server error can point at the right one. */
   const STEP_FIELDS_BY_ID: Readonly<Record<StepId, readonly string[]>> = {
     mode: [],
+    docker: ['docker_mode'],
     target: ['name', 'installation_id', 'runner_group'],
     labels: ['labels'],
     hosts: ['host_selector'],
@@ -293,9 +302,23 @@
   };
 
   type StepId =
-    'mode' | 'target' | 'labels' | 'hosts' | 'backend' | 'size' | 'scaling' | 'runners' | 'review';
+    | 'mode'
+    | 'target'
+    | 'labels'
+    | 'docker'
+    | 'hosts'
+    | 'backend'
+    | 'size'
+    | 'scaling'
+    | 'runners'
+    | 'review';
 
-  const SIMPLE_STEP_IDS: readonly StepId[] = ['mode', 'target', 'labels', 'review'];
+  // The simple path asks four things, and the fourth is the one an operator
+  // cannot discover anywhere else: a pool whose jobs build images needs a
+  // daemon, and nothing in a name or a label says so. Leaving it to the
+  // advanced path meant the only way to build an image was to know that
+  // "advanced" was where Docker lived.
+  const SIMPLE_STEP_IDS: readonly StepId[] = ['mode', 'target', 'labels', 'docker', 'review'];
   const ADVANCED_STEP_IDS: readonly StepId[] = [
     'mode',
     'target',

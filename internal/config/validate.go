@@ -335,6 +335,16 @@ func (c *Config) Validate() Findings {
 			Fix:    "list your proxy's CIDR in server.trusted_proxies, or the word `cloudflare` when Cloudflare is in front.",
 		})
 	}
+	if c.Security.DockerInDockerExpected {
+		add(Finding{
+			Code: "dind.expected", Severity: SeverityInfo, Setting: "security.docker_in_docker_expected",
+			Title: "docker-in-docker pools are not listed as dangerous here",
+			Detail: "a pool whose docker_mode is dind still runs its daemon in a privileged container beside each runner; " +
+				"this fleet has said it knows, so that setting no longer raises pool.dangerous on its own. " +
+				"The host docker socket and persistent runners still do.",
+			Fix: "turn security.docker_in_docker_expected off to be told again.",
+		})
+	}
 	if c.Server.AllowIndexing {
 		add(Finding{
 			Code: "indexing.allowed", Severity: SeverityWarning, Setting: "server.allow_indexing",

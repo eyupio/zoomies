@@ -683,6 +683,12 @@ func (d *Duration) parse(s string) error {
 
 func (d Duration) MarshalYAML() (any, error) { return time.Duration(d).String(), nil }
 
+// DinDDanger is the one sentence Dangerous returns that a fleet may ask not to
+// be told again -- see security.docker_in_docker_expected. It is named so that
+// the setting matches on the sentence rather than re-deriving which one it
+// meant.
+const DinDDanger = "docker-in-docker sidecar: runners get a privileged container"
+
 // Dangerous returns the list of pool settings that weaken the default security
 // posture, phrased for direct display in the UI's problems drawer.
 func (p *Pool) Dangerous() []string {
@@ -694,7 +700,7 @@ func (p *Pool) Dangerous() []string {
 		out = append(out, "host docker socket mounted: any job on this pool can become root on the host")
 	}
 	if p.DockerMode == DockerDinD {
-		out = append(out, "docker-in-docker sidecar: runners get a privileged container")
+		out = append(out, DinDDanger)
 	}
 	if p.RunAsRoot {
 		out = append(out, "runners execute as root inside the container")

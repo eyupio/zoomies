@@ -208,7 +208,7 @@
       draft.restrict_hosts ||
       Object.keys(draft.host_selector).length > 0 ||
       draft.backend !== 'docker' ||
-      draft.docker_mode !== 'none' ||
+      draft.docker_mode === 'host-socket' ||
       draft.run_as_root ||
       draft.cache_enabled ||
       draft.image.trim() !== '' ||
@@ -449,6 +449,7 @@
   import StepHosts from './StepHosts.svelte';
   import { hostMatchesSelector } from './hostSelector';
   import StepBackend from './StepBackend.svelte';
+  import StepDocker from './StepDocker.svelte';
   import StepSize from './StepSize.svelte';
   import StepScaling from './StepScaling.svelte';
   import StepMode from './StepMode.svelte';
@@ -941,6 +942,8 @@
         />
       {:else if step.id === 'labels'}
         <StepLabels {draft} {errors} {touch} />
+      {:else if step.id === 'docker'}
+        <StepDocker {draft} {touch} />
       {:else if step.id === 'hosts'}
         <StepHosts
           {draft}

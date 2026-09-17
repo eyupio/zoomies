@@ -804,6 +804,13 @@ type validatePoolResponse struct {
 	// stock image's Docker variant, and the review step should show that
 	// rather than promise a pool the server will not make.
 	Image string `json:"image"`
+	// EffectiveImage is that answer for a pool that named no image at all,
+	// where Image is empty because nothing would be stored. The wizard's
+	// automatic path names none, so without this the one step that says what
+	// will be made said nothing about the image -- including for the pool that
+	// has just asked for a Docker daemon, where which image it lands on is the
+	// whole of what makes the daemon usable.
+	EffectiveImage string `json:"effective_image"`
 	// Room is how many runners of this size the hosts it can land on have
 	// between them, host by host. It is what turns "4 CPU per runner" and "a
 	// maximum of 20" from two settings nobody can weigh against each other
@@ -875,16 +882,17 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 		warnings = []controller.Problem{}
 	}
 	writeJSON(w, http.StatusOK, validatePoolResponse{
-		Valid:         len(errs) == 0,
-		Errors:        errs,
-		Warnings:      warnings,
-		MatchingHosts: fit.Count,
-		SelectedHosts: fit.Selected,
-		ExcludedHosts: excluded,
-		Image:         p.Image,
-		Room:          room,
-		Resources:     p.Resources,
-		Sizing:        controller.PoolSizing(p),
+		Valid:          len(errs) == 0,
+		Errors:         errs,
+		Warnings:       warnings,
+		MatchingHosts:  fit.Count,
+		SelectedHosts:  fit.Selected,
+		ExcludedHosts:  excluded,
+		Image:          p.Image,
+		EffectiveImage: s.ctrl.RunnerImage(p),
+		Room:           room,
+		Resources:      p.Resources,
+		Sizing:         controller.PoolSizing(p),
 	})
 }
 

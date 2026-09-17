@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
 )
@@ -248,30 +249,11 @@ func defaultImageFor(v string) string {
 // tag that exists for the controller exists for the agent: the same workflow
 // step publishes both.
 func AgentImageFor(controller string) (string, bool) {
-	repo, tag, digest := splitImage(controller)
+	repo, tag, digest := naming.SplitImage(controller)
 	if repo != stockControllerRepository || digest != "" {
 		return "", false
 	}
 	return stockAgentRepository + tag, true
-}
-
-// splitImage separates an image reference into its repository, its tag with the
-// colon still on it, and its digest with the @ still on it.
-//
-// Splitting on the last colon is wrong twice over, and both ways produce a
-// reference that looks plausible and pulls nothing: a registry may carry a port,
-// so registry.example.com:5000/zoomies would lose its host, and a digest carries
-// a colon of its own inside sha256:....
-func splitImage(ref string) (repo, tag, digest string) {
-	if i := strings.Index(ref, "@"); i >= 0 {
-		ref, digest = ref[:i], ref[i:]
-	}
-	// A colon after the last slash is a tag; one before it belongs to the
-	// registry's port.
-	if i := strings.LastIndex(ref, ":"); i >= 0 && !strings.Contains(ref[i+1:], "/") {
-		ref, tag = ref[:i], ref[i:]
-	}
-	return ref, tag, digest
 }
 
 // containerise rewrites a plan's paths for a deployment that runs inside a

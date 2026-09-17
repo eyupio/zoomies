@@ -81,8 +81,12 @@ func TestFirstPoolMakesTheInstallHostUsable(t *testing.T) {
 	if !got.Enabled {
 		t.Error("a pool created by setup that is not enabled runs nothing, which is the bug this step exists to fix")
 	}
-	if got.Image != cfg.GitHub.RunnerImage {
-		t.Errorf("image = %q, want the configured runner image %q", got.Image, cfg.GitHub.RunnerImage)
+	// No image, like the pool the wizard's simple path writes. Writing the
+	// fleet's default into the row would pin this pool to the build it was
+	// installed with, and a pool on a tag an older build handed out is one
+	// nothing can move onto the Docker variant the day its jobs need a client.
+	if got.Image != "" {
+		t.Errorf("image = %q, want none so the pool follows the fleet's default", got.Image)
 	}
 	// The summary reads this to say "you are ready" rather than printing a
 	// command for a pool that now exists.

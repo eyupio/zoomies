@@ -209,12 +209,21 @@ second when a job needs something the first cannot give it:
 The wizard asks first how much of the pool you want to decide, because the two
 answers lead to genuinely different amounts of work.
 
-**Automatic** is the pool most fleets want. Name it, label it, and every other
-setting follows this fleet: each runner is given one slot's share of whichever
-host it lands on, any host that can run it may, the backend is Docker on the
-published image for the host's platform, and every timing follows the fleet's
-own — and keeps following it when you change one. Three questions, and nothing
-to revisit when the fleet grows.
+**Automatic** is the pool most fleets want. Name it, label it, say whether its
+jobs build container images, and every other setting follows this fleet: each
+runner is given one slot's share of whichever host it lands on, any host that
+can run it may, the backend is Docker on the published image for the host's
+platform, and every timing follows the fleet's own — and keeps following it when
+you change one. Four questions, and nothing to revisit when the fleet grows.
+
+The Docker question is there because it is the one thing a fleet cannot work out
+for itself: nothing in a name, a label or a host says whether the jobs that will
+land here run `docker build`. Answering yes sets `docker_mode: dind`, which
+gives each runner a private daemon in a privileged container beside it — the
+step says so — and the runner image follows automatically, so there is nothing
+to pin. Answering no is the default and costs nothing. The host Docker socket,
+which hands a job root on the host, stays on the advanced path where it is
+confirmed deliberately.
 
 **Advanced** is the same pool with the opinions put back: a fixed size on every
 host, a host selector, a backend and platform chosen by hand, and the runner
