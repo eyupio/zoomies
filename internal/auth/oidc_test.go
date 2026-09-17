@@ -3,6 +3,7 @@ package auth
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -135,6 +136,30 @@ func TestStateCacheIsSingleUseAndExpires(t *testing.T) {
 	cache.put("state-3", "nonce-3")
 	if len(cache.entries) != 1 {
 		t.Errorf("cache holds %d entries; want only the live one", len(cache.entries))
+	}
+}
+
+// A stream of unauthenticated calls to /auth/oidc/start would otherwise grow
+// the state cache without bound; refusing new entries at the cap is what keeps
+// one anonymous client from filling the process's memory with pending states
+// that will never finish.
+func TestStateCacheRefusesEntriesAtItsCap(t *testing.T) {
+	c := newClock()
+	cache := newStateCache(10*time.Minute, c.Now)
+	for i := 0; i < maxPendingStates; i++ {
+		if err := cache.put(fmt.Sprintf("state-%d", i), "nonce"); err != nil {
+			t.Fatalf("put %d: %v", i, err)
+		}
+	}
+	if err := cache.put("one-too-many", "nonce"); !errors.Is(err, ErrTooManyPendingSignIns) {
+		t.Fatalf("put over the cap = %v; want ErrTooManyPendingSignIns", err)
+	}
+	// A completed flow frees the slot, so the next legitimate signin succeeds.
+	if _, ok := cache.take("state-0"); !ok {
+		t.Fatal("could not take a spent state back out")
+	}
+	if err := cache.put("after-take", "nonce"); err != nil {
+		t.Fatalf("put after take: %v", err)
 	}
 }
 

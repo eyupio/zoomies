@@ -26,6 +26,18 @@ const OIDCCallbackPath = "/api/v1/auth/oidc/callback"
 // provider before its state and nonce are forgotten.
 const OIDCStateTTL = 10 * time.Minute
 
+// maxPendingStates caps the state cache to bound its memory against a stream
+// of unauthenticated calls to /auth/oidc/start. Real signins are a handful in
+// flight at any moment on any real deployment; anything above this is a client
+// that will not finish, and refusing new entries is what keeps the map from
+// growing until the process runs out of memory.
+const maxPendingStates = 1024
+
+// ErrTooManyPendingSignIns reports that the state cache is at capacity, so a
+// fresh sign-in cannot be remembered. It is returned from Start rather than
+// from the cache itself so callers can shape the refusal.
+var ErrTooManyPendingSignIns = errors.New("too many single sign-ins in flight; wait a moment and try again")
+
 // Claims is what a completed OIDC login tells us about the person, already
 // mapped onto Zoomies' own vocabulary.
 type Claims struct {
@@ -132,7 +144,9 @@ func (p *OIDCProvider) Start() (authURL, state string, err error) {
 	}
 	state = store.NewSecret(secretBytes)
 	nonce := store.NewSecret(secretBytes)
-	p.states.put(state, nonce)
+	if err := p.states.put(state, nonce); err != nil {
+		return "", "", err
+	}
 	return p.AuthCodeURL(state, nonce), state, nil
 }
 
@@ -381,7 +395,7 @@ func newStateCache(ttl time.Duration, clock func() time.Time) *stateCache {
 	return &stateCache{ttl: ttl, now: clock, entries: map[string]stateEntry{}}
 }
 
-func (c *stateCache) put(state, nonce string) {
+func (c *stateCache) put(state, nonce string) error {
 	now := c.now()
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -390,7 +404,15 @@ func (c *stateCache) put(state, nonce string) {
 			delete(c.entries, k)
 		}
 	}
+	// The sweep above has already dropped every entry a legitimate caller was
+	// going to lose. If the cache is still full, the ones left are all in flight
+	// and refusing this one is what keeps a stream of unauthenticated Starts
+	// from growing the map without bound.
+	if len(c.entries) >= maxPendingStates {
+		return ErrTooManyPendingSignIns
+	}
 	c.entries[state] = stateEntry{nonce: nonce, expires: now.Add(c.ttl)}
+	return nil
 }
 
 // take returns the nonce for a state and forgets it, so a state can be spent

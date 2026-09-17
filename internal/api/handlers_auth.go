@@ -349,6 +349,12 @@ func (s *Server) handleOIDCStart(w http.ResponseWriter, r *http.Request) {
 	}
 	authURL, state, err := s.oidc.Start()
 	if err != nil {
+		if errors.Is(err, auth.ErrTooManyPendingSignIns) {
+			// A finished flow will free a slot inside the state TTL, so a
+			// short Retry-After is the right thing to promise.
+			rateLimited(w, err.Error(), 30*time.Second)
+			return
+		}
 		s.internal(w, r, "starting the single sign-on handshake", err)
 		return
 	}
