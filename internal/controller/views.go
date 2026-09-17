@@ -645,23 +645,34 @@ type PoolView struct {
 	// RepositoryScaleUpLimit and CostPerRunnerHour are accepted on the way in,
 	// so they are rendered on the way out: a field the API takes but never
 	// shows again is a field an operator cannot check, edit or explain.
-	RepositoryScaleUpLimit int               `json:"repository_scale_up_limit"`
-	CostPerRunnerHour      *float64          `json:"cost_per_runner_hour"`
-	IdleTimeout            store.Duration    `json:"idle_timeout"`
-	Ephemeral              bool              `json:"ephemeral"`
-	DockerMode             store.DockerMode  `json:"docker_mode"`
-	Resources              store.Resources   `json:"resources"`
-	Cache                  store.CacheConfig `json:"cache"`
-	HostSelector           map[string]string `json:"host_selector"`
-	Env                    map[string]string `json:"env"`
-	RunAsRoot              bool              `json:"run_as_root"`
-	Enabled                bool              `json:"enabled"`
-	CreatedAt              time.Time         `json:"created_at"`
-	UpdatedAt              time.Time         `json:"updated_at"`
-	Counts                 PoolCountsView    `json:"counts"`
-	QueuedJobs             int               `json:"queued_jobs"`
-	Utilisation            float64           `json:"utilisation"`
-	Warnings               []Problem         `json:"warnings,omitempty"`
+	RepositoryScaleUpLimit int              `json:"repository_scale_up_limit"`
+	CostPerRunnerHour      *float64         `json:"cost_per_runner_hour"`
+	IdleTimeout            store.Duration   `json:"idle_timeout"`
+	Ephemeral              bool             `json:"ephemeral"`
+	DockerMode             store.DockerMode `json:"docker_mode"`
+	Resources              store.Resources  `json:"resources"`
+	// Sizing is how this pool decides what one runner gets: "automatic", one
+	// slot's share of whichever host it lands on, or "fixed", the figures in
+	// Resources. It is derived from Resources rather than stored beside it,
+	// so the two can never disagree -- but it is rendered, because a browser
+	// reading "no CPU limit" has no way to tell "the host decides" from
+	// "nobody has set one", and those used to be the same thing.
+	Sizing string `json:"sizing"`
+	// RunnerSettings is what this pool overrides of the fleet's runner
+	// timings. Every field is absent on a pool that follows the fleet, which
+	// is what an unedited pool does.
+	RunnerSettings store.RunnerSettings `json:"runner_settings"`
+	Cache          store.CacheConfig    `json:"cache"`
+	HostSelector   map[string]string    `json:"host_selector"`
+	Env            map[string]string    `json:"env"`
+	RunAsRoot      bool                 `json:"run_as_root"`
+	Enabled        bool                 `json:"enabled"`
+	CreatedAt      time.Time            `json:"created_at"`
+	UpdatedAt      time.Time            `json:"updated_at"`
+	Counts         PoolCountsView       `json:"counts"`
+	QueuedJobs     int                  `json:"queued_jobs"`
+	Utilisation    float64              `json:"utilisation"`
+	Warnings       []Problem            `json:"warnings,omitempty"`
 }
 
 // PoolRenderer is everything needed to render pools without one query per
@@ -756,6 +767,8 @@ func (v *PoolRenderer) View(p *store.Pool) PoolView {
 		Ephemeral:              p.Ephemeral,
 		DockerMode:             p.DockerMode,
 		Resources:              p.Resources,
+		Sizing:                 PoolSizing(p),
+		RunnerSettings:         p.RunnerSettings,
 		Cache:                  p.Cache,
 		HostSelector:           emptyMap(p.HostSelector),
 		Env:                    emptyMap(p.Env),
@@ -809,6 +822,26 @@ func (p PoolView) WithoutEnvValues() PoolView {
 // The installation is there for the one risk a pool cannot see in itself,
 // the repository cache below. Nil when it is unknown, which validation
 // reports on its own.
+// The two ways a pool decides how much machine one of its runners gets.
+const (
+	// SizingAutomatic is one slot's share of whichever host the runner lands
+	// on: charged by scheduler.Reserve and applied as a real cgroup limit by
+	// scheduler.Allocation, so the books and the cgroups say the same thing.
+	// It is what a pool means by naming no size, and it keeps fitting when a
+	// bigger machine joins the fleet -- which a figure typed once does not.
+	SizingAutomatic = "automatic"
+	// SizingFixed is the figures on the pool, the same on every host.
+	SizingFixed = "fixed"
+)
+
+// PoolSizing says which of the two a pool is doing.
+func PoolSizing(p *store.Pool) string {
+	if p.Automatic() {
+		return SizingAutomatic
+	}
+	return SizingFixed
+}
+
 func PoolWarnings(p *store.Pool, inst *store.Installation) []Problem {
 	var out []Problem
 	for _, d := range p.Dangerous() {

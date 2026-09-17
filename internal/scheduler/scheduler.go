@@ -119,6 +119,38 @@ type Policy struct {
 	MaxCreatesPerTick int
 }
 
+// For is this policy as one pool sees it: the fleet's figures, with whatever
+// that pool overrides of them applied.
+//
+// It is a method on the fleet's policy rather than a field on the pool so
+// that a pool which overrides nothing keeps following the fleet -- including
+// after an operator changes the fleet's figure, which a value copied onto the
+// pool at creation would not. That is the same reason a pool's size is left
+// to the host it lands on rather than frozen at the share it had on the day.
+//
+// MaxCreatesPerTick is deliberately not overridable. It is a fleet-wide
+// budget shared between pools, and a pool that could raise its own share of
+// it would be taking the protection from the others.
+func (p Policy) For(pool *store.Pool) Policy {
+	if pool == nil || !pool.RunnerSettings.Set() {
+		return p
+	}
+	rs := pool.RunnerSettings
+	if rs.ScaleUpDelay != nil {
+		p.ScaleUpDelay = rs.ScaleUpDelay.Duration()
+	}
+	if rs.MaxRunnerLifetime != nil {
+		p.MaxRunnerLifetime = rs.MaxRunnerLifetime.Duration()
+	}
+	if rs.ProvisionTimeout != nil {
+		p.ProvisionTimeout = rs.ProvisionTimeout.Duration()
+	}
+	if rs.DrainTimeout != nil {
+		p.DrainTimeout = rs.DrainTimeout.Duration()
+	}
+	return p
+}
+
 // ActionKind is what the caller must do to a runner.
 type ActionKind string
 
@@ -379,7 +411,7 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 		// read "3 jobs deferred by the repository limit for acme/widgets"
 		// about jobs the next few seconds were going to release anyway --
 		// and sent an operator to change a setting that was not the cause.
-		if !j.ProvisionNow && t.now.Sub(j.QueuedAt) < t.policy.ScaleUpDelay {
+		if !j.ProvisionNow && t.now.Sub(j.QueuedAt) < t.policy.For(p).ScaleUpDelay {
 			continue
 		}
 		if p.RepositoryScaleUpLimit > 0 && t.activeByRepository[p.ID+"\x00"+j.Repo]+admitted[j.Repo] >= p.RepositoryScaleUpLimit {
@@ -673,7 +705,7 @@ func (t *tick) grant(p *store.Pool, plan *PoolPlan, runners []*store.Runner, que
 	// The reason counts the jobs the pool is scaling for. Counting the queue
 	// here instead used to say "3 jobs queued" for a pool the repository
 	// limit let scale for one of them, which reads as a shortfall.
-	delay := t.policy.ScaleUpDelay
+	delay := t.policy.For(p).ScaleUpDelay
 	expedited := false
 	for _, j := range queued {
 		if j.ProvisionNow {
@@ -701,6 +733,11 @@ func (t *tick) grant(p *store.Pool, plan *PoolPlan, runners []*store.Runner, que
 // touched here: only an explicit operator drain interrupts a running job.
 func (t *tick) reap(p *store.Pool, runners []*store.Runner) (actions []Action, remaining []*store.Runner) {
 	var removes, fails, retires []Action
+	// The pool's own timings, where it has any. A pool that pulls a large
+	// image and a pool that boots in seconds do not agree about how long
+	// registering should take, and reaping both by the slower one leaves the
+	// faster pool holding a dead runner's slot.
+	pol := t.policy.For(p)
 	for _, r := range runners {
 		age := r.Age(t.now)
 		switch {
@@ -726,12 +763,12 @@ func (t *tick) reap(p *store.Pool, runners []*store.Runner) (actions []Action, r
 					"runner failed %s ago; its failure has been on the Runners page long enough",
 					formatDuration(t.now.Sub(failedAt(r)).Truncate(time.Minute)))))
 			}
-		case starting(r.State) && t.policy.ProvisionTimeout > 0 && age > t.policy.ProvisionTimeout:
+		case starting(r.State) && pol.ProvisionTimeout > 0 && age > pol.ProvisionTimeout:
 			fails = append(fails, t.action(ActionFail, p, r, fmt.Sprintf(
 				"stuck in %s for %s, past the %s provision timeout; check the host's agent log",
-				r.State, formatDuration(age), formatDuration(t.policy.ProvisionTimeout))))
+				r.State, formatDuration(age), formatDuration(pol.ProvisionTimeout))))
 		case r.State == store.RunnerDraining && r.CurrentJobID == "" &&
-			t.policy.DrainTimeout > 0 && drainingFor(r, t.now) > t.policy.DrainTimeout:
+			pol.DrainTimeout > 0 && drainingFor(r, t.now) > pol.DrainTimeout:
 			// Only a drain with nothing left to wait for. A runner draining
 			// with a job still on it is doing exactly what a drain asks, for
 			// as long as that job takes; there is no maximum job duration in
@@ -739,12 +776,12 @@ func (t *tick) reap(p *store.Pool, runners []*store.Runner) (actions []Action, r
 			// somebody's build from the wrong end of the fleet.
 			fails = append(fails, t.action(ActionFail, p, r, fmt.Sprintf(
 				"draining with no job for %s, past the %s drain timeout; its stop was never carried out, so the slot is being taken back",
-				formatDuration(drainingFor(r, t.now)), formatDuration(t.policy.DrainTimeout))))
-		case t.policy.MaxRunnerLifetime > 0 && age > t.policy.MaxRunnerLifetime &&
+				formatDuration(drainingFor(r, t.now)), formatDuration(pol.DrainTimeout))))
+		case pol.MaxRunnerLifetime > 0 && age > pol.MaxRunnerLifetime &&
 			r.State != store.RunnerBusy && r.State != store.RunnerDraining:
 			retires = append(retires, t.action(ActionDrain, p, r, fmt.Sprintf(
 				"runner reached the %s maximum lifetime",
-				formatDuration(t.policy.MaxRunnerLifetime))))
+				formatDuration(pol.MaxRunnerLifetime))))
 		case staleImage(p, r) && r.State != store.RunnerBusy && r.State != store.RunnerDraining:
 			// The pool's page says one image and this runner was made from
 			// another. A warm runner kept from before the change would take

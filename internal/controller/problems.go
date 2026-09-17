@@ -732,14 +732,37 @@ func (c *Controller) hostResourceProblems(ctx context.Context, out *[]Problem) e
 		*out = append(*out, p)
 	}
 
-	var unenforced []string
+	var unenforced, unsized []string
 	for _, p := range pools {
-		if p == nil || !p.Enabled || p.Backend != store.BackendProcess {
+		if p == nil || !p.Enabled {
+			continue
+		}
+		// A pool that leaves its size to its host is given one slot's share
+		// as a real cgroup limit -- unless the setting that hands it out is
+		// off, and then it is given nothing at all. That is the one shape
+		// where "automatic" and "unlimited" are the same thing, and it is
+		// worth saying out loud rather than leaving an operator to read two
+		// settings pages against each other.
+		if !defaults && p.Automatic() && p.Backend != store.BackendProcess {
+			unsized = append(unsized, p.Name)
+		}
+		if p.Backend != store.BackendProcess {
 			continue
 		}
 		if p.Resources.CPUs > 0 || p.Resources.MemoryMB > 0 || p.Resources.DiskGB > 0 {
 			unenforced = append(unenforced, p.Name)
 		}
+	}
+	if len(unsized) > 0 {
+		*out = append(*out, Problem{
+			Code:     "pool.size_unlimited",
+			Severity: config.SeverityWarning,
+			Title:    plural(len(unsized), "pool") + " leave their size to the host, and nothing is handing one out",
+			Detail: fmt.Sprintf("%s set no CPU or memory limit, which normally means each runner is given one slot's share of the machine it lands on. scheduler.default_runner_limits is off, so that share is charged against the host and never applied: a host's worth of these runners can each take every core at once, which is the shape that stops the Docker daemon answering.",
+				strings.Join(unsized, ", ")),
+			Fix:        "turn scheduler.default_runner_limits back on, which is the default, or give each of these pools a size of its own.",
+			TargetKind: "pool",
+		})
 	}
 	for _, name := range unenforced {
 		*out = append(*out, Problem{

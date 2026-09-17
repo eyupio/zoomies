@@ -477,6 +477,65 @@ type Resources struct {
 	PidsLimit int64   `json:"pids_limit,omitempty"` // container pids cgroup limit
 }
 
+// RunnerSettings is a pool's answer where it disagrees with the fleet's.
+//
+// Every field is a pointer, and that is the type's whole meaning: nil is "the
+// fleet decides", and it keeps deciding -- a pool that overrides nothing
+// follows scheduler.provision_timeout when an operator changes it, rather
+// than being frozen on whatever it read the day the pool was made. A field
+// that is set overrides it, including when what it is set to is zero, because
+// zero is a real answer for each of these: "never fail a runner for taking
+// too long to register" is a thing a pool on a slow air-gapped registry has
+// every reason to say.
+//
+// These are the settings whose right answer is a property of the pool rather
+// than of the fleet. A pool pulling a twelve-gigabyte Windows image and a
+// pool booting Alpine do not agree about how long registering should take,
+// and a fleet that has to pick one picks the slower -- which leaves the fast
+// pool holding a dead runner's slot for ten minutes. IdleTimeout is not here
+// because it is already a pool field, and was from the start.
+type RunnerSettings struct {
+	// ProvisionTimeout fails a runner of this pool that never finishes
+	// registering. Overrides scheduler.provision_timeout.
+	ProvisionTimeout *Duration `json:"provision_timeout,omitempty"`
+	// DrainTimeout fails a runner of this pool that has been draining this
+	// long with no job left on it. Overrides scheduler.drain_timeout.
+	DrainTimeout *Duration `json:"drain_timeout,omitempty"`
+	// MaxRunnerLifetime drains a runner of this pool that has lived this long,
+	// the next time it is not busy. Overrides scheduler.max_runner_lifetime.
+	// It never ends a job, exactly as the fleet's own does not.
+	MaxRunnerLifetime *Duration `json:"max_runner_lifetime,omitempty"`
+	// ScaleUpDelay is how long a job for this pool must have been queued
+	// before it counts as demand. Overrides scheduler.scale_up_delay.
+	ScaleUpDelay *Duration `json:"scale_up_delay,omitempty"`
+	// DockerWait is how long a runner of this pool waits for the Docker
+	// daemon it was promised before refusing to take a job. Overrides
+	// runners.docker_wait, and means nothing on a pool whose docker_mode is
+	// none -- there is no daemon to wait for.
+	DockerWait *Duration `json:"docker_wait,omitempty"`
+}
+
+// Set reports whether this pool overrides anything at all, which is what the
+// UI asks before it draws a panel and what an explanation asks before it says
+// a figure came from the pool.
+func (r RunnerSettings) Set() bool {
+	return r.ProvisionTimeout != nil || r.DrainTimeout != nil || r.MaxRunnerLifetime != nil ||
+		r.ScaleUpDelay != nil || r.DockerWait != nil
+}
+
+// Automatic reports whether this pool leaves its runners' size to the host
+// they land on: one slot's share of whichever machine the scheduler picks,
+// charged and enforced as such.
+//
+// It is what a pool means by asking for no CPU and no memory, and it is the
+// shape a pool has unless somebody chose otherwise. Disk and the pids limit
+// are deliberately not part of the question: neither has a share to be given
+// (free disk is a measurement rather than a budget) so a pool may cap its
+// cache's disk and still leave its size to the host.
+func (p *Pool) Automatic() bool {
+	return p.Resources.CPUs <= 0 && p.Resources.MemoryMB <= 0
+}
+
 type CacheScope string
 
 const (
@@ -538,7 +597,11 @@ type Pool struct {
 	Resources         Resources   `json:"resources"`
 	Cache             CacheConfig `json:"cache"`
 	// HostSelector matches Host.Labels; empty means "any host".
-	HostSelector StringMap `json:"host_selector"`
+	// RunnerSettings is what this pool overrides of the fleet's own runner
+	// timings. Every field is nil on a pool that follows the fleet, which is
+	// every pool until somebody says otherwise.
+	RunnerSettings RunnerSettings `json:"runner_settings"`
+	HostSelector   StringMap      `json:"host_selector"`
 	// Env is injected into every runner this pool creates.
 	Env StringMap `json:"env"`
 	// RunAsRoot disables the backend's default of dropping to an unprivileged

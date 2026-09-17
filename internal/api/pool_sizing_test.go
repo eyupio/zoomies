@@ -10,14 +10,15 @@ import (
 	"github.com/eyupio/zoomies/internal/store"
 )
 
-// A pool that names no size is saved with the fleet's, not with no limit.
+// A pool that names no size leaves it to the host each runner lands on.
 //
-// This is the whole of why sizing is mandatory: a runner with no cgroup limit
-// takes every core on the machine it lands on while the fleet charges it one
-// slot's share, so the host reads as half committed, its daemon stops
-// answering, and the creates queued behind it time out on a machine every page
-// calls busy.
-func TestAPoolThatNamesNoSizeIsSizedFromTheFleet(t *testing.T) {
+// That is the sizing most fleets want and the one this API now makes
+// reachable: the scheduler charges such a runner one slot's share of the
+// machine it is placed on, and gives it exactly that share as a real cgroup
+// limit, so the books and the cgroups say the same thing. The API used to
+// overwrite the absent figures with the fleet's default instead, which froze
+// every pool on a number chosen before any of its hosts existed.
+func TestAPoolThatNamesNoSizeIsSizedByItsHost(t *testing.T) {
 	h := newHarness(t)
 	inst := h.installation()
 	u, _ := h.user("operator", store.RoleOperator)
@@ -25,20 +26,56 @@ func TestAPoolThatNamesNoSizeIsSizedFromTheFleet(t *testing.T) {
 
 	res := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: poolBody(inst.ID)})
 	res.mustStatus(t, http.StatusCreated, "create")
-	var created store.Pool
+	var created controller.PoolView
 	res.into(t, &created)
 
-	if created.Resources.CPUs != config.DefaultRunnerCPUs {
-		t.Errorf("cpus = %v, want the fleet default %v", created.Resources.CPUs, config.DefaultRunnerCPUs)
+	if created.Resources.CPUs != 0 || created.Resources.MemoryMB != 0 {
+		t.Errorf("resources = %+v, want none: the host decides", created.Resources)
 	}
-	if created.Resources.MemoryMB != config.DefaultRunnerMemoryMB {
-		t.Errorf("memory_mb = %d, want the fleet default %d", created.Resources.MemoryMB, config.DefaultRunnerMemoryMB)
+	if created.Sizing != controller.SizingAutomatic {
+		t.Errorf("sizing = %q, want %q", created.Sizing, controller.SizingAutomatic)
+	}
+
+	// And it is still automatic after the round trip through the store, which
+	// is what the pool page reads.
+	stored, err := h.st.GetPool(h.ctx, created.ID)
+	if err != nil {
+		t.Fatalf("GetPool: %v", err)
+	}
+	if !stored.Automatic() {
+		t.Errorf("the stored pool is not automatic: %+v", stored.Resources)
 	}
 }
 
-// The default is the fleet's own answer, so a fleet of bigger machines says so
-// once rather than on every pool it creates.
-func TestTheFleetsOwnDefaultSizeIsWhatANewPoolGets(t *testing.T) {
+// A size somebody typed is kept exactly, because "fixed" is the other half of
+// the choice and a pool that asks for eight cores on every host means it.
+func TestASizeSomebodyTypedIsKept(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	body := poolBody(inst.ID)
+	body["resources"] = map[string]any{"cpus": 8, "memory_mb": 16384}
+	res := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: body})
+	res.mustStatus(t, http.StatusCreated, "create")
+	var created controller.PoolView
+	res.into(t, &created)
+	if created.Resources.CPUs != 8 || created.Resources.MemoryMB != 16384 {
+		t.Errorf("resources = %+v, want the 8 CPU and 16 GB the request asked for", created.Resources)
+	}
+	if created.Sizing != controller.SizingFixed {
+		t.Errorf("sizing = %q, want %q", created.Sizing, controller.SizingFixed)
+	}
+}
+
+// The fleet's own figures are where a size form opens, and they are no longer
+// what an unspecified pool becomes.
+//
+// The two are separate questions and the defaults endpoint answers both: a
+// wizard offering a fixed size should open on the fleet's answer rather than a
+// constant of its own, and a pool that names nothing should stay automatic.
+func TestTheFleetsOwnSizeIsWhatASizeFormOpensOn(t *testing.T) {
 	h := newHarness(t, func(c *config.Config) {
 		c.Runners.DefaultCPUs = 4
 		c.Runners.DefaultMemoryMB = 8192
@@ -51,16 +88,19 @@ func TestTheFleetsOwnDefaultSizeIsWhatANewPoolGets(t *testing.T) {
 	defaults.mustStatus(t, http.StatusOK, "defaults")
 	var shown poolDefaultsResponse
 	defaults.into(t, &shown)
-	if shown.Resources.CPUs != 4 || shown.Resources.MemoryMB != 8192 {
-		t.Fatalf("defaults = %+v, want 4 CPU and 8192 MB", shown.Resources)
+	if shown.SuggestedResources.CPUs != 4 || shown.SuggestedResources.MemoryMB != 8192 {
+		t.Fatalf("suggested = %+v, want the fleet's 4 CPU and 8192 MB", shown.SuggestedResources)
+	}
+	if shown.Resources.CPUs != 0 || shown.Resources.MemoryMB != 0 {
+		t.Errorf("a new pool's resources = %+v, want none: the host decides", shown.Resources)
 	}
 
 	res := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: poolBody(inst.ID)})
 	res.mustStatus(t, http.StatusCreated, "create")
-	var created store.Pool
+	var created controller.PoolView
 	res.into(t, &created)
-	if created.Resources.CPUs != 4 || created.Resources.MemoryMB != 8192 {
-		t.Errorf("a pool created with no size got %+v, want the fleet's 4 CPU and 8 GB", created.Resources)
+	if created.Sizing != controller.SizingAutomatic {
+		t.Errorf("a pool created with no size is %q, want automatic even where the fleet names a default", created.Sizing)
 	}
 }
 
@@ -124,6 +164,9 @@ func TestTheRoomIsCountedFromTheMachinesAndTheSize(t *testing.T) {
 
 	body := poolBody(inst.ID)
 	body["max_runners"] = 8
+	// A fixed size, because this is the question a fixed size raises: the same
+	// figure on every host, against machines that are not all the same.
+	body["resources"] = map[string]any{"cpus": 2, "memory_mb": 4096}
 	res := h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: cookie, body: body})
 	res.mustStatus(t, http.StatusOK, "validate")
 	var verdict validatePoolResponse
@@ -170,6 +213,7 @@ func TestAMaximumTheFleetCanPlaceRaisesNothing(t *testing.T) {
 
 	body := poolBody(inst.ID)
 	body["max_runners"] = 4
+	body["resources"] = map[string]any{"cpus": 2, "memory_mb": 4096}
 	res := h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: cookie, body: body})
 	res.mustStatus(t, http.StatusOK, "validate")
 	var verdict validatePoolResponse
@@ -177,8 +221,8 @@ func TestAMaximumTheFleetCanPlaceRaisesNothing(t *testing.T) {
 	if len(verdict.Warnings) != 0 {
 		t.Errorf("a pool that fits its fleet warned about it: %+v", verdict.Warnings)
 	}
-	if verdict.Resources.CPUs != config.DefaultRunnerCPUs {
-		t.Errorf("the verdict did not carry the size the pool would run at: %+v", verdict.Resources)
+	if verdict.Resources.CPUs != 2 || verdict.Sizing != controller.SizingFixed {
+		t.Errorf("the verdict did not carry the size the pool would run at: %+v (%s)", verdict.Resources, verdict.Sizing)
 	}
 }
 
@@ -218,9 +262,14 @@ func TestACacheLimitAboveTheDiskWarns(t *testing.T) {
 	}
 }
 
-// A pool created before sizing was mandatory is sized the first time anything
-// about it is saved -- which is the moment an operator is looking at it.
-func TestEditingAPoolWithNoSizeSizesIt(t *testing.T) {
+// Editing a pool that names no size leaves the size where it is: with the
+// host.
+//
+// The API used to size such a pool on its first edit, on the grounds that an
+// unsized pool ran unlimited. It does not -- it runs at its host's share --
+// so sizing it on the way past would take a working automatic pool and freeze
+// it at a number nobody asked for, because somebody changed its priority.
+func TestEditingAPoolWithNoSizeLeavesItToTheHost(t *testing.T) {
 	h := newHarness(t)
 	inst := h.installation()
 	u, _ := h.user("operator", store.RoleOperator)
@@ -241,10 +290,13 @@ func TestEditingAPoolWithNoSizeSizesIt(t *testing.T) {
 	res := h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + legacy.ID,
 		cookie: cookie, body: map[string]any{"priority": 1}})
 	res.mustStatus(t, http.StatusOK, "patch")
-	var updated store.Pool
+	var updated controller.PoolView
 	res.into(t, &updated)
-	if updated.Resources.CPUs != config.DefaultRunnerCPUs || updated.Resources.MemoryMB != config.DefaultRunnerMemoryMB {
-		t.Errorf("an unsized pool stayed unsized after an edit: %+v", updated.Resources)
+	if updated.Resources.CPUs != 0 || updated.Resources.MemoryMB != 0 {
+		t.Errorf("an edit sized a pool that had left the size to its host: %+v", updated.Resources)
+	}
+	if updated.Sizing != controller.SizingAutomatic {
+		t.Errorf("sizing = %q, want automatic", updated.Sizing)
 	}
 }
 

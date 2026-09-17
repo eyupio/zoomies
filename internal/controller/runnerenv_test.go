@@ -85,3 +85,37 @@ func TestACreateTaskCarriesTheFleetsRunnerEnvironment(t *testing.T) {
 		t.Fatalf("create task env = %v", task.Spec.Env)
 	}
 }
+
+// A pool that overrides the Docker wait is believed over the fleet, because a
+// pool whose jobs need a daemon on a slow machine is the thing that knows how
+// long that takes -- and the fleet's one figure has to serve every other pool
+// at the same time.
+func TestAPoolsOwnDockerWaitWinsOverTheFleets(t *testing.T) {
+	fleet := config.Runners{DockerWait: 90 * time.Second}
+	pool := &store.Pool{DockerMode: store.DockerDinD}
+	if got := runnerEnv(fleet, pool)[EnvDockerWait]; got != "90" {
+		t.Fatalf("docker wait = %q, want the fleet's 90 on a pool that overrides nothing", got)
+	}
+
+	wait := store.Duration(5 * time.Minute)
+	pool.RunnerSettings.DockerWait = &wait
+	if got := runnerEnv(fleet, pool)[EnvDockerWait]; got != "300" {
+		t.Fatalf("docker wait = %q, want the pool's 300", got)
+	}
+
+	// Zero means the same on the pool as on the fleet: leave the image's own
+	// default in place. The two must agree, or an operator clearing a pool's
+	// override would get an image that refuses the value it was handed.
+	zero := store.Duration(0)
+	pool.RunnerSettings.DockerWait = &zero
+	if _, set := runnerEnv(fleet, pool)[EnvDockerWait]; set {
+		t.Fatal("a pool that overrode the wait to zero was still sent one")
+	}
+
+	// And the pool's own env is still the last word over both.
+	pool.RunnerSettings.DockerWait = &wait
+	pool.Env = map[string]string{EnvDockerWait: "600"}
+	if got := runnerEnv(fleet, pool)[EnvDockerWait]; got != "600" {
+		t.Fatalf("docker wait = %q, want the pool env's 600", got)
+	}
+}

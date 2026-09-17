@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -128,11 +129,108 @@ type poolInput struct {
 	Ephemeral              *bool              `json:"ephemeral"`
 	DockerMode             *string            `json:"docker_mode"`
 	Resources              *store.Resources   `json:"resources"`
+	RunnerSettings         *runnerSettingsIn  `json:"runner_settings"`
 	Cache                  *store.CacheConfig `json:"cache"`
 	HostSelector           *map[string]string `json:"host_selector"`
 	Env                    *map[string]string `json:"env"`
 	RunAsRoot              *bool              `json:"run_as_root"`
 	Enabled                *bool              `json:"enabled"`
+}
+
+// optionalDuration is one duration field of a PATCH body, with the three
+// states an operator can express kept apart.
+//
+// encoding/json cannot tell an absent field from an explicit null on its own:
+// both leave a pointer field nil, whatever depth of pointer it is given. So
+// presence is recorded here, where UnmarshalJSON is called for a null and is
+// not called at all for an absent field -- which is what makes "stop
+// overriding this" expressible without also re-sending every other setting.
+type optionalDuration struct {
+	// present is true when the key was in the body at all.
+	present bool
+	// value is nil for an explicit null, which hands the setting back to the
+	// fleet.
+	value *string
+}
+
+func (o *optionalDuration) UnmarshalJSON(b []byte) error {
+	o.present = true
+	if string(b) == "null" {
+		o.value = nil
+		return nil
+	}
+	var v string
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	o.value = &v
+	return nil
+}
+
+// runnerSettingsIn is a pool's runner overrides as they arrive: a duration
+// string per field, and a null or absent field meaning two different things.
+//
+// Absent leaves whatever the pool already had; an explicit null clears the
+// override and hands the setting back to the fleet; a string sets it,
+// including "0", which is a real answer -- "never fail a runner of this pool
+// for taking too long to register" is what a pool on a slow air-gapped
+// registry means.
+type runnerSettingsIn struct {
+	ProvisionTimeout  optionalDuration `json:"provision_timeout"`
+	DrainTimeout      optionalDuration `json:"drain_timeout"`
+	MaxRunnerLifetime optionalDuration `json:"max_runner_lifetime"`
+	ScaleUpDelay      optionalDuration `json:"scale_up_delay"`
+	DockerWait        optionalDuration `json:"docker_wait"`
+}
+
+// apply folds the overrides that arrived into the pool's, reporting the
+// durations it could not read. The field names it reports are the ones the
+// request used, so the wizard can put the message under the input that
+// carried it.
+func (in *runnerSettingsIn) apply(rs *store.RunnerSettings, add func(field, msg string)) {
+	each := []struct {
+		name string
+		in   optionalDuration
+		out  **store.Duration
+		what string
+	}{
+		{"provision_timeout", in.ProvisionTimeout, &rs.ProvisionTimeout,
+			"use 0 to let a runner of this pool take as long as it needs to register"},
+		{"drain_timeout", in.DrainTimeout, &rs.DrainTimeout,
+			"use 0 to leave a drain of this pool unbounded"},
+		{"max_runner_lifetime", in.MaxRunnerLifetime, &rs.MaxRunnerLifetime,
+			"use 0 to let a runner of this pool live until something else removes it"},
+		{"scale_up_delay", in.ScaleUpDelay, &rs.ScaleUpDelay,
+			"use 0 to scale this pool the moment a job is queued"},
+		{"docker_wait", in.DockerWait, &rs.DockerWait,
+			"use 0 to leave the runner image's own wait in place"},
+	}
+	for _, f := range each {
+		if !f.in.present {
+			continue // absent: whatever the pool already said stands
+		}
+		if f.in.value == nil {
+			*f.out = nil // null: hand this setting back to the fleet
+			continue
+		}
+		raw := strings.TrimSpace(*f.in.value)
+		// An empty string is the HTML form's way of saying null: an operator
+		// who clears the input has stopped overriding the setting.
+		if raw == "" {
+			*f.out = nil
+			continue
+		}
+		d, err := time.ParseDuration(raw)
+		switch {
+		case err != nil:
+			add("runner_settings."+f.name, fmt.Sprintf("%q is not a duration; write it like 5m, 30s or 1h30m", raw))
+		case d < 0:
+			add("runner_settings."+f.name, "this cannot be negative; "+f.what)
+		default:
+			v := store.Duration(d)
+			*f.out = &v
+		}
+	}
 }
 
 // defaultPool is a new pool before the request is applied: the defaults the
@@ -154,37 +252,28 @@ func (s *Server) defaultPool() *store.Pool {
 		DockerMode:  store.DockerNone,
 		Cache:       store.CacheConfig{Scope: store.CacheScopePool},
 		Enabled:     true,
-		Resources:   s.defaultResources(),
+		// No size: a pool that names none is sized by the host it lands on,
+		// one slot's share of that machine, charged and enforced as such.
+		// That is the shape a pool has unless somebody chooses otherwise --
+		// see automaticSizing -- and it is the one that keeps fitting when a
+		// bigger machine joins the fleet.
+		Resources: store.Resources{},
 	}
 }
 
-// defaultResources is the size one runner gets where the request names none.
+// defaultResources is the size the wizard's sliders open on when an operator
+// chooses to set one: the fleet's own figures (runners.default_cpus,
+// runners.default_memory_mb), so that a fleet of small boxes or of compilers
+// says so once rather than on every pool it creates.
 //
-// Every pool has a size. A runner with no cgroup limit can take every core and
-// all of the memory on the machine it lands on, and the fleet charges it one
-// slot's share while it does -- so the host reads as half committed, its
-// daemon stops answering, and the creates queued behind it time out on a
-// machine the Hosts page calls busy. The figures are the fleet's own
-// (runners.default_cpus, runners.default_memory_mb) so that a fleet of small
-// boxes says so once rather than on every pool it creates.
+// It is an opening value and no longer a floor. A pool that names no size is
+// sized by the host it lands on instead, which is both charged
+// (scheduler.Reserve) and enforced as a real cgroup limit
+// (scheduler.Allocation) -- so "no limit" is not what an unsized pool means,
+// and has not been since default runner limits existed.
 func (s *Server) defaultResources() store.Resources {
 	cpus, memoryMB := s.cfg().Runners.DefaultRunnerSize()
 	return store.Resources{CPUs: cpus, MemoryMB: memoryMB}
-}
-
-// sizeRunners fills in a size the request left out, so that "no limit" is not
-// reachable through this API. It is applied to an edit as well as to a
-// creation: a pool made before sizing was mandatory is sized the first time
-// anything about it is saved, which is the moment an operator is looking at
-// it, rather than silently keeping the unlimited runners it was created with.
-func (s *Server) sizeRunners(p *store.Pool) {
-	fallback := s.defaultResources()
-	if p.Resources.CPUs <= 0 {
-		p.Resources.CPUs = fallback.CPUs
-	}
-	if p.Resources.MemoryMB <= 0 {
-		p.Resources.MemoryMB = fallback.MemoryMB
-	}
 }
 
 // apply folds the request into a pool, returning the field errors it could not.
@@ -278,6 +367,9 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 	if in.Resources != nil {
 		p.Resources = *in.Resources
 	}
+	if in.RunnerSettings != nil {
+		in.RunnerSettings.apply(&p.RunnerSettings, add)
+	}
 	if in.Cache != nil {
 		p.Cache = *in.Cache
 		p.Cache.Source = strings.TrimSpace(p.Cache.Source)
@@ -320,13 +412,20 @@ type platformOption struct {
 // poolDefaultsResponse is what a pool that says nothing is, so that a form can
 // open on the same figures the server would have applied.
 //
-// It exists because the size is no longer optional: a wizard that opened its
-// sliders on a hard-coded two cores while the fleet's own default said eight
-// would be showing an operator a pool they are not creating. The same figures
-// answer "how big is a runner in this fleet" for the Hosts page, which sizes a
-// machine against them before any pool has been created at all.
+// It carries two sizes because there are two questions, and answering both
+// with one number is what used to make the wizard show an operator a pool
+// they were not creating. Resources is what a new pool actually is -- empty,
+// meaning its runners are sized by the host they land on. SuggestedResources
+// is where the sliders open for an operator who chooses to set a size
+// instead: the fleet's own figures, so a fleet of small boxes or of compilers
+// says so once rather than on every pool. The same figures answer "how big is
+// a runner in this fleet" for the Hosts page, which sizes a machine against
+// them before any pool has been created at all.
 type poolDefaultsResponse struct {
 	Resources store.Resources `json:"resources"`
+	// SuggestedResources is the size the sliders open on, never what an
+	// unspecified pool becomes.
+	SuggestedResources store.Resources `json:"suggested_resources"`
 	// MinRunners, MaxRunners and IdleTimeout are the rest of what a new pool
 	// starts as, so the wizard has one source for its starting point.
 	MinRunners  int    `json:"min_runners"`
@@ -338,10 +437,11 @@ type poolDefaultsResponse struct {
 func (s *Server) handlePoolDefaults(w http.ResponseWriter, _ *http.Request) {
 	p := s.defaultPool()
 	writeJSON(w, http.StatusOK, poolDefaultsResponse{
-		Resources:   p.Resources,
-		MinRunners:  p.MinRunners,
-		MaxRunners:  p.MaxRunners,
-		IdleTimeout: p.IdleTimeout.String(),
+		Resources:          p.Resources,
+		SuggestedResources: s.defaultResources(),
+		MinRunners:         p.MinRunners,
+		MaxRunners:         p.MaxRunners,
+		IdleTimeout:        p.IdleTimeout.String(),
 	})
 }
 
@@ -619,7 +719,6 @@ func (s *Server) handleCreatePool(w http.ResponseWriter, r *http.Request) {
 			p.RunnerGroup = controller.ManagedRunnerGroupName
 		}
 	}
-	s.sizeRunners(p)
 	errs = append(errs, s.validatePool(r.Context(), p, "")...)
 	if len(errs) > 0 {
 		unprocessable(w, "this pool cannot be created as described", errs)
@@ -672,10 +771,14 @@ type validatePoolResponse struct {
 	// maximum of 20" from two settings nobody can weigh against each other
 	// into one sentence: the fleet has room for eleven.
 	Room controller.PoolRoom `json:"room"`
-	// Resources is the size the pool would actually run at, which for a
-	// request that named none is the fleet's default rather than no limit at
-	// all. The wizard's sliders open on it.
+	// Resources is the size the pool would run at on every host, and it is
+	// empty for a pool that leaves the size to its host. Sizing says which of
+	// the two this is, so a reader need not infer "the host decides" from an
+	// absent number -- and for an automatic pool the per-host figures are in
+	// Room.Hosts, where charge_cpus and charge_memory_mb are the share each
+	// machine would actually give a runner.
 	Resources store.Resources `json:"resources"`
+	Sizing    string          `json:"sizing"`
 }
 
 // handleValidatePool answers POST /api/v1/pools/validate. It creates nothing.
@@ -692,7 +795,6 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 	}
 	p := s.defaultPool()
 	errs := in.apply(p)
-	s.sizeRunners(p)
 	errs = append(errs, s.validatePool(r.Context(), p, r.URL.Query().Get("id"))...)
 
 	fit, err := s.ctrl.HostFit(r.Context(), p)
@@ -744,6 +846,7 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 		Image:         p.Image,
 		Room:          room,
 		Resources:     p.Resources,
+		Sizing:        controller.PoolSizing(p),
 	})
 }
 
@@ -868,7 +971,6 @@ func (s *Server) handleUpdatePool(w http.ResponseWriter, r *http.Request) {
 	before := *existing
 	updated := *existing
 	errs := in.apply(&updated)
-	s.sizeRunners(&updated)
 	errs = append(errs, s.validatePool(r.Context(), &updated, id)...)
 	if len(errs) > 0 {
 		unprocessable(w, "this pool cannot be changed as described", errs)
