@@ -77,6 +77,12 @@
   }: Props = $props();
 
   const iconSize = $derived(size === 'sm' ? 13 : 14);
+  /**
+   * Whether this must not be activated: told to be off, or busy with the last
+   * activation. A button gets `disabled` for the first and refuses the click
+   * for the second; a link has neither, so both come down to the same thing.
+   */
+  const inert = $derived(disabled || loading);
 </script>
 
 {#snippet body()}
@@ -95,16 +101,26 @@
 {/snippet}
 
 {#if href}
+  <!--
+    A link that is off has no `href`.
+
+    `pointer-events: none` stops the mouse and nothing else: the anchor kept
+    its href, so it stayed in the tab order and Enter still followed it, and it
+    was still there to be copied or opened in a new tab from the context menu.
+    An <a> without an href is not focusable and not activatable, which is the
+    same refusal for everyone; `aria-disabled` and `aria-busy` are what say
+    why, and the styling is unchanged because `.btn` does not depend on href.
+  -->
   <a
-    {href}
+    href={inert ? undefined : href}
     {title}
     class="btn {variant} {size} {className}"
     class:full
-    target={newTab ? '_blank' : undefined}
-    rel={newTab ? 'noopener noreferrer' : undefined}
+    target={newTab && !inert ? '_blank' : undefined}
+    rel={newTab && !inert ? 'noopener noreferrer' : undefined}
     aria-label={ariaLabel}
-    aria-disabled={disabled ? 'true' : undefined}
-    data-loading={loading ? '' : undefined}
+    aria-disabled={inert ? 'true' : undefined}
+    aria-busy={loading || iconSpin ? 'true' : undefined}
   >
     {@render body()}
     {#if newTab}<span class="sr-only"> (opens in a new tab)</span>{/if}

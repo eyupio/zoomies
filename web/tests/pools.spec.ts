@@ -695,7 +695,7 @@ test('a refused pool deletion keeps the typed confirmation available for retry',
   await row.getByRole('button', { name: `Actions for ${FIXTURE.linuxPool}` }).click();
   await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Delete pool', exact: true });
-  const typed = dialog.getByRole('textbox', { name: 'Type the name to confirm' });
+  const typed = dialog.getByRole('textbox', { name: `Type ${FIXTURE.linuxPool} to confirm` });
   await typed.fill(FIXTURE.linuxPool);
   let attempts = 0;
   await page.route('**/api/v1/pools/*', async (route) => {

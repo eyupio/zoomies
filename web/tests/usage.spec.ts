@@ -82,6 +82,24 @@ test('the report is a link: the range and the grouping live in the address bar',
   await expect(csv).toHaveAttribute('href', /to=2026-08-31T/);
 });
 
+test('a backwards range switches the CSV link off for the keyboard too', async ({ page }) => {
+  await goto(page, '/usage?since=2026-08-31&until=2026-08-01', 'Usage');
+
+  // No link role at all, which is what an <a> without an href is. The styling
+  // says it is off; this is what makes it true for somebody tabbing to it, who
+  // a `pointer-events: none` rule does not reach.
+  await expect(page.getByRole('link', { name: 'Export CSV' })).toHaveCount(0);
+  const off = page.getByText('Export CSV');
+  await expect(off).toBeVisible();
+  await expect(off.locator('xpath=ancestor::a[1]')).toHaveAttribute('aria-disabled', 'true');
+  await expect(off.locator('xpath=ancestor::a[1]')).not.toHaveAttribute('href', /./);
+
+  // And it comes back the moment the range makes sense again.
+  await page.getByLabel('From', { exact: true }).fill('2026-08-01');
+  await page.getByLabel('From', { exact: true }).blur();
+  await expect(page.getByRole('link', { name: 'Export CSV' })).toHaveCount(1);
+});
+
 test('changing grouping cancels a pending manual refresh', async ({ page }) => {
   await goto(page, '/usage', 'Usage');
   await expect(header(page, 'Runner-hours')).toHaveCount(1);

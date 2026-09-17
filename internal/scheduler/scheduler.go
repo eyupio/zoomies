@@ -372,15 +372,23 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 	quotaRepositories := map[string]bool{}
 	admitted := map[string]int{}
 	for _, j := range queued {
+		// The delay is asked about first because it is the cheaper reason to
+		// be waiting and the one nobody can act on. A job still inside it
+		// would not have driven a create whatever the repository limit said,
+		// so counting it as deferred by that limit made the pool's reason
+		// read "3 jobs deferred by the repository limit for acme/widgets"
+		// about jobs the next few seconds were going to release anyway --
+		// and sent an operator to change a setting that was not the cause.
+		if !j.ProvisionNow && t.now.Sub(j.QueuedAt) < t.policy.ScaleUpDelay {
+			continue
+		}
 		if p.RepositoryScaleUpLimit > 0 && t.activeByRepository[p.ID+"\x00"+j.Repo]+admitted[j.Repo] >= p.RepositoryScaleUpLimit {
 			plan.QuotaDeferredJobs++
 			quotaRepositories[j.Repo] = true
 			continue
 		}
-		if j.ProvisionNow || t.now.Sub(j.QueuedAt) >= t.policy.ScaleUpDelay {
-			eligible++
-			admitted[j.Repo]++
-		}
+		eligible++
+		admitted[j.Repo]++
 	}
 	for repo := range quotaRepositories {
 		plan.QuotaDeferredRepositories = append(plan.QuotaDeferredRepositories, repo)
@@ -526,6 +534,12 @@ func failedAt(r *store.Runner) time.Time {
 
 // summarise keeps a runner's failure message to one clause of a sentence. The
 // full text is on the Runners page; here it is the hint, not the report.
+//
+// The cut is by bytes and the message is not: it comes from a daemon, a
+// registry or GitHub, and a limit that landed inside a character left half of
+// one behind -- which reaches the problems drawer and the pool page as a
+// replacement glyph in the middle of a word. Dropping the partial character is
+// what the reader wanted from the ellipsis anyway.
 func summarise(message string) string {
 	message = strings.Join(strings.Fields(message), " ")
 	if message == "" {
@@ -533,7 +547,7 @@ func summarise(message string) string {
 	}
 	const limit = 160
 	if len(message) > limit {
-		return message[:limit-1] + "…"
+		return strings.ToValidUTF8(message[:limit-1], "") + "…"
 	}
 	return message
 }

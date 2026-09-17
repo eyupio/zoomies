@@ -241,6 +241,14 @@ func VerifyPassword(password, encoded string) bool {
 	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &memory, &time, &threads); err != nil {
 		return false
 	}
+	// argon2 panics rather than erring on a zero round count or lane count, so
+	// a hash column that has been corrupted -- by a hand-edited row, a partial
+	// restore, a database from some other tool -- would take down whatever is
+	// verifying rather than refusing the password. A hash nothing could have
+	// produced is simply not a match.
+	if time == 0 || threads == 0 {
+		return false
+	}
 	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
 	if err != nil {
 		return false

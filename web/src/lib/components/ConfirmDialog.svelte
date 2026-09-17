@@ -96,17 +96,17 @@
   {/if}
   {#if needsTyping}
     <div class="confirm-field">
+      <!--
+        No ariaLabel here. One would win over the label Field wires up, so the
+        only control guarding an irreversible change would be announced as
+        "type the name to confirm" without ever saying which name -- and the
+        name is the whole of what this field asks for. The visible label is the
+        accessible name, which is also what stops voice control from being told
+        one thing while the screen says another.
+      -->
       <Field label="Type {name} to confirm" hint="This cannot be undone.">
         {#snippet children({ id, describedBy, invalid })}
-          <Input
-            bind:value={typed}
-            {id}
-            {describedBy}
-            {invalid}
-            mono
-            autocomplete="off"
-            ariaLabel="Type the name to confirm"
-          />
+          <Input bind:value={typed} {id} {describedBy} {invalid} mono autocomplete="off" />
         {/snippet}
       </Field>
     </div>

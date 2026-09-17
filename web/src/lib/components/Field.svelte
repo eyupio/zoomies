@@ -79,8 +79,17 @@
 </script>
 
 <div class="field {className}">
-  <div class="label-row" class:sr-only={hideLabel}>
-    <label for={id}>
+  <!--
+    `hideLabel` hides the label, not the row.
+
+    It used to take the whole row with it, and the help button lives there too
+    -- so a field that hid its label and offered help had a focusable control
+    nobody could see: a keyboard reaches it, a tooltip opens on something
+    invisible, and a pointer has nothing to aim at. The label is what the
+    caller asked to hide.
+  -->
+  <div class="label-row">
+    <label for={id} class:sr-only={hideLabel}>
       {label}
       {#if required}<span class="required" aria-hidden="true">*</span><span class="sr-only"
           >(required)</span

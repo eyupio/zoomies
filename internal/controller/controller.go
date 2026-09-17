@@ -884,10 +884,16 @@ const announceEach = 64
 // and every other tab does the same thing at the same moment.
 func (c *Controller) publishRunnersDeleted(ids []string) {
 	if len(ids) > announceEach {
-		c.publish(events.KindResync, "", map[string]any{
-			"reason": "many runner rows were removed at once; fetch the resources again",
-			"count":  len(ids),
-		})
+		// Transient: it is true of the tabs open now and of none that opens
+		// afterwards, which is already loading everything. In the ring it
+		// would send a tab that had just loaded the fleet back to load it
+		// again.
+		if c.bus != nil {
+			c.bus.PublishTransient(events.KindResync, "", map[string]any{
+				"reason": "many runner rows were removed at once; fetch the resources again",
+				"count":  len(ids),
+			})
+		}
 		return
 	}
 	for _, id := range ids {

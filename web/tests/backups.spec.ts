@@ -119,7 +119,7 @@ test('a restore is staged by name, shown as waiting, and can be cancelled', asyn
   const stage = confirm.getByRole('button', { name: 'Stage the restore' });
   await expect(stage, 'the button is dead until the name is typed').toBeDisabled();
   await expect(confirm).toContainText('Everyone is signed out');
-  await confirm.getByRole('textbox', { name: 'Type the name to confirm' }).fill(id);
+  await confirm.getByRole('textbox', { name: `Type ${id} to confirm` }).fill(id);
   await expect(stage).toBeEnabled();
   await stage.click();
   await expect(confirm).toBeHidden();
@@ -147,7 +147,7 @@ test('deleting a backup demands its name and then it is gone', async ({ page }) 
   const confirm = dialog(page, 'Delete backup');
   const go = confirm.getByRole('button', { name: 'Delete backup' });
   await expect(go).toBeDisabled();
-  await confirm.getByRole('textbox', { name: 'Type the name to confirm' }).fill(id);
+  await confirm.getByRole('textbox', { name: `Type ${id} to confirm` }).fill(id);
   await go.click();
   await expect(confirm).toBeHidden();
   await expect(page.getByText(`${id} deleted`)).toBeVisible();
@@ -218,6 +218,41 @@ test('retention can be applied without waiting for the next backup', async ({ pa
   // being tested: the pass ran and reported, rather than silently doing
   // nothing.
   await expect(page.getByText(/Nothing to remove|Retention applied/)).toBeVisible();
+});
+
+/*
+ * A partial failure is the one outcome of a retention pass that somebody has to
+ * act on, and it arrives as a warning rather than an error because most of the
+ * work did happen. That must not put it in the queue that waits for a pause:
+ * the two live regions exist so that "one remote refused" interrupts and "every
+ * copy is one we meant to keep" does not.
+ */
+test('a retention pass that only partly worked interrupts rather than waits', async ({ page }) => {
+  await page.route('**/api/v1/backups/prune', async (route) => {
+    await route.fulfill({
+      json: {
+        removed: ['zoomies-20260101-000000'],
+        remotes: [{ name: 'offsite', removed: [], error: 'the bucket refused the delete' }],
+      },
+    });
+  });
+
+  await openBackups(page);
+  // Retention has nothing to offer with no copy to keep, so the button is dead
+  // until this fleet has taken one.
+  await takeOne(page);
+  await page.getByRole('button', { name: 'Prune now' }).click();
+  const confirming = dialog(page, 'Apply retention now');
+  await confirming.getByRole('button', { name: 'Apply retention' }).click();
+  await expect(confirming).toBeHidden();
+
+  const warned = page.getByText('Retention was partly applied');
+  await expect(warned).toBeVisible();
+  await expect(warned.locator('xpath=ancestor::*[@aria-live][1]')).toHaveAttribute(
+    'aria-live',
+    'assertive',
+  );
+  await expect(page.getByText('the bucket refused the delete')).toBeVisible();
 });
 
 /*

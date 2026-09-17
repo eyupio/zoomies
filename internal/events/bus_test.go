@@ -273,3 +273,123 @@ func TestClosingASubscriptionEndsItsContextWatcher(t *testing.T) {
 		t.Fatalf("%d goroutines after closing 50 subscriptions, %d before them", n, before)
 	}
 }
+
+// The ring and the wire have to agree with the sequence.
+//
+// Every event carries the number a reconnecting client comes back with, and
+// the SSE handler replays everything above it. So an event that reaches the
+// ring after one numbered above it is an event that client will never be sent
+// -- and Subscribe, which reads the ring's first entry as the oldest number it
+// holds, would still call the replay complete and send no resync. The number
+// used to be drawn before the lock, which is exactly the window two publishers
+// need to swap places.
+func TestConcurrentPublishesKeepTheRingInSequence(t *testing.T) {
+	b := New()
+	const writers, each = 8, 64
+
+	var wg sync.WaitGroup
+	for w := 0; w < writers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < each; i++ {
+				b.Publish(KindStats, "", map[string]int{"n": i})
+			}
+		}()
+	}
+	wg.Wait()
+
+	b.mu.RLock()
+	ring := append([]Event(nil), b.ring...)
+	b.mu.RUnlock()
+
+	if len(ring) == 0 {
+		t.Fatal("nothing reached the ring")
+	}
+	for i := 1; i < len(ring); i++ {
+		if ring[i].ID <= ring[i-1].ID {
+			t.Fatalf("ring entry %d has id %d, after id %d: a client resuming from the higher one never sees the lower",
+				i, ring[i].ID, ring[i-1].ID)
+		}
+	}
+	if got, want := ring[len(ring)-1].ID, uint64(writers*each); got != want {
+		t.Fatalf("the last event is %d, want %d", got, want)
+	}
+}
+
+// A tab reconnecting to a busy fleet must not be cut off by its own replay.
+//
+// The replay is delivered before the subscriber has read anything, so a queue
+// only as deep as the ring is full the instant the subscription exists. The
+// next publish then finds no room and ends the feed -- and the tab reconnects
+// to a ring that is still full and is ended again, on the fleet that most
+// needs watching.
+func TestAFullReplayLeavesRoomForTheNextEvent(t *testing.T) {
+	b := New()
+	// One more than the ring holds, so a replay from the first id reaches
+	// back to the oldest entry still in it and carries every one of them.
+	for i := 0; i <= b.ringCap; i++ {
+		b.Publish(KindStats, "", map[string]int{"n": i})
+	}
+
+	sub := b.Subscribe(context.Background(), SubscribeOptions{Replay: 1})
+	defer sub.Close()
+	if !sub.Complete {
+		t.Fatal("a replay reaching back to the oldest event in the ring reported itself incomplete")
+	}
+
+	b.Publish(KindStats, "", map[string]int{"n": -1})
+	for i := 0; i < b.ringCap; i++ {
+		if _, ok := <-sub.C; !ok {
+			t.Fatalf("the feed ended after %d replayed events; the subscriber was dropped by its own replay", i)
+		}
+	}
+	if _, ok := <-sub.C; !ok {
+		t.Fatal("the feed ended before the event published after the replay")
+	}
+}
+
+// A resync is about the connections it was sent to and about no other.
+//
+// It means "what you hold may be stale, fetch the resources again", which is
+// never true of a client that connects afterwards -- that one is already
+// fetching everything. Kept in the ring, the prune's resync would meet each
+// new tab on its first reconnect and send it straight back to load a fleet it
+// had only just loaded.
+func TestATransientEventReachesSubscribersWithoutEnteringTheRing(t *testing.T) {
+	b := New()
+	sub := b.Subscribe(context.Background(), SubscribeOptions{})
+	defer sub.Close()
+
+	b.PublishTransient(KindResync, "", map[string]string{"reason": "everything went"})
+
+	select {
+	case ev := <-sub.C:
+		if ev.Kind != KindResync {
+			t.Fatalf("the subscriber got %q, want a resync", ev.Kind)
+		}
+		if ev.ID == 0 {
+			t.Fatal("a transient event carried no id, so a client resuming from it would be sent what it has already seen")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("the subscriber never got the transient event")
+	}
+
+	b.mu.RLock()
+	ring := append([]Event(nil), b.ring...)
+	b.mu.RUnlock()
+	for _, e := range ring {
+		if e.Kind == KindResync {
+			t.Fatal("the resync is in the ring; a client reconnecting later would be told to refetch for nothing")
+		}
+	}
+
+	// The number it drew still belongs to the sequence, so an ordinary event
+	// published after it follows on.
+	b.Publish(KindStats, "", map[string]int{"n": 1})
+	later := b.Subscribe(context.Background(), SubscribeOptions{Replay: 1})
+	defer later.Close()
+	if !later.Complete {
+		t.Fatal("a replay across the transient event reported itself incomplete")
+	}
+}

@@ -53,11 +53,14 @@ const (
 	// KindHeartbeat is an empty keep-alive so that proxies do not close an
 	// idle SSE connection.
 	KindHeartbeat Kind = "heartbeat"
-	// KindResync tells a reconnecting client that the events between its last
-	// ID and now could not all be replayed -- the ring had moved on, or the
-	// controller restarted and the IDs began again -- so what it holds may be
-	// stale and it should fetch the resources afresh. It is the first frame
-	// on such a connection and is never in the ring.
+	// KindResync tells a client that what it holds may be stale and it should
+	// fetch the resources afresh: the events between its last ID and now could
+	// not all be replayed -- the ring had moved on, or the controller
+	// restarted and the IDs began again -- or too much was deleted at once to
+	// announce row by row. It is never in the ring, because it is true of the
+	// connections it was sent to and of no connection made afterwards; the
+	// SSE handler writes its own directly, and the controller sends one with
+	// Bus.PublishTransient.
 	KindResync Kind = "resync"
 )
 
@@ -97,7 +100,12 @@ type Bus struct {
 	// is told to resynchronise instead.
 	epoch string
 
-	// buffer is the per-subscriber queue depth.
+	// buffer is the per-subscriber queue depth. It is deliberately larger
+	// than ringCap: a subscriber is handed the whole replay before it has
+	// read a byte, so a queue only as deep as the ring is full at the moment
+	// it is created, and the next publish -- one already waiting on this same
+	// lock, on a fleet busy enough to have filled the ring -- would drop it.
+	// The tab reconnects, replays a full ring again and is dropped again.
 	buffer int
 	// ring keeps recent events so a client that reconnects within a few
 	// seconds does not miss anything.
@@ -116,7 +124,7 @@ func New() *Bus {
 	return &Bus{
 		subs:    map[int]*subscriber{},
 		epoch:   strconv.FormatInt(time.Now().UnixNano(), 36),
-		buffer:  256,
+		buffer:  512,
 		ringCap: 256,
 	}
 }
@@ -152,25 +160,51 @@ func (b *Bus) ParseWireID(raw string) (id uint64, sameEpoch bool) {
 // failures are logged rather than returned, because a publisher in the middle
 // of a reconcile has nothing useful to do with the error.
 func (b *Bus) Publish(kind Kind, topic string, v any) {
+	if e, ok := frame(kind, topic, v); ok {
+		b.publish(e, true)
+	}
+}
+
+// PublishTransient is Publish for a frame that must reach the subscribers who
+// are here now and must never be replayed to one that arrives later.
+//
+// KindResync is the whole of it: it says "what you hold may be stale, fetch
+// the resources again", which is true of the tab it was sent to and says
+// nothing about a tab that connects afterwards -- that one is already fetching
+// everything. Replaying it would send a client that has just loaded the fleet
+// straight back to load it again.
+func (b *Bus) PublishTransient(kind Kind, topic string, v any) {
+	if e, ok := frame(kind, topic, v); ok {
+		b.publish(e, false)
+	}
+}
+
+// frame renders a payload into an unnumbered event, or reports that it could
+// not be. The number is publish's to draw, under the lock.
+func frame(kind Kind, topic string, v any) (Event, bool) {
 	var raw json.RawMessage
 	if v != nil {
 		enc, err := json.Marshal(v)
 		if err != nil {
 			slog.Error("events: could not marshal payload", "kind", kind, "error", err)
-			return
+			return Event{}, false
 		}
 		raw = enc
 	}
-	b.publish(Event{
-		ID:    b.seq.Add(1),
-		Kind:  kind,
-		Topic: topic,
-		Data:  raw,
-		At:    time.Now().UTC(),
-	})
+	return Event{Kind: kind, Topic: topic, Data: raw, At: time.Now().UTC()}, true
 }
 
-// publish appends to the ring and hands the event to every subscriber.
+// publish numbers the event, appends it to the ring and hands it to every
+// subscriber.
+//
+// The number is drawn here, under the lock, rather than by the caller. Drawing
+// it first and taking the lock afterwards let two publishers -- the reconcile
+// loop and an API handler, say -- enter the ring in the opposite order to their
+// numbers, and the wire with them. A browser handed 6 before 5 reconnects with
+// 6 as its last id and never sees 5 again, while Subscribe still reports the
+// replay complete because the ring's oldest id is no longer its lowest. There
+// is no polling to put that right, so the tab quietly shows a fleet that has
+// moved on.
 //
 // The sends happen under the lock on purpose. Close closes a subscriber's
 // channel under that same lock, and a send on a closed channel panics even
@@ -179,10 +213,14 @@ func (b *Bus) Publish(kind Kind, topic string, v any) {
 // panic whichever loop was publishing, and the reconcile loop does not come
 // back from that. Every send here is non-blocking, so holding the lock costs
 // the other publishers microseconds.
-func (b *Bus) publish(e Event) {
+// It still draws a number when it is not kept: the number is what a client
+// comes back with, and a frame delivered without one would have the client
+// resume from before it and be sent the events it has already seen.
+func (b *Bus) publish(e Event, keep bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.ringCap > 0 {
+	e.ID = b.seq.Add(1)
+	if keep && b.ringCap > 0 {
 		b.ring = append(b.ring, e)
 		if len(b.ring) > b.ringCap {
 			b.ring = b.ring[len(b.ring)-b.ringCap:]
@@ -310,6 +348,11 @@ func (b *Bus) Subscribe(ctx context.Context, opts SubscribeOptions) *Subscriptio
 				select {
 				case ch <- e:
 				default:
+					// The queue is deeper than the ring, so this is not
+					// reachable -- but a replay that silently dropped a frame
+					// while still calling itself complete is the one outcome
+					// this whole path exists to prevent, so say so instead.
+					complete = false
 				}
 			}
 		}

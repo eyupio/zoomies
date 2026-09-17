@@ -233,6 +233,30 @@ func TestPasswordHashing(t *testing.T) {
 	}
 }
 
+// A hash column that has been corrupted must refuse the password, not take
+// the process with it.
+//
+// argon2 panics on a zero round count or lane count rather than returning an
+// error, and the parameters come from the stored string -- so a hand-edited
+// row, a partial restore or a database written by something else turned every
+// sign-in attempt against that account into a panic. The API's recovery
+// middleware turns that into a 500; `zoomies users passwd` has no such net
+// and simply dies.
+func TestVerifyPasswordRefusesAHashWithImpossibleParameters(t *testing.T) {
+	const salt = "c29tZXNhbHRzb21lc2E"
+	const sum = "c29tZWhhc2hzb21laGFzaHNvbWVoYXNoc29tZQ"
+	for _, params := range []string{
+		"m=65536,t=0,p=4",
+		"m=65536,t=2,p=0",
+		"m=0,t=0,p=0",
+	} {
+		hash := "$argon2id$v=19$" + params + "$" + salt + "$" + sum
+		if VerifyPassword("correct horse battery staple", hash) {
+			t.Fatalf("a hash with %s verified", params)
+		}
+	}
+}
+
 // Tokens carry full entropy, so their hash is a plain SHA-256 that has to be
 // the same every time the same token is presented.
 func TestTokenHashing(t *testing.T) {
