@@ -355,6 +355,32 @@ everybody, marked rather than hidden.
 ![Settings: the section's rail beside the Users page, listing one administrator](screenshots/settings-dark.webp#only-dark){ .zoomies-shot }
 ![Settings: the section's rail beside the Users page, listing one administrator](screenshots/settings-light.webp#only-light){ .zoomies-shot }
 
+### Backups
+
+The one settings page that is a tool rather than a form, because a backup is
+the one thing here you find out you needed at the worst possible moment.
+
+The schedule is at the top — where copies go, how often, and how many are kept
+— and under it the destinations those copies are sent on to: as many
+S3-compatible buckets as you want to name, each added, tested and rotated here
+without editing a file or restarting anything. Each says what it holds, when it
+last heard from the service, and what it refused with if it refused. A
+destination can also be listed and a copy brought back out of it, which is the
+path a controller takes when the disk it was backing up is gone.
+
+Then every copy this controller knows about, with what took it and whether it
+verifies. From a row you can take one now, verify it, download it plain or
+sealed with a passphrase, upload one taken somewhere else, and stage a restore
+that the next restart applies.
+
+Naming one is not the same as remembering to press a button afterwards: every
+copy the schedule takes is sent on by the same pass that took it, and a bucket
+that was unreachable for two nights is caught up with both backups it missed
+rather than starting from the newest. What a destination costs — who can read
+the archive, and what a plain-HTTP endpoint gives away — is set out in
+[Security](security.md#a-backup-remote-with-no-passphrase), and the whole of it
+in [Backup and restore](backup-and-restore.md).
+
 ## On a phone
 
 Read-only monitoring from a phone is a stated requirement, so it is tested. The

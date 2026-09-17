@@ -579,11 +579,10 @@ takes no more work however many slots it has left.
 
 What one runner is charged is the pool's own `resources`. A field the pool
 leaves unset is charged one slot's worth of the host instead — a host with
-30 GB allocatable and a capacity of 6 charges 5 GB — which is what keeps a
-fleet of pools with no limits admitting exactly what its slot counts admitted
-before. Only a pool that predates sizing being part of making one, or a row
-written straight into the database, can be in that state now: every pool that
-goes through the API gets a CPU and a memory figure, its own or the fleet's.
+30 GB allocatable and a capacity of 6 charges 5 GB. That is not a fallback for
+old rows: it is what [one share of each host](#how-big-a-runner-is-and-how-many-there-are)
+means, it is the shape a new pool has, and the same share is handed to the
+runner as a real cgroup limit, so the books and the cgroups agree.
 
 A pool with `docker_mode: dind` is charged twice over, whichever of those two
 the figure came from: the build runs inside the sidecar, which the backend
