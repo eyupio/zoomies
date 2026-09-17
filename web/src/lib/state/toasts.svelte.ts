@@ -48,6 +48,19 @@ const MAX_VISIBLE = 4;
  */
 const MAX_STICKY = 8;
 
+/**
+ * Whether a tone interrupts.
+ *
+ * A warning is a partial failure -- retention applied to some copies, one
+ * remote that refused -- so it belongs with the errors on both counts the two
+ * regions exist for. It used to sit with the successes, which meant the one
+ * message on the page that said something did not work was announced in the
+ * queue that waits for a pause.
+ */
+function assertive(tone: ToastTone): boolean {
+  return tone === 'error' || tone === 'warning';
+}
+
 let nextId = 1;
 
 /**
@@ -78,12 +91,12 @@ class Toasts {
 
   /** Everything announced politely: successes and information. */
   get polite(): readonly Toast[] {
-    return this.#items.filter((t) => t.tone !== 'error');
+    return this.#items.filter((t) => !assertive(t.tone));
   }
 
   /** Errors and warnings, announced assertively because they interrupt a task. */
   get assertive(): readonly Toast[] {
-    return this.#items.filter((t) => t.tone === 'error');
+    return this.#items.filter((t) => assertive(t.tone));
   }
 
   push(input: ToastInput): number {
