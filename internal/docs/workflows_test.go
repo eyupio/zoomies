@@ -357,10 +357,19 @@ func TestMainPublishesAnInstallableDevBinary(t *testing.T) {
 		"prerelease: true",
 		"make_latest: false",
 		"overwrite_files: true",
+		// Uploaded one at a time. The action starts every file at once
+		// otherwise, and eight transfers at once -- five of them a binary --
+		// is what failed the publish with "Error saving asset": a channel
+		// whose assets are missing is not a channel anybody can install from.
+		"preserve_order: true",
 	} {
 		if !strings.Contains(ci, want) {
 			t.Errorf("ci.yml is missing %q, so --version dev is not a complete rolling binary channel", want)
 		}
+	}
+	// A release is the same transfer with more at stake.
+	if !strings.Contains(workflowFiles(t)["release.yml"], "preserve_order: true") {
+		t.Error("release.yml uploads its assets all at once, which is how a release ships without its binaries")
 	}
 }
 

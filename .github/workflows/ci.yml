@@ -462,6 +462,14 @@ jobs:
           prerelease: true
           make_latest: false
           overwrite_files: true
+          # One upload at a time. Without this the action starts every file at
+          # once -- Promise.all over the globs -- and eight simultaneous
+          # transfers, five of them a 30 to 60 MB binary, is more than a runner's
+          # link carries: the three small files landed in half a second and all
+          # five binaries were aborted together thirty seconds later, with
+          # "Error saving asset" and nothing about which one or why. Uploading
+          # in order costs a few seconds and publishes a complete release.
+          preserve_order: true
 
   installer:
     name: install.sh
