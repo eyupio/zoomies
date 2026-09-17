@@ -166,13 +166,16 @@ Decline it, or set `pool.skip` in an answer file, and the Pools page starts
 empty; nothing runs until a pool exists. Either way, always set a maximum. It
 is your only backstop against a runaway workflow.
 
-**Size per runner** is the row that decides how many jobs run at once. Every
-pool has one — there is no “unlimited”, because a runner with no limit takes
-whatever the machine has while the fleet still counts it as one slot — and the
-wizard asks for it after the hosts and before the count, so it can tell you
-what the machines you picked have room for at that size. Change the figure the
-whole fleet starts from under **Settings → Configuration**
-(`runners.default_cpus`, `runners.default_memory_mb`).
+**Size per runner** is the row that decides how many jobs run at once, and the
+default answer is to leave it to the host: each runner is given one slot's
+share of whichever machine it lands on, as a real limit rather than a promise,
+so the same pool is sized correctly on a 16-core box and on a 64-core one.
+There is no “unlimited” — a runner with no limit takes whatever the machine
+has while the fleet still counts it as one slot — and a pool whose jobs need a
+particular amount of machine everywhere can say so instead, on the advanced
+path. Its sliders open on the figures the whole fleet starts from, under
+**Settings → Configuration** (`runners.default_cpus`,
+`runners.default_memory_mb`).
 
 **Operating system** is the other row worth a look. It picks which
 `zoomies-runner` variant the pool boots — Ubuntu 24.04 and 22.04, Debian 12,

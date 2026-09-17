@@ -367,10 +367,9 @@
     if (parseGoDuration(draft.idle_timeout) === null)
       errors['idle_timeout'] = 'Use a Go duration such as 5m, 90s or 1h30m.';
 
-    // The size is not optional, and the floors are the server's own: below
-    // them the runner binary cannot keep up with its own job, or is killed
-    // before it takes one.
     // Only a pool that has chosen a fixed size has a figure to be wrong about.
+    // The floors are the server's own: below them the runner binary cannot
+    // keep up with its own job, or is killed before it takes one.
     // An automatic pool sends neither, and the floors below are the server's
     // rules for a number somebody typed -- applying them to a slider nothing
     // is going to read would refuse a pool the server would happily create.
