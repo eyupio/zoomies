@@ -119,7 +119,7 @@ test('a restore is staged by name, shown as waiting, and can be cancelled', asyn
   const stage = confirm.getByRole('button', { name: 'Stage the restore' });
   await expect(stage, 'the button is dead until the name is typed').toBeDisabled();
   await expect(confirm).toContainText('Everyone is signed out');
-  await confirm.getByRole('textbox', { name: 'Type the name to confirm' }).fill(id);
+  await confirm.getByRole('textbox', { name: `Type ${id} to confirm` }).fill(id);
   await expect(stage).toBeEnabled();
   await stage.click();
   await expect(confirm).toBeHidden();
@@ -147,7 +147,7 @@ test('deleting a backup demands its name and then it is gone', async ({ page }) 
   const confirm = dialog(page, 'Delete backup');
   const go = confirm.getByRole('button', { name: 'Delete backup' });
   await expect(go).toBeDisabled();
-  await confirm.getByRole('textbox', { name: 'Type the name to confirm' }).fill(id);
+  await confirm.getByRole('textbox', { name: `Type ${id} to confirm` }).fill(id);
   await go.click();
   await expect(confirm).toBeHidden();
   await expect(page.getByText(`${id} deleted`)).toBeVisible();

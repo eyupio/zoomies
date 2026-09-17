@@ -396,7 +396,7 @@ test('forgetting a machine needs its name typed, and nothing is forgotten withou
 
   // A near miss is still a miss: the whole point of typing the name is that a
   // hand already on the button cannot complete this.
-  const typed = dialog.getByRole('textbox', { name: 'Type the name to confirm' });
+  const typed = dialog.getByRole('textbox', { name: `Type ${ghost} to confirm` });
   await typed.fill('zoomies-mach-ghost');
   await expect(confirm).toBeDisabled();
   await confirm.click({ force: true });

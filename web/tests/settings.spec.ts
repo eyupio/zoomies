@@ -71,9 +71,9 @@ test('an account can be created, given a different role, and deleted by name', a
   const confirm = dialog(page, 'Delete account');
   const go = confirm.getByRole('button', { name: 'Delete account' });
   await expect(go, 'the button is dead until the name is typed').toBeDisabled();
-  await confirm.getByRole('textbox', { name: 'Type the name to confirm' }).fill('not-the-name');
+  await confirm.getByRole('textbox', { name: `Type ${username} to confirm` }).fill('not-the-name');
   await expect(go).toBeDisabled();
-  await confirm.getByRole('textbox', { name: 'Type the name to confirm' }).fill(username);
+  await confirm.getByRole('textbox', { name: `Type ${username} to confirm` }).fill(username);
   await expect(go).toBeEnabled();
   await go.click();
 
