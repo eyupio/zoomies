@@ -308,16 +308,30 @@
     'review',
   ];
 
-  /** The steps this mode walks, in order. */
-  export function wizardSteps(mode: WizardMode): readonly WizardStepDef[] {
+  /*
+   * The fork is a creation question, so an edit does not walk it.
+   *
+   * An operator opening a pool they already have is there to change one
+   * setting, and "how much of this pool do you want to decide" is not a
+   * question about that -- the pool has already answered it, and the wizard
+   * reads the answer off the pool to pick which path to open. Nothing is lost:
+   * the size step still offers the host's share, the hosts step still offers
+   * the whole fleet, and the runner timings can still be cleared, so every
+   * choice the fork makes is reachable from the steps themselves.
+   */
+  function stepIds(mode: WizardMode, editing: boolean): readonly StepId[] {
     const ids = mode === 'simple' ? SIMPLE_STEP_IDS : ADVANCED_STEP_IDS;
-    return ids.map((id) => STEP_DEFS[id]);
+    return editing ? ids.filter((id) => id !== 'mode') : ids;
+  }
+
+  /** The steps this mode walks, in order. */
+  export function wizardSteps(mode: WizardMode, editing = false): readonly WizardStepDef[] {
+    return stepIds(mode, editing).map((id) => STEP_DEFS[id]);
   }
 
   /** The fields each of this mode's steps owns, indexed the same way. */
-  export function stepFields(mode: WizardMode): readonly (readonly string[])[] {
-    const ids = mode === 'simple' ? SIMPLE_STEP_IDS : ADVANCED_STEP_IDS;
-    return ids.map((id) => STEP_FIELDS_BY_ID[id]);
+  export function stepFields(mode: WizardMode, editing = false): readonly (readonly string[])[] {
+    return stepIds(mode, editing).map((id) => STEP_FIELDS_BY_ID[id]);
   }
 
   /** Human labels for the API's field names, used when the server rejects a field. */
@@ -363,8 +377,8 @@
    * path does not walk lands, because the review step is the one screen that
    * shows every error at once.
    */
-  export function stepForField(field: string, mode: WizardMode): number {
-    const fields = stepFields(mode);
+  export function stepForField(field: string, mode: WizardMode, editing = false): number {
+    const fields = stepFields(mode, editing);
     const index = fields.findIndex((owned) => owned.includes(field));
     return index === -1 ? fields.length - 1 : index;
   }

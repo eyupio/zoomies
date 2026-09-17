@@ -484,8 +484,8 @@
   let mode = $state<WizardMode>(
     untrack(() => (pool && poolIsTuned(draft) ? 'advanced' : 'simple')),
   );
-  const steps = $derived(wizardSteps(mode));
-  const fieldsByStep = $derived(stepFields(mode));
+  const steps = $derived(wizardSteps(mode, editing));
+  const fieldsByStep = $derived(stepFields(mode, editing));
   let current = $state(0);
   let touched = $state<Record<string, boolean>>({});
   let serverErrors = $state<Record<string, string>>({});
@@ -854,7 +854,7 @@
     const fields = cause.fieldErrors();
     serverErrors = fields;
     const first = Object.keys(fields)[0];
-    if (first !== undefined) goTo(stepForField(first, mode));
+    if (first !== undefined) goTo(stepForField(first, mode, editing));
   }
 
   /**
@@ -874,7 +874,7 @@
       const next = { ...touched };
       for (const field of outstanding) next[field] = true;
       touched = next;
-      goTo(stepForField(outstanding[0] ?? 'name', mode));
+      goTo(stepForField(outstanding[0] ?? 'name', mode, editing));
       return;
     }
     submitting = true;
@@ -925,7 +925,7 @@
   {#snippet children(step)}
     <div class="step" bind:this={panel} tabindex="-1" role="group" aria-label={step.title}>
       {#if step.id === 'mode'}
-        <StepMode bind:mode {editing} hosts={fleet.hosts} hostsKnown={fleet.loaded} />
+        <StepMode bind:mode hosts={fleet.hosts} hostsKnown={fleet.loaded} />
       {:else if step.id === 'target'}
         <StepTarget
           {draft}

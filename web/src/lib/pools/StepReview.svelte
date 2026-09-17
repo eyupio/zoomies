@@ -75,7 +75,9 @@
   }
 
   function stepName(field: string): string {
-    return wizardSteps(mode)[stepForField(field, mode)]?.title ?? 'the first step';
+    return (
+      wizardSteps(mode, editing)[stepForField(field, mode, editing)]?.title ?? 'the first step'
+    );
   }
 </script>
 
@@ -126,7 +128,7 @@
               <Button
                 size="sm"
                 variant="ghost"
-                onclick={() => ongoto(stepForField(issue.field, mode))}
+                onclick={() => ongoto(stepForField(issue.field, mode, editing))}
               >
                 Back to {stepName(issue.field)}
               </Button>

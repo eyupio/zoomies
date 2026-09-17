@@ -73,6 +73,33 @@ async function toAdvanced(page: Page): Promise<void> {
   await expect(page.getByRole('heading', { level: 2, name: 'Target' })).toBeVisible();
 }
 
+/**
+ * Press Next until the review step, whichever step we are on.
+ *
+ * Counting clicks made every one of these specs depend on how many steps the
+ * advanced path has, so inserting one broke a dozen tests that were not about
+ * the step list at all. The one spec that *is* about the step list walks it
+ * explicitly and counts for itself.
+ */
+async function toReview(page: Page): Promise<void> {
+  const review = page.getByRole('heading', { level: 2, name: 'Review' });
+  for (let step = 0; step < 10; step++) {
+    if (await review.isVisible()) return;
+    await next(page).click();
+  }
+  await expect(review).toBeVisible();
+}
+
+/** Press Next until the named step, for a spec that is not about the step list. */
+async function toStep(page: Page, title: string): Promise<void> {
+  const heading = page.getByRole('heading', { level: 2, name: title });
+  for (let step = 0; step < 10; step++) {
+    if (await heading.isVisible()) return;
+    await next(page).click();
+  }
+  await expect(heading).toBeVisible();
+}
+
 /** Add a label the way an operator does: type it, press Enter, see the chip. */
 async function addLabel(page: Page, label: string): Promise<void> {
   await labelField(page).fill(label);
@@ -269,7 +296,7 @@ test('the advanced path walks target, labels, hosts, backend, size, scaling, run
   // the fleet" -- and the fleet's own figure is the placeholder beside it.
   const provision = page.getByRole('textbox', { name: 'Provision timeout' });
   await expect(provision).toHaveValue('');
-  await expect(provision).toHaveAttribute('placeholder', /the fleet/);
+  await expect(provision).toHaveAttribute('placeholder', /this fleet's/);
   await expect(page.getByText('This pool follows the fleet on every runner timing.')).toBeVisible();
 
   await next(page).click();
@@ -285,8 +312,7 @@ test('a pool timing override is kept, and clearing it hands the setting back to 
   await goto(page, '/pools/new', 'Create a pool');
   await toAdvanced(page);
   await nameField(page).fill('e2e-slow');
-  for (let step = 0; step < 6; step++) await next(page).click();
-  await expect(page.getByRole('heading', { level: 2, name: 'Runners' })).toBeVisible();
+  await toStep(page, 'Runners');
 
   const provision = page.getByRole('textbox', { name: 'Provision timeout' });
   await provision.fill('45m');
@@ -370,10 +396,7 @@ test('the hosts step keeps a pool to an architecture and says which machines tha
   await expect(page.getByText(/cordoned or not heartbeating/)).toHaveCount(0);
 
   // And the choice reaches the pool that gets created.
-  await next(page).click();
-  await next(page).click();
-  await next(page).click();
-  await next(page).click();
+  await toReview(page);
   await expect(page.getByRole('heading', { level: 2, name: 'Review' })).toBeVisible();
   await expect(page.getByRole('region', { name: /What will be created/ })).toContainText(
     'arch=amd64',
@@ -466,11 +489,7 @@ test('the review step shows the server verdict and how many hosts could run it',
   await nameField(page).fill('e2e-pool');
   await next(page).click();
   await addLabel(page, 'gpu');
-  await next(page).click();
-  await next(page).click();
-  await next(page).click();
-  await next(page).click();
-  await next(page).click();
+  await toReview(page);
   await expect(page.getByRole('heading', { level: 2, name: 'Review' })).toBeVisible();
 
   // What will be created, in the words the pool pages use everywhere else.
@@ -580,18 +599,13 @@ test('editing the maximum runners still lets the wizard reach review', async ({ 
   await nameField(page).fill('e2e-pool');
   await next(page).click();
   await addLabel(page, 'gpu');
-  await next(page).click();
-  await next(page).click();
-  await next(page).click();
-  await next(page).click();
-  await expect(page.getByRole('heading', { level: 2, name: 'Scaling' })).toBeVisible();
+  await toStep(page, 'Scaling');
 
   const max = page.getByRole('spinbutton', { name: 'Maximum runners' });
   await max.fill('6');
   await expect(max).toHaveValue('6');
 
-  await next(page).click();
-  await expect(page.getByRole('heading', { level: 2, name: 'Review' })).toBeVisible();
+  await toReview(page);
   await expect(page.getByRole('region', { name: /What will be created/ })).toContainText(
     '6 maximum',
   );
@@ -649,18 +663,28 @@ test('the generated name follows the shape until somebody types their own', asyn
   // here gets, so the name is the platform alone.
   await expect(name).toHaveValue('zoomies-debian-12');
 
-  // The size is part of the shape too, and it is the part a workflow author is
-  // choosing between, so it leads.
-  await next(page).click();
-  await next(page).click();
-  await next(page).click();
-  await next(page).click();
+  // A size the pool has of its own is part of the shape too, and it is the
+  // part a workflow author is choosing between, so it leads. A pool that
+  // leaves the size to its host has none to name, which is why the fixed
+  // choice has to be made before the figure means anything.
+  await toStep(page, 'Size');
+  await page.getByRole('radio', { name: 'A fixed size on every host' }).check();
   await setSlider(page, 'CPU per runner', '4 cores');
   await back(page).click();
   await back(page).click();
   await back(page).click();
   await back(page).click();
   await expect(name).toHaveValue('zoomies-4vcpu-debian-12');
+
+  // And switching back to the host's share drops it again, rather than
+  // advertising a size this pool no longer asks for anywhere.
+  await toStep(page, 'Size');
+  await page.getByRole('radio', { name: 'One share of each host' }).check();
+  await back(page).click();
+  await back(page).click();
+  await back(page).click();
+  await back(page).click();
+  await expect(name).toHaveValue('zoomies-debian-12');
 
   // Once a name is typed it belongs to the operator, and answering another
   // question must not rewrite it under their cursor. The brand is the one part
@@ -739,7 +763,7 @@ test('editing a pool is not refused because its own name is taken', async ({ pag
   // used to compare the pool against every pool including itself, so this said
   // "a pool called zoomies-demo-linux-x64 already exists" -- about itself -- and
   // the only way to save any edit was to rename the pool as well.
-  for (let step = 0; step < 6; step += 1) await next(page).click();
+  await toReview(page);
   await expect(page.getByText('already exists')).toBeHidden();
   await expect(page.getByRole('button', { name: /Save|Update/ })).toBeEnabled();
 });

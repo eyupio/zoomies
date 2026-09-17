@@ -14,6 +14,11 @@
   automatic card names the share these hosts would actually hand a runner --
   computed from the fleet in front of the operator, not from a constant -- so
   the claim is checkable on the screen that makes it.
+
+  An edit never reaches this step. The pool has already answered the question,
+  the wizard reads the answer off it to choose a path, and an operator who
+  opened a pool to change one setting should not have to pass a screen about
+  how much of it they want to decide.
 -->
 <script lang="ts">
   import { Check, Sliders, Wand } from '@lucide/svelte';
@@ -23,12 +28,11 @@
 
   interface Props {
     mode: WizardMode;
-    editing: boolean;
     hosts: readonly Host[];
     hostsKnown: boolean;
   }
 
-  let { mode = $bindable('simple'), editing, hosts, hostsKnown }: Props = $props();
+  let { mode = $bindable('simple'), hosts, hostsKnown }: Props = $props();
 
   /*
     What the automatic path would actually hand a runner, on the hosts this
@@ -87,13 +91,8 @@
 </script>
 
 <p class="lede">
-  {#if editing}
-    This pool can be edited either way. The advanced path shows every setting; the automatic one
-    shows the three that identify the pool and returns the rest to this fleet's answers.
-  {:else}
-    Most pools need a name, a label and nothing else — every other setting has an answer this fleet
-    already knows. Choose what you want to decide.
-  {/if}
+  Most pools need a name, a label and nothing else — every other setting has an answer this fleet
+  already knows. Choose what you want to decide.
 </p>
 
 <div class="choices" role="radiogroup" aria-label="How much of this pool to decide">
