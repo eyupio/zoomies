@@ -579,10 +579,12 @@ export interface paths {
         };
         /**
          * What a pool that says nothing is
-         * @description The figures a new pool starts at, chiefly the CPU and memory one runner
-         *     gets. Every pool has a size -- a request that names none is saved with
-         *     this one -- so a form that opened its sliders on a constant of its own
-         *     would be showing an operator a pool they are not creating. The same
+         * @description What a new pool starts as, and separately what a size slider should
+         *     open on. `resources` is the first: empty, because a new pool leaves
+         *     its runners' size to the host they land on. `suggested_resources` is
+         *     the second -- the fleet's own figures (`runners.default_cpus`,
+         *     `runners.default_memory_mb`) -- for a form offering to set a fixed
+         *     size instead, so it does not open on a constant of its own. The same
          *     figures are what a host's recommended capacity is worked out from
          *     before any pool exists.
          */
@@ -2946,17 +2948,17 @@ export interface components {
             skipped?: number;
             failed?: number;
         };
-        /** @description What one runner of a pool may consume on its host. `cpus` and `memory_mb` are not optional in effect: a pool saved without them is saved with the fleet's default (`runners.default_cpus`, `runners.default_memory_mb`) rather than with no limit, because a runner with no cgroup limit can take every core on the machine it lands on while the fleet charges it one slot's share. `disk_gb` and `pids_limit` are still optional, and zero there means no limit. */
+        /** @description What one runner of a pool may consume on its host. Leaving both `cpus` and `memory_mb` out is the pool's way of saying "the host decides": each runner is then given one slot's share of whichever machine it lands on, charged against that host and applied as a real cgroup limit (`scheduler.default_runner_limits`, on by default). That is the sizing most fleets want, because it keeps fitting when a larger machine joins; set the two figures only where a pool's jobs need a particular size on every host. `disk_gb` and `pids_limit` are independent of the choice, and zero in either means no limit. */
         Resources: {
             /**
              * Format: double
-             * @description Cores, fractions allowed. Omitted or zero means the fleet's default; below a quarter of a core is refused, because the runner binary cannot keep up with its own job.
+             * @description Cores, fractions allowed. Omitted or zero leaves the size to the host, which gives each runner one slot's share of its machine; below a quarter of a core is refused, because the runner binary cannot keep up with its own job.
              * @example 2
              */
             cpus?: number;
             /**
              * Format: int64
-             * @description Megabytes. Omitted or zero means the fleet's default; below 512 is refused, because the runner binary is killed before it takes a job.
+             * @description Megabytes. Omitted or zero leaves the size to the host, which gives each runner one slot's share of its machine; below 512 is refused, because the runner binary is killed before it takes a job.
              * @example 4096
              */
             memory_mb?: number;
@@ -2970,6 +2972,38 @@ export interface components {
              * @description The container's pids cgroup limit. Zero is no limit.
              */
             pids_limit?: number;
+        };
+        /**
+         * @description What one pool overrides of the fleet's own runner timings. Every field is optional and every one is nullable, and the three states are distinct: absent leaves whatever the pool already had, `null` clears the override and hands the setting back to the fleet, and a duration sets it. A pool that overrides nothing follows the fleet and keeps following it when the fleet's figure changes, which is why these are not copied onto the pool when it is created.
+         *     Zero is a real answer in each, not "unset": a pool on a slow air-gapped registry means "never fail a runner for taking too long to register" by setting `provision_timeout` to `0`.
+         *     These are the settings whose right answer belongs to the pool rather than the fleet. A pool pulling a twelve-gigabyte Windows image and a pool booting Alpine do not agree about how long registering should take, and a fleet that has to pick one picks the slower. `idle_timeout` is not here because it is already a field on the pool itself.
+         */
+        RunnerSettings: {
+            /**
+             * @description Fails a runner of this pool that never finishes registering. Overrides `scheduler.provision_timeout`.
+             * @example 20m
+             */
+            provision_timeout?: components["schemas"]["Duration"] | null;
+            /**
+             * @description Fails a runner of this pool that has been draining this long with no job left on it. Overrides `scheduler.drain_timeout`. A runner still finishing a job is never touched by it.
+             * @example 10m
+             */
+            drain_timeout?: components["schemas"]["Duration"] | null;
+            /**
+             * @description Drains a runner of this pool that has lived this long, the next time it is not busy. Overrides `scheduler.max_runner_lifetime`. It never ends a job.
+             * @example 24h
+             */
+            max_runner_lifetime?: components["schemas"]["Duration"] | null;
+            /**
+             * @description How long a job for this pool must have been queued before it counts as demand. Overrides `scheduler.scale_up_delay`.
+             * @example 0s
+             */
+            scale_up_delay?: components["schemas"]["Duration"] | null;
+            /**
+             * @description How long a runner of this pool waits for the Docker daemon it was promised before refusing a job. Overrides `runners.docker_wait`, and means nothing on a pool whose `docker_mode` is `none`.
+             * @example 120s
+             */
+            docker_wait?: components["schemas"]["Duration"] | null;
         };
         /** @description One host's room for a pool: what it promises, what the machine can back at that pool's size, and what one runner of it is charged there. */
         PoolHostRoom: {
@@ -3169,6 +3203,12 @@ export interface components {
             ephemeral?: boolean;
             docker_mode?: components["schemas"]["DockerMode"];
             resources?: components["schemas"]["Resources"];
+            /**
+             * @description How this pool decides what one runner gets. `automatic` is one slot's share of whichever host it lands on, which is what a pool with no `cpus` and no `memory_mb` means; `fixed` is the figures in `resources`, the same on every host. Derived from `resources` rather than stored beside it, so the two cannot disagree -- but rendered, because "no CPU limit" alone cannot tell "the host decides" from "nobody set one".
+             * @enum {string}
+             */
+            sizing?: "automatic" | "fixed";
+            runner_settings?: components["schemas"]["RunnerSettings"];
             cache?: components["schemas"]["CacheConfig"];
             host_selector?: {
                 [key: string]: string;
@@ -3249,6 +3289,7 @@ export interface components {
             /** @default none */
             docker_mode: components["schemas"]["DockerMode"];
             resources?: components["schemas"]["Resources"];
+            runner_settings?: components["schemas"]["RunnerSettings"];
             cache?: components["schemas"]["CacheConfig"];
             host_selector?: {
                 [key: string]: string;
@@ -3284,6 +3325,7 @@ export interface components {
             ephemeral?: boolean;
             docker_mode?: components["schemas"]["DockerMode"];
             resources?: components["schemas"]["Resources"];
+            runner_settings?: components["schemas"]["RunnerSettings"];
             cache?: components["schemas"]["CacheConfig"];
             host_selector?: {
                 [key: string]: string;
@@ -5785,6 +5827,8 @@ export interface operations {
                 content: {
                     "application/json": {
                         resources: components["schemas"]["Resources"];
+                        /** @description Where a fixed-size form opens, never what an unspecified pool becomes. */
+                        suggested_resources: components["schemas"]["Resources"];
                         min_runners?: number;
                         max_runners?: number;
                         /** @example 5m0s */
@@ -5832,8 +5876,13 @@ export interface operations {
                         excluded_hosts?: components["schemas"]["HostExclusion"][];
                         /** @description The image the pool would actually run, which for a pool that gives its jobs a daemon is the stock image's Docker variant rather than the image the request named. */
                         image?: string;
-                        /** @description The size the pool would actually run at. A request that names no CPU or memory is sized from the fleet's default rather than left unlimited, and this is that size. */
+                        /** @description The size the pool would run at on every host. Empty for a pool that leaves the size to its host, where the per-host share is in `room.hosts[].charge_cpus` and `charge_memory_mb` instead. */
                         resources?: components["schemas"]["Resources"];
+                        /**
+                         * @description Which of the two this pool is doing, so a reader need not infer "the host decides" from an absent number.
+                         * @enum {string}
+                         */
+                        sizing?: "automatic" | "fixed";
                         /** @description How many runners of this size the hosts it can land on have room for, host by host. It is what a maximum is worth comparing against. */
                         room?: components["schemas"]["PoolRoom"];
                     };

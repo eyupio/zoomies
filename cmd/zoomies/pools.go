@@ -224,6 +224,15 @@ type poolSpec struct {
 	cacheSize    *int64
 	cacheSource  *string
 	cacheRepo    *string
+	// The runner timings this pool overrides of the fleet's. Empty means the
+	// pool follows the fleet, and on an edit an empty string clears an
+	// override rather than setting one -- which is the only way to say "stop
+	// overriding this" from a flag.
+	provisionTimeout  *string
+	drainTimeout      *string
+	maxRunnerLifetime *string
+	scaleUpDelay      *string
+	dockerWait        *string
 }
 
 // registerPoolFlags declares them, with the API's own defaults so that a
@@ -252,8 +261,8 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	spec.enabled = fs.Bool("enabled", true, "whether the pool may create runners")
 	fs.Var(spec.hostSelector, "host-selector", "only use hosts that match, e.g. arch=arm64 or os=windows; os and arch need no label")
 	fs.Var(spec.envVars, "env", "environment variables for every job in this pool, e.g. HTTP_PROXY=...")
-	spec.cpus = fs.Float64("cpus", 0, "CPU limit per runner")
-	spec.memoryMB = fs.Int64("memory-mb", 0, "memory limit per runner, in MiB")
+	spec.cpus = fs.Float64("cpus", 0, "CPU limit per runner; 0 leaves the size to the host, which gives each runner one slot's share of its machine")
+	spec.memoryMB = fs.Int64("memory-mb", 0, "memory limit per runner, in MiB; 0 leaves the size to the host")
 	spec.diskGB = fs.Int64("disk-gb", 0, "disk limit per runner, in GiB")
 	spec.os = fs.String("os", "", "the distribution these runners need: ubuntu, debian, fedora or rocky. It picks the runner image and restricts placement to hosts that match")
 	spec.osVersion = fs.String("os-version", "", "the release, e.g. 24.04")
@@ -263,6 +272,11 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	spec.cacheSize = fs.Int64("cache-size", 0, "cache limit in bytes, enforced by eviction; needs an absolute cache-source (0 is unlimited)")
 	spec.cacheSource = fs.String("cache-source", "", "absolute host path or named-volume prefix")
 	spec.cacheRepo = fs.String("cache-repository", "", "owner/name for a repository-scoped cache under an organisation installation")
+	spec.provisionTimeout = fs.String("provision-timeout", "", "override scheduler.provision_timeout for this pool, e.g. 30m (empty follows the fleet; 0 never gives up)")
+	spec.drainTimeout = fs.String("drain-timeout", "", "override scheduler.drain_timeout for this pool (empty follows the fleet; 0 leaves a drain unbounded)")
+	spec.maxRunnerLifetime = fs.String("max-runner-lifetime", "", "override scheduler.max_runner_lifetime for this pool (empty follows the fleet; 0 is no limit)")
+	spec.scaleUpDelay = fs.String("scale-up-delay", "", "override scheduler.scale_up_delay for this pool (empty follows the fleet; 0 scales the moment a job is queued)")
+	spec.dockerWait = fs.String("docker-wait", "", "override runners.docker_wait for this pool's runners (empty follows the fleet)")
 	return spec
 }
 
@@ -315,6 +329,42 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 		body["platform"] = map[string]any{
 			"os": *spec.os, "os_version": *spec.osVersion, "arch": *spec.arch,
 		}
+	}
+	// The overrides go as a group, and only the ones typed. An empty string
+	// is sent as null, which is how the API is told to hand a setting back to
+	// the fleet: sending "" would be indistinguishable from not saying.
+	settings := map[string]any{}
+	for flagName, field := range map[string]string{
+		"provision-timeout":   "provision_timeout",
+		"drain-timeout":       "drain_timeout",
+		"max-runner-lifetime": "max_runner_lifetime",
+		"scale-up-delay":      "scale_up_delay",
+		"docker-wait":         "docker_wait",
+	} {
+		if !fs.changed(flagName) {
+			continue
+		}
+		var v *string
+		switch field {
+		case "provision_timeout":
+			v = spec.provisionTimeout
+		case "drain_timeout":
+			v = spec.drainTimeout
+		case "max_runner_lifetime":
+			v = spec.maxRunnerLifetime
+		case "scale_up_delay":
+			v = spec.scaleUpDelay
+		case "docker_wait":
+			v = spec.dockerWait
+		}
+		if strings.TrimSpace(*v) == "" {
+			settings[field] = nil
+			continue
+		}
+		settings[field] = *v
+	}
+	if len(settings) > 0 {
+		body["runner_settings"] = settings
 	}
 	if fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") {
 		resources := map[string]any{}
