@@ -236,8 +236,16 @@
     },
     // Size before count, because a maximum means nothing until it is known
     // what one runner costs on the machines it will land on.
-    size: { id: 'size', title: 'Size', description: 'How much machine one runner gets, and its cache.' },
-    scaling: { id: 'scaling', title: 'Scaling', description: 'How many runners, and for how long.' },
+    size: {
+      id: 'size',
+      title: 'Size',
+      description: 'How much machine one runner gets, and its cache.',
+    },
+    scaling: {
+      id: 'scaling',
+      title: 'Scaling',
+      description: 'How many runners, and for how long.',
+    },
     runners: {
       id: 'runners',
       title: 'Runners',
@@ -285,15 +293,7 @@
   };
 
   type StepId =
-    | 'mode'
-    | 'target'
-    | 'labels'
-    | 'hosts'
-    | 'backend'
-    | 'size'
-    | 'scaling'
-    | 'runners'
-    | 'review';
+    'mode' | 'target' | 'labels' | 'hosts' | 'backend' | 'size' | 'scaling' | 'runners' | 'review';
 
   const SIMPLE_STEP_IDS: readonly StepId[] = ['mode', 'target', 'labels', 'review'];
   const ADVANCED_STEP_IDS: readonly StepId[] = [

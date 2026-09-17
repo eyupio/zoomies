@@ -27,9 +27,7 @@
   // Only CPU and memory decide the question. Disk and the pids limit have no
   // share to be given, so a pool may cap its cache's disk and still leave its
   // size to the host.
-  const hasSize = $derived(
-    (resources.cpus ?? 0) > 0 || (resources.memory_mb ?? 0) > 0,
-  );
+  const hasSize = $derived((resources.cpus ?? 0) > 0 || (resources.memory_mb ?? 0) > 0);
   // The server says which of the two this is rather than the browser inferring
   // it from two absent numbers -- "no CPU limit" alone cannot tell "the host
   // decides" from "nobody set one", and those used to be the same thing.

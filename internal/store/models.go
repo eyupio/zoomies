@@ -1531,6 +1531,20 @@ const (
 	MinHostReserveCPUFraction float64 = 0.05
 )
 
+// The least machine a runner can be given and still be one.
+//
+// Below these the runner binary cannot keep up with its own job: it is killed
+// before it takes one, or it crawls through it in a way that reads as a broken
+// image rather than as a limit somebody set. They bound a figure an operator
+// types, and they bound the share a host hands out on a pool that leaves its
+// size to the host -- a machine cut into more slots than it has runners' worth
+// of room is the same mistake either way, and it must be refused in both
+// places or the two disagree about the same limit.
+const (
+	MinRunnerCPUs     float64 = 0.25
+	MinRunnerMemoryMB int64   = 512
+)
+
 // CPUReserve is what is held back from placement on this host's CPUs: the
 // operator's reserve, or the floor when that is larger. Zero on a host that
 // has not reported its CPUs, where there is nothing to hold back from.

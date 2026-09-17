@@ -370,15 +370,22 @@
     // The size is not optional, and the floors are the server's own: below
     // them the runner binary cannot keep up with its own job, or is killed
     // before it takes one.
-    const cpus = toNumber(draft.cpus);
-    if (cpus === undefined || cpus <= 0)
-      errors['resources.cpus'] = 'Every runner has a CPU limit. Move the slider to choose one.';
-    else if (cpus < 0.25) errors['resources.cpus'] = 'A runner needs at least a quarter of a core.';
-    const memory = toInteger(draft.memory_mb);
-    if (memory === undefined || memory <= 0)
-      errors['resources.memory_mb'] =
-        'Every runner has a memory limit. Move the slider to choose one.';
-    else if (memory < 512) errors['resources.memory_mb'] = 'A runner needs at least 512 MB.';
+    // Only a pool that has chosen a fixed size has a figure to be wrong about.
+    // An automatic pool sends neither, and the floors below are the server's
+    // rules for a number somebody typed -- applying them to a slider nothing
+    // is going to read would refuse a pool the server would happily create.
+    if (draft.sizing === 'fixed') {
+      const cpus = toNumber(draft.cpus);
+      if (cpus === undefined || cpus <= 0)
+        errors['resources.cpus'] = 'A fixed size needs a CPU limit. Move the slider to choose one.';
+      else if (cpus < 0.25)
+        errors['resources.cpus'] = 'A runner needs at least a quarter of a core.';
+      const memory = toInteger(draft.memory_mb);
+      if (memory === undefined || memory <= 0)
+        errors['resources.memory_mb'] =
+          'A fixed size needs a memory limit. Move the slider to choose one.';
+      else if (memory < 512) errors['resources.memory_mb'] = 'A runner needs at least 512 MB.';
+    }
     if (draft.disk_gb.trim() !== '') {
       const disk = toInteger(draft.disk_gb);
       if (disk === undefined || disk <= 0)
@@ -474,7 +481,9 @@
     so that opening a tuned pool never hides the settings it was tuned with,
     and never quietly saves them away.
   */
-  let mode = $state<WizardMode>(untrack(() => (pool && poolIsTuned(draft) ? 'advanced' : 'simple')));
+  let mode = $state<WizardMode>(
+    untrack(() => (pool && poolIsTuned(draft) ? 'advanced' : 'simple')),
+  );
   const steps = $derived(wizardSteps(mode));
   const fieldsByStep = $derived(stepFields(mode));
   let current = $state(0);
@@ -636,8 +645,6 @@
       .catch(() => {});
     return () => controller.abort();
   });
-
-
 
   /*
     The maximum follows what the fleet can actually place, until it is typed

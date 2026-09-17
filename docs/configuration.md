@@ -528,7 +528,7 @@ if you set `keep: 0` and never expect the page to say what is there.
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
-| `runners.default_cpus` | `ZOOMIES_RUNNER_DEFAULT_CPUS` | at once | Default CPUs per runner — How much CPU one runner gets on a pool that has not said otherwise, in cores; fractions are allowed. Every pool has a size, so this is the figure a new pool opens on rather than a fallback for pools with no limits. 0 means nothing has been said and the built-in 2 cores answers. |
+| `runners.default_cpus` | `ZOOMIES_RUNNER_DEFAULT_CPUS` | at once | Default CPUs per runner — Where a pool's CPU slider opens when somebody chooses to set a fixed size, in cores; fractions are allowed. It is not what a pool with no size becomes: such a pool is given one slot's share of whichever host each runner lands on. 0 means nothing has been said and the built-in 2 cores answers. |
 | `runners.default_memory_mb` | `ZOOMIES_RUNNER_DEFAULT_MEMORY_MB` | at once | Default memory per runner — How much memory one runner gets on a pool that has not said otherwise, in megabytes. It is the figure a new pool opens on, and the one a host's recommended capacity is worked out from. 0 means nothing has been said and the built-in 4096 answers. |
 | `runners.docker_wait` | `ZOOMIES_DOCKER_WAIT` | at once | Docker daemon wait — How long a runner on a pool that provides Docker waits for that daemon before refusing to take a job. Whole seconds, up to an hour; 0 leaves the runner image's own default. A pool's env can set ZOOMIES_DOCKER_WAIT to override it for that pool. |
 | `runners.env` | `ZOOMIES_RUNNER_ENV` | at once | Runner environment — Key=value variables every runner starts with, such as a proxy or a package mirror. A pool's own env wins where the two name the same variable. Every job can read these, so a credential does not belong here: give it to the pool, or to the workflow as a GitHub secret. |
@@ -1227,16 +1227,24 @@ runners:
   default_memory_mb: 4096
 ```
 
-Every pool has a per-runner CPU and memory figure, and these two are what a
-pool that has not said otherwise gets. They are not a fallback for pools with
-no limits: a pool saved without a size is saved with this one, and the pool
-wizard's sliders open on it.
+These two are where a pool's size sliders open when somebody chooses to set a
+fixed size. They are **not** what a pool with no size becomes: such a pool is
+given one slot's share of whichever host each runner lands on, which is the
+sizing most fleets want and what a new pool does.
 
-That is deliberate. A runner with no cgroup limit can take every core and all
-of the memory on the machine it lands on, which is the shape that stops the
-Docker daemon answering, times out every other create on that host and reads
-on the Hosts page as a machine that is merely busy. Sizing every runner is
-what turns a host's slot count into a promise the machine can keep.
+The distinction matters because the two behave differently as a fleet grows. A
+share follows the machine — 3.8 cores on a 16-core box with four slots, 7.6 on
+a 32-core one — so one pool is sized correctly on every host it reaches. A
+figure typed here is the same everywhere, so it fits the host it was chosen for
+and strands the machine on the ones that joined later.
+
+What neither of them is, is *no limit*. A runner with no cgroup limit can take
+every core and all of the memory on the machine it lands on, which is the shape
+that stops the Docker daemon answering, times out every other create on that
+host and reads on the Hosts page as a machine that is merely busy. The share is
+applied as a real cgroup limit by `scheduler.default_runner_limits`, which is
+on by default; with it off, a pool that names no size is charged the share and
+given nothing, and the controller says so (`pool.size_unlimited`).
 
 Two cores and four gigabytes suits most fleets, and a fleet of small boxes or
 of compilers is entitled to say otherwise once here rather than on every pool
@@ -1419,7 +1427,8 @@ the CLI or the API. These are their fields:
 | `idle_timeout` | How long an idle runner waits before being drained. |
 | `ephemeral` | One job per runner. Leave it on. |
 | `docker_mode` | `none`, `dind`, or `host-socket`. Anything but `none` switches a pool on the stock runner image, under a moving tag, to its Docker variant — see [below](#jobs-that-build-container-images) and [security.md](security.md). |
-| `resources` | `cpus`, `memory_mb`, `disk_gb`, `pids_limit` per runner. `cpus` and `memory_mb` are not optional: a pool saved without them is saved with `runners.default_cpus` and `runners.default_memory_mb` rather than with no limit at all. `disk_gb` is advisory, and enforced only where the backend can. |
+| `resources` | `cpus`, `memory_mb`, `disk_gb`, `pids_limit` per runner. Leaving `cpus` and `memory_mb` out is how a pool says “the host decides”: each runner is then given one slot's share of whichever machine it lands on, charged against that host and applied as a real cgroup limit. Set them for the same size on every host. `disk_gb` is advisory, enforced only where the backend can, and independent of that choice. |
+| `runner_settings` | The fleet timings this pool overrides: `provision_timeout`, `drain_timeout`, `max_runner_lifetime`, `scale_up_delay` and `docker_wait`. Every field is optional and a pool follows the fleet on the ones it leaves alone — including after the fleet's own figure changes. Zero is an answer in each rather than an absence, so an absent field, an explicit `null` and `"0s"` are three different things. See [Runner settings a pool can override](hosts-and-pools.md#runner-settings-a-pool-can-override). |
 | `cache` | A disposable accelerator directory mounted at `/opt/zoomies-cache`, scoped `pool` or `repository`, with an enforced `size_limit`. It is not workflow storage and may be evicted — see [below](#the-pool-cache). |
 | `cost_per_runner_hour` | An optional rate you supply, used only to estimate what the fleet costs. Zoomies never embeds prices of its own. |
 | `host_selector` | Restricts the pool to matching hosts. |

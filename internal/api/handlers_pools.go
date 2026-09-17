@@ -627,13 +627,13 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	switch {
 	case p.Resources.CPUs < 0:
 		add("resources.cpus", "a CPU limit cannot be negative")
-	case p.Resources.CPUs > 0 && p.Resources.CPUs < 0.25:
+	case p.Resources.CPUs > 0 && p.Resources.CPUs < store.MinRunnerCPUs:
 		add("resources.cpus", "a runner needs at least a quarter of a core; below that the runner binary cannot keep up with its own job")
 	}
 	switch {
 	case p.Resources.MemoryMB < 0:
 		add("resources.memory_mb", "a memory limit cannot be negative")
-	case p.Resources.MemoryMB > 0 && p.Resources.MemoryMB < 512:
+	case p.Resources.MemoryMB > 0 && p.Resources.MemoryMB < store.MinRunnerMemoryMB:
 		add("resources.memory_mb", "a runner needs at least 512 MB; below that the runner binary is killed before it takes a job")
 	}
 	if p.Resources.DiskGB < 0 {
@@ -641,6 +641,16 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	}
 	if p.Resources.PidsLimit < 0 {
 		add("resources.pids_limit", "a process limit cannot be negative; use 0 for no limit")
+	}
+	// The runner image refuses a Docker wait outside 1..3600 seconds with a
+	// configuration exit, so a pool that overrides it past the hour starts no
+	// runner at all. The fleet's own figure is a startup error for the same
+	// reason; a pool's has to be refused in the same place its other figures
+	// are, or the two disagree about the same limit.
+	if d := p.RunnerSettings.DockerWait; d != nil && d.Duration() > config.MaxDockerWait {
+		add("runner_settings.docker_wait", fmt.Sprintf(
+			"the runner image refuses a wait longer than %s and starts no runner at all; keep it to %s or less, or clear it to follow the fleet",
+			config.MaxDockerWait, config.MaxDockerWait))
 	}
 	if p.Cache.Enabled {
 		if !p.Cache.Scope.Valid() {

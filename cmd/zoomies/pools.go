@@ -216,6 +216,11 @@ type poolSpec struct {
 	cpus         *float64
 	memoryMB     *int64
 	diskGB       *int64
+	pidsLimit    *int64
+	// current is the size the pool has now, so that an edit touching one part
+	// of it carries the rest forward rather than clearing it. Zero on a
+	// create, where there is nothing to carry.
+	current      poolResources
 	os           *string
 	osVersion    *string
 	arch         *string
@@ -264,6 +269,7 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	spec.cpus = fs.Float64("cpus", 0, "CPU limit per runner; 0 leaves the size to the host, which gives each runner one slot's share of its machine")
 	spec.memoryMB = fs.Int64("memory-mb", 0, "memory limit per runner, in MiB; 0 leaves the size to the host")
 	spec.diskGB = fs.Int64("disk-gb", 0, "disk limit per runner, in GiB")
+	spec.pidsLimit = fs.Int64("pids-limit", 0, "the container's pids cgroup limit (0 is no limit)")
 	spec.os = fs.String("os", "", "the distribution these runners need: ubuntu, debian, fedora or rocky. It picks the runner image and restricts placement to hosts that match")
 	spec.osVersion = fs.String("os-version", "", "the release, e.g. 24.04")
 	spec.arch = fs.String("arch", "", "amd64 or arm64")
@@ -366,20 +372,59 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 	if len(settings) > 0 {
 		body["runner_settings"] = settings
 	}
-	if fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") {
-		resources := map[string]any{}
-		if *spec.cpus > 0 {
-			resources["cpus"] = *spec.cpus
-		}
-		if *spec.memoryMB > 0 {
-			resources["memory_mb"] = *spec.memoryMB
-		}
-		if *spec.diskGB > 0 {
-			resources["disk_gb"] = *spec.diskGB
-		}
-		body["resources"] = resources
+	// The size, when any of it was typed.
+	//
+	// It is sent whole because the API takes it whole -- `resources` is one
+	// object, and a partial one clears what it leaves out. On a create that is
+	// exactly right. On an edit it is a trap the caller cannot see: `--disk-gb
+	// 40` on a pool with a fixed size would send a resources object with no
+	// cpus and no memory, which is not "leave them alone" but "leave the size
+	// to the host", quietly turning a fixed pool automatic.
+	//
+	// So an edit that touches part of the size carries the rest of it forward,
+	// and `resourcesFrom` is where the caller supplies what the pool has now.
+	// An edit that touches none of it sends no `resources` at all, and the
+	// pool keeps whatever it had.
+	if fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") || fs.changed("pids-limit") {
+		body["resources"] = spec.resources(fs)
 	}
 	return body
+}
+
+// resources is the size this invocation means, with anything not typed taken
+// from the pool as it stands.
+//
+// Zero is a deliberate answer for the CPU and memory pair and not an absence:
+// `--cpus 0 --memory-mb 0` is how the CLI says "leave the size to the host",
+// which is the same thing as leaving both out on a create.
+func (spec *poolSpec) resources(fs *flagSet) map[string]any {
+	out := map[string]any{}
+	cpus, memory, disk, pids := spec.current.CPUs, spec.current.MemoryMB, spec.current.DiskGB, spec.current.PidsLimit
+	if fs.changed("cpus") {
+		cpus = *spec.cpus
+	}
+	if fs.changed("memory-mb") {
+		memory = *spec.memoryMB
+	}
+	if fs.changed("disk-gb") {
+		disk = *spec.diskGB
+	}
+	if fs.changed("pids-limit") {
+		pids = *spec.pidsLimit
+	}
+	if cpus > 0 {
+		out["cpus"] = cpus
+	}
+	if memory > 0 {
+		out["memory_mb"] = memory
+	}
+	if disk > 0 {
+		out["disk_gb"] = disk
+	}
+	if pids > 0 {
+		out["pids_limit"] = pids
+	}
+	return out
 }
 
 func poolsCreate(ctx context.Context, e *env, args []string) error {
@@ -517,11 +562,6 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 	if err != nil {
 		return err
 	}
-	body := spec.body(fs, true)
-	if len(body) == 0 {
-		return usagef("pools edit", "nothing to change; name at least one setting, for example --max 8")
-	}
-
 	client, err := cf.client()
 	if err != nil {
 		return err
@@ -530,6 +570,23 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 	if err != nil {
 		return err
 	}
+	// An edit that touches part of the size has to carry the rest of it
+	// forward -- `resources` is one object, and a partial one clears what it
+	// leaves out -- so the pool as it stands is read first. It is read only
+	// when it is needed, so an edit that changes a label costs no extra call.
+	if fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") || fs.changed("pids-limit") {
+		var existing poolItem
+		if _, err := client.get(ctx, "/pools/"+url.PathEscape(id), nil, &existing); err != nil {
+			return fmt.Errorf("reading the pool's current size, which an edit to part of it has to keep: %w", err)
+		}
+		spec.current = existing.Resources
+	}
+
+	body := spec.body(fs, true)
+	if len(body) == 0 {
+		return usagef("pools edit", "nothing to change; name at least one setting, for example --max 8")
+	}
+
 	var pool poolItem
 	raw, err := client.patch(ctx, "/pools/"+url.PathEscape(id), nil, body, &pool)
 	if err != nil {

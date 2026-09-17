@@ -150,9 +150,50 @@ func Reserved(h *store.Host, pools []*store.Pool, runners map[string][]*store.Ru
 // Room left on the host is separate, and is the scheduler's own accounting
 // during a pass -- the same split HostCanRun already makes for slots.
 func HostFits(h *store.Host, p *store.Pool) bool {
+	if ShareTooSmall(h, p) != "" {
+		return false
+	}
 	alloc := h.Allocatable()
 	whole := Reservation{CPUs: alloc.CPUs, MemoryMB: alloc.MemoryMB, DiskMB: alloc.DiskMB}
 	return fits(whole, Reserve(p, h), alloc)
+}
+
+// ShareTooSmall names the field whose slot share is below what a runner needs
+// to be a runner, and is empty when the host can back this pool.
+//
+// It exists because the two halves of sizing are checked in different places
+// and must not disagree. A figure an operator types is refused below a quarter
+// of a core or 512 MB, because underneath those the runner binary is killed
+// before it takes a job or crawls through one in a way that reads as a broken
+// image. A pool that leaves its size to the host is given the host's own
+// share, and nothing was checking that -- so a 32-slot capacity on an
+// eight-core machine handed every runner 0.23 of a core, which the same
+// operator would have been refused for typing.
+//
+// It is answered by refusing the placement rather than by rounding the share
+// up. Rounding up is over-provisioning by another name: the whole point of the
+// share is that the slots add up to the machine, and a floor applied to each
+// of them adds up to more than there is. The host is cut into more slots than
+// it has runners' worth of room, and the fix is the capacity, which
+// HostShortfall says.
+//
+// Only a pool that left the size to the host is asked, and only on a field the
+// agent has measured: a fixed size answers for itself at the API, and a host
+// that has measured nothing is placed by slots alone exactly as it was before
+// any of this existed.
+func ShareTooSmall(h *store.Host, p *store.Pool) string {
+	if h == nil || p == nil || !p.Automatic() {
+		return ""
+	}
+	alloc := h.Allocatable()
+	share := HostShare(h)
+	if alloc.CPUsKnown && share.CPUs < store.MinRunnerCPUs {
+		return "cpu"
+	}
+	if alloc.MemoryKnown && share.MemoryMB < store.MinRunnerMemoryMB {
+		return "memory"
+	}
+	return ""
 }
 
 // fits is the one comparison, so that the empty-host question and the
@@ -189,6 +230,22 @@ func fits(left, want Reservation, known store.HostAllocation) bool {
 // a 12-CPU machine refuses it, and an operator reading the pool's own "8 CPU"
 // against a "12 vCPU" host card has no way to see why.
 func HostShortfall(h *store.Host, p *store.Pool) string {
+	// The share first, because it is a different fix from every case below:
+	// nothing about the pool is wrong, and sending an operator to lower a
+	// limit it does not set would send them to the wrong screen.
+	if field := ShareTooSmall(h, p); field != "" {
+		share := HostShare(h)
+		switch field {
+		case "cpu":
+			return fmt.Sprintf("it is set to %s, which divides its %s allocatable CPU into shares of %s each, and a runner needs at least %s to keep up with its own job",
+				plural(h.Capacity, "slot"), formatCPUs(h.Allocatable().CPUs),
+				formatCPUs(share.CPUs), formatCPUs(store.MinRunnerCPUs))
+		default:
+			return fmt.Sprintf("it is set to %s, which divides its %s of allocatable memory into shares of %s each, and a runner is killed before it takes a job below %s",
+				plural(h.Capacity, "slot"), formatMB(h.Allocatable().MemoryMB),
+				formatMB(share.MemoryMB), formatMB(store.MinRunnerMemoryMB))
+		}
+	}
 	alloc := h.Allocatable()
 	left := Reservation{CPUs: alloc.CPUs, MemoryMB: alloc.MemoryMB, DiskMB: alloc.DiskMB}
 	want := Reserve(p, h)
@@ -290,6 +347,13 @@ type HostRoom struct {
 // against, and it does not change every time a job starts.
 func HostRoomFor(h *store.Host, p *store.Pool) HostRoom {
 	out := HostRoom{Slots: h.EffectiveCapacity()}
+	// A host cut into shares too small to run a runner holds none of this
+	// pool, whatever its slot count says. Reporting the slot count here would
+	// promise room the pass refuses.
+	if field := ShareTooSmall(h, p); field != "" {
+		out.Fits, out.Room, out.LimitedBy = 0, 0, field
+		return out
+	}
 	alloc := h.Allocatable()
 	want := Reserve(p, h)
 

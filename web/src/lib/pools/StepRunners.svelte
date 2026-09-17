@@ -78,7 +78,7 @@
     {
       key: 'docker_wait',
       label: 'Docker wait',
-      hint: "How long a runner waits for the Docker daemon it was promised before refusing a job. Only a pool that gives its jobs a daemon does this wait.",
+      hint: 'How long a runner waits for the Docker daemon it was promised before refusing a job. Only a pool that gives its jobs a daemon does this wait.',
       zero: "leave the runner image's own wait in place",
       needsDaemon: true,
     },

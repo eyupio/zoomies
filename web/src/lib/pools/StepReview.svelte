@@ -123,7 +123,11 @@
             <li>
               <span class="field">{label(issue.field)}</span>
               <span class="message">{issue.message}</span>
-              <Button size="sm" variant="ghost" onclick={() => ongoto(stepForField(issue.field, mode))}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onclick={() => ongoto(stepForField(issue.field, mode))}
+              >
                 Back to {stepName(issue.field)}
               </Button>
             </li>

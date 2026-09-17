@@ -130,24 +130,22 @@
           The share is worked out once a host has reported what machine it is.
         {:else if spread && smallest && largest}
           Today that is {share(smallest)} on
-          <code>{smallest.host}</code>, and {share(largest)} on <code>{largest.host}</code> — one
-          pool, sized correctly on both.
+          <code>{smallest.host}</code>, and {share(largest)} on <code>{largest.host}</code> — one pool,
+          sized correctly on both.
         {:else if smallest}
           Today that is {share(smallest)} on
           {pluralise(shares.length, 'host')}.
         {/if}
       </li>
       <li>
-        <strong>Hosts</strong> — any machine in the fleet that can run it. Nothing is excluded, so a
-        host added next month picks up this pool's work without an edit.
+        <strong>Hosts</strong> — any machine in the fleet that can run it. Nothing is excluded, so a host
+        added next month picks up this pool's work without an edit.
       </li>
       <li>
-        <strong>Backend and image</strong> — Docker, on the published runner image for the host's
-        platform.
+        <strong>Backend and image</strong> — Docker, on the published runner image for the host's platform.
       </li>
       <li>
-        <strong>Timings</strong> — this fleet's own, and they keep following it when you change
-        them.
+        <strong>Timings</strong> — this fleet's own, and they keep following it when you change them.
       </li>
     </ul>
     <p class="after">
@@ -166,8 +164,8 @@
       </li>
       <li><strong>Scaling</strong> — how many runners, and how long an idle one waits.</li>
       <li>
-        <strong>Runners</strong> — the provision, drain and lifetime timings, where this pool
-        disagrees with the fleet.
+        <strong>Runners</strong> — the provision, drain and lifetime timings, where this pool disagrees
+        with the fleet.
       </li>
     </ul>
     <p class="after">

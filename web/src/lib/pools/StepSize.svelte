@@ -226,7 +226,9 @@
             <li>
               <span class="shares-host">{host.host}</span>
               <span class="shares-value"
-                >{cpuLabel(host.charge_cpus ?? 0)} and {memoryLabel(host.charge_memory_mb ?? 0)}</span
+                >{cpuLabel(host.charge_cpus ?? 0)} and {memoryLabel(
+                  host.charge_memory_mb ?? 0,
+                )}</span
               >
               <span class="shares-room">{pluralise(host.room ?? 0, 'runner')}</span>
             </li>
@@ -241,81 +243,80 @@
   {/if}
 
   {#if draft.sizing === 'fixed'}
-  <div class="lead">
-    <p class="echo">
-      One runner asks for <strong>{cpuLabel(cpus)}</strong> and
-      <strong>{memoryLabel(memoryMb)}</strong>{charged.pair
-        ? `, and is charged ${cpuLabel(charged.cpus)} and ${memoryLabel(charged.memoryMb)} on a host — a docker-in-docker slot is two containers, and the backend gives the sidecar the same limits`
-        : ''}.
-    </p>
-    <Button
-      variant="secondary"
-      size="sm"
-      icon={Sparkles}
-      disabled={atDefaults}
-      onclick={useDefaults}
+    <div class="lead">
+      <p class="echo">
+        One runner asks for <strong>{cpuLabel(cpus)}</strong> and
+        <strong>{memoryLabel(memoryMb)}</strong>{charged.pair
+          ? `, and is charged ${cpuLabel(charged.cpus)} and ${memoryLabel(charged.memoryMb)} on a host — a docker-in-docker slot is two containers, and the backend gives the sidecar the same limits`
+          : ''}.
+      </p>
+      <Button
+        variant="secondary"
+        size="sm"
+        icon={Sparkles}
+        disabled={atDefaults}
+        onclick={useDefaults}
+      >
+        Use the fleet's default
+      </Button>
+    </div>
+
+    <Field
+      label="CPU per runner"
+      error={errors['resources.cpus']}
+      hint="Becomes the container's CPU quota, and the cores the scheduler holds for it on a host."
     >
-      Use the fleet's default
-    </Button>
-  </div>
+      {#snippet children({ id, describedBy })}
+        <Slider
+          {id}
+          values={cpuNotches}
+          value={cpus}
+          label="CPU per runner"
+          valuetext={cpuLabel}
+          marks={cpuMarks}
+          {describedBy}
+          onchange={setCpus}
+        />
+      {/snippet}
+    </Field>
 
-  <Field
-    label="CPU per runner"
-    error={errors['resources.cpus']}
-    hint="Becomes the container's CPU quota, and the cores the scheduler holds for it on a host."
-  >
-    {#snippet children({ id, describedBy })}
-      <Slider
-        {id}
-        values={cpuNotches}
-        value={cpus}
-        label="CPU per runner"
-        valuetext={cpuLabel}
-        marks={cpuMarks}
-        {describedBy}
-        onchange={setCpus}
-      />
-    {/snippet}
-  </Field>
+    <Field
+      label="Memory per runner"
+      error={errors['resources.memory_mb']}
+      hint="The container's memory limit. A job that goes past it is killed, so this is the figure to raise when a build dies without a message."
+    >
+      {#snippet children({ id, describedBy })}
+        <Slider
+          {id}
+          values={memoryNotches}
+          value={memoryMb}
+          label="Memory per runner"
+          valuetext={memoryLabel}
+          marks={memoryMarks}
+          {describedBy}
+          onchange={setMemory}
+        />
+      {/snippet}
+    </Field>
 
-  <Field
-    label="Memory per runner"
-    error={errors['resources.memory_mb']}
-    hint="The container's memory limit. A job that goes past it is killed, so this is the figure to raise when a build dies without a message."
-  >
-    {#snippet children({ id, describedBy })}
-      <Slider
-        {id}
-        values={memoryNotches}
-        value={memoryMb}
-        label="Memory per runner"
-        valuetext={memoryLabel}
-        marks={memoryMarks}
-        {describedBy}
-        onchange={setMemory}
-      />
-    {/snippet}
-  </Field>
-
-  <Field
-    label="Disk per runner"
-    error={errors['resources.disk_gb']}
-    hint="Advisory, and charged against the host's free disk so the fleet does not promise the same space twice. No limit is the usual answer: what keeps a host from filling up is its own disk reserve."
-  >
-    {#snippet children({ id, describedBy })}
-      <Slider
-        {id}
-        values={diskNotches}
-        value={diskGb}
-        label="Disk per runner"
-        valuetext={gbLabel}
-        marks={diskMarks}
-        {describedBy}
-        onchange={setDisk}
-      />
-    {/snippet}
-  </Field>
-
+    <Field
+      label="Disk per runner"
+      error={errors['resources.disk_gb']}
+      hint="Advisory, and charged against the host's free disk so the fleet does not promise the same space twice. No limit is the usual answer: what keeps a host from filling up is its own disk reserve."
+    >
+      {#snippet children({ id, describedBy })}
+        <Slider
+          {id}
+          values={diskNotches}
+          value={diskGb}
+          label="Disk per runner"
+          valuetext={gbLabel}
+          marks={diskMarks}
+          {describedBy}
+          onchange={setDisk}
+        />
+      {/snippet}
+    </Field>
   {/if}
 
   <!--
