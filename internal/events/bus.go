@@ -97,7 +97,12 @@ type Bus struct {
 	// is told to resynchronise instead.
 	epoch string
 
-	// buffer is the per-subscriber queue depth.
+	// buffer is the per-subscriber queue depth. It is deliberately larger
+	// than ringCap: a subscriber is handed the whole replay before it has
+	// read a byte, so a queue only as deep as the ring is full at the moment
+	// it is created, and the next publish -- one already waiting on this same
+	// lock, on a fleet busy enough to have filled the ring -- would drop it.
+	// The tab reconnects, replays a full ring again and is dropped again.
 	buffer int
 	// ring keeps recent events so a client that reconnects within a few
 	// seconds does not miss anything.
@@ -116,7 +121,7 @@ func New() *Bus {
 	return &Bus{
 		subs:    map[int]*subscriber{},
 		epoch:   strconv.FormatInt(time.Now().UnixNano(), 36),
-		buffer:  256,
+		buffer:  512,
 		ringCap: 256,
 	}
 }
@@ -320,6 +325,11 @@ func (b *Bus) Subscribe(ctx context.Context, opts SubscribeOptions) *Subscriptio
 				select {
 				case ch <- e:
 				default:
+					// The queue is deeper than the ring, so this is not
+					// reachable -- but a replay that silently dropped a frame
+					// while still calling itself complete is the one outcome
+					// this whole path exists to prevent, so say so instead.
+					complete = false
 				}
 			}
 		}

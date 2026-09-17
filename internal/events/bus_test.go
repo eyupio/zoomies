@@ -316,3 +316,35 @@ func TestConcurrentPublishesKeepTheRingInSequence(t *testing.T) {
 		t.Fatalf("the last event is %d, want %d", got, want)
 	}
 }
+
+// A tab reconnecting to a busy fleet must not be cut off by its own replay.
+//
+// The replay is delivered before the subscriber has read anything, so a queue
+// only as deep as the ring is full the instant the subscription exists. The
+// next publish then finds no room and ends the feed -- and the tab reconnects
+// to a ring that is still full and is ended again, on the fleet that most
+// needs watching.
+func TestAFullReplayLeavesRoomForTheNextEvent(t *testing.T) {
+	b := New()
+	// One more than the ring holds, so a replay from the first id reaches
+	// back to the oldest entry still in it and carries every one of them.
+	for i := 0; i <= b.ringCap; i++ {
+		b.Publish(KindStats, "", map[string]int{"n": i})
+	}
+
+	sub := b.Subscribe(context.Background(), SubscribeOptions{Replay: 1})
+	defer sub.Close()
+	if !sub.Complete {
+		t.Fatal("a replay reaching back to the oldest event in the ring reported itself incomplete")
+	}
+
+	b.Publish(KindStats, "", map[string]int{"n": -1})
+	for i := 0; i < b.ringCap; i++ {
+		if _, ok := <-sub.C; !ok {
+			t.Fatalf("the feed ended after %d replayed events; the subscriber was dropped by its own replay", i)
+		}
+	}
+	if _, ok := <-sub.C; !ok {
+		t.Fatal("the feed ended before the event published after the replay")
+	}
+}
