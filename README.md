@@ -83,7 +83,7 @@ flowchart LR
     q --> w --> d --> s --> a --> e
 ```
 
-* **A live web UI.** Ten pages, one job each, all updating in place from the
+* **A live web UI.** Twelve pages, one job each, all updating in place from the
   controller's event stream — you never have to press refresh, though there is a
   button where you want to be sure. Light and dark, a command palette, and a log
   viewer built for a hundred thousand lines.
@@ -102,11 +102,15 @@ flowchart LR
 * **Actually observable.** SQLite for state, Prometheus metrics, structured
   logs, live log streaming, job history with queue waits, and an audit row for
   every mutating action.
-* **Backed up by itself.** A consistent copy of the database nightly, kept to
-  a ceiling, and a Backups tab to take one now, verify it, download it plain or
-  sealed with a passphrase, upload one from elsewhere, and stage a restore the
-  next restart applies. The configuration alone exports as a `zoomies.yaml`
-  and imports with a preview.
+* **Backed up by itself, and off the machine.** A consistent copy of the
+  database nightly, kept to a ceiling, and every copy sent on to as many
+  S3-compatible destinations as you name — added and tested from the Backups tab
+  without editing a file or restarting anything, sealed with that destination's
+  passphrase before it leaves the host, and caught up automatically after a
+  bucket that was unreachable comes back. The same tab takes one now, verifies it, downloads it
+  plain or sealed, brings one back out of a bucket, uploads one from elsewhere,
+  and stages a restore the next restart applies. The configuration alone exports
+  as a `zoomies.yaml` and imports with a preview.
   [Backup and restore](https://zoomies.sh/backup-and-restore/).
 * **Safe defaults.** Loopback bind, auth on, no Docker socket in your jobs, no
   root, and every deviation named at startup and in the UI. A self-hosted runner

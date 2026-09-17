@@ -99,7 +99,7 @@ flowchart LR
 :material-monitor-dashboard:{ .icon }
 
 ### A live web UI
-Ten pages, one job each, and every one of them updates in place from the
+Twelve pages, one job each, and every one of them updates in place from the
 controller's event stream — you never have to press refresh, though there is a
 button where you want to be sure. Light and dark, a command palette, and a log
 viewer built for a hundred thousand lines.
@@ -146,6 +146,17 @@ Fedora and Rocky Linux, and a pool names the machine it needs.
 ### Actually observable
 SQLite for state, Prometheus metrics, structured logs, live log streaming, job
 history with queue waits, and an audit row for every mutating action.
+</div>
+
+<div markdown>
+:material-backup-restore:{ .icon }
+
+### Backed up by itself
+A consistent copy of the database nightly, kept to a ceiling — and sent on to
+the S3-compatible destinations you name, sealed with that destination's
+passphrase before it leaves the host. A bucket that was unreachable is caught up
+with every backup it missed rather than quietly skipping them.
+[Backup and restore](backup-and-restore.md).
 </div>
 
 <div markdown>

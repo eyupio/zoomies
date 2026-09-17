@@ -704,3 +704,51 @@ func TestAScheduledPassRecordsABucketThatRefuses(t *testing.T) {
 		t.Errorf("the page would say %+v about a destination that refused every request", status)
 	}
 }
+
+// A destination added on the Backups page has to be shipped to by the
+// schedule, exactly like one in zoomies.yaml.
+//
+// The loop's own pass used to ask the configuration file whether there was
+// anywhere to send a copy, and a destination an operator typed into the page
+// is a database row the file knows nothing about. So the schedule took its
+// backups every night, the page showed a healthy destination with a button
+// that worked when pressed, and nothing ever left the machine on its own --
+// the worst shape this can fail in, because everything visible said it was
+// working.
+func TestTheScheduleShipsToADestinationAddedOnThePage(t *testing.T) {
+	h := newHarness(t)
+	fake := backup.NewFakeS3("backups")
+	t.Cleanup(fake.Close)
+
+	row := &store.BackupRemote{
+		Name: "offsite", Endpoint: fake.Endpoint(), Bucket: fake.Bucket(), Prefix: "fleet",
+		AccessKeyID: "AKIAEXAMPLE", Enabled: true,
+	}
+	if err := h.st.CreateBackupRemote(h.ctx, row); err != nil {
+		t.Fatalf("CreateBackupRemote: %v", err)
+	}
+	sealed, err := h.key.SealString("secret")
+	if err != nil {
+		t.Fatalf("SealString: %v", err)
+	}
+	if err := h.st.SetBackupRemoteSecrets(h.ctx, row.ID, sealed, nil); err != nil {
+		t.Fatalf("SetBackupRemoteSecrets: %v", err)
+	}
+	h.c.UpdateConfig(func(c *config.Config) { c.Backup.Interval = time.Hour })
+
+	// One whole turn of the loop: the schedule takes the copy, and the same
+	// pass sends it. Nothing here presses a button.
+	h.c.backupPass(h.ctx, false)
+
+	entries, err := backup.List(filepath.Join(h.onDisk(), backup.DefaultDirName))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("the pass took %d backups, %v", len(entries), err)
+	}
+	keys := fake.Keys()
+	if len(keys) != 1 || keys[0] != "fleet/"+entries[0].ID+".tar.gz" {
+		t.Fatalf("the bucket holds %v after the pass that took %s", keys, entries[0].ID)
+	}
+	if status := h.c.BackupRemotes(h.ctx); len(status) != 1 || status[0].LastUploadID != entries[0].ID {
+		t.Errorf("the page reports %+v after the schedule copied a backup offsite", status)
+	}
+}

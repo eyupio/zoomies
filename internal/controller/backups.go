@@ -347,10 +347,15 @@ func (c *Controller) tookNudge() bool {
 // shipScheduled is the loop's offsite pass. Its failures are already recorded
 // against each remote, where the page and the problems drawer read them, so
 // nothing is logged twice here.
+//
+// Whether there is anywhere to send a copy is ShipBackups' question rather
+// than this one's, and that is the point: the pass used to ask the
+// configuration file, which cannot see a destination an operator added on the
+// Backups page. A fleet whose only destination was a stored one took its
+// backups every night and never sent one, while the page showed a healthy
+// bucket and a button that worked when pressed -- the worst way for this to
+// fail, because everything an operator could see said it was working.
 func (c *Controller) shipScheduled(ctx context.Context) {
-	if len(c.cfg().EnabledBackupRemotes()) == 0 {
-		return
-	}
 	_, err := c.ShipBackups(ctx)
 	if errors.Is(err, ErrShippingRunning) {
 		// Somebody pressed "copy offsite now" while this pass was being
