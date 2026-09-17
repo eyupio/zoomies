@@ -353,18 +353,24 @@ func TestMainPublishesAnInstallableDevBinary(t *testing.T) {
 		"dev-binaries:",
 		"github.event_name == 'push' && github.ref == 'refs/heads/main'",
 		"make dist VERSION=${{ steps.build.outputs.version }}",
-		"tag_name: dev",
-		"prerelease: true",
-		"make_latest: false",
-		"overwrite_files: true",
-		// Uploaded one at a time. The action starts every file at once
-		// otherwise, and eight transfers at once -- five of them a binary --
-		// is what failed the publish with "Error saving asset": a channel
-		// whose assets are missing is not a channel anybody can install from.
-		"preserve_order: true",
+		"gh release create dev",
+		"--prerelease --latest=false",
 	} {
 		if !strings.Contains(ci, want) {
 			t.Errorf("ci.yml is missing %q, so --version dev is not a complete rolling binary channel", want)
+		}
+	}
+	// The three properties that make the publish survive GitHub's asset
+	// upload, which has taken nine minutes a file and then failed on the next
+	// one. Each is a line somebody could drop as tidying, and the channel
+	// would go back to needing a clean run of 250 MB to publish at all.
+	for _, want := range []struct{ code, why string }{
+		{"is already published", "a re-run re-uploads what the release already holds, so a failed publish never makes progress"},
+		{"could not be uploaded after three attempts", "one interrupted transfer fails the publish outright"},
+		{"the dev release is missing:", "a release short of a binary is published as though it were whole"},
+	} {
+		if !strings.Contains(ci, want.code) {
+			t.Errorf("ci.yml lost %q, so %s", want.code, want.why)
 		}
 	}
 	// A release is the same transfer with more at stake.
@@ -481,5 +487,39 @@ func TestContainerBuildsStampTheirRunnerChannel(t *testing.T) {
 	}
 	if !strings.Contains(string(dockerfile), "-X github.com/eyupio/zoomies/internal/naming.RunnerImageTag=${RUNNER_IMAGE_TAG}") {
 		t.Error("container build does not pass its runner tag to the binary")
+	}
+}
+
+// Every binary `make dist` builds is a binary the dev channel publishes.
+//
+// The publish names its files rather than globbing them, because a glob
+// cannot tell a missing build from a platform nobody asked for: the job that
+// found dist/ short of a binary published the rest and called it a release.
+// Naming them buys that check and costs this one -- a platform added to the
+// Makefile and not to the workflow would be built on every push to main and
+// published nowhere, which nothing else would say.
+func TestTheDevChannelPublishesEveryBinaryDistBuilds(t *testing.T) {
+	makefile, err := os.ReadFile("../../Makefile")
+	if err != nil {
+		t.Fatalf("reading the Makefile: %v", err)
+	}
+	platforms := regexp.MustCompile(`for platform in ([^;]+); do`).FindSubmatch(makefile)
+	if platforms == nil {
+		t.Fatal("the dist target no longer lists its platforms in a loop this test can read")
+	}
+	ci := workflowFiles(t)["ci.yml"]
+	for _, platform := range strings.Fields(string(platforms[1])) {
+		os_, arch, ok := strings.Cut(platform, "/")
+		if !ok {
+			t.Errorf("%q is not an os/arch", platform)
+			continue
+		}
+		name := "dist/zoomies_" + os_ + "_" + arch
+		if os_ == "windows" {
+			name += ".exe"
+		}
+		if !strings.Contains(ci, name) {
+			t.Errorf("make dist builds %s and the dev release does not publish it", name)
+		}
 	}
 }

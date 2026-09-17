@@ -446,30 +446,75 @@ jobs:
         run: |
           git tag -f dev "$GITHUB_SHA"
           git push --force origin refs/tags/dev
-      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        with:
-          tag_name: dev
-          name: Development build
-          body: |
+      # Published with gh rather than an action, because what this has to
+      # survive is GitHub's own asset upload being slow: each of these
+      # binaries is about 50 MB, and a publish has taken nine minutes a file
+      # and then failed on the next one with "Error saving asset" -- an error
+      # with no status, no name and no retry behind it.
+      #
+      # Three properties answer that, and no action offers them together. An
+      # asset the release already holds with the same digest is not sent
+      # again, so a re-run after a failure carries on where it stopped instead
+      # of spending ten minutes arriving back where it started. An upload that
+      # fails is retried, because a transfer that long has more chances to be
+      # interrupted than to be wrong. And the release is checked at the end,
+      # because a channel missing a binary is a channel `zoomies upgrade`
+      # breaks on, and the whole point of this job is that it does not.
+      - name: Publish the dev release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES: |
             Rolling development build from `main`. Assets and the `dev` tag move on every successful push.
 
             Use a versioned release for production or reproducible installs.
-          files: |
-            dist/zoomies_*
-            dist/checksums.txt
-            dist/zoomies-provenance.sigstore.json
-            dist/zoomies-provenance.intoto.jsonl
-          prerelease: true
-          make_latest: false
-          overwrite_files: true
-          # One upload at a time. Without this the action starts every file at
-          # once -- Promise.all over the globs -- and eight simultaneous
-          # transfers, five of them a 30 to 60 MB binary, is more than a runner's
-          # link carries: the three small files landed in half a second and all
-          # five binaries were aborted together thirty seconds later, with
-          # "Error saving asset" and nothing about which one or why. Uploading
-          # in order costs a few seconds and publishes a complete release.
-          preserve_order: true
+        run: |
+          set -euo pipefail
+          files="dist/zoomies_linux_amd64 dist/zoomies_linux_arm64 dist/zoomies_darwin_amd64 dist/zoomies_darwin_arm64 dist/zoomies_windows_amd64.exe dist/checksums.txt dist/zoomies-provenance.sigstore.json dist/zoomies-provenance.intoto.jsonl"
+          for f in $files; do
+            test -f "$f" || { echo "::error::make dist did not produce $f"; exit 1; }
+          done
+
+          if gh release view dev >/dev/null 2>&1; then
+            gh release edit dev --title "Development build" --notes "$NOTES" --prerelease --latest=false
+          else
+            gh release create dev --title "Development build" --notes "$NOTES" --prerelease --latest=false
+          fi
+
+          # name and digest of what is up there already. A release from before
+          # GitHub recorded digests reports none, and an asset with no digest
+          # is one we cannot vouch for, so it is replaced.
+          have=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/dev" --jq '.assets[] | "\(.name) \(.digest // "")"')
+
+          for f in $files; do
+            name=$(basename "$f")
+            want="sha256:$(sha256sum "$f" | cut -d' ' -f1)"
+            if printf '%s\n' "$have" | grep -qxF "$name $want"; then
+              echo "= $name is already published"
+              continue
+            fi
+            for attempt in 1 2 3; do
+              if gh release upload dev "$f" --clobber; then
+                echo "+ $name"
+                break
+              fi
+              if [ "$attempt" = 3 ]; then
+                echo "::error::$name could not be uploaded after three attempts"
+                exit 1
+              fi
+              sleep $((attempt * 30))
+            done
+          done
+
+          published=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/dev" --jq '.assets[].name')
+          missing=""
+          for f in $files; do
+            name=$(basename "$f")
+            printf '%s\n' "$published" | grep -qxF "$name" || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::the dev release is missing:$missing"
+            exit 1
+          fi
 
   installer:
     name: install.sh
