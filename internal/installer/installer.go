@@ -2462,10 +2462,14 @@ func (i *Installer) stepFirstPool(ctx context.Context, st *store.Store, cfg *con
 		InstallationID: insts[0].ID,
 		Labels:         store.StringSlice(sug.Labels),
 		Backend:        sug.Backend,
-		Image:          cfg.GitHub.RunnerImage,
-		MinRunners:     0,
-		MaxRunners:     sug.MaxRunners,
-		IdleTimeout:    store.Duration(5 * time.Minute),
+		// No image, which is what the wizard's simple path writes too. Naming
+		// one here would pin this pool to the build it was installed with: the
+		// fleet's default moves with the controller, and a pool carrying a tag
+		// an older build handed out is a pool nothing can move onto the Docker
+		// variant the day its jobs start needing one.
+		MinRunners:  0,
+		MaxRunners:  sug.MaxRunners,
+		IdleTimeout: store.Duration(5 * time.Minute),
 		// Ephemeral, like every pool the API creates: a runner that takes one
 		// job and is destroyed is the only arrangement that keeps one
 		// workflow's leftovers out of the next one.

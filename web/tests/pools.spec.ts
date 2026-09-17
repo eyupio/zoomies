@@ -193,13 +193,13 @@ test('the wizard forks into an automatic path and an advanced one', async ({ pag
   // The first question is how much of the pool to decide, because the two
   // answers lead to genuinely different amounts of work.
   await expect(page.getByRole('heading', { level: 2, name: 'Setup' })).toBeVisible();
-  await expect(page.getByText('Step 1 of 4')).toBeVisible();
+  await expect(page.getByText('Step 1 of 5')).toBeVisible();
   await expect(page.getByRole('radio', { name: 'Automatic' })).toBeChecked();
 
   // The step list by class: nothing in the accessibility tree tells it apart
   // from the breadcrumb list above it, which is also an ordered list in main.
   const steps = page.locator('ol.steps');
-  for (const step of ['Setup', 'Target', 'Labels', 'Review']) {
+  for (const step of ['Setup', 'Target', 'Labels', 'Docker', 'Review']) {
     await expect(steps).toContainText(step);
   }
   // Nothing the automatic path does not ask.
@@ -218,10 +218,41 @@ test('the wizard forks into an automatic path and an advanced one', async ({ pag
     page.getByRole('button', { name: 'Remove the label zoomies-e2e-pool' }),
   ).toBeVisible();
 
+  // The one question a fleet cannot answer for this pool: whether its jobs
+  // build container images. Off unless asked for, because the daemon it turns
+  // on runs in a privileged container.
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Docker' })).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'No' })).toBeChecked();
+
   await next(page).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Review' })).toBeVisible();
-  await expect(page.getByText('Step 4 of 4')).toBeVisible();
+  await expect(page.getByText('Step 5 of 5')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Create pool' })).toBeVisible();
+});
+
+// Turning Docker on used to mean finding it on the advanced path, three steps
+// past anything the operator came for. A pool that builds images is an ordinary
+// pool, so the automatic path asks, and says what the answer costs.
+test('the automatic path can give a pool its own Docker daemon', async ({ page }) => {
+  await goto(page, '/pools/new', 'Create a pool');
+
+  await next(page).click();
+  await nameField(page).fill('e2e-builders');
+  await next(page).click();
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Docker' })).toBeVisible();
+
+  await page.getByRole('radio', { name: 'Yes' }).check();
+  // What it costs is on the screen that asks, not on a page found later.
+  await expect(page.getByText('privileged container')).toBeVisible();
+  await expect(page.getByText('two containers')).toBeVisible();
+
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Review' })).toBeVisible();
+  // The review step reads the server's own answer, which is where the image
+  // with a Docker client in it appears without anybody pinning one.
+  await expect(page.getByText('zoomies-runner-docker')).toBeVisible();
 });
 
 test('the advanced path walks target, labels, hosts, backend, size, scaling, runners and review', async ({

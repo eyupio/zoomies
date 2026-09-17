@@ -184,6 +184,7 @@ security:
   session_ttl: 168h                         # ZOOMIES_SESSION_TTL
   cookie_secure: null                       # ZOOMIES_COOKIE_SECURE (derived when unset)
   disable_auth: false                       # ZOOMIES_DISABLE_AUTH
+  docker_in_docker_expected: false          # ZOOMIES_DOCKER_IN_DOCKER_EXPECTED
   rate_limit_logins: 10                     # ZOOMIES_RATE_LIMIT_LOGINS (per address per minute, and 5x that per account
                                             #   over 15m); 0 disables it and is warned about
 
@@ -552,6 +553,7 @@ if you set `keep: 0` and never expect the page to say what is there.
 | --- | --- | --- | --- |
 | `security.cookie_secure` | `ZOOMIES_COOKIE_SECURE` | next restart | Secure session cookies — Force the Secure attribute on session cookies. Unset derives it from the external URL and the TLS mode, which is right unless a proxy in front makes it wrong. |
 | `security.disable_auth` | `ZOOMIES_DISABLE_AUTH` | next restart | Disable authentication — Remove all authentication. It exists for local development, and it is refused wherever this controller looks reachable. |
+| `security.docker_in_docker_expected` | `ZOOMIES_DOCKER_IN_DOCKER_EXPECTED` | live | Docker-in-Docker is expected here — Stop a pool that gives its jobs their own Docker daemon being listed as a dangerous setting. The daemon still runs in a privileged container; this is a fleet saying it knows, so that the settings still worth a second look are not buried under one it has already decided. The host socket and persistent runners keep warning. |
 | `security.encryption_key` | `ZOOMIES_ENCRYPTION_KEY` | file or environment only | Encryption key — The 32-byte key, base64 or hex, that seals GitHub App private keys, webhook secrets and the stored credentials below. Prefer the key file or the environment variable: a key written into zoomies.yaml is a key in your configuration management system. |
 | `security.encryption_key_file` | `ZOOMIES_ENCRYPTION_KEY_FILE` | file or environment only | Encryption key file — Where that key is read from, and written to on a first run. Back it up beside the database: without it the sealed rows cannot be read. |
 | `security.rate_limit_logins` | `ZOOMIES_RATE_LIMIT_LOGINS` | next restart | Login attempts per minute — Password attempts allowed per source address per minute, and five times that per account. |
@@ -1426,7 +1428,7 @@ the CLI or the API. These are their fields:
 | `priority` | Higher-priority pools are given creation capacity first when the fleet cannot satisfy every pool at once. Pools at the same priority share it fairly. |
 | `idle_timeout` | How long an idle runner waits before being drained. |
 | `ephemeral` | One job per runner. Leave it on. |
-| `docker_mode` | `none`, `dind`, or `host-socket`. Anything but `none` switches a pool on the stock runner image, under a moving tag, to its Docker variant — see [below](#jobs-that-build-container-images) and [security.md](security.md). |
+| `docker_mode` | `none`, `dind`, or `host-socket`. Anything but `none` switches a pool on the stock runner image to its Docker variant, under the same tag — see [below](#jobs-that-build-container-images) and [security.md](security.md). |
 | `resources` | `cpus`, `memory_mb`, `disk_gb`, `pids_limit` per runner. Leaving `cpus` and `memory_mb` out is how a pool says “the host decides”: each runner is then given one slot's share of whichever machine it lands on, charged against that host and applied as a real cgroup limit. Set them for the same size on every host. `disk_gb` is advisory, enforced only where the backend can, and independent of that choice. |
 | `runner_settings` | The fleet timings this pool overrides: `provision_timeout`, `drain_timeout`, `max_runner_lifetime`, `scale_up_delay` and `docker_wait`. Every field is optional and a pool follows the fleet on the ones it leaves alone — including after the fleet's own figure changes. Zero is an answer in each rather than an absence, so an absent field, an explicit `null` and `"0s"` are three different things. See [Runner settings a pool can override](hosts-and-pools.md#runner-settings-a-pool-can-override). |
 | `cache` | A disposable accelerator directory mounted at `/opt/zoomies-cache`, scoped `pool` or `repository`, with an enforced `size_limit`. It is not workflow storage and may be evicted — see [below](#the-pool-cache). |
@@ -1533,9 +1535,13 @@ That is the one setting. A daemon is worth nothing to a job whose image has no
 client to reach it with, and the stock runner image deliberately carries none —
 most pools never build an image, and a client on every runner is cold-start
 time spent for nothing — so a pool that asks for a daemon while on
-`ghcr.io/eyupio/zoomies-runner` under a moving tag (`latest`, `dev`, `main`, or no tag
-at all) is switched to `ghcr.io/eyupio/zoomies-runner-docker` under the same
-tag as it is saved. The response, the audit row and the pool's page all show
+`ghcr.io/eyupio/zoomies-runner` is switched to
+`ghcr.io/eyupio/zoomies-runner-docker` under the same tag as it is saved. That
+covers every tag this build publishes: the channels (`latest`, `dev`, `main`, or
+no tag at all), the release it was cut from, and the operating-system aliases a
+pool gets by naming a platform (`ubuntu-2404`, `debian-12-dev`). One step of one
+workflow publishes both images, so a tag that exists for one exists for the
+other. The response, the audit row and the pool's page all show
 the image that runs; the wizard says so on the step that decides it and shows
 it on the review step; and a pool saved before this rule existed is moved by a
 migration the first time a controller that has it starts. Idle runners made
@@ -1543,17 +1549,24 @@ from the old image are replaced, so a warm pool does not keep handing Docker
 jobs to runners that cannot run them. The switch is not reversed when the
 daemon goes away again: the variant runs everything the stock image does.
 
-Three kinds of image are left exactly as you set them. A pinned tag
-(`sha-<commit>` or `vX.Y.Z`) is a deliberate choice of one build, and the
-variant exists only beside the tags published since it was added, so a pinned
-pool is not moved onto a tag the registry may not have; pin the variant's tag
-yourself — `ghcr.io/eyupio/zoomies-runner-docker:sha-<commit>` — and the wizard
-says so. A digest reference (`…@sha256:…`) names one exact image and cannot be
-moved to another; pin a digest of the variant instead. An image of your own — a
-mirror of the stock image under another registry included — is yours to equip,
-and only has to put `docker` on the runner's `PATH`. A runner that starts with a
-daemon it has no client for says so in its own log, at the top, before any job
-runs; the job itself fails at its first Docker step with
+Three kinds of image are left exactly as you set them. A tag this build does
+not hand out — a commit pin (`sha-<commit>`), or a release older than the
+controller running it — promises nothing about the variant: a run whose second
+build did not finish published the stock image and not its Docker one, and the
+first prerelease predates the variant altogether. Moving a pool onto a tag the
+registry may not have would stop every job on it, not only the Docker ones. A
+digest reference (`…@sha256:…`) names one exact image and cannot be moved to
+another. An image of your own — a mirror of the stock image under another
+registry included — is yours to equip, and only has to put `docker` on the
+runner's `PATH`.
+
+A pool left on either of the first two is not left to find out: it raises
+[`pool.docker_client_missing`](problem-codes.md), on its own page and in the
+problems drawer, naming the reference to pin instead —
+`ghcr.io/eyupio/zoomies-runner-docker:sha-<commit>`, or a digest of the variant.
+A runner that starts with a daemon it has no client for also says so in its own
+log, at the top, before any job runs; the job itself fails at its first Docker
+step with
 
 ```text
 Error: Unable to locate executable file: docker.

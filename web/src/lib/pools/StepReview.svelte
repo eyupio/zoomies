@@ -40,9 +40,16 @@
   // The image is the server's answer where there is one: a pool that gives
   // its jobs a daemon runs the stock image's Docker variant, and this step
   // exists to show the pool that will be made rather than the one typed.
+  //
+  // A pool that names no image -- which is every pool the automatic path makes
+  // -- stores nothing, so the answer arrives as the effective one instead, and
+  // is rendered as what it is: an image chosen for this pool rather than typed
+  // into it. Without it the step that says what will be made said nothing about
+  // the image, including for the pool that has just asked for a Docker daemon.
   const preview = $derived<Pool>({
     ...body,
     image: verdict?.image ?? body.image,
+    effective_image: verdict?.effective_image,
     installation_target: installationLabel,
   });
 

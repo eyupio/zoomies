@@ -411,6 +411,17 @@ type Security struct {
 	DisableAuth bool `yaml:"disable_auth"`
 	// RateLimitLogins caps password attempts per source address per minute.
 	RateLimitLogins int `yaml:"rate_limit_logins"`
+	// DockerInDockerExpected stops a pool that gives its jobs a private daemon
+	// raising pool.dangerous for the privileged sidecar that daemon runs in.
+	//
+	// A warning an operator cannot act on is a warning they stop reading, and
+	// with it the ones they could. A fleet whose whole purpose is building
+	// container images has made that choice once, deliberately, and repeating
+	// it for every such pool on every pass buries the settings that are still
+	// worth a second look. It silences that one sentence and nothing else: the
+	// host socket still warns, because it hands a job root on the host, and so
+	// do persistent runners.
+	DockerInDockerExpected bool `yaml:"docker_in_docker_expected"`
 }
 
 // GitHub configures the GitHub integration.
@@ -833,15 +844,10 @@ const (
 )
 
 // ResolvePoolRunnerImage keeps automatic images on the build's channel, including
-// their Docker CLI variants. Explicit pins still use RunnerImageFor's narrow
-// compatibility rules: an arbitrary old tag might not have a Docker variant.
+// their Docker CLI variants: the pool's own image where it has one, the variant
+// its platform names, or the instance default, and then the Docker swap.
 func ResolvePoolRunnerImage(poolImage, os, version, instanceDefault string, daemon bool) string {
-	image := naming.ResolveRunnerImage(poolImage, os, version, instanceDefault)
-	_, platform := naming.FindImage(os, version)
-	if daemon && strings.TrimSpace(poolImage) == "" && (platform || instanceDefault == naming.DefaultRunnerImage()) {
-		return stockRunnerDockerRepository + strings.TrimPrefix(image, stockRunnerRepository)
-	}
-	return RunnerImageFor(image, daemon)
+	return RunnerImageFor(naming.ResolveRunnerImage(poolImage, os, version, instanceDefault), daemon)
 }
 
 // RunnerImageFor returns the image a pool's runners are created from, given
@@ -855,18 +861,20 @@ func ResolvePoolRunnerImage(poolImage, os, version, instanceDefault string, daem
 // and it failed with "Unable to locate executable file: docker", which names
 // the missing binary and not the reason.
 //
-// So the swap is made here, once, whenever daemon is true, and only for the
-// stock repository under a moving tag: no tag, :latest, :dev or :main. CI
-// publishes the development tags for both images from the same commit, and
-// the release workflow publishes :latest for both. A pinned tag is left as
-// given, because the variant is only published beside the tags made since it
-// was added, and a pool moved onto a tag the registry does not have would
-// stop running every job, including the ones that never touch Docker; the
-// wizard says to pin the variant's tag instead. A digest reference names one
-// exact image and cannot be moved to another. An image of the operator's own
-// is theirs to equip, and so is a mirror of the stock image under another
-// registry: whether the mirror carries the variant is not something this code
-// can know.
+// So the swap is made here, once, whenever daemon is true, and only where the
+// variant is known to exist: the stock repository, no digest, under a tag this
+// build's own catalogue accounts for -- see naming.PublishedRunnerTag. One step
+// of one workflow publishes both images, so such a tag exists for both or for
+// neither, which a pinned pool's tag from some other build does not promise.
+//
+// Everything else is left exactly as it was given. A digest names one exact
+// image and cannot be moved to another. A commit pin may name a run whose
+// second build never finished. An image of the operator's own is theirs to
+// equip, and so is a mirror of the stock image under another registry: whether
+// the mirror carries the variant is not something this code can know. A pool
+// that asks for a daemon while on one of those is told so -- the pool's page
+// and the problems drawer carry pool.docker_client_missing -- rather than left
+// to find out one failed job at a time.
 //
 // The swap is never reversed. A pool that stops asking for a daemon keeps the
 // client, which costs it pull time and nothing else, and may be using it
@@ -875,13 +883,28 @@ func RunnerImageFor(image string, daemon bool) string {
 	if !daemon {
 		return image
 	}
-	switch image {
-	case stockRunnerRepository:
-		return stockRunnerDockerRepository
-	case stockRunnerRepository + ":latest", stockRunnerRepository + ":dev", stockRunnerRepository + ":main":
-		return stockRunnerDockerRepository + strings.TrimPrefix(image, stockRunnerRepository)
+	repo, tag, digest := naming.SplitImage(image)
+	if repo != stockRunnerRepository || digest != "" || !naming.PublishedRunnerTag(tag) {
+		return image
 	}
-	return image
+	return stockRunnerDockerRepository + tag
+}
+
+// MissingDockerClient answers, for the image a pool actually runs, whether
+// Zoomies knows it carries no Docker client -- and if so, which reference to
+// pin instead: the same tag or digest position on the variant's repository, so
+// the operator is given something to paste rather than a repository to search.
+//
+// "Knows" is the whole of it. An image nobody here published may carry a client
+// or may not, and warning about every one of them would teach an operator to
+// ignore the warning that matters. Only the stock runner image is certain, and
+// only a reference RunnerImageFor could not move gets this far.
+func MissingDockerClient(image string) (pin string, missing bool) {
+	repo, tag, digest := naming.SplitImage(image)
+	if repo != stockRunnerRepository {
+		return "", false
+	}
+	return stockRunnerDockerRepository + tag + digest, true
 }
 
 func defaultCapacity() int {

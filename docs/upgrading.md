@@ -280,10 +280,13 @@ moves a pool whose `docker_mode` is not `none` from the stock runner image
 under a moving tag (`latest`, `main`, or none) to
 `ghcr.io/eyupio/zoomies-runner-docker` under the same tag, because the stock
 image has no client for the daemon that mode gives it; the API makes the same
-change to every pool saved from then on. A pool pinned to a `sha-<commit>` or
-`vX.Y.Z` tag is not touched, since the variant is published only beside the
-tags made after it was added — pin the variant's tag yourself. Neither is a
-pool on a digest or on an image of its own. Idle runners made from the old
+change to every pool saved from then on. A pool pinned to a `sha-<commit>` tag is not
+touched, and neither is a pool on a digest or on an image of its own. What the
+migration left behind, the controller resolves as it makes a runner: every tag
+the running build publishes — the channels and the operating-system aliases,
+`vX.Y.Z` among them — is swapped there, and a pool on a reference that cannot be
+swapped raises `pool.docker_client_missing` rather than failing its jobs one at
+a time. Idle runners made from the old
 image are drained and replaced on the first scheduler pass. See [Jobs that
 build container images](configuration.md#jobs-that-build-container-images).
 

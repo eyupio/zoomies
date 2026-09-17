@@ -111,7 +111,10 @@ a private Docker daemon. The stock runner image has no Docker CLI on purpose —
 most pools never build an image, and the client is cold-start time they would
 pay for nothing — so a pool that asks for a daemon is switched to
 `ghcr.io/eyupio/zoomies-runner-docker`, the same image plus a client, as it is
-saved. An image of your own is left alone and has to carry `docker` itself. See
+saved, under whichever tag it was on. An image of your own is left alone and has
+to carry `docker` itself, as is a digest or a tag from a build that may never
+have published the variant — and a pool left on one of those says so, with
+`pool.docker_client_missing`, rather than failing its jobs one at a time. See
 [Jobs that build container
 images](configuration.md#jobs-that-build-container-images).
 

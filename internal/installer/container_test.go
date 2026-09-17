@@ -590,36 +590,6 @@ func TestContainerisingARunnerHostGivesItTheAgentImage(t *testing.T) {
 	}
 }
 
-// splitImage is tested on its own because AgentImageFor cannot reach half of
-// it: a stock controller reference never carries a registry port, so the guard
-// that keeps a port from being read as a tag is invisible through the caller --
-// a reference with one is refused for having the wrong repository long before
-// the split matters. Asserting it here is what makes it a tested rule rather
-// than a comment.
-func TestSplitImageKeepsARegistryPortOutOfTheTag(t *testing.T) {
-	const digest = "@sha256:8c2f1a9e5b3d4c6a7e8f0b1d2c3a4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f"
-	for _, tc := range []struct{ ref, repo, tag, digest string }{
-		{"ghcr.io/eyupio/zoomies:v1.2.3", "ghcr.io/eyupio/zoomies", ":v1.2.3", ""},
-		{"ghcr.io/eyupio/zoomies", "ghcr.io/eyupio/zoomies", "", ""},
-		// The colon belongs to the registry, and reading it as a tag would
-		// leave the repository as a bare hostname that pulls nothing.
-		{"registry.example.com:5000/zoomies", "registry.example.com:5000/zoomies", "", ""},
-		{"registry.example.com:5000/zoomies:v1.2.3", "registry.example.com:5000/zoomies", ":v1.2.3", ""},
-		// A digest has a colon of its own, inside it.
-		{"ghcr.io/eyupio/zoomies" + digest, "ghcr.io/eyupio/zoomies", "", digest},
-		{"ghcr.io/eyupio/zoomies:v1.2.3" + digest, "ghcr.io/eyupio/zoomies", ":v1.2.3", digest},
-		{"registry.example.com:5000/zoomies" + digest, "registry.example.com:5000/zoomies", "", digest},
-	} {
-		t.Run(tc.ref, func(t *testing.T) {
-			repo, tag, dg := splitImage(tc.ref)
-			if repo != tc.repo || tag != tc.tag || dg != tc.digest {
-				t.Errorf("splitImage(%q) = (%q, %q, %q), want (%q, %q, %q)",
-					tc.ref, repo, tag, dg, tc.repo, tc.tag, tc.digest)
-			}
-		})
-	}
-}
-
 // The default image names this build, because :latest names nothing useful.
 //
 // Every release this project has made carries a hyphen, which is how it says

@@ -254,6 +254,10 @@ var registry = buildRegistry([]Setting{
 		RestartReason: "the authentication service takes its security settings when it is built",
 	},
 	{
+		Key: "security.docker_in_docker_expected", Label: "Docker-in-Docker is expected here", Env: "ZOOMIES_DOCKER_IN_DOCKER_EXPECTED", Kind: KindBool, Scope: ScopeInstance, Live: true,
+		Summary: "Stops a pool that gives its jobs their own Docker daemon being listed as a dangerous setting. The daemon still runs in a privileged container -- this is a fleet saying it knows, so that the settings still worth a second look are not buried under one it has already decided. The host socket and persistent runners keep warning.",
+	},
+	{
 		Key: "security.disable_auth", Label: "Disable authentication", Env: "ZOOMIES_DISABLE_AUTH", Kind: KindBool, Scope: ScopeInstance,
 		Summary:       "Remove all authentication. It exists for local development, and it is refused wherever this controller looks reachable.",
 		RestartReason: "the authentication service takes its security settings when it is built",

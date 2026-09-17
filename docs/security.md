@@ -329,6 +329,14 @@ on the stock runner image is switched to its Docker variant as it asks for one.
 An image of your own has to carry the client itself. See [Jobs that build
 container images](configuration.md#jobs-that-build-container-images).
 
+A fleet built to produce container images decides about that privileged sidecar
+once, and a row per pool per pass about a decision already taken is what teaches
+an operator to skim the problems list — so `security.docker_in_docker_expected`
+stops `dind` being listed among the dangerous settings. It changes nothing about
+the runners, and it silences that sentence alone: `host-socket` and persistent
+runners still say what they cost, and the setting itself is listed as
+`dind.expected` so the fleet's own record says what it chose not to be told.
+
 ### `pool.ephemeral: false`
 
 Runners persist across jobs.

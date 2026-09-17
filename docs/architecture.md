@@ -208,9 +208,12 @@ bounded to at most five seconds. A daemon that never answers exits the runner
 with code 69 before its listener can accept a job, and an unusable setting
 exits it with 78; the agent turns both into a sentence on the Runners page
 that points at the container's log. An image with no Docker client is a
-warning in that log, not an exit: the controller only swaps the stock image
-for its Docker variant under a moving tag, and refusing a pinned one would
-stop every job on the pool, including the ones that never touch Docker.
+warning in that log, not an exit: the controller swaps the stock image for its
+Docker variant under every tag this build publishes, and refuses a reference it
+cannot know the variant exists for — a digest, or a pin from another build —
+because moving a pool onto a tag the registry lacks would stop every job on it,
+including the ones that never touch Docker. A pool left on one of those raises
+`pool.docker_client_missing`, so the log is not the only place it is said.
 Existing images acquire this behaviour only when rebuilt and deployed.
 
 Resource sampling runs independently of lifecycle reconciliation, with at most
