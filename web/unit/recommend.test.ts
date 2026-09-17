@@ -23,16 +23,16 @@ test('the runner ask is the largest enabled pool asks for, or the default', () =
   assert.deepEqual(ask, { cpus: 4, memoryMb: 4096, source: 'pools', pair: false });
 });
 
-// A docker-in-docker slot is two containers with the same limits, so the ask
-// is twice the pool's own figures -- and twice the default where the pool
-// sets none, which is the case that sizes a host wrong most often, since
-// there is no figure on the pool to double.
-test('a docker-in-docker pool asks for both of its containers', () => {
+// A docker-in-docker slot is two containers with the same limits where the
+// pool typed those limits, so the ask is twice its figures. A pool that leaves
+// its size to the host asks for one runner's worth: its runner and its daemon
+// split the slot they land in rather than taking two.
+test('a docker-in-docker pool asks for both of its containers when it sized them', () => {
   assert.deepEqual(runnerAsk([{ enabled: true, docker_mode: 'dind', resources: {} }]), {
-    cpus: 4,
-    memoryMb: 8192,
+    cpus: 2,
+    memoryMb: 4096,
     source: 'default',
-    pair: true,
+    pair: false,
   });
   assert.deepEqual(
     runnerAsk([{ enabled: true, docker_mode: 'dind', resources: { cpus: 2, memory_mb: 4096 } }]),
@@ -48,7 +48,19 @@ test('a docker-in-docker pool asks for both of its containers', () => {
     ]),
     { cpus: 2, memoryMb: 4096, source: 'pools', pair: false },
   );
-  // Twelve cores less a core held back is room for two pairs, not five.
+  // Twelve cores less a core held back is room for two pairs at four cores
+  // each, which is what a pool that typed two cores asks for here.
+  assert.equal(
+    recommendedCapacity(
+      { cpus: 12, memoryMb: 32768 },
+      1,
+      3072,
+      runnerAsk([{ enabled: true, docker_mode: 'dind', resources: { cpus: 2, memory_mb: 4096 } }]),
+    ),
+    2,
+  );
+  // The same fleet with that pool sized by its host has room for five: the
+  // pair shares a slot, so a slot is one runner.
   assert.equal(
     recommendedCapacity(
       { cpus: 12, memoryMb: 32768 },
@@ -56,7 +68,7 @@ test('a docker-in-docker pool asks for both of its containers', () => {
       3072,
       runnerAsk([{ enabled: true, docker_mode: 'dind', resources: {} }]),
     ),
-    2,
+    5,
   );
 });
 

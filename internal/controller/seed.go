@@ -525,10 +525,11 @@ func (c *Controller) seedPools(ctx context.Context) (*store.Pool, *store.Pool, e
 		Ephemeral:  false,
 		DockerMode: store.DockerDinD,
 		// The same size as the pool above, which on this pool is twice the
-		// charge: a docker-in-docker slot is two containers and the backend
-		// gives the sidecar the same limits. It is the shape a host is sized
-		// wrong for most often, so the demo fleet has one -- and it is sized
-		// rather than left blank because every pool made today is.
+		// charge: the figure is typed, so the daemon the builds run in is
+		// given it too and the host carries both. It is the shape a host is
+		// sized wrong for most often, so the demo fleet has one -- and it is
+		// sized rather than left blank because a pool that leaves its size to
+		// the host puts its pair in one slot and charges one.
 		Resources:    store.Resources{CPUs: 2, MemoryMB: 4096},
 		HostSelector: store.StringMap{"arch": "arm64"},
 		Enabled:      true,

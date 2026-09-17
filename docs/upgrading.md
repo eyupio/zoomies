@@ -126,27 +126,33 @@ problems drawer for as long as it stands, because both are the thing that keeps
 a host's Docker daemon answering. The CPU floor has no switch; a fleet that
 wants every core placed has a smaller reserve than the daemon needs.
 
-## Docker-in-docker pools take half as many slots per host
+## A docker-in-docker slot is one runner again
 
-A `dind` pool's runner and its sidecar are given the same limits by the
-backend, and a pool that sets none has both given one slot's share of the
-host. Until this release only one of the two was charged against the machine,
-so a host could promise away twice what it had while its card read half
-committed — which is the shape behind a Docker daemon that stops answering
-`create` on a host the fleet believes is idle. The charge now covers the pair,
-whether the figure came from the pool's own `resources` or from the host's
-share.
+A `dind` pool runs two containers per runner: the runner, and the daemon its
+builds run inside. A pool that **types** its own CPU and memory has both given
+those figures — the build would gain nothing from a limit on the container that
+is not building — so the host is charged twice, as it has been since the
+release that started charging for the pair at all.
 
-For a fleet running such a pool that means **half as many runners on each
-host**, which is the number the machine could always carry: four slots of a
-defaulted `dind` pool are two runners on the same machine as before. Nothing
-changes for a pool that is not `dind`, nothing changes about what any runner
-is given, and no job is failed by it — work queues where it used to be placed
-onto a host that could not really hold it. `host.overprovisioned` counts a
-slot on such a host as two containers and names the pool that made it one, so
-the capacity worth setting is in the problems drawer rather than worked out by
-hand. A host with a single slot is left as it was: two shares there are more
-than the whole machine, so the pair is charged the machine and still places.
+What changes here is the pool that leaves its size to the host. Its runner and
+its daemon now **split one slot** between them, and the host is charged one. So
+a host set to eight slots carries eight runners of such a pool, the same as any
+other, where the last release made it four — and an operator who followed the
+`pool.host_overcommitted` advice to "adjust the host to the slots its machine
+can back" was walked down to fewer slots each time they took it, arriving at
+one slot, which held nothing: one slot is the whole machine's share, doubled is
+the whole machine again, and a machine always measures a little less free than
+it is allocatable.
+
+For such a pool that means **twice as many runners per host** as the last
+release, each with half the machine it had: the pair divides the slot rather
+than taking two. Nothing changes for a pool that is not `dind`, nothing changes
+for one that typed its own figures, and no job is failed by it. A slot too
+small to give both halves what a runner needs — under half a core, or under a
+gigabyte, after the reserve — is refused with a sentence naming the capacity
+that divides it, rather than divided into a runner and a daemon with no limit.
+`host.overprovisioned` now counts a slot as a pair only for pools that typed
+their limits.
 
 ## What happens to work in flight
 

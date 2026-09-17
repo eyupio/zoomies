@@ -170,12 +170,11 @@
       Each runner is given one slot's share of the machine it lands on — the same share the fleet
       charges its host — so this pool is sized correctly on every host, and follows one that is
       resized.{#if dind}
-        A docker-in-docker pool is charged twice over: the build runs in a sidecar the backend gives
-        the same limits.{/if}
+        Its runner and its Docker daemon share that slot, so a slot here is one runner like anywhere
+        else.{/if}
     {:else}
       A runner is charged this against its host, wherever it lands.{#if dind}
-        A docker-in-docker pool is charged twice over: the build runs in a sidecar the backend gives
-        the same limits.{/if}
+        Twice over: the build runs in a Docker daemon beside it, which is given the same limits.{/if}
     {/if}
   </p>
 

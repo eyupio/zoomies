@@ -280,7 +280,7 @@
               ? `, the largest ask across your enabled pools — ${ask.pool}'s`
               : ', the largest ask across your enabled pools'
             : ', the default a new pool gets'}{ask.pair
-            ? ', counting both containers of a docker-in-docker slot — its runner and the sidecar the backend gives the same limits'
+            ? ', counting both containers of a docker-in-docker slot — its runner and the daemon, which is given the same limits because the build runs there'
             : ''}. On {shape.cpus > 0 ? `${shape.cpus} cores` : 'an unknown number of cores'}
           and {shape.memoryMb > 0 ? gb(shape.memoryMb) : 'unknown memory'}, that is room for
           <strong>{pluralise(recCapacity, 'runner')}</strong> once the reserve is kept.

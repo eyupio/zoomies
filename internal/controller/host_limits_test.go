@@ -162,13 +162,17 @@ func TestAFullyInQuotaHostRaisesNoResourceProblem(t *testing.T) {
 	}
 }
 
-// A docker-in-docker slot is two containers, and the machine has to be sized
-// for both. This is the host from the report that started the work: twelve
-// slots' worth of cores on paper, every one of them a pair in practice, a
-// Hosts page reading half committed, and a daemon that stopped answering
-// creates. The warning has to count the sidecar, name the pool that brought
-// it, and ask for the capacity the pairs actually fit in.
-func TestADockerInDockerPoolMakesEachSlotAPairInTheOverprovisioningCount(t *testing.T) {
+// A docker-in-docker slot is two containers only where the pool typed its own
+// limits, and then the machine has to be sized for both.
+//
+// This is the host from the report that started the work: twelve slots' worth
+// of cores on paper, every one of them a pair in practice, a Hosts page reading
+// half committed, and a daemon that stopped answering creates. What changed
+// since is which pools make a slot a pair: a pool sized by its host puts the
+// runner and the daemon in one slot between them, so its slots are worth one
+// runner like everybody else's, and only a pool that asked for figures of its
+// own has the daemon given them a second time.
+func TestATypedDockerInDockerPoolMakesEachSlotAPairInTheOverprovisioningCount(t *testing.T) {
 	h := newHarness(t)
 	inst := h.installation()
 	// Eight cores less the floor is 7.5, so six plain runners fit and this
@@ -180,6 +184,16 @@ func TestADockerInDockerPoolMakesEachSlotAPairInTheOverprovisioningCount(t *test
 
 	p := h.pool(inst, "dind-builders")
 	p.DockerMode = store.DockerDinD
+	if err := h.st.UpdatePool(h.ctx, p); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	// Sized by its host: the pair shares a slot, so nothing about the machine
+	// changed and the host is still the right size for six.
+	if codes := h.problemCodes(); contains(codes, "host.overprovisioned") {
+		t.Fatalf("problems = %v; a pool sized by its host puts its pair in one slot", codes)
+	}
+
+	p.Resources = store.Resources{CPUs: 1, MemoryMB: 2048}
 	if err := h.st.UpdatePool(h.ctx, p); err != nil {
 		t.Fatalf("UpdatePool: %v", err)
 	}
