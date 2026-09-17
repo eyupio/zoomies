@@ -130,6 +130,16 @@ against the manifest, `PRAGMA integrity_check`, and whether this build can open
 it — because a copy nobody has opened is a copy nobody knows about, and the
 day to find the bad one is not the day it is needed.
 
+**Prune now** applies retention without waiting for a backup. Retention
+normally runs as part of taking one, which is the right moment for it and the
+wrong one for somebody who has just lowered `backup.keep` from thirty to seven:
+until the next backup the fleet is still holding thirty, and with
+`backup.interval` off it holds thirty forever. The button runs both halves —
+`backup.keep` here and each destination's own `keep` in its bucket — and says
+what it deleted, per destination, because the two numbers are set on the same
+page and are meant to disagree. Nothing that was uploaded or brought back from
+a bucket is counted or removed.
+
 ## Copies that leave the machine
 
 A backup destination is an S3-compatible bucket the fleet puts every copy in
@@ -217,10 +227,19 @@ The pass itself is written as *make the bucket hold what the directory holds*
 rather than *upload the backup that was just taken*. A remote that was
 unreachable for two nights is two backups behind, so the next pass sends both,
 oldest first; and a remote with `keep: 30` is never sent the thirty-first
-oldest backup only to delete it a second later. It runs after every backup, and
-hourly for a destination that has been failing — `backup.remote_failed` in the
-problems drawer carries the service's own refusal, which is usually a wrong
-secret, a bucket that is not there, or a clock too far out to sign with.
+oldest backup only to delete it a second later.
+
+The pass is part of taking a backup rather than a separate thing somebody
+remembers: the schedule's copy, one taken from the page and one taken by
+`zoomies backup` all leave for every destination as they are written, and the
+upload happens after the request has answered so that pressing the button does
+not mean holding a browser open for the length of a transfer. **Copy offsite
+now** runs the same pass on demand, which is what an operator who has just
+fixed a credential wants. Every destination is reconciled again on the hour
+regardless, so one that was unreachable catches up by itself —
+`backup.remote_failed` in the problems drawer carries the service's own
+refusal, which is usually a wrong secret, a bucket that is not there, or a
+clock too far out to sign with.
 
 **Backups → Copies off this machine** lists every destination whichever place
 describes it: what it holds and when it last took a copy, **Test** for a

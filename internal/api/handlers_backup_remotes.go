@@ -156,6 +156,33 @@ func (s *Server) handleShipBackups(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// handlePruneBackups answers POST /api/v1/backups/prune: apply retention now,
+// here and in every bucket.
+//
+// Retention is otherwise part of taking a backup, which leaves an operator who
+// has just lowered backup.keep with nothing happening until the next one. The
+// answer is what was deleted rather than a bare 204: this route removes copies
+// of the whole fleet, and an operator is owed the list.
+func (s *Server) handlePruneBackups(w http.ResponseWriter, r *http.Request) {
+	report, err := s.ctrl.PruneBackups(r.Context())
+	switch {
+	case errors.Is(err, controller.ErrBackupRunning), errors.Is(err, controller.ErrShippingRunning):
+		conflict(w, err.Error())
+		return
+	case err != nil:
+		s.internal(w, r, "applying backup retention", err)
+		return
+	}
+	removed := len(report.Removed)
+	for _, remote := range report.Remotes {
+		removed += len(remote.Removed)
+	}
+	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "backup.prune", "backup", "", map[string]any{
+		"keep": report.Keep, "removed": removed, "remotes": len(report.Remotes),
+	})
+	writeJSON(w, http.StatusOK, report)
+}
+
 // handleFetchRemoteCopy answers
 // POST /api/v1/backups/remotes/{name}/copies/{id}/fetch: the archive comes
 // down, is unpacked and verified exactly as an upload would be, and is then an

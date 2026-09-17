@@ -326,7 +326,7 @@
           class="leader"
           x1={e.x0}
           y1={e.y0}
-          x2={frame.RIGHT + 5}
+          x2={frame.RIGHT + frame.END_GAP - 3}
           y2={e.y}
           style:stroke={e.line.tone}
         />
@@ -334,7 +334,7 @@
       <text
         class="end"
         class:dim={singled && !drawn.find((d) => d.line === e.line)?.lit}
-        x={frame.RIGHT + 8}
+        x={frame.RIGHT + frame.END_GAP}
         y={e.y + 4}>{e.text}</text
       >
     {/each}

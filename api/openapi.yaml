@@ -2885,6 +2885,30 @@ paths:
               schema: { $ref: "#/components/schemas/BackupShipment" }
         "409": { $ref: "#/components/responses/Conflict" }
 
+  /backups/prune:
+    post:
+      operationId: pruneBackups
+      tags: [backups]
+      summary: Apply retention now
+      description: >-
+        Deletes the copies beyond `backup.keep` from the backup directory, and the
+        ones beyond each destination's own `keep` from its bucket. Retention
+        otherwise runs as part of taking a backup, which leaves a fleet that has
+        just lowered `backup.keep` holding the old number until the next one —
+        and on a fleet with `backup.interval` off, holding it forever. A copy that
+        was uploaded here or fetched back out of a bucket is never counted and
+        never removed. The answer lists what went, per destination, and a bucket
+        that refused is reported against its own name while the others are still
+        pruned. Refused with 409 while a backup or an offsite pass is running.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: Retention was applied
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BackupPruning" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
   /backups/remotes:
     post:
       operationId: createBackupRemote
@@ -4838,6 +4862,28 @@ components:
       properties:
         sent: { type: array, items: { $ref: "#/components/schemas/RemoteBackupCopy" } }
         error: { type: string, description: What stopped one destination, when the others still went. }
+
+    BackupPruning:
+      type: object
+      required: [keep, removed, remotes]
+      description: >-
+        What applying retention removed. It is reported per destination rather
+        than as one total because the numbers disagree on purpose: this host keeps
+        `backup.keep` copies and each bucket keeps its own.
+      properties:
+        keep: { type: integer, description: "`backup.keep` as the pass read it; 0 keeps every copy and removes nothing from this host." }
+        removed: { type: array, items: { type: string }, description: The backups deleted from the backup directory. }
+        error: { type: string, description: Why the directory could not be pruned. }
+        remotes: { type: array, items: { $ref: "#/components/schemas/RemotePruning" } }
+
+    RemotePruning:
+      type: object
+      required: [name, keep, removed]
+      properties:
+        name: { type: string }
+        keep: { type: integer, description: This destination's own retention; 0 keeps every copy. }
+        removed: { type: array, items: { type: string } }
+        error: { type: string, description: The service's own refusal, so a bucket that would not answer reads differently from one that had nothing to remove. }
 
     BackupSchedule:
       type: object

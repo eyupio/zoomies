@@ -620,6 +620,9 @@ export const dismissRestoreOutcome = () =>
 
 export const shipBackups = () => api.post<Result<'shipBackups'>>('/backups/offsite', {});
 
+/** Retention now, rather than at the next backup. */
+export const pruneBackups = () => api.post<Result<'pruneBackups'>>('/backups/prune', {});
+
 export const createBackupRemote = (body: Body<'createBackupRemote'>) =>
   api.post<Result<'createBackupRemote'>>('/backups/remotes', { body });
 

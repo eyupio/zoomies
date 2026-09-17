@@ -21,6 +21,7 @@
     Download,
     HardDrive,
     Lock,
+    Scissors,
     ShieldCheck,
     Trash2,
     TriangleAlert,
@@ -35,6 +36,7 @@
     dismissRestoreOutcome,
     downloadBackupEncrypted,
     listBackups,
+    pruneBackups,
     stageRestore,
     takeBackup,
     uploadBackup,
@@ -52,6 +54,7 @@
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
   import LoadingBoundary from '$lib/components/LoadingBoundary.svelte';
+  import Pagination from '$lib/components/Pagination.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import RowActions from '$lib/components/RowActions.svelte';
   import type { RowAction } from '$lib/components/RowActions.svelte';
@@ -91,6 +94,35 @@
   const staged = $derived(page?.staged_restore ?? null);
   const lastRestore = $derived(page?.last_restore ?? null);
   const schedule = $derived(page?.schedule);
+  /* The destinations a copy actually goes to: not the ones switched off, not
+     the stored ones the file overrides, and not the ones whose secrets this
+     controller's key will not open. Anything else would promise an offsite
+     copy that is not being made. */
+  const sending = $derived(
+    (page?.remotes ?? []).filter((r) => !r.disabled && !r.shadowed && !r.problem),
+  );
+
+  /*
+    The list pages.
+
+    A fleet keeping ninety daily copies is ninety rows, and on a phone each one
+    is a card six lines tall -- the restore an operator came for is most of a
+    minute of scrolling away. Newest first is the order the API gives them in,
+    so the first page is always the one that matters, and the size is
+    remembered nowhere: this is a page somebody opens twice a year.
+  */
+  const PER_PAGE = [10, 25, 50] as const;
+  let limit = $state<number>(PER_PAGE[0]);
+  let offset = $state(0);
+  const shown = $derived(items.slice(offset, offset + limit));
+  // A delete or a prune can empty the page that was being read. Step back to
+  // the last one that has rows rather than showing an empty list with a
+  // count that says otherwise.
+  $effect(() => {
+    if (offset > 0 && offset >= items.length) {
+      offset = Math.max(0, (Math.ceil(items.length / limit) - 1) * limit);
+    }
+  });
 
   /* -- taking one ----------------------------------------------------------- */
 
@@ -100,15 +132,65 @@
     taking = true;
     try {
       const taken = await takeBackup();
+      // Where the copy went, and where it is going: the offsite pass is part
+      // of taking a backup, but it happens after the request has answered, so
+      // an operator who has just pressed the button is told rather than left
+      // to guess from a "last copy" time that has not moved yet.
       toasts.success(
         'Backup taken',
-        `${taken.id}, ${formatBytes(taken.bytes)}, checked and written to ${page?.directory ?? 'the backup directory'}.`,
+        `${taken.id}, ${formatBytes(taken.bytes)}, checked and written to ${page?.directory ?? 'the backup directory'}.` +
+          (sending.length > 0
+            ? ` It is on its way to ${pluralise(sending.length, 'destination', 'destinations')}.`
+            : ''),
       );
       reload += 1;
     } catch (cause) {
       toasts.fromError(cause, 'That backup was not taken');
     } finally {
       taking = false;
+    }
+  }
+
+  /* -- retention, on demand ------------------------------------------------- */
+
+  /*
+    Retention otherwise runs as part of taking a backup. An operator who has
+    just lowered backup.keep from thirty to seven is then holding thirty until
+    the next one -- and with backup.interval off, holding thirty forever. This
+    is the button that says "now", and it prunes the buckets as well, because
+    the two numbers are set on the same page and neither of them should need a
+    backup to take effect.
+  */
+  let pruneOpen = $state(false);
+  let pruneBusy = $state(false);
+
+  async function prune(): Promise<boolean> {
+    pruneBusy = true;
+    try {
+      const report = await pruneBackups();
+      const offsite = report.remotes.reduce((n, r) => n + r.removed.length, 0);
+      const refused = report.remotes.filter((r) => r.error);
+      const where = [
+        `${pluralise(report.removed.length, 'copy', 'copies')} here`,
+        ...(report.remotes.length > 0 ? [`${offsite} offsite`] : []),
+      ].join(', ');
+      if (report.error || refused.length > 0) {
+        toasts.warning(
+          'Retention was partly applied',
+          [report.error, ...refused.map((r) => `${r.name}: ${r.error}`)].filter(Boolean).join(' '),
+        );
+      } else if (report.removed.length === 0 && offsite === 0) {
+        toasts.success('Nothing to remove', 'Every copy is one this fleet is meant to be keeping.');
+      } else {
+        toasts.success('Retention applied', `Removed ${where}.`);
+      }
+      reload += 1;
+      return true;
+    } catch (cause) {
+      toasts.fromError(cause, 'Retention was not applied');
+      return false;
+    } finally {
+      pruneBusy = false;
     }
   }
 
@@ -379,6 +461,15 @@
     reload += 1;
   }}
 >
+  <Button
+    variant="secondary"
+    icon={Scissors}
+    onclick={() => (pruneOpen = true)}
+    loading={pruneBusy}
+    disabled={restarting !== null || (items.length === 0 && (page?.remotes.length ?? 0) === 0)}
+  >
+    Prune now
+  </Button>
   <Button variant="secondary" icon={Upload} onclick={openUpload} disabled={restarting !== null}>
     Upload a backup
   </Button>
@@ -607,7 +698,7 @@
             </thead>
             <!-- svelte-ignore a11y_no_redundant_roles -->
             <tbody role="rowgroup">
-              {#each items as backup (backup.id)}
+              {#each shown as backup (backup.id)}
                 {@const source = sourceOf(backup)}
                 {@const key = keyStatus(backup)}
                 <tr
@@ -657,10 +748,47 @@
             </tbody>
           </table>
         </div>
+        {#if items.length > PER_PAGE[0]}
+          <div class="pager">
+            <Pagination
+              total={items.length}
+              {limit}
+              {offset}
+              noun="backups"
+              sizes={PER_PAGE}
+              onpage={(next) => (offset = next)}
+              onlimit={(next) => {
+                limit = next;
+                offset = 0;
+              }}
+            />
+          </div>
+        {/if}
       {/if}
     {/if}
   </LoadingBoundary>
 </div>
+
+<!-- Retention, now -->
+<ConfirmDialog
+  bind:open={pruneOpen}
+  title="Apply retention now"
+  description="Retention normally runs when a backup is taken. This runs it now, against the numbers this fleet is set to keep, and nothing it deletes can be brought back from here."
+  consequences={[
+    schedule?.keep === 0
+      ? 'Nothing is removed from this host: backup.keep is 0, which keeps every copy.'
+      : `This host keeps ${pluralise(schedule?.keep ?? 0, 'copy', 'copies')}; anything older goes.`,
+    ...sending.map((r) =>
+      r.keep > 0
+        ? `${r.name} keeps ${pluralise(r.keep, 'copy', 'copies')}; anything older is deleted from ${r.where}.`
+        : `${r.name} keeps every copy, so nothing is removed from ${r.where}.`,
+    ),
+    'A backup you uploaded or brought back from a bucket is never counted and never removed.',
+  ]}
+  confirmLabel="Apply retention"
+  busy={pruneBusy}
+  onconfirm={prune}
+/>
 
 <!-- Verify -->
 <Dialog
@@ -1075,6 +1203,10 @@
   }
 
   /* -- the table -------------------------------------------------------- */
+  .pager {
+    padding: var(--z-space-2) var(--z-space-5);
+    border-top: var(--z-border-width) solid var(--z-border);
+  }
   .scroll {
     overflow-x: auto;
     contain: paint;

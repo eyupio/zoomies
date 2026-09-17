@@ -506,6 +506,12 @@ export interface Frame {
   AXIS_TOP: number;
   /** A phone's shape: taller, and with fewer labels along the bottom. */
   narrow: boolean;
+  /**
+   * How far past RIGHT the end-of-line value is written, and the leader back
+   * to its line drawn. Narrower on a phone, where every pixel of the gutter
+   * is a pixel not spent on the chart.
+   */
+  END_GAP: number;
 }
 
 /**
@@ -516,6 +522,14 @@ export interface Frame {
  * percentages and the right one the value at the end of each line; both are
  * the same in every plot so the plots stacked in the per-host layout share
  * one x axis.
+ *
+ * Both were sized for a laptop, and on a phone that is 88 of 294 pixels --
+ * nearly a third of the drawing spent on four glyphs a side, which is why
+ * the chart visibly stopped short of the panel it sat in. A narrow plot cuts
+ * each to what the widest label it can carry actually measures: "100%" at
+ * the 2xs size, and no padding for a laptop's comfort. The labels themselves
+ * stay, on a phone as anywhere -- being readable from the right-hand edge
+ * alone is the point of them.
  */
 export function plotFrame(
   width: number,
@@ -525,8 +539,9 @@ export function plotFrame(
   const narrow = W < 560;
   const H = options.compact ? (narrow ? 132 : 116) : narrow ? 300 : 248;
   const LANE = options.lane ? (options.compact ? 22 : 40) : 0;
-  const LEFT = 42;
-  const RIGHT = W - 46;
+  const LEFT = narrow ? 36 : 42;
+  const END_GAP = narrow ? 5 : 8;
+  const RIGHT = W - (narrow ? 36 : 46);
   const TOP = 12;
   const BOTTOM = H - (options.axis === false ? 10 : 26);
   return {
@@ -540,6 +555,7 @@ export function plotFrame(
     LANE,
     AXIS_TOP: TOP + LANE,
     narrow,
+    END_GAP,
   };
 }
 

@@ -3,9 +3,12 @@ package api
 import (
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/backup"
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/controller"
+	"github.com/eyupio/zoomies/internal/store"
 )
 
 // The Backups tab's offsite half. What these protect is the sequence an
@@ -147,4 +150,66 @@ func TestAnUnknownRemoteIsNotFoundAndNoRemotesIsAnEmptyList(t *testing.T) {
 	if len(listed.Remotes) != 0 {
 		t.Errorf("a fleet with no remotes reports %+v", listed.Remotes)
 	}
+}
+
+// Retention on demand, which exists because lowering the number of copies a
+// fleet keeps otherwise does nothing at all until the next backup -- and on a
+// fleet with the schedule off, nothing ever. The route has to reach both
+// halves, and say what it removed from each: the local ceiling and the
+// bucket's are separate numbers and a single total would read as a fault.
+func TestRetentionIsAppliedOnDemandToBothHalves(t *testing.T) {
+	h, fake := withRemote(t)
+	h.installation()
+	cookie := h.admin()
+
+	h.ctrl.UpdateConfig(func(c *config.Config) { c.Backup.Keep = 0 })
+	var taken []string
+	for range 3 {
+		taken = append(taken, h.takeBackup(t, cookie).ID)
+		// The directory name carries the clock's second.
+		time.Sleep(1100 * time.Millisecond)
+	}
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/backups/offsite", cookie: cookie})
+	resp.mustStatus(t, http.StatusOK, "copy the backups offsite")
+	if got := fake.Count(); got != 3 {
+		t.Fatalf("setting up: the bucket holds %d copies", got)
+	}
+
+	h.ctrl.UpdateConfig(func(c *config.Config) {
+		c.Backup.Keep = 1
+		c.Backup.Remotes[0].Keep = 2
+	})
+	resp = h.do(request{method: http.MethodPost, path: "/api/v1/backups/prune", cookie: cookie})
+	resp.mustStatus(t, http.StatusOK, "apply retention")
+	var report controller.BackupPruning
+	resp.into(t, &report)
+
+	if report.Keep != 1 || len(report.Removed) != 2 || report.Error != "" {
+		t.Errorf("the local half of the report reads %+v", report)
+	}
+	if len(report.Remotes) != 1 || report.Remotes[0].Keep != 2 || len(report.Remotes[0].Removed) != 1 {
+		t.Fatalf("the offsite half of the report reads %+v", report.Remotes)
+	}
+	if got := fake.Count(); got != 2 {
+		t.Errorf("the bucket holds %d copies with keep: 2", got)
+	}
+
+	// And the page agrees: one backup left here, the newest.
+	resp = h.do(request{method: http.MethodGet, path: "/api/v1/backups", cookie: cookie})
+	resp.mustStatus(t, http.StatusOK, "list backups")
+	var listed backupsResponse
+	resp.into(t, &listed)
+	if len(listed.Items) != 1 || listed.Items[0].ID != taken[len(taken)-1] {
+		t.Errorf("the page lists %d backups after retention was applied", len(listed.Items))
+	}
+}
+
+// Pruning deletes copies of the whole fleet, so it is a write rather than
+// something a read-only token can set off.
+func TestRetentionOnDemandNeedsTheAdministratorRole(t *testing.T) {
+	h, _ := withRemote(t)
+	h.installation()
+	u, _ := h.user("viewer", store.RoleViewer)
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/backups/prune", cookie: h.session(u)})
+	resp.mustStatus(t, http.StatusForbidden, "prune as a viewer")
 }

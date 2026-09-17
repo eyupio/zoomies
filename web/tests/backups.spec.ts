@@ -22,16 +22,27 @@ async function openBackups(page: Page): Promise<void> {
   await goto(page, '/settings/backups', 'Backups');
 }
 
-/** Press the button, and return the row the new backup appears in. */
+/**
+ * Press the button, and return the row the new backup appears in.
+ *
+ * It waits for the newest id to change rather than for the list to grow: a
+ * fleet already holding `backup.keep` copies loses its oldest to retention as
+ * it gains the new one, so the count is the one thing about a new backup that
+ * does not move. This suite shares one controller across its projects and
+ * reaches that ceiling part-way through.
+ */
 async function takeOne(page: Page) {
-  const before = await page.getByRole('row').count();
+  const rows = page.locator('tbody').getByRole('row');
+  const newest = async () => {
+    if ((await rows.count()) === 0) return null;
+    return (await rows.first().locator('.mono').first().textContent())?.trim() ?? null;
+  };
+  const before = await newest();
   await page.getByRole('button', { name: 'Back up now' }).first().click();
   await expect(page.getByText('Backup taken')).toBeVisible();
-  await expect
-    .poll(async () => page.getByRole('row').count(), { message: 'a row for the new backup' })
-    .toBeGreaterThan(before);
+  await expect.poll(newest, { message: 'the new backup at the top of the list' }).not.toBe(before);
   // Newest first: the first body row is the one just taken.
-  return page.locator('tbody').getByRole('row').first();
+  return rows.first();
 }
 
 /** The id printed in a row, which the confirmations ask to have typed back. */
@@ -181,4 +192,66 @@ test('the configuration can be exported and an import is previewed before it is 
   await expect(row).toContainText('72h');
   await row.getByRole('button', { name: 'Reset' }).click();
   await expect(row.getByText('Saved here')).toBeHidden();
+});
+
+/*
+ * Retention runs when a backup is taken, which is the wrong moment for an
+ * operator who has just lowered the number of copies the fleet keeps: nothing
+ * happens until the next backup, and with the schedule off, nothing happens
+ * ever. The button says what it is about to delete -- both ceilings, because
+ * the local one and each bucket's are separate numbers -- and then says what
+ * it did.
+ */
+test('retention can be applied without waiting for the next backup', async ({ page }) => {
+  await openBackups(page);
+  await takeOne(page);
+
+  await page.getByRole('button', { name: 'Prune now' }).click();
+  const confirming = dialog(page, 'Apply retention now');
+  await expect(confirming).toContainText('This host keeps');
+  await expect(confirming).toContainText('never counted and never removed');
+  await confirming.getByRole('button', { name: 'Apply retention' }).click();
+  await expect(confirming).toBeHidden();
+
+  // The fixture keeps more copies than this spec has taken, so the honest
+  // answer is that there was nothing over the ceiling -- which is the answer
+  // being tested: the pass ran and reported, rather than silently doing
+  // nothing.
+  await expect(page.getByText(/Nothing to remove|Retention applied/)).toBeVisible();
+});
+
+/*
+ * A fleet keeping ninety daily copies is ninety rows, and on a phone each is a
+ * card six lines tall: the restore somebody came for is a minute of scrolling
+ * away. The list pages, newest first, so the first page is the one that
+ * matters.
+ */
+test('a long list of backups is paged rather than scrolled', async ({ page }) => {
+  await page.route('**/api/v1/backups', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    const one = body.items?.[0];
+    test.skip(!one, 'the fixture has no backup to make a long list out of');
+    body.items = Array.from({ length: 24 }, (_, i) => ({
+      ...one,
+      id: `zoomies-20260916-${String(100000 + i).slice(-6)}`,
+    }));
+    await route.fulfill({ response, json: body });
+  });
+
+  await openBackups(page);
+  const rows = page.locator('tbody').getByRole('row');
+  await expect(rows).toHaveCount(10);
+  const pager = page.getByRole('navigation', { name: 'Pagination' });
+  await expect(pager).toContainText('1–10 of 24 backups');
+
+  await pager.getByRole('button', { name: 'Next page' }).click();
+  await expect(pager).toContainText('11–20 of 24 backups');
+  await expect(rows.first()).toContainText('zoomies-20260916-100010');
+
+  // The last page is short, and the size is the operator's to change.
+  await pager.getByRole('button', { name: 'Last page' }).click();
+  await expect(rows).toHaveCount(4);
+  await pager.getByLabel('Rows').selectOption('25');
+  await expect(rows).toHaveCount(24);
 });
