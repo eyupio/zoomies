@@ -301,7 +301,7 @@ func joinTokenCreate(ctx context.Context, e *env, args []string) error {
 		"Mint a single-use join token. The token is shown once; only its hash is stored.")
 	cf := registerClientFlags(fs, true)
 	ttl := fs.Duration("ttl", 15*time.Minute, "how long the token may be redeemed for")
-	capacity := fs.Int("capacity", 2, "the capacity the new host starts with; 0 lets the agent decide from its CPU count")
+	capacity := fs.Int("capacity", 0, "the capacity the new host starts with; the default lets the agent decide from the machine it measures")
 	labels := kvValue{}
 	fs.Var(labels, "labels", "labels for the new host, e.g. arch=arm64")
 	connection := fs.String("connection", "direct", "how the host connects: direct or tailcat (private encrypted connection)")
