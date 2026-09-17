@@ -138,7 +138,7 @@ func Join(ctx context.Context, opts JoinOptions) error {
 	}
 	capacity := opts.Capacity
 	if capacity <= 0 {
-		capacity = defaultCapacity()
+		capacity = defaultCapacity(det)
 	}
 	serviceUser, serviceGroup := opts.ServiceUser, opts.ServiceUser
 	if serviceUser == "" {

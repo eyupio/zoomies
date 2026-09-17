@@ -630,3 +630,26 @@ func TestPortChecks(t *testing.T) {
 		t.Fatalf("NextFreePort returned the busy port %d", port)
 	}
 }
+
+// The capacity a host starts with is taken from the machine the detection
+// measured, not from the installing process's view of it.
+//
+// The two differ exactly where it matters most: a container sees the cores its
+// cgroup allows, so an installer run inside one -- which is what the container
+// deployment does -- would set a capacity from a machine the fleet never
+// places against. That was a slot count being wrong. It is now every runner's
+// CPU and memory limit being wrong too, because a pool that leaves its size to
+// the host is given the machine divided by this number.
+func TestTheStartingCapacityComesFromTheMeasuredMachine(t *testing.T) {
+	if got := defaultCapacity(Detection{CPUs: 16}); got != 8 {
+		t.Errorf("capacity = %d on a 16-core machine, want 8", got)
+	}
+	if got := defaultCapacity(Detection{CPUs: 1}); got != 1 {
+		t.Errorf("capacity = %d on a single-core machine, want 1", got)
+	}
+	// A detection with no CPU count falls back to this process, which is what
+	// every path did before the machine was measured at all.
+	if got := defaultCapacity(Detection{}); got < 1 {
+		t.Errorf("capacity = %d with nothing measured, want at least 1", got)
+	}
+}

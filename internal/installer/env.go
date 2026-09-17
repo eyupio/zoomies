@@ -150,7 +150,11 @@ func (s EnvSpec) defaults() EnvSpec {
 		s.Backend = "docker"
 	}
 	if s.Capacity <= 0 {
-		s.Capacity = defaultCapacity()
+		// No detection here: this fills in an env file that is being written
+		// without one, so the process's own view of the machine is the only
+		// figure there is. Every path that has measured the host passes what
+		// it measured, and this one is the fallback it always was.
+		s.Capacity = defaultCapacity(Detection{})
 	}
 	if s.WorkDir == "" {
 		s.WorkDir = ContainerWorkDir

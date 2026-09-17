@@ -554,7 +554,7 @@ func defaultPlan(d Detection, mode Mode) Plan {
 		Deployment:    DefaultDeployment(d),
 		ConfigDir:     d.ConfigDir,
 		StateDir:      d.StateDir,
-		Capacity:      defaultCapacity(),
+		Capacity:      defaultCapacity(d),
 		Embedded:      mode == ModeSingle,
 		Listen:        ListenLoopback,
 		TLSMode:       config.TLSOff,
@@ -608,8 +608,29 @@ func defaultServiceUser(d Detection) (userName, group string) {
 	return name, name
 }
 
-func defaultCapacity() int {
-	if n := runtime.NumCPU() / 2; n > 0 {
+// defaultCapacity is how many runners this host takes at once, before anybody
+// says otherwise.
+//
+// One runner per two cores is a defensible starting point: a job usually wants
+// more than one core, and the host still has room to breathe.
+//
+// It is taken from the machine the detection measured rather than from this
+// process's own view of it, and the difference is not academic. A container
+// sees the cores its cgroup allows, so an installer run inside one -- which is
+// what the container deployment does -- would set the capacity from a number
+// the fleet never places against, and the agent then reports the real machine.
+// That mattered less when the capacity was only a slot count. It matters now:
+// a pool that leaves its size to the host is given the machine divided by this
+// number, so a capacity taken from the wrong machine sizes every runner wrong.
+//
+// runtime.NumCPU stands in where the detection has no figure, which is the
+// same answer this always gave.
+func defaultCapacity(d Detection) int {
+	cpus := d.CPUs
+	if cpus <= 0 {
+		cpus = runtime.NumCPU()
+	}
+	if n := cpus / 2; n > 0 {
 		return n
 	}
 	return 1
