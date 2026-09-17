@@ -170,6 +170,10 @@ jobs:
           # saying the release is not finished. Marked as a prerelease, GitHub
           # keeps it out of "latest", which is what install.sh asks for.
           prerelease: ${{ needs.setup.outputs.prerelease == 'true' }}
+          # One upload at a time, for the reason the dev channel above carries:
+          # a release whose binaries were uploaded all at once is a release that
+          # fails on the transfer rather than on anything about the build.
+          preserve_order: true
 
   images:
     needs: setup
