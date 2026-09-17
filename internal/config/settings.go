@@ -459,7 +459,7 @@ var registry = buildRegistry([]Setting{
 	},
 	{
 		Key: "scheduler.provision_timeout", Label: "Provision timeout", Env: "ZOOMIES_PROVISION_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance, Live: true,
-		Summary: "Fail a runner that never finishes registering, so a bad image does not hold a host slot for ever.",
+		Summary: "Fail a runner that never finishes registering, so a create nobody ever reported does not hold a host slot for ever. It has to outlast a cold image pull and the Docker wait that follows it -- the agent allows itself fifteen minutes for the pull alone -- or runners still coming up are failed and replaced, and the replacement pulls the same image over the same link.",
 	},
 	{
 		Key: "scheduler.drain_timeout", Label: "Drain timeout", Env: "ZOOMIES_DRAIN_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance, Live: true,

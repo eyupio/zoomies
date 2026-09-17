@@ -15,7 +15,7 @@ import (
 // heartbeat timeout, the heartbeat timeout against the interval the controller
 // hands the agent, every task lease against the time the agent gives itself to
 // do that task. Until now nothing but a comment held those pairs together, so
-// a change to one side did not have to say what it did to the other. These two
+// a change to one side did not have to say what it did to the other. These
 // tests are the section of the same name in docs/architecture.md, made to
 // fail.
 
@@ -99,6 +99,40 @@ func TestEveryMachineDeadlineOutlastsTheWorkItCovers(t *testing.T) {
 		if c.long <= c.short {
 			t.Errorf("%s is %s and %s is %s: %s", c.longer, c.long, c.shorter, c.short, c.because)
 		}
+	}
+}
+
+// A runner's start is bounded in three places, and the three have to agree.
+// The agent gives itself a budget for the create because a cold image pull is
+// minutes; the controller holds the task that long again before re-offering it;
+// the scheduler fails the row once it has been starting too long. The scheduler
+// is the only one of the three that gives up, so it has to be the most patient
+// of them -- and it did not used to be. With a five-minute provision timeout
+// against a fifteen-minute create budget, a cold host had its runners condemned
+// while the agent was still pulling, and the pool replaced each one, which put a
+// second pull of the same image on the link that was slow to begin with.
+func TestARunnerIsGivenLongEnoughToStartByEveryHalfThatBoundsIt(t *testing.T) {
+	cfg := config.Default()
+	// What a start actually costs: the agent's create, then the wait the runner
+	// image does for its Docker daemon before it registers.
+	start := agent.CreateTimeout + cfg.Runners.EffectiveDockerWait()
+	if cfg.Scheduler.ProvisionTimeout <= start {
+		t.Errorf("scheduler.provision_timeout is %s and a runner may legitimately take %s to start (agent.CreateTimeout %s plus a %s Docker wait); runners still coming up would be failed and replaced",
+			cfg.Scheduler.ProvisionTimeout, start, agent.CreateTimeout, cfg.Runners.EffectiveDockerWait())
+	}
+	// The lease is how long the controller waits before offering the create to
+	// the host again. A runner failed while its create is still leased is one
+	// nothing will retry and nothing will finish.
+	if createLease < cfg.Scheduler.ProvisionTimeout {
+		t.Errorf("the create lease is %s and scheduler.provision_timeout is %s; a runner would be failed with its create neither redelivered nor abandoned",
+			createLease, cfg.Scheduler.ProvisionTimeout)
+	}
+	// The fleet says a runner is not progressing at half the timeout, and that
+	// has to land after the Docker wait rather than during it: a runner doing
+	// exactly what it was configured to do must not be reported as stuck.
+	if half := cfg.Scheduler.ProvisionTimeout / 2; half <= cfg.Runners.EffectiveDockerWait() {
+		t.Errorf("runners are reported as not progressing after %s, within the %s a Docker pool's runner is configured to wait for its daemon; a healthy runner would be raised as a problem",
+			half, cfg.Runners.EffectiveDockerWait())
 	}
 }
 

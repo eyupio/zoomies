@@ -516,7 +516,12 @@ type Scheduler struct {
 	// credentials live; it never ends a job, so it is no answer to a hung
 	// one -- that is what a workflow's timeout-minutes is for.
 	MaxRunnerLifetime time.Duration `yaml:"max_runner_lifetime"`
-	// ProvisionTimeout fails a runner that never finishes registering.
+	// ProvisionTimeout fails a runner that never finishes registering. It is
+	// the last of three bounds on a runner's start and the only one that gives
+	// up, so it has to outlast the other two: the agent's own create budget,
+	// which covers a cold image pull, and the wait a Docker pool's runner does
+	// for its daemon before it registers at all. Set inside those, it condemns
+	// runners the rest of the system is patiently still making.
 	ProvisionTimeout time.Duration `yaml:"provision_timeout"`
 	// DrainTimeout fails a runner that has been draining this long with no job
 	// left on it, so a stop lost to a controller restart stops holding a host
@@ -624,6 +629,18 @@ const (
 	DefaultRunnerMemoryMB = 4096
 )
 
+// EffectiveDockerWait is how long a Docker pool's runner actually waits for its
+// daemon, which is not the same as what this setting says: zero does not mean
+// no wait, it means the runner image chooses, and the image waits two minutes.
+// Anything reasoning about how long a runner may take to start has to read the
+// wait that happens rather than the one that was configured.
+func (r Runners) EffectiveDockerWait() time.Duration {
+	if r.DockerWait > 0 {
+		return r.DockerWait
+	}
+	return ImageDockerWait
+}
+
 // DefaultRunnerSize is the per-runner CPU and memory a pool gets when it names
 // none, with the built-in figures standing in for a setting nobody has given a
 // usable value.
@@ -705,10 +722,20 @@ func Default() *Config {
 			DockerBuildCacheMB: 5120,
 		},
 		Scheduler: Scheduler{
-			Interval:            10 * time.Second,
-			ScaleUpDelay:        0,
-			MaxRunnerLifetime:   6 * time.Hour,
-			ProvisionTimeout:    5 * time.Minute,
+			Interval:          10 * time.Second,
+			ScaleUpDelay:      0,
+			MaxRunnerLifetime: 6 * time.Hour,
+			// Longer than the agent's own create budget and the runner image's
+			// Docker wait together, because those two are what a runner's start
+			// actually costs on a cold host: fifteen minutes for a pull on a
+			// slow link, then two for the daemon. Five minutes -- what this was
+			// before the runners section existed to say the second number --
+			// failed runners that were still coming up and had the pool replace
+			// them, which put a second pull of the same image on the same link.
+			// The genuinely broken create does not wait for this: the agent
+			// reports the failure and the row fails on the report. This is the
+			// backstop for the create that is never reported at all.
+			ProvisionTimeout:    20 * time.Minute,
 			DrainTimeout:        15 * time.Minute,
 			MaxCreatesPerTick:   10,
 			DefaultRunnerLimits: true,
