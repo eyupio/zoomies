@@ -162,7 +162,6 @@ func (b *Bus) Publish(kind Kind, topic string, v any) {
 		raw = enc
 	}
 	b.publish(Event{
-		ID:    b.seq.Add(1),
 		Kind:  kind,
 		Topic: topic,
 		Data:  raw,
@@ -170,7 +169,17 @@ func (b *Bus) Publish(kind Kind, topic string, v any) {
 	})
 }
 
-// publish appends to the ring and hands the event to every subscriber.
+// publish numbers the event, appends it to the ring and hands it to every
+// subscriber.
+//
+// The number is drawn here, under the lock, rather than by the caller. Drawing
+// it first and taking the lock afterwards let two publishers -- the reconcile
+// loop and an API handler, say -- enter the ring in the opposite order to their
+// numbers, and the wire with them. A browser handed 6 before 5 reconnects with
+// 6 as its last id and never sees 5 again, while Subscribe still reports the
+// replay complete because the ring's oldest id is no longer its lowest. There
+// is no polling to put that right, so the tab quietly shows a fleet that has
+// moved on.
 //
 // The sends happen under the lock on purpose. Close closes a subscriber's
 // channel under that same lock, and a send on a closed channel panics even
@@ -182,6 +191,7 @@ func (b *Bus) Publish(kind Kind, topic string, v any) {
 func (b *Bus) publish(e Event) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	e.ID = b.seq.Add(1)
 	if b.ringCap > 0 {
 		b.ring = append(b.ring, e)
 		if len(b.ring) > b.ringCap {

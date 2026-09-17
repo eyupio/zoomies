@@ -273,3 +273,46 @@ func TestClosingASubscriptionEndsItsContextWatcher(t *testing.T) {
 		t.Fatalf("%d goroutines after closing 50 subscriptions, %d before them", n, before)
 	}
 }
+
+// The ring and the wire have to agree with the sequence.
+//
+// Every event carries the number a reconnecting client comes back with, and
+// the SSE handler replays everything above it. So an event that reaches the
+// ring after one numbered above it is an event that client will never be sent
+// -- and Subscribe, which reads the ring's first entry as the oldest number it
+// holds, would still call the replay complete and send no resync. The number
+// used to be drawn before the lock, which is exactly the window two publishers
+// need to swap places.
+func TestConcurrentPublishesKeepTheRingInSequence(t *testing.T) {
+	b := New()
+	const writers, each = 8, 64
+
+	var wg sync.WaitGroup
+	for w := 0; w < writers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < each; i++ {
+				b.Publish(KindStats, "", map[string]int{"n": i})
+			}
+		}()
+	}
+	wg.Wait()
+
+	b.mu.RLock()
+	ring := append([]Event(nil), b.ring...)
+	b.mu.RUnlock()
+
+	if len(ring) == 0 {
+		t.Fatal("nothing reached the ring")
+	}
+	for i := 1; i < len(ring); i++ {
+		if ring[i].ID <= ring[i-1].ID {
+			t.Fatalf("ring entry %d has id %d, after id %d: a client resuming from the higher one never sees the lower",
+				i, ring[i].ID, ring[i-1].ID)
+		}
+	}
+	if got, want := ring[len(ring)-1].ID, uint64(writers*each); got != want {
+		t.Fatalf("the last event is %d, want %d", got, want)
+	}
+}
