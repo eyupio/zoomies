@@ -31,16 +31,45 @@ const (
 // operator reads and start being the reason the host has no disk.
 const maxQuietFinishedRetention = 24 * time.Hour
 
-// HostLostAfter is how long a host may go without a heartbeat before the
-// controller counts it unhealthy. It is the store's HeartbeatTimeout, restated
-// here because this package sits below the store and cannot import it; a test
-// in internal/controller holds the two equal.
-const HostLostAfter = 90 * time.Second
+// HostUnhealthyAfter is how long a host may go without a heartbeat before the
+// controller counts it unhealthy and stops placing runners on it. It is the
+// store's HeartbeatTimeout, restated here because this package sits below the
+// store and cannot import it; a test in internal/controller holds the two
+// equal.
+//
+// It is the earlier and softer of the two judgements a quiet host is given, and
+// the distinction is load-bearing: this one only stops new work arriving, so a
+// deadline that may not destroy anything belongs against RunnersLostAfter
+// below, not against this.
+const HostUnhealthyAfter = 90 * time.Second
+
+// RunnersLostAfter is the later, harder judgement: how long a host may be
+// silent before the runners still recorded on it are failed, and the job one of
+// them was running is marked the fleet's failure. It is the controller's
+// hostLostAfter, restated for the same reason and held equal by the same test.
+//
+// Anything that destroys a machine has to outlast this rather than
+// HostUnhealthyAfter. A machine deleted between the two is deleted while the
+// controller still counts its runners live -- which is to say, out from under a
+// job that is still running.
+const RunnersLostAfter = 5 * time.Minute
+
+// RunnerCreateBudget is how long the agent gives itself to materialise one
+// runner: a cold image pull on a slow link is minutes, not seconds. It is
+// agent.CreateTimeout, restated for the same reason and held equal by the same
+// test.
+const RunnerCreateBudget = 15 * time.Minute
+
+// ImageDockerWait is what the runner image waits for its daemon when
+// runners.docker_wait leaves the choice to it -- the default in
+// deploy/runner-entrypoint.sh, which a test in internal/docs holds to the
+// script.
+const ImageDockerWait = 2 * time.Minute
 
 // MaxQuietHeartbeatInterval is the longest agent.heartbeat_interval that draws
-// no warning: half the silence that loses a host, so that one late heartbeat
-// does not.
-const MaxQuietHeartbeatInterval = HostLostAfter / 2
+// no warning: half the silence that makes a host unhealthy, so that one late
+// heartbeat does not.
+const MaxQuietHeartbeatInterval = HostUnhealthyAfter / 2
 
 // euid is os.Geteuid, replaceable so a test can ask what a root process would
 // be told without being one.
@@ -704,12 +733,12 @@ func (c *Config) Validate() Findings {
 	}
 	if c.Agent.HeartbeatInterval > MaxQuietHeartbeatInterval {
 		// The controller hands this interval to every agent at join, and it
-		// counts a host as lost after a fixed silence. Past half of that
+		// counts a host unhealthy after a fixed silence. Past half of that
 		// silence one late heartbeat is enough to flip the host unhealthy, and
 		// a host that flaps is one the scheduler keeps leaving runners off.
 		add(Finding{
 			Code: "agent.heartbeat_interval_long", Severity: SeverityWarning, Setting: "agent.heartbeat_interval",
-			Title:  fmt.Sprintf("hosts heartbeat every %s but are counted lost after %s", c.Agent.HeartbeatInterval, HostLostAfter),
+			Title:  fmt.Sprintf("hosts heartbeat every %s but go unhealthy after %s", c.Agent.HeartbeatInterval, HostUnhealthyAfter),
 			Detail: "a single delayed heartbeat is enough to mark a host unhealthy and keep new runners off it until the next one lands, so the fleet flaps in and out of capacity.",
 			Fix:    fmt.Sprintf("keep agent.heartbeat_interval at %s or less.", MaxQuietHeartbeatInterval),
 		})
@@ -784,6 +813,29 @@ func (c *Config) Validate() Findings {
 			Title:  "hosts are not throttled when they are overwhelmed",
 			Detail: "the pressure holds still refuse new starts while a host's CPU or memory is acutely short, but nothing outlasts a sample: a host pushed past its size on and off keeps being let back in at full capacity, and the runners already on it are never slowed down.",
 			Fix:    "leave scheduler.host_throttling on unless something outside Zoomies manages the hosts' load.",
+		})
+	}
+	// A runner's start is bounded three times over, and this is the only one
+	// that gives up: the agent allows itself RunnerCreateBudget for the create,
+	// the controller will not re-offer the task for longer still, and the
+	// scheduler fails the row once it has been starting for this long. Set
+	// below what the other two budget, the scheduler condemns runners the rest
+	// of the system is patiently still making -- and then replaces them, so the
+	// host pulls the same image twice over a link that was already the reason
+	// the first pull was slow. A cold fleet is where that bites, and a cold
+	// fleet is the one least able to absorb it.
+	start := RunnerCreateBudget + c.Runners.EffectiveDockerWait()
+	if c.Scheduler.ProvisionTimeout > 0 && c.Scheduler.ProvisionTimeout <= start {
+		add(Finding{
+			Code: "scheduler.provision_timeout_short", Severity: SeverityWarning, Setting: "scheduler.provision_timeout",
+			Title: fmt.Sprintf("runners are failed after %s but may legitimately take %s to start",
+				c.Scheduler.ProvisionTimeout, start),
+			Detail: fmt.Sprintf("an agent gives itself %s for a create, because a cold image pull on a slow link "+
+				"is minutes rather than seconds, and a runner on a pool that provides Docker then waits up to %s "+
+				"for that daemon before it registers. A provision timeout inside that fails runners that are "+
+				"still coming up, and the replacement pulls the same image over the same link.",
+				RunnerCreateBudget, c.Runners.EffectiveDockerWait()),
+			Fix: "set scheduler.provision_timeout above the two together, such as 20m.",
 		})
 	}
 	if c.Scheduler.MaxRunnerLifetime > 0 && c.Scheduler.MaxRunnerLifetime < 10*time.Minute {
@@ -960,12 +1012,12 @@ func (c *Config) Validate() Findings {
 				Fix: "set provider.ambiguity_timeout comfortably longer than provider.create_timeout.",
 			})
 		}
-		if c.Provider.EnrolTimeout <= 0 || c.Provider.EnrolTimeout < HostLostAfter {
+		if c.Provider.EnrolTimeout <= 0 || c.Provider.EnrolTimeout < HostUnhealthyAfter {
 			add(Finding{
 				Code: "provider.enrol_timeout", Severity: SeverityError, Setting: "provider.enrol_timeout",
-				Title: "provider.enrol_timeout is shorter than the silence that loses a host",
+				Title: "provider.enrol_timeout is shorter than the silence that makes a host unhealthy",
 				Detail: fmt.Sprintf("a machine that has joined and gone quiet for %s is still only unhealthy, "+
-					"so giving enrolment less than that gives up on machines that arrived.", HostLostAfter),
+					"so giving enrolment less than that gives up on machines that arrived.", HostUnhealthyAfter),
 				Fix: "set provider.enrol_timeout to how long a machine may take to boot and join, such as 15m.",
 			})
 		}
@@ -987,14 +1039,36 @@ func (c *Config) Validate() Findings {
 				Fix:    "set provider.paused to false to let the fleet rent machines again.",
 			})
 		}
-		if c.Provider.DeleteGrace > 0 && c.Provider.DeleteGrace <= HostLostAfter {
+		// Against RunnersLostAfter, not HostUnhealthyAfter. Ninety seconds of
+		// silence only stops new runners being placed on a host; the runners
+		// already on it are not given up until five minutes, and a machine
+		// deleted before then is deleted out from under a job that is still
+		// running -- which is the outcome this grace exists to prevent, so the
+		// grace has to be measured against the judgement that frees them.
+		if c.Provider.DeleteGrace > 0 && c.Provider.DeleteGrace <= RunnersLostAfter {
 			add(Finding{
 				Code: "provider.delete_grace_short", Severity: SeverityWarning, Setting: "provider.delete_grace",
-				Title: "provider.delete_grace is no longer than the silence that loses a host",
-				Detail: fmt.Sprintf("a host is only counted lost after %s without a heartbeat, so a grace at "+
-					"or below that destroys a machine for a network blip -- taking the job it was running with it.",
-					HostLostAfter),
+				Title: "provider.delete_grace is no longer than the silence that loses a host's runners",
+				Detail: fmt.Sprintf("a quiet host is only unhealthy after %s; its runners are not given up until "+
+					"%s, and until they are the fleet still believes they are running jobs. A grace at or below "+
+					"that destroys the machine for a network blip -- taking the job it was running with it.",
+					HostUnhealthyAfter, RunnersLostAfter),
 				Fix: "set provider.delete_grace well above that, such as 10m.",
+			})
+		}
+		// A quiet host is ruled out for every pool, so a machine whose host has
+		// merely gone silent looks idle long before anyone has decided it is
+		// gone. An idle timeout inside that window drains machines for a
+		// network blip.
+		if c.Provider.IdleTimeout > 0 && c.Provider.IdleTimeout <= RunnersLostAfter {
+			add(Finding{
+				Code: "provider.idle_timeout_short", Severity: SeverityWarning, Setting: "provider.idle_timeout",
+				Title: "provider.idle_timeout is no longer than the silence that loses a host's runners",
+				Detail: fmt.Sprintf("a host that has gone quiet carries no runner anything will place, so it reads "+
+					"as idle from the moment it falls silent. Set at or below the %s its runners are given, a "+
+					"machine is drained for a blip rather than for being unwanted.",
+					RunnersLostAfter),
+				Fix: "set provider.idle_timeout above that, such as 15m.",
 			})
 		}
 		if c.Provider.ScaleDownCooldown > 0 && c.Provider.IdleTimeout > 0 &&

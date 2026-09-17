@@ -424,7 +424,7 @@ to one is made knowing the rest. Three tests in `internal/controller`
 | A task is offered at most three times, so a host is given up on after three leases: an hour for a create, thirty minutes for a stop, fifteen for a remove. A dropped create is noticed by the runner's provision timeout, which says so on the Runners page; a dropped stop would be noticed by nothing, so the sweep fails that runner itself and the next pass frees its slot. | `maxTaskAttempts` = 3 | `internal/controller` (`sweepTasks`) |
 | A host's queue is in memory. A controller restart loses every task in flight; the runner a lost create was for waits out the provision timeout and is replaced with a freshly minted credential. Removal intent from completed jobs and failed host cleanup is recovered from database rows until the host confirms removal. | — | `internal/controller` |
 | A host is late, then unhealthy, then lost, in that order. The controller hands the agent its heartbeat interval on every heartbeat, and the validator warns when that interval is more than half the timeout, so one late heartbeat never counts. After ninety seconds without one the host is unhealthy and the scheduler places nothing new on it. After five minutes it is lost: every runner still recorded as live on it is failed, and a job one was running is marked the fleet's failure. Both judgements are made on the thirty-second housekeeping tick. | `agent.heartbeat_interval` 30 s; `config.MaxQuietHeartbeatInterval` 45 s; `store.HeartbeatTimeout` 90 s; `hostLostAfter` 5 min; `housekeepingTick` 30 s | `internal/config` (`Validate`); `internal/store` (`Host.Healthy`); `internal/controller` (`checkHostHealth`, `reclaimLostRunners`) |
-| A runner that has not come online in time is failed. The timeout covers both `provisioning` and `registering`; there is no second "registration timeout", and the `runners.not_progressing` problem is raised at half of it. The maximum lifetime retires only a runner that is idle; nothing the scheduler does touches a busy one. | `scheduler.provision_timeout`, 5 min by default; `scheduler.max_runner_lifetime` | `internal/scheduler` (`Decide`); `internal/controller` (`Problems`) |
+| A runner that has not come online in time is failed. The timeout covers both `provisioning` and `registering`; there is no second "registration timeout", and the `runners.not_progressing` problem is raised at half of it. The maximum lifetime retires only a runner that is idle; nothing the scheduler does touches a busy one. | `scheduler.provision_timeout`, 20 min by default; `scheduler.max_runner_lifetime` | `internal/scheduler` (`Decide`); `internal/controller` (`Problems`) |
 | A failed runner stays for ten minutes, then goes. It holds no host slot, its message is the only record of why it failed, and the failures still on the page decide how long the pool waits before creating another: ten seconds, doubling to five minutes, and never longer than the retention, because the failures the wait is computed from are gone by then. | `failedRetention` 10 min; `startBackoff` 10 s; `maxStartBackoff` 5 min | `internal/scheduler` |
 | A repeated state is legal and a wrong one is dropped. `CanTransition(s, s)` is true, so an agent that reports what the row already says changes nothing, not even the idle clock the scale-down reads; a transition outside the allow-list is ignored with a log line, never forced. `finished_at` is stamped once, on the first entry to a terminal state, and is what the failed retention counts from. | `validRunnerTransitions` | `internal/store` (`TransitionRunner`); `internal/controller` (`applyRunnerState`) |
 | Capacity is derived from rows. A host's free capacity is its `capacity` minus the runners recorded on it in a state other than `removed` or `failed`, counted on every read; no counter is kept anywhere, and every scheduling decision starts from rows, the clock and the policy. A dead host's rows therefore count until they are failed, which is what the host-lost reclaim is for. | `Host.ActiveRunners` | `internal/store` (`ListHosts`); `internal/scheduler` (`HostCanRun`) |
@@ -440,7 +440,7 @@ to one is made knowing the rest. Three tests in `internal/controller`
 | The agent keeps nothing across a restart but its credentials: `agent.json` holds the join token, and the set of runners it manages is in memory. It rebuilds that set before its loops start, by listing every backend and adopting each workload whose labels carry a runner id, and adopts again whenever a task arrives for a workload it does not know. Both passes are load-bearing: without the start-up one the reconciler's first sweep sees an empty set and removes every job running on the host, which on a single-VM install is every controller restart; without the per-task one a create redelivered after a restart would build a second workload for a runner that already has one. | `StateFile` | `internal/agent` (`adoptExisting`, `adopt`) |
 | Registrations are compared with rows a minute after start and every ten minutes after that. A registration with the `zoomies-` prefix that GitHub does not report busy and that no live row explains is an orphan, untidy rather than urgent, and one API call per installation is what the comparison costs. | `reapInterval` 10 min | `internal/controller` (`reap`) |
 
-What holds them together, pinned by the three tests:
+What holds them together, pinned by the four tests:
 
 * **The silence ladder is ordered.** `store.HeartbeatTimeout` is at least three
   default heartbeat intervals, so one slow heartbeat never makes a host
@@ -452,6 +452,15 @@ What holds them together, pinned by the three tests:
   timeout the controller hands out plus the agent's margin, and the remove
   lease exceeds the agent's remove timeout. A shorter lease would offer the
   task to the host again while the first attempt was still running.
+* **A runner is given long enough to start by every half that bounds it.**
+  `scheduler.provision_timeout` is the only one of the three bounds on a
+  runner's start that gives up, so it is the most patient: longer than
+  `agent.CreateTimeout` plus the wait the runner image does for its Docker
+  daemon, and no longer than the create lease, so a runner is never failed with
+  its create neither redelivered nor abandoned. The `runners.not_progressing`
+  threshold at half of it therefore lands after that Docker wait rather than
+  during it, so a runner doing exactly what it was configured to do is not
+  reported as stuck.
 * **The throttle ladder is paced against the measurements it climbs on.**
   `scheduler.ThrottleRecovery` is longer than `store.HostUsageMaxAge`, so a
   single calm sample cannot step a host down; `scheduler.ThrottleStep` is at
@@ -464,13 +473,6 @@ What holds them together, pinned by the three tests:
 What follows from the constants as they stand, and is not yet what an
 operator would want:
 
-* The provision timeout is shorter than both the agent's create timeout and
-  the create lease. A cold image pull that takes longer than five minutes
-  registers a runner on a row the scheduler has already failed, and the
-  registering report is refused as an illegal transition while the workload
-  goes on to register with GitHub. The same happens to a create in flight on
-  a host that goes quiet and comes back: lost at five minutes, its lease
-  still has fifteen to run.
 * The agent's tracked set does not survive its restart, and adoption happens
   only when a task arrives. On the single-VM install the controller runs the
   agent inside itself, so a controller restart builds a fresh agent whose

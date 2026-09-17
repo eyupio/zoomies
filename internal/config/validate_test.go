@@ -581,7 +581,7 @@ func TestProviderDeadlinesMustOutlastTheWorkTheyCover(t *testing.T) {
 	}{
 		{"an unbounded call", func(c *Config) { c.Provider.CallTimeout = 0 }, "provider.timeouts"},
 		{"ambiguity inside creation", func(c *Config) { c.Provider.AmbiguityTimeout = c.Provider.CreateTimeout }, "provider.timeouts"},
-		{"enrolment shorter than a lost host", func(c *Config) { c.Provider.EnrolTimeout = HostLostAfter - time.Second }, "provider.enrol_timeout"},
+		{"enrolment shorter than an unhealthy host", func(c *Config) { c.Provider.EnrolTimeout = HostUnhealthyAfter - time.Second }, "provider.enrol_timeout"},
 		{"no interval", func(c *Config) { c.Provider.Interval = 0 }, "provider.interval"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -608,7 +608,7 @@ func TestScaleDownSettingsThatCostMoneyAreWarnings(t *testing.T) {
 	c := Default()
 	c.Provider.Enabled = true
 	c.Provider.MaxMachines = 4
-	c.Provider.DeleteGrace = HostLostAfter
+	c.Provider.DeleteGrace = RunnersLostAfter
 	c.Provider.ScaleDownCooldown = c.Provider.IdleTimeout - time.Minute
 
 	f := c.Validate()
@@ -757,6 +757,86 @@ func TestAFindingSaysWhichLayerSetTheValueAndHowToUndoIt(t *testing.T) {
 	for _, f := range cfg.Validate() {
 		if f.Setting == "server.bind" && (f.Undo != "" || f.SourceSentence() != "") {
 			t.Fatalf("a value in the file offered an undo: %q / %q", f.Undo, f.SourceSentence())
+		}
+	}
+}
+
+// The provision timeout is the only one of the three bounds on a runner's start
+// that gives up, so a value inside what the other two budget is a fleet that
+// condemns runners which are still coming up -- and then has the pool replace
+// each one, putting a second pull of the same image on the link that was slow
+// to begin with. It is a warning rather than an error because such a fleet does
+// work, expensively, on fast hosts.
+func TestAProvisionTimeoutInsideARunnersStartIsWarnedAbout(t *testing.T) {
+	c := Default()
+	c.Scheduler.ProvisionTimeout = RunnerCreateBudget
+	f := c.Validate()
+	if !hasCode(f, "scheduler.provision_timeout_short") {
+		t.Errorf("a provision timeout of %s drew no warning against a %s create budget: %+v",
+			c.Scheduler.ProvisionTimeout, RunnerCreateBudget, f)
+	}
+	if err := f.Err(); err != nil {
+		t.Fatalf("a fleet that starts runners slowly refused to start: %v", err)
+	}
+
+	// Zero is off, and a fleet that has switched the timeout off has said that
+	// runners may take as long as they take. Warning about that would be
+	// warning about the absence of the thing being warned about.
+	c.Scheduler.ProvisionTimeout = 0
+	if f := c.Validate(); hasCode(f, "scheduler.provision_timeout_short") {
+		t.Error("switching the provision timeout off drew the warning for setting it too low")
+	}
+
+	// The wait counted is the one that happens, not the one that was written
+	// down: runners.docker_wait of zero leaves the image's own two minutes in
+	// place, so a timeout that only just cleared the create budget is still
+	// inside a real start.
+	c.Runners.DockerWait = 0
+	c.Scheduler.ProvisionTimeout = RunnerCreateBudget + time.Minute
+	if f := c.Validate(); !hasCode(f, "scheduler.provision_timeout_short") {
+		t.Errorf("a timeout %s above the create budget drew no warning, though the image still waits %s for its daemon",
+			time.Minute, ImageDockerWait)
+	}
+}
+
+// A quiet host is two judgements, not one, and every deadline that may destroy
+// a machine has to be measured against the later of them. Measured against the
+// ninety seconds that merely make a host unhealthy, both of these accepted a
+// value that deletes or drains a machine while the controller still believes a
+// job is running on it.
+func TestMachineDeadlinesAreJudgedAgainstTheSilenceThatFreesRunners(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  func(*Config)
+		code string
+	}{
+		{"a grace inside the runners' own", func(c *Config) { c.Provider.DeleteGrace = RunnersLostAfter }, "provider.delete_grace_short"},
+		{"draining inside the runners' own", func(c *Config) { c.Provider.IdleTimeout = RunnersLostAfter }, "provider.idle_timeout_short"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := Default()
+			c.Provider.Enabled = true
+			c.Provider.MaxMachines = 4
+			tc.set(c)
+
+			f := c.Validate()
+			if !hasCode(f, tc.code) {
+				t.Fatalf("%s passed unremarked; want %s. got %+v", tc.name, tc.code, f)
+			}
+			if err := f.Err(); err != nil {
+				t.Fatalf("a fleet that wastes machines refused to start: %v", err)
+			}
+		})
+	}
+
+	// And the defaults clear both, or every fleet that turns providers on would
+	// be told its own defaults were wrong.
+	c := Default()
+	c.Provider.Enabled = true
+	c.Provider.MaxMachines = 4
+	for _, code := range []string{"provider.delete_grace_short", "provider.idle_timeout_short"} {
+		if f := c.Validate(); hasCode(f, code) {
+			t.Errorf("the default provider settings raise %s against themselves", code)
 		}
 	}
 }

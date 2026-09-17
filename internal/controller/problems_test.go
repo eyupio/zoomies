@@ -511,6 +511,16 @@ func findProblem(t *testing.T, h *harness, code string) Problem {
 	return Problem{}
 }
 
+// stuck is a moment past the threshold that reports a runner as not
+// progressing -- half the provision timeout -- and before the timeout itself
+// would fail it, which is the window these problems exist to fill. It is
+// derived rather than written down: the threshold follows a setting, and a test
+// that pinned the minutes would have to be edited every time that setting moved
+// rather than failing only when the behaviour did.
+func (h *harness) stuck(from time.Time) time.Time {
+	return from.Add(h.cfg.Scheduler.ProvisionTimeout * 3 / 4)
+}
+
 // A runner that is still starting up normally must not raise anything. This is
 // the expensive half of the behaviour to get wrong: a warning that appears
 // every time a pool creates a runner is a warning nobody reads by the end of
@@ -539,7 +549,7 @@ func TestARunnerWhoseContainerStartedButNeverRegisteredNamesItsOwnLogs(t *testin
 	}
 	// Past half the provision timeout, but not yet past the timeout itself:
 	// the whole point is to say something while there is still time to look.
-	h.c.clock = func() time.Time { return started.Add(3 * time.Minute) }
+	h.c.clock = func() time.Time { return h.stuck(started) }
 
 	p := findProblem(t, h, "runners.not_progressing")
 	if !strings.Contains(p.Fix, "has not registered") || !strings.Contains(p.Fix, "github.com") {
@@ -561,7 +571,7 @@ func TestARunnerWithNoContainerYetPointsAtTheHost(t *testing.T) {
 	_, pool, host := h.fleet()
 	r := h.runnerRow(pool, host, store.RunnerProvisioning)
 
-	h.c.clock = func() time.Time { return r.CreatedAt.Add(3 * time.Minute) }
+	h.c.clock = func() time.Time { return h.stuck(r.CreatedAt) }
 
 	p := findProblem(t, h, "runners.not_progressing")
 	if !strings.Contains(p.Fix, "agent log") || !strings.Contains(p.Fix, "image") {
@@ -579,15 +589,16 @@ func TestTheStuckThresholdFollowsTheProvisionTimeout(t *testing.T) {
 	h := newHarness(t)
 	_, pool, host := h.fleet()
 	r := h.runnerRow(pool, host, store.RunnerRegistering)
-	h.c.clock = func() time.Time { return r.CreatedAt.Add(3 * time.Minute) }
+	h.c.clock = func() time.Time { return r.CreatedAt.Add(6 * time.Minute) }
 
+	h.cfg.Scheduler.ProvisionTimeout = 10 * time.Minute
 	if got := h.problemCodes(); !contains(got, "runners.not_progressing") {
-		t.Fatalf("problems = %v, want the default 5m timeout to have raised it by 3m", got)
+		t.Fatalf("problems = %v, want a ten-minute timeout to have raised it by six", got)
 	}
 
-	h.cfg.Scheduler.ProvisionTimeout = 20 * time.Minute
+	h.cfg.Scheduler.ProvisionTimeout = time.Hour
 	if got := h.problemCodes(); contains(got, "runners.not_progressing") {
-		t.Fatalf("problems = %v, want silence three minutes into a twenty-minute allowance", got)
+		t.Fatalf("problems = %v, want silence six minutes into an hour's allowance", got)
 	}
 
 	// Off means off: a fleet that has switched the timeout off has said that
@@ -620,7 +631,7 @@ func TestTheFixDescribesTheRunnerTheDetailNames(t *testing.T) {
 	if err := h.st.SetRunnerStartup(h.ctx, started.ID, nil, &at); err != nil {
 		t.Fatalf("SetRunnerStartup: %v", err)
 	}
-	h.c.clock = func() time.Time { return waiting.CreatedAt.Add(3 * time.Minute) }
+	h.c.clock = func() time.Time { return h.stuck(waiting.CreatedAt) }
 
 	p := findProblem(t, h, "runners.not_progressing")
 	if !strings.Contains(p.Detail, waiting.Name) {
@@ -649,7 +660,7 @@ func TestAStuckTieNamesTheRunnerWithNoContainer(t *testing.T) {
 	if err := h.st.SetRunnerStartup(h.ctx, started.ID, nil, &at); err != nil {
 		t.Fatalf("SetRunnerStartup: %v", err)
 	}
-	h.c.clock = func() time.Time { return waiting.CreatedAt.Add(3 * time.Minute) }
+	h.c.clock = func() time.Time { return h.stuck(waiting.CreatedAt) }
 
 	for i := 0; i < 5; i++ {
 		p := findProblem(t, h, "runners.not_progressing")

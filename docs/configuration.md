@@ -161,6 +161,7 @@ the two or three keys that have to be in one.
 ```yaml
 server:
   bind: 127.0.0.1:8080          # ZOOMIES_BIND
+  tailcat_enabled: true         # ZOOMIES_TAILCAT_ENABLED -- permit private agent connections
   external_url: ""              # ZOOMIES_EXTERNAL_URL  -- required for webhooks
   tls:
     mode: off                   # ZOOMIES_TLS_MODE      -- off | self-signed | files
@@ -205,8 +206,9 @@ agent:
   work_dir: <state dir>/work    # ZOOMIES_WORK_DIR
   labels: {}                    # ZOOMIES_AGENT_LABELS   -- "gpu=true,zone=eu"
   network: ""                   # ZOOMIES_AGENT_NETWORK
-  heartbeat_interval: 30s       # ZOOMIES_HEARTBEAT_INTERVAL -- a host is lost after 90s of silence; above 45s is warned about
+  heartbeat_interval: 30s       # ZOOMIES_HEARTBEAT_INTERVAL -- a host is unhealthy after 90s of silence and its runners lost after 5m; above 45s is warned about
   finished_retention: 0s        # ZOOMIES_AGENT_FINISHED_RETENTION -- 0 removes a finished workload after its report is acknowledged
+  docker_build_cache_mb: 5120   # ZOOMIES_DOCKER_BUILD_CACHE_MB -- target for unused builder cache; 0 prunes nothing
   # Process backend only:
   runner_sha256: ""             # ZOOMIES_AGENT_RUNNER_SHA256 -- digest of the runner archive, when github.runner_version is pinned
   allow_unverified_runner_download: false   # ZOOMIES_AGENT_ALLOW_UNVERIFIED_RUNNER_DOWNLOAD -- warned about
@@ -223,14 +225,16 @@ agent:
   allow_insecure_http: false    # ZOOMIES_AGENT_ALLOW_INSECURE_HTTP -- plain http:// off-host
 
 runners:
-  docker_wait: 2m               # ZOOMIES_DOCKER_WAIT   -- how long a Docker pool's runner waits for its daemon; 0 leaves the image's default
+  docker_wait: 2m               # ZOOMIES_DOCKER_WAIT   -- how long a Docker pool's runner waits for its daemon; 0 leaves the image's default, which is also 2m
+  default_cpus: 2               # ZOOMIES_RUNNER_DEFAULT_CPUS       -- what one runner gets on a pool that has not said otherwise
+  default_memory_mb: 4096       # ZOOMIES_RUNNER_DEFAULT_MEMORY_MB  -- the same, in megabytes
   env: {}                       # ZOOMIES_RUNNER_ENV    -- "HTTPS_PROXY=http://proxy:3128,NO_PROXY=localhost"; a pool's env wins
 
 scheduler:
   interval: 10s                 # ZOOMIES_SCHEDULER_INTERVAL
   scale_up_delay: 0s            # ZOOMIES_SCALE_UP_DELAY
   max_runner_lifetime: 6h       # ZOOMIES_MAX_RUNNER_LIFETIME
-  provision_timeout: 5m         # ZOOMIES_PROVISION_TIMEOUT
+  provision_timeout: 20m        # ZOOMIES_PROVISION_TIMEOUT -- must outlast a cold image pull and the Docker wait above
   drain_timeout: 15m            # ZOOMIES_DRAIN_TIMEOUT
   max_creates_per_tick: 10      # ZOOMIES_MAX_CREATES_PER_TICK
   default_runner_limits: true   # ZOOMIES_DEFAULT_RUNNER_LIMITS -- a pool with no cpus or memory_mb gets one slot's share of its host; off is warned about
@@ -1124,6 +1128,30 @@ keeps a minimum re-registers its runners this often. It never interrupts a
 running job: a job that hangs keeps its runner busy, and ending that is what the
 workflow's `timeout-minutes` is for. A runner that never finished registering is
 `provision_timeout`'s to fail, not this setting's.
+
+### `scheduler.provision_timeout`
+
+Fails a runner that has been starting up this long without registering. It
+covers `provisioning` and `registering` together — there is no second
+"registration timeout" — and the `runners.not_progressing` problem is raised at
+half of it, so the fleet says something while there is still time to look.
+
+It is the last of three bounds on a runner's start and the only one that gives
+up, so it has to be the most patient of them. An agent allows itself fifteen
+minutes to materialise a runner, because a first pull of a large image on a slow
+link is minutes rather than seconds, and a runner on a pool that provides Docker
+then waits up to `runners.docker_wait` for that daemon before it registers at
+all. Set inside those two, the scheduler condemns runners the rest of the system
+is patiently still making — and the pool replaces each one, which puts a second
+pull of the same image on the link that was slow to begin with. A cold fleet is
+where that bites, and a cold fleet is the one least able to absorb it. The
+validator warns when the number is inside them.
+
+The default of `20m` is not the cost of a broken runner. A create that actually
+fails — a missing image, a registry that refuses, a backend that will not
+start — is reported by the agent and fails the row the moment the report lands.
+This is the backstop for the create that is never reported at all, which is
+worth being patient about because nothing else will notice it.
 
 ### `scheduler.drain_timeout`
 
