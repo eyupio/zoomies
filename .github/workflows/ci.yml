@@ -28,19 +28,9 @@ env:
   NODE_VERSION: "22"
 
 # CI defaults to the Zoomies pool. Forks use GitHub-hosted runners, and a
-# manual dispatch with runner=github recovers every job.
+# manual dispatch with runner=github recovers every job, including image builds.
 # Pin the pool to an already published runner image digest; advance that pin
 # separately after validating new images so builds do not require their output.
-#
-# The two image jobs are the exception and always run on GitHub-hosted Ubuntu.
-# Building an image needs a Docker daemon, and the stock runner image carries no
-# Docker client on purpose -- that is what RunnerImageFor in internal/config is
-# about. A pool could be given one, by setting a docker_mode that gives its jobs
-# a daemon and letting the swap pick the Docker variant up, but the fleet's
-# runners are started from the images these jobs publish: building them on it
-# makes a broken image the reason the next one cannot be built. So the pool
-# whose pinned image this repository advances does not also produce it -- which
-# is why the release workflow builds its images off the fleet too.
 jobs:
   go:
     name: Go
@@ -511,9 +501,7 @@ jobs:
 
   images:
     name: Images
-    # Not the Zoomies pool: a job that builds an image needs a Docker daemon,
-    # and the stock runner image has no Docker client. See the note above jobs.
-    runs-on: ubuntu-latest
+    runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     needs: [dev-binaries]
     # Main pushes and manual recovery publish matching binaries before images.
     # Pull requests and checks on other branches do not publish dev binaries.
@@ -732,9 +720,7 @@ jobs:
   # catalogue in step, so a new operating system cannot be half-added.
   runner-images:
     name: Runner image (${{ matrix.tag }})
-    # GitHub-hosted for the same reason as the job above, and with a second one:
-    # a runner image cannot be the thing that builds itself.
-    runs-on: ubuntu-latest
+    runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     needs: [images]
     if: needs.images.outputs.runner == 'true'
     permissions:

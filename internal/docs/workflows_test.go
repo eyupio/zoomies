@@ -408,12 +408,8 @@ func TestCIDogfoodsZoomiesWithRecoveryForEveryJob(t *testing.T) {
 		// Match exceptions by job ID: a count alone lets the wrong job stop
 		// dogfooding while still satisfying the test. The first two need
 		// system packages unavailable to the unprivileged stock runner; the
-		// next two exist to run on a platform the Zoomies pool has no host
-		// for, which is the whole point of each; and the last two build the
-		// container images. Building one needs a Docker daemon that the stock
-		// runner image has no client for, and a runner image that is built by
-		// a runner started from the last one published cannot be fixed once a
-		// broken one ships.
+		// other two exist to run on a platform the Zoomies pool has no host
+		// for, which is the whole point of each.
 		exceptions := map[string]string{}
 		found := map[string]bool{}
 		if name == "ci.yml" {
@@ -421,8 +417,6 @@ func TestCIDogfoodsZoomiesWithRecoveryForEveryJob(t *testing.T) {
 			exceptions["playwright"] = "ubuntu-latest"
 			exceptions["arm64"] = "ubuntu-24.04-arm"
 			exceptions["windows"] = "windows-latest"
-			exceptions["images"] = "ubuntu-latest"
-			exceptions["runner-images"] = "ubuntu-latest"
 		}
 		jobs := regexp.MustCompile(`(?m)^  ([a-zA-Z0-9_-]+):\n`).FindAllStringSubmatchIndex(body, -1)
 		for i, job := range jobs {
