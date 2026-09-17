@@ -224,18 +224,27 @@
 
   /*
     The radio is the control -- it carries the keyboard behaviour and the
-    accessible name -- and the card is its label, so the input itself is moved
-    out of sight rather than removed from the tree.
+    accessible name -- and the card is its label. The input is made invisible
+    rather than taken out of the tree, and it is stretched over the whole card
+    rather than shrunk to a pixel: a one-pixel input is a one-pixel click
+    target, which is as awkward for a pointer as it is for a test driving one.
   */
   .choice input {
     position: absolute;
-    width: 1px;
-    height: 1px;
-    margin: -1px;
-    padding: 0;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  /* The card's own text sits under the input, which is the click target, so
+     nothing inside it can swallow a press meant for the radio. */
+  .head,
+  .blurb {
+    position: relative;
+    pointer-events: none;
   }
 
   /* The ring is drawn on the card because the input it belongs to is out of
