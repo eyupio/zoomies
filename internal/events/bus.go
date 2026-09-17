@@ -160,21 +160,9 @@ func (b *Bus) ParseWireID(raw string) (id uint64, sameEpoch bool) {
 // failures are logged rather than returned, because a publisher in the middle
 // of a reconcile has nothing useful to do with the error.
 func (b *Bus) Publish(kind Kind, topic string, v any) {
-	var raw json.RawMessage
-	if v != nil {
-		enc, err := json.Marshal(v)
-		if err != nil {
-			slog.Error("events: could not marshal payload", "kind", kind, "error", err)
-			return
-		}
-		raw = enc
+	if e, ok := frame(kind, topic, v); ok {
+		b.publish(e, true)
 	}
-	b.publish(Event{
-		Kind:  kind,
-		Topic: topic,
-		Data:  raw,
-		At:    time.Now().UTC(),
-	}, true)
 }
 
 // PublishTransient is Publish for a frame that must reach the subscribers who
@@ -186,21 +174,24 @@ func (b *Bus) Publish(kind Kind, topic string, v any) {
 // everything. Replaying it would send a client that has just loaded the fleet
 // straight back to load it again.
 func (b *Bus) PublishTransient(kind Kind, topic string, v any) {
+	if e, ok := frame(kind, topic, v); ok {
+		b.publish(e, false)
+	}
+}
+
+// frame renders a payload into an unnumbered event, or reports that it could
+// not be. The number is publish's to draw, under the lock.
+func frame(kind Kind, topic string, v any) (Event, bool) {
 	var raw json.RawMessage
 	if v != nil {
 		enc, err := json.Marshal(v)
 		if err != nil {
 			slog.Error("events: could not marshal payload", "kind", kind, "error", err)
-			return
+			return Event{}, false
 		}
 		raw = enc
 	}
-	b.publish(Event{
-		Kind:  kind,
-		Topic: topic,
-		Data:  raw,
-		At:    time.Now().UTC(),
-	}, false)
+	return Event{Kind: kind, Topic: topic, Data: raw, At: time.Now().UTC()}, true
 }
 
 // publish numbers the event, appends it to the ring and hands it to every
