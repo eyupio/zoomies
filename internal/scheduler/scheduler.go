@@ -372,15 +372,23 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 	quotaRepositories := map[string]bool{}
 	admitted := map[string]int{}
 	for _, j := range queued {
+		// The delay is asked about first because it is the cheaper reason to
+		// be waiting and the one nobody can act on. A job still inside it
+		// would not have driven a create whatever the repository limit said,
+		// so counting it as deferred by that limit made the pool's reason
+		// read "3 jobs deferred by the repository limit for acme/widgets"
+		// about jobs the next few seconds were going to release anyway --
+		// and sent an operator to change a setting that was not the cause.
+		if !j.ProvisionNow && t.now.Sub(j.QueuedAt) < t.policy.ScaleUpDelay {
+			continue
+		}
 		if p.RepositoryScaleUpLimit > 0 && t.activeByRepository[p.ID+"\x00"+j.Repo]+admitted[j.Repo] >= p.RepositoryScaleUpLimit {
 			plan.QuotaDeferredJobs++
 			quotaRepositories[j.Repo] = true
 			continue
 		}
-		if j.ProvisionNow || t.now.Sub(j.QueuedAt) >= t.policy.ScaleUpDelay {
-			eligible++
-			admitted[j.Repo]++
-		}
+		eligible++
+		admitted[j.Repo]++
 	}
 	for repo := range quotaRepositories {
 		plan.QuotaDeferredRepositories = append(plan.QuotaDeferredRepositories, repo)

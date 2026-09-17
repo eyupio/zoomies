@@ -150,6 +150,39 @@ func TestRepositoryScaleUpLimitPreservesMinimumForNonEphemeralPool(t *testing.T)
 	}
 }
 
+// A job that has not waited out the scale-up delay is not deferred by the
+// repository limit; it is just new.
+//
+// Both make a job wait, and only one of them is something an operator can do
+// anything about. Charging the limit for a job the delay was holding anyway
+// put "1 job deferred by the repository limit for acme/widgets" on a pool
+// whose queue the next few seconds were going to release on its own, and sent
+// whoever read it to raise a setting that was not the cause.
+func TestTheRepositoryLimitIsNotBlamedForTheScaleUpDelay(t *testing.T) {
+	p := testPool("shared", "self-hosted")
+	p.RepositoryScaleUpLimit = 1
+	fresh := queued("fresh", time.Second, "self-hosted")
+
+	s := snap([]*store.Pool{p}, nil, []*store.Job{fresh}, []*store.Host{testHost("host_a", 2, 0)})
+	s.Policy.ScaleUpDelay = 30 * time.Second
+	s.ActiveByRepository = map[string]int{p.ID + "\x00" + fresh.Repo: 1}
+
+	pp := only(t, Decide(s))
+	if pp.QuotaDeferredJobs != 0 || len(pp.QuotaDeferredRepositories) != 0 {
+		t.Fatalf("plan = %+v, want a job inside the scale-up delay charged to the delay, not the repository limit", pp)
+	}
+	if countOf(pp.Actions, ActionCreate) != 0 {
+		t.Fatal("a job inside the scale-up delay drove a create")
+	}
+
+	// The same job, once it is old enough, is the limit's to defer.
+	s.Jobs = []*store.Job{queued("fresh", time.Minute, "self-hosted")}
+	pp = only(t, Decide(s))
+	if pp.QuotaDeferredJobs != 1 || !slices.Equal(pp.QuotaDeferredRepositories, []string{"acme/widgets"}) {
+		t.Fatalf("plan = %+v, want the job deferred by the repository limit once it is past the delay", pp)
+	}
+}
+
 func countOf(as []Action, kind ActionKind) int { return len(actionsOf(as, kind)) }
 
 func runnerIDs(as []Action, kind ActionKind) []string {
