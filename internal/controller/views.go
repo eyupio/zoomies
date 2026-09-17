@@ -645,23 +645,34 @@ type PoolView struct {
 	// RepositoryScaleUpLimit and CostPerRunnerHour are accepted on the way in,
 	// so they are rendered on the way out: a field the API takes but never
 	// shows again is a field an operator cannot check, edit or explain.
-	RepositoryScaleUpLimit int               `json:"repository_scale_up_limit"`
-	CostPerRunnerHour      *float64          `json:"cost_per_runner_hour"`
-	IdleTimeout            store.Duration    `json:"idle_timeout"`
-	Ephemeral              bool              `json:"ephemeral"`
-	DockerMode             store.DockerMode  `json:"docker_mode"`
-	Resources              store.Resources   `json:"resources"`
-	Cache                  store.CacheConfig `json:"cache"`
-	HostSelector           map[string]string `json:"host_selector"`
-	Env                    map[string]string `json:"env"`
-	RunAsRoot              bool              `json:"run_as_root"`
-	Enabled                bool              `json:"enabled"`
-	CreatedAt              time.Time         `json:"created_at"`
-	UpdatedAt              time.Time         `json:"updated_at"`
-	Counts                 PoolCountsView    `json:"counts"`
-	QueuedJobs             int               `json:"queued_jobs"`
-	Utilisation            float64           `json:"utilisation"`
-	Warnings               []Problem         `json:"warnings,omitempty"`
+	RepositoryScaleUpLimit int              `json:"repository_scale_up_limit"`
+	CostPerRunnerHour      *float64         `json:"cost_per_runner_hour"`
+	IdleTimeout            store.Duration   `json:"idle_timeout"`
+	Ephemeral              bool             `json:"ephemeral"`
+	DockerMode             store.DockerMode `json:"docker_mode"`
+	Resources              store.Resources  `json:"resources"`
+	// Sizing is how this pool decides what one runner gets: "automatic", one
+	// slot's share of whichever host it lands on, or "fixed", the figures in
+	// Resources. It is derived from Resources rather than stored beside it,
+	// so the two can never disagree -- but it is rendered, because a browser
+	// reading "no CPU limit" has no way to tell "the host decides" from
+	// "nobody has set one", and those used to be the same thing.
+	Sizing string `json:"sizing"`
+	// RunnerSettings is what this pool overrides of the fleet's runner
+	// timings. Every field is absent on a pool that follows the fleet, which
+	// is what an unedited pool does.
+	RunnerSettings store.RunnerSettings `json:"runner_settings"`
+	Cache          store.CacheConfig    `json:"cache"`
+	HostSelector   map[string]string    `json:"host_selector"`
+	Env            map[string]string    `json:"env"`
+	RunAsRoot      bool                 `json:"run_as_root"`
+	Enabled        bool                 `json:"enabled"`
+	CreatedAt      time.Time            `json:"created_at"`
+	UpdatedAt      time.Time            `json:"updated_at"`
+	Counts         PoolCountsView       `json:"counts"`
+	QueuedJobs     int                  `json:"queued_jobs"`
+	Utilisation    float64              `json:"utilisation"`
+	Warnings       []Problem            `json:"warnings,omitempty"`
 }
 
 // PoolRenderer is everything needed to render pools without one query per
@@ -677,6 +688,10 @@ type PoolRenderer struct {
 	// defaultImage is what a pool that names neither an image nor a platform
 	// will boot, which the renderer needs to resolve EffectiveImage.
 	defaultImage string
+	// cfg is the fleet's own settings, which a pool's warnings are measured
+	// against: a pool that overrides a runner timing is only right or wrong
+	// relative to what the fleet would otherwise have done.
+	cfg *config.Config
 }
 
 // PoolRenderer gathers the per-pool counts, installation targets and queue
@@ -714,8 +729,9 @@ func (c *Controller) PoolRenderer(ctx context.Context) (*PoolRenderer, error) {
 	for _, p := range c.PoolRunnerGroupProblems() {
 		blocked[p.TargetID] = append(blocked[p.TargetID], p)
 	}
+	cfg := c.cfg()
 	return &PoolRenderer{counts: counts, installations: installations, queued: queued,
-		blocked: blocked, defaultImage: c.cfg().GitHub.RunnerImage}, nil
+		blocked: blocked, defaultImage: cfg.GitHub.RunnerImage, cfg: cfg}, nil
 }
 
 // image is the image this pool's runners will actually boot, resolved the same
@@ -756,6 +772,8 @@ func (v *PoolRenderer) View(p *store.Pool) PoolView {
 		Ephemeral:              p.Ephemeral,
 		DockerMode:             p.DockerMode,
 		Resources:              p.Resources,
+		Sizing:                 PoolSizing(p),
+		RunnerSettings:         p.RunnerSettings,
 		Cache:                  p.Cache,
 		HostSelector:           emptyMap(p.HostSelector),
 		Env:                    emptyMap(p.Env),
@@ -770,7 +788,7 @@ func (v *PoolRenderer) View(p *store.Pool) PoolView {
 		},
 		QueuedJobs:  v.queued[p.ID],
 		Utilisation: cnt.Utilisation(),
-		Warnings:    append(PoolWarnings(p, inst), v.blocked[p.ID]...),
+		Warnings:    append(PoolWarnings(p, inst, v.cfg), v.blocked[p.ID]...),
 	}
 }
 
@@ -809,8 +827,31 @@ func (p PoolView) WithoutEnvValues() PoolView {
 // The installation is there for the one risk a pool cannot see in itself,
 // the repository cache below. Nil when it is unknown, which validation
 // reports on its own.
-func PoolWarnings(p *store.Pool, inst *store.Installation) []Problem {
+// The two ways a pool decides how much machine one of its runners gets.
+const (
+	// SizingAutomatic is one slot's share of whichever host the runner lands
+	// on: charged by scheduler.Reserve and applied as a real cgroup limit by
+	// scheduler.Allocation, so the books and the cgroups say the same thing.
+	// It is what a pool means by naming no size, and it keeps fitting when a
+	// bigger machine joins the fleet -- which a figure typed once does not.
+	SizingAutomatic = "automatic"
+	// SizingFixed is the figures on the pool, the same on every host.
+	SizingFixed = "fixed"
+)
+
+// PoolSizing says which of the two a pool is doing.
+func PoolSizing(p *store.Pool) string {
+	if p.Automatic() {
+		return SizingAutomatic
+	}
+	return SizingFixed
+}
+
+func PoolWarnings(p *store.Pool, inst *store.Installation, cfg *config.Config) []Problem {
 	var out []Problem
+	if w, ok := poolStartLadderWarning(p, cfg); ok {
+		out = append(out, w)
+	}
 	for _, d := range p.Dangerous() {
 		out = append(out, Problem{
 			Code:       "pool.dangerous",
@@ -826,6 +867,81 @@ func PoolWarnings(p *store.Pool, inst *store.Installation) []Problem {
 		out = append(out, w)
 	}
 	return out
+}
+
+// PoolEffectiveDockerWait is how long this pool's runners actually wait for
+// their daemon: the pool's own override where it has one, the fleet's figure
+// where it does not, and the runner image's own two minutes where neither
+// says. Zero from either means "the image chooses", never "no wait".
+func PoolEffectiveDockerWait(p *store.Pool, cfg *config.Config) time.Duration {
+	if d := p.RunnerSettings.DockerWait; d != nil {
+		if d.Duration() > 0 {
+			return d.Duration()
+		}
+		return config.ImageDockerWait
+	}
+	if cfg == nil {
+		return config.ImageDockerWait
+	}
+	return cfg.Runners.EffectiveDockerWait()
+}
+
+// poolStartLadderWarning is scheduler.provision_timeout_short asked of one
+// pool, because a pool may now answer both halves of it for itself.
+//
+// The fleet's own defaults are held in the right order by an invariant test,
+// and the validator says so when an operator sets them otherwise. Neither
+// reaches a pool that overrides the provision timeout, the Docker wait, or one
+// without the other -- and a pool that fails its runners inside the wait it
+// configured them to do is the same outage on a smaller scale: the runner
+// still coming up is condemned, and its replacement pulls the same image over
+// the link that was slow to begin with.
+//
+// Only a pool with a daemon counts the wait, because only that pool does it.
+func poolStartLadderWarning(p *store.Pool, cfg *config.Config) (Problem, bool) {
+	if p == nil || cfg == nil || !p.Enabled {
+		return Problem{}, false
+	}
+	// Only a pool that answered one of the two halves for itself. A pool
+	// following the fleet into a bad order is the fleet's own finding --
+	// scheduler.provision_timeout_short, which names the setting to change --
+	// and repeating it once per pool would bury that one sentence under a row
+	// for every pool in the fleet, all of them pointing at the same fix.
+	if p.RunnerSettings.ProvisionTimeout == nil && p.RunnerSettings.DockerWait == nil {
+		return Problem{}, false
+	}
+	timeout := cfg.Scheduler.ProvisionTimeout
+	if d := p.RunnerSettings.ProvisionTimeout; d != nil {
+		timeout = d.Duration()
+	}
+	// Zero is "never give up", which cannot condemn anything.
+	if timeout <= 0 {
+		return Problem{}, false
+	}
+	wait := time.Duration(0)
+	if p.DockerMode.GivesDaemon() {
+		wait = PoolEffectiveDockerWait(p, cfg)
+	}
+	start := config.RunnerCreateBudget + wait
+	if timeout > start {
+		return Problem{}, false
+	}
+	detail := fmt.Sprintf("an agent gives itself %s for a create, because a cold image pull on a slow link is minutes rather than seconds",
+		config.RunnerCreateBudget)
+	if wait > 0 {
+		detail += fmt.Sprintf(", and a runner of this pool then waits up to %s for the Docker daemon it was promised before it registers", wait)
+	}
+	detail += fmt.Sprintf(". A provision timeout of %s fails runners that are still coming up, and the replacement pulls the same image over the same link.", timeout)
+	return Problem{
+		Code:     "pool.provision_timeout_short",
+		Severity: config.SeverityWarning,
+		Title: fmt.Sprintf("pool %s: runners are failed after %s but may legitimately take %s to start",
+			p.Name, timeout, start),
+		Detail:     detail,
+		Fix:        fmt.Sprintf("set this pool's provision timeout above %s, or clear it to follow the fleet's %s.", start, cfg.Scheduler.ProvisionTimeout),
+		TargetKind: "pool",
+		TargetID:   p.ID,
+	}, true
 }
 
 // cacheSharingWarning names the way a repository cache stops being one.

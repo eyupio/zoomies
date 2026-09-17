@@ -271,6 +271,7 @@ func TestSuggestPool(t *testing.T) {
 		backend  store.BackendKind
 		capacity int
 		wantName string
+		wantCPUs float64
 		wantCmd  string
 	}{
 		{
@@ -278,23 +279,28 @@ func TestSuggestPool(t *testing.T) {
 			det:      Detection{OS: "linux", Arch: "amd64", Distro: "ubuntu", OSVersion: "24.04", CPUs: 16},
 			backend:  store.BackendDocker,
 			capacity: 4,
-			// 3.8, not 4: a quarter of the 15.2 CPUs left once the scheduler's
-			// floor has kept 0.8 of the 16 for the daemon, so four of them fit
-			// the four slots beside them.
-			wantName: "zoomies-4vcpu-ubuntu-2404",
-			wantCmd: "zoomies pools create --name zoomies-4vcpu-ubuntu-2404 " +
-				"--labels linux,x64,zoomies,zoomies-4vcpu-ubuntu-2404 --backend docker --max 4 " +
-				"--installation inst_x --cpus 3.8 --os ubuntu --os-version 24.04 --arch amd64",
+			// The pool is named for the machine rather than for a share of
+			// one: it sets no size, so each runner is given a slot's share of
+			// whichever host it lands on. Here that comes to 3.8 -- a quarter
+			// of the 15.2 CPUs left once the scheduler's floor has kept 0.8 of
+			// the 16 for the daemon -- which the suggestion reports without
+			// pinning, so the next, larger host to join gets its own share.
+			wantName: "zoomies-ubuntu-2404",
+			wantCPUs: 3.8,
+			wantCmd: "zoomies pools create --name zoomies-ubuntu-2404 " +
+				"--labels linux,x64,zoomies,zoomies-ubuntu-2404 --backend docker --max 4 " +
+				"--installation inst_x --os ubuntu --os-version 24.04 --arch amd64",
 		},
 		{
 			name:     "arm64 is spelled out",
 			det:      Detection{OS: "linux", Arch: "arm64", Distro: "debian", OSVersion: "12", CPUs: 8},
 			backend:  store.BackendPodman,
 			capacity: 2,
-			wantName: "zoomies-4vcpu-debian-12-arm64",
-			wantCmd: "zoomies pools create --name zoomies-4vcpu-debian-12-arm64 " +
-				"--labels arm64,linux,zoomies,zoomies-4vcpu-debian-12-arm64 --backend podman --max 2 " +
-				"--installation inst_x --cpus 3.75 --os debian --os-version 12 --arch arm64",
+			wantName: "zoomies-debian-12-arm64",
+			wantCPUs: 3.75,
+			wantCmd: "zoomies pools create --name zoomies-debian-12-arm64 " +
+				"--labels arm64,linux,zoomies,zoomies-debian-12-arm64 --backend podman --max 2 " +
+				"--installation inst_x --os debian --os-version 12 --arch arm64",
 		},
 		{
 			// The host is the environment, so there is no image and no
@@ -303,10 +309,11 @@ func TestSuggestPool(t *testing.T) {
 			det:      Detection{OS: "linux", Arch: "amd64", Distro: "ubuntu", OSVersion: "24.04", CPUs: 4},
 			backend:  store.BackendProcess,
 			capacity: 1,
-			wantName: "zoomies-4vcpu-ubuntu-2404-host",
-			wantCmd: "zoomies pools create --name zoomies-4vcpu-ubuntu-2404-host " +
-				"--labels linux,x64,zoomies,zoomies-4vcpu-ubuntu-2404-host --backend process --max 1 " +
-				"--installation inst_x --cpus 3.5 --arch amd64",
+			wantName: "zoomies-ubuntu-2404-host",
+			wantCPUs: 3.5,
+			wantCmd: "zoomies pools create --name zoomies-ubuntu-2404-host " +
+				"--labels linux,x64,zoomies,zoomies-ubuntu-2404-host --backend process --max 1 " +
+				"--installation inst_x --arch amd64",
 		},
 		{
 			// A host that will not say which distribution it runs cannot
@@ -317,8 +324,9 @@ func TestSuggestPool(t *testing.T) {
 			backend:  store.BackendDocker,
 			capacity: 0,
 			wantName: "zoomies-linux-x64",
+			wantCPUs: 1,
 			wantCmd: "zoomies pools create --name zoomies-linux-x64 --labels zoomies,zoomies-linux-x64 " +
-				"--backend docker --max 1 --installation inst_x --cpus 1 --arch amd64",
+				"--backend docker --max 1 --installation inst_x --arch amd64",
 		},
 	}
 	for _, tc := range cases {
@@ -326,6 +334,15 @@ func TestSuggestPool(t *testing.T) {
 			got := SuggestPool(tc.det, tc.backend, tc.capacity)
 			if got.Name != tc.wantName {
 				t.Errorf("Name = %q, want %q", got.Name, tc.wantName)
+			}
+			// The share is reported rather than pinned: the printed command
+			// carries no --cpus, so the pool it creates is sized by whichever
+			// host each runner lands on.
+			if got.CPUs != tc.wantCPUs {
+				t.Errorf("CPUs = %v, want the share this host would give, %v", got.CPUs, tc.wantCPUs)
+			}
+			if strings.Contains(tc.wantCmd, "--cpus") {
+				t.Errorf("the suggested command pins a size: %q", tc.wantCmd)
 			}
 			// `pools create` refuses without --installation, so a suggestion
 			// that omitted it printed a line that could not run -- which was
@@ -611,5 +628,28 @@ func TestPortChecks(t *testing.T) {
 	}
 	if next == port {
 		t.Fatalf("NextFreePort returned the busy port %d", port)
+	}
+}
+
+// The capacity a host starts with is taken from the machine the detection
+// measured, not from the installing process's view of it.
+//
+// The two differ exactly where it matters most: a container sees the cores its
+// cgroup allows, so an installer run inside one -- which is what the container
+// deployment does -- would set a capacity from a machine the fleet never
+// places against. That was a slot count being wrong. It is now every runner's
+// CPU and memory limit being wrong too, because a pool that leaves its size to
+// the host is given the machine divided by this number.
+func TestTheStartingCapacityComesFromTheMeasuredMachine(t *testing.T) {
+	if got := defaultCapacity(Detection{CPUs: 16}); got != 8 {
+		t.Errorf("capacity = %d on a 16-core machine, want 8", got)
+	}
+	if got := defaultCapacity(Detection{CPUs: 1}); got != 1 {
+		t.Errorf("capacity = %d on a single-core machine, want 1", got)
+	}
+	// A detection with no CPU count falls back to this process, which is what
+	// every path did before the machine was measured at all.
+	if got := defaultCapacity(Detection{}); got < 1 {
+		t.Errorf("capacity = %d with nothing measured, want at least 1", got)
 	}
 }

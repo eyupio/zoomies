@@ -77,6 +77,8 @@ export type InstallationHealth = Schemas['InstallationHealth'];
 export type WebhookDelivery = Schemas['WebhookDelivery'];
 export type WebhookCheck = Schemas['WebhookCheck'];
 export type Resources = Schemas['Resources'];
+/** What one pool overrides of the fleet's runner timings; every field optional. */
+export type RunnerSettings = Schemas['RunnerSettings'];
 export type Platform = Schemas['Platform'];
 export type PoolPlatform = Schemas['PoolPlatform'];
 export type PoolRoom = Schemas['PoolRoom'];

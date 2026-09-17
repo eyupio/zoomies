@@ -52,8 +52,10 @@ func TestTheHostViewCarriesWhatTheFleetHasPromisedAway(t *testing.T) {
 	if !view.ResourcesKnown {
 		t.Error("a host that reported its machine says its resources are unknown")
 	}
-	if view.AllocatableMemoryMB != 64*1024-store.MinHostReserveMemoryMB {
-		t.Errorf("allocatable memory = %d, want the machine less the floor", view.AllocatableMemoryMB)
+	// The memory reserve scales with the machine, so a 64 GB host holds back a
+	// twentieth rather than the flat floor a small one does.
+	if want := int64(64*1024) - (&store.Host{MemoryMB: 64 * 1024}).MemoryReserve(); view.AllocatableMemoryMB != want {
+		t.Errorf("allocatable memory = %d, want the machine less its reserve, %d", view.AllocatableMemoryMB, want)
 	}
 }
 

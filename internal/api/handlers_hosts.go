@@ -467,7 +467,14 @@ type createJoinTokenRequest struct {
 
 // handleCreateJoinToken mints a single-use enrolment credential.
 func (s *Server) handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
-	req := createJoinTokenRequest{TTL: "15m", Capacity: 2}
+	// No capacity: the agent decides from the machine it measures, which is
+	// the only figure in this exchange that has seen the machine. A constant
+	// here pinned every host that did not name one to that constant, however
+	// large it was -- and under automatic sizing the capacity is no longer
+	// only a slot count, it is the divisor that gives each runner its CPU and
+	// memory, so two slots on a thirty-two core box is half the machine per
+	// runner and two jobs at a time.
+	req := createJoinTokenRequest{TTL: "15m"}
 	if !decodeOptional(w, r, &req) {
 		return
 	}

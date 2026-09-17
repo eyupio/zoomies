@@ -9,13 +9,23 @@
   typed last -- the number that mattered was chosen before anything on screen
   could say what it would buy.
 
-  Every figure is a slider rather than a box. The size is not optional: a
-  runner with no limit takes every core on the machine it lands on while the
-  fleet charges it one slot's share, so the host reads as half committed, its
-  daemon stops answering, and the creates queued behind it time out on a
-  machine every page calls busy. A box invites 3000 MB as readily as 4096 and
-  says nothing about whether any host can back it; a notch is a value somebody
-  has a reason to choose, and the count underneath says what choosing it costs.
+  There are two answers, and the first one is the usual one. A pool that names
+  no size is given one slot's share of whichever host each runner lands on --
+  charged against that host and applied as a real cgroup limit, so the books
+  and the cgroups agree -- which is correct on every machine in an unequal
+  fleet without anybody typing a number. A fixed size is for the pool whose
+  jobs need a particular amount of machine wherever they run.
+
+  What is not an answer is "no limit at all". A runner with no limit takes
+  every core on the machine it lands on while the fleet charges it one slot's
+  share, so the host reads as half committed, its daemon stops answering, and
+  the creates queued behind it time out on a machine every page calls busy.
+  Neither choice here does that.
+
+  The fixed figures are sliders rather than boxes. A box invites 3000 MB as
+  readily as 4096 and says nothing about whether any host can back it; a notch
+  is a value somebody has a reason to choose, and the count underneath says
+  what choosing it costs.
 -->
 <script lang="ts">
   import { Sparkles, TriangleAlert } from '@lucide/svelte';
@@ -26,6 +36,7 @@
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
   import Select from '$lib/components/Select.svelte';
+  import RadioGroup from '$lib/components/RadioGroup.svelte';
   import Slider from '$lib/components/Slider.svelte';
   import PoolFit from './PoolFit.svelte';
   import PoolRoom from './PoolRoom.svelte';
@@ -121,6 +132,23 @@
     setMemory(defaultMemoryMb);
   }
 
+  /*
+    What the automatic answer amounts to on this fleet, said in one line beside
+    the choice. The range comes from the controller's own per-host figures, so
+    the sentence beside the radio and the table under it can never disagree.
+  */
+  const automaticDescription = $derived.by(() => {
+    const plain =
+      'Each runner is given one slot\u2019s share of the machine it lands on. Correct on every host in an unequal fleet, and it follows a host that is resized.';
+    const hosts = room?.hosts ?? [];
+    if (hosts.length === 0) return plain;
+    const charges = hosts.map((h) => h.charge_cpus ?? 0);
+    const low = Math.min(...charges);
+    const high = Math.max(...charges);
+    const range = low === high ? cpuLabel(low) : `${cpuLabel(low)} to ${cpuLabel(high)}`;
+    return `${plain} Today that is ${range} per runner across ${pluralise(hosts.length, 'host')}.`;
+  });
+
   /* -- the cache ------------------------------------------------------------ */
 
   const cacheLimitGb = $derived(cacheGb(Number(draft.cache_size_limit) || 0));
@@ -159,91 +187,147 @@
 <fieldset class="group">
   <legend>What one runner gets</legend>
   <p class="hint">
-    Every runner of this pool is started with these limits and the fleet holds this much room for it
-    on whichever host it lands on. There is no “unlimited”: a runner with no limit can take the
-    whole machine while the fleet still counts it as one slot.
+    Whichever you choose, the fleet holds this much room for the runner on the host it lands on and
+    the backend applies it as a real limit. There is no “unlimited” here.
   </p>
 
-  <div class="lead">
-    <p class="echo">
-      One runner asks for <strong>{cpuLabel(cpus)}</strong> and
-      <strong>{memoryLabel(memoryMb)}</strong>{charged.pair
-        ? `, and is charged ${cpuLabel(charged.cpus)} and ${memoryLabel(charged.memoryMb)} on a host — a docker-in-docker slot is two containers, and the backend gives the sidecar the same limits`
-        : ''}.
-    </p>
-    <Button
-      variant="secondary"
-      size="sm"
-      icon={Sparkles}
-      disabled={atDefaults}
-      onclick={useDefaults}
+  <RadioGroup
+    name="pool-sizing"
+    bind:value={draft.sizing}
+    options={[
+      {
+        value: 'automatic',
+        label: 'One share of each host',
+        description: automaticDescription,
+      },
+      {
+        value: 'fixed',
+        label: 'A fixed size on every host',
+        description:
+          'The same CPU and memory wherever a runner lands. For jobs that need a particular amount of machine, and for a pool whose hosts you do not want to share evenly.',
+      },
+    ]}
+    onchange={() => {
+      touch('resources.cpus');
+      touch('resources.memory_mb');
+    }}
+  />
+
+  {#if draft.sizing === 'automatic'}
+    <div class="shares">
+      {#if !room || (room.hosts ?? []).length === 0}
+        <p class="shares-empty">
+          The share is worked out per host, once a host has reported what machine it is.
+        </p>
+      {:else}
+        <p class="shares-title">What each host would give one runner</p>
+        <ul>
+          {#each room.hosts ?? [] as host (host.host_id)}
+            <li>
+              <span class="shares-host">{host.host}</span>
+              <span class="shares-value"
+                >{cpuLabel(host.charge_cpus ?? 0)} and {memoryLabel(
+                  host.charge_memory_mb ?? 0,
+                )}</span
+              >
+              <span class="shares-room">{pluralise(host.room ?? 0, 'runner')}</span>
+            </li>
+          {/each}
+        </ul>
+        <p class="shares-note">
+          Straight from the controller, so it is the figure a runner is actually created with. It
+          moves on its own when a host is resized or its slot count changes.
+        </p>
+      {/if}
+    </div>
+  {/if}
+
+  {#if draft.sizing === 'fixed'}
+    <div class="lead">
+      <p class="echo">
+        One runner asks for <strong>{cpuLabel(cpus)}</strong> and
+        <strong>{memoryLabel(memoryMb)}</strong>{charged.pair
+          ? `, and is charged ${cpuLabel(charged.cpus)} and ${memoryLabel(charged.memoryMb)} on a host — a docker-in-docker slot is two containers, and the backend gives the sidecar the same limits`
+          : ''}.
+      </p>
+      <Button
+        variant="secondary"
+        size="sm"
+        icon={Sparkles}
+        disabled={atDefaults}
+        onclick={useDefaults}
+      >
+        Use the fleet's default
+      </Button>
+    </div>
+
+    <Field
+      label="CPU per runner"
+      error={errors['resources.cpus']}
+      hint="Becomes the container's CPU quota, and the cores the scheduler holds for it on a host."
     >
-      Use the fleet's default
-    </Button>
-  </div>
+      {#snippet children({ id, describedBy })}
+        <Slider
+          {id}
+          values={cpuNotches}
+          value={cpus}
+          label="CPU per runner"
+          valuetext={cpuLabel}
+          marks={cpuMarks}
+          {describedBy}
+          onchange={setCpus}
+        />
+      {/snippet}
+    </Field>
 
-  <Field
-    label="CPU per runner"
-    error={errors['resources.cpus']}
-    hint="Becomes the container's CPU quota, and the cores the scheduler holds for it on a host."
-  >
-    {#snippet children({ id, describedBy })}
-      <Slider
-        {id}
-        values={cpuNotches}
-        value={cpus}
-        label="CPU per runner"
-        valuetext={cpuLabel}
-        marks={cpuMarks}
-        {describedBy}
-        onchange={setCpus}
-      />
-    {/snippet}
-  </Field>
+    <Field
+      label="Memory per runner"
+      error={errors['resources.memory_mb']}
+      hint="The container's memory limit. A job that goes past it is killed, so this is the figure to raise when a build dies without a message."
+    >
+      {#snippet children({ id, describedBy })}
+        <Slider
+          {id}
+          values={memoryNotches}
+          value={memoryMb}
+          label="Memory per runner"
+          valuetext={memoryLabel}
+          marks={memoryMarks}
+          {describedBy}
+          onchange={setMemory}
+        />
+      {/snippet}
+    </Field>
 
-  <Field
-    label="Memory per runner"
-    error={errors['resources.memory_mb']}
-    hint="The container's memory limit. A job that goes past it is killed, so this is the figure to raise when a build dies without a message."
-  >
-    {#snippet children({ id, describedBy })}
-      <Slider
-        {id}
-        values={memoryNotches}
-        value={memoryMb}
-        label="Memory per runner"
-        valuetext={memoryLabel}
-        marks={memoryMarks}
-        {describedBy}
-        onchange={setMemory}
-      />
-    {/snippet}
-  </Field>
-
-  <Field
-    label="Disk per runner"
-    error={errors['resources.disk_gb']}
-    hint="Advisory, and charged against the host's free disk so the fleet does not promise the same space twice. No limit is the usual answer: what keeps a host from filling up is its own disk reserve."
-  >
-    {#snippet children({ id, describedBy })}
-      <Slider
-        {id}
-        values={diskNotches}
-        value={diskGb}
-        label="Disk per runner"
-        valuetext={gbLabel}
-        marks={diskMarks}
-        {describedBy}
-        onchange={setDisk}
-      />
-    {/snippet}
-  </Field>
+    <Field
+      label="Disk per runner"
+      error={errors['resources.disk_gb']}
+      hint="Advisory, and charged against the host's free disk so the fleet does not promise the same space twice. No limit is the usual answer: what keeps a host from filling up is its own disk reserve."
+    >
+      {#snippet children({ id, describedBy })}
+        <Slider
+          {id}
+          values={diskNotches}
+          value={diskGb}
+          label="Disk per runner"
+          valuetext={gbLabel}
+          marks={diskMarks}
+          {describedBy}
+          onchange={setDisk}
+        />
+      {/snippet}
+    </Field>
+  {/if}
 
   <!--
     Both answers belong here, under the sliders, while there is still a reason
     to move them: a size is the one setting on this form that costs a host
     quietly. The fit says which machines this size has just put out of reach,
     in the fleet's own words; the room says how many runners the rest can hold.
+
+    They are shown for both answers. An automatic pool can still be refused by
+    a host -- for its backend, its platform, or a share that falls under what a
+    runner needs to be a runner -- and that is exactly as worth knowing.
   -->
   <PoolFit {verdict} {validating} />
   <PoolRoom {room} {cpus} {memoryMb} {validating} />
@@ -436,6 +520,69 @@
     gap: var(--z-space-4);
     align-items: start;
   }
+  .shares {
+    margin: var(--z-space-4) 0 0;
+    padding: var(--z-space-3) var(--z-space-4);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface-sunken);
+  }
+
+  .shares-title,
+  .shares-empty {
+    margin: 0;
+    color: var(--z-text-muted);
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+  }
+
+  .shares-title {
+    font-weight: var(--z-weight-semibold);
+    color: var(--z-text);
+  }
+
+  .shares ul {
+    display: grid;
+    gap: var(--z-space-1);
+    margin: var(--z-space-2) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .shares li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: var(--z-space-3);
+    align-items: baseline;
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+  }
+
+  .shares-host {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--z-text);
+  }
+
+  .shares-value {
+    font-variant-numeric: tabular-nums;
+    color: var(--z-text);
+  }
+
+  .shares-room {
+    min-width: 8ch;
+    text-align: end;
+    font-variant-numeric: tabular-nums;
+    color: var(--z-text-muted);
+  }
+
+  .shares-note {
+    margin: var(--z-space-2) 0 0;
+    color: var(--z-text-muted);
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+  }
+
   .callout {
     display: flex;
     align-items: flex-start;

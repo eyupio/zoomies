@@ -113,6 +113,13 @@ export interface FleetSize {
  */
 export interface NameShape {
   backend: BackendKind;
+  /**
+   * How the pool decides its runners' size. A pool that leaves it to the host
+   * has no size to be named for: its runners are 3.8 cores here and 7.6 on the
+   * next machine to join, so `4vcpu` in the name would be a promise it stopped
+   * keeping the day the fleet grew.
+   */
+  sizing: 'automatic' | 'fixed';
   cpus: string;
   memory_mb: string;
   platform_os: string;
@@ -156,18 +163,24 @@ export function shape(
 ): string[] {
   const parts: string[] = [];
 
-  // Size is stated when it is not what every pool here gets. Every pool has a
-  // CPU and a memory figure now, so naming them unconditionally would put the
-  // same two words on every pool in the fleet -- which is the argument that
-  // keeps amd64 out of these names, applied to the figure it applies to twice
-  // as hard. A pool that asks for more than the fleet's usual is exactly the
-  // pool a workflow author is choosing, and it says so.
-  const cpus = Math.ceil(Number(draft.cpus));
-  if (Number.isFinite(cpus) && cpus > 0 && cpus !== defaultCPUs(fleetDefault)) {
-    parts.push(`${cpus}vcpu`);
+  // Size is stated when the pool has one of its own and it is not what every
+  // pool here gets. Naming it unconditionally would put the same two words on
+  // every pool in the fleet -- which is the argument that keeps amd64 out of
+  // these names, applied to the figure it applies to twice as hard. A pool
+  // that asks for more than the fleet's usual is exactly the pool a workflow
+  // author is choosing, and it says so.
+  //
+  // A pool that leaves the size to its host says nothing at all: the figure
+  // the sliders happen to be holding is not this pool's, and a name built from
+  // it would advertise a size the pool does not have on any machine.
+  if (draft.sizing !== 'automatic') {
+    const cpus = Math.ceil(Number(draft.cpus));
+    if (Number.isFinite(cpus) && cpus > 0 && cpus !== defaultCPUs(fleetDefault)) {
+      parts.push(`${cpus}vcpu`);
+    }
+    const gb = Math.floor(Number(draft.memory_mb) / 1024);
+    if (Number.isFinite(gb) && gb > 0 && gb !== defaultGB(fleetDefault)) parts.push(`${gb}gb`);
   }
-  const gb = Math.floor(Number(draft.memory_mb) / 1024);
-  if (Number.isFinite(gb) && gb > 0 && gb !== defaultGB(fleetDefault)) parts.push(`${gb}gb`);
 
   const offering = hosts.filter((host) => offersBackend(host, draft.backend));
   const from = offering.length > 0 ? offering : hosts;

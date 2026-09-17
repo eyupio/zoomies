@@ -1,0 +1,23 @@
+-- The runner settings a pool may override, for the fleet that needs two
+-- answers rather than one.
+--
+-- Every timeout that shapes a runner's life was a single fleet-wide figure:
+-- how long a runner may take to register, how long a drain may hang before
+-- the slot is given up, how long a persistent runner lives, how long a job
+-- waits in the queue before a create is worth it, and how long a runner
+-- waits for the Docker daemon it was promised. One number has to serve a
+-- pool pulling a twelve-gigabyte Windows image and a pool booting Alpine in
+-- four seconds, so it is set for the slower of the two and the faster one
+-- keeps a dead runner for ten minutes.
+--
+-- NULL is the whole point of the column, and of every field inside it: a
+-- pool that overrides nothing is a pool that follows the fleet, and follows
+-- it still when the fleet's figure is changed. Storing the resolved value
+-- instead would freeze each pool on whatever the fleet meant the day it was
+-- created, which is the failure a pool's baked-in runner size already is.
+--
+-- A JSON document rather than five columns, exactly as `resources` is: these
+-- are one settable thing an operator turns on together, they are read as a
+-- unit and never queried across, and a sixth override should not be a
+-- migration.
+ALTER TABLE pools ADD COLUMN runner_settings TEXT NOT NULL DEFAULT '{}';

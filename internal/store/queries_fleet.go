@@ -228,18 +228,19 @@ const poolCols = `id, name, installation_id, labels, runner_group, backend, os, 
 	arch, image, pull_policy, runner_version, min_runners, max_runners, priority,
 	idle_timeout_ms, ephemeral, docker_mode, resources, cache, host_selector, env,
 	run_as_root, enabled, created_at, updated_at, repository_scale_up_limit,
-	cost_per_runner_hour`
+	cost_per_runner_hour, runner_settings`
 
 func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 	var p Pool
 	var idle, created, updated int64
 	var ephemeral, runAsRoot, enabled int
-	var resources, cache string
+	var resources, cache, runnerSettings string
 	err := sc.Scan(&p.ID, &p.Name, &p.InstallationID, &p.Labels, &p.RunnerGroup, &p.Backend,
 		&p.Platform.OS, &p.Platform.OSVersion, &p.Platform.Arch,
 		&p.Image, &p.PullPolicy, &p.RunnerVersion, &p.MinRunners, &p.MaxRunners, &p.Priority,
 		&idle, &ephemeral, &p.DockerMode, &resources, &cache, &p.HostSelector, &p.Env,
-		&runAsRoot, &enabled, &created, &updated, &p.RepositoryScaleUpLimit, &p.CostPerRunnerHour)
+		&runAsRoot, &enabled, &created, &updated, &p.RepositoryScaleUpLimit, &p.CostPerRunnerHour,
+		&runnerSettings)
 	if err != nil {
 		return nil, err
 	}
@@ -251,6 +252,9 @@ func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 	}
 	if err := unmarshalJSON(cache, &p.Cache); err != nil {
 		return nil, fmt.Errorf("pool %s: decoding cache: %w", p.ID, err)
+	}
+	if err := unmarshalJSON(runnerSettings, &p.RunnerSettings); err != nil {
+		return nil, fmt.Errorf("pool %s: decoding runner settings: %w", p.ID, err)
 	}
 	return &p, nil
 }
@@ -280,14 +284,18 @@ func (s *Store) CreatePool(ctx context.Context, p *Pool) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.exec(ctx, `INSERT INTO pools (`+poolCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	settings, err := marshalJSON(p.RunnerSettings)
+	if err != nil {
+		return err
+	}
+	_, err = s.exec(ctx, `INSERT INTO pools (`+poolCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		p.ID, p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend),
 		p.Platform.OS, p.Platform.OSVersion, p.Platform.Arch, p.Image,
 		string(p.PullPolicy),
 		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.Priority, p.IdleTimeout.Duration().Milliseconds(),
 		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
 		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.CreatedAt), ms(p.UpdatedAt),
-		p.RepositoryScaleUpLimit, p.CostPerRunnerHour)
+		p.RepositoryScaleUpLimit, p.CostPerRunnerHour, settings)
 	return wrapWrite(err)
 }
 
@@ -348,18 +356,23 @@ func (s *Store) UpdatePool(ctx context.Context, p *Pool) error {
 	if err != nil {
 		return err
 	}
+	settings, err := marshalJSON(p.RunnerSettings)
+	if err != nil {
+		return err
+	}
 	r, err := s.exec(ctx, `UPDATE pools SET name=?, installation_id=?, labels=?, runner_group=?,
 		backend=?, os=?, os_version=?, arch=?, image=?, pull_policy=?, runner_version=?,
 		min_runners=?, max_runners=?, priority=?, idle_timeout_ms=?, ephemeral=?,
 		docker_mode=?, resources=?, cache=?, host_selector=?, env=?, run_as_root=?,
-		enabled=?, updated_at=?, repository_scale_up_limit=?, cost_per_runner_hour=? WHERE id=?`,
+		enabled=?, updated_at=?, repository_scale_up_limit=?, cost_per_runner_hour=?,
+		runner_settings=? WHERE id=?`,
 		p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend),
 		p.Platform.OS, p.Platform.OSVersion, p.Platform.Arch, p.Image,
 		string(p.PullPolicy),
 		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.Priority, p.IdleTimeout.Duration().Milliseconds(),
 		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
 		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.UpdatedAt), p.RepositoryScaleUpLimit,
-		p.CostPerRunnerHour, p.ID)
+		p.CostPerRunnerHour, settings, p.ID)
 	if err != nil {
 		return wrapWrite(err)
 	}

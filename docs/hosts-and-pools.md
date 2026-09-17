@@ -204,7 +204,30 @@ second when a job needs something the first cannot give it:
 * **A different priority.** When the fleet is full, higher-priority pools
   receive create slots first.
 
-The UI's wizard is the easiest way in, and the CLI takes the same fields:
+### Two ways to make one
+
+The wizard asks first how much of the pool you want to decide, because the two
+answers lead to genuinely different amounts of work.
+
+**Automatic** is the pool most fleets want. Name it, label it, and every other
+setting follows this fleet: each runner is given one slot's share of whichever
+host it lands on, any host that can run it may, the backend is Docker on the
+published image for the host's platform, and every timing follows the fleet's
+own — and keeps following it when you change one. Three questions, and nothing
+to revisit when the fleet grows.
+
+**Advanced** is the same pool with the opinions put back: a fixed size on every
+host, a host selector, a backend and platform chosen by hand, and the runner
+timings this pool disagrees with the fleet about. Every step opens on the answer
+the automatic path would have used, so you only change what you mean to.
+
+Neither is a lesser pool, and the choice is not permanent — a pool can be edited
+either way afterwards, and switching never loses what you have already typed.
+Editing a pool that has anything the simple path cannot show opens on the
+advanced one, so a tuned pool never hides the settings it was tuned with.
+
+The CLI takes the same fields, and omitting them is how you ask for the
+automatic answer:
 
 ```sh
 zoomies pools create \
@@ -238,21 +261,45 @@ drains its runners first unless you pass `--force`.
 
 ### How big a runner is, and how many there are
 
-Every pool has a per-runner CPU and memory figure. There is no “unlimited”: a
-pool created without one is saved with the fleet's default —
-`runners.default_cpus` and `runners.default_memory_mb`, two cores and four
-gigabytes out of the box — and a pool edited without one is sized the same way
-on its way through. A runner with no cgroup limit can take every core on the
-machine it lands on while the fleet charges it one slot's share, so the host
-reads as half committed, its daemon stops answering, and the creates queued
-behind it time out on a machine every page calls busy. Sizing every runner is
-what turns a host's slot count into a promise the machine can keep.
+A pool sizes its runners in one of two ways, and there is no third: **“no limit
+at all” is not reachable**, because a runner with no cgroup limit takes every
+core on the machine it lands on while the fleet charges it one slot's share —
+the host reads as half committed, its daemon stops answering, and the creates
+queued behind it time out on a machine every page calls busy.
 
-The wizard asks for the size on a step of its own, between the hosts and the
+**One share of each host** is what a pool with no `cpus` and no `memory_mb`
+means, and it is what a new pool does. The scheduler charges each runner one
+slot's share of the machine it is placed on — the machine less its reserve,
+divided by the host's capacity — and gives it exactly that share as a real
+cgroup limit. The books and the cgroups therefore say the same thing, and they
+say it per host: the same pool is 3.8 cores on a 16-core box with four slots
+and 7.6 on a 32-core one, so an unequal fleet is sized correctly everywhere
+without anybody typing a number. Resize a host, or change its capacity, and the
+share moves with it.
+
+That share is handed out by `scheduler.default_runner_limits`, which is on by
+default. With it off, a pool that names no size is charged the share and given
+nothing, which is the one shape where “automatic” and “unlimited” are the same
+thing — so the controller says so (`pool.size_unlimited`).
+
+**A fixed size** is the two figures on the pool, applied on every host. It is
+for a pool whose jobs need a particular amount of machine wherever they run,
+and it is the right answer less often than it looks: a figure chosen for the
+first host fits four runners on the 64-core one that joins later, and the
+controller names that when it happens (`pool.size_strands_hosts`). The wizard's
+sliders open on `runners.default_cpus` and `runners.default_memory_mb` — two
+cores and four gigabytes out of the box — so a fleet of small boxes or of
+compilers says so once rather than on every pool.
+
+Disk and the process limit are independent of the choice. Neither has a share
+to be given — free disk is a measurement rather than a budget — so a pool may
+cap its cache's disk and still leave its size to the host.
+
+On the advanced path the size is a step of its own, between the hosts and the
 count, because that is the order the decision is made in: these are the
 machines, this is what one runner costs on them, and therefore this is how many
-there can be. Each figure is a slider, and beneath them the controller counts
-what the hosts this pool reaches can actually hold at that size, host by host:
+there can be. Beneath the choice the controller counts what the hosts this pool
+reaches can actually hold, host by host:
 
 * A host that promises more slots than its machine can back at this size is
   named, and its capacity can be set to what fits in one click
@@ -277,6 +324,59 @@ against the free disk on the smallest host the pool reaches
 one runner and the next, so a limit above the free space is not a limit at all:
 the disk fills first, and a host at or below its disk reserve takes no runner
 of any pool.
+
+### Runner settings a pool can override
+
+Every timing that shapes a runner's life is a fleet-wide setting, and a pool
+follows the fleet on all of them until it says otherwise. A pool that overrides
+one keeps following the fleet on the rest — and a setting left alone keeps
+following it after you change the fleet's own figure, which a value copied onto
+the pool at creation would not.
+
+| Setting | Overrides | Zero means |
+| --- | --- | --- |
+| `provision_timeout` | `scheduler.provision_timeout` | Never give up on a runner that is still starting |
+| `drain_timeout` | `scheduler.drain_timeout` | Leave a drain unbounded |
+| `max_runner_lifetime` | `scheduler.max_runner_lifetime` | Let a runner live until something else removes it |
+| `scale_up_delay` | `scheduler.scale_up_delay` | Scale the moment a job is queued |
+| `docker_wait` | `runners.docker_wait` | Leave the runner image's own wait in place |
+
+Zero is an answer in each of them rather than an absence, which is why the API
+distinguishes an absent field from an explicit `null`: absent leaves what the
+pool had, `null` hands the setting back to the fleet, and a duration sets it.
+
+The pool that needs these is usually the one whose images are large. A pool
+pulling twelve gigabytes of Windows and a pool booting Alpine do not agree about
+how long registering should take, and a fleet that has to pick one picks the
+slower — which leaves the fast pool holding a dead runner's slot for ten
+minutes.
+
+```sh
+zoomies pools edit zoomies-windows --provision-timeout 45m --docker-wait 5m
+```
+
+Clearing an override is the empty string, which is how the CLI says `null`:
+
+```sh
+zoomies pools edit zoomies-windows --provision-timeout ''
+```
+
+`max_creates_per_tick` is deliberately not overridable. It is a fleet-wide
+budget shared between pools, so a pool that could raise its own share of it
+would be taking the protection from the others.
+
+One relationship is worth knowing before you set a provision timeout. A runner's
+start is bounded three times over, and the provision timeout is the only one
+that gives up: the agent allows itself fifteen minutes for the create, and a
+pool that provides Docker then waits for that daemon before it registers. A
+provision timeout inside those two fails runners that are still coming up, and
+the replacement pulls the same image over the link that was slow to begin with.
+The fleet's own defaults are held in the right order by a test and by
+[the validator](configuration.md); a pool that overrides either half is held by
+`pool.provision_timeout_short`, which the wizard also says while the number is
+being chosen.
+
+### Sizing a machine from the other side
 
 The same figures size a machine from the other side. The recommended capacity
 on a host's **Adjust** dialog is the machine, less its reserve, divided by what
@@ -506,10 +606,16 @@ an agent reports what it measured and never writes these. Set them with
 never reported, or one that would leave nothing to place on, is refused rather
 than clamped, because an operator who typed megabytes for gigabytes should be
 told and not quietly obeyed. All three have a floor, which is what holds when
-the operator has set nothing or set less: **512 MB** of memory, **2 GB** of
-disk, and **half a CPU, or a twentieth of the machine on a large one**. The
-first two exist because a machine with nothing left over does not run jobs
-slowly, it has one of them killed or fails a checkout before its first step.
+the operator has set nothing or set less: **512 MB of memory, or a twentieth
+of the machine on a large one, up to 8 GB**; **2 GB** of disk; and **half a
+CPU, or a twentieth of the machine on a large one**. The first two exist
+because a machine with nothing left over does not run jobs slowly, it has one
+of them killed or fails a checkout before its first step. Memory scales with
+the machine for the reason CPU does, and the cap is where holding more back
+stops buying anything: a 64 GB host booked down to its last half gigabyte has
+no page cache left, and the daemon minding its containers is the first thing
+to suffer for it — while a twentieth of 256 GB is more than that daemon will
+ever want.
 The CPU floor is there for the daemon rather than for the jobs. A CPU quota is
 a share of the one resource that is never exhausted, only contended, and a
 contended machine does still finish the job — but the runners' quotas are not

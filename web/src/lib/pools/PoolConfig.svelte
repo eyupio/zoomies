@@ -7,7 +7,7 @@
   job, one deliberate click away.
 -->
 <script lang="ts">
-  import type { Pool } from '$lib/api/types';
+  import type { Pool, RunnerSettings } from '$lib/api/types';
   import { formatBytes, formatGoDuration, formatMegabytes, formatNumber } from '$lib/format';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import PoolLabels from './PoolLabels.svelte';
@@ -24,12 +24,35 @@
 
   const resources = $derived(pool.resources ?? {});
   const dind = $derived((pool.docker_mode ?? 'none') === 'dind');
-  const hasResources = $derived(
-    resources.cpus !== undefined ||
-      resources.memory_mb !== undefined ||
-      resources.disk_gb !== undefined ||
-      resources.pids_limit !== undefined,
-  );
+  // Only CPU and memory decide the question. Disk and the pids limit have no
+  // share to be given, so a pool may cap its cache's disk and still leave its
+  // size to the host.
+  const hasSize = $derived((resources.cpus ?? 0) > 0 || (resources.memory_mb ?? 0) > 0);
+  // The server says which of the two this is rather than the browser inferring
+  // it from two absent numbers -- "no CPU limit" alone cannot tell "the host
+  // decides" from "nobody set one", and those used to be the same thing.
+  const automatic = $derived((pool.sizing ?? (hasSize ? 'fixed' : 'automatic')) === 'automatic');
+
+  /* Only the timings this pool actually overrides. The rest follow the fleet,
+     and a row per setting saying "the fleet's" would bury the two that do not. */
+  const OVERRIDE_LABELS: readonly { key: keyof RunnerSettings; label: string }[] = [
+    { key: 'provision_timeout', label: 'Provision timeout' },
+    { key: 'drain_timeout', label: 'Drain timeout' },
+    { key: 'max_runner_lifetime', label: 'Maximum lifetime' },
+    { key: 'scale_up_delay', label: 'Scale-up delay' },
+    { key: 'docker_wait', label: 'Docker wait' },
+  ];
+  const overrides = $derived.by(() => {
+    const settings = pool.runner_settings ?? {};
+    const out: { label: string; value: string }[] = [];
+    for (const { key, label } of OVERRIDE_LABELS) {
+      const value = settings[key];
+      if (value === undefined || value === null) continue;
+      out.push({ label, value: formatGoDuration(value) || String(value) });
+    }
+    return out;
+  });
+
   const selector = $derived(Object.entries(pool.host_selector ?? {}));
   const env = $derived(Object.entries(pool.env ?? {}));
 </script>
@@ -123,38 +146,58 @@
   <div class="pair">
     <dt>Size per runner</dt>
     <dd class="tabular">
-      {#if hasResources}
+      {#if automatic}
+        <span>One share of each host</span>
+      {:else}
         {#if resources.cpus !== undefined}<span>{formatNumber(resources.cpus)} CPU</span>{/if}
         {#if resources.memory_mb !== undefined}<span>{formatMegabytes(resources.memory_mb)}</span
           >{/if}
-        {#if resources.disk_gb !== undefined}<span>{formatNumber(resources.disk_gb)} GB disk</span
-          >{/if}
-        {#if resources.pids_limit !== undefined}<span
-            >{formatNumber(resources.pids_limit)} processes</span
-          >{/if}
-      {:else}
-        <span class="assumed">Not sized</span>
       {/if}
+      {#if resources.disk_gb !== undefined}<span>{formatNumber(resources.disk_gb)} GB disk</span
+        >{/if}
+      {#if resources.pids_limit !== undefined}<span
+          >{formatNumber(resources.pids_limit)} processes</span
+        >{/if}
     </dd>
   </div>
-  <!-- What a pool that sets nothing is charged, which is not nothing: a field
-       left unset is charged one slot's worth of whatever host the runner lands
-       on. Saying so here is what stops "no limits" reading as "no reservation",
-       which is the difference between a fleet that admits what it always did
-       and one an operator thinks is unbounded. -->
+  <!-- What a pool that sets nothing is charged, which is not nothing: it is
+       charged one slot's worth of whatever host the runner lands on, and given
+       exactly that as a real limit. Saying so here is what stops "no limits"
+       reading as "no reservation", which is the difference between a fleet
+       that admits what it always did and one an operator thinks is unbounded. -->
   <p class="note">
-    {#if hasResources}
-      A runner is charged this against its host, and a field left unset is charged one slot's worth
-      of that machine instead.{#if dind}
+    {#if automatic}
+      Each runner is given one slot's share of the machine it lands on — the same share the fleet
+      charges its host — so this pool is sized correctly on every host, and follows one that is
+      resized.{#if dind}
         A docker-in-docker pool is charged twice over: the build runs in a sidecar the backend gives
         the same limits.{/if}
     {:else}
-      This pool predates sizing being part of making a pool, so its runners have no CPU or memory
-      limit at all: each takes what it likes on the machine it lands on, while the fleet charges it
-      one slot's worth — a host with 30 GB allocatable and a capacity of 6 charges 5 GB. Editing the
-      pool gives it the fleet's default size, and the sliders say what that costs.
+      A runner is charged this against its host, wherever it lands.{#if dind}
+        A docker-in-docker pool is charged twice over: the build runs in a sidecar the backend gives
+        the same limits.{/if}
     {/if}
   </p>
+
+  {#if overrides.length > 0}
+    <div class="pair">
+      <dt>Runner timings</dt>
+      <dd>
+        <ul class="overrides">
+          {#each overrides as override (override.label)}
+            <li>
+              <span class="override-name">{override.label}</span>
+              <span class="tabular">{override.value}</span>
+            </li>
+          {/each}
+        </ul>
+      </dd>
+    </div>
+    <p class="note">
+      Everything else about a runner's life follows this fleet's own settings, and keeps following
+      them when they change.
+    </p>
+  {/if}
 
   {#if pool.cache?.enabled}
     <div class="pair">
@@ -243,6 +286,24 @@
     background: var(--z-surface-sunken);
     font-size: var(--z-text-xs);
   }
+  .overrides {
+    display: grid;
+    gap: var(--z-space-1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .overrides li {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--z-space-3);
+  }
+
+  .override-name {
+    color: var(--z-text-muted);
+  }
+
   .note {
     font-size: var(--z-text-xs);
     color: var(--z-text-subtle);

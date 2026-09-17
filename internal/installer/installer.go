@@ -554,7 +554,7 @@ func defaultPlan(d Detection, mode Mode) Plan {
 		Deployment:    DefaultDeployment(d),
 		ConfigDir:     d.ConfigDir,
 		StateDir:      d.StateDir,
-		Capacity:      defaultCapacity(),
+		Capacity:      defaultCapacity(d),
 		Embedded:      mode == ModeSingle,
 		Listen:        ListenLoopback,
 		TLSMode:       config.TLSOff,
@@ -608,8 +608,29 @@ func defaultServiceUser(d Detection) (userName, group string) {
 	return name, name
 }
 
-func defaultCapacity() int {
-	if n := runtime.NumCPU() / 2; n > 0 {
+// defaultCapacity is how many runners this host takes at once, before anybody
+// says otherwise.
+//
+// One runner per two cores is a defensible starting point: a job usually wants
+// more than one core, and the host still has room to breathe.
+//
+// It is taken from the machine the detection measured rather than from this
+// process's own view of it, and the difference is not academic. A container
+// sees the cores its cgroup allows, so an installer run inside one -- which is
+// what the container deployment does -- would set the capacity from a number
+// the fleet never places against, and the agent then reports the real machine.
+// That mattered less when the capacity was only a slot count. It matters now:
+// a pool that leaves its size to the host is given the machine divided by this
+// number, so a capacity taken from the wrong machine sizes every runner wrong.
+//
+// runtime.NumCPU stands in where the detection has no figure, which is the
+// same answer this always gave.
+func defaultCapacity(d Detection) int {
+	cpus := d.CPUs
+	if cpus <= 0 {
+		cpus = runtime.NumCPU()
+	}
+	if n := cpus / 2; n > 0 {
 		return n
 	}
 	return 1
@@ -831,10 +852,17 @@ type PoolSuggestion struct {
 	Platform   store.Platform
 	Backend    store.BackendKind
 	MaxRunners int
-	// CPUs is the per-runner CPU share the pool is given, and the name
-	// advertises the whole number above it: a share of the host less the
-	// floor the scheduler keeps for its daemon comes out at 3.8 on a
-	// 16-core box with four slots, and 3.8 is what the pool asks for.
+	// CPUs is the per-runner CPU share this host would give a runner, and it
+	// is shown rather than set: the pool is created without a size, so every
+	// runner is given one slot's share of whichever machine it lands on, and
+	// this is what that share comes to here.
+	//
+	// It used to be the pool's own limit. That made the first pool right for
+	// exactly one machine and for exactly as long as that machine kept its
+	// shape: a second, larger host joined the fleet and got runners sized for
+	// the first, and adding memory to this one changed nothing. The share is
+	// worth printing -- it is what the operator is about to get -- and worth
+	// not freezing.
 	CPUs float64
 }
 
@@ -855,10 +883,10 @@ func SuggestPool(det Detection, kind store.BackendKind, capacity int) PoolSugges
 	if det.CPUs > 0 {
 		// A share of what the host will place on, not of the machine: the
 		// scheduler holds a floor back from the CPUs for the daemon and the
-		// agent, and a pool sized from the whole machine would fit one runner
-		// fewer than the capacity beside it promises, on the first install.
-		// Floored to the hundredth the pool form takes, never rounded up, so
-		// the capacity's worth of them still fits.
+		// agent. Floored to the hundredth, never rounded up, so the
+		// capacity's worth of them still fits -- it is the same arithmetic
+		// scheduler.HostShare does, because it is the figure the controller
+		// will actually hand this pool's runners.
 		placeable := float64(det.CPUs) - (&store.Host{CPUs: det.CPUs}).CPUReserve()
 		cpus = max(math.Floor(placeable/float64(maxRunners)*100)/100, 0.5)
 	}
@@ -866,8 +894,13 @@ func SuggestPool(det Detection, kind store.BackendKind, capacity int) PoolSugges
 		OS: firstNonEmpty(det.Distro, det.OS), OSVersion: det.OSVersion, Arch: det.Arch,
 	}.Normalized()
 
+	// The name carries no size, because the pool has none: it is named for
+	// the machine it runs on rather than for a share of one particular
+	// machine. A pool called zoomies-4vcpu-ubuntu-2404 whose runners are 3.8
+	// cores here and 7.5 on the next host to join would be advertising a
+	// promise it stopped keeping the day the fleet grew.
 	spec := naming.Spec{
-		CPUs: float64(cpus), OS: platform.OS, Version: platform.OSVersion, Arch: platform.Arch,
+		OS: platform.OS, Version: platform.OSVersion, Arch: platform.Arch,
 	}
 	name := naming.PoolName(spec)
 	specific := naming.Labels(spec)
@@ -958,9 +991,9 @@ func (p PoolSuggestion) Command(installationID string) string {
 	// The platform flags are what make the created pool match the name it was
 	// given: they pick its runner image and keep it off hosts that are
 	// something else.
-	if p.CPUs > 0 {
-		cmd += " --cpus " + strconv.FormatFloat(p.CPUs, 'f', -1, 64)
-	}
+	// No --cpus: the pool leaves its runners' size to the host each one lands
+	// on, which is what makes this first pool keep fitting as the fleet grows.
+
 	if p.Platform.OS != "" {
 		cmd += " --os " + p.Platform.OS
 		if p.Platform.OSVersion != "" {

@@ -17,7 +17,8 @@
   import PoolFit from './PoolFit.svelte';
   import PoolRoom from './PoolRoom.svelte';
   import PoolWarnings from './PoolWarnings.svelte';
-  import { FIELD_LABELS, WIZARD_STEPS, stepForField } from './PoolVocabulary.svelte';
+  import { FIELD_LABELS, stepForField, wizardSteps } from './PoolVocabulary.svelte';
+  import type { WizardMode } from './PoolVocabulary.svelte';
   import type { PoolDraft } from './PoolWizardForm.svelte';
 
   interface Props {
@@ -25,13 +26,15 @@
     body: PoolCreate;
     editing: boolean;
     installationLabel: string;
+    /** Which path the wizard is walking, so a jump lands on the right step. */
+    mode: WizardMode;
     verdict: Result<'validatePool'> | null;
     validating: boolean;
     error: unknown;
     ongoto: (step: number) => void;
   }
 
-  let { draft, body, editing, installationLabel, verdict, validating, error, ongoto }: Props =
+  let { draft, body, editing, installationLabel, mode, verdict, validating, error, ongoto }: Props =
     $props();
 
   // The image is the server's answer where there is one: a pool that gives
@@ -72,7 +75,9 @@
   }
 
   function stepName(field: string): string {
-    return WIZARD_STEPS[stepForField(field)]?.title ?? 'the first step';
+    return (
+      wizardSteps(mode, editing)[stepForField(field, mode, editing)]?.title ?? 'the first step'
+    );
   }
 </script>
 
@@ -120,7 +125,11 @@
             <li>
               <span class="field">{label(issue.field)}</span>
               <span class="message">{issue.message}</span>
-              <Button size="sm" variant="ghost" onclick={() => ongoto(stepForField(issue.field))}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onclick={() => ongoto(stepForField(issue.field, mode, editing))}
+              >
                 Back to {stepName(issue.field)}
               </Button>
             </li>

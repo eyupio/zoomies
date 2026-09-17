@@ -60,6 +60,20 @@ type poolItem struct {
 	QueuedJobs         int               `json:"queued_jobs"`
 	Utilisation        float64           `json:"utilisation"`
 	Warnings           []problemItem     `json:"warnings"`
+	// Resources is the size this pool asks for on every host, and Sizing says
+	// whether it asks for one at all: "automatic" is a pool whose runners are
+	// each given one slot's share of the machine they land on.
+	Resources poolResources `json:"resources"`
+	Sizing    string        `json:"sizing"`
+}
+
+// poolResources is the size a pool asks for per runner. Every field is zero on
+// a pool that leaves the answer to its host.
+type poolResources struct {
+	CPUs      float64 `json:"cpus"`
+	MemoryMB  int64   `json:"memory_mb"`
+	DiskGB    int64   `json:"disk_gb"`
+	PidsLimit int64   `json:"pids_limit"`
 }
 
 // platformItem is the machine a pool needs, or the machine a host is.

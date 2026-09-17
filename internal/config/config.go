@@ -604,11 +604,18 @@ type Runners struct {
 	// that runs, so it is the place for a proxy or a mirror and not for a
 	// credential: a pool's env, or a GitHub secret, is where those belong.
 	Env map[string]string `yaml:"env"`
-	// DefaultCPUs and DefaultMemoryMB are what one runner gets on a pool that
-	// has not said otherwise. Every pool has a size, because a fleet whose
-	// runners have no limits is a fleet where one job that runs away takes the
-	// machine and every other pool's runners on it with it; these are the
-	// figures a pool starts at, and the ones the wizard's sliders open on.
+	// DefaultCPUs and DefaultMemoryMB are where a pool's size sliders open
+	// when somebody chooses a fixed size. They are not what a pool with no
+	// size becomes: such a pool is given one slot's share of whichever host
+	// each runner lands on, charged against that host and applied as a real
+	// cgroup limit, which is the sizing most fleets want and what a new pool
+	// does.
+	//
+	// The distinction matters because the two behave differently as a fleet
+	// grows. A share follows the machine, so one pool is sized correctly on
+	// every host it reaches; a figure typed here is the same everywhere, so it
+	// fits the host it was chosen for and strands the machine on the ones that
+	// joined later.
 	//
 	// They are a fleet's answer rather than a constant because the right
 	// answer is the shape of the machines and the jobs: two cores and four

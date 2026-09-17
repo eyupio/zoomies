@@ -188,6 +188,10 @@ func PoolRoomWarnings(p *store.Pool, room PoolRoom) []Problem {
 		})
 	}
 
+	if w, ok := strandedByFixedSize(p, room); ok {
+		out = append(out, w)
+	}
+
 	if p.Cache.Enabled && p.Cache.SizeLimit > 0 && room.DiskKnown {
 		limitMB := p.Cache.SizeLimit / (1024 * 1024)
 		if limitMB > room.SmallestDiskMB {
@@ -205,6 +209,62 @@ func PoolRoomWarnings(p *store.Pool, room PoolRoom) []Problem {
 		}
 	}
 	return out
+}
+
+// strandedByFixedSize names the capacity a pool's fixed size is leaving on the
+// floor, and the one edit that would take it back.
+//
+// A pool sized by its host gets one slot's share of each machine, so every
+// host fills every slot it has: that is what dividing the machine by the slot
+// count means. A fixed size can only match that on the hosts that happen to be
+// the size it was chosen for -- and a fleet acquires unequal machines as a
+// matter of course, one 8-core box and then a 64-core one. The 8-core figure
+// then fits four runners on a machine with room for thirty-one, and nothing on
+// any page says the pool is the reason.
+//
+// It is not the same as pool.host_overcommitted, which is about a host
+// promising slots its machine cannot back; this is about a pool not using
+// slots its hosts can. Both can be true at once, on different hosts.
+//
+// Only real stranding counts. A host is stranded when its machine could hold
+// more runners of this pool than its slot count allows -- Fits above Slots --
+// because that is the state where the size is not what binds, and the
+// automatic share would have used every slot instead.
+func strandedByFixedSize(p *store.Pool, room PoolRoom) (Problem, bool) {
+	if p.Automatic() {
+		return Problem{}, false
+	}
+	var names []string
+	stranded := 0
+	for _, h := range room.Hosts {
+		// Slots above Fits is the overcommitted case, which has its own
+		// problem and its own fix. This is the other direction: machine left
+		// over that the slot count forbids using.
+		if !h.CPUsKnown && !h.MemoryKnown {
+			continue
+		}
+		if h.Fits <= h.Slots {
+			continue
+		}
+		stranded += h.Fits - h.Slots
+		names = append(names, fmt.Sprintf("%s (%d slots, room for %d at this size)", h.Host, h.Slots, h.Fits))
+	}
+	if stranded == 0 {
+		return Problem{}, false
+	}
+	return Problem{
+		Code:     "pool.size_strands_hosts",
+		Severity: config.SeverityInfo,
+		Title: fmt.Sprintf("pool %s: its fixed size is smaller than its hosts' share",
+			p.Name),
+		Detail: fmt.Sprintf("this pool asks for %s CPU and %s on every host, and %s could each hold more runners of it than their slot count allows: %s. "+
+			"The slot count is what binds, so the machine above it goes unused -- %s worth across the fleet.",
+			scheduler.FormatCPUs(p.Resources.CPUs), formatRoomMB(p.Resources.MemoryMB),
+			plural(len(names), "host"), strings.Join(names, ", "), plural(stranded, "runner")),
+		Fix:        "raise those hosts' capacity to the runners they can hold, or clear this pool's CPU and memory so each runner is given one slot's share of the host it lands on -- which fills every slot on every machine, whatever size it is.",
+		TargetKind: "pool",
+		TargetID:   p.ID,
+	}, true
 }
 
 // verb keeps "the host it can land on has" from reading as "hosts ... has".

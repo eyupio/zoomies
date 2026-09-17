@@ -477,6 +477,65 @@ type Resources struct {
 	PidsLimit int64   `json:"pids_limit,omitempty"` // container pids cgroup limit
 }
 
+// RunnerSettings is a pool's answer where it disagrees with the fleet's.
+//
+// Every field is a pointer, and that is the type's whole meaning: nil is "the
+// fleet decides", and it keeps deciding -- a pool that overrides nothing
+// follows scheduler.provision_timeout when an operator changes it, rather
+// than being frozen on whatever it read the day the pool was made. A field
+// that is set overrides it, including when what it is set to is zero, because
+// zero is a real answer for each of these: "never fail a runner for taking
+// too long to register" is a thing a pool on a slow air-gapped registry has
+// every reason to say.
+//
+// These are the settings whose right answer is a property of the pool rather
+// than of the fleet. A pool pulling a twelve-gigabyte Windows image and a
+// pool booting Alpine do not agree about how long registering should take,
+// and a fleet that has to pick one picks the slower -- which leaves the fast
+// pool holding a dead runner's slot for ten minutes. IdleTimeout is not here
+// because it is already a pool field, and was from the start.
+type RunnerSettings struct {
+	// ProvisionTimeout fails a runner of this pool that never finishes
+	// registering. Overrides scheduler.provision_timeout.
+	ProvisionTimeout *Duration `json:"provision_timeout,omitempty"`
+	// DrainTimeout fails a runner of this pool that has been draining this
+	// long with no job left on it. Overrides scheduler.drain_timeout.
+	DrainTimeout *Duration `json:"drain_timeout,omitempty"`
+	// MaxRunnerLifetime drains a runner of this pool that has lived this long,
+	// the next time it is not busy. Overrides scheduler.max_runner_lifetime.
+	// It never ends a job, exactly as the fleet's own does not.
+	MaxRunnerLifetime *Duration `json:"max_runner_lifetime,omitempty"`
+	// ScaleUpDelay is how long a job for this pool must have been queued
+	// before it counts as demand. Overrides scheduler.scale_up_delay.
+	ScaleUpDelay *Duration `json:"scale_up_delay,omitempty"`
+	// DockerWait is how long a runner of this pool waits for the Docker
+	// daemon it was promised before refusing to take a job. Overrides
+	// runners.docker_wait, and means nothing on a pool whose docker_mode is
+	// none -- there is no daemon to wait for.
+	DockerWait *Duration `json:"docker_wait,omitempty"`
+}
+
+// Set reports whether this pool overrides anything at all, which is what the
+// UI asks before it draws a panel and what an explanation asks before it says
+// a figure came from the pool.
+func (r RunnerSettings) Set() bool {
+	return r.ProvisionTimeout != nil || r.DrainTimeout != nil || r.MaxRunnerLifetime != nil ||
+		r.ScaleUpDelay != nil || r.DockerWait != nil
+}
+
+// Automatic reports whether this pool leaves its runners' size to the host
+// they land on: one slot's share of whichever machine the scheduler picks,
+// charged and enforced as such.
+//
+// It is what a pool means by asking for no CPU and no memory, and it is the
+// shape a pool has unless somebody chose otherwise. Disk and the pids limit
+// are deliberately not part of the question: neither has a share to be given
+// (free disk is a measurement rather than a budget) so a pool may cap its
+// cache's disk and still leave its size to the host.
+func (p *Pool) Automatic() bool {
+	return p.Resources.CPUs <= 0 && p.Resources.MemoryMB <= 0
+}
+
 type CacheScope string
 
 const (
@@ -538,7 +597,11 @@ type Pool struct {
 	Resources         Resources   `json:"resources"`
 	Cache             CacheConfig `json:"cache"`
 	// HostSelector matches Host.Labels; empty means "any host".
-	HostSelector StringMap `json:"host_selector"`
+	// RunnerSettings is what this pool overrides of the fleet's own runner
+	// timings. Every field is nil on a pool that follows the fleet, which is
+	// every pool until somebody says otherwise.
+	RunnerSettings RunnerSettings `json:"runner_settings"`
+	HostSelector   StringMap      `json:"host_selector"`
 	// Env is injected into every runner this pool creates.
 	Env StringMap `json:"env"`
 	// RunAsRoot disables the backend's default of dropping to an unprivileged
@@ -1460,12 +1523,51 @@ func NormalizeLabels(in []string) []string {
 // those three need to keep answering while every runner is flat out.
 const (
 	MinHostReserveMemoryMB int64 = 512
-	MinHostReserveDiskMB   int64 = 2048
+	// MinHostReserveMemoryFraction raises the memory reserve in step with the
+	// machine, exactly as the CPU fraction below does and for the same reason.
+	// A flat 512 MB is the right floor on a small box and far too little on a
+	// large one: a 64 GB host booked down to its last half gigabyte has no
+	// page cache left, and the daemon minding sixty-four containers is the
+	// first thing to suffer for it. It is capped, because a tenth of a very
+	// large machine is more than the daemon will ever want -- MaxHostReserveMemoryMB
+	// is where holding more back stops buying anything.
+	MinHostReserveMemoryFraction float64 = 0.05
+	MaxHostReserveMemoryMB       int64   = 8192
+	MinHostReserveDiskMB         int64   = 2048
 	// MinHostReserveCPUs is the least CPU held back from placement, and
 	// MinHostReserveCPUFraction raises it in step with the machine: a
 	// sixty-four core host runs a daemon with sixty-four containers to mind.
 	MinHostReserveCPUs        float64 = 0.5
 	MinHostReserveCPUFraction float64 = 0.05
+)
+
+// MemoryReserve is what is held back from placement on this host's memory: the
+// operator's reserve, or the floor when that is larger. Zero on a host that
+// has not reported its memory, where there is nothing to hold back from.
+//
+// It is a function rather than a constant for the reason CPUReserve is: the
+// floor depends on the machine, and a caller that applied a flat figure to a
+// 64 GB box and a 2 GB one would be wrong about one of them.
+func (h *Host) MemoryReserve() int64 {
+	if h.MemoryMB <= 0 {
+		return 0
+	}
+	floor := min(max(MinHostReserveMemoryMB, int64(MinHostReserveMemoryFraction*float64(h.MemoryMB))), MaxHostReserveMemoryMB)
+	return max(h.ReserveMemoryMB, floor)
+}
+
+// The least machine a runner can be given and still be one.
+//
+// Below these the runner binary cannot keep up with its own job: it is killed
+// before it takes one, or it crawls through it in a way that reads as a broken
+// image rather than as a limit somebody set. They bound a figure an operator
+// types, and they bound the share a host hands out on a pool that leaves its
+// size to the host -- a machine cut into more slots than it has runners' worth
+// of room is the same mistake either way, and it must be refused in both
+// places or the two disagree about the same limit.
+const (
+	MinRunnerCPUs     float64 = 0.25
+	MinRunnerMemoryMB int64   = 512
 )
 
 // CPUReserve is what is held back from placement on this host's CPUs: the
@@ -1515,7 +1617,7 @@ func (h *Host) Allocatable() HostAllocation {
 		a.CPUs = max(float64(h.CPUs)-h.CPUReserve(), 0)
 	}
 	if a.MemoryKnown {
-		a.MemoryMB = max(h.MemoryMB-max(h.ReserveMemoryMB, MinHostReserveMemoryMB), 0)
+		a.MemoryMB = max(h.MemoryMB-h.MemoryReserve(), 0)
 	}
 	if a.DiskKnown {
 		a.DiskMB = max(h.DiskFreeMB-max(h.ReserveDiskMB, MinHostReserveDiskMB), 0)

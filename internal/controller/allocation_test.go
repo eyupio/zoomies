@@ -53,7 +53,8 @@ func TestAPoolWithNoLimitsGetsOneSlotsShareOfItsHost(t *testing.T) {
 	}
 	// Eight cores less the half-core floor is 7.5, and four slots of that is
 	// 1.875, floored to the hundredth the pool form takes. Memory is the
-	// machine less the 512 MB floor, in four.
+	// machine less its reserve -- a twentieth of 16 GB, which is above the
+	// flat floor -- in four.
 	host := h.measuredHost("measured", 8, 16384, 4, enforcesEverything)
 
 	if err := h.c.Reconcile(h.ctx); err != nil {
@@ -61,20 +62,20 @@ func TestAPoolWithNoLimitsGetsOneSlotsShareOfItsHost(t *testing.T) {
 	}
 	h.c.lifecycleCalls.Wait()
 	r := h.onlyRunner()
-	if r.AllocatedCPUs != 1.87 || r.AllocatedMemoryMB != 3968 || r.AllocationSource != store.AllocationFromHost {
-		t.Fatalf("row allocation = %v CPUs, %d MB from %q; want 1.87, 3968 from %q",
+	if r.AllocatedCPUs != 1.87 || r.AllocatedMemoryMB != 3891 || r.AllocationSource != store.AllocationFromHost {
+		t.Fatalf("row allocation = %v CPUs, %d MB from %q; want 1.87, 3891 from %q",
 			r.AllocatedCPUs, r.AllocatedMemoryMB, r.AllocationSource, store.AllocationFromHost)
 	}
 	task := h.taskOfKind(host.ID, agent.TaskCreateRunner)
 	if task.Spec == nil {
 		t.Fatal("the create task carries no spec")
 	}
-	if task.Spec.Resources.CPUs != 1.87 || task.Spec.Resources.MemoryMB != 3968 || task.Spec.ResourcesSource != store.AllocationFromHost {
+	if task.Spec.Resources.CPUs != 1.87 || task.Spec.Resources.MemoryMB != 3891 || task.Spec.ResourcesSource != store.AllocationFromHost {
 		t.Fatalf("task spec = %+v from %q; the agent would apply something other than what the row records",
 			task.Spec.Resources, task.Spec.ResourcesSource)
 	}
 	view := h.c.runnerView(h.ctx, r)
-	if view.AllocatedCPUs != 1.87 || view.AllocatedMemoryMB != 3968 || view.AllocationSource != store.AllocationFromHost {
+	if view.AllocatedCPUs != 1.87 || view.AllocatedMemoryMB != 3891 || view.AllocationSource != store.AllocationFromHost {
 		t.Fatalf("runner view = %v CPUs, %d MB from %q; the Runners page cannot say what the runner was given",
 			view.AllocatedCPUs, view.AllocatedMemoryMB, view.AllocationSource)
 	}

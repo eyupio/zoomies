@@ -1050,3 +1050,37 @@ func TestAStoredRowThatCannotBeUsedIsReportedOnTheSettingsPage(t *testing.T) {
 		t.Error("the page shows a value the controller is not using")
 	}
 }
+
+// A join token that names no capacity leaves the figure to the agent, which
+// is the only party in the exchange that has seen the machine.
+//
+// It used to default to two. That pinned every host enrolled without an
+// explicit figure to two slots however large it was -- and under automatic
+// sizing the capacity is no longer only a slot count but the divisor that
+// gives each runner its CPU and memory, so two slots on a thirty-two core box
+// is half the machine per runner and two jobs at a time.
+func TestAJoinTokenWithNoCapacityLeavesItToTheAgent(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("root", store.RoleAdmin)
+	cookie := h.session(admin)
+
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/join-tokens", cookie: cookie,
+		body: map[string]any{"ttl": "1h"}})
+	created.mustStatus(t, http.StatusCreated, "create join token")
+	var token createJoinTokenResponse
+	created.into(t, &token)
+	if token.Capacity != 0 {
+		t.Errorf("capacity = %d, want 0: the agent decides from the machine it measures", token.Capacity)
+	}
+
+	// A figure the operator did name is still theirs, and still wins over the
+	// agent's own derivation.
+	named := h.do(request{method: http.MethodPost, path: "/api/v1/join-tokens", cookie: cookie,
+		body: map[string]any{"ttl": "1h", "capacity": 12}})
+	named.mustStatus(t, http.StatusCreated, "create with a capacity")
+	var pinned createJoinTokenResponse
+	named.into(t, &pinned)
+	if pinned.Capacity != 12 {
+		t.Errorf("capacity = %d, want the 12 the operator asked for", pinned.Capacity)
+	}
+}

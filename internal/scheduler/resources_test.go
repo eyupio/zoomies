@@ -30,13 +30,31 @@ func limited(name string, cpus float64, memoryMB int64) *store.Pool {
 	return p
 }
 
+// hostFor is the machine that leaves want MB allocatable once its own reserve
+// is held back. The reserve scales with the machine, so it cannot be added as
+// a constant: a test that wrote 32*1024+512 would be describing a floor that
+// only applies to small hosts.
+func hostFor(want int64) int64 {
+	total := want
+	for range 8 {
+		got := total - (&store.Host{MemoryMB: total}).MemoryReserve()
+		if got == want {
+			return total
+		}
+		total += want - got
+	}
+	return total
+}
+
 // The headline case for the whole reservation model, and the one an operator
 // would recognise: a host advertises 32 GB, a pool asks for 4 GB a runner, and
 // the ninth runner is the one that would have been killed rather than run.
 func TestAHostAdmitsWhatItsMemoryCoversAndRefusesTheNext(t *testing.T) {
 	// Capacity is deliberately far above what memory allows, so that only the
-	// memory rule can be what stops the ninth.
-	h := sized("host_a", 32, 32, 32*1024+store.MinHostReserveMemoryMB, 500*1024)
+	// memory rule can be what stops the ninth. The machine is sized so that
+	// exactly 32 GB is left after the reserve, which scales with it: a
+	// twentieth of the whole, capped, and never under the flat floor.
+	h := sized("host_a", 32, 32, hostFor(32*1024), 500*1024)
 	p := limited("big", 0, 4096)
 
 	hs := newHostSet([]*store.Host{h}, []*store.Pool{p}, nil, now)
@@ -404,5 +422,78 @@ func TestTheShortfallNamesTheDiskAPoolAskedFor(t *testing.T) {
 	got := HostShortfall(h, p)
 	if !strings.Contains(got, "disk") || !strings.Contains(got, "charged 200 GB") {
 		t.Errorf("HostShortfall = %q, want the disk the pool asked for", got)
+	}
+}
+
+// A host cut into more slots than it has runners' worth of room cannot back a
+// pool that leaves its size to the host.
+//
+// The two halves of sizing are checked in different places, and this is what
+// keeps them agreeing. A figure an operator types is refused below a quarter
+// of a core; the share a host hands out was not checked at all, so a 32-slot
+// capacity on an eight-core machine gave every runner 0.23 of a core -- which
+// the same operator would have been refused for typing, and which the runner
+// binary cannot keep up with.
+//
+// It is answered by refusing the host rather than by rounding the share up.
+// Rounding up is over-provisioning by another name: the slots are meant to add
+// up to the machine, and a floor applied to each of them adds up to more than
+// there is.
+func TestAHostCutTooFineCannotBackAnAutomaticPool(t *testing.T) {
+	automatic := &store.Pool{Name: "zoomies-auto"}
+
+	// Eight cores, 32 slots. Allocatable is 8 - max(0.5, 0.4) = 7.5, so each
+	// slot is 0.23 -- under the floor.
+	tooFine := &store.Host{
+		Name: "sliced-1", Capacity: 32, CPUs: 8, MemoryMB: 65536,
+	}
+	if field := ShareTooSmall(tooFine, automatic); field != "cpu" {
+		t.Errorf("ShareTooSmall = %q, want cpu: 32 slots on eight cores is 0.23 each", field)
+	}
+	if HostFits(tooFine, automatic) {
+		t.Error("a host handing out 0.23 of a core per runner was accepted")
+	}
+	why := HostShortfall(tooFine, automatic)
+	if !strings.Contains(why, "slot") || !strings.Contains(why, "0.23") {
+		t.Errorf("the shortfall does not say the slot count is the cause: %q", why)
+	}
+	// The room agrees with the placement, or the page promises slots the pass
+	// refuses.
+	if room := HostRoomFor(tooFine, automatic); room.Room != 0 || room.LimitedBy != "cpu" {
+		t.Errorf("room = %+v, want none, limited by cpu", room)
+	}
+
+	// The same machine at four slots is 1.87 each, which is fine.
+	sensible := &store.Host{Name: "sliced-1", Capacity: 4, CPUs: 8, MemoryMB: 65536}
+	if field := ShareTooSmall(sensible, automatic); field != "" {
+		t.Errorf("ShareTooSmall = %q on a host handing out 1.87 of a core, want none", field)
+	}
+	if !HostFits(sensible, automatic) {
+		t.Error("a host handing out 1.87 of a core per runner was refused")
+	}
+
+	// Memory answers for itself: 64 slots on 32 GB is 512 MB each, and 128 is
+	// 256 -- under the floor with CPU to spare.
+	thin := &store.Host{Name: "thin-1", Capacity: 128, CPUs: 128, MemoryMB: 32768}
+	if field := ShareTooSmall(thin, automatic); field != "memory" {
+		t.Errorf("ShareTooSmall = %q, want memory", field)
+	}
+
+	// A pool that names its own size answers for it at the API, so the share
+	// is not its question and the floor is not applied to it here.
+	fixed := &store.Pool{Name: "zoomies-fixed", Resources: store.Resources{CPUs: 2, MemoryMB: 4096}}
+	if field := ShareTooSmall(tooFine, fixed); field != "" {
+		t.Errorf("ShareTooSmall = %q for a pool that sets its own size, want none", field)
+	}
+
+	// A host that has measured nothing is placed by slots alone, exactly as it
+	// was before any of this existed. Refusing it would empty a fleet the
+	// moment it upgraded.
+	unmeasured := &store.Host{Name: "old-1", Capacity: 32}
+	if field := ShareTooSmall(unmeasured, automatic); field != "" {
+		t.Errorf("ShareTooSmall = %q on a host that has measured nothing, want none", field)
+	}
+	if !HostFits(unmeasured, automatic) {
+		t.Error("a host that has measured nothing was refused")
 	}
 }

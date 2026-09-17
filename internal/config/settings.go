@@ -430,7 +430,7 @@ var registry = buildRegistry([]Setting{
 	},
 	{
 		Key: "runners.default_cpus", Label: "Default CPUs per runner", Env: "ZOOMIES_RUNNER_DEFAULT_CPUS", Kind: KindFloat, Scope: ScopeInstance, Live: true,
-		Summary: "How much CPU one runner gets on a pool that has not said otherwise, in cores; fractions are allowed. Every pool has a size, so this is the figure a new pool opens on rather than a fallback for pools with no limits. 0 means nothing has been said and the built-in 2 cores answers.",
+		Summary: "Where a pool's CPU slider opens when somebody chooses a fixed size, in cores; fractions are allowed. It is not what a pool with no size becomes: such a pool is given one slot's share of whichever host each runner lands on. 0 means nothing has been said and the built-in 2 cores answers.",
 	},
 	{
 		Key: "runners.default_memory_mb", Label: "Default memory per runner", Env: "ZOOMIES_RUNNER_DEFAULT_MEMORY_MB", Kind: KindInt, Scope: ScopeInstance, Live: true,

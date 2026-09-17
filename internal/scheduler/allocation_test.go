@@ -11,14 +11,14 @@ import (
 // eight-slot host each took every core, and that is the overload this exists
 // to end: the runner is given exactly what it was charged.
 func TestAnUnlimitedPoolIsGivenOneSlotsShareOfItsHost(t *testing.T) {
-	// 16 CPUs less the floor's 0.8 is 15.2, and 32 GB less 512 MB is 32256 MB;
-	// four slots share both.
+	// 16 CPUs less the floor's 0.8 is 15.2, and 32 GB less the memory floor's
+	// twentieth (1638 MB) is 31130 MB; four slots share both.
 	h := sized("host_a", 4, 16, 32*1024, 500*1024)
 	p := limited("builders", 0, 0)
 
 	got, source := Allocation(p, h, true)
-	if got.CPUs != 3.8 || got.MemoryMB != 8064 {
-		t.Fatalf("allocation = %+v, want 3.8 CPUs and 8064 MB, one slot's share of the host", got)
+	if got.CPUs != 3.8 || got.MemoryMB != 7782 {
+		t.Fatalf("allocation = %+v, want 3.8 CPUs and 7782 MB, one slot's share of the host", got)
 	}
 	if source != store.AllocationFromHost {
 		t.Errorf("source = %q, want %q", source, store.AllocationFromHost)
@@ -98,7 +98,7 @@ func TestADefaultIsOnlyGivenWhereTheDaemonCanEnforceIt(t *testing.T) {
 
 	h.BackendInfo[0].Limits = store.LimitSupport{Known: true, CPU: false, Memory: true}
 	got, source := Allocation(p, h, true)
-	if got.CPUs != 0 || got.MemoryMB != 8064 || source != store.AllocationFromHost {
+	if got.CPUs != 0 || got.MemoryMB != 7782 || source != store.AllocationFromHost {
 		t.Fatalf("allocation = %+v from %q on a daemon without CFS quotas, want memory alone", got, source)
 	}
 	h.BackendInfo[0].Limits = store.LimitSupport{}

@@ -97,7 +97,13 @@ services:
       ZOOMIES_AGENT_EMBEDDED: "true"
       ZOOMIES_AGENT_BACKEND: docker
       ZOOMIES_DOCKER_HOST: unix:///var/run/docker.sock
-      ZOOMIES_AGENT_CAPACITY: ${ZOOMIES_AGENT_CAPACITY:-4}
+      # Empty on purpose: the agent works its own capacity out from the
+      # machine it measures, which is the only figure here that has seen it. A
+      # constant would pin every deployment of this file to the same number of
+      # slots however large the host is -- and the capacity is no longer only
+      # a slot count: a pool that leaves its runners' size to the host is
+      # given the machine divided by it. Set this to override.
+      ZOOMIES_AGENT_CAPACITY: ${ZOOMIES_AGENT_CAPACITY}
       # The network runner containers are attached to: the one declared at the
       # bottom of this file. Without this line the agent leaves them on the
       # daemon's default bridge, whatever the comment down there promises.

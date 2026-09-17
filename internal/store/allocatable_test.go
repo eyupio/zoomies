@@ -17,21 +17,34 @@ func TestAllocatableSeparatesUnmeasuredFromEmpty(t *testing.T) {
 		host: Host{},
 		want: HostAllocation{},
 	}, {
+		// A twentieth of 16 GB is 819 MB, which is above the 512 MB floor, so
+		// the fraction answers for memory here and the floor answers for CPU.
 		name: "the floors apply when the operator has set no reserve",
 		host: Host{CPUs: 8, MemoryMB: 16384, DiskTotalMB: 100_000, DiskFreeMB: 50_000},
 		want: HostAllocation{
-			CPUs: 8 - MinHostReserveCPUs, MemoryMB: 16384 - MinHostReserveMemoryMB, DiskMB: 50_000 - MinHostReserveDiskMB,
+			CPUs: 8 - MinHostReserveCPUs, MemoryMB: 16384 - 819, DiskMB: 50_000 - MinHostReserveDiskMB,
 			CPUsKnown: true, MemoryKnown: true, DiskKnown: true,
 		},
 	}, {
-		// The CPU floor grows with the machine: a daemon minding sixty-four
-		// containers needs more than the half core that serves a daemon
-		// minding four, and a fixed half core would be a rounding error on a
-		// host that size.
-		name: "the CPU floor is a twentieth of a large machine",
+		// Both floors grow with the machine: a daemon minding sixty-four
+		// containers needs more than the half core and half gigabyte that
+		// serve a daemon minding four, and a fixed figure would be a rounding
+		// error on a host that size. Memory is capped where holding more back
+		// stops buying anything -- a twentieth of 256 GB is 12.8 GB, and the
+		// daemon will never want that much.
+		name: "both floors are a twentieth of a large machine, and memory is capped",
 		host: Host{CPUs: 64, MemoryMB: 262_144},
 		want: HostAllocation{
-			CPUs: 64 - 64*MinHostReserveCPUFraction, MemoryMB: 262_144 - MinHostReserveMemoryMB,
+			CPUs: 64 - 64*MinHostReserveCPUFraction, MemoryMB: 262_144 - MaxHostReserveMemoryMB,
+			CPUsKnown: true, MemoryKnown: true,
+		},
+	}, {
+		// The flat floor still answers on a small machine, where a twentieth
+		// is less than the daemon needs however small the box is.
+		name: "the memory floor answers on a small machine",
+		host: Host{CPUs: 2, MemoryMB: 4096},
+		want: HostAllocation{
+			CPUs: 2 - MinHostReserveCPUs, MemoryMB: 4096 - MinHostReserveMemoryMB,
 			CPUsKnown: true, MemoryKnown: true,
 		},
 	}, {

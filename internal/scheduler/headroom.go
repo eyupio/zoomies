@@ -16,7 +16,7 @@ func HostAdmissionReason(h *store.Host, now time.Time) string {
 	if h.Usage.CPUHeld {
 		return "new starts held after sustained CPU pressure; they resume when CPU usage falls below 85%"
 	}
-	if v := h.Usage.MemoryAvailableMB; v != nil && *v <= max(h.ReserveMemoryMB, store.MinHostReserveMemoryMB) {
+	if v := h.Usage.MemoryAvailableMB; v != nil && *v <= h.MemoryReserve() {
 		return "new starts held because available memory is at or below the host reserve"
 	}
 	return ""
