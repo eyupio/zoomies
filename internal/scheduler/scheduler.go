@@ -526,6 +526,12 @@ func failedAt(r *store.Runner) time.Time {
 
 // summarise keeps a runner's failure message to one clause of a sentence. The
 // full text is on the Runners page; here it is the hint, not the report.
+//
+// The cut is by bytes and the message is not: it comes from a daemon, a
+// registry or GitHub, and a limit that landed inside a character left half of
+// one behind -- which reaches the problems drawer and the pool page as a
+// replacement glyph in the middle of a word. Dropping the partial character is
+// what the reader wanted from the ellipsis anyway.
 func summarise(message string) string {
 	message = strings.Join(strings.Fields(message), " ")
 	if message == "" {
@@ -533,7 +539,7 @@ func summarise(message string) string {
 	}
 	const limit = 160
 	if len(message) > limit {
-		return message[:limit-1] + "…"
+		return strings.ToValidUTF8(message[:limit-1], "") + "…"
 	}
 	return message
 }

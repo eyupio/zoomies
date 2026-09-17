@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -237,5 +238,37 @@ func TestAThrottledHostIsNamedAsSuchWhenNothingCanBePlaced(t *testing.T) {
 	h.Backends = store.StringSlice{"process"}
 	if got := ThrottleReason(h); strings.Contains(got, "CPU limit at") {
 		t.Errorf("ThrottleReason for a process-only host = %q", got)
+	}
+}
+
+// A failure message is not ASCII, and the ellipsis must not be paid for with
+// half a character.
+//
+// The text comes from a daemon, a registry or GitHub, so the byte the limit
+// lands on is routinely in the middle of one. What used to come out the other
+// side reached the problems drawer and the pool page with a replacement glyph
+// in the middle of a word -- which reads as Zoomies having mangled the message
+// rather than shortened it.
+func TestSummariseCutsBetweenCharacters(t *testing.T) {
+	// A message whose 159th byte falls inside a three-byte character.
+	message := strings.Repeat("a", 158) + "→" + strings.Repeat("b", 40)
+	got := summarise(message)
+	if !utf8.ValidString(got) {
+		t.Fatalf("summarise produced invalid UTF-8: %q", got)
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Fatalf("summarise = %q, want it to end in an ellipsis", got)
+	}
+	if strings.ContainsRune(got, utf8.RuneError) {
+		t.Fatalf("summarise = %q, which carries a replacement character", got)
+	}
+
+	// A message that fits is returned whole, whatever it is made of.
+	short := "could not pull ghcr.io/acme/runner: manifest unknown — check the tag"
+	if got := summarise(short); got != short {
+		t.Fatalf("summarise(%q) = %q, want it unchanged", short, got)
+	}
+	if got := summarise("   "); got != "no reason was recorded" {
+		t.Fatalf("summarise of whitespace = %q", got)
 	}
 }
