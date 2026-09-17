@@ -53,11 +53,14 @@ const (
 	// KindHeartbeat is an empty keep-alive so that proxies do not close an
 	// idle SSE connection.
 	KindHeartbeat Kind = "heartbeat"
-	// KindResync tells a reconnecting client that the events between its last
-	// ID and now could not all be replayed -- the ring had moved on, or the
-	// controller restarted and the IDs began again -- so what it holds may be
-	// stale and it should fetch the resources afresh. It is the first frame
-	// on such a connection and is never in the ring.
+	// KindResync tells a client that what it holds may be stale and it should
+	// fetch the resources afresh: the events between its last ID and now could
+	// not all be replayed -- the ring had moved on, or the controller
+	// restarted and the IDs began again -- or too much was deleted at once to
+	// announce row by row. It is never in the ring, because it is true of the
+	// connections it was sent to and of no connection made afterwards; the
+	// SSE handler writes its own directly, and the controller sends one with
+	// Bus.PublishTransient.
 	KindResync Kind = "resync"
 )
 
@@ -171,7 +174,33 @@ func (b *Bus) Publish(kind Kind, topic string, v any) {
 		Topic: topic,
 		Data:  raw,
 		At:    time.Now().UTC(),
-	})
+	}, true)
+}
+
+// PublishTransient is Publish for a frame that must reach the subscribers who
+// are here now and must never be replayed to one that arrives later.
+//
+// KindResync is the whole of it: it says "what you hold may be stale, fetch
+// the resources again", which is true of the tab it was sent to and says
+// nothing about a tab that connects afterwards -- that one is already fetching
+// everything. Replaying it would send a client that has just loaded the fleet
+// straight back to load it again.
+func (b *Bus) PublishTransient(kind Kind, topic string, v any) {
+	var raw json.RawMessage
+	if v != nil {
+		enc, err := json.Marshal(v)
+		if err != nil {
+			slog.Error("events: could not marshal payload", "kind", kind, "error", err)
+			return
+		}
+		raw = enc
+	}
+	b.publish(Event{
+		Kind:  kind,
+		Topic: topic,
+		Data:  raw,
+		At:    time.Now().UTC(),
+	}, false)
 }
 
 // publish numbers the event, appends it to the ring and hands it to every
@@ -193,11 +222,14 @@ func (b *Bus) Publish(kind Kind, topic string, v any) {
 // panic whichever loop was publishing, and the reconcile loop does not come
 // back from that. Every send here is non-blocking, so holding the lock costs
 // the other publishers microseconds.
-func (b *Bus) publish(e Event) {
+// It still draws a number when it is not kept: the number is what a client
+// comes back with, and a frame delivered without one would have the client
+// resume from before it and be sent the events it has already seen.
+func (b *Bus) publish(e Event, keep bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	e.ID = b.seq.Add(1)
-	if b.ringCap > 0 {
+	if keep && b.ringCap > 0 {
 		b.ring = append(b.ring, e)
 		if len(b.ring) > b.ringCap {
 			b.ring = b.ring[len(b.ring)-b.ringCap:]

@@ -348,3 +348,48 @@ func TestAFullReplayLeavesRoomForTheNextEvent(t *testing.T) {
 		t.Fatal("the feed ended before the event published after the replay")
 	}
 }
+
+// A resync is about the connections it was sent to and about no other.
+//
+// It means "what you hold may be stale, fetch the resources again", which is
+// never true of a client that connects afterwards -- that one is already
+// fetching everything. Kept in the ring, the prune's resync would meet each
+// new tab on its first reconnect and send it straight back to load a fleet it
+// had only just loaded.
+func TestATransientEventReachesSubscribersWithoutEnteringTheRing(t *testing.T) {
+	b := New()
+	sub := b.Subscribe(context.Background(), SubscribeOptions{})
+	defer sub.Close()
+
+	b.PublishTransient(KindResync, "", map[string]string{"reason": "everything went"})
+
+	select {
+	case ev := <-sub.C:
+		if ev.Kind != KindResync {
+			t.Fatalf("the subscriber got %q, want a resync", ev.Kind)
+		}
+		if ev.ID == 0 {
+			t.Fatal("a transient event carried no id, so a client resuming from it would be sent what it has already seen")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("the subscriber never got the transient event")
+	}
+
+	b.mu.RLock()
+	ring := append([]Event(nil), b.ring...)
+	b.mu.RUnlock()
+	for _, e := range ring {
+		if e.Kind == KindResync {
+			t.Fatal("the resync is in the ring; a client reconnecting later would be told to refetch for nothing")
+		}
+	}
+
+	// The number it drew still belongs to the sequence, so an ordinary event
+	// published after it follows on.
+	b.Publish(KindStats, "", map[string]int{"n": 1})
+	later := b.Subscribe(context.Background(), SubscribeOptions{Replay: 1})
+	defer later.Close()
+	if !later.Complete {
+		t.Fatal("a replay across the transient event reported itself incomplete")
+	}
+}
