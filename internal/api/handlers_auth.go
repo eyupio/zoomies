@@ -312,13 +312,20 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	s.auth.Auditor().Auth(r.Context(), id, "auth.password_changed", nil)
 
+	// Every session for this account has just been ended, this browser's
+	// included, so failing to mint the replacement signs the operator out at
+	// the moment they were told the change worked. Nothing here can put that
+	// right in the response -- the change did happen, and reporting it as a
+	// failure would be worse -- but it must not pass in silence: the operator
+	// is about to land on the login page with no idea why.
 	u, err := s.ctrl.Store().GetUser(r.Context(), id.ID)
-	if err == nil {
-		if token, terr := s.auth.NewSession(r.Context(), u, ClientIP(r.Context()), r.UserAgent()); terr == nil {
-			s.setSessionCookie(w, token)
-		} else {
-			s.logger(r).Warn("could not issue a new session after a password change", "error", terr)
-		}
+	if err != nil {
+		s.logger(r).Warn("could not re-read the account after a password change, so this browser was not given a new session",
+			"user", id.Name, "error", err)
+	} else if token, terr := s.auth.NewSession(r.Context(), u, ClientIP(r.Context()), r.UserAgent()); terr != nil {
+		s.logger(r).Warn("could not issue a new session after a password change", "user", id.Name, "error", terr)
+	} else {
+		s.setSessionCookie(w, token)
 	}
 	noContent(w)
 }
