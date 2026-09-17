@@ -804,6 +804,9 @@ test('the size step says which hosts a CPU limit has just cost the pool', async 
   await next(page).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Size' })).toBeVisible();
 
+  // A fixed size, because that is the request only one machine can take. The
+  // host's own share is by construction something every host can give.
+  await page.getByRole('radio', { name: 'A fixed size on every host' }).check();
   await setSlider(page, 'CPU per runner', '12 cores');
 
   // Named host, and the two numbers an operator cannot compare for themselves:

@@ -4,8 +4,9 @@ import { dirname, resolve as resolvePath } from 'node:path';
 // Vite's `$lib` alias, which the unit runner does not otherwise know about.
 // Without it a module can only be unit-tested if it happens to import nothing
 // across the alias -- which is not a property worth choosing test coverage by.
-const LIB = pathToFileURL(resolvePath(dirname(fileURLToPath(import.meta.url)), '../src/lib') + '/')
-  .href;
+const LIB = pathToFileURL(
+  resolvePath(dirname(fileURLToPath(import.meta.url)), '../src/lib') + '/',
+).href;
 
 export async function resolve(specifier, context, next) {
   if (specifier === '$lib' || specifier.startsWith('$lib/')) {
