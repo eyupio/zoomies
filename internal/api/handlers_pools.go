@@ -431,17 +431,45 @@ type poolDefaultsResponse struct {
 	MinRunners  int    `json:"min_runners"`
 	MaxRunners  int    `json:"max_runners"`
 	IdleTimeout string `json:"idle_timeout"`
+	// RunnerSettings is what the fleet's own runner timings are, so a form
+	// offering to override one can say what it is overriding. They are here
+	// rather than read from /settings because creating a pool is an operator
+	// action and reading the settings page is an administrator's: a wizard
+	// that had to ask for both would show the operator who may create pools
+	// an empty box where the fleet's answer should be.
+	RunnerSettings poolDefaultTimings `json:"runner_settings"`
+}
+
+// poolDefaultTimings is the fleet's answer for each setting a pool may
+// override, as the text an operator would write.
+type poolDefaultTimings struct {
+	ProvisionTimeout  string `json:"provision_timeout"`
+	DrainTimeout      string `json:"drain_timeout"`
+	MaxRunnerLifetime string `json:"max_runner_lifetime"`
+	ScaleUpDelay      string `json:"scale_up_delay"`
+	// DockerWait is the wait that actually happens rather than the one that
+	// was configured: zero in the setting means the runner image chooses, and
+	// the image waits two minutes.
+	DockerWait string `json:"docker_wait"`
 }
 
 // handlePoolDefaults answers GET /api/v1/pools/defaults.
 func (s *Server) handlePoolDefaults(w http.ResponseWriter, _ *http.Request) {
 	p := s.defaultPool()
+	cfg := s.cfg()
 	writeJSON(w, http.StatusOK, poolDefaultsResponse{
 		Resources:          p.Resources,
 		SuggestedResources: s.defaultResources(),
 		MinRunners:         p.MinRunners,
 		MaxRunners:         p.MaxRunners,
 		IdleTimeout:        p.IdleTimeout.String(),
+		RunnerSettings: poolDefaultTimings{
+			ProvisionTimeout:  cfg.Scheduler.ProvisionTimeout.String(),
+			DrainTimeout:      cfg.Scheduler.DrainTimeout.String(),
+			MaxRunnerLifetime: cfg.Scheduler.MaxRunnerLifetime.String(),
+			ScaleUpDelay:      cfg.Scheduler.ScaleUpDelay.String(),
+			DockerWait:        cfg.Runners.EffectiveDockerWait().String(),
+		},
 	})
 }
 

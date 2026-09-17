@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -119,5 +120,73 @@ func TestAPoolsOwnDockerWaitIsWhatItsStartIsMeasuredAgainst(t *testing.T) {
 	p.RunnerSettings.DockerWait = poolDur(0)
 	if got := PoolEffectiveDockerWait(p, cfg); got != config.ImageDockerWait {
 		t.Errorf("effective docker wait = %s, want the image's own %s", got, config.ImageDockerWait)
+	}
+}
+
+// A pool's fixed size can strand the machine its hosts have above their slot
+// count, and the info says so with the edit that would take it back.
+//
+// It is the state a fixed size drifts into as a fleet acquires unequal
+// machines: the figure chosen for the first host fits four runners on the
+// 64-core one that joined later, and nothing on any page says the pool is why.
+// An automatic pool cannot be in that state at all -- dividing a machine by
+// its slot count is what fills every slot -- so the info is only ever about a
+// size somebody typed.
+func TestAFixedSizeSaysWhatItLeavesUnused(t *testing.T) {
+	fixed := &store.Pool{
+		ID: "pool_fixed", Name: "zoomies-small", Enabled: true,
+		Backend:   store.BackendDocker,
+		Resources: store.Resources{CPUs: 2, MemoryMB: 4096},
+	}
+	// Four slots on a machine with room for sixteen runners of this size.
+	room := PoolRoom{Hosts: []PoolHostRoom{{
+		HostID: "host_1", Host: "big-1",
+		Slots: 4, Fits: 16, Room: 4, LimitedBy: "slots",
+		CPUs: 32, MemoryMB: 65536, CPUsKnown: true, MemoryKnown: true,
+	}}}
+
+	w := warned(PoolRoomWarnings(fixed, room), "pool.size_strands_hosts")
+	if w == nil {
+		t.Fatal("a 2 CPU pool on a host with room for sixteen of them said nothing")
+	}
+	if !strings.Contains(w.Detail, "big-1") {
+		t.Errorf("the info does not name the host: %s", w.Detail)
+	}
+	if !strings.Contains(w.Fix, "one slot's share") {
+		t.Errorf("the info does not offer the automatic size as the fix: %s", w.Fix)
+	}
+
+	// The same fleet, sized by its host, is not stranding anything: the share
+	// is the machine divided by the slots, so every slot is usable.
+	automatic := &store.Pool{
+		ID: "pool_auto", Name: "zoomies-auto", Enabled: true, Backend: store.BackendDocker,
+	}
+	autoRoom := PoolRoom{Hosts: []PoolHostRoom{{
+		HostID: "host_1", Host: "big-1",
+		Slots: 4, Fits: 4, Room: 4,
+		CPUs: 32, MemoryMB: 65536, CPUsKnown: true, MemoryKnown: true,
+	}}}
+	if w := warned(PoolRoomWarnings(automatic, autoRoom), "pool.size_strands_hosts"); w != nil {
+		t.Errorf("an automatic pool was told its size strands capacity: %s", w.Title)
+	}
+
+	// Nor is a fixed pool whose hosts it fills. A note an operator sees on
+	// every correct pool is one they stop reading.
+	tight := PoolRoom{Hosts: []PoolHostRoom{{
+		HostID: "host_2", Host: "right-1",
+		Slots: 4, Fits: 4, Room: 4,
+		CPUs: 8, MemoryMB: 16384, CPUsKnown: true, MemoryKnown: true,
+	}}}
+	if w := warned(PoolRoomWarnings(fixed, tight), "pool.size_strands_hosts"); w != nil {
+		t.Errorf("a fixed pool that fills its hosts was told otherwise: %s", w.Title)
+	}
+
+	// A host that has measured nothing is placed by slots alone and has no
+	// share to compare against, so it is never counted as stranded.
+	unmeasured := PoolRoom{Hosts: []PoolHostRoom{{
+		HostID: "host_3", Host: "old-1", Slots: 4, Fits: 99, Room: 4,
+	}}}
+	if w := warned(PoolRoomWarnings(fixed, unmeasured), "pool.size_strands_hosts"); w != nil {
+		t.Errorf("a host that has measured nothing was counted as stranded: %s", w.Detail)
 	}
 }

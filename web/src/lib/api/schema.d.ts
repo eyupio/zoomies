@@ -5833,6 +5833,22 @@ export interface operations {
                         max_runners?: number;
                         /** @example 5m0s */
                         idle_timeout?: string;
+                        /** @description The fleet's own runner timings, so a form offering to override one can say what it is overriding. They are here rather than on `/settings` because creating a pool is an operator action and reading the settings page is an administrator's. */
+                        runner_settings?: {
+                            /** @example 20m0s */
+                            provision_timeout: string;
+                            /** @example 5m0s */
+                            drain_timeout: string;
+                            /** @example 24h0m0s */
+                            max_runner_lifetime: string;
+                            /** @example 0s */
+                            scale_up_delay: string;
+                            /**
+                             * @description The wait that actually happens rather than the one configured — zero in the setting means the runner image chooses, and the image waits two minutes.
+                             * @example 2m0s
+                             */
+                            docker_wait: string;
+                        };
                     };
                 };
             };

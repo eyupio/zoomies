@@ -13,11 +13,11 @@
   import {
     backendOffers,
     backendUnavailable,
-    STEP_FIELDS,
-    WIZARD_STEPS,
+    stepFields,
+    wizardSteps,
     stepForField,
   } from './PoolVocabulary.svelte';
-  import type { BackendOffer } from './PoolVocabulary.svelte';
+  import type { BackendOffer, WizardMode } from './PoolVocabulary.svelte';
 
   /**
    * What the wizard is editing.
@@ -50,9 +50,34 @@
     docker_mode: DockerMode;
     run_as_root: boolean;
     enabled: boolean;
+    /**
+     * How this pool decides what one runner gets.
+     *
+     * `automatic` sets no CPU and no memory on the pool at all: the scheduler
+     * charges each runner one slot's share of the host it lands on and gives
+     * it exactly that share as a real cgroup limit, so a fleet of unequal
+     * machines is sized correctly on every one of them without anybody typing
+     * a number. `fixed` is the two figures below, the same on every host.
+     *
+     * It is wizard state rather than a pool field because the pool has no such
+     * field: emptiness is the answer. Holding the choice separately is what
+     * keeps the sliders' last position while an operator looks at automatic
+     * and changes their mind back.
+     */
+    sizing: 'automatic' | 'fixed';
     cpus: string;
     memory_mb: string;
     disk_gb: string;
+    /**
+     * The fleet timings this pool overrides. Empty is "follow the fleet",
+     * which is what every pool does until somebody says otherwise -- and an
+     * operator who clears one of these inputs is saying it again.
+     */
+    provision_timeout: string;
+    drain_timeout: string;
+    max_runner_lifetime: string;
+    scale_up_delay: string;
+    docker_wait: string;
     cache_enabled: boolean;
     cache_scope: 'pool' | 'repository';
     cache_size_limit: string;
@@ -92,13 +117,20 @@
       docker_mode: 'none',
       run_as_root: false,
       enabled: true,
-      // Filled from the fleet's own default as soon as it is known -- see
-      // the effect that fetches it. A pool never has "no limit": the server
-      // would size it anyway, and a form that opened empty would be showing
-      // an operator a pool they are not creating.
+      // A new pool leaves its size to its hosts, which is what the server
+      // does with a pool that names none. The sliders below are filled from
+      // the fleet's suggestion as soon as it is known -- see the effect that
+      // fetches it -- so that an operator who switches to a fixed size opens
+      // on the fleet's own answer rather than on an empty box.
+      sizing: 'automatic',
       cpus: '',
       memory_mb: '',
       disk_gb: '',
+      provision_timeout: '',
+      drain_timeout: '',
+      max_runner_lifetime: '',
+      scale_up_delay: '',
+      docker_wait: '',
       cache_enabled: false,
       cache_scope: 'pool',
       cache_size_limit: '',
@@ -138,9 +170,18 @@
       docker_mode: pool.docker_mode ?? 'none',
       run_as_root: pool.run_as_root === true,
       enabled: pool.enabled !== false,
+      // The server says which of the two this pool is doing rather than the
+      // browser inferring it from two absent numbers, because "no CPU limit"
+      // alone cannot tell "the host decides" from "nobody set one".
+      sizing: pool.sizing === 'fixed' ? 'fixed' : 'automatic',
       cpus: fromNumber(resources.cpus),
       memory_mb: fromNumber(resources.memory_mb),
       disk_gb: fromNumber(resources.disk_gb),
+      provision_timeout: pool.runner_settings?.provision_timeout ?? '',
+      drain_timeout: pool.runner_settings?.drain_timeout ?? '',
+      max_runner_lifetime: pool.runner_settings?.max_runner_lifetime ?? '',
+      scale_up_delay: pool.runner_settings?.scale_up_delay ?? '',
+      docker_wait: pool.runner_settings?.docker_wait ?? '',
       cache_enabled: pool.cache?.enabled === true,
       cache_scope: pool.cache?.scope ?? 'pool',
       cache_size_limit: fromNumber(pool.cache?.size_limit),
@@ -151,6 +192,43 @@
       restrict_hosts: Object.keys(pool.host_selector ?? {}).length > 0,
       env: { ...(pool.env ?? {}) },
     };
+  }
+
+  /**
+   * Whether this draft holds anything the simple path cannot show.
+   *
+   * It decides which path an edit opens on, and it is deliberately generous:
+   * the cost of opening the advanced path on a plain pool is one extra click,
+   * and the cost of opening the simple path on a tuned one is an operator
+   * saving away a host selector or a provision timeout they never saw.
+   */
+  export function poolIsTuned(draft: PoolDraft): boolean {
+    return (
+      draft.sizing === 'fixed' ||
+      draft.restrict_hosts ||
+      Object.keys(draft.host_selector).length > 0 ||
+      draft.backend !== 'docker' ||
+      draft.docker_mode !== 'none' ||
+      draft.run_as_root ||
+      draft.cache_enabled ||
+      draft.image.trim() !== '' ||
+      draft.runner_version.trim() !== '' ||
+      draft.platform_os.trim() !== '' ||
+      draft.platform_arch.trim() !== '' ||
+      draft.disk_gb.trim() !== '' ||
+      draft.pids_limit.trim() !== '' ||
+      draft.provision_timeout.trim() !== '' ||
+      draft.drain_timeout.trim() !== '' ||
+      draft.max_runner_lifetime.trim() !== '' ||
+      draft.scale_up_delay.trim() !== '' ||
+      draft.docker_wait.trim() !== ''
+    );
+  }
+
+  /** A duration input as the API takes it: the text, or null for "follow the fleet". */
+  function nullableDuration(value: string): string | null {
+    const trimmed = value.trim();
+    return trimmed === '' ? null : trimmed;
   }
 
   function toNumber(value: string): number | undefined {
@@ -176,12 +254,20 @@
    */
   export function toPoolBody(draft: PoolDraft, options: { complete?: boolean } = {}): PoolCreate {
     const resources: Resources = {};
+    const fixed = draft.sizing === 'fixed';
     const cpus = toNumber(draft.cpus);
     const memory = toInteger(draft.memory_mb);
     const disk = toInteger(draft.disk_gb);
     const pids = toInteger(draft.pids_limit);
-    if (cpus !== undefined) resources.cpus = cpus;
-    if (memory !== undefined) resources.memory_mb = memory;
+    // Only a fixed pool sends a size. An automatic one sends neither figure,
+    // whatever the sliders happen to be holding, because absence is how the
+    // API is told to leave the size to the host -- and the sliders keep their
+    // position so that switching back does not lose what was chosen.
+    if (fixed && cpus !== undefined) resources.cpus = cpus;
+    if (fixed && memory !== undefined) resources.memory_mb = memory;
+    // Disk and the pids limit are independent of the choice: neither has a
+    // share to be given, so a pool may cap its cache's disk and still leave
+    // its size to the host.
     if (disk !== undefined) resources.disk_gb = disk;
     if (pids !== undefined) resources.pids_limit = pids;
 
@@ -221,7 +307,20 @@
     if (complete || draft.runner_group.trim()) body.runner_group = draft.runner_group.trim();
     if (complete || draft.image.trim()) body.image = draft.image.trim();
     if (complete || draft.runner_version.trim()) body.runner_version = draft.runner_version.trim();
-    if (complete || Object.keys(resources).length > 0) body.resources = resources;
+    // Always sent, like the platform and for the same reason: a pool moved
+    // from a fixed size to automatic clears its figures, and an absent key
+    // would be read as "leave them alone".
+    body.resources = resources;
+    // Every override is sent on every save, as a duration or as null. Null is
+    // how the API is told to hand a setting back to the fleet, and a form that
+    // left a cleared input out would make "stop overriding this" unsayable.
+    body.runner_settings = {
+      provision_timeout: nullableDuration(draft.provision_timeout),
+      drain_timeout: nullableDuration(draft.drain_timeout),
+      max_runner_lifetime: nullableDuration(draft.max_runner_lifetime),
+      scale_up_delay: nullableDuration(draft.scale_up_delay),
+      docker_wait: nullableDuration(draft.docker_wait),
+    };
     if (complete || Object.keys(draft.host_selector).length > 0) {
       body.host_selector = draft.host_selector;
     }
@@ -346,6 +445,8 @@
   import StepBackend from './StepBackend.svelte';
   import StepSize from './StepSize.svelte';
   import StepScaling from './StepScaling.svelte';
+  import StepMode from './StepMode.svelte';
+  import StepRunners from './StepRunners.svelte';
   import StepReview from './StepReview.svelte';
 
   interface Props {
@@ -363,6 +464,19 @@
   // Captured once on purpose: the routes remount this form with a {#key} when
   // they start editing a different pool, so a live reference would be wrong.
   let draft = $state<PoolDraft>(untrack(() => (pool ? draftFromPool(pool) : emptyDraft())));
+  /*
+    Which of the two paths the wizard is walking.
+
+    A new pool starts on the simple one, because that is the pool most fleets
+    want and the one every default already describes. Editing opens on the
+    advanced path whenever the pool has anything the simple path cannot show --
+    a fixed size, a host selector, a runner override, a platform or an image --
+    so that opening a tuned pool never hides the settings it was tuned with,
+    and never quietly saves them away.
+  */
+  let mode = $state<WizardMode>(untrack(() => (pool && poolIsTuned(draft) ? 'advanced' : 'simple')));
+  const steps = $derived(wizardSteps(mode));
+  const fieldsByStep = $derived(stepFields(mode));
   let current = $state(0);
   let touched = $state<Record<string, boolean>>({});
   let serverErrors = $state<Record<string, string>>({});
@@ -412,6 +526,7 @@
    * and the Scaling step offers the fleet's figure rather than taking it.
    */
   let defaults = $state<Resources | null>(null);
+  let fleetDefaults = $state<Result<'getPoolDefaults'>['runner_settings'] | null>(null);
   let autoMax = $state<string | null>('4');
 
   // The operating systems a runner image is published for. Served rather than
@@ -422,8 +537,12 @@
   let validating = $state(false);
   let validateError = $state<unknown>(null);
 
-  const reviewStep = WIZARD_STEPS.length - 1;
-  const hostsStep = WIZARD_STEPS.findIndex((step) => step.id === 'hosts');
+  const reviewStep = $derived(steps.length - 1);
+  // -1 on the simple path, which walks no hosts step. Everything that reads it
+  // compares with `>=`, so "there is no such step" reads as "we are past it" --
+  // which is what the simple path means: it restricts nothing, so the
+  // placement question is answered and behind us from the start.
+  const hostsStep = $derived(steps.findIndex((step) => step.id === 'hosts'));
   // The backend step counts over the hosts this pool is allowed to land on, not
   // the whole fleet: "offered by 3 hosts" is a lie if two of them are the amd64
   // boxes an arm64 pool will never touch. Placement is chosen first for exactly
@@ -447,7 +566,7 @@
 
   const blocking = $derived.by(() => {
     const fields =
-      current === reviewStep ? Object.keys(clientErrors) : (STEP_FIELDS[current] ?? []);
+      current === reviewStep ? Object.keys(clientErrors) : (fieldsByStep[current] ?? []);
     return fields
       .map((field) => clientErrors[field])
       .filter((message): message is string => Boolean(message));
@@ -468,7 +587,7 @@
   }
 
   function touchStep(step: number): void {
-    const fields = STEP_FIELDS[step] ?? [];
+    const fields = fieldsByStep[step] ?? [];
     if (fields.length === 0) return;
     const next = { ...touched };
     for (const field of fields) next[field] = true;
@@ -482,17 +601,27 @@
   /* -- what the fleet and GitHub can offer --------------------------------- */
 
   /*
-    The size a new pool opens on. It is a fleet setting, so the sliders cannot
-    have a figure of their own: a wizard showing two cores while the fleet says
-    eight would be describing a pool it is not about to create. A pool being
-    edited already has its own size and is left alone.
+    Where a fixed size opens. It is a fleet setting, so the sliders cannot have
+    a figure of their own: a wizard showing two cores while the fleet says
+    eight would be describing a pool it is not about to create.
+
+    It is the fleet's *suggestion* rather than what a pool becomes -- a pool
+    that names no size is sized by its host -- so the figures are put on the
+    sliders and nowhere else. A pool being edited already has whatever size it
+    was given and is left alone.
   */
   $effect(() => {
     const controller = new AbortController();
     getPoolDefaults(controller.signal)
       .then((response) => {
-        const resources = response.resources ?? {};
+        const resources = response.suggested_resources ?? response.resources ?? {};
         defaults = resources;
+        // The fleet's own timings, so the overrides step can say what each
+        // setting is being overridden *from*. An input whose placeholder reads
+        // "20m0s, the fleet's" is one an operator can leave alone with
+        // confidence; an empty box beside the word "timeout" is one they feel
+        // obliged to fill.
+        fleetDefaults = response.runner_settings ?? null;
         untrack(() => {
           if (editing) return;
           if (draft.cpus === '' && resources.cpus !== undefined)
@@ -502,11 +631,13 @@
           }
         });
       })
-      // A failure here is not worth an error state: the server applies the
-      // same figures on save, and the sliders fall back to the built-in ones.
+      // A failure here is not worth an error state: the sliders fall back to
+      // the built-in figures, and nothing on the automatic path reads them.
       .catch(() => {});
     return () => controller.abort();
   });
+
+
 
   /*
     The maximum follows what the fleet can actually place, until it is typed
@@ -716,7 +847,7 @@
     const fields = cause.fieldErrors();
     serverErrors = fields;
     const first = Object.keys(fields)[0];
-    if (first !== undefined) goTo(stepForField(first));
+    if (first !== undefined) goTo(stepForField(first, mode));
   }
 
   /**
@@ -736,7 +867,7 @@
       const next = { ...touched };
       for (const field of outstanding) next[field] = true;
       touched = next;
-      goTo(stepForField(outstanding[0] ?? 'name'));
+      goTo(stepForField(outstanding[0] ?? 'name', mode));
       return;
     }
     submitting = true;
@@ -773,7 +904,7 @@
 
 <Wizard
   class={className}
-  steps={WIZARD_STEPS}
+  {steps}
   bind:current
   {canAdvance}
   busy={submitting}
@@ -786,7 +917,9 @@
 >
   {#snippet children(step)}
     <div class="step" bind:this={panel} tabindex="-1" role="group" aria-label={step.title}>
-      {#if step.id === 'target'}
+      {#if step.id === 'mode'}
+        <StepMode bind:mode {editing} hosts={fleet.hosts} hostsKnown={fleet.loaded} />
+      {:else if step.id === 'target'}
         <StepTarget
           {draft}
           {errors}
@@ -827,12 +960,15 @@
         <StepSize {draft} {errors} {touch} {defaults} {verdict} {validating} />
       {:else if step.id === 'scaling'}
         <StepScaling {draft} {errors} {touch} {verdict} {validating} following={followingMax} />
+      {:else if step.id === 'runners'}
+        <StepRunners {draft} {errors} {touch} {fleetDefaults} />
       {:else}
         <StepReview
           {draft}
           {body}
           {editing}
           {installationLabel}
+          {mode}
           {verdict}
           {validating}
           error={validateError}
@@ -843,7 +979,7 @@
       {#if blocking.length > 0}
         <div class="blocking">
           <p class="blocking-title">
-            {WIZARD_STEPS[current + 1] ? 'Before the next step' : 'Before this pool can be saved'}
+            {steps[current + 1] ? 'Before the next step' : 'Before this pool can be saved'}
           </p>
           <ul>
             {#each blocking as message, index (index)}
