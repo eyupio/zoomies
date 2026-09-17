@@ -138,7 +138,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 		}
 		for _, p := range pools {
 			// The same sentences the pool's own page shows, from the same place.
-			*out = append(*out, PoolWarnings(p, installations[p.InstallationID])...)
+			*out = append(*out, PoolWarnings(p, installations[p.InstallationID], c.cfg())...)
 		}
 		return nil
 	})

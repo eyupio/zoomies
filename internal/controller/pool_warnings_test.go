@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -33,14 +34,14 @@ func TestPoolWarningsSayWhenARepositoryCacheIsOnlyAsPrivateAsItsLabels(t *testin
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var found *Problem
-			for _, w := range PoolWarnings(&tc.pool, tc.inst) {
+			for _, w := range PoolWarnings(&tc.pool, tc.inst, config.Default()) {
 				if w.Code == "pool.cache_shared" {
 					w := w
 					found = &w
 				}
 			}
 			if (found != nil) != tc.want {
-				t.Fatalf("warned = %v, want %v; warnings: %+v", found != nil, tc.want, PoolWarnings(&tc.pool, tc.inst))
+				t.Fatalf("warned = %v, want %v; warnings: %+v", found != nil, tc.want, PoolWarnings(&tc.pool, tc.inst, config.Default()))
 			}
 			if found == nil {
 				return

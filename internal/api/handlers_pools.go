@@ -817,7 +817,7 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, "counting the room this pool's hosts have for it", err)
 		return
 	}
-	warnings := controller.PoolWarnings(p, inst)
+	warnings := controller.PoolWarnings(p, inst, s.cfg())
 	warnings = append(warnings, controller.PoolRoomWarnings(p, room)...)
 	if fit.Count == 0 {
 		why, fix := noHostWarning(p, fit)

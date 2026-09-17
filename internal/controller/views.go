@@ -688,6 +688,10 @@ type PoolRenderer struct {
 	// defaultImage is what a pool that names neither an image nor a platform
 	// will boot, which the renderer needs to resolve EffectiveImage.
 	defaultImage string
+	// cfg is the fleet's own settings, which a pool's warnings are measured
+	// against: a pool that overrides a runner timing is only right or wrong
+	// relative to what the fleet would otherwise have done.
+	cfg *config.Config
 }
 
 // PoolRenderer gathers the per-pool counts, installation targets and queue
@@ -725,8 +729,9 @@ func (c *Controller) PoolRenderer(ctx context.Context) (*PoolRenderer, error) {
 	for _, p := range c.PoolRunnerGroupProblems() {
 		blocked[p.TargetID] = append(blocked[p.TargetID], p)
 	}
+	cfg := c.cfg()
 	return &PoolRenderer{counts: counts, installations: installations, queued: queued,
-		blocked: blocked, defaultImage: c.cfg().GitHub.RunnerImage}, nil
+		blocked: blocked, defaultImage: cfg.GitHub.RunnerImage, cfg: cfg}, nil
 }
 
 // image is the image this pool's runners will actually boot, resolved the same
@@ -783,7 +788,7 @@ func (v *PoolRenderer) View(p *store.Pool) PoolView {
 		},
 		QueuedJobs:  v.queued[p.ID],
 		Utilisation: cnt.Utilisation(),
-		Warnings:    append(PoolWarnings(p, inst), v.blocked[p.ID]...),
+		Warnings:    append(PoolWarnings(p, inst, v.cfg), v.blocked[p.ID]...),
 	}
 }
 
@@ -842,8 +847,11 @@ func PoolSizing(p *store.Pool) string {
 	return SizingFixed
 }
 
-func PoolWarnings(p *store.Pool, inst *store.Installation) []Problem {
+func PoolWarnings(p *store.Pool, inst *store.Installation, cfg *config.Config) []Problem {
 	var out []Problem
+	if w, ok := poolStartLadderWarning(p, cfg); ok {
+		out = append(out, w)
+	}
 	for _, d := range p.Dangerous() {
 		out = append(out, Problem{
 			Code:       "pool.dangerous",
@@ -859,6 +867,73 @@ func PoolWarnings(p *store.Pool, inst *store.Installation) []Problem {
 		out = append(out, w)
 	}
 	return out
+}
+
+// PoolEffectiveDockerWait is how long this pool's runners actually wait for
+// their daemon: the pool's own override where it has one, the fleet's figure
+// where it does not, and the runner image's own two minutes where neither
+// says. Zero from either means "the image chooses", never "no wait".
+func PoolEffectiveDockerWait(p *store.Pool, cfg *config.Config) time.Duration {
+	if d := p.RunnerSettings.DockerWait; d != nil {
+		if d.Duration() > 0 {
+			return d.Duration()
+		}
+		return config.ImageDockerWait
+	}
+	if cfg == nil {
+		return config.ImageDockerWait
+	}
+	return cfg.Runners.EffectiveDockerWait()
+}
+
+// poolStartLadderWarning is scheduler.provision_timeout_short asked of one
+// pool, because a pool may now answer both halves of it for itself.
+//
+// The fleet's own defaults are held in the right order by an invariant test,
+// and the validator says so when an operator sets them otherwise. Neither
+// reaches a pool that overrides the provision timeout, the Docker wait, or one
+// without the other -- and a pool that fails its runners inside the wait it
+// configured them to do is the same outage on a smaller scale: the runner
+// still coming up is condemned, and its replacement pulls the same image over
+// the link that was slow to begin with.
+//
+// Only a pool with a daemon counts the wait, because only that pool does it.
+func poolStartLadderWarning(p *store.Pool, cfg *config.Config) (Problem, bool) {
+	if p == nil || !p.Enabled {
+		return Problem{}, false
+	}
+	timeout := cfg.Scheduler.ProvisionTimeout
+	if d := p.RunnerSettings.ProvisionTimeout; d != nil {
+		timeout = d.Duration()
+	}
+	// Zero is "never give up", which cannot condemn anything.
+	if timeout <= 0 {
+		return Problem{}, false
+	}
+	wait := time.Duration(0)
+	if p.DockerMode.GivesDaemon() {
+		wait = PoolEffectiveDockerWait(p, cfg)
+	}
+	start := config.RunnerCreateBudget + wait
+	if timeout > start {
+		return Problem{}, false
+	}
+	detail := fmt.Sprintf("an agent gives itself %s for a create, because a cold image pull on a slow link is minutes rather than seconds",
+		config.RunnerCreateBudget)
+	if wait > 0 {
+		detail += fmt.Sprintf(", and a runner of this pool then waits up to %s for the Docker daemon it was promised before it registers", wait)
+	}
+	detail += fmt.Sprintf(". A provision timeout of %s fails runners that are still coming up, and the replacement pulls the same image over the same link.", timeout)
+	return Problem{
+		Code:     "pool.provision_timeout_short",
+		Severity: config.SeverityWarning,
+		Title: fmt.Sprintf("pool %s: runners are failed after %s but may legitimately take %s to start",
+			p.Name, timeout, start),
+		Detail:     detail,
+		Fix:        fmt.Sprintf("set this pool's provision timeout above %s, or clear it to follow the fleet's %s.", start, cfg.Scheduler.ProvisionTimeout),
+		TargetKind: "pool",
+		TargetID:   p.ID,
+	}, true
 }
 
 // cacheSharingWarning names the way a repository cache stops being one.
