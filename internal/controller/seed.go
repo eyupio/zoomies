@@ -288,7 +288,7 @@ func (c *Controller) seedHosts(ctx context.Context, now time.Time) ([]*store.Hos
 				// what the UI is looked at with, so it has to show what an
 				// operator actually gets when a backend is missing.
 				{Kind: store.BackendPodman, Detail: "no socket at /run/user/1000/podman/podman.sock; " +
-					"install Podman, start it (systemctl --user enable --now podman.socket), " +
+					"install Podman, start it (`systemctl --user enable --now podman.socket`), " +
 					"or point agent.docker_host at the right socket"},
 			},
 			Labels:      store.StringMap{"arch": s.arch, "zone": "demo"},

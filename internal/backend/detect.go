@@ -190,7 +190,7 @@ func canUseSocket(path, name, startHint string) error {
 	fi, err := os.Stat(p)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return fmt.Errorf("%w: no socket at %s; install %s, start it (%s), or point agent.docker_host at the right socket", ErrUnavailable, p, name, startHint)
+		return fmt.Errorf("%w: no socket at %s; install %s, start it (`%s`), or point agent.docker_host at the right socket", ErrUnavailable, p, name, startHint)
 	case errors.Is(err, fs.ErrPermission):
 		return fmt.Errorf("%w: %s", ErrUnavailable, deniedDetail(realIdentity(), p))
 	case err != nil:
@@ -208,7 +208,7 @@ func canUseSocket(path, name, startHint string) error {
 	case errors.Is(err, syscall.EACCES), errors.Is(err, syscall.EPERM), errors.Is(err, fs.ErrPermission):
 		return fmt.Errorf("%w: %s", ErrUnavailable, deniedDetail(realIdentity(), p))
 	case errors.Is(err, syscall.ECONNREFUSED):
-		return fmt.Errorf("%w: %s exists but nothing is listening; start it with %s", ErrUnavailable, p, startHint)
+		return fmt.Errorf("%w: %s exists but nothing is listening; start it with `%s`", ErrUnavailable, p, startHint)
 	default:
 		return fmt.Errorf("%w: cannot connect to %s: %w", ErrUnavailable, p, err)
 	}
