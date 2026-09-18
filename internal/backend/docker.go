@@ -165,10 +165,9 @@ type flavor struct {
 	mountSuffix string
 	// startHint is the command an unreachable-socket message names as the fix,
 	// so a Podman probe tells the operator to start Podman, not Docker.
-	startHint   string
-	securityOpt []string
-	capDrop     []string
-	capAdd      []string
+	startHint string
+	capDrop   []string
+	capAdd    []string
 	// runnerUser is the account the runner process drops to, unless the pool
 	// asked for root.
 	runnerUser string
@@ -185,7 +184,6 @@ func dockerFlavor() flavor {
 		displayName:  "Docker",
 		supportsDinD: true,
 		startHint:    "systemctl --user start docker, or systemctl start docker",
-		securityOpt:  []string{"no-new-privileges"},
 		capDrop:      []string{"ALL"},
 		capAdd:       slices.Clone(buildCapabilities),
 		runnerUser:   "runner",
@@ -420,10 +418,15 @@ func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreate
 			// the exit has been reported and agent.finished_retention has passed.
 			AutoRemove:    false,
 			RestartPolicy: RestartPolicy{Name: "no"},
-			SecurityOpt:   slices.Clone(fl.securityOpt),
-			CapDrop:       slices.Clone(fl.capDrop),
-			CapAdd:        slices.Clone(fl.capAdd),
-			NetworkMode:   o.NetworkMode,
+			// No SecurityOpt: the runner image gives its unprivileged user
+			// passwordless sudo because a great many real workflows assume it, and
+			// "no-new-privileges" would silently defeat that -- the flag disables
+			// the setuid escalation sudo itself depends on, with a kernel error
+			// that names sudo rather than Zoomies. CapDrop below is the actual
+			// boundary: sudo only ever regains this capability set, never root's.
+			CapDrop:     slices.Clone(fl.capDrop),
+			CapAdd:      slices.Clone(fl.capAdd),
+			NetworkMode: o.NetworkMode,
 			// The root filesystem stays writable on purpose: builds write to it
 			// constantly, and a read-only rootfs would break most workflows for
 			// a benefit the ephemeral lifecycle already provides.
