@@ -27,7 +27,9 @@ blast radius of each execution as small as it can reasonably be:
 * no long-lived credential on the runner — a JIT registration is single-use;
 * no Docker daemon reachable from the job unless you explicitly ask for one;
 * a non-root user inside the container;
-* capabilities dropped to a build-shaped minimum, `no-new-privileges` set.
+* capabilities dropped to a build-shaped minimum. The user keeps passwordless
+  `sudo` — a great many workflows assume it, matching a GitHub-hosted runner —
+  but `sudo` only ever regains that same minimum, never full root.
 
 ## 2. Threat model
 

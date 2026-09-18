@@ -110,8 +110,8 @@ func TestBuildRunnerConfigSecurityDefaults(t *testing.T) {
 	if !slices.Equal(cfg.HostConfig.CapAdd, want) {
 		t.Fatalf("cap add = %v, want %v", cfg.HostConfig.CapAdd, want)
 	}
-	if !slices.Contains(cfg.HostConfig.SecurityOpt, "no-new-privileges") {
-		t.Fatalf("security opt = %v", cfg.HostConfig.SecurityOpt)
+	if len(cfg.HostConfig.SecurityOpt) != 0 {
+		t.Fatalf("security opt = %v, want none: \"no-new-privileges\" would disable the passwordless sudo the runner image grants", cfg.HostConfig.SecurityOpt)
 	}
 	if cfg.User != "runner" {
 		t.Fatalf("user = %q, want the unprivileged account", cfg.User)

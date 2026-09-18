@@ -290,7 +290,7 @@ blast radius of each execution as small as it reasonably can:
 - one job per runner, then the container is destroyed;
 - no reusable registration credential on the host;
 - no Docker daemon reachable from the job unless you explicitly ask for one;
-- a non-root user, dropped capabilities, `no-new-privileges`.
+- a non-root user, dropped capabilities, sudo that only ever regains that same minimum.
 
 Every setting that trades any of that away is named at startup, listed in the
 UI, and documented in [Security](security.md) with what it actually costs you.
