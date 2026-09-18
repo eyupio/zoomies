@@ -84,6 +84,13 @@ type Images struct {
 // somebody who has never chosen sees, on every screen they open it on.
 type UI struct {
 	CapacityMap CapacityMap `yaml:"capacity_map"`
+	// QueueWarningThreshold is how many jobs have to be queued before the
+	// queue tiles on the Overview, Jobs and Pools pages turn to their warning
+	// colour. Unlike the capacity map's layouts, there is no per-browser
+	// override to fall back to: this is the one answer every operator sees,
+	// so a fleet whose queue habitually sits at a dozen jobs can say so rather
+	// than living with an amber tile that never turns off.
+	QueueWarningThreshold int `yaml:"queue_warning_threshold"`
 }
 
 // CapacityMap is how the host capacity map first draws itself on each of the
@@ -818,10 +825,15 @@ func Default() *Config {
 		// Every host on one chart, on both pages: it is the layout that reads
 		// a small fleet at a glance, and a fleet large enough to want the
 		// other one is a fleet whose administrator has been to the settings.
-		UI: UI{CapacityMap: CapacityMap{
-			OverviewLayout: CapacityLayoutOverlay,
-			HostsLayout:    CapacityLayoutOverlay,
-		}},
+		UI: UI{
+			CapacityMap: CapacityMap{
+				OverviewLayout: CapacityLayoutOverlay,
+				HostsLayout:    CapacityLayoutOverlay,
+			},
+			// One: a queue with anything at all waiting is worth an operator's
+			// glance, which is the behaviour this setting replaces.
+			QueueWarningThreshold: 1,
+		},
 	}
 }
 

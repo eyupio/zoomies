@@ -3821,6 +3821,13 @@ components:
           properties:
             overview_layout: { $ref: "#/components/schemas/CapacityMapLayout" }
             hosts_layout: { $ref: "#/components/schemas/CapacityMapLayout" }
+        queue_warning_threshold:
+          type: integer
+          description: >-
+            How many jobs must be queued before the queue tiles on the Overview,
+            Jobs and Pools pages turn to their warning colour, from
+            ui.queue_warning_threshold in the fleet's settings.
+          examples: [1]
     CapacityMapLayout:
       type: string
       description: overlay draws every host on one chart; split draws a chart for each.

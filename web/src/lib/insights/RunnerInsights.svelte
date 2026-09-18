@@ -1,12 +1,13 @@
 <script lang="ts">
   import { fleet } from '$lib/state/fleet.svelte';
+  import { session } from '$lib/state/session.svelte';
   import MetricGrid, { type Metric } from '$lib/components/MetricGrid.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import ChartPanel from '$lib/components/ChartPanel.svelte';
   import LifecycleFlow from './LifecycleFlow.svelte';
   import ProvisioningPulse from './ProvisioningPulse.svelte';
   import StateBreakdown from './StateBreakdown.svelte';
-  import { poolSignals, finite } from './signals';
+  import { poolSignals, finite, queueTone } from './signals';
   import { formatNumber } from '$lib/format';
   import { runnerStatus } from '$lib/status';
   let { poolId = '', compact = false }: { poolId?: string; compact?: boolean } = $props();
@@ -23,7 +24,7 @@
       label: 'Job queue depth',
       value: num(queue),
       detail: 'Jobs waiting to start',
-      tone: (queue ?? 0) > 0 ? 'warning' : 'neutral',
+      tone: queueTone(queue, session.meta?.queue_warning_threshold),
       href: `/jobs?state=queued${suffix}`,
     },
     {

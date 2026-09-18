@@ -700,15 +700,19 @@
     padding: var(--z-space-3) var(--z-space-5) var(--z-space-2);
     border-bottom: var(--z-border-width) solid var(--z-border);
     background: var(--z-surface-sunken);
-    /* Cleared by the sticky top bar and toolbar, so a jump lands on the
-       heading rather than under them. */
-    scroll-margin-top: calc(var(--z-topbar-height) + var(--z-space-16));
   }
   h3 {
     margin: 0;
     font-size: var(--z-text-sm);
     font-weight: var(--z-weight-semibold);
     color: var(--z-text);
+    /* The index's links, and a browser's own address-bar anchor, jump to this
+       heading's id -- not to .section-head that carries it -- so the margin
+       clearing the sticky top bar and toolbar has to sit on the heading
+       itself. Set on .section-head instead, it did nothing: the jump landed
+       with the heading hidden behind both bars and the first row of the
+       section in its place. */
+    scroll-margin-top: calc(var(--z-topbar-height) + var(--z-space-16));
   }
   .section-head p {
     margin: var(--z-space-1) 0 0;
