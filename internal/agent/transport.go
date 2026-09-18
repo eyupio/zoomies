@@ -61,5 +61,13 @@ type Credentials struct {
 	TailcatAddress string `json:"tailcat_address,omitempty" yaml:"-"`
 }
 
-// Valid reports whether the credentials are complete enough to use.
-func (c Credentials) Valid() bool { return c.HostID != "" && c.AgentToken != "" }
+// Valid reports whether the credentials are complete enough to use. A host
+// enrolled through a private connection needs its tunnel address too: without
+// one, the host ID and agent token alone name a controller this agent has no
+// way to dial.
+func (c Credentials) Valid() bool {
+	if c.HostID == "" || c.AgentToken == "" {
+		return false
+	}
+	return c.Controller != TailcatController || c.TailcatAddress != ""
+}

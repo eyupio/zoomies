@@ -83,10 +83,37 @@ func runAgentDaemon(ctx context.Context, e *env, args []string) error {
 		return err
 	}
 
-	saved, loadErr := agent.Load(agent.StatePath(cfg.Agent.WorkDir))
+	// Credentials come from the state file a previous join wrote. Checking
+	// here, before anything is built from them, is what keeps a host with no
+	// usable credentials from failing with whatever error an HTTP transport
+	// half-built from an empty token happens to produce -- for a private
+	// connection specifically, that used to be a low-level "no tunnel
+	// address" error with no mention of the state file or what to do about
+	// it. One reason, stated once, up front.
+	statePath := agent.StatePath(cfg.Agent.WorkDir)
+	saved, loadErr := agent.Load(statePath)
+	joined := loadErr == nil
 	if loadErr != nil && !errors.Is(loadErr, agent.ErrNotJoined) {
 		return loadErr
 	}
+	token := strings.TrimSpace(cfg.Agent.JoinToken)
+	if !joined && token == "" {
+		reason := "no credentials file yet"
+		if loadErr != nil {
+			reason = loadErr.Error()
+		}
+		join := fmt.Sprintf("run `zoomies agent join %s --token <join-token>`, minting the token in the UI under Hosts -> Add a host, "+
+			"or set ZOOMIES_JOIN_TOKEN and start again", agent.DisplayController(cfg.Agent.ControllerURL))
+		if cfg.Agent.ControllerURL == agent.TailcatController {
+			// tailcat://controller is a marker, not a dialable address: no
+			// flag or environment variable on this host can supply the
+			// private connection's tunnel address, only a fresh enrolment
+			// command from the UI can.
+			join = "mint a fresh enrolment command in the UI under Hosts -> Add a host -> Private connection and run it on this host"
+		}
+		return fmt.Errorf("this host cannot start: %s, and no join token to get new ones: %s", reason, join)
+	}
+
 	transport, err := agent.NewHTTPTransport(agent.HTTPOptions{
 		TailcatAddress:     saved.TailcatAddress,
 		ControllerURL:      cfg.Agent.ControllerURL,
@@ -120,20 +147,10 @@ func runAgentDaemon(ctx context.Context, e *env, args []string) error {
 		return err
 	}
 
-	// Credentials come from the state file a previous join wrote. Joining here
-	// is the fallback for a host handed a token by configuration management,
-	// which is why it only happens when there is nothing to restore.
-	statePath := agent.StatePath(cfg.Agent.WorkDir)
-	if _, err := agent.Load(statePath); err != nil {
-		if !errors.Is(err, agent.ErrNotJoined) {
-			return err
-		}
-		token := strings.TrimSpace(cfg.Agent.JoinToken)
-		if token == "" {
-			return fmt.Errorf("this host has no agent credentials at %s and no join token to get some: "+
-				"run `zoomies agent join %s --token <join-token>`, minting the token in the UI under Hosts -> Add a host, "+
-				"or set ZOOMIES_JOIN_TOKEN and start again", statePath, agent.DisplayController(cfg.Agent.ControllerURL))
-		}
+	// Joining here is the fallback for a host handed a token by configuration
+	// management rather than `zoomies agent join`; it only runs when the state
+	// file above had nothing to restore.
+	if !joined {
 		if err := a.Join(ctx, token); err != nil {
 			return err
 		}
