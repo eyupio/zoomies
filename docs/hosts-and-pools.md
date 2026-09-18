@@ -723,16 +723,15 @@ becomes a warning while defaults are on. The `process` backend never gets one:
 it applies no limit at all, and a defaulted figure on one of its runners would
 be a number on the Runners page saying the opposite of the truth.
 
-A `dind` pool's sidecar receives the same limits the runner does, from the same
-spec, so a defaulted pair is given two shares between them — and the charge
-covers both, so the books and the cgroups agree here as they do everywhere
-else. Each container keeps a whole share rather than half of one: half a share
-each would hobble the build for a symmetry the charge keeps by itself, and a
-host carrying pairs simply has room for fewer of them. The exception is a host
-with a single slot, where two shares are more than the whole machine. There the
-pair is charged the machine and given twice it, because halving a lone slot's
-memory is how a build that used to pass gets OOM-killed, and one pair on one
-host is the shape the pressure holds and the throttle already answer for.
+A `dind` pool's sidecar is given what the runner was, and what that is depends
+on where it came from. A limit an operator typed is given to both containers
+in full — the build runs in the daemon, so it needs the same figure the runner
+was promised — and the charge covers both to match. A defaulted figure is one
+slot's share, and the pair splits it between them rather than each keeping a
+whole one, because a slot is one runner however many containers it takes to
+run it; the charge is one share to match. A slot too small to give both halves
+what a runner needs is refused rather than divided, because handing the
+daemon whatever is left over is no limit at all.
 
 What a runner was given, and why, is on its page and in
 `GET /api/v1/runners/{id}`: `allocated_cpus`, `allocated_memory_mb` and

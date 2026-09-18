@@ -23,19 +23,18 @@ import (
 // share to give (it is a measurement, not a budget) and a pids limit is not a
 // thing the machine's size says anything about.
 //
-// A docker-in-docker runner's sidecar receives the same limits the runner
-// does, from the same spec, so a defaulted pair is given two shares between
-// them -- and Reserve charges the pair for both, so the books and the cgroups
-// agree here as they do everywhere else. Each container keeps a whole share
-// rather than half of one: half a share each would hobble a build for a
-// symmetry the charge can keep by itself, and the host that carries a pair
-// simply has room for fewer of them.
+// A docker-in-docker runner's sidecar is given what this function hands back
+// as spec.Resources, and what that is depends on where the figure came from.
+// A limit an operator typed is given to both containers in full -- the build
+// runs in the daemon, so it needs the same figure the runner was promised --
+// and Reserve charges the host for both. A defaulted figure is one slot's
+// share, and store.Resources.SplitWithDaemon divides it between the pair
+// before either container is created, because a slot is one runner however
+// many containers it takes to run it; Reserve charges one share to match.
 //
-// A host with a single slot is the exception the cap in Reserve leaves
-// behind. Two shares are more than the whole machine there, so the pair is
-// charged the machine and given twice it; halving a lone slot's memory is how
-// a build that used to pass gets OOM-killed, and one pair on one host is the
-// shape the pressure holds and the throttle already answer for.
+// A slot too small to give both halves what a runner needs is refused rather
+// than divided -- see ShareFloor -- because handing the daemon whatever is
+// left over is no limit at all, which is how one build takes the machine.
 //
 // A default is only given where it would bind. The process backend applies no
 // limit at all, so a defaulted figure on one of its runners would be a number
