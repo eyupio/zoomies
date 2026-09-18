@@ -162,17 +162,21 @@ func TestAFullyInQuotaHostRaisesNoResourceProblem(t *testing.T) {
 	}
 }
 
-// A docker-in-docker slot is two containers only where the pool typed its own
-// limits, and then the machine has to be sized for both.
+// A docker-in-docker slot is two containers whatever the pool typed, and the
+// machine has to be sized for both either way.
 //
 // This is the host from the report that started the work: twelve slots' worth
 // of cores on paper, every one of them a pair in practice, a Hosts page reading
-// half committed, and a daemon that stopped answering creates. What changed
-// since is which pools make a slot a pair: a pool sized by its host puts the
-// runner and the daemon in one slot between them, so its slots are worth one
-// runner like everybody else's, and only a pool that asked for figures of its
-// own has the daemon given them a second time.
-func TestATypedDockerInDockerPoolMakesEachSlotAPairInTheOverprovisioningCount(t *testing.T) {
+// half committed, and a daemon that stopped answering creates. A pool that
+// typed its own figures was always charged for the sidecar a second time; a
+// pool sized by its host used to be let off the count entirely, on the theory
+// that the pair splitting one slot between them made a slot worth one runner
+// like everybody else's -- but stability over performance means each half of
+// that split still has to be a runner's worth, not half of one, so an
+// automatic pool now makes a slot a pair too. See scheduler.ShareFloor for the
+// other half of that: a slot too thin for the split is refused outright rather
+// than merely counted here.
+func TestADockerInDockerPoolMakesEachSlotAPairInTheOverprovisioningCount(t *testing.T) {
 	h := newHarness(t)
 	inst := h.installation()
 	// Eight cores less the floor is 7.5, so six plain runners fit and this
@@ -187,10 +191,25 @@ func TestATypedDockerInDockerPoolMakesEachSlotAPairInTheOverprovisioningCount(t 
 	if err := h.st.UpdatePool(h.ctx, p); err != nil {
 		t.Fatalf("UpdatePool: %v", err)
 	}
-	// Sized by its host: the pair shares a slot, so nothing about the machine
-	// changed and the host is still the right size for six.
-	if codes := h.problemCodes(); contains(codes, "host.overprovisioned") {
-		t.Fatalf("problems = %v; a pool sized by its host puts its pair in one slot", codes)
+	// Sized by its host: the pair still splits one slot between them, but
+	// stability over performance means each half of that slot has to clear a
+	// runner's own comfortable floor, and six slots of 7.5 allocatable cores
+	// does not.
+	auto := h.problem(t, "host.overprovisioned")
+	for _, want := range []string{"dind-builders", "docker in docker", "two containers", "without limits of its own"} {
+		if !strings.Contains(auto.Detail, want) {
+			t.Errorf("detail %q does not mention %q", auto.Detail, want)
+		}
+	}
+	if strings.Contains(auto.Detail, "each given what the pool asked for") {
+		t.Errorf("detail %q describes a typed charge for a pool that set none", auto.Detail)
+	}
+	// 7.5 cores in pairs is three, and 31.5 GB in pairs of 2 GB slots is
+	// seven: the cores run out first, as they did on the real host, and the
+	// same figure applies whether or not the pool typed its own limits --
+	// the fix is the same slot count either way.
+	if !strings.Contains(auto.Fix, "capacity to 3") {
+		t.Errorf("fix %q does not name the capacity the pairs fit in", auto.Fix)
 	}
 
 	p.Resources = store.Resources{CPUs: 1, MemoryMB: 2048}
@@ -199,13 +218,11 @@ func TestATypedDockerInDockerPoolMakesEachSlotAPairInTheOverprovisioningCount(t 
 	}
 
 	got := h.problem(t, "host.overprovisioned")
-	for _, want := range []string{"dind-builders", "docker in docker", "two containers"} {
+	for _, want := range []string{"dind-builders", "docker in docker", "two containers", "each given what the pool asked for"} {
 		if !strings.Contains(got.Detail, want) {
 			t.Errorf("detail %q does not mention %q", got.Detail, want)
 		}
 	}
-	// 7.5 cores in pairs is three, and 31.5 GB in pairs of 2 GB slots is
-	// seven: the cores run out first, as they did on the real host.
 	if !strings.Contains(got.Fix, "capacity to 3") {
 		t.Errorf("fix %q does not name the capacity the pairs fit in", got.Fix)
 	}

@@ -186,21 +186,57 @@ func TestAHostIsNeverChargedLessThanItsRunnersAreGiven(t *testing.T) {
 	}
 }
 
-// A host with one slot must still be able to run the pool it was joined for.
-// Two shares of a single-slot host are twice the machine, and charging that
-// would refuse every defaulted dind pool on every small host in the fleet --
-// an upgrade that empties a fleet rather than protecting it.
-func TestASingleSlotHostStillPlacesADefaultedDockerInDockerRunner(t *testing.T) {
-	h := sized("host_small", 1, 2, 4*1024, 500*1024)
+// A host with one slot must still be able to run the pool it was joined for,
+// as long as that one slot is big enough to give both containers of the pair
+// a comfortable share. Charging two shares for a defaulted pair would refuse
+// every one of them on every small host in the fleet -- an upgrade that
+// empties a fleet rather than protecting it -- so the charge stays one share;
+// what changed is that the share itself now has to clear a real floor. See
+// TestASplitTooThinForBothContainersIsRefused for the host this one is not.
+func TestASingleSlotHostStillPlacesAWellSizedDefaultedDockerInDockerRunner(t *testing.T) {
+	h := sized("host_ample", 1, 4, 8*1024, 500*1024)
 	p := testPool("builders", "builders")
 	p.DockerMode = store.DockerDinD
 
 	if !HostFits(h, p) {
-		t.Fatalf("a one-slot host was refused the pool it exists for: %s", HostShortfall(h, p))
+		t.Fatalf("a one-slot host with room for both containers was refused the pool it exists for: %s", HostShortfall(h, p))
 	}
 	hs := newHostSet([]*store.Host{h}, []*store.Pool{p}, nil, now)
 	if got := hs.place(p, 2); len(got) != 1 {
 		t.Fatalf("placed %d runners on a one-slot host, want 1", len(got))
+	}
+}
+
+// Stability over performance: a defaulted docker-in-docker pair still splits
+// one slot between a runner and the daemon that builds for it, and a slot too
+// thin to give both of them a comfortable share -- a core and 2 GB each, not
+// half of the bare minimum that only keeps a runner from being killed -- is
+// refused rather than handed to a daemon that cannot keep up with its own
+// job. That daemon timing out on a create is the backend_busy fault this
+// refusal exists to prevent, not merely warn about after the fact.
+func TestASplitTooThinForBothContainersIsRefused(t *testing.T) {
+	// 2 CPUs less the half-core floor is 1.5, which split between a runner
+	// and its daemon is 0.75 each: enough to avoid store.MinRunnerCPUs, not
+	// enough to keep a nested dockerd answering under load.
+	h := sized("host_thin", 1, 2, 4*1024, 500*1024)
+	p := testPool("builders", "builders")
+	p.DockerMode = store.DockerDinD
+
+	if field := ShareTooSmall(h, p); field != "cpu" {
+		t.Fatalf("ShareTooSmall = %q, want cpu: 1.5 allocatable CPU split between a runner and its daemon is not a comfortable core each", field)
+	}
+	if HostFits(h, p) {
+		t.Error("a one-slot host with 1.5 CPU to split between two containers was accepted for a pair that needs a core each")
+	}
+	why := HostShortfall(h, p)
+	for _, want := range []string{"1.5 allocatable CPU", "needs at least 2", "Docker daemon"} {
+		if !strings.Contains(why, want) {
+			t.Errorf("HostShortfall = %q, want it to mention %q", why, want)
+		}
+	}
+	hs := newHostSet([]*store.Host{h}, []*store.Pool{p}, nil, now)
+	if got := hs.place(p, 2); len(got) != 0 {
+		t.Fatalf("placed %d runners on a host too thin for the pair, want 0: %v", len(got), got)
 	}
 }
 

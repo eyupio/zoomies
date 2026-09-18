@@ -179,7 +179,11 @@ kernel counts a task waiting on disk towards the load average while it keeps a
 container that has spent its CPU quota off the run queue, so a host can sit at
 40% CPU with a load past twice its cores and a daemon too busy to answer a
 `create`. `docker_mode: dind` is the usual multiplier, since each of its slots
-is two containers the backend gives the same limits.
+is two containers — a typed pool gives both the same limits, and a pool sized
+by its host still splits one slot between them. Either way a slot too thin to
+give both a comfortable share is refused the host outright, before it can
+produce this symptom at all; [`host.overprovisioned`](problem-codes.md) is the
+warning for a host that is still too finely sliced even where it is not.
 
 At 85% CPU usage, Zoomies starts one runner at a time. Sustained usage of at
 least 95% holds new starts until it falls below 85%. A host at its memory

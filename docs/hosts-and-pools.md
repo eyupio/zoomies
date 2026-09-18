@@ -613,9 +613,16 @@ room every time it was taken, down to one slot holding nothing at all.
 A slot too small to give both halves what a runner needs is refused rather than
 divided, and the host says so with its slot count and the figure it divides
 into: dividing anyway would hand the daemon whatever was left over, and a
-leftover of nothing is no limit at all. The reservation is worked out from
-the runner rows on every pass; nothing stores it, so a restart recovers it and a
-runner that fails stops being charged for as soon as its row says so.
+leftover of nothing is no limit at all. Stability over performance sets that
+floor above the bare minimum a plain runner needs to avoid being killed: each
+half of a defaulted pair has to clear a full core and 2 GB on its own, the same
+figure a plain runner's slot is judged comfortable against, or the pool does
+not run on that host at all. A host that used to squeeze several thin dind
+pairs onto a small machine now runs fewer of them, each with room for its
+daemon to answer a create — which is the trade this exists to make. The
+reservation is worked out from the runner rows on every pass; nothing stores
+it, so a restart recovers it and a runner that fails stops being charged for
+as soon as its row says so.
 
 Held back before any of that: `reserve_cpus`, `reserve_memory_mb` and
 `reserve_disk_mb` on the host, which are the operator's the way capacity is —
@@ -730,8 +737,9 @@ was promised — and the charge covers both to match. A defaulted figure is one
 slot's share, and the pair splits it between them rather than each keeping a
 whole one, because a slot is one runner however many containers it takes to
 run it; the charge is one share to match. A slot too small to give both halves
-what a runner needs is refused rather than divided, because handing the
-daemon whatever is left over is no limit at all.
+a full core and 2 GB each is refused rather than divided, because handing the
+daemon whatever is left over is no limit at all, and a daemon on less than
+that is the usual shape of a host that stops answering creates.
 
 What a runner was given, and why, is on its page and in
 `GET /api/v1/runners/{id}`: `allocated_cpus`, `allocated_memory_mb` and
