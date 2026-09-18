@@ -16,6 +16,7 @@
   import Button from '$lib/components/Button.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import RemedyText from '$lib/components/RemedyText.svelte';
+  import Tooltip from '$lib/components/Tooltip.svelte';
 
   interface Props {
     provider: Provider;
@@ -39,6 +40,8 @@
     class: className = '',
   }: Props = $props();
 
+  /** Why Check and Pause are greyed out for a viewer -- the badges above already say why the card itself is held; this is why *acting* on it is refused. */
+  const restricted = 'Needs the operator role. An administrator can grant it under Settings.';
   const owned = $derived(provider.owned ?? 0);
   const ceiling = $derived(provider.max_machines ?? 0);
   const counts = $derived(Object.entries(provider.machines ?? {}).filter(([, n]) => n > 0));
@@ -146,26 +149,40 @@
   </p>
 
   <div class="actions">
-    <Button
-      size="sm"
-      icon={Stethoscope}
-      disabled={!canOperate || checking}
-      onclick={() => oncheck(provider)}
-    >
-      {checking ? 'Checking…' : 'Check'}
-    </Button>
-    <Button
-      size="sm"
-      icon={provider.paused ? Play : Pause}
-      disabled={!canOperate || pausing}
-      onclick={() => onpause(provider, !provider.paused)}
-    >
-      {#if pausing}
-        {provider.paused ? 'Resuming…' : 'Pausing…'}
-      {:else}
-        {provider.paused ? 'Resume' : 'Pause'}
-      {/if}
-    </Button>
+    {#snippet checkButton()}
+      <Button
+        size="sm"
+        icon={Stethoscope}
+        disabled={!canOperate || checking}
+        onclick={() => oncheck(provider)}
+      >
+        {checking ? 'Checking…' : 'Check'}
+      </Button>
+    {/snippet}
+    {#if canOperate}
+      {@render checkButton()}
+    {:else}
+      <Tooltip text={restricted}>{@render checkButton()}</Tooltip>
+    {/if}
+    {#snippet pauseButton()}
+      <Button
+        size="sm"
+        icon={provider.paused ? Play : Pause}
+        disabled={!canOperate || pausing}
+        onclick={() => onpause(provider, !provider.paused)}
+      >
+        {#if pausing}
+          {provider.paused ? 'Resuming…' : 'Pausing…'}
+        {:else}
+          {provider.paused ? 'Resume' : 'Pause'}
+        {/if}
+      </Button>
+    {/snippet}
+    {#if canOperate}
+      {@render pauseButton()}
+    {:else}
+      <Tooltip text={restricted}>{@render pauseButton()}</Tooltip>
+    {/if}
     <Button size="sm" variant="secondary" href="/providers/{provider.id}">Open</Button>
   </div>
 </article>
