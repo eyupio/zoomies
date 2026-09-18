@@ -55,6 +55,11 @@ type RuntimeInfo struct {
 	// reachable, which is the "start the service" case rather than the
 	// "install it" case.
 	Installed bool
+	// Limits is whether the daemon can apply a CPU quota, a memory limit and
+	// a pids limit, carried over from the probe so that setup can delegate the
+	// cgroup controllers a rootless daemon is missing before it ever refuses a
+	// runner, rather than waiting for host.limits_unenforceable at runtime.
+	Limits store.LimitSupport
 }
 
 // ComposeInfo is the Docker Compose command this host can run.
@@ -351,6 +356,7 @@ func probeRuntime(ctx context.Context, kind store.BackendKind, hint string) Runt
 	out.Endpoint = info.Endpoint
 	out.Version = info.Version
 	out.Detail = info.Detail
+	out.Limits = info.Limits
 	if !out.Available && out.Detail == "" && out.Endpoint != "" {
 		if err := backend.CanUseDockerSocket(out.Endpoint); err != nil {
 			out.Detail = err.Error()

@@ -1986,6 +1986,13 @@ func (i *Installer) runInstall(ctx context.Context, p Plan) error {
 	if err := i.stepUserAndDirs(ctx, &p); err != nil {
 		return err
 	}
+	if p.Embedded && p.Backend != store.BackendProcess {
+		info := i.det.Docker
+		if p.Backend == store.BackendPodman {
+			info = i.det.Podman
+		}
+		ensureCgroupDelegation(ctx, i.ui, i.det, p.Backend, p.Rootless, p.DockerHost, info.Limits, runCommand)
+	}
 	key, freshKey, err := i.stepKey(p)
 	if err != nil {
 		return err
