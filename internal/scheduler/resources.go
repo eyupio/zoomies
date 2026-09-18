@@ -30,6 +30,17 @@ type Reservation struct {
 // subtraction left 2.7755575615628914e-16 of a CPU owing.
 const cpuEpsilon = 1e-6
 
+// comfortableRunnerCPUs and comfortableRunnerMemoryMB are what a container
+// needs to do real work without crawling through a build, rather than merely
+// enough to avoid being killed. They match the figures
+// controller.overprovisionedSlotMemoryMB and its CPU counterpart judge a
+// plain runner's slot against, so the two warnings never disagree about what
+// "comfortable" means.
+const (
+	comfortableRunnerCPUs     = 1.0
+	comfortableRunnerMemoryMB = 2048
+)
+
 // Reserve is what one runner of p costs on h.
 //
 // It is pure, and it is per field. A pool that sets a memory limit and no CPU
@@ -201,15 +212,24 @@ func ShareTooSmall(h *store.Host, p *store.Pool) string {
 }
 
 // ShareFloor is the least one slot may be worth on a host this pool can use:
-// what a runner needs to be one, doubled where the runner brings a daemon into
-// the same slot.
+// what a runner needs to be one, or -- where the runner brings a daemon into
+// the same slot -- what each of the two needs to keep up with its own half of
+// the job, doubled into one figure for the slot they share.
+//
+// The two containers of a defaulted docker-in-docker pair are not judged by
+// the bare minimum that only keeps a runner from being killed
+// (store.MinRunnerCPUs, store.MinRunnerMemoryMB): stability over performance
+// means each half has to clear what any runner needs to do real work, the
+// same comfortableRunnerCPUs and comfortableRunnerMemoryMB a plain runner's
+// slot is judged against. A slot too thin for that is refused rather than
+// split into two containers that will not keep up -- see
+// TestASplitTooThinForBothContainersIsRefused -- which trades density for a
+// daemon that answers its creates.
 func ShareFloor(p *store.Pool) Reservation {
-	floor := Reservation{CPUs: store.MinRunnerCPUs, MemoryMB: store.MinRunnerMemoryMB}
 	if p != nil && p.DockerMode == store.DockerDinD && p.Automatic() {
-		floor.CPUs *= 2
-		floor.MemoryMB *= 2
+		return Reservation{CPUs: comfortableRunnerCPUs * 2, MemoryMB: comfortableRunnerMemoryMB * 2}
 	}
-	return floor
+	return Reservation{CPUs: store.MinRunnerCPUs, MemoryMB: store.MinRunnerMemoryMB}
 }
 
 // fits is the one comparison, so that the empty-host question and the

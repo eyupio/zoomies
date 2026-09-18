@@ -1157,20 +1157,22 @@ const overprovisionedSlotMemoryMB int64 = 2048
 // 2 GB, after the reserve -- the sentence says the machine is too small to
 // run a runner well, rather than pretending a capacity of one is the answer.
 //
-// A slot is two containers where a docker-in-docker pool that typed its own
-// limits places, because the daemon is given what the job was promised and the
-// machine carries both. That doubles the machine a slot has to be, so a host
-// sized comfortably for eight plain runners is over-provisioned at eight of
-// those -- and it is the count this warning exists to give, since nothing else
-// on the Hosts page says a slot there is worth two. A dind pool that leaves its
-// size to the host is not counted twice: its pair splits one slot between them,
-// which is what makes a slot one runner whatever it brought with it.
+// A slot is two containers wherever a docker-in-docker pool places, typed or
+// not. A pool that typed its own limits doubles the machine a slot has to be
+// because the daemon is given what the job was promised and the machine
+// carries both; a pool that left its size to the host still puts a runner and
+// a daemon in that one slot, and stability over performance means each of
+// them needs its own comfortable share rather than half of one -- see
+// scheduler.ShareFloor. Either way a host sized comfortably for eight plain
+// runners is over-provisioned at eight of those, and it is the count this
+// warning exists to give, since nothing else on the Hosts page says a slot
+// there is worth two.
 func overprovisionedProblem(h *store.Host, pools []*store.Pool, defaults bool) (Problem, bool) {
 	a := h.Allocatable()
 	if h.Capacity <= 0 || (!a.CPUsKnown && !a.MemoryKnown) {
 		return Problem{}, false
 	}
-	pair := dindPoolPlacesOn(h, pools)
+	pair, typed := dindPoolPlacesOn(h, pools)
 	containers := int64(1)
 	if pair != "" {
 		containers = 2
@@ -1222,9 +1224,14 @@ func overprovisionedProblem(h *store.Host, pools []*store.Pool, defaults bool) (
 		detail += fmt.Sprintf(", and scheduler.default_runner_limits is off, so nothing limits its runners: each of the %d can take the whole machine at once, which is the shape that stops Docker answering.", h.Capacity)
 	}
 	// Which pool made a slot a pair, because "two containers" is not a thing
-	// an operator can check against anything on the host's own card.
-	if pair != "" {
+	// an operator can check against anything on the host's own card. The two
+	// shapes are charged differently, so the sentence has to say which one
+	// this host has.
+	switch {
+	case typed:
 		detail += fmt.Sprintf(" %s runs docker in docker here with limits of its own, so each of its slots is two containers -- the runner and the daemon, each given what the pool asked for -- and the machine carries twice what the capacity reads.", pair)
+	case pair != "":
+		detail += fmt.Sprintf(" %s runs docker in docker here without limits of its own, so each of its slots is still two containers -- a runner and the daemon it shares the slot with -- and stability over performance means each of them needs its own comfortable share rather than half of one.", pair)
 	}
 	// Capacity is decided once, at join, and a heartbeat never rewrites it:
 	// agent.capacity answers only for the embedded host, and a remote host
@@ -1266,8 +1273,8 @@ func overprovisionedProblem(h *store.Host, pools []*store.Pool, defaults bool) (
 }
 
 // dindPoolPlacesOn names the first docker-in-docker pool that would place a
-// runner on this host, or "" when none would. It is what decides whether a
-// slot here is one container or two.
+// runner on this host, or "" when none would, and whether that pool typed its
+// own limits. It is what decides whether a slot here is one container or two.
 //
 // The question is which pools reach the host, not which have runners on it
 // now: a capacity that the machine cannot carry is wrong before the first
@@ -1275,22 +1282,31 @@ func overprovisionedProblem(h *store.Host, pools []*store.Pool, defaults bool) (
 // has already had the jobs that found out for them. Availability is left out
 // for the same reason -- a cordoned host is skipped by the caller, and a host
 // that is merely unhealthy is still the size it is.
-func dindPoolPlacesOn(h *store.Host, pools []*store.Pool) string {
+//
+// Both shapes make a slot a pair now. A pool that typed its limits is charged
+// for the sidecar a second time, and a pool that left its size to the host
+// still puts two containers in one slot -- stability over performance means
+// that slot has to be big enough for both of them at comfortableRunnerCPUs
+// and comfortableRunnerMemoryMB each, not half of that each. Only which
+// sentence explains it still depends on which pool made the slot a pair, so a
+// typed match wins when both exist: it is charged twice what it asks for,
+// which is the stronger and more specific fact.
+func dindPoolPlacesOn(h *store.Host, pools []*store.Pool) (name string, typed bool) {
 	for _, p := range pools {
 		if p == nil || !p.Enabled || p.DockerMode != store.DockerDinD || p.Backend == store.BackendProcess {
 			continue
 		}
-		// A pool sized by its host puts the pair in one slot, so its slots are
-		// worth one runner like everybody else's. Only a pool that typed its
-		// limits has the daemon given them a second time.
-		if p.Automatic() {
+		if !scheduler.HostSelects(h, p) || !scheduler.HostOffers(h, p) || !scheduler.HostIsPlatform(h, p) {
 			continue
 		}
-		if scheduler.HostSelects(h, p) && scheduler.HostOffers(h, p) && scheduler.HostIsPlatform(h, p) {
-			return p.Name
+		if !p.Automatic() {
+			return p.Name, true
+		}
+		if name == "" {
+			name = p.Name
 		}
 	}
-	return ""
+	return name, false
 }
 
 // unenforceableProblem is host.limits_unenforceable for one backend of one
