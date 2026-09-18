@@ -1340,59 +1340,161 @@ detect_compose
 # the operator to work out whether it matters.
 # ---------------------------------------------------------------------------
 
+# report_runtime prints the runtime/compose fields of the host report. It is
+# called twice on a host with nothing installed: once for the initial finding,
+# and again after offer_container_runtime, so the report an operator scrolls
+# back to matches what actually ended up on the host rather than the moment
+# before they fixed it.
+report_runtime() {
+    case "$RUNTIME" in
+        docker|podman)
+            if [ "$RUNTIME_ROOTLESS" -eq 1 ]; then
+                field runtime "$RUNTIME, rootless -- $RUNTIME_SOCKET"
+            else
+                field runtime "$RUNTIME, root -- $RUNTIME_SOCKET"
+            fi
+            ;;
+        docker-unavailable)
+            if [ -n "$RUNTIME_DENIED" ]; then
+                # The socket is there and this user may not open it. Naming the
+                # group that owns it turns the fix into one command, and setup will
+                # put the service account in that group for you.
+                # GNU stat and BSD stat spell this differently, and the fix has to
+                # name a real group on both.
+                denied_group=$(stat -c '%G' "$RUNTIME_DENIED" 2>/dev/null \
+                    || stat -f '%Sg' "$RUNTIME_DENIED" 2>/dev/null \
+                    || echo docker)
+                field runtime "docker is running, but $RUNTIME_DENIED is not yours to open"
+                field "" "it belongs to group $denied_group. Setup adds the service account"
+                field "" "to it; for your own shell, sudo usermod -aG $denied_group $(id -un),"
+                field "" "then log in again."
+            else
+                field runtime "docker is installed, but its socket is not answering"
+                field "" "start it: sudo systemctl start docker"
+                field "" "or rootless: systemctl --user start docker"
+            fi
+            field "" "native works regardless; compose and docker need this fixed."
+            ;;
+        podman-unavailable)
+            field runtime "podman is installed, but its API socket is not running"
+            field "" "start it: systemctl --user enable --now podman.socket"
+            field "" "native works regardless; compose and docker need this fixed."
+            ;;
+        *)
+            field runtime "none -- jobs would run directly on this host, unisolated"
+            ;;
+    esac
+    if [ -n "$COMPOSE_CMD" ]; then
+        field compose "$COMPOSE_CMD"
+    fi
+}
+
 step "Checking this host"
 field os "$OS/$ARCH ($DISTRO)"
 case "$INIT_SYSTEM" in
     none) field init "none -- nothing here will restart Zoomies after a reboot" ;;
     *)    field init "$INIT_SYSTEM" ;;
 esac
-case "$RUNTIME" in
-    docker|podman)
-        if [ "$RUNTIME_ROOTLESS" -eq 1 ]; then
-            field runtime "$RUNTIME, rootless -- $RUNTIME_SOCKET"
-        else
-            field runtime "$RUNTIME, root -- $RUNTIME_SOCKET"
-        fi
-        ;;
-    docker-unavailable)
-        if [ -n "$RUNTIME_DENIED" ]; then
-            # The socket is there and this user may not open it. Naming the
-            # group that owns it turns the fix into one command, and setup will
-            # put the service account in that group for you.
-            # GNU stat and BSD stat spell this differently, and the fix has to
-            # name a real group on both.
-            denied_group=$(stat -c '%G' "$RUNTIME_DENIED" 2>/dev/null \
-                || stat -f '%Sg' "$RUNTIME_DENIED" 2>/dev/null \
-                || echo docker)
-            field runtime "docker is running, but $RUNTIME_DENIED is not yours to open"
-            field "" "it belongs to group $denied_group. Setup adds the service account"
-            field "" "to it; for your own shell, sudo usermod -aG $denied_group $(id -un),"
-            field "" "then log in again."
-        else
-            field runtime "docker is installed, but its socket is not answering"
-            field "" "start it: sudo systemctl start docker"
-            field "" "or rootless: systemctl --user start docker"
-        fi
-        field "" "native works regardless; compose and docker need this fixed."
-        ;;
-    podman-unavailable)
-        field runtime "podman is installed, but its API socket is not running"
-        field "" "start it: systemctl --user enable --now podman.socket"
-        field "" "native works regardless; compose and docker need this fixed."
-        ;;
-    *)
-        field runtime "none -- jobs would run directly on this host, unisolated"
-        ;;
-esac
-if [ -n "$COMPOSE_CMD" ]; then
-    field compose "$COMPOSE_CMD"
-fi
+report_runtime
 for p in 8080 443; do
     port_free "$p" || field ports "$p is already in use; setup will offer another"
 done
 if [ "$PORT_CHECKED" -eq 0 ]; then
     field ports "not checked -- no ss or netstat here"
 fi
+
+# ---------------------------------------------------------------------------
+# Nothing installed, and somebody to ask
+#
+# `zoomies init` can fall back to the process backend when no runtime answers,
+# but that means every job runs directly on this host with none of the
+# isolation the rest of this project exists to provide. A host with neither
+# Docker nor Podman installed used to slide into that fallback without ever
+# being asked, so the operator found out from the backend picker's warning
+# rather than from a question they could have said yes to. This offer is the
+# fix, gated the same way the build-type and external-URL prompts are: an
+# interactive run with a terminal to ask on, and nothing already decided by
+# --upgrade, --no-init or the answer file.
+# ---------------------------------------------------------------------------
+offer_container_runtime() {
+    [ "$RUNTIME" = none ] || return 0
+    [ "$OS" = linux ] || return 0
+    [ "$DO_UPGRADE" -eq 0 ] && [ "$RUN_INIT" -eq 1 ] || return 0
+    [ "$NON_INTERACTIVE" -eq 0 ] && [ -z "$ANSWERS" ] && have_tty || return 0
+
+    say ""
+    printf '%s   ?? %sNo container runtime found on this host.%s\n' "$C_ACCENT" "$C_RESET" "$C_RESET"
+    note "Docker or Podman gives each job its own throwaway container. Without one,"
+    note "jobs run directly on this host and can touch anything the agent user can --"
+    note "\`zoomies init\` will offer that as the process backend if you skip this."
+    printf '%s      Install a container runtime now? [y/N] %s' "$C_DIM" "$C_RESET"
+    read -r reply < /dev/tty || reply=""
+    case "$reply" in
+        y|Y|yes|Yes) ;;
+        *) say ""; return 0 ;;
+    esac
+
+    printf '%s   ?? %sWhich one?%s\n' "$C_ACCENT" "$C_RESET" "$C_RESET"
+    note "1) Docker (default)"
+    note "2) Podman"
+    printf '%s      Choice [1]: %s' "$C_DIM" "$C_RESET"
+    read -r reply < /dev/tty || reply=""
+    case "$reply" in
+        ""|1|docker|Docker) install_runtime_pkg docker ;;
+        2|podman|Podman)    install_runtime_pkg podman ;;
+        *) die "choose 1 for Docker or 2 for Podman." ;;
+    esac
+
+    detect_runtime
+    detect_compose
+    say ""
+    note "now:"
+    report_runtime
+    say ""
+}
+
+# install_runtime_pkg <docker|podman> installs it as root, by whichever route
+# fits this host. Docker ships one convenience script that covers every distro
+# this installer supports, so it is used as-is rather than reinvented as a
+# worse per-distro dance; Podman has no such script, so this dispatches to the
+# package manager /etc/os-release named for detect_platform.
+install_runtime_pkg() {
+    pkg="$1"
+    step "Installing $pkg"
+    if [ "$pkg" = docker ]; then
+        if have curl; then
+            run_privileged sh -c "curl -fsSL $CURL_PROTO https://get.docker.com | sh" ||
+                die "the Docker install script failed; see the output above." \
+                    "Install it yourself: https://docs.docker.com/engine/install/"
+        else
+            run_privileged sh -c "wget -qO- https://get.docker.com | sh" ||
+                die "the Docker install script failed; see the output above." \
+                    "Install it yourself: https://docs.docker.com/engine/install/"
+        fi
+    else
+        pm=""
+        case "$DISTRO" in
+            ubuntu|debian|raspbian)              pm="apt-get" ;;
+            fedora|rhel|centos|rocky|almalinux)   pm="dnf" ;;
+            opensuse*|sles)                       pm="zypper" ;;
+            arch|manjaro)                         pm="pacman" ;;
+            alpine)                               pm="apk" ;;
+        esac
+        [ -n "$pm" ] || die "$DISTRO has no package manager this installer knows how to drive." \
+            "Install Podman yourself: https://podman.io/docs/installation"
+        case "$pm" in
+            apt-get) run_privileged apt-get update && run_privileged apt-get install -y podman ;;
+            dnf)     run_privileged dnf install -y podman ;;
+            zypper)  run_privileged zypper --non-interactive install podman ;;
+            pacman)  run_privileged pacman -Sy --noconfirm podman ;;
+            apk)     run_privileged apk add podman ;;
+        esac ||
+            die "installing podman failed; see the output above."
+    fi
+    ok "$pkg installed"
+}
+
+offer_container_runtime
 
 # A missing downloader surfaces as "could not work out the latest release",
 # which sends the operator to look at their network and at a --version flag
