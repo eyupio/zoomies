@@ -97,6 +97,67 @@ func actionsOf(as []Action, kind ActionKind) []Action {
 	return out
 }
 
+// A runner that just failed to start with FaultBackendBusy is not sent
+// straight back to the host that failed it: grant steers the next create for
+// this pool toward any other eligible host instead, via recentBusyHosts, so
+// one host having a busy moment does not collect every retry in a row.
+func TestACreateAvoidsTheHostItsPoolsLastRunnerFailedBusyOn(t *testing.T) {
+	p := testPool("shared", "self-hosted")
+	failed := testRunner("r_busy", p, store.RunnerFailed, time.Minute)
+	failed.HostID = "host_a"
+	failed.FaultKind = store.FaultBackendBusy
+	job := queued("job-1", time.Minute, "self-hosted")
+	s := snap([]*store.Pool{p}, []*store.Runner{failed}, []*store.Job{job},
+		[]*store.Host{testHost("host_a", 4, 0), testHost("host_b", 4, 0)})
+
+	pp := only(t, Decide(s))
+	creates := actionsOf(pp.Actions, ActionCreate)
+	if len(creates) != 1 {
+		t.Fatalf("creates = %d, want 1", len(creates))
+	}
+	if creates[0].HostID != "host_b" {
+		t.Fatalf("HostID = %q, want the host that did not just fail this pool a create", creates[0].HostID)
+	}
+}
+
+// Avoiding the host that just failed is a preference, not a refusal: when it
+// is the only host this pool can use, the create still goes there rather than
+// leaving the job queued for a host that is never going to appear.
+func TestACreateStillUsesTheOnlyHostAfterABusyFailureThere(t *testing.T) {
+	p := testPool("shared", "self-hosted")
+	failed := testRunner("r_busy", p, store.RunnerFailed, time.Minute)
+	failed.HostID = "host_a"
+	failed.FaultKind = store.FaultBackendBusy
+	job := queued("job-1", time.Minute, "self-hosted")
+	s := snap([]*store.Pool{p}, []*store.Runner{failed}, []*store.Job{job},
+		[]*store.Host{testHost("host_a", 4, 0)})
+
+	pp := only(t, Decide(s))
+	creates := actionsOf(pp.Actions, ActionCreate)
+	if len(creates) != 1 || creates[0].HostID != "host_a" {
+		t.Fatalf("creates = %+v, want one create still using the pool's only host", creates)
+	}
+}
+
+// A non-busy start failure says nothing about which host to avoid: an image
+// that will not pull fails the same way on every host, so steering away from
+// this one would only rebalance a failure that is not the host's fault.
+func TestANonBusyStartFailureDoesNotSteerTheNextCreate(t *testing.T) {
+	p := testPool("shared", "self-hosted")
+	failed := testRunner("r_bad_image", p, store.RunnerFailed, time.Minute)
+	failed.HostID = "host_a"
+	failed.FaultKind = store.FaultImage
+	job := queued("job-1", time.Minute, "self-hosted")
+	s := snap([]*store.Pool{p}, []*store.Runner{failed}, []*store.Job{job},
+		[]*store.Host{testHost("host_a", 4, 0), testHost("host_b", 4, 0)})
+
+	pp := only(t, Decide(s))
+	creates := actionsOf(pp.Actions, ActionCreate)
+	if len(creates) != 1 || creates[0].HostID != "host_a" {
+		t.Fatalf("creates = %+v, want the ordinary best-headroom host, unsteered by a non-busy failure", creates)
+	}
+}
+
 func TestRepositoryScaleUpLimitDoesNotConsumeAnotherRepositoriesCapacity(t *testing.T) {
 	p := testPool("shared", "self-hosted")
 	p.RepositoryScaleUpLimit = 1

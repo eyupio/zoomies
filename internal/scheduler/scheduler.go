@@ -529,6 +529,31 @@ func startFailures(runners []*store.Runner, now time.Time) []*store.Runner {
 	return out
 }
 
+// recentBusyHosts is the hosts a runner of this pool most recently failed to
+// start on with FaultBackendBusy, whose failure is still on the page --
+// startFailures' own window, so a host stops being avoided exactly when it
+// stops counting toward the pool's own start-failure backoff.
+//
+// It is what grant steers a replacement away from where it can: the daemon
+// that timed out on the last create is not evidence the pool is broken --
+// holdAfterStartFailures already treats FaultBackendBusy like any other start
+// failure and waits regardless of which host caused it -- but it is evidence
+// that this particular host, right now, is one to try last rather than
+// first, if the fleet has anywhere else to offer.
+func recentBusyHosts(runners []*store.Runner, now time.Time) map[string]bool {
+	var out map[string]bool
+	for _, r := range startFailures(runners, now) {
+		if r.FaultKind != store.FaultBackendBusy || r.HostID == "" {
+			continue
+		}
+		if out == nil {
+			out = map[string]bool{}
+		}
+		out[r.HostID] = true
+	}
+	return out
+}
+
 // runnersWithAJob is the set of runners a job in progress is attributed to.
 func runnersWithAJob(jobs []*store.Job) map[string]bool {
 	out := map[string]bool{}
@@ -687,7 +712,7 @@ func creates(actions []Action) int {
 }
 
 func (t *tick) grant(p *store.Pool, plan *PoolPlan, runners []*store.Runner, queued []*store.Job) bool {
-	hosts := t.hosts.place(p, 1)
+	hosts := t.hosts.placeAvoiding(p, 1, recentBusyHosts(runners, t.now))
 	if len(hosts) == 0 {
 		b := t.hosts.why(p)
 		plan.Reason = cannotScale(p.Name, plan.Current+creates(plan.Actions), plan.Desired, sentence(b.what, b.fix))
@@ -951,9 +976,23 @@ func newHostSet(hosts []*store.Host, pools []*store.Pool, runners map[string][]*
 // place reserves up to n slots for the pool and returns the chosen host IDs.
 // It may return fewer than n, or none at all, when the fleet is out of room.
 func (hs *hostSet) place(p *store.Pool, n int) []string {
+	return hs.placeAvoiding(p, n, nil)
+}
+
+// placeAvoiding is place steered away from a set of hosts where another
+// eligible one exists.
+//
+// It exists for the one create that already knows a specific host is a bad
+// idea: a replacement for a job whose last runner just failed with
+// FaultBackendBusy on that host. Avoiding it is worth doing only as long as
+// somewhere else can take the runner -- pick still returns an avoided host
+// rather than refuse the placement once it is the only one left, because a
+// host that failed one create a few minutes ago is still better than no host
+// at all.
+func (hs *hostSet) placeAvoiding(p *store.Pool, n int, avoid map[string]bool) []string {
 	out := make([]string, 0, n)
 	for len(out) < n {
-		h := hs.pick(p)
+		h := hs.pick(p, avoid)
 		if h == nil {
 			break
 		}
@@ -979,17 +1018,31 @@ func (hs *hostSet) place(p *store.Pool, n int) []string {
 // placement, across pools.
 // Hosts with no CPU/memory specifications retain the slot rule; the host ID
 // breaks exact ties.
-func (hs *hostSet) pick(p *store.Pool) *store.Host {
-	var best *store.Host
+//
+// avoid is consulted only once every other eligible host has been ruled out:
+// an avoided host is tracked alongside the rest and returned only when it is
+// the best -- or only -- one left, so a hint to go elsewhere never turns into
+// a refusal the fleet had room to avoid.
+func (hs *hostSet) pick(p *store.Pool, avoid map[string]bool) *store.Host {
+	var best, bestAvoided *store.Host
 	for _, h := range hs.hosts {
 		if !hs.eligible(h, p) {
+			continue
+		}
+		if avoid[h.ID] {
+			if bestAvoided == nil || hs.prefer(h, bestAvoided, p) {
+				bestAvoided = h
+			}
 			continue
 		}
 		if best == nil || hs.prefer(h, best, p) {
 			best = h
 		}
 	}
-	return best
+	if best != nil {
+		return best
+	}
+	return bestAvoided
 }
 
 func (hs *hostSet) eligible(h *store.Host, p *store.Pool) bool {

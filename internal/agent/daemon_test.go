@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"slices"
@@ -234,6 +235,75 @@ func TestFailedCreateReportsUsefulError(t *testing.T) {
 	if !strings.Contains(res.Error, "docker") || !strings.Contains(res.Error, "pull access denied") {
 		t.Fatalf("error message names neither the backend nor the cause: %q", res.Error)
 	}
+}
+
+// A create that fails only because the daemon is busy is retried with a
+// growing wait between tries rather than failing the runner on the first
+// timeout: the daemon has more work than it can answer right now, often only
+// for a little longer, not a reason to give up on this create and make the
+// pool wait out its own, coarser backoff for a replacement instead.
+func TestABusyCreateIsRetriedBeforeFailing(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, 1)
+		h.be.mu.Lock()
+		h.be.createErr = fmt.Errorf("docker api: %w", backend.ErrDaemonBusy)
+		h.be.createFailTimes = 2
+		h.be.mu.Unlock()
+
+		h.tr.tasks <- []Task{createTask("task-1", "runner-1")}
+		synctest.Wait()
+		res := <-h.tr.results
+		if !res.OK {
+			t.Fatalf("a create that recovered within its retries reported failure: %+v", res)
+		}
+		if created, _, _ := h.be.counts(); created != 3 {
+			t.Fatalf("Create called %d times, want 3: the first attempt and two retries before it succeeded", created)
+		}
+	})
+}
+
+// Retries are spent only on the one fault a retry can fix. A failure of any
+// other kind -- here, a registry refusing the image -- fails on the first
+// attempt exactly as it did before retrying existed: nothing about waiting
+// and asking the same daemon the same thing again would change that answer.
+func TestANonBusyCreateFailureIsNotRetried(t *testing.T) {
+	h := newHarness(t, 1)
+	h.be.mu.Lock()
+	h.be.createErr = errors.New("pull access denied for ghcr.io/example/runner")
+	h.be.createFailTimes = 1
+	h.be.mu.Unlock()
+
+	h.tr.tasks <- []Task{createTask("task-1", "runner-1")}
+	res := h.nextResult()
+	if res.OK {
+		t.Fatal("a failing Create reported OK")
+	}
+	if created, _, _ := h.be.counts(); created != 1 {
+		t.Fatalf("Create called %d times, want 1: a non-busy failure must not be retried", created)
+	}
+}
+
+// Retries exhaust rather than loop forever: a daemon that stays busy through
+// every attempt still fails the runner, just later than the first timeout, so
+// the pool's own replacement and backoff take over as they always have.
+func TestABusyCreateThatNeverClearsStillFails(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, 1)
+		h.be.mu.Lock()
+		h.be.createErr = fmt.Errorf("docker api: %w", backend.ErrDaemonBusy)
+		h.be.mu.Unlock()
+
+		h.tr.tasks <- []Task{createTask("task-1", "runner-1")}
+		synctest.Wait()
+		res := <-h.tr.results
+		if res.OK {
+			t.Fatal("a create that never recovered reported OK")
+		}
+		want := createBusyRetries + 1
+		if created, _, _ := h.be.counts(); created != want {
+			t.Fatalf("Create called %d times, want %d: the first attempt and every retry", created, want)
+		}
+	})
 }
 
 func TestUnknownTaskKindIsStillReported(t *testing.T) {

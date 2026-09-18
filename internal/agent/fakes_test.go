@@ -26,8 +26,12 @@ type fakeBackend struct {
 	workloads   []backend.Workload
 	createErr   error
 	createDelay time.Duration
-	removeErr   error
-	listErr     error
+	// createFailTimes, when positive, makes only the next N calls to Create
+	// return createErr; the (N+1)th and later calls succeed. Zero, the
+	// default, keeps createErr failing every call, as it always did.
+	createFailTimes int
+	removeErr       error
+	listErr         error
 	// listErrAfter is how many listings fail before the daemon answers
 	// again; zero means listErr holds for good.
 	listErrAfter int
@@ -125,6 +129,12 @@ func (f *fakeBackend) Create(ctx context.Context, spec backend.Spec) (backend.Ha
 	f.nextHandle++
 	handle := backend.Handle(fmt.Sprintf("wl-%d", f.nextHandle))
 	delay, err := f.createDelay, f.createErr
+	if err != nil && f.createFailTimes > 0 {
+		f.createFailTimes--
+		if f.createFailTimes == 0 {
+			f.createErr = nil
+		}
+	}
 	f.mu.Unlock()
 
 	if delay > 0 {

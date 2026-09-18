@@ -45,8 +45,21 @@ const APIVersion = "v1.41"
 // minutes at a time by design, and a cold image pull can take a quarter of an
 // hour on a slow link.
 const (
-	dialTimeout           = 5 * time.Second
-	responseHeaderTimeout = 30 * time.Second
+	dialTimeout = 5 * time.Second
+	// responseHeaderTimeout is stability over performance: a daemon that is
+	// there but carrying more concurrent work than it can answer in 30 s --
+	// which docker_mode: dind's nested dockerd routinely is, mid-build, on a
+	// host running several of them at once -- used to be told to give up on
+	// exactly the create that would have gone through if it had waited a
+	// little longer, turning a busy daemon into a failed, permanently
+	// FaultBackendBusy runner rather than a create that was merely slow. This
+	// is still well inside the create's own 15-minute budget
+	// (agent.CreateTimeout), so a daemon this stalled has room to answer
+	// before that outer budget -- and the host's own capacity, ShareFloor and
+	// throttle -- are what stop a chronically overloaded one from ever
+	// reaching this timeout at all; it exists for the daemon that is merely
+	// having a slow moment, not the one that is actually gone.
+	responseHeaderTimeout = 90 * time.Second
 	defaultCallTimeout    = 60 * time.Second
 )
 
