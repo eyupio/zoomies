@@ -172,7 +172,8 @@ func Join(ctx context.Context, opts JoinOptions) error {
 	if err != nil {
 		return err
 	}
-	for _, info := range registry.Probe(ctx) {
+	infos := registry.Probe(ctx)
+	for _, info := range infos {
 		if info.Available {
 			u.ok(fmt.Sprintf("%s available%s", info.Kind, socketSuffix(info.Endpoint)))
 		} else {
@@ -180,6 +181,12 @@ func Join(ctx context.Context, opts JoinOptions) error {
 		}
 	}
 	u.ok("this host will run jobs with the " + string(chosen) + " backend")
+	for _, info := range infos {
+		if info.Kind == chosen {
+			ensureCgroupDelegation(ctx, u, det, info.Kind, info.Rootless, info.Endpoint, info.Limits, runCommand)
+			break
+		}
+	}
 
 	// --- Join ------------------------------------------------------------
 	u.step("Joining " + agent.DisplayController(opts.ControllerURL))

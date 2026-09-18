@@ -616,7 +616,11 @@ score knows what it is measuring:
 1. Run the controller as a dedicated unprivileged user
    (`zoomies init` creates one).
 2. Use a **rootless** Docker or Podman socket. The installer detects and prefers
-   one.
+   one, and on a systemd, cgroup v2 host it delegates the `cpu`, `cpuset`, `io`,
+   `memory` and `pids` controllers to that daemon's user slice for you, so a
+   pool's CPU quota or memory limit is not refused there. A host still on
+   cgroup v1 needs `systemd.unified_cgroup_hierarchy=1` on the kernel command
+   line and a reboot first — setup warns rather than guessing at that for you.
 3. Terminate TLS with a certificate GitHub trusts — either in Zoomies
    (`tls.mode: files`) or in a reverse proxy, and then set `trusted_proxies`.
 4. Keep `ephemeral: true` and `docker_mode: none` on every pool you can.
