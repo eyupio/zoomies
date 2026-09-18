@@ -163,6 +163,9 @@ type flavor struct {
 	// mountSuffix is appended to bind mounts; Podman needs ":z" so that SELinux
 	// relabels the host directory for the container.
 	mountSuffix string
+	// startHint is the command an unreachable-socket message names as the fix,
+	// so a Podman probe tells the operator to start Podman, not Docker.
+	startHint   string
 	securityOpt []string
 	capDrop     []string
 	capAdd      []string
@@ -181,6 +184,7 @@ func dockerFlavor() flavor {
 		kind:         store.BackendDocker,
 		displayName:  "Docker",
 		supportsDinD: true,
+		startHint:    "systemctl --user start docker, or systemctl start docker",
 		securityOpt:  []string{"no-new-privileges"},
 		capDrop:      []string{"ALL"},
 		capAdd:       slices.Clone(buildCapabilities),
@@ -314,10 +318,12 @@ func (b *DockerBackend) Probe(ctx context.Context) Info {
 	return info
 }
 
-// unreachableDetail turns a transport failure into a sentence naming the fix.
+// unreachableDetail turns a transport failure into a sentence naming the fix,
+// in terms of the daemon this backend actually is: a Podman probe must never
+// tell the operator to install or start Docker.
 func (b *DockerBackend) unreachableDetail(err error) string {
 	if sock := b.api.SocketPath(); sock != "" {
-		if serr := CanUseDockerSocket(sock); serr != nil {
+		if serr := canUseSocket(sock, b.fl.displayName, b.fl.startHint); serr != nil {
 			return strings.TrimPrefix(serr.Error(), "backend: not available on this host: ")
 		}
 	}

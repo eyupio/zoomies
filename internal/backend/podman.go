@@ -42,6 +42,10 @@ func podmanFlavor() flavor {
 	// Zoomies creates -- the work and cache binds -- and never to the host
 	// socket, which is the system's file to label.
 	f.mountSuffix = ":z"
+	// The usual cause of an unreachable Podman socket is that podman.socket has
+	// never been enabled -- rootless Podman does not start it on install the
+	// way Docker's own daemon starts itself.
+	f.startHint = "systemctl --user enable --now podman.socket"
 	return f
 }
 
@@ -62,18 +66,13 @@ func NewPodman(opts DockerOptions) (*PodmanBackend, error) {
 // Kind identifies the implementation.
 func (b *PodmanBackend) Kind() store.BackendKind { return store.BackendPodman }
 
-// Probe reports on the Podman service.
-//
-// It adds one thing to the Docker probe: when the socket is not reachable, the
-// usual cause is that podman.socket has never been enabled, which is a
-// different sentence from "install Podman".
+// Probe reports on the Podman service. The Docker probe already names Podman
+// and its own start command via the flavor's displayName and startHint, so
+// there is nothing to add here beyond correcting Kind and SupportsDinD.
 func (b *PodmanBackend) Probe(ctx context.Context) Info {
 	info := b.DockerBackend.Probe(ctx)
 	info.Kind = store.BackendPodman
 	info.SupportsDinD = false
-	if !info.Available {
-		info.Detail += "; if Podman is installed, its API socket is off by default — enable it with `systemctl --user enable --now podman.socket`"
-	}
 	return info
 }
 
