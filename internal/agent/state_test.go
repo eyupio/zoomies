@@ -88,6 +88,27 @@ func TestLoadReportsNotJoined(t *testing.T) {
 	}
 }
 
+// A file with a host ID and agent token but no tunnel address cannot have
+// come whole out of Save: it names a private connection this agent has no
+// way to dial, and the error has to say so rather than reporting the host as
+// merely unjoined.
+func TestLoadNamesAMissingPrivateConnectionAddress(t *testing.T) {
+	path := StatePath(t.TempDir())
+	if err := os.WriteFile(path, []byte(`{"host_id":"h","agent_token":"t","controller_url":"tailcat://controller"}`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	_, err := Load(path)
+	if !errors.Is(err, ErrNotJoined) {
+		t.Fatalf("error = %v, want it to still be ErrNotJoined", err)
+	}
+	for _, want := range []string{"private connection address", "Add a host"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not mention %q: %v", want, err)
+		}
+	}
+}
+
 func TestLoadRejectsGarbage(t *testing.T) {
 	path := StatePath(t.TempDir())
 	if err := os.WriteFile(path, []byte("host_id: h"), 0o600); err != nil {
@@ -105,5 +126,16 @@ func TestLoadRejectsGarbage(t *testing.T) {
 func TestSaveRefusesIncompleteCredentials(t *testing.T) {
 	if err := Save(StatePath(t.TempDir()), Credentials{HostID: "host-1"}); err == nil {
 		t.Fatal("Save accepted credentials with no agent token")
+	}
+}
+
+// Nothing in this codebase constructs credentials for a private connection
+// without its address, but Valid is the one gate both Save and Load trust,
+// so it has to refuse the shape on its own rather than by the accident of
+// nothing yet calling it that way.
+func TestSaveRefusesATailcatHostWithNoTunnelAddress(t *testing.T) {
+	err := Save(StatePath(t.TempDir()), Credentials{HostID: "host-1", AgentToken: "secret-token", Controller: TailcatController})
+	if err == nil {
+		t.Fatal("Save accepted a tailcat host with no tunnel address")
 	}
 }

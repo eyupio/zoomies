@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -47,6 +49,57 @@ func TestAgentJoinNeedsAControllerURL(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "controller URL") {
 		t.Errorf("the error does not say what is missing:\n%s", errOut)
+	}
+}
+
+// A host enrolled through a private connection has no local way to invent a
+// tunnel address, so a missing or incomplete credentials file has to fail
+// with one message naming the state file and pointing at the UI -- not the
+// low-level "no private connection address" error a half-built transport
+// used to produce before anything checked the credentials existed at all.
+func TestAgentWithNoCredentialsExplainsHowToRejoinAPrivateConnection(t *testing.T) {
+	e, _, errOut := newTestEnv(t)
+	dir := isolateHost(t)
+	path := writeConfig(t, "agent:\n  embedded: false\n  controller_url: tailcat://controller\n  work_dir: "+filepath.Join(dir, "work")+"\n")
+
+	if code := dispatch(context.Background(), e, []string{"agent", "--config", path}); code != exitError {
+		t.Fatalf("exit code = %d, want %d\n%s", code, exitError, errOut)
+	}
+	for _, want := range []string{"this host cannot start", "Add a host", "Private connection"} {
+		if !strings.Contains(errOut.String(), want) {
+			t.Errorf("the error does not mention %q:\n%s", want, errOut)
+		}
+	}
+	if strings.Contains(errOut.String(), "no private connection address; re-join") {
+		t.Errorf("the low-level transport error leaked through instead of the daemon's own check:\n%s", errOut)
+	}
+}
+
+// The same failure, but with a credentials file that exists and carries a
+// host ID and agent token -- just not the tunnel address a private
+// connection needs. This is what a truncated or partially restored agent.json
+// looks like, and the daemon should name that specifically rather than
+// reporting the host as simply unjoined.
+func TestAgentWithATailcatHostMissingItsAddressNamesTheStateFile(t *testing.T) {
+	e, _, errOut := newTestEnv(t)
+	dir := isolateHost(t)
+	workDir := filepath.Join(dir, "work")
+	if err := os.MkdirAll(workDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	statePath := filepath.Join(workDir, "agent.json")
+	if err := os.WriteFile(statePath, []byte(`{"host_id":"host_x","agent_token":"tok","controller_url":"tailcat://controller"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := writeConfig(t, "agent:\n  embedded: false\n  controller_url: tailcat://controller\n  work_dir: "+workDir+"\n")
+
+	if code := dispatch(context.Background(), e, []string{"agent", "--config", path}); code != exitError {
+		t.Fatalf("exit code = %d, want %d\n%s", code, exitError, errOut)
+	}
+	for _, want := range []string{statePath, "no private connection address", "Add a host"} {
+		if !strings.Contains(errOut.String(), want) {
+			t.Errorf("the error does not mention %q:\n%s", want, errOut)
+		}
 	}
 }
 

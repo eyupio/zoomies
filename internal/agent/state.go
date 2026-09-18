@@ -57,8 +57,17 @@ func Load(path string) (Credentials, error) {
 	if err := json.Unmarshal(raw, &c); err != nil {
 		return Credentials{}, fmt.Errorf("agent: %s is not valid JSON; delete it and re-join this host with a fresh join token: %w", path, err)
 	}
-	if !c.Valid() {
+	if c.HostID == "" || c.AgentToken == "" {
 		return Credentials{}, fmt.Errorf("%w: %s has no host ID or agent token; delete it and run `zoomies agent join <controller-url> --token <join-token>` again", ErrNotJoined, path)
+	}
+	if !c.Valid() {
+		// A host ID and agent token with no tunnel address is not a file that
+		// ever came whole out of Save: it was edited, truncated, or restored
+		// from a backup that predates this host's private enrolment. There is
+		// no address to recover locally -- the capability lives only in the
+		// enrolment command the controller minted, which is single use and
+		// already spent.
+		return Credentials{}, fmt.Errorf("%w: %s has a host ID and agent token but no private connection address; mint a fresh enrolment command in the UI under Hosts -> Add a host and run it on this host", ErrNotJoined, path)
 	}
 	return c, nil
 }

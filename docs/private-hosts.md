@@ -112,6 +112,7 @@ auth-disabled demo mode.
 
 | Symptom | What to check |
 | --- | --- |
+| `zoomies agent` fails to start naming a missing private connection address | `agent.json` in the agent's work directory has a host ID and agent token but no `tailcat_address` -- it was edited, truncated, or restored from a backup taken before this host enrolled. The address cannot be recovered locally; mint a fresh enrolment command from **Hosts → Add a host → Private connection** and run it on the host. |
 | Private connection is unavailable | Enable authentication, check the controller encryption key, and ensure `server.tailcat_enabled` is true; restart after changing these settings. |
 | Cannot reach a Tailcat relay | Both sides need outbound access to Tailcat's relay infrastructure; retry after correcting firewall or internet connectivity. No token is minted if setup fails. |
 | Command expired before the host joined | Use **Mint another token** on the waiting page. Capacity and labels are retained. |
