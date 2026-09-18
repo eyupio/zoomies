@@ -6,6 +6,7 @@
   import { Layers, Undo2, Wrench, X } from '@lucide/svelte';
   import type { Problem } from '$lib/api/types';
   import { severityStatus } from '$lib/status';
+  import { notifications } from '$lib/state/notifications.svelte';
   import IconButton from '$lib/components/IconButton.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import RemedyText from '$lib/components/RemedyText.svelte';
@@ -138,7 +139,9 @@
       {#if problem.setting}<code>{problem.setting}</code>{/if}
       {#if problem.since}<RelativeTime value={problem.since} prefix="since " />{/if}
       {#if dismissedAt}<RelativeTime value={dismissedAt} prefix="dismissed " />{/if}
-      {#if link}<a href={link.href}>{link.label}</a>{/if}
+      {#if link}
+        <a href={link.href} onclick={() => (notifications.open = false)}>{link.label}</a>
+      {/if}
     </p>
   </div>
   {#if ondismiss}
