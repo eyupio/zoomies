@@ -431,7 +431,8 @@ The same list appears in the UI's problems panel. See
 * Linux (amd64 or arm64) for the controller and agents. macOS is supported for
   running the controller in development.
 * Docker or Podman for the container backends — **rootless preferred**, and the
-  installer looks for a rootless socket first.
+  installer looks for a rootless socket first. `install.sh` offers to install
+  one for you on a Linux host that has neither.
 * A GitHub App on github.com. The installer creates it for you. Enterprise
   Server is what `github.api_base_url` exists for and the configuration is
   validated for it, but no test has run against one yet.
