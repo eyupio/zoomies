@@ -72,6 +72,23 @@ const (
 	// missingGrace stops a runner created moments ago from being declared gone
 	// because the backend has not listed it yet.
 	missingGrace = time.Minute
+	// createBusyRetries bounds how many extra tries a create gets after a
+	// FaultBackendBusy failure -- the one fault kind a retry can actually fix,
+	// because the daemon is there and merely busier than
+	// responseHeaderTimeout right now, not down or refusing the work. Every
+	// other fault kind -- a bad image, a missing socket, a config the runner
+	// refused -- fails on the first attempt, because nothing about trying
+	// again would change the answer.
+	//
+	// createBusyBackoff is the base of the doubling wait between busy
+	// retries, the same shape as scheduler.startBackoff: a daemon working
+	// through a burst gets room to clear it rather than failing the runner on
+	// the create that would have gone through a little later, all of it
+	// spent inside this one task and well short of CreateTimeout. The tests
+	// that exercise the loop's counting run it under testing/synctest, whose
+	// virtual clock makes the real value here cost nothing to wait out.
+	createBusyRetries = 3
+	createBusyBackoff = 10 * time.Second
 )
 
 // Options configures an Agent.
@@ -1319,10 +1336,22 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 
 	start := a.now()
 	var created backend.CreateResult
-	if timed, ok := b.(backend.TimedCreator); ok {
-		created, err = timed.CreateWithResult(cctx, spec)
-	} else {
-		created.Handle, err = b.Create(cctx, spec)
+	for retry := 0; ; retry++ {
+		if timed, ok := b.(backend.TimedCreator); ok {
+			created, err = timed.CreateWithResult(cctx, spec)
+		} else {
+			created.Handle, err = b.Create(cctx, spec)
+		}
+		if err == nil || backend.Fault(err) != store.FaultBackendBusy || retry >= createBusyRetries {
+			break
+		}
+		wait := createBusyBackoff << retry
+		a.log.Warn("the backend was busy creating a runner; trying again shortly",
+			"runner", task.RunnerID, "name", spec.Name, "backend", kind,
+			"retry", retry+1, "of", createBusyRetries, "retry_in", wait, "error", err)
+		if !sleepCtx(cctx, wait) {
+			break
+		}
 	}
 	a.runtimeResult(err)
 	if err != nil {

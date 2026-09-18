@@ -34,6 +34,26 @@ func TestPlacementUsesHostSizeAndMeasuredHeadroomInsteadOfFreeSlots(t *testing.T
 	}
 }
 
+// placeAvoiding is a preference, not a refusal: a host named in avoid is
+// skipped in favour of any other eligible host, but is still used once it is
+// the only one left, because a host that failed a create a few minutes ago is
+// still better than no host at all.
+func TestPlaceAvoidingPrefersAnyOtherEligibleHost(t *testing.T) {
+	a := sized("a", 4, 16, 32768, 100000)
+	b := sized("b", 4, 16, 32768, 100000)
+	p := limited("build", 2, 2048)
+
+	hs := newHostSet([]*store.Host{a, b}, []*store.Pool{p}, nil, now)
+	if got := hs.placeAvoiding(p, 1, map[string]bool{"a": true}); len(got) != 1 || got[0] != "b" {
+		t.Fatalf("placed on %v, want the host not in avoid", got)
+	}
+
+	hs = newHostSet([]*store.Host{a}, []*store.Pool{p}, nil, now)
+	if got := hs.placeAvoiding(p, 1, map[string]bool{"a": true}); len(got) != 1 || got[0] != "a" {
+		t.Fatalf("placed on %v, want the only host even though it is avoided", got)
+	}
+}
+
 func TestPlacementRebalancesEachNewReservationAcrossPools(t *testing.T) {
 	a := withUsage(sized("a", 8, 16, 32768, 100000), 10, 30000)
 	b := withUsage(sized("b", 8, 16, 32768, 100000), 10, 30000)

@@ -278,6 +278,17 @@ The categories, and what each one means you should change:
 | `config` | The runner refused a setting it was given. | Read the runner's log for the setting it named. Every runner in that pool will do the same until it is changed. |
 | `runner_exited` | The runner stopped and nothing could narrow it further. | Read the runner's last output on its page. |
 
+A `backend_busy` create is not failed on the first timeout. The agent gives
+the daemon a few more tries first, waiting longer between each — stability
+over performance for the one fault a retry can actually fix, because the
+daemon is there and only momentarily busier than it can answer, not down or
+refusing the work. If every try is still busy, the runner fails as before,
+and the pool's next create for the job steers away from that host toward
+any other eligible one, rather than sending every retry back to the same
+daemon; it uses that host again only when the fleet has nowhere else to
+place it. Every other category fails on the first attempt, because nothing
+about trying again or trying elsewhere would change the answer.
+
 ### The failure with no failed job behind it
 
 A runner that dies before it registers never reaches a job at all. The job
