@@ -162,13 +162,25 @@ func HasSystemd() bool {
 // CanUseDockerSocket explains, in terms the operator can act on, why a socket
 // cannot be used. It returns nil when the socket accepts a connection.
 //
+// It speaks of "Docker or Podman" because a caller here has not chosen a
+// backend yet. A probe that already knows which daemon it is checking --
+// docker.go's unreachableDetail -- calls canUseSocket directly instead, so
+// its message never suggests installing or starting the other one.
+func CanUseDockerSocket(path string) error {
+	return canUseSocket(path, "Docker or Podman", "systemctl --user start docker, or systemctl start docker")
+}
+
+// canUseSocket is CanUseDockerSocket's implementation, named for one specific
+// daemon so its remedy -- install it, this is the command that starts it --
+// stays true to what actually failed.
+//
 // This exists because the three failures look identical in a bare dial error
 // and have three completely different remedies.
-func CanUseDockerSocket(path string) error {
+func canUseSocket(path, name, startHint string) error {
 	p := strings.TrimSpace(path)
 	switch {
 	case p == "":
-		return errors.New("backend: no Docker socket configured; set agent.docker_host or install Docker")
+		return fmt.Errorf("backend: no %s socket configured; set agent.docker_host or install %s", name, name)
 	case strings.HasPrefix(p, "tcp://"), strings.HasPrefix(p, "http://"), strings.HasPrefix(p, "https://"):
 		// A TCP endpoint has nothing to stat; reachability is the Ping's job.
 		return nil
@@ -178,7 +190,7 @@ func CanUseDockerSocket(path string) error {
 	fi, err := os.Stat(p)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return fmt.Errorf("%w: no socket at %s; install Docker or Podman, start it (systemctl --user start docker, or systemctl start docker), or point agent.docker_host at the right socket", ErrUnavailable, p)
+		return fmt.Errorf("%w: no socket at %s; install %s, start it (%s), or point agent.docker_host at the right socket", ErrUnavailable, p, name, startHint)
 	case errors.Is(err, fs.ErrPermission):
 		return fmt.Errorf("%w: %s", ErrUnavailable, deniedDetail(realIdentity(), p))
 	case err != nil:
@@ -196,7 +208,7 @@ func CanUseDockerSocket(path string) error {
 	case errors.Is(err, syscall.EACCES), errors.Is(err, syscall.EPERM), errors.Is(err, fs.ErrPermission):
 		return fmt.Errorf("%w: %s", ErrUnavailable, deniedDetail(realIdentity(), p))
 	case errors.Is(err, syscall.ECONNREFUSED):
-		return fmt.Errorf("%w: %s exists but nothing is listening; start the daemon with systemctl --user start docker (rootless), systemctl start docker, or systemctl --user start podman.socket", ErrUnavailable, p)
+		return fmt.Errorf("%w: %s exists but nothing is listening; start it with %s", ErrUnavailable, p, startHint)
 	default:
 		return fmt.Errorf("%w: cannot connect to %s: %w", ErrUnavailable, p, err)
 	}
