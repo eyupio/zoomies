@@ -1537,7 +1537,17 @@ var ImplicitLabels = map[string]bool{
 func NormalizeLabel(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
 
 // NormalizeLabels returns a de-duplicated, lowercased, sorted copy.
+//
+// Pool and job labels are normalized once on the way out of the store
+// (queries_fleet.go, queries_events.go), so most calls -- above all
+// internal/scheduler's Matches/Score/Eligible, which compare every queued
+// job against every pool on each reconcile tick -- pass a slice that is
+// already normalized. isNormalized checks that in a single allocation-free
+// pass and lets that common case skip the map and sort below entirely.
 func NormalizeLabels(in []string) []string {
+	if len(in) > 0 && isNormalized(in) {
+		return in
+	}
 	seen := make(map[string]bool, len(in))
 	out := make([]string, 0, len(in))
 	for _, l := range in {
@@ -1550,6 +1560,22 @@ func NormalizeLabels(in []string) []string {
 	}
 	slices.Sort(out)
 	return out
+}
+
+// isNormalized reports whether in is already de-duplicated, lowercased, and
+// strictly increasing -- i.e. exactly what NormalizeLabels would produce from
+// it. Strictly increasing (rather than merely sorted) is what rules out a
+// duplicate in the same pass as the ordering check.
+func isNormalized(in []string) bool {
+	for i, l := range in {
+		if l == "" || NormalizeLabel(l) != l {
+			return false
+		}
+		if i > 0 && in[i-1] >= l {
+			return false
+		}
+	}
+	return true
 }
 
 // The floors under a host's reserve. An operator's reserve is what to hold
