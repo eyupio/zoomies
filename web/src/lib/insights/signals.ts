@@ -8,6 +8,19 @@ export function percent(used: number | null, total: number | null): number | nul
   return used !== null && total !== null && total > 0 ? (100 * used) / total : null;
 }
 
+/**
+ * Whether a queue depth is worth its tile's warning colour, against
+ * ui.queue_warning_threshold. The setting defaults to 1, which is the fixed
+ * "anything queued at all" behaviour this replaces; a fleet whose queue
+ * normally sits above zero can raise it so the colour still means something.
+ */
+export function queueTone(
+  value: number | null | undefined,
+  threshold: number | undefined,
+): 'warning' | 'neutral' {
+  return (value ?? 0) >= (threshold ?? 1) ? 'warning' : 'neutral';
+}
+
 /** Read controller aggregates, never the paginated runner cache. */
 export function poolSignals(pools: readonly Pool[], stats: Stats | null) {
   return pools.map((pool) => {

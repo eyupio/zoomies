@@ -53,6 +53,12 @@ type metaResponse struct {
 	// administrator may read the settings; a chart layout tells an
 	// unauthenticated visitor nothing they could act on.
 	CapacityMap capacityMapDefaults `json:"capacity_map"`
+	// QueueWarningThreshold carries ui.queue_warning_threshold: how many
+	// queued jobs it takes before the queue tiles turn to their warning
+	// colour. It sits here for the same reason CapacityMap does -- every
+	// operator's browser needs it to render a tile, and a number is nothing
+	// an unauthenticated visitor could act on.
+	QueueWarningThreshold int `json:"queue_warning_threshold"`
 }
 
 // capacityMapDefaults carries ui.capacity_map.* to the browser.
@@ -86,6 +92,7 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 			OverviewLayout: s.cfg().UI.CapacityMap.OverviewLayout,
 			HostsLayout:    s.cfg().UI.CapacityMap.HostsLayout,
 		},
+		QueueWarningThreshold: s.cfg().UI.QueueWarningThreshold,
 	}
 	if last := s.ctrl.LastPollAt(); !last.IsZero() {
 		out.PollerLastPollAt = &last

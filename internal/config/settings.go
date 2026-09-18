@@ -763,6 +763,10 @@ var registry = buildRegistry([]Setting{
 		Choices: CapacityLayouts,
 		Summary: "The same choice for the map on the Hosts page, which can open differently from the Overview's: split suits the page a machine is looked into on, overlay the page a fleet is glanced at.",
 	},
+	{
+		Key: "ui.queue_warning_threshold", Label: "Queue depth warning threshold", Env: "ZOOMIES_UI_QUEUE_WARNING_THRESHOLD", Kind: KindInt, Scope: ScopeInstance, Live: true,
+		Summary: "How many jobs must be queued before the queue tiles on the Overview, Jobs and Pools pages turn to their warning colour. 1, the default, warns as soon as anything is waiting; a fleet whose queue is normally busy can raise it so the colour still means something.",
+	},
 })
 
 // unregistered names the Config fields that deliberately have no row above, so

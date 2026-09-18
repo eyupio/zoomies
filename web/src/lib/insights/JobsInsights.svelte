@@ -1,8 +1,10 @@
 <script lang="ts">
   import { fleet } from '$lib/state/fleet.svelte';
+  import { session } from '$lib/state/session.svelte';
   import MetricGrid from '$lib/components/MetricGrid.svelte';
   import ChartPanel from '$lib/components/ChartPanel.svelte';
   import StateBreakdown from './StateBreakdown.svelte';
+  import { queueTone } from './signals';
   import { formatNumber, formatDuration, describeWindow } from '$lib/format';
   let { others = false }: { others?: boolean } = $props();
   const stats = $derived(others ? fleet.stats : fleet.stats?.fleet);
@@ -51,7 +53,7 @@
           label: 'Queued now',
           value: num(stats.queued_jobs),
           detail: 'Waiting to start',
-          tone: (stats.queued_jobs ?? 0) > 0 ? 'warning' : 'neutral',
+          tone: queueTone(stats.queued_jobs, session.meta?.queue_warning_threshold),
           href: `/jobs?state=queued${suffix}`,
         },
         {

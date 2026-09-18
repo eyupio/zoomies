@@ -328,6 +328,7 @@ ui:
   capacity_map:
     overview_layout: overlay    # ZOOMIES_UI_CAPACITY_MAP_OVERVIEW_LAYOUT -- overlay | split; what the Overview's map opens with
     hosts_layout: overlay       # ZOOMIES_UI_CAPACITY_MAP_HOSTS_LAYOUT    -- the same for the Hosts page, separately
+  queue_warning_threshold: 1    # ZOOMIES_UI_QUEUE_WARNING_THRESHOLD      -- jobs queued before the queue tiles turn amber
 ```
 
 ---
@@ -579,18 +580,21 @@ if you set `keep: 0` and never expect the page to say what is there.
 
 ### `ui`
 
-What the web UI opens with. Each of these is a starting point: the page
-itself lets an operator pick the other answer, and remembers the pick in that
-browser, so what is set here is what somebody who has never chosen sees. The
-two pages that carry the capacity map are set separately, because they are
+What the web UI opens with. The capacity map layouts are each a starting
+point: the page itself lets an operator pick the other answer, and remembers
+the pick in that browser, so what is set here is what somebody who has never
+chosen sees. The two pages that carry it are set separately, because they are
 opened for different reasons — the Overview to glance at a fleet, the Hosts
 page to look into a machine — and a fleet may want each to open on its own
-answer.
+answer. The queue warning threshold is not a per-page starting point: there is
+nothing to move away from on the page, so what is set here is what every
+operator's browser sees.
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
 | `ui.capacity_map.hosts_layout` | `ZOOMIES_UI_CAPACITY_MAP_HOSTS_LAYOUT` | at once | Hosts capacity map layout — The same choice for the map on the Hosts page, which can open differently from the Overview's: split suits the page a machine is looked into on, overlay the page a fleet is glanced at. |
 | `ui.capacity_map.overview_layout` | `ZOOMIES_UI_CAPACITY_MAP_OVERVIEW_LAYOUT` | at once | Overview capacity map layout — How the host capacity map on the Overview opens: overlay draws every host on one chart, split draws a chart for each. An operator who picks the other one on the page keeps their pick in that browser. |
+| `ui.queue_warning_threshold` | `ZOOMIES_UI_QUEUE_WARNING_THRESHOLD` | at once | Queue depth warning threshold — How many jobs must be queued before the queue tiles on the Overview, Jobs and Pools pages turn to their warning colour. 1, the default, warns as soon as anything is waiting; a fleet whose queue is normally busy can raise it so the colour still means something. |
 
 ### `updates`
 

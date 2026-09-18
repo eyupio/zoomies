@@ -2572,6 +2572,11 @@ export interface components {
                 overview_layout?: components["schemas"]["CapacityMapLayout"];
                 hosts_layout?: components["schemas"]["CapacityMapLayout"];
             };
+            /**
+             * @description How many jobs must be queued before the queue tiles on the Overview, Jobs and Pools pages turn to their warning colour, from ui.queue_warning_threshold in the fleet's settings.
+             * @example 1
+             */
+            queue_warning_threshold?: number;
         };
         /**
          * @description overlay draws every host on one chart; split draws a chart for each.

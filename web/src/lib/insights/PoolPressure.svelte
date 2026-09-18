@@ -1,9 +1,10 @@
 <script lang="ts">
   import type { Pool } from '$lib/api/types';
   import { fleet } from '$lib/state/fleet.svelte';
+  import { session } from '$lib/state/session.svelte';
   import ChartPanel from '$lib/components/ChartPanel.svelte';
   import MetricGrid from '$lib/components/MetricGrid.svelte';
-  import { poolSignals } from './signals';
+  import { poolSignals, queueTone } from './signals';
   import { formatNumber } from '$lib/format';
   let { pools, summary = true }: { pools: Pool[]; summary?: boolean } = $props();
   const signals = $derived(poolSignals(pools, fleet.stats));
@@ -33,7 +34,7 @@
           label: 'Matched job queue',
           value: known ? formatNumber(queue) : '—',
           detail: 'Waiting jobs claimed by these pools',
-          tone: queue > 0 ? 'warning' : 'neutral',
+          tone: queueTone(queue, session.meta?.queue_warning_threshold),
         },
         {
           label: 'Pools with waiting work',
