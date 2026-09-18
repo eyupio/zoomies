@@ -245,6 +245,15 @@ test('a dismissed problem stops asking, and can be brought back', async ({ page 
   ).toBe(true);
 });
 
+test('dismissing the last problem closes the drawer', async ({ page }) => {
+  const problems = await openProblems(page);
+
+  // "Dismiss all" clears every active entry in one action, so there is
+  // nothing left the drawer needs to keep the operator looking at.
+  await problems.getByRole('button', { name: 'Dismiss all' }).click();
+  await expect(page.getByRole('dialog', { name: 'Problems' })).not.toBeVisible();
+});
+
 test('per-pool utilisation shows both pools and marks the one at its ceiling', async ({ page }) => {
   const pools = page.getByRole('region', { name: 'Pools' });
   await expect(pools).toBeVisible();
