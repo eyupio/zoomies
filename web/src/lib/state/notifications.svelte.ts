@@ -199,6 +199,7 @@ class Notifications {
       [problemKey(problem)]: { severity: severity(problem), at: new Date().toISOString() },
     };
     this.#persist();
+    this.#closeIfClear();
   }
 
   /** Put away everything currently listed. The drawer's one bulk action. */
@@ -210,6 +211,7 @@ class Notifications {
     }
     this.#dismissals = next;
     this.#persist();
+    this.#closeIfClear();
   }
 
   restore(problem: Problem): void {
@@ -227,6 +229,14 @@ class Notifications {
   }
 
   /* -- internals ------------------------------------------------------------ */
+
+  /**
+   * Dismissing the last problem still asking for attention closes the panel
+   * that was showing it: there is nothing left for it to hold open for.
+   */
+  #closeIfClear(): void {
+    if (this.#open && this.active.length === 0) this.open = false;
+  }
 
   #prune(problems: readonly Problem[]): void {
     const live = new Set(problems.map(problemKey));
