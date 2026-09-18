@@ -540,9 +540,6 @@ func runnersWithAJob(jobs []*store.Job) map[string]bool {
 	return out
 }
 
-// failedAt is when a runner failed. The store stamps finished_at on the
-// transition; a row without one falls back to its creation, which is the
-// conservative reading for a failure of unknown age.
 // drainingFor is how long a runner has been draining.
 //
 // A row written before the column existed has no draining_since, and its age
@@ -557,6 +554,9 @@ func drainingFor(r *store.Runner, now time.Time) time.Duration {
 	return r.Age(now)
 }
 
+// failedAt is when a runner failed. The store stamps finished_at on the
+// transition; a row without one falls back to its creation, which is the
+// conservative reading for a failure of unknown age.
 func failedAt(r *store.Runner) time.Time {
 	if r.FinishedAt != nil {
 		return *r.FinishedAt
