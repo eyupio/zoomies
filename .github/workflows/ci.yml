@@ -324,10 +324,10 @@ jobs:
 
   playwright:
     name: Playwright
-    # The deliberately small stock runner image does not carry Chromium's
-    # system libraries, and its unprivileged user cannot install apt packages.
-    # Keep browser CI on the image Playwright supports with --with-deps.
-    runs-on: ubuntu-latest
+    # The Zoomies runner image gives its user passwordless sudo (see
+    # deploy/Dockerfile.runner), so the Chromium install step below can use
+    # --with-deps there the same way it does on a GitHub-hosted runner.
+    runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     needs: [ui]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -518,9 +518,10 @@ jobs:
 
   installer:
     name: install.sh
-    # This job needs root package installation for dash and shellcheck.
-    # Run it on GitHub-hosted Ubuntu where sudo is available.
-    runs-on: ubuntu-latest
+    # Needs root package installation for dash and shellcheck. The Zoomies
+    # runner image gives its user passwordless sudo (see
+    # deploy/Dockerfile.runner), same as a GitHub-hosted runner.
+    runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: POSIX shell syntax

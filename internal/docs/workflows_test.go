@@ -421,15 +421,14 @@ func TestCIDogfoodsZoomiesWithRecoveryForEveryJob(t *testing.T) {
 			t.Fatalf("%s has no job runners", name)
 		}
 		// Match exceptions by job ID: a count alone lets the wrong job stop
-		// dogfooding while still satisfying the test. The first two need
-		// system packages unavailable to the unprivileged stock runner; the
-		// other two exist to run on a platform the Zoomies pool has no host
-		// for, which is the whole point of each.
+		// dogfooding while still satisfying the test. Both exist to run on a
+		// platform the Zoomies pool has no host for, which is the whole point
+		// of each -- everything else, including playwright and installer,
+		// dogfoods the pool because the runner image gives its user
+		// passwordless sudo (see deploy/Dockerfile.runner).
 		exceptions := map[string]string{}
 		found := map[string]bool{}
 		if name == "ci.yml" {
-			exceptions["installer"] = "ubuntu-latest"
-			exceptions["playwright"] = "ubuntu-latest"
 			exceptions["arm64"] = "ubuntu-24.04-arm"
 			exceptions["windows"] = "windows-latest"
 		}
