@@ -248,7 +248,8 @@ export interface TrendFrame {
  * and let the browser scale them, so its eleven-unit axis text arrived on a
  * wide screen at nineteen pixels and read as a heading. The left gutter is
  * sized for the widest figure the axis will print, and the right one holds
- * the newest value at the end of each line.
+ * the newest value at the end of each line -- sized the same way, so a fleet
+ * sitting in single digits doesn't reserve room for "128.4h".
  */
 export function trendFrame(
   width: number,
@@ -257,8 +258,9 @@ export function trendFrame(
   const W = Math.max(280, Math.round(width));
   const narrow = W < 560;
   const H = narrow ? 236 : 196;
-  const LEFT = 16 + 7 * Math.max(1, options.digits ?? 3);
-  const RIGHT = W - (options.labels === false ? 10 : 46);
+  const digits = Math.max(1, options.digits ?? 3);
+  const LEFT = 16 + 7 * digits;
+  const RIGHT = W - (options.labels === false ? 10 : 16 + 7 * digits);
   const TOP = 14;
   return { W, H, LEFT, RIGHT, TOP, BOTTOM: H - 26, SPAN: RIGHT - LEFT, narrow };
 }
