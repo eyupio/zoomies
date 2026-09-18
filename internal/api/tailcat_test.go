@@ -189,3 +189,90 @@ func TestPrivateHostJoinsHeartbeatsAndReconnectsAfterControllerRestart(t *testin
 		t.Fatal("spent join token was accepted")
 	}
 }
+
+// A real agent process does not restart itself when the controller does: it
+// keeps the same HTTPTransport, and therefore the same tailcat.Client, for as
+// long as it runs. The client's own record of having reached the server
+// survives forever once made, but the server's record of the client does
+// not -- it lives only in that process's memory, so a controller restart
+// forgets every client while keeping the same persisted address. A client
+// that never repeats its introduction can dial forever against a server that
+// silently drops its packets, which is what stranded a private host until its
+// agent was restarted by hand.
+func TestPrivateHostRecoversHeartbeatsAfterAControllerRestartWithoutRestartingItself(t *testing.T) {
+	t.Setenv("IN_TS_TEST", "true")
+	h := newHarness(t)
+	dm := integration.RunDERPAndSTUN(t, func(string, ...any) {}, "127.0.0.1")
+	identity := tailcat.NewPrivateKey()
+	identity.Public.Region = append(identity.Public.Region, dm.Regions[1])
+	raw, err := json.Marshal(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := h.key.Seal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.st.SetSetting(h.ctx, tailcatIdentitySetting, base64.StdEncoding.EncodeToString(sealed), true); err != nil {
+		t.Fatal(err)
+	}
+	address, err := h.api.ensureTailcat(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(h.api.closeTailcat)
+	_, token, err := h.ctrl.Auth().CreateJoinToken(h.ctx, time.Minute, nil, 2, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// One transport for the whole test, exactly like one long-running agent
+	// process: it is never closed or rebuilt across the controller restart
+	// below.
+	tr, err := agent.NewHTTPTransport(agent.HTTPOptions{ControllerURL: "tailcat://" + address})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tr.Close()
+	ctx, cancel := context.WithTimeout(h.ctx, 30*time.Second)
+	defer cancel()
+	joined, err := tr.Join(ctx, agent.JoinRequest{ProtocolVersion: agent.ProtocolVersion, JoinToken: token, Name: "home-lab", Capacity: 2, OS: "linux", Arch: "arm64"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr.SetCredentials(joined.HostID, joined.AgentToken)
+	if _, err := tr.Heartbeat(ctx, agent.HeartbeatRequest{ProtocolVersion: agent.ProtocolVersion, Capacity: 2}); err != nil {
+		t.Fatalf("first heartbeat: %v", err)
+	}
+
+	// The controller restarts (a deploy, a crash) but keeps the same
+	// persisted identity, exactly as ensureTailcat is documented to do.
+	h.api.closeTailcat()
+	restarted, err := New(Options{Controller: h.ctrl})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(restarted.closeTailcat)
+	next, err := restarted.ensureTailcat(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next != address {
+		t.Fatal("controller restart changed the enrolment address")
+	}
+
+	// The agent process never restarted, so this heartbeat call reuses the
+	// very same tailcat.Client the join above used. A stranded agent hangs
+	// here forever; a self-healing one loses at most the beat that lands
+	// during the restart.
+	var lastErr error
+	for range 3 {
+		hctx, hcancel := context.WithTimeout(h.ctx, 30*time.Second)
+		_, lastErr = tr.Heartbeat(hctx, agent.HeartbeatRequest{ProtocolVersion: agent.ProtocolVersion, Capacity: 2})
+		hcancel()
+		if lastErr == nil {
+			return
+		}
+	}
+	t.Fatalf("a long-lived agent transport never recovered heartbeats after a controller restart: %v", lastErr)
+}
