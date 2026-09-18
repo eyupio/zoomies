@@ -273,6 +273,41 @@ func TestTheWrittenFileSaysOnlyWhatItHasTo(t *testing.T) {
 	}
 }
 
+// agent.work_dir's default is derived from the euid of whatever process asks
+// for it: `zoomies agent join` always runs as root, and root's default happens
+// to be the same path the join chose here. That must not be reason enough to
+// drop it from the file -- the service the join installs almost always runs
+// as an unprivileged user, whose own default for the same key is a different
+// path, and a value missing from the file is recomputed from that default
+// rather than left alone.
+func TestAgentWorkDirIsWrittenEvenWhenItMatchesTheFreshDefault(t *testing.T) {
+	path := t.TempDir() + "/zoomies.yaml"
+	cfg := Default()
+	cfg.Agent.Embedded = false
+	cfg.Agent.WorkDir = Default().Agent.WorkDir // exactly what sparse() compares against
+	if err := cfg.Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	doc, err := readFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(keysIn(doc), "agent.work_dir") {
+		t.Fatalf("the written file does not spell agent.work_dir, though nothing else names it: %v", keysIn(doc))
+	}
+
+	// A load that computes a different default for the key -- standing in for
+	// the unprivileged service user -- must still recover the pinned value.
+	back, err := Load(path)
+	if err != nil {
+		t.Fatalf("the written file does not load: %v", err)
+	}
+	if back.Agent.WorkDir != cfg.Agent.WorkDir {
+		t.Errorf("agent.work_dir round-tripped as %q, want %q", back.Agent.WorkDir, cfg.Agent.WorkDir)
+	}
+}
+
 func contains(list []string, want string) bool {
 	for _, s := range list {
 		if s == want {

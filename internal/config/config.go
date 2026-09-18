@@ -1078,7 +1078,16 @@ func (c *Config) sparse() map[string]any {
 		// mean the next start had to guess. Everything else, including the
 		// agent transport keys, is written only when it differs -- an agent
 		// setting at its default is a setting nobody has chosen.
-		if s.Scope != ScopeBootstrap {
+		//
+		// agent.work_dir is the one exception to "only when it differs": its
+		// default is derived from the euid of whatever process asks for it, and
+		// `zoomies agent join` always runs as root while the service it installs
+		// almost always runs as an unprivileged one. A join that happens to
+		// compute the same path root would default to must still pin it, or the
+		// service recomputes a different default under its own uid, finds no
+		// credentials at the path it guessed, and fails to start -- while the
+		// controller, which saw the join succeed, still shows the host as added.
+		if s.Scope != ScopeBootstrap && s.Key != "agent.work_dir" {
 			if def, derr := defaults.Value(s.Key); derr == nil && Text(s, def) == text {
 				continue
 			}
