@@ -355,19 +355,24 @@ jobs:
       - name: Install Playwright Chromium
         # The browser itself needs no privilege; only the shared libraries it
         # links against do. Where sudo actually works, install-deps puts them
-        # where every other package on the system lives. Where it does not
-        # (see the job comment above), the .debs are downloaded with apt's
-        # own cache and state redirected into a writable prefix -- `download`
-        # and `dpkg -x` need no root either way -- and the browser is pointed
-        # at the unpacked libraries with LD_LIBRARY_PATH instead. The package
-        # list is what `playwright install-deps --dry-run chromium` prints on
-        # the runner image's own Ubuntu 24.04, minus Xvfb and the font
-        # packages, which only matter for a display chrome-headless-shell
-        # never opens.
+        # where every other package on the system lives -- run unprivileged,
+        # not under sudo itself: it shells out to `sudo -- sh -c "apt-get
+        # ..."` on its own for just the package install, and wrapping the
+        # whole npx invocation in sudo instead drops it onto root's
+        # sudoers-restricted PATH, which does not carry the Node version
+        # actions/setup-node put on this job's own PATH. Where sudo does not
+        # work (see the job comment above), the .debs are downloaded with
+        # apt's own cache and state redirected into a writable prefix --
+        # `download` and `dpkg -x` need no root either way -- and the browser
+        # is pointed at the unpacked libraries with LD_LIBRARY_PATH instead.
+        # The package list is what `playwright install-deps --dry-run
+        # chromium` prints on the runner image's own Ubuntu 24.04, minus
+        # Xvfb and the font packages, which only matter for a display
+        # chrome-headless-shell never opens.
         run: |
           npx playwright install chromium
           if sudo -n true >/dev/null 2>&1; then
-            sudo npx playwright install-deps chromium
+            npx playwright install-deps chromium
           else
             prefix="${RUNNER_TEMP}/chromium-deps"
             mkdir -p "${prefix}/lists/partial" "${prefix}/cache/archives/partial" "${prefix}/debs" "${prefix}/root"
