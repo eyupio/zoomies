@@ -371,17 +371,26 @@ whether it is yours to deal with.
 **When cleanup fails**, the runner's row says so rather than only the log. The
 Runners page and the runner's own page show what went wrong, how many times it
 has been tried, and the `runners.cleanup_failed` problem names it in the
-problems panel. Two shapes:
+problems panel. Three shapes:
 
 * **A container Zoomies could not remove.** It is still on its host, holding
   its writable layer. Zoomies keeps retrying; if it does not clear, remove it
   on the host with `docker rm -f`, and look at why the daemon refused.
-* **A registration GitHub would not delete.** It is still on the organisation's
-  runner list, offline and doing nothing, and this is usually a permission the
-  App has lost. Check the App's installation, or delete the entry on the
+* **A registration GitHub still calls busy.** GitHub's own bookkeeping can lag
+  a few seconds behind the `workflow_job` webhook that told Zoomies the job
+  was done, and the first delete attempt loses that race. This is not a
+  permission problem and needs nothing done about it: Zoomies rechecks every
+  ten minutes and the row clears itself as soon as GitHub agrees the runner is
+  idle. GitHub refuses to delete a runner it believes is running a job with no
+  override, so if it stays this way well past a few rechecks, waiting will not
+  fix it: cancel the workflow run on GitHub, or remove the runner on the
   target's runner settings page.
+* **A registration GitHub would not delete for another reason.** It is still on
+  the organisation's runner list, offline and doing nothing, and this is
+  usually a permission the App has lost. Check the App's installation, or
+  delete the entry on the target's runner settings page.
 
-Both clear themselves when a retry succeeds. The attempt count is kept
+All three clear themselves when a retry succeeds. The attempt count is kept
 afterwards, because how many tries it took is the difference between a blip and
 a host worth looking at.
 

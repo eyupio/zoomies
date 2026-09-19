@@ -151,6 +151,34 @@ func TestListAndDeleteRunners(t *testing.T) {
 	})
 }
 
+// DeleteRunner classifies GitHub's "currently running a job" refusal as
+// ErrRunnerBusy, distinct from every other 422 ErrInvalid covers, so a caller
+// can tell a race against GitHub's own bookkeeping apart from a genuinely bad
+// request.
+func TestDeleteRunnerRefusedWhileBusyIsErrRunnerBusy(t *testing.T) {
+	eachTarget(t, func(t *testing.T, f *FakeGitHub, c Client, _ string, _ store.TargetType) {
+		ctx := context.Background()
+		busy := f.AddRunner("zoomies-linux-x64-demo-busy", []string{"linux"})
+		f.SetRunnerBusy(busy.Name, true)
+
+		err := c.DeleteRunner(ctx, busy.ID)
+		if !errors.Is(err, ErrRunnerBusy) {
+			t.Fatalf("DeleteRunner error = %v, want ErrRunnerBusy", err)
+		}
+		if !errors.Is(err, ErrInvalid) {
+			t.Fatalf("DeleteRunner error = %v, want it to still be an ErrInvalid", err)
+		}
+		if got := f.Runners(); len(got) != 1 {
+			t.Fatalf("runner deleted despite GitHub refusing it: %+v", got)
+		}
+
+		f.SetRunnerBusy(busy.Name, false)
+		if err := c.DeleteRunner(ctx, busy.ID); err != nil {
+			t.Fatalf("DeleteRunner once idle: %v", err)
+		}
+	})
+}
+
 func TestJITRunnerIsReportedEphemeral(t *testing.T) {
 	f := newFake(t)
 	c := f.Client("acme", store.TargetOrg)
