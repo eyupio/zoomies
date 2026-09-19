@@ -67,7 +67,9 @@ test('the newest change is at the top, and the order can be turned round', async
   // Newest first is the default: the question this page answers is usually
   // "what just happened?".
   const header = log(page).getByRole('columnheader', { name: 'When' });
-  const when = header.getByRole('button');
+  // Named, because a heading carries three buttons now: the sort, and the
+  // grips that reposition and resize the column.
+  const when = header.getByRole('button', { name: 'When', exact: true });
   await expect(header).toHaveAttribute('aria-sort', 'descending');
 
   await when.click();

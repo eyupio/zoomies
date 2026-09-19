@@ -13,6 +13,7 @@
 import {
   Ban,
   Circle,
+  CircleStop,
   CircleCheck,
   CircleDashed,
   CircleMinus,
@@ -23,10 +24,12 @@ import {
   Info,
   Minus,
   Dog,
+  Pause,
   PawPrint,
   Play,
   Rabbit,
   Squirrel,
+  Trash2,
   TriangleAlert,
 } from '@lucide/svelte';
 import type { LucideIcon } from '@lucide/svelte';
@@ -38,6 +41,7 @@ import type {
   JobState,
   JoinToken,
   MachineState,
+  ProvisioningStatus,
   Pool,
   Runner,
   RunnerState,
@@ -262,6 +266,89 @@ export function stuckUnmatched(job: {
   hosted?: boolean;
 }): boolean {
   return job.matched === false && job.state === 'queued' && !job.hosted;
+}
+
+/**
+ * The operator's vocabulary for a queued job's provisioning demand, in one
+ * place: the Queue's status buttons, the Jobs page's filter chip and the badge
+ * on a job row all read from here, so the same state is never called two
+ * things on two pages. "Removed" rather than "deleted" throughout -- the row
+ * is still there, and restoring it is one press.
+ */
+export const QUEUE_STATUS_LABELS: Record<ProvisioningStatus, string> = {
+  ready: 'Ready',
+  expedited: 'Run now',
+  paused: 'Paused',
+  deleted: 'Removed',
+};
+
+/**
+ * What an operator has done to a queued job's provisioning demand, where they
+ * have done anything. Undefined for the ordinary case, which needs no badge.
+ *
+ * A job stood down from the queue is still `queued` as far as GitHub is
+ * concerned -- Zoomies cannot unqueue it -- so a list that showed only the
+ * state called it plainly Queued and left the operator's own decision
+ * invisible. These say it beside the state wherever a job is listed, which is
+ * what keeps a page that shows the job honest about what the fleet will do
+ * with it.
+ */
+export const QUEUE_PAUSED: StatusMeta = meta(
+  'paused',
+  'Paused',
+  'draining',
+  'hollow',
+  Pause,
+  'An operator put this job\u2019s provisioning demand on hold. It is still waiting, and no new runner will be created for it until it is resumed.',
+);
+
+export const QUEUE_REMOVED: StatusMeta = meta(
+  'removed',
+  'Removed',
+  'neutral',
+  'square',
+  Trash2,
+  'An operator removed this job from the queue, so it no longer counts as work this fleet is waiting on. Restore it from the Queue page\u2019s Removed view.',
+);
+
+/**
+ * The badge for a job an operator has stood down, or nothing for one they have
+ * not touched. Only a job still queued can carry one: once something has run
+ * it, what was done to its demand is history rather than status.
+ */
+/**
+ * A job on its way out because somebody cancelled its workflow run, which
+ * GitHub has not yet confirmed.
+ *
+ * GitHub owns the conclusion, so the row goes on reading `queued` or
+ * `in_progress` until its completion delivery lands -- which can be minutes.
+ * The job is neither by then: the queued half raises no demand and the running
+ * half has had its runner taken away.
+ */
+export const CANCELLING: StatusMeta = meta(
+  'cancelling',
+  'Cancelling',
+  'neutral',
+  'square',
+  CircleStop,
+  'Its workflow run was cancelled and GitHub has accepted the request. The fleet has already stopped work on it; the conclusion follows when GitHub reports it.',
+);
+
+export function queueStatus(job: {
+  state?: JobState;
+  provisioning?: string;
+  cancel_requested_at?: string | null;
+}): StatusMeta | undefined {
+  // Cancelling outranks the rest, and is the one that applies to a running
+  // job as well. A cancellation also pauses the run's queued jobs, so without
+  // this a job somebody cancelled would be reported as one an operator had
+  // merely put on hold.
+  if (job.state !== 'queued' && job.state !== 'in_progress') return undefined;
+  if (job.cancel_requested_at) return CANCELLING;
+  if (job.state !== 'queued') return undefined;
+  if (job.provisioning === 'paused') return QUEUE_PAUSED;
+  if (job.provisioning === 'deleted') return QUEUE_REMOVED;
+  return undefined;
 }
 
 /**

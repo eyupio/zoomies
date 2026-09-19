@@ -1109,12 +1109,30 @@ func (r *Runner) IdleFor(now time.Time) time.Duration {
 	return now.Sub(*r.LastIdleAt)
 }
 
+// The provisioning states an operator can put a queued job into. The empty
+// string is the fourth and the default: ready, provisioning demand as usual.
+const (
+	// ProvisioningPaused holds a job's demand without taking the job out of
+	// the queue. It is still waiting, and resuming it is one click.
+	ProvisioningPaused = "paused"
+	// ProvisioningDeleted is the operator saying this work should not be run
+	// here at all. It is restorable, which is why the row survives, but until
+	// it is restored the job is no longer part of what the fleet is waiting on.
+	ProvisioningDeleted = "deleted"
+)
+
 // Job is a GitHub Actions workflow job as Zoomies observed it.
 type Job struct {
 	// Provisioning is operator-owned and never overwritten by GitHub deliveries.
 	// Empty means ready; paused and deleted suppress this job's scale-up demand.
 	Provisioning string `json:"provisioning"`
 	ProvisionNow bool   `json:"provision_now"`
+	// CancelRequestedAt is when an operator's cancellation of this job's
+	// workflow run was accepted by GitHub. Like Provisioning it is the fleet's
+	// own note, never written by a delivery, because GitHub's completion event
+	// is still what settles the conclusion -- and that event can be minutes
+	// behind, which is exactly the window this exists to describe.
+	CancelRequestedAt *time.Time `json:"cancel_requested_at,omitempty"`
 
 	ID          string      `json:"id"`
 	GitHubJobID int64       `json:"github_job_id"`
@@ -1338,6 +1356,29 @@ func (j *Job) FailedStep() *JobStep {
 	}
 	return nil
 }
+
+// Cancelling reports whether this job is on its way out because somebody
+// cancelled its workflow run, and GitHub has not yet said so.
+//
+// GitHub owns the conclusion, so the row still reads `queued` or `in_progress`
+// for as long as its completion delivery takes -- and the fleet used to report
+// the job as waiting or running for that whole window. It is neither: the
+// queued half raises no demand and the running half has had its runner taken
+// away. Once the job completes this is history, and the conclusion says what
+// happened.
+func (j *Job) Cancelling() bool {
+	return j.CancelRequestedAt != nil && j.State != JobCompleted
+}
+
+// RemovedFromQueue reports whether an operator took this job out of the queue.
+//
+// Zoomies cannot unqueue a job at GitHub, so the row stays `queued` for as
+// long as GitHub keeps offering it -- which is why every figure that answers
+// "how much work is waiting?" has to exclude these by hand. An operator who
+// empties the queue and then reads a queue depth of forty on the Overview has
+// been told the removal did nothing. A paused job is not removed: it is on
+// hold, still waiting, and the Queue page lists it by default.
+func (j *Job) RemovedFromQueue() bool { return j.Provisioning == ProvisioningDeleted }
 
 // QueueWait returns how long the job waited before a runner picked it up.
 func (j *Job) QueueWait() time.Duration {

@@ -15,22 +15,24 @@ import (
 
 const jobCols = `id, github_job_id, github_run_id, repo, workflow, job_name, labels, state,
 	conclusion, installation_id, pool_id, runner_id, runner_name, html_url, queued_at,
-	started_at, completed_at, matched, eligible_at, head_branch, head_sha, run_attempt, steps, runner_fault, fault_kind, provisioning, provision_now`
+	started_at, completed_at, matched, eligible_at, head_branch, head_sha, run_attempt, steps, runner_fault, fault_kind, provisioning, provision_now, cancel_requested_at`
 
 func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
 	var j Job
 	var queued int64
-	var started, completed, eligible sql.NullInt64
+	var started, completed, eligible, cancelRequested sql.NullInt64
 	var matched int
 	err := sc.Scan(&j.ID, &j.GitHubJobID, &j.GitHubRunID, &j.Repo, &j.Workflow, &j.JobName,
 		&j.Labels, &j.State, &j.Conclusion, &j.InstallationID, &j.PoolID, &j.RunnerID,
 		&j.RunnerName, &j.HTMLURL, &queued, &started, &completed, &matched, &eligible,
-		&j.HeadBranch, &j.HeadSHA, &j.RunAttempt, &j.Steps, &j.RunnerFault, &j.FaultKind, &j.Provisioning, &j.ProvisionNow)
+		&j.HeadBranch, &j.HeadSHA, &j.RunAttempt, &j.Steps, &j.RunnerFault, &j.FaultKind, &j.Provisioning, &j.ProvisionNow,
+		&cancelRequested)
 	if err != nil {
 		return nil, err
 	}
 	j.QueuedAt = at(queued)
 	j.StartedAt, j.CompletedAt, j.EligibleAt = atp(started), atp(completed), atp(eligible)
+	j.CancelRequestedAt = atp(cancelRequested)
 	j.Matched = matched == 1
 	return &j, nil
 }
@@ -73,12 +75,13 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 				j.EligibleAt = &now
 			}
 			_, err := tx.ExecContext(ctx, `INSERT INTO jobs (`+jobCols+`)
-				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 				j.ID, j.GitHubJobID, j.GitHubRunID, j.Repo, j.Workflow, j.JobName, j.Labels,
 				string(j.State), j.Conclusion, j.InstallationID, j.PoolID, j.RunnerID,
 				j.RunnerName, j.HTMLURL, ms(j.QueuedAt), msp(j.StartedAt), msp(j.CompletedAt),
 				boolInt(j.Matched), msp(j.EligibleAt), j.HeadBranch, j.HeadSHA, j.RunAttempt,
-				j.Steps, j.RunnerFault, j.FaultKind, j.Provisioning, j.ProvisionNow)
+				j.Steps, j.RunnerFault, j.FaultKind, j.Provisioning, j.ProvisionNow,
+				msp(j.CancelRequestedAt))
 			if err != nil {
 				return err
 			}
@@ -375,6 +378,11 @@ type JobFilter struct {
 	// kind matches nothing rather than everything: a filter that silently
 	// widened would be read as a fleet in better shape than it is.
 	FaultKinds []FaultKind
+	// Cancelling narrows by whether a cancellation has been asked of GitHub
+	// and not yet confirmed -- see Job.Cancelling. Nil is every job, which is
+	// what a history wants; false is what a list of work still in hand wants,
+	// because a cancelled job is neither waiting nor running.
+	Cancelling *bool
 }
 
 var jobSortCols = map[string]string{
@@ -437,7 +445,7 @@ func jobWhere(f JobFilter) (string, []any) {
 				states = append(states, "(provisioning = '' AND provision_now = 0)")
 			case "expedited":
 				states = append(states, "(provisioning = '' AND provision_now = 1)")
-			case "paused", "deleted":
+			case ProvisioningPaused, ProvisioningDeleted:
 				states = append(states, "provisioning = ?")
 				args = append(args, v)
 			}
@@ -488,6 +496,14 @@ func jobWhere(f JobFilter) (string, []any) {
 	case f.FailedOnly:
 		cond = append(cond, failedJobSQL())
 	}
+	if f.Cancelling != nil {
+		if *f.Cancelling {
+			cond = append(cond, `cancel_requested_at IS NOT NULL AND state != ?`)
+		} else {
+			cond = append(cond, `(cancel_requested_at IS NULL OR state = ?)`)
+		}
+		args = append(args, string(JobCompleted))
+	}
 	if len(f.FaultKinds) > 0 {
 		placeholders := make([]string, 0, len(f.FaultKinds))
 		for _, k := range f.FaultKinds {
@@ -507,11 +523,45 @@ func jobWhere(f JobFilter) (string, []any) {
 	return "WHERE " + strings.Join(cond, " AND "), args
 }
 
-// ListQueuedJobs returns jobs still waiting for a runner, oldest first. This is
-// the scheduler's demand signal.
+// ListQueuedJobs returns jobs still waiting for a runner here, oldest first.
+// This is the scheduler's demand signal, and the source of every figure that
+// answers "how much work is waiting?": the Overview's tiles and pool bars, the
+// queue depth and age gauges, the elastic reserve, and the problems that only
+// matter while somebody is queued behind them.
+//
+// A job an operator removed from the queue is left out, because none of those
+// questions is still about it -- see Job.RemovedFromQueue. The sweep that
+// retires jobs GitHub stopped talking about wants the rows regardless of what
+// an operator did with them, and asks for them with ListStaleQueuedJobs.
 func (s *Store) ListQueuedJobs(ctx context.Context) ([]*Job, error) {
 	rows, err := s.read.QueryContext(ctx, `SELECT `+jobCols+` FROM jobs
-		WHERE state = 'queued' ORDER BY queued_at`)
+		WHERE `+queuedJobSQL("jobs")+` ORDER BY queued_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Job
+	for rows.Next() {
+		j, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, j)
+	}
+	return out, rows.Err()
+}
+
+// ListStaleQueuedJobs returns every job still marked queued that GitHub queued
+// before the cutoff, oldest first, whatever an operator has done with it.
+//
+// Removed jobs are here and nowhere else. Removing one suppresses this fleet's
+// demand for it; it says nothing about whether GitHub still has the work. Left
+// out of this sweep they would never be retired at all, and the Queue's own
+// view of what was removed would fill up with work GitHub gave up on a year
+// ago.
+func (s *Store) ListStaleQueuedJobs(ctx context.Context, before time.Time) ([]*Job, error) {
+	rows, err := s.read.QueryContext(ctx, `SELECT `+jobCols+` FROM jobs
+		WHERE state = ? AND queued_at < ? ORDER BY queued_at`, string(JobQueued), ms(before))
 	if err != nil {
 		return nil, err
 	}
@@ -657,6 +707,32 @@ func managedJobSQL(jobs string) string {
 		string(JobWaiting) + `') AND NOT ` + hostedJobSQL(jobs) + `))`
 }
 
+// queuedJobSQL is the SQL spelling of "still waiting for a runner here", and
+// the counting half of Job.RemovedFromQueue. A job an operator removed from
+// the queue is queued at GitHub and not here: the row keeps its state because
+// GitHub keeps offering the work, and the removal is restorable, but nothing
+// that reports queue depth should go on counting it. The Overview used to,
+// which meant an operator could empty the queue and watch the tile above it
+// hold the number it had before.
+func queuedJobSQL(jobs string) string {
+	return `(` + jobs + `.state = '` + string(JobQueued) + `' AND ` +
+		jobs + `.provisioning != '` + ProvisioningDeleted + `' AND ` +
+		notCancellingSQL(jobs) + `)`
+}
+
+// runningJobSQL is the same question for work in progress, and the counting
+// half of Job.Cancelling on that side. A job whose run was cancelled has had
+// its runner taken away already; GitHub's completion delivery is all that is
+// outstanding, and counting it as running until that arrives reported work
+// nobody was doing.
+func runningJobSQL(jobs string) string {
+	return `(` + jobs + `.state = '` + string(JobInProgress) + `' AND ` + notCancellingSQL(jobs) + `)`
+}
+
+// notCancellingSQL is the SQL spelling of the second half of Job.Cancelling.
+// The state test lives in the callers, which are all about one state.
+func notCancellingSQL(jobs string) string { return jobs + `.cancel_requested_at IS NULL` }
+
 func failedJobSQL() string {
 	return `(` + failedConclusionSQL() + ` OR ` + fleetFailedJobSQL() + `)`
 }
@@ -698,8 +774,8 @@ func (s *Store) StatsSince(ctx context.Context, since time.Time, managedOnly boo
 	}
 	var st JobStats
 	err := s.read.QueryRowContext(ctx, `SELECT
-		(SELECT COUNT(*) FROM jobs WHERE state='queued'`+scope+`),
-		(SELECT COUNT(*) FROM jobs WHERE state='in_progress'`+scope+`),
+		(SELECT COUNT(*) FROM jobs WHERE `+queuedJobSQL("jobs")+scope+`),
+		(SELECT COUNT(*) FROM jobs WHERE `+runningJobSQL("jobs")+scope+`),
 		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND completed_at >= ?`+scope+`),
 		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND `+failedJobSQL()+` AND completed_at >= ?`+scope+`),
 		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND conclusion = 'success' AND runner_fault = '' AND completed_at >= ?`+scope+`),

@@ -255,6 +255,10 @@ func parseJobFilter(w http.ResponseWriter, r *http.Request) (store.JobFilter, bo
 	if workflowFailed := queryBoolPtr(r, "workflow_failed"); workflowFailed != nil {
 		filter.WorkflowFailedOnly = *workflowFailed
 	}
+	// Kept as a pointer rather than flattened to a bool: absent means every
+	// job, which is what a history wants, and `cancelling=false` is a
+	// different question from not asking at all.
+	filter.Cancelling = queryBoolPtr(r, "cancelling")
 	if filter.FaultedOnly && filter.WorkflowFailedOnly {
 		badRequestField(w, "faulted", "faulted and workflow_failed ask for opposite halves of the same list; send one")
 		return filter, false

@@ -65,6 +65,11 @@
       const page = await listJobs(
         {
           state: ['in_progress'],
+          // A job whose run has been cancelled has had its runner taken away
+          // already; GitHub's completion delivery is all that is outstanding.
+          // The tile above this panel stopped counting it at the moment of the
+          // cancellation, so the list has to as well.
+          cancelling: false,
           // The filter is the server's, not a slice of a page: on a busy
           // organisation a page of fifty running jobs can be somebody else's
           // fifty, and filtering here would leave the panel empty and wrong.
@@ -105,7 +110,9 @@
     events.subscribe('job.updated', (job) => {
       if (!job.id) return;
       const next = jobs.filter((row) => row.id !== job.id);
-      if (job.state === 'in_progress' && belongs(job)) next.push(job);
+      // The same test the fetch applies, so a cancellation arriving over the
+      // stream takes the job off the panel rather than waiting for a reload.
+      if (job.state === 'in_progress' && !job.cancel_requested_at && belongs(job)) next.push(job);
       jobs = order(next);
     }),
   );

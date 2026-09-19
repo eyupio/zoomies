@@ -71,6 +71,12 @@ func (c *Controller) ExplainJob(ctx context.Context, jobID string) (*JobExplanat
 		c.explainCompleted(job, out)
 		return out, nil
 	case store.JobInProgress:
+		// Ahead of the running explanation, which would otherwise name a
+		// runner this fleet took away when the cancellation landed.
+		if job.Cancelling() {
+			explainCancelling(job, out)
+			return out, nil
+		}
 		c.explainRunning(ctx, job, out)
 		return out, nil
 	case store.JobWaiting:
@@ -148,8 +154,27 @@ func (c *Controller) explainRunning(ctx context.Context, job *store.Job, out *Jo
 	out.Fix = "check that the zoomies agent is running on that host and can reach this controller."
 }
 
+// explainCancelling covers the window between GitHub accepting a cancellation
+// and GitHub reporting the job over, which can be minutes. The fleet has
+// already stopped: there is nothing for an operator to do but wait, and the
+// one thing they must not be told is that the job is still queued or running.
+func explainCancelling(job *store.Job, out *JobExplanation) {
+	out.Blocked = true
+	out.Summary = "This job's workflow run was cancelled."
+	out.Detail = "GitHub accepted the cancellation; this fleet stopped its queued demand and any runner working on it at that moment. " +
+		"GitHub reports the conclusion in its own time, and until it does the job is recorded as neither waiting nor running."
+	out.Fix = "nothing here: the conclusion arrives with GitHub's completion event. Re-run the workflow on GitHub if the work is still wanted."
+}
+
 // explainQueued is the case the endpoint exists for.
 func (c *Controller) explainQueued(ctx context.Context, job *store.Job, out *JobExplanation) {
+	// Before the provisioning branch: a cancelled run pauses its queued jobs,
+	// so an operator who cancelled one would otherwise be told their own
+	// cancellation was a pause, and offered a Resume that would undo it.
+	if job.Cancelling() {
+		explainCancelling(job, out)
+		return
+	}
 	if job.Provisioning != "" {
 		out.Blocked = true
 		out.Summary = "Provisioning is paused for this item."
