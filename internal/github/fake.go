@@ -336,6 +336,22 @@ func (f *FakeGitHub) CompleteJob(jobID int64, conclusion string) {
 	}
 }
 
+// SetWorkflowRunState changes the run record independently of its jobs. That
+// distinction lets controller tests prove that one cancelled stage does not
+// fan cancellation out to the rest of the workflow.
+func (f *FakeGitHub) SetWorkflowRunState(runID int64, status, conclusion string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, j := range f.jobs {
+		if j.RunID == runID {
+			j.runStatus = status
+			if conclusion != "" {
+				j.Conclusion = conclusion
+			}
+		}
+	}
+}
+
 func (f *FakeGitHub) findJobLocked(id int64) *fakeJob {
 	for _, j := range f.jobs {
 		if j.ID == id {
@@ -430,6 +446,7 @@ func (f *FakeGitHub) handler() http.Handler {
 
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/jobs/{job}", f.getWorkflowJob)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs", f.listWorkflowRuns)
+	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs/{run}", f.getWorkflowRun)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs/{run}/jobs", f.listWorkflowJobs)
 	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/runs/{run}/cancel", f.cancelWorkflowRun)
 	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/runs/{run}/force-cancel", f.cancelWorkflowRun)
@@ -813,6 +830,24 @@ func (f *FakeGitHub) listWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(runs), "workflow_runs": runs})
+}
+
+func (f *FakeGitHub) getWorkflowRun(w http.ResponseWriter, r *http.Request) {
+	full, _ := target(r)
+	runID, _ := strconv.ParseInt(r.PathValue("run"), 10, 64)
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, j := range f.jobs {
+		if j.Repo == full && j.RunID == runID {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"id": runID, "status": j.runStatus, "conclusion": j.Conclusion,
+				"name": j.WorkflowName, "html_url": j.HTMLURL,
+			})
+			return
+		}
+	}
+	writeError(w, http.StatusNotFound, "Not Found")
 }
 
 func (f *FakeGitHub) listWorkflowJobs(w http.ResponseWriter, r *http.Request) {

@@ -902,6 +902,21 @@ func (c *appClient) GetWorkflowJob(ctx context.Context, repo string, id int64) (
 	return ParseWorkflowJob(body)
 }
 
+// GetWorkflowRun is the run-level authority for cancellation. workflow_job
+// only says that one job was cancelled; it does not say why or whether its
+// queued and running siblings were cancelled too.
+func (c *appClient) GetWorkflowRun(ctx context.Context, repo string, runID int64) (*WorkflowRunState, error) {
+	owner, name, kind := SplitTarget(repo)
+	if kind != store.TargetRepo || runID <= 0 {
+		return nil, fmt.Errorf("github: invalid workflow run %q/%d", repo, runID)
+	}
+	run, resp, err := c.asInstallation.Actions.GetWorkflowRunByID(ctx, owner, name, runID)
+	if err != nil {
+		return nil, c.fail("read workflow run", resp, err)
+	}
+	return &WorkflowRunState{Status: run.GetStatus(), Conclusion: run.GetConclusion()}, nil
+}
+
 // RerunFailedWorkflowJobs asks GitHub to run the failed jobs of a run again.
 //
 // It is the counterpart of CancelWorkflowRun and shares its shape, including

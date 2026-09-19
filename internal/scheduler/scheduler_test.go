@@ -570,6 +570,46 @@ func TestProvisioningRunnersCountTowardsDemand(t *testing.T) {
 	}
 }
 
+func TestCancelledDemandStopsSurplusStartingRunnersImmediately(t *testing.T) {
+	p := testPool("linux-x64", "linux")
+	p.IdleTimeout = store.Duration(30 * time.Minute)
+	runners := []*store.Runner{
+		testRunner("registering-old", p, store.RunnerRegistering, 2*time.Minute),
+		testRunner("provisioning-old", p, store.RunnerProvisioning, 90*time.Second),
+		testRunner("provisioning-new", p, store.RunnerProvisioning, time.Minute),
+	}
+
+	pp := only(t, Decide(snap([]*store.Pool{p}, runners, nil,
+		[]*store.Host{testHost("host_a", 8, 3)})))
+	drains := actionsOf(pp.Actions, ActionDrain)
+	if got := runnerIDs(pp.Actions, ActionDrain); !slices.Equal(got, []string{"provisioning-new", "provisioning-old", "registering-old"}) {
+		t.Fatalf("drained %v, want newest provisioning capacity first and registering last", got)
+	}
+	for _, a := range drains {
+		if !strings.Contains(a.Reason, "demand disappeared") {
+			t.Fatalf("drain reason = %q, want it to explain the cancelled demand", a.Reason)
+		}
+	}
+	if !strings.Contains(pp.Reason, "still starting after demand disappeared") {
+		t.Fatalf("pool reason = %q", pp.Reason)
+	}
+}
+
+func TestStartingRunnerForAnInProgressJobIsNeverCancelledAsSurplus(t *testing.T) {
+	p := testPool("linux-x64", "linux")
+	r := testRunner("behind", p, store.RunnerProvisioning, time.Minute)
+	running := &store.Job{
+		ID: "job-1", PoolID: p.ID, RunnerID: r.ID, State: store.JobInProgress,
+		Repo: "acme/widgets", InstallationID: testInstallation,
+	}
+
+	pp := only(t, Decide(snap([]*store.Pool{p}, []*store.Runner{r}, []*store.Job{running},
+		[]*store.Host{testHost("host_a", 8, 1)})))
+	if drains := actionsOf(pp.Actions, ActionDrain); len(drains) != 0 {
+		t.Fatalf("drained a behind runner whose job is already running: %+v", drains)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Scale down
 // ---------------------------------------------------------------------------
@@ -691,7 +731,13 @@ func TestReap(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			s := snap([]*store.Pool{p}, []*store.Runner{tc.runner}, nil, []*store.Host{testHost("host_a", 8, 1)})
+			var jobs []*store.Job
+			if tc.name == "provisioning inside the timeout is left alone" {
+				// It is still needed capacity. With no queued demand the new
+				// cancellation path correctly stops it before the timeout.
+				jobs = []*store.Job{queued("j1", time.Minute, "linux")}
+			}
+			s := snap([]*store.Pool{p}, []*store.Runner{tc.runner}, jobs, []*store.Host{testHost("host_a", 8, 1)})
 			pp := only(t, Decide(s))
 			if tc.wantKind == "" {
 				if len(pp.Actions) != 0 {

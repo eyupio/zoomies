@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/agent"
+	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -22,8 +24,10 @@ var (
 )
 
 // CancelJobWorkflow asks GitHub to cancel the workflow run containing jobID.
-// Zoomies deliberately leaves the local job pending until GitHub confirms the
-// terminal state through a webhook or the fallback poller.
+// GitHub remains authoritative for terminal job states, but once its
+// run-scoped API accepts the request Zoomies immediately suppresses queued
+// demand and tears down runners executing jobs from that run. Waiting for a
+// completed webhook would let an arbitrary current step keep running.
 func (c *Controller) CancelJobWorkflow(ctx context.Context, jobID string, force bool) (*store.Job, error) {
 	if !c.cfg().GitHub.AllowWorkflowCancellation {
 		return nil, ErrWorkflowCancellationDisabled
@@ -51,13 +55,114 @@ func (c *Controller) CancelJobWorkflow(ctx context.Context, jobID string, force 
 	}
 	if err := c.st.AppendJobEvent(ctx, &store.JobEvent{
 		JobID: j.ID, Kind: store.JobEventCancelRequested, Source: sourceController,
-		Message: fmt.Sprintf("an operator requested %s of GitHub workflow run %d; GitHub's completion event will confirm the result", mode, j.GitHubRunID),
+		Message: fmt.Sprintf("an operator requested %s of GitHub workflow run %d; local queued work and runners were stopped immediately, while GitHub's completion events remain authoritative for the result", mode, j.GitHubRunID),
 		At:      c.Now(),
 	}); err != nil {
 		return nil, err
 	}
+	if err := c.cancelWorkflowRunLocally(ctx, j.Repo, j.GitHubRunID, false); err != nil {
+		// GitHub has already accepted the cancellation. Returning an error would
+		// encourage an operator to repeat a request that succeeded; the webhook
+		// and poller still provide the durable convergence path.
+		c.log.Warn("GitHub accepted a workflow cancellation but local work could not all be stopped yet",
+			"repo", j.Repo, "run", j.GitHubRunID, "error", err)
+	}
+	if updated, getErr := c.st.GetJob(ctx, j.ID); getErr == nil {
+		j = updated
+	}
 	c.publishJob(ctx, j)
 	return j, nil
+}
+
+// cancelWorkflowRunLocally aligns every locally known job in a run with a
+// run-scoped cancellation. Before GitHub confirms the terminal run state it
+// pauses queued demand without inventing job conclusions. Once confirmed it
+// also closes every remaining local job as cancelled.
+func (c *Controller) cancelWorkflowRunLocally(ctx context.Context, repo string, runID int64, confirmed bool) error {
+	jobs, err := c.st.ListJobsForRun(ctx, repo, runID)
+	if err != nil {
+		return fmt.Errorf("listing jobs in cancelled workflow run: %w", err)
+	}
+	now := c.Now()
+	var queued []string
+	var errs []error
+	for _, j := range jobs {
+		wasActive := j.State != store.JobCompleted
+		if !confirmed && j.State == store.JobQueued {
+			queued = append(queued, j.ID)
+		}
+		if confirmed && wasActive {
+			update := *j
+			update.State = store.JobCompleted
+			update.Conclusion = "cancelled"
+			update.CompletedAt = &now
+			saved, change, applyErr := c.st.ApplyJob(ctx, &update)
+			if applyErr != nil {
+				errs = append(errs, fmt.Errorf("cancelling job %s with its workflow run: %w", j.ID, applyErr))
+			} else {
+				c.recordJobChange(ctx, saved, change, sourceController, nil)
+				if change.StateChanged {
+					c.observeJobCompletion(saved)
+				}
+				c.publishJob(ctx, saved)
+			}
+		}
+
+		// Only a job that was still running when the run-wide cancellation
+		// arrived owns live work. Completed siblings may have had their runner
+		// reused by another run and must never be torn down here.
+		if j.State == store.JobInProgress && j.RunnerID != "" {
+			if err := c.stopCancelledJobRunner(ctx, j); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+	if len(queued) > 0 {
+		if _, err := c.st.ControlProvisioning(ctx, queued, "pause"); err != nil {
+			errs = append(errs, fmt.Errorf("suppressing queued jobs in cancelled workflow run: %w", err))
+		} else {
+			for _, id := range queued {
+				if j, getErr := c.st.GetJob(ctx, id); getErr == nil {
+					c.publishJob(ctx, j)
+				}
+			}
+		}
+	}
+	c.Nudge()
+	return errors.Join(errs...)
+}
+
+// stopCancelledJobRunner detaches the job before forcing removal. That avoids
+// recording a fleet fault: GitHub cancelled this work; the runner did not fail
+// underneath it.
+func (c *Controller) stopCancelledJobRunner(ctx context.Context, j *store.Job) error {
+	r, err := c.st.GetRunner(ctx, j.RunnerID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil
+		}
+		return err
+	}
+	if r.CurrentJobID != j.ID {
+		return nil
+	}
+	finished, changed, err := c.st.CompleteRunnerJob(ctx, r.ID, j.ID,
+		fmt.Sprintf("workflow run %d was cancelled", j.GitHubRunID))
+	if err != nil {
+		return fmt.Errorf("releasing runner %s from cancelled workflow run: %w", r.ID, err)
+	}
+	if changed {
+		c.publishRunner(ctx, events.KindRunnerUpdated, finished)
+	}
+	if finished.State == store.RunnerRemoved {
+		c.enqueueLifecycle(ctx, finished.HostID, agent.Task{
+			Kind: agent.TaskRemoveRunner, RunnerID: finished.ID,
+			Backend: c.backendKind(ctx, finished, nil),
+		})
+		return nil
+	}
+	return c.removeRunnerID(ctx, finished.ID,
+		fmt.Sprintf("GitHub workflow run %d was cancelled", j.GitHubRunID), nil)
 }
 
 // RerunJobWorkflow asks GitHub to run the failed jobs of this job's run again.

@@ -716,7 +716,10 @@ On by default. Operators can cancel the GitHub workflow run
 containing a queued or running job from its drawer. GitHub only provides a
 run-level API, so this stops every job in that run. The confirmation also
 offers force cancellation for a run that remains stuck after an ordinary
-request.
+request. As soon as GitHub accepts the request, Zoomies pauses every locally
+queued job in the run and removes runners executing its jobs; it does not wait
+for the current step to finish. GitHub's completion events still supply the
+authoritative job conclusions.
 
 This feature requires the GitHub App's **Actions: read and write** permission.
 New Apps created while the setting is enabled request it automatically. For an

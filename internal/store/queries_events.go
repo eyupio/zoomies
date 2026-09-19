@@ -304,6 +304,26 @@ func (s *Store) GetJobByGitHubID(ctx context.Context, ghID int64) (*Job, error) 
 	return j, err
 }
 
+// ListJobsForRun returns every locally known job in one repository workflow
+// run. Repository is part of the key because run IDs are not globally unique.
+func (s *Store) ListJobsForRun(ctx context.Context, repo string, runID int64) ([]*Job, error) {
+	rows, err := s.read.QueryContext(ctx, `SELECT `+jobCols+` FROM jobs
+		WHERE repo = ? AND github_run_id = ? ORDER BY queued_at, id`, repo, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Job
+	for rows.Next() {
+		j, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, j)
+	}
+	return out, rows.Err()
+}
+
 // JobFilter narrows a job history listing. Every field is optional; the UI's
 // filter bar maps one-to-one onto it.
 type JobFilter struct {
