@@ -98,6 +98,10 @@ for (const { path, heading } of PAGES) {
 }
 
 test('every button and link has an accessible name', async ({ page }) => {
+  // This audit deliberately visits every route. On a loaded CI runner that is
+  // valid work for more than the ordinary single-page 30 second budget.
+  test.slow();
+
   // This one caught a real bug on the phone: the bottom bar hid each entry's
   // label with `display: none`, which took its accessible name with it, and a
   // screen reader announced eight links called "link". The bar shows its four
@@ -135,6 +139,8 @@ test('every button and link has an accessible name', async ({ page }) => {
  * label leads and is said once.
  */
 test('a segmented option is asked for by the label it shows', async ({ page }) => {
+  test.slow();
+
   let audited = 0;
   for (const { path, heading } of PAGES) {
     await goto(page, path, heading);
@@ -177,6 +183,8 @@ test('a segmented option is asked for by the label it shows', async ({ page }) =
 test('every image has alternative text or is hidden from assistive technology', async ({
   page,
 }) => {
+  test.slow();
+
   for (const { path, heading } of PAGES) {
     await goto(page, path, heading);
     await settle(page, path);
@@ -211,6 +219,8 @@ test('every image has alternative text or is hidden from assistive technology', 
 });
 
 test('no element carries a positive tabindex', async ({ page }) => {
+  test.slow();
+
   for (const { path, heading } of PAGES) {
     await goto(page, path, heading);
     await settle(page, path);
