@@ -2,10 +2,41 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 )
+
+func TestUserPreferencesArePrivateToTheAccount(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	alice := &User{Username: "alice", Role: RoleViewer}
+	bob := &User{Username: "bob", Role: RoleViewer}
+	for _, user := range []*User{alice, bob} {
+		if err := s.CreateUser(ctx, user); err != nil {
+			t.Fatalf("CreateUser(%s): %v", user.Username, err)
+		}
+	}
+	value := json.RawMessage(`{"table_layouts":{"runners":{"widths":{"name":240}}}}`)
+	if err := s.SetUserPreferences(ctx, alice.ID, value); err != nil {
+		t.Fatalf("SetUserPreferences: %v", err)
+	}
+	got, err := s.UserPreferences(ctx, alice.ID)
+	if err != nil {
+		t.Fatalf("UserPreferences(alice): %v", err)
+	}
+	if string(got) != string(value) {
+		t.Fatalf("alice preferences = %s, want %s", got, value)
+	}
+	got, err = s.UserPreferences(ctx, bob.ID)
+	if err != nil {
+		t.Fatalf("UserPreferences(bob): %v", err)
+	}
+	if string(got) != "{}" {
+		t.Fatalf("bob preferences = %s, want an empty document", got)
+	}
+}
 
 // Usernames are the thing a person types at a login prompt, and people do not
 // type case consistently. Storing them lowercased is what makes "Ada" and "ada"

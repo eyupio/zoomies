@@ -16,6 +16,7 @@ import {
 } from '../api/client';
 import type { Identity, Meta, Role } from '../api/types';
 import { atLeast } from '../api/types';
+import { prefs } from './prefs.svelte';
 
 export type SessionPhase =
   /** Still asking the server what it is. */
@@ -126,6 +127,9 @@ class Session {
   async refresh(): Promise<void> {
     try {
       this.#identity = await getSession();
+      if (this.#identity.kind === 'user' && this.#identity.id) {
+        await prefs.syncAccount(this.#identity.id);
+      }
       this.#phase = 'ready';
     } catch (cause) {
       this.#identity = null;
@@ -143,6 +147,9 @@ class Session {
   /** Sign in. Throws an ApiError the form renders inline -- 401 and 429 both matter. */
   async login(username: string, password: string): Promise<void> {
     this.#identity = await loginRequest({ username, password });
+    if (this.#identity.kind === 'user' && this.#identity.id) {
+      await prefs.syncAccount(this.#identity.id);
+    }
     this.#phase = 'ready';
   }
 
@@ -154,6 +161,9 @@ class Session {
     email?: string;
   }): Promise<Identity> {
     this.#identity = await bootstrapRequest(input);
+    if (this.#identity.kind === 'user' && this.#identity.id) {
+      await prefs.syncAccount(this.#identity.id);
+    }
     this.#meta = this.#meta ? { ...this.#meta, bootstrap_required: false } : this.#meta;
     this.#phase = 'ready';
     return this.#identity;
@@ -195,6 +205,7 @@ class Session {
 
   /** Drop the identity without calling the server. The 401 handler uses this. */
   clear(): void {
+    prefs.disconnectAccount();
     this.#identity = null;
     this.#phase = 'anonymous';
   }

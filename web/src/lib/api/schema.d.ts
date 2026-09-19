@@ -142,6 +142,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The current account's private interface preferences
+         * @description Returns an empty document for identities that are not backed by an account.
+         */
+        get: operations["getOwnPreferences"];
+        /** Replace the current account's private interface preferences */
+        put: operations["replaceOwnPreferences"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/password": {
         parameters: {
             query?: never;
@@ -4579,6 +4600,18 @@ export interface components {
             scopes?: string[];
             must_change_password?: boolean;
         };
+        /** @description Private, account-scoped interface choices. Unknown tables and columns are harmless. */
+        UserPreferences: {
+            table_layouts?: {
+                [key: string]: components["schemas"]["TableLayoutPreference"];
+            };
+        };
+        TableLayoutPreference: {
+            widths?: {
+                [key: string]: number;
+            };
+            order?: string[];
+        };
         APIToken: {
             id?: string;
             name?: string;
@@ -5186,6 +5219,54 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    getOwnPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserPreferences"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    replaceOwnPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserPreferences"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserPreferences"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     changeOwnPassword: {

@@ -17,6 +17,7 @@
   import EmptyState from '$lib/components/EmptyState.svelte';
   import IconButton from '$lib/components/IconButton.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
+  import { tableLayout } from '$lib/actions/tableLayout';
 
   interface Props {
     tokens: readonly JoinToken[];
@@ -70,7 +71,13 @@
       nothing saying which value belongs to which record.
     -->
     <!-- svelte-ignore a11y_no_redundant_roles -->
-    <table role="table">
+    <table
+      role="table"
+      use:tableLayout={{
+        id: 'join-tokens',
+        columns: ['prefix', 'state', 'capacity', 'labels', 'created-by', 'expires', 'actions'],
+      }}
+    >
       <caption class="sr-only">Outstanding join tokens</caption>
       <!-- svelte-ignore a11y_no_redundant_roles -->
       <thead role="rowgroup">

@@ -553,7 +553,7 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 
 | Component | Notes |
 | --- | --- |
-| `DataGrid` | TanStack Table core + our own markup. Server-side pagination, sorting and filtering; column show/hide persisted per grid; sticky header; row selection with a bulk action bar; full keyboard navigation (`↑ ↓` rows, `Enter` opens, `Space` selects, `Shift+↑/↓` range); never scrolls sideways, except inside its own frame in the phone row layout — see *Tables fit the window* |
+| `DataGrid` | TanStack Table core + our own markup. Server-side pagination, sorting and filtering; column show/hide, width and order persisted per grid; sticky header; row selection with a bulk action bar; full keyboard navigation (`↑ ↓` rows, `Enter` opens, `Space` selects, `Shift+↑/↓` range). Defaults fit the frame; an explicitly widened layout scrolls inside its own frame — see *Tables use the space they need* |
 | `RowActions` | a row's actions as buttons rather than a menu, as an ARIA toolbar: one tab stop per row, `← →` along it, and every button's name carries what it acts on |
 | `FilterBar` | chips for active filters, each individually removable, plus a clear-all |
 | `PageHeader` | title, subtitle, breadcrumb, primary action, and the refresh button where the page passes `onrefresh` |
@@ -744,25 +744,31 @@ now. A media query cannot say "above 1180" without naming the next pixel, so the
 one `min-width: 1181px` in `FleetMetrics.svelte` is the same threshold from the
 other side and carries a comment saying so.
 
-### Tables fit the window
+### Tables use the space they need
 
-**No table in Zoomies scrolls sideways.** A table that does hides the column
-somebody is looking for behind a gesture they have no reason to try, and takes
-the row's name off the left edge the moment they do — so the value they scrolled
-to belongs to a row they can no longer name. `web/tests/tables.spec.ts` holds
-that true at 1440, 1180, 1179, 768, 412 and 360 pixels.
+Tables begin at content-relevant widths rather than stretching a short state,
+date or action column merely to fill the frame. When those useful widths fit,
+unused room remains at the end of the table instead of being hidden inside its
+columns. When the defaults need more room they still divide the frame, and the
+narrow-desktop priorities keep the page readable without a page-level
+scrollbar. `web/tests/tables.spec.ts` checks the page itself at 1440, 1180,
+1179, 768, 412 and 360 pixels.
 
-Three things make it fit, in this order:
+Five things make it fit, in this order:
 
-* **The columns divide the frame.** The table is `table-layout: fixed`, and
+* **Defaults fit before they scroll.** The table is `table-layout: fixed`, and
   `DataGrid` works out each column's width from the frame it measures rather
-  than from its content. A column's declared `width` is a *share* of that frame,
-  not a measure — `9.5rem` beside `4rem` means "a good deal wider", and both
-  shrink together on a smaller screen. A column of controls says `fixed: true`
-  and takes its width outright, because a button squeezed to two thirds of
-  itself is a button half outside its column; the columns of text divide what is
-  left. A cell too small for its content truncates and keeps the whole value in
-  its `title`.
+  than from its content. A declared `width` is the useful measure when all the
+  useful measures fit, and a share of the frame when they do not. A cell too
+  small for its content truncates and keeps the whole value in its `title`.
+* **A deliberate layout stays deliberate.** Every heading has a drag handle and
+  a resize edge. The handle also moves with left/right arrow keys and the edge
+  resizes in eight-pixel keyboard steps; double-clicking an edge restores that
+  column and the chooser can restore the whole layout. A layout wider than the
+  frame scrolls *inside the grid*, because shrinking other columns behind the
+  operator's back would make the resize handle lie. Widths and order are saved
+  under stable column ids to the signed-in account, with local storage as the
+  immediate and offline fallback. New columns append to a saved order.
 * **A narrow desktop shows fewer columns.** Twelve columns in the 660 pixels a
   768px window leaves is 55 pixels each, which fits and says nothing. Between
   `--z-bp-md` and `--z-bp-lg`, columns marked `priority: 'wide'` wait for a
@@ -772,10 +778,9 @@ Three things make it fit, in this order:
   same shape at every width unless it is told otherwise: below `--z-bp-md` the
   columns take the widths they declare rather than dividing a frame they cannot
   meaningfully divide, and the grid's own frame scrolls sideways to reach the
-  ones past the edge. That is the one place in this product where a table
-  scrolls horizontally — it buys a page an operator already knows from the
-  desktop, and the page behind it still does not scroll, because the frame
-  clips.
+  ones past the edge. Like a deliberately widened desktop layout, the scroll
+  belongs to the table's frame rather than the page, so it buys a page an
+  operator already knows without moving the application itself.
 * **A phone reads down when the operator says so.** Ten columns in 412 pixels
   each say very little, so each grid carries a Cards/Rows toggle above its rows
   and Settings → Appearance holds the default every grid that has not chosen
@@ -790,7 +795,11 @@ Three things make it fit, in this order:
 
 The same card layout is written out by hand in the tables that are not grids —
 the usage report, the accounts and API-token lists, the outstanding join tokens.
-A new table of any size belongs in one of those two places.
+The `tableLayout` action gives those record tables the same measured defaults,
+handles and account preference keys without taking ownership of their rows. A
+compact matrix whose column order carries meaning — the chronological capacity
+card, for example — stays a matrix and does not offer a misleading reorder
+control. A new table of any size belongs in one of those two places.
 
 All of them, the grid included, spell their ARIA roles out rather than leaving
 them to the element. A browser drops a row's implicit role the moment `display`

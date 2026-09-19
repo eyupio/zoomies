@@ -248,6 +248,40 @@ paths:
               schema: { $ref: "#/components/schemas/Identity" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /auth/preferences:
+    get:
+      operationId: getOwnPreferences
+      tags: [auth]
+      summary: The current account's private interface preferences
+      description: Returns an empty document for identities that are not backed by an account.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserPreferences" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      operationId: replaceOwnPreferences
+      tags: [auth]
+      summary: Replace the current account's private interface preferences
+      x-zoomies-role: viewer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UserPreferences" }
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserPreferences" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
   /auth/password:
     post:
       operationId: changeOwnPassword
@@ -5933,6 +5967,26 @@ components:
         role: { $ref: "#/components/schemas/Role" }
         scopes: { type: array, items: { type: string } }
         must_change_password: { type: boolean }
+
+    UserPreferences:
+      type: object
+      description: Private, account-scoped interface choices. Unknown tables and columns are harmless.
+      properties:
+        table_layouts:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/TableLayoutPreference"
+
+    TableLayoutPreference:
+      type: object
+      properties:
+        widths:
+          type: object
+          additionalProperties: { type: number, minimum: 40, maximum: 1000 }
+        order:
+          type: array
+          maxItems: 100
+          items: { type: string, minLength: 1, maxLength: 100 }
 
     APIToken:
       type: object

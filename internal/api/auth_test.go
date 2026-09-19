@@ -77,6 +77,32 @@ func TestBootstrapRejectsAShortPassword(t *testing.T) {
 	}
 }
 
+func TestTablePreferencesFollowTheSignedInAccount(t *testing.T) {
+	h := newHarness(t)
+	_, aliceCookie := h.user("alice", store.RoleViewer)
+	_, bobCookie := h.user("bob", store.RoleViewer)
+
+	put := h.do(request{method: http.MethodPut, path: "/api/v1/auth/preferences", cookie: aliceCookie,
+		body: map[string]any{"table_layouts": map[string]any{"runners": map[string]any{
+			"widths": map[string]any{"name": 240}, "order": []string{"name", "state"},
+		}}}})
+	put.mustStatus(t, http.StatusOK, "save table preferences")
+
+	got := h.do(request{method: http.MethodGet, path: "/api/v1/auth/preferences", cookie: aliceCookie})
+	got.mustStatus(t, http.StatusOK, "read table preferences")
+	layouts := got.json(t)["table_layouts"].(map[string]any)
+	runners := layouts["runners"].(map[string]any)
+	if width := runners["widths"].(map[string]any)["name"]; width != float64(240) {
+		t.Fatalf("saved name width = %v, want 240", width)
+	}
+
+	other := h.do(request{method: http.MethodGet, path: "/api/v1/auth/preferences", cookie: bobCookie})
+	other.mustStatus(t, http.StatusOK, "read another account's preferences")
+	if layouts, ok := other.json(t)["table_layouts"].(map[string]any); ok && len(layouts) != 0 {
+		t.Fatalf("bob inherited alice's table layouts: %v", layouts)
+	}
+}
+
 // TestLoginIsIndistinguishable checks the one property a login endpoint has to
 // have: a wrong password and an unknown user must look the same.
 func TestLoginIsIndistinguishable(t *testing.T) {

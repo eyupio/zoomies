@@ -14,6 +14,7 @@
   is the honest state.
 -->
 <script lang="ts">
+  import { tableLayout } from '$lib/actions/tableLayout';
   import {
     ArchiveRestore,
     CircleCheck,
@@ -682,7 +683,13 @@
             table-row.
           -->
           <!-- svelte-ignore a11y_no_redundant_roles -->
-          <table role="table">
+          <table
+            role="table"
+            use:tableLayout={{
+              id: 'backups',
+              columns: ['taken', 'source', 'size', 'schema', 'key', 'actions'],
+            }}
+          >
             <caption class="sr-only">Backups</caption>
             <!-- svelte-ignore a11y_no_redundant_roles -->
             <thead role="rowgroup">

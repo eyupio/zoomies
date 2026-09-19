@@ -1,9 +1,9 @@
 <!--
   Appearance.
 
-  These are this browser's preferences, not the instance's: they are kept in
-  local storage and never leave the machine, which the page says out loud so
-  nobody wonders why a colleague's Zoomies looks different.
+  Theme, navigation and phone layout belong to this browser, not the fleet.
+  Column widths and order are the exception: a signed-in account carries them
+  between browsers, with the local copy as the immediate fallback.
 
   Three choices, each a row: what it is and what it does on the left, the
   control on the right. The things that used to be explained at length here
@@ -37,7 +37,7 @@
 
 <PageHeader
   title="Appearance"
-  subtitle="Kept in this browser only. Nothing here is sent to the controller or shared with anyone else signing in."
+  subtitle="Theme and navigation stay in this browser. Table widths and column order follow your signed-in account."
 />
 
 <div class="settings">
@@ -94,7 +94,8 @@
 <p class="note">
   Relative times refresh every {seconds} seconds and carry the exact timestamp in their tooltip. Animation
   follows the operating system's reduced-motion setting. There is one density, tuned for a dense grid
-  at 13px; how many rows a page shows is set at the foot of each grid and remembered per table.
+  at 13px; how many rows a page shows is set at the foot of each grid and remembered per table. Drag a
+  column heading to move it, or its right edge to resize it; both controls also work with arrow keys.
 </p>
 
 <style>

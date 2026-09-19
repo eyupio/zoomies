@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -150,6 +151,35 @@ func (s *Store) DeleteUser(ctx context.Context, id string) error {
 		return err
 	}
 	return affected(res, "user", id)
+}
+
+// UserPreferences returns the account's private UI preferences. No row is the
+// ordinary state for an account that has never changed a persisted layout.
+func (s *Store) UserPreferences(ctx context.Context, userID string) (json.RawMessage, error) {
+	var raw string
+	err := s.read.QueryRowContext(ctx,
+		`SELECT preferences FROM user_preferences WHERE user_id = ?`, userID).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return json.RawMessage(`{}`), nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !json.Valid([]byte(raw)) {
+		return nil, fmt.Errorf("preferences for user %s are not valid JSON", userID)
+	}
+	return json.RawMessage(raw), nil
+}
+
+// SetUserPreferences replaces the account's private UI preferences. The API
+// validates and bounds the document; the store keeps it opaque so UI choices
+// do not become domain fields or migrations of their own.
+func (s *Store) SetUserPreferences(ctx context.Context, userID string, value json.RawMessage) error {
+	_, err := s.exec(ctx, `INSERT INTO user_preferences (user_id, preferences, updated_at)
+		VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET
+		preferences=excluded.preferences, updated_at=excluded.updated_at`,
+		userID, string(value), ms(s.Now()))
+	return wrapWrite(err)
 }
 
 // ---------------------------------------------------------------------------

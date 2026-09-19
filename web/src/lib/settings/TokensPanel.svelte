@@ -27,6 +27,7 @@
   import Select from '$lib/components/Select.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import OneTimeSecret from './OneTimeSecret.svelte';
+  import { tableLayout } from '$lib/actions/tableLayout';
 
   type Minted = APIToken & { token?: string };
 
@@ -167,7 +168,13 @@
       nothing saying which value belongs to which record.
     -->
       <!-- svelte-ignore a11y_no_redundant_roles -->
-      <table role="table">
+      <table
+        role="table"
+        use:tableLayout={{
+          id: 'api-tokens',
+          columns: ['name', 'prefix', 'role', 'scopes', 'last-used', 'expires', 'actions'],
+        }}
+      >
         <caption class="sr-only">API tokens</caption>
         <!-- svelte-ignore a11y_no_redundant_roles -->
         <thead role="rowgroup">

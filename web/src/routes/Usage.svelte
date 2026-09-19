@@ -27,6 +27,7 @@
   import Select from '$lib/components/Select.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import DateRange, { endOfDay, startOfDay } from '$lib/jobs/DateRange.svelte';
+  import { tableLayout } from '$lib/actions/tableLayout';
 
   /** The groupings the API offers, in the order an operator narrows through them. */
   const GROUPINGS: { value: UsageGrouping; label: string }[] = [
@@ -129,6 +130,16 @@
    * columns are absent rather than zero -- a zero would be a claim.
    */
   const attributable = $derived(report?.allocation_attributable !== false);
+  const usageColumns = $derived([
+    'key',
+    'queued',
+    'started',
+    'completed',
+    'peak',
+    'queue-wait',
+    'executing',
+    ...(attributable ? ['runner-hours', 'busy-share', 'cost'] : []),
+  ]);
   const backwards = $derived(since > until);
 
   /**
@@ -333,7 +344,7 @@
     nothing saying which value belongs to which record.
   -->
     <!-- svelte-ignore a11y_no_redundant_roles -->
-    <table role="table">
+    <table role="table" use:tableLayout={{ id: 'usage-report', columns: usageColumns }}>
       <caption class="sr-only">
         Usage by {grouping} between {since} and {until}
       </caption>

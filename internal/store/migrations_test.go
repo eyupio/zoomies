@@ -52,6 +52,7 @@ var shippedMigrations = []string{
 	"0036_backup_remotes.sql",
 	"0037_pool_runner_settings.sql",
 	"0038_runner_resource_sample.sql",
+	"0039_user_preferences.sql",
 }
 
 // The two prefixes shared by files that already shipped. They sort by what
