@@ -518,17 +518,34 @@ jobs:
 
   installer:
     name: install.sh
-    # Needs root package installation for dash and shellcheck. The Zoomies
-    # runner image gives its user passwordless sudo (see
-    # deploy/Dockerfile.runner), same as a GitHub-hosted runner.
+    # Not gated on sudo: a pool running the process backend gives its agent's
+    # systemd unit NoNewPrivileges=yes (the job tree hangs off that same
+    # process), which makes sudo refuse to escalate, passwordless entry in
+    # the sudoers file or not. Both tools below are fetched without root
+    # instead, which also works unchanged on a GitHub-hosted runner.
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: POSIX shell syntax
         run: |
           # dash is the strictest POSIX sh most users will have; install.sh must
-          # parse under it, not just under bash.
-          sudo apt-get update -qq && sudo apt-get install -y -qq dash shellcheck
+          # parse under it, not just under bash. Debian and Ubuntu require it
+          # as the /bin/sh provider, so it is already here on both a Zoomies
+          # runner and a GitHub-hosted one -- nothing to install.
+          command -v dash >/dev/null || { echo "::error::dash is not on PATH"; exit 1; }
+
+          # shellcheck carries no such guarantee, and fetching the pinned
+          # static binary needs no root at all.
+          SHELLCHECK_VERSION=0.10.0
+          SHELLCHECK_SHA256=6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87
+          curl -fsSL -o /tmp/shellcheck.tar.xz \
+            "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          echo "${SHELLCHECK_SHA256}  /tmp/shellcheck.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/shellcheck.tar.xz -C /tmp
+          mkdir -p "$HOME/.local/bin"
+          install -m 0755 "/tmp/shellcheck-v${SHELLCHECK_VERSION}/shellcheck" "$HOME/.local/bin/shellcheck"
+          export PATH="$HOME/.local/bin:$PATH"
+
           dash -n install.sh
           shellcheck -s sh install.sh
           dash -n test/install/install-check.sh
