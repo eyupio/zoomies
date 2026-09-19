@@ -546,3 +546,24 @@ func TestScorecardPublishesFromAGitHubHostedRunner(t *testing.T) {
 	}
 }
 
+// A release tag that does not begin with a lower-case v has to fail out loud.
+// The setup job once ran only for tags matching `v*`, so `V1.1.0` matched
+// nothing: every job was skipped, the run was green, and the release was
+// published with no assets. Skipping is reserved for the rolling dev
+// prerelease by name; everything else reaches the case statement that refuses
+// it with an error annotation.
+func TestTheReleaseWorkflowRefusesAMalformedTagOutLoud(t *testing.T) {
+	body := workflowFiles(t)["release.yml"]
+	if body == "" {
+		t.Fatal("release.yml is missing")
+	}
+	if strings.Contains(body, "startsWith(github.event.release.tag_name, 'v')") {
+		t.Error("release.yml skips the run for a tag that does not begin with v, which is how V1.1.0 was published with no assets and nobody was told")
+	}
+	if !strings.Contains(body, "github.event.release.tag_name != 'dev'") {
+		t.Error("release.yml no longer skips the rolling dev prerelease by name, so publishing dev would try to turn a moving channel into a release")
+	}
+	if !strings.Contains(body, `*) echo "::error::$TAG is not a release tag; they begin with a lower-case v" && exit 1 ;;`) {
+		t.Error("release.yml does not refuse a tag that fails the v* check with an error, so a malformed tag would be built or silently skipped")
+	}
+}

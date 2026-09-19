@@ -38,8 +38,12 @@ jobs:
   setup:
     # The rolling dev prerelease is maintained by CI. A published dev release
     # therefore produces a cleanly skipped release run rather than trying to
-    # turn a moving channel into a versioned release.
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'v')
+    # turn a moving channel into a versioned release. That is the only tag
+    # skipped here: every other one reaches the check below, which refuses a
+    # tag that is not a release tag out loud. This used to match `v*`, and so
+    # `V1.1.0` matched nothing, built nothing, and was published as a full
+    # release with no assets while every job showed as skipped.
+    if: github.event_name == 'workflow_dispatch' || github.event.release.tag_name != 'dev'
     runs-on: zoomies-linux-x64
     outputs:
       tag: ${{ steps.release.outputs.tag }}
@@ -57,7 +61,7 @@ jobs:
           set -eu
           case "$TAG" in
             v*) ;;
-            *) echo "::error::$TAG is not a release tag; they begin with v" && exit 1 ;;
+            *) echo "::error::$TAG is not a release tag; they begin with a lower-case v" && exit 1 ;;
           esac
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           # The tag is v1.2.3 and the version a binary reports is 1.2.3.
