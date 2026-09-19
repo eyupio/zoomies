@@ -179,6 +179,19 @@ type QueuedJob struct {
 	CompletedAt *time.Time
 }
 
+// WorkflowRunState is GitHub's authoritative lifecycle for one workflow run.
+// Status becomes "completed" before Conclusion is meaningful.
+type WorkflowRunState struct {
+	Status     string
+	Conclusion string
+}
+
+// Cancelled reports whether GitHub has finished the whole run as cancelled.
+// A cancelled workflow job by itself is deliberately not enough evidence.
+func (s WorkflowRunState) Cancelled() bool {
+	return s.Status == string(store.JobCompleted) && s.Conclusion == "cancelled"
+}
+
 // RunnerGroup is a runner group in the target org.
 type RunnerGroup struct {
 	ID         int64
@@ -259,6 +272,9 @@ type Client interface {
 	ListQueuedJobs(ctx context.Context) ([]QueuedJob, error)
 	// GetWorkflowJob reconciles a known job even after its run has completed.
 	GetWorkflowJob(ctx context.Context, repo string, id int64) (*WorkflowJobEvent, error)
+	// GetWorkflowRun reads the run-level status used to distinguish one
+	// cancelled job from cancellation of the entire workflow run.
+	GetWorkflowRun(ctx context.Context, repo string, runID int64) (*WorkflowRunState, error)
 	// CancelWorkflowRun asks GitHub to cancel the entire run containing a job.
 	// Force bypasses conditions that may otherwise keep a run cancelling.
 	CancelWorkflowRun(ctx context.Context, repo string, runID int64, force bool) error

@@ -426,12 +426,69 @@ func (c *Controller) finishCreateRunner(ctx context.Context, inst *store.Install
 	if timeout := c.policy().For(pool).ProvisionTimeout; timeout > 0 {
 		spec.StartBefore = r.CreatedAt.Add(timeout)
 	}
-	c.enqueueLifecycle(ctx, a.HostID, agent.Task{
-		Kind:     agent.TaskCreateRunner,
-		RunnerID: r.ID,
-		Spec:     &spec,
-		Backend:  pool.Backend,
-	})
+
+	// Credential minting is deliberately detached from the reconcile pass. In
+	// that gap GitHub may cancel the queued job and the next pass may drain the
+	// now-surplus provisioning row. Re-read under the reconcile lock before
+	// publishing the create task: otherwise the late JIT response can enqueue a
+	// create after the stop, bringing up exactly the runner cancellation meant
+	// to avoid.
+	//
+	// Hold the lock only across the local read and enqueue, never across the
+	// GitHub calls above or the cleanup below. This leaves the slow-call promise
+	// of createRunner intact while making the final state check indivisible from
+	// the scheduler pass that can drain it.
+	c.reconcileMu.Lock()
+	current, currentErr := c.st.GetRunner(ctx, r.ID)
+	if currentErr == nil && current.State == store.RunnerProvisioning {
+		c.enqueueLifecycle(ctx, a.HostID, agent.Task{
+			Kind:     agent.TaskCreateRunner,
+			RunnerID: r.ID,
+			Spec:     &spec,
+			Backend:  pool.Backend,
+		})
+		c.reconcileMu.Unlock()
+		return
+	}
+	c.reconcileMu.Unlock()
+
+	if currentErr != nil {
+		// A JIT configuration may already have registered the runner even though
+		// its row disappeared. Use the copy carrying that registration ID so the
+		// remote side is not leaked.
+		c.deleteRegistration(ctx, r, pool)
+		c.log.Warn("discarded a runner credential because its row disappeared before creation",
+			"runner", r.ID, "error", currentErr)
+		return
+	}
+
+	switch current.State {
+	case store.RunnerDraining:
+		// The host removal is idempotent even when the earlier stop already found
+		// nothing. removeRunner also deletes the newly-minted registration and
+		// leaves durable cleanup intent if either side is temporarily unavailable.
+		if _, err := c.removeRunner(ctx, current,
+			"queued demand disappeared before this runner finished starting", pool); err != nil {
+			c.log.Warn("could not finish cancelling a runner whose credential arrived late",
+				"runner", current.ID, "state", current.State, "error", err)
+		}
+	case store.RunnerFailed:
+		// A failed start must remain failed long enough to be visible in the
+		// pool diagnostics and failure counters. The create task was never
+		// published, so only the registration minted by this late response needs
+		// cleanup; transitioning the row to removed here would erase the fault.
+		c.deleteRegistration(ctx, current, pool)
+	case store.RunnerRemoved:
+		c.enqueueLifecycle(ctx, current.HostID, agent.Task{
+			Kind: agent.TaskRemoveRunner, RunnerID: current.ID, Backend: pool.Backend,
+		})
+		c.deleteRegistration(ctx, current, pool)
+	default:
+		// A create task has already advanced this runner. Do not enqueue a second
+		// one; GitHub's in-progress event remains authoritative if it is busy.
+		c.log.Debug("runner moved on before its detached credential mint finished; skipped duplicate create",
+			"runner", current.ID, "state", current.State)
+	}
 }
 
 // mintCredentials asks GitHub for whatever this pool's runners register with.

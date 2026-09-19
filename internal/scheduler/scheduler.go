@@ -862,16 +862,34 @@ func (t *tick) disable(p *store.Pool, plan *PoolPlan, remaining []*store.Runner,
 	}
 }
 
-// scaleDown drains surplus runners that have been idle for longer than the
-// pool's idle timeout, longest-idle first, and never below MinRunners.
+// scaleDown first stops surplus runners that have not finished starting, then
+// drains idle runners that have waited out the pool's idle timeout. Starting
+// capacity has never run a job and has no useful warmth to preserve: when
+// queued demand disappears (most commonly because GitHub cancelled the job),
+// making it finish booting only to wait through the idle timeout wastes the
+// host resources the cancellation just released.
+//
+// A starting row whose job is already in progress is excluded. The job event
+// normally advances that row to busy, but stillRunning is the durable guard
+// for the short window where the row has not caught up yet.
 func (t *tick) scaleDown(p *store.Pool, plan *PoolPlan, remaining []*store.Runner, live int) {
-	idle := t.drainable(p, remaining)
-	n := min(live-max(plan.Desired, p.MinRunners), len(idle))
-	if n <= 0 {
+	surplus := live - max(plan.Desired, p.MinRunners)
+	if surplus <= 0 {
 		return
 	}
+
+	starting := t.unneededStarting(remaining)
+	stopStarting := min(surplus, len(starting))
+	for _, r := range starting[:stopStarting] {
+		plan.Actions = append(plan.Actions, t.action(ActionDrain, p, r,
+			"queued demand disappeared before this runner finished starting"))
+	}
+	surplus -= stopStarting
+
+	idle := t.drainable(p, remaining)
+	stopIdle := min(surplus, len(idle))
 	timeout := p.IdleTimeout.Duration()
-	for _, r := range idle[:n] {
+	for _, r := range idle[:stopIdle] {
 		reason := "surplus idle runner"
 		if timeout > 0 {
 			reason = fmt.Sprintf("idle for %s, over the %s idle timeout",
@@ -879,11 +897,50 @@ func (t *tick) scaleDown(p *store.Pool, plan *PoolPlan, remaining []*store.Runne
 		}
 		plan.Actions = append(plan.Actions, t.action(ActionDrain, p, r, reason))
 	}
-	what := plural(n, "runner") + " idle"
-	if timeout > 0 {
-		what += " > " + formatDuration(timeout)
+
+	stopped := stopStarting + stopIdle
+	if stopped == 0 {
+		return
 	}
-	plan.Reason = scaled(p.Name, live, live-n, what)
+	var reasons []string
+	if stopStarting > 0 {
+		reasons = append(reasons, plural(stopStarting, "runner")+" still starting after demand disappeared")
+	}
+	if stopIdle > 0 {
+		what := plural(stopIdle, "runner") + " idle"
+		if timeout > 0 {
+			what += " > " + formatDuration(timeout)
+		}
+		reasons = append(reasons, what)
+	}
+	plan.Reason = scaled(p.Name, live, live-stopped, strings.Join(reasons, " and "))
+}
+
+// unneededStarting orders capacity that may be cancelled before it becomes
+// useful. Provisioning comes before registering, and newer rows come first:
+// preserve the runner closest to being ready when only part of a burst became
+// surplus. A job already known to be running always wins over a stale runner
+// state and keeps its workload.
+func (t *tick) unneededStarting(runners []*store.Runner) []*store.Runner {
+	var out []*store.Runner
+	for _, r := range runners {
+		if starting(r.State) && !t.stillRunning[r.ID] {
+			out = append(out, r)
+		}
+	}
+	slices.SortStableFunc(out, func(a, b *store.Runner) int {
+		if a.State != b.State {
+			if a.State == store.RunnerProvisioning {
+				return -1
+			}
+			return 1
+		}
+		if c := b.CreatedAt.Compare(a.CreatedAt); c != 0 {
+			return c
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	return out
 }
 
 // drainable returns the idle runners that have waited out the pool's idle
