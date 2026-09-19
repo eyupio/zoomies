@@ -68,7 +68,23 @@ registerHooks({
   },
 });
 
-const { machineStatus, toneTokens } = await import('../src/lib/status.ts');
+const { cpuResourceStatus, machineStatus, toneTokens } = await import('../src/lib/status.ts');
+
+test('elastic CPU states keep their Zoomies vocabulary and distinct brand icons', () => {
+  const maximum = cpuResourceStatus('maximum_zoomies');
+  const boost = cpuResourceStatus('zoomies');
+  const throttled = cpuResourceStatus('throttled');
+  const steady = cpuResourceStatus('guaranteed');
+
+  assert.equal(maximum.label, 'Squirrel spotted — maximum zoomies');
+  assert.equal(boost.label, 'Rabbit spotted — extra zoomies');
+  assert.equal(throttled.label, 'Leash tightened — host under pressure');
+  assert.equal(steady.label, 'Steady paws — guaranteed pace');
+  assert.notEqual(maximum.icon, boost.icon);
+  assert.notEqual(boost.icon, throttled.icon);
+  assert.equal(maximum.tone, 'busy');
+  assert.equal(throttled.tone, 'draining');
+});
 
 /** The six status hues. Nothing a machine is doing may invent a seventh. */
 const TONES = ['idle', 'busy', 'pending', 'draining', 'danger', 'neutral'];

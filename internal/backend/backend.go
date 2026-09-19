@@ -93,6 +93,9 @@ type Stats struct {
 	CPUPercent  float64 `json:"cpu_percent"`
 	MemoryBytes int64   `json:"memory_bytes"`
 	MemoryLimit int64   `json:"memory_limit,omitempty"`
+	// CPUAllocationFactor is filled by the agent. One is the creation quota;
+	// above one is elastic CPU and below one is host-pressure throttling.
+	CPUAllocationFactor float64 `json:"cpu_allocation_factor,omitempty"`
 }
 
 // Info describes a backend's capabilities on this particular host. The agent

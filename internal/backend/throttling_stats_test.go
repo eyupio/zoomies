@@ -3,6 +3,7 @@ package backend
 import (
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 func TestCPUThrottlingCountersDistinguishUnsupportedFromZero(t *testing.T) {
@@ -26,5 +27,20 @@ func TestCPUThrottlingCountersDistinguishUnsupportedFromZero(t *testing.T) {
 		if tc.supported && got.CPUThrottling.ThrottledNanoseconds != tc.ns {
 			t.Fatalf("counter: %+v", got)
 		}
+	}
+}
+
+func TestDinDStatsAddIntoOneLogicalRunner(t *testing.T) {
+	runnerAt := time.Unix(10, 0)
+	daemonAt := runnerAt.Add(time.Second)
+	got := addStats(
+		Stats{SampledAt: &runnerAt, CPUPercent: 40, MemoryBytes: 100, MemoryLimit: 200, CPUThrottling: &CPUThrottling{Periods: 10, ThrottledPeriods: 2, ThrottledNanoseconds: 3}},
+		Stats{SampledAt: &daemonAt, CPUPercent: 160, MemoryBytes: 300, MemoryLimit: 400, CPUThrottling: &CPUThrottling{Periods: 20, ThrottledPeriods: 4, ThrottledNanoseconds: 5}},
+	)
+	if got.CPUPercent != 200 || got.MemoryBytes != 400 || got.MemoryLimit != 600 || got.SampledAt == nil || !got.SampledAt.Equal(daemonAt) {
+		t.Fatalf("combined stats = %+v", got)
+	}
+	if got.CPUThrottling == nil || got.CPUThrottling.Periods != 30 || got.CPUThrottling.ThrottledPeriods != 6 || got.CPUThrottling.ThrottledNanoseconds != 8 {
+		t.Fatalf("combined throttling = %+v", got.CPUThrottling)
 	}
 }

@@ -35,6 +35,9 @@ func TestAPoolThatNamesNoSizeIsSizedByItsHost(t *testing.T) {
 	if created.Sizing != controller.SizingAutomatic {
 		t.Errorf("sizing = %q, want %q", created.Sizing, controller.SizingAutomatic)
 	}
+	if created.CPUBurst.Mode != store.CPUBurstObserve {
+		t.Errorf("new automatic pool CPU burst mode = %q, want safe observe-only rollout", created.CPUBurst.Mode)
+	}
 
 	// And it is still automatic after the round trip through the store, which
 	// is what the pool page reads.
@@ -67,6 +70,53 @@ func TestASizeSomebodyTypedIsKept(t *testing.T) {
 	if created.Sizing != controller.SizingFixed {
 		t.Errorf("sizing = %q, want %q", created.Sizing, controller.SizingFixed)
 	}
+	if created.CPUBurst.Mode != store.CPUBurstOff {
+		t.Errorf("fixed pool CPU burst mode = %q, want off", created.CPUBurst.Mode)
+	}
+}
+
+func TestAnAutomaticPoolCanOptIntoElasticCPU(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	body := poolBody(inst.ID)
+	body["cpu_burst"] = map[string]any{"mode": "automatic", "max_cpus": 6}
+
+	res := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: h.session(u), body: body})
+	res.mustStatus(t, http.StatusCreated, "create")
+	var created controller.PoolView
+	res.into(t, &created)
+	if created.Sizing != controller.SizingElastic || created.CPUBurst.Mode != store.CPUBurstAutomatic || created.CPUBurst.MaxCPUs != 6 {
+		t.Fatalf("created pool = %+v, want elastic sizing with a 6 CPU ceiling", created)
+	}
+}
+
+func TestAProcessPoolKeepsElasticCPUOff(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	body := poolBody(inst.ID)
+	body["backend"] = "process"
+
+	res := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: h.session(u), body: body})
+	res.mustStatus(t, http.StatusCreated, "create")
+	var created controller.PoolView
+	res.into(t, &created)
+	if created.CPUBurst.Mode != store.CPUBurstOff {
+		t.Fatalf("process pool CPU burst mode = %q, want off", created.CPUBurst.Mode)
+	}
+
+	body["cpu_burst"] = map[string]any{"mode": "observe"}
+	res = h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: h.session(u), body: body})
+	res.mustStatus(t, http.StatusUnprocessableEntity, "create")
+	var env errorEnvelope
+	res.into(t, &env)
+	for _, field := range env.Errors {
+		if field.Field == "cpu_burst.mode" {
+			return
+		}
+	}
+	t.Fatalf("process pool elasticity error did not name cpu_burst.mode: %s", res.body)
 }
 
 // The fleet's own figures are where a size form opens, and they are no longer

@@ -16,6 +16,8 @@
     size?: 'sm' | 'md';
     /** Draw the shape. On by default whenever a status is given. */
     dot?: boolean;
+    /** Draw the status's branded Lucide icon instead of its abstract shape. */
+    icon?: boolean;
     title?: string;
     class?: string;
     children?: Snippet;
@@ -27,6 +29,7 @@
     label,
     size = 'md',
     dot = true,
+    icon = false,
     title,
     class: className = '',
     children,
@@ -34,6 +37,7 @@
 
   const resolvedTone = $derived(tone ?? status?.tone ?? 'neutral');
   const text = $derived(label ?? status?.label ?? '');
+  const StatusIcon = $derived(status?.icon);
 </script>
 
 <span
@@ -42,7 +46,11 @@
   title={title ?? status?.hint}
   style="--badge-colour: var(--z-{resolvedTone}); --badge-subtle: var(--z-{resolvedTone}-subtle); --badge-border: var(--z-{resolvedTone}-border)"
 >
-  {#if status && dot}<StatusDot {status} size="sm" />{/if}
+  {#if status && icon && StatusIcon}<StatusIcon
+      size={size === 'sm' ? 12 : 14}
+      strokeWidth={2}
+      aria-hidden="true"
+    />{:else if status && dot}<StatusDot {status} size="sm" />{/if}
   {#if children}{@render children()}{:else}{text}{/if}
 </span>
 

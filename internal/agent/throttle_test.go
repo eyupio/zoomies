@@ -30,16 +30,46 @@ func createdRunner(a *Agent, runnerID string, handle backend.Handle, res store.R
 
 // beat answers one heartbeat with the given throttle and returns the calls
 // the backend received during it.
-func beat(t *testing.T, a *Agent, tr *fakeTransport, be *fakeBackend, d *ThrottleDirective) []resourceUpdate {
+func beat(t *testing.T, a *Agent, tr *fakeTransport, be *fakeBackend, d *ThrottleDirective, elastic ...ElasticCPUDirective) []resourceUpdate {
 	t.Helper()
 	tr.mu.Lock()
-	tr.beatResp = &HeartbeatResponse{OK: true, Throttle: d}
+	tr.beatResp = &HeartbeatResponse{OK: true, Throttle: d, ElasticCPU: elastic}
 	tr.mu.Unlock()
 	before := len(be.resourceUpdates())
 	if err := a.heartbeat(context.Background()); err != nil {
 		t.Fatalf("heartbeat: %v", err)
 	}
 	return be.resourceUpdates()[before:]
+}
+
+func TestElasticCPUBoostsAndThenRestoresARunner(t *testing.T) {
+	a, tr, be, _ := newAgent(t, 4)
+	createdRunner(a, "run_a", "wl-a", store.Resources{CPUs: 2, MemoryMB: 4096})
+
+	got := beat(t, a, tr, be, &ThrottleDirective{CPUFactor: 1}, ElasticCPUDirective{
+		RunnerID: "run_a", CPUFactor: 2, BaseCPUs: 2, TargetCPUs: 4,
+	})
+	if len(got) != 1 || got[0].res.CPUs != 4 || got[0].res.MemoryMB != 4096 {
+		t.Fatalf("updates = %+v, want the CPU quota raised to 4 and memory unchanged", got)
+	}
+
+	got = beat(t, a, tr, be, &ThrottleDirective{CPUFactor: 1})
+	if len(got) != 1 || got[0].res.CPUs != 2 {
+		t.Fatalf("updates = %+v, want the runner restored to its 2 CPU guarantee", got)
+	}
+}
+
+func TestHostPressureWinsOverElasticCPU(t *testing.T) {
+	a, tr, be, _ := newAgent(t, 4)
+	createdRunner(a, "run_a", "wl-a", store.Resources{CPUs: 2})
+	a.opts.BootstrapCPUGrace = 0
+
+	got := beat(t, a, tr, be, &ThrottleDirective{Level: 2, CPUFactor: 0.5}, ElasticCPUDirective{
+		RunnerID: "run_a", CPUFactor: 2, BaseCPUs: 2, TargetCPUs: 4,
+	})
+	if len(got) != 1 || got[0].res.CPUs != 1 {
+		t.Fatalf("updates = %+v, want pressure to tighten the runner to 1 CPU", got)
+	}
 }
 
 // Once every runner on an overwhelmed host is busy, the effective capacity

@@ -19,6 +19,11 @@ import (
 // with a message telling the operator to upgrade it.
 const ProtocolVersion = 1
 
+// FeatureElasticCPU is advertised by an agent that can apply per-runner CPU
+// targets. It lets a new controller coexist with older agents without
+// claiming a live quota moved when that agent could not understand the order.
+const FeatureElasticCPU = "elastic-cpu"
+
 // JoinRequest redeems a short-lived join token and enrols a new host.
 type JoinRequest struct {
 	Connection      string `json:"-"`
@@ -108,6 +113,7 @@ type HeartbeatRequest struct {
 	DiskTotalMB int64          `json:"disk_total_mb,omitempty"`
 	DiskFreeMB  int64          `json:"disk_free_mb,omitempty"`
 	Version     string         `json:"version"`
+	Features    []string       `json:"features,omitempty"`
 	Backends    []backend.Info `json:"backends,omitempty"`
 	Runners     []RunnerReport `json:"runners,omitempty"`
 }
@@ -143,6 +149,10 @@ type HeartbeatResponse struct {
 	// still restores its runners. Nil from a controller too old to send it,
 	// which an agent reads as no throttle at all.
 	Throttle *ThrottleDirective `json:"throttle,omitempty"`
+	// ElasticCPU is the per-runner CPU target set. Missing means restore every
+	// previous boost to its base, so a controller downgrade cannot strand a
+	// job at a stale quota. Older agents ignore this additive field.
+	ElasticCPU []ElasticCPUDirective `json:"elastic_cpu,omitempty"`
 	// UnknownRunners names the runners this host reported that the controller
 	// has no live row for. They are the ones whose workloads may be removed.
 	//
@@ -154,6 +164,17 @@ type HeartbeatResponse struct {
 	// controller sends nothing here, and an agent that receives nothing simply
 	// keeps what it adopted, which is the safe direction.
 	UnknownRunners []string `json:"unknown_runners,omitempty"`
+}
+
+// ElasticCPUDirective lends otherwise idle CPU to one runner. The factor is
+// relative to its creation allocation, which also works for DinD: an
+// automatic slot is split into two containers and both halves use the factor.
+type ElasticCPUDirective struct {
+	RunnerID   string  `json:"runner_id"`
+	CPUFactor  float64 `json:"cpu_factor"`
+	BaseCPUs   float64 `json:"base_cpus"`
+	TargetCPUs float64 `json:"target_cpus"`
+	Reason     string  `json:"reason,omitempty"`
 }
 
 // ThrottleDirective is what a throttled host's agent is told to do about it.

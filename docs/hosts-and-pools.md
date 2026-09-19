@@ -716,6 +716,33 @@ on every field it set; the default fills only what it left empty, so a pool
 that sets memory and leaves CPU alone has said something about memory and
 nothing about CPU, and is treated that way.
 
+#### Elastic CPU zoomies
+
+An automatically-sized Docker or Podman pool can set `cpu_burst.mode` to
+`observe` or `automatic`. Its host share remains the guaranteed CPU. On each
+fresh heartbeat the controller totals every live runner's guarantee, protects
+one compatible queued start, and lends only the CPU left after both. Multiple
+busy runners share that remainder with max-min fairness; `max_cpus` is an
+optional per-runner ceiling, and zero means the host's allocatable ceiling.
+
+Demand is a fresh sample using at least 80% of the guarantee, or a rise in the
+cgroup's cumulative CPU-throttling counters. A stale sample, a host at 85% CPU,
+an admission hold, or any rung of the host-pressure throttle produces no boost.
+The pressure throttle always wins and can reduce a quota below its guarantee.
+Memory never changes while a job is running.
+
+`observe` publishes the same bounded Prometheus decisions without moving a
+quota. `automatic` requires an agent that advertises live elastic CPU support;
+an older agent stays at the guarantee and is counted as `unsupported_agent`.
+The runner page shows guaranteed, current and ceiling CPU together. The playful
+labels are deliberately backed by stable states: **Squirrel spotted — maximum
+zoomies** is a boost of at least 1.75x, **Rabbit spotted — extra zoomies** is a
+smaller boost, and **Leash tightened — host under pressure** is a reduction.
+
+Docker-in-Docker remains one logical runner: demand includes the runner and its
+sidecar, and a quota change reaches both. The process backend remains static
+because it cannot enforce a live cgroup quota.
+
 A default is given only where it would bind. The host's own probe says what
 its daemon can enforce — a CPU quota, a memory limit, both or neither, read
 from the daemon's `/info` — and a field the daemon cannot apply gets no

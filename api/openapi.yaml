@@ -4262,6 +4262,31 @@ components:
         disk_gb: { type: integer, format: int64, description: Advisory, and charged against the host's free disk. Zero is no limit. }
         pids_limit: { type: integer, format: int64, description: The container's pids cgroup limit. Zero is no limit. }
 
+    CPUBurstPolicy:
+      type: object
+      description: >-
+        Whether an automatically-sized Docker or Podman pool only observes, or
+        may use, CPU left over after every live runner's guaranteed host share
+        and one imminent start have been protected. Memory never changes while
+        a job runs. Existing pools default to off; new pools default to observe.
+      properties:
+        mode:
+          type: string
+          enum: [off, observe, automatic]
+          default: off
+          description: >-
+            `off` makes no decisions; `observe` publishes the decision and
+            metrics without changing quotas; `automatic` applies the target to
+            capable agents. Host pressure throttling always takes precedence.
+        max_cpus:
+          type: number
+          format: double
+          minimum: 0
+          description: >-
+            Maximum CPU for one logical runner. Zero uses the host's allocatable
+            CPU as the ceiling. For Docker-in-Docker this covers the runner and
+            sidecar together.
+
     RunnerSettings:
       type: object
       description: >-
@@ -4492,17 +4517,16 @@ components:
         ephemeral: { type: boolean }
         docker_mode: { $ref: "#/components/schemas/DockerMode" }
         resources: { $ref: "#/components/schemas/Resources" }
+        cpu_burst: { $ref: "#/components/schemas/CPUBurstPolicy" }
         sizing:
           type: string
-          enum: [automatic, fixed]
+          enum: [automatic, elastic, fixed]
           description: >-
             How this pool decides what one runner gets. `automatic` is one
             slot's share of whichever host it lands on, which is what a pool
-            with no `cpus` and no `memory_mb` means; `fixed` is the figures in
-            `resources`, the same on every host. Derived from `resources`
-            rather than stored beside it, so the two cannot disagree -- but
-            rendered, because "no CPU limit" alone cannot tell "the host
-            decides" from "nobody set one".
+            with no `cpus` and no `memory_mb` means; `elastic` keeps that share
+            as its guarantee and may borrow unused CPU; `fixed` is the figures
+            in `resources`, the same on every host.
         runner_settings: { $ref: "#/components/schemas/RunnerSettings" }
         cache: { $ref: "#/components/schemas/CacheConfig" }
         host_selector: { type: object, additionalProperties: { type: string } }
@@ -4606,6 +4630,7 @@ components:
         ephemeral: { type: boolean, default: true }
         docker_mode: { allOf: [{ $ref: "#/components/schemas/DockerMode" }], default: none }
         resources: { $ref: "#/components/schemas/Resources" }
+        cpu_burst: { allOf: [{ $ref: "#/components/schemas/CPUBurstPolicy" }], default: { mode: observe, max_cpus: 0 } }
         runner_settings: { $ref: "#/components/schemas/RunnerSettings" }
         cache: { $ref: "#/components/schemas/CacheConfig" }
         host_selector: { type: object, additionalProperties: { type: string } }
@@ -4646,6 +4671,7 @@ components:
         ephemeral: { type: boolean }
         docker_mode: { $ref: "#/components/schemas/DockerMode" }
         resources: { $ref: "#/components/schemas/Resources" }
+        cpu_burst: { $ref: "#/components/schemas/CPUBurstPolicy" }
         runner_settings: { $ref: "#/components/schemas/RunnerSettings" }
         cache: { $ref: "#/components/schemas/CacheConfig" }
         host_selector: { type: object, additionalProperties: { type: string } }
@@ -4654,6 +4680,18 @@ components:
         enabled: { type: boolean }
 
     # --- runners ----------------------------------------------------------
+    CPUResourceState:
+      type: object
+      description: The live elastic-boost or host-pressure CPU state for a runner with an enforced CPU quota.
+      properties:
+        state: { type: string, enum: [observing, guaranteed, zoomies, maximum_zoomies, throttled] }
+        label: { type: string, description: A short dog-themed operator label; clients should branch on state. }
+        reason: { type: string, enum: [observe_only, base_allocation, spare_cpu_lent, host_pressure] }
+        guaranteed_cpus: { type: number, format: double }
+        current_cpus: { type: number, format: double }
+        ceiling_cpus: { type: number, format: double }
+        factor: { type: number, format: double }
+
     Runner:
       type: object
       properties:
@@ -4705,6 +4743,7 @@ components:
             Where the allocation came from: `pool` for the pool's own limits, `host` for one
             slot's share of the host it landed on (the default when the pool sets none). Omitted
             when the runner was created with no limit at all.
+        cpu_resource: { $ref: "#/components/schemas/CPUResourceState" }
         created_at: { type: string, format: date-time }
         container_started_at:
           type: string
@@ -6122,6 +6161,7 @@ components:
         protocol_version: { type: integer }
         capacity: { type: integer, description: The agent's configured value, sent for the log. The controller does not write it. }
         version: { type: string }
+        features: { type: array, items: { type: string }, description: Additive runtime capabilities understood by this agent. }
         backends: { type: array, items: { $ref: "#/components/schemas/BackendInfo" } }
         runners: { type: array, items: { $ref: "#/components/schemas/RunnerReport" } }
     AgentHeartbeatResponse:
@@ -6131,6 +6171,22 @@ components:
         cordoned: { type: boolean, description: Mirrors the host's cordon flag so the agent stops asking for work at once. }
         controller_version: { type: string }
         resync_requested: { type: boolean, description: Send a full runner report next time. Set after the controller restarts. }
+        throttle: { $ref: "#/components/schemas/ThrottleDirective" }
+        elastic_cpu: { type: array, items: { $ref: "#/components/schemas/ElasticCPUDirective" }, description: Complete boosted-runner set; omission restores a previous boost to its guarantee. }
+    ThrottleDirective:
+      type: object
+      properties:
+        level: { type: integer, minimum: 0, maximum: 3 }
+        cpu_factor: { type: number, format: double, description: Below one reduces every limited runner on this host; pressure always overrides elastic CPU. }
+    ElasticCPUDirective:
+      type: object
+      required: [runner_id, cpu_factor, base_cpus, target_cpus]
+      properties:
+        runner_id: { type: string }
+        cpu_factor: { type: number, format: double, minimum: 1 }
+        base_cpus: { type: number, format: double }
+        target_cpus: { type: number, format: double }
+        reason: { type: string, enum: [squirrel_spotted] }
     RunnerReport:
       type: object
       required: [runner_id, observed_at]
@@ -6166,6 +6222,7 @@ components:
         cpu_percent: { type: number, format: double }
         memory_bytes: { type: integer, format: int64 }
         memory_limit: { type: integer, format: int64 }
+        cpu_allocation_factor: { type: number, format: double, description: One is the guaranteed creation quota; above one is elastic CPU and below one is host-pressure throttling. }
     AgentTaskKind:
       type: string
       enum: [create_runner, stop_runner, remove_runner, stream_logs, cancel_logs, prewarm_image]

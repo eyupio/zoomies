@@ -114,6 +114,7 @@ will not fire when the numbers stop arriving altogether.
 | `zoomies_github_api_requests_total` | counter | `installation`, `result` | GitHub API calls by outcome: `ok`, `rate_limited`, `forbidden`, `not_found`, `error`. Where rate-limiting and a broken installation become visible. |
 | `zoomies_provider_operations_total` | counter | `kind`, `outcome` | Provider operations by what was attempted — `create`, `start`, `stop`, `bootstrap`, `delete` — and how it went: `ok`, `ambiguous`, `quota`, `unreachable` or `refused`. `ambiguous` is separated from the failures because it means something different: a create that failed cost nothing, and a create whose answer was lost may already be a machine somebody is paying for. Any sustained rate of it is worth looking at. |
 | `zoomies_image_prewarms_total` | counter | `pool`, `backend`, `outcome` | Background image preparations by outcome: `prepared`, `cache_hit`, `failed`, or `unknown` for a successful older agent. The hit share says whether shared-image coalescing is saving runtime work. |
+| `zoomies_elastic_cpu_decisions_total` | counter | `pool`, `mode`, `outcome` | Elastic CPU plans by pool. `outcome` is `burst`, `base`, or `unsupported_agent`; observe mode records the same decisions without changing quotas. |
 
 Every `pool` label is the pool's **name**, so a query can join these against
 the gauges above on `pool`. Work no pool claims is counted under the literal
@@ -133,6 +134,7 @@ backends and watch `failed` rise before reducing refresh intervals.
 | `zoomies_job_duration_seconds` | histogram | How long jobs ran once started. Capacity planning. |
 | `zoomies_reconcile_duration_seconds` | histogram | One reconcile pass, including its GitHub calls. A rising p99 means the control loop is being held up by GitHub rather than by itself. |
 | `zoomies_provider_operation_seconds` | histogram | One request to a provider, labelled `kind`. It measures the request, not the clone the request starts: a create that takes four minutes at the hypervisor appears here as the second it took to accept the job. |
+| `zoomies_elastic_cpu_target_factor` | histogram | Planned CPU target divided by the runner's guaranteed CPU, labelled by `pool` and policy `mode`. A value of 2 means the planner found room to double the quota. |
 
 ## Where a slow start actually goes
 

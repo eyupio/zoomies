@@ -80,6 +80,7 @@ const (
 	LabelCPUs       = LabelPrefix + "cpus"
 	LabelMemoryMB   = LabelPrefix + "memory-mb"
 	LabelLimitsFrom = LabelPrefix + "limits-from"
+	LabelDockerMode = LabelPrefix + "docker-mode"
 )
 
 // Role label values.
@@ -383,6 +384,7 @@ func pairLimits(spec Spec) (runner, daemon store.Resources) {
 func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRequest {
 	labels := spec.Labels(o.Now)
 	labels[LabelRole] = roleRunner
+	labels[LabelDockerMode] = string(spec.DockerMode)
 	if source, err := cacheSource(spec); err == nil && source != "" {
 		labels[LabelCacheVolume] = source
 		labels[LabelCacheSizeLimit] = fmt.Sprint(spec.Cache.SizeLimit)
@@ -1099,8 +1101,10 @@ func oomMessage(insp *ContainerInspect) string {
 	return "container was killed for exceeding its memory limit; raise the pool's memory_mb"
 }
 
-// Stats samples one container. The agent handles sampling failures separately
-// from lifecycle observations, retaining the last successful sample.
+// Stats samples one logical runner. Docker-in-Docker is two containers but one
+// job, so the sidecar's build CPU and memory are included in the same sample.
+// The agent handles sampling failures separately from lifecycle observations,
+// retaining the last successful sample.
 func (b *DockerBackend) Stats(ctx context.Context, h Handle) (Stats, error) {
 	s, err := b.api.ContainerStats(ctx, string(h))
 	if err != nil {
@@ -1109,7 +1113,51 @@ func (b *DockerBackend) Stats(ctx context.Context, h Handle) (Stats, error) {
 		}
 		return Stats{}, err
 	}
-	return Stats(s), nil
+	out := Stats(s)
+	insp, err := b.api.ContainerInspect(ctx, string(h))
+	if err != nil || insp.Config == nil || insp.Config.Labels[LabelDockerMode] != string(store.DockerDinD) {
+		return out, nil
+	}
+	name := insp.Config.Labels[LabelName]
+	if name == "" {
+		return out, nil
+	}
+	sidecars, err := b.api.ContainerList(ctx, map[string][]string{
+		"label": {LabelManaged + "=true", LabelDinDFor + "=" + name},
+	})
+	if err != nil {
+		return Stats{}, err
+	}
+	for _, sidecar := range sidecars {
+		sample, err := b.api.ContainerStats(ctx, sidecar.ID)
+		if errors.Is(err, ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return Stats{}, err
+		}
+		out = addStats(out, Stats(sample))
+	}
+	return out, nil
+}
+
+func addStats(a, b Stats) Stats {
+	a.CPUPercent += b.CPUPercent
+	a.MemoryBytes += b.MemoryBytes
+	a.MemoryLimit += b.MemoryLimit
+	if a.SampledAt == nil || b.SampledAt != nil && b.SampledAt.After(*a.SampledAt) {
+		a.SampledAt = b.SampledAt
+	}
+	if a.CPUThrottling != nil && b.CPUThrottling != nil {
+		a.CPUThrottling = &CPUThrottling{
+			Periods:              a.CPUThrottling.Periods + b.CPUThrottling.Periods,
+			ThrottledPeriods:     a.CPUThrottling.ThrottledPeriods + b.CPUThrottling.ThrottledPeriods,
+			ThrottledNanoseconds: a.CPUThrottling.ThrottledNanoseconds + b.CPUThrottling.ThrottledNanoseconds,
+		}
+	} else if a.CPUThrottling == nil {
+		a.CPUThrottling = b.CPUThrottling
+	}
+	return a
 }
 
 // Logs streams a container's output, demultiplexed.

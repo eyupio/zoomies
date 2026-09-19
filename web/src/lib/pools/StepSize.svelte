@@ -240,6 +240,64 @@
         </p>
       {/if}
     </div>
+
+    {#if draft.backend === 'docker' || draft.backend === 'podman'}
+      <div class="pair">
+        <Field
+          label="Elastic CPU"
+          error={errors['cpu_burst.mode']}
+          hint="Observe measures safe boosts first. Automatic may lend spare CPU while preserving every runner's guarantee and room for the next queued job."
+        >
+          {#snippet children({ id, describedBy, invalid })}
+            <Select
+              bind:value={draft.cpu_burst_mode}
+              options={[
+                { value: 'off', label: 'Off' },
+                { value: 'observe', label: 'Observe only' },
+                { value: 'automatic', label: 'Automatic boost' },
+              ]}
+              {id}
+              {describedBy}
+              {invalid}
+              onchange={() => touch('cpu_burst.mode')}
+            />
+          {/snippet}
+        </Field>
+
+        <Field
+          label="Boost ceiling"
+          error={errors['cpu_burst.max_cpus']}
+          hint="Maximum CPU for one runner. Leave empty to use whatever the host can safely lend."
+        >
+          {#snippet children({ id, describedBy, invalid })}
+            <Input
+              bind:value={draft.cpu_burst_max}
+              type="number"
+              min={0.25}
+              step={0.25}
+              placeholder="Host ceiling"
+              {id}
+              {describedBy}
+              {invalid}
+              onblur={() => touch('cpu_burst.max_cpus')}
+            />
+          {/snippet}
+        </Field>
+      </div>
+
+      {#if draft.cpu_burst_mode === 'automatic'}
+        <p class="shares-note">
+          Busy runners can sprint; quiet runners keep their guarantee. “Squirrel spotted” marks a
+          major boost, and “Leash tightened” means host-pressure protection has taken precedence.
+          Memory stays fixed throughout.
+        </p>
+      {/if}
+    {:else}
+      <p class="shares-note">
+        Elastic CPU is off for process runners because they have no live cgroup quota to measure or
+        move.
+      </p>
+    {/if}
   {/if}
 
   {#if draft.sizing === 'fixed'}

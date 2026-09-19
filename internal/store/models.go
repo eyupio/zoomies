@@ -477,6 +477,38 @@ type Resources struct {
 	PidsLimit int64   `json:"pids_limit,omitempty"` // container pids cgroup limit
 }
 
+// CPUBurstMode says what a pool does with CPU that its live runners have not
+// reserved. The empty value is deliberately off so an upgrade never changes
+// an existing pool's quotas.
+type CPUBurstMode string
+
+const (
+	CPUBurstOff       CPUBurstMode = "off"
+	CPUBurstObserve   CPUBurstMode = "observe"
+	CPUBurstAutomatic CPUBurstMode = "automatic"
+)
+
+func (m CPUBurstMode) Valid() bool {
+	return m == "" || m == CPUBurstOff || m == CPUBurstObserve || m == CPUBurstAutomatic
+}
+
+// CPUBurstPolicy lets an automatically-sized container runner borrow CPU that
+// no live runner or imminent start has been promised. Memory is intentionally
+// absent: lowering a live memory limit can kill the job it is meant to help.
+type CPUBurstPolicy struct {
+	Mode CPUBurstMode `json:"mode,omitempty"`
+	// MaxCPUs is the most CPU one logical runner may use. Zero means the
+	// host's allocatable CPU. For a DinD runner it covers the runner and its
+	// sidecar together, just like an automatic slot does.
+	MaxCPUs float64 `json:"max_cpus,omitempty"`
+}
+
+func (p CPUBurstPolicy) Observes() bool {
+	return p.Mode == CPUBurstObserve || p.Mode == CPUBurstAutomatic
+}
+
+func (p CPUBurstPolicy) Enforces() bool { return p.Mode == CPUBurstAutomatic }
+
 // SplitWithDaemon divides limits a runner was given by its host's slot between
 // the runner and the docker-in-docker daemon that runs beside it.
 //
@@ -631,13 +663,14 @@ type Pool struct {
 	// Zero leaves the pool unrestricted.
 	RepositoryScaleUpLimit int `json:"repository_scale_up_limit,omitempty"`
 	// CostPerRunnerHour is administrator supplied; Zoomies never embeds prices.
-	CostPerRunnerHour *float64    `json:"cost_per_runner_hour,omitempty"`
-	Priority          int         `json:"priority"`
-	IdleTimeout       Duration    `json:"idle_timeout"`
-	Ephemeral         bool        `json:"ephemeral"`
-	DockerMode        DockerMode  `json:"docker_mode"`
-	Resources         Resources   `json:"resources"`
-	Cache             CacheConfig `json:"cache"`
+	CostPerRunnerHour *float64       `json:"cost_per_runner_hour,omitempty"`
+	Priority          int            `json:"priority"`
+	IdleTimeout       Duration       `json:"idle_timeout"`
+	Ephemeral         bool           `json:"ephemeral"`
+	DockerMode        DockerMode     `json:"docker_mode"`
+	Resources         Resources      `json:"resources"`
+	CPUBurst          CPUBurstPolicy `json:"cpu_burst"`
+	Cache             CacheConfig    `json:"cache"`
 	// HostSelector matches Host.Labels; empty means "any host".
 	// RunnerSettings is what this pool overrides of the fleet's own runner
 	// timings. Every field is nil on a pool that follows the fleet, which is
