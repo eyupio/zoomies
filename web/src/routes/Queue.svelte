@@ -10,10 +10,11 @@
     selectProvisioning,
     toQuery,
   } from '$lib/api/client';
-  import type { Body, Job, Query } from '$lib/api/types';
+  import type { Body, Job, ProvisioningStatus, Query } from '$lib/api/types';
   import { events } from '$lib/api/sse';
   import { router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
+  import { QUEUE_STATUS_LABELS } from '$lib/status';
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
   import Button from '$lib/components/Button.svelte';
@@ -35,12 +36,23 @@
   import { startOfDay, endOfDay } from '$lib/jobs/DateRange.svelte';
 
   type Action = Body<'controlProvisioning'>['action'];
-  type Status = 'ready' | 'expedited' | 'paused' | 'deleted';
+  type Status = ProvisioningStatus;
+  // The labels come from the shared map so the button here, the Jobs page's
+  // filter chip and the badge on a job row all call the same state the same
+  // thing.
   const statuses: { value: Status; label: string; hint: string }[] = [
-    { value: 'ready', label: 'Ready', hint: 'Normal provisioning demand' },
-    { value: 'expedited', label: 'Run now', hint: 'Prioritised within pool priority' },
-    { value: 'paused', label: 'Paused', hint: 'Demand on hold' },
-    { value: 'deleted', label: 'Deleted', hint: 'Removed demand · can be restored' },
+    { value: 'ready', label: QUEUE_STATUS_LABELS.ready, hint: 'Normal provisioning demand' },
+    {
+      value: 'expedited',
+      label: QUEUE_STATUS_LABELS.expedited,
+      hint: 'Prioritised within pool priority',
+    },
+    { value: 'paused', label: QUEUE_STATUS_LABELS.paused, hint: 'Demand on hold' },
+    {
+      value: 'deleted',
+      label: QUEUE_STATUS_LABELS.deleted,
+      hint: 'Removed demand · can be restored',
+    },
   ];
   const actions = [
     { id: 'run_now' as Action, label: 'Run now', icon: Zap },
@@ -251,7 +263,7 @@
     pending?.action === 'pause'
       ? 'Hold new runner demand for these items until you resume them.'
       : pending?.action === 'delete'
-        ? 'Remove these items from provisioning demand. You can restore them from the Deleted view.'
+        ? 'Remove these items from provisioning demand, so they stop counting as queued work anywhere. You can restore them from the Removed view.'
         : pending?.action === 'run_now'
           ? 'Resume and prioritise these items within their pool priority, without waiting for the scale-up delay.'
           : 'Restore normal provisioning demand and clear any Run now priority.',
@@ -564,7 +576,7 @@
       onopen={openJob}
       onrows={takeRows}
       emptyTitle="No provisioning items match"
-      emptyDescription="New demand appears here when GitHub queues work for this fleet. Widen your filters or review deleted items."
+      emptyDescription="New demand appears here when GitHub queues work for this fleet. Widen your filters or review removed items."
     >
       {#snippet emptyAction()}<Button variant="secondary" onclick={clear}>Reset filters</Button
         >{/snippet}

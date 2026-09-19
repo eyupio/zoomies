@@ -37,13 +37,27 @@
   import JobsInsights from '$lib/insights/JobsInsights.svelte';
   import FleetHistory from '$lib/insights/FleetHistory.svelte';
   import { getJobFacets, listJobs } from '$lib/api/client';
-  import { JOB_STATES, type Job, type JobState } from '$lib/api/types';
+  import {
+    JOB_STATES,
+    PROVISIONING_STATUSES,
+    WAITING_PROVISIONING,
+    type Job,
+    type JobState,
+    type ProvisioningStatus,
+  } from '$lib/api/types';
   import { events } from '$lib/api/sse';
   import { faultLabel, fleetFailed } from '$lib/faults';
   import { formatDuration } from '$lib/format';
   import { router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
-  import { HOSTED, jobStatus, RUNNER_LOST, stuckUnmatched, UNMATCHED } from '$lib/status';
+  import {
+    HOSTED,
+    jobStatus,
+    queueStatus,
+    RUNNER_LOST,
+    stuckUnmatched,
+    UNMATCHED,
+  } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import DataGrid from '$lib/components/DataGrid.svelte';
@@ -76,6 +90,7 @@
     'label',
     'conclusion',
     'state',
+    'provisioning',
     'since',
     'until',
     'unmatched',
@@ -85,7 +100,14 @@
   ] as const;
 
   /** The status keys a view owns. A patch touching one of them is choosing a view. */
-  const STATUS_KEYS = ['state', 'conclusion', 'failed', 'faulted', 'unmatched'] as const;
+  const STATUS_KEYS = [
+    'state',
+    'conclusion',
+    'failed',
+    'faulted',
+    'unmatched',
+    'provisioning',
+  ] as const;
 
   /**
    * Nobody has asked this page anything yet, so it answers the question it is
@@ -106,6 +128,33 @@
     return !FILTER_KEYS.some((key) => query.has(key));
   });
 
+  /**
+   * Which of the queue's provisioning statuses to show.
+   *
+   * Validated rather than asserted, for the reason `state` is: the address bar
+   * is whatever somebody pasted, and a cast would send the typo to the server
+   * as a filter matching nothing.
+   *
+   * The default is the interesting part. A view narrowed to queued work means
+   * "what is waiting for a runner here", and a job an operator removed from
+   * the queue is not -- it stopped counting towards the queue depth on the
+   * Overview and towards this page's own "Queued now" figure, so a list that
+   * still carried it disagreed with the number directly above it. Every other
+   * view narrows nothing: a removed job belongs in the history this page is,
+   * badged as removed, and `All` has to show it. The filter is written into
+   * the chips either way, so a shorter list always says why it is shorter.
+   */
+  const provisioning = $derived.by<ProvisioningStatus[]>(() => {
+    const asked = router
+      .paramList('provisioning')
+      .filter((v): v is ProvisioningStatus =>
+        (PROVISIONING_STATUSES as readonly string[]).includes(v),
+      );
+    if (asked.length > 0) return asked;
+    const states = defaulted ? [...DEFAULT_JOB_STATE] : router.paramList('state');
+    return states.length === 1 && states[0] === 'queued' ? [...WAITING_PROVISIONING] : [];
+  });
+
   const filters = $derived<JobFilterState>({
     q: router.param('q'),
     repo: router.paramList('repo'),
@@ -121,6 +170,7 @@
       : router
           .paramList('state')
           .filter((value): value is JobState => (JOB_STATES as readonly string[]).includes(value)),
+    provisioning,
     since: router.param('since'),
     until: router.param('until'),
     unmatched: router.param('unmatched') === 'true',
@@ -153,6 +203,16 @@
     if (!choosingStatus) {
       out.state = filters.state.length > 0 ? filters.state : [...JOB_STATES];
     }
+
+    /*
+     * A view owns the queue statuses along with the rest of the status keys.
+     * Pressing All after looking at what was removed from the queue has to
+     * show everything, rather than keeping the narrower filter the last view
+     * left behind; clearing the key lets the new view's own default apply.
+     * Narrowing something else leaves it alone, because the operator was
+     * still looking at that.
+     */
+    if (choosingStatus && next.provisioning === undefined) out.provisioning = null;
 
     /*
      * The two switches own the status they contradict, the way a view button
@@ -288,7 +348,7 @@
           : view === 'running'
             ? 'No runner here is working on a job at this moment, which on a quiet fleet is the ordinary state. Queued shows what is waiting for one, and All shows everything this fleet has been asked to do.'
             : view === 'queued'
-              ? 'Nothing is waiting for a runner, so the fleet is keeping up with what GitHub is asking of it. Running shows what is being worked on now.'
+              ? 'Nothing is waiting for a runner, so the fleet is keeping up with what GitHub is asking of it. Running shows what is being worked on now, and the Queue holds anything removed from the queue rather than run.'
               : view === 'finished'
                 ? 'Nothing has ended within these filters. Running and Queued show the work still in hand, and All shows every status at once.'
                 : filters.all
@@ -308,6 +368,7 @@
         label: filters.label,
         conclusion: filters.conclusion,
         state: filters.state,
+        provisioning: filters.provisioning,
         since: startOfDay(filters.since),
         until: endOfDay(filters.until),
         unmatched: filters.unmatched ? true : undefined,
@@ -367,7 +428,11 @@
       sortable: true,
       width: '9.5rem',
       hideable: false,
-      value: (job) => jobStatus(job.state, job.conclusion).label,
+      value: (job) => {
+        const queue = queueStatus(job);
+        const state = jobStatus(job.state, job.conclusion).label;
+        return queue ? `${state} (${queue.label.toLowerCase()})` : state;
+      },
       cell: stateCell,
     },
     { id: 'failed_at', header: 'Failed at', priority: 'wide', value: failedAt, cell: failedAtCell },
@@ -428,6 +493,14 @@
 {#snippet stateCell(job: Job)}
   <span class="state">
     <StateCell status={jobStatus(job.state, job.conclusion)} />
+    <!-- GitHub still calls a stood-down job queued, because Zoomies cannot
+         unqueue one. Without this the operator's own decision was invisible
+         here, and a job they had removed from the queue sat in the list
+         looking like work the fleet was about to pick up. -->
+    {#if queueStatus(job)}
+      {@const queue = queueStatus(job)}
+      <Badge status={queue!} size="sm" title={queue!.hint} />
+    {/if}
     {#if fleetFailed(job)}
       <Badge status={RUNNER_LOST} size="sm" title={job.fault_fix || RUNNER_LOST.hint} />
     {/if}
