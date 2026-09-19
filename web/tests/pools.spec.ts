@@ -418,7 +418,10 @@ test('the hosts step keeps a pool to an architecture and says which machines tha
 
   // One host, named, and honest about the fact that it would take nothing.
   await expect(page.getByText('1 of 3 connected hosts match')).toBeVisible();
-  await expect(page.getByText('demo-arm-1', { exact: true })).toBeVisible();
+  // The host also appears in the fleet preview elsewhere in the wizard. The
+  // matching-host badges have no distinct role, so scope the name to their
+  // readout rather than relying on page-wide text uniqueness.
+  await expect(page.locator('.match-hosts').getByText('demo-arm-1', { exact: true })).toBeVisible();
   await expect(page.getByText(/cordoned or not heartbeating/)).toBeVisible();
 
   // The other architecture is the two builders, and they are taking work.
