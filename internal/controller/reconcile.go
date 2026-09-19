@@ -737,13 +737,23 @@ func (c *Controller) deleteRegistration(ctx context.Context, r *store.Runner, po
 	err = client.DeleteRunner(ctx, id)
 	c.observeGitHub(inst.ID, err)
 	if err != nil {
+		reason := fmt.Sprintf("the GitHub runner registration could not be deleted: %v", err)
+		if errors.Is(err, github.ErrRunnerBusy) {
+			// Not a stuck job or a lost permission: GitHub's own bookkeeping
+			// can lag a few seconds behind the webhook that told Zoomies this
+			// runner was free, and the delete lost that race. Said plainly so
+			// runners.cleanup_failed does not send an operator chasing a
+			// permission that is not the problem; GitHub refuses this delete
+			// unconditionally while it still calls the runner busy, so the
+			// reap loop can only wait and recheck, the same as it does.
+			reason = fmt.Sprintf("GitHub still reports %s as running a job, though Zoomies has already finished with it", r.Name)
+		}
 		// Recorded on the row, not only logged. A registration Zoomies could
 		// not delete is a ghost on somebody's organisation, and a log line and
 		// a counter are not something an operator finds before the runner list
 		// is full of them. The reap will try again; until it succeeds, the row
 		// says so and runners.cleanup_failed names it.
-		if rerr := c.st.RecordRegistrationCleanupFailure(ctx, r.ID,
-			fmt.Sprintf("the GitHub runner registration could not be deleted: %v", err)); rerr != nil {
+		if rerr := c.st.RecordRegistrationCleanupFailure(ctx, r.ID, reason); rerr != nil {
 			c.log.Warn("could not record a failed registration delete", "runner", r.ID, "error", rerr)
 		}
 		c.log.Warn("could not delete a GitHub runner registration",
@@ -866,6 +876,19 @@ func (c *Controller) reap(ctx context.Context) {
 				break
 			}
 			if err != nil {
+				// Recorded on the row when there is one, the same as the
+				// first attempt: without this the panel freezes on whatever
+				// the original failure said while the reap loop keeps
+				// quietly retrying (or not) behind it.
+				if row != nil {
+					reason := fmt.Sprintf("the GitHub runner registration could not be deleted: %v", err)
+					if errors.Is(err, github.ErrRunnerBusy) {
+						reason = fmt.Sprintf("GitHub still reports %s as running a job, though Zoomies has already finished with it", gr.Name)
+					}
+					if rerr := c.st.RecordRegistrationCleanupFailure(ctx, row.ID, reason); rerr != nil {
+						c.log.Warn("could not record a failed registration delete", "runner", row.ID, "error", rerr)
+					}
+				}
 				c.log.Warn("could not delete an orphaned runner registration",
 					"installation", inst.ID, "runner_name", gr.Name, "error", err)
 				continue

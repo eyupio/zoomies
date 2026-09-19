@@ -360,6 +360,35 @@ func TestReapLeavesOtherToolsRunnersAlone(t *testing.T) {
 	}
 }
 
+// A runner GitHub still calls busy is left alone, however long Zoomies has
+// known it is gone: GitHub refuses to delete a runner it believes is running
+// a job with no override, so retrying into that refusal would only spend an
+// API call reproducing a result the listing already gave for free. Whether
+// this is a few seconds of GitHub's own bookkeeping catching up or a
+// registration genuinely stuck busy is not something the reap loop can tell,
+// or needs to: either way there is nothing to do here but wait and recheck
+// next pass.
+func TestReapLeavesABusyRegistrationAlone(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerRemoved)
+	h.gh.AddRunner(r.Name, pool.Labels)
+	h.gh.SetRunnerBusy(r.Name, true)
+	if err := h.c.confirmCleanup(h.ctx, r.ID, true); err != nil {
+		t.Fatalf("confirmCleanup: %v", err)
+	}
+	h.advance(24 * time.Hour)
+
+	h.c.reap(h.ctx)
+
+	if len(h.gh.Runners()) != 1 {
+		t.Fatal("a runner GitHub still calls busy must not be deleted")
+	}
+	if countRequests(h, "DELETE") != 0 {
+		t.Fatal("reap must not spend a delete call on a runner the listing already reported busy")
+	}
+}
+
 // runnerRow writes a runner directly, for tests about what happens to one that
 // already exists.
 func (h *harness) runnerRow(pool *store.Pool, host *store.Host, state store.RunnerState) *store.Runner {

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"net/http"
 	"strings"
 	"testing"
 
@@ -255,6 +256,45 @@ func TestARegistrationThatWillNotDeleteIsRecordedOnTheRunner(t *testing.T) {
 	_ = inst
 }
 
+// GitHub's own bookkeeping can still call a runner busy for a few seconds
+// after the same completion webhook that told Zoomies the job was done, and
+// the immediate delete Zoomies fires off the back of that webhook can lose
+// the race. That must not read like a stuck job or a lost App permission --
+// it is neither, and the operator-facing text used to send whoever read it
+// to check permissions for a timing race that clears itself.
+func TestARegistrationRefusedForBeingBusyIsNotReadAsAPermissionProblem(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerRemoved)
+	h.gh.AddRunner(r.Name, pool.Labels)
+	h.gh.SetRunnerBusy(r.Name, true)
+
+	fresh := h.runnerByID(t, r.ID)
+	h.c.deleteRegistration(h.ctx, fresh, pool)
+
+	got := h.runnerByID(t, r.ID)
+	if got.CleanupError == "" {
+		t.Fatal("a busy-refused delete left no record")
+	}
+	if strings.Contains(got.CleanupError, "registration") {
+		t.Errorf("cleanup_error = %q, must not read like a genuinely orphaned registration", got.CleanupError)
+	}
+	if !strings.Contains(got.CleanupError, "still reports") || !strings.Contains(got.CleanupError, "running a job") {
+		t.Errorf("cleanup_error = %q, want it to say GitHub still reports the runner busy", got.CleanupError)
+	}
+	if len(h.gh.Runners()) != 1 {
+		t.Fatal("a runner GitHub explicitly refused to delete must stay registered")
+	}
+
+	prob := h.problem(t, "runners.cleanup_failed")
+	if strings.Contains(prob.Fix, "permission the App has lost") {
+		t.Errorf("fix = %q, must not send an operator chasing a permission over a timing race", prob.Fix)
+	}
+	if !strings.Contains(prob.Fix, "ten minutes") {
+		t.Errorf("fix = %q, want it to say Zoomies rechecks this automatically", prob.Fix)
+	}
+}
+
 // And the ordinary case: a deletion that worked is stamped, so an unstamped
 // terminal runner is exactly the set worth asking about.
 func TestADeletedRegistrationIsStamped(t *testing.T) {
@@ -280,5 +320,39 @@ func TestADeletedRegistrationIsStamped(t *testing.T) {
 	}
 	if got.CleanedUpAt != nil {
 		t.Error("registration deletion marked cleanup complete before the host confirmed removal")
+	}
+}
+
+// A reap retry that fails again must not go quiet. Before this fix only the
+// very first failure -- deleteRegistration's own immediate attempt -- was
+// ever recorded; every retry after that only logged, so cleanup_attempts and
+// cleanup_failed_at froze at that first failure and the problems panel kept
+// reading "after 1 attempt" no matter how long the reap loop had actually
+// been retrying behind it.
+func TestReapRecordsARetryThatFailsAgain(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerRemoved)
+	h.gh.AddRunner(r.Name, pool.Labels)
+	if err := h.st.RecordRegistrationCleanupFailure(h.ctx, r.ID,
+		"the GitHub runner registration could not be deleted: an earlier refusal"); err != nil {
+		t.Fatal(err)
+	}
+	first := h.runnerByID(t, r.ID)
+
+	h.gh.SetMethodError(http.MethodDelete, "/actions/runners/", http.StatusForbidden, "Resource not accessible by integration")
+	h.c.reap(h.ctx)
+
+	got := h.runnerByID(t, r.ID)
+	if got.CleanupAttempts != first.CleanupAttempts+1 {
+		t.Errorf("cleanup_attempts = %d, want %d after the reap loop's own retry failed too",
+			got.CleanupAttempts, first.CleanupAttempts+1)
+	}
+	if got.CleanupFailedAt == nil || !got.CleanupFailedAt.After(*first.CleanupFailedAt) {
+		t.Errorf("cleanup_failed_at did not move, so the panel still reads as the first failure: %v -> %v",
+			first.CleanupFailedAt, got.CleanupFailedAt)
+	}
+	if len(h.gh.Runners()) != 1 {
+		t.Fatal("a genuinely refused delete must leave the registration in place")
 	}
 }

@@ -465,6 +465,9 @@ func (c *appClient) DeleteRunner(ctx context.Context, id int64) error {
 	if e == nil || errors.Is(e, ErrNotFound) {
 		return nil
 	}
+	if errors.Is(e, ErrInvalid) && strings.Contains(strings.ToLower(e.Error()), "currently running a job") {
+		e = fmt.Errorf("%w: %w", ErrRunnerBusy, e)
+	}
 	return c.decorate(fmt.Sprintf("delete runner %d", id), e)
 }
 
