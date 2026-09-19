@@ -64,7 +64,7 @@ const FAULTS: Record<FaultKind, FaultMeta> = {
   container_conflict: {
     label: 'Container name conflict',
     detail:
-      'A container already occupies this name and could not be safely reclaimed. Check its ownership and whether another agent uses the same daemon.',
+      'A container still occupies this name: it could not be safely reclaimed, or the daemon had not released the name by the time creation gave up waiting. Check its ownership and whether another agent uses the same daemon.',
   },
   backend_busy: {
     label: 'Backend overloaded',
