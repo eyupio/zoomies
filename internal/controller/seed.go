@@ -1213,14 +1213,16 @@ func (c *Controller) seedSamples(ctx context.Context, now time.Time, rng *rand.R
 	for i := 0; i <= minutes; i++ {
 		at := start.Add(time.Duration(i) * time.Minute)
 
-		// A burst arriving around minute 20 and clearing by minute 50.
+		// Keep the burst near the end of the fixture hour. The browser suite shares
+		// a live controller for long enough that an early burst aged out of its
+		// one-hour view before the mobile project reached it.
 		var queued, running, total int
 		switch {
-		case i < 15:
+		case i < 40:
 			queued = jitter(rng, 0, 1)
 			running = jitter(rng, 1, 2)
 			total = 2 + running
-		case i < 25:
+		case i < 52:
 			// Nothing idle through the burst, and that is the point: the queue
 			// is deep precisely because every runner is taken. A demo whose
 			// busiest ten minutes still showed four free runners would say the
@@ -1228,7 +1230,7 @@ func (c *Controller) seedSamples(ctx context.Context, now time.Time, rng *rand.R
 			queued = jitter(rng, 4, 9)
 			running = jitter(rng, 2, 4)
 			total = running
-		case i < 45:
+		case i < 58:
 			// The scheduler has caught up: the queue drains as runners appear.
 			queued = jitter(rng, 1, 4)
 			running = jitter(rng, 4, 7)

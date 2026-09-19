@@ -234,9 +234,11 @@ test('the keyboard alone moves through the rows and opens one', async ({ page })
   await expect(rows.nth(1)).toBeFocused();
 
   const expected = await nameOf(rows.nth(1));
+  const href = await rows.nth(1).getByRole('link').first().getAttribute('href');
+  expect(href, 'the focused runner has a detail link').toMatch(/^\/runners\/.+/);
   await page.keyboard.press('Enter');
   await expect(pageHeading(page, expected)).toBeVisible();
-  await expect(page).toHaveURL(/\/runners\/run_demo\d+$/);
+  await expect(page).toHaveURL(new URL(href!, page.url()).href);
 });
 
 // A confirmation dialog owns the keyboard while it is up. `g` then `o` used to

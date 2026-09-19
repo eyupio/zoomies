@@ -105,6 +105,23 @@ func TestSeedDemoBuildsAFleet(t *testing.T) {
 		t.Fatal("no audit rows were seeded")
 	}
 
+	// The shared browser controller lives for the whole suite. Keep the burst
+	// close enough to the fixture's present that its one-hour view still has a
+	// queued-with-nothing-idle spell when the mobile project reaches it.
+	samples, err := h.st.ListSamples(h.ctx, h.c.Now().Add(-30*time.Minute))
+	if err != nil {
+		t.Fatalf("ListSamples: %v", err)
+	}
+	starved := 0
+	for _, sample := range samples {
+		if sample.FleetQueuedJobs > 0 && sample.IdleRunners == 0 {
+			starved++
+		}
+	}
+	if starved == 0 {
+		t.Fatal("the recent demo history has no queued work with nothing idle")
+	}
+
 	// Stats has to work over the fixture, since that is what the Overview does.
 	if _, err := h.c.Stats(h.ctx, 24*time.Hour); err != nil {
 		t.Fatalf("Stats over the fixture: %v", err)

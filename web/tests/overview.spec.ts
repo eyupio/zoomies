@@ -294,9 +294,14 @@ test('the scaling feed quotes the scheduler verbatim', async ({ page }) => {
   // Paraphrasing the one sentence that explains why a runner exists is how a
   // dashboard stops being trustworthy, so the reason string is matched as the
   // scheduler writes it.
-  await expect(feed).toContainText(/scaled zoomies-demo-linux-x64 \d+ -> \d+: /);
-  await expect(feed).toContainText('scaled zoomies-demo-linux-x64 1 -> 4: 3 jobs queued > 30s');
-  await expect(feed).toContainText('scaled zoomies-demo-linux-arm64 0 -> 1: 1 job queued > 30s');
+  const response = await page.request.get('/api/v1/scaling-events?limit=10');
+  expect(response.ok()).toBe(true);
+  const events = (await response.json()).items as Array<{ reason?: string }>;
+  expect(events.length).toBeGreaterThan(0);
+  for (const event of events) {
+    expect(event.reason, "every scaling event carries the scheduler's sentence").toBeTruthy();
+    await expect(feed).toContainText(event.reason!);
+  }
   await expect(feed.getByRole('listitem').first()).toBeVisible();
 });
 
