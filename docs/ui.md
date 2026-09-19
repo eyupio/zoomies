@@ -143,7 +143,11 @@ of grid filters, while selecting a pool scopes the headline runner metrics.
 
 Provisioning demand has its own view, with ready, expedited, paused and removed
 counts alongside filtering and bulk controls. Job queue depth can remain high
-when provisioning demand is held; these are separate measures.
+when provisioning demand is paused; these are separate measures. Removing an
+item is the exception: an operator who takes work out of the queue has said it
+is not for this fleet, so it stops counting as queued everywhere — the
+Overview's queue depth and pool bars, `zoomies_jobs_queued` and the queue age
+with it. Restoring it from the Deleted view puts it back.
 
 ![The Queue page: provisioning demand composition, status filters and bulk controls](screenshots/queue-dark.webp#only-dark){ .zoomies-shot }
 ![The Queue page: provisioning demand composition, status filters and bulk controls](screenshots/queue-light.webp#only-light){ .zoomies-shot }
@@ -413,7 +417,7 @@ that already exists.
 | --- | --- |
 | Pause | Stop counting the selected items towards new runner demand. |
 | Resume | Restore normal demand and clear Run now priority. Also restores deleted items. |
-| Delete from queue | Suppress demand persistently. Use the Deleted view to find and restore it. |
+| Delete from queue | Suppress demand persistently, and stop the item counting as queued work anywhere. Use the Deleted view to find and restore it. |
 | Run now | Resume and expedite demand within the pool's priority tier, bypassing the scale-up delay. |
 
 All four are buttons on the row itself, one press each, as well as on the bulk

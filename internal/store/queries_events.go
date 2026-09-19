@@ -437,7 +437,7 @@ func jobWhere(f JobFilter) (string, []any) {
 				states = append(states, "(provisioning = '' AND provision_now = 0)")
 			case "expedited":
 				states = append(states, "(provisioning = '' AND provision_now = 1)")
-			case "paused", "deleted":
+			case ProvisioningPaused, ProvisioningDeleted:
 				states = append(states, "provisioning = ?")
 				args = append(args, v)
 			}
@@ -507,11 +507,45 @@ func jobWhere(f JobFilter) (string, []any) {
 	return "WHERE " + strings.Join(cond, " AND "), args
 }
 
-// ListQueuedJobs returns jobs still waiting for a runner, oldest first. This is
-// the scheduler's demand signal.
+// ListQueuedJobs returns jobs still waiting for a runner here, oldest first.
+// This is the scheduler's demand signal, and the source of every figure that
+// answers "how much work is waiting?": the Overview's tiles and pool bars, the
+// queue depth and age gauges, the elastic reserve, and the problems that only
+// matter while somebody is queued behind them.
+//
+// A job an operator removed from the queue is left out, because none of those
+// questions is still about it -- see Job.RemovedFromQueue. The sweep that
+// retires jobs GitHub stopped talking about wants the rows regardless of what
+// an operator did with them, and asks for them with ListStaleQueuedJobs.
 func (s *Store) ListQueuedJobs(ctx context.Context) ([]*Job, error) {
 	rows, err := s.read.QueryContext(ctx, `SELECT `+jobCols+` FROM jobs
-		WHERE state = 'queued' ORDER BY queued_at`)
+		WHERE `+queuedJobSQL("jobs")+` ORDER BY queued_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Job
+	for rows.Next() {
+		j, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, j)
+	}
+	return out, rows.Err()
+}
+
+// ListStaleQueuedJobs returns every job still marked queued that GitHub queued
+// before the cutoff, oldest first, whatever an operator has done with it.
+//
+// Removed jobs are here and nowhere else. Removing one suppresses this fleet's
+// demand for it; it says nothing about whether GitHub still has the work. Left
+// out of this sweep they would never be retired at all, and the Queue's own
+// view of what was removed would fill up with work GitHub gave up on a year
+// ago.
+func (s *Store) ListStaleQueuedJobs(ctx context.Context, before time.Time) ([]*Job, error) {
+	rows, err := s.read.QueryContext(ctx, `SELECT `+jobCols+` FROM jobs
+		WHERE state = ? AND queued_at < ? ORDER BY queued_at`, string(JobQueued), ms(before))
 	if err != nil {
 		return nil, err
 	}
@@ -657,6 +691,18 @@ func managedJobSQL(jobs string) string {
 		string(JobWaiting) + `') AND NOT ` + hostedJobSQL(jobs) + `))`
 }
 
+// queuedJobSQL is the SQL spelling of "still waiting for a runner here", and
+// the counting half of Job.RemovedFromQueue. A job an operator removed from
+// the queue is queued at GitHub and not here: the row keeps its state because
+// GitHub keeps offering the work, and the removal is restorable, but nothing
+// that reports queue depth should go on counting it. The Overview used to,
+// which meant an operator could empty the queue and watch the tile above it
+// hold the number it had before.
+func queuedJobSQL(jobs string) string {
+	return `(` + jobs + `.state = '` + string(JobQueued) + `' AND ` +
+		jobs + `.provisioning != '` + ProvisioningDeleted + `')`
+}
+
 func failedJobSQL() string {
 	return `(` + failedConclusionSQL() + ` OR ` + fleetFailedJobSQL() + `)`
 }
@@ -698,7 +744,7 @@ func (s *Store) StatsSince(ctx context.Context, since time.Time, managedOnly boo
 	}
 	var st JobStats
 	err := s.read.QueryRowContext(ctx, `SELECT
-		(SELECT COUNT(*) FROM jobs WHERE state='queued'`+scope+`),
+		(SELECT COUNT(*) FROM jobs WHERE `+queuedJobSQL("jobs")+scope+`),
 		(SELECT COUNT(*) FROM jobs WHERE state='in_progress'`+scope+`),
 		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND completed_at >= ?`+scope+`),
 		(SELECT COUNT(*) FROM jobs WHERE state='completed' AND `+failedJobSQL()+` AND completed_at >= ?`+scope+`),
