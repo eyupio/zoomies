@@ -7,6 +7,7 @@
  * sign-in form for a moment before the navigation reaches it.
  */
 import { router } from '../router';
+import { feed } from '../state/feed.svelte';
 import { fleet } from '../state/fleet.svelte';
 import { session } from '../state/session.svelte';
 import { toasts } from '../state/toasts.svelte';
@@ -14,6 +15,7 @@ import { toasts } from '../state/toasts.svelte';
 export async function signOut(): Promise<void> {
   try {
     fleet.stop();
+    feed.stop();
     await session.logout();
     router.navigate('/login');
   } catch (cause) {

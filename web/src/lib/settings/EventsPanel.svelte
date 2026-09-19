@@ -1,0 +1,120 @@
+<!--
+  Events: what the Overview's feed is allowed to tell you.
+
+  One switch per category, each row saying what an entry of that kind is, so
+  the choice is made against the thing itself rather than against a word. The
+  categories that have no history to show -- the ones the feed can only fill
+  from the live stream -- say so, because a category that is on and empty
+  otherwise looks exactly like one that is broken.
+
+  It is this browser's choice, like the theme and the dismissed problems: what
+  belongs on one operator's dashboard is not a fleet setting, and nothing here
+  changes what the API, `zoomies status` or an alerting rule reports.
+-->
+<script lang="ts">
+  import { feed } from '$lib/state/feed.svelte';
+  import type { FeedCategoryID } from '$lib/feed/categories';
+  import PageHeader from '$lib/components/PageHeader.svelte';
+  import Switch from '$lib/components/Switch.svelte';
+
+  const categories = $derived(feed.categories);
+  const on = $derived(categories.filter((row) => row.on).length);
+</script>
+
+<PageHeader
+  title="Events"
+  subtitle="Which of the fleet's events the Overview's feed shows. Kept in this browser, and never anything the controller reports elsewhere."
+/>
+
+<div class="settings">
+  {#each categories as row (row.category.id)}
+    <div class="setting">
+      <div class="text">
+        <p class="label">
+          <row.category.icon size={14} aria-hidden="true" />
+          {row.category.label}
+        </p>
+        <p class="description">
+          {row.category.description}
+          {#if !row.category.history}
+            <span class="live">Shown from the moment it happens; this one has no past to load.</span
+            >
+          {/if}
+        </p>
+      </div>
+      <Switch
+        label={row.category.label}
+        hideLabel
+        checked={row.on}
+        onchange={(want) => feed.setShown(row.category.id as FeedCategoryID, want)}
+      />
+    </div>
+  {/each}
+</div>
+
+<p class="note">
+  {on} of {categories.length} kinds are on. The feed keeps the last few hundred entries this tab has seen
+  and shows the newest twelve; everything in it also lives on the page it is about, which is where the
+  whole of it is — every decision on the pool, every failure on the runner, every recorded action on the
+  Audit page.
+</p>
+
+<style>
+  .settings {
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface);
+  }
+  .setting {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--z-space-6);
+    padding: var(--z-space-4) var(--z-space-5);
+    border-bottom: var(--z-border-width) solid var(--z-border);
+  }
+  .setting:last-child {
+    border-bottom: 0;
+  }
+  .text {
+    flex: 1 1 20rem;
+    min-width: 0;
+  }
+  .label {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-2);
+    margin: 0;
+    font-size: var(--z-text-base);
+    line-height: var(--z-leading-base);
+    color: var(--z-text);
+  }
+  .description {
+    margin: var(--z-nudge-2) 0 0;
+    max-width: 64ch;
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text-muted);
+  }
+  .live {
+    color: var(--z-text-subtle);
+  }
+  /* The control sits on the label's line, not the description's. */
+  .setting > :global(:last-child) {
+    flex: none;
+    margin-top: var(--z-nudge-1);
+  }
+  .note {
+    margin: var(--z-space-4) var(--z-space-1) 0;
+    max-width: 80ch;
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text-subtle);
+  }
+  @media (max-width: 768px) {
+    .setting {
+      flex-direction: column;
+      gap: var(--z-space-3);
+    }
+  }
+</style>

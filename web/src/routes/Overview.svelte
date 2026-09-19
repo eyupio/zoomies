@@ -8,7 +8,7 @@
   anything that needs a person comes immediately after them, because a problem
   found at the bottom of a page is a problem found late. Then the two things an
   operator watches when nothing is wrong -- where the capacity is going, and
-  what the scheduler decided -- and finally the work itself.
+  what has happened to the fleet lately -- and finally the work itself.
 
   What needs a person is one line here rather than a full panel. The list it
   summarises lives in the problems drawer, reachable from the top bar on every
@@ -17,21 +17,25 @@
   a month-old decision.
 
   On a desktop the pools and the running jobs share the left-hand column and
-  the scaling feed takes the right, cut to their height. The feed is the one
-  panel whose length says nothing about the fleet -- ten decisions is ten
-  decisions whether there is one pool or twenty -- so letting it set the height
+  the events feed takes the right, cut to their height. The feed is the one
+  panel whose length says nothing about the fleet -- a dozen events is a dozen
+  events whether there is one pool or twenty -- so letting it set the height
   of the row left a fleet with one pool looking at a screen of blank space
-  under it. The decisions that do not fit are a scroll away, inside the panel.
+  under it. The entries that do not fit are a scroll away, inside the panel.
   A phone stacks everything, in reading order.
 
-  How the last jobs ended comes last, across the width of the page: it is the
-  recent past rather than the present, and it is where "is CI broken?" gets
-  answered -- and where a runner that died under a job is called the fleet's
-  failure rather than the workflow's.
+  How the last jobs ended used to be a panel of its own across the bottom.
+  It is in the feed now: a job ending is news like anything else, and two
+  reverse-chronological lists on one page -- each with its own idea of what
+  belonged on it -- was one list too many. The distinction that panel existed
+  to make survives with it, because it is the one this page is for: a runner
+  that died under a job is the fleet's failure and is named as such, not the
+  workflow's.
 
   Nothing on this page polls. The fleet cache subscribes to `stats`, `scaling`,
   `problems.updated`, `runner.*`, `pool.*` and `host.*`; the panels below add
-  `job.updated` for the matrix, the running jobs and the recent outcomes. A
+  `job.updated` for the matrix and the running jobs, and the feed adds
+  whichever kinds its categories are switched on for. A
   reconnect ends in one reconciling fetch. Refreshing by hand asks for that
   same fetch, and the matrix's with it: it is never how the numbers keep up,
   only how an operator settles the question of whether they have.
@@ -51,8 +55,7 @@
   import FleetMetrics from '$lib/overview/FleetMetrics.svelte';
   import PoolUtilisation from '$lib/overview/PoolUtilisation.svelte';
   import ProblemsSummary from '$lib/overview/ProblemsSummary.svelte';
-  import RecentOutcomes from '$lib/overview/RecentOutcomes.svelte';
-  import ScalingFeed from '$lib/overview/ScalingFeed.svelte';
+  import EventsFeed from '$lib/overview/EventsFeed.svelte';
 
   // Raised by the checklist while it is on screen, so the problems summary
   // knows not to also claim that nothing needs attention, and the matrix
@@ -125,7 +128,7 @@
     <div class="split">
       <PoolUtilisation {loading} />
       <div class="feed">
-        <ScalingFeed {loading} />
+        <EventsFeed {loading} />
       </div>
       <ActiveJobs />
     </div>
@@ -138,7 +141,6 @@
         page="overview"
         onmanage={() => navigate('/hosts')}
       />{/if}
-    <RecentOutcomes />
   </div>
 {/if}
 
@@ -152,7 +154,7 @@
     Two rows on the left -- the pools, then the running jobs, placed in source
     order -- and the feed spanning both on the right. The rows are sized by the
     left-hand panels alone: the feed is taken out of flow inside its cell, so
-    however many decisions it holds, it never makes the row taller. What it
+    however many entries it holds, it never makes the row taller. What it
     gets instead is the height the left column came to, and the panel scrolls
     inside that.
   */
@@ -167,7 +169,7 @@
     grid-row: 1 / span 2;
     align-self: stretch;
     position: relative;
-    /* Room for the heading and four decisions: a fleet with one pool and
+    /* Room for the heading and four entries: a fleet with one pool and
        nothing running still gets a feed rather than a slot. */
     min-height: 24rem;
   }
