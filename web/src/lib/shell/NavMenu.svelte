@@ -167,9 +167,8 @@
     gap: var(--z-space-3);
     max-height: calc(100% - var(--z-space-12));
     overflow-y: auto;
-    /* The home-indicator gap on an iPhone, as the bar it covers honours it. */
-    padding: var(--z-space-2) var(--z-space-4)
-      calc(var(--z-space-4) + env(safe-area-inset-bottom, 0px));
+    /* The same protected bottom edge as the bar this sheet covers. */
+    padding: var(--z-space-2) var(--z-space-4) calc(var(--z-space-4) + var(--z-safe-bottom));
     border-top: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-lg) var(--z-radius-lg) 0 0;
     background: var(--z-surface);

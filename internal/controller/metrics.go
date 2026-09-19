@@ -45,6 +45,8 @@ type metrics struct {
 	buildInfo                                                                                    *prometheus.GaugeVec
 	providerOperations                                                                           *prometheus.CounterVec
 	providerOperationSeconds                                                                     *prometheus.HistogramVec
+	imagePrewarms                                                                                *prometheus.CounterVec
+	imagePrewarmDuration                                                                         *prometheus.HistogramVec
 }
 
 // UnmatchedPool is the `pool` label for work no pool here claims.
@@ -183,6 +185,15 @@ func newMetrics(c *Controller) *metrics {
 			// answering": a tenth of a second to five minutes.
 			Buckets: []float64{.1, .5, 1, 2.5, 5, 10, 30, 60, 120, 300},
 		}, []string{"kind"}),
+		imagePrewarms: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_image_prewarms_total",
+			Help: "Background image preparations by pool, backend and outcome: prepared, cache_hit, failed or unknown for a successful older agent.",
+		}, []string{"pool", "backend", "outcome"}),
+		imagePrewarmDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "zoomies_image_prewarm_duration_seconds",
+			Help:    "Time an agent spent satisfying background image preparation, including local metadata cache hits.",
+			Buckets: []float64{.001, .01, .1, .5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 900},
+		}, []string{"pool", "backend", "outcome"}),
 	}
 	m.buildInfo.WithLabelValues(version.Version, version.Commit).Set(1)
 
@@ -190,6 +201,7 @@ func newMetrics(c *Controller) *metrics {
 		m.jobsTotal, m.jobsRunnerLost, m.jobFailures, m.runnerStartFailures, m.queueWait, m.jobDuration, m.scalingEvents,
 		m.webhookDeliveries, m.githubRequests, m.reconcileDuration, m.reconcileErrors, m.cleanups, m.pollsShed, m.buildInfo,
 		m.providerOperations, m.providerOperationSeconds,
+		m.imagePrewarms, m.imagePrewarmDuration,
 		m.startupWait, m.dindReady, m.queuedToCreate, m.createToContainer, m.containerToRegistered, m.registeredToReady, m.queuedToStarted,
 		m.schedulingLatency, m.cleanupDuration,
 		&fleetCollector{c: c},

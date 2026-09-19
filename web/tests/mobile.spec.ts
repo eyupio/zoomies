@@ -90,6 +90,9 @@ test('migration labels and job exceptions stay readable', async ({ page }) => {
 });
 
 test('the navigation is a bar at the bottom, aligned and reaching every page', async ({ page }) => {
+  // The reported clipping was on a portrait tablet at the inclusive edge of
+  // the compact-shell breakpoint, not on the narrower phone profile.
+  await page.setViewportSize({ width: 768, height: 1024 });
   await goto(page, '/', 'Overview');
 
   const bar = nav(page);
@@ -136,6 +139,16 @@ test('the navigation is a bar at the bottom, aligned and reaching every page', a
   for (const label of ['Overview', 'Pools', 'Runners', 'Jobs', 'More']) {
     await expect(bar.getByText(label, { exact: true })).toBeVisible();
   }
+  // Android Chrome can overlay its gesture pill while reporting a zero CSS
+  // safe-area inset. Visibility alone did not catch the resulting clipped
+  // words, so the bar must retain its explicit minimum protected edge.
+  const bottomPadding = await bar.evaluate((element) =>
+    Number.parseFloat(getComputedStyle(element).paddingBottom),
+  );
+  expect(
+    bottomPadding,
+    'the navigation protects labels from the system gesture area',
+  ).toBeGreaterThanOrEqual(16);
 
   // Every section is one press away from the Overview: the four in the bar
   // directly, the other six through the menu the fifth entry opens.

@@ -184,16 +184,24 @@ func TestPrewarmingCoalescesSharedImagesAndIncludesDockerDependencies(t *testing
 		Spec: &backend.Spec{DockerMode: store.DockerDinD}}
 	for _, pool := range []string{"one", "two"} {
 		task.PoolID = pool
-		if _, err := a.prewarm(context.Background(), b, b, task); err != nil {
+		result, err := a.prewarm(context.Background(), b, b, task)
+		if err != nil {
 			t.Fatal(err)
+		}
+		if pool == "two" && !result.cached {
+			t.Fatal("shared preparation was reused but not reported as a cache hit")
 		}
 	}
 	if len(be.pulls()) != 1 || b.dindCalls != 1 {
 		t.Fatalf("shared preparation repeated: pulls=%v, dependencies=%d", be.pulls(), b.dindCalls)
 	}
 	clock.advance(time.Minute)
-	if _, err := a.prewarm(context.Background(), b, b, task); err != nil {
+	result, err := a.prewarm(context.Background(), b, b, task)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if result.cached {
+		t.Fatal("expired preparation was reported as a cache hit")
 	}
 	if len(be.pulls()) != 2 || b.dindCalls != 2 {
 		t.Fatal("successful prewarm was reused past its freshness window")

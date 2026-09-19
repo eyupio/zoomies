@@ -113,7 +113,7 @@
   @media (max-width: 768px) {
     .inner {
       /* Clear of the navigation bar, which is fixed to the bottom edge here. */
-      padding: var(--z-space-4) var(--z-space-3) var(--z-space-16);
+      padding: var(--z-space-4) var(--z-space-3) calc(var(--z-space-16) + var(--z-safe-bottom));
     }
     .descriptor {
       display: none;
