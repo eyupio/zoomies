@@ -157,10 +157,15 @@ differ. Each frame is the resource's `GET` shape, rendered by the same code
 
 ### Runner starts on one host
 
+See [Runner startup under host load](runner-startup-stability.md) for controls,
+the allocation fix and the upstream comparison.
+
 Each agent admits one runner create or image prewarm at a time, shared across
 all pools and backends on that host. Runner starts are FIFO and take priority
 over waiting background refreshes. The slot covers image preparation, the
-DinD sidecar, runner creation and failure cleanup. Running jobs still use the
+DinD daemon readiness, runner creation and failure cleanup. The sidecar must
+pass a bounded `docker info` health probe before the runner is created; a
+running container alone no longer releases the next startup. Running jobs still use the
 host's configured capacity, and different hosts start independently.
 
 Waiting starts do not hold lifecycle slots, so stop and removal requests can
@@ -197,7 +202,7 @@ policy. A failed dependency preparation is never cached.
 
 The stock runner image waits for the pool's Docker daemon before registering
 when the pool provides one. `ZOOMIES_DOCKER_WAIT` accepts 1–3600 seconds and
-defaults to 120; the fleet sets it with `runners.docker_wait` on the Settings
+defaults to 120 in the image; the fleet default is 180 seconds and sets it with `runners.docker_wait` on the Settings
 page, which the controller renders into every Docker pool's runners, and a
 pool's `env` can name it to say otherwise. `runners.env` reaches every runner
 the same way, under the pool's own `env` — dockerd in a fresh
@@ -215,6 +220,13 @@ because moving a pool onto a tag the registry lacks would stop every job on it,
 including the ones that never touch Docker. A pool left on one of those raises
 `pool.docker_client_missing`, so the log is not the only place it is said.
 Existing images acquire this behaviour only when rebuilt and deployed.
+
+New runners retain their normal CPU quota for `agent.bootstrap_cpu_grace`
+(default 2m, 0s disables it, at most 10m) before pressure throttling applies.
+Memory limits remain unchanged. The same age-based grace applies to adopted
+workloads using their original start time. A DinD pair created from a host
+share records each container's half as its throttle base, matching adoption;
+restoring its quota must never turn one reserved slot into two.
 
 Resource sampling runs independently of lifecycle reconciliation, with at most
 four concurrent requests, five seconds per sample and twenty seconds per pass;

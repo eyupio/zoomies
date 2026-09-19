@@ -17,6 +17,7 @@
   import PoolFit from './PoolFit.svelte';
   import PoolRoom from './PoolRoom.svelte';
   import PoolWarnings from './PoolWarnings.svelte';
+  import { isStartupFinding } from './startupStability';
   import { FIELD_LABELS, stepForField, wizardSteps } from './PoolVocabulary.svelte';
   import type { WizardMode } from './PoolVocabulary.svelte';
   import type { PoolDraft } from './PoolWizardForm.svelte';
@@ -65,7 +66,10 @@
   const ROOM_CODES = ['pool.max_above_room', 'pool.host_overcommitted', 'pool.cache_above_disk'];
   const otherWarnings = $derived(
     warnings.filter(
-      (w) => w.code !== 'pool.no_matching_hosts' && !ROOM_CODES.includes(w.code ?? ''),
+      (w) =>
+        w.code !== 'pool.no_matching_hosts' &&
+        !ROOM_CODES.includes(w.code ?? '') &&
+        !isStartupFinding(w),
     ),
   );
   const happy = $derived(

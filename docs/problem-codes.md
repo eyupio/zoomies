@@ -116,6 +116,9 @@ than about what any one setting says.
 | `agent.insecure_http` | warning | `agent.allow_insecure_http` | The agent talks to the controller over plain HTTP, so its token and every runner's credentials cross the network in the clear. |
 | `agent.unverified_runner_download` | warning | `agent.allow_unverified_runner_download` | The process backend may install a runner archive whose checksum it could not confirm. |
 | `agent.docker_build_cache_mb` | error | `agent.docker_build_cache_mb` | Must be between 0 and 1048576 MiB; 0 disables automatic Docker builder-cache cleanup. |
+| `agent.bootstrap_cpu_grace_short` | warning | `agent.bootstrap_cpu_grace` | Less than 2m of normal CPU quota before pressure throttling; registration can slow under load. |
+| `runners.docker_wait_short` | warning | `runners.docker_wait` | Less than the recommended 3m for a loaded DinD daemon to become ready. |
+| `agent.bootstrap_cpu_grace` | error | `agent.bootstrap_cpu_grace` | Must be between 0s and 10m; 0s applies pressure throttling immediately. |
 | `agent.finished_retention` | error | `agent.finished_retention` | Cannot be negative. |
 | `agent.finished_retention_long` | warning | `agent.finished_retention` | Finished runners stay on the host this long, holding disk and, for a non-ephemeral pool, whatever the job left behind. |
 | `agent.heartbeat_interval_long` | warning | `agent.heartbeat_interval` | Hosts heartbeat less often than the controller's timeout, so a healthy host will be counted lost. |

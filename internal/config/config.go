@@ -517,6 +517,8 @@ type Agent struct {
 	// row, this is disk on the host: a busy host keeps one finished
 	// container per job for this long.
 	FinishedRetention time.Duration `yaml:"finished_retention"`
+	// BootstrapCPUGrace keeps normal quotas during registration before host-pressure reductions.
+	BootstrapCPUGrace time.Duration `yaml:"bootstrap_cpu_grace"`
 	// DockerBuildCacheMB is the target for unused Docker builder cache. Zero
 	// disables automatic cache pruning on shared or externally managed daemons.
 	DockerBuildCacheMB int `yaml:"docker_build_cache_mb"`
@@ -744,6 +746,7 @@ func Default() *Config {
 			// exited container as well makes every job consume host disk for no
 			// default benefit; operators who debug from container logs can opt in.
 			FinishedRetention:  0,
+			BootstrapCPUGrace:  2 * time.Minute,
 			DockerBuildCacheMB: 5120,
 		},
 		Scheduler: Scheduler{
@@ -788,7 +791,7 @@ func Default() *Config {
 		// fresh sidecar on a host that is also extracting images takes longer
 		// than the thirty seconds the first version allowed.
 		Runners: Runners{
-			DockerWait:      2 * time.Minute,
+			DockerWait:      3 * time.Minute,
 			DefaultCPUs:     DefaultRunnerCPUs,
 			DefaultMemoryMB: DefaultRunnerMemoryMB,
 		},

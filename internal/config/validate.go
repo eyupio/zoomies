@@ -720,6 +720,21 @@ func (c *Config) Validate() Findings {
 				Fix:   "use 5120 for a 5 GiB cache target, or 0 to disable automatic builder cache cleanup.",
 			})
 		}
+		if c.Agent.BootstrapCPUGrace < 0 || c.Agent.BootstrapCPUGrace > 10*time.Minute {
+			add(Finding{
+				Code: "agent.bootstrap_cpu_grace", Severity: SeverityError, Setting: "agent.bootstrap_cpu_grace",
+				Title: "startup CPU grace must be between 0s and 10m",
+				Fix:   "use 2m to protect registration, or 0s to apply pressure throttling immediately; normal resource limits remain enforced.",
+			})
+		}
+		if c.Agent.BootstrapCPUGrace >= 0 && c.Agent.BootstrapCPUGrace < 2*time.Minute {
+			add(Finding{
+				Code: "agent.bootstrap_cpu_grace_short", Severity: SeverityWarning, Setting: "agent.bootstrap_cpu_grace",
+				Title:  "new runners have little protection from pressure throttling",
+				Detail: "registration may compete with running jobs while already constrained by its normal CPU quota; an additional pressure reduction can delay startup on a loaded host.",
+				Fix:    "set agent.bootstrap_cpu_grace to 2m and restart the agent; use 0s only when immediate throttling is intentional. Standalone agents need this setting on their own hosts.",
+			})
+		}
 		if c.Agent.FinishedRetention < 0 {
 			add(Finding{
 				Code: "agent.finished_retention", Severity: SeverityError, Setting: "agent.finished_retention",
@@ -834,6 +849,14 @@ func (c *Config) Validate() Findings {
 	// host pulls the same image twice over a link that was already the reason
 	// the first pull was slow. A cold fleet is where that bites, and a cold
 	// fleet is the one least able to absorb it.
+	if c.Runners.EffectiveDockerWait() < 3*time.Minute {
+		add(Finding{
+			Code: "runners.docker_wait_short", Severity: SeverityWarning, Setting: "runners.docker_wait",
+			Title:  "Docker startup has less than the recommended three minutes",
+			Detail: "a quota-limited DinD daemon can need longer to initialise on a loaded host. A short readiness wait can replace runners that were still making progress.",
+			Fix:    "set runners.docker_wait to 3m, or keep the shorter wait if it is deliberate and tested on these hosts.",
+		})
+	}
 	start := RunnerCreateBudget + c.Runners.EffectiveDockerWait()
 	if c.Scheduler.ProvisionTimeout > 0 && c.Scheduler.ProvisionTimeout <= start {
 		add(Finding{

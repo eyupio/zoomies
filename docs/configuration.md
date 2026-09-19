@@ -208,6 +208,7 @@ agent:
   labels: {}                    # ZOOMIES_AGENT_LABELS   -- "gpu=true,zone=eu"
   network: ""                   # ZOOMIES_AGENT_NETWORK
   heartbeat_interval: 30s       # ZOOMIES_HEARTBEAT_INTERVAL -- a host is unhealthy after 90s of silence and its runners lost after 5m; above 45s is warned about
+  bootstrap_cpu_grace: 2m       # ZOOMIES_AGENT_BOOTSTRAP_CPU_GRACE -- 0 applies pressure throttling immediately; maximum 10m
   finished_retention: 0s        # ZOOMIES_AGENT_FINISHED_RETENTION -- 0 removes a finished workload after its report is acknowledged
   docker_build_cache_mb: 5120   # ZOOMIES_DOCKER_BUILD_CACHE_MB -- target for unused builder cache; 0 prunes nothing
   # Process backend only:
@@ -226,7 +227,7 @@ agent:
   allow_insecure_http: false    # ZOOMIES_AGENT_ALLOW_INSECURE_HTTP -- plain http:// off-host
 
 runners:
-  docker_wait: 2m               # ZOOMIES_DOCKER_WAIT   -- how long a Docker pool's runner waits for its daemon; 0 leaves the image's default, which is also 2m
+  docker_wait: 3m               # ZOOMIES_DOCKER_WAIT   -- how long a Docker pool's runner waits for its daemon; 0 uses the 2m compatibility fallback
   default_cpus: 2               # ZOOMIES_RUNNER_DEFAULT_CPUS       -- what one runner gets on a pool that has not said otherwise
   default_memory_mb: 4096       # ZOOMIES_RUNNER_DEFAULT_MEMORY_MB  -- the same, in megabytes
   env: {}                       # ZOOMIES_RUNNER_ENV    -- "HTTPS_PROXY=http://proxy:3128,NO_PROXY=localhost"; a pool's env wins
@@ -356,6 +357,7 @@ settings page reports rather than refusing the edit.
 | `agent.docker_build_cache_mb` | `ZOOMIES_AGENT_DOCKER_BUILD_CACHE_MB` | next restart | Docker build cache target — The target size for unused Docker builder cache. 0 leaves a shared or externally managed daemon alone. |
 | `agent.docker_host` | `ZOOMIES_DOCKER_HOST` | next restart | Docker socket — The Docker or Podman socket. Empty finds one, preferring a rootless socket over the root one. |
 | `agent.embedded` | `ZOOMIES_AGENT_EMBEDDED` | next restart | Run an agent in this controller — Run an agent inside this controller, so a single machine needs one process. Off makes a controller that schedules runners onto other hosts and starts none itself. |
+| `agent.bootstrap_cpu_grace` | `ZOOMIES_AGENT_BOOTSTRAP_CPU_GRACE` | next restart | Startup CPU grace — Keep new runners at their normal CPU quota for 2m before applying host-pressure throttling. Range 0s–10m; 0s disables the grace. Memory and CPU limits remain enforced. |
 | `agent.finished_retention` | `ZOOMIES_AGENT_FINISHED_RETENTION` | next restart | Keep finished containers for — How long a finished runner's container stays on the host before the agent deletes it. It is the window for reading a finished runner's log, and it is host disk: 0 deletes on the next pass. |
 | `agent.heartbeat_interval` | `ZOOMIES_HEARTBEAT_INTERVAL` | next restart | Heartbeat interval — How often an agent reports in. A host that goes quiet for 90 seconds is counted lost, so this has to be comfortably under that. |
 | `agent.insecure_skip_verify` | `ZOOMIES_AGENT_INSECURE_SKIP_VERIFY` | on the agent's own host | Skip certificate verification — Let a standalone agent skip verifying its controller's certificate. It is configured on that agent's own host. |
@@ -532,7 +534,7 @@ if you set `keep: 0` and never expect the page to say what is there.
 | --- | --- | --- | --- |
 | `runners.default_cpus` | `ZOOMIES_RUNNER_DEFAULT_CPUS` | at once | Default CPUs per runner — Where a pool's CPU slider opens when somebody chooses to set a fixed size, in cores; fractions are allowed. It is not what a pool with no size becomes: such a pool is given one slot's share of whichever host each runner lands on. 0 means nothing has been said and the built-in 2 cores answers. |
 | `runners.default_memory_mb` | `ZOOMIES_RUNNER_DEFAULT_MEMORY_MB` | at once | Default memory per runner — How much memory one runner gets on a pool that has not said otherwise, in megabytes. It is the figure a new pool opens on, and the one a host's recommended capacity is worked out from. 0 means nothing has been said and the built-in 4096 answers. |
-| `runners.docker_wait` | `ZOOMIES_DOCKER_WAIT` | at once | Docker daemon wait — How long a runner on a pool that provides Docker waits for that daemon before refusing to take a job. Whole seconds, up to an hour; 0 leaves the runner image's own default. A pool's env can set ZOOMIES_DOCKER_WAIT to override it for that pool. |
+| `runners.docker_wait` | `ZOOMIES_DOCKER_WAIT` | at once | Docker daemon wait — How long DinD provisioning waits for a healthy daemon, and a Docker runner waits before registering. Default 3m. Whole seconds, up to an hour; 0 leaves the runner image's own default. A pool's env can set ZOOMIES_DOCKER_WAIT to override it for that pool. |
 | `runners.env` | `ZOOMIES_RUNNER_ENV` | at once | Runner environment — Key=value variables every runner starts with, such as a proxy or a package mirror. A pool's own env wins where the two name the same variable. Every job can read these, so a credential does not belong here: give it to the pool, or to the workflow as a GitHub secret. |
 
 ### `scheduler`
@@ -965,6 +967,32 @@ capacity that is more slots than the machine has cores, or than it has 2 GB of
 memory for, is warned about as `host.overprovisioned`, with the largest
 capacity that fits.
 
+### `agent.bootstrap_cpu_grace`
+
+New runners keep their normal CPU allocation for **2m** before host-pressure
+throttling can reduce it. This protects registration on a loaded host without
+removing the CPU or memory limits. A running container does not prove its
+GitHub listener is ready, so the grace is bounded by age, including after an
+agent restart. It also covers a job accepted during that window.
+
+Set `agent.bootstrap_cpu_grace` (or `ZOOMIES_AGENT_BOOTSTRAP_CPU_GRACE`) to
+`0s` for immediate throttling, or up to `10m` for slow hosts. Restart the agent
+after changing it. Configure standalone agents on their own hosts; the
+controller's instance setting configures its embedded agent. Existing stored
+values and environment overrides take precedence over defaults.
+
+This is separate from `runners.docker_wait`: that wait now holds the host's
+startup slot until the DinD daemon passes a `docker info` health probe, before
+creating the runner. The fleet default is **3m**, with a pool's
+`env.ZOOMIES_DOCKER_WAIT` taking precedence (whole seconds, 1–3600).
+`0s` at fleet level selects the 2m fallback; it does not skip readiness.
+The outer 10m agent create budget and `scheduler.provision_timeout` still
+bound provisioning, including image pulls and queue time respectively.
+
+The grace is not extra capacity. If normal limits themselves are too small,
+reduce host capacity or assign the pool more CPU/memory. Changing these
+settings affects new work; it does not resize existing containers.
+
 ### `agent.finished_retention`
 
 A finished runner is removed from its host on the reconcile pass after the
@@ -1264,7 +1292,7 @@ has what the wizard does with them, and what it checks the answer against.
 
 ```yaml
 runners:
-  docker_wait: 2m
+  docker_wait: 3m
   env:
     HTTPS_PROXY: http://proxy.internal:3128
     NO_PROXY: localhost,.internal
@@ -1278,8 +1306,8 @@ what is different.
 
 `runners.docker_wait` is how long a runner on a pool with a `docker_mode`
 waits for that daemon before it refuses to take a job. It reaches the runner
-image as `ZOOMIES_DOCKER_WAIT`, in whole seconds. Two minutes is the image's
-own default and the right answer for most hosts: `dockerd` in a fresh
+image as `ZOOMIES_DOCKER_WAIT`, in whole seconds. The fleet default is three minutes; the image and backend fallback for an
+unset override remain two minutes: `dockerd` in a fresh
 docker-in-docker sidecar sets up its storage driver and firewall rules before
 it listens, and on a host that is also extracting images for the runners
 queued behind it that takes longer than the thirty seconds an earlier default

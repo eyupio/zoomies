@@ -68,9 +68,9 @@ if [ -n "${DOCKER_HOST:-}" ] || [ -S /var/run/docker.sock ]; then
   fi
 fi
 
-# The other half of that contract: the backend waits for the sidecar *container*
-# to be running, and leaves waiting for dockerd inside it to this script, since
-# only the image knows when its first docker command runs. Absorb the daemon's
+# The backend now waits for DinD's daemon health before creating this runner.
+# Keep this check too: a host socket, an older agent, or a daemon that becomes
+# unavailable between provisioning and registration still needs a readiness gate. Absorb the daemon's
 # boot here, before GitHub can hand this runner a job, rather than letting a
 # workflow's first docker step race it and fail with "Cannot connect to the
 # Docker daemon".

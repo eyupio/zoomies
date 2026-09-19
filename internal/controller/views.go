@@ -849,6 +849,21 @@ func PoolSizing(p *store.Pool) string {
 
 func PoolWarnings(p *store.Pool, inst *store.Installation, cfg *config.Config) []Problem {
 	var out []Problem
+	if cfg != nil && p.Automatic() && (p.Backend == store.BackendDocker || p.Backend == store.BackendPodman) {
+		for _, f := range cfg.Validate() {
+			switch f.Code {
+			case "scheduler.default_runner_limits_off", "scheduler.host_throttling_off", "agent.bootstrap_cpu_grace_short", "scheduler.provision_timeout_short":
+			case "runners.docker_wait_short":
+				if p.DockerMode != store.DockerDinD {
+					continue
+				}
+			default:
+				continue
+			}
+			out = append(out, Problem{Code: f.Code, Severity: f.Severity, Setting: f.Setting,
+				Title: f.Title, Detail: f.Detail, Fix: f.Fix, TargetKind: "pool", TargetID: p.ID})
+		}
+	}
 	if w, ok := poolStartLadderWarning(p, cfg); ok {
 		out = append(out, w)
 	}
