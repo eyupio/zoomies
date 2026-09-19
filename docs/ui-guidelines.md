@@ -460,6 +460,10 @@ The one page that has to earn the second monitor.
   the room beside the figures, one too narrow for that keeps its size and
   hands the width over, and the figures — what the squares on screen come to,
   so the window reads without hovering every square — take whatever is left.
+  On a phone the band cannot hold both, so the one that would use the width
+  gets it: a week of hours grows across the whole band with the figures under
+  it, a month keeps them beside it instead of leaving that width white. Which
+  of the two it is comes out of the measurement, not a second breakpoint.
   The key runs under both, where it explains the squares rather than floating
   at the right with the white space in front of it. The component lives in
   `lib/insights/` because the Usage page draws its range with the same one.

@@ -38,6 +38,13 @@
   takes whatever the grid did not: its figures are fluid, so the same markup
   reads as a column beside a wide grid and as a row beside a narrow one. The
   key goes underneath, where it explains the squares and fits on one line.
+
+  A band too narrow for the pair of them -- a phone -- gives the width to
+  whichever of the two would use it, and that is measured rather than assumed:
+  a grid that would fill the band takes it and the figures go under, a grid
+  that would stop short of it keeps them beside. Both stacked was the old rule
+  and it was wrong both ways round, a week of hours at ten pixels across half a
+  screen and a month as a stub with the rest of the screen white beside it.
 -->
 <script lang="ts" module>
   export interface ActivityLink {
@@ -175,10 +182,19 @@
   let fit = $state<number | null>(null);
   /** The width one column may take if the grid is to fill the band, in pixels. */
   let room = $state<number | null>(null);
+  /**
+   * Whether a column of figures fits beside the grid at the widest the grid
+   * will ever be. Where the band is too narrow for the pair, one of them has
+   * to give up the width, and this says which -- see the narrow-band rules in
+   * the stylesheet.
+   */
+  let roomy = $state(false);
   let bandWidth = $state(0);
   let band = $state<HTMLDivElement | null>(null);
   let aside = $state<HTMLDivElement | null>(null);
   let grid = $state<HTMLDivElement | null>(null);
+  /** A square at its ceiling, so the ceiling can be read back in pixels. */
+  let ceiling = $state<HTMLSpanElement | null>(null);
 
   const columns = $derived.by(() => {
     if (interval !== 'day' || weeks === 'all') return allColumns;
@@ -263,13 +279,36 @@
       figure is worth a missing month. Growing a square owes it twice that,
       the width of two columns: the square is already legible and the gain is
       a nicety, so it stops while the aside can still be short and wide rather
-      than narrow and tall. On a phone the aside sits under the grid, the band
-      is one track, and neither owes it anything.
+      than narrow and tall. Where the aside is under the grid rather than
+      beside it, neither owes it anything.
     */
     const least = hasAside ? parseFloat(getComputedStyle(aside).minWidth) || 0 : 0;
     const between = parseFloat(getComputedStyle(band).columnGap) || 0;
-    const owed = least > 0 ? least + between : 0;
+    const column = least > 0 ? least + between : 0;
     const count = Math.max(1, layout.labels.length);
+    /*
+      Whether the two of them fit. The widest the grid can ever be is every
+      square at its ceiling -- read off a square kept at it, because the
+      ceiling is a token and this is arithmetic -- or, for a grid that never
+      grows, the width it already has. A band with that and a column of
+      figures in it keeps them side by side; a band without has to choose, and
+      the stylesheet's narrow-band rules do, from this.
+    */
+    const widest = grows
+      ? heading + count * ((ceiling?.getBoundingClientRect().width ?? 0) + gap)
+      : grid.getBoundingClientRect().width;
+    roomy = column > 0 && bandWidth - widest >= column;
+    /*
+      What the aside is owed, which is nothing where it is not beside the grid.
+      Read off the rendered band rather than assumed -- the rule that stacks it
+      is a media query, and a breakpoint repeated here is a breakpoint that
+      drifts -- and measured again whenever the decision above changes, because
+      until it has been through the DOM the band is still laid out the old way
+      and the width read from it is the width of the wrong layout.
+    */
+    void roomy;
+    const beside = aside.getBoundingClientRect().top < grid.getBoundingClientRect().bottom;
+    const owed = beside ? column : 0;
     // One gap of slack for the frame's own padding: a square clipped by a
     // pixel is a square the frame grows a scrollbar for.
     const spare = bandWidth - heading - gap;
@@ -281,19 +320,28 @@
     fit = Math.max(4, Math.floor((spare - owed + gap) / pitch));
   });
 
+  /** Whether the grid is at least as wide as it is tall. */
+  const wide = $derived(layout.rows.length <= layout.labels.length);
+  /**
+   * Whether the square grows at all, which is what the width the grid wants
+   * turns on. Read lazily, like everything else that asks about the aside:
+   * what the aside holds is settled further down, with the words in it.
+   */
+  const grows = $derived.by(() => weeks !== 'fit' && (wide || !hasAside));
+
   /*
     The square grows only where the number of columns is settled, and only
-    where there are at least as many columns as rows. The year spends the same
-    width the other way, by cutting weeks until they fit, and a layout that
-    did both would chase itself: a wider square fits fewer weeks, and fewer
-    weeks leave room for a wider square. A taller grid than it is wide -- a
-    month, which is five week columns whatever the square -- would reach the
-    foot of the panel long before the right of it, so it keeps its size and
-    the aside takes the width instead.
+    where the width is the grid's to take. The year spends the same width the
+    other way, by cutting weeks until they fit, and a layout that did both
+    would chase itself: a wider square fits fewer weeks, and fewer weeks leave
+    room for a wider square. A taller grid than it is wide -- a month, which
+    is five week columns whatever the square -- would reach the foot of the
+    panel long before the right of it, so it keeps its size and the aside
+    takes the width instead. With nothing beside it to take the width, though,
+    even that grid grows: the alternative is a stub of squares and a field of
+    white, and the ceiling below stops a square becoming a tile.
   */
-  const fills = $derived(
-    weeks !== 'fit' && room !== null && layout.rows.length <= layout.labels.length,
-  );
+  const fills = $derived(grows && room !== null);
 
   const weeksShown = $derived(interval === 'day' ? columns.length : 0);
   const gridLabel = $derived(
@@ -721,6 +769,7 @@
   data-interval={interval}
   data-size={size}
   data-aside={hasAside}
+  data-beside={roomy}
   style:--room={fills && room !== null ? `${room}px` : null}
 >
   <div class="band" bind:this={band} bind:clientWidth={bandWidth}>
@@ -829,6 +878,10 @@
       {/if}
     </div>
   </div>
+
+  <!-- Not drawn: a square held at its ceiling, so the layout above can read
+       the ceiling back in pixels rather than repeating the token file. -->
+  <span class="ceiling" bind:this={ceiling} aria-hidden="true"></span>
 
   {#if chosen}
     {@const range = rangeOf(chosen)}
@@ -994,6 +1047,15 @@
     --cell: var(--cell-base);
     --gap: var(--z-nudge-3);
     min-width: 0;
+  }
+  .ceiling {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: var(--cell-max);
+    height: 0;
+    visibility: hidden;
+    pointer-events: none;
   }
   .matrix[data-size='md'] {
     --cell-base: var(--z-space-3);
@@ -1206,26 +1268,36 @@
     row-gap: var(--z-space-1);
     grid-template-columns: repeat(auto-fit, minmax(var(--aside), 1fr));
   }
-  /* A phone has no room beside the grid, so the aside goes under it. */
+  /*
+    A narrow band cannot always have both, and which one gives way is measured
+    rather than assumed: a grid that would use the whole band -- a week of
+    hours, a year of days -- takes it, and the figures go under; a grid that
+    would stop short of it -- a month is five week columns whatever the square
+    -- keeps them beside, where the width it does not want is of some use.
+    Stacking either way round would leave one of the two as a stub against a
+    field of white, which is the thing a band of squares can least afford.
+  */
   @media (max-width: 768px) {
-    /* A phone gets the small square whatever the range: a day of hours is
-       twenty-four columns, and they have to fit between the gutters. */
+    /* The smallest square, whatever the range: a day of hours is twenty-four
+       columns and they have to fit between the gutters. The ceiling is left
+       where it is, so a grid with more room than that still grows into it --
+       a week of hours at ten pixels is half a band. */
     .matrix,
     .matrix[data-size='md'],
     .matrix[data-size='lg'] {
       --cell-base: 10px;
-      --cell-max: 10px;
       --gap: var(--z-nudge-2);
     }
-    /* One track, so the aside goes under the grid rather than beside it. The
-       least width goes with it -- it is what a column beside the grid is owed,
-       and there is no column -- while --aside stays what it is, because the
-       figures still lay themselves out a column of that width at a time. */
+    /* A column of figures still reads at the width it does on a desktop, so
+       what gives between them here is the space, not the column. */
     .band {
-      grid-template-columns: minmax(0, 1fr);
+      column-gap: var(--z-space-4);
     }
-    .aside {
-      min-width: 0;
+    /* One track, so the aside goes under the grid rather than beside it.
+       --aside stays what it is either way, because the figures lay themselves
+       out a column of that width at a time however the band is split. */
+    .matrix[data-beside='false'] .band {
+      grid-template-columns: minmax(0, 1fr);
     }
   }
   .ramp {
