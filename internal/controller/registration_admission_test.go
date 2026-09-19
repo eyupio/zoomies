@@ -80,3 +80,37 @@ func TestRegistrationGroupLookupRateLimitPreventsMint(t *testing.T) {
 		t.Fatal("minted after group lookup rate limit")
 	}
 }
+
+// A full admission budget defers demand without losing it or allocating rows.
+func TestRegistrationDeferredDemandResumesOnLaterPass(t *testing.T) {
+	h := newHarness(t)
+	inst, pool, _ := h.fleet()
+	pool.MinRunners = 2
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	if !h.c.admitCredentialMint(inst.ID) {
+		t.Fatal("could not occupy admission")
+	}
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.runners()) != 0 {
+		t.Fatal("deferred demand allocated provisioning rows")
+	}
+	h.c.releaseCredentialMint(inst.ID)
+	for range pool.MinRunners {
+		if err := h.c.Reconcile(h.ctx); err != nil {
+			t.Fatal(err)
+		}
+		h.c.lifecycleCalls.Wait()
+	}
+	if got := len(h.runners()); got != pool.MinRunners {
+		t.Fatalf("created %d runners, want %d", got, pool.MinRunners)
+	}
+	h.c.githubMu.Lock()
+	defer h.c.githubMu.Unlock()
+	if len(h.c.credentialMints) != 0 {
+		t.Fatal("completed lifecycle retained admission")
+	}
+}

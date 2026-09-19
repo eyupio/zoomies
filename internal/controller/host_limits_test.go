@@ -149,8 +149,17 @@ func TestAFullyInQuotaHostRaisesNoResourceProblem(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.measuredHost("well-sized", 16, 65536, 4, enforcesEverything)
-	if err := h.c.Reconcile(h.ctx); err != nil {
-		t.Fatal(err)
+	// Registration admission may defer demand to the next pass. Fill the
+	// host before checking its resource accounting, without depending on
+	// how quickly the fake GitHub answers detached credential requests.
+	for range pool.MinRunners {
+		if err := h.c.Reconcile(h.ctx); err != nil {
+			t.Fatal(err)
+		}
+		h.c.lifecycleCalls.Wait()
+		if len(h.runners()) == pool.MinRunners {
+			break
+		}
 	}
 	if got := len(h.runners()); got != 4 {
 		t.Fatalf("created %d runners, want the host full at 4", got)

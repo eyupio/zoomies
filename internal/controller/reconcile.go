@@ -349,8 +349,9 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, host *s
 	c.lifecycleCalls.Add(1)
 	detached = true
 	go func() {
-		defer c.releaseCredentialMint(inst.ID)
 		defer c.lifecycleCalls.Done()
+		// Release admission before signalling completion to lifecycle waiters.
+		defer c.releaseCredentialMint(inst.ID)
 		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), lifecycleCallTimeout)
 		defer cancel()
 		c.finishCreateRunner(cctx, inst, pool, r, a, name, resources, source)
