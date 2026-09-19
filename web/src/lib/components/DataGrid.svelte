@@ -1303,6 +1303,17 @@
     cursor: col-resize;
     touch-action: none;
   }
+  /*
+    The handle straddles the boundary it drags, which puts half of the last
+    column's outside the table. Absolutely positioned or not, it still counts
+    towards the table's scrollWidth, so every grid reported itself four pixels
+    wider than the frame it had just been divided to fit -- a sideways scroll
+    on a table whose columns add up exactly. The last one is pulled back level
+    with the edge instead; there is no boundary out there to straddle.
+  */
+  thead th:last-child .resizer {
+    right: 0;
+  }
   .resizer::after {
     content: '';
     position: absolute;

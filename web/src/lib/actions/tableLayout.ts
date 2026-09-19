@@ -60,17 +60,39 @@ export function tableLayout(node: HTMLTableElement, initial: TableLayoutOptions)
     return Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, content + 20));
   }
 
+  /**
+   * How the table is sized, and in what units its columns are written.
+   *
+   * `share` is the case a table gets before anybody has touched it: the
+   * measured columns want more room than the frame has, so the table takes the
+   * frame and the columns take it in the proportions they asked for. Writing
+   * the table `100%` and leaving the columns in pixels is not enough -- a
+   * colgroup in absolute units wins, and the table went on being drawn at the
+   * measured total inside a frame two hundred pixels narrower, which is a
+   * sideways scroll on a table nobody had resized.
+   *
+   * `measure` is every other case: on a phone, and once an operator has
+   * resized a column, the explicit measure wins and the frame scrolls if it
+   * must. Shrinking every other column to keep the table inside the window
+   * would make the resize handle lie about what it did.
+   */
+  function sizing(): { mode: 'share' | 'measure'; total: number } {
+    const total = prefs
+      .columnOrder(options.id, options.columns)
+      .reduce((sum, id) => sum + (widths[id] ?? defaults[id] ?? MIN_WIDTH), 0);
+    const custom = options.columns.some((id) => widths[id] !== undefined);
+    const phone = matchMedia('(max-width: 768px)').matches;
+    const share = !phone && !custom && frame !== null && total >= frame.clientWidth && total > 0;
+    return { mode: share ? 'share' : 'measure', total };
+  }
+
   function setTableWidth(): void {
     if (matchMedia('(max-width: 768px)').matches) {
       node.style.removeProperty('width');
       return;
     }
-    const total = prefs
-      .columnOrder(options.id, options.columns)
-      .reduce((sum, id) => sum + (widths[id] ?? defaults[id] ?? MIN_WIDTH), 0);
-    const custom = options.columns.some((id) => widths[id] !== undefined);
-    node.style.width =
-      !custom && frame && total >= frame.clientWidth ? '100%' : `${Math.ceil(total)}px`;
+    const { mode, total } = sizing();
+    node.style.width = mode === 'share' ? '100%' : `${Math.ceil(total)}px`;
   }
 
   function apply(): void {
@@ -94,6 +116,8 @@ export function tableLayout(node: HTMLTableElement, initial: TableLayoutOptions)
         for (const cell of desired) row.appendChild(cell);
       }
     }
+    // Decided before the columns are written, because it decides their units.
+    const layout = sizing();
     const existing = new Map(
       Array.from(colgroup!.children).map((col) => [(col as HTMLElement).dataset.tableColumn, col]),
     );
@@ -104,7 +128,9 @@ export function tableLayout(node: HTMLTableElement, initial: TableLayoutOptions)
         col = document.createElement('col');
         col.dataset.tableColumn = id;
       }
-      col.style.width = `${widths[id] ?? defaults[id] ?? MIN_WIDTH}px`;
+      const want = widths[id] ?? defaults[id] ?? MIN_WIDTH;
+      col.style.width =
+        layout.mode === 'share' ? `${((want / layout.total) * 100).toFixed(4)}%` : `${want}px`;
       desiredCols.push(col);
     }
     if (desiredCols.some((col, index) => colgroup!.children[index] !== col)) {
