@@ -16,8 +16,16 @@ permissions: read-all
 jobs:
   analysis:
     name: Scorecard analysis
-    # Publishing is deliberately independent of the fleet being assessed.
-    runs-on: zoomies-linux-x64
+    # The one job that cannot run on the fleet. Scorecard's publishing service
+    # verifies the workflow that produced a result before it accepts one, and
+    # it accepts results only from GitHub's own Ubuntu runners
+    # (https://github.com/ossf/scorecard-action#workflow-restrictions). On
+    # zoomies-linux-x64 the publish was refused with "invalid runner label",
+    # no SARIF was written, and the upload below failed on every push to main.
+    # Publishing is deliberately independent of the fleet being assessed
+    # anyway: a score of the fleet's own supply chain should not depend on
+    # the fleet being up.
+    runs-on: ubuntu-latest
     permissions:
       security-events: write
       id-token: write
